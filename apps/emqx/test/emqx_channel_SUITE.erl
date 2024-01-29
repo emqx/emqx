@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -33,10 +34,6 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    %% CM Meck
-    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
-    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Broker Meck
     ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
     %% Session Meck
@@ -47,6 +44,11 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx, #{
+                config =>
+                    "mqtt {"
+                    "\n  shared_subscription = false"
+                    "\n  max_topic_levels = 5"
+                    "\n}",
                 override_env => [{boot_modules, [broker]}]
             }}
         ],
@@ -59,7 +61,6 @@ end_per_suite(Config) ->
     meck:unload([
         emqx_session,
         emqx_broker,
-        emqx_cm,
         emqx_banned
     ]).
 
@@ -100,7 +101,7 @@ t_chan_caps(_) ->
             max_topic_alias := 65535,
             max_topic_levels := Level,
             retain_available := true,
-            shared_subscription := true,
+            shared_subscription := false,
             wildcard_subscription := true
         } when is_integer(Level),
         emqx_channel:caps(channel())
@@ -288,13 +289,6 @@ t_handle_in_puback_id_not_found(_) ->
 % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_bad_receive_maximum(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     C1 = channel(#{conn_state => idle}),
     {shutdown, protocol_error, _, _} =
@@ -304,13 +298,6 @@ t_bad_receive_maximum(_) ->
         ).
 
 t_override_client_receive_maximum(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0),
     C1 = channel(#{conn_state => idle}),
@@ -386,16 +373,59 @@ t_handle_in_pubcomp_not_found_error(_) ->
     {ok, _Channel1} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_subscribe(_) ->
-    ok = meck:expect(
-        emqx_session,
-        subscribe,
-        fun(_, _, _, Session) -> {ok, Session} end
-    ),
     Channel = channel(#{conn_state => connected}),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
     Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
     Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
     {ok, Replies, _Chan} = emqx_channel:handle_in(Subscribe, Channel).
+
+t_handle_in_subscribe_multiple(Config) ->
+    ok = emqx_config:put([broker, routing, batch_sync, enable_on], none),
+    handle_in_subscribe_multiple(Config).
+
+t_handle_in_subscribe_multiple_batch(Config) ->
+    ok = emqx_config:put([broker, routing, batch_sync, enable_on], all),
+    handle_in_subscribe_multiple(Config).
+
+handle_in_subscribe_multiple(_) ->
+    Channel = channel(#{conn_state => connected}),
+    HookSubscribe = {?MODULE, hook_handle_in_subscribe_multiple, []},
+    ok = emqx_hooks:add('client.subscribe', HookSubscribe, ?HP_HIGHEST),
+    TopicFilters = [
+        {<<"t/+">>, ?DEFAULT_SUBOPTS},
+        {<<"t/noway">>, ?DEFAULT_SUBOPTS#{qos => ?QOS_1}},
+        {<<"t/twoway">>, ?DEFAULT_SUBOPTS#{qos => ?QOS_2}},
+        {<<"t/x/y/z/+/+">>, ?DEFAULT_SUBOPTS},
+        {<<"$share/g/t/+">>, ?DEFAULT_SUBOPTS}
+    ],
+    Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
+    try
+        ?assertMatch(
+            {ok,
+                [
+                    {outgoing,
+                        ?SUBACK_PACKET(1, [
+                            ?QOS_0,
+                            ?RC_UNSPECIFIED_ERROR,
+                            ?QOS_2,
+                            ?RC_TOPIC_FILTER_INVALID,
+                            ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED
+                        ])}
+                    | _
+                ],
+                _Chan},
+            emqx_channel:handle_in(Subscribe, Channel)
+        )
+    after
+        emqx_hooks:del('client.subscribe', HookSubscribe)
+    end.
+
+hook_handle_in_subscribe_multiple(_ClientInfo, _Properties = #{}, [Subscription]) ->
+    case Subscription of
+        {<<"t/+">>, SubOpts} -> {ok, [{<<"t/#">>, SubOpts}]};
+        {<<"t/noway">>, _SubOpts} -> {ok, []};
+        {<<"t/twoway">>, _SubOpts} -> {ok, [Subscription, Subscription]}
+    end.
 
 t_handle_in_unsubscribe(_) ->
     ok = meck:expect(
@@ -447,13 +477,6 @@ t_handle_in_expected_packet(_) ->
         emqx_channel:handle_in(packet, channel()).
 
 t_process_connect(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
         emqx_channel:process_connect(#{}, channel(#{conn_state => idle})).
 
@@ -470,9 +493,8 @@ t_process_publish_qos1(_) ->
 
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
-    TopicFilters = [TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
-    {[{TopicFilter, ?RC_SUCCESS}], _Channel} =
-        emqx_channel:process_subscribe(TopicFilters, channel()).
+    TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
+    {[?RC_SUCCESS], _Channel} = emqx_channel:process_subscribe(TopicFilters, channel()).
 
 t_process_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
@@ -591,13 +613,6 @@ t_handle_out_connack_sucess(_) ->
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
 t_handle_out_connack_response_information(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
     {ok,
@@ -611,13 +626,6 @@ t_handle_out_connack_response_information(_) ->
     ).
 
 t_handle_out_connack_not_response_information(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
@@ -930,12 +938,12 @@ t_check_pub_alias(_) ->
 t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
-    SubPkt = ?SUBSCRIBE_PACKET(1, #{}, [TopicFilter]),
-    CheckedSubPkt = ?SUBSCRIBE_PACKET(1, #{}, [{TopicFilter, ?RC_SUCCESS}]),
+    SubTFs = [TopicFilter],
+    CheckedTFs = [{TopicFilter, pending}],
     Channel = channel(),
     ?assertEqual(
-        {ok, CheckedSubPkt, Channel},
-        emqx_channel:check_sub_authzs(SubPkt, Channel)
+        CheckedTFs,
+        emqx_channel:check_sub_authzs(SubTFs, Channel)
     ).
 
 t_enrich_connack_caps(_) ->
@@ -1004,13 +1012,6 @@ t_ws_cookie_init(_) ->
 t_flapping_detect(_) ->
     emqx_config:put_zone_conf(default, [flapping_detect, window_time], 60000),
     Parent = self(),
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     ok = meck:expect(emqx_flapping, detect, fun(_) -> Parent ! flapping_detect end),
     IdleChannel = channel(
         clientinfo(#{

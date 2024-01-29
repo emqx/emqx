@@ -31,7 +31,9 @@
 -export([
     subscribe/1,
     subscribe/2,
-    subscribe/3
+    subscribe/3,
+    subscribe_async/3,
+    wait_result/1
 ]).
 
 -export([unsubscribe/1]).
@@ -118,35 +120,36 @@ create_tabs() ->
 %% Subscribe API
 %%------------------------------------------------------------------------------
 
--spec subscribe(emqx_types:topic() | emqx_types:share()) -> ok.
+-type topic() :: emqx_types:topic() | emqx_types:share().
+-type result(R) :: R | reference().
+
+-spec subscribe(topic()) -> ok.
 subscribe(Topic) when ?IS_TOPIC(Topic) ->
     subscribe(Topic, undefined).
 
--spec subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subid() | emqx_types:subopts()) ->
-    ok.
+-spec subscribe(topic(), emqx_types:clientid() | emqx_types:subopts()) -> ok.
 subscribe(Topic, SubId) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId) ->
     subscribe(Topic, SubId, ?DEFAULT_SUBOPTS);
 subscribe(Topic, SubOpts) when ?IS_TOPIC(Topic), is_map(SubOpts) ->
     subscribe(Topic, undefined, SubOpts).
 
--spec subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subid(), emqx_types:subopts()) ->
-    ok.
-subscribe(Topic, SubId, SubOpts0) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts0) ->
-    SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
-    _ = emqx_trace:subscribe(Topic, SubId, SubOpts),
-    SubPid = self(),
-    case subscribed(SubPid, Topic) of
-        %% New
-        false ->
-            ok = emqx_broker_helper:register_sub(SubPid, SubId),
-            true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
-            do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
-        %% Existed
-        true ->
-            set_subopts(SubPid, Topic, with_subid(SubId, SubOpts)),
-            %% ensure to return 'ok'
-            ok
-    end.
+-spec subscribe(topic(), emqx_types:clientid(), emqx_types:subopts()) -> ok.
+subscribe(Topic, ClientId, SubOpts) when
+    ?IS_TOPIC(Topic), ?IS_SUBID(ClientId), is_map(SubOpts)
+->
+    wait_result(do_subscribe(Topic, ClientId, SubOpts)).
+
+-spec subscribe_async(topic(), emqx_types:clientid(), emqx_types:subopts()) -> result(ok).
+subscribe_async(Topic, ClientId, SubOpts) when
+    ?IS_TOPIC(Topic), ?IS_SUBID(ClientId), is_map(SubOpts)
+->
+    do_subscribe(Topic, ClientId, SubOpts).
+
+-spec wait_result(result(R)) -> R.
+wait_result(Ref) when is_reference(Ref) ->
+    emqx_router_syncer:wait(Ref);
+wait_result(Result) ->
+    Result.
 
 -compile({inline, [with_subid/2]}).
 with_subid(undefined, SubOpts) ->
@@ -154,7 +157,24 @@ with_subid(undefined, SubOpts) ->
 with_subid(SubId, SubOpts) ->
     maps:put(subid, SubId, SubOpts).
 
-do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
+do_subscribe(Topic, ClientId, SubOpts0) ->
+    SubPid = self(),
+    SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
+    _ = emqx_trace:subscribe(Topic, ClientId, SubOpts),
+    case subscribed(SubPid, Topic) of
+        %% New
+        false ->
+            ok = emqx_broker_helper:register_sub(SubPid, ClientId),
+            true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
+            dispatch_subscribe(Topic, SubPid, with_subid(ClientId, SubOpts));
+        %% Existed
+        true ->
+            set_subopts(SubPid, Topic, with_subid(ClientId, SubOpts)),
+            %% ensure to return 'ok'
+            ok
+    end.
+
+dispatch_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
     %% FIXME: subscribe shard bug
     %% https://emqx.atlassian.net/browse/EMQX-10214
     I = emqx_broker_helper:get_sub_shard(SubPid, Topic),
@@ -167,14 +187,8 @@ do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
     %% `unsubscribe` codepath. So we have to pick a worker according to the topic,
     %% but not shard. If there are topics with high number of shards, then the
     %% load across the pool will be unbalanced.
-    Sync = call(pick(Topic), {subscribe, Topic, SubPid, I}),
-    case Sync of
-        ok ->
-            ok;
-        Ref when is_reference(Ref) ->
-            emqx_router_syncer:wait(Ref)
-    end;
-do_subscribe(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts) when
+    call(pick(Topic), {subscribe, Topic, SubPid, I});
+dispatch_subscribe(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts) when
     is_binary(RealTopic)
 ->
     true = ets:insert(?SUBOPTION, {{Topic, SubPid}, SubOpts}),

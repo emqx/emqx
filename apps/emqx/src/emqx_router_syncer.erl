@@ -103,7 +103,7 @@ push(Action, Topic, Dest, Opts) ->
             ok
     end.
 
--spec wait(_WaitRef :: reference()) ->
+-spec wait(_WaitRef :: reference(), timeout()) ->
     ok | {error, _Reason}.
 wait(MRef) ->
     %% NOTE
@@ -114,9 +114,14 @@ wait(MRef) ->
     %% to react to socket close event in time. Better option would probably be to
     %% introduce cancellable operation, which will be able to check if the caller
     %% would still be interested in the result.
+    wait(MRef, infinity).
+
+wait(MRef, Timeout) ->
     receive
         {MRef, Result} ->
             Result
+    after Timeout ->
+        error(timeout, [MRef, Timeout])
     end.
 
 designate_prio(_, #{reply := _To}) ->

@@ -298,7 +298,7 @@ stats(Session) -> info(?STATS_KEYS, Session).
 %%--------------------------------------------------------------------
 
 -spec subscribe(emqx_types:topic(), emqx_types:subopts(), session()) ->
-    {ok, session()} | {error, emqx_types:reason_code()}.
+    {ok, emqx_session:await(ok), session()} | {error, emqx_types:reason_code()}.
 subscribe(
     TopicFilter,
     SubOpts,
@@ -307,9 +307,10 @@ subscribe(
     IsNew = not maps:is_key(TopicFilter, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
-            ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
+            Ref = emqx_broker:subscribe_async(TopicFilter, ClientId, SubOpts),
+            Await = fun() -> emqx_broker:wait_result(Ref) end,
             Session1 = Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)},
-            {ok, Session1};
+            {ok, Await, Session1};
         true ->
             {error, ?RC_QUOTA_EXCEEDED}
     end.

@@ -120,6 +120,8 @@
     session/0
 ]).
 
+-export_type([await/1]).
+
 -type session_id() :: _TODO.
 
 -type clientinfo() :: emqx_types:clientinfo().
@@ -158,6 +160,8 @@
 -type t() ::
     emqx_session_mem:session()
     | emqx_persistent_session_ds:session().
+
+-type await(R) :: fun(() -> R).
 
 -define(INFO_KEYS, [
     id,
@@ -270,16 +274,26 @@ destroy(Session) ->
     emqx_types:subopts(),
     t()
 ) ->
-    {ok, t()} | {error, emqx_types:reason_code()}.
+    {ok, t()} | {ok, _Async :: await(ok), t()} | {error, emqx_types:reason_code()}.
 subscribe(ClientInfo, TopicFilter, SubOpts, Session) ->
-    SubOpts0 = ?IMPL(Session):get_subscription(TopicFilter, Session),
+    IsNew = (?IMPL(Session):get_subscription(TopicFilter, Session) == undefined),
     case ?IMPL(Session):subscribe(TopicFilter, SubOpts, Session) of
         {ok, Session1} ->
             ok = emqx_hooks:run(
                 'session.subscribed',
-                [ClientInfo, TopicFilter, SubOpts#{is_new => (SubOpts0 == undefined)}]
+                [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
             ),
             {ok, Session1};
+        {ok, AwaitIn, Session1} ->
+            Await = fun() ->
+                Result = AwaitIn(),
+                ok = emqx_hooks:run(
+                    'session.subscribed',
+                    [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
+                ),
+                Result
+            end,
+            {ok, Await, Session1};
         {error, RC} ->
             {error, RC}
     end.

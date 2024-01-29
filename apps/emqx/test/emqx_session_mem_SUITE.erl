@@ -121,7 +121,7 @@ t_session_stats(_) ->
 
 t_subscribe(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
-    {ok, Session} = emqx_session_mem:subscribe(<<"#">>, subopts(), session()),
+    {ok, _Await, Session} = emqx_session_mem:subscribe(<<"#">>, subopts(), session()),
     ?assertEqual(1, emqx_session_mem:info(subscriptions_cnt, Session)).
 
 t_is_subscriptions_full_false(_) ->
@@ -132,7 +132,7 @@ t_is_subscriptions_full_true(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     Session = session(#{max_subscriptions => 1}),
     ?assertNot(emqx_session_mem:is_subscriptions_full(Session)),
-    {ok, Session1} = emqx_session_mem:subscribe(
+    {ok, _Await, Session1} = emqx_session_mem:subscribe(
         <<"t1">>, subopts(), Session
     ),
     ?assert(emqx_session_mem:is_subscriptions_full(Session1)),
@@ -311,8 +311,8 @@ t_dequeue(_) ->
 
 t_deliver_qos0(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
-    {ok, Session} = emqx_session_mem:subscribe(<<"t0">>, subopts(), session()),
-    {ok, Session1} = emqx_session_mem:subscribe(<<"t1">>, subopts(), Session),
+    {ok, _, Session} = emqx_session_mem:subscribe(<<"t0">>, subopts(), session()),
+    {ok, _, Session1} = emqx_session_mem:subscribe(<<"t1">>, subopts(), Session),
     Deliveries = enrich([delivery(?QOS_0, T) || T <- [<<"t0">>, <<"t1">>]], Session1),
     {ok, [{undefined, Msg1}, {undefined, Msg2}], Session1} =
         emqx_session_mem:deliver(clientinfo(), Deliveries, Session1),
@@ -321,7 +321,7 @@ t_deliver_qos0(_) ->
 
 t_deliver_qos1(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
-    {ok, Session} = emqx_session_mem:subscribe(
+    {ok, _Await, Session} = emqx_session_mem:subscribe(
         <<"t1">>, subopts(#{qos => ?QOS_1}), session()
     ),
     Delivers = enrich([delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>]], Session),
