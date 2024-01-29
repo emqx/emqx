@@ -706,14 +706,12 @@ add_handlers() ->
     ok = emqx_config_logger:add_handler(),
     ok = emqx_config_zones:add_handler(),
     emqx_sys_mon:add_handler(),
-    _ = emqx_persistent_message:add_handler(),
     ok.
 
 remove_handlers() ->
     ok = emqx_config_logger:remove_handler(),
     ok = emqx_config_zones:remove_handler(),
     emqx_sys_mon:remove_handler(),
-    _ = emqx_persistent_message:remove_handler(),
     ok.
 
 load_hocon_file(FileName, LoadType) ->

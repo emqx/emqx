@@ -48,6 +48,7 @@
 -export([delete/2, delete/3]).
 -endif.
 
+-define(APP, emqx_durable_storage).
 -define(KEY(STREAM, LASTKEY), {STREAM, {LASTKEY}}).
 -define(EOS_KEY(STREAM), {STREAM, []}).
 -define(EOS, []).
@@ -102,8 +103,15 @@
 %%--------------------------------------------------------------------------------
 
 -spec start_link(start_opts()) -> gen_server:start_ret().
-start_link(Opts) ->
-    #{db := DB} = Opts,
+start_link(Opts0) ->
+    #{db := DB} = Opts0,
+    Opts = maps:merge(
+        #{
+            gc_interval => application:get_env(?APP, cache_gc_interval, timer:hours(1)),
+            topic_filters => application:get_env(?APP, cache_prefetch_topic_filters, [])
+        },
+        Opts0
+    ),
     gen_server:start_link(?REF(DB), ?MODULE, Opts, []).
 
 -spec stop(emqx_ds:db()) -> ok.

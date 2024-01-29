@@ -1876,7 +1876,14 @@ fields("session_persistence") ->
                 hoconsc:array(emqx_ds:topic_filter()),
                 #{
                     default => [],
-                    importance => ?IMPORTANCE_LOW,
+                    %% This config is temporary: caching should be automatic and inferred
+                    %% from usage.
+                    %% TODO: while this is not automatic, relying on the application
+                    %% schema instead of config handler callbacks implies that we'll need
+                    %% to manually diff tracked topic filters and update the cache process
+                    %% state.
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "emqx_durable_storage.cache_prefetch_topic_filters",
                     desc => ?DESC(session_ds_cache_prefetch_topic_filters)
                 }
             )},
@@ -1885,6 +1892,7 @@ fields("session_persistence") ->
                 timeout_duration(),
                 #{
                     default => <<"60s">>,
+                    mapping => "emqx_durable_storage.cache_gc_interval",
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(session_ds_cache_gc_interval)
                 }

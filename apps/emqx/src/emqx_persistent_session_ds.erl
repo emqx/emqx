@@ -81,9 +81,6 @@
 
 -export([print_session/1, seqno_diff/4]).
 
-%% `emqx_config_handler' API
--export([post_config_update/5, propagated_post_config_update/5]).
-
 -ifdef(TEST).
 -export([
     session_open/2,
@@ -901,55 +898,6 @@ expiry_interval(ConnInfo) ->
 
 bump_interval() ->
     emqx_config:get([session_persistence, last_alive_update_interval]).
-
-%%--------------------------------------------------------------------------------
-%% `emqx_config_handler' API
-%%--------------------------------------------------------------------------------
-
--define(ROOT_KEY, session_persistence).
--define(CACHE_PREFETCH_PATH, [?ROOT_KEY, cache_prefetch_topic_filters]).
--define(CACHE_GC_INTERVAL_PATH, [?ROOT_KEY, cache_gc_interval]).
-
-post_config_update(
-    ?CACHE_PREFETCH_PATH, _Req, NewConf, OldConf, _AppEnv
-) ->
-    handle_update_cache_prefetch_topic_filters(NewConf, OldConf),
-    ok;
-post_config_update(
-    ?CACHE_GC_INTERVAL_PATH, _Req, NewConf, _OldConf, _AppEnv
-) ->
-    handle_update_cache_gc_interval(NewConf),
-    ok;
-post_config_update(_Path, _Req, _NewConf, _OldConf, _AppEnv) ->
-    ok.
-
-propagated_post_config_update(
-    ?CACHE_PREFETCH_PATH, _Req, NewConf, OldConf, _AppEnvs
-) ->
-    handle_update_cache_prefetch_topic_filters(NewConf, OldConf),
-    ok;
-propagated_post_config_update(
-    ?CACHE_GC_INTERVAL_PATH, _Req, NewConf, _OldConf, _AppEnvs
-) ->
-    handle_update_cache_gc_interval(NewConf),
-    ok;
-propagated_post_config_update(_Path, _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
-    ok.
-
-handle_update_cache_prefetch_topic_filters(NewTopics, OldTopics) ->
-    Added = lists:usort(NewTopics -- OldTopics),
-    Removed = lists:usort(OldTopics -- NewTopics),
-    emqx_ds_cache:remove_cached_topic_filters(?PERSISTENT_MESSAGE_DB, Removed),
-    emqx_ds_cache:add_cached_topic_filters(?PERSISTENT_MESSAGE_DB, Added),
-    ok.
-
-handle_update_cache_gc_interval(NewGCInterval) ->
-    emqx_ds_cache:set_gc_interval(?PERSISTENT_MESSAGE_DB, NewGCInterval),
-    ok.
-
--undef(CACHE_GC_INTERVAL_PATH).
--undef(CACHE_PREFETCH_PATH).
--undef(ROOT_KEY).
 
 %%--------------------------------------------------------------------
 %% SeqNo tracking
