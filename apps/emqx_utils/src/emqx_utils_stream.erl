@@ -50,6 +50,8 @@
 
 -dialyzer(no_improper_lists).
 
+-elvis([{elvis_style, nesting_level, disable}]).
+
 %%
 
 %% @doc Make a stream that produces no values.
@@ -189,8 +191,8 @@ csv(Bin) when is_binary(Bin) ->
     case get_csv_header(CSVData) of
         {ok, CSVHeaders, CSVLines} ->
             fun() -> Reader(CSVHeaders, CSVLines) end;
-        {error, Reason} ->
-            error(Reason)
+        error ->
+            empty()
     end.
 
 csv_data(Data) ->
@@ -203,7 +205,7 @@ get_csv_header(CSV) ->
             Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
             {ok, Seq, NewCSV};
         eof ->
-            {error, empty_file}
+            error
     end.
 
 csv_read_line({csv_data, [Line | Lines]}) ->

@@ -251,6 +251,30 @@ t_import_users(_) ->
             sample_filename_and_data(<<"user-credentials-malformed.csv">>),
             State
         )
+    ),
+
+    ?assertEqual(
+        {error, empty_users},
+        emqx_authn_mnesia:import_users(
+            {hash, <<"empty_users.json">>, <<"[]">>},
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, empty_users},
+        emqx_authn_mnesia:import_users(
+            {hash, <<"empty_users.csv">>, <<>>},
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, empty_users},
+        emqx_authn_mnesia:import_users(
+            {hash, prepared_user_list, []},
+            State
+        )
     ).
 
 t_import_users_plain(_) ->

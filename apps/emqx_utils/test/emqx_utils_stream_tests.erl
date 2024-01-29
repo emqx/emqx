@@ -82,3 +82,25 @@ mqueue_test() ->
         [1, 42, 2],
         emqx_utils_stream:consume(emqx_utils_stream:mqueue(400))
     ).
+
+csv_test() ->
+    Data = <<"h1,h2,h3\r\nv1,v2,v3\r\nv4,v5,v6">>,
+    ?assertEqual(
+        [
+            #{<<"h1">> => <<"v1">>, <<"h2">> => <<"v2">>, <<"h3">> => <<"v3">>},
+            #{<<"h1">> => <<"v4">>, <<"h2">> => <<"v5">>, <<"h3">> => <<"v6">>}
+        ],
+        emqx_utils_stream:consume(emqx_utils_stream:csv(Data))
+    ),
+
+    ?assertEqual(
+        [],
+        emqx_utils_stream:consume(emqx_utils_stream:csv(<<"">>))
+    ),
+
+    BadData = <<"h1,h2,h3\r\nv1,v2,v3\r\nv4,v5">>,
+    ?assertException(
+        error,
+        bad_format,
+        emqx_utils_stream:consume(emqx_utils_stream:csv(BadData))
+    ).

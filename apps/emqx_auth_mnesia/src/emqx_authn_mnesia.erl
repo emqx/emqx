@@ -78,8 +78,6 @@
     {<<"is_superuser">>, atom}
 ]).
 
--elvis([{elvis_style, nesting_level, disable}]).
-
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -177,7 +175,9 @@ import_users({PasswordType, Filename, FileData}, State) ->
     Convertor = convertor(PasswordType, State),
     try
         {_NewUsersCnt, Users} = parse_import_users(Filename, FileData, Convertor),
-        case do_import_users(Users) of
+        case length(Users) > 0 andalso do_import_users(Users) of
+            false ->
+                error(empty_users);
             ok ->
                 ok;
             {error, Reason} ->
