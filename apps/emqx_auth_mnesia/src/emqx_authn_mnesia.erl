@@ -190,6 +190,7 @@ import_users({PasswordType, Filename, FileData}, State) ->
                 warning,
                 #{
                     msg => "import_users_failed",
+                    reason => Reason1,
                     type => PasswordType,
                     filename => Filename,
                     stacktrace => Stk
@@ -451,11 +452,11 @@ group_match_spec(UserGroup, QString) ->
 parse_import_users(Filename, FileData, Convertor) ->
     Eval = fun _Eval(F) ->
         case F() of
-            eof -> [];
-            {User, F1} -> [User | _Eval(F1)]
+            [] -> [];
+            [User | F1] -> [Convertor(User) | _Eval(F1)]
         end
     end,
-    ReaderFn = reader_fn(Filename, FileData, Convertor),
+    ReaderFn = reader_fn(Filename, FileData),
     Users = lists:reverse(Eval(ReaderFn)),
     NewUsersCount =
         lists:foldl(
@@ -478,64 +479,29 @@ parse_import_users(Filename, FileData, Convertor) ->
         ),
     {NewUsersCount, Users}.
 
-reader_fn(prepared_user_list, Data, Convertor) when is_list(Data) ->
-    reader(prepared_user_list, Data, Convertor);
-reader_fn(Filename0, Data, Convertor) ->
-    Filename = to_binary(Filename0),
-    case filename:extension(Filename) of
+reader_fn(prepared_user_list, List) when is_list(List) ->
+    %% Example: [#{<<"user_id">> => <<>>, ...}]
+    emqx_utils_stream:list(List);
+reader_fn(Filename0, Data) ->
+    case filename:extension(to_binary(Filename0)) of
         <<".json">> ->
-            reader(json, Data, Convertor);
+            %% Example: data/user-credentials.json
+            case emqx_utils_json:safe_decode(Data, [return_maps]) of
+                {ok, List} when is_list(List) ->
+                    emqx_utils_stream:list(List);
+                {ok, _} ->
+                    error(unknown_file_format);
+                {error, Reason} ->
+                    error(Reason)
+            end;
         <<".csv">> ->
-            reader(csv, Data, Convertor);
+            %% Example: data/user-credentials.csv
+            emqx_utils_stream:csv(Data);
         <<>> ->
             error(unknown_file_format);
         Extension ->
             error({unsupported_file_format, Extension})
     end.
-
-%% Example: data/user-credentials.json
-reader(json, Data, Convertor) when is_binary(Data) ->
-    case emqx_utils_json:safe_decode(Data, [return_maps]) of
-        {ok, List} ->
-            reader(prepared_user_list, List, Convertor);
-        {error, Reason} ->
-            error(Reason)
-    end;
-%% Example: data/user-credentials.csv
-reader(csv, Data, Convertor) when is_binary(Data) ->
-    CSVData = csv_data(Data),
-    Reader = fun _Iter(Headers, Lines) ->
-        case csv_read_line(Lines) of
-            {ok, Line, Rest} ->
-                %% XXX: not support ' ' for a field?
-                Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [
-                    global, trim_all
-                ]),
-                case length(Fields) == length(Headers) of
-                    true ->
-                        User = maps:from_list(lists:zip(Headers, Fields)),
-                        {Convertor(User), fun() -> _Iter(Headers, Rest) end};
-                    false ->
-                        error(bad_format)
-                end;
-            eof ->
-                eof
-        end
-    end,
-    case get_csv_header(CSVData) of
-        {ok, CSVHeaders, CSVLines} ->
-            fun() -> Reader(CSVHeaders, CSVLines) end;
-        {error, Reason} ->
-            error(Reason)
-    end;
-%% Example: [#{<<"user_id">> => <<>>, ...}]
-reader(prepared_user_list, Data, Convertor) when is_list(Data) ->
-    Reader =
-        fun
-            _Iter([]) -> eof;
-            _Iter([User | Rest]) -> {Convertor(User), fun() -> _Iter(Rest) end}
-        end,
-    fun() -> Reader(Data) end.
 
 convertor(PasswordType, State) ->
     fun(User) ->
@@ -568,21 +534,3 @@ find_password_hash(_, _, _) ->
 is_superuser(#{<<"is_superuser">> := <<"true">>}) -> true;
 is_superuser(#{<<"is_superuser">> := true}) -> true;
 is_superuser(_) -> false.
-
-csv_data(Data) ->
-    Lines = binary:split(Data, [<<"\r">>, <<"\n">>], [global, trim_all]),
-    {csv_data, Lines}.
-
-get_csv_header(CSV) ->
-    case csv_read_line(CSV) of
-        {ok, Line, NewCSV} ->
-            Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
-            {ok, Seq, NewCSV};
-        eof ->
-            {error, empty_file}
-    end.
-
-csv_read_line({csv_data, [Line | Lines]}) ->
-    {ok, Line, {csv_data, Lines}};
-csv_read_line({csv_data, []}) ->
-    eof.

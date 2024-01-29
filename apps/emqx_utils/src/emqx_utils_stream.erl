@@ -37,6 +37,11 @@
     ets/1
 ]).
 
+%% Streams from .csv data
+-export([
+    csv/1
+]).
+
 -export_type([stream/1]).
 
 %% @doc A stream is essentially a lazy list.
@@ -157,3 +162,51 @@ ets(Cont, ContF) ->
                 []
         end
     end.
+
+%% @doc Make a stream out of a .csv binary, where the .csv binary is loaded in all at once.
+%% The .csv binary is assumed to be in UTF-8 encoding and to have a header row.
+-spec csv(binary()) -> stream(map()).
+csv(Bin) when is_binary(Bin) ->
+    CSVData = csv_data(Bin),
+    Reader = fun _Iter(Headers, Lines) ->
+        case csv_read_line(Lines) of
+            {ok, Line, Rest} ->
+                %% XXX: not support ' ' for a field?
+                Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [
+                    global, trim_all
+                ]),
+                case length(Fields) == length(Headers) of
+                    true ->
+                        User = maps:from_list(lists:zip(Headers, Fields)),
+                        [User | fun() -> _Iter(Headers, Rest) end];
+                    false ->
+                        error(bad_format)
+                end;
+            eof ->
+                []
+        end
+    end,
+    case get_csv_header(CSVData) of
+        {ok, CSVHeaders, CSVLines} ->
+            fun() -> Reader(CSVHeaders, CSVLines) end;
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+csv_data(Data) ->
+    Lines = binary:split(Data, [<<"\r">>, <<"\n">>], [global, trim_all]),
+    {csv_data, Lines}.
+
+get_csv_header(CSV) ->
+    case csv_read_line(CSV) of
+        {ok, Line, NewCSV} ->
+            Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
+            {ok, Seq, NewCSV};
+        eof ->
+            {error, empty_file}
+    end.
+
+csv_read_line({csv_data, [Line | Lines]}) ->
+    {ok, Line, {csv_data, Lines}};
+csv_read_line({csv_data, []}) ->
+    eof.
