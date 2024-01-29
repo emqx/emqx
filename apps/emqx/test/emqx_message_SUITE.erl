@@ -143,12 +143,12 @@ t_undefined_headers(_) ->
 
 t_is_expired(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
-    ?assertNot(emqx_message:is_expired(Msg)),
+    ?assertNot(emqx_message:is_expired(Msg, ?MODULE)),
     Msg1 = emqx_message:set_headers(#{properties => #{'Message-Expiry-Interval' => 1}}, Msg),
     timer:sleep(500),
-    ?assertNot(emqx_message:is_expired(Msg1)),
+    ?assertNot(emqx_message:is_expired(Msg1, ?MODULE)),
     timer:sleep(600),
-    ?assert(emqx_message:is_expired(Msg1)),
+    ?assert(emqx_message:is_expired(Msg1, ?MODULE)),
     timer:sleep(1000),
     Msg = emqx_message:update_expiry(Msg),
     Msg2 = emqx_message:update_expiry(Msg1),

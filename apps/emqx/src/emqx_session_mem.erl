@@ -468,12 +468,12 @@ dequeue(ClientInfo, Session = #session{inflight = Inflight, mqueue = Q}) ->
 
 dequeue(_ClientInfo, 0, Msgs, Q) ->
     {lists:reverse(Msgs), Q};
-dequeue(ClientInfo, Cnt, Msgs, Q) ->
+dequeue(ClientInfo = #{zone := Zone}, Cnt, Msgs, Q) ->
     case emqx_mqueue:out(Q) of
         {empty, _Q} ->
             dequeue(ClientInfo, 0, Msgs, Q);
         {{value, Msg}, Q1} ->
-            case emqx_message:is_expired(Msg) of
+            case emqx_message:is_expired(Msg, Zone) of
                 true ->
                     _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
                     dequeue(ClientInfo, Cnt, Msgs, Q1);
@@ -619,14 +619,14 @@ retry_delivery(
     end.
 
 do_retry_delivery(
-    ClientInfo,
+    ClientInfo = #{zone := Zone},
     PacketId,
     #inflight_data{phase = wait_ack, message = Msg} = Data,
     Now,
     Acc,
     Inflight
 ) ->
-    case emqx_message:is_expired(Msg) of
+    case emqx_message:is_expired(Msg, Zone) of
         true ->
             _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
             {Acc, emqx_inflight:delete(PacketId, Inflight)};

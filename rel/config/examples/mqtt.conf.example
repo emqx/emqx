@@ -82,6 +82,21 @@ mqtt {
     ## Specifies how long the session will expire after the connection is disconnected, only for non-MQTT 5.0 connections
     session_expiry_interval = 2h
 
+    ## The expiry interval of MQTT messages.
+    ##
+    ## For MQTT 5.0 clients, this configuration will only take effect when the
+    ##  Message-Expiry-Interval property is not set in the message; otherwise, the
+    ##  value of the Message-Expiry-Interval property will be used.
+    ## For MQTT versions older than 5.0, this configuration will always take effect.
+    ## Please note that setting message_expiry_interval greater than session_expiry_interval
+    ##  is meaningless, as all messages will be cleared when the session expires.
+    ##
+    ## Type:
+    ##   - infinity :: Never expire
+    ##   - Time Duration :: The expiry interval
+    ## Default: infinity
+    message_expiry_interval = infinity
+
     ## Maximum queue length. Enqueued messages when persistent client disconnected, or inflight window is full
     ## Type: infinity | Integer
     max_mqueue_len = 1000
