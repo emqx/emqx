@@ -278,10 +278,24 @@ proc_cql_params(prepared_query, ChannId, Params, #{channels := Channs}) ->
             params_tokens := ParamsTokens
         }
     } = maps:get(ChannId, Channs),
-    {PrepareKey, assign_type_for_params(emqx_placeholder:proc_sql(ParamsTokens, Params))};
+    {PrepareKey, assign_type_for_params(proc_sql(ParamsTokens, Params))};
 proc_cql_params(query, CQL, Params, _State) ->
     {CQL1, Tokens} = emqx_placeholder:preproc_sql(CQL, '?'),
-    {CQL1, assign_type_for_params(emqx_placeholder:proc_sql(Tokens, Params))}.
+    {CQL1, assign_type_for_params(proc_sql(Tokens, Params))}.
+
+proc_sql(Tokens, Params) ->
+    VarTrans = fun
+        (null) -> null;
+        (X) -> emqx_placeholder:sql_data(X)
+    end,
+    emqx_placeholder:proc_tmpl(
+        Tokens,
+        Params,
+        #{
+            return => rawlist,
+            var_trans => VarTrans
+        }
+    ).
 
 exec_cql_query(InstId, PoolName, Type, Async, PreparedKey, Data) when
     Type == query; Type == prepared_query
