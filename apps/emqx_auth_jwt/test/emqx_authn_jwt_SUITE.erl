@@ -219,6 +219,37 @@ t_jwt_in_username(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)).
 
+t_complex_template(_) ->
+    Secret = <<"abcdef">>,
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [{<<"id">>, <<"${username}-${clientid}">>}]
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+
+    Payload0 = #{<<"id">> => <<"myuser-myclient">>, <<"exp">> => erlang:system_time(second) + 60},
+    JWS0 = generate_jws('hmac-based', Payload0, Secret),
+    Credential0 = #{
+        clientid => <<"myclient">>,
+        username => <<"myuser">>,
+        password => JWS0
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential0, State)),
+
+    Payload1 = #{<<"id">> => <<"-myclient">>, <<"exp">> => erlang:system_time(second) + 60},
+    JWS1 = generate_jws('hmac-based', Payload1, Secret),
+    Credential1 = #{
+        clientid => <<"myclient">>,
+        password => JWS1
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential1, State)).
+
 t_jwks_renewal(_Config) ->
     {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
     ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
@@ -415,6 +446,38 @@ t_verify_claims(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential5, State1)).
 
+t_verify_claim_clientid(_) ->
+    Secret = <<"abcdef">>,
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [{<<"cl">>, <<"${clientid}">>}]
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+
+    Payload0 = #{<<"cl">> => <<"mycl">>, <<"exp">> => erlang:system_time(second) + 60},
+    JWS0 = generate_jws('hmac-based', Payload0, Secret),
+    Credential0 = #{
+        username => <<"myuser">>,
+        clientid => <<"mycl">>,
+        password => JWS0
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential0, State)),
+
+    Credential1 = #{
+        username => <<"myuser">>,
+        clientid => <<"mycl-invalid">>,
+        password => JWS0
+    },
+    ?assertMatch(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential1, State)
+    ).
+
 t_jwt_not_allow_empty_claim_name(_) ->
     Request = #{
         <<"use_jwks">> => false,
@@ -450,9 +513,88 @@ t_jwt_not_allow_empty_claim_name(_) ->
         )
     ).
 
+t_schema(_Config) ->
+    RawClaims0 = [
+        #{<<"name">> => <<"a">>, <<"value">> => <<"v">>},
+        #{<<"name">> => <<"b">>, <<"value">> => <<"${username}">>},
+        #{<<"name">> => <<"c">>, <<"value">> => <<"${clientid}">>}
+    ],
+    ?assertMatch(
+        {ok, [
+            {<<"a">>, <<"v">>},
+            {<<"b">>, <<"${username}">>},
+            {<<"c">>, <<"${clientid}">>}
+        ]},
+        check_schema(RawClaims0)
+    ),
+
+    RawClaims1 = [#{<<"key">> => <<"a">>, <<"value">> => <<"v">>}],
+    ?assertMatch(
+        {error, _},
+        check_schema(RawClaims1)
+    ),
+    RawClaims2 = #{
+        <<"a">> => <<"v">>,
+        <<"b">> => <<"${username}">>,
+        <<"c">> => <<"${clientid}">>
+    },
+    ?assertMatch(
+        {ok, [
+            {<<"a">>, <<"v">>},
+            {<<"b">>, <<"${username}">>},
+            {<<"c">>, <<"${clientid}">>}
+        ]},
+        check_schema(RawClaims2)
+    ),
+    ?assertMatch(
+        {ok, [{<<"x">>, <<"${foo}">>}]},
+        check_schema(#{<<"x">> => <<"${foo}">>})
+    ),
+    ?assertMatch(
+        {error, _},
+        check_schema([<<"foo">>])
+    ),
+    ?assertMatch(
+        {error, _},
+        check_schema([#{}])
+    ),
+    ?assertMatch(
+        {error, _},
+        check_schema([[]])
+    ),
+    ?assertMatch(
+        {error, _},
+        check_schema(<<"val">>)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
+
+check_schema(RawClaims) ->
+    Config = #{
+        <<"conf">> =>
+            #{
+                <<"use_jwks">> => false,
+                <<"algorithm">> => <<"hmac-based">>,
+                <<"acl_claim_name">> => <<"acl">>,
+                <<"secret">> => <<"secret">>,
+                <<"mechanism">> => <<"jwt">>,
+                <<"verify_claims">> => RawClaims
+            }
+    },
+    UnionMemberSelector =
+        fun
+            (all_union_members) -> emqx_authn_jwt_schema:refs();
+            ({value, Value}) -> emqx_authn_jwt_schema:select_union_member(Value)
+        end,
+    Schema = #{roots => [{conf, hoconsc:union(UnionMemberSelector)}]},
+    case emqx_hocon:check(Schema, Config) of
+        {ok, #{conf := #{verify_claims := VerifyClaims}}} ->
+            {ok, VerifyClaims};
+        Error ->
+            Error
+    end.
 
 jwks_handler(Req0, State) ->
     JWK = jose_jwk:from_pem_file(test_rsa_key(public)),

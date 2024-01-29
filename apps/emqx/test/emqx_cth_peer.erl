@@ -62,7 +62,7 @@ stop(Node) when is_atom(Node) ->
             unlink(Pid),
             ok = peer:stop(Pid);
         false ->
-            ct:pal("The control process for node ~p is unexpetedly down", [Node]),
+            ct:pal("The control process for node ~p is unexpectedly down", [Node]),
             ok
     end.
 
