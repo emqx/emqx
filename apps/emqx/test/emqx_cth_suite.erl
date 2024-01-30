@@ -470,9 +470,12 @@ clean_suite_state() ->
 
 app_schema(App) ->
     Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
-    try is_list(Mod:roots()) of
-        true -> {ok, Mod};
-        false -> {error, schema_no_roots}
+    try
+        Exports = Mod:module_info(exports),
+        case lists:member({roots, 0}, Exports) of
+            true -> {ok, Mod};
+            false -> {error, schema_no_roots}
+        end
     catch
         error:undef ->
             {error, schema_not_found}
