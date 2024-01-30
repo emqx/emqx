@@ -457,7 +457,7 @@ parse_import_users(Filename, FileData, Convertor) ->
         end
     end,
     ReaderFn = reader_fn(Filename, FileData),
-    Users = lists:reverse(Eval(ReaderFn)),
+    Users = Eval(ReaderFn),
     NewUsersCount =
         lists:foldl(
             fun(

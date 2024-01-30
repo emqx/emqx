@@ -340,6 +340,55 @@ t_import_users_prepared_list(_) ->
         )
     ).
 
+t_import_users_duplicated_records(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => plain, salt_position => disable}},
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain-dup.json">>),
+            State
+        )
+    ),
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain-dup.csv">>),
+            State
+        )
+    ),
+    Users1 = [
+        #{
+            <<"user_id">> => <<"myuser5">>,
+            <<"password">> => <<"password5">>,
+            <<"is_superuser">> => true
+        },
+        #{
+            <<"user_id">> => <<"myuser5">>,
+            <<"password">> => <<"password6">>,
+            <<"is_superuser">> => false
+        }
+    ],
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            {plain, prepared_user_list, Users1},
+            State
+        )
+    ),
+
+    %% assert: the last record overwrites the previous one
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser1">>}, <<"password2">>, _, false},
+            {user_info, {_, <<"myuser3">>}, <<"password4">>, _, false},
+            {user_info, {_, <<"myuser5">>}, <<"password6">>, _, false}
+        ],
+        ets:tab2list(emqx_authn_mnesia)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

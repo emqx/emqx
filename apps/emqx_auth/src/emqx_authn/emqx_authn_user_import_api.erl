@@ -96,8 +96,16 @@ request_body_schema() ->
                 schema => #{
                     type => object,
                     example => [
-                        #{<<"user_id">> => <<"user1">>, <<"password">> => <<"password1">>},
-                        #{<<"user_id">> => <<"user2">>, <<"password">> => <<"password2">>}
+                        #{
+                            <<"user_id">> => <<"user1">>,
+                            <<"password">> => <<"password1">>,
+                            <<"is_superuser">> => true
+                        },
+                        #{
+                            <<"user_id">> => <<"user2">>,
+                            <<"password">> => <<"password2">>,
+                            <<"is_superuser">> => false
+                        }
                     ]
                 }
             }
