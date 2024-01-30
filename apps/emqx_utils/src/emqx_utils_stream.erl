@@ -37,6 +37,11 @@
     ets/1
 ]).
 
+%% Streams from .csv data
+-export([
+    csv/1
+]).
+
 -export_type([stream/1]).
 
 %% @doc A stream is essentially a lazy list.
@@ -44,6 +49,8 @@
 -type next(T) :: nonempty_improper_list(T, stream(T)).
 
 -dialyzer(no_improper_lists).
+
+-elvis([{elvis_style, nesting_level, disable}]).
 
 %%
 
@@ -157,3 +164,36 @@ ets(Cont, ContF) ->
                 []
         end
     end.
+
+%% @doc Make a stream out of a .csv binary, where the .csv binary is loaded in all at once.
+%% The .csv binary is assumed to be in UTF-8 encoding and to have a header row.
+-spec csv(binary()) -> stream(map()).
+csv(Bin) when is_binary(Bin) ->
+    Reader = fun _Iter(Headers, Lines) ->
+        case csv_read_line(Lines) of
+            {Fields, Rest} ->
+                case length(Fields) == length(Headers) of
+                    true ->
+                        User = maps:from_list(lists:zip(Headers, Fields)),
+                        [User | fun() -> _Iter(Headers, Rest) end];
+                    false ->
+                        error(bad_format)
+                end;
+            eof ->
+                []
+        end
+    end,
+    HeadersAndLines = binary:split(Bin, [<<"\r">>, <<"\n">>], [global, trim_all]),
+    case csv_read_line(HeadersAndLines) of
+        {CSVHeaders, CSVLines} ->
+            fun() -> Reader(CSVHeaders, CSVLines) end;
+        eof ->
+            empty()
+    end.
+
+csv_read_line([Line | Lines]) ->
+    %% XXX: not support ' ' for the field value
+    Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
+    {Fields, Lines};
+csv_read_line([]) ->
+    eof.

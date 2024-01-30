@@ -310,7 +310,11 @@ reorder_authenticator(_ChainName, []) ->
 reorder_authenticator(ChainName, AuthenticatorIDs) ->
     call({reorder_authenticator, ChainName, AuthenticatorIDs}).
 
--spec import_users(chain_name(), authenticator_id(), {binary(), binary()}) ->
+-spec import_users(
+    chain_name(),
+    authenticator_id(),
+    {plain | hash, prepared_user_list | binary(), binary()}
+) ->
     ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
     call({import_users, ChainName, AuthenticatorID, Filename}).
