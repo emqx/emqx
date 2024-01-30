@@ -215,6 +215,7 @@ jobs:
       with:
         pattern: ${{ matrix.profile }}-*
         path: packages/${{ matrix.profile }}
+        merge-multiple: true
     - name: install dos2unix
       run: sudo apt-get update -y && sudo apt install -y dos2unix
     - name: get packages
