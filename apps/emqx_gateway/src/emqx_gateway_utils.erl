@@ -20,6 +20,17 @@
 -include("emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-define(GATEWAYS, [
+    emqx_gateway_coap,
+    emqx_gateway_exproto,
+    emqx_gateway_gbt32960,
+    emqx_gateway_jt808,
+    emqx_gateway_lwm2m,
+    emqx_gateway_mqttsn,
+    emqx_gateway_ocpp,
+    emqx_gateway_stomp
+]).
+
 -export([
     childspec/2,
     childspec/3,
@@ -679,32 +690,28 @@ default_subopts() ->
 
 -spec find_gateway_definitions() -> list(gateway_def()).
 find_gateway_definitions() ->
-    ensure_gateway_loaded(),
-    lists:flatten(
-        lists:map(
-            fun(App) ->
-                gateways(find_attrs(App, gateway))
-            end,
-            ignore_lib_apps(application:loaded_applications())
-        )
+    lists:flatmap(
+        fun(App) ->
+            lists:flatmap(fun gateways/1, find_attrs(App, gateway))
+        end,
+        ?GATEWAYS
     ).
 
 -spec find_gateway_definition(atom()) -> {ok, map()} | {error, term()}.
 find_gateway_definition(Name) ->
-    ensure_gateway_loaded(),
-    find_gateway_definition(Name, ignore_lib_apps(application:loaded_applications())).
+    find_gateway_definition(Name, ?GATEWAYS).
 
 -dialyzer({no_match, [find_gateway_definition/2]}).
 find_gateway_definition(Name, [App | T]) ->
     Attrs = find_attrs(App, gateway),
-    SearchFun = fun({_App, _Mod, #{name := GwName}}) ->
+    SearchFun = fun(#{name := GwName}) ->
         GwName =:= Name
     end,
     case lists:search(SearchFun, Attrs) of
-        {value, {_App, _Mod, Defination}} ->
-            case check_gateway_edition(Defination) of
+        {value, Definition} ->
+            case check_gateway_edition(Definition) of
                 true ->
-                    {ok, Defination};
+                    {ok, Definition};
                 _ ->
                     {error, invalid_edition}
             end;
@@ -715,23 +722,18 @@ find_gateway_definition(_Name, []) ->
     {error, not_found}.
 
 -dialyzer({no_match, [gateways/1]}).
-gateways([]) ->
-    [];
-gateways([
-    {_App, _Mod,
-        Defination =
-            #{
-                name := Name,
-                callback_module := CbMod,
-                config_schema_module := SchemaMod
-            }}
-    | More
-]) when is_atom(Name), is_atom(CbMod), is_atom(SchemaMod) ->
-    case check_gateway_edition(Defination) of
+gateways(
+    Definition = #{
+        name := Name,
+        callback_module := CbMod,
+        config_schema_module := SchemaMod
+    }
+) when is_atom(Name), is_atom(CbMod), is_atom(SchemaMod) ->
+    case check_gateway_edition(Definition) of
         true ->
-            [Defination | gateways(More)];
+            [Definition];
         _ ->
-            gateways(More)
+            []
     end.
 
 -if(?EMQX_RELEASE_EDITION == ee).
@@ -742,12 +744,10 @@ check_gateway_edition(Defination) ->
     ce == maps:get(edition, Defination, ce).
 -endif.
 
-find_attrs(App, Def) ->
+find_attrs(AppMod, Def) ->
     [
-        {App, Mod, Attr}
-     || {ok, Modules} <- [application:get_key(App, modules)],
-        Mod <- Modules,
-        {Name, Attrs} <- module_attributes(Mod),
+        Attr
+     || {Name, Attrs} <- module_attributes(AppMod),
         Name =:= Def,
         Attr <- Attrs
     ].
@@ -759,43 +759,6 @@ module_attributes(Module) ->
         error:undef -> []
     end.
 
-ignore_lib_apps(Apps) ->
-    LibApps = [
-        kernel,
-        stdlib,
-        sasl,
-        appmon,
-        eldap,
-        erts,
-        syntax_tools,
-        ssl,
-        crypto,
-        mnesia,
-        os_mon,
-        inets,
-        goldrush,
-        gproc,
-        runtime_tools,
-        snmp,
-        otp_mibs,
-        public_key,
-        asn1,
-        ssh,
-        hipe,
-        common_test,
-        observer,
-        webtool,
-        xmerl,
-        tools,
-        test_server,
-        compiler,
-        debugger,
-        eunit,
-        et,
-        wx
-    ],
-    [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
-
 -spec plus_max_connections(non_neg_integer() | infinity, non_neg_integer() | infinity) ->
     pos_integer() | infinity.
 plus_max_connections(_, infinity) ->
@@ -804,21 +767,6 @@ plus_max_connections(infinity, _) ->
     infinity;
 plus_max_connections(A, B) when is_integer(A) andalso is_integer(B) ->
     A + B.
-
-%% we need to load all gateway applications before generate doc from cli
-ensure_gateway_loaded() ->
-    lists:foreach(
-        fun application:load/1,
-        [
-            emqx_gateway_exproto,
-            emqx_gateway_stomp,
-            emqx_gateway_coap,
-            emqx_gateway_lwm2m,
-            emqx_gateway_mqttsn,
-            emqx_gateway_gbt32960,
-            emqx_gateway_ocpp
-        ]
-    ).
 
 random_clientid(GwName) when is_atom(GwName) ->
     iolist_to_binary([atom_to_list(GwName), "-", emqx_utils:gen_id()]).

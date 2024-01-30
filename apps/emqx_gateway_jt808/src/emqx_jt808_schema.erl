@@ -8,9 +8,12 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--export([fields/1, desc/1]).
+-behaviour(hocon_schema).
+-export([namespace/0, fields/1, desc/1]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
+
+namespace() -> gateway.
 
 fields(jt808) ->
     [

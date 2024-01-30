@@ -101,10 +101,9 @@ end_per_testcase(_Case, Config) ->
     ok.
 
 boot_apps(Case, JT808Conf, Config) ->
-    application:load(emqx_gateway_jt808),
     Apps = emqx_cth_suite:start(
         [
-            cowboy,
+            emqx,
             {emqx_conf, JT808Conf},
             emqx_gateway
         ],
