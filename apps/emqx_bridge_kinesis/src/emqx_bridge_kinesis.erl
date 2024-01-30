@@ -54,7 +54,7 @@ fields(action) ->
             }
         )};
 fields(action_parameters) ->
-    fields(producer) -- fields(local_topic);
+    proplists:delete(local_topic, fields(producer));
 fields(kinesis_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(
