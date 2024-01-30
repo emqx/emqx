@@ -22,13 +22,10 @@
 -logger_header("[exclusive]").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
+-export([create_tables/0]).
 
 %% For upgrade
 -export([on_add_module/0, on_delete_module/0]).
-
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([
     check_subscribe/2,
@@ -53,7 +50,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+create_tables() ->
     StoreProps = [
         {ets, [
             {read_concurrency, true},
@@ -68,14 +65,14 @@ mnesia(boot) ->
         {attributes, record_info(fields, exclusive_subscription)},
         {storage_properties, StoreProps}
     ]),
-    ok = mria_rlog:wait_for_shards([?EXCLUSIVE_SHARD], infinity).
+    [?TAB].
 
 %%--------------------------------------------------------------------
 %% Upgrade
 %%--------------------------------------------------------------------
 
 on_add_module() ->
-    mnesia(boot).
+    mria:wait_for_tables(create_tables()).
 
 on_delete_module() ->
     clear().

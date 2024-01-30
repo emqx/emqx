@@ -23,6 +23,10 @@
 -export([init/1]).
 
 start_link() ->
+    ok = mria:wait_for_tables(
+        emqx_shared_sub:create_tables() ++
+            emqx_exclusive_subscription:create_tables()
+    ),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %%--------------------------------------------------------------------

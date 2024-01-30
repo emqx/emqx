@@ -20,12 +20,10 @@
 
 %% Mnesia bootstrap
 -export([
-    mnesia/1,
+    create_trie/0,
     wait_for_tables/0,
     create_session_trie/1
 ]).
-
--boot_mnesia({mnesia, [boot]}).
 
 %% Trie APIs
 -export([
@@ -65,8 +63,8 @@
 %%--------------------------------------------------------------------
 
 %% @doc Create or replicate topics table.
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
+-spec create_trie() -> [mria:table()].
+create_trie() ->
     %% Optimize storage
     StoreProps = [
         {ets, [
@@ -80,7 +78,8 @@ mnesia(boot) ->
         {attributes, record_info(fields, ?TRIE)},
         {type, ordered_set},
         {storage_properties, StoreProps}
-    ]).
+    ]),
+    [?TRIE].
 
 create_session_trie(Type) ->
     Storage =

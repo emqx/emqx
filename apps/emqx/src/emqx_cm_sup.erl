@@ -32,6 +32,7 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
+    ok = mria:wait_for_tables(emqx_banned:create_tables()),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %%--------------------------------------------------------------------
