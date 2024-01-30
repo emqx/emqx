@@ -16,7 +16,15 @@
 -module(emqx_persistent_session_ds_inflight).
 
 %% API:
--export([new/1, push/2, pop/1, n_buffered/2, n_inflight/1, inc_send_quota/1, receive_maximum/1]).
+-export([
+    new/1,
+    push/2,
+    pop/1,
+    n_buffered/2,
+    n_inflight/1,
+    inc_send_quota/1,
+    receive_maximum/1
+]).
 
 %% internal exports:
 -export([]).
@@ -107,7 +115,7 @@ pop(Rec0) ->
             undefined
     end.
 
--spec n_buffered(0..2 | all, t()) -> non_neg_integer().
+-spec n_buffered(?QOS_0..?QOS_2 | all, t()) -> non_neg_integer().
 n_buffered(?QOS_0, #inflight{n_qos0 = NQos0}) ->
     NQos0;
 n_buffered(?QOS_1, #inflight{n_qos1 = NQos1}) ->
