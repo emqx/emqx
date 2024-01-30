@@ -3,7 +3,7 @@
     {vsn, "0.1.34"},
     {registered, []},
     {mod, {emqx_conf_app, []}},
-    {applications, [kernel, stdlib, emqx_ctl]},
+    {applications, [kernel, stdlib]},
     {env, []},
     {modules, []}
 ]}.
