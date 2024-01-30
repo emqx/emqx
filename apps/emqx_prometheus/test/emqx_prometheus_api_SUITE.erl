@@ -279,20 +279,23 @@ t_stats_no_auth_api(_) ->
             ok
     end,
     emqx_dashboard_listener:regenerate_minirest_dispatch(),
-    Json = [{"accept", "application/json"}],
-    request_stats(Json, []).
+    Headers = accept_josn_header(),
+    request_stats(Headers, []).
 
 t_stats_auth_api(_) ->
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
     emqx_dashboard_listener:regenerate_minirest_dispatch(),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    JsonAuth = [{"accept", "application/json"}, Auth],
-    request_stats(JsonAuth, Auth),
+    Headers = [Auth | accept_josn_header()],
+    request_stats(Headers, Auth),
     ok.
 
-request_stats(JsonAuth, Auth) ->
+accept_josn_header() ->
+    [{"accept", "application/json"}].
+
+request_stats(Headers, Auth) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", JsonAuth),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
     Data = emqx_utils_json:decode(Response, [return_maps]),
     ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),

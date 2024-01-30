@@ -22,21 +22,23 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(LEGACY_CONF_DEFAULT, <<
-    "prometheus {\n"
-    "  push_gateway_server = \"http://127.0.0.1:9091\"\n"
-    "  interval = \"1s\"\n"
-    "  headers = { Authorization = \"some-authz-tokens\"}\n"
-    "  job_name = \"${name}~${host}\"\n"
-    "  enable = true\n"
-    "  vm_dist_collector = disabled\n"
-    "  mnesia_collector = disabled\n"
-    "  vm_statistics_collector = disabled\n"
-    "  vm_system_info_collector = disabled\n"
-    "  vm_memory_collector = disabled\n"
-    "  vm_msacc_collector = disabled\n"
-    "}\n"
->>).
+-define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
+%% erlfmt-ignore
+-define(LEGACY_CONF_DEFAULT, <<"
+prometheus {
+    push_gateway_server = \"http://127.0.0.1:9091\"
+    interval = \"1s\"
+    headers = { Authorization = \"some-authz-tokens\"}
+    job_name = \"${name}~${host}\"
+    enable = true
+    vm_dist_collector = disabled
+    mnesia_collector = disabled
+    vm_statistics_collector = disabled
+    vm_system_info_collector = disabled
+    vm_memory_collector = disabled
+    vm_msacc_collector = disabled
+}
+">>).
 
 -define(CONF_DEFAULT, #{
     <<"prometheus">> =>
