@@ -34,30 +34,25 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_config, get, fun
-        ([psk_authentication, enable]) -> true;
-        ([psk_authentication, chunk_size]) -> 50;
-        (KeyPath) -> meck:passthrough([KeyPath])
-    end),
-    meck:expect(emqx_config, get, fun
-        ([psk_authentication, init_file], _) ->
-            filename:join([
-                code:lib_dir(emqx_psk, test),
-                "data/init.psk"
-            ]);
-        ([psk_authentication, separator], _) ->
-            <<":">>;
-        (KeyPath, Default) ->
-            meck:passthrough([KeyPath, Default])
-    end),
-    emqx_common_test_helpers:start_apps([emqx_psk]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_psk, #{
+                config => #{
+                    psk_authentication => #{
+                        enable => true,
+                        init_file => filename:join(?config(data_dir, Config), "init.psk"),
+                        separator => <<":">>
+                    }
+                }
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_) ->
-    meck:unload(emqx_config),
-    emqx_common_test_helpers:stop_apps([emqx_psk]),
-    ok.
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_psk_lookup(_) ->
     PSKIdentity1 = <<"myclient1">>,
