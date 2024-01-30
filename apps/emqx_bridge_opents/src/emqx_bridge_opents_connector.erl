@@ -294,13 +294,26 @@ render_channel_message(Msg, #{data := DataList}, Acc) ->
     lists:foldl(
         fun(#{metric := MetricTk, tags := TagsTk, value := ValueTk} = Data, InAcc) ->
             MetricVal = emqx_placeholder:proc_tmpl(MetricTk, Msg),
+
             TagsVal =
-                case emqx_placeholder:proc_tmpl(TagsTk, Msg, RawOpts) of
-                    [undefined] ->
-                        #{};
-                    [Any] ->
-                        Any
+                case TagsTk of
+                    [tags | TagTkList] ->
+                        maps:from_list([
+                            {
+                                emqx_placeholder:proc_tmpl(TagName, Msg),
+                                emqx_placeholder:proc_tmpl(TagValue, Msg)
+                            }
+                         || {TagName, TagValue} <- TagTkList
+                        ]);
+                    TagsTks ->
+                        case emqx_placeholder:proc_tmpl(TagsTks, Msg, RawOpts) of
+                            [undefined] ->
+                                #{};
+                            [Any] ->
+                                Any
+                        end
                 end,
+
             ValueVal =
                 case ValueTk of
                     [_] ->
@@ -308,7 +321,7 @@ render_channel_message(Msg, #{data := DataList}, Acc) ->
                         %% we should keep it as it is
                         erlang:hd(emqx_placeholder:proc_tmpl(ValueTk, Msg, RawOpts));
                     Tks when is_list(Tks) ->
-                        emqx_placeholder:proc_tmpl(ValueTk, Msg);
+                        emqx_placeholder:proc_tmpl(Tks, Msg);
                     Raw ->
                         %% not a token list, just a raw value
                         Raw
@@ -332,8 +345,8 @@ preproc_data_template([]) ->
     preproc_data_template(emqx_bridge_opents:default_data_template());
 preproc_data_template(DataList) ->
     lists:map(
-        fun(Data) ->
-            {Value, Data2} = maps:take(value, Data),
+        fun(#{tags := Tags, value := Value} = Data) ->
+            Data2 = maps:without([tags, value], Data),
             Template = maps:map(
                 fun(_Key, Val) ->
                     emqx_placeholder:preproc_tmpl(Val)
@@ -341,12 +354,32 @@ preproc_data_template(DataList) ->
                 Data2
             ),
 
-            case Value of
-                Text when is_binary(Text) ->
-                    Template#{value => emqx_placeholder:preproc_tmpl(Text)};
-                Raw ->
-                    Template#{value => Raw}
-            end
+            TagsTk =
+                case Tags of
+                    Tmpl when is_binary(Tmpl) ->
+                        emqx_placeholder:preproc_tmpl(Tmpl);
+                    List ->
+                        [
+                            tags
+                            | [
+                                {
+                                    emqx_placeholder:preproc_tmpl(TagName),
+                                    emqx_placeholder:preproc_tmpl(TagValue)
+                                }
+                             || #{tag := TagName, value := TagValue} <- List
+                            ]
+                        ]
+                end,
+
+            ValueTk =
+                case Value of
+                    Text when is_binary(Text) ->
+                        emqx_placeholder:preproc_tmpl(Text);
+                    Raw ->
+                        Raw
+                end,
+
+            Template#{tags => TagsTk, value => ValueTk}
         end,
         DataList
     ).
