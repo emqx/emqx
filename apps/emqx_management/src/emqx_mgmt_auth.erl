@@ -22,8 +22,8 @@
 -behaviour(emqx_db_backup).
 
 %% API
--export([mnesia/1]).
--boot_mnesia({mnesia, [boot]}).
+-export([create_tables/0]).
+
 -behaviour(emqx_config_handler).
 
 -export([
@@ -70,7 +70,7 @@
 
 -define(DEFAULT_HASH_LEN, 16).
 
-mnesia(boot) ->
+create_tables() ->
     Fields = record_info(fields, ?APP),
     ok = mria:create_table(?APP, [
         {type, set},
@@ -78,7 +78,8 @@ mnesia(boot) ->
         {storage, disc_copies},
         {record_name, ?APP},
         {attributes, Fields}
-    ]).
+    ]),
+    [?APP].
 
 %%--------------------------------------------------------------------
 %% Data backup

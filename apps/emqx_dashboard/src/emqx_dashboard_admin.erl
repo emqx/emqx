@@ -22,12 +22,9 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
--boot_mnesia({mnesia, [boot]}).
-
 -behaviour(emqx_db_backup).
 
-%% Mnesia bootstrap
--export([mnesia/1]).
+-export([create_tables/0]).
 
 -export([
     add_user/4,
@@ -70,7 +67,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+create_tables() ->
     ok = mria:create_table(?ADMIN, [
         {type, set},
         {rlog_shard, ?DASHBOARD_SHARD},
@@ -83,7 +80,8 @@ mnesia(boot) ->
                 {write_concurrency, true}
             ]}
         ]}
-    ]).
+    ]),
+    [?ADMIN].
 
 %%--------------------------------------------------------------------
 %% Data backup

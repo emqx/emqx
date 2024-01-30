@@ -18,6 +18,8 @@
 
 -include("emqx_dashboard.hrl").
 
+-export([create_tables/0]).
+
 -export([
     sign/2,
     verify/2,
@@ -26,10 +28,6 @@
     destroy/1,
     destroy_by_username/1
 ]).
-
--boot_mnesia({mnesia, [boot]}).
-
--export([mnesia/1]).
 
 -ifdef(TEST).
 -export([lookup_by_username/1, clean_expired_jwt/1]).
@@ -87,7 +85,7 @@ salt() ->
     <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
     iolist_to_binary(io_lib:format("~4.16.0b", [X])).
 
-mnesia(boot) ->
+create_tables() ->
     ok = mria:create_table(?TAB, [
         {type, set},
         {rlog_shard, ?DASHBOARD_SHARD},
@@ -100,7 +98,8 @@ mnesia(boot) ->
                 {write_concurrency, true}
             ]}
         ]}
-    ]).
+    ]),
+    [?TAB].
 
 %%--------------------------------------------------------------------
 %% jwt apply

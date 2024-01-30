@@ -93,15 +93,22 @@ default_auth_header() ->
 create_default_app() ->
     Now = erlang:system_time(second),
     ExpiredAt = Now + timer:minutes(10),
-    emqx_mgmt_auth:create(
-        ?DEFAULT_APP_ID,
-        ?DEFAULT_APP_KEY,
-        ?DEFAULT_APP_SECRET,
-        true,
-        ExpiredAt,
-        <<"default app key for test">>,
-        ?ROLE_API_SUPERUSER
-    ).
+    case
+        emqx_mgmt_auth:create(
+            ?DEFAULT_APP_ID,
+            ?DEFAULT_APP_KEY,
+            ?DEFAULT_APP_SECRET,
+            true,
+            ExpiredAt,
+            <<"default app key for test">>,
+            ?ROLE_API_SUPERUSER
+        )
+    of
+        {ok, App} ->
+            {ok, App};
+        {error, name_already_existed} ->
+            {ok, _} = emqx_mgmt_auth:read(?DEFAULT_APP_ID)
+    end.
 
 delete_default_app() ->
     emqx_mgmt_auth:delete(?DEFAULT_APP_ID).

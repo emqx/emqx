@@ -30,8 +30,9 @@ init_suite(Apps, SetConfigs) when is_function(SetConfigs) ->
     init_suite(Apps, SetConfigs, #{}).
 
 init_suite(Apps, SetConfigs, Opts) ->
-    application:load(emqx_management),
-    emqx_common_test_helpers:start_apps(Apps ++ [emqx_dashboard], SetConfigs, Opts),
+    emqx_common_test_helpers:start_apps(
+        Apps ++ [emqx_management, emqx_dashboard], SetConfigs, Opts
+    ),
     _ = emqx_common_test_http:create_default_app(),
     ok.
 
@@ -40,8 +41,7 @@ end_suite() ->
 
 end_suite(Apps) ->
     emqx_common_test_http:delete_default_app(),
-    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]),
-    application:unload(emqx_management),
+    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_management, emqx_dashboard]),
     ok.
 
 set_special_configs(emqx_dashboard) ->
