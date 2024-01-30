@@ -545,6 +545,7 @@ clientinfo() -> clientinfo(#{}).
 clientinfo(Init) ->
     maps:merge(
         #{
+            zone => ?MODULE,
             clientid => <<"clientid">>,
             username => <<"username">>
         },

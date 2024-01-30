@@ -595,7 +595,7 @@ t_session_gc(Config) ->
                     }
                 )
             ),
-            ?assertMatch([ClientId1], list_all_sessions(Node1), sessions),
+            ?retry(50, 3, [ClientId1] = list_all_sessions(Node1)),
             ?assertMatch([_], list_all_subscriptions(Node1), subscriptions),
             ok
         end,

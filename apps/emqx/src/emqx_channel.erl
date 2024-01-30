@@ -930,7 +930,8 @@ handle_deliver(
     Delivers1 = maybe_nack(Delivers),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
-    {ok, Channel#channel{session = NSession}};
+    %% we need to update stats here, as the stats_timer is canceled after disconnected
+    {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
     Delivers1 = emqx_external_trace:start_trace_send(Delivers, trace_info(Channel)),
     do_handle_deliver(Delivers1, Channel).

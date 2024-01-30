@@ -65,7 +65,7 @@
 ]).
 
 -export([
-    is_expired/1,
+    is_expired/2,
     update_expiry/1,
     timestamp_now/0
 ]).
@@ -273,14 +273,20 @@ remove_header(Hdr, Msg = #message{headers = Headers}) ->
         false -> Msg
     end.
 
--spec is_expired(emqx_types:message()) -> boolean().
-is_expired(#message{
-    headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
-    timestamp = CreatedAt
-}) ->
+-spec is_expired(emqx_types:message(), atom()) -> boolean().
+is_expired(
+    #message{
+        headers = #{properties := #{'Message-Expiry-Interval' := Interval}},
+        timestamp = CreatedAt
+    },
+    _
+) ->
     elapsed(CreatedAt) > timer:seconds(Interval);
-is_expired(_Msg) ->
-    false.
+is_expired(#message{timestamp = CreatedAt}, Zone) ->
+    case emqx_config:get_zone_conf(Zone, [mqtt, message_expiry_interval], infinity) of
+        infinity -> false;
+        Interval -> elapsed(CreatedAt) > Interval
+    end.
 
 -spec update_expiry(emqx_types:message()) -> emqx_types:message().
 update_expiry(
