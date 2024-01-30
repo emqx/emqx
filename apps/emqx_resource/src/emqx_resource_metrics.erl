@@ -16,6 +16,8 @@
 
 -module(emqx_resource_metrics).
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([
     events/0,
     install_telemetry_handler/1,
@@ -118,6 +120,52 @@ handle_telemetry_event(
     _Metadata = #{resource_id := ID},
     _HandlerConfig
 ) ->
+    try
+        handle_counter_telemetry_event(Event, ID, Val)
+    catch
+        Kind:Reason:Stacktrace ->
+            %% We catch errors to avoid detaching the telemetry handler function.
+            %% When restarting a resource while it's under load, there might be transient
+            %% failures while the metrics are not yet created.
+            ?SLOG(warning, #{
+                msg => "handle_resource_metrics_failed",
+                hint => "transient failures may occur when restarting a resource",
+                kind => Kind,
+                reason => Reason,
+                stacktrace => Stacktrace,
+                resource_id => ID,
+                event => Event
+            }),
+            ok
+    end;
+handle_telemetry_event(
+    [?TELEMETRY_PREFIX, Event],
+    _Measurements = #{gauge_set := Val},
+    _Metadata = #{resource_id := ID, worker_id := WorkerID},
+    _HandlerConfig
+) ->
+    try
+        handle_gauge_telemetry_event(Event, ID, WorkerID, Val)
+    catch
+        Kind:Reason:Stacktrace ->
+            %% We catch errors to avoid detaching the telemetry handler function.
+            %% When restarting a resource while it's under load, there might be transient
+            %% failures while the metrics are not yet created.
+            ?SLOG(warning, #{
+                msg => "handle_resource_metrics_failed",
+                hint => "transient failures may occur when restarting a resource",
+                kind => Kind,
+                reason => Reason,
+                stacktrace => Stacktrace,
+                resource_id => ID,
+                event => Event
+            }),
+            ok
+    end;
+handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->
+    ok.
+
+handle_counter_telemetry_event(Event, ID, Val) ->
     case Event of
         dropped_other ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
@@ -154,13 +202,9 @@ handle_telemetry_event(
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
         _ ->
             ok
-    end;
-handle_telemetry_event(
-    [?TELEMETRY_PREFIX, Event],
-    _Measurements = #{gauge_set := Val},
-    _Metadata = #{resource_id := ID, worker_id := WorkerID},
-    _HandlerConfig
-) ->
+    end.
+
+handle_gauge_telemetry_event(Event, ID, WorkerID, Val) ->
     case Event of
         inflight ->
             emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'inflight', Val);
@@ -168,9 +212,7 @@ handle_telemetry_event(
             emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'queuing', Val);
         _ ->
             ok
-    end;
-handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->
-    ok.
+    end.
 
 %% Gauges (value can go both up and down):
 %% --------------------------------------

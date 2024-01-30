@@ -28,6 +28,7 @@
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 -define(RESOURCE_ERROR(REASON), {error, {resource_error, #{reason := REASON}}}).
 -define(TRACE_OPTS, #{timetrap => 10000, timeout => 1000}).
+-define(TELEMETRY_PREFIX, emqx, resource).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -3006,6 +3007,36 @@ do_t_resource_activate_alarm_once(ResourceConfig, SubscribeEvent) ->
         end
     ).
 
+t_telemetry_handler_crash(_Config) ->
+    %% Check that a crash while handling a telemetry event, such as when a busy resource
+    %% is restarted and its metrics are not recreated while handling an increment, does
+    %% not lead to the handler being uninstalled.
+    ?check_trace(
+        begin
+            NonExistentId = <<"I-dont-exist">>,
+            WorkerId = 1,
+            HandlersBefore = telemetry:list_handlers([?TELEMETRY_PREFIX]),
+            ?assertMatch([_ | _], HandlersBefore),
+            lists:foreach(fun(Fn) -> Fn(NonExistentId) end, counter_metric_inc_fns()),
+            emqx_common_test_helpers:with_mock(
+                emqx_metrics_worker,
+                set_gauge,
+                fun(_Name, _Id, _WorkerId, _Metric, _Val) ->
+                    error(random_crash)
+                end,
+                fun() ->
+                    lists:foreach(
+                        fun(Fn) -> Fn(NonExistentId, WorkerId, 1) end, gauge_metric_set_fns()
+                    )
+                end
+            ),
+            ?assertEqual(HandlersBefore, telemetry:list_handlers([?TELEMETRY_PREFIX])),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -3235,3 +3266,25 @@ do_wait_until_all_marked_as_retriable(NumExpected, Seen) ->
                     })
             end
     end.
+
+counter_metric_inc_fns() ->
+    Mod = emqx_resource_metrics,
+    [
+        fun Mod:Fn/1
+     || {Fn, 1} <- Mod:module_info(functions),
+        case string:find(atom_to_list(Fn), "_inc", trailing) of
+            "_inc" -> true;
+            _ -> false
+        end
+    ].
+
+gauge_metric_set_fns() ->
+    Mod = emqx_resource_metrics,
+    [
+        fun Mod:Fn/3
+     || {Fn, 3} <- Mod:module_info(functions),
+        case string:find(atom_to_list(Fn), "_set", trailing) of
+            "_set" -> true;
+            _ -> false
+        end
+    ].

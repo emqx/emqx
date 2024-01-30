@@ -216,7 +216,7 @@ t_import_users(_) ->
     ?assertMatch(
         {error, {unsupported_file_format, _}},
         emqx_authn_mnesia:import_users(
-            {<<"/file/with/unknown.extension">>, <<>>},
+            {hash, <<"/file/with/unknown.extension">>, <<>>},
             State
         )
     ),
@@ -224,7 +224,7 @@ t_import_users(_) ->
     ?assertEqual(
         {error, unknown_file_format},
         emqx_authn_mnesia:import_users(
-            {<<"/file/with/no/extension">>, <<>>},
+            {hash, <<"/file/with/no/extension">>, <<>>},
             State
         )
     ),
@@ -251,6 +251,142 @@ t_import_users(_) ->
             sample_filename_and_data(<<"user-credentials-malformed.csv">>),
             State
         )
+    ),
+
+    ?assertEqual(
+        {error, empty_users},
+        emqx_authn_mnesia:import_users(
+            {hash, <<"empty_users.json">>, <<"[]">>},
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, empty_users},
+        emqx_authn_mnesia:import_users(
+            {hash, <<"empty_users.csv">>, <<>>},
+            State
+        )
+    ),
+
+    ?assertEqual(
+        {error, empty_users},
+        emqx_authn_mnesia:import_users(
+            {hash, prepared_user_list, []},
+            State
+        )
+    ).
+
+t_import_users_plain(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain.json">>),
+            State
+        )
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain.csv">>),
+            State
+        )
+    ).
+
+t_import_users_prepared_list(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    Users1 = [
+        #{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"is_superuser">> => true},
+        #{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>, <<"is_superuser">> => true}
+    ],
+    Users2 = [
+        #{
+            <<"user_id">> => <<"u3">>,
+            <<"password_hash">> =>
+                <<"c5e46903df45e5dc096dc74657610dbee8deaacae656df88a1788f1847390242">>,
+            <<"salt">> => <<"e378187547bf2d6f0545a3f441aa4d8a">>,
+            <<"is_superuser">> => true
+        },
+        #{
+            <<"user_id">> => <<"u4">>,
+            <<"password_hash">> =>
+                <<"f4d17f300b11e522fd33f497c11b126ef1ea5149c74d2220f9a16dc876d4567b">>,
+            <<"salt">> => <<"6d3f9bd5b54d94b98adbcfe10b6d181f">>,
+            <<"is_superuser">> => true
+        }
+    ],
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            {plain, prepared_user_list, Users1},
+            State
+        )
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            {hash, prepared_user_list, Users2},
+            State
+        )
+    ).
+
+t_import_users_duplicated_records(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => plain, salt_position => disable}},
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain-dup.json">>),
+            State
+        )
+    ),
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain-dup.csv">>),
+            State
+        )
+    ),
+    Users1 = [
+        #{
+            <<"user_id">> => <<"myuser5">>,
+            <<"password">> => <<"password5">>,
+            <<"is_superuser">> => true
+        },
+        #{
+            <<"user_id">> => <<"myuser5">>,
+            <<"password">> => <<"password6">>,
+            <<"is_superuser">> => false
+        }
+    ],
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            {plain, prepared_user_list, Users1},
+            State
+        )
+    ),
+
+    %% assert: the last record overwrites the previous one
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser1">>}, <<"password2">>, _, false},
+            {user_info, {_, <<"myuser3">>}, <<"password4">>, _, false},
+            {user_info, {_, <<"myuser5">>}, <<"password6">>, _, false}
+        ],
+        ets:tab2list(emqx_authn_mnesia)
     ).
 
 %%------------------------------------------------------------------------------
@@ -262,9 +398,12 @@ sample_filename(Name) ->
     filename:join([Dir, <<"data">>, Name]).
 
 sample_filename_and_data(Name) ->
+    sample_filename_and_data(hash, Name).
+
+sample_filename_and_data(Type, Name) ->
     Filename = sample_filename(Name),
     {ok, Data} = file:read_file(Filename),
-    {Filename, Data}.
+    {Type, Filename, Data}.
 
 config() ->
     #{

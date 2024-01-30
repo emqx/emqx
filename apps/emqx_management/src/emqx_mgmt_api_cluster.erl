@@ -206,11 +206,10 @@ fields(node_invitation_succeed) ->
         [
             {finished_at,
                 ?HOCON(
-                    emqx_utils_calendar:epoch_millisecond(),
+                    binary(),
                     #{
-                        desc =>
-                            <<"The time of the async invitation result is received, millisecond precision epoch">>,
-                        example => <<"1705044829915">>
+                        desc => <<"The time of the async invitation result is received">>,
+                        example => <<"2024-01-30T15:24:39.355+08:00">>
                     }
                 )}
         ];
@@ -223,11 +222,10 @@ fields(node_invitation_in_progress) ->
             )},
         {started_at,
             ?HOCON(
-                emqx_utils_calendar:epoch_millisecond(),
+                binary(),
                 #{
-                    desc =>
-                        <<"The start timestamp of the invitation, millisecond precision epoch">>,
-                    example => <<"1705044829915">>
+                    desc => <<"The time of the async invitation is started">>,
+                    example => <<"2024-01-30T15:24:39.355+08:00">>
                 }
             )}
     ].
