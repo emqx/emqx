@@ -25,12 +25,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 -export([
+    create_tables/0,
     start_link/0,
     on_message_publish/1
 ]).
@@ -118,14 +114,16 @@
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
-mnesia(boot) ->
+
+create_tables() ->
     ok = mria:create_table(?TAB, [
         {type, ordered_set},
         {storage, disc_copies},
         {local_content, true},
         {record_name, delayed_message},
         {attributes, record_info(fields, delayed_message)}
-    ]).
+    ]),
+    [?TAB].
 
 %%------------------------------------------------------------------------------
 %% Hooks
