@@ -86,11 +86,11 @@ do_run([{K, N} | T], St) ->
     end.
 
 %% @doc Info of GC state.
--spec info(maybe(gc_state())) -> maybe(map()).
+-spec info(option(gc_state())) -> option(map()).
 info(?GCS(St)) -> St.
 
 %% @doc Reset counters to zero.
--spec reset(maybe(gc_state())) -> gc_state().
+-spec reset(option(gc_state())) -> gc_state().
 reset(?GCS(St)) ->
     ?GCS(do_reset(St)).
 

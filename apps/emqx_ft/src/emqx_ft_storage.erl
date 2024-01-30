@@ -100,7 +100,7 @@
 -callback start(storage()) -> any().
 -callback stop(storage()) -> any().
 
--callback update_config(_OldConfig :: maybe(storage()), _NewConfig :: maybe(storage())) ->
+-callback update_config(_OldConfig :: option(storage()), _NewConfig :: option(storage())) ->
     any().
 
 %%--------------------------------------------------------------------

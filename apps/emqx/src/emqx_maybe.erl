@@ -23,30 +23,30 @@
 -export([define/2]).
 -export([apply/2]).
 
--type t(T) :: maybe(T).
+-type t(T) :: option(T).
 -export_type([t/1]).
 
--spec to_list(maybe(A)) -> [A].
+-spec to_list(option(A)) -> [A].
 to_list(undefined) ->
     [];
 to_list(Term) ->
     [Term].
 
--spec from_list([A]) -> maybe(A).
+-spec from_list([A]) -> option(A).
 from_list([]) ->
     undefined;
 from_list([Term]) ->
     Term.
 
--spec define(maybe(A), B) -> A | B.
+-spec define(option(A), B) -> A | B.
 define(undefined, Term) ->
     Term;
 define(Term, _) ->
     Term.
 
 %% @doc Apply a function to a maybe argument.
--spec apply(fun((A) -> B), maybe(A)) ->
-    maybe(B).
+-spec apply(fun((A) -> B), option(A)) ->
+    option(B).
 apply(_Fun, undefined) ->
     undefined;
 apply(Fun, Term) when is_function(Fun) ->

@@ -135,7 +135,7 @@
 -type custom_timer_name() :: atom().
 
 -type message() :: emqx_types:message().
--type publish() :: {maybe(emqx_types:packet_id()), emqx_types:message()}.
+-type publish() :: {option(emqx_types:packet_id()), emqx_types:message()}.
 -type pubrel() :: {pubrel, emqx_types:packet_id()}.
 -type reply() :: publish() | pubrel().
 -type replies() :: [reply()] | reply().

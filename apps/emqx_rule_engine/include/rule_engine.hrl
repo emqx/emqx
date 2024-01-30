@@ -18,7 +18,7 @@
 
 -define(KV_TAB, '@rule_engine_db').
 
--type maybe(T) :: T | undefined.
+-type option(T) :: T | undefined.
 
 -type rule_id() :: binary().
 -type rule_name() :: binary().

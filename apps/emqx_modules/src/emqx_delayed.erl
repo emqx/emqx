@@ -92,10 +92,10 @@
 -export_type([with_id_return/0, with_id_return/1]).
 
 -type state() :: #{
-    publish_timer := maybe(reference()),
+    publish_timer := option(reference()),
     publish_at := non_neg_integer(),
-    stats_timer := maybe(reference()),
-    stats_fun := maybe(fun((pos_integer()) -> ok))
+    stats_timer := option(reference()),
+    stats_fun := option(fun((pos_integer()) -> ok))
 }.
 
 %% sync ms with record change

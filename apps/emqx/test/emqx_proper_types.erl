@@ -114,8 +114,8 @@ clientinfo() ->
         {username, username()},
         {is_bridge, boolean()},
         {is_supuser, boolean()},
-        {mountpoint, maybe(utf8())},
-        {ws_cookie, maybe(list())}
+        {mountpoint, option(utf8())},
+        {ws_cookie, option(list())}
         % password,
         % auth_result,
         % anonymous,
@@ -496,7 +496,7 @@ pubsub() ->
 %% Basic Types
 %%--------------------------------------------------------------------
 
-maybe(T) ->
+option(T) ->
     oneof([undefined, T]).
 
 socktype() ->
@@ -522,7 +522,7 @@ clientid() ->
     utf8().
 
 username() ->
-    maybe(utf8()).
+    option(utf8()).
 
 properties() ->
     map(limited_latin_atom(), binary()).

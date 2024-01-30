@@ -825,7 +825,7 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
 handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data) ->
     %% When state is not connected and not connecting the channel will be removed
     %% from the channels map but nothing else will happen since the channel
-    %% is not addded/installed in the resource state.
+    %% is not added/installed in the resource state.
     Channels = Data#data.added_channels,
     NewChannels = maps:remove(ChannelId, Channels),
     NewData = Data#data{added_channels = NewChannels},
@@ -915,7 +915,7 @@ with_health_check(#data{error = PrevError} = Data, Func) ->
 -spec channels_health_check(resource_status(), data()) -> data().
 channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
     Channels = maps:to_list(Data0#data.added_channels),
-    %% All channels with a stutus different from connected or connecting are
+    %% All channels with a status different from connected or connecting are
     %% not added
     ChannelsNotAdded = [
         ChannelId

@@ -48,7 +48,7 @@ get_counter(Key) ->
         Cnt -> Cnt
     end.
 
--spec inc_counter(key(), number()) -> maybe(number()).
+-spec inc_counter(key(), number()) -> option(number()).
 inc_counter(Key, Inc) ->
     put(Key, get_counter(Key) + Inc).
 

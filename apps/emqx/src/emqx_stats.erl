@@ -62,7 +62,7 @@
 -record(update, {name, countdown, interval, func}).
 
 -record(state, {
-    timer :: maybe(reference()),
+    timer :: option(reference()),
     updates :: [#update{}],
     tick_ms :: timeout()
 }).

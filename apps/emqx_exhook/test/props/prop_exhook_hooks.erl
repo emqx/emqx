@@ -509,8 +509,8 @@ ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
 ntoa(IP) ->
     list_to_binary(inet_parse:ntoa(IP)).
 
-maybe(undefined) -> <<>>;
-maybe(B) -> B.
+option(undefined) -> <<>>;
+option(B) -> B.
 
 properties(undefined) ->
     [];
@@ -568,7 +568,7 @@ from_conninfo(ConnInfo) ->
     #{
         node => nodestr(),
         clientid => maps:get(clientid, ConnInfo),
-        username => maybe(maps:get(username, ConnInfo, <<>>)),
+        username => option(maps:get(username, ConnInfo, <<>>)),
         peerhost => peerhost(ConnInfo),
         peerport => peerport(ConnInfo),
         sockport => sockport(ConnInfo),
@@ -581,17 +581,17 @@ from_clientinfo(ClientInfo) ->
     #{
         node => nodestr(),
         clientid => maps:get(clientid, ClientInfo),
-        username => maybe(maps:get(username, ClientInfo, <<>>)),
-        password => maybe(maps:get(password, ClientInfo, <<>>)),
+        username => option(maps:get(username, ClientInfo, <<>>)),
+        password => option(maps:get(password, ClientInfo, <<>>)),
         peerhost => ntoa(maps:get(peerhost, ClientInfo)),
         peerport => maps:get(peerport, ClientInfo),
         sockport => maps:get(sockport, ClientInfo),
         protocol => stringfy(maps:get(protocol, ClientInfo)),
-        mountpoint => maybe(maps:get(mountpoint, ClientInfo, <<>>)),
+        mountpoint => option(maps:get(mountpoint, ClientInfo, <<>>)),
         is_superuser => maps:get(is_superuser, ClientInfo, false),
         anonymous => maps:get(anonymous, ClientInfo, true),
-        cn => maybe(maps:get(cn, ClientInfo, <<>>)),
-        dn => maybe(maps:get(dn, ClientInfo, <<>>))
+        cn => option(maps:get(cn, ClientInfo, <<>>)),
+        dn => option(maps:get(dn, ClientInfo, <<>>))
     }.
 
 from_message(Msg) ->

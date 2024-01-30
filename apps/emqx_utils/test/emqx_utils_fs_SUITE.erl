@@ -66,8 +66,8 @@ t_traverse_dir(Config) ->
             {"nonempty/d2/deep/down/here", #file_info{type = regular, mode = ORW}},
             {"nonempty/d2/deep/mutrec", #file_info{type = symlink, mode = ARWX}}
         ] when
-            ((ORW band 8#00600 =:= 8#00600) and
-                (ARWX band 8#00777 =:= 8#00777)),
+            (((ORW band 8#00600 =:= 8#00600) and
+                (ARWX band 8#00777 =:= 8#00777))),
 
         [{string:prefix(Filename, Dir), Info} || {Filename, Info} <- Traversal]
     ).
