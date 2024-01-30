@@ -336,7 +336,13 @@ test_authenticator_import_users(PathPrefix) ->
     {ok, CSVData} = file:read_file(CSVFileName),
     {ok, 204, _} = multipart_formdata_request(ImportUri, [], [
         {filename, "user-credentials.csv", CSVData}
-    ]).
+    ]),
+
+    %% test application/json
+    {ok, 204, _} = request(post, ImportUri ++ "?type=hash", emqx_utils_json:decode(JSONData)),
+    {ok, JSONData1} = file:read_file(filename:join([Dir, <<"data/user-credentials-plain.json">>])),
+    {ok, 204, _} = request(post, ImportUri ++ "?type=plain", emqx_utils_json:decode(JSONData1)),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helpers
