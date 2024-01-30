@@ -294,6 +294,96 @@ t_raw_int_value(Config) ->
 t_raw_float_value(Config) ->
     raw_value_test(<<"t_raw_float_value">>, 42.5, Config).
 
+t_list_tags(Config) ->
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 10,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+            <<"parameters">> => #{
+                <<"data">> => [
+                    #{
+                        <<"metric">> => <<"${metric}">>,
+                        <<"tags">> => [#{<<"tag">> => <<"host">>, <<"value">> => <<"valueA">>}],
+                        value => <<"${value}">>
+                    }
+                ]
+            }
+        })
+    ),
+
+    Metric = <<"t_list_tags">>,
+    Value = 12,
+    MakeMessageFun = fun() -> make_data(Metric, Value) end,
+
+    is_success_check(
+        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MakeMessageFun()})
+    ),
+
+    {ok, {{_, 200, _}, _, IoTDBResult}} = opentds_query(Config, Metric),
+    QResult = emqx_utils_json:decode(IoTDBResult),
+    ?assertMatch(
+        [
+            #{
+                <<"metric">> := Metric,
+                <<"tags">> := #{<<"host">> := <<"valueA">>}
+            }
+        ],
+        QResult
+    ).
+
+t_list_tags_with_var(Config) ->
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 10,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+            <<"parameters">> => #{
+                <<"data">> => [
+                    #{
+                        <<"metric">> => <<"${metric}">>,
+                        <<"tags">> => [#{<<"tag">> => <<"host">>, <<"value">> => <<"${value}">>}],
+                        value => <<"${value}">>
+                    }
+                ]
+            }
+        })
+    ),
+
+    Metric = <<"t_list_tags_with_var">>,
+    Value = 12,
+    MakeMessageFun = fun() -> make_data(Metric, Value) end,
+
+    is_success_check(
+        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MakeMessageFun()})
+    ),
+
+    {ok, {{_, 200, _}, _, IoTDBResult}} = opentds_query(Config, Metric),
+    QResult = emqx_utils_json:decode(IoTDBResult),
+    ?assertMatch(
+        [
+            #{
+                <<"metric">> := Metric,
+                <<"tags">> := #{<<"host">> := <<"12">>}
+            }
+        ],
+        QResult
+    ).
+
 raw_value_test(Metric, RawValue, Config) ->
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
     ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
