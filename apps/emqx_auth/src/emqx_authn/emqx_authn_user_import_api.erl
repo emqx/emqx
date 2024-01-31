@@ -126,7 +126,7 @@ authenticator_import_users(
     PasswordType = password_type(Req),
     Result =
         case maps:get(<<"content-type">>, Headers, undefined) of
-            <<"application/json">> ->
+            <<"application/json", _/binary>> ->
                 emqx_authn_chains:import_users(
                     ?GLOBAL, AuthenticatorID, {PasswordType, prepared_user_list, Body}
                 );
@@ -172,7 +172,7 @@ listener_authenticator_import_users(
         )
     end,
     case maps:get(<<"content-type">>, Headers, undefined) of
-        <<"application/json">> ->
+        <<"application/json", _/binary>> ->
             DoImport(prepared_user_list, Body);
         _ ->
             case Body of
