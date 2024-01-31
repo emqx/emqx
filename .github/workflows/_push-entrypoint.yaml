@@ -108,7 +108,7 @@ jobs:
       publish: ${{ needs.prepare.outputs.release }}
       latest: ${{ needs.prepare.outputs.latest }}
       # TODO: revert this back to needs.prepare.outputs.otp_vsn when OTP 26 bug is fixed
-      otp_vsn: 25.3.2
+      otp_vsn: 25.3.2-2
       elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
     secrets: inherit
