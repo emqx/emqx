@@ -23,6 +23,7 @@
 
 %% Management API:
 -export([
+    base_dir/0,
     open_db/2,
     update_db_config/2,
     add_generation/1,
@@ -70,6 +71,8 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-define(APP, emqx_durable_storage).
 
 -type db() :: atom().
 
@@ -188,6 +191,10 @@
 %%================================================================================
 %% API funcions
 %%================================================================================
+
+-spec base_dir() -> file:filename().
+base_dir() ->
+    application:get_env(?APP, db_data_dir, emqx:data_dir()).
 
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
