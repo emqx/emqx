@@ -52,7 +52,6 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(APP, emqx_durable_storage).
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
 %%================================================================================
@@ -608,11 +607,7 @@ rocksdb_open(Shard, Options) ->
 
 -spec db_dir(shard_id()) -> file:filename().
 db_dir({DB, ShardId}) ->
-    filename:join([base_dir(), atom_to_list(DB), binary_to_list(ShardId)]).
-
--spec base_dir() -> file:filename().
-base_dir() ->
-    application:get_env(?APP, db_data_dir, emqx:data_dir()).
+    filename:join([emqx_ds:base_dir(), atom_to_list(DB), binary_to_list(ShardId)]).
 
 -spec update_last_until(Schema, emqx_ds:time()) -> Schema when Schema :: shard_schema() | shard().
 update_last_until(Schema, Until) ->
