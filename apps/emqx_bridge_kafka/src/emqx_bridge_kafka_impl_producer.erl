@@ -376,6 +376,8 @@ on_query_async(
         ),
         do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
     catch
+        error:{invalid_partition_count, _Count, _Partitioner} ->
+            {error, invalid_partition_count};
         throw:{bad_kafka_header, _} = Error ->
             ?tp(
                 emqx_bridge_kafka_impl_producer_async_query_failed,
