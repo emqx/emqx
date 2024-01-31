@@ -42,7 +42,7 @@ fields(Field) when
     emqx_connector_schema:api_fields(
         Field,
         ?CONNECTOR_TYPE,
-        connector_config_fields()
+        fields("config_connector")
     );
 fields(action) ->
     {?ACTION_TYPE,
@@ -54,7 +54,7 @@ fields(action) ->
             }
         )};
 fields(action_parameters) ->
-    fields(producer);
+    proplists:delete(local_topic, fields(producer));
 fields(kinesis_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(
@@ -142,13 +142,6 @@ fields(producer) ->
                     desc => ?DESC("payload_template")
                 }
             )},
-        {local_topic,
-            sc(
-                binary(),
-                #{
-                    desc => ?DESC("local_topic")
-                }
-            )},
         {stream_name,
             sc(
                 binary(),
@@ -165,6 +158,16 @@ fields(producer) ->
                     desc => ?DESC("partition_key")
                 }
             )}
+    ] ++ fields(local_topic);
+fields(local_topic) ->
+    [
+        {local_topic,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("local_topic")
+                }
+            )}
     ];
 fields("get_producer") ->
     emqx_bridge_schema:status_fields() ++ fields("post_producer");
@@ -174,7 +177,7 @@ fields("put_producer") ->
     fields("config_producer");
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
-        connector_config_fields() ++
+        fields(connector_config) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -277,9 +280,6 @@ conn_bridge_values() ->
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
-
-connector_config_fields() ->
-    fields(connector_config).
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
