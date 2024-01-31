@@ -33,12 +33,14 @@
     make_iterator/4,
     update_iterator/3,
     next/3,
+    last_seen_key_extractor/2,
+    extract_last_seen_key/2,
     node_of_shard/2,
     shard_of_message/3,
     maybe_set_myself_as_leader/2
 ]).
 
-%% internal exports:
+%% internal exports (RPC targets):
 -export([
     do_drop_db_v1/1,
     do_store_batch_v1/4,
@@ -50,11 +52,18 @@
     do_next_v1/4,
     do_add_generation_v2/1,
     do_list_generations_with_lifetimes_v3/2,
-    do_drop_generation_v3/3
+    do_drop_generation_v3/3,
+    do_last_seen_key_extractor_v4/3
 ]).
 
 -export_type([
-    shard_id/0, builtin_db_opts/0, stream_v1/0, stream/0, iterator/0, message_id/0, batch/0
+    shard_id/0,
+    builtin_db_opts/0,
+    stream/0,
+    stream_v1/0,
+    iterator/0,
+    message_id/0,
+    batch/0
 ]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -249,6 +258,20 @@ next(DB, Iter0, BatchSize) ->
             Other
     end.
 
+-spec last_seen_key_extractor(emqx_ds:db(), emqx_ds:ds_specific_stream()) ->
+    undefined | {ok, emqx_ds:last_seen_key_extractor()}.
+last_seen_key_extractor(DB, Stream) ->
+    ?stream_v2(Shard, StorageStream) = Stream,
+    Node = node_of_shard(DB, Shard),
+    emqx_ds_proto_v4:last_seen_key_extractor(Node, DB, Shard, StorageStream).
+
+-spec extract_last_seen_key(iterator(), emqx_ds:last_seen_key_extractor()) ->
+    undefined | emqx_ds:message_key().
+extract_last_seen_key(Iter, ExtractorFn) ->
+    #{?tag := ?IT, ?enc := StorageIter} = Iter,
+    {Mod, FnName, StorageArgs} = ExtractorFn,
+    apply(Mod, FnName, [StorageIter | StorageArgs]).
+
 -spec node_of_shard(emqx_ds:db(), shard_id()) -> node().
 node_of_shard(DB, Shard) ->
     case emqx_ds_replication_layer_meta:shard_leader(DB, Shard) of
@@ -393,6 +416,11 @@ do_list_generations_with_lifetimes_v3(DB, ShardId) ->
     ok | {error, _}.
 do_drop_generation_v3(DB, ShardId, GenId) ->
     emqx_ds_storage_layer:drop_generation({DB, ShardId}, GenId).
+
+-spec do_last_seen_key_extractor_v4(emqx_ds:db(), shard_id(), emqx_ds_storage_layer:stream()) ->
+    undefined | {ok, emqx_ds:last_seen_key_extractor()}.
+do_last_seen_key_extractor_v4(DB, ShardId, StorageStream) ->
+    emqx_ds_storage_layer:last_seen_key_extractor({DB, ShardId}, StorageStream).
 
 %%================================================================================
 %% Internal functions

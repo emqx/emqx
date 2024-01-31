@@ -36,7 +36,14 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, update_iterator/3, next/3]).
+-export([
+    get_streams/3,
+    make_iterator/4,
+    update_iterator/3,
+    next/3,
+    last_seen_key_extractor/2,
+    extract_last_seen_key/3
+]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -64,9 +71,12 @@
     message_store_opts/0,
     next_result/1, next_result/0,
     delete_next_result/1, delete_next_result/0,
+    next_opts/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
     make_delete_iterator_result/1, make_delete_iterator_result/0,
+    get_iterator_result/1,
+    last_seen_key_extractor/0,
 
     ds_specific_stream/0,
     ds_specific_iterator/0,
@@ -189,6 +199,12 @@
 
 -define(module(DB), (persistent_term:get(?persistent_term(DB)))).
 
+-type last_seen_key_extractor() :: {module(), atom(), [term()]}.
+
+-export([to_topic_filter/1]).
+-typerefl_from_string({topic_filter/0, emqx_ds, to_topic_filter}).
+-reflect_type([topic_filter/0]).
+
 %%================================================================================
 %% Behavior callbacks
 %%================================================================================
@@ -228,9 +244,18 @@
 
 -callback count(db()) -> non_neg_integer().
 
+-callback last_seen_key_extractor(db(), ds_specific_stream()) ->
+    undefined | {ok, last_seen_key_extractor()}.
+
+-callback extract_last_seen_key(iterator(), last_seen_key_extractor()) ->
+    undefined | message_key().
+
 -optional_callbacks([
     list_generations_with_lifetimes/1,
     drop_generation/2,
+
+    last_seen_key_extractor/2,
+    extract_last_seen_key/2,
 
     get_delete_streams/3,
     make_delete_iterator/4,
@@ -385,6 +410,16 @@ delete_next(DB, Iter, Selector, BatchSize) ->
 count(DB) ->
     Mod = ?module(DB),
     call_if_implemented(Mod, count, [DB], {error, not_implemented}).
+
+-spec last_seen_key_extractor(db(), stream()) -> undefined | {ok, last_seen_key_extractor()}.
+last_seen_key_extractor(DB, Stream) ->
+    Mod = ?module(DB),
+    call_if_implemented(Mod, last_seen_key_extractor, [DB, Stream], undefined).
+
+-spec extract_last_seen_key(db(), iterator(), last_seen_key_extractor()) ->
+    undefined | message_key().
+extract_last_seen_key(DB, Iter, ExtractorFn) ->
+    ?module(DB):extract_last_seen_key(Iter, ExtractorFn).
 
 %%================================================================================
 %% Internal exports

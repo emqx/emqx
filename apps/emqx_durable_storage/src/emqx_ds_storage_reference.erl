@@ -35,11 +35,12 @@
     get_streams/4,
     make_iterator/5,
     update_iterator/4,
-    next/4
+    next/4,
+    last_seen_key_extractor/0
 ]).
 
 %% internal exports:
--export([]).
+-export([extract_last_seen_key/1]).
 
 -export_type([options/0]).
 
@@ -150,6 +151,19 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     rocksdb:iterator_close(ITHandle),
     It = It0#it{last_seen_message_key = Key},
     {ok, It, lists:reverse(Messages)}.
+
+last_seen_key_extractor() ->
+    {?MODULE, extract_last_seen_key, []}.
+
+%%================================================================================
+%% Internal exports
+%%================================================================================
+
+extract_last_seen_key(#it{last_seen_message_key = LastSeenKey}) ->
+    case LastSeenKey of
+        first -> undefined;
+        _ -> LastSeenKey
+    end.
 
 %%================================================================================
 %% Internal functions

@@ -22,15 +22,18 @@
 -export([
     drop_db/2,
     store_batch/5,
-    get_streams/5,
-    make_iterator/6,
     next/5,
     update_iterator/5,
     add_generation/2,
-
-    %% introduced in v3
     list_generations_with_lifetimes/3,
-    drop_generation/4
+    drop_generation/4,
+
+    %% changed in v4
+    get_streams/5,
+    make_iterator/6,
+
+    %% introduced in v4
+    last_seen_key_extractor/4
 ]).
 
 %% behavior callbacks:
@@ -114,10 +117,6 @@ update_iterator(Node, DB, Shard, OldIter, DSKey) ->
 add_generation(Node, DB) ->
     erpc:multicall(Node, emqx_ds_replication_layer, do_add_generation_v2, [DB]).
 
-%%--------------------------------------------------------------------------------
-%% Introduced in V3
-%%--------------------------------------------------------------------------------
-
 -spec list_generations_with_lifetimes(
     node(),
     emqx_ds:db(),
@@ -138,6 +137,22 @@ list_generations_with_lifetimes(Node, DB, Shard) ->
     ok | {error, _}.
 drop_generation(Node, DB, Shard, GenId) ->
     erpc:call(Node, emqx_ds_replication_layer, do_drop_generation_v3, [DB, Shard, GenId]).
+
+%%--------------------------------------------------------------------------------
+%% Introduced in V4
+%%--------------------------------------------------------------------------------
+
+-spec last_seen_key_extractor(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:stream()
+) ->
+    undefined | {ok, emqx_ds:last_seen_key_extractor()}.
+last_seen_key_extractor(Node, DB, Shard, StorageStream) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_last_seen_key_extractor_v4, [
+        DB, Shard, StorageStream
+    ]).
 
 %%================================================================================
 %% behavior callbacks
