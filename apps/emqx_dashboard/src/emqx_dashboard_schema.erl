@@ -56,6 +56,7 @@ fields("dashboard") ->
                 }
             )},
         {cors, fun cors/1},
+        {swagger_support, fun swagger_support/1},
         {i18n_lang, fun i18n_lang/1},
         {bootstrap_users_file,
             ?HOCON(
@@ -271,6 +272,11 @@ cors(default) -> false;
 cors(required) -> false;
 cors(desc) -> ?DESC(cors);
 cors(_) -> undefined.
+
+swagger_support(type) -> boolean();
+swagger_support(default) -> true;
+swagger_support(desc) -> ?DESC(swagger_support);
+swagger_support(_) -> undefined.
 
 %% TODO: change it to string type
 %% It will be up to the dashboard package which languages to support

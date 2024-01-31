@@ -143,4 +143,9 @@ ssl_options.desc:
 ssl_options.label:
 """SSL options"""
 
+swagger_support.desc:
+"""Enable or disable support for swagger API documentation."""
+
+swagger_support.label:
+"""Swagger Support"""
 }
