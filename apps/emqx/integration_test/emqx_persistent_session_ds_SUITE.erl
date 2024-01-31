@@ -257,7 +257,6 @@ t_session_unsubscription_idempotency(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            #{timetrap => 20_000},
             ?force_ordering(
                 #{
                     ?snk_kind := persistent_session_ds_subscription_delete
@@ -498,9 +497,7 @@ do_t_session_expiration(_Config, Opts) ->
     ok.
 
 t_session_gc(Config) ->
-    GCInterval = ?config(gc_interval, Config),
     [Node1, Node2, _Node3] = Nodes = ?config(nodes, Config),
-    CoreNodes = [Node1, Node2],
     [
         Port1,
         Port2,
