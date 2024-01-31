@@ -88,4 +88,13 @@ wildcard_optimized_epoch_bits.desc:
   - `epoch_bits = 13`: ~8 seconds
   ...~"""
 
+builtin_cache.desc:
+"""Local message cache options."""
+
+builtin_cache_enable.desc:
+"""Whether to enable RAM prefetching and caching of topic filters for persistent sessions."""
+
+builtin_cache_prefetch_topic_filters.desc:
+"""List of topic filters that should be cached.  The filters in this list will be fetched periodically and the latest results will be kept in the cache to serve persistent sessions."""
+
 }

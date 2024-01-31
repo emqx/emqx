@@ -40,7 +40,7 @@
     get_streams/3,
     make_iterator/4,
     update_iterator/3,
-    next/3,
+    next/3, next/4,
     last_seen_key_extractor/2,
     extract_last_seen_key/3
 ]).
@@ -55,7 +55,6 @@
     create_db_opts/0,
     db/0,
     time/0,
-    topic_filter/0,
     topic/0,
     stream/0,
     delete_stream/0,
@@ -86,6 +85,8 @@
     generation_rank/0,
     generation_info/0
 ]).
+
+-include_lib("typerefl/include/types.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -200,6 +201,8 @@
 -define(module(DB), (persistent_term:get(?persistent_term(DB)))).
 
 -type last_seen_key_extractor() :: {module(), atom(), [term()]}.
+
+-type next_opts() :: #{use_cache => boolean()}.
 
 -export([to_topic_filter/1]).
 -typerefl_from_string({topic_filter/0, emqx_ds, to_topic_filter}).
@@ -385,6 +388,10 @@ update_iterator(DB, OldIter, DSKey) ->
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
 
+-spec next(db(), iterator(), pos_integer(), next_opts()) -> next_result().
+next(DB, Iter, BatchSize, Opts) ->
+    ?module(DB):next(DB, Iter, BatchSize, Opts).
+
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->
     Mod = ?module(DB),
@@ -424,6 +431,16 @@ extract_last_seen_key(DB, Iter, ExtractorFn) ->
 %%================================================================================
 %% Internal exports
 %%================================================================================
+
+to_topic_filter(TopicStr) ->
+    TopicBin = unicode:characters_to_binary(TopicStr),
+    try
+        emqx_topic:validate(filter, TopicBin),
+        {ok, emqx_topic:words(TopicBin)}
+    catch
+        error:Reason ->
+            {error, Reason}
+    end.
 
 %%================================================================================
 %% Internal functions

@@ -33,7 +33,9 @@
     make_iterator/5,
     update_iterator/4,
     next/4,
-    post_creation_actions/1
+    post_creation_actions/1,
+    last_seen_key_extractor/0,
+    extract_last_seen_key/1
 ]).
 
 %% internal exports:
@@ -99,6 +101,8 @@
         ?storage_key := emqx_ds_lts:msg_storage_key(),
         ?last_seen_key := binary()
     }.
+
+-type last_seen_key_extractor() :: {module(), atom(), [term()]}.
 
 -define(COUNTER, emqx_ds_storage_bitfield_lts_counter).
 
@@ -356,6 +360,17 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
     after
         rocksdb:iterator_close(ITHandle),
         erase(?COUNTER)
+    end.
+
+-spec last_seen_key_extractor() -> last_seen_key_extractor().
+last_seen_key_extractor() ->
+    {?MODULE, extract_last_seen_key, []}.
+
+-spec extract_last_seen_key(iterator()) -> undefined | emqx_ds:message_key().
+extract_last_seen_key(#{?tag := ?IT, ?last_seen_key := LastSeenKey}) ->
+    case LastSeenKey of
+        <<>> -> undefined;
+        _ -> LastSeenKey
     end.
 
 %%================================================================================

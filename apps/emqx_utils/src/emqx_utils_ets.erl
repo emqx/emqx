@@ -23,7 +23,8 @@
 
 -export([
     lookup_value/2,
-    lookup_value/3
+    lookup_value/3,
+    member/2
 ]).
 
 -export([delete/1]).
@@ -55,6 +56,14 @@ lookup_value(Tab, Key, Def) ->
         ets:lookup_element(Tab, Key, 2)
     catch
         error:badarg -> Def
+    end.
+
+member(Tab, Key) ->
+    try
+        ets:member(Tab, Key)
+    catch
+        error:badarg ->
+            false
     end.
 
 %% Delete the ets table.

@@ -153,6 +153,15 @@ fields(builtin) ->
                             <<"type">> => wildcard_optimized
                         }
                 }
+            )},
+        {cache,
+            sc(
+                ref(cache),
+                #{
+                    desc => ?DESC(builtin_cache),
+                    importance => ?IMPORTANCE_HIDDEN,
+                    default => #{<<"enable">> => false}
+                }
             )}
     ];
 fields(builtin_local_write_buffer) ->
@@ -223,6 +232,36 @@ fields(layout_builtin_reference) ->
                 #{
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+    ];
+fields(cache) ->
+    [
+        {enable,
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "emqx_durable_storage.cache_enabled",
+                    'readOnly' => true,
+                    desc => ?DESC(builtin_cache_enable)
+                }
+            )},
+        {cache_prefetch_topic_filters,
+            sc(
+                hoconsc:array(emqx_ds:topic_filter()),
+                #{
+                    default => [],
+                    %% This config is temporary: caching should be automatic and inferred
+                    %% from usage.
+                    %% TODO: while this is not automatic, relying on the application
+                    %% schema instead of config handler callbacks implies that we'll need
+                    %% to manually diff tracked topic filters and update the cache process
+                    %% state.
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "emqx_durable_storage.cache_prefetch_topic_filters",
+                    desc => ?DESC(builtin_cache_prefetch_topic_filters)
                 }
             )}
     ].

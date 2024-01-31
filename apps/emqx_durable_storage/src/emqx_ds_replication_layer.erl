@@ -32,7 +32,7 @@
     get_streams/3,
     make_iterator/4,
     update_iterator/3,
-    next/3,
+    next/3, next/4,
     last_seen_key_extractor/2,
     extract_last_seen_key/2,
     node_of_shard/2,
@@ -80,7 +80,8 @@
         backend := builtin,
         storage := emqx_ds_storage_layer:prototype(),
         n_shards => pos_integer(),
-        replication_factor => pos_integer()
+        replication_factor => pos_integer(),
+        cache_prefetch_topic_filters => [emqx_ds:topic_filter()]
     }.
 
 %% This enapsulates the stream entity from the replication level.
@@ -240,7 +241,31 @@ update_iterator(DB, OldIter, DSKey) ->
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter0, BatchSize) ->
-    #{?tag := ?IT, ?stream := #{?tag := ?STREAM, ?shard := Shard}, ?enc := StorageIter0} = Iter0,
+    CacheEnabled = emqx_ds_cache_coordinator:is_cache_enabled(),
+    next(DB, Iter0, BatchSize, _Opts = #{use_cache => CacheEnabled}).
+
+-spec next(emqx_ds:db(), iterator(), pos_integer(), emqx_ds:next_opts()) ->
+    emqx_ds:next_result(iterator()).
+next(DB, Iter0, BatchSize, _Opts = #{use_cache := true}) ->
+    #{?tag := ?IT, ?stream := Stream} = Iter0,
+    case emqx_ds_cache_coordinator:try_fetch_cache(DB, Stream, Iter0, BatchSize) of
+        false ->
+            do_next(DB, Iter0, BatchSize);
+        {ok, end_of_stream} ->
+            {ok, end_of_stream};
+        {ok, LastSeenKey, Batch} ->
+            case update_iterator(DB, Iter0, LastSeenKey) of
+                {ok, Iter} ->
+                    {ok, Iter, Batch};
+                Error = {error, _} ->
+                    Error
+            end
+    end;
+next(DB, Iter0, BatchSize, _Opts) ->
+    do_next(DB, Iter0, BatchSize).
+
+do_next(DB, Iter0, BatchSize) ->
+    #{?tag := ?IT, ?stream := ?stream_v2(Shard, _), ?enc := StorageIter0} = Iter0,
     Node = node_of_shard(DB, Shard),
     %% TODO: iterator can contain information that is useful for
     %% reconstructing messages sent over the network. For example,
