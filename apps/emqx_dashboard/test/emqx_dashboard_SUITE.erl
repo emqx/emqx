@@ -31,6 +31,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_dashboard.hrl").
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
@@ -185,6 +186,38 @@ t_swagger_json(_Config) ->
             }
         },
         emqx_utils_json:decode(Body1)
+    ),
+    ok.
+
+t_disable_swagger_json(_Config) ->
+    Url = ?HOST ++ "/api-docs/index.html",
+
+    ?assertMatch(
+        {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
+        httpc:request(get, {Url, []}, [], [{body_format, binary}])
+    ),
+
+    DashboardCfg = emqx:get_raw_config([dashboard]),
+    DashboardCfg2 = DashboardCfg#{<<"swagger_support">> => false},
+    emqx:update_config([dashboard], DashboardCfg2),
+    ?retry(
+        _Sleep = 1000,
+        _Attempts = 5,
+        ?assertMatch(
+            {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
+            httpc:request(get, {Url, []}, [], [{body_format, binary}])
+        )
+    ),
+
+    DashboardCfg3 = DashboardCfg#{<<"swagger_support">> => true},
+    emqx:update_config([dashboard], DashboardCfg3),
+    ?retry(
+        _Sleep0 = 1000,
+        _Attempts0 = 5,
+        ?assertMatch(
+            {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
+            httpc:request(get, {Url, []}, [], [{body_format, binary}])
+        )
     ),
     ok.
 
