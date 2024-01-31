@@ -406,11 +406,16 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 suite() -> [{timetrap, {seconds, 20}}].
 
 init_per_suite(Config) ->
-    {ok, _} = application:ensure_all_started(emqx_durable_storage),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx_durable_storage],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = application:stop(emqx_durable_storage).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(TC, Config) ->
     ok = emqx_ds:open_db(TC, ?DEFAULT_CONFIG),
