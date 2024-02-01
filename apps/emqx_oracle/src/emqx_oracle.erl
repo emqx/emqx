@@ -184,7 +184,7 @@ on_get_channel_status(
             {?status_disconnected, {unhealthy_target, ?UNHEALTHY_TARGET_MSG}};
         {error, _Reason} ->
             %% do not log error, it is logged in prepare_sql_to_conn
-            connecting
+            ?status_connecting
     end.
 
 on_get_channels(ResId) ->
