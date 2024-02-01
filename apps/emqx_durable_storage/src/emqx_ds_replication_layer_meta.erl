@@ -251,11 +251,12 @@ open_db(DB, DefaultOpts) ->
     case mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, DefaultOpts]) of
         {atomic, Opts} ->
             Opts;
-        {aborted, {siteless_nodes, Nodes}} ->
-            %% TODO
-            %% This is ugly. We need a good story of how to fairly allocate shards in a
-            %% fresh cluster.
-            logger:notice("Aborting shard allocation, siteless nodes found: ~p", [Nodes]),
+        {aborted, {insufficient_sites_online, NNeeded, Sites}} ->
+            %% TODO: Still ugly, it blocks the whole node startup.
+            logger:notice(
+                "Shard allocation still in progress, not enough sites: ~p, need: ~p",
+                [Sites, NNeeded]
+            ),
             ok = timer:sleep(1000),
             open_db(DB, DefaultOpts)
     end.
@@ -337,9 +338,10 @@ open_db_trans(DB, CreateOpts) ->
     case mnesia:wread({?META_TAB, DB}) of
         [] when is_map(CreateOpts) ->
             NShards = maps:get(n_shards, CreateOpts),
+            NSites = maps:get(n_sites, CreateOpts),
             ReplicationFactor = maps:get(replication_factor, CreateOpts),
             mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),
-            create_shards(DB, NShards, ReplicationFactor),
+            create_shards(DB, NSites, NShards, ReplicationFactor),
             CreateOpts;
         [#?META_TAB{db_props = Opts}] ->
             Opts
@@ -465,16 +467,15 @@ ensure_site() ->
     persistent_term:put(?emqx_ds_builtin_site, Site),
     ok.
 
--spec create_shards(emqx_ds:db(), pos_integer(), pos_integer()) -> ok.
-create_shards(DB, NShards, ReplicationFactor) ->
+-spec create_shards(emqx_ds:db(), pos_integer(), pos_integer(), pos_integer()) -> ok.
+create_shards(DB, NSites, NShards, ReplicationFactor) ->
     Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
     AllSites = mnesia:match_object(?NODE_TAB, #?NODE_TAB{_ = '_'}, read),
-    Nodes = mria_mnesia:running_nodes(),
-    case Nodes -- [N || #?NODE_TAB{node = N} <- AllSites] of
-        [] ->
+    case length(AllSites) of
+        N when N >= NSites ->
             ok;
-        NodesSiteless ->
-            mnesia:abort({siteless_nodes, NodesSiteless})
+        _ ->
+            mnesia:abort({insufficient_sites_online, NSites, AllSites})
     end,
     lists:foreach(
         fun(Shard) ->

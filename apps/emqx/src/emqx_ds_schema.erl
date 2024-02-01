@@ -39,6 +39,7 @@
 translate_builtin(#{
     backend := builtin,
     n_shards := NShards,
+    n_sites := NSites,
     replication_factor := ReplFactor,
     layout := Layout
 }) ->
@@ -61,6 +62,7 @@ translate_builtin(#{
     #{
         backend => builtin,
         n_shards => NShards,
+        n_sites => NSites,
         replication_factor => ReplFactor,
         storage => Storage
     }.
@@ -124,6 +126,14 @@ fields(builtin) ->
                     default => 16,
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(builtin_n_shards)
+                }
+            )},
+        %% TODO: Minimum number of sites that will be responsible for the shards
+        {"n_sites",
+            sc(
+                pos_integer(),
+                #{
+                    default => 1
                 }
             )},
         {replication_factor,

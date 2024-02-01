@@ -94,6 +94,7 @@
         backend := builtin,
         storage := emqx_ds_storage_layer:prototype(),
         n_shards => pos_integer(),
+        n_sites => pos_integer(),
         replication_factor => pos_integer()
     }.
 
