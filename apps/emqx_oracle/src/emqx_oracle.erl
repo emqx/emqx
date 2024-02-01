@@ -186,35 +186,6 @@ on_get_channel_status(
             %% do not log error, it is logged in prepare_sql_to_conn
             connecting
     end.
-% #{stream_name := StreamName} = maps:get(ChannelId, Channels),
-% case
-%     emqx_resource_pool:health_check_workers(
-%         PoolName,
-%         {emqx_bridge_kinesis_connector_client, connection_status, [StreamName]},
-%         ?HEALTH_CHECK_TIMEOUT,
-%         #{return_values => true}
-%     )
-% of
-%     {ok, Values} ->
-%         AllOk = lists:all(fun(S) -> S =:= {ok, ?status_connected} end, Values),
-%         case AllOk of
-%             true ->
-%                 ?status_connected;
-%             false ->
-%                 Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
-%                 case Unhealthy of
-%                     true -> {?status_disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
-%                     false -> ?status_disconnected
-%                 end
-%         end;
-%     {error, Reason} ->
-%         ?SLOG(error, #{
-%             msg => "kinesis_producer_get_status_failed",
-%             state => State,
-%             reason => Reason
-%         }),
-%         ?status_disconnected
-% end.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -387,16 +358,6 @@ do_check_prepares(
         ok,
         Workers
     ).
-% case prepare_sql(Prepares, PoolName, TokensMap) of
-%     %% remove the error
-%     {ok, Sts} ->
-%         {ok, State#{prepare_sql => Sts}};
-%     {error, undefined_table} ->
-%         %% indicate the error
-%         {error, {undefined_table, State#{prepare_sql => {error, Prepares}}}};
-%     {error, _Reason} = Error ->
-%         Error
-% end.
 
 %% ===================================================================
 
