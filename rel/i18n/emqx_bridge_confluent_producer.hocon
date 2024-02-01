@@ -277,6 +277,14 @@ This value is to specify the size of each on-disk buffer file."""
 buffer_segment_bytes.label:
 """Segment File Bytes"""
 
+partitions_limit.desc:
+"""Limit the number of partitions to produce data for the given topic.
+The special value `all_partitions` is to utilize all partitions for the topic.
+Setting this to a value which is greater than the total number of partitions in has no effect."""
+
+partitions_limit.label:
+"""Max Partitions"""
+
 max_inflight.desc:
 """Maximum number of batches allowed for Confluent producer (per-partition) to send before receiving acknowledgement from Confluent. Greater value typically means better throughput. However, there can be a risk of message reordering when this value is greater than 1."""
 
