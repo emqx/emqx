@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -380,6 +380,15 @@ list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).
 
 list_client_subscriptions(ClientId) ->
+    case emqx_persistent_session_ds:list_client_subscriptions(ClientId) of
+        {error, not_found} ->
+            list_client_subscriptions_mem(ClientId);
+        Result ->
+            Result
+    end.
+
+%% List subscriptions of an in-memory session:
+list_client_subscriptions_mem(ClientId) ->
     case lookup_client({clientid, ClientId}, undefined) of
         [] ->
             {error, not_found};

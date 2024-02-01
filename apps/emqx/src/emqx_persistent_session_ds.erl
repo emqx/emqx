@@ -66,6 +66,11 @@
     terminate/2
 ]).
 
+%% Managment APIs:
+-export([
+    list_client_subscriptions/1
+]).
+
 %% session table operations
 -export([create_tables/0, sync/1]).
 
@@ -243,18 +248,25 @@ info(await_rel_timeout, #{props := Conf}) ->
 stats(Session) ->
     info(?STATS_KEYS, Session).
 
-%% Debug/troubleshooting
+%% Used by management API
 -spec print_session(emqx_types:clientid()) -> map() | undefined.
 print_session(ClientId) ->
-    case emqx_cm:lookup_channels(ClientId) of
-        [Pid] ->
-            #{channel := ChanState} = emqx_connection:get_state(Pid),
-            SessionState = emqx_channel:info(session_state, ChanState),
-            maps:update_with(s, fun emqx_persistent_session_ds_state:format/1, SessionState#{
-                '_alive' => {true, Pid}
-            });
-        [] ->
-            emqx_persistent_session_ds_state:print_session(ClientId)
+    case try_get_live_session(ClientId) of
+        {Pid, SessionState} ->
+            maps:update_with(
+                s, fun emqx_persistent_session_ds_state:format/1, SessionState#{
+                    '_alive' => {true, Pid}
+                }
+            );
+        not_found ->
+            case emqx_persistent_session_ds_state:print_session(ClientId) of
+                undefined ->
+                    undefined;
+                S ->
+                    #{s => S, '_alive' => false}
+            end;
+        not_persistent ->
+            undefined
     end.
 
 %%--------------------------------------------------------------------
@@ -528,6 +540,44 @@ terminate(_Reason, _Session = #{id := Id, s := S}) ->
     _ = emqx_persistent_session_ds_state:commit(S),
     ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
+
+%%--------------------------------------------------------------------
+%% Management APIs (dashboard)
+%%--------------------------------------------------------------------
+
+-spec list_client_subscriptions(emqx_types:clientid()) ->
+    {node() | undefined, [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}]}
+    | {error, not_found}.
+list_client_subscriptions(ClientId) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            %% TODO: this is not the most optimal implementation, since it
+            %% should be possible to avoid reading extra data (streams, etc.)
+            case print_session(ClientId) of
+                Sess = #{s := #{subscriptions := Subs}} ->
+                    Node =
+                        case Sess of
+                            #{'_alive' := {true, Pid}} ->
+                                node(Pid);
+                            _ ->
+                                undefined
+                        end,
+                    SubList =
+                        maps:fold(
+                            fun(Topic, #{props := SubProps}, Acc) ->
+                                Elem = {Topic, SubProps},
+                                [Elem | Acc]
+                            end,
+                            [],
+                            Subs
+                        ),
+                    {Node, SubList};
+                undefined ->
+                    {error, not_found}
+            end;
+        false ->
+            {error, not_found}
+    end.
 
 %%--------------------------------------------------------------------
 %% Session tables operations
@@ -898,6 +948,27 @@ expiry_interval(ConnInfo) ->
 
 bump_interval() ->
     emqx_config:get([session_persistence, last_alive_update_interval]).
+
+-spec try_get_live_session(emqx_types:clientid()) ->
+    {pid(), session()} | not_found | not_persistent.
+try_get_live_session(ClientId) ->
+    case emqx_cm:lookup_channels(local, ClientId) of
+        [Pid] ->
+            try
+                #{channel := ChanState} = emqx_connection:get_state(Pid),
+                case emqx_channel:info(impl, ChanState) of
+                    ?MODULE ->
+                        {Pid, emqx_channel:info(session_state, ChanState)};
+                    _ ->
+                        not_persistent
+                end
+            catch
+                _:_ ->
+                    not_found
+            end;
+        _ ->
+            not_found
+    end.
 
 %%--------------------------------------------------------------------
 %% SeqNo tracking

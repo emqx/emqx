@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,14 +26,56 @@
 -define(FORMATFUN, {?MODULE, ident}).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, persistence_disabled},
+        {group, persistence_enabled}
+    ].
+
+groups() ->
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {persistence_disabled, [], TCs},
+        {persistence_enabled, [], [t_persist_list_subs]}
+    ].
+
+init_per_group(persistence_disabled, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, "session_persistence { enable = false }"},
+            emqx_management
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [
+        {apps, Apps}
+        | Config
+    ];
+init_per_group(persistence_enabled, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx,
+                "session_persistence {\n"
+                "  enable = true\n"
+                "  last_alive_update_interval = 100ms\n"
+                "  renew_streams_interval = 100ms\n"
+                "}"},
+            emqx_management
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [
+        {apps, Apps}
+        | Config
+    ].
+
+end_per_group(_Grp, Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_management]),
     Config.
 
 end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_management, emqx_conf]).
+    ok.
 
 init_per_testcase(TestCase, Config) ->
     meck:expect(emqx, running_nodes, 0, [node()]),
@@ -369,6 +411,41 @@ t_banned(_) ->
         ok,
         emqx_mgmt:delete_banned({clientid, <<"TestClient">>})
     ).
+
+%% This testcase verifies the behavior of various read-only functions
+%% used by REST API via `emqx_mgmt' module:
+t_persist_list_subs(_) ->
+    ClientId = <<"persistent_client">>,
+    Topics = lists:sort([<<"foo/bar">>, <<"/a/+//+/#">>, <<"foo">>]),
+    VerifySubs =
+        fun() ->
+            {Node, Ret} = emqx_mgmt:list_client_subscriptions(ClientId),
+            ?assert(Node =:= node() orelse Node =:= undefined, Node),
+            {TopicsL, SubProps} = lists:unzip(Ret),
+            ?assertEqual(Topics, lists:sort(TopicsL)),
+            [?assertMatch(#{rh := _, rap := _, nl := _, qos := _}, I) || I <- SubProps]
+        end,
+    %% 0. Verify that management functions work for missing clients:
+    ?assertMatch(
+        {error, not_found},
+        emqx_mgmt:list_client_subscriptions(ClientId)
+    ),
+    %% 1. Connect the client and subscribe to topics:
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{'Session-Expiry-Interval' => 30}}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    [{ok, _, _} = emqtt:subscribe(Client, I, qos2) || I <- Topics],
+    %% 2. Verify that management functions work for the connected
+    %% clients:
+    VerifySubs(),
+    %% 3. Disconnect the client:
+    emqtt:disconnect(Client),
+    %% 4. Verify that management functions work for the offline
+    %% clients:
+    VerifySubs().
 
 %%% helpers
 ident(Arg) ->
