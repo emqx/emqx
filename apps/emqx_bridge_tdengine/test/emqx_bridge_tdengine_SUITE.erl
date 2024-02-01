@@ -281,8 +281,8 @@ connect_direct_tdengine(Config) ->
 % These funs connect and then stop the tdengine connection
 connect_and_create_table(Config) ->
     ?WITH_CON(begin
-        {ok, _} = directly_query(Con, ?SQL_DROP_TABLE),
-        {ok, _} = directly_query(Con, ?SQL_DROP_STABLE),
+        _ = directly_query(Con, ?SQL_DROP_TABLE),
+        _ = directly_query(Con, ?SQL_DROP_STABLE),
         {ok, _} = directly_query(Con, ?SQL_CREATE_DATABASE, []),
         {ok, _} = directly_query(Con, ?SQL_CREATE_TABLE),
         {ok, _} = directly_query(Con, ?SQL_CREATE_STABLE)

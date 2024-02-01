@@ -41,7 +41,7 @@ sql_template.label:
 """SQL Template"""
 
 action_parameters.desc:
-"""Tdengine action parameters"""
+"""TDengine action parameters"""
 
 action_parameters.label:
 """Parameters"""
