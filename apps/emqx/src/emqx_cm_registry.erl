@@ -25,7 +25,9 @@
 
 -export([
     register_channel/1,
-    unregister_channel/1
+    register_channel2/1,
+    unregister_channel/1,
+    unregister_channel2/1
 ]).
 
 -export([lookup_channels/1]).
@@ -80,13 +82,20 @@ is_hist_enabled() ->
 register_channel(ClientId) when is_binary(ClientId) ->
     register_channel({ClientId, self()});
 register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
+    IsHistEnabled = is_hist_enabled(),
     case is_enabled() of
+        true when IsHistEnabled ->
+            mria:async_dirty(?CM_SHARD, fun ?MODULE:register_channel2/1, [record(ClientId, ChanPid)]);
         true ->
-            ok = when_hist_enabled(fun() -> delete_hist_d(ClientId) end),
             mria:dirty_write(?CHAN_REG_TAB, record(ClientId, ChanPid));
         false ->
             ok
     end.
+
+%% @private
+register_channel2(#channel{chid = ClientId} = Record) ->
+    _ = delete_hist_d(ClientId),
+    mria:dirty_write(?CHAN_REG_TAB, Record).
 
 %% @doc Unregister a global channel.
 -spec unregister_channel(
@@ -96,14 +105,22 @@ register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) 
 unregister_channel(ClientId) when is_binary(ClientId) ->
     unregister_channel({ClientId, self()});
 unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
+    IsHistEnabled = is_hist_enabled(),
     case is_enabled() of
+        true when IsHistEnabled ->
+            mria:async_dirty(?CM_SHARD, fun ?MODULE:unregister_channel2/1, [
+                record(ClientId, ChanPid)
+            ]);
         true ->
-            mria:dirty_delete_object(?CHAN_REG_TAB, record(ClientId, ChanPid)),
-            %% insert unregistration history after unregstration
-            ok = when_hist_enabled(fun() -> insert_hist_d(ClientId) end);
+            mria:dirty_delete_object(?CHAN_REG_TAB, record(ClientId, ChanPid));
         false ->
             ok
     end.
+
+%% @private
+unregister_channel2(#channel{chid = ClientId} = Record) ->
+    mria:dirty_delete_object(?CHAN_REG_TAB, Record),
+    ok = insert_hist_d(ClientId).
 
 %% @doc Lookup the global channels.
 -spec lookup_channels(emqx_types:clientid()) -> list(pid()).
@@ -205,24 +222,23 @@ do_cleanup_channels(Node) ->
             _Return = ['$_']
         }
     ],
-    lists:foreach(fun delete_channel/1, mnesia:select(?CHAN_REG_TAB, Pat, write)).
+    IsHistEnabled = is_hist_enabled(),
+    lists:foreach(
+        fun(Chan) -> delete_channel(IsHistEnabled, Chan) end,
+        mnesia:select(?CHAN_REG_TAB, Pat, write)
+    ).
 
-delete_channel(Chan) ->
+delete_channel(IsHistEnabled, Chan) ->
     mnesia:delete_object(?CHAN_REG_TAB, Chan, write),
-    ok = when_hist_enabled(fun() -> insert_hist_t(Chan#channel.chid) end).
+    case IsHistEnabled of
+        true ->
+            insert_hist_t(Chan#channel.chid);
+        false ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% History entry operations
-%%--------------------------------------------------------------------
-
-when_hist_enabled(F) ->
-    case is_hist_enabled() of
-        true ->
-            _ = F();
-        false ->
-            ok
-    end,
-    ok.
 
 %% Insert unregistration history in a transaction when unregistering the last channel for a clientid.
 insert_hist_t(ClientId) ->

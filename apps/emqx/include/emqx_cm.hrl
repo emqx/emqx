@@ -23,7 +23,7 @@
 -define(CHAN_INFO_TAB, emqx_channel_info).
 -define(CHAN_LIVE_TAB, emqx_channel_live).
 
-%% Mria table for session registraition.
+%% Mria table for session registration.
 -define(CHAN_REG_TAB, emqx_channel_registry).
 
 -define(T_KICK, 5_000).

@@ -1422,7 +1422,7 @@ force_shutdown_enable.label:
 broker_enable_session_registry.desc:
 """The Global Session Registry is a cluster-wide mechanism designed to maintain the uniqueness of client IDs within the cluster.
 Recommendations for Use<br/>
-- Default Setting: It is generally advisable to enable. This feature is crucial for session takeover to work properly. For example if a client reconneted to another node in the cluster, the new connection will need to find the old session and take it over.
+- Default Setting: It is generally advisable to enable. This feature is crucial for session takeover to work properly. For example if a client reconnected to another node in the cluster, the new connection will need to find the old session and take it over.
 - Disabling the Feature: Disabling is an option for scenarios when all sessions expire immediately after client is disconnected (i.e. session expiry interval is zero). This can be relevant in certain specialized use cases.
 
 Advantages of Disabling<br/>
@@ -1433,7 +1433,7 @@ broker_session_history_retain.desc:
 """The duration to retain the session registration history. Setting this to a value greater than `0s` will increase memory usage and impact peformance.
 This retained history can be used to monitor how many sessions were registered in the past configured duration.
 Note: This config has no effect if `enable_session_registry` is set to `false`.<br/>
-Note: If the clients are suing random client IDs, it's not recommended to enable this feature, at least not for a long retain duration.<br/>
+Note: If the clients are using random client IDs, it's not recommended to enable this feature, at least not for a long retention period.<br/>
 Note: When clustered, the lowest (but greater than `0s`) value among the nodes in the cluster will take effect."""
 
 overload_protection_backoff_delay.desc:

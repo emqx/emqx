@@ -113,7 +113,7 @@ handle_info(start, #{next_clientid := NextClientId} = State) ->
                 end,
             {noreply, State#{next_clientid := NewNext}};
         false ->
-            %% if not enabled, dealy and check again
+            %% if not enabled, delay and check again
             %% because it might be enabled from online config change while waiting
             ok = send_delay_start(),
             {noreply, State}
@@ -142,7 +142,7 @@ cleanup_loop('$end_of_table', _Count, _IsExpired) ->
 cleanup_loop(undefined, Count, IsExpired) ->
     cleanup_loop(mnesia:dirty_first(?CHAN_REG_TAB), Count, IsExpired);
 cleanup_loop(ClientId, Count, IsExpired) ->
-    Recods = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
+    Records = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
     Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
     lists:foreach(
         fun(R) ->
@@ -153,7 +153,7 @@ cleanup_loop(ClientId, Count, IsExpired) ->
                     ok
             end
         end,
-        Recods
+        Records
     ),
     cleanup_loop(Next, Count - 1, IsExpired).
 

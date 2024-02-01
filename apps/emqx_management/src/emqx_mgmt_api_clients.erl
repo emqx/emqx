@@ -401,7 +401,7 @@ schema("/sessions_count") ->
                         required => false,
                         default => 0,
                         desc =>
-                            <<"Include sessions expired after this time (UNIX Epoch in seconds precesion)">>,
+                            <<"Include sessions expired after this time (UNIX Epoch in seconds precision)">>,
                         example => 1705391625
                     })}
             ],
@@ -1087,6 +1087,6 @@ client_example() ->
     }.
 
 sessions_count(get, #{query_string := QString}) ->
-    Since = maps:get(<<"since">>, QString, undefined),
+    Since = maps:get(<<"since">>, QString, 0),
     Count = emqx_cm_registry_keeper:count(Since),
     {200, integer_to_binary(Count)}.
