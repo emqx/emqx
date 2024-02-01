@@ -153,7 +153,7 @@ shard_spec(DB, Shard) ->
 shard_replication_spec(DB, Shard) ->
     #{
         id => {Shard, replication},
-        start => {emqx_ds_replication_layer, ra_start_shard, [DB, Shard]},
+        start => {emqx_ds_replication_layer_shard, start_link, [DB, Shard]},
         restart => transient,
         type => worker
     }.

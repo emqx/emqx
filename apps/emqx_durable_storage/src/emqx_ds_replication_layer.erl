@@ -57,7 +57,6 @@
     do_delete_next_v4/5,
 
     %% FIXME
-    ra_start_shard/2,
     ra_store_batch/3
 ]).
 
@@ -493,45 +492,13 @@ list_nodes() ->
 
 %%
 
-ra_start_shard(DB, Shard) ->
-    System = default,
-    Site = emqx_ds_replication_layer_meta:this_site(),
-    ClusterName = ra_cluster_name(DB, Shard),
-    LocalServer = ra_local_server(DB, Shard),
-    Servers = ra_shard_servers(DB, Shard),
-    case ra:restart_server(System, LocalServer) of
-        ok ->
-            ok;
-        {error, name_not_registered} ->
-            ok = ra:start_server(System, #{
-                id => LocalServer,
-                uid => <<ClusterName/binary, "_", Site/binary>>,
-                cluster_name => ClusterName,
-                initial_members => Servers,
-                machine => {module, ?MODULE, #{db => DB, shard => Shard}},
-                log_init_args => #{}
-            })
-    end,
-    case Servers of
-        [LocalServer | _] ->
-            %% TODO
-            %% Not super robust, but we probably don't expect nodes to be down
-            %% when we bring up a fresh consensus group. Triggering election
-            %% is not really required otherwise.
-            %% TODO
-            %% Ensure that doing that on node restart does not disrupt consensus.
-            ok = ra:trigger_election(LocalServer);
-        _ ->
-            ok
-    end,
-    emqx_ds_replication_layer_shard:start_link(LocalServer).
-
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,
         ?batch_messages => Messages
     },
-    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+    Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
+    case ra:process_command(Servers, Command) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
@@ -540,7 +507,8 @@ ra_store_batch(DB, Shard, Messages) ->
 
 ra_add_generation(DB, Shard) ->
     Command = #{?tag => add_generation},
-    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+    Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
+    case ra:process_command(Servers, Command) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
@@ -549,7 +517,8 @@ ra_add_generation(DB, Shard) ->
 
 ra_update_config(DB, Shard, Opts) ->
     Command = #{?tag => update_config, ?config => Opts},
-    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+    Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
+    case ra:process_command(Servers, Command) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
@@ -558,7 +527,8 @@ ra_update_config(DB, Shard, Opts) ->
 
 ra_drop_generation(DB, Shard, GenId) ->
     Command = #{?tag => drop_generation, ?generation => GenId},
-    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+    Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
+    case ra:process_command(Servers, Command) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
@@ -566,7 +536,7 @@ ra_drop_generation(DB, Shard, GenId) ->
     end.
 
 ra_get_streams(DB, Shard, TopicFilter, Time) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
     emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, Time).
 
 ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
@@ -574,7 +544,7 @@ ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
     emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time).
 
 ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
     emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
 
 ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
@@ -582,11 +552,11 @@ ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
 
 ra_update_iterator(DB, Shard, Iter, DSKey) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
     emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey).
 
 ra_next(DB, Shard, Iter, BatchSize) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
     emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize).
 
 ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
@@ -594,68 +564,12 @@ ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
     emqx_ds_proto_v4:delete_next(Node, DB, Shard, Iter, Selector, BatchSize).
 
 ra_list_generations_with_lifetimes(DB, Shard) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
     emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard).
 
 ra_drop_shard(DB, Shard) ->
-    ra:force_delete_server(_System = default, ra_local_server(DB, Shard)).
-
-ra_shard_servers(DB, Shard) ->
-    {ok, ReplicaSet} = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
-    [
-        {ra_server_name(DB, Shard, Site), emqx_ds_replication_layer_meta:node(Site)}
-     || Site <- ReplicaSet
-    ].
-
-ra_local_server(DB, Shard) ->
-    Site = emqx_ds_replication_layer_meta:this_site(),
-    {ra_server_name(DB, Shard, Site), node()}.
-
-ra_leader_servers(DB, Shard) ->
-    %% NOTE: Contact last known leader first, then rest of shard servers.
-    ClusterName = ra_cluster_name(DB, Shard),
-    case ra_leaderboard:lookup_leader(ClusterName) of
-        Leader when Leader /= undefined ->
-            Servers = ra_leaderboard:lookup_members(ClusterName),
-            [Leader | lists:delete(Leader, Servers)];
-        undefined ->
-            %% TODO: Dynamic membership.
-            ra_shard_servers(DB, Shard)
-    end.
-
-ra_random_replica(DB, Shard) ->
-    %% NOTE: Contact random replica that is not a known leader.
-    %% TODO: Replica may be down, so we may need to retry.
-    ClusterName = ra_cluster_name(DB, Shard),
-    case ra_leaderboard:lookup_members(ClusterName) of
-        Servers when is_list(Servers) ->
-            Leader = ra_leaderboard:lookup_leader(ClusterName),
-            ra_pick_replica(Servers, Leader);
-        undefined ->
-            %% TODO
-            %% Leader is unkonwn if there are no servers of this group on the
-            %% local node. We want to pick a replica in that case as well.
-            %% TODO: Dynamic membership.
-            ra_pick_server(ra_shard_servers(DB, Shard))
-    end.
-
-ra_pick_replica(Servers, Leader) ->
-    case lists:delete(Leader, Servers) of
-        [] ->
-            Leader;
-        Followers ->
-            ra_pick_server(Followers)
-    end.
-
-ra_pick_server(Servers) ->
-    lists:nth(rand:uniform(length(Servers)), Servers).
-
-ra_cluster_name(DB, Shard) ->
-    iolist_to_binary(io_lib:format("~s_~s", [DB, Shard])).
-
-ra_server_name(DB, Shard, Site) ->
-    DBBin = atom_to_binary(DB),
-    binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
+    LocalServer = emqx_ds_replication_layer_shard:server(DB, Shard, local),
+    ra:force_delete_server(_System = default, LocalServer).
 
 %%
 

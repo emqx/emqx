@@ -29,6 +29,7 @@
 -export([
     shards/1,
     my_shards/1,
+    shard_meta/2,
     replica_set/2,
     sites/0,
     node/1,
@@ -96,6 +97,8 @@
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
 
+-define(DB_META(DB), {?MODULE, DB}).
+
 %%================================================================================
 %% API funcions
 %%================================================================================
@@ -151,6 +154,12 @@ my_shards(DB) ->
     filter_shards(DB, fun(#?SHARD_TAB{replica_set = ReplicaSet}) ->
         lists:member(Site, ReplicaSet)
     end).
+
+shard_meta(DB, Shard) ->
+    case get_db_meta(DB) of
+        #{Shard := Meta} -> Meta;
+        #{} -> undefined
+    end.
 
 -spec replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     {ok, [site()]} | {error, _}.
@@ -264,6 +273,7 @@ open_db_trans(DB, CreateOpts) ->
             ReplicationFactor = maps:get(replication_factor, CreateOpts),
             mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),
             create_shards(DB, NSites, NShards, ReplicationFactor),
+            save_db_meta(DB),
             CreateOpts;
         [#?META_TAB{db_props = Opts}] ->
             Opts
@@ -378,6 +388,28 @@ create_shards(DB, NSites, NShards, ReplicationFactor) ->
         end,
         Shards
     ).
+
+save_db_meta(DB) ->
+    Shards = mnesia:match_object(?SHARD_TAB, #?SHARD_TAB{_ = '_'}, read),
+    Meta = maps:from_list([mk_shard_meta(Shard) || Shard <- Shards]),
+    persistent_term:put(?DB_META(DB), Meta).
+
+get_db_meta(DB) ->
+    persistent_term:get(?DB_META(DB)).
+
+% erase_db_meta(DB) ->
+%     persistent_term:erase(?DB_META(DB)).
+
+mk_shard_meta(#?SHARD_TAB{shard = {DB, Shard}, replica_set = ReplicaSet}) ->
+    %% FIXME: Wrong place.
+    Servers = [
+        {emqx_ds_replication_layer_shard:server_name(DB, Shard, Site), Node#?NODE_TAB.node}
+     || Site <- ReplicaSet,
+        Node <- mnesia:read(?NODE_TAB, Site)
+    ],
+    {Shard, #{
+        servers => Servers
+    }}.
 
 -spec hash(emqx_ds_replication_layer:shard_id(), site()) -> any().
 hash(Shard, Site) ->
