@@ -118,8 +118,7 @@ store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options = #{atomic := tru
 store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options) ->
     lists:foreach(
         fun(Msg) ->
-            Id = erlang:unique_integer([monotonic]),
-            Key = <<Id:64>>,
+            Key = <<(emqx_message:timestamp(Msg)):64>>,
             Val = term_to_binary(Msg),
             rocksdb:put(DB, CF, Key, Val, [])
         end,

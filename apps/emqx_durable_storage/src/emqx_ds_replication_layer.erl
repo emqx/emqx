@@ -555,8 +555,7 @@ ra_start_shard(DB, Shard) ->
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,
-        ?batch_messages => Messages,
-        ?timestamp => emqx_ds:timestamp_us()
+        ?batch_messages => Messages
     },
     case ra:process_command(ra_leader_servers(DB, Shard), Command) of
         {ok, Result, _Leader} ->
@@ -652,8 +651,7 @@ apply(
     #{index := RaftIdx},
     #{
         ?tag := ?BATCH,
-        ?batch_messages := MessagesIn,
-        ?timestamp := TimestampLocal
+        ?batch_messages := MessagesIn
     },
     #{latest := Latest} = State
 ) ->
@@ -661,18 +659,30 @@ apply(
     %% Unique timestamp tracking real time closely.
     %% With microsecond granularity it should be nearly impossible for it to run
     %% too far ahead than the real time clock.
-    Timestamp = max(Latest + 1, TimestampLocal),
-    Messages = assign_timestamps(Timestamp, MessagesIn),
+    {NLatest, Messages} = assign_timestamps(Latest, MessagesIn),
+    %% TODO
+    %% Batch is now reversed, but it should not make a lot of difference.
+    %% Even if it would be in order, it's still possible to write messages far away
+    %% in the past, i.e. when replica catches up with the leader. Storage layer
+    %% currently relies on wall clock time to decide if it's safe to iterate over
+    %% next epoch, this is likely wrong. Ideally it should rely on consensus clock
+    %% time instead.
     Result = emqx_ds_storage_layer:store_batch(erlang:get(emqx_ds_db_shard), Messages, #{}),
-    %% NOTE: Last assigned timestamp.
-    NLatest = Timestamp + length(Messages) - 1,
     NState = State#{latest := NLatest},
     %% TODO: Need to measure effects of changing frequency of `release_cursor`.
     Effect = {release_cursor, RaftIdx, NState},
     {NState, Result, Effect}.
 
-assign_timestamps(Timestamp, [MessageIn | Rest]) ->
-    Message = emqx_message:set_timestamp(Timestamp, MessageIn),
-    [Message | assign_timestamps(Timestamp + 1, Rest)];
-assign_timestamps(_Timestamp, []) ->
-    [].
+assign_timestamps(Latest, Messages) ->
+    assign_timestamps(Latest, Messages, []).
+
+assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
+    case emqx_message:timestamp(MessageIn) of
+        Later when Later > Latest ->
+            assign_timestamps(Later, Rest, [MessageIn | Acc]);
+        _Earlier ->
+            Message = emqx_message:set_timestamp(Latest + 1, MessageIn),
+            assign_timestamps(Latest + 1, Rest, [Message | Acc])
+    end;
+assign_timestamps(Latest, [], Acc) ->
+    {Latest, Acc}.
