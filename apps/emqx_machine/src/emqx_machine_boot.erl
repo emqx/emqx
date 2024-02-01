@@ -166,9 +166,8 @@ is_app(Name) ->
 sorted_reboot_apps() ->
     RebootApps = reboot_apps(),
     Apps0 = [{App, app_deps(App, RebootApps)} || App <- RebootApps],
-    Apps1 = inject_bridge_deps(Apps0),
-    Apps2 = inject_dashboard_deps(Apps1),
-    sorted_reboot_apps(Apps2).
+    Apps = emqx_machine_boot_runtime_deps:inject(Apps0, runtime_deps()),
+    sorted_reboot_apps(Apps).
 
 app_deps(App, RebootApps) ->
     case application:get_key(App, applications) of
@@ -176,43 +175,21 @@ app_deps(App, RebootApps) ->
         {ok, List} -> lists:filter(fun(A) -> lists:member(A, RebootApps) end, List)
     end.
 
-%% `emqx_bridge' is special in that it needs all the bridges apps to
-%% be started before it, so that, when it loads the bridges from
-%% configuration, the bridge app and its dependencies need to be up.
-%%
-%% `emqx_connector' also needs to start all connector dependencies for the same reason.
-%% Since standalone apps like `emqx_mongodb' are already dependencies of `emqx_bridge_*'
-%% apps, we may apply the same tactic for `emqx_connector' and inject individual bridges
-%% as its dependencies.
-inject_bridge_deps(RebootAppDeps) ->
-    BridgeApps = [
-        App
-     || {App, _Deps} <- RebootAppDeps,
-        lists:prefix("emqx_bridge_", atom_to_list(App))
-    ],
-    lists:map(
-        fun
-            ({emqx_bridge, Deps0}) when is_list(Deps0) ->
-                {emqx_bridge, Deps0 ++ BridgeApps};
-            ({emqx_connector, Deps0}) when is_list(Deps0) ->
-                {emqx_connector, Deps0 ++ BridgeApps};
-            (App) ->
-                App
-        end,
-        RebootAppDeps
-    ).
-inject_dashboard_deps(Reboots) ->
-    Apps = [emqx_license],
-    Deps = lists:filter(fun(App) -> lists:keymember(App, 1, Reboots) end, Apps),
-    lists:map(
-        fun
-            ({emqx_dashboard, Deps0}) when is_list(Deps0) ->
-                {emqx_dashboard, Deps0 ++ Deps};
-            (App) ->
-                App
-        end,
-        Reboots
-    ).
+runtime_deps() ->
+    [
+        %% `emqx_bridge' is special in that it needs all the bridges apps to
+        %% be started before it, so that, when it loads the bridges from
+        %% configuration, the bridge app and its dependencies need to be up.
+        {emqx_bridge, fun(App) -> lists:prefix("emqx_bridge_", atom_to_list(App)) end},
+        %% `emqx_connector' also needs to start all connector dependencies for the same reason.
+        %% Since standalone apps like `emqx_mongodb' are already dependencies of `emqx_bridge_*'
+        %% apps, we may apply the same tactic for `emqx_connector' and inject individual bridges
+        %% as its dependencies.
+        {emqx_connector, fun(App) -> lists:prefix("emqx_bridge_", atom_to_list(App)) end},
+        %% emqx_fdb is an EE app
+        {emqx_durable_storage, emqx_fdb},
+        {emqx_dashboard, emqx_license}
+    ].
 
 sorted_reboot_apps(Apps) ->
     G = digraph:new(),
