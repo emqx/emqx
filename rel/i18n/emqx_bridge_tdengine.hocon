@@ -40,4 +40,10 @@ sql_template.desc:
 sql_template.label:
 """SQL Template"""
 
+action_parameters.desc:
+"""Tdengine action parameters"""
+
+action_parameters.label:
+"""Parameters"""
+
 }

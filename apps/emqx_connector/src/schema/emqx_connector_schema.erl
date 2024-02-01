@@ -162,7 +162,9 @@ connector_type_to_bridge_types(elasticsearch) ->
 connector_type_to_bridge_types(opents) ->
     [opents];
 connector_type_to_bridge_types(greptimedb) ->
-    [greptimedb].
+    [greptimedb];
+connector_type_to_bridge_types(tdengine) ->
+    [tdengine].
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.

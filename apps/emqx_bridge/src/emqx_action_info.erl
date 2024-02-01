@@ -102,7 +102,8 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_iotdb_action_info,
         emqx_bridge_es_action_info,
         emqx_bridge_opents_action_info,
-        emqx_bridge_greptimedb_action_info
+        emqx_bridge_greptimedb_action_info,
+        emqx_bridge_tdengine_action_info
     ].
 -else.
 hard_coded_action_info_modules_ee() ->
