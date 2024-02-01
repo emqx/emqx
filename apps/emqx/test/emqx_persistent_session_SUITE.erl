@@ -1092,14 +1092,6 @@ get_msgs_essentials(Msgs) ->
 pick_respective_msgs(MsgRefs, Msgs) ->
     [M || M <- Msgs, Ref <- MsgRefs, maps:get(packet_id, M) =:= maps:get(packet_id, Ref)].
 
-skip_ds_tc(Config) ->
-    case ?config(persistence, Config) of
-        ds ->
-            {skip, "Testcase not yet supported under 'emqx_persistent_session_ds' implementation"};
-        _ ->
-            Config
-    end.
-
 debug_info(ClientId) ->
     Info = emqx_persistent_session_ds:print_session(ClientId),
     ct:pal("*** State:~n~p", [Info]).

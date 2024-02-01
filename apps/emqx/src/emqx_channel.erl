@@ -193,7 +193,9 @@ info(alias_maximum, #channel{alias_maximum = Limits}) ->
 info(timers, #channel{timers = Timers}) ->
     Timers;
 info(session_state, #channel{session = Session}) ->
-    Session.
+    Session;
+info(impl, #channel{session = Session}) ->
+    emqx_session:info(impl, Session).
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.

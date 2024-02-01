@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@
 %%
 %% Most of the time, you just need to:
 %% 1. Describe the appspecs for the applications you want to test.
-%% 2. Call `emqx_cth_sutie:start/2` to start the applications before the testrun
+%% 2. Call `emqx_cth_suite:start/2` to start the applications before the testrun
 %%    (e.g. in `init_per_suite/1` / `init_per_group/2`), providing the appspecs
 %%    and unique work dir for the testrun (e.g. `work_dir/1`). Save the result
 %%    in a context.

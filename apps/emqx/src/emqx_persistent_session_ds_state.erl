@@ -181,7 +181,9 @@ format(#{
     ranks := Ranks
 }) ->
     Subs = emqx_topic_gbt:fold(
-        fun(Key, Sub, Acc) -> maps:put(Key, Sub, Acc) end,
+        fun(Key, Sub, Acc) ->
+            maps:put(emqx_topic_gbt:get_topic(Key), Sub, Acc)
+        end,
         #{},
         SubsGBT
     ),
