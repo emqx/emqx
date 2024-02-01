@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022, 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,31 +13,35 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--ifndef(EMQX_DS_REPLICATION_LAYER_HRL).
--define(EMQX_DS_REPLICATION_LAYER_HRL, true).
 
-%% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
-%% records over the wire.
+-module(emqx_ds_replication_layer_shard).
 
-%% tags:
--define(STREAM, 1).
--define(IT, 2).
--define(BATCH, 3).
--define(DELETE_IT, 4).
+-export([start_link/1]).
 
-%% keys:
--define(tag, 1).
--define(shard, 2).
--define(enc, 3).
+-behaviour(gen_server).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    terminate/2
+]).
 
-%% ?BATCH
--define(batch_messages, 2).
--define(timestamp, 3).
+%%
 
-%% update_config
--define(config, 2).
+start_link(ServerId) ->
+    gen_server:start_link(?MODULE, ServerId, []).
 
-%% drop_generation
--define(generation, 2).
+%%
 
--endif.
+init(ServerId) ->
+    process_flag(trap_exit, true),
+    {ok, ServerId}.
+
+handle_call(_Call, _From, State) ->
+    {reply, ignored, State}.
+
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+terminate(_Reason, ServerId) ->
+    ok = ra:stop_server(ServerId).

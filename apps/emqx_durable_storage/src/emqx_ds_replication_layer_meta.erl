@@ -29,20 +29,14 @@
 -export([
     shards/1,
     my_shards/1,
-    my_owned_shards/1,
-    leader_nodes/1,
     replica_set/2,
-    in_sync_replicas/2,
     sites/0,
     node/1,
     open_db/2,
     get_options/1,
     update_db_config/2,
     drop_db/1,
-    shard_leader/2,
     this_site/0,
-    set_leader/3,
-    is_leader/1,
     print_status/0
 ]).
 
@@ -55,9 +49,6 @@
     update_db_config_trans/2,
     drop_db_trans/1,
     claim_site/2,
-    in_sync_replicas_trans/2,
-    set_leader_trans/3,
-    is_leader_trans/1,
     n_shards/1
 ]).
 
@@ -96,9 +87,6 @@
     %% Sites that should contain the data when the cluster is in the
     %% stable state (no nodes are being added or removed from it):
     replica_set :: [site()],
-    %% Sites that contain the actual data:
-    in_sync_replicas :: [site()],
-    leader :: node() | undefined,
     misc = #{} :: map()
 }).
 
@@ -164,27 +152,6 @@ my_shards(DB) ->
         lists:member(Site, ReplicaSet)
     end).
 
--spec my_owned_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
-my_owned_shards(DB) ->
-    Self = node(),
-    filter_shards(DB, fun(#?SHARD_TAB{leader = Leader}) ->
-        Self =:= Leader
-    end).
-
--spec leader_nodes(emqx_ds:db()) -> [node()].
-leader_nodes(DB) ->
-    lists:uniq(
-        filter_shards(
-            DB,
-            fun(#?SHARD_TAB{leader = Leader}) ->
-                Leader =/= undefined
-            end,
-            fun(#?SHARD_TAB{leader = Leader}) ->
-                Leader
-            end
-        )
-    ).
-
 -spec replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     {ok, [site()]} | {error, _}.
 replica_set(DB, Shard) ->
@@ -193,17 +160,6 @@ replica_set(DB, Shard) ->
             {ok, ReplicaSet};
         [] ->
             {error, no_shard}
-    end.
-
--spec in_sync_replicas(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    [site()].
-in_sync_replicas(DB, ShardId) ->
-    {atomic, Result} = mria:transaction(?SHARD, fun ?MODULE:in_sync_replicas_trans/2, [DB, ShardId]),
-    case Result of
-        {ok, InSync} ->
-            InSync;
-        {error, _} ->
-            []
     end.
 
 -spec sites() -> [site()].
@@ -218,27 +174,6 @@ node(Site) ->
         [] ->
             undefined
     end.
-
--spec shard_leader(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    {ok, node()} | {error, no_leader_for_shard}.
-shard_leader(DB, Shard) ->
-    case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
-        [#?SHARD_TAB{leader = Leader}] when Leader =/= undefined ->
-            {ok, Leader};
-        _ ->
-            {error, no_leader_for_shard}
-    end.
-
--spec set_leader(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), node()) ->
-    ok.
-set_leader(DB, Shard, Node) ->
-    {atomic, _} = mria:transaction(?SHARD, fun ?MODULE:set_leader_trans/3, [DB, Shard, Node]),
-    ok.
-
--spec is_leader(node()) -> boolean().
-is_leader(Node) ->
-    {atomic, Result} = mria:transaction(?SHARD, fun ?MODULE:is_leader_trans/1, [Node]),
-    Result.
 
 -spec get_options(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
 get_options(DB) ->
@@ -286,7 +221,6 @@ init([]) ->
     init_ra(),
     ensure_tables(),
     ensure_site(),
-    {ok, _} = mnesia:subscribe({table, ?META_TAB, detailed}),
     S = #s{},
     {ok, S}.
 
@@ -309,18 +243,6 @@ handle_call(_Call, _From, S) ->
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
-handle_info(
-    {mnesia_table_event, {write, ?META_TAB, #?META_TAB{db = DB, db_props = Options}, [_], _}}, S
-) ->
-    MyShards = my_owned_shards(DB),
-
-    lists:foreach(
-        fun(ShardId) ->
-            emqx_ds_storage_layer:update_config({DB, ShardId}, Options)
-        end,
-        MyShards
-    ),
-    {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
@@ -381,41 +303,6 @@ drop_db_trans(DB) ->
 -spec claim_site(site(), node()) -> ok.
 claim_site(Site, Node) ->
     mnesia:write(#?NODE_TAB{site = Site, node = Node}).
-
--spec in_sync_replicas_trans(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    {ok, [site()]} | {error, no_shard}.
-in_sync_replicas_trans(DB, Shard) ->
-    case mnesia:read(?SHARD_TAB, {DB, Shard}) of
-        [#?SHARD_TAB{in_sync_replicas = InSync}] ->
-            {ok, InSync};
-        [] ->
-            {error, no_shard}
-    end.
-
--spec set_leader_trans(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), node()) ->
-    ok.
-set_leader_trans(DB, Shard, Node) ->
-    [Record0] = mnesia:wread({?SHARD_TAB, {DB, Shard}}),
-    Record = Record0#?SHARD_TAB{leader = Node},
-    mnesia:write(Record).
-
--spec is_leader_trans(node) -> boolean().
-is_leader_trans(Node) ->
-    case
-        mnesia:select(
-            ?SHARD_TAB,
-            ets:fun2ms(fun(#?SHARD_TAB{leader = Leader}) ->
-                Leader =:= Node
-            end),
-            1,
-            read
-        )
-    of
-        {[_ | _], _Cont} ->
-            true;
-        _ ->
-            false
-    end.
 
 %%================================================================================
 %% Internal functions

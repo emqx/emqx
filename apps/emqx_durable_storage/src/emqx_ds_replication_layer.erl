@@ -36,9 +36,7 @@
     update_iterator/3,
     next/3,
     delete_next/4,
-    node_of_shard/2,
-    shard_of_message/3,
-    maybe_set_myself_as_leader/2
+    shard_of_message/3
 ]).
 
 %% internal exports:
@@ -160,13 +158,19 @@ open_db(DB, CreateOpts) ->
 
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
-    Nodes = emqx_ds_replication_layer_meta:leader_nodes(DB),
-    _ = emqx_ds_proto_v4:add_generation(Nodes, DB),
-    ok.
+    foreach_shard(
+        DB,
+        fun(Shard) -> ok = ra_add_generation(DB, Shard) end
+    ).
 
 -spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
-    emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts).
+    ok = emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts),
+    Opts = emqx_ds_replication_layer_meta:get_options(DB),
+    foreach_shard(
+        DB,
+        fun(Shard) -> ok = ra_update_config(DB, Shard, Opts) end
+    ).
 
 -spec list_generations_with_lifetimes(emqx_ds:db()) ->
     #{generation_rank() => emqx_ds:generation_info()}.
@@ -174,13 +178,12 @@ list_generations_with_lifetimes(DB) ->
     Shards = list_shards(DB),
     lists:foldl(
         fun(Shard, GensAcc) ->
-            Node = node_of_shard(DB, Shard),
             maps:fold(
                 fun(GenId, Data, AccInner) ->
                     AccInner#{{Shard, GenId} => Data}
                 end,
                 GensAcc,
-                emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard)
+                ra_list_generations_with_lifetimes(DB, Shard)
             )
         end,
         #{},
@@ -189,10 +192,7 @@ list_generations_with_lifetimes(DB) ->
 
 -spec drop_generation(emqx_ds:db(), generation_rank()) -> ok | {error, _}.
 drop_generation(DB, {Shard, GenId}) ->
-    %% TODO: drop generation in all nodes in the replica set, not only in the leader,
-    %% after we have proper replication in place.
-    Node = node_of_shard(DB, Shard),
-    emqx_ds_proto_v4:drop_generation(Node, DB, Shard, GenId).
+    ra_drop_generation(DB, Shard, GenId).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
@@ -244,8 +244,7 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
-            Node = node_of_shard(DB, Shard),
-            Streams = emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, StartTime),
+            Streams = ra_get_delete_streams(DB, Shard, TopicFilter, StartTime),
             lists:map(
                 fun(StorageLayerStream) ->
                     ?delete_stream(Shard, StorageLayerStream)
@@ -274,12 +273,7 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
     emqx_ds:make_delete_iterator_result(delete_iterator()).
 make_delete_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?delete_stream(Shard, StorageStream) = Stream,
-    Node = node_of_shard(DB, Shard),
-    case
-        emqx_ds_proto_v4:make_delete_iterator(
-            Node, DB, Shard, StorageStream, TopicFilter, StartTime
-        )
-    of
+    case ra_make_delete_iterator(DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?DELETE_IT, ?shard => Shard, ?enc => Iter}};
         Err = {error, _} ->
@@ -327,24 +321,12 @@ next(DB, Iter0, BatchSize) ->
     emqx_ds:delete_next_result(delete_iterator()).
 delete_next(DB, Iter0, Selector, BatchSize) ->
     #{?tag := ?DELETE_IT, ?shard := Shard, ?enc := StorageIter0} = Iter0,
-    Node = node_of_shard(DB, Shard),
-    case emqx_ds_proto_v4:delete_next(Node, DB, Shard, StorageIter0, Selector, BatchSize) of
+    case ra_delete_next(DB, Shard, StorageIter0, Selector, BatchSize) of
         {ok, StorageIter, NumDeleted} ->
             Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, NumDeleted};
         Other ->
             Other
-    end.
-
--spec node_of_shard(emqx_ds:db(), shard_id()) -> node().
-node_of_shard(DB, Shard) ->
-    case emqx_ds_replication_layer_meta:shard_leader(DB, Shard) of
-        {ok, Leader} ->
-            Leader;
-        {error, no_leader_for_shard} ->
-            %% TODO: use optvar
-            timer:sleep(500),
-            node_of_shard(DB, Shard)
     end.
 
 -spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic) ->
@@ -358,18 +340,8 @@ shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy) ->
         end,
     integer_to_binary(Hash).
 
-%% TODO: there's no real leader election right now
--spec maybe_set_myself_as_leader(emqx_ds:db(), shard_id()) -> ok.
-maybe_set_myself_as_leader(DB, Shard) ->
-    Site = emqx_ds_replication_layer_meta:this_site(),
-    case emqx_ds_replication_layer_meta:in_sync_replicas(DB, Shard) of
-        [Site | _] ->
-            %% Currently the first in-sync replica always becomes the
-            %% leader
-            ok = emqx_ds_replication_layer_meta:set_leader(DB, Shard, node());
-        _Sites ->
-            ok
-    end.
+foreach_shard(DB, Fun) ->
+    lists:foreach(Fun, list_shards(DB)).
 
 %%================================================================================
 %% behavior callbacks
@@ -486,7 +458,8 @@ do_delete_next_v4(DB, Shard, Iter, Selector, BatchSize) ->
 
 -spec do_add_generation_v2(emqx_ds:db()) -> ok | {error, _}.
 do_add_generation_v2(DB) ->
-    MyShards = emqx_ds_replication_layer_meta:my_owned_shards(DB),
+    %% FIXME
+    MyShards = [],
     lists:foreach(
         fun(ShardId) ->
             emqx_ds_storage_layer:add_generation({DB, ShardId})
@@ -551,7 +524,7 @@ ra_start_shard(DB, Shard) ->
         _ ->
             ok
     end,
-    ignore.
+    emqx_ds_replication_layer_shard:start_link(LocalServer).
 
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
@@ -565,13 +538,48 @@ ra_store_batch(DB, Shard, Messages) ->
             error(Error, [DB, Shard])
     end.
 
+ra_add_generation(DB, Shard) ->
+    Command = #{?tag => add_generation},
+    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+        {ok, Result, _Leader} ->
+            Result;
+        Error ->
+            error(Error, [DB, Shard])
+    end.
+
+ra_update_config(DB, Shard, Opts) ->
+    Command = #{?tag => update_config, ?config => Opts},
+    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+        {ok, Result, _Leader} ->
+            Result;
+        Error ->
+            error(Error, [DB, Shard])
+    end.
+
+ra_drop_generation(DB, Shard, GenId) ->
+    Command = #{?tag => drop_generation, ?generation => GenId},
+    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+        {ok, Result, _Leader} ->
+            Result;
+        Error ->
+            error(Error, [DB, Shard])
+    end.
+
 ra_get_streams(DB, Shard, TopicFilter, Time) ->
     {_Name, Node} = ra_random_replica(DB, Shard),
     emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, Time).
 
+ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time).
+
 ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
     {_Name, Node} = ra_random_replica(DB, Shard),
     emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
+
+ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
 
 ra_update_iterator(DB, Shard, Iter, DSKey) ->
     {_Name, Node} = ra_random_replica(DB, Shard),
@@ -581,9 +589,16 @@ ra_next(DB, Shard, Iter, BatchSize) ->
     {_Name, Node} = ra_random_replica(DB, Shard),
     emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize).
 
+ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:delete_next(Node, DB, Shard, Iter, Selector, BatchSize).
+
+ra_list_generations_with_lifetimes(DB, Shard) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard).
+
 ra_drop_shard(DB, Shard) ->
-    %% TODO: clean dsrepl state
-    ra:stop_server(_System = default, ra_local_server(DB, Shard)).
+    ra:force_delete_server(_System = default, ra_local_server(DB, Shard)).
 
 ra_shard_servers(DB, Shard) ->
     {ok, ReplicaSet} = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
@@ -672,7 +687,28 @@ apply(
     NState = State#{latest := NLatest},
     %% TODO: Need to measure effects of changing frequency of `release_cursor`.
     Effect = {release_cursor, RaftIdx, NState},
-    {NState, Result, Effect}.
+    {NState, Result, Effect};
+apply(
+    _RaftMeta,
+    #{?tag := add_generation},
+    State
+) ->
+    Result = emqx_ds_storage_layer:add_generation(erlang:get(emqx_ds_db_shard)),
+    {State, Result};
+apply(
+    _RaftMeta,
+    #{?tag := update_config, ?config := Opts},
+    State
+) ->
+    Result = emqx_ds_storage_layer:update_config(erlang:get(emqx_ds_db_shard), Opts),
+    {State, Result};
+apply(
+    _RaftMeta,
+    #{?tag := drop_generation, ?generation := GenId},
+    State
+) ->
+    Result = emqx_ds_storage_layer:drop_generation(erlang:get(emqx_ds_db_shard), GenId),
+    {State, Result}.
 
 assign_timestamps(Latest, Messages) ->
     assign_timestamps(Latest, Messages, []).

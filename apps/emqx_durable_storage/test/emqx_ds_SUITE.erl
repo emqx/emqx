@@ -51,13 +51,8 @@ t_00_smoke_open_drop(_Config) ->
     lists:foreach(
         fun(Shard) ->
             ?assertEqual(
-                {ok, []}, emqx_ds_replication_layer_meta:replica_set(DB, Shard)
-            ),
-            ?assertEqual(
-                [Site], emqx_ds_replication_layer_meta:in_sync_replicas(DB, Shard)
-            ),
-            %%  Check that the leader is eleected;
-            ?assertEqual({ok, node()}, emqx_ds_replication_layer_meta:shard_leader(DB, Shard))
+                {ok, [Site]}, emqx_ds_replication_layer_meta:replica_set(DB, Shard)
+            )
         end,
         Shards
     ),
