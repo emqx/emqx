@@ -71,7 +71,7 @@
     %% Connection State
     conn_state :: conn_state(),
     %% Inflight register message queue
-    register_inflight :: maybe(term()),
+    register_inflight :: option(term()),
     %% Topics list for awaiting to register to client
     register_awaiting_queue :: list(),
     %% Duration for asleep

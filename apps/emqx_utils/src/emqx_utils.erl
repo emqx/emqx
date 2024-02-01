@@ -89,7 +89,7 @@
 
 -type readable_error_msg(_Error) :: binary().
 
--type maybe(T) :: undefined | T.
+-type option(T) :: undefined | T.
 
 -dialyzer({nowarn_function, [nolink_apply/2]}).
 
@@ -128,8 +128,8 @@ merge_opts(Defaults, Options) ->
     ).
 
 %% @doc Apply a function to a maybe argument.
--spec maybe_apply(fun((maybe(A)) -> maybe(A)), maybe(A)) ->
-    maybe(A)
+-spec maybe_apply(fun((option(A)) -> option(A)), option(A)) ->
+    option(A)
 when
     A :: any().
 maybe_apply(_Fun, undefined) ->
@@ -184,17 +184,17 @@ apply_fun(Fun, Input, State) ->
         {arity, 2} -> Fun(Input, State)
     end.
 
--spec start_timer(integer() | atom(), term()) -> maybe(reference()).
+-spec start_timer(integer() | atom(), term()) -> option(reference()).
 start_timer(Interval, Msg) ->
     start_timer(Interval, self(), Msg).
 
--spec start_timer(integer() | atom(), pid() | atom(), term()) -> maybe(reference()).
+-spec start_timer(integer() | atom(), pid() | atom(), term()) -> option(reference()).
 start_timer(Interval, Dest, Msg) when is_number(Interval) ->
     erlang:start_timer(erlang:ceil(Interval), Dest, Msg);
 start_timer(_Atom, _Dest, _Msg) ->
     undefined.
 
--spec cancel_timer(maybe(reference())) -> ok.
+-spec cancel_timer(option(reference())) -> ok.
 cancel_timer(Timer) when is_reference(Timer) ->
     case erlang:cancel_timer(Timer) of
         false ->

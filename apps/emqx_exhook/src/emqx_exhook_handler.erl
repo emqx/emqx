@@ -306,7 +306,7 @@ conninfo(
     #{
         node => stringfy(node()),
         clientid => ClientId,
-        username => maybe(Username),
+        username => option(Username),
         peerhost => ntoa(Peerhost),
         peerport => PeerPort,
         sockport => SockPort,
@@ -330,17 +330,17 @@ clientinfo(
     #{
         node => stringfy(node()),
         clientid => ClientId,
-        username => maybe(Username),
-        password => maybe(maps:get(password, ClientInfo, undefined)),
+        username => option(Username),
+        password => option(maps:get(password, ClientInfo, undefined)),
         peerhost => ntoa(PeerHost),
         peerport => PeerPort,
         sockport => SockPort,
         protocol => stringfy(Protocol),
-        mountpoint => maybe(Mountpoiont),
+        mountpoint => option(Mountpoiont),
         is_superuser => maps:get(is_superuser, ClientInfo, false),
         anonymous => maps:get(anonymous, ClientInfo, true),
-        cn => maybe(maps:get(cn, ClientInfo, undefined)),
-        dn => maybe(maps:get(dn, ClientInfo, undefined))
+        cn => option(maps:get(cn, ClientInfo, undefined)),
+        dn => option(maps:get(dn, ClientInfo, undefined))
     }.
 
 message(#message{
@@ -435,8 +435,8 @@ ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
 ntoa(IP) ->
     list_to_binary(inet_parse:ntoa(IP)).
 
-maybe(undefined) -> <<>>;
-maybe(B) -> B.
+option(undefined) -> <<>>;
+option(B) -> B.
 
 %% @private
 stringfy(Term) when is_binary(Term) ->

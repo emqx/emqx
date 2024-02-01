@@ -405,9 +405,9 @@ t_quic_update_opts(Config) ->
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
         ?assertError(
             {transport_down, #{error := _, status := Status}} when
-                (Status =:= bad_certificate orelse
+                ((Status =:= bad_certificate orelse
                     Status =:= cert_untrusted_root orelse
-                    Status =:= handshake_failure),
+                    Status =:= handshake_failure)),
             ConnectFun(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
             ])
@@ -553,9 +553,9 @@ t_quic_update_opts_fail(Config) ->
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
         ?assertError(
             {transport_down, #{error := _, status := Status}} when
-                (Status =:= bad_certificate orelse
+                ((Status =:= bad_certificate orelse
                     Status =:= cert_untrusted_root orelse
-                    Status =:= handshake_failure),
+                    Status =:= handshake_failure)),
             ConnectFun(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
             ])

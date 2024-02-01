@@ -63,15 +63,15 @@
     %% ClientInfo
     clientinfo :: emqx_types:clientinfo(),
     %% Session
-    session :: maybe(map()),
+    session :: option(map()),
     %% ClientInfo override specs
     clientinfo_override :: map(),
     %% Keepalive
-    keepalive :: maybe(emqx_ocpp_keepalive:keepalive()),
+    keepalive :: option(emqx_ocpp_keepalive:keepalive()),
     %% Stores all unsent messages.
     mqueue :: queue:queue(),
     %% Timers
-    timers :: #{atom() => disabled | maybe(reference())},
+    timers :: #{atom() => disabled | option(reference())},
     %% Conn State
     conn_state :: conn_state()
 }).

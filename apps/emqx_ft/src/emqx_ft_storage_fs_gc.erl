@@ -41,8 +41,8 @@
 -export([handle_info/2]).
 
 -record(st, {
-    next_gc_timer :: maybe(reference()),
-    last_gc :: maybe(gcstats())
+    next_gc_timer :: option(reference()),
+    last_gc :: option(gcstats())
 }).
 
 -type gcstats() :: #gcstats{}.

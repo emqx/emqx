@@ -42,7 +42,7 @@
     %% Session
     session :: undefined | map(),
     %% Keepalive
-    keepalive :: maybe(emqx_keepalive:keepalive()),
+    keepalive :: option(emqx_keepalive:keepalive()),
     %% Conn State
     conn_state :: conn_state(),
     %% Timers

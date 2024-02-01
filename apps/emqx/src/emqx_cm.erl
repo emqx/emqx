@@ -200,12 +200,12 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     true.
 
 %% @doc Get info of a channel.
--spec get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos()).
+-spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
 get_chan_info(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_info(ClientId, ChanPid) end).
 
 -spec do_get_chan_info(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:infos()).
+    option(emqx_types:infos()).
 do_get_chan_info(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try
@@ -215,7 +215,7 @@ do_get_chan_info(ClientId, ChanPid) ->
     end.
 
 -spec get_chan_info(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:infos()).
+    option(emqx_types:infos()).
 get_chan_info(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v2:get_chan_info(ClientId, ChanPid)).
 
@@ -230,12 +230,12 @@ set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
     end.
 
 %% @doc Get channel's stats.
--spec get_chan_stats(emqx_types:clientid()) -> maybe(emqx_types:stats()).
+-spec get_chan_stats(emqx_types:clientid()) -> option(emqx_types:stats()).
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:stats()).
+    option(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try
@@ -245,7 +245,7 @@ do_get_chan_stats(ClientId, ChanPid) ->
     end.
 
 -spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:stats()).
+    option(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v2:get_chan_stats(ClientId, ChanPid)).
 
@@ -325,7 +325,7 @@ takeover_session_end({ConnMod, ChanPid}) ->
     end.
 
 -spec pick_channel(emqx_types:clientid()) ->
-    maybe(pid()).
+    option(pid()).
 pick_channel(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->

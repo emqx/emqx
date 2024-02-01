@@ -72,9 +72,9 @@
     %% Piggyback
     piggyback :: single | multiple,
     %% Limiter
-    limiter :: maybe(emqx_htb_limiter:limiter()),
+    limiter :: option(emqx_htb_limiter:limiter()),
     %% Limit Timer
-    limit_timer :: maybe(reference()),
+    limit_timer :: option(reference()),
     %% Parse State
     parse_state :: emqx_ocpp_frame:parse_state(),
     %% Serialize options
@@ -82,17 +82,17 @@
     %% Channel
     channel :: emqx_ocpp_channel:channel(),
     %% GC State
-    gc_state :: maybe(emqx_gc:gc_state()),
+    gc_state :: option(emqx_gc:gc_state()),
     %% Postponed Packets|Cmds|Events
     postponed :: list(emqx_types:packet() | ws_cmd() | tuple()),
     %% Stats Timer
-    stats_timer :: disabled | maybe(reference()),
+    stats_timer :: disabled | option(reference()),
     %% Idle Timeout
     idle_timeout :: timeout(),
     %%% Idle Timer
-    idle_timer :: maybe(reference()),
+    idle_timer :: option(reference()),
     %% OOM Policy
-    oom_policy :: maybe(emqx_types:oom_policy()),
+    oom_policy :: option(emqx_types:oom_policy()),
     %% Frame Module
     frame_mod :: atom(),
     %% Channel Module

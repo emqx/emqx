@@ -103,9 +103,9 @@ with_client(ProfileId, Fun) when is_function(Fun, 1) andalso ?IS_PROFILE_ID(Prof
 %%
 
 -spec pre_config_update(
-    profile_id(), maybe(emqx_config:raw_config()), maybe(emqx_config:raw_config())
+    profile_id(), option(emqx_config:raw_config()), option(emqx_config:raw_config())
 ) ->
-    {ok, maybe(profile_config())} | {error, term()}.
+    {ok, option(profile_config())} | {error, term()}.
 pre_config_update(ProfileId, NewConfig = #{<<"transport_options">> := TransportOpts}, _OldConfig) ->
     case emqx_connector_ssl:convert_certs(mk_certs_dir(ProfileId), TransportOpts) of
         {ok, TransportOptsConv} ->
@@ -118,8 +118,8 @@ pre_config_update(_ProfileId, NewConfig, _OldConfig) ->
 
 -spec post_config_update(
     profile_id(),
-    maybe(emqx_config:config()),
-    maybe(emqx_config:config())
+    option(emqx_config:config()),
+    option(emqx_config:config())
 ) ->
     ok.
 post_config_update(_ProfileId, _NewConfig, _OldConfig) ->

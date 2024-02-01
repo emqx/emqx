@@ -65,8 +65,8 @@
 -import(emqx_utils, [start_timer/2]).
 
 -record(state, {
-    heartbeat :: maybe(reference()),
-    ticker :: maybe(reference()),
+    heartbeat :: option(reference()),
+    ticker :: option(reference()),
     sysdescr :: binary()
 }).
 
