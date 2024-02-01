@@ -221,6 +221,32 @@ t_create_remove(_) ->
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
+t_create_disabled_bridge(_) ->
+    Config = #{<<"connector">> := Connector} = bridge_config(),
+    Disable = Config#{<<"enable">> => false},
+    BridgeType = bridge_type(),
+    {ok, _} = emqx_bridge_v2:create(BridgeType, my_enable_bridge, Config),
+    {ok, _} = emqx_bridge_v2:create(BridgeType, my_disable_bridge, Disable),
+    ConnectorId = emqx_connector_resource:resource_id(con_type(), Connector),
+    ?assertMatch(
+        [
+            {_, #{
+                enable := true,
+                connector := Connector,
+                bridge_type := _
+            }},
+            {_, #{
+                enable := false,
+                connector := Connector,
+                bridge_type := _
+            }}
+        ],
+        emqx_bridge_v2:get_channels_for_connector(ConnectorId)
+    ),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_enable_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_disable_bridge),
+    ok.
+
 t_list(_) ->
     [] = emqx_bridge_v2:list(),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),

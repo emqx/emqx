@@ -622,13 +622,16 @@ start_resource(Data, From) ->
 
 add_channels(Data) ->
     %% Add channels to the Channels map but not to the resource state
-    %% Channels will be added to the resouce state after the initial health_check
+    %% Channels will be added to the resource state after the initial health_check
     %% if that succeeds.
     ChannelIDConfigTuples = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
     Channels = Data#data.added_channels,
     NewChannels = lists:foldl(
-        fun({ChannelID, _Conf}, Acc) ->
-            maps:put(ChannelID, channel_status(), Acc)
+        fun
+            ({ChannelID, #{enable := true}}, Acc) ->
+                maps:put(ChannelID, channel_status(), Acc);
+            ({_, #{enable := false}}, Acc) ->
+                Acc
         end,
         Channels,
         ChannelIDConfigTuples
