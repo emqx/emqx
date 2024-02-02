@@ -39,11 +39,10 @@ fields(Field) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    emqx_connector_schema:api_fields(
-        Field,
-        ?CONNECTOR_TYPE,
-        fields("config_connector")
-    );
+    Fields =
+        fields(connector_config) ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
 fields(action) ->
     {?ACTION_TYPE,
         hoconsc:mk(
@@ -176,7 +175,8 @@ fields("post_producer") ->
 fields("put_producer") ->
     fields("config_producer");
 fields("config_connector") ->
-    fields(connector_config) ++
+    emqx_connector_schema:common_fields() ++
+        fields(connector_config) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
