@@ -259,7 +259,7 @@ fields(cluster_dns) ->
             )},
         {"record_type",
             sc(
-                hoconsc:enum([a, srv]),
+                hoconsc:enum([a, aaaa, srv]),
                 #{
                     default => a,
                     desc => ?DESC(cluster_dns_record_type),
