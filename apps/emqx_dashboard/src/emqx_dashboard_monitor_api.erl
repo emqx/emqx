@@ -194,6 +194,12 @@ swagger_desc(live_connections) ->
         "Connections at the time of sampling."
         " Can only represent the approximate state"
     >>;
+swagger_desc(cluster_sessions) ->
+    <<
+        "Total number of sessions in the cluster at the time of sampling. "
+        "It includes expired sessions when `broker.session_history_retain` is set to a duration greater than `0s`. "
+        "Can only represent the approximate state"
+    >>;
 swagger_desc(received_msg_rate) ->
     swagger_desc_format("Dropped messages ", per);
 %swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);

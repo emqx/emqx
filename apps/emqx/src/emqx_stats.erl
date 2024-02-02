@@ -99,7 +99,11 @@
     [
         'sessions.count',
         %% Maximum Number of Concurrent Sessions
-        'sessions.max'
+        'sessions.max',
+        %% Count of Sessions in the cluster
+        'cluster_sessions.count',
+        %% Maximum Number of Sessions in the cluster
+        'cluster_sessions.max'
     ]
 ).
 
@@ -164,6 +168,8 @@ names() ->
         emqx_connections_max,
         emqx_live_connections_count,
         emqx_live_connections_max,
+        emqx_cluster_sessions_count,
+        emqx_cluster_sessions_max,
         emqx_sessions_count,
         emqx_sessions_max,
         emqx_channels_count,

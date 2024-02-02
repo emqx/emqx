@@ -124,7 +124,8 @@
     {?CHAN_TAB, 'channels.count', 'channels.max'},
     {?CHAN_TAB, 'sessions.count', 'sessions.max'},
     {?CHAN_CONN_TAB, 'connections.count', 'connections.max'},
-    {?CHAN_LIVE_TAB, 'live_connections.count', 'live_connections.max'}
+    {?CHAN_LIVE_TAB, 'live_connections.count', 'live_connections.max'},
+    {?CHAN_REG_TAB, 'cluster_sessions.count', 'cluster_sessions.max'}
 ]).
 
 %% Batch drain

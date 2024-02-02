@@ -23,7 +23,7 @@
 -define(CHAN_INFO_TAB, emqx_channel_info).
 -define(CHAN_LIVE_TAB, emqx_channel_live).
 
-%% Mria/Mnesia Tables for channel management.
+%% Mria table for session registration.
 -define(CHAN_REG_TAB, emqx_channel_registry).
 
 -define(T_KICK, 5_000).
@@ -31,5 +31,12 @@
 -define(T_TAKEOVER, 15_000).
 
 -define(CM_POOL, emqx_cm_pool).
+
+%% Registered sessions.
+-record(channel, {
+    chid :: emqx_types:clientid() | '_',
+    %% pid field is extended in 5.6.0 to support recording unregistration timestamp.
+    pid :: pid() | non_neg_integer() | '$1'
+}).
 
 -endif.
