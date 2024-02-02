@@ -747,7 +747,7 @@ schema("/source_types") ->
 %%------------------------------------------------------------------------------
 
 handle_list(ConfRootKey) ->
-    Nodes = emqx:running_nodes(),
+    Nodes = nodes_supporting_bpapi_version(6),
     NodeReplies = emqx_bridge_proto_v6:v2_list_bridges_on_nodes_v6(Nodes, ConfRootKey),
     case is_ok(NodeReplies) of
         {ok, NodeBridges} ->
@@ -942,7 +942,7 @@ is_ok(ResL) ->
 %% bridge helpers
 -spec lookup_from_all_nodes(emqx_bridge_v2:root_cfg_key(), _, _, _) -> _.
 lookup_from_all_nodes(ConfRootKey, BridgeType, BridgeName, SuccCode) ->
-    Nodes = emqx:running_nodes(),
+    Nodes = nodes_supporting_bpapi_version(6),
     case
         is_ok(
             emqx_bridge_proto_v6:v2_lookup_from_all_nodes_v6(
@@ -959,7 +959,7 @@ lookup_from_all_nodes(ConfRootKey, BridgeType, BridgeName, SuccCode) ->
     end.
 
 get_metrics_from_all_nodes(ConfRootKey, Type, Name) ->
-    Nodes = emqx:running_nodes(),
+    Nodes = nodes_supporting_bpapi_version(6),
     Result = maybe_unwrap(
         emqx_bridge_proto_v6:v2_get_metrics_from_all_nodes_v6(Nodes, ConfRootKey, Type, Name)
     ),
@@ -1057,6 +1057,16 @@ supported_versions(_Call) -> bpapi_version_range(6, 6).
 %% [From, To] (inclusive on both ends)
 bpapi_version_range(From, To) ->
     lists:seq(From, To).
+
+nodes_supporting_bpapi_version(Vsn) ->
+    [
+        N
+     || N <- emqx:running_nodes(),
+        case emqx_bpapi:supported_version(N, ?BPAPI_NAME) of
+            undefined -> false;
+            NVsn when is_number(NVsn) -> NVsn >= Vsn
+        end
+    ].
 
 maybe_unwrap({error, not_implemented}) ->
     {error, not_implemented};

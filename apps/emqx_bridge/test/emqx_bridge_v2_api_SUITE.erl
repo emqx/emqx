@@ -106,7 +106,6 @@
 -define(KAFKA_BRIDGE_UPDATE(Name, Connector),
     maps:without([<<"name">>, <<"type">>], ?KAFKA_BRIDGE(Name, Connector))
 ).
--define(KAFKA_BRIDGE_UPDATE(Name), ?KAFKA_BRIDGE_UPDATE(Name, ?ACTION_CONNECTOR_NAME)).
 
 -define(SOURCE_TYPE_STR, "mqtt").
 -define(SOURCE_TYPE, <<?SOURCE_TYPE_STR>>).
@@ -1477,7 +1476,7 @@ t_cluster_later_join_metrics(Config) ->
             ?assertMatch(
                 {ok, 200, #{
                     <<"metrics">> := #{<<"success">> := _},
-                    <<"node_metrics">> := [#{<<"metrics">> := #{}}, #{<<"metrics">> := #{}} | _]
+                    <<"node_metrics">> := [#{<<"metrics">> := #{}} | _]
                 }},
                 request_json(get, uri([?ACTIONS_ROOT, ActionID, "metrics"]), Config)
             ),
@@ -1511,4 +1510,48 @@ t_raw_config_response_defaults(Config) ->
             Config
         )
     ),
+    ok.
+
+t_older_version_nodes_in_cluster(matrix) ->
+    [
+        [cluster, actions],
+        [cluster, sources]
+    ];
+t_older_version_nodes_in_cluster(Config) ->
+    [_, Kind | _] = group_path(Config),
+    PrimaryNode = ?config(node, Config),
+    OtherNode = maybe_get_other_node(Config),
+    ?assertNotEqual(OtherNode, PrimaryNode),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ?check_trace(
+        begin
+            #{api_root_key := APIRootKey} = get_common_values(Kind, Name),
+            erpc:call(PrimaryNode, fun() ->
+                meck:new(emqx_bpapi, [no_history, passthrough, no_link]),
+                meck:expect(emqx_bpapi, supported_version, fun(N, Api) ->
+                    case N =:= OtherNode of
+                        true -> 1;
+                        false -> meck:passthrough([N, Api])
+                    end
+                end)
+            end),
+            erpc:call(OtherNode, fun() ->
+                meck:new(emqx_bridge_v2, [no_history, passthrough, no_link]),
+                meck:expect(emqx_bridge_v2, list, fun(_ConfRootKey) ->
+                    error(should_not_be_called)
+                end)
+            end),
+            ?assertMatch(
+                {ok, 200, _},
+                request_json(
+                    get,
+                    uri([APIRootKey]),
+                    Config
+                )
+            ),
+            ok
+        end,
+        []
+    ),
+
     ok.
