@@ -8,4 +8,10 @@ The TDengine default port 6041 is used if `[:Port]` is not specified."""
 server.label:
 """Server Host"""
 
+desc_config.desc:
+"""Configuration for TDengine Connector."""
+
+desc_config.label:
+"""TDengine Connector Configuration"""
+
 }

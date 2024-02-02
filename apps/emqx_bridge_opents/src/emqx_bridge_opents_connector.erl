@@ -74,7 +74,7 @@ desc(connector_resource_opts) ->
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for IoTDB using `", string:to_upper(Method), "` method."];
+    ["Configuration for OpenTSDB using `", string:to_upper(Method), "` method."];
 desc(_) ->
     undefined.
 

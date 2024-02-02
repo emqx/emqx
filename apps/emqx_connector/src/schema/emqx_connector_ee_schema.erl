@@ -60,6 +60,8 @@ resource_type(opents) ->
     emqx_bridge_opents_connector;
 resource_type(greptimedb) ->
     emqx_bridge_greptimedb_connector;
+resource_type(tdengine) ->
+    emqx_bridge_tdengine_connector;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
 
@@ -76,6 +78,8 @@ connector_impl_module(elasticsearch) ->
     emqx_bridge_es_connector;
 connector_impl_module(opents) ->
     emqx_bridge_opents_connector;
+connector_impl_module(tdengine) ->
+    emqx_bridge_tdengine_connector;
 connector_impl_module(_ConnectorType) ->
     undefined.
 
@@ -235,6 +239,14 @@ connector_structs() ->
                     desc => <<"GreptimeDB Connector Config">>,
                     required => false
                 }
+            )},
+        {tdengine,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_tdengine_connector, "config_connector")),
+                #{
+                    desc => <<"TDengine Connector Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -258,7 +270,8 @@ schema_modules() ->
         emqx_bridge_iotdb_connector,
         emqx_bridge_es_connector,
         emqx_bridge_opents_connector,
-        emqx_bridge_greptimedb
+        emqx_bridge_greptimedb,
+        emqx_bridge_tdengine_connector
     ].
 
 api_schemas(Method) ->
@@ -291,7 +304,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method),
         api_ref(emqx_bridge_es_connector, <<"elasticsearch">>, Method),
         api_ref(emqx_bridge_opents_connector, <<"opents">>, Method),
-        api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_connector")
+        api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_tdengine_connector, <<"tdengine">>, Method)
     ].
 
 api_ref(Module, Type, Method) ->
