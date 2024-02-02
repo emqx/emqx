@@ -327,15 +327,15 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     HasDeprecatedFile = has_deprecated_file(),
     RawConf0 = load_config_files(HasDeprecatedFile, Conf),
-    RawConf1 = upgrade_raw_conf(SchemaMod, RawConf0),
-    warning_deprecated_root_key(RawConf1),
-    RawConf2 =
+    warning_deprecated_root_key(RawConf0),
+    RawConf1 =
         case HasDeprecatedFile of
             true ->
-                overlay_v0(SchemaMod, RawConf1);
+                overlay_v0(SchemaMod, RawConf0);
             false ->
-                overlay_v1(SchemaMod, RawConf1)
+                overlay_v1(SchemaMod, RawConf0)
         end,
+    RawConf2 = upgrade_raw_conf(SchemaMod, RawConf1),
     RawConf3 = fill_defaults_for_all_roots(SchemaMod, RawConf2),
     %% check configs against the schema
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf3, #{}),
