@@ -27,6 +27,7 @@
 
 -define(ACTION_TYPE, rabbitmq).
 -define(SOURCE_TYPE, rabbitmq).
+-define(CONNECTOR_SCHEMA, emqx_bridge_rabbitmq_connector_schema).
 
 %%======================================================================================
 %% Hocon Schema Definitions
@@ -61,7 +62,7 @@ fields(action_parameters) ->
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC("wait_for_publish_confirmations")
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "wait_for_publish_confirmations")
                 }
             )},
         {publish_confirmation_timeout,
@@ -69,7 +70,7 @@ fields(action_parameters) ->
                 emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"30s">>,
-                    desc => ?DESC("timeout")
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "timeout")
                 }
             )},
         {exchange,
@@ -77,7 +78,7 @@ fields(action_parameters) ->
                 typerefl:binary(),
                 #{
                     required => true,
-                    desc => ?DESC("exchange")
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "exchange")
                 }
             )},
         {routing_key,
@@ -85,7 +86,7 @@ fields(action_parameters) ->
                 typerefl:binary(),
                 #{
                     required => true,
-                    desc => ?DESC("routing_key")
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "routing_key")
                 }
             )},
         {delivery_mode,
@@ -93,15 +94,14 @@ fields(action_parameters) ->
                 hoconsc:enum([non_persistent, persistent]),
                 #{
                     default => non_persistent,
-                    desc => ?DESC("delivery_mode")
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "delivery_mode")
                 }
             )},
         {payload_template,
             hoconsc:mk(
                 binary(),
                 #{
-                    default => <<"${.}">>,
-                    desc => ?DESC("payload_template")
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "payload_template")
                 }
             )}
     ];
@@ -117,21 +117,21 @@ fields(source) ->
 fields(subscriber_source) ->
     emqx_bridge_v2_schema:make_consumer_action_schema(
         ?HOCON(
-            ?R_REF(ingress_parameters),
+            ?R_REF(source_parameters),
             #{
                 required => true,
                 desc => ?DESC("source_parameters")
             }
         )
     );
-fields(ingress_parameters) ->
+fields(source_parameters) ->
     [
         {wait_for_publish_confirmations,
             hoconsc:mk(
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC("wait_for_publish_confirmations")
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "wait_for_publish_confirmations")
                 }
             )},
         {topic,
@@ -140,7 +140,7 @@ fields(ingress_parameters) ->
                 #{
                     required => true,
                     validator => fun emqx_schema:non_empty_string/1,
-                    desc => ?DESC("ingress_topic")
+                    desc => ?DESC("source_topic")
                 }
             )},
         {qos,
@@ -148,7 +148,7 @@ fields(ingress_parameters) ->
                 ?UNION([emqx_schema:qos(), binary()]),
                 #{
                     default => 0,
-                    desc => ?DESC("ingress_qos")
+                    desc => ?DESC("source_qos")
                 }
             )},
         {payload_template,
@@ -156,7 +156,7 @@ fields(ingress_parameters) ->
                 binary(),
                 #{
                     required => false,
-                    desc => ?DESC("ingress_payload_template")
+                    desc => ?DESC("source_payload_template")
                 }
             )},
         {queue,
@@ -164,7 +164,7 @@ fields(ingress_parameters) ->
                 binary(),
                 #{
                     required => true,
-                    desc => ?DESC("ingress_queue")
+                    desc => ?DESC("source_queue")
                 }
             )},
         {no_ack,
@@ -173,7 +173,7 @@ fields(ingress_parameters) ->
                 #{
                     required => false,
                     default => true,
-                    desc => ?DESC("ingress_no_ack")
+                    desc => ?DESC("source_no_ack")
                 }
             )}
     ];
@@ -210,8 +210,8 @@ desc(source_resource_opts) ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(action_parameters) ->
     ?DESC(action_parameters);
-desc(ingress_parameters) ->
-    ?DESC(ingress_parameters);
+desc(source_parameters) ->
+    ?DESC(source_parameters);
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
 desc("http_action") ->

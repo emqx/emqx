@@ -1,5 +1,5 @@
 
-emqx_bridge_rabbitmq_connector {
+emqx_bridge_rabbitmq_connector_schema {
 
 server.desc:
 """The RabbitMQ server address that you want to connect to (for example, localhost)."""
@@ -96,5 +96,16 @@ wait_for_publish_confirmations.desc:
 
 wait_for_publish_confirmations.label:
 """Wait for Publish Confirmations"""
+
+connector_resource_opts.desc:
+"""Connector resource options."""
+
+connector_resource_opts.label:
+"""Connector Resource Options"""
+
+config_connector.desc:
+"""The configuration for the RabbitMQ connector."""
+config_connector.label:
+"""RabbitMQ Connector Configuration"""
 
 }

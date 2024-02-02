@@ -78,7 +78,7 @@ fields("config") ->
         {local_topic,
             mk(
                 binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
+                #{desc => ?DESC("local_topic")}
             )},
         {resource_opts,
             mk(

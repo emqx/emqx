@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_rabbitmq_sup).
 
+-feature(maybe_expr, enable).
 -behaviour(supervisor).
 
 -export([ensure_started/2]).

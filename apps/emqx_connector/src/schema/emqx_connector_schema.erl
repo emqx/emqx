@@ -731,17 +731,17 @@ schema_homogeneous_test() ->
 is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
     ExpectedFieldNames = common_field_names(),
-    MissingFileds = lists:filter(
+    MissingFields = lists:filter(
         fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
     ),
-    case MissingFileds of
+    case MissingFields of
         [] ->
             false;
         _ ->
             {true, #{
                 schema_module => Module,
                 type_name => TypeName,
-                missing_fields => MissingFileds
+                missing_fields => MissingFields
             }}
     end.
 

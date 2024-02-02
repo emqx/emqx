@@ -106,6 +106,8 @@ fields("get") ->
 
 desc("config_connector") ->
     ?DESC("config_connector");
+desc(connector_resource_opts) ->
+    ?DESC(connector_resource_opts);
 desc(_) ->
     undefined.
 
