@@ -26,11 +26,62 @@
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
+%% erlfmt-ignore
+-define(EMQX_CONF, <<"
+authentication = [
+  {
+    backend = built_in_database
+    enable = true
+    mechanism = password_based
+    password_hash_algorithm {name = sha256, salt_position = suffix}
+    user_id_type = username
+  },
+  {
+    algorithm = sha256
+    backend = built_in_database
+    enable = true
+    iteration_count = 4096
+    mechanism = scram
+  }
+]
+authorization {
+  cache {
+    enable = true
+  }
+  deny_action = ignore
+  no_match = allow
+  sources = [
+    {path = \"${EMQX_ETC_DIR}/acl.conf\", type = file}
+  ]
+}
+connectors {
+  http {
+    test_http_connector {
+      ssl {enable = false, verify = verify_peer}
+      url = \"http://127.0.0.1:3000\"
+    }
+  }
+}
+rule_engine {
+  ignore_sys_message = true
+  jq_function_default_timeout = 10s
+  rules {
+    rule_xbmw {
+      actions = [\"mqtt:action1\"]
+      description = \"\"
+      enable = true
+      metadata {created_at = 1707244896918}
+      sql = \"SELECT * FROM \\\"t/#\\\"\"
+    }
+  }
+}
+">>).
+
 all() ->
     [
-        {group, stats},
-        {group, auth},
-        {group, data_integration}
+        {group, '/prometheus/stats'},
+        {group, '/prometheus/auth'},
+        {group, '/prometheus/data_integration'}
     ].
 
 groups() ->
@@ -45,9 +96,9 @@ groups() ->
         {group, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED}
     ],
     [
-        {stats, ModeGroups},
-        {auth, ModeGroups},
-        {data_integration, ModeGroups},
+        {'/prometheus/stats', ModeGroups},
+        {'/prometheus/auth', ModeGroups},
+        {'/prometheus/data_integration', ModeGroups},
         {?PROM_DATA_MODE__NODE, AcceptGroups},
         {?PROM_DATA_MODE__ALL_NODES_AGGREGATED, AcceptGroups},
         {?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, AcceptGroups},
@@ -58,26 +109,53 @@ groups() ->
 init_per_suite(Config) ->
     meck:new(emqx_retainer, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_retainer, retained_count, fun() -> 0 end),
-    emqx_prometheus_SUITE:init_group(),
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx, emqx_conf, emqx_auth, emqx_rule_engine, emqx_prometheus],
-        fun set_special_configs/1
+    meck:expect(
+        emqx_authz_file,
+        acl_conf_file,
+        fun() ->
+            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
+        end
     ),
-    Config.
+    ok = emqx_prometheus_SUITE:maybe_meck_license(),
+
+    application:load(emqx_auth),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf, ?EMQX_CONF},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_rule_engine,
+            emqx_bridge_http,
+            emqx_connector,
+            {emqx_prometheus, emqx_prometheus_SUITE:legacy_conf_default()}
+        ],
+        #{
+            work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
+        }
+    ),
+
+    [{apps, Apps} | Config].
+
 end_per_suite(Config) ->
     meck:unload([emqx_retainer]),
-    emqx_prometheus_SUITE:end_group(),
-    emqx_common_test_helpers:stop_apps(
-        [emqx, emqx_conf, emqx_auth, emqx_rule_engine, emqx_prometheus]
+    emqx_prometheus_SUITE:maybe_unmeck_license(),
+    {ok, _} = emqx:update_config(
+        [authorization],
+        #{
+            <<"no_match">> => <<"allow">>,
+            <<"cache">> => #{<<"enable">> => <<"true">>},
+            <<"sources">> => []
+        }
     ),
+    emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
 
-    Config.
-
-init_per_group(stats, Config) ->
+init_per_group('/prometheus/stats', Config) ->
     [{module, emqx_prometheus} | Config];
-init_per_group(auth, Config) ->
+init_per_group('/prometheus/auth', Config) ->
     [{module, emqx_prometheus_auth} | Config];
-init_per_group(data_integration, Config) ->
+init_per_group('/prometheus/data_integration', Config) ->
     [{module, emqx_prometheus_data_integration} | Config];
 init_per_group(?PROM_DATA_MODE__NODE, Config) ->
     [{mode, ?PROM_DATA_MODE__NODE} | Config];
@@ -95,17 +173,28 @@ init_per_group(_Group, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(emqx_auth) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], true),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources], []),
+init_per_testcase(t_collect_prom_data, Config) ->
+    meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_utils, gen_id, fun() -> "fake" end),
+
+    meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(
+        emqx,
+        data_dir,
+        fun() ->
+            {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
+            Data
+        end
+    ),
+    Config;
+init_per_testcase(_, Config) ->
+    Config.
+
+end_per_testcase(t_collect_prom_data, _Config) ->
+    meck:unload(emqx_utils),
+    meck:unload(emqx),
     ok;
-set_special_configs(emqx_prometheus) ->
-    emqx_prometheus_SUITE:load_config(),
-    ok;
-set_special_configs(_App) ->
+end_per_testcase(_, _Config) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -151,11 +240,11 @@ assert_prom_data(DataL, Mode) ->
         end,
         DataL
     ),
-    do_assert_prom_data_stats(NDataL, Mode).
+    do_assert_prom_data(NDataL, Mode).
 
 -define(MGU(K, MAP), maps:get(K, MAP, undefined)).
 
-assert_json_data(emqx_prometheus, Data, Mode) ->
+assert_json_data(_, Data, Mode) ->
     lists:foreach(
         fun(FunSeed) ->
             erlang:apply(?MODULE, fun_name(FunSeed), [?MGU(FunSeed, Data), Mode]),
@@ -163,9 +252,6 @@ assert_json_data(emqx_prometheus, Data, Mode) ->
         end,
         maps:keys(Data)
     ),
-    ok;
-%% TOOD auth/data_integration
-assert_json_data(_, _, _) ->
     ok.
 
 fun_name(Seed) ->
@@ -186,12 +272,12 @@ accept('text/plain') ->
 accept('application/json') ->
     <<"json">>.
 
-do_assert_prom_data_stats([], _Mode) ->
+do_assert_prom_data([], _Mode) ->
     ok;
-do_assert_prom_data_stats([Metric | RestDataL], Mode) ->
+do_assert_prom_data([Metric | RestDataL], Mode) ->
     [_MetricNamme | _] = Metric,
     assert_stats_metric_labels(Metric, Mode),
-    do_assert_prom_data_stats(RestDataL, Mode).
+    do_assert_prom_data(RestDataL, Mode).
 
 assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
     case maps:get(Mode, metric_meta(MetricName), undefined) of
@@ -199,6 +285,12 @@ assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
         undefined ->
             ok;
         N when is_integer(N) ->
+            %% ct:print(
+            %%     "====================~n"
+            %%     "%% Metric: ~p~n"
+            %%     "%% Expect labels count: ~p in Mode: ~p~n",
+            %%     [_Metric, N, Mode]
+            %% ),
             ?assertEqual(N, length(lists:droplast(R)))
     end.
 
@@ -208,7 +300,7 @@ assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
     ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED => UNAGGRE
 }).
 
-%% TODO: auth/data_integration
+%% `/prometheus/stats`
 %% BEGIN always no label
 metric_meta(<<"emqx_topics_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_topics_count">>) -> ?meta(0, 0, 0);
@@ -227,6 +319,21 @@ metric_meta(<<"emqx_cert_expiry_at">>) -> ?meta(2, 2, 2);
 metric_meta(<<"emqx_license_expiry_at">>) -> ?meta(0, 0, 0);
 %% mria metric with label `shard` and `node` when not in mode `node`
 metric_meta(<<"emqx_mria_", _Tail/binary>>) -> ?meta(1, 2, 2);
+%% `/prometheus/auth`
+metric_meta(<<"emqx_authn_users_count">>) -> ?meta(1, 1, 1);
+metric_meta(<<"emqx_authn_", _Tail/binary>>) -> ?meta(1, 1, 2);
+metric_meta(<<"emqx_authz_rules_count">>) -> ?meta(1, 1, 1);
+metric_meta(<<"emqx_authz_", _Tail/binary>>) -> ?meta(1, 1, 2);
+metric_meta(<<"emqx_banned_count">>) -> ?meta(0, 0, 0);
+%% `/prometheus/data_integration`
+metric_meta(<<"emqx_rules_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_connectors_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_schema_registrys_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_rule_", _Tail/binary>>) -> ?meta(1, 1, 2);
+metric_meta(<<"emqx_action_", _Tail/binary>>) -> ?meta(1, 1, 2);
+metric_meta(<<"emqx_connector_", _Tail/binary>>) -> ?meta(1, 1, 2);
+%% normal emqx metrics
+metric_meta(<<"emqx_", _Tail/binary>>) -> ?meta(0, 0, 1);
 metric_meta(_) -> #{}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -505,13 +612,6 @@ assert_json_data_certs(Ms, _) ->
         Ms
     ).
 
--if(?EMQX_RELEASE_EDITION == ee).
-%% license always map
-assert_json_data_license(M, _) ->
-    ?assertMatch(#{emqx_license_expiry_at := _}, M).
--else.
--endif.
-
 eval_foreach_assert(FunctionName, Ms) ->
     Fun = fun() ->
         ok = lists:foreach(
@@ -520,3 +620,166 @@ eval_foreach_assert(FunctionName, Ms) ->
         ok = lists:foreach(fun(M) -> ?assertMatch(#{node := _}, M) end, Ms)
     end,
     Fun().
+
+-if(?EMQX_RELEASE_EDITION == ee).
+%% license always map
+assert_json_data_license(M, _) ->
+    ?assertMatch(#{emqx_license_expiry_at := _}, M).
+-else.
+-endif.
+
+-define(assert_node_foreach(Ms), lists:foreach(fun(M) -> ?assertMatch(#{node := _}, M) end, Ms)).
+
+assert_json_data_emqx_banned(M, _) ->
+    ?assertMatch(#{emqx_banned_count := _}, M).
+
+assert_json_data_emqx_authn(Ms, Mode) when
+    (Mode =:= ?PROM_DATA_MODE__NODE orelse
+        Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
+->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    id := _,
+                    emqx_authn_enable := _,
+                    emqx_authn_failed := _,
+                    emqx_authn_nomatch := _,
+                    emqx_authn_status := _,
+                    emqx_authn_success := _,
+                    emqx_authn_total := _,
+                    emqx_authn_users_count := _
+                },
+                M
+            )
+        end,
+        Ms
+    );
+assert_json_data_emqx_authn(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
+    ?assert_node_foreach(Ms).
+
+assert_json_data_emqx_authz(Ms, _) ->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    type := _,
+                    emqx_authz_allow := _,
+                    emqx_authz_deny := _,
+                    emqx_authz_enable := _,
+                    emqx_authz_nomatch := _,
+                    emqx_authz_rules_count := _,
+                    emqx_authz_status := _,
+                    emqx_authz_total := _
+                },
+                M
+            )
+        end,
+        Ms
+    );
+assert_json_data_emqx_authz(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
+    ?assert_node_foreach(Ms).
+
+assert_json_data_rules(Ms, Mode) when
+    (Mode =:= ?PROM_DATA_MODE__NODE orelse
+        Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
+->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    id := _,
+                    emqx_rule_actions_failed := _,
+                    emqx_rule_actions_failed_out_of_service := _,
+                    emqx_rule_actions_failed_unknown := _,
+                    emqx_rule_actions_success := _,
+                    emqx_rule_actions_total := _,
+                    emqx_rule_enable := _,
+                    emqx_rule_failed := _,
+                    emqx_rule_failed_exception := _,
+                    emqx_rule_failed_no_result := _,
+                    emqx_rule_matched := _,
+                    emqx_rule_passed := _
+                },
+                M
+            )
+        end,
+        Ms
+    );
+assert_json_data_rules(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+    is_list(Ms)
+->
+    ?assert_node_foreach(Ms).
+
+assert_json_data_actions(Ms, Mode) when
+    (Mode =:= ?PROM_DATA_MODE__NODE orelse
+        Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
+->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    id := _,
+                    emqx_action_dropped := _,
+                    emqx_action_dropped_expired := _,
+                    emqx_action_dropped_other := _,
+                    emqx_action_dropped_queue_full := _,
+                    emqx_action_dropped_resource_not_found := _,
+                    emqx_action_dropped_resource_stopped := _,
+                    emqx_action_enable := _,
+                    emqx_action_failed := _,
+                    emqx_action_inflight := _,
+                    emqx_action_late_reply := _,
+                    emqx_action_matched := _,
+                    emqx_action_queuing := _,
+                    emqx_action_received := _,
+                    emqx_action_retried := _,
+                    emqx_action_retried_failed := _,
+                    emqx_action_retried_success := _,
+                    emqx_action_status := _,
+                    emqx_action_success := _
+                },
+                M
+            )
+        end,
+        Ms
+    );
+assert_json_data_actions(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+    is_list(Ms)
+->
+    ?assert_node_foreach(Ms).
+
+assert_json_data_connectors(Ms, Mode) when
+    (Mode =:= ?PROM_DATA_MODE__NODE orelse
+        Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
+->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    id := _,
+                    emqx_connector_enable := _,
+                    emqx_connector_status := _
+                },
+                M
+            )
+        end,
+        Ms
+    );
+assert_json_data_connectors(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+    is_list(Ms)
+->
+    ?assert_node_foreach(Ms).
+
+assert_json_data_data_integration_overview(M, _) ->
+    ?assertMatch(
+        #{
+            emqx_connectors_count := _,
+            emqx_rules_count := _,
+            emqx_schema_registrys_count := _
+        },
+        M
+    ).
+
+stop_apps(Apps) ->
+    lists:foreach(fun application:stop/1, Apps).

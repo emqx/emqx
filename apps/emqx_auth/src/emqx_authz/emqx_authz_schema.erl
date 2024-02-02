@@ -42,6 +42,10 @@
     authz_common_fields/1
 ]).
 
+-ifdef(TEST).
+-export([source_schema_mods/0]).
+-endif.
+
 -define(AUTHZ_MODS_PT_KEY, {?MODULE, authz_schema_mods}).
 
 %%--------------------------------------------------------------------
