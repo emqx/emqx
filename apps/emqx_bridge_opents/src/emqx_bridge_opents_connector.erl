@@ -358,15 +358,15 @@ preproc_data_template(DataList) ->
                 case Tags of
                     Tmpl when is_binary(Tmpl) ->
                         emqx_placeholder:preproc_tmpl(Tmpl);
-                    List ->
+                    Map when is_map(Map) ->
                         [
                             tags
                             | [
                                 {
-                                    emqx_placeholder:preproc_tmpl(TagName),
+                                    emqx_placeholder:preproc_tmpl(emqx_utils_conv:bin(TagName)),
                                     emqx_placeholder:preproc_tmpl(TagValue)
                                 }
-                             || #{tag := TagName, value := TagValue} <- List
+                             || {TagName, TagValue} <- maps:to_list(Map)
                             ]
                         ]
                 end,

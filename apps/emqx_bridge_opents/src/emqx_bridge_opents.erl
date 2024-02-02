@@ -135,6 +135,14 @@ fields(action_parameters) ->
             )}
     ];
 fields(action_parameters_data) ->
+    TagsError = fun(Data) ->
+        ?SLOG(warning, #{
+            msg => "invalid_tags_template",
+            path => "opents.parameters.data.tags",
+            data => Data
+        }),
+        false
+    end,
     [
         {timestamp,
             mk(
@@ -154,7 +162,7 @@ fields(action_parameters_data) ->
             )},
         {tags,
             mk(
-                hoconsc:union([array(ref(?MODULE, action_parameters_data_tags)), binary()]),
+                hoconsc:union([map(), binary()]),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_tags"),
@@ -164,17 +172,17 @@ fields(action_parameters_data) ->
                                 [{var, _}] ->
                                     true;
                                 _ ->
-                                    ?SLOG(warning, #{
-                                        msg => "invalid_tags_template",
-                                        path => "opents.parameters.data.tags",
-                                        data => Tmpl
-                                    }),
-                                    false
+                                    TagsError(Tmpl)
                             end;
-                        ([_ | _] = Tags) when is_list(Tags) ->
-                            true;
-                        (_) ->
-                            false
+                        (Map) when is_map(Map) ->
+                            case maps:size(Map) >= 1 of
+                                true ->
+                                    true;
+                                _ ->
+                                    TagsError(Map)
+                            end;
+                        (Any) ->
+                            TagsError(Any)
                     end
                 }
             )},
@@ -184,25 +192,6 @@ fields(action_parameters_data) ->
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_value")
-                }
-            )}
-    ];
-fields(action_parameters_data_tags) ->
-    [
-        {tag,
-            mk(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("tags_tag")
-                }
-            )},
-        {value,
-            mk(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("tags_value")
                 }
             )}
     ];
@@ -221,8 +210,6 @@ desc(action_parameters) ->
     ?DESC("action_parameters");
 desc(action_parameters_data) ->
     ?DESC("action_parameters_data");
-desc(action_parameters_data_tags) ->
-    ?DESC("action_parameters_data_tags");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for OpenTSDB using `", string:to_upper(Method), "` method."];
 desc(_) ->
