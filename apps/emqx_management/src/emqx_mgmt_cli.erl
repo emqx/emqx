@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,7 +43,8 @@
     authz/1,
     pem_cache/1,
     olp/1,
-    data/1
+    data/1,
+    ds/1
 ]).
 
 -spec load() -> ok.
@@ -794,6 +795,24 @@ data(_) ->
     emqx_ctl:usage([
         {"data import <File>", "Import data from the specified tar archive file"},
         {"data export", "Export data"}
+    ]).
+
+%%--------------------------------------------------------------------
+%% @doc Durable storage command
+
+ds(CMD) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            do_ds(CMD);
+        false ->
+            emqx_ctl:usage([{"ds", "Durable storage is disabled"}])
+    end.
+
+do_ds(["info"]) ->
+    emqx_ds_replication_layer_meta:print_status();
+do_ds(_) ->
+    emqx_ctl:usage([
+        {"ds info", "Show overview of the embedded durable storage state"}
     ]).
 
 %%--------------------------------------------------------------------

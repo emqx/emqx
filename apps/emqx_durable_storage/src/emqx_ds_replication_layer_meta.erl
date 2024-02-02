@@ -127,15 +127,24 @@ print_status() ->
         end,
         eval_qlc(mnesia:table(?NODE_TAB))
     ),
-    io:format("~nSHARDS~n", []),
+    io:format(
+        "~nSHARDS:~nId                             Leader                            Status~n", []
+    ),
     lists:foreach(
         fun(#?SHARD_TAB{shard = {DB, Shard}, leader = Leader}) ->
+            ShardStr = string:pad(io_lib:format("~p/~s", [DB, Shard]), 30),
+            LeaderStr = string:pad(atom_to_list(Leader), 33),
             Status =
                 case lists:member(Leader, Nodes) of
-                    true -> up;
-                    false -> down
+                    true ->
+                        case node() of
+                            Leader -> "up *";
+                            _ -> "up"
+                        end;
+                    false ->
+                        "down"
                 end,
-            io:format("~p/~s    ~p    ~p~n", [DB, Shard, Leader, Status])
+            io:format("~s ~s ~s~n", [ShardStr, LeaderStr, Status])
         end,
         eval_qlc(mnesia:table(?SHARD_TAB))
     ).
