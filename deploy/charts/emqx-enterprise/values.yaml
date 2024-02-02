@@ -38,6 +38,9 @@ recreatePods: false
 ## Sets the minReadySeconds parameter on the stateful set. This can be used to add delay between restart / updates between the single pods.
 minReadySeconds:
 
+## Sets the priorityClassName parameter on the pods. This can be used to run the pods with increased priority.
+priorityClassName:
+
 clusterDomain: cluster.local
 
 podAnnotations: {}
