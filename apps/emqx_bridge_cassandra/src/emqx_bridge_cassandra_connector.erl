@@ -32,8 +32,6 @@
     on_get_status/2
 ]).
 
--export([transform_bridge_v1_config_to_connector_config/1]).
-
 %% callbacks of ecpool
 -export([
     connect/1,
@@ -447,9 +445,6 @@ handle_result({error, Error}) ->
     {error, {unrecoverable_error, Error}};
 handle_result(Res) ->
     Res.
-
-transform_bridge_v1_config_to_connector_config(_) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% utils

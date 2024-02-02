@@ -42,6 +42,8 @@ resource_type(influxdb) ->
     emqx_bridge_influxdb_connector;
 resource_type(cassandra) ->
     emqx_bridge_cassandra_connector;
+resource_type(clickhouse) ->
+    emqx_bridge_clickhouse_connector;
 resource_type(mysql) ->
     emqx_bridge_mysql_connector;
 resource_type(pgsql) ->
@@ -181,6 +183,14 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {clickhouse,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_clickhouse, "config_connector")),
+                #{
+                    desc => <<"ClickHouse Connector Config">>,
+                    required => false
+                }
+            )},
         {mysql,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mysql, "config_connector")),
@@ -307,6 +317,7 @@ schema_modules() ->
         emqx_bridge_oracle,
         emqx_bridge_influxdb,
         emqx_bridge_cassandra,
+        emqx_bridge_clickhouse,
         emqx_bridge_mysql,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
@@ -345,6 +356,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_oracle, <<"oracle">>, Method ++ "_connector"),
         api_ref(emqx_bridge_influxdb, <<"influxdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_cassandra, <<"cassandra">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_clickhouse, <<"clickhouse">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mysql, <<"mysql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
