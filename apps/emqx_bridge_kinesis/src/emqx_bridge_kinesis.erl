@@ -176,8 +176,7 @@ fields("post_producer") ->
 fields("put_producer") ->
     fields("config_producer");
 fields("config_connector") ->
-    emqx_connector_schema:common_fields() ++
-        fields(connector_config) ++
+    fields(connector_config) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
