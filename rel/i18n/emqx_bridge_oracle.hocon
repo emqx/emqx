@@ -54,4 +54,19 @@ emqx_bridge_oracle {
     label = "Bridge Name"
   }
 
+  action_parameters {
+    desc = "Action specific configuration."
+    label = "Action"
+  }
+
+  oracle_action {
+    desc = "Configuration for Oracle Action"
+    label = "Oracle Action Configuration"
+  }
+
+  config_connector {
+    desc = "Configuration for an Oracle Client."
+    label = "Oracle Client Configuration"
+  }
+
 }
