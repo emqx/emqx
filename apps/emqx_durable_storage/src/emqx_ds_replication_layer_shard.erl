@@ -124,7 +124,7 @@ get_local_server(DB, Shard) ->
     ?MEMOIZE(DB, Shard, local_server(DB, Shard)).
 
 get_shard_servers(DB, Shard) ->
-    maps:get(servers, emqx_ds_replication_layer_meta:get_shard_meta(DB, Shard)).
+    maps:get(servers, emqx_ds_builtin_db_sup:lookup_shard_meta(DB, Shard)).
 
 %%
 

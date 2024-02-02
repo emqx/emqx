@@ -29,7 +29,7 @@
 -export([
     shards/1,
     my_shards/1,
-    shard_meta/2,
+    allocate_shards/2,
     replica_set/2,
     sites/0,
     node/1,
@@ -47,6 +47,7 @@
 %% internal exports:
 -export([
     open_db_trans/2,
+    allocate_shards_trans/2,
     update_db_config_trans/2,
     drop_db_trans/1,
     claim_site/2,
@@ -96,8 +97,6 @@
 
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
-
--define(DB_META(DB), {?MODULE, DB}).
 
 %%================================================================================
 %% API funcions
@@ -155,10 +154,14 @@ my_shards(DB) ->
         lists:member(Site, ReplicaSet)
     end).
 
-shard_meta(DB, Shard) ->
-    case get_db_meta(DB) of
-        #{Shard := Meta} -> Meta;
-        #{} -> undefined
+allocate_shards(DB, Opts) ->
+    case mria:transaction(?SHARD, fun ?MODULE:allocate_shards_trans/2, [DB, Opts]) of
+        {atomic, Shards} ->
+            {ok, Shards};
+        {aborted, {shards_already_allocated, Shards}} ->
+            {ok, Shards};
+        {aborted, {insufficient_sites_online, Needed, Sites}} ->
+            {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}}
     end.
 
 -spec replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
@@ -186,24 +189,18 @@ node(Site) ->
 
 -spec get_options(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
 get_options(DB) ->
-    {atomic, Opts} = mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, undefined]),
-    Opts.
+    case mnesia:dirty_read(?META_TAB, DB) of
+        [#?META_TAB{db_props = Opts}] ->
+            Opts;
+        [] ->
+            #{}
+    end.
 
 -spec open_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db(DB, DefaultOpts) ->
-    case mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, DefaultOpts]) of
-        {atomic, Opts} ->
-            Opts;
-        {aborted, {insufficient_sites_online, NNeeded, Sites}} ->
-            %% TODO: Still ugly, it blocks the whole node startup.
-            logger:notice(
-                "Shard allocation still in progress, not enough sites: ~p, need: ~p",
-                [Sites, NNeeded]
-            ),
-            ok = timer:sleep(1000),
-            open_db(DB, DefaultOpts)
-    end.
+    {atomic, Opts} = mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, DefaultOpts]),
+    Opts.
 
 -spec update_db_config(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     ok | {error, _}.
@@ -263,21 +260,52 @@ terminate(_Reason, #s{}) ->
 %% Internal exports
 %%================================================================================
 
--spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts() | undefined) ->
+-spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db_trans(DB, CreateOpts) ->
     case mnesia:wread({?META_TAB, DB}) of
-        [] when is_map(CreateOpts) ->
-            NShards = maps:get(n_shards, CreateOpts),
-            NSites = maps:get(n_sites, CreateOpts),
-            ReplicationFactor = maps:get(replication_factor, CreateOpts),
+        [] ->
             mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),
-            create_shards(DB, NSites, NShards, ReplicationFactor),
-            save_db_meta(DB),
             CreateOpts;
         [#?META_TAB{db_props = Opts}] ->
             Opts
     end.
+
+-spec allocate_shards_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) -> [_Shard].
+allocate_shards_trans(DB, Opts) ->
+    NShards = maps:get(n_shards, Opts),
+    NSites = maps:get(n_sites, Opts),
+    ReplicationFactor = maps:get(replication_factor, Opts),
+    Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
+    AllSites = mnesia:match_object(?NODE_TAB, #?NODE_TAB{_ = '_'}, read),
+    case length(AllSites) of
+        N when N >= NSites ->
+            ok;
+        _ ->
+            mnesia:abort({insufficient_sites_online, NSites, AllSites})
+    end,
+    case mnesia:match_object(?SHARD_TAB, #?SHARD_TAB{shard = {DB, '_'}, _ = '_'}, write) of
+        [] ->
+            ok;
+        Records ->
+            ShardsAllocated = [Shard || #?SHARD_TAB{shard = {_DB, Shard}} <- Records],
+            mnesia:abort({shards_already_allocated, ShardsAllocated})
+    end,
+    lists:map(
+        fun(Shard) ->
+            Hashes0 = [{hash(Shard, Site), Site} || #?NODE_TAB{site = Site} <- AllSites],
+            Hashes = lists:sort(Hashes0),
+            {_, Sites} = lists:unzip(Hashes),
+            ReplicaSet = lists:sublist(Sites, 1, ReplicationFactor),
+            Record = #?SHARD_TAB{
+                shard = {DB, Shard},
+                replica_set = ReplicaSet
+            },
+            ok = mnesia:write(Record),
+            Shard
+        end,
+        Shards
+    ).
 
 -spec update_db_config_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     ok | {error, database}.
@@ -363,53 +391,6 @@ ensure_site() ->
     {atomic, ok} = mria:transaction(?SHARD, fun ?MODULE:claim_site/2, [Site, node()]),
     persistent_term:put(?emqx_ds_builtin_site, Site),
     ok.
-
--spec create_shards(emqx_ds:db(), pos_integer(), pos_integer(), pos_integer()) -> ok.
-create_shards(DB, NSites, NShards, ReplicationFactor) ->
-    Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
-    AllSites = mnesia:match_object(?NODE_TAB, #?NODE_TAB{_ = '_'}, read),
-    case length(AllSites) of
-        N when N >= NSites ->
-            ok;
-        _ ->
-            mnesia:abort({insufficient_sites_online, NSites, AllSites})
-    end,
-    lists:foreach(
-        fun(Shard) ->
-            Hashes0 = [{hash(Shard, Site), Site} || #?NODE_TAB{site = Site} <- AllSites],
-            Hashes = lists:sort(Hashes0),
-            {_, Sites} = lists:unzip(Hashes),
-            ReplicaSet = lists:sublist(Sites, 1, ReplicationFactor),
-            Record = #?SHARD_TAB{
-                shard = {DB, Shard},
-                replica_set = ReplicaSet
-            },
-            mnesia:write(Record)
-        end,
-        Shards
-    ).
-
-save_db_meta(DB) ->
-    Shards = mnesia:match_object(?SHARD_TAB, #?SHARD_TAB{_ = '_'}, read),
-    Meta = maps:from_list([mk_shard_meta(Shard) || Shard <- Shards]),
-    persistent_term:put(?DB_META(DB), Meta).
-
-get_db_meta(DB) ->
-    persistent_term:get(?DB_META(DB)).
-
-% erase_db_meta(DB) ->
-%     persistent_term:erase(?DB_META(DB)).
-
-mk_shard_meta(#?SHARD_TAB{shard = {DB, Shard}, replica_set = ReplicaSet}) ->
-    %% FIXME: Wrong place.
-    Servers = [
-        {emqx_ds_replication_layer_shard:server_name(DB, Shard, Site), Node#?NODE_TAB.node}
-     || Site <- ReplicaSet,
-        Node <- mnesia:read(?NODE_TAB, Site)
-    ],
-    {Shard, #{
-        servers => Servers
-    }}.
 
 -spec hash(emqx_ds_replication_layer:shard_id(), site()) -> any().
 hash(Shard, Site) ->
