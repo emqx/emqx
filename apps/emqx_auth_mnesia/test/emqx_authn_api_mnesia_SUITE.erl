@@ -342,6 +342,9 @@ test_authenticator_import_users(PathPrefix) ->
     {ok, 204, _} = request(post, ImportUri ++ "?type=hash", emqx_utils_json:decode(JSONData)),
     {ok, JSONData1} = file:read_file(filename:join([Dir, <<"data/user-credentials-plain.json">>])),
     {ok, 204, _} = request(post, ImportUri ++ "?type=plain", emqx_utils_json:decode(JSONData1)),
+
+    %% test application/json; charset=utf-8
+    {ok, 204, _} = request_with_charset(post, ImportUri ++ "?type=plain", JSONData1),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -350,3 +353,9 @@ test_authenticator_import_users(PathPrefix) ->
 
 request(Method, Url) ->
     request(Method, Url, []).
+
+request_with_charset(Method, Url, Body) ->
+    Headers = [emqx_mgmt_api_test_util:auth_header_()],
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    Request = {Url, Headers, "application/json; charset=utf-8", Body},
+    emqx_mgmt_api_test_util:do_request_api(Method, Request, Opts).

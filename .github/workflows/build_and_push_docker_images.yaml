@@ -58,7 +58,7 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '26.2.1-2'
+        default: '25.3.2-2'
       elixir_vsn:
         required: false
         type: string
@@ -127,8 +127,8 @@ jobs:
         EMQX_RUNNER: 'debian:11-slim'
         EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
         PKG_VSN: ${{ inputs.version }}
-        EMQX_BUILDER_VSN: ${{ inputs.builder_vsn }}
-        EMQX_OTP_VSN: ${{ inputs.otp_vsn }}
-        EMQX_ELIXIR_VSN: ${{ inputs.elixir_vsn }}
+        EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
+        EMQX_BUILDER_OTP: ${{ inputs.otp_vsn }}
+        EMQX_BUILDER_ELIXIR: ${{ inputs.elixir_vsn }}
       run: |
         ./build ${PROFILE} docker
