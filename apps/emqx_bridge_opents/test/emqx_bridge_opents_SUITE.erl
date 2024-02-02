@@ -311,7 +311,7 @@ t_list_tags(Config) ->
                 <<"data">> => [
                     #{
                         <<"metric">> => <<"${metric}">>,
-                        <<"tags">> => [#{<<"tag">> => <<"host">>, <<"value">> => <<"valueA">>}],
+                        <<"tags">> => #{<<"host">> => <<"valueA">>},
                         value => <<"${value}">>
                     }
                 ]
@@ -356,7 +356,7 @@ t_list_tags_with_var(Config) ->
                 <<"data">> => [
                     #{
                         <<"metric">> => <<"${metric}">>,
-                        <<"tags">> => [#{<<"tag">> => <<"host">>, <<"value">> => <<"${value}">>}],
+                        <<"tags">> => #{<<"host">> => <<"${value}">>},
                         value => <<"${value}">>
                     }
                 ]
