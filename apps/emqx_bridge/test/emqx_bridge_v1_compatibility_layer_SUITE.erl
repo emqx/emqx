@@ -37,12 +37,11 @@ init_per_suite(Config) ->
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_mgmt_api_test_util:init_suite(),
+    {ok, _} = emqx_common_test_http:create_default_app(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
-    emqx_mgmt_api_test_util:end_suite(),
     emqx_cth_suite:stop(Apps),
     ok.
 
@@ -52,9 +51,19 @@ app_specs() ->
         emqx_conf,
         emqx_connector,
         emqx_bridge,
-        emqx_rule_engine
+        emqx_management,
+        emqx_rule_engine,
+        {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
     ].
 
+init_per_testcase(t_upgrade_raw_conf_with_deprecated_files = TestCase, Config) ->
+    NodeSpecs = mk_init_load_cluster_spec(TestCase, Config),
+    Nodes = emqx_cth_cluster:start(NodeSpecs),
+    erpc:multicall(Nodes, fun() ->
+        {ok, _} = emqx_common_test_http:create_default_app(),
+        ok
+    end),
+    [{nodes, Nodes} | Config];
 init_per_testcase(_TestCase, Config) ->
     %% Setting up mocks for fake connector and bridge V2
     setup_mocks(),
@@ -63,12 +72,30 @@ init_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
     Config.
 
+end_per_testcase(t_upgrade_raw_conf_with_deprecated_files = _TestCase, Config) ->
+    Nodes = ?config(nodes, Config),
+    emqx_cth_cluster:stop(Nodes),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
 end_per_testcase(_TestCase, _Config) ->
     ets:delete(fun_table_name()),
     delete_all_bridges_and_connectors(),
     meck:unload(),
     emqx_common_test_helpers:call_janitor(),
     ok.
+
+mk_init_load_cluster_spec(Name, Config) ->
+    Node1Apps =
+        proplists:delete(emqx_dashboard, app_specs()) ++
+            [
+                {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18084 }"}
+            ],
+    emqx_cth_cluster:mk_nodespecs(
+        [
+            {emqx_bridge_v1_compat_SUITE_1, #{role => core, apps => Node1Apps}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Name, Config)}
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -322,7 +349,10 @@ request(Method, Path, Params) ->
     end.
 
 list_bridges_http_api_v1() ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
+    list_bridges_http_api_v1(_Host = "http://127.0.0.1:18083").
+
+list_bridges_http_api_v1(Host) ->
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["bridges"]),
     ct:pal("list bridges (http v1)"),
     Res = request(get, Path, _Params = []),
     ct:pal("list bridges (http v1) result:\n  ~p", [Res]),
@@ -529,6 +559,43 @@ probe_action_http_api_v2(Opts) ->
     Res = request(post, Path, Params),
     ct:pal("probe action (http v2) (~p) result:\n  ~p", [#{name => Name}, Res]),
     Res.
+
+deprecated_config() ->
+    <<
+        "\n"
+        "bridges {\n"
+        "  mqtt {\n"
+        "    test {\n"
+        "      bridge_mode = false\n"
+        "      clean_start = true\n"
+        "      egress {\n"
+        "        local {topic=\"hhhhhh\"}\n"
+        "        remote {\n"
+        "          payload = \"${payload}\"\n"
+        "          qos = 1\n"
+        "          retain = false\n"
+        "          topic = hhhhhhhhhh\n"
+        "        }\n"
+        "      }\n"
+        "      enable = true\n"
+        "      keepalive = 300s\n"
+        "      proto_ver = v4\n"
+        "      resource_opts {\n"
+        "        health_check_interval = 15s\n"
+        "        inflight_window = 100\n"
+        "        max_buffer_bytes = 1GB\n"
+        "        query_mode = async\n"
+        "        request_ttl = 45s\n"
+        "        start_timeout = 5s\n"
+        "        worker_pool_size = 4\n"
+        "      }\n"
+        "      retry_interval = 15s\n"
+        "      server = \"127.0.0.1\"\n"
+        "      ssl {enable = false, verify = verify_peer}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    >>.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -980,6 +1047,47 @@ t_v1_api_fill_defaults(_Config) ->
                     }
             }}},
         create_bridge_http_api_v1(#{name => BridgeName, override_fn => OverrideFn})
+    ),
+
+    ok.
+
+t_upgrade_raw_conf_with_deprecated_files(Config) ->
+    %% This verifies that, when a user has a deprecated file such as
+    %% `cluster-override.conf' in their data directory and upgrades to a newer EMQX
+    %% version, its bridge contents are also upgraded.
+    ?check_trace(
+        begin
+            [Node] = ?config(nodes, Config),
+
+            SchemaMod = emqx_conf_schema,
+            erpc:call(Node, fun() ->
+                DataDir = emqx:data_dir(),
+                Path = filename:join([DataDir, "configs", "cluster-override.conf"]),
+                ok = filelib:ensure_dir(Path),
+                ok = file:write_file(Path, <<
+                    "node.cookie = cookie \n",
+                    "node.data_dir = \"/tmp/not/used/here\" \n",
+                    (deprecated_config())/binary
+                >>),
+                %% Attempt to emulate loading the config when starting the node.  The key
+                %% is starting `emqx_bridge' so that bridges are loaded.
+                ok = application:stop(emqx_bridge),
+                ok = application:stop(emqx_connector),
+                ok = emqx_config:init_load(SchemaMod),
+                ok = application:start(emqx_connector),
+                ok = application:start(emqx_bridge),
+
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, [_]}},
+                    list_bridges_http_api_v1(_Host = "http://127.0.0.1:18084")
+                ),
+
+                ok
+            end),
+
+            ok
+        end,
+        []
     ),
 
     ok.
