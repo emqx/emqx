@@ -169,7 +169,7 @@ del_subscription(SubId, S0) ->
 
 ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
     %% TODO: hash collisions
-    Key = {SubId, erlang:phash2(Stream)},
+    Key = {SubId, Stream},
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
             ?SLOG(debug, #{
