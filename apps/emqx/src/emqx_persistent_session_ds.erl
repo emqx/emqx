@@ -162,12 +162,21 @@
 -type replies() :: emqx_session:replies().
 
 -define(STATS_KEYS, [
+    durable,
     subscriptions_cnt,
     subscriptions_max,
     inflight_cnt,
     inflight_max,
     mqueue_len,
-    mqueue_dropped
+    mqueue_dropped,
+    seqno_q1_comm,
+    seqno_q1_dup,
+    seqno_q1_next,
+    seqno_q2_comm,
+    seqno_q2_dup,
+    seqno_q2_rec,
+    seqno_q2_next,
+    n_streams
 ]).
 
 %%
@@ -214,6 +223,8 @@ info(id, #{id := ClientID}) ->
     ClientID;
 info(clientid, #{id := ClientID}) ->
     ClientID;
+info(durable, _) ->
+    true;
 info(created_at, #{s := S}) ->
     emqx_persistent_session_ds_state:get_created_at(S);
 info(is_persistent, #{}) ->
@@ -249,6 +260,26 @@ info(mqueue_dropped, _Session) ->
 %     AwaitingRel;
 %% info(awaiting_rel_cnt, #{s := S}) ->
 %%     seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
+info(seqno_q1_comm, #{s := S}) ->
+    emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S);
+info(seqno_q1_dup, #{s := S}) ->
+    emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_1), S);
+info(seqno_q1_next, #{s := S}) ->
+    emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S);
+info(seqno_q2_comm, #{s := S}) ->
+    emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S);
+info(seqno_q2_dup, #{s := S}) ->
+    emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S);
+info(seqno_q2_rec, #{s := S}) ->
+    emqx_persistent_session_ds_state:get_seqno(?rec, S);
+info(seqno_q2_next, #{s := S}) ->
+    emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S);
+info(n_streams, #{s := S}) ->
+    emqx_persistent_session_ds_state:fold_streams(
+        fun(_, _, Acc) -> Acc + 1 end,
+        0,
+        S
+    );
 info(awaiting_rel_max, #{props := Conf}) ->
     maps:get(max_awaiting_rel, Conf);
 info(await_rel_timeout, #{props := _Conf}) ->
