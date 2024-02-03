@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -89,11 +89,7 @@
 
 -type s() :: #s{}.
 
--type stream() ::
-    #{
-        ?tag := ?STREAM,
-        ?storage_key := emqx_ds_lts:msg_storage_key()
-    }.
+-type stream() :: emqx_ds_lts:msg_storage_key().
 
 -type iterator() ::
     #{
@@ -251,8 +247,7 @@ store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
     emqx_ds:time()
 ) -> [stream()].
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
-    Indexes = emqx_ds_lts:match_topics(Trie, TopicFilter),
-    [#{?tag => ?STREAM, ?storage_key => I} || I <- Indexes].
+    emqx_ds_lts:match_topics(Trie, TopicFilter).
 
 -spec make_iterator(
     emqx_ds_storage_layer:shard_id(),
@@ -262,7 +257,7 @@ get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     emqx_ds:time()
 ) -> {ok, iterator()}.
 make_iterator(
-    _Shard, _Data, #{?tag := ?STREAM, ?storage_key := StorageKey}, TopicFilter, StartTime
+    _Shard, _Data, StorageKey, TopicFilter, StartTime
 ) ->
     %% Note: it's a good idea to keep the iterator structure lean,
     %% since it can be stored on a remote node that could update its
