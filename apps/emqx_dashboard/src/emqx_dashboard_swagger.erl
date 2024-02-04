@@ -833,16 +833,29 @@ parse_object(Other, Module, Options) ->
     ).
 
 parse_object_loop(PropList0, Module, Options) ->
-    PropList = lists:filter(
-        fun({_, Hocon}) ->
+    PropList = filter_hidden_key(PropList0, Module),
+    parse_object_loop(PropList, Module, Options, _Props = [], _Required = [], _Refs = []).
+
+filter_hidden_key(PropList0, Module) ->
+    {PropList1, _} = lists:foldr(
+        fun({Key, Hocon} = Prop, {PropAcc, KeyAcc}) ->
+            NewKeyAcc = assert_no_duplicated_key(Key, KeyAcc, Module),
             case hoconsc:is_schema(Hocon) andalso is_hidden(Hocon) of
-                true -> false;
-                false -> true
+                true -> {PropAcc, NewKeyAcc};
+                false -> {[Prop | PropAcc], NewKeyAcc}
             end
         end,
+        {[], []},
         PropList0
     ),
-    parse_object_loop(PropList, Module, Options, _Props = [], _Required = [], _Refs = []).
+    PropList1.
+
+assert_no_duplicated_key(Key, Keys, Module) ->
+    KeyBin = emqx_utils_conv:bin(Key),
+    case lists:member(KeyBin, Keys) of
+        true -> throw({duplicated_key, #{module => Module, key => KeyBin, keys => Keys}});
+        false -> [KeyBin | Keys]
+    end.
 
 parse_object_loop([], _Module, _Options, Props, Required, Refs) ->
     {lists:reverse(Props), lists:usort(Required), Refs};
