@@ -1,3 +1,7 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
 -module(emqx_bridge_rabbitmq_source_sup).
 
 -behaviour(supervisor).
