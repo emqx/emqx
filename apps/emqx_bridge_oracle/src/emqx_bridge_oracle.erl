@@ -123,11 +123,10 @@ fields(Field) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    emqx_connector_schema:api_fields(
-        Field,
-        ?CONNECTOR_TYPE,
-        fields("config_connector")
-    );
+    Fields =
+        fields(connector_fields) ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
 fields(Field) when
     Field == "get_bridge_v2";
     Field == "post_bridge_v2";
