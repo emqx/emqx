@@ -680,7 +680,8 @@ defmodule EMQXUmbrella.MixProject do
 
     # the elixir version of escript + start.boot required the boot_var
     # RELEASE_LIB to be defined.
-    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
+    # enable-feature is not required when 1.6.x
+    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib -enable-feature maybe_expr"
 
     # Files with the version appended are expected by the release
     # upgrade script `install_upgrade.escript`
