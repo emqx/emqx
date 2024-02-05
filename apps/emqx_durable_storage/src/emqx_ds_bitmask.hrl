@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,8 +27,8 @@
     size :: non_neg_integer(),
     bitfilter :: non_neg_integer(),
     bitmask :: non_neg_integer(),
-    %% Ranges (in _bitsource_ basis):
-    bitsource_ranges :: array:array(#filter_scan_action{}),
+    %% Ranges (in _bitsource_ basis), array of `#filter_scan_action{}':
+    bitsource_ranges :: tuple(),
     range_min :: non_neg_integer(),
     range_max :: non_neg_integer()
 }).
