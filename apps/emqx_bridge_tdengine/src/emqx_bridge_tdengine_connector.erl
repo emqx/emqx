@@ -47,16 +47,13 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    [
-        {server, server()}
-        | adjust_fields(emqx_connector_schema_lib:relational_db_fields())
-    ];
+    base_config(true);
 %%=====================================================================
 %% V2 Hocon schema
 
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
-        fields(config) ++
+        base_config(false) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -66,6 +63,12 @@ fields("put") ->
     fields("config_connector");
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post").
+
+base_config(HasDatabase) ->
+    [
+        {server, server()}
+        | adjust_fields(emqx_connector_schema_lib:relational_db_fields(), HasDatabase)
+    ].
 
 desc(config) ->
     ?DESC("desc_config");
@@ -78,7 +81,7 @@ desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
 desc(_) ->
     undefined.
 
-adjust_fields(Fields) ->
+adjust_fields(Fields, HasDatabase) ->
     lists:filtermap(
         fun
             ({username, OrigUsernameFn}) ->
@@ -86,7 +89,7 @@ adjust_fields(Fields) ->
             ({password, _}) ->
                 {true, {password, emqx_connector_schema_lib:password_field(#{required => true})}};
             ({database, _}) ->
-                false;
+                HasDatabase;
             (_Field) ->
                 true
         end,
