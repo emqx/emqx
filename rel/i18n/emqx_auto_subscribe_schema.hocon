@@ -8,7 +8,7 @@ auto_subscribe.label:
 
 nl.desc:
 """Default value 0.
-MQTT v3.1.1： if you subscribe to the topic published by yourself, you will receive all messages that you published.
+MQTT v3.1.1: if you subscribe to the topic published by yourself, you will receive all messages that you published.
 MQTT v5: if you set this option as 1 when subscribing, the server will not forward the message you published to you."""
 
 nl.label:
