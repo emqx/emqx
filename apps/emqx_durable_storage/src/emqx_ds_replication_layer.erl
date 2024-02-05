@@ -43,7 +43,9 @@
     do_drop_db_v1/1,
     do_store_batch_v1/4,
     do_get_streams_v1/4,
+    do_get_streams_v2/4,
     do_make_iterator_v1/5,
+    do_make_iterator_v2/5,
     do_update_iterator_v2/4,
     do_next_v1/4,
     do_add_generation_v2/1,
@@ -51,7 +53,9 @@
     do_drop_generation_v3/3
 ]).
 
--export_type([shard_id/0, builtin_db_opts/0, stream/0, iterator/0, message_id/0, batch/0]).
+-export_type([
+    shard_id/0, builtin_db_opts/0, stream_v1/0, stream/0, iterator/0, message_id/0, batch/0
+]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include("emqx_ds_replication_layer.hrl").
@@ -72,16 +76,18 @@
 
 %% This enapsulates the stream entity from the replication level.
 %%
-%% TODO: currently the stream is hardwired to only support the
-%% internal rocksdb storage. In the future we want to add another
-%% implementations for emqx_ds, so this type has to take this into
-%% account.
--opaque stream() ::
+%% TODO: this type is obsolete and is kept only for compatibility with
+%% v3 BPAPI. Remove it when emqx_ds_proto_v4 is gone (EMQX 5.6)
+-opaque stream_v1() ::
     #{
         ?tag := ?STREAM,
         ?shard := emqx_ds_replication_layer:shard_id(),
-        ?enc := emqx_ds_storage_layer:stream()
+        ?enc := emqx_ds_storage_layer:stream_v1()
     }.
+
+-define(stream_v2(SHARD, INNER), [2, SHARD | INNER]).
+
+-opaque stream() :: nonempty_maybe_improper_list().
 
 -opaque iterator() ::
     #{
@@ -121,7 +127,7 @@ open_db(DB, CreateOpts) ->
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
     Nodes = emqx_ds_replication_layer_meta:leader_nodes(DB),
-    _ = emqx_ds_proto_v3:add_generation(Nodes, DB),
+    _ = emqx_ds_proto_v4:add_generation(Nodes, DB),
     ok.
 
 -spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
@@ -140,7 +146,7 @@ list_generations_with_lifetimes(DB) ->
                     AccInner#{{Shard, GenId} => Data}
                 end,
                 GensAcc,
-                emqx_ds_proto_v3:list_generations_with_lifetimes(Node, DB, Shard)
+                emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard)
             )
         end,
         #{},
@@ -152,12 +158,12 @@ drop_generation(DB, {Shard, GenId}) ->
     %% TODO: drop generation in all nodes in the replica set, not only in the leader,
     %% after we have proper replication in place.
     Node = node_of_shard(DB, Shard),
-    emqx_ds_proto_v3:drop_generation(Node, DB, Shard, GenId).
+    emqx_ds_proto_v4:drop_generation(Node, DB, Shard, GenId).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     Nodes = list_nodes(),
-    _ = emqx_ds_proto_v3:drop_db(Nodes, DB),
+    _ = emqx_ds_proto_v4:drop_db(Nodes, DB),
     _ = emqx_ds_replication_layer_meta:drop_db(DB),
     emqx_ds_builtin_sup:stop_db(DB),
     ok.
@@ -174,16 +180,12 @@ get_streams(DB, TopicFilter, StartTime) ->
     lists:flatmap(
         fun(Shard) ->
             Node = node_of_shard(DB, Shard),
-            Streams = emqx_ds_proto_v3:get_streams(Node, DB, Shard, TopicFilter, StartTime),
+            Streams = emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, StartTime),
             lists:map(
-                fun({RankY, Stream}) ->
+                fun({RankY, StorageLayerStream}) ->
                     RankX = Shard,
                     Rank = {RankX, RankY},
-                    {Rank, #{
-                        ?tag => ?STREAM,
-                        ?shard => Shard,
-                        ?enc => Stream
-                    }}
+                    {Rank, ?stream_v2(Shard, StorageLayerStream)}
                 end,
                 Streams
             )
@@ -194,9 +196,9 @@ get_streams(DB, TopicFilter, StartTime) ->
 -spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
-    #{?tag := ?STREAM, ?shard := Shard, ?enc := StorageStream} = Stream,
+    ?stream_v2(Shard, StorageStream) = Stream,
     Node = node_of_shard(DB, Shard),
-    case emqx_ds_proto_v3:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
+    case emqx_ds_proto_v4:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Err = {error, _} ->
@@ -213,7 +215,7 @@ update_iterator(DB, OldIter, DSKey) ->
     #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
     Node = node_of_shard(DB, Shard),
     case
-        emqx_ds_proto_v3:update_iterator(
+        emqx_ds_proto_v4:update_iterator(
             Node,
             DB,
             Shard,
@@ -239,7 +241,7 @@ next(DB, Iter0, BatchSize) ->
     %%
     %% This kind of trickery should be probably done here in the
     %% replication layer. Or, perhaps, in the logic layer.
-    case emqx_ds_proto_v3:next(Node, DB, Shard, StorageIter0, BatchSize) of
+    case emqx_ds_proto_v4:next(Node, DB, Shard, StorageIter0, BatchSize) of
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, Batch};
@@ -311,14 +313,35 @@ do_drop_db_v1(DB) ->
 do_store_batch_v1(DB, Shard, #{?tag := ?BATCH, ?batch_messages := Messages}, Options) ->
     emqx_ds_storage_layer:store_batch({DB, Shard}, Messages, Options).
 
+%% Remove me in EMQX 5.6
+-dialyzer({nowarn_function, do_get_streams_v1/4}).
 -spec do_get_streams_v1(
     emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
+    [{integer(), emqx_ds_storage_layer:stream_v1()}].
+do_get_streams_v1(_DB, _Shard, _TopicFilter, _StartTime) ->
+    error(obsolete_api).
+
+-spec do_get_streams_v2(
+    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
+) ->
     [{integer(), emqx_ds_storage_layer:stream()}].
-do_get_streams_v1(DB, Shard, TopicFilter, StartTime) ->
+do_get_streams_v2(DB, Shard, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:get_streams({DB, Shard}, TopicFilter, StartTime).
 
+-dialyzer({nowarn_function, do_make_iterator_v1/5}).
 -spec do_make_iterator_v1(
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:stream_v1(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
+) ->
+    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+do_make_iterator_v1(_DB, _Shard, _Stream, _TopicFilter, _StartTime) ->
+    error(obsolete_api).
+
+-spec do_make_iterator_v2(
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
     emqx_ds_storage_layer:stream(),
@@ -326,7 +349,7 @@ do_get_streams_v1(DB, Shard, TopicFilter, StartTime) ->
     emqx_ds:time()
 ) ->
     {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
-do_make_iterator_v1(DB, Shard, Stream, TopicFilter, StartTime) ->
+do_make_iterator_v2(DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator({DB, Shard}, Stream, TopicFilter, StartTime).
 
 -spec do_update_iterator_v2(

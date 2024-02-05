@@ -43,6 +43,7 @@
     generation/0,
     cf_refs/0,
     stream/0,
+    stream_v1/0,
     iterator/0,
     shard_id/0,
     options/0,
@@ -53,6 +54,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
+
+-define(stream_v2(GENERATION, INNER), [GENERATION | INNER]).
 
 %%================================================================================
 %% Type declarations
@@ -80,13 +83,16 @@
 
 -type gen_id() :: 0..16#ffff.
 
-%% Note: this might be stored permanently on a remote node.
--opaque stream() ::
+%% TODO: kept for BPAPI compatibility. Remove me on EMQX v5.6
+-opaque stream_v1() ::
     #{
         ?tag := ?STREAM,
         ?generation := gen_id(),
         ?enc := term()
     }.
+
+%% Note: this might be stored permanently on a remote node.
+-opaque stream() :: nonempty_maybe_improper_list(gen_id(), term()).
 
 %% Note: this might be stred permanently on a remote node.
 -opaque iterator() ::
@@ -221,12 +227,8 @@ get_streams(Shard, TopicFilter, StartTime) ->
                 {ok, #{module := Mod, data := GenData}} ->
                     Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
                     [
-                        {GenId, #{
-                            ?tag => ?STREAM,
-                            ?generation => GenId,
-                            ?enc => Stream
-                        }}
-                     || Stream <- Streams
+                        {GenId, ?stream_v2(GenId, InnerStream)}
+                     || InnerStream <- Streams
                     ];
                 {error, not_found} ->
                     %% race condition: generation was dropped before getting its streams?
@@ -239,7 +241,7 @@ get_streams(Shard, TopicFilter, StartTime) ->
 -spec make_iterator(shard_id(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(
-    Shard, #{?tag := ?STREAM, ?generation := GenId, ?enc := Stream}, TopicFilter, StartTime
+    Shard, ?stream_v2(GenId, Stream), TopicFilter, StartTime
 ) ->
     case generation_get_safe(Shard, GenId) of
         {ok, #{module := Mod, data := GenData}} ->

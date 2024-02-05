@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@
 ]).
 
 %% behavior callbacks:
--export([introduced_in/0]).
+-export([introduced_in/0, deprecated_since/0]).
 
 %%================================================================================
 %% API funcions
@@ -45,7 +45,7 @@ drop_db(Node, DB) ->
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    [{integer(), emqx_ds_storage_layer:stream()}].
+    [{integer(), emqx_ds_storage_layer:stream_v1()}].
 get_streams(Node, DB, Shard, TopicFilter, Time) ->
     erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [DB, Shard, TopicFilter, Time]).
 
@@ -53,7 +53,7 @@ get_streams(Node, DB, Shard, TopicFilter, Time) ->
     node(),
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
-    emqx_ds_storage_layer:stream(),
+    emqx_ds_storage_layer:stream_v1(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
@@ -95,3 +95,6 @@ store_batch(Node, DB, Shard, Batch, Options) ->
 
 introduced_in() ->
     "5.4.0".
+
+deprecated_since() ->
+    "5.5.0".

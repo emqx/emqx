@@ -34,7 +34,7 @@
 ]).
 
 %% behavior callbacks:
--export([introduced_in/0]).
+-export([introduced_in/0, deprecated_since/0]).
 
 %%================================================================================
 %% API funcions
@@ -52,7 +52,7 @@ drop_db(Node, DB) ->
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    [{integer(), emqx_ds_storage_layer:stream()}].
+    [{integer(), emqx_ds_storage_layer:stream_v1()}].
 get_streams(Node, DB, Shard, TopicFilter, Time) ->
     erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [DB, Shard, TopicFilter, Time]).
 
@@ -60,7 +60,7 @@ get_streams(Node, DB, Shard, TopicFilter, Time) ->
     node(),
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
-    emqx_ds_storage_layer:stream(),
+    emqx_ds_storage_layer:stream_v1(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
@@ -144,4 +144,7 @@ drop_generation(Node, DB, Shard, GenId) ->
 %%================================================================================
 
 introduced_in() ->
-    "5.6.0".
+    "5.5.0".
+
+deprecated_since() ->
+    "5.5.1".
