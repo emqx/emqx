@@ -196,14 +196,15 @@ create_bridge_http(Params) ->
 send_message(Config, Payload) ->
     Name = ?GET_CONFIG(rocketmq_name, Config),
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
-    BridgeID = emqx_bridge_resource:bridge_id(BridgeType, Name),
-    emqx_bridge:send_message(BridgeID, Payload).
+    ActionId = emqx_bridge_v2:id(BridgeType, Name),
+    emqx_bridge_v2:query(BridgeType, Name, {ActionId, Payload}, #{}).
 
 query_resource(Config, Request) ->
     Name = ?GET_CONFIG(rocketmq_name, Config),
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request, #{timeout => 500}).
+    ID = emqx_bridge_v2:id(BridgeType, Name),
+    ResID = emqx_connector_resource:resource_id(BridgeType, Name),
+    emqx_resource:query(ID, Request, #{timeout => 500, connector_resource_id => ResID}).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -273,6 +274,7 @@ t_get_status(Config) ->
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
 
     ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID)),
+    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)),
     ok.
 
 t_simple_query(Config) ->
@@ -280,7 +282,10 @@ t_simple_query(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Request = {send_message, #{message => <<"Hello">>}},
+    Type = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    ActionId = emqx_bridge_v2:id(Type, Name),
+    Request = {ActionId, #{message => <<"Hello">>}},
     Result = query_resource(Config, Request),
     ?assertEqual(ok, Result),
     ok.
