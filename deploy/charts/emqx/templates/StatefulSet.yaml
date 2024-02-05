@@ -56,6 +56,9 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "emqx.serviceAccountName" . }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
       volumes:
       {{- if .Values.ssl.enabled }}
       - name: ssl-cert
