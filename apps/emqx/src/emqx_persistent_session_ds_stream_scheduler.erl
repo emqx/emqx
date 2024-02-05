@@ -16,8 +16,8 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([find_new_streams/1, find_replay_streams/1]).
--export([renew_streams/1, del_subscription/2]).
+-export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2]).
+-export([renew_streams/1, on_unsubscribe/2]).
 
 %% behavior callbacks:
 -export([]).
@@ -127,30 +127,33 @@ renew_streams(S0) ->
     S1 = remove_unsubscribed_streams(S0),
     S2 = remove_fully_replayed_streams(S1),
     emqx_topic_gbt:fold(
-        fun(Key, _Subscription = #{start_time := StartTime, id := SubId}, Acc) ->
-            TopicFilter = emqx_topic:words(emqx_trie_search:get_topic(Key)),
-            Streams = select_streams(
-                SubId,
-                emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
+        fun
+            (Key, _Subscription = #{start_time := StartTime, id := SubId, deleted := false}, Acc) ->
+                TopicFilter = emqx_topic:words(emqx_trie_search:get_topic(Key)),
+                Streams = select_streams(
+                    SubId,
+                    emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
+                    Acc
+                ),
+                lists:foldl(
+                    fun(I, Acc1) ->
+                        ensure_iterator(TopicFilter, StartTime, SubId, I, Acc1)
+                    end,
+                    Acc,
+                    Streams
+                );
+            (_Key, _DeletedSubscription, Acc) ->
                 Acc
-            ),
-            lists:foldl(
-                fun(I, Acc1) ->
-                    ensure_iterator(TopicFilter, StartTime, SubId, I, Acc1)
-                end,
-                Acc,
-                Streams
-            )
         end,
         S2,
         emqx_persistent_session_ds_state:get_subscriptions(S2)
     ).
 
--spec del_subscription(
+-spec on_unsubscribe(
     emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds_state:t()
 ) ->
     emqx_persistent_session_ds_state:t().
-del_subscription(SubId, S0) ->
+on_unsubscribe(SubId, S0) ->
     %% NOTE: this function only marks the streams for deletion,
     %% instead of outright deleting them.
     %%
@@ -170,13 +173,13 @@ del_subscription(SubId, S0) ->
     %% `renew_streams', when it detects that all in-flight messages
     %% from the stream have been acked by the client.
     emqx_persistent_session_ds_state:fold_streams(
-        fun(Key, ReplayState, Acc) ->
+        fun(Key, Srs, Acc) ->
             case Key of
                 {SubId, _Stream} ->
                     %% This stream belongs to a deleted subscription.
                     %% Mark for deletion:
                     emqx_persistent_session_ds_state:put_stream(
-                        Key, ReplayState#srs{unsubscribed = true}, Acc
+                        Key, Srs#srs{unsubscribed = true}, Acc
                     );
                 _ ->
                     Acc
@@ -185,6 +188,14 @@ del_subscription(SubId, S0) ->
         S0,
         S0
     ).
+
+-spec is_fully_acked(
+    emqx_persistent_session_ds:stream_state(), emqx_persistent_session_ds_state:t()
+) -> boolean().
+is_fully_acked(Srs, S) ->
+    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+    is_fully_acked(CommQos1, CommQos2, Srs).
 
 %%================================================================================
 %% Internal functions
@@ -207,10 +218,6 @@ ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
                 it_end = Iterator
             },
             emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
-        SRS = #srs{unsubscribed = true} ->
-            %% The session resubscribed to the stream after
-            %% unsubscribing. Spare the stream:
-            emqx_persistent_session_ds_state:put_stream(Key, SRS#srs{unsubscribed = false}, S);
         #srs{} ->
             S
     end.
