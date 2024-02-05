@@ -219,8 +219,14 @@
 %% is mapped to the _least_ significant bits of the key, and the last
 %% element becomes most significant bits.
 %%
-%% Warning: currently the algorithm doesn't handle situations when
-%% parts of a vector element are _reordered_ in the resulting scalar.
+%% Warning: currently the algorithm doesn't handle the following
+%% situations, and will produce WRONG results WITHOUT warning:
+%%
+%% - Parts of the vector elements are reordered in the resulting
+%% scalar, i.e. its LSBs are mapped to more significant bits in the
+%% scalar than its MSBs.
+%%
+%% - Overlapping bitsources.
 -spec make_keymapper([bitsource()]) -> keymapper().
 make_keymapper(Bitsources) ->
     Arr0 = array:new([{fixed, false}, {default, {0, []}}]),
@@ -243,7 +249,7 @@ make_keymapper(Bitsources) ->
     MaxOffsets = vec_max_offset(NDim, Bitsources),
     #keymapper{
         schema = Bitsources,
-        vec_n_dim = length(Scanner),
+        vec_n_dim = NDim,
         vec_scanner = Scanner,
         key_size = Size,
         vec_coord_size = DimSizeof,
@@ -257,6 +263,9 @@ bitsize(#keymapper{key_size = Size}) ->
 %% @doc Map N-dimensional vector to a scalar key.
 %%
 %% Note: this function is not injective.
+%%
+%% TODO: should be renamed to `vector_to_scalar' to make terminology
+%% consistent.
 -spec vector_to_key(keymapper(), vector()) -> scalar().
 vector_to_key(#keymapper{vec_scanner = []}, []) ->
     0;
@@ -281,6 +290,9 @@ bin_vector_to_key(Keymapper = #keymapper{vec_coord_size = DimSizeof, key_size = 
 %%
 %% Note: `vector_to_key(key_to_vector(K)) = K' but
 %% `key_to_vector(vector_to_key(V)) = V' is not guaranteed.
+%%
+%% TODO: should be renamed to `scalar_to_vector' to make terminology
+%% consistent.
 -spec key_to_vector(keymapper(), scalar()) -> vector().
 key_to_vector(#keymapper{vec_scanner = Scanner}, Key) ->
     lists:map(
@@ -297,6 +309,9 @@ key_to_vector(#keymapper{vec_scanner = Scanner}, Key) ->
     ).
 
 %% @doc Same as `key_to_vector', but it works with binaries.
+%%
+%% TODO: should be renamed to `key_to_vector' to make terminology
+%% consistent.
 -spec bin_key_to_vector(keymapper(), key()) -> [binary()].
 bin_key_to_vector(Keymapper = #keymapper{vec_coord_size = DimSizeof, key_size = Size}, BinKey) ->
     <<Key:Size>> = BinKey,
@@ -519,7 +534,7 @@ ratchet_do(Ranges, Key, I, Pivot, Increment) ->
 %%
 %% These offsets are cached because during the creation of the filter
 %% we need to adjust the search interval for the presence of holes.
--spec vec_max_offset(non_neg_integer(), [bitsource()]) -> array:array(offset()).
+-spec vec_max_offset(non_neg_integer(), [bitsource()]) -> [offset()].
 vec_max_offset(NDim, Bitsources) ->
     Arr0 = array:new([{size, NDim}, {default, 0}, {fixed, true}]),
     Arr = lists:foldl(
