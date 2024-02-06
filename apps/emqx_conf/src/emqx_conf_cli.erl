@@ -89,6 +89,10 @@ admins(["skip", Node0]) ->
     emqx_cluster_rpc:skip_failed_commit(Node),
     status();
 admins(["tnxid", TnxId0]) ->
+    %% changed to 'inspect' in 5.6
+    %% TODO: delete this clause in 5.7
+    admins(["inspect", TnxId0]);
+admins(["inspect", TnxId0]) ->
     TnxId = list_to_integer(TnxId0),
     print(emqx_cluster_rpc:query(TnxId));
 admins(["fast_forward"]) ->
@@ -145,12 +149,14 @@ usage_conf() ->
 
 usage_sync() ->
     [
-        {"conf cluster_sync status", "Show cluster config sync status summary"},
-        {"conf cluster_sync skip [node]", "Increase one commit on specific node"},
-        {"conf cluster_sync tnxid <TnxId>",
-            "Display detailed information of the config change transaction at TnxId"},
-        {"conf cluster_sync fast_forward [node] [tnx_id]",
-            "Fast-forward config change transaction to tnx_id on the given node."
+        {"conf cluster_sync status", "Show cluster config sync status summary for all nodes."},
+        {"conf cluster_sync inspect <ID>",
+            "Inspect detailed information of the config change transaction at the given commit ID"},
+        {"conf cluster_sync skip [node]",
+            "Increment the (currently failing) commit on the given node.\n"
+            "WARNING: This results in inconsistent configs among the clustered nodes."},
+        {"conf cluster_sync fast_forward [node] <ID>",
+            "Fast-forward config change to the given commit ID on the given node.\n"
             "WARNING: This results in inconsistent configs among the clustered nodes."}
     ].
 
