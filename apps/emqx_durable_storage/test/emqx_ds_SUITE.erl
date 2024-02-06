@@ -372,13 +372,13 @@ t_10_non_atomic_store_batch(_Config) ->
     ),
     ok.
 
-%% Verifies the basic usage of `last_seen_key_extractor/0' callback.
-%%   1) If the callback module implements `last_seen_key_extractor/0', it returns a
+%% Verifies the basic usage of `iterator_info_extractor/0' callback.
+%%   1) If the callback module implements `iterator_info_extractor/0', it returns a
 %%      function that, given an iterator managed by it, returns the (binary) last key seen by
-%%      such iterator, or `undefined' if it has never been used.
-%%   2) If the callback module does not implement `last_seen_key_extractor/0', it returns
+%%      such iterator, or `undefined' if it has never been used, and the topic filter.
+%%   2) If the callback module does not implement `iterator_info_extractor/0', it returns
 %%      `undefined'.
-t_11_last_seen_key_extractor(_Config) ->
+t_11_iterator_info_extractor(_Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
@@ -394,27 +394,27 @@ t_11_last_seen_key_extractor(_Config) ->
 
             [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
 
-            Res0 = emqx_ds_replication_layer:last_seen_key_extractor(DB, Stream),
+            Res0 = emqx_ds_replication_layer:iterator_info_extractor(DB, Stream),
             ?assertMatch({ok, _}, Res0),
             {ok, ExtractorFn} = Res0,
 
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
 
             ?assertEqual(
-                undefined,
-                emqx_ds_replication_layer:extract_last_seen_key(Iter0, ExtractorFn)
+                #{last_seen_key => undefined, topic_filter => TopicFilter},
+                emqx_ds_replication_layer:extract_iterator_info(Iter0, ExtractorFn)
             ),
 
             {ok, Iter1, [{DSKey1, _Msg1}]} = emqx_ds:next(DB, Iter0, 1),
             ?assertEqual(
-                DSKey1,
-                emqx_ds_replication_layer:extract_last_seen_key(Iter1, ExtractorFn)
+                #{last_seen_key => DSKey1, topic_filter => TopicFilter},
+                emqx_ds_replication_layer:extract_iterator_info(Iter1, ExtractorFn)
             ),
 
             {ok, Iter2, [{DSKey2, _Msg2}]} = emqx_ds:next(DB, Iter0, 1),
             ?assertEqual(
-                DSKey2,
-                emqx_ds_replication_layer:extract_last_seen_key(Iter2, ExtractorFn)
+                #{last_seen_key => DSKey2, topic_filter => TopicFilter},
+                emqx_ds_replication_layer:extract_iterator_info(Iter2, ExtractorFn)
             ),
 
             ok

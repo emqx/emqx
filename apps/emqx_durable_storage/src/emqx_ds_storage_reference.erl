@@ -36,11 +36,11 @@
     make_iterator/5,
     update_iterator/4,
     next/4,
-    last_seen_key_extractor/0
+    iterator_info_extractor/0
 ]).
 
 %% internal exports:
--export([extract_last_seen_key/1]).
+-export([extract_iterator_info/1]).
 
 -export_type([options/0]).
 
@@ -152,18 +152,20 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     It = It0#it{last_seen_message_key = Key},
     {ok, It, lists:reverse(Messages)}.
 
-last_seen_key_extractor() ->
-    {?MODULE, extract_last_seen_key, []}.
+iterator_info_extractor() ->
+    {?MODULE, extract_iterator_info, []}.
 
 %%================================================================================
 %% Internal exports
 %%================================================================================
 
-extract_last_seen_key(#it{last_seen_message_key = LastSeenKey}) ->
-    case LastSeenKey of
-        first -> undefined;
-        _ -> LastSeenKey
-    end.
+extract_iterator_info(#it{last_seen_message_key = LastSeenKey0, topic_filter = TopicFilter}) ->
+    LastSeenKey =
+        case LastSeenKey0 of
+            first -> undefined;
+            _ -> LastSeenKey0
+        end,
+    #{last_seen_key => LastSeenKey, topic_filter => TopicFilter}.
 
 %%================================================================================
 %% Internal functions

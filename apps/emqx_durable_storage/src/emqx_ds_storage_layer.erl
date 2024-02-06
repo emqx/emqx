@@ -33,7 +33,7 @@
 ]).
 
 %% API:
--export([last_seen_key_extractor/2, extract_last_seen_key/2]).
+-export([iterator_info_extractor/2, extract_iterator_info/2]).
 
 %% gen_server
 -export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -193,23 +193,23 @@
 
 -callback post_creation_actions(post_creation_context()) -> _Data.
 
--callback last_seen_key_extractor() -> emqx_ds:last_seen_key_extractor().
+-callback iterator_info_extractor() -> emqx_ds:iterator_info_extractor().
 
--optional_callbacks([post_creation_actions/1, last_seen_key_extractor/0]).
+-optional_callbacks([post_creation_actions/1, iterator_info_extractor/0]).
 
 %%================================================================================
 %% API
 %%================================================================================
 
--spec last_seen_key_extractor(shard_id(), stream()) ->
-    undefined | {ok, emqx_ds:last_seen_key_extractor()}.
-last_seen_key_extractor(Shard, ?stream_v2(GenId, _)) ->
+-spec iterator_info_extractor(shard_id(), stream()) ->
+    undefined | {ok, emqx_ds:iterator_info_extractor()}.
+iterator_info_extractor(Shard, ?stream_v2(GenId, _)) ->
     case generation_get_safe(Shard, GenId) of
         {ok, #{module := Mod}} ->
-            case erlang:function_exported(Mod, last_seen_key_extractor, 0) of
+            case erlang:function_exported(Mod, iterator_info_extractor, 0) of
                 true ->
-                    ExtractorFn = Mod:last_seen_key_extractor(),
-                    {ok, {?MODULE, extract_last_seen_key, [ExtractorFn]}};
+                    ExtractorFn = Mod:iterator_info_extractor(),
+                    {ok, {?MODULE, extract_iterator_info, [ExtractorFn]}};
                 false ->
                     undefined
             end;
@@ -217,9 +217,9 @@ last_seen_key_extractor(Shard, ?stream_v2(GenId, _)) ->
             undefined
     end.
 
--spec extract_last_seen_key(iterator(), emqx_ds:last_seen_key_extractor()) ->
-    undefined | emqx_ds:message_key().
-extract_last_seen_key(Iter, ExtractorFn) ->
+-spec extract_iterator_info(iterator(), emqx_ds:iterator_info_extractor()) ->
+    emqx_ds:iterator_info_res().
+extract_iterator_info(Iter, ExtractorFn) ->
     #{?tag := ?IT, ?enc := LayoutIter} = Iter,
     {Mod, FnName, LayoutArgs} = ExtractorFn,
     apply(Mod, FnName, [LayoutIter | LayoutArgs]).

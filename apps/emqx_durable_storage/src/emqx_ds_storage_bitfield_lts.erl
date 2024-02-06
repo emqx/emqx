@@ -34,8 +34,8 @@
     update_iterator/4,
     next/4,
     post_creation_actions/1,
-    last_seen_key_extractor/0,
-    extract_last_seen_key/1
+    iterator_info_extractor/0,
+    extract_iterator_info/1
 ]).
 
 %% internal exports:
@@ -101,8 +101,6 @@
         ?storage_key := emqx_ds_lts:msg_storage_key(),
         ?last_seen_key := binary()
     }.
-
--type last_seen_key_extractor() :: {module(), atom(), [term()]}.
 
 -define(COUNTER, emqx_ds_storage_bitfield_lts_counter).
 
@@ -362,16 +360,18 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         erase(?COUNTER)
     end.
 
--spec last_seen_key_extractor() -> last_seen_key_extractor().
-last_seen_key_extractor() ->
-    {?MODULE, extract_last_seen_key, []}.
+-spec iterator_info_extractor() -> emqx_ds:iterator_info_extractor().
+iterator_info_extractor() ->
+    {?MODULE, extract_iterator_info, []}.
 
--spec extract_last_seen_key(iterator()) -> undefined | emqx_ds:message_key().
-extract_last_seen_key(#{?tag := ?IT, ?last_seen_key := LastSeenKey}) ->
-    case LastSeenKey of
-        <<>> -> undefined;
-        _ -> LastSeenKey
-    end.
+-spec extract_iterator_info(iterator()) -> emqx_ds:iterator_info_res().
+extract_iterator_info(#{?tag := ?IT, ?last_seen_key := LastSeenKey0, ?topic_filter := TopicFilter}) ->
+    LastSeenKey =
+        case LastSeenKey0 of
+            <<>> -> undefined;
+            _ -> LastSeenKey0
+        end,
+    #{last_seen_key => LastSeenKey, topic_filter => TopicFilter}.
 
 %%================================================================================
 %% Internal functions

@@ -39,6 +39,7 @@
 ]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include("emqx_ds_cache.hrl").
 
 %%================================================================================
@@ -96,8 +97,8 @@ start_link(DB, CacheOpts) ->
 try_fetch_cache(DB, Stream, Iter, BatchSize) ->
     try
         case may_serve(DB, Stream, Iter) of
-            {ok, StreamTid, LastSeenKey} ->
-                fetch_cache(StreamTid, Stream, LastSeenKey, BatchSize);
+            {ok, StreamTid, TopicFilter, LastSeenKey} ->
+                fetch_cache(StreamTid, Stream, TopicFilter, LastSeenKey, BatchSize);
             false ->
                 ?tp(ds_cache_miss, #{stream => Stream}),
                 false
@@ -175,7 +176,7 @@ create_table() ->
     ]).
 
 -spec may_serve(emqx_ds:db(), emqx_ds:stream(), emqx_ds:iterator()) ->
-    false | {ok, ets:tid(), emqx_ds:message_key()}.
+    false | {ok, ets:tid(), emqx_ds:topic_filter(), emqx_ds:message_key()}.
 may_serve(DB, Stream, Iter) ->
     case persistent_term:get(?cache_ptkey(DB), undefined) of
         undefined ->
@@ -185,14 +186,17 @@ may_serve(DB, Stream, Iter) ->
     end.
 
 -spec do_may_serve(emqx_ds:db(), ets:tid(), emqx_ds:stream(), emqx_ds:iterator()) ->
-    false | {ok, ets:tid(), emqx_ds:message_key()}.
+    false | {ok, ets:tid(), emqx_ds:topic_filter(), emqx_ds:message_key()}.
 do_may_serve(DB, Tid, Stream, Iter) ->
     case emqx_utils_ets:lookup_value(Tid, ?meta_cache_key(Stream)) of
         #{table := StreamTid, extractor_fn := ExtractorFn} ->
-            LastSeenKey = emqx_ds:extract_last_seen_key(DB, Iter, ExtractorFn),
+            #{
+                last_seen_key := LastSeenKey,
+                topic_filter := TopicFilter
+            } = emqx_ds:extract_iterator_info(DB, Iter, ExtractorFn),
             case emqx_utils_ets:member(StreamTid, ?CACHE_KEY(LastSeenKey)) of
                 true ->
-                    {ok, StreamTid, LastSeenKey};
+                    {ok, StreamTid, TopicFilter, LastSeenKey};
                 false ->
                     false
             end;
@@ -200,9 +204,15 @@ do_may_serve(DB, Tid, Stream, Iter) ->
             false
     end.
 
--spec fetch_cache(ets:tid(), emqx_ds:stream(), undefined | emqx_ds:message_key(), pos_integer()) ->
+-spec fetch_cache(
+    ets:tid(),
+    emqx_ds:stream(),
+    emqx_ds:topic_filter(),
+    undefined | emqx_ds:message_key(),
+    pos_integer()
+) ->
     cache_fetch_result().
-fetch_cache(StreamTid, Stream, LastSeenKey, BatchSize) ->
+fetch_cache(StreamTid, Stream, TopicFilter, LastSeenKey, BatchSize) ->
     %% confirm that GC hasn't cleared entries in the meantime
     CacheKey = ?CACHE_KEY(LastSeenKey),
     case ets:lookup(StreamTid, CacheKey) of
@@ -214,7 +224,9 @@ fetch_cache(StreamTid, Stream, LastSeenKey, BatchSize) ->
                 expected_seqno => Seqno + 1,
                 last_seen_key => LastSeenKey
             }),
-            do_fetch_cache(Next, StreamTid, Stream, LastSeenKey, Seqno + 1, BatchSize, _Acc = []);
+            do_fetch_cache(
+                Next, StreamTid, Stream, TopicFilter, LastSeenKey, Seqno + 1, BatchSize, _Acc = []
+            );
         _ ->
             %% race condition: previous key doesn't match; GC may have run.
             false
@@ -224,6 +236,7 @@ fetch_cache(StreamTid, Stream, LastSeenKey, BatchSize) ->
     '$end_of_table' | ?EOS_KEY | ?CACHE_KEY(emqx_ds:message_key()),
     ets:tid(),
     emqx_ds:stream(),
+    emqx_ds:topic_filter(),
     emqx_ds:message_key(),
     seqno(),
     _Remaining :: pos_integer(),
@@ -231,32 +244,64 @@ fetch_cache(StreamTid, Stream, LastSeenKey, BatchSize) ->
 ) ->
     cache_fetch_result().
 do_fetch_cache(
-    '$end_of_table' = Key, _StreamTid, Stream, OrigLastSeenKey, _ExpectedSeqno, _Remaining, Acc
+    '$end_of_table' = Key,
+    _StreamTid,
+    Stream,
+    _TopicFilter,
+    OrigLastSeenKey,
+    _ExpectedSeqno,
+    _Remaining,
+    Acc
 ) ->
     with_last_key(Acc, Stream, Key, OrigLastSeenKey);
 do_fetch_cache(
-    ?EOS_KEY = Key, _StreamTid, Stream, OrigLastSeenKey, _ExpectedSeqno, _Remaining, Acc
+    ?EOS_KEY = Key,
+    _StreamTid,
+    Stream,
+    _TopicFilter,
+    OrigLastSeenKey,
+    _ExpectedSeqno,
+    _Remaining,
+    Acc
 ) ->
     with_last_key(Acc, Stream, Key, OrigLastSeenKey);
-do_fetch_cache(Key, _StreamTid, Stream, OrigLastSeenKey, _ExpectedSeqno, Remaining, Acc) when
+do_fetch_cache(
+    Key, _StreamTid, Stream, _TopicFilter, OrigLastSeenKey, _ExpectedSeqno, Remaining, Acc
+) when
     Remaining =< 0
 ->
     with_last_key(Acc, Stream, Key, OrigLastSeenKey);
-do_fetch_cache(Key, StreamTid, Stream, OrigLastSeenKey, ExpectedSeqno, Remaining, Acc) ->
+do_fetch_cache(Key, StreamTid, Stream, TopicFilter, OrigLastSeenKey, ExpectedSeqno, Remaining, Acc) ->
     ?tp(ds_cache_lookup_enter, #{key => Key, stream => Stream, seqno => ExpectedSeqno}),
     case ets:lookup(StreamTid, Key) of
         [#cache_entry{key = ?CACHE_KEY(DSKey), seqno = ExpectedSeqno, message = Message}] ->
             NextKey = ets:next(StreamTid, Key),
-            NewAcc = [{DSKey, Message} | Acc],
-            do_fetch_cache(
-                NextKey,
-                StreamTid,
-                Stream,
-                OrigLastSeenKey,
-                ExpectedSeqno + 1,
-                Remaining - 1,
-                NewAcc
-            );
+            #message{topic = Topic} = Message,
+            case emqx_topic:match(emqx_topic:words(Topic), TopicFilter) of
+                true ->
+                    NewAcc = [{DSKey, Message} | Acc],
+                    do_fetch_cache(
+                        NextKey,
+                        StreamTid,
+                        Stream,
+                        TopicFilter,
+                        OrigLastSeenKey,
+                        ExpectedSeqno + 1,
+                        Remaining - 1,
+                        NewAcc
+                    );
+                false ->
+                    do_fetch_cache(
+                        NextKey,
+                        StreamTid,
+                        Stream,
+                        TopicFilter,
+                        OrigLastSeenKey,
+                        ExpectedSeqno + 1,
+                        Remaining,
+                        Acc
+                    )
+            end;
         _ ->
             %% Either:
             %%   i)   There's no entry;
@@ -337,7 +382,7 @@ do_renew_streams(State0) ->
     emqx_ds:time()
 ) -> ok.
 handle_new_stream(DB, MetaTid, NewStream, TopicFilter, StartTime) ->
-    case emqx_ds:last_seen_key_extractor(DB, NewStream) of
+    case emqx_ds:iterator_info_extractor(DB, NewStream) of
         {ok, ExtractorFn} ->
             ok = emqx_ds_builtin_db_sup:ensure_cache_worker_started(
                 DB, NewStream, TopicFilter, StartTime

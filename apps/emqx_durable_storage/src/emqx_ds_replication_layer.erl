@@ -33,8 +33,8 @@
     make_iterator/4,
     update_iterator/3,
     next/3, next/4,
-    last_seen_key_extractor/2,
-    extract_last_seen_key/2,
+    iterator_info_extractor/2,
+    extract_iterator_info/2,
     node_of_shard/2,
     shard_of_message/3,
     maybe_set_myself_as_leader/2
@@ -53,7 +53,7 @@
     do_add_generation_v2/1,
     do_list_generations_with_lifetimes_v3/2,
     do_drop_generation_v3/3,
-    do_last_seen_key_extractor_v4/3
+    do_iterator_info_extractor_v4/3
 ]).
 
 -export_type([
@@ -283,16 +283,16 @@ do_next(DB, Iter0, BatchSize) ->
             Other
     end.
 
--spec last_seen_key_extractor(emqx_ds:db(), emqx_ds:ds_specific_stream()) ->
-    undefined | {ok, emqx_ds:last_seen_key_extractor()}.
-last_seen_key_extractor(DB, Stream) ->
+-spec iterator_info_extractor(emqx_ds:db(), emqx_ds:ds_specific_stream()) ->
+    undefined | {ok, emqx_ds:iterator_info_extractor()}.
+iterator_info_extractor(DB, Stream) ->
     ?stream_v2(Shard, StorageStream) = Stream,
     Node = node_of_shard(DB, Shard),
-    emqx_ds_proto_v4:last_seen_key_extractor(Node, DB, Shard, StorageStream).
+    emqx_ds_proto_v4:iterator_info_extractor(Node, DB, Shard, StorageStream).
 
--spec extract_last_seen_key(iterator(), emqx_ds:last_seen_key_extractor()) ->
-    undefined | emqx_ds:message_key().
-extract_last_seen_key(Iter, ExtractorFn) ->
+-spec extract_iterator_info(iterator(), emqx_ds:iterator_info_extractor()) ->
+    emqx_ds:iterator_info_res().
+extract_iterator_info(Iter, ExtractorFn) ->
     #{?tag := ?IT, ?enc := StorageIter} = Iter,
     {Mod, FnName, StorageArgs} = ExtractorFn,
     apply(Mod, FnName, [StorageIter | StorageArgs]).
@@ -442,10 +442,10 @@ do_list_generations_with_lifetimes_v3(DB, ShardId) ->
 do_drop_generation_v3(DB, ShardId, GenId) ->
     emqx_ds_storage_layer:drop_generation({DB, ShardId}, GenId).
 
--spec do_last_seen_key_extractor_v4(emqx_ds:db(), shard_id(), emqx_ds_storage_layer:stream()) ->
-    undefined | {ok, emqx_ds:last_seen_key_extractor()}.
-do_last_seen_key_extractor_v4(DB, ShardId, StorageStream) ->
-    emqx_ds_storage_layer:last_seen_key_extractor({DB, ShardId}, StorageStream).
+-spec do_iterator_info_extractor_v4(emqx_ds:db(), shard_id(), emqx_ds_storage_layer:stream()) ->
+    undefined | {ok, emqx_ds:iterator_info_extractor()}.
+do_iterator_info_extractor_v4(DB, ShardId, StorageStream) ->
+    emqx_ds_storage_layer:iterator_info_extractor({DB, ShardId}, StorageStream).
 
 %%================================================================================
 %% Internal functions

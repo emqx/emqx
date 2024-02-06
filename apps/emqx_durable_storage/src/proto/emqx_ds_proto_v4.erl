@@ -33,7 +33,7 @@
     make_iterator/6,
 
     %% introduced in v4
-    last_seen_key_extractor/4
+    iterator_info_extractor/4
 ]).
 
 %% behavior callbacks:
@@ -142,15 +142,15 @@ drop_generation(Node, DB, Shard, GenId) ->
 %% Introduced in V4
 %%--------------------------------------------------------------------------------
 
--spec last_seen_key_extractor(
+-spec iterator_info_extractor(
     node(),
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
     emqx_ds_storage_layer:stream()
 ) ->
-    undefined | {ok, emqx_ds:last_seen_key_extractor()}.
-last_seen_key_extractor(Node, DB, Shard, StorageStream) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_last_seen_key_extractor_v4, [
+    undefined | {ok, emqx_ds:iterator_info_extractor()}.
+iterator_info_extractor(Node, DB, Shard, StorageStream) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_iterator_info_extractor_v4, [
         DB, Shard, StorageStream
     ]).
 
