@@ -1188,10 +1188,10 @@ case "${COMMAND}" in
         esac
         case "$COMMAND" in
             foreground)
-                FOREGROUNDOPTIONS="-noshell -noinput +Bd"
+                FOREGROUNDOPTIONS="-enable-feature maybe_expr -noshell -noinput +Bd"
                 ;;
             *)
-                FOREGROUNDOPTIONS=''
+                FOREGROUNDOPTIONS='-enable-feature maybe_expr'
                 ;;
         esac
 

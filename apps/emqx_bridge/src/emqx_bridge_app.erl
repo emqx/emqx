@@ -44,6 +44,7 @@ stop(_State) ->
     emqx_conf:remove_handler(?TOP_LELVE_HDLR_PATH),
     ok = emqx_bridge:unload(),
     ok = emqx_bridge_v2:unload(),
+    emqx_action_info:clean_cache(),
     ok.
 
 -if(?EMQX_RELEASE_EDITION == ee).

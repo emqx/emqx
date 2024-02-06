@@ -1,9 +1,10 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_rabbitmq_connector).
 
+-feature(maybe_expr, enable).
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -22,17 +23,16 @@
 %% hocon_schema callbacks
 -export([namespace/0, roots/0, fields/1]).
 
-%% HTTP API callbacks
--export([values/1]).
-
 %% emqx_resource callbacks
 -export([
-    %% Required callbacks
     on_start/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
     on_stop/2,
     callback_mode/0,
-    %% Optional callbacks
     on_get_status/2,
+    on_get_channel_status/3,
     on_query/3,
     on_batch_query/3
 ]).
@@ -41,142 +41,18 @@
 -export([connect/1]).
 
 %% Internal callbacks
--export([publish_messages/3]).
+-export([publish_messages/4]).
 
 namespace() -> "rabbitmq".
 
+%% bridge v1
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
+%% bridge v1 called by emqx_bridge_rabbitmq
 fields(config) ->
-    [
-        {server,
-            hoconsc:mk(
-                typerefl:binary(),
-                #{
-                    default => <<"localhost">>,
-                    desc => ?DESC("server")
-                }
-            )},
-        {port,
-            hoconsc:mk(
-                emqx_schema:port_number(),
-                #{
-                    default => 5672,
-                    desc => ?DESC("server")
-                }
-            )},
-        {username,
-            hoconsc:mk(
-                typerefl:binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("username")
-                }
-            )},
-        {password, emqx_connector_schema_lib:password_field(#{required => true})},
-        {pool_size,
-            hoconsc:mk(
-                typerefl:pos_integer(),
-                #{
-                    default => 8,
-                    desc => ?DESC("pool_size")
-                }
-            )},
-        {timeout,
-            hoconsc:mk(
-                emqx_schema:timeout_duration_ms(),
-                #{
-                    default => <<"5s">>,
-                    desc => ?DESC("timeout")
-                }
-            )},
-        {wait_for_publish_confirmations,
-            hoconsc:mk(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC("wait_for_publish_confirmations")
-                }
-            )},
-        {publish_confirmation_timeout,
-            hoconsc:mk(
-                emqx_schema:timeout_duration_ms(),
-                #{
-                    default => <<"30s">>,
-                    desc => ?DESC("timeout")
-                }
-            )},
-
-        {virtual_host,
-            hoconsc:mk(
-                typerefl:binary(),
-                #{
-                    default => <<"/">>,
-                    desc => ?DESC("virtual_host")
-                }
-            )},
-        {heartbeat,
-            hoconsc:mk(
-                emqx_schema:timeout_duration_ms(),
-                #{
-                    default => <<"30s">>,
-                    desc => ?DESC("heartbeat")
-                }
-            )},
-        %% Things related to sending messages to RabbitMQ
-        {exchange,
-            hoconsc:mk(
-                typerefl:binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("exchange")
-                }
-            )},
-        {routing_key,
-            hoconsc:mk(
-                typerefl:binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("routing_key")
-                }
-            )},
-        {delivery_mode,
-            hoconsc:mk(
-                hoconsc:enum([non_persistent, persistent]),
-                #{
-                    default => non_persistent,
-                    desc => ?DESC("delivery_mode")
-                }
-            )},
-        {payload_template,
-            hoconsc:mk(
-                binary(),
-                #{
-                    default => <<"${.}">>,
-                    desc => ?DESC("payload_template")
-                }
-            )}
-    ] ++ emqx_connector_schema_lib:ssl_fields().
-
-values(post) ->
-    maps:merge(values(put), #{name => <<"connector">>});
-values(get) ->
-    values(post);
-values(put) ->
-    #{
-        server => <<"localhost">>,
-        port => 5672,
-        enable => true,
-        pool_size => 8,
-        type => rabbitmq,
-        username => <<"guest">>,
-        password => <<"******">>,
-        routing_key => <<"my_routing_key">>,
-        payload_template => <<"">>
-    };
-values(_) ->
-    #{}.
+    emqx_bridge_rabbitmq_connector_schema:fields(connector) ++
+        emqx_bridge_rabbitmq_pubsub_schema:fields(action_parameters).
 
 %% ===================================================================
 %% Callbacks defined in emqx_resource
@@ -186,127 +62,84 @@ values(_) ->
 
 callback_mode() -> always_sync.
 
-%% emqx_resource callback
-
-%% emqx_resource callback called when the resource is started
-
--spec on_start(resource_id(), term()) -> {ok, resource_state()} | {error, _}.
-on_start(
-    InstanceID,
-    #{
-        pool_size := PoolSize,
-        payload_template := PayloadTemplate,
-        delivery_mode := InitialDeliveryMode
-    } = InitialConfig
-) ->
-    DeliveryMode =
-        case InitialDeliveryMode of
-            non_persistent -> 1;
-            persistent -> 2
-        end,
-    Config = InitialConfig#{
-        delivery_mode => DeliveryMode
-    },
+on_start(InstanceID, Config) ->
     ?SLOG(info, #{
         msg => "starting_rabbitmq_connector",
         connector => InstanceID,
         config => emqx_utils:redact(Config)
     }),
+    init_secret(),
     Options = [
         {config, Config},
-        %% The pool_size is read by ecpool and decides the number of workers in
-        %% the pool
-        {pool_size, PoolSize},
+        {pool_size, maps:get(pool_size, Config)},
         {pool, InstanceID}
     ],
-    ProcessedTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate),
-    State = #{
-        poolname => InstanceID,
-        processed_payload_template => ProcessedTemplate,
-        config => Config
-    },
-    %% Initialize RabbitMQ's secret library so that the password is encrypted
-    %% in the log files.
-    case credentials_obfuscation:secret() of
-        ?PENDING_SECRET ->
-            Bytes = crypto:strong_rand_bytes(128),
-            %% The password can appear in log files if we don't do this
-            credentials_obfuscation:set_secret(Bytes);
-        _ ->
-            %% Already initialized
-            ok
-    end,
     case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
         ok ->
-            {ok, State};
+            {ok, #{channels => #{}}};
         {error, Reason} ->
-            ?SLOG(info, #{
+            ?SLOG(error, #{
                 msg => "rabbitmq_connector_start_failed",
-                error_reason => Reason,
+                reason => Reason,
                 config => emqx_utils:redact(Config)
             }),
             {error, Reason}
     end.
 
-%% emqx_resource callback called when the resource is stopped
-
--spec on_stop(resource_id(), resource_state()) -> term().
-on_stop(
-    ResourceID,
-    _State
+on_add_channel(
+    InstanceId,
+    #{channels := Channels} = State,
+    ChannelId,
+    Config
 ) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            {error, already_exists};
+        false ->
+            ProcParam = preproc_parameter(Config),
+            case make_channel(InstanceId, ChannelId, ProcParam) of
+                {ok, RabbitChannels} ->
+                    Channel = #{param => ProcParam, rabbitmq => RabbitChannels},
+                    NewChannels = maps:put(ChannelId, Channel, Channels),
+                    {ok, State#{channels => NewChannels}};
+                {error, Error} ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_start_rabbitmq_channel",
+                        instance_id => InstanceId,
+                        params => emqx_utils:redact(Config),
+                        error => Error
+                    }),
+                    {error, Error}
+            end
+    end.
+
+on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
+    try_unsubscribe(ChannelId, Channels),
+    {ok, State#{channels => maps:remove(ChannelId, Channels)}}.
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+
+on_stop(ResourceID, _State) ->
     ?SLOG(info, #{
         msg => "stopping_rabbitmq_connector",
         connector => ResourceID
     }),
-    stop_clients_and_pool(ResourceID).
+    lists:foreach(
+        fun({_Name, Worker}) ->
+            case ecpool_worker:client(Worker) of
+                {ok, Conn} -> amqp_connection:close(Conn);
+                _ -> ok
+            end
+        end,
+        ecpool:workers(ResourceID)
+    ),
+    emqx_resource_pool:stop(ResourceID).
 
-stop_clients_and_pool(PoolName) ->
-    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    Clients = [
-        begin
-            {ok, Client} = ecpool_worker:client(Worker),
-            Client
-        end
-     || Worker <- Workers
-    ],
-    %% We need to stop the pool before stopping the workers as the pool monitors the workers
-    StopResult = emqx_resource_pool:stop(PoolName),
-    lists:foreach(fun stop_worker/1, Clients),
-    StopResult.
-
-stop_worker({Channel, Connection}) ->
-    amqp_channel:close(Channel),
-    amqp_connection:close(Connection).
-
-%% This is the callback function that is called by ecpool when the pool is
-%% started
-
+%% This is the callback function that is called by ecpool
 -spec connect(term()) -> {ok, {pid(), pid()}, map()} | {error, term()}.
 connect(Options) ->
     Config = proplists:get_value(config, Options),
-    try
-        create_rabbitmq_connection_and_channel(Config)
-    catch
-        _:{error, Reason} ->
-            ?SLOG(error, #{
-                msg => "rabbitmq_connector_connection_failed",
-                error_type => error,
-                error_reason => Reason,
-                config => emqx_utils:redact(Config)
-            }),
-            {error, Reason};
-        Type:Reason ->
-            ?SLOG(error, #{
-                msg => "rabbitmq_connector_connection_failed",
-                error_type => Type,
-                error_reason => Reason,
-                config => emqx_utils:redact(Config)
-            }),
-            {error, Reason}
-    end.
-
-create_rabbitmq_connection_and_channel(Config) ->
     #{
         server := Host,
         port := Port,
@@ -314,236 +147,163 @@ create_rabbitmq_connection_and_channel(Config) ->
         password := WrappedPassword,
         timeout := Timeout,
         virtual_host := VirtualHost,
-        heartbeat := Heartbeat,
-        wait_for_publish_confirmations := WaitForPublishConfirmations
+        heartbeat := Heartbeat
     } = Config,
     %% TODO: teach `amqp` to accept 0-arity closures as passwords.
     Password = emqx_secret:unwrap(WrappedPassword),
-    SSLOptions =
-        case maps:get(ssl, Config, #{}) of
-            #{enable := true} = SSLOpts ->
-                emqx_tls_lib:to_client_opts(SSLOpts);
-            _ ->
-                none
-        end,
-    RabbitMQConnectionOptions =
+    RabbitMQConnOptions =
         #amqp_params_network{
-            host = erlang:binary_to_list(Host),
+            host = Host,
             port = Port,
-            ssl_options = SSLOptions,
+            ssl_options = to_ssl_options(Config),
             username = Username,
             password = Password,
             connection_timeout = Timeout,
             virtual_host = VirtualHost,
             heartbeat = Heartbeat
         },
-    {ok, RabbitMQConnection} =
-        case amqp_connection:start(RabbitMQConnectionOptions) of
-            {ok, Connection} ->
-                {ok, Connection};
-            {error, Reason} ->
-                erlang:error({error, Reason})
-        end,
-    {ok, RabbitMQChannel} =
-        case amqp_connection:open_channel(RabbitMQConnection) of
-            {ok, Channel} ->
-                {ok, Channel};
-            {error, OpenChannelErrorReason} ->
-                erlang:error({error, OpenChannelErrorReason})
-        end,
-    %% We need to enable confirmations if we want to wait for them
-    case WaitForPublishConfirmations of
-        true ->
-            case amqp_channel:call(RabbitMQChannel, #'confirm.select'{}) of
-                #'confirm.select_ok'{} ->
-                    ok;
-                Error ->
-                    ConfirmModeErrorReason =
-                        erlang:iolist_to_binary(
-                            io_lib:format(
-                                "Could not enable RabbitMQ confirmation mode ~p",
-                                [Error]
-                            )
-                        ),
-                    erlang:error({error, ConfirmModeErrorReason})
-            end;
-        false ->
-            ok
-    end,
-    {ok, {RabbitMQConnection, RabbitMQChannel}, #{
-        supervisees => [RabbitMQConnection, RabbitMQChannel]
-    }}.
-
-%% emqx_resource callback called to check the status of the resource
+    case amqp_connection:start(RabbitMQConnOptions) of
+        {ok, RabbitMQConn} ->
+            {ok, RabbitMQConn};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "rabbitmq_connector_connection_failed",
+                reason => Reason,
+                config => emqx_utils:redact(Config)
+            }),
+            {error, Reason}
+    end.
 
 -spec on_get_status(resource_id(), term()) ->
     {connected, resource_state()} | {disconnected, resource_state(), binary()}.
-on_get_status(
-    _InstId,
-    #{
-        poolname := PoolName
-    } = State
-) ->
-    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    Clients = [
-        begin
-            {ok, Client} = ecpool_worker:client(Worker),
-            Client
-        end
-     || Worker <- Workers
-    ],
-    CheckResults = [
-        check_worker(Client)
-     || Client <- Clients
-    ],
-    Connected = length(CheckResults) > 0 andalso lists:all(fun(R) -> R end, CheckResults),
-    case Connected of
-        true ->
-            {connected, State};
-        false ->
-            {disconnected, State, <<"not_connected">>}
-    end;
-on_get_status(
-    _InstId,
-    State
-) ->
-    {disconnect, State, <<"not_connected: no connection pool in state">>}.
+on_get_status(PoolName, #{channels := Channels} = State) ->
+    ChannelNum = maps:size(Channels),
+    Conns = get_rabbitmq_connections(PoolName),
+    Check =
+        lists:all(
+            fun(Conn) ->
+                [{num_channels, ActualNum}] = amqp_connection:info(Conn, [num_channels]),
+                ChannelNum >= ActualNum
+            end,
+            Conns
+        ),
+    case Check andalso Conns =/= [] of
+        true -> {connected, State};
+        false -> {disconnected, State, <<"not_connected">>}
+    end.
 
-check_worker({Channel, Connection}) ->
-    erlang:is_process_alive(Channel) andalso erlang:is_process_alive(Connection).
+on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
+    case emqx_utils_maps:deep_find([ChannelId, rabbitmq], Channels) of
+        {ok, RabbitMQ} ->
+            case lists:all(fun is_process_alive/1, maps:values(RabbitMQ)) of
+                true -> connected;
+                false -> {error, not_connected}
+            end;
+        _ ->
+            {error, not_exists}
+    end.
 
-%% emqx_resource callback that is called when a non-batch query is received
-
--spec on_query(resource_id(), Request, resource_state()) -> query_result() when
-    Request :: {RequestType, Data},
-    RequestType :: send_message,
-    Data :: map().
-on_query(
-    ResourceID,
-    {RequestType, Data},
-    #{
-        poolname := PoolName,
-        processed_payload_template := PayloadTemplate,
-        config := Config
-    } = State
-) ->
+on_query(ResourceID, {ChannelId, Data} = MsgReq, State) ->
     ?SLOG(debug, #{
         msg => "rabbitmq_connector_received_query",
         connector => ResourceID,
-        type => RequestType,
+        channel => ChannelId,
         data => Data,
         state => emqx_utils:redact(State)
     }),
-    MessageData = format_data(PayloadTemplate, Data),
-    Res = ecpool:pick_and_do(
-        PoolName,
-        {?MODULE, publish_messages, [Config, [MessageData]]},
-        no_handover
-    ),
-    handle_result(Res).
+    #{channels := Channels} = State,
+    case maps:find(ChannelId, Channels) of
+        {ok, #{param := ProcParam, rabbitmq := RabbitMQ}} ->
+            Res = ecpool:pick_and_do(
+                ResourceID,
+                {?MODULE, publish_messages, [RabbitMQ, ProcParam, [MsgReq]]},
+                no_handover
+            ),
+            handle_result(Res);
+        error ->
+            {error, {unrecoverable_error, {invalid_message_tag, ChannelId}}}
+    end.
 
-%% emqx_resource callback that is called when a batch query is received
-
--spec on_batch_query(resource_id(), BatchReq, resource_state()) -> query_result() when
-    BatchReq :: nonempty_list({'send_message', map()}).
-on_batch_query(
-    ResourceID,
-    BatchReq,
-    State
-) ->
+on_batch_query(ResourceID, [{ChannelId, _Data} | _] = Batch, State) ->
     ?SLOG(debug, #{
         msg => "rabbitmq_connector_received_batch_query",
         connector => ResourceID,
-        data => BatchReq,
+        data => Batch,
         state => emqx_utils:redact(State)
     }),
-    %% Currently we only support batch requests with the send_message key
-    {Keys, MessagesToInsert} = lists:unzip(BatchReq),
-    ensure_keys_are_of_type_send_message(Keys),
-    %% Pick out the payload template
-    #{
-        processed_payload_template := PayloadTemplate,
-        poolname := PoolName,
-        config := Config
-    } = State,
-    %% Create batch payload
-    FormattedMessages = [
-        format_data(PayloadTemplate, Data)
-     || Data <- MessagesToInsert
-    ],
-    %% Publish the messages
-    Res = ecpool:pick_and_do(
-        PoolName,
-        {?MODULE, publish_messages, [Config, FormattedMessages]},
-        no_handover
-    ),
-    handle_result(Res).
+    #{channels := Channels} = State,
+    case maps:find(ChannelId, Channels) of
+        {ok, #{param := ProcParam, rabbitmq := RabbitMQ}} ->
+            Res = ecpool:pick_and_do(
+                ResourceID,
+                {?MODULE, publish_messages, [RabbitMQ, ProcParam, Batch]},
+                no_handover
+            ),
+            handle_result(Res);
+        error ->
+            {error, {unrecoverable_error, {invalid_message_tag, ChannelId}}}
+    end.
 
 publish_messages(
-    {_Connection, Channel},
+    Conn,
+    RabbitMQ,
     #{
         delivery_mode := DeliveryMode,
+        payload_template := PayloadTmpl,
         routing_key := RoutingKey,
         exchange := Exchange,
         wait_for_publish_confirmations := WaitForPublishConfirmations,
         publish_confirmation_timeout := PublishConfirmationTimeout
-    } = _Config,
+    },
     Messages
 ) ->
-    MessageProperties = #'P_basic'{
-        headers = [],
-        delivery_mode = DeliveryMode
-    },
-    Method = #'basic.publish'{
-        exchange = Exchange,
-        routing_key = RoutingKey
-    },
-    _ = [
-        amqp_channel:cast(
-            Channel,
-            Method,
-            #amqp_msg{
-                payload = Message,
-                props = MessageProperties
-            }
-        )
-     || Message <- Messages
-    ],
-    case WaitForPublishConfirmations of
-        true ->
-            case amqp_channel:wait_for_confirms(Channel, PublishConfirmationTimeout) of
-                true ->
-                    ok;
-                false ->
-                    erlang:error(
-                        {recoverable_error,
-                            <<"RabbitMQ: Got NACK when waiting for message acknowledgment.">>}
-                    );
-                timeout ->
-                    erlang:error(
-                        {recoverable_error,
-                            <<"RabbitMQ: Timeout when waiting for message acknowledgment.">>}
+    case maps:find(Conn, RabbitMQ) of
+        {ok, Channel} ->
+            MessageProperties = #'P_basic'{
+                headers = [],
+                delivery_mode = DeliveryMode
+            },
+            Method = #'basic.publish'{
+                exchange = Exchange,
+                routing_key = RoutingKey
+            },
+            lists:foreach(
+                fun({_, MsgRaw}) ->
+                    amqp_channel:cast(
+                        Channel,
+                        Method,
+                        #amqp_msg{
+                            payload = format_data(PayloadTmpl, MsgRaw),
+                            props = MessageProperties
+                        }
                     )
+                end,
+                Messages
+            ),
+            case WaitForPublishConfirmations of
+                true ->
+                    case amqp_channel:wait_for_confirms(Channel, PublishConfirmationTimeout) of
+                        true ->
+                            ok;
+                        false ->
+                            erlang:error(
+                                {recoverable_error,
+                                    <<"RabbitMQ: Got NACK when waiting for message acknowledgment.">>}
+                            );
+                        timeout ->
+                            erlang:error(
+                                {recoverable_error,
+                                    <<"RabbitMQ: Timeout when waiting for message acknowledgment.">>}
+                            )
+                    end;
+                false ->
+                    ok
             end;
-        false ->
-            ok
-    end.
-
-ensure_keys_are_of_type_send_message(Keys) ->
-    case lists:all(fun is_send_message_atom/1, Keys) of
-        true ->
-            ok;
-        false ->
+        error ->
             erlang:error(
-                {unrecoverable_error,
-                    <<"Unexpected type for batch message (Expected send_message)">>}
+                {recoverable_error, {<<"RabbitMQ: channel_not_found">>, Conn, RabbitMQ}}
             )
     end.
-
-is_send_message_atom(send_message) ->
-    true;
-is_send_message_atom(_) ->
-    false.
 
 format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
@@ -554,3 +314,119 @@ handle_result({error, ecpool_empty}) ->
     {error, {recoverable_error, ecpool_empty}};
 handle_result(Res) ->
     Res.
+
+make_channel(PoolName, ChannelId, Params) ->
+    Conns = get_rabbitmq_connections(PoolName),
+    make_channel(Conns, PoolName, ChannelId, Params, #{}).
+
+make_channel([], _PoolName, _ChannelId, _Param, Acc) ->
+    {ok, Acc};
+make_channel([Conn | Conns], PoolName, ChannelId, Params, Acc) ->
+    maybe
+        {ok, RabbitMQChannel} ?= amqp_connection:open_channel(Conn),
+        ok ?= try_confirm_channel(Params, RabbitMQChannel),
+        ok ?= try_subscribe(Params, RabbitMQChannel, PoolName, ChannelId),
+        NewAcc = Acc#{Conn => RabbitMQChannel},
+        make_channel(Conns, PoolName, ChannelId, Params, NewAcc)
+    end.
+
+%% We need to enable confirmations if we want to wait for them
+try_confirm_channel(#{wait_for_publish_confirmations := true}, Channel) ->
+    case amqp_channel:call(Channel, #'confirm.select'{}) of
+        #'confirm.select_ok'{} ->
+            ok;
+        Error ->
+            Reason =
+                iolist_to_binary(
+                    io_lib:format(
+                        "Could not enable RabbitMQ confirmation mode ~p",
+                        [Error]
+                    )
+                ),
+            {error, Reason}
+    end;
+try_confirm_channel(#{wait_for_publish_confirmations := false}, _Channel) ->
+    ok.
+
+%% Initialize Rabbitmq's secret library so that the password is encrypted
+%% in the log files.
+init_secret() ->
+    case credentials_obfuscation:secret() of
+        ?PENDING_SECRET ->
+            Bytes = crypto:strong_rand_bytes(128),
+            %% The password can appear in log files if we don't do this
+            credentials_obfuscation:set_secret(Bytes);
+        _ ->
+            %% Already initialized
+            ok
+    end.
+
+preproc_parameter(#{config_root := actions, parameters := Parameter}) ->
+    #{
+        payload_template := PayloadTemplate,
+        delivery_mode := InitialDeliveryMode
+    } = Parameter,
+    Parameter#{
+        delivery_mode => delivery_mode(InitialDeliveryMode),
+        payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
+        config_root => actions
+    };
+preproc_parameter(#{config_root := sources, parameters := Parameter, hookpoints := Hooks}) ->
+    #{
+        payload_template := PayloadTmpl,
+        qos := QosTmpl,
+        topic := TopicTmpl
+    } = Parameter,
+    Parameter#{
+        payload_template => emqx_placeholder:preproc_tmpl(PayloadTmpl),
+        qos => preproc_qos(QosTmpl),
+        topic => emqx_placeholder:preproc_tmpl(TopicTmpl),
+        hookpoints => Hooks,
+        config_root => sources
+    }.
+
+preproc_qos(Qos) when is_integer(Qos) -> Qos;
+preproc_qos(Qos) -> emqx_placeholder:preproc_tmpl(Qos).
+
+delivery_mode(non_persistent) -> 1;
+delivery_mode(persistent) -> 2.
+
+to_ssl_options(#{ssl := #{enable := true} = SSLOpts}) ->
+    emqx_tls_lib:to_client_opts(SSLOpts);
+to_ssl_options(_) ->
+    none.
+
+get_rabbitmq_connections(PoolName) ->
+    lists:filtermap(
+        fun({_Name, Worker}) ->
+            case ecpool_worker:client(Worker) of
+                {ok, Conn} -> {true, Conn};
+                _ -> false
+            end
+        end,
+        ecpool:workers(PoolName)
+    ).
+
+try_subscribe(
+    #{queue := Queue, no_ack := NoAck, config_root := sources} = Params,
+    RabbitChan,
+    PoolName,
+    ChannelId
+) ->
+    WorkState = {RabbitChan, PoolName, Params},
+    {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
+    BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
+    #'basic.consume_ok'{consumer_tag = _} =
+        amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
+    ok;
+try_subscribe(#{config_root := actions}, _RabbitChan, _PoolName, _ChannelId) ->
+    ok.
+
+try_unsubscribe(ChannelId, Channels) ->
+    case emqx_utils_maps:deep_find([ChannelId, rabbitmq], Channels) of
+        {ok, RabbitMQ} ->
+            lists:foreach(fun(Pid) -> catch amqp_channel:close(Pid) end, maps:values(RabbitMQ)),
+            emqx_bridge_rabbitmq_sup:ensure_deleted(ChannelId);
+        _ ->
+            ok
+    end.

@@ -136,7 +136,7 @@ make_docs() {
     local docdir="_build/docgen/$PROFILE"
     mkdir -p "$docdir"
     # shellcheck disable=SC2086
-    erl -noshell -eval \
+    erl -enable-feature maybe_expr -noshell -eval \
         "ok = emqx_conf:dump_schema('$docdir', $SCHEMA_MODULE), \
          halt(0)."
     local desc="$docdir/desc.en.hocon"

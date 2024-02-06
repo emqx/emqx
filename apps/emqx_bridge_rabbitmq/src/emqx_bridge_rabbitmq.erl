@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_rabbitmq).
 
@@ -22,7 +22,7 @@
 ]).
 
 %% -------------------------------------------------------------------------------------------------
-%% Callback used by HTTP API
+%% Callback used by HTTP API v1
 %% -------------------------------------------------------------------------------------------------
 
 conn_bridge_examples(Method) ->
@@ -78,7 +78,7 @@ fields("config") ->
         {local_topic,
             mk(
                 binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
+                #{desc => ?DESC("local_topic")}
             )},
         {resource_opts,
             mk(
