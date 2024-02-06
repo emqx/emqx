@@ -130,10 +130,17 @@ verify.label:
 """Verify"""
 
 verify_claims.desc:
-"""A list of custom claims to validate, which is a list of name/value pairs.
+"""A list of custom claims to validate. The allowed formats are the following:
+A map where claim names are map keys and expected values are map values:
+ <code>{ claim_name = "${username}", ...}</code>.
+
+A list of maps with <code>name</code> (claim name) and <code>value</code> (expected claim value) keys:
+ <code>[{name = "claim_name", value = "${username}"}, ...]</code>.
+
 Values can use the following placeholders:
 - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting
 - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting
+
 Authentication will verify that the value of claims in the JWT (taken from the Password field) matches what is required in <code>verify_claims</code>."""
 
 verify_claims.label:

@@ -28,6 +28,11 @@
 
 -include("emqx_auth_jwt.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("typerefl/include/types.hrl").
+
+-type validated_value_type() :: clientid | username | binary().
+
+-reflect_type([validated_value_type/0]).
 
 namespace() -> "authn".
 
@@ -152,18 +157,29 @@ refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
 
 verify_claims(type) ->
-    %% user input is a map, converted to a list of {binary(), binary()}
-    typerefl:alias("map", list());
+    %% user input is a map, converted to a list of {binary(), validated_value_type()}
+    typerefl:alias("map", list({binary(), validated_value_type()}));
 verify_claims(desc) ->
     ?DESC(?FUNCTION_NAME);
 verify_claims(default) ->
-    [];
+    #{};
 verify_claims(validator) ->
     [fun do_check_verify_claims/1];
 verify_claims(converter) ->
     fun
         (VerifyClaims) when is_map(VerifyClaims) ->
-            [{to_binary(K), V} || {K, V} <- maps:to_list(VerifyClaims)];
+            [{to_binary(K), convert_validated_value(V)} || {K, V} <- maps:to_list(VerifyClaims)];
+        (VerifyClaims) when is_list(VerifyClaims) ->
+            lists:map(
+                fun
+                    (#{<<"name">> := Key, <<"value">> := Value}) ->
+                        {Key, convert_validated_value(Value)};
+                    (Other) ->
+                        Other
+                end,
+                VerifyClaims
+            );
+        %% this will make validation fail
         (VerifyClaims) ->
             VerifyClaims
     end;
@@ -172,12 +188,21 @@ verify_claims(required) ->
 verify_claims(_) ->
     undefined.
 
-do_check_verify_claims([]) ->
+convert_validated_value(<<"${clientid}">>) -> clientid;
+convert_validated_value(<<"${username}">>) -> username;
+convert_validated_value(V) -> V.
+
+do_check_verify_claims(VerifyClaims) ->
+    do_check_verify_claims_(VerifyClaims).
+
+do_check_verify_claims_([]) ->
     true;
-do_check_verify_claims([{Name, Expected} | More]) ->
+%% _Expected can't be invalid since tuples may come only from converter
+do_check_verify_claims_([{Name, _Expected} | More]) ->
     check_claim_name(Name) andalso
-        check_claim_expected(Expected) andalso
-        do_check_verify_claims(More).
+        do_check_verify_claims_(More);
+do_check_verify_claims_(_) ->
+    false.
 
 check_claim_name(exp) ->
     false;
@@ -192,14 +217,6 @@ check_claim_name(Name) when
     false;
 check_claim_name(_) ->
     true.
-
-check_claim_expected(Expected) ->
-    try emqx_authn_jwt:handle_placeholder(Expected) of
-        _ -> true
-    catch
-        _:_ ->
-            false
-    end.
 
 from(type) -> hoconsc:enum([username, password]);
 from(desc) -> ?DESC(?FUNCTION_NAME);

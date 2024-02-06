@@ -39,10 +39,10 @@ jobs:
       - name: print erlang log
         if: failure()
         run: |
-          cat _build/${{ matrix.profile }}/rel/emqx/logs/erlang.log.*
+          cat _build/${{ matrix.profile }}/rel/emqx/log/erlang.log.*
       - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
         if: failure()
         with:
           name: conftest-logs-${{ matrix.profile }}
-          path: _build/${{ matrix.profile }}/rel/emqx/logs
+          path: _build/${{ matrix.profile }}/rel/emqx/log
           retention-days: 7
