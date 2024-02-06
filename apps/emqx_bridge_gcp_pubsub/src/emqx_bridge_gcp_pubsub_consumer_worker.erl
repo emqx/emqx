@@ -59,7 +59,7 @@
     hookpoints := [binary()],
     connector_resource_id := binary(),
     source_resource_id := binary(),
-    mqtt_config := emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),
+    mqtt_config := #{} | emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),
     pending_acks := #{message_id() => ack_id()},
     project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
@@ -146,7 +146,7 @@ health_check(WorkerPid) ->
     end.
 
 %%-------------------------------------------------------------------------------------------------
-%% `emqx_resource' API
+%% `ecpool' API
 %%-------------------------------------------------------------------------------------------------
 
 connect(Opts0) ->
@@ -741,11 +741,7 @@ handle_message(State, #{<<"ackId">> := AckId, <<"message">> := InnerMsg} = _Mess
             #{
                 source_resource_id := SourceResId,
                 hookpoints := Hookpoints,
-                mqtt_config := #{
-                    payload_template := PayloadTemplate,
-                    qos := MQTTQoS,
-                    mqtt_topic := MQTTTopic
-                },
+                mqtt_config := MQTTConfig,
                 topic := Topic
             } = State,
             #{
@@ -769,10 +765,7 @@ handle_message(State, #{<<"ackId">> := AckId, <<"message">> := InnerMsg} = _Mess
                         {<<"orderingKey">>, ordering_key}
                     ]
                 ),
-            %% TODO: this should be optional
-            Payload = render(FullMessage, PayloadTemplate),
-            MQTTMessage = emqx_message:make(SourceResId, MQTTQoS, MQTTTopic, Payload),
-            _ = emqx:publish(MQTTMessage),
+            legacy_maybe_publish_mqtt_message(MQTTConfig, SourceResId, FullMessage),
             lists:foreach(
                 fun(Hookpoint) -> emqx_hooks:run(Hookpoint, [FullMessage]) end,
                 Hookpoints
@@ -781,6 +774,22 @@ handle_message(State, #{<<"ackId">> := AckId, <<"message">> := InnerMsg} = _Mess
             ok
         end
     ).
+
+legacy_maybe_publish_mqtt_message(
+    _MQTTConfig = #{
+        payload_template := PayloadTemplate,
+        qos := MQTTQoS,
+        mqtt_topic := MQTTTopic
+    },
+    SourceResId,
+    FullMessage
+) ->
+    Payload = render(FullMessage, PayloadTemplate),
+    MQTTMessage = emqx_message:make(SourceResId, MQTTQoS, MQTTTopic, Payload),
+    _ = emqx:publish(MQTTMessage),
+    ok;
+legacy_maybe_publish_mqtt_message(_MQTTConfig, _SourceResId, _FullMessage) ->
+    ok.
 
 -spec add_if_present(any(), map(), any(), map()) -> map().
 add_if_present(FromKey, Message, ToKey, Map) ->

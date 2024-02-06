@@ -1436,23 +1436,37 @@ t_connection_down_before_starting(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ?check_trace(
         begin
-            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-                ?assertMatch(
-                    {{ok, _}, {ok, _}},
-                    ?wait_async_action(
-                        create_bridge(Config),
-                        #{?snk_kind := gcp_pubsub_consumer_worker_init},
-                        10_000
-                    )
-                ),
-                ?assertMatch({ok, disconnected}, health_check(Config)),
-                ok
+            ?force_ordering(
+                #{?snk_kind := gcp_pubsub_consumer_worker_about_to_spawn},
+                #{?snk_kind := will_cut_connection}
+            ),
+            ?force_ordering(
+                #{?snk_kind := connection_down},
+                #{?snk_kind := gcp_pubsub_consumer_worker_create_subscription_enter}
+            ),
+            spawn_link(fun() ->
+                ?tp(notice, will_cut_connection, #{}),
+                emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort),
+                ?tp(notice, connection_down, #{})
             end),
+            %% check retries
+            {ok, SRef0} =
+                snabbkaffe:subscribe(
+                    ?match_event(#{?snk_kind := "gcp_pubsub_consumer_worker_subscription_error"}),
+                    _NEvents0 = 2,
+                    10_000
+                ),
+            {ok, _} = create_bridge(Config),
+            {ok, _} = snabbkaffe:receive_events(SRef0),
+            ?assertMatch({ok, connecting}, health_check(Config)),
+
+            emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
             ?retry(
                 _Interval0 = 200,
                 _NAttempts0 = 20,
                 ?assertMatch({ok, connected}, health_check(Config))
             ),
+
             ok
         end,
         []

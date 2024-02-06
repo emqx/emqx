@@ -61,8 +61,35 @@ fields(consumer_source) ->
         #{resource_opts_ref => ref(?MODULE, source_resource_opts)}
     );
 fields(source_parameters) ->
-    %% FIXME: check
-    emqx_bridge_gcp_pubsub:fields(consumer);
+    Fields0 = emqx_bridge_gcp_pubsub:fields(consumer),
+    Fields = lists:map(
+        fun
+            ({topic_mapping = Name, Sc}) ->
+                %% to please dialyzer...
+                Override = #{
+                    type => hocon_schema:field_schema(Sc, type),
+                    required => false,
+                    default => [],
+                    validator => fun(_) -> ok end,
+                    importance => ?IMPORTANCE_HIDDEN
+                },
+                {Name, hocon_schema:override(Sc, Override)};
+            (FieldSchema) ->
+                FieldSchema
+        end,
+        Fields0
+    ),
+    [
+        {topic,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC(emqx_bridge_gcp_pubsub, "pubsub_topic")
+                }
+            )}
+        | Fields
+    ];
 fields(source_resource_opts) ->
     Fields = [
         health_check_interval,
@@ -174,23 +201,17 @@ source_example(get) ->
 source_example(put) ->
     #{
         enable => true,
-        connector => <<"my_connector_name">>,
-        description => <<"My action">>,
-        local_topic => <<"local/topic">>,
-        resource_opts =>
-            #{batch_size => 5},
+        description => <<"my source">>,
+        connector => <<"my_connector">>,
         parameters =>
             #{
-                pubsub_topic => <<"mytopic">>,
-                ordering_key_template => <<"${payload.ok}">>,
-                payload_template => <<"${payload}">>,
-                attributes_template =>
-                    [
-                        #{
-                            key => <<"${payload.attrs.k}">>,
-                            value => <<"${payload.attrs.v}">>
-                        }
-                    ]
+                topic => <<"my-topic">>,
+                pull_max_messages => 100
+            },
+        resource_opts =>
+            #{
+                request_ttl => <<"45s">>,
+                health_check_interval => <<"30s">>
             }
     }.
 
@@ -217,14 +238,18 @@ connector_example(post) ->
         }
     );
 connector_example(put) ->
-    %% FIXME: revisit
     #{
         enable => true,
-        connect_timeout => <<"10s">>,
+        description => <<"my connector">>,
+        connect_timeout => <<"15s">>,
         pool_size => 8,
-        pipelining => 100,
+        resource_opts =>
+            #{
+                start_after_created => true,
+                health_check_interval => <<"30s">>,
+                start_timeout => <<"5s">>
+            },
         max_retries => 2,
-        resource_opts => #{request_ttl => <<"60s">>},
         service_account_json =>
             #{
                 auth_provider_x509_cert_url =>
@@ -249,5 +274,6 @@ connector_example(put) ->
                 token_uri =>
                     <<"https://oauth2.googleapis.com/token">>,
                 type => <<"service_account">>
-            }
+            },
+        pipelining => 100
     }.

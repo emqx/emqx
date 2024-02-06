@@ -62,7 +62,8 @@
         consumer_workers_per_topic := pos_integer(),
         topic_mapping := [topic_mapping(), ...]
     },
-    resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()}
+    resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
+    topic := binary()
 }.
 -type source_state() :: #{}.
 
@@ -151,7 +152,13 @@ on_add_channel(ConnectorResId, ConnectorState0, SourceResId, SourceConfig) ->
     {ok, connector_state()}.
 on_remove_channel(_ConnectorResId, ConnectorState0, SourceResId) ->
     #{installed_sources := InstalledSources0} = ConnectorState0,
-    InstalledSources = maps:remove(SourceResId, InstalledSources0),
+    case maps:take(SourceResId, InstalledSources0) of
+        {SourceState, InstalledSources} ->
+            stop_consumers1(SourceState),
+            ok;
+        error ->
+            InstalledSources = InstalledSources0
+    end,
     ConnectorState = ConnectorState0#{installed_sources := InstalledSources},
     {ok, ConnectorState}.
 
@@ -162,7 +169,11 @@ on_get_channels(ConnectorResId) ->
 
 -spec on_get_channel_status(connector_resource_id(), source_resource_id(), connector_state()) ->
     health_check_status().
-on_get_channel_status(_ConnectorResId, SourceResId, ConnectorState) ->
+on_get_channel_status(
+    _ConnectorResId,
+    SourceResId,
+    ConnectorState = #{installed_sources := InstalledSources}
+) when is_map_key(SourceResId, InstalledSources) ->
     %% We need to check this flag separately because the workers might be gone when we
     %% check them.
     case check_if_unhealthy(SourceResId) of
@@ -174,8 +185,11 @@ on_get_channel_status(_ConnectorResId, SourceResId, ConnectorState) ->
             {?status_disconnected, {unhealthy_target, ?PERMISSION_MESSAGE}};
         ok ->
             #{client := Client} = ConnectorState,
-            check_workers(SourceResId, Client)
-    end.
+            #{SourceResId := #{pool_name := PoolName}} = InstalledSources,
+            check_workers(PoolName, Client)
+    end;
+on_get_channel_status(_ConnectorResId, _SourceResId, _ConnectorState) ->
+    ?status_disconnected.
 
 %%-------------------------------------------------------------------------------------------------
 %% Health check API (signalled by consumer worker)
@@ -228,7 +242,7 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         hookpoints := Hookpoints,
         resource_opts := #{request_ttl := RequestTTL}
     } = SourceConfig,
-    ConsumerConfig1 = maps:update_with(topic_mapping, fun convert_topic_mapping/1, ConsumerConfig0),
+    ConsumerConfig1 = ensure_topic_mapping(ConsumerConfig0),
     TopicMapping = maps:get(topic_mapping, ConsumerConfig1),
     ConsumerWorkersPerTopic = maps:get(consumer_workers_per_topic, ConsumerConfig1),
     PoolSize = map_size(TopicMapping) * ConsumerWorkersPerTopic,
@@ -272,10 +286,7 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         emqx_resource_pool:start(SourceResId, emqx_bridge_gcp_pubsub_consumer_worker, ConsumerOpts)
     of
         ok ->
-            State = #{
-                client => Client,
-                pool_name => SourceResId
-            },
+            State = #{pool_name => SourceResId},
             {ok, State};
         {error, Reason} ->
             {error, Reason}
@@ -284,19 +295,33 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
 stop_consumers(ConnectorState) ->
     #{installed_sources := InstalledSources} = ConnectorState,
     maps:foreach(
-        fun(SourceResId, _SourceState) ->
-            _ = log_when_error(
-                fun() ->
-                    ok = emqx_resource_pool:stop(SourceResId)
-                end,
-                #{
-                    msg => "failed_to_stop_pull_worker_pool",
-                    instance_id => SourceResId
-                }
-            )
+        fun(_SourceResId, SourceState) ->
+            stop_consumers1(SourceState)
         end,
         InstalledSources
     ).
+
+stop_consumers1(SourceState) ->
+    #{pool_name := PoolName} = SourceState,
+    _ = log_when_error(
+        fun() ->
+            ok = emqx_resource_pool:stop(PoolName)
+        end,
+        #{
+            msg => "failed_to_stop_pull_worker_pool",
+            pool_name => PoolName
+        }
+    ),
+    ok.
+
+%% This is to ensure backwards compatibility with the deprectated topic mapping.
+ensure_topic_mapping(ConsumerConfig0 = #{topic_mapping := [_ | _]}) ->
+    %% There is an existing topic mapping: legacy config.  We use it and ignore the single
+    %% pubsub topic so that the bridge keeps working as before.
+    maps:update_with(topic_mapping, fun convert_topic_mapping/1, ConsumerConfig0);
+ensure_topic_mapping(ConsumerConfig0 = #{topic := PubsubTopic}) ->
+    %% No topic mapping: generate one without MQTT templates.
+    maps:put(topic_mapping, #{PubsubTopic => #{}}, ConsumerConfig0).
 
 convert_topic_mapping(TopicMappingList) ->
     lists:foldl(

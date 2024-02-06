@@ -34,7 +34,8 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ParamsKeys = source_action_parameters_field_keys(),
     Config1 = maps:with(CommonSourceKeys, BridgeV1Config),
     ConsumerCfg = maps:get(<<"consumer">>, BridgeV1Config, #{}),
-    Params = maps:with(ParamsKeys, ConsumerCfg),
+    Params0 = maps:with(ParamsKeys, ConsumerCfg),
+    Params = maybe_set_pubsub_topic(Params0),
     {source, gcp_pubsub_consumer,
         emqx_utils_maps:update_if_present(
             <<"resource_opts">>,
@@ -59,11 +60,19 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, SourceConfig) ->
             fun(RO) -> maps:with(bridge_v1_resource_opts_fields(), RO) end,
             BridgeV1Config2
         ),
-    emqx_utils_maps:rename(<<"parameters">>, <<"consumer">>, BridgeV1Config3).
+    BridgeV1Config4 = emqx_utils_maps:deep_remove([<<"parameters">>, <<"topic">>], BridgeV1Config3),
+    emqx_utils_maps:rename(<<"parameters">>, <<"consumer">>, BridgeV1Config4).
 
 %%------------------------------------------------------------------------------------------
 %% Internal helper fns
 %%------------------------------------------------------------------------------------------
+
+%% The new schema has a single pubsub topic, so we take it from topic mapping when
+%% converting from v1.
+maybe_set_pubsub_topic(#{<<"topic_mapping">> := [#{<<"pubsub_topic">> := Topic} | _]} = Params) ->
+    Params#{<<"topic">> => Topic};
+maybe_set_pubsub_topic(Params) ->
+    Params.
 
 resource_opts_fields() ->
     [

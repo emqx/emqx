@@ -94,6 +94,7 @@
     id/2,
     id/3,
     source_id/3,
+    source_hookpoint/1,
     bridge_v1_is_valid/2,
     bridge_v1_is_valid/3,
     extract_connector_id_from_bridge_v2_id/1
