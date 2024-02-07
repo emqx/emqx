@@ -278,7 +278,10 @@ publish_many(Messages) ->
 
 publish_many(Messages, WaitForUnregister) ->
     Fun = fun(Client, Message) ->
-        {ok, _} = emqtt:publish(Client, Message)
+        case emqtt:publish(Client, Message) of
+            ok -> ok;
+            {ok, _} -> ok
+        end
     end,
     do_publish(Messages, Fun, WaitForUnregister).
 
@@ -1025,6 +1028,80 @@ t_unsubscribe(Config) ->
     {ok, _, _} = emqtt:unsubscribe(Client, STopic),
     ?assertMatch([], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
     ok = emqtt:disconnect(Client).
+
+%% This testcase verifies that un-acked messages that were once sent
+%% to the client are still retransmitted after the session
+%% unsubscribes from the topic and reconnects.
+t_unsubscribe_replay(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    TopicPrefix = ?config(topic, Config),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientOpts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30, 'Receive-Maximum' => 10}},
+        {max_inflight, 10}
+        | Config
+    ],
+    {ok, Sub} = emqtt:start_link([{clean_start, true}, {auto_ack, never} | ClientOpts]),
+    {ok, _} = emqtt:ConnFun(Sub),
+    %% 1. Make two subscriptions, one is to be deleted:
+    Topic1 = iolist_to_binary([TopicPrefix, $/, <<"unsub">>]),
+    Topic2 = iolist_to_binary([TopicPrefix, $/, <<"sub">>]),
+    ?assertMatch({ok, _, _}, emqtt:subscribe(Sub, Topic1, qos2)),
+    ?assertMatch({ok, _, _}, emqtt:subscribe(Sub, Topic2, qos2)),
+    %% 2. Publish 2 messages to the first and second topics each
+    %% (client doesn't ack them):
+    ok = publish(Topic1, <<"1">>, ?QOS_1),
+    ok = publish(Topic1, <<"2">>, ?QOS_2),
+    [Msg1, Msg2] = receive_messages(2),
+    ?assertMatch(
+        [
+            #{payload := <<"1">>},
+            #{payload := <<"2">>}
+        ],
+        [Msg1, Msg2]
+    ),
+    ok = publish(Topic2, <<"3">>, ?QOS_1),
+    ok = publish(Topic2, <<"4">>, ?QOS_2),
+    [Msg3, Msg4] = receive_messages(2),
+    ?assertMatch(
+        [
+            #{payload := <<"3">>},
+            #{payload := <<"4">>}
+        ],
+        [Msg3, Msg4]
+    ),
+    %% 3. Unsubscribe from the topic and disconnect:
+    ?assertMatch({ok, _, _}, emqtt:unsubscribe(Sub, Topic1)),
+    ok = emqtt:disconnect(Sub),
+    %% 5. Publish more messages to the disconnected topic:
+    ok = publish(Topic1, <<"5">>, ?QOS_1),
+    ok = publish(Topic1, <<"6">>, ?QOS_2),
+    %% 4. Reconnect the client. It must only receive only four
+    %% messages from the time when it was subscribed:
+    {ok, Sub1} = emqtt:start_link([{clean_start, false}, {auto_ack, true} | ClientOpts]),
+    ?assertMatch({ok, _}, emqtt:ConnFun(Sub1)),
+    %% Note: we ask for 6 messages, but expect only 4, it's
+    %% intentional:
+    ?assertMatch(
+        #{
+            Topic1 := [<<"1">>, <<"2">>],
+            Topic2 := [<<"3">>, <<"4">>]
+        },
+        get_topicwise_order(receive_messages(6, 5_000)),
+        debug_info(ClientId)
+    ),
+    %% 5. Now let's resubscribe, and check that the session can receive new messages:
+    ?assertMatch({ok, _, _}, emqtt:subscribe(Sub1, Topic1, qos2)),
+    ok = publish(Topic1, <<"7">>, ?QOS_0),
+    ok = publish(Topic1, <<"8">>, ?QOS_1),
+    ok = publish(Topic1, <<"9">>, ?QOS_2),
+    ?assertMatch(
+        [<<"7">>, <<"8">>, <<"9">>],
+        lists:map(fun get_msgpub_payload/1, receive_messages(3))
+    ),
+    ok = emqtt:disconnect(Sub1).
 
 t_multiple_subscription_matches(Config) ->
     ConnFun = ?config(conn_fun, Config),

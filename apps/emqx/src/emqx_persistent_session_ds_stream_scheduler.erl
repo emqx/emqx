@@ -16,8 +16,8 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([find_new_streams/1, find_replay_streams/1]).
--export([renew_streams/1, del_subscription/2]).
+-export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2]).
+-export([renew_streams/1, on_unsubscribe/2]).
 
 %% behavior callbacks:
 -export([]).
@@ -93,7 +93,7 @@ find_new_streams(S) ->
                 (_Key, #srs{it_end = end_of_stream}, Acc) ->
                     Acc;
                 (Key, Stream, Acc) ->
-                    case is_fully_acked(Comm1, Comm2, Stream) of
+                    case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
                         true ->
                             [{Key, Stream} | Acc];
                         false ->
@@ -124,37 +124,63 @@ find_new_streams(S) ->
 %% This way, messages from the same topic/shard are never reordered.
 -spec renew_streams(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
 renew_streams(S0) ->
-    S1 = remove_fully_replayed_streams(S0),
-    emqx_topic_gbt:fold(
-        fun(Key, _Subscription = #{start_time := StartTime, id := SubId}, S2) ->
-            TopicFilter = emqx_topic:words(emqx_trie_search:get_topic(Key)),
-            Streams = select_streams(
-                SubId,
-                emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
-                S2
-            ),
-            lists:foldl(
-                fun(I, Acc) ->
-                    ensure_iterator(TopicFilter, StartTime, SubId, I, Acc)
-                end,
-                S2,
-                Streams
-            )
+    S1 = remove_unsubscribed_streams(S0),
+    S2 = remove_fully_replayed_streams(S1),
+    emqx_persistent_session_ds_subs:fold(
+        fun
+            (Key, #{start_time := StartTime, id := SubId, deleted := false}, Acc) ->
+                TopicFilter = emqx_topic:words(Key),
+                Streams = select_streams(
+                    SubId,
+                    emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
+                    Acc
+                ),
+                lists:foldl(
+                    fun(I, Acc1) ->
+                        ensure_iterator(TopicFilter, StartTime, SubId, I, Acc1)
+                    end,
+                    Acc,
+                    Streams
+                );
+            (_Key, _DeletedSubscription, Acc) ->
+                Acc
         end,
-        S1,
-        emqx_persistent_session_ds_state:get_subscriptions(S1)
+        S2,
+        S2
     ).
 
--spec del_subscription(
+-spec on_unsubscribe(
     emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds_state:t()
 ) ->
     emqx_persistent_session_ds_state:t().
-del_subscription(SubId, S0) ->
+on_unsubscribe(SubId, S0) ->
+    %% NOTE: this function only marks the streams for deletion,
+    %% instead of outright deleting them.
+    %%
+    %% It's done for two reasons:
+    %%
+    %% - MQTT standard states that the broker MUST process acks for
+    %% all sent messages, and it MAY keep on sending buffered
+    %% messages:
+    %% https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901186
+    %%
+    %% - Deleting the streams may lead to gaps in the sequence number
+    %% series, and lead to problems with acknowledgement tracking, we
+    %% avoid that by delaying the deletion.
+    %%
+    %% When the stream is marked for deletion, the session won't fetch
+    %% _new_ batches from it. Actual deletion is done by
+    %% `renew_streams', when it detects that all in-flight messages
+    %% from the stream have been acked by the client.
     emqx_persistent_session_ds_state:fold_streams(
-        fun(Key, _, Acc) ->
+        fun(Key, Srs, Acc) ->
             case Key of
                 {SubId, _Stream} ->
-                    emqx_persistent_session_ds_state:del_stream(Key, Acc);
+                    %% This stream belongs to a deleted subscription.
+                    %% Mark for deletion:
+                    emqx_persistent_session_ds_state:put_stream(
+                        Key, Srs#srs{unsubscribed = true}, Acc
+                    );
                 _ ->
                     Acc
             end
@@ -163,12 +189,19 @@ del_subscription(SubId, S0) ->
         S0
     ).
 
+-spec is_fully_acked(
+    emqx_persistent_session_ds:stream_state(), emqx_persistent_session_ds_state:t()
+) -> boolean().
+is_fully_acked(Srs, S) ->
+    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+    is_fully_acked(CommQos1, CommQos2, Srs).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
 ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
-    %% TODO: hash collisions
     Key = {SubId, Stream},
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
@@ -222,6 +255,27 @@ select_streams(SubId, RankX, Streams0, S) ->
         [{{_, MinRankY}, _} | _] ->
             lists:takewhile(fun({{_, Y}, _}) -> Y =:= MinRankY end, Streams)
     end.
+
+%% @doc Remove fully acked streams for the deleted subscriptions.
+-spec remove_unsubscribed_streams(emqx_persistent_session_ds_state:t()) ->
+    emqx_persistent_session_ds_state:t().
+remove_unsubscribed_streams(S0) ->
+    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
+    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
+    emqx_persistent_session_ds_state:fold_streams(
+        fun(Key, ReplayState, S1) ->
+            case
+                ReplayState#srs.unsubscribed andalso is_fully_acked(CommQos1, CommQos2, ReplayState)
+            of
+                true ->
+                    emqx_persistent_session_ds_state:del_stream(Key, S1);
+                false ->
+                    S1
+            end
+        end,
+        S0,
+        S0
+    ).
 
 %% @doc Advance RankY for each RankX that doesn't have any unreplayed
 %% streams.
@@ -303,6 +357,12 @@ compare_streams(
 is_fully_replayed(Comm1, Comm2, S = #srs{it_end = It}) ->
     It =:= end_of_stream andalso is_fully_acked(Comm1, Comm2, S).
 
+is_fully_acked(_, _, #srs{
+    first_seqno_qos1 = Q1, last_seqno_qos1 = Q1, first_seqno_qos2 = Q2, last_seqno_qos2 = Q2
+}) ->
+    %% Streams where the last chunk doesn't contain any QoS1 and 2
+    %% messages are considered fully acked:
+    true;
 is_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
 

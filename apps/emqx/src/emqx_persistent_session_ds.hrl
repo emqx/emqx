@@ -62,7 +62,10 @@
     first_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
     %% Sequence numbers that have to be committed for the batch:
     last_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
-    last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno()
+    last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
+    %% This stream belongs to an unsubscribed topic-filter, and is
+    %% marked for deletion:
+    unsubscribed = false :: boolean()
 }).
 
 %% Session metadata keys:
