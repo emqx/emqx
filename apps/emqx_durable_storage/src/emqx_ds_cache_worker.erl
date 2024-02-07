@@ -46,8 +46,13 @@
 
 -record(?cache_worker, {db, stream}).
 
+-type cache_entry() :: #cache_entry{}.
+-type seqno() :: non_neg_integer().
+-type timestamp() :: integer().
+
 -type state() :: #{
     db := emqx_ds:db(),
+    stream := emqx_ds:stream(),
     table := ets:tid(),
     iterator := ?EOS_MARKER | emqx_ds:iterator(),
     seqno := undefined | seqno()
@@ -89,6 +94,7 @@ init({DB, Stream, TopicFilter, StartTime}) ->
     State =
         #{
             db => DB,
+            stream => Stream,
             table => Tid,
             iterator => Iter,
             seqno => 0
@@ -129,11 +135,12 @@ handle_pull(State0 = #{iterator := ?EOS_MARKER}) ->
 handle_pull(State0) ->
     #{
         db := DB,
+        stream := Stream,
         table := StreamTid,
         iterator := Iter0,
         seqno := Seqno0
     } = State0,
-    {Iter, Seqno} = do_pull(DB, StreamTid, Iter0, Seqno0),
+    {Iter, Seqno} = do_pull(DB, Stream, StreamTid, Iter0, Seqno0),
     case Seqno0 =:= Seqno of
         true ->
             start_timer(#pull{}, 100);
@@ -142,9 +149,9 @@ handle_pull(State0) ->
     end,
     State0#{iterator := Iter, seqno := Seqno}.
 
--spec do_pull(emqx_ds:db(), ets:tid(), emqx_ds:iterator(), seqno()) ->
+-spec do_pull(emqx_ds:db(), emqx_ds:stream(), ets:tid(), emqx_ds:iterator(), seqno()) ->
     {emqx_ds:iterator(), seqno()} | {?EOS_MARKER, undefined}.
-do_pull(DB, StreamTid, Iter0, Seqno) ->
+do_pull(DB, Stream, StreamTid, Iter0, Seqno) ->
     BatchSize = batch_size(),
     case emqx_ds:next(DB, Iter0, BatchSize, #{use_cache => false}) of
         {ok, It, Batch} ->
@@ -152,26 +159,12 @@ do_pull(DB, StreamTid, Iter0, Seqno) ->
             NewSeqno = store_batch(StreamTid, Now, Seqno, Batch),
             {It, NewSeqno};
         {ok, end_of_stream} ->
-            Now = now_ms(),
-            insert_end_of_stream(StreamTid, Now, Seqno),
+            emqx_ds_cache_coordinator:mark_end_of_stream(DB, Stream),
             {?EOS_MARKER, undefined};
         {error, _Error} ->
             %% log?
             {Iter0, Seqno}
     end.
-
--spec insert_end_of_stream(ets:tid(), timestamp(), seqno()) -> ok.
-insert_end_of_stream(StreamTid, Now, Seqno) ->
-    Entry =
-        #cache_entry{
-            key = ?EOS_KEY,
-            seqno = Seqno,
-            inserted_at = Now,
-            message = ?EOS_MARKER
-        },
-    ets:insert(StreamTid, Entry),
-    ?tp(ds_cache_eos_inserted, #{}),
-    ok.
 
 -spec store_batch(
     ets:tid(),
@@ -206,7 +199,7 @@ to_entries(Now, Seqno, Batch) ->
     {seqno(), [cache_entry()]}.
 to_entries(Now, Seqno, [{DSKey, Msg} | Rest], Acc) ->
     Entry = #cache_entry{
-        key = ?CACHE_KEY(DSKey),
+        key = DSKey,
         seqno = Seqno,
         inserted_at = Now,
         message = Msg

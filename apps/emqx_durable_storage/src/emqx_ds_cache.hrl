@@ -16,21 +16,14 @@
 -ifndef(EMQX_DS_CACHE_HRL).
 -define(EMQX_DS_CACHE_HRL, true).
 
--define(CACHE_KEY(LASTKEY), {LASTKEY}).
--define(EOS_KEY, []).
 -define(EOS_MARKER, []).
 
 -record(cache_entry, {
-    key :: ?CACHE_KEY(emqx_ds:message_key()) | ?EOS_KEY,
+    key :: emqx_ds:message_key(),
     seqno :: seqno(),
     inserted_at :: timestamp(),
     message :: emqx_types:message() | ?EOS_MARKER
 }).
--type cache_entry() :: #cache_entry{}.
-
--type seqno() :: non_neg_integer().
-
--type timestamp() :: integer().
 
 %% ifndef(EMQX_DS_CACHE_HRL).
 -endif.

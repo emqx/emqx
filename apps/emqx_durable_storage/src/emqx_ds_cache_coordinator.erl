@@ -29,6 +29,9 @@
 %% For testing
 -export([renew_streams/1]).
 
+%% API for cache workers
+-export([mark_end_of_stream/2]).
+
 %% `gen_server' API
 -export([
     init/1,
@@ -54,6 +57,9 @@
 
 -record(?cache_coord, {db}).
 
+-type seqno() :: non_neg_integer().
+-type timestamp() :: integer().
+
 -type cache_opts() :: #{cache_prefetch_topic_filters => [emqx_ds:topic_filter()]}.
 -type state() :: #{
     db := emqx_ds:db(),
@@ -70,6 +76,7 @@
 
 %% call/cast/info events
 -record(renew_streams, {}).
+-record(mark_end_of_stream, {stream :: emqx_ds:stream()}).
 
 %%================================================================================
 %% API
@@ -98,7 +105,7 @@ try_fetch_cache(DB, Stream, Iter, BatchSize) ->
     try
         case may_serve(DB, Stream, Iter) of
             {ok, StreamTid, TopicFilter, LastSeenKey} ->
-                fetch_cache(StreamTid, Stream, TopicFilter, LastSeenKey, BatchSize);
+                fetch_cache(StreamTid, DB, Stream, TopicFilter, LastSeenKey, BatchSize);
             false ->
                 ?tp(ds_cache_miss, #{stream => Stream}),
                 false
@@ -107,6 +114,14 @@ try_fetch_cache(DB, Stream, Iter, BatchSize) ->
         error:badarg ->
             false
     end.
+
+%%================================================================================
+%% API (used by cache worker)
+%%================================================================================
+
+-spec mark_end_of_stream(emqx_ds:db(), emqx_ds:stream()) -> ok.
+mark_end_of_stream(DB, Stream) ->
+    gen_server:cast(?via(#?cache_coord{db = DB}), #mark_end_of_stream{stream = Stream}).
 
 %%================================================================================
 %% API (testing)
@@ -153,6 +168,9 @@ handle_call(#renew_streams{}, _From, State0) ->
 handle_call(_Call, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
+handle_cast(#mark_end_of_stream{stream = Stream}, State) ->
+    handle_mark_end_of_stream(State, Stream),
+    {reply, ok, State};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -187,14 +205,14 @@ may_serve(DB, Stream, Iter) ->
 
 -spec do_may_serve(emqx_ds:db(), ets:tid(), emqx_ds:stream(), emqx_ds:iterator()) ->
     false | {ok, ets:tid(), emqx_ds:topic_filter(), emqx_ds:message_key()}.
-do_may_serve(DB, Tid, Stream, Iter) ->
-    case emqx_utils_ets:lookup_value(Tid, ?meta_cache_key(Stream)) of
+do_may_serve(DB, MetaTid, Stream, Iter) ->
+    case emqx_utils_ets:lookup_value(MetaTid, ?meta_cache_key(Stream)) of
         #{table := StreamTid, extractor_fn := ExtractorFn} ->
             #{
                 last_seen_key := LastSeenKey,
                 topic_filter := TopicFilter
             } = emqx_ds:extract_iterator_info(DB, Iter, ExtractorFn),
-            case emqx_utils_ets:member(StreamTid, ?CACHE_KEY(LastSeenKey)) of
+            case emqx_utils_ets:member(StreamTid, LastSeenKey) of
                 true ->
                     {ok, StreamTid, TopicFilter, LastSeenKey};
                 false ->
@@ -206,18 +224,18 @@ do_may_serve(DB, Tid, Stream, Iter) ->
 
 -spec fetch_cache(
     ets:tid(),
+    emqx_ds:db(),
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
     undefined | emqx_ds:message_key(),
     pos_integer()
 ) ->
     cache_fetch_result().
-fetch_cache(StreamTid, Stream, TopicFilter, LastSeenKey, BatchSize) ->
+fetch_cache(StreamTid, DB, Stream, TopicFilter, LastSeenKey, BatchSize) ->
     %% confirm that GC hasn't cleared entries in the meantime
-    CacheKey = ?CACHE_KEY(LastSeenKey),
-    case ets:lookup(StreamTid, CacheKey) of
-        [#cache_entry{key = CacheKey, seqno = Seqno}] ->
-            Next = ets:next(StreamTid, CacheKey),
+    case ets:lookup(StreamTid, LastSeenKey) of
+        [#cache_entry{key = LastSeenKey, seqno = Seqno}] ->
+            Next = ets:next(StreamTid, LastSeenKey),
             ?tp(ds_cache_will_fetch, #{
                 key => Next,
                 stream => Stream,
@@ -225,7 +243,15 @@ fetch_cache(StreamTid, Stream, TopicFilter, LastSeenKey, BatchSize) ->
                 last_seen_key => LastSeenKey
             }),
             do_fetch_cache(
-                Next, StreamTid, Stream, TopicFilter, LastSeenKey, Seqno + 1, BatchSize, _Acc = []
+                Next,
+                StreamTid,
+                DB,
+                Stream,
+                TopicFilter,
+                LastSeenKey,
+                Seqno + 1,
+                BatchSize,
+                _Acc = []
             );
         _ ->
             %% race condition: previous key doesn't match; GC may have run.
@@ -233,8 +259,9 @@ fetch_cache(StreamTid, Stream, TopicFilter, LastSeenKey, BatchSize) ->
     end.
 
 -spec do_fetch_cache(
-    '$end_of_table' | ?EOS_KEY | ?CACHE_KEY(emqx_ds:message_key()),
+    '$end_of_table' | emqx_ds:message_key(),
     ets:tid(),
+    emqx_ds:db(),
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
     emqx_ds:message_key(),
@@ -244,8 +271,9 @@ fetch_cache(StreamTid, Stream, TopicFilter, LastSeenKey, BatchSize) ->
 ) ->
     cache_fetch_result().
 do_fetch_cache(
-    '$end_of_table' = Key,
+    '$end_of_table',
     _StreamTid,
+    DB,
     Stream,
     _TopicFilter,
     OrigLastSeenKey,
@@ -253,28 +281,19 @@ do_fetch_cache(
     _Remaining,
     Acc
 ) ->
-    with_last_key(Acc, Stream, Key, OrigLastSeenKey);
+    with_last_key(Acc, DB, Stream, OrigLastSeenKey);
 do_fetch_cache(
-    ?EOS_KEY = Key,
-    _StreamTid,
-    Stream,
-    _TopicFilter,
-    OrigLastSeenKey,
-    _ExpectedSeqno,
-    _Remaining,
-    Acc
-) ->
-    with_last_key(Acc, Stream, Key, OrigLastSeenKey);
-do_fetch_cache(
-    Key, _StreamTid, Stream, _TopicFilter, OrigLastSeenKey, _ExpectedSeqno, Remaining, Acc
+    _Key, _StreamTid, DB, Stream, _TopicFilter, OrigLastSeenKey, _ExpectedSeqno, Remaining, Acc
 ) when
     Remaining =< 0
 ->
-    with_last_key(Acc, Stream, Key, OrigLastSeenKey);
-do_fetch_cache(Key, StreamTid, Stream, TopicFilter, OrigLastSeenKey, ExpectedSeqno, Remaining, Acc) ->
+    with_last_key(Acc, DB, Stream, OrigLastSeenKey);
+do_fetch_cache(
+    Key, StreamTid, DB, Stream, TopicFilter, OrigLastSeenKey, ExpectedSeqno, Remaining, Acc
+) ->
     ?tp(ds_cache_lookup_enter, #{key => Key, stream => Stream, seqno => ExpectedSeqno}),
     case ets:lookup(StreamTid, Key) of
-        [#cache_entry{key = ?CACHE_KEY(DSKey), seqno = ExpectedSeqno, message = Message}] ->
+        [#cache_entry{key = DSKey, seqno = ExpectedSeqno, message = Message}] ->
             NextKey = ets:next(StreamTid, Key),
             #message{topic = Topic} = Message,
             case emqx_topic:match(emqx_topic:words(Topic), TopicFilter) of
@@ -283,6 +302,7 @@ do_fetch_cache(Key, StreamTid, Stream, TopicFilter, OrigLastSeenKey, ExpectedSeq
                     do_fetch_cache(
                         NextKey,
                         StreamTid,
+                        DB,
                         Stream,
                         TopicFilter,
                         OrigLastSeenKey,
@@ -294,6 +314,7 @@ do_fetch_cache(Key, StreamTid, Stream, TopicFilter, OrigLastSeenKey, ExpectedSeq
                     do_fetch_cache(
                         NextKey,
                         StreamTid,
+                        DB,
                         Stream,
                         TopicFilter,
                         OrigLastSeenKey,
@@ -307,30 +328,32 @@ do_fetch_cache(Key, StreamTid, Stream, TopicFilter, OrigLastSeenKey, ExpectedSeq
             %%   i)   There's no entry;
             %%   ii)  The streams don't match;
             %%   iii) The seqnos don't match.
-            with_last_key(Acc, Stream, Key, OrigLastSeenKey)
+            with_last_key(Acc, DB, Stream, OrigLastSeenKey)
     end.
 
 -spec with_last_key(
     [{emqx_ds:message_key(), emqx_types:message()}],
+    emqx_ds:db(),
     emqx_ds:stream(),
-    '$end_of_table' | ?EOS_KEY | ?CACHE_KEY(emqx_ds:message_key()),
     emqx_ds:message_key()
 ) ->
     cache_fetch_result().
-with_last_key(Acc, Stream, Key, OrigLastSeenKey) ->
+with_last_key(Acc, DB, Stream, OrigLastSeenKey) ->
     case Acc of
         [{LastKey, _} | _] ->
             Batch = lists:reverse(Acc),
             ?tp(ds_cache_hit, #{stream => Stream, batch => Batch, last_key => LastKey}),
             {ok, LastKey, Batch};
-        [] when Key =:= ?EOS_KEY ->
-            ?tp(ds_cache_eos_found, #{}),
-            {ok, end_of_stream};
         [] ->
-            %% Possible if entry was removed just before we started iterating, or if only
-            %% the last seen key of the iterator is contained in the cache.
-            ?tp(ds_cache_empty_result, #{}),
-            {ok, OrigLastSeenKey, []}
+            case is_end_of_stream(DB, Stream) of
+                true ->
+                    {ok, end_of_stream};
+                false ->
+                    %% Possible if entry was removed just before we started iterating, or if only
+                    %% the last seen key of the iterator is contained in the cache.
+                    ?tp(ds_cache_empty_result, #{}),
+                    {ok, OrigLastSeenKey, []}
+            end
     end.
 
 -spec handle_renew_streams(state()) -> state().
@@ -388,7 +411,11 @@ handle_new_stream(DB, MetaTid, NewStream, TopicFilter, StartTime) ->
                 DB, NewStream, TopicFilter, StartTime
             ),
             StreamTid = emqx_ds_cache_worker:get_table(DB, NewStream),
-            MetaValue = #{table => StreamTid, extractor_fn => ExtractorFn},
+            MetaValue = #{
+                table => StreamTid,
+                extractor_fn => ExtractorFn,
+                end_of_stream => false
+            },
             ets:insert(MetaTid, {?meta_cache_key(NewStream), MetaValue}),
             ?tp(ds_cache_new_stream, #{}),
             ok;
@@ -405,6 +432,32 @@ handle_deleted_stream(DB, MetaTid, DeletedStream) ->
     ets:delete(MetaTid, ?meta_cache_key(DeletedStream)),
     ok = emqx_ds_builtin_db_sup:ensure_cache_worker_stopped(DB, DeletedStream),
     ok.
+
+-spec handle_mark_end_of_stream(state(), emqx_ds:stream()) -> ok.
+handle_mark_end_of_stream(State, Stream) ->
+    #{tab := MetaTid} = State,
+    case emqx_utils_ets:lookup_value(MetaTid, ?meta_cache_key(Stream)) of
+        undefined ->
+            ok;
+        MetaValue0 ->
+            MetaValue = MetaValue0#{end_of_stream := true},
+            _ = ets:insert(MetaTid, {?meta_cache_key(Stream), MetaValue}),
+            ?tp(ds_cache_end_of_stream, #{stream => Stream}),
+            ok
+    end.
+
+is_end_of_stream(DB, Stream) ->
+    case persistent_term:get(?cache_ptkey(DB), undefined) of
+        undefined ->
+            false;
+        MetaTid ->
+            case emqx_utils_ets:lookup_value(MetaTid, ?meta_cache_key(Stream)) of
+                #{end_of_stream := EoS} ->
+                    EoS;
+                _ ->
+                    false
+            end
+    end.
 
 start_timer(Event, Timeout) ->
     erlang:send_after(Timeout, self(), Event),

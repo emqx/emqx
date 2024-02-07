@@ -276,6 +276,44 @@ t_cache_hit(_Config) ->
     ),
     ok.
 
+t_end_of_stream(_Config) ->
+    %% Checks that the cache returns `end_of_stream' after it's occurrence is cached.
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            StartTime = 0,
+            TopicFilter = [<<"t">>, '#'],
+
+            ok = open_db(DB, #{cache_prefetch_topic_filters => [TopicFilter]}),
+
+            %% Store a message to create a stream.  This message won't make it to the
+            %% cache.
+            %% Using the same topic to reuitilize the now tracked stream.
+            Topic = <<"t/a">>,
+            Msg0 = make_message(_PublishedAt = 0, Topic, <<"0">>),
+            ok = emqx_ds:store_batch(DB, [Msg0], #{sync => true}),
+            ok = emqx_ds_cache_coordinator:renew_streams(DB),
+
+            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+            {ok, Iter1} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+            {ok, Iter2, [_]} = emqx_ds:next(DB, Iter1, 1),
+
+            %% Now we start a new generation, so that the existing stream reaches an end.
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_ds:add_generation(DB),
+                    #{?snk_kind := ds_cache_end_of_stream},
+                    2_000
+                ),
+
+            ?assertEqual({ok, end_of_stream}, emqx_ds:next(DB, Iter2, 1)),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_multiple_topics_same_stream(_Config) ->
     %% Checks the basic happy path for a cache hit: if a client asks for a batch that
     %% _may_ be contained in the cache, the cache serves it.
