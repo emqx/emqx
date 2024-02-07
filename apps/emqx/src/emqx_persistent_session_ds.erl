@@ -389,7 +389,7 @@ publish(_PacketId, Msg, Session) ->
 puback(_ClientInfo, PacketId, Session0) ->
     case update_seqno(puback, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], inc_send_quota(Session)};
+            {ok, Msg, [], pull_now(Session)};
         Error ->
             Error
     end.
@@ -429,7 +429,7 @@ pubrel(_PacketId, Session = #{}) ->
 pubcomp(_ClientInfo, PacketId, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], inc_send_quota(Session)};
+            {ok, Msg, [], pull_now(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -907,11 +907,6 @@ ensure_timers(Session0) ->
     Session2 = emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session1),
     emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session2).
 
--spec inc_send_quota(session()) -> session().
-inc_send_quota(Session = #{inflight := Inflight0}) ->
-    Inflight = emqx_persistent_session_ds_inflight:inc_send_quota(Inflight0),
-    pull_now(Session#{inflight => Inflight}).
-
 -spec pull_now(session()) -> session().
 pull_now(Session) ->
     emqx_session:reset_timer(?TIMER_PULL, 0, Session).
@@ -957,26 +952,28 @@ try_get_live_session(ClientId) ->
 
 -spec update_seqno(puback | pubrec | pubcomp, emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), session()} | {error, _}.
-update_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
+update_seqno(Track, PacketId, Session = #{id := SessionId, s := S, inflight := Inflight0}) ->
     SeqNo = packet_id_to_seqno(PacketId, S),
     case Track of
         puback ->
-            QoS = ?QOS_1,
-            SeqNoKey = ?committed(?QOS_1);
+            SeqNoKey = ?committed(?QOS_1),
+            Result = emqx_persistent_session_ds_inflight:puback(SeqNo, Inflight0);
         pubrec ->
-            QoS = ?QOS_2,
-            SeqNoKey = ?rec;
+            SeqNoKey = ?rec,
+            Result = emqx_persistent_session_ds_inflight:pubrec(SeqNo, Inflight0);
         pubcomp ->
-            QoS = ?QOS_2,
-            SeqNoKey = ?committed(?QOS_2)
+            SeqNoKey = ?committed(?QOS_2),
+            Result = emqx_persistent_session_ds_inflight:pubcomp(SeqNo, Inflight0)
     end,
-    Current = emqx_persistent_session_ds_state:get_seqno(SeqNoKey, S),
-    case inc_seqno(QoS, Current) of
-        SeqNo ->
+    case Result of
+        {ok, Inflight} ->
             %% TODO: we pass a bogus message into the hook:
             Msg = emqx_message:make(SessionId, <<>>, <<>>),
-            {ok, Msg, Session#{s => emqx_persistent_session_ds_state:put_seqno(SeqNoKey, SeqNo, S)}};
-        Expected ->
+            {ok, Msg, Session#{
+                s => emqx_persistent_session_ds_state:put_seqno(SeqNoKey, SeqNo, S),
+                inflight => Inflight
+            }};
+        {error, Expected} ->
             ?SLOG(warning, #{
                 msg => "out-of-order_commit",
                 track => Track,
