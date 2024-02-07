@@ -126,10 +126,10 @@ find_new_streams(S) ->
 renew_streams(S0) ->
     S1 = remove_unsubscribed_streams(S0),
     S2 = remove_fully_replayed_streams(S1),
-    emqx_topic_gbt:fold(
+    emqx_persistent_session_ds_subs:fold(
         fun
-            (Key, _Subscription = #{start_time := StartTime, id := SubId, deleted := false}, Acc) ->
-                TopicFilter = emqx_topic:words(emqx_trie_search:get_topic(Key)),
+            (Key, #{start_time := StartTime, id := SubId, deleted := false}, Acc) ->
+                TopicFilter = emqx_topic:words(Key),
                 Streams = select_streams(
                     SubId,
                     emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
@@ -146,7 +146,7 @@ renew_streams(S0) ->
                 Acc
         end,
         S2,
-        emqx_persistent_session_ds_state:get_subscriptions(S2)
+        S2
     ).
 
 -spec on_unsubscribe(
