@@ -21,21 +21,6 @@ source_parameters.desc:
 source_parameters.label:
 """Source Parameters"""
 
-source_topic.desc:
-"""Topic used for constructing MQTT messages, supporting templates."""
-source_topic.label:
-"""Source Topic"""
-
-source_qos.desc:
-"""The QoS level of the MQTT message, supporting templates."""
-source_qos.label:
-"""QoS"""
-
-source_payload_template.desc:
-"""The template used to construct the payload of the MQTT message."""
-source_payload_template.label:
-"""Source Payload Template"""
-
 source_queue.desc:
 """The queue name of the RabbitMQ broker."""
 source_queue.label:

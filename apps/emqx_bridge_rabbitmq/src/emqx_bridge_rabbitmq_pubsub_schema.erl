@@ -126,45 +126,20 @@ fields(subscriber_source) ->
     );
 fields(source_parameters) ->
     [
-        {wait_for_publish_confirmations,
-            hoconsc:mk(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(?CONNECTOR_SCHEMA, "wait_for_publish_confirmations")
-                }
-            )},
-        {topic,
-            ?HOCON(
-                binary(),
-                #{
-                    required => true,
-                    validator => fun emqx_schema:non_empty_string/1,
-                    desc => ?DESC("source_topic")
-                }
-            )},
-        {qos,
-            ?HOCON(
-                ?UNION([emqx_schema:qos(), binary()]),
-                #{
-                    default => 0,
-                    desc => ?DESC("source_qos")
-                }
-            )},
-        {payload_template,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("source_payload_template")
-                }
-            )},
         {queue,
             ?HOCON(
                 binary(),
                 #{
                     required => true,
                     desc => ?DESC("source_queue")
+                }
+            )},
+        {wait_for_publish_confirmations,
+            hoconsc:mk(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "wait_for_publish_confirmations")
                 }
             )},
         {no_ack,
@@ -260,9 +235,6 @@ source_examples(Method) ->
                     _ConnectorType = rabbitmq,
                     #{
                         parameters => #{
-                            topic => <<"${payload.mqtt_topic}">>,
-                            qos => <<"${payload.mqtt_qos}">>,
-                            payload_template => <<"${payload.mqtt_payload}">>,
                             queue => <<"test_queue">>,
                             no_ack => true
                         }
