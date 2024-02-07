@@ -241,8 +241,10 @@ info(mqueue_dropped, _Session) ->
 %%     seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
 info(awaiting_rel_max, #{props := Conf}) ->
     maps:get(max_awaiting_rel, Conf);
-info(await_rel_timeout, #{props := Conf}) ->
-    maps:get(await_rel_timeout, Conf).
+info(await_rel_timeout, #{props := _Conf}) ->
+    %% TODO: currently this setting is ignored:
+    %% maps:get(await_rel_timeout, Conf).
+    0.
 
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) ->
@@ -438,9 +440,13 @@ pubcomp(_ClientInfo, PacketId, Session0) ->
 
 -spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
     {ok, replies(), session()}.
-deliver(_ClientInfo, _Delivers, Session) ->
-    %% TODO: system messages end up here.
-    {ok, [], Session}.
+deliver(ClientInfo, Delivers, Session0) ->
+    %% Durable sessions still have to handle some transient messages.
+    %% For example, retainer sends messages to the session directly.
+    Session = lists:foldl(
+        fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
+    ),
+    {ok, [], pull_now(Session)}.
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
@@ -481,8 +487,8 @@ handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session = #{s := 
     S = emqx_persistent_session_ds_state:commit(S0),
     From ! Ref,
     {ok, [], Session#{s => S}};
-handle_timeout(_ClientInfo, expire_awaiting_rel, Session) ->
-    %% TODO: stub
+handle_timeout(_ClientInfo, Timeout, Session) ->
+    ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.
 
 bump_last_alive(S0) ->
@@ -870,6 +876,54 @@ process_batch(
     process_batch(
         IsReplay, Session, ClientInfo, LastSeqNoQos1, LastSeqNoQos2, Messages, Inflight
     ).
+
+%%--------------------------------------------------------------------
+%% Transient messages
+%%--------------------------------------------------------------------
+
+enqueue_transient(ClientInfo, Msg0, Session = #{s := S, props := #{upgrade_qos := UpgradeQoS}}) ->
+    %% TODO: Such messages won't be retransmitted, should the session
+    %% reconnect before transient messages are acked.
+    %%
+    %% Proper solution could look like this: session publishes
+    %% transient messages to a separate DS DB that serves as a queue,
+    %% then subscribes to a special system topic that contains the
+    %% queued messages. Since streams in this DB are exclusive to the
+    %% session, messages from the queue can be dropped as soon as they
+    %% are acked.
+    Subs = emqx_persistent_session_ds_state:get_subscriptions(S),
+    Msgs = [
+        Msg
+     || SubMatch <- emqx_topic_gbt:matches(Msg0#message.topic, Subs, []),
+        Msg <- begin
+            #{props := SubOpts} = emqx_topic_gbt:get_record(SubMatch, Subs),
+            emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS)
+        end
+    ],
+    lists:foldl(fun do_enqueue_transient/2, Session, Msgs).
+
+do_enqueue_transient(Msg = #message{qos = Qos}, Session = #{inflight := Inflight0, s := S0}) ->
+    case Qos of
+        ?QOS_0 ->
+            S = S0,
+            Inflight = emqx_persistent_session_ds_inflight:push({undefined, Msg}, Inflight0);
+        ?QOS_1 ->
+            SeqNo = inc_seqno(
+                ?QOS_1, emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0)
+            ),
+            S = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_1), SeqNo, S0),
+            Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0);
+        ?QOS_2 ->
+            SeqNo = inc_seqno(
+                ?QOS_2, emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0)
+            ),
+            S = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_2), SeqNo, S0),
+            Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0)
+    end,
+    Session#{
+        inflight => Inflight,
+        s => S
+    }.
 
 %%--------------------------------------------------------------------
 %% Buffer drain
