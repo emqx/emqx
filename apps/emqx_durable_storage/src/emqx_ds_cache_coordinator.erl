@@ -58,7 +58,6 @@
 -record(?cache_coord, {db}).
 
 -type seqno() :: non_neg_integer().
--type timestamp() :: integer().
 
 -type cache_opts() :: #{cache_prefetch_topic_filters => [emqx_ds:topic_filter()]}.
 -type state() :: #{

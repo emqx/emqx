@@ -21,7 +21,6 @@
 -record(cache_entry, {
     key :: emqx_ds:message_key(),
     seqno :: seqno(),
-    inserted_at :: timestamp(),
     message :: emqx_types:message() | ?EOS_MARKER
 }).
 

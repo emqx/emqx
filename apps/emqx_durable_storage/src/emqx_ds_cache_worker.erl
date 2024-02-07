@@ -201,7 +201,6 @@ to_entries(Now, Seqno, [{DSKey, Msg} | Rest], Acc) ->
     Entry = #cache_entry{
         key = DSKey,
         seqno = Seqno,
-        inserted_at = Now,
         message = Msg
     },
     to_entries(Now, Seqno + 1, Rest, [Entry | Acc]);
