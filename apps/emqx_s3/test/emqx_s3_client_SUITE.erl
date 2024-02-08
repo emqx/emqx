@@ -79,7 +79,7 @@ t_multipart_upload(Config) ->
 
     Client = client(Config),
 
-    {ok, UploadId} = emqx_s3_client:start_multipart(Client, Key),
+    {ok, UploadId} = emqx_s3_client:start_multipart(Client, Key, #{}),
 
     Data = data(6_000_000),
 
@@ -97,7 +97,7 @@ t_simple_put(Config) ->
 
     Data = data(6_000_000),
 
-    ok = emqx_s3_client:put_object(Client, Key, Data).
+    ok = emqx_s3_client:put_object(Client, Key, #{acl => private}, Data).
 
 t_list(Config) ->
     Key = ?config(key, Config),
@@ -123,7 +123,7 @@ t_url(Config) ->
     Key = ?config(key, Config),
 
     Client = client(Config),
-    ok = emqx_s3_client:put_object(Client, Key, <<"data">>),
+    ok = emqx_s3_client:put_object(Client, Key, #{acl => public_read}, <<"data">>),
 
     Url = emqx_s3_client:uri(Client, Key),
 
@@ -135,20 +135,18 @@ t_url(Config) ->
 t_no_acl(Config) ->
     Key = ?config(key, Config),
 
-    ClientConfig = emqx_s3_profile_conf:client_config(
-        profile_config(Config), ?config(ehttpc_pool_name, Config)
-    ),
-    Client = emqx_s3_client:create(maps:without([acl], ClientConfig)),
+    Client = client(Config),
 
-    ok = emqx_s3_client:put_object(Client, Key, <<"data">>).
+    ok = emqx_s3_client:put_object(Client, Key, #{}, <<"data">>).
 
 t_extra_headers(Config0) ->
     Config = [{extra_headers, #{'Content-Type' => <<"application/json">>}} | Config0],
     Key = ?config(key, Config),
 
     Client = client(Config),
+    Opts = #{acl => public_read},
     Data = #{foo => bar},
-    ok = emqx_s3_client:put_object(Client, Key, emqx_utils_json:encode(Data)),
+    ok = emqx_s3_client:put_object(Client, Key, Opts, emqx_utils_json:encode(Data)),
 
     Url = emqx_s3_client:uri(Client, Key),
 
@@ -164,10 +162,11 @@ t_extra_headers(Config0) ->
 %%--------------------------------------------------------------------
 
 client(Config) ->
+    Bucket = ?config(bucket, Config),
     ClientConfig = emqx_s3_profile_conf:client_config(
         profile_config(Config), ?config(ehttpc_pool_name, Config)
     ),
-    emqx_s3_client:create(ClientConfig).
+    emqx_s3_client:create(Bucket, ClientConfig).
 
 profile_config(Config) ->
     ProfileConfig0 = emqx_s3_test_helpers:base_config(?config(conn_type, Config)),
@@ -175,7 +174,6 @@ profile_config(Config) ->
         fun inject_config/3,
         ProfileConfig0,
         #{
-            bucket => ?config(bucket, Config),
             [transport_options, pool_type] => ?config(pool_type, Config),
             [transport_options, headers] => ?config(extra_headers, Config)
         }

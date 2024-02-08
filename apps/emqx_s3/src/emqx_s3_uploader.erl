@@ -9,7 +9,7 @@
 -behaviour(gen_statem).
 
 -export([
-    start_link/2,
+    start_link/3,
 
     write/2,
     write/3,
@@ -33,30 +33,25 @@
     format_status/2
 ]).
 
--export_type([opts/0, config/0]).
+-export_type([config/0]).
 
 -type config() :: #{
     min_part_size => pos_integer(),
     max_part_size => pos_integer()
 }.
 
--type opts() :: #{
-    key := string(),
-    headers => emqx_s3_client:headers()
-}.
-
 -type data() :: #{
-    profile_id := emqx_s3:profile_id(),
+    profile_id => emqx_s3:profile_id(),
     client := emqx_s3_client:client(),
     key := emqx_s3_client:key(),
+    upload_opts := emqx_s3_client:upload_options(),
     buffer := iodata(),
     buffer_size := non_neg_integer(),
     min_part_size := pos_integer(),
     max_part_size := pos_integer(),
     upload_id := undefined | emqx_s3_client:upload_id(),
     etags := [emqx_s3_client:etag()],
-    part_number := emqx_s3_client:part_number(),
-    headers := emqx_s3_client:headers()
+    part_number := emqx_s3_client:part_number()
 }.
 
 %% 5MB
@@ -66,9 +61,10 @@
 
 -define(DEFAULT_TIMEOUT, 30000).
 
--spec start_link(emqx_s3:profile_id(), opts()) -> gen_statem:start_ret().
-start_link(ProfileId, #{key := Key} = Opts) when is_list(Key) ->
-    gen_statem:start_link(?MODULE, [ProfileId, Opts], []).
+-spec start_link(emqx_s3:profile_id(), emqx_s3_client:key(), emqx_s3_client:upload_options()) ->
+    gen_statem:start_ret().
+start_link(ProfileId, Key, UploadOpts) when is_list(Key) ->
+    gen_statem:start_link(?MODULE, {profile, ProfileId, Key, UploadOpts}, []).
 
 -spec write(pid(), iodata()) -> ok_or_error(term()).
 write(Pid, WriteData) ->
@@ -105,19 +101,23 @@ shutdown(Pid) ->
 
 callback_mode() -> handle_event_function.
 
-init([ProfileId, #{key := Key} = Opts]) ->
-    process_flag(trap_exit, true),
-    {ok, ClientConfig, UploaderConfig} = emqx_s3_profile_conf:checkout_config(ProfileId),
-    Client = client(ClientConfig),
-    {ok, upload_not_started, #{
+init({profile, ProfileId, Key, UploadOpts}) ->
+    {Bucket, ClientConfig, BaseOpts, UploaderConfig} =
+        emqx_s3_profile_conf:checkout_config(ProfileId),
+    Upload = #{
         profile_id => ProfileId,
-        client => Client,
-        headers => maps:get(headers, Opts, #{}),
+        client => client(Bucket, ClientConfig),
         key => Key,
+        upload_opts => maps:merge(BaseOpts, UploadOpts)
+    },
+    init({upload, UploaderConfig, Upload});
+init({upload, Config, Upload}) ->
+    process_flag(trap_exit, true),
+    {ok, upload_not_started, Upload#{
         buffer => [],
         buffer_size => 0,
-        min_part_size => maps:get(min_part_size, UploaderConfig, ?DEFAULT_MIN_PART_SIZE),
-        max_part_size => maps:get(max_part_size, UploaderConfig, ?DEFAULT_MAX_PART_SIZE),
+        min_part_size => maps:get(min_part_size, Config, ?DEFAULT_MIN_PART_SIZE),
+        max_part_size => maps:get(max_part_size, Config, ?DEFAULT_MAX_PART_SIZE),
         upload_id => undefined,
         etags => [],
         part_number => 1
@@ -221,8 +221,8 @@ maybe_start_upload(#{buffer_size := BufferSize, min_part_size := MinPartSize} = 
     end.
 
 -spec start_upload(data()) -> {started, data()} | {error, term()}.
-start_upload(#{client := Client, key := Key, headers := Headers} = Data) ->
-    case emqx_s3_client:start_multipart(Client, Headers, Key) of
+start_upload(#{client := Client, key := Key, upload_opts := UploadOpts} = Data) ->
+    case emqx_s3_client:start_multipart(Client, Key, UploadOpts) of
         {ok, UploadId} ->
             NewData = Data#{upload_id => UploadId},
             {started, NewData};
@@ -274,12 +274,9 @@ complete_upload(
     } = Data0
 ) ->
     case upload_part(Data0) of
-        {ok, #{etags := ETags} = Data1} ->
-            case
-                emqx_s3_client:complete_multipart(
-                    Client, Key, UploadId, lists:reverse(ETags)
-                )
-            of
+        {ok, #{etags := ETagsRev} = Data1} ->
+            ETags = lists:reverse(ETagsRev),
+            case emqx_s3_client:complete_multipart(Client, Key, UploadId, ETags) of
                 ok ->
                     {ok, Data1};
                 {error, _} = Error ->
@@ -309,11 +306,11 @@ put_object(
     #{
         client := Client,
         key := Key,
-        buffer := Buffer,
-        headers := Headers
+        upload_opts := UploadOpts,
+        buffer := Buffer
     }
 ) ->
-    case emqx_s3_client:put_object(Client, Headers, Key, Buffer) of
+    case emqx_s3_client:put_object(Client, Key, UploadOpts, Buffer) of
         ok ->
             ok;
         {error, _} = Error ->
@@ -337,5 +334,5 @@ unwrap(WrappedData) ->
 is_valid_part(WriteData, #{max_part_size := MaxPartSize, buffer_size := BufferSize}) ->
     BufferSize + iolist_size(WriteData) =< MaxPartSize.
 
-client(Config) ->
-    emqx_s3_client:create(Config).
+client(Bucket, Config) ->
+    emqx_s3_client:create(Bucket, Config).

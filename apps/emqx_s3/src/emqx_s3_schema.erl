@@ -23,6 +23,13 @@ tags() ->
     [<<"S3">>].
 
 fields(s3) ->
+    lists:append([
+        fields(s3_client),
+        fields(s3_uploader),
+        fields(s3_url_options),
+        props_with([bucket, acl], fields(s3_upload))
+    ]);
+fields(s3_client) ->
     [
         {access_key_id,
             mk(
@@ -36,14 +43,6 @@ fields(s3) ->
             emqx_schema_secret:mk(
                 #{
                     desc => ?DESC("secret_access_key")
-                }
-            )},
-        {bucket,
-            mk(
-                string(),
-                #{
-                    desc => ?DESC("bucket"),
-                    required => true
                 }
             )},
         {host,
@@ -62,16 +61,51 @@ fields(s3) ->
                     required => true
                 }
             )},
-        {url_expire_time,
+        {transport_options,
             mk(
-                %% not used in a `receive ... after' block, just timestamp comparison
-                emqx_schema:duration_s(),
+                ref(?MODULE, transport_options),
                 #{
-                    default => <<"1h">>,
-                    desc => ?DESC("url_expire_time"),
+                    desc => ?DESC("transport_options"),
                     required => false
                 }
+            )}
+    ];
+fields(s3_upload) ->
+    [
+        {bucket,
+            mk(
+                string(),
+                #{
+                    desc => ?DESC("bucket"),
+                    required => true
+                }
             )},
+        {key,
+            mk(
+                string(),
+                #{
+                    desc => ?DESC("key"),
+                    required => true
+                }
+            )},
+        {acl,
+            mk(
+                hoconsc:enum([
+                    private,
+                    public_read,
+                    public_read_write,
+                    authenticated_read,
+                    bucket_owner_read,
+                    bucket_owner_full_control
+                ]),
+                #{
+                    desc => ?DESC("acl"),
+                    required => false
+                }
+            )}
+    ];
+fields(s3_uploader) ->
+    [
         {min_part_size,
             mk(
                 emqx_schema:bytesize(),
@@ -91,27 +125,17 @@ fields(s3) ->
                     required => true,
                     validator => fun part_size_validator/1
                 }
-            )},
-        {acl,
+            )}
+    ];
+fields(s3_url_options) ->
+    [
+        {url_expire_time,
             mk(
-                hoconsc:enum([
-                    private,
-                    public_read,
-                    public_read_write,
-                    authenticated_read,
-                    bucket_owner_read,
-                    bucket_owner_full_control
-                ]),
+                %% not used in a `receive ... after' block, just timestamp comparison
+                emqx_schema:duration_s(),
                 #{
-                    desc => ?DESC("acl"),
-                    required => false
-                }
-            )},
-        {transport_options,
-            mk(
-                ref(?MODULE, transport_options),
-                #{
-                    desc => ?DESC("transport_options"),
+                    default => <<"1h">>,
+                    desc => ?DESC("url_expire_time"),
                     required => false
                 }
             )}
@@ -138,6 +162,10 @@ fields(transport_options) ->
 
 desc(s3) ->
     "S3 connection options";
+desc(s3_client) ->
+    "S3 connection options";
+desc(s3_upload) ->
+    "S3 upload options";
 desc(transport_options) ->
     "Options for the HTTP transport layer used by the S3 client".
 
