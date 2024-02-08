@@ -164,14 +164,17 @@ eval_topic_query(MS, QState) ->
     finalize_query(eval_topic_query(MS, QState, emqx_mgmt_api:init_query_result())).
 
 eval_topic_query(MS, QState, QResult) ->
-    QPage = eval_topic_query_page(MS, QState),
-    case QPage of
+    case eval_topic_query_page(MS, QState) of
         {Rows, '$end_of_table'} ->
             {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
             NQResult#{complete => true};
         {Rows, NCont} ->
-            {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
-            eval_topic_query(MS, QState#{continuation := NCont}, NQResult);
+            case emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult) of
+                {more, NQResult} ->
+                    eval_topic_query(MS, QState#{continuation := NCont}, NQResult);
+                {enough, NQResult} ->
+                    NQResult#{complete => false}
+            end;
         '$end_of_table' ->
             QResult#{complete => true}
     end.
