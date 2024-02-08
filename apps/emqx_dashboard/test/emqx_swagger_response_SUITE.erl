@@ -282,7 +282,7 @@ t_bad_ref(_Config) ->
 t_none_ref(_Config) ->
     Path = "/ref/none",
     ?assertError(
-        {failed_to_generate_swagger_spec, ?MODULE, Path},
+        {failed_to_generate_swagger_spec, ?MODULE, Path, error, _FunctionClause, _Stacktrace},
         validate(Path, #{}, [])
     ),
     ok.

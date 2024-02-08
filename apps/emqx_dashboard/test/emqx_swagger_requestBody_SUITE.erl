@@ -310,7 +310,7 @@ t_nest_ref(_Config) ->
 t_none_ref(_Config) ->
     Path = "/ref/none",
     ?assertError(
-        {failed_to_generate_swagger_spec, ?MODULE, Path},
+        {failed_to_generate_swagger_spec, ?MODULE, Path, error, _FunctionClause, _Stacktrace},
         emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{})
     ),
     ok.

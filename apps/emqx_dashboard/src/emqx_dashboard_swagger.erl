@@ -364,8 +364,8 @@ parse_spec_ref(Module, Path, Options) ->
 
 -ifdef(TEST).
 -spec failed_to_generate_swagger_spec(_, _, _, _, _) -> no_return().
-failed_to_generate_swagger_spec(Module, Path, _Error, _Reason, _Stacktrace) ->
-    error({failed_to_generate_swagger_spec, Module, Path}).
+failed_to_generate_swagger_spec(Module, Path, Error, Reason, Stacktrace) ->
+    error({failed_to_generate_swagger_spec, Module, Path, Error, Reason, Stacktrace}).
 -else.
 -spec failed_to_generate_swagger_spec(_, _, _, _, _) -> no_return().
 failed_to_generate_swagger_spec(Module, Path, Error, Reason, Stacktrace) ->
