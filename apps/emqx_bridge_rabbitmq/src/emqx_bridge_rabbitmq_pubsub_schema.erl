@@ -101,6 +101,7 @@ fields(action_parameters) ->
             hoconsc:mk(
                 binary(),
                 #{
+                    default => <<"">>,
                     desc => ?DESC(?CONNECTOR_SCHEMA, "payload_template")
                 }
             )}

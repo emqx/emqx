@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_rabbitmq_v2_SUITE).
@@ -12,203 +12,108 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
--define(TYPE, <<"rabbitmq">>).
+-import(emqx_bridge_rabbitmq_test_utils, [
+    rabbit_mq_exchange/0,
+    rabbit_mq_routing_key/0,
+    rabbit_mq_queue/0,
+    rabbit_mq_host/0,
+    rabbit_mq_port/0,
+    get_rabbitmq/1,
+    get_tls/1,
+    ssl_options/1,
+    get_channel_connection/1,
+    parse_and_check/4,
+    receive_message_from_rabbitmq/1
+]).
 -import(emqx_common_test_helpers, [on_exit/1]).
 
-rabbit_mq_host() ->
-    <<"rabbitmq">>.
-
-rabbit_mq_port() ->
-    5672.
-
-rabbit_mq_exchange() ->
-    <<"messages">>.
-
-rabbit_mq_queue() ->
-    <<"test_queue">>.
-
-rabbit_mq_routing_key() ->
-    <<"test_routing_key">>.
-
-get_channel_connection(Config) ->
-    proplists:get_value(channel_connection, Config).
-
-get_rabbitmq(Config) ->
-    proplists:get_value(rabbitmq, Config).
-
-%%------------------------------------------------------------------------------
-%% Common Test Setup, Tear down and Testcase List
-%%------------------------------------------------------------------------------
+-define(TYPE, <<"rabbitmq">>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
-
-init_per_suite(Config) ->
-    RabbitMQHost = os:getenv("RABBITMQ_PLAIN_HOST", "rabbitmq"),
-    RabbitMQPort = list_to_integer(os:getenv("RABBITMQ_PLAIN_PORT", "5672")),
-    case emqx_common_test_helpers:is_tcp_server_available(RabbitMQHost, RabbitMQPort) of
-        true ->
-            Config1 = common_init(#{
-                host => RabbitMQHost, port => RabbitMQPort
-            }),
-            Name = atom_to_binary(?MODULE),
-            Config2 = [{connector, Name} | Config1 ++ Config],
-            create_connector(Name, get_rabbitmq(Config2)),
-            Config2;
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_rabbitmq);
-                _ ->
-                    {skip, no_rabbitmq}
-            end
-    end.
-
-common_init(Opts) ->
-    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([
-        emqx_conf, emqx_bridge, emqx_bridge_rabbitmq, emqx_rule_engine
-    ]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    {ok, _} = application:ensure_all_started(amqp_client),
-    emqx_mgmt_api_test_util:init_suite(),
-    #{host := Host, port := Port} = Opts,
-    ChannelConnection = setup_rabbit_mq_exchange_and_queue(Host, Port),
     [
-        {channel_connection, ChannelConnection},
-        {rabbitmq, #{server => Host, port => Port}}
+        {group, tcp},
+        {group, tls}
     ].
 
-setup_rabbit_mq_exchange_and_queue(Host, Port) ->
-    %% Create an exchange and a queue
-    {ok, Connection} =
-        amqp_connection:start(#amqp_params_network{
-            host = Host,
-            port = Port,
-            ssl_options = none
-        }),
-    {ok, Channel} = amqp_connection:open_channel(Connection),
-    %% Create an exchange
-    #'exchange.declare_ok'{} =
-        amqp_channel:call(
-            Channel,
-            #'exchange.declare'{
-                exchange = rabbit_mq_exchange(),
-                type = <<"topic">>
-            }
-        ),
-    %% Create a queue
-    #'queue.declare_ok'{} =
-        amqp_channel:call(
-            Channel,
-            #'queue.declare'{queue = rabbit_mq_queue()}
-        ),
-    %% Bind the queue to the exchange
-    #'queue.bind_ok'{} =
-        amqp_channel:call(
-            Channel,
-            #'queue.bind'{
-                queue = rabbit_mq_queue(),
-                exchange = rabbit_mq_exchange(),
-                routing_key = rabbit_mq_routing_key()
-            }
-        ),
-    #{
-        connection => Connection,
-        channel => Channel
-    }.
+groups() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {tcp, AllTCs},
+        {tls, AllTCs}
+    ].
 
-end_per_suite(Config) ->
-    delete_connector(proplists:get_value(connector, Config)),
-    #{
-        connection := Connection,
-        channel := Channel
-    } = get_channel_connection(Config),
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_bridge_rabbitmq, emqx_rule_engine]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector),
-    _ = application:stop(emqx_bridge),
-    %% Close the channel
-    ok = amqp_channel:close(Channel),
-    %% Close the connection
-    ok = amqp_connection:close(Connection).
+init_per_group(Group, Config) ->
+    Config1 = emqx_bridge_rabbitmq_test_utils:init_per_group(Group, Config),
+    Name = atom_to_binary(?MODULE),
+    create_connector(Name, get_rabbitmq(Config1)),
+    Config1.
+
+end_per_group(Group, Config) ->
+    Name = atom_to_binary(?MODULE),
+    delete_connector(Name),
+    emqx_bridge_rabbitmq_test_utils:end_per_group(Group, Config).
 
 rabbitmq_connector(Config) ->
+    UseTLS = maps:get(tls, Config, false),
     Name = atom_to_binary(?MODULE),
     Server = maps:get(server, Config, rabbit_mq_host()),
     Port = maps:get(port, Config, rabbit_mq_port()),
-    ConfigStr =
-        io_lib:format(
-            "connectors.rabbitmq.~s {\n"
-            "  enable = true\n"
-            "  ssl = {enable = false}\n"
-            "  server = \"~s\"\n"
-            "  port = ~p\n"
-            "  username = \"guest\"\n"
-            "  password = \"guest\"\n"
-            "}\n",
-            [
-                Name,
-                Server,
-                Port
-            ]
-        ),
-    ct:pal(ConfigStr),
-    parse_and_check(<<"connectors">>, emqx_connector_schema, ConfigStr, <<"rabbitmq">>, Name).
+    Connector = #{
+        <<"connectors">> => #{
+            <<"rabbitmq">> => #{
+                Name => #{
+                    <<"enable">> => true,
+                    <<"ssl">> => ssl_options(UseTLS),
+                    <<"server">> => Server,
+                    <<"port">> => Port,
+                    <<"username">> => <<"guest">>,
+                    <<"password">> => <<"guest">>
+                }
+            }
+        }
+    },
+    parse_and_check(<<"connectors">>, emqx_connector_schema, Connector, Name).
 
 rabbitmq_source() ->
     Name = atom_to_binary(?MODULE),
-    ConfigStr =
-        io_lib:format(
-            "sources.rabbitmq.~s {\n"
-            "connector = ~s\n"
-            "enable = true\n"
-            "parameters {\n"
-            "no_ack = true\n"
-            "queue = ~s\n"
-            "wait_for_publish_confirmations = true\n"
-            "}}\n",
-            [
-                Name,
-                Name,
-                rabbit_mq_queue()
-            ]
-        ),
-    ct:pal(ConfigStr),
-    parse_and_check(<<"sources">>, emqx_bridge_v2_schema, ConfigStr, <<"rabbitmq">>, Name).
+    Source = #{
+        <<"sources">> => #{
+            <<"rabbitmq">> => #{
+                Name => #{
+                    <<"enable">> => true,
+                    <<"connector">> => Name,
+                    <<"parameters">> => #{
+                        <<"no_ack">> => true,
+                        <<"queue">> => rabbit_mq_queue(),
+                        <<"wait_for_publish_confirmations">> => true
+                    }
+                }
+            }
+        }
+    },
+    parse_and_check(<<"sources">>, emqx_bridge_v2_schema, Source, Name).
 
 rabbitmq_action() ->
     Name = atom_to_binary(?MODULE),
-    ConfigStr =
-        io_lib:format(
-            "actions.rabbitmq.~s {\n"
-            "connector = ~s\n"
-            "enable = true\n"
-            "parameters {\n"
-            "exchange: ~s\n"
-            "payload_template: \"${.payload}\"\n"
-            "routing_key: ~s\n"
-            "delivery_mode: non_persistent\n"
-            "publish_confirmation_timeout: 30s\n"
-            "wait_for_publish_confirmations = true\n"
-            "}}\n",
-            [
-                Name,
-                Name,
-                rabbit_mq_exchange(),
-                rabbit_mq_routing_key()
-            ]
-        ),
-    ct:pal(ConfigStr),
-    parse_and_check(<<"actions">>, emqx_bridge_v2_schema, ConfigStr, <<"rabbitmq">>, Name).
-
-parse_and_check(Key, Mod, ConfigStr, Type, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigStr, #{format => map}),
-    hocon_tconf:check_plain(Mod, RawConf, #{required => false, atom_key => false}),
-    #{Key := #{Type := #{Name := RetConfig}}} = RawConf,
-    RetConfig.
+    Action = #{
+        <<"actions">> => #{
+            <<"rabbitmq">> => #{
+                Name => #{
+                    <<"connector">> => Name,
+                    <<"enable">> => true,
+                    <<"parameters">> => #{
+                        <<"exchange">> => rabbit_mq_exchange(),
+                        <<"payload_template">> => <<"${.payload}">>,
+                        <<"routing_key">> => rabbit_mq_routing_key(),
+                        <<"delivery_mode">> => <<"non_persistent">>,
+                        <<"publish_confirmation_timeout">> => <<"30s">>,
+                        <<"wait_for_publish_confirmations">> => true
+                    }
+                }
+            }
+        }
+    },
+    parse_and_check(<<"actions">>, emqx_bridge_v2_schema, Action, Name).
 
 create_connector(Name, Config) ->
     Connector = rabbitmq_connector(Config),
@@ -308,7 +213,7 @@ t_action(Config) ->
     Payload = payload(),
     PayloadBin = emqx_utils_json:encode(Payload),
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
-    Msg = receive_test_message_from_rabbitmq(Config),
+    Msg = receive_message_from_rabbitmq(Config),
     ?assertMatch(Payload, Msg),
     ok = emqtt:disconnect(C1),
     ok = delete_action(Name),
@@ -354,29 +259,3 @@ send_test_message_to_rabbitmq(Config) ->
         }
     ),
     ok.
-
-receive_test_message_from_rabbitmq(Config) ->
-    #{channel := Channel} = get_channel_connection(Config),
-    #'basic.consume_ok'{consumer_tag = ConsumerTag} =
-        amqp_channel:call(
-            Channel,
-            #'basic.consume'{
-                queue = rabbit_mq_queue()
-            }
-        ),
-    receive
-        %% This is the first message received
-        #'basic.consume_ok'{} ->
-            ok
-    end,
-    receive
-        {#'basic.deliver'{delivery_tag = DeliveryTag}, Content} ->
-            %% Ack the message
-            amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DeliveryTag}),
-            %% Cancel the consumer
-            #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
-                amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
-            emqx_utils_json:decode(Content#amqp_msg.payload)
-    after 5000 ->
-        ?assert(false, "Did not receive message within 5 second")
-    end.
