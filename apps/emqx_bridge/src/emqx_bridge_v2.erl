@@ -684,7 +684,8 @@ do_query_with_enabled_config(
 ) ->
     QueryMode = get_query_mode(BridgeType, Config),
     ConnectorName = maps:get(connector, Config),
-    ConnectorResId = emqx_connector_resource:resource_id(BridgeType, ConnectorName),
+    ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
+    ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
         emqx_bridge:query_opts(Config),
         QueryOpts0#{
