@@ -907,17 +907,11 @@ do_enqueue_transient(Msg = #message{qos = Qos}, Session = #{inflight := Inflight
         ?QOS_0 ->
             S = S0,
             Inflight = emqx_persistent_session_ds_inflight:push({undefined, Msg}, Inflight0);
-        ?QOS_1 ->
+        QoS when QoS =:= ?QOS_1; QoS =:= ?QOS_2 ->
             SeqNo = inc_seqno(
-                ?QOS_1, emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0)
+                QoS, emqx_persistent_session_ds_state:get_seqno(?next(QoS), S0)
             ),
-            S = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_1), SeqNo, S0),
-            Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0);
-        ?QOS_2 ->
-            SeqNo = inc_seqno(
-                ?QOS_2, emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0)
-            ),
-            S = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_2), SeqNo, S0),
+            S = emqx_persistent_session_ds_state:put_seqno(?next(QoS), SeqNo, S0),
             Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0)
     end,
     Session#{
