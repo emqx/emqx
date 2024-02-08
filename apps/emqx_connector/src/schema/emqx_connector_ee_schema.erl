@@ -66,6 +66,8 @@ resource_type(tdengine) ->
     emqx_bridge_tdengine_connector;
 resource_type(rabbitmq) ->
     emqx_bridge_rabbitmq_connector;
+resource_type(s3) ->
+    emqx_bridge_s3_connector;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
 
@@ -270,6 +272,14 @@ connector_structs() ->
                     desc => <<"RabbitMQ Connector Config">>,
                     required => false
                 }
+            )},
+        {s3,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_s3, "config_connector")),
+                #{
+                    desc => <<"S3 Connector Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -296,7 +306,8 @@ schema_modules() ->
         emqx_bridge_rabbitmq_connector_schema,
         emqx_bridge_opents_connector,
         emqx_bridge_greptimedb,
-        emqx_bridge_tdengine_connector
+        emqx_bridge_tdengine_connector,
+        emqx_bridge_s3
     ].
 
 api_schemas(Method) ->
@@ -332,7 +343,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_opents_connector, <<"opents">>, Method),
         api_ref(emqx_bridge_rabbitmq_connector_schema, <<"rabbitmq">>, Method),
         api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_tdengine_connector, <<"tdengine">>, Method)
+        api_ref(emqx_bridge_tdengine_connector, <<"tdengine">>, Method),
+        api_ref(emqx_bridge_s3, <<"s3">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->

@@ -182,6 +182,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ft,
       :emqx_license,
       :emqx_s3,
+      :emqx_bridge_s3,
       :emqx_schema_registry,
       :emqx_enterprise,
       :emqx_bridge_kinesis,

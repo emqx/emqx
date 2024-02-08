@@ -9,6 +9,9 @@ secret_access_key.desc:
 bucket.desc:
 """The name of the S3 bucket."""
 
+key.desc:
+"""Key of the S3 object being manipulated."""
+
 host.desc:
 """The host of the S3 endpoint."""
 
