@@ -14,9 +14,6 @@
 -export([translate/1]).
 -export([translate/2]).
 
--type secret_access_key() :: string() | function().
--reflect_type([secret_access_key/0]).
-
 roots() ->
     [s3].
 
@@ -36,13 +33,9 @@ fields(s3) ->
                 }
             )},
         {secret_access_key,
-            mk(
-                typerefl:alias("string", secret_access_key()),
+            emqx_schema_secret:mk(
                 #{
-                    desc => ?DESC("secret_access_key"),
-                    required => false,
-                    sensitive => true,
-                    converter => fun secret/2
+                    desc => ?DESC("secret_access_key")
                 }
             )},
         {bucket,
@@ -147,14 +140,6 @@ desc(s3) ->
     "S3 connection options";
 desc(transport_options) ->
     "Options for the HTTP transport layer used by the S3 client".
-
-secret(undefined, #{}) ->
-    undefined;
-secret(Secret, #{make_serializable := true}) ->
-    unicode:characters_to_binary(emqx_secret:unwrap(Secret));
-secret(Secret, #{}) ->
-    _ = is_binary(Secret) orelse throw({expected_type, string}),
-    emqx_secret:wrap(unicode:characters_to_list(Secret)).
 
 translate(Conf) ->
     translate(Conf, #{}).
