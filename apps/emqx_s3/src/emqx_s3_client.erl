@@ -278,10 +278,10 @@ request_fun(HttpPool, PoolType, MaxRetries) ->
         end)
     end.
 
-ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries) ->
-    try timer:tc(fun() -> ehttpc:request(HttpPool, Method, Request, Timeout, MaxRetries) end) of
+ehttpc_request(Worker, Method, Request, Timeout, MaxRetries) ->
+    try timer:tc(fun() -> ehttpc:request(Worker, Method, Request, Timeout, MaxRetries) end) of
         {Time, {ok, StatusCode, RespHeaders}} ->
-            ?SLOG(info, #{
+            ?SLOG(debug, #{
                 msg => "s3_ehttpc_request_ok",
                 status_code => StatusCode,
                 headers => RespHeaders,
@@ -291,7 +291,7 @@ ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries) ->
                 {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), undefined
             }};
         {Time, {ok, StatusCode, RespHeaders, RespBody}} ->
-            ?SLOG(info, #{
+            ?SLOG(debug, #{
                 msg => "s3_ehttpc_request_ok",
                 status_code => StatusCode,
                 headers => RespHeaders,
@@ -302,31 +302,31 @@ ehttpc_request(HttpPool, Method, Request, Timeout, MaxRetries) ->
                 {StatusCode, undefined}, headers_ehttpc_to_erlcloud_response(RespHeaders), RespBody
             }};
         {Time, {error, Reason}} ->
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "s3_ehttpc_request_fail",
                 reason => Reason,
                 timeout => Timeout,
-                pool => HttpPool,
+                worker => Worker,
                 method => Method,
                 time => Time
             }),
             {error, Reason}
     catch
         error:badarg ->
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "s3_ehttpc_request_fail",
                 reason => badarg,
                 timeout => Timeout,
-                pool => HttpPool,
+                worker => Worker,
                 method => Method
             }),
             {error, no_ehttpc_pool};
         error:Reason ->
-            ?SLOG(error, #{
+            ?SLOG(warning, #{
                 msg => "s3_ehttpc_request_fail",
                 reason => Reason,
                 timeout => Timeout,
-                pool => HttpPool,
+                worker => Worker,
                 method => Method
             }),
             {error, Reason}
