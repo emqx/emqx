@@ -1,33 +1,33 @@
 emqx_bridge_greptimedb {
 
 config_enable.desc:
-"""Enable or disable this bridge."""
+"""Enable or disable this action."""
 
 config_enable.label:
-"""Enable Or Disable Bridge"""
+"""Enable Or Disable Action"""
 
 desc_config.desc:
-"""Configuration for an GreptimeDB bridge."""
+"""Configuration for an GreptimeDB action."""
 
 desc_config.label:
-"""GreptimeDB Bridge Configuration"""
+"""GreptimeDB Action Configuration"""
 
 desc_name.desc:
-"""Bridge name."""
+"""The name of the action."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
-"""The Bridge Type."""
+"""The type of the action."""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 local_topic.desc:
 """The MQTT topic filter to be forwarded to the GreptimeDB. All MQTT 'PUBLISH' messages with the topic
 matching the local_topic will be forwarded.<br/>
-NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
+NOTE: If this Sink is used as the action of a rule (EMQX rule engine), and also local_topic is
 configured, then both the data got from the rule and the MQTT messages that match local_topic
 will be forwarded."""
 

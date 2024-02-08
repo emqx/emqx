@@ -45,7 +45,7 @@ socket_receive_buffer.label:
 """Socket Receive Buffer Size"""
 
 socket_tcp_keepalive.desc:
-"""Enable TCP keepalive for Azure Event Hubs bridge connections.
+"""Enable TCP keepalive.
 The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
  - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
  - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
@@ -111,24 +111,25 @@ max_batch_bytes.label:
 """Max Batch Bytes"""
 
 required_acks.desc:
-"""Required acknowledgements for Azure Event Hubs partition leader to wait for its followers before it sends back the acknowledgement to EMQX Azure Event Hubs producer
+"""The acknowledgement criteria for the partition leader. It determines the level of confirmation required from partition replicas before sending an acknowledgement back to the producer.
 
 <code>all_isr</code>: Require all in-sync replicas to acknowledge.
-<code>leader_only</code>: Require only the partition-leader's acknowledgement."""
+<code>leader_only</code>: Require only the partition-leader's acknowledgement.
+<code>none</code>: No need for Kafka to acknowledge at all."""
 
 required_acks.label:
 """Required Acks"""
 
 kafka_headers.desc:
-"""Please provide a placeholder to be used as Azure Event Hubs Headers<br/>
+"""Provide a placeholder for message headers<br/>
 e.g. <code>${pub_props}</code><br/>
-Notice that the value of the placeholder must either be an object:
+Note that the value of the placeholder must be either an object:
 <code>{\"foo\": \"bar\"}</code>
 or an array of key-value pairs:
 <code>[{\"key\": \"foo\", \"value\": \"bar\"}]</code>"""
 
 kafka_headers.label:
-"""Azure Event Hubs Headers"""
+"""Message Headers"""
 
 producer_kafka_ext_headers.desc:
 """Please provide more key-value pairs for Azure Event Hubs headers<br/>
@@ -145,19 +146,19 @@ producer_kafka_ext_header_key.label:
 """Azure Event Hubs extra header key."""
 
 producer_kafka_ext_header_value.desc:
-"""Value of the Azure Event Hubs header. Placeholders in format of ${var} are supported."""
+"""Value of the header. Placeholders in format of ${var} are supported."""
 
 producer_kafka_ext_header_value.label:
-"""Value"""
+"""Extra Headers Value"""
 
 kafka_header_value_encode_mode.desc:
-"""Azure Event Hubs headers value encode mode<br/>
- - NONE: only add binary values to Azure Event Hubs headers;<br/>
- - JSON: only add JSON values to Azure Event Hubs headers,
-and encode it to JSON strings before sending."""
+"""The encoding mode for headers.
+
+ - `none`: Add only strings are added as header values
+ - `json`: Encode header values as JSON string"""
 
 kafka_header_value_encode_mode.label:
-"""Azure Event Hubs headers value encode mode"""
+"""Headers value encode mode"""
 
 metadata_request_timeout.desc:
 """Maximum wait time when fetching metadata from Azure Event Hubs."""
@@ -166,10 +167,10 @@ metadata_request_timeout.label:
 """Metadata Request Timeout"""
 
 desc_type.desc:
-"""The Bridge Type"""
+"""The action type."""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 socket_nodelay.desc:
 """When set to 'true', TCP buffer is sent as soon as possible. Otherwise, the OS kernel may buffer small TCP packets for a while (40 ms by default)."""
@@ -214,7 +215,7 @@ auth_sasl_mechanism.label:
 """Mechanism"""
 
 config_enable.desc:
-"""Enable (true) or disable (false) this bridge."""
+"""Enable (true) or disable (false) this config."""
 
 config_enable.label:
 """Enable or Disable"""
@@ -226,7 +227,7 @@ desc_config.label:
 """Azure Event Hubs Bridge Configuration"""
 
 buffer_per_partition_limit.desc:
-"""Number of bytes allowed to buffer for each Azure Event Hubs partition. When this limit is exceeded, old messages will be dropped in a trade for credits for new messages to be buffered."""
+"""Number of bytes allowed to buffer for each partition. When this limit is exceeded, older messages will be discarded to make room for new messages to be buffered."""
 
 buffer_per_partition_limit.label:
 """Per-partition Buffer Limit"""
@@ -238,19 +239,19 @@ bootstrap_hosts.label:
 """Bootstrap Hosts"""
 
 kafka_message_key.desc:
-"""Template to render Azure Event Hubs message key. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Azure Event Hubs's <code>NULL</code> (but not empty string) is used."""
+"""Template for rendering message key. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then <code>NULL</code> (but not empty string) is used."""
 
 kafka_message_key.label:
 """Message Key"""
 
 kafka_message.desc:
-"""Template to render an Azure Event Hubs message."""
+"""Template for rendering a message."""
 
 kafka_message.label:
 """Azure Event Hubs Message Template"""
 
 mqtt_topic.desc:
-"""MQTT topic or topic filter as data source (bridge input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Azure Event Hubs."""
+"""MQTT topic or topic filter as data source (action input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Azure Event Hubs."""
 
 mqtt_topic.label:
 """Source MQTT Topic"""
@@ -262,29 +263,31 @@ kafka_message_value.label:
 """Message Value"""
 
 partition_strategy.desc:
-"""Partition strategy is to tell the producer how to dispatch messages to Azure Event Hubs partitions.
+"""Partition strategy is to tell the producer how to dispatch messages to partitions.
 
-<code>random</code>: Randomly pick a partition for each message
-<code>key_dispatch</code>: Hash Azure Event Hubs message key to a partition number"""
+<code>random</code>: Randomly pick a partition for each message.
+<code>key_dispatch</code>: Assigns messages to partitions based on a hash of the message key,
+ensuring consistent partition for messages with the same key."""
 
 partition_strategy.label:
 """Partition Strategy"""
 
 buffer_segment_bytes.desc:
 """Applicable when buffer mode is set to <code>disk</code> or <code>hybrid</code>.
-This value is to specify the size of each on-disk buffer file."""
+This setting specifies the size of each buffer segment file stored on disk."""
 
 buffer_segment_bytes.label:
 """Segment File Bytes"""
 
 max_inflight.desc:
-"""Maximum number of batches allowed for Azure Event Hubs producer (per-partition) to send before receiving acknowledgement from Azure Event Hubs. Greater value typically means better throughput. However, there can be a risk of message reordering when this value is greater than 1."""
+"""The maximum number of message batches that the producer can send to each partition before it must wait for an acknowledgement.
+Setting a higher number can enhance throughput. However, value above 1 may lead to potential message reordering risks."""
 
 max_inflight.label:
 """Max Inflight"""
 
 compression.desc:
-"""Compression method."""
+"""Specify the method of compression."""
 
 compression.label:
 """Compression"""

@@ -16,33 +16,33 @@ command_template.label:
 """Redis Command Template"""
 
 config_enable.desc:
-"""Enable or disable this bridge"""
+"""Enable or disable this action ."""
 
 config_enable.label:
-"""Enable Or Disable Bridge"""
+"""Enable Or Disable Action"""
 
 desc_config.desc:
-"""Configuration for a Redis bridge."""
+"""Configuration for a Redis action."""
 
 desc_config.label:
-"""Redis Bridge Configuration"""
+"""Redis Action Configuration"""
 
 desc_name.desc:
-"""Bridge name, used as a human-readable description of the bridge."""
+"""Action name, used as a human-readable identifier."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
-"""The Bridge Type"""
+"""The Action Type"""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 desc_local_topic.desc:
 """The MQTT topic filter to be forwarded to Redis. All MQTT 'PUBLISH' messages with the topic
 matching the local_topic will be forwarded.<br/>
-NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
+NOTE: If this action is used as the action of a rule (EMQX rule engine), and also local_topic is
 configured, then both the data got from the rule and the MQTT messages that match local_topic
 will be forwarded."""
 
