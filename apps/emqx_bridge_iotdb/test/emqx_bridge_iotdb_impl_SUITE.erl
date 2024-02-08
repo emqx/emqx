@@ -165,7 +165,8 @@ bridge_config(TestCase, Config) ->
                 Version
             ]
         ),
-    {Name, ConfigString, emqx_bridge_v2_testlib:parse_and_check(Type, Name, ConfigString)}.
+    {ok, InnerConfigMap} = hocon:binary(ConfigString),
+    {Name, ConfigString, emqx_bridge_v2_testlib:parse_and_check(Type, Name, InnerConfigMap)}.
 
 make_iotdb_payload(DeviceId, Measurement, Type, Value) ->
     #{

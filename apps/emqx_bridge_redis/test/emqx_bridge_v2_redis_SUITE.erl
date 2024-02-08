@@ -259,10 +259,7 @@ serde_roundtrip(InnerConfigMap0) ->
     InnerConfigMap.
 
 parse_and_check_bridge_config(InnerConfigMap, Name) ->
-    TypeBin = ?BRIDGE_TYPE_BIN,
-    RawConf = #{<<"bridges">> => #{TypeBin => #{Name => InnerConfigMap}}},
-    hocon_tconf:check_plain(emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}),
-    InnerConfigMap.
+    emqx_bridge_v2_testlib:parse_and_check(?BRIDGE_TYPE_BIN, Name, InnerConfigMap).
 
 make_message() ->
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
