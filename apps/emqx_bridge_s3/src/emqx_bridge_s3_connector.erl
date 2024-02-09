@@ -46,7 +46,7 @@
 }.
 
 -type state() :: #{
-    pool_name => resource_id(),
+    pool_name := resource_id(),
     pool_pid => pid(),
     client_config := emqx_s3_client:config(),
     channels := #{channel_id() => channel_state()}

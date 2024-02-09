@@ -56,13 +56,7 @@ fields("config_connector") ->
     lists:append([
         emqx_connector_schema:common_fields(),
         fields(s3_connector_config),
-        [
-            {resource_opts,
-                hoconsc:mk(
-                    ?R_REF(s3_connector_resource_opts),
-                    emqx_resource_schema:resource_opts_meta()
-                )}
-        ]
+        emqx_connector_schema:resource_opts_ref(?MODULE, s3_connector_resource_opts)
     ]);
 fields(?ACTION) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
