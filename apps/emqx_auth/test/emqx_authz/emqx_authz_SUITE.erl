@@ -561,7 +561,7 @@ t_publish_last_will_testament_banned_client_connecting(_Config) ->
 
     %% Now we ban the client while it is connected.
     Now = erlang:system_time(second),
-    Who = {username, Username},
+    Who = emqx_banned:who(username, Username),
     emqx_banned:create(#{
         who => Who,
         by => <<"test">>,

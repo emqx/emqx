@@ -40,6 +40,8 @@ t_create(_Config) ->
     By = <<"banned suite测试组"/utf8>>,
     Reason = <<"test测试"/utf8>>,
     As = <<"clientid">>,
+
+    %% ban by clientid
     ClientIdBanned = #{
         as => As,
         who => ClientId,
@@ -60,6 +62,8 @@ t_create(_Config) ->
         },
         ClientIdBannedRes
     ),
+
+    %% ban by peerhost
     PeerHost = <<"192.168.2.13">>,
     PeerHostBanned = #{
         as => <<"peerhost">>,
@@ -81,9 +85,88 @@ t_create(_Config) ->
         },
         PeerHostBannedRes
     ),
+
+    %% ban by username RE
+    UsernameRE = <<"BannedUser.*">>,
+    UsernameREBanned = #{
+        as => <<"username_re">>,
+        who => UsernameRE,
+        by => By,
+        reason => Reason,
+        at => At,
+        until => Until
+    },
+    {ok, UsernameREBannedRes} = create_banned(UsernameREBanned),
+    ?assertEqual(
+        #{
+            <<"as">> => <<"username_re">>,
+            <<"at">> => At,
+            <<"by">> => By,
+            <<"reason">> => Reason,
+            <<"until">> => Until,
+            <<"who">> => UsernameRE
+        },
+        UsernameREBannedRes
+    ),
+
+    %% ban by clientid RE
+    ClientIdRE = <<"BannedClient.*">>,
+    ClientIdREBanned = #{
+        as => <<"clientid_re">>,
+        who => ClientIdRE,
+        by => By,
+        reason => Reason,
+        at => At,
+        until => Until
+    },
+    {ok, ClientIdREBannedRes} = create_banned(ClientIdREBanned),
+    ?assertEqual(
+        #{
+            <<"as">> => <<"clientid_re">>,
+            <<"at">> => At,
+            <<"by">> => By,
+            <<"reason">> => Reason,
+            <<"until">> => Until,
+            <<"who">> => ClientIdRE
+        },
+        ClientIdREBannedRes
+    ),
+
+    %% ban by CIDR
+    PeerHostNet = <<"192.168.0.0/24">>,
+    PeerHostNetBanned = #{
+        as => <<"peerhost_net">>,
+        who => PeerHostNet,
+        by => By,
+        reason => Reason,
+        at => At,
+        until => Until
+    },
+    {ok, PeerHostNetBannedRes} = create_banned(PeerHostNetBanned),
+    ?assertEqual(
+        #{
+            <<"as">> => <<"peerhost_net">>,
+            <<"at">> => At,
+            <<"by">> => By,
+            <<"reason">> => Reason,
+            <<"until">> => Until,
+            <<"who">> => PeerHostNet
+        },
+        PeerHostNetBannedRes
+    ),
+
     {ok, #{<<"data">> := List}} = list_banned(),
     Bans = lists:sort(lists:map(fun(#{<<"who">> := W, <<"as">> := A}) -> {A, W} end, List)),
-    ?assertEqual([{<<"clientid">>, ClientId}, {<<"peerhost">>, PeerHost}], Bans),
+    ?assertEqual(
+        [
+            {<<"clientid">>, ClientId},
+            {<<"clientid_re">>, ClientIdRE},
+            {<<"peerhost">>, PeerHost},
+            {<<"peerhost_net">>, PeerHostNet},
+            {<<"username_re">>, UsernameRE}
+        ],
+        Bans
+    ),
 
     ClientId2 = <<"TestClient2"/utf8>>,
     ClientIdBanned2 = #{

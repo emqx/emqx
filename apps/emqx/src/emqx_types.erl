@@ -100,6 +100,7 @@
 
 -export_type([
     banned/0,
+    banned_who/0,
     command/0
 ]).
 
@@ -246,6 +247,14 @@
 }.
 
 -type banned() :: #banned{}.
+-type banned_who() ::
+    {clientid, binary()}
+    | {peerhost, inet:ip_address()}
+    | {username, binary()}
+    | {clientid_re, {_RE :: tuple(), binary()}}
+    | {username_re, {_RE :: tuple(), binary()}}
+    | {peerhost_net, esockd_cidr:cidr()}.
+
 -type deliver() :: {deliver, topic(), message()}.
 -type delivery() :: #delivery{}.
 -type deliver_result() :: ok | {ok, non_neg_integer()} | {error, term()}.
