@@ -114,6 +114,7 @@
             emqx_bridge_oracle,
             emqx_bridge_rabbitmq,
             emqx_bridge_azure_event_hub,
+            emqx_bridge_s3,
             emqx_schema_registry,
             emqx_eviction_agent,
             emqx_node_rebalance,
