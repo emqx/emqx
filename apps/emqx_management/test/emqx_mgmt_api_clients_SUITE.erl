@@ -18,10 +18,27 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {group, persistent_sessions}
+        | AllTCs -- persistent_session_testcases()
+    ].
+
+groups() ->
+    [{persistent_sessions, persistent_session_testcases()}].
+
+persistent_session_testcases() ->
+    [
+        t_persistent_sessions1,
+        t_persistent_sessions2,
+        t_persistent_sessions3,
+        t_persistent_sessions4,
+        t_persistent_sessions5
+    ].
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
@@ -29,6 +46,33 @@ init_per_suite(Config) ->
 
 end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite().
+
+init_per_group(persistent_sessions, Config) ->
+    AppSpecs = [
+        {emqx, "session_persistence.enable = true"},
+        emqx_management
+    ],
+    Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(
+        "dashboard.listeners.http { enable = true, bind = 18084 }"
+    ),
+    Cluster = [
+        {emqx_mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
+        {emqx_mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
+    ],
+    Nodes = emqx_cth_cluster:start(
+        Cluster,
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{nodes, Nodes} | Config];
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(persistent_sessions, Config) ->
+    Nodes = ?config(nodes, Config),
+    emqx_cth_cluster:stop(Nodes),
+    ok;
+end_per_group(_Group, _Config) ->
+    ok.
 
 t_clients(_) ->
     process_flag(trap_exit, true),
@@ -170,6 +214,290 @@ t_clients(_) ->
     timer:sleep(300),
     AfterKickoutResponse1 = emqx_mgmt_api_test_util:request_api(get, Client1Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse1).
+
+t_persistent_sessions1(Config) ->
+    [N1, _N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := []}}}, list_request(APIPort)),
+
+    ?check_trace(
+        begin
+            %% Scenario 1
+            %% 1) Client connects and is listed as connected.
+            ?tp(notice, "scenario 1", #{}),
+            O = #{api_port => APIPort},
+            ClientId = <<"c1">>,
+            C1 = connect_client(#{port => Port1, clientid => ClientId}),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
+            %% 2) Client disconnects and is listed as disconnected.
+            ok = emqtt:disconnect(C1),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => disconnected}),
+            %% 3) Client reconnects and is listed as connected.
+            C2 = connect_client(#{port => Port1, clientid => ClientId}),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
+            %% 4) Client disconnects.
+            ok = emqtt:stop(C2),
+            %% 5) Session is GC'ed, client is removed from list.
+            ?tp(notice, "gc", #{}),
+            %% simulate GC
+            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, #{<<"data">> := []}}},
+                    list_request(APIPort)
+                )
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_persistent_sessions2(Config) ->
+    [N1, _N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := []}}}, list_request(APIPort)),
+
+    ?check_trace(
+        begin
+            %% Scenario 2
+            %% 1) Client connects and is listed as connected.
+            ?tp(notice, "scenario 2", #{}),
+            O = #{api_port => APIPort},
+            ClientId = <<"c2">>,
+            C1 = connect_client(#{port => Port1, clientid => ClientId}),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
+            unlink(C1),
+            %% 2) Client connects to the same node and takes over, listed only once.
+            C2 = connect_client(#{port => Port1, clientid => ClientId}),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
+            ok = emqtt:stop(C2),
+            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, #{<<"data">> := []}}},
+                    list_request(APIPort)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_persistent_sessions3(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := []}}}, list_request(APIPort)),
+
+    ?check_trace(
+        begin
+            %% Scenario 3
+            %% 1) Client connects and is listed as connected.
+            ?tp(notice, "scenario 3", #{}),
+            O = #{api_port => APIPort},
+            ClientId = <<"c3">>,
+            C1 = connect_client(#{port => Port1, clientid => ClientId}),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
+            unlink(C1),
+            %% 2) Client connects to *another node* and takes over, listed only once.
+            C2 = connect_client(#{port => Port2, clientid => ClientId}),
+            assert_single_client(O#{node => N2, clientid => ClientId, status => connected}),
+            %% Doesn't show up in the other node while alive
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, #{<<"data">> := []}}},
+                    list_request(APIPort, "node=" ++ atom_to_list(N1))
+                )
+            ),
+            ok = emqtt:stop(C2),
+            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_persistent_sessions4(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := []}}}, list_request(APIPort)),
+
+    ?check_trace(
+        begin
+            %% Scenario 4
+            %% 1) Client connects and is listed as connected.
+            ?tp(notice, "scenario 4", #{}),
+            O = #{api_port => APIPort},
+            ClientId = <<"c4">>,
+            C1 = connect_client(#{port => Port1, clientid => ClientId}),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
+            %% 2) Client disconnects and is listed as disconnected.
+            ok = emqtt:stop(C1),
+            %% While disconnected, shows up in both nodes.
+            assert_single_client(O#{node => N1, clientid => ClientId, status => disconnected}),
+            assert_single_client(O#{node => N2, clientid => ClientId, status => disconnected}),
+            %% 3) Client reconnects to *another node* and is listed as connected once.
+            C2 = connect_client(#{port => Port2, clientid => ClientId}),
+            assert_single_client(O#{node => N2, clientid => ClientId, status => connected}),
+            %% Doesn't show up in the other node while alive
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, #{<<"data">> := []}}},
+                    list_request(APIPort, "node=" ++ atom_to_list(N1))
+                )
+            ),
+            ok = emqtt:stop(C2),
+            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_persistent_sessions5(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := []}}}, list_request(APIPort)),
+
+    ?check_trace(
+        begin
+            %% Pagination with mixed clients
+            ClientId1 = <<"c5">>,
+            ClientId2 = <<"c6">>,
+            ClientId3 = <<"c7">>,
+            ClientId4 = <<"c8">>,
+            %% persistent
+            C1 = connect_client(#{port => Port1, clientid => ClientId1}),
+            C2 = connect_client(#{port => Port2, clientid => ClientId2}),
+            %% in-memory
+            C3 = connect_client(#{
+                port => Port1, clientid => ClientId3, expiry => 0, clean_start => true
+            }),
+            C4 = connect_client(#{
+                port => Port2, clientid => ClientId4, expiry => 0, clean_start => true
+            }),
+
+            P1 = list_request(APIPort, "limit=3&page=1"),
+            P2 = list_request(APIPort, "limit=3&page=2"),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"data">> := [_, _, _],
+                        <<"meta">> := #{
+                            %% TODO: if/when we fix the persistent session count, this
+                            %% should be 4.
+                            <<"count">> := 6,
+                            <<"hasnext">> := true
+                        }
+                    }}},
+                P1
+            ),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"data">> := [_],
+                        <<"meta">> := #{
+                            %% TODO: if/when we fix the persistent session count, this
+                            %% should be 4.
+                            <<"count">> := 6,
+                            <<"hasnext">> := false
+                        }
+                    }}},
+                P2
+            ),
+            {ok, {_, _, #{<<"data">> := R1}}} = P1,
+            {ok, {_, _, #{<<"data">> := R2}}} = P2,
+            ?assertEqual(
+                lists:sort([ClientId1, ClientId2, ClientId3, ClientId4]),
+                lists:sort(lists:map(fun(#{<<"clientid">> := CId}) -> CId end, R1 ++ R2))
+            ),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"data">> := [_, _],
+                        <<"meta">> := #{
+                            %% TODO: if/when we fix the persistent session count, this
+                            %% should be 4.
+                            <<"count">> := 6,
+                            <<"hasnext">> := true
+                        }
+                    }}},
+                list_request(APIPort, "limit=2&page=1")
+            ),
+            %% Disconnect persistent sessions
+            lists:foreach(fun emqtt:stop/1, [C1, C2]),
+
+            P3 =
+                ?retry(200, 10, begin
+                    P3_ = list_request(APIPort, "limit=3&page=1"),
+                    ?assertMatch(
+                        {ok,
+                            {{_, 200, _}, _, #{
+                                <<"data">> := [_, _, _],
+                                <<"meta">> := #{
+                                    <<"count">> := 4,
+                                    <<"hasnext">> := true
+                                }
+                            }}},
+                        P3_
+                    ),
+                    P3_
+                end),
+            P4 =
+                ?retry(200, 10, begin
+                    P4_ = list_request(APIPort, "limit=3&page=2"),
+                    ?assertMatch(
+                        {ok,
+                            {{_, 200, _}, _, #{
+                                <<"data">> := [_],
+                                <<"meta">> := #{
+                                    <<"count">> := 4,
+                                    <<"hasnext">> := false
+                                }
+                            }}},
+                        P4_
+                    ),
+                    P4_
+                end),
+            {ok, {_, _, #{<<"data">> := R3}}} = P3,
+            {ok, {_, _, #{<<"data">> := R4}}} = P4,
+            ?assertEqual(
+                lists:sort([ClientId1, ClientId2, ClientId3, ClientId4]),
+                lists:sort(lists:map(fun(#{<<"clientid">> := CId}) -> CId end, R3 ++ R4))
+            ),
+
+            lists:foreach(fun emqtt:stop/1, [C3, C4]),
+
+            ok
+        end,
+        []
+    ),
+    ok.
 
 t_clients_bad_value_type(_) ->
     %% get /clients
@@ -442,3 +770,111 @@ time_string_to_epoch(DateTime, Unit) when is_binary(DateTime) ->
                 binary_to_list(DateTime), [{unit, Unit}]
             )
     end.
+
+get_mqtt_port(Node, Type) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
+    Port.
+
+request(Method, Path, Params) ->
+    request(Method, Path, Params, _QueryParams = "").
+
+request(Method, Path, Params, QueryParams) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    case emqx_mgmt_api_test_util:request_api(Method, Path, QueryParams, AuthHeader, Params, Opts) of
+        {ok, {Status, Headers, Body0}} ->
+            Body = maybe_json_decode(Body0),
+            {ok, {Status, Headers, Body}};
+        {error, {Status, Headers, Body0}} ->
+            Body =
+                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                    {ok, Decoded0 = #{<<"message">> := Msg0}} ->
+                        Msg = maybe_json_decode(Msg0),
+                        Decoded0#{<<"message">> := Msg};
+                    {ok, Decoded0} ->
+                        Decoded0;
+                    {error, _} ->
+                        Body0
+                end,
+            {error, {Status, Headers, Body}};
+        Error ->
+            Error
+    end.
+
+maybe_json_decode(X) ->
+    case emqx_utils_json:safe_decode(X, [return_maps]) of
+        {ok, Decoded} -> Decoded;
+        {error, _} -> X
+    end.
+
+list_request(Port) ->
+    list_request(Port, _QueryParams = "").
+
+list_request(Port, QueryParams) ->
+    Host = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["clients"]),
+    request(get, Path, [], QueryParams).
+
+lookup_request(ClientId) ->
+    lookup_request(ClientId, 18083).
+
+lookup_request(ClientId, Port) ->
+    Host = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["clients", ClientId]),
+    request(get, Path, []).
+
+assert_single_client(Opts) ->
+    #{
+        api_port := APIPort,
+        clientid := ClientId,
+        node := Node,
+        status := Connected
+    } = Opts,
+    IsConnected =
+        case Connected of
+            connected -> true;
+            disconnected -> false
+        end,
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, {{_, 200, _}, _, #{<<"data">> := [#{<<"connected">> := IsConnected}]}}},
+            list_request(APIPort)
+        )
+    ),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, {{_, 200, _}, _, #{<<"data">> := [#{<<"connected">> := IsConnected}]}}},
+            list_request(APIPort, "node=" ++ atom_to_list(Node)),
+            #{node => Node}
+        )
+    ),
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, #{<<"connected">> := IsConnected}}},
+        lookup_request(ClientId, APIPort)
+    ),
+    ok.
+
+connect_client(Opts) ->
+    Defaults = #{
+        expiry => 30,
+        clean_start => false
+    },
+    #{
+        port := Port,
+        clientid := ClientId,
+        clean_start := CleanStart,
+        expiry := EI
+    } = maps:merge(Defaults, Opts),
+    {ok, C} = emqtt:start_link([
+        {port, Port},
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {clean_start, CleanStart},
+        {properties, #{'Session-Expiry-Interval' => EI}}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    C.

@@ -39,7 +39,13 @@
     parse_pager_params/1,
     parse_qstring/2,
     init_query_result/0,
-    accumulate_query_rows/4
+    init_query_state/5,
+    reset_query_state/1,
+    accumulate_query_rows/4,
+    finalize_query/2,
+    mark_complete/2,
+    format_query_result/3,
+    maybe_collect_total_from_tail_nodes/2
 ]).
 
 -ifdef(TEST).

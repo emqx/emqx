@@ -698,26 +698,13 @@ list_clients(QString) ->
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 Options = #{fast_total_counting => true},
-                emqx_mgmt_api:cluster_query(
-                    ?CHAN_INFO_TAB,
-                    QString,
-                    ?CLIENT_QSCHEMA,
-                    fun ?MODULE:qs2ms/2,
-                    fun ?MODULE:format_channel_info/2,
-                    Options
-                );
+                list_clients_cluster_query(QString, Options);
             Node0 ->
                 case emqx_utils:safe_to_existing_atom(Node0) of
                     {ok, Node1} ->
-                        QStringWithoutNode = maps:without([<<"node">>], QString),
-                        emqx_mgmt_api:node_query(
-                            Node1,
-                            ?CHAN_INFO_TAB,
-                            QStringWithoutNode,
-                            ?CLIENT_QSCHEMA,
-                            fun ?MODULE:qs2ms/2,
-                            fun ?MODULE:format_channel_info/2
-                        );
+                        QStringWithoutNode = maps:remove(<<"node">>, QString),
+                        Options = #{},
+                        list_clients_node_query(Node1, QStringWithoutNode, Options);
                     {error, _} ->
                         {error, Node0, {badrpc, <<"invalid node">>}}
                 end
@@ -851,6 +838,170 @@ do_unsubscribe(ClientID, Topic) ->
             Res
     end.
 
+list_clients_cluster_query(QString, Options) ->
+    case emqx_mgmt_api:parse_pager_params(QString) of
+        false ->
+            {error, page_limit_invalid};
+        Meta = #{} ->
+            try
+                {_CodCnt, NQString} = emqx_mgmt_api:parse_qstring(QString, ?CLIENT_QSCHEMA),
+                Nodes = emqx:running_nodes(),
+                ResultAcc = emqx_mgmt_api:init_query_result(),
+                QueryState = emqx_mgmt_api:init_query_state(
+                    ?CHAN_INFO_TAB, NQString, fun ?MODULE:qs2ms/2, Meta, Options
+                ),
+                Res = do_list_clients_cluster_query(Nodes, QueryState, ResultAcc),
+                emqx_mgmt_api:format_query_result(fun ?MODULE:format_channel_info/2, Meta, Res)
+            catch
+                throw:{bad_value_type, {Key, ExpectedType, AcutalValue}} ->
+                    {error, invalid_query_string_param, {Key, ExpectedType, AcutalValue}}
+            end
+    end.
+
+%% adapted from `emqx_mgmt_api:do_cluster_query'
+do_list_clients_cluster_query(
+    [Node | Tail] = Nodes,
+    QueryState0,
+    ResultAcc
+) ->
+    case emqx_mgmt_api:do_query(Node, QueryState0) of
+        {error, Error} ->
+            {error, Node, Error};
+        {Rows, QueryState1 = #{complete := Complete0}} ->
+            case emqx_mgmt_api:accumulate_query_rows(Node, Rows, QueryState1, ResultAcc) of
+                {enough, NResultAcc} ->
+                    %% TODO: add persistent session count?
+                    %% TODO: this may return `{error, _, _}'...
+                    QueryState2 = emqx_mgmt_api:maybe_collect_total_from_tail_nodes(
+                        Tail, QueryState1
+                    ),
+                    QueryState = add_persistent_session_count(QueryState2),
+                    Complete = Complete0 andalso Tail =:= [] andalso no_persistent_sessions(),
+                    emqx_mgmt_api:finalize_query(
+                        NResultAcc, emqx_mgmt_api:mark_complete(QueryState, Complete)
+                    );
+                {more, NResultAcc} when not Complete0 ->
+                    do_list_clients_cluster_query(Nodes, QueryState1, NResultAcc);
+                {more, NResultAcc} when Tail =/= [] ->
+                    do_list_clients_cluster_query(
+                        Tail, emqx_mgmt_api:reset_query_state(QueryState1), NResultAcc
+                    );
+                {more, NResultAcc} ->
+                    QueryState = add_persistent_session_count(QueryState1),
+                    do_persistent_session_query(NResultAcc, QueryState)
+            end
+    end.
+
+list_clients_node_query(Node, QString, Options) ->
+    case emqx_mgmt_api:parse_pager_params(QString) of
+        false ->
+            {error, page_limit_invalid};
+        Meta = #{} ->
+            {_CodCnt, NQString} = emqx_mgmt_api:parse_qstring(QString, ?CLIENT_QSCHEMA),
+            ResultAcc = emqx_mgmt_api:init_query_result(),
+            QueryState = emqx_mgmt_api:init_query_state(
+                ?CHAN_INFO_TAB, NQString, fun ?MODULE:qs2ms/2, Meta, Options
+            ),
+            Res = do_list_clients_node_query(Node, QueryState, ResultAcc),
+            emqx_mgmt_api:format_query_result(fun ?MODULE:format_channel_info/2, Meta, Res)
+    end.
+
+add_persistent_session_count(QueryState0 = #{total := Totals0}) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            %% TODO: currently, counting persistent sessions can be not only costly (needs
+            %% to traverse the whole table), but also hard to deduplicate live connections
+            %% from it...  So this count will possibly overshoot the true count of
+            %% sessions.
+            SessionCount = emqx_persistent_session_ds_state:session_count(),
+            Totals = Totals0#{undefined => SessionCount},
+            QueryState0#{total := Totals};
+        false ->
+            QueryState0
+    end;
+add_persistent_session_count(QueryState) ->
+    QueryState.
+
+%% adapted from `emqx_mgmt_api:do_node_query'
+do_list_clients_node_query(
+    Node,
+    QueryState,
+    ResultAcc
+) ->
+    case emqx_mgmt_api:do_query(Node, QueryState) of
+        {error, Error} ->
+            {error, Node, Error};
+        {Rows, NQueryState = #{complete := Complete}} ->
+            case emqx_mgmt_api:accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
+                {enough, NResultAcc} ->
+                    FComplete = Complete andalso no_persistent_sessions(),
+                    emqx_mgmt_api:finalize_query(
+                        NResultAcc, emqx_mgmt_api:mark_complete(NQueryState, FComplete)
+                    );
+                {more, NResultAcc} when Complete ->
+                    do_persistent_session_query(NResultAcc, NQueryState);
+                {more, NResultAcc} ->
+                    do_list_clients_node_query(Node, NQueryState, NResultAcc)
+            end
+    end.
+
+init_persistent_session_iterator() ->
+    emqx_persistent_session_ds_state:make_session_iterator().
+
+no_persistent_sessions() ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            Cursor = init_persistent_session_iterator(),
+            case emqx_persistent_session_ds_state:session_iterator_next(Cursor, 1) of
+                {[], _} ->
+                    true;
+                _ ->
+                    false
+            end;
+        false ->
+            true
+    end.
+
+do_persistent_session_query(ResultAcc, QueryState) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            do_persistent_session_query1(
+                ResultAcc,
+                QueryState,
+                init_persistent_session_iterator()
+            );
+        false ->
+            emqx_mgmt_api:finalize_query(ResultAcc, QueryState)
+    end.
+
+do_persistent_session_query1(ResultAcc, QueryState, Iter0) ->
+    %% Since persistent session data is accessible from all nodes, there's no need to go
+    %% through all the nodes.
+    #{limit := Limit} = QueryState,
+    {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
+    Rows = remove_live_sessions(Rows0),
+    case emqx_mgmt_api:accumulate_query_rows(undefined, Rows, QueryState, ResultAcc) of
+        {enough, NResultAcc} ->
+            emqx_mgmt_api:finalize_query(NResultAcc, emqx_mgmt_api:mark_complete(QueryState, true));
+        {more, NResultAcc} when Iter =:= '$end_of_table' ->
+            emqx_mgmt_api:finalize_query(NResultAcc, emqx_mgmt_api:mark_complete(QueryState, true));
+        {more, NResultAcc} ->
+            do_persistent_session_query1(NResultAcc, QueryState, Iter)
+    end.
+
+remove_live_sessions(Rows) ->
+    lists:filtermap(
+        fun({ClientId, _Session}) ->
+            case emqx_mgmt:lookup_running_client(ClientId, _FormatFn = undefined) of
+                [] ->
+                    {true, {ClientId, emqx_persistent_session_ds_state:print_session(ClientId)}};
+                [_ | _] ->
+                    false
+            end
+        end,
+        Rows
+    ).
+
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
 
@@ -925,7 +1076,11 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} |
 %% format funcs
 
 format_channel_info(ChannInfo = {_, _ClientInfo, _ClientStats}) ->
-    format_channel_info(node(), ChannInfo).
+    %% channel info from ETS table (live and/or in-memory session)
+    format_channel_info(node(), ChannInfo);
+format_channel_info({ClientId, PSInfo}) ->
+    %% offline persistent session
+    format_persistent_session_info(ClientId, PSInfo).
 
 format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
     Node = maps:get(node, ClientInfo0, WhichNode),
@@ -983,7 +1138,29 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
             maps:without(RemoveList, ClientInfoMap),
             TimesKeys
         )
-    ).
+    );
+format_channel_info(undefined, {ClientId, PSInfo0 = #{}}) ->
+    format_persistent_session_info(ClientId, PSInfo0).
+
+format_persistent_session_info(ClientId, PSInfo0) ->
+    Metadata = maps:get(metadata, PSInfo0, #{}),
+    PSInfo1 = maps:with([created_at, expiry_interval], Metadata),
+    CreatedAt = maps:get(created_at, PSInfo1),
+    PSInfo2 = convert_expiry_interval_unit(PSInfo1),
+    PSInfo3 = PSInfo2#{
+        clientid => ClientId,
+        connected => false,
+        connected_at => CreatedAt,
+        ip_address => undefined,
+        is_persistent => true,
+        port => undefined
+    },
+    PSInfo = lists:foldl(
+        fun result_format_time_fun/2,
+        PSInfo3,
+        [created_at, connected_at]
+    ),
+    result_format_undefined_to_null(PSInfo).
 
 %% format func helpers
 take_maps_from_inner(_Key, Value, Current) when is_map(Value) ->

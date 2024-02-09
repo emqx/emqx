@@ -66,6 +66,9 @@
     do_kickout_clients/1
 ]).
 
+%% Internal exports
+-export([lookup_running_client/2]).
+
 %% Internal functions
 -export([do_call_client/2]).
 
@@ -314,10 +317,16 @@ nodes_info_count(PropList) ->
 %%--------------------------------------------------------------------
 
 lookup_client({clientid, ClientId}, FormatFun) ->
-    lists:append([
-        lookup_client(Node, {clientid, ClientId}, FormatFun)
-     || Node <- emqx:running_nodes()
-    ]);
+    IsPersistenceEnabled = emqx_persistent_message:is_persistence_enabled(),
+    case lookup_running_client(ClientId, FormatFun) of
+        [] when IsPersistenceEnabled ->
+            case emqx_persistent_session_ds_state:print_session(ClientId) of
+                undefined -> [];
+                Session -> [maybe_format(FormatFun, {ClientId, Session})]
+            end;
+        Res ->
+            Res
+    end;
 lookup_client({username, Username}, FormatFun) ->
     lists:append([
         lookup_client(Node, {username, Username}, FormatFun)
@@ -632,6 +641,16 @@ create_banned(Banned) ->
 
 delete_banned(Who) ->
     emqx_banned:delete(Who).
+
+%%--------------------------------------------------------------------
+%% Internal exports
+%%--------------------------------------------------------------------
+
+lookup_running_client(ClientId, FormatFun) ->
+    lists:append([
+        lookup_client(Node, {clientid, ClientId}, FormatFun)
+     || Node <- emqx:running_nodes()
+    ]).
 
 %%--------------------------------------------------------------------
 %% Internal Functions.
