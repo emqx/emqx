@@ -2007,14 +2007,15 @@ merge_default_subopts(SubOpts) ->
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps
 
-enrich_connack_caps(
-    AckProps,
-    ?IS_MQTT_V5 = #channel{
+enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
+    #channel{
         clientinfo = #{
             zone := Zone
+        },
+        conninfo = #{
+            receive_maximum := ReceiveMaximum
         }
-    }
-) ->
+    } = Channel,
     #{
         max_packet_size := MaxPktSize,
         max_qos_allowed := MaxQoS,
@@ -2029,7 +2030,8 @@ enrich_connack_caps(
         'Topic-Alias-Maximum' => MaxAlias,
         'Wildcard-Subscription-Available' => flag(Wildcard),
         'Subscription-Identifier-Available' => 1,
-        'Shared-Subscription-Available' => flag(Shared)
+        'Shared-Subscription-Available' => flag(Shared),
+        'Receive-Maximum' => ReceiveMaximum
     },
     %% MQTT 5.0 - 3.2.2.3.4:
     %% It is a Protocol Error to include Maximum QoS more than once,
