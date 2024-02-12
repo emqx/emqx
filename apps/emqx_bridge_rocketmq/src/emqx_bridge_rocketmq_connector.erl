@@ -110,11 +110,6 @@ on_start(
         client_id => ClientId,
         acl_info => ACLInfo,
         installed_channels => #{}
-        % topic => Topic,
-        % topic_tokens => TopicTks,
-        % sync_timeout => SyncTimeout,
-        % templates => Templates,
-        % producers_opts => ProducerOpts
     },
 
     ok = emqx_resource:allocate_resource(InstanceId, client_id, ClientId),

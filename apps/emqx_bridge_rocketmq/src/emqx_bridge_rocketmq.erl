@@ -64,8 +64,6 @@ conn_bridge_example_values(post) ->
 conn_bridge_example_values(put) ->
     conn_bridge_example_values(post).
 
-%% TODO fix these examples
-
 connector_examples(Method) ->
     [
         #{
@@ -226,8 +224,6 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for RocketMQ using `", string:to_upper(Method), "` method."];
-desc("creation_opts") ->
-    ?DESC(emqx_resource_schema, "creation_opts");
 desc("config_connector") ->
     ?DESC("config_connector");
 desc(rocketmq_action) ->
