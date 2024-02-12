@@ -12,7 +12,7 @@
     schema_module/0
 ]).
 
-action_type_name() -> s3_upload.
+action_type_name() -> s3.
 
 connector_type_name() -> s3.
 

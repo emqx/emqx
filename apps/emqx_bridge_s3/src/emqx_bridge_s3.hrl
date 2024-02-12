@@ -5,7 +5,7 @@
 -ifndef(__EMQX_BRIDGE_S3_HRL__).
 -define(__EMQX_BRIDGE_S3_HRL__, true).
 
--define(ACTION, s3_upload).
+-define(ACTION, s3).
 -define(CONNECTOR, s3).
 
 -endif.

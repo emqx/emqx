@@ -101,6 +101,8 @@ fields(s3_connector_resource_opts) ->
 
 desc("config_connector") ->
     ?DESC(config_connector);
+desc(?ACTION) ->
+    ?DESC(s3_upload);
 desc(s3_upload) ->
     ?DESC(s3_upload);
 desc(s3_upload_parameters) ->
