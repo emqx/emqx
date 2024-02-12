@@ -38,10 +38,9 @@
     delete_banned/2
 ]).
 
--define(TAB, emqx_banned).
 -define(TAGS, [<<"Banned">>]).
 
--define(BANNED_TYPES, [clientid, username, peerhost]).
+-define(BANNED_TYPES, [clientid, username, peerhost, clientid_re, username_re, peerhost_net]).
 
 -define(FORMAT_FUN, {?MODULE, format}).
 
@@ -161,7 +160,7 @@ fields(ban) ->
     ].
 
 banned(get, #{query_string := Params}) ->
-    Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),
+    Response = emqx_mgmt_api:paginate(emqx_banned:tables(), Params, ?FORMAT_FUN),
     {200, Response};
 banned(post, #{body := Body}) ->
     case emqx_banned:parse(Body) of

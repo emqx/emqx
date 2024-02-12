@@ -79,17 +79,19 @@
 }.
 
 -type query_return() :: #{meta := map(), data := [term()]}.
+-type table_name() :: atom().
+-type table_names() :: [table_name()].
 
 -export([do_query/2, apply_total_query/1]).
 
--spec paginate(atom(), map(), {atom(), atom()}) ->
+-spec paginate(table_name() | table_names(), map(), {atom(), atom()}) ->
     #{
         meta => #{page => pos_integer(), limit => pos_integer(), count => pos_integer()},
         data => list(term())
     }.
-paginate(Table, Params, {Module, FormatFun}) ->
-    Qh = query_handle(Table),
-    Count = count(Table),
+paginate(Tables, Params, {Module, FormatFun}) ->
+    Qh = query_handle(Tables),
+    Count = count(Tables),
     do_paginate(Qh, Count, Params, {Module, FormatFun}).
 
 do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
@@ -110,9 +112,13 @@ do_paginate(Qh, Count, Params, {Module, FormatFun}) ->
         data => [erlang:apply(Module, FormatFun, [Row]) || Row <- Rows]
     }.
 
+query_handle(Tables) when is_list(Tables) ->
+    qlc:append([query_handle(T) || T <- Tables]);
 query_handle(Table) ->
-    qlc:q([R || R <- ets:table(Table)]).
+    ets:table(Table).
 
+count(Tables) when is_list(Tables) ->
+    lists:sum([count(T) || T <- Tables]);
 count(Table) ->
     ets:info(Table, size).
 

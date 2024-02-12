@@ -698,7 +698,7 @@ t_deliver_when_banned(_) ->
     ),
 
     Now = erlang:system_time(second),
-    Who = {clientid, Client2},
+    Who = emqx_banned:who(clientid, Client2),
 
     emqx_banned:create(#{
         who => Who,
