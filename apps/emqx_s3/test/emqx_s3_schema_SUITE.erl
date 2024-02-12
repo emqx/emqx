@@ -132,7 +132,7 @@ t_sensitive_config_no_leak(_Config) ->
             Error = #{
                 kind := validation_error,
                 path := "s3.secret_access_key",
-                reason := {expected_type, string}
+                reason := invalid_type
             }
         ]} when map_size(Error) == 3,
         emqx_s3_schema:translate(

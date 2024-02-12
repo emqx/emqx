@@ -167,7 +167,9 @@ connector_type_to_bridge_types(greptimedb) ->
 connector_type_to_bridge_types(tdengine) ->
     [tdengine];
 connector_type_to_bridge_types(rabbitmq) ->
-    [rabbitmq].
+    [rabbitmq];
+connector_type_to_bridge_types(s3) ->
+    [s3].
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.
