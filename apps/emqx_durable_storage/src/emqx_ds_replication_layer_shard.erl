@@ -153,8 +153,9 @@ start_shard(DB, Shard) ->
     Servers = shard_servers(DB, Shard),
     case ra:restart_server(System, LocalServer) of
         ok ->
-            ok;
+            Bootstrap = false;
         {error, name_not_registered} ->
+            Bootstrap = true,
             ok = ra:start_server(System, #{
                 id => LocalServer,
                 uid => <<ClusterName/binary, "_", Site/binary>>,
@@ -172,7 +173,17 @@ start_shard(DB, Shard) ->
             %% is not really required otherwise.
             %% TODO
             %% Ensure that doing that on node restart does not disrupt consensus.
-            ok = ra:trigger_election(LocalServer);
+            %% Edit: looks like it doesn't, this could actually be quite useful
+            %% to "steal" leadership from nodes that have too much leader load.
+            try
+                ra:trigger_election(LocalServer, _Timeout = 1_000)
+            catch
+                %% TODO
+                %% Tolerating exceptions because server might be occupied with log
+                %% replay for a while.
+                exit:{timeout, _} when not Bootstrap ->
+                    ok
+            end;
         _ ->
             ok
     end,
