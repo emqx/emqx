@@ -196,8 +196,10 @@ run_simple_upload(
 
 map_error({socket_error, _} = Reason) ->
     {recoverable_error, Reason};
+map_error(Reason = {aws_error, Status, _, _Body}) when Status >= 500 ->
+    %% https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
+    {recoverable_error, Reason};
 map_error(Reason) ->
-    %% TODO: Recoverable errors.
     {unrecoverable_error, Reason}.
 
 render_bucket(Template, Data) ->
