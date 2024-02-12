@@ -128,6 +128,8 @@ connector_type_to_bridge_types(confluent_producer) ->
     [confluent_producer];
 connector_type_to_bridge_types(gcp_pubsub_producer) ->
     [gcp_pubsub, gcp_pubsub_producer];
+connector_type_to_bridge_types(hstreamdb) ->
+    [hstreamdb];
 connector_type_to_bridge_types(kafka_producer) ->
     [kafka, kafka_producer];
 connector_type_to_bridge_types(kinesis) ->

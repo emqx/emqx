@@ -28,6 +28,8 @@ resource_type(confluent_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(gcp_pubsub_producer) ->
     emqx_bridge_gcp_pubsub_impl_producer;
+resource_type(hstreamdb) ->
+    emqx_bridge_hstreamdb_connector;
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(kinesis) ->
@@ -119,6 +121,14 @@ connector_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_producer_schema, "config_connector")),
                 #{
                     desc => <<"GCP PubSub Producer Connector Config">>,
+                    required => false
+                }
+            )},
+        {hstreamdb,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_hstreamdb, "config_connector")),
+                #{
+                    desc => <<"HStreamDB Connector Config">>,
                     required => false
                 }
             )},
@@ -298,6 +308,7 @@ schema_modules() ->
         emqx_bridge_azure_event_hub,
         emqx_bridge_confluent_producer,
         emqx_bridge_gcp_pubsub_producer_schema,
+        emqx_bridge_hstreamdb,
         emqx_bridge_kafka,
         emqx_bridge_kinesis,
         emqx_bridge_matrix,
@@ -336,6 +347,7 @@ api_schemas(Method) ->
             <<"gcp_pubsub_producer">>,
             Method ++ "_connector"
         ),
+        api_ref(emqx_bridge_hstreamdb, <<"hstreamdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kinesis, <<"kinesis">>, Method ++ "_connector"),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
