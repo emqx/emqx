@@ -347,11 +347,8 @@ claim_site(Site, Node) ->
 %%================================================================================
 
 ensure_tables() ->
-    %% TODO: seems like it may introduce flakiness
-    Majority = false,
     ok = mria:create_table(?META_TAB, [
         {rlog_shard, ?SHARD},
-        {majority, Majority},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?META_TAB},
@@ -359,7 +356,6 @@ ensure_tables() ->
     ]),
     ok = mria:create_table(?NODE_TAB, [
         {rlog_shard, ?SHARD},
-        {majority, Majority},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?NODE_TAB},
@@ -367,7 +363,6 @@ ensure_tables() ->
     ]),
     ok = mria:create_table(?SHARD_TAB, [
         {rlog_shard, ?SHARD},
-        {majority, Majority},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?SHARD_TAB},
