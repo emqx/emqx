@@ -536,35 +536,35 @@ ra_drop_generation(DB, Shard, GenId) ->
     end.
 
 ra_get_streams(DB, Shard, TopicFilter, Time) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, Time).
 
 ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time).
 
 ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
 
 ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
 
 ra_update_iterator(DB, Shard, Iter, DSKey) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey).
 
 ra_next(DB, Shard, Iter, BatchSize) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize).
 
 ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
-    {_Name, Node} = ra_random_replica(DB, Shard),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:delete_next(Node, DB, Shard, Iter, Selector, BatchSize).
 
 ra_list_generations_with_lifetimes(DB, Shard) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, random_follower),
+    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard).
 
 ra_drop_shard(DB, Shard) ->

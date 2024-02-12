@@ -73,10 +73,8 @@ servers(DB, Shard, _Order = leader_preferred) ->
 servers(DB, Shard, _Order = undefined) ->
     get_shard_servers(DB, Shard).
 
-server(DB, Shard, _Which = random_follower) ->
-    pick_random_replica(DB, Shard);
-server(DB, Shard, _Which = local) ->
-    get_local_server(DB, Shard).
+server(DB, Shard, _Which = local_preferred) ->
+    get_server_local_preferred(DB, Shard).
 
 get_servers_leader_preferred(DB, Shard) ->
     %% NOTE: Contact last known leader first, then rest of shard servers.
@@ -90,31 +88,30 @@ get_servers_leader_preferred(DB, Shard) ->
             get_shard_servers(DB, Shard)
     end.
 
-pick_random_replica(DB, Shard) ->
+get_server_local_preferred(DB, Shard) ->
     %% NOTE: Contact random replica that is not a known leader.
     %% TODO: Replica may be down, so we may need to retry.
     ClusterName = get_cluster_name(DB, Shard),
     case ra_leaderboard:lookup_members(ClusterName) of
         Servers when is_list(Servers) ->
-            Leader = ra_leaderboard:lookup_leader(ClusterName),
-            pick_replica(Servers, Leader);
+            pick_local(Servers);
         undefined ->
             %% TODO
             %% Leader is unkonwn if there are no servers of this group on the
             %% local node. We want to pick a replica in that case as well.
             %% TODO: Dynamic membership.
-            pick_server(get_shard_servers(DB, Shard))
+            pick_random(get_shard_servers(DB, Shard))
     end.
 
-pick_replica(Servers, Leader) ->
-    case lists:delete(Leader, Servers) of
+pick_local(Servers) ->
+    case lists:dropwhile(fun({_Name, Node}) -> Node =/= node() end, Servers) of
+        [Local | _] ->
+            Local;
         [] ->
-            Leader;
-        Followers ->
-            pick_server(Followers)
+            pick_random(Servers)
     end.
 
-pick_server(Servers) ->
+pick_random(Servers) ->
     lists:nth(rand:uniform(length(Servers)), Servers).
 
 get_cluster_name(DB, Shard) ->
