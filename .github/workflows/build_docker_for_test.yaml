@@ -47,17 +47,17 @@ jobs:
         id: build
         run: |
           make ${EMQX_NAME}-docker
-          echo "EMQX_IMAGE_TAG=$(cat .docker_image_tag)" >> $GITHUB_ENV
+          echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
       - name: smoke test
         run: |
-          CID=$(docker run -d --rm -P $EMQX_IMAGE_TAG)
+          CID=$(docker run -d --rm -P $_EMQX_DOCKER_IMAGE_TAG)
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
           ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
           docker stop $CID
       - name: export docker image
         run: |
-          docker save $EMQX_IMAGE_TAG | gzip > $EMQX_NAME-docker-$PKG_VSN.tar.gz
-      - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
+          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip > $EMQX_NAME-docker-$PKG_VSN.tar.gz
+      - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
         with:
           name: "${{ env.EMQX_NAME }}-docker"
           path: "${{ env.EMQX_NAME }}-docker-${{ env.PKG_VSN }}.tar.gz"

@@ -10,15 +10,12 @@ on:
       profile:
         required: true
         type: string
-      version:
-        required: true
-        type: string
       latest:
         required: true
         type: string
       publish:
         required: true
-        type: string
+        type: boolean
       otp_vsn:
         required: true
         type: string
@@ -45,8 +42,6 @@ on:
         required: false
         type: string
         default: 'emqx'
-      version:
-        required: true
       latest:
         required: false
         type: boolean
@@ -72,8 +67,46 @@ permissions:
   contents: read
 
 jobs:
+  build:
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.arch)) || 'ubuntu-22.04' }}
+    container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ inputs.otp_vsn }}-debian11"
+    outputs:
+      PKG_VSN: ${{ steps.build.outputs.PKG_VSN }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - ${{ inputs.profile }}
+          - ${{ inputs.profile }}-elixir
+        arch:
+          - x64
+          - arm64
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ github.event.inputs.ref }}
+      - run: git config --global --add safe.directory "$PWD"
+      - name: build release tarball
+        id: build
+        run: |
+          make ${{ matrix.profile }}-tgz
+      - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: "${{ matrix.profile }}-${{ matrix.arch }}.tar.gz"
+          path: "_packages/emqx*/emqx-*.tar.gz"
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
+
   docker:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    needs:
+      - build
+    defaults:
+      run:
+        shell: bash
 
     strategy:
       fail-fast: false
@@ -83,81 +116,93 @@ jobs:
           - ${{ inputs.profile }}-elixir
 
     steps:
-    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      with:
-        ref: ${{ github.event.inputs.ref }}
-        fetch-depth: 0
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ github.event.inputs.ref }}
+      - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
+        with:
+          pattern: "${{ matrix.profile }}-*.tar.gz"
+          path: _packages
+          merge-multiple: true
 
-    - uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3.0.0
-    - uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+      - name: Move artifacts to root directory
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          ls -lR _packages/$PROFILE
+          mv _packages/$PROFILE/*.tar.gz ./
+      - name: Enable containerd image store on Docker Engine
+        run: |
+          echo "$(jq '. += {"features": {"containerd-snapshotter": true}}' /etc/docker/daemon.json)" > daemon.json
+          sudo mv daemon.json /etc/docker/daemon.json
+          sudo systemctl restart docker
 
-    - name: Login to hub.docker.com
-      uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
-      if: inputs.publish || github.repository_owner != 'emqx'
-      with:
-        username: ${{ secrets.DOCKER_HUB_USER }}
-        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+      - uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3.0.0
+      - uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
 
-    - name: Login to AWS ECR
-      uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
-      if: inputs.publish || github.repository_owner != 'emqx'
-      with:
-        registry: public.ecr.aws
-        username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        ecr: true
+      - name: Login to hub.docker.com
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        if: inputs.publish || github.repository_owner != 'emqx'
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-    - name: Build docker image
-      env:
-        PROFILE: ${{ matrix.profile }}
-        DOCKER_REGISTRY: 'docker.io,public.ecr.aws'
-        DOCKER_ORG: ${{ github.repository_owner }}
-        DOCKER_LATEST: ${{ inputs.latest }}
-        DOCKER_PUSH: false
-        DOCKER_BUILD_NOCACHE: true
-        DOCKER_PLATFORMS: linux/amd64,linux/arm64
-        DOCKER_LOAD: true
-        EMQX_RUNNER: 'public.ecr.aws/debian/debian:11-slim@sha256:22cfb3c06a7dd5e18d86123a73405664475b9d9fa209cbedcf4c50a25649cc74'
-        EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
-        PKG_VSN: ${{ inputs.version }}
-        EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
-        EMQX_BUILDER_OTP: ${{ inputs.otp_vsn }}
-        EMQX_BUILDER_ELIXIR: ${{ inputs.elixir_vsn }}
-        EMQX_SOURCE_TYPE: tgz
-      run: |
-        ./build ${PROFILE} docker
-        echo "Built tags:"
-        echo "==========="
-        cat .emqx_docker_image_tags
-        echo "==========="
-        echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
+      - name: Login to AWS ECR
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        if: inputs.publish || github.repository_owner != 'emqx'
+        with:
+          registry: public.ecr.aws
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ecr: true
 
-    - name: smoke test
-      timeout-minutes: 1
-      run: |
-        for tag in $(cat .emqx_docker_image_tags); do
-          CID=$(docker run -d -P $tag)
-          HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
-          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+      - name: Build docker image
+        env:
+          PROFILE: ${{ matrix.profile }}
+          DOCKER_REGISTRY: 'docker.io,public.ecr.aws'
+          DOCKER_ORG: ${{ github.repository_owner }}
+          DOCKER_LATEST: ${{ inputs.latest }}
+          DOCKER_PUSH: false
+          DOCKER_BUILD_NOCACHE: true
+          DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          DOCKER_LOAD: true
+          EMQX_RUNNER: 'public.ecr.aws/debian/debian:11-slim@sha256:22cfb3c06a7dd5e18d86123a73405664475b9d9fa209cbedcf4c50a25649cc74'
+          EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
+          PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
+          EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
+          EMQX_BUILDER_OTP: ${{ inputs.otp_vsn }}
+          EMQX_BUILDER_ELIXIR: ${{ inputs.elixir_vsn }}
+          EMQX_SOURCE_TYPE: tgz
+        run: |
+          ./build ${PROFILE} docker
+          cat .emqx_docker_image_tags
+          echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
+
+      - name: smoke test
+        timeout-minutes: 1
+        run: |
+          for tag in $(cat .emqx_docker_image_tags); do
+            CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
+            HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+            ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+            docker rm -f $CID
+          done
+      - name: dashboard tests
+        working-directory: ./scripts/ui-tests
+        timeout-minutes: 5
+        run: |
+          set -eu
+          docker compose up --abort-on-container-exit --exit-code-from selenium
+          docker compose rm -fsv
+      - name: test node_dump
+        run: |
+          CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
+          docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
+          docker exec -t -u root $CID node_dump
           docker rm -f $CID
-        done
-    - name: dashboard tests
-      working-directory: ./scripts/ui-tests
-      timeout-minutes: 5
-      run: |
-        set -eu
-        docker compose up --abort-on-container-exit --exit-code-from selenium
-        docker compose rm -fsv
-    - name: test node_dump
-      run: |
-        CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
-        docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
-        docker exec -t -u root $CID node_dump
-        docker rm -f $CID
-    - name: push images
-      if: inputs.publish || github.repository_owner != 'emqx'
-      run: |
-        for tag in $(cat .emqx_docker_image_tags); do
-          echo "Pushing tag $tag"
-          docker push $tag
-        done
+      - name: push images
+        if: inputs.publish || github.repository_owner != 'emqx'
+        run: |
+          for tag in $(cat .emqx_docker_image_tags); do
+            docker push $tag
+          done
