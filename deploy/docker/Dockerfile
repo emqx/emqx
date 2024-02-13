@@ -1,35 +1,43 @@
 ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-debian11@sha256:48b62a5636bd6bc59688fc98a498401fccf456fa63d843aa0b7279f3bc20b22e
 ARG RUN_FROM=public.ecr.aws/debian/debian:11-slim@sha256:22cfb3c06a7dd5e18d86123a73405664475b9d9fa209cbedcf4c50a25649cc74
-FROM ${BUILD_FROM} AS builder
+ARG SOURCE_TYPE=src # tgz
+
+FROM ${BUILD_FROM} as builder_src
+ONBUILD COPY . /emqx
+
+FROM ${BUILD_FROM} as builder_tgz
+ARG PROFILE=emqx
+ARG PKG_VSN
+ARG SUFFIX
+ARG TARGETARCH
+ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian11-$TARGETARCH.tar.gz /${PROFILE}.tar.gz
+
+FROM builder_${SOURCE_TYPE} as builder
+
+ARG PROFILE=emqx
+ARG IS_ELIXIR=no
 ARG DEBUG=0
 
-COPY . /emqx
-
-ARG EMQX_NAME=emqx
-ARG PKG_VSN
-
 ENV EMQX_RELUP=false
-ENV DEBUG=${DEBUG}
 ENV EMQX_REL_FORM='docker'
 
 WORKDIR /emqx/
 
-RUN git config --global --add safe.directory '*'
-
-RUN if [ -f rebar-git-cache.tar ]; then \
+RUN mkdir -p /emqx-rel/emqx && \
+    if [ -f "/${PROFILE}.tar.gz" ]; then \
+      tar zxf "/${PROFILE}.tar.gz" -C /emqx-rel/emqx; \
+    else \
+      if [ -f rebar-git-cache.tar ]; then \
         mkdir .cache && \
         tar -xf rebar-git-cache.tar -C .cache && \
         export REBAR_GIT_CACHE_DIR='/emqx/.cache' && \
-        export REBAR_GIT_CACHE_REF_AUTOFILL=0 ;\
-    fi \
-    && export PROFILE=${EMQX_NAME%%-elixir} \
-    && export EMQX_NAME1="${EMQX_NAME}" \
-    && export EMQX_NAME=${PROFILE} \
-    && export EMQX_REL_PATH="/emqx/_build/${EMQX_NAME}/rel/emqx" \
-    && make ${EMQX_NAME1} \
-    && rm -f ${EMQX_REL_PATH}/*.tar.gz \
-    && mkdir -p /emqx-rel \
-    && mv ${EMQX_REL_PATH} /emqx-rel
+        export REBAR_GIT_CACHE_REF_AUTOFILL=0; \
+      fi && \
+      export EMQX_REL_PATH="/emqx/_build/${PROFILE}/rel/emqx" && \
+      git config --global --add safe.directory '*' && \
+      make ${PROFILE}-tgz && \
+      tar zxf _packages/${PROFILE}/*.tar.gz -C /emqx-rel/emqx; \
+    fi
 
 FROM $RUN_FROM
 ARG EXTRA_DEPS=''
@@ -39,21 +47,21 @@ ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
-COPY --from=builder /emqx-rel/emqx /opt/emqx
-
-RUN ln -s /opt/emqx/bin/* /usr/local/bin/
-
-RUN apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates procps $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
-    rm -rf /var/lib/apt/lists/*
+COPY --from=builder /emqx-rel /opt/
 
 WORKDIR /opt/emqx
 
-RUN groupadd -r -g 1000 emqx; \
+RUN set -eu; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates procps $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
+    find /opt/emqx -name 'swagger*.js.map' -exec rm {} +; \
+    groupadd -r -g 1000 emqx; \
     useradd -r -m -u 1000 -g emqx emqx; \
     chgrp -Rf emqx /opt/emqx; \
     chmod -Rf g+w /opt/emqx; \
-    chown -Rf emqx /opt/emqx
+    chown -Rf emqx /opt/emqx; \
+    ln -s /opt/emqx/bin/* /usr/local/bin/; \
+    rm -rf /var/lib/apt/lists/*
 
 USER emqx
 
