@@ -29,7 +29,7 @@
 -define(PGSQL_HOST, "pgsql").
 -define(REDIS_SINGLE_HOST, "redis").
 
--define(SOURCE_REDIS1, #{
+-define(SOURCE_HTTP, #{
     <<"type">> => <<"http">>,
     <<"enable">> => true,
     <<"url">> => <<"https://fake.com:443/acl?username=", ?PH_USERNAME/binary>>,
@@ -74,7 +74,7 @@
     <<"ssl">> => #{<<"enable">> => false},
     <<"query">> => <<"abcb">>
 }).
--define(SOURCE_REDIS2, #{
+-define(SOURCE_REDIS, #{
     <<"type">> => <<"redis">>,
     <<"enable">> => true,
     <<"servers">> => <<?REDIS_SINGLE_HOST, ",127.0.0.1:6380">>,
@@ -188,10 +188,10 @@ t_api(_) ->
             {ok, 204, _} = request(post, uri(["authorization", "sources"]), Source)
         end
      || Source <- lists:reverse([
-            ?SOURCE_MONGODB, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS2, ?SOURCE_FILE
+            ?SOURCE_MONGODB, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS, ?SOURCE_FILE
         ])
     ],
-    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE_REDIS1),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE_HTTP),
 
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result2),
@@ -211,7 +211,7 @@ t_api(_) ->
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "http"]),
-        ?SOURCE_REDIS1#{<<"enable">> := false}
+        ?SOURCE_HTTP#{<<"enable">> := false}
     ),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(
@@ -338,7 +338,7 @@ t_api(_) ->
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "redis"]),
-        ?SOURCE_REDIS2#{
+        ?SOURCE_REDIS#{
             <<"servers">> := [
                 <<"192.168.1.100:6379">>,
                 <<"192.168.1.100:6380">>
@@ -503,7 +503,7 @@ t_api(_) ->
 
 t_source_move(_) ->
     {ok, _} = emqx_authz:update(replace, [
-        ?SOURCE_REDIS1, ?SOURCE_MONGODB, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS2
+        ?SOURCE_HTTP, ?SOURCE_MONGODB, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS
     ]),
     ?assertMatch(
         [
@@ -581,6 +581,123 @@ t_source_move(_) ->
     ),
 
     ok.
+
+t_sources_reorder(_) ->
+    %% Disabling an auth source must not affect the requested order
+    MongoDbDisabled = (?SOURCE_MONGODB)#{<<"enable">> => false},
+    {ok, _} = emqx_authz:update(replace, [
+        ?SOURCE_HTTP, MongoDbDisabled, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS
+    ]),
+    ?assertMatch(
+        [
+            #{type := http},
+            #{type := mongodb},
+            #{type := mysql},
+            #{type := postgresql},
+            #{type := redis}
+        ],
+        emqx_authz:lookup()
+    ),
+
+    OrderUri = uri(["authorization", "sources", "order"]),
+
+    %% Valid moves
+    {ok, 204, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"type">> => <<"redis">>},
+            #{<<"type">> => <<"http">>},
+            #{<<"type">> => <<"postgresql">>},
+            #{<<"type">> => <<"mysql">>},
+            #{<<"type">> => <<"mongodb">>}
+        ]
+    ),
+    ?assertMatch(
+        [
+            #{type := redis},
+            #{type := http},
+            #{type := postgresql},
+            #{type := mysql},
+            #{type := mongodb, enable := false}
+        ],
+        emqx_authz:lookup()
+    ),
+
+    %% Invalid moves
+
+    %% Bad schema
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [#{<<"not-type">> => <<"redis">>}]
+    ),
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"type">> => <<"unkonw">>},
+            #{<<"type">> => <<"redis">>},
+            #{<<"type">> => <<"http">>},
+            #{<<"type">> => <<"postgresql">>},
+            #{<<"type">> => <<"mysql">>},
+            #{<<"type">> => <<"mongodb">>}
+        ]
+    ),
+
+    %% Partial order
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"type">> => <<"redis">>},
+            #{<<"type">> => <<"http">>},
+            #{<<"type">> => <<"postgresql">>},
+            #{<<"type">> => <<"mysql">>}
+        ]
+    ),
+
+    %% Not found authenticators
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"type">> => <<"redis">>},
+            #{<<"type">> => <<"http">>},
+            #{<<"type">> => <<"postgresql">>},
+            #{<<"type">> => <<"mysql">>},
+            #{<<"type">> => <<"mongodb">>},
+            #{<<"type">> => <<"built_in_database">>},
+            #{<<"type">> => <<"file">>}
+        ]
+    ),
+
+    %% Both partial and not found errors
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"type">> => <<"redis">>},
+            #{<<"type">> => <<"http">>},
+            #{<<"type">> => <<"postgresql">>},
+            #{<<"type">> => <<"mysql">>},
+            #{<<"type">> => <<"built_in_database">>}
+        ]
+    ),
+
+    %% Duplicates
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"type">> => <<"redis">>},
+            #{<<"type">> => <<"http">>},
+            #{<<"type">> => <<"postgresql">>},
+            #{<<"type">> => <<"mysql">>},
+            #{<<"type">> => <<"mongodb">>},
+            #{<<"type">> => <<"http">>}
+        ]
+    ).
 
 t_aggregate_metrics(_) ->
     Metrics = #{

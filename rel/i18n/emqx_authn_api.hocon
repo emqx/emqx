@@ -60,6 +60,11 @@ authentication_post.desc:
 authentication_post.label:
 """Create authenticator"""
 
+authentication_order_put.desc:
+"""Reorder all authenticators in global authentication chain."""
+authentication_order_put.label:
+"""Reorder Authenticators"""
+
 is_superuser.desc:
 """Is superuser"""
 is_superuser.label:

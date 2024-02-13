@@ -28,6 +28,7 @@
 -define(CMD_APPEND, append).
 -define(CMD_MOVE, move).
 -define(CMD_MERGE, merge).
+-define(CMD_REORDER, reorder).
 
 -define(CMD_MOVE_FRONT, front).
 -define(CMD_MOVE_REAR, rear).

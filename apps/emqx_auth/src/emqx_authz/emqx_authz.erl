@@ -36,6 +36,7 @@
     lookup/0,
     lookup/1,
     move/2,
+    reorder/1,
     update/2,
     merge/1,
     merge_local/2,
@@ -63,6 +64,8 @@
     maybe_read_files/1,
     maybe_write_files/1
 ]).
+
+-import(emqx_utils_conv, [bin/1]).
 
 -type default_result() :: allow | deny.
 
@@ -181,6 +184,9 @@ move(Type, Position) ->
         ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}
     ).
 
+reorder(SourcesOrder) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_REORDER, SourcesOrder}).
+
 update({?CMD_REPLACE, Type}, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources});
 update({?CMD_DELETE, Type}, Sources) ->
@@ -258,6 +264,8 @@ do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources) ->
     NSources = lists:map(fun maybe_write_source_files/1, Sources),
     ok = check_dup_types(NSources),
     NSources;
+do_pre_config_update({?CMD_REORDER, NewSourcesOrder}, OldSources) ->
+    reorder_sources(NewSourcesOrder, OldSources);
 do_pre_config_update({Op, Source}, Sources) ->
     throw({bad_request, #{op => Op, source => Source, sources => Sources}}).
 
@@ -290,6 +298,16 @@ do_post_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _RawNewSource}, _Sou
     Front ++ Rear;
 do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, _RawNewSources}, Sources) ->
     overwrite_entire_sources(Sources);
+do_post_config_update(?CONF_KEY_PATH, {?CMD_REORDER, NewSourcesOrder}, _Sources) ->
+    OldSources = lookup(),
+    lists:map(
+        fun(Type) ->
+            Type1 = type(Type),
+            {value, Val} = lists:search(fun(S) -> type(S) =:= Type1 end, OldSources),
+            Val
+        end,
+        NewSourcesOrder
+    );
 do_post_config_update(?ROOT_KEY, Conf, Conf) ->
     #{sources := Sources} = Conf,
     Sources;
@@ -727,6 +745,29 @@ type_take(Type, Sources) ->
         {Found, Front, Rear} -> {Found, Front ++ Rear}
     catch
         throw:{not_found_source, Type} -> not_found
+    end.
+
+reorder_sources(NewOrder, OldSources) ->
+    NewOrder1 = lists:map(fun type/1, NewOrder),
+    OldSourcesWithTypes = [{type(Source), Source} || Source <- OldSources],
+    reorder_sources(NewOrder1, OldSourcesWithTypes, [], []).
+
+reorder_sources([], [] = _RemSourcesWithTypes, ReorderedSources, [] = _NotFoundTypes) ->
+    lists:reverse(ReorderedSources);
+reorder_sources([], RemSourcesWithTypes, _ReorderedSources, NotFoundTypes) ->
+    {error, #{
+        not_found => NotFoundTypes, not_reordered => [bin(Type) || {Type, _} <- RemSourcesWithTypes]
+    }};
+reorder_sources([Type | RemOrder], RemSourcesWithTypes, ReorderedSources, NotFoundTypes) ->
+    case lists:keytake(Type, 1, RemSourcesWithTypes) of
+        {value, {_Type, Source}, RemSourcesWithTypes1} ->
+            reorder_sources(
+                RemOrder, RemSourcesWithTypes1, [Source | ReorderedSources], NotFoundTypes
+            );
+        false ->
+            reorder_sources(RemOrder, RemSourcesWithTypes, ReorderedSources, [
+                bin(Type) | NotFoundTypes
+            ])
     end.
 
 -ifdef(TEST).
