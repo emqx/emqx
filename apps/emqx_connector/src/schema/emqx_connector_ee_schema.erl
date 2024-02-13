@@ -54,6 +54,8 @@ resource_type(timescale) ->
     emqx_postgresql;
 resource_type(redis) ->
     emqx_bridge_redis_connector;
+resource_type(rocketmq) ->
+    emqx_bridge_rocketmq_connector;
 resource_type(iotdb) ->
     emqx_bridge_iotdb_connector;
 resource_type(elasticsearch) ->
@@ -201,6 +203,14 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {rocketmq,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_rocketmq, "config_connector")),
+                #{
+                    desc => <<"RocketMQ Connector Config">>,
+                    required => false
+                }
+            )},
         {syskeeper_forwarder,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_syskeeper_connector, config)),
@@ -301,6 +311,7 @@ schema_modules() ->
         emqx_bridge_timescale,
         emqx_postgresql_connector_schema,
         emqx_bridge_redis_schema,
+        emqx_bridge_rocketmq,
         emqx_bridge_iotdb_connector,
         emqx_bridge_es_connector,
         emqx_bridge_rabbitmq_connector_schema,
@@ -338,6 +349,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),
         api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_rocketmq, <<"rocketmq">>, Method ++ "_connector"),
         api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method),
         api_ref(emqx_bridge_es_connector, <<"elasticsearch">>, Method),
         api_ref(emqx_bridge_opents_connector, <<"opents">>, Method),

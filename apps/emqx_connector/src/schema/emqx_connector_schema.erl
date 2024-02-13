@@ -150,6 +150,8 @@ connector_type_to_bridge_types(pgsql) ->
     [pgsql];
 connector_type_to_bridge_types(redis) ->
     [redis, redis_single, redis_sentinel, redis_cluster];
+connector_type_to_bridge_types(rocketmq) ->
+    [rocketmq];
 connector_type_to_bridge_types(syskeeper_forwarder) ->
     [syskeeper_forwarder];
 connector_type_to_bridge_types(syskeeper_proxy) ->

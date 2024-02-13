@@ -21,10 +21,14 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [mk/2]).
 
 -define(ROCKETMQ_HOST_OPTIONS, #{
     default_port => 9876
@@ -82,7 +86,12 @@ callback_mode() -> always_sync.
 
 on_start(
     InstanceId,
-    #{servers := BinServers, topic := Topic, sync_timeout := SyncTimeout} = Config
+    #{
+        servers := BinServers,
+        access_key := AccessKey,
+        secret_key := SecretKey,
+        security_token := SecurityToken
+    } = Config
 ) ->
     ?SLOG(info, #{
         msg => "starting_rocketmq_connector",
@@ -94,18 +103,13 @@ on_start(
         emqx_schema:parse_servers(BinServers, ?ROCKETMQ_HOST_OPTIONS)
     ),
     ClientId = client_id(InstanceId),
-    TopicTks = emqx_placeholder:preproc_tmpl(Topic),
-    #{acl_info := AclInfo} = ProducerOpts = make_producer_opts(Config),
-    ClientCfg = #{acl_info => AclInfo},
-    Templates = parse_template(Config),
+    ACLInfo = acl_info(AccessKey, SecretKey, SecurityToken),
+    ClientCfg = #{acl_info => ACLInfo},
 
     State = #{
         client_id => ClientId,
-        topic => Topic,
-        topic_tokens => TopicTks,
-        sync_timeout => SyncTimeout,
-        templates => Templates,
-        producers_opts => ProducerOpts
+        acl_info => ACLInfo,
+        installed_channels => #{}
     },
 
     ok = emqx_resource:allocate_resource(InstanceId, client_id, ClientId),
@@ -122,6 +126,64 @@ on_start(
             ),
             {error, Reason}
     end.
+
+on_add_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels,
+        acl_info := ACLInfo
+    } = OldState,
+    ChannelId,
+    ChannelConfig
+) ->
+    {ok, ChannelState} = create_channel_state(ChannelConfig, ACLInfo),
+    NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
+
+create_channel_state(
+    #{parameters := Conf} = _ChannelConfig,
+    ACLInfo
+) ->
+    #{
+        topic := Topic,
+        sync_timeout := SyncTimeout
+    } = Conf,
+    TopicTks = emqx_placeholder:preproc_tmpl(Topic),
+    ProducerOpts = make_producer_opts(Conf, ACLInfo),
+    Templates = parse_template(Conf),
+    State = #{
+        topic => Topic,
+        topic_tokens => TopicTks,
+        templates => Templates,
+        sync_timeout => SyncTimeout,
+        acl_info => ACLInfo,
+        producers_opts => ProducerOpts
+    },
+    {ok, State}.
+
+on_remove_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId
+) ->
+    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
+
+on_get_channel_status(
+    _ResId,
+    _ChannelId,
+    _State
+) ->
+    ?status_connected.
+
+on_get_channels(ResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ResId).
 
 on_stop(InstanceId, _State) ->
     ?SLOG(info, #{
@@ -144,7 +206,7 @@ on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, send_sync, State).
 
 %% We only support batch inserts and all messages must have the same topic
-on_batch_query(InstanceId, [{send_message, _Msg} | _] = Query, State) ->
+on_batch_query(InstanceId, [{_ChannelId, _Msg} | _] = Query, State) ->
     do_query(InstanceId, Query, batch_send_sync, State);
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
@@ -154,11 +216,11 @@ on_get_status(_InstanceId, #{client_id := ClientId}) ->
         {ok, Pid} ->
             status_result(rocketmq_client:get_status(Pid));
         _ ->
-            connecting
+            ?status_connecting
     end.
 
-status_result(_Status = true) -> connected;
-status_result(_Status) -> connecting.
+status_result(_Status = true) -> ?status_connected;
+status_result(_Status) -> ?status_connecting.
 
 %%========================================================================================
 %% Helper fns
@@ -169,11 +231,8 @@ do_query(
     Query,
     QueryFunc,
     #{
-        templates := Templates,
         client_id := ClientId,
-        topic_tokens := TopicTks,
-        producers_opts := ProducerOpts,
-        sync_timeout := RequestTimeout
+        installed_channels := Channels
     } = State
 ) ->
     ?TRACE(
@@ -181,6 +240,13 @@ do_query(
         "rocketmq_connector_received",
         #{connector => InstanceId, query => Query, state => State}
     ),
+    ChannelId = get_channel_id(Query),
+    #{
+        topic_tokens := TopicTks,
+        templates := Templates,
+        sync_timeout := RequestTimeout,
+        producers_opts := ProducerOpts
+    } = maps:get(ChannelId, Channels),
 
     TopicKey = get_topic_key(Query, TopicTks),
     Data = apply_template(Query, Templates),
@@ -208,6 +274,9 @@ do_query(
             ),
             Result
     end.
+
+get_channel_id({ChannelId, _}) -> ChannelId;
+get_channel_id([{ChannelId, _} | _]) -> ChannelId.
 
 safe_do_produce(InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, RequestTimeout) ->
     try
@@ -275,14 +344,11 @@ is_sensitive_key(_) ->
 
 make_producer_opts(
     #{
-        access_key := AccessKey,
-        secret_key := SecretKey,
-        security_token := SecurityToken,
         send_buffer := SendBuff,
         refresh_interval := RefreshInterval
-    }
+    },
+    ACLInfo
 ) ->
-    ACLInfo = acl_info(AccessKey, SecretKey, SecurityToken),
     #{
         tcp_opts => [{sndbuf, SendBuff}],
         ref_topic_route_interval => RefreshInterval,

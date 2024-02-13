@@ -41,4 +41,22 @@ template.desc:
 template.label:
 """Template"""
 
+action_parameters.desc:
+"""Action specific configuration."""
+
+action_parameters.label:
+"""Action"""
+
+rocketmq_action.desc:
+"""Configuration for RocketMQ Action"""
+
+rocketmq_action.label:
+"""RocketMQ Action Configuration"""
+
+config_connector.desc:
+"""Configuration for an RocketMQ Client."""
+
+config_connector.label:
+"""RocketMQ Client Configuration"""
+
 }
