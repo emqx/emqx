@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     [
@@ -43,14 +44,14 @@ end_per_group(_, _) ->
     ok.
 
 init_per_suite(Config) ->
-    application:load(emqx),
-    ok = ekka:start(),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema().
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -185,7 +186,8 @@ t_delete3(_) ->
     ?assertEqual([], ?TRIE:match(<<"sensor">>)),
     ?assertEqual([], ?TRIE:lookup_topic(<<"sensor/+">>, ?TRIE)).
 
-clear_tables() -> emqx_trie:clear_tables().
+clear_tables() ->
+    emqx_trie:clear_tables().
 
 trans(Fun) ->
     mria:transaction(?ROUTE_SHARD, Fun).
