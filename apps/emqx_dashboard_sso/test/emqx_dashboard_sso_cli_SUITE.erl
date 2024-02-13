@@ -9,6 +9,7 @@
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(emqx_dashboard_sso_cli, [admins/1]).
@@ -24,15 +25,19 @@
 all() -> [t_add, t_passwd, t_del].
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    emqx_config:save_schema_mod_and_names(emqx_dashboard_schema),
-    emqx_mgmt_api_test_util:init_suite([emqx_dashboard, emqx_dashboard_sso]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_dashboard,
+            emqx_dashboard_sso
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    All = emqx_dashboard_admin:all_users(),
-    [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All],
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_dashboard_sso]).
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_add(_) ->
     admins(["add", "user1", "password1"]),
