@@ -20,76 +20,51 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 
 -define(NOW, erlang:system_time(millisecond)).
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 -define(LANTENCY, 101).
 
 -define(BASE_CONF, <<
-    ""
-    "\n"
     "slow_subs {\n"
     "    enable = true\n"
     "	 top_k_num = 5\n"
     "	 threshold = 100ms\n"
     "    expire_interval = 5m\n"
     "    stats_type = whole\n"
-    "    }"
-    ""
+    "}"
 >>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_slow_subs, ?BASE_CONF}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-    ok = emqx_common_test_helpers:load_config(emqx_slow_subs_schema, ?BASE_CONF),
-    emqx_common_test_helpers:start_apps([emqx_slow_subs]),
-    Config.
-
-end_per_suite(_Config) ->
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    meck:unload(emqx_alarm),
-
-    emqx_common_test_helpers:stop_apps([emqx_slow_subs]).
-
-init_per_testcase(t_expire, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
-    update_config(<<"expire_interval">>, <<"1500ms">>),
-    Config;
-init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
-    Config.
-
-end_per_testcase(_, _) ->
-    case erlang:whereis(node()) of
-        undefined ->
-            ok;
-        P ->
-            erlang:unlink(P),
-            erlang:exit(P, kill)
-    end,
-    ok.
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
+
 t_pub(_) ->
     _ = [stats_with_type(Type) || Type <- [whole, internal, response]],
     ok.
 
 t_expire(_) ->
+    _ = update_config(<<"expire_interval">>, <<"1500ms">>),
     Now = ?NOW,
     Each = fun(I) ->
         ClientId = erlang:list_to_binary(io_lib:format("test_~p", [I])),
