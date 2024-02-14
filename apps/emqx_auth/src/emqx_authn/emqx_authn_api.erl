@@ -32,6 +32,8 @@
 -define(INTERNAL_ERROR, 'INTERNAL_ERROR').
 -define(CONFIG, emqx_authn_config).
 
+-define(join(List), lists:join(", ", List)).
+
 % Swagger
 
 -define(API_TAGS_GLOBAL, [<<"Authentication">>]).
@@ -56,6 +58,7 @@
     listener_authenticator/2,
     listener_authenticator_status/2,
     authenticator_position/2,
+    authenticators_order/2,
     listener_authenticator_position/2,
     authenticator_users/2,
     authenticator_user/2,
@@ -102,7 +105,8 @@ paths() ->
         "/authentication/:id/status",
         "/authentication/:id/position/:position",
         "/authentication/:id/users",
-        "/authentication/:id/users/:user_id"
+        "/authentication/:id/users/:user_id",
+        "/authentication/order"
 
         %% hide listener authn api since 5.1.0
         %% "/listeners/:listener_id/authentication",
@@ -118,7 +122,8 @@ roots() ->
         request_user_create,
         request_user_update,
         response_user,
-        response_users
+        response_users,
+        request_authn_order
     ].
 
 fields(request_user_create) ->
@@ -137,7 +142,16 @@ fields(response_user) ->
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
 fields(response_users) ->
-    paginated_list_type(ref(response_user)).
+    paginated_list_type(ref(response_user));
+fields(request_authn_order) ->
+    [
+        {id,
+            mk(binary(), #{
+                desc => ?DESC(param_auth_id),
+                required => true,
+                example => "password_based:built_in_database"
+            })}
+    ].
 
 schema("/authentication") ->
     #{
@@ -218,7 +232,7 @@ schema("/authentication/:id/status") ->
             parameters => [param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
+                    ref(emqx_authn_schema, "metrics_status_fields"),
                     status_metrics_example()
                 ),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>),
@@ -313,7 +327,7 @@ schema("/listeners/:listener_id/authentication/:id/status") ->
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
+                    ref(emqx_authn_schema, "metrics_status_fields"),
                     status_metrics_example()
                 ),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
@@ -530,6 +544,22 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
+    };
+schema("/authentication/order") ->
+    #{
+        'operationId' => authenticators_order,
+        put => #{
+            tags => ?API_TAGS_GLOBAL,
+            description => ?DESC(authentication_order_put),
+            'requestBody' => mk(
+                hoconsc:array(ref(?MODULE, request_authn_order)),
+                #{}
+            ),
+            responses => #{
+                204 => <<"Authenticators order updated">>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+            }
+        }
     }.
 
 param_auth_id() ->
@@ -669,6 +699,17 @@ listener_authenticator_status(
             )
         end
     ).
+
+authenticators_order(put, #{body := AuthnOrder}) ->
+    AuthnIdsOrder = [Id || #{<<"id">> := Id} <- AuthnOrder],
+    case update_config([authentication], {reorder_authenticators, AuthnIdsOrder}) of
+        {ok, _} ->
+            {204};
+        {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
+            serialize_error(Reason);
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
 
 authenticator_position(
     put,
@@ -1253,6 +1294,21 @@ serialize_error({unknown_authn_type, Type}) ->
         code => <<"BAD_REQUEST">>,
         message => binfmt("Unknown type '~p'", [Type])
     }};
+serialize_error(#{not_found := NotFound, not_reordered := NotReordered}) ->
+    NotFoundFmt = "Authenticators: ~ts are not found",
+    NotReorderedFmt = "No positions are specified for authenticators: ~ts",
+    Msg =
+        case {NotFound, NotReordered} of
+            {[_ | _], []} ->
+                binfmt(NotFoundFmt, [?join(NotFound)]);
+            {[], [_ | _]} ->
+                binfmt(NotReorderedFmt, [?join(NotReordered)]);
+            _ ->
+                binfmt(NotFoundFmt ++ ", " ++ NotReorderedFmt, [
+                    ?join(NotFound), ?join(NotReordered)
+                ])
+        end,
+    {400, #{code => <<"BAD_REQUEST">>, message => Msg}};
 serialize_error(Reason) ->
     {400, #{
         code => <<"BAD_REQUEST">>,

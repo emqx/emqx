@@ -124,6 +124,111 @@ t_authenticator_fail(_) ->
 t_authenticator_position(_) ->
     test_authenticator_position([]).
 
+t_authenticators_reorder(_) ->
+    AuthenticatorConfs = [
+        emqx_authn_test_lib:http_example(),
+        %% Disabling an authenticator must not affect the requested order
+        (emqx_authn_test_lib:jwt_example())#{enable => false},
+        emqx_authn_test_lib:built_in_database_example()
+    ],
+    lists:foreach(
+        fun(Conf) ->
+            {ok, 200, _} = request(
+                post,
+                uri([?CONF_NS]),
+                Conf
+            )
+        end,
+        AuthenticatorConfs
+    ),
+    ?assertAuthenticatorsMatch(
+        [
+            #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>},
+            #{<<"mechanism">> := <<"jwt">>, <<"enable">> := false},
+            #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>}
+        ],
+        [?CONF_NS]
+    ),
+
+    OrderUri = uri([?CONF_NS, "order"]),
+
+    %% Invalid moves
+
+    %% Bad schema
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"not-id">> => <<"password_based:http">>},
+            #{<<"not-id">> => <<"jwt">>}
+        ]
+    ),
+
+    %% Partial order
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"id">> => <<"password_based:http">>},
+            #{<<"id">> => <<"jwt">>}
+        ]
+    ),
+
+    %% Not found authenticators
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"id">> => <<"password_based:http">>},
+            #{<<"id">> => <<"jwt">>},
+            #{<<"id">> => <<"password_based:built_in_database">>},
+            #{<<"id">> => <<"password_based:mongodb">>}
+        ]
+    ),
+
+    %% Both partial and not found errors
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"id">> => <<"password_based:http">>},
+            #{<<"id">> => <<"password_based:built_in_database">>},
+            #{<<"id">> => <<"password_based:mongodb">>}
+        ]
+    ),
+
+    %% Duplicates
+    {ok, 400, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"id">> => <<"password_based:http">>},
+            #{<<"id">> => <<"password_based:built_in_database">>},
+            #{<<"id">> => <<"jwt">>},
+            #{<<"id">> => <<"password_based:http">>}
+        ]
+    ),
+
+    %% Valid moves
+    {ok, 204, _} = request(
+        put,
+        OrderUri,
+        [
+            #{<<"id">> => <<"password_based:built_in_database">>},
+            #{<<"id">> => <<"jwt">>},
+            #{<<"id">> => <<"password_based:http">>}
+        ]
+    ),
+
+    ?assertAuthenticatorsMatch(
+        [
+            #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"built_in_database">>},
+            #{<<"mechanism">> := <<"jwt">>, <<"enable">> := false},
+            #{<<"mechanism">> := <<"password_based">>, <<"backend">> := <<"http">>}
+        ],
+        [?CONF_NS]
+    ).
+
 %t_listener_authenticators(_) ->
 %    test_authenticators(["listeners", ?TCP_DEFAULT]).
 

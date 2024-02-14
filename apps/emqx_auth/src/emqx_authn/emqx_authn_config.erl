@@ -135,6 +135,8 @@ do_pre_config_update(_, {move_authenticator, _ChainName, AuthenticatorID, Positi
 do_pre_config_update(ConfPath, {merge_authenticators, NewConfig}, OldConfig) ->
     MergeConfig = merge_authenticators(OldConfig, NewConfig),
     do_pre_config_update(ConfPath, MergeConfig, OldConfig);
+do_pre_config_update(_ConfPath, {reorder_authenticators, NewOrder}, OldConfig) ->
+    reorder_authenticators(NewOrder, OldConfig);
 do_pre_config_update(_, OldConfig, OldConfig) ->
     {ok, OldConfig};
 do_pre_config_update(ConfPath, NewConfig, _OldConfig) ->
@@ -194,6 +196,15 @@ do_post_config_update(
     _AppEnvs
 ) ->
     emqx_authn_chains:move_authenticator(ChainName, AuthenticatorID, Position);
+do_post_config_update(
+    ConfPath,
+    {reorder_authenticators, NewOrder},
+    _NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
+    ChainName = chain_name(ConfPath),
+    ok = emqx_authn_chains:reorder_authenticator(ChainName, NewOrder);
 do_post_config_update(_, _UpdateReq, OldConfig, OldConfig, _AppEnvs) ->
     ok;
 do_post_config_update(ConfPath, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
@@ -388,6 +399,24 @@ merge_authenticators(OriginConf0, NewConf0) ->
             OriginConf0
         ),
     lists:reverse(OriginConf1) ++ NewConf1.
+
+reorder_authenticators(NewOrder, OldConfig) ->
+    OldConfigWithIds = [{authenticator_id(Auth), Auth} || Auth <- OldConfig],
+    reorder_authenticators(NewOrder, OldConfigWithIds, [], []).
+
+reorder_authenticators([], [] = _RemConfigWithIds, ReorderedConfig, [] = _NotFoundIds) ->
+    {ok, lists:reverse(ReorderedConfig)};
+reorder_authenticators([], RemConfigWithIds, _ReorderedConfig, NotFoundIds) ->
+    {error, #{not_found => NotFoundIds, not_reordered => [Id || {Id, _} <- RemConfigWithIds]}};
+reorder_authenticators([Id | RemOrder], RemConfigWithIds, ReorderedConfig, NotFoundIds) ->
+    case lists:keytake(Id, 1, RemConfigWithIds) of
+        {value, {_Id, Auth}, RemConfigWithIds1} ->
+            reorder_authenticators(
+                RemOrder, RemConfigWithIds1, [Auth | ReorderedConfig], NotFoundIds
+            );
+        false ->
+            reorder_authenticators(RemOrder, RemConfigWithIds, ReorderedConfig, [Id | NotFoundIds])
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
