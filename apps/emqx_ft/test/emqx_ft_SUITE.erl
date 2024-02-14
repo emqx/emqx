@@ -55,7 +55,8 @@ groups() ->
             t_assemble_timeout
         ]},
         {async_mode, [], [
-            {group, single_node}
+            {group, single_node},
+            t_client_disconnect_while_assembling
         ]},
         {sync_mode, [], [
             {group, single_node}
@@ -116,9 +117,9 @@ init_per_group(Group = cluster, Config) ->
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => WorkDir}),
     [{group, Group}, {cluster_nodes, Nodes} | Config];
 init_per_group(_Group = async_mode, Config) ->
-    [{mode, sync} | Config];
-init_per_group(_Group = sync_mode, Config) ->
     [{mode, async} | Config];
+init_per_group(_Group = sync_mode, Config) ->
+    [{mode, sync} | Config];
 init_per_group(Group, Config) ->
     [{group, Group} | Config].
 
@@ -528,6 +529,62 @@ t_assemble_timeout(Config) ->
     ),
 
     ?assert(2_000_000 < Time).
+
+t_client_disconnect_while_assembling(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+
+    Filename = "topsecret.pdf",
+    FileId = <<"f1">>,
+
+    Data = <<"data">>,
+
+    Meta = #{size := Filesize} = meta(Filename, Data),
+
+    ?assertRCName(
+        success,
+        emqtt:publish(Client, mk_init_topic(Config, FileId), encode_meta(Meta), 1)
+    ),
+
+    ?assertRCName(
+        success,
+        emqtt:publish(Client, mk_segment_topic(Config, FileId, 0), Data, 1)
+    ),
+
+    ResponseTopic = emqx_ft_test_helpers:response_topic(ClientId),
+
+    {ok, OtherClient} = emqtt:start_link([{proto_ver, v5}, {clientid, <<"other">>}]),
+    {ok, _} = emqtt:connect(OtherClient),
+    {ok, _, _} = emqtt:subscribe(OtherClient, ResponseTopic, 1),
+
+    FinTopic = mk_fin_topic(Config, FileId, Filesize),
+
+    ?assertRCName(
+        success,
+        emqtt:publish(Client, FinTopic, <<>>, 1)
+    ),
+
+    ok = emqtt:stop(Client),
+
+    ResultReceive = fun Receive() ->
+        receive
+            {publish, #{payload := Payload, topic := ResponseTopic}} ->
+                case emqx_utils_json:decode(Payload) of
+                    #{<<"topic">> := FinTopic, <<"reason_code">> := 0} ->
+                        ok;
+                    #{<<"topic">> := FinTopic, <<"reason_code">> := _} = FTResult ->
+                        ct:fail("unexpected fin result: ~p", [FTResult]);
+                    _ ->
+                        Receive()
+                end
+        after 1000 ->
+            ct:fail("timeout waiting for fin result")
+        end
+    end,
+    ResultReceive(),
+
+    ok = emqtt:stop(OtherClient).
 
 %%--------------------------------------------------------------------
 %% Cluster tests
