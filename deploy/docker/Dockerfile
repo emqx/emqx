@@ -5,7 +5,7 @@ ARG SOURCE_TYPE=src # tgz
 FROM ${BUILD_FROM} as builder_src
 ONBUILD COPY . /emqx
 
-FROM ${BUILD_FROM} as builder_tgz
+FROM ${RUN_FROM} as builder_tgz
 ARG PROFILE=emqx
 ARG PKG_VSN
 ARG SUFFIX
