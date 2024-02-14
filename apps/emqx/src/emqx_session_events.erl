@@ -63,7 +63,7 @@ handle_event(ClientInfo, {dropped, Msg, #{reason := queue_full, logctx := Ctx}})
     ok = inc_pd('send_msg.dropped', 1),
     ok = inc_pd('send_msg.dropped.queue_full', 1),
     ?SLOG(
-        warning,
+        info,
         Ctx#{
             msg => "dropped_msg_due_to_mqueue_is_full",
             payload => Msg#message.payload
