@@ -74,7 +74,8 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     ),
     BridgeV1Config4 = maps:put(<<"pool_size">>, PoolSize, BridgeV1Config3),
 
-    %% Move the fields stream, partition_key and record_template from parameters in ActionConfig to the top level in BridgeV1Config
+    %% Move the fields stream, partition_key and record_template from
+    %% parameters in ActionConfig to the top level in BridgeV1Config
     lists:foldl(
         fun(Field, Acc) ->
             emqx_utils_maps:deep_put(

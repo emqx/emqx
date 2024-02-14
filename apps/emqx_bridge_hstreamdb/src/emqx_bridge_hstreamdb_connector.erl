@@ -270,17 +270,20 @@ client_options(Config = #{url := ServerURL, ssl := SSL}) ->
 check_status(ConnectorState) ->
     try start_client(ConnectorState) of
         {ok, Client} ->
-            try hstreamdb_client:echo(Client) of
-                ok -> ok;
-                {error, _} = ErrorEcho -> ErrorEcho
-            after
-                _ = hstreamdb:stop_client(Client)
-            end;
+            check_status_with_client(Client);
         {error, _} = StartClientError ->
             StartClientError
     catch
         ErrorType:Reason:_ST ->
             {error, {ErrorType, Reason}}
+    end.
+
+check_status_with_client(Client) ->
+    try hstreamdb_client:echo(Client) of
+        ok -> ok;
+        {error, _} = ErrorEcho -> ErrorEcho
+    after
+        _ = hstreamdb:stop_client(Client)
     end.
 
 start_client(Opts) ->
