@@ -613,7 +613,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             do_publish(PacketId, Msg, NChannel);
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?SLOG(
-                warning,
+                info,
                 #{
                     msg => "cannot_publish_to_topic",
                     reason => emqx_reason_codes:name(Rc)
@@ -632,7 +632,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
             ?SLOG(
-                warning,
+                info,
                 #{
                     msg => "cannot_publish_to_topic",
                     reason => emqx_reason_codes:name(Rc)

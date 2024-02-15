@@ -184,7 +184,7 @@ log_result(#{username := Username}, Topic, Action, From, Result) ->
     end,
     case Result of
         allow -> ?SLOG(info, (LogMeta())#{msg => "authorization_permission_allowed"});
-        deny -> ?SLOG(warning, (LogMeta())#{msg => "authorization_permission_denied"})
+        deny -> ?SLOG(info, (LogMeta())#{msg => "authorization_permission_denied"})
     end.
 
 %% @private Format authorization rules source.
