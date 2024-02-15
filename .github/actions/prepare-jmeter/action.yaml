@@ -8,7 +8,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+    - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
       with:
         name: emqx-docker
         path: /tmp
@@ -31,7 +31,7 @@ runs:
         architecture: x64 # (x64 or x86) - defaults to x64
         # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
         distribution: 'zulu'
-    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+    - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
       with:
         name: apache-jmeter.tgz
     - name: install jmeter
