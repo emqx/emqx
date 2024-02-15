@@ -74,12 +74,12 @@ jobs:
       matrix:
         profile:
           - ${{ inputs.profile }}
-        otp:
-          - ${{ inputs.otp_vsn }}
         os:
           - macos-12
           - macos-12-arm64
           - macos-13
+        otp:
+          - ${{ inputs.otp_vsn }}
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -98,27 +98,17 @@ jobs:
     - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
       if: success()
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
   linux:
-    runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch }}"]
-    # always run in builder container because the host might have the wrong OTP version etc.
-    # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
-    container:
-      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
-
+    runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}"]
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ inputs.profile }}
-        otp:
-          - ${{ inputs.otp_vsn }}
-        arch:
-          - x64
-          - arm64
         os:
           - ubuntu22.04
           - ubuntu20.04
@@ -131,20 +121,25 @@ jobs:
           - el7
           - amzn2
           - amzn2023
+        arch:
+          - amd64
+          - arm64
+        with_elixir:
+          - 'no'
+        otp:
+          - ${{ inputs.otp_vsn }}
         builder:
           - ${{ inputs.builder_vsn }}
         elixir:
           - ${{ inputs.elixir_vsn }}
-        with_elixir:
-          - 'no'
         include:
           - profile: ${{ inputs.profile }}
-            otp: ${{ inputs.otp_vsn }}
-            arch: x64
             os: ubuntu22.04
+            arch: amd64
+            with_elixir: 'yes'
+            otp: ${{ inputs.otp_vsn }}
             builder: ${{ inputs.builder_vsn }}
             elixir: ${{ inputs.elixir_vsn }}
-            with_elixir: 'yes'
 
     defaults:
       run:
@@ -155,46 +150,24 @@ jobs:
       with:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
-
-    - name: fix workdir
-      run: |
-        set -eu
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
-        # Align path for CMake caches
-        if [ ! "$PWD" = "/emqx" ]; then
-          ln -s $PWD /emqx
-          cd /emqx
-        fi
-        echo "pwd is $PWD"
-
     - name: build emqx packages
       env:
         PROFILE: ${{ matrix.profile }}
+        ARCH: ${{ matrix.arch }}
+        OS: ${{ matrix.os }}
         IS_ELIXIR: ${{ matrix.with_elixir }}
-        ACLOCAL_PATH: "/usr/share/aclocal:/usr/local/share/aclocal"
+        BUILDER: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        BUILDER_SYSTEM: force_docker
       run: |
-        set -eu
-        if [ "${IS_ELIXIR:-}" == 'yes' ]; then
-          make "${PROFILE}-elixir-tgz"
-        else
-          make "${PROFILE}-tgz"
-          make "${PROFILE}-pkg"
-        fi
-    - name: test emqx packages
-      env:
-        PROFILE: ${{ matrix.profile }}
-        IS_ELIXIR: ${{ matrix.with_elixir }}
-      run: |
-        set -eu
-        if [ "${IS_ELIXIR:-}" == 'yes' ]; then
-          ./scripts/pkg-tests.sh "${PROFILE}-elixir-tgz"
-        else
-          ./scripts/pkg-tests.sh "${PROFILE}-tgz"
-          ./scripts/pkg-tests.sh "${PROFILE}-pkg"
-        fi
+        ./scripts/buildx.sh \
+          --profile $PROFILE \
+          --arch $ARCH \
+          --builder $BUILDER \
+          --elixir $IS_ELIXIR \
+          --pkgtype pkg
     - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
       with:
-        name: ${{ matrix.profile }}
+        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.with_elixir == 'yes' && '-elixir' || '' }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
@@ -212,8 +185,9 @@ jobs:
     steps:
     - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
       with:
-        name: ${{ matrix.profile }}
+        pattern: "${{ matrix.profile }}-*"
         path: packages/${{ matrix.profile }}
+        merge-multiple: true
     - name: install dos2unix
       run: sudo apt-get update -y && sudo apt install -y dos2unix
     - name: get packages
