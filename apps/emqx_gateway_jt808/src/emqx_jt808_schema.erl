@@ -8,9 +8,12 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--export([fields/1, desc/1]).
+-behaviour(hocon_schema).
+-export([namespace/0, fields/1, desc/1]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
+
+namespace() -> gateway.
 
 fields(jt808) ->
     [
@@ -51,9 +54,8 @@ fields(jt808_proto) ->
     [
         {auth,
             sc(
-                hoconsc:union([
-                    ref(anonymous_true), ref(anonymous_false)
-                ])
+                hoconsc:union([ref(anonymous_true), ref(anonymous_false)]),
+                #{desc => ?DESC(jt808_auth)}
             )},
         {up_topic, fun up_topic/1},
         {dn_topic, fun dn_topic/1}
@@ -61,12 +63,18 @@ fields(jt808_proto) ->
 fields(anonymous_true) ->
     [
         {allow_anonymous,
-            sc(hoconsc:union([true]), #{desc => ?DESC(allow_anonymous), required => true})}
+            sc(
+                hoconsc:union([true]),
+                #{desc => ?DESC(jt808_allow_anonymous), required => true}
+            )}
     ] ++ fields_reg_auth_required(false);
 fields(anonymous_false) ->
     [
         {allow_anonymous,
-            sc(hoconsc:union([false]), #{desc => ?DESC(allow_anonymous), required => true})}
+            sc(
+                hoconsc:union([false]),
+                #{desc => ?DESC(jt808_allow_anonymous), required => true}
+            )}
     ] ++ fields_reg_auth_required(true).
 
 fields_reg_auth_required(Required) ->
@@ -102,14 +110,14 @@ jt808_frame_max_length(_) ->
     undefined.
 
 up_topic(type) -> binary();
-up_topic(desc) -> ?DESC(?FUNCTION_NAME);
+up_topic(desc) -> ?DESC(jt808_up_topic);
 up_topic(default) -> ?DEFAULT_UP_TOPIC;
 up_topic(validator) -> [?NOT_EMPTY("the value of the field 'up_topic' cannot be empty")];
 up_topic(required) -> true;
 up_topic(_) -> undefined.
 
 dn_topic(type) -> binary();
-dn_topic(desc) -> ?DESC(?FUNCTION_NAME);
+dn_topic(desc) -> ?DESC(jt808_dn_topic);
 dn_topic(default) -> ?DEFAULT_DN_TOPIC;
 dn_topic(validator) -> [?NOT_EMPTY("the value of the field 'dn_topic' cannot be empty")];
 dn_topic(required) -> true;
@@ -121,6 +129,10 @@ desc(jt808_frame) ->
     "Limits for the JT/T 808 frames.";
 desc(jt808_proto) ->
     "The JT/T 808 protocol options.";
+desc(anonymous_false) ->
+    ?DESC(jt808_allow_anonymous);
+desc(anonymous_true) ->
+    ?DESC(jt808_allow_anonymous);
 desc(_) ->
     undefined.
 
