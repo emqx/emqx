@@ -24,7 +24,6 @@ jobs:
         profile:
           - emqx
         arch:
-          - x64
           - arm64
         os:
           - el7
@@ -36,6 +35,13 @@ jobs:
         shell: bash
 
     steps:
+    - name: use pre-built node binary on older platforms
+      if: matrix.os == 'el7'
+      run: |
+        set -eu
+        /usr/local/bin/node --version
+        rm /__e/node20/bin/node
+        ln -s /usr/local/bin/node /__e/node20/bin/node
     - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         ref: ${{ github.event.inputs.ref }}
