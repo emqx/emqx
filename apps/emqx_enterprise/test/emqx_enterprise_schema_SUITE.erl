@@ -102,5 +102,8 @@ t_audit_log_conf(_Config) ->
                 <<"time_offset">> => <<"system">>
             }
     },
-    ?assertEqual(ExpectLog1, emqx_conf:get_raw([<<"log">>])),
+    %% The default value of throttling.msgs can be frequently updated,
+    %% remove it here, otherwise this test needs to be updated each time
+    %% a new throttle event is added.
+    ?assertEqual(ExpectLog1, maps:remove(<<"throttling">>, emqx_conf:get_raw([<<"log">>]))),
     ok.

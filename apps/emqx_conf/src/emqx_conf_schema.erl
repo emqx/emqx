@@ -909,7 +909,12 @@ fields("log") ->
                     aliases => [file_handlers],
                     importance => ?IMPORTANCE_HIGH
                 }
-            )}
+            )},
+        {"throttling",
+            sc(?R_REF("log_throttling"), #{
+                desc => ?DESC("log_throttling"),
+                importance => ?IMPORTANCE_MEDIUM
+            })}
     ];
 fields("console_handler") ->
     log_handler_common_confs(console, #{});
@@ -1012,6 +1017,28 @@ fields("log_burst_limit") ->
                 }
             )}
     ];
+fields("log_throttling") ->
+    [
+        {"window_time",
+            sc(
+                emqx_schema:duration_s(),
+                #{
+                    default => <<"1m">>,
+                    desc => ?DESC("log_throttling_window_time"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        %% A static list of event ids used in ?SLOG_THROTTLE/3,4 macro.
+        %% For internal (developer) use only.
+        {"event_ids",
+            sc(
+                hoconsc:array(atom()),
+                #{
+                    default => [],
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+    ];
 fields("authorization") ->
     emqx_schema:authz_fields() ++
         emqx_authz_schema:authz_fields().
@@ -1046,6 +1073,8 @@ desc("log_burst_limit") ->
     ?DESC("desc_log_burst_limit");
 desc("authorization") ->
     ?DESC("desc_authorization");
+desc("log_throttling") ->
+    ?DESC("desc_log_throttling");
 desc(_) ->
     undefined.
 
