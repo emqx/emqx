@@ -101,8 +101,8 @@ elif [[ $(uname -m) == "armv7l" ]]; then
 fi
 ARCH="${ARCH:-${NATIVE_ARCH:-}}"
 
-[ -z "${PROFILE:-}" ] && die "missing --prifile"
-[ -z "${PKGTYPE:-}" ] && die "missing --pkgtyp"
+[ -z "${PROFILE:-}" ] && die "missing --profile"
+[ -z "${PKGTYPE:-}" ] && die "missing --pkgtype"
 [ -z "${BUILDER:-}" ] && die "missing --builder"
 [ -z "${ARCH:-}" ] && die "missing --arch"
 
