@@ -12,31 +12,31 @@ permissions:
 
 jobs:
   linux:
-    runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch }}"]
+    runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}"]
 
     strategy:
       fail-fast: false
       matrix:
         profile:
           - emqx
-        otp:
-          - '25.3.2-2'
-        arch:
-          - x64
-          - arm64
         os:
           - ubuntu18.04
           - debian11
           - debian10
           - el7
           - amzn2
+        arch:
+          - amd64
+          - arm64
+        with_elixir:
+          - 'no'
+          - 'yes'
+        otp:
+          - '25.3.2-2'
         builder:
           - '5.3-2'
         elixir:
           - '1.15.7'
-        with_elixir:
-          - 'no'
-          - 'yes'
 
     defaults:
       run:
