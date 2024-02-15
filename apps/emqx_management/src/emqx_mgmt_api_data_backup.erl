@@ -21,7 +21,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([api_spec/0, paths/0, schema/1, fields/1]).
+-export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
 -export([
     data_export/2,
@@ -47,6 +47,8 @@
             required => IsRequired
         })}
 ).
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

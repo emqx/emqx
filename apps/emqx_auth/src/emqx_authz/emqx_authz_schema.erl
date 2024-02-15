@@ -22,7 +22,8 @@
 -export([
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    namespace/0
 ]).
 
 -export([
@@ -64,6 +65,8 @@
 %%--------------------------------------------------------------------
 
 roots() -> [].
+
+namespace() -> undefined.
 
 fields(?CONF_NS) ->
     emqx_schema:authz_fields() ++ authz_fields();

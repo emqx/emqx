@@ -813,7 +813,8 @@ to_schema(Body) ->
         post => #{requestBody => Body, responses => #{200 => <<"ok">>}}
     }.
 
-%% Don't warning hocon callback namespace/0 undef.
+roots() -> [].
+
 namespace() -> atom_to_list(?MODULE).
 
 fields(good_ref) ->

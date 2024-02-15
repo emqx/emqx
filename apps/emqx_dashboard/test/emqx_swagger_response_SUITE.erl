@@ -680,6 +680,7 @@ to_schema(Object) ->
         post => #{responses => #{200 => Object, 201 => Object}}
     }.
 
+rotos() -> [].
 namespace() -> undefined.
 
 fields(good_ref) ->

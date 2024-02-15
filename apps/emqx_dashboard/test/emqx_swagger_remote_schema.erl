@@ -17,9 +17,10 @@
 
 -include_lib("typerefl/include/types.hrl").
 
--export([roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1]).
 -import(hoconsc, [mk/2]).
 roots() -> ["root"].
+namespace() -> undefined.
 
 fields("root") ->
     [
