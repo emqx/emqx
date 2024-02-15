@@ -19,14 +19,24 @@ jobs:
       matrix:
         profile:
           - emqx
+        otp:
+          - '25.3.2-2'
         arch:
-          - amd64
+          - x64
           - arm64
         os:
+          - ubuntu18.04
+          - debian11
+          - debian10
           - el7
+          - amzn2
+        builder:
+          - '5.3-2'
+        elixir:
+          - '1.15.7'
         with_elixir:
-          - 'yes'
           - 'no'
+          - 'yes'
 
     defaults:
       run:
@@ -38,14 +48,22 @@ jobs:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
     - name: build emqx packages
+      env:
+        PROFILE: ${{ matrix.profile }}
+        ARCH: ${{ matrix.arch }}
+        OS: ${{ matrix.os }}
+        IS_ELIXIR: ${{ matrix.with_elixir }}
+        BUILDER: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        BUILDER_SYSTEM: force_docker
       run: |
         ./scripts/buildx.sh \
-          --profile ${{ matrix.profile }} \
-          --pkgtype pkg \
-          --builder ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-${{ matrix.os }} \
-          --elixir ${{ matrix.with_elixir }}
+          --profile $PROFILE \
+          --arch $ARCH \
+          --builder $BUILDER \
+          --elixir $IS_ELIXIR \
+          --pkgtype pkg
     - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}
+        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.with_elixir == 'yes' && '-elixir' && '' }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}.tar.gz
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
