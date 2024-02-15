@@ -28,7 +28,6 @@ jobs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
       release: ${{ steps.parse-git-ref.outputs.release }}
       latest: ${{ steps.parse-git-ref.outputs.latest }}
-      version: ${{ steps.parse-git-ref.outputs.version }}
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
@@ -46,18 +45,16 @@ jobs:
         shell: bash
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Detect emqx profile and version
+      - name: Detect emqx profile
         id: parse-git-ref
         run: |
           JSON="$(./scripts/parse-git-ref.sh $GITHUB_REF)"
           PROFILE=$(echo "$JSON" | jq -cr '.profile')
           RELEASE=$(echo "$JSON" | jq -cr '.release')
           LATEST=$(echo "$JSON"  | jq -cr '.latest')
-          VERSION="$(./pkg-vsn.sh "$PROFILE")"
           echo "profile=$PROFILE" | tee -a $GITHUB_OUTPUT
           echo "release=$RELEASE" | tee -a $GITHUB_OUTPUT
           echo "latest=$LATEST"   | tee -a $GITHUB_OUTPUT
-          echo "version=$VERSION" | tee -a $GITHUB_OUTPUT
       - name: Build matrix
         id: matrix
         run: |
@@ -91,7 +88,7 @@ jobs:
     uses: ./.github/workflows/build_packages.yaml
     with:
       profile: ${{ needs.prepare.outputs.profile }}
-      publish: ${{ needs.prepare.outputs.release }}
+      publish: true
       otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
       elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
@@ -104,8 +101,7 @@ jobs:
     uses: ./.github/workflows/build_and_push_docker_images.yaml
     with:
       profile: ${{ needs.prepare.outputs.profile }}
-      version: ${{ needs.prepare.outputs.version }}
-      publish: ${{ needs.prepare.outputs.release }}
+      publish: true
       latest: ${{ needs.prepare.outputs.latest }}
       # TODO: revert this back to needs.prepare.outputs.otp_vsn when OTP 26 bug is fixed
       otp_vsn: 25.3.2-2
