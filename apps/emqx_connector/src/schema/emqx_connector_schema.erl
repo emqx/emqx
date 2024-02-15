@@ -126,6 +126,8 @@ connector_type_to_bridge_types(azure_event_hub_producer) ->
     [azure_event_hub_producer];
 connector_type_to_bridge_types(confluent_producer) ->
     [confluent_producer];
+connector_type_to_bridge_types(dynamo) ->
+    [dynamo];
 connector_type_to_bridge_types(gcp_pubsub_consumer) ->
     [gcp_pubsub_consumer];
 connector_type_to_bridge_types(gcp_pubsub_producer) ->

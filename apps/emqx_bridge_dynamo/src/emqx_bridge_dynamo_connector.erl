@@ -21,7 +21,11 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
 
 -export([
@@ -70,7 +74,6 @@ on_start(
         url := Url,
         aws_access_key_id := AccessKeyID,
         aws_secret_access_key := SecretAccessKey,
-        table := Table,
         pool_size := PoolSize
     } = Config
 ) ->
@@ -95,12 +98,9 @@ on_start(
         }},
         {pool_size, PoolSize}
     ],
-
-    Templates = parse_template(Config),
     State = #{
         pool_name => InstanceId,
-        table => Table,
-        templates => Templates
+        installed_channels => #{}
     },
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
@@ -109,23 +109,74 @@ on_start(
             Error
     end.
 
+on_add_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId,
+    ChannelConfig
+) ->
+    {ok, ChannelState} = create_channel_state(ChannelConfig),
+    NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
+
+create_channel_state(
+    #{parameters := Conf} = _ChannelConfig
+) ->
+    #{
+        table := Table
+    } = Conf,
+    Templates = parse_template_from_conf(Conf),
+    State = #{
+        table => Table,
+        templates => Templates
+    },
+    {ok, State}.
+
+on_remove_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId
+) ->
+    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
+
+on_get_channel_status(
+    _ResId,
+    _ChannelId,
+    _State
+) ->
+    ?status_connected.
+
+on_get_channels(ResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ResId).
+
 on_stop(InstanceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_dynamo_connector",
         connector => InstanceId
     }),
+    ?tp(
+        dynamo_connector_on_stop,
+        #{instance_id => InstanceId}
+    ),
     emqx_resource_pool:stop(InstanceId).
 
 on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, State).
 
 %% we only support batch insert
-on_batch_query(InstanceId, [{send_message, _} | _] = Query, State) ->
+on_batch_query(InstanceId, [{_ChannelId, _} | _] = Query, State) ->
     do_query(InstanceId, Query, State);
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
-
-%% we only support batch insert
 
 on_get_status(_InstanceId, #{pool_name := Pool}) ->
     Health = emqx_resource_pool:health_check_workers(
@@ -133,8 +184,8 @@ on_get_status(_InstanceId, #{pool_name := Pool}) ->
     ),
     status_result(Health).
 
-status_result(_Status = true) -> connected;
-status_result(_Status = false) -> connecting.
+status_result(_Status = true) -> ?status_connected;
+status_result(_Status = false) -> ?status_connecting.
 
 %%========================================================================================
 %% Helper fns
@@ -143,29 +194,44 @@ status_result(_Status = false) -> connecting.
 do_query(
     InstanceId,
     Query,
-    #{pool_name := PoolName, templates := Templates, table := Table} = State
+    #{
+        pool_name := PoolName,
+        installed_channels := Channels
+    } = State
 ) ->
     ?TRACE(
         "QUERY",
         "dynamo_connector_received",
         #{connector => InstanceId, query => Query, state => State}
     ),
-    Result = ecpool:pick_and_do(
-        PoolName,
-        {emqx_bridge_dynamo_connector_client, query, [Table, Query, Templates]},
-        no_handover
-    ),
+    ChannelId = get_channel_id(Query),
+    QueryTuple = get_query_tuple(Query),
+    ChannelState = maps:get(ChannelId, Channels),
+    #{
+        table := Table,
+        templates := Templates
+    } = ChannelState,
+    Result =
+        ecpool:pick_and_do(
+            PoolName,
+            {emqx_bridge_dynamo_connector_client, query, [Table, QueryTuple, Templates]},
+            no_handover
+        ),
 
     case Result of
         {error, Reason} ->
             ?tp(
                 dynamo_connector_query_return,
-                #{error => Reason}
+                #{
+                    error => Reason,
+                    instance_id => InstanceId
+                }
             ),
             ?SLOG(error, #{
                 msg => "dynamo_connector_do_query_failed",
                 connector => InstanceId,
-                query => Query,
+                channel => ChannelId,
+                query => QueryTuple,
                 reason => Reason
             }),
             case Reason of
@@ -177,16 +243,36 @@ do_query(
         _ ->
             ?tp(
                 dynamo_connector_query_return,
-                #{result => Result}
+                #{
+                    result => Result,
+                    instance_id => InstanceId
+                }
             ),
             Result
     end.
+
+get_channel_id([{ChannelId, _Req} | _]) ->
+    ChannelId;
+get_channel_id({ChannelId, _Req}) ->
+    ChannelId.
+
+get_query_tuple({_ChannelId, {QueryType, Data}} = _Query) ->
+    {QueryType, Data};
+get_query_tuple({_ChannelId, Data} = _Query) ->
+    {send_message, Data};
+get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
+    error(
+        {unrecoverable_error,
+            {invalid_request, <<"The only query type that support batching is insert.">>}}
+    );
+get_query_tuple([InsertQuery | _]) ->
+    get_query_tuple(InsertQuery).
 
 connect(Opts) ->
     Config = proplists:get_value(config, Opts),
     {ok, _Pid} = emqx_bridge_dynamo_connector_client:start_link(Config).
 
-parse_template(Config) ->
+parse_template_from_conf(Config) ->
     Templates =
         case maps:get(template, Config, undefined) of
             undefined -> #{};

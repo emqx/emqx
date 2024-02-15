@@ -11,7 +11,6 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1,
     values/1
 ]).
 
@@ -22,6 +21,14 @@
     desc/1
 ]).
 
+-export([
+    bridge_v2_examples/1,
+    connector_examples/1,
+    conn_bridge_examples/1
+]).
+
+-define(CONNECTOR_TYPE, dynamo).
+-define(ACTION_TYPE, ?CONNECTOR_TYPE).
 -define(DEFAULT_TEMPLATE, <<>>).
 
 %% -------------------------------------------------------------------------------------------------
@@ -59,12 +66,134 @@ values(_Method) ->
         }
     }.
 
+connector_examples(Method) ->
+    [
+        #{
+            <<"dynamo">> =>
+                #{
+                    summary => <<"DynamoDB Connector">>,
+                    value => emqx_connector_schema:connector_values(
+                        Method, ?CONNECTOR_TYPE, connector_values()
+                    )
+                }
+        }
+    ].
+
+connector_values() ->
+    #{
+        <<"enable">> => true,
+        <<"url">> => <<"http://127.0.0.1:8000">>,
+        <<"aws_access_key_id">> => <<"root">>,
+        <<"aws_secret_access_key">> => <<"******">>,
+        <<"pool_size">> => 8,
+        <<"resource_opts">> =>
+            #{
+                <<"health_check_interval">> => <<"15s">>,
+                <<"start_timeout">> => <<"5s">>
+            }
+    }.
+
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"dynamo">> =>
+                #{
+                    summary => <<"DynamoDB Action">>,
+                    value => emqx_bridge_v2_schema:action_values(
+                        Method, ?ACTION_TYPE, ?CONNECTOR_TYPE, action_values()
+                    )
+                }
+        }
+    ].
+
+action_values() ->
+    #{
+        <<"parameters">> =>
+            #{
+                <<"table">> => <<"mqtt_msg">>,
+                <<"template">> => ?DEFAULT_TEMPLATE
+            }
+    }.
+
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 namespace() -> "bridge_dynamo".
 
 roots() -> [].
 
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(
+        Field,
+        ?CONNECTOR_TYPE,
+        fields("config_connector") -- emqx_connector_schema:common_fields()
+    );
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(dynamo_action));
+fields(action) ->
+    {?ACTION_TYPE,
+        hoconsc:mk(
+            hoconsc:map(name, hoconsc:ref(?MODULE, dynamo_action)),
+            #{
+                desc => <<"DynamoDB Action Config">>,
+                required => false
+            }
+        )};
+fields(dynamo_action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        hoconsc:mk(
+            hoconsc:ref(?MODULE, action_parameters),
+            #{
+                required => true,
+                desc => ?DESC("action_parameters")
+            }
+        )
+    );
+fields(action_parameters) ->
+    Parameters =
+        [
+            {template,
+                mk(
+                    binary(),
+                    #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
+                )}
+        ] ++ emqx_bridge_dynamo_connector:fields(config),
+    lists:foldl(
+        fun(Key, Acc) ->
+            proplists:delete(Key, Acc)
+        end,
+        Parameters,
+        [
+            url,
+            aws_access_key_id,
+            aws_secret_access_key,
+            pool_size,
+            auto_reconnect
+        ]
+    );
+fields("config_connector") ->
+    Config =
+        emqx_connector_schema:common_fields() ++
+            emqx_bridge_dynamo_connector:fields(config) ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    lists:foldl(
+        fun(Key, Acc) ->
+            proplists:delete(Key, Acc)
+        end,
+        Config,
+        [
+            table
+        ]
+    );
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -102,9 +231,17 @@ fields("get") ->
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for PostgreSQL using `", string:to_upper(Method), "` method."];
+    ["Configuration for DynamoDB using `", string:to_upper(Method), "` method."];
 desc("creation_opts" = Name) ->
     emqx_resource_schema:desc(Name);
+desc("config_connector") ->
+    ?DESC("config_connector");
+desc(dynamo_action) ->
+    ?DESC("dynamo_action");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
