@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_hstreamdb).
@@ -160,9 +160,15 @@ fields(hstreamdb_action) ->
     );
 fields(action_parameters) ->
     [
-        {stream, mk(binary(), #{required => true, desc => ?DESC("stream_name")})},
+        {stream,
+            mk(binary(), #{
+                required => true, desc => ?DESC(emqx_bridge_hstreamdb_connector, "stream_name")
+            })},
 
-        {partition_key, mk(binary(), #{required => false, desc => ?DESC("partition_key")})},
+        {partition_key,
+            mk(binary(), #{
+                required => false, desc => ?DESC(emqx_bridge_hstreamdb_connector, "partition_key")
+            })},
 
         {grpc_flush_timeout, fun grpc_flush_timeout/1},
         {record_template,
@@ -181,7 +187,9 @@ fields(connector_fields) ->
     [
         {url,
             mk(binary(), #{
-                required => true, desc => ?DESC("url"), default => <<"http://127.0.0.1:6570">>
+                required => true,
+                desc => ?DESC(emqx_bridge_hstreamdb_connector, "url"),
+                default => <<"http://127.0.0.1:6570">>
             })},
         {grpc_timeout, fun grpc_timeout/1}
     ] ++ emqx_connector_schema_lib:ssl_fields();
@@ -208,13 +216,13 @@ fields("put") ->
         connector_fields().
 
 grpc_timeout(type) -> emqx_schema:timeout_duration_ms();
-grpc_timeout(desc) -> ?DESC("grpc_timeout");
+grpc_timeout(desc) -> ?DESC(emqx_bridge_hstreamdb_connector, "grpc_timeout");
 grpc_timeout(default) -> ?DEFAULT_GRPC_TIMEOUT_RAW;
 grpc_timeout(required) -> false;
 grpc_timeout(_) -> undefined.
 
 grpc_flush_timeout(type) -> emqx_schema:timeout_duration_ms();
-grpc_flush_timeout(desc) -> ?DESC("grpc_timeout");
+grpc_flush_timeout(desc) -> ?DESC("grpc_flush_timeout");
 grpc_flush_timeout(default) -> ?DEFAULT_GRPC_FLUSH_TIMEOUT_RAW;
 grpc_flush_timeout(required) -> false;
 grpc_flush_timeout(_) -> undefined.
@@ -236,6 +244,16 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for HStreamDB bridge using `", string:to_upper(Method), "` method."];
+desc("creation_opts") ->
+    ?DESC(emqx_resource_schema, "creation_opts");
+desc("config_connector") ->
+    ?DESC("config_connector");
+desc(hstreamdb_action) ->
+    ?DESC("hstreamdb_action");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
