@@ -53,7 +53,7 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    TCsNonGeneric = [t_choose_impl],
+    TCsNonGeneric = [t_choose_impl, t_transient],
     TCGroups = [{group, tcp}, {group, quic}, {group, ws}],
     [
         {persistence_disabled, TCGroups},
@@ -265,7 +265,15 @@ messages(Topic, Payloads) ->
     messages(Topic, Payloads, ?QOS_2).
 
 messages(Topic, Payloads, QoS) ->
-    [#mqtt_msg{topic = Topic, payload = P, qos = QoS} || P <- Payloads].
+    lists:map(
+        fun
+            (Bin) when is_binary(Bin) ->
+                #mqtt_msg{topic = Topic, payload = Bin, qos = QoS};
+            (Msg = #mqtt_msg{}) ->
+                Msg#mqtt_msg{topic = Topic}
+        end,
+        Payloads
+    ).
 
 publish(Topic, Payload) ->
     publish(Topic, Payload, ?QOS_2).
@@ -1100,6 +1108,93 @@ t_unsubscribe_replay(Config) ->
     ?assertMatch(
         [<<"7">>, <<"8">>, <<"9">>],
         lists:map(fun get_msgpub_payload/1, receive_messages(3))
+    ),
+    ok = emqtt:disconnect(Sub1).
+
+%% This testcase verifies that persistent sessions handle "transient"
+%% mesages correctly.
+%%
+%% Transient messages are delivered to the channel directly, bypassing
+%% the broker code that decides whether the messages should be
+%% persisted or not, and therefore they are not persisted.
+%%
+%% `emqx_retainer' is an example of application that uses this
+%% mechanism.
+%%
+%% This testcase creates the conditions when the transient messages
+%% appear in the middle of the replay, to make sure the durable
+%% session doesn't get confused and/or stuck if retained messages are
+%% changed while the session was down.
+t_transient(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    TopicPrefix = ?config(topic, Config),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientOpts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30, 'Receive-Maximum' => 100}},
+        {max_inflight, 100}
+        | Config
+    ],
+    Deliver = fun(Topic, Payload, QoS) ->
+        [Pid] = emqx_cm:lookup_channels(ClientId),
+        Msg = emqx_message:make(_From = <<"test">>, QoS, Topic, Payload),
+        Pid ! {deliver, Topic, Msg}
+    end,
+    Topic1 = <<TopicPrefix/binary, "/1">>,
+    Topic2 = <<TopicPrefix/binary, "/2">>,
+    Topic3 = <<TopicPrefix/binary, "/3">>,
+    %% 1. Start the client and subscribe to the topic:
+    {ok, Sub} = emqtt:start_link([{clean_start, true}, {auto_ack, never} | ClientOpts]),
+    ?assertMatch({ok, _}, emqtt:ConnFun(Sub)),
+    ?assertMatch({ok, _, _}, emqtt:subscribe(Sub, <<TopicPrefix/binary, "/#">>, qos2)),
+    %% 2. Publish regular messages:
+    publish(Topic1, <<"1">>, ?QOS_1),
+    publish(Topic1, <<"2">>, ?QOS_2),
+    Msgs1 = receive_messages(2),
+    [#{payload := <<"1">>, packet_id := PI1}, #{payload := <<"2">>, packet_id := PI2}] = Msgs1,
+    %% 3. Publish and recieve transient messages:
+    Deliver(Topic2, <<"3">>, ?QOS_0),
+    Deliver(Topic2, <<"4">>, ?QOS_1),
+    Deliver(Topic2, <<"5">>, ?QOS_2),
+    Msgs2 = receive_messages(3),
+    ?assertMatch(
+        [
+            #{payload := <<"3">>, qos := ?QOS_0},
+            #{payload := <<"4">>, qos := ?QOS_1},
+            #{payload := <<"5">>, qos := ?QOS_2}
+        ],
+        Msgs2
+    ),
+    %% 4. Publish more regular messages:
+    publish(Topic3, <<"6">>, ?QOS_1),
+    publish(Topic3, <<"7">>, ?QOS_2),
+    Msgs3 = receive_messages(2),
+    [#{payload := <<"6">>, packet_id := PI6}, #{payload := <<"7">>, packet_id := PI7}] = Msgs3,
+    %% 5. Reconnect the client:
+    ok = emqtt:disconnect(Sub),
+    {ok, Sub1} = emqtt:start_link([{clean_start, false}, {auto_ack, true} | ClientOpts]),
+    ?assertMatch({ok, _}, emqtt:ConnFun(Sub1)),
+    %% 6. Recieve the historic messages and check that their packet IDs didn't change:
+    %% Note: durable session currenty WON'T replay transient messages.
+    ProcessMessage = fun(#{payload := P, packet_id := ID}) -> {ID, P} end,
+    ?assertMatch(
+        #{
+            Topic1 := [{PI1, <<"1">>}, {PI2, <<"2">>}],
+            Topic3 := [{PI6, <<"6">>}, {PI7, <<"7">>}]
+        },
+        maps:groups_from_list(fun get_msgpub_topic/1, ProcessMessage, receive_messages(7, 5_000))
+    ),
+    %% 7. Finish off by sending messages to all the topics to make
+    %% sure none of the streams are blocked:
+    [publish(T, <<"fin">>, ?QOS_2) || T <- [Topic1, Topic2, Topic3]],
+    ?assertMatch(
+        #{
+            Topic1 := [<<"fin">>],
+            Topic2 := [<<"fin">>],
+            Topic3 := [<<"fin">>]
+        },
+        get_topicwise_order(receive_messages(3))
     ),
     ok = emqtt:disconnect(Sub1).
 

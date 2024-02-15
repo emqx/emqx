@@ -241,8 +241,10 @@ info(mqueue_dropped, _Session) ->
 %%     seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
 info(awaiting_rel_max, #{props := Conf}) ->
     maps:get(max_awaiting_rel, Conf);
-info(await_rel_timeout, #{props := Conf}) ->
-    maps:get(await_rel_timeout, Conf).
+info(await_rel_timeout, #{props := _Conf}) ->
+    %% TODO: currently this setting is ignored:
+    %% maps:get(await_rel_timeout, Conf).
+    0.
 
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) ->
@@ -389,7 +391,7 @@ publish(_PacketId, Msg, Session) ->
 puback(_ClientInfo, PacketId, Session0) ->
     case update_seqno(puback, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], inc_send_quota(Session)};
+            {ok, Msg, [], pull_now(Session)};
         Error ->
             Error
     end.
@@ -429,7 +431,7 @@ pubrel(_PacketId, Session = #{}) ->
 pubcomp(_ClientInfo, PacketId, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], inc_send_quota(Session)};
+            {ok, Msg, [], pull_now(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -438,9 +440,13 @@ pubcomp(_ClientInfo, PacketId, Session0) ->
 
 -spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
     {ok, replies(), session()}.
-deliver(_ClientInfo, _Delivers, Session) ->
-    %% TODO: system messages end up here.
-    {ok, [], Session}.
+deliver(ClientInfo, Delivers, Session0) ->
+    %% Durable sessions still have to handle some transient messages.
+    %% For example, retainer sends messages to the session directly.
+    Session = lists:foldl(
+        fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
+    ),
+    {ok, [], pull_now(Session)}.
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
@@ -481,8 +487,8 @@ handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session = #{s := 
     S = emqx_persistent_session_ds_state:commit(S0),
     From ! Ref,
     {ok, [], Session#{s => S}};
-handle_timeout(_ClientInfo, expire_awaiting_rel, Session) ->
-    %% TODO: stub
+handle_timeout(_ClientInfo, Timeout, Session) ->
+    ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.
 
 bump_last_alive(S0) ->
@@ -872,6 +878,48 @@ process_batch(
     ).
 
 %%--------------------------------------------------------------------
+%% Transient messages
+%%--------------------------------------------------------------------
+
+enqueue_transient(ClientInfo, Msg0, Session = #{s := S, props := #{upgrade_qos := UpgradeQoS}}) ->
+    %% TODO: Such messages won't be retransmitted, should the session
+    %% reconnect before transient messages are acked.
+    %%
+    %% Proper solution could look like this: session publishes
+    %% transient messages to a separate DS DB that serves as a queue,
+    %% then subscribes to a special system topic that contains the
+    %% queued messages. Since streams in this DB are exclusive to the
+    %% session, messages from the queue can be dropped as soon as they
+    %% are acked.
+    Subs = emqx_persistent_session_ds_state:get_subscriptions(S),
+    Msgs = [
+        Msg
+     || SubMatch <- emqx_topic_gbt:matches(Msg0#message.topic, Subs, []),
+        Msg <- begin
+            #{props := SubOpts} = emqx_topic_gbt:get_record(SubMatch, Subs),
+            emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS)
+        end
+    ],
+    lists:foldl(fun do_enqueue_transient/2, Session, Msgs).
+
+do_enqueue_transient(Msg = #message{qos = Qos}, Session = #{inflight := Inflight0, s := S0}) ->
+    case Qos of
+        ?QOS_0 ->
+            S = S0,
+            Inflight = emqx_persistent_session_ds_inflight:push({undefined, Msg}, Inflight0);
+        QoS when QoS =:= ?QOS_1; QoS =:= ?QOS_2 ->
+            SeqNo = inc_seqno(
+                QoS, emqx_persistent_session_ds_state:get_seqno(?next(QoS), S0)
+            ),
+            S = emqx_persistent_session_ds_state:put_seqno(?next(QoS), SeqNo, S0),
+            Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0)
+    end,
+    Session#{
+        inflight => Inflight,
+        s => S
+    }.
+
+%%--------------------------------------------------------------------
 %% Buffer drain
 %%--------------------------------------------------------------------
 
@@ -906,11 +954,6 @@ ensure_timers(Session0) ->
     Session1 = emqx_session:ensure_timer(?TIMER_PULL, 100, Session0),
     Session2 = emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session1),
     emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session2).
-
--spec inc_send_quota(session()) -> session().
-inc_send_quota(Session = #{inflight := Inflight0}) ->
-    Inflight = emqx_persistent_session_ds_inflight:inc_send_quota(Inflight0),
-    pull_now(Session#{inflight => Inflight}).
 
 -spec pull_now(session()) -> session().
 pull_now(Session) ->
@@ -957,26 +1000,28 @@ try_get_live_session(ClientId) ->
 
 -spec update_seqno(puback | pubrec | pubcomp, emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), session()} | {error, _}.
-update_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
+update_seqno(Track, PacketId, Session = #{id := SessionId, s := S, inflight := Inflight0}) ->
     SeqNo = packet_id_to_seqno(PacketId, S),
     case Track of
         puback ->
-            QoS = ?QOS_1,
-            SeqNoKey = ?committed(?QOS_1);
+            SeqNoKey = ?committed(?QOS_1),
+            Result = emqx_persistent_session_ds_inflight:puback(SeqNo, Inflight0);
         pubrec ->
-            QoS = ?QOS_2,
-            SeqNoKey = ?rec;
+            SeqNoKey = ?rec,
+            Result = emqx_persistent_session_ds_inflight:pubrec(SeqNo, Inflight0);
         pubcomp ->
-            QoS = ?QOS_2,
-            SeqNoKey = ?committed(?QOS_2)
+            SeqNoKey = ?committed(?QOS_2),
+            Result = emqx_persistent_session_ds_inflight:pubcomp(SeqNo, Inflight0)
     end,
-    Current = emqx_persistent_session_ds_state:get_seqno(SeqNoKey, S),
-    case inc_seqno(QoS, Current) of
-        SeqNo ->
+    case Result of
+        {ok, Inflight} ->
             %% TODO: we pass a bogus message into the hook:
             Msg = emqx_message:make(SessionId, <<>>, <<>>),
-            {ok, Msg, Session#{s => emqx_persistent_session_ds_state:put_seqno(SeqNoKey, SeqNo, S)}};
-        Expected ->
+            {ok, Msg, Session#{
+                s => emqx_persistent_session_ds_state:put_seqno(SeqNoKey, SeqNo, S),
+                inflight => Inflight
+            }};
+        {error, Expected} ->
             ?SLOG(warning, #{
                 msg => "out-of-order_commit",
                 track => Track,
