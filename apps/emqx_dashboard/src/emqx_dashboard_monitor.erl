@@ -22,8 +22,7 @@
 
 -behaviour(gen_server).
 
--boot_mnesia({mnesia, [boot]}).
-
+-export([create_tables/0]).
 -export([start_link/0]).
 
 -export([
@@ -34,8 +33,6 @@
     terminate/2,
     code_change/3
 ]).
-
--export([mnesia/1]).
 
 -export([
     samplers/0,
@@ -67,14 +64,15 @@
     data :: map()
 }).
 
-mnesia(boot) ->
+create_tables() ->
     ok = mria:create_table(?TAB, [
         {type, set},
         {local_content, true},
         {storage, disc_copies},
         {record_name, emqx_monit},
         {attributes, record_info(fields, emqx_monit)}
-    ]).
+    ]),
+    [?TAB].
 
 %% -------------------------------------------------------------------------------------------------
 %% API

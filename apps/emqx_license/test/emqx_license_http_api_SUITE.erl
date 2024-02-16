@@ -7,7 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -20,41 +19,34 @@ all() ->
 
 init_per_suite(Config) ->
     emqx_license_test_lib:mock_parser(),
-    _ = application:load(emqx_conf),
-    emqx_config:save_schema_mod_and_names(emqx_license_schema),
-    emqx_common_test_helpers:start_apps([emqx_license, emqx_dashboard], fun set_special_configs/1),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_license, #{
+                config => #{
+                    license => #{
+                        key => emqx_license_test_lib:make_license(#{max_connections => "100"}),
+                        connection_low_watermark => <<"75%">>,
+                        connection_high_watermark => <<"80%">>
+                    }
+                }
+            }},
+            {emqx_dashboard,
+                "dashboard {"
+                "\n  listeners.http { enable = true, bind = 18083 }"
+                "\n  default_username = \"license_admin\""
+                "\n}"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_) ->
-    emqx_common_test_helpers:stop_apps([emqx_license, emqx_dashboard]),
-    LicenseKey = emqx_license_test_lib:make_license(#{max_connections => "100"}),
-    Config = #{key => LicenseKey},
-    emqx_config:put([license], Config),
-    RawConfig = #{<<"key">> => LicenseKey},
-    emqx_config:put_raw([<<"license">>], RawConfig),
+end_per_suite(Config) ->
     emqx_license_test_lib:unmock_parser(),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(<<"license_admin">>);
-set_special_configs(emqx_license) ->
-    LicenseKey = emqx_license_test_lib:make_license(#{max_connections => "100"}),
-    Config = #{
-        key => LicenseKey, connection_low_watermark => 0.75, connection_high_watermark => 0.8
-    },
-    emqx_config:put([license], Config),
-    RawConfig = #{
-        <<"key">> => LicenseKey,
-        <<"connection_low_watermark">> => <<"75%">>,
-        <<"connection_high_watermark">> => <<"80%">>
-    },
-    emqx_config:put_raw([<<"license">>], RawConfig),
-    ok;
-set_special_configs(_) ->
-    ok.
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->

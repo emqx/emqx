@@ -28,6 +28,7 @@
 -include("emqx_mgmt.hrl").
 
 start(_Type, _Args) ->
+    ok = mria:wait_for_tables(emqx_mgmt_auth:create_tables()),
     case emqx_mgmt_auth:init_bootstrap_file() of
         ok ->
             emqx_conf:add_handler([api_key], emqx_mgmt_auth),

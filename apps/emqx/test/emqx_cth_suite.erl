@@ -177,10 +177,9 @@ load_appspec({App, _Opts}) ->
     load_app_deps(App).
 
 load_app_deps(App) ->
-    AlreadyLoaded = [A || {A, _, _} <- application:loaded_applications()],
     case application:get_key(App, applications) of
         {ok, Deps} ->
-            Apps = Deps -- AlreadyLoaded,
+            Apps = [D || D <- Deps, application:get_key(D, id) == undefined],
             ok = lists:foreach(fun emqx_common_test_helpers:load/1, Apps),
             ok = lists:foreach(fun load_app_deps/1, Apps);
         undefined ->
@@ -471,9 +470,12 @@ clean_suite_state() ->
 
 app_schema(App) ->
     Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
-    try is_list(Mod:roots()) of
-        true -> {ok, Mod};
-        false -> {error, schema_no_roots}
+    try
+        Exports = Mod:module_info(exports),
+        case lists:member({roots, 0}, Exports) of
+            true -> {ok, Mod};
+            false -> {error, schema_no_roots}
+        end
     catch
         error:undef ->
             {error, schema_not_found}

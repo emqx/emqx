@@ -17,120 +17,31 @@ all() ->
 
 init_per_suite(Config) ->
     emqx_license_test_lib:mock_parser(),
-    _ = application:load(emqx_conf),
-    emqx_config:save_schema_mod_and_names(emqx_license_schema),
-    emqx_common_test_helpers:start_apps([emqx_license], fun set_special_configs/1),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_license, "license { key = \"default\" }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
     emqx_license_test_lib:unmock_parser(),
-    emqx_common_test_helpers:stop_apps([emqx_license]),
-    ok.
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    Paths = set_override_paths(Case),
-    Config0 = setup_test(Case, Config),
-    Paths ++ Config0 ++ Config.
+    setup_test(Case, Config) ++ Config.
 
 end_per_testcase(Case, Config) ->
-    clean_overrides(Case, Config),
-    teardown_test(Case, Config),
-    ok.
+    teardown_test(Case, Config).
 
-set_override_paths(_TestCase) ->
-    [].
-
-clean_overrides(_TestCase, _Config) ->
-    ok.
-
-setup_test(TestCase, Config) when
-    TestCase =:= t_update_file_cluster_backup
-->
-    DataDir = ?config(data_dir, Config),
-    {LicenseKey, _License} = mk_license(
-        [
-            %% license format version
-            "220111",
-            %% license type
-            "0",
-            %% customer type
-            "10",
-            %% customer name
-            "Foo",
-            %% customer email
-            "contact@foo.com",
-            %% deplayment name
-            "bar-deployment",
-            %% start date
-            "20220111",
-            %% days
-            "100000",
-            %% max connections
-            "19"
-        ]
-    ),
-    Cluster = emqx_common_test_helpers:emqx_cluster(
-        [core, core],
-        [
-            {apps, [emqx_conf, emqx_license]},
-            {load_schema, false},
-            {schema_mod, emqx_enterprise_schema},
-            {env_handler, fun
-                (emqx) ->
-                    emqx_config:save_schema_mod_and_names(emqx_enterprise_schema),
-                    %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
-                    application:set_env(emqx, boot_modules, []),
-                    application:set_env(
-                        emqx,
-                        data_dir,
-                        filename:join([
-                            DataDir,
-                            TestCase,
-                            node()
-                        ])
-                    ),
-                    ok;
-                (emqx_conf) ->
-                    emqx_config:save_schema_mod_and_names(emqx_enterprise_schema),
-                    %% emqx_config:save_schema_mod_and_names(emqx_license_schema),
-                    application:set_env(
-                        emqx,
-                        data_dir,
-                        filename:join([
-                            DataDir,
-                            TestCase,
-                            node()
-                        ])
-                    ),
-                    ok;
-                (emqx_license) ->
-                    set_special_configs(emqx_license),
-                    ok;
-                (_) ->
-                    ok
-            end}
-        ]
-    ),
-    Nodes = [emqx_common_test_helpers:start_peer(Name, Opts) || {Name, Opts} <- Cluster],
-    [{nodes, Nodes}, {cluster, Cluster}, {old_license, LicenseKey}];
 setup_test(_TestCase, _Config) ->
     [].
 
 teardown_test(_TestCase, _Config) ->
     ok.
-
-set_special_configs(emqx_license) ->
-    Config = #{key => default},
-    emqx_config:put([license], Config),
-    RawConfig = #{<<"key">> => <<"default">>},
-    emqx_config:put_raw([<<"license">>], RawConfig);
-set_special_configs(_) ->
-    ok.
-
-assert_on_nodes(Nodes, RunFun, CheckFun) ->
-    Res = [{N, erpc:call(N, RunFun)} || N <- Nodes],
-    lists:foreach(CheckFun, Res).
 
 %%------------------------------------------------------------------------------
 %% Tests

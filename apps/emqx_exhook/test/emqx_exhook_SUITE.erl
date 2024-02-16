@@ -24,16 +24,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
--include_lib("emqx_conf/include/emqx_conf.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
-
--define(OTHER_CLUSTER_NAME_ATOM, test_emqx_cluster).
 -define(OTHER_CLUSTER_NAME_STRING, "test_emqx_cluster").
 
 -define(CONF_DEFAULT, <<
-    "\n"
     "exhook {\n"
     "  servers = [\n"
     "    { name = default,\n"
@@ -54,8 +49,6 @@
     "}\n"
 >>).
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -63,47 +56,30 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok),
-
     _ = emqx_exhook_demo_svr:start(),
-    load_cfg(?CONF_DEFAULT),
-    emqx_common_test_helpers:start_apps([emqx_exhook]),
     Cfg.
 
 end_per_suite(_Cfg) ->
-    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    meck:unload(emqx_alarm),
-
-    emqx_common_test_helpers:stop_apps([emqx_exhook]),
     emqx_exhook_demo_svr:stop().
 
-init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
-    timer:sleep(200),
-    Config.
+init_per_testcase(TC, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf, emqx_conf(TC)},
+            {emqx_exhook, ?CONF_DEFAULT}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    [{tc_apps, Apps} | Config].
 
-end_per_testcase(_, _Config) ->
-    case erlang:whereis(node()) of
-        undefined ->
-            ok;
-        P ->
-            erlang:unlink(P),
-            erlang:exit(P, kill)
-    end,
-    emqx_common_test_helpers:call_janitor(),
-    ok.
+end_per_testcase(_, Config) ->
+    ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
 
-load_cfg(Cfg) ->
-    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, Cfg).
+emqx_conf(t_cluster_name) ->
+    io_lib:format("cluster.name = ~p", [?OTHER_CLUSTER_NAME_STRING]);
+emqx_conf(_) ->
+    #{}.
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -320,23 +296,6 @@ t_misc_test(_) ->
     ok.
 
 t_cluster_name(_) ->
-    SetEnvFun =
-        fun
-            (emqx) ->
-                application:set_env(ekka, cluster_name, ?OTHER_CLUSTER_NAME_ATOM);
-            (emqx_exhook) ->
-                ok
-        end,
-
-    stop_apps([emqx, emqx_exhook]),
-    emqx_common_test_helpers:start_apps([emqx, emqx_exhook], SetEnvFun),
-    on_exit(fun() ->
-        stop_apps([emqx, emqx_exhook]),
-        load_cfg(?CONF_DEFAULT),
-        emqx_common_test_helpers:start_apps([emqx_exhook]),
-        mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT])
-    end),
-
     ?assertEqual(?OTHER_CLUSTER_NAME_STRING, emqx_sys:cluster_name()),
 
     emqx_exhook_mgr:disable(<<"default">>),
@@ -364,7 +323,7 @@ t_stop_timeout(_) ->
     ),
 
     %% stop application
-    application:stop(emqx_exhook),
+    ok = application:stop(emqx_exhook),
     ?block_until(#{?snk_kind := exhook_mgr_terminated}, 20000),
 
     %% all exhook hooked point should be unloaded
@@ -379,7 +338,7 @@ t_stop_timeout(_) ->
     ?assertEqual(false, lists:any(fun(M) -> M == emqx_exhook_handler end, Mods)),
 
     %% ensure started for other tests
-    emqx_common_test_helpers:start_apps([emqx_exhook]),
+    {ok, _} = application:ensure_all_started(emqx_exhook),
 
     snabbkaffe:stop(),
     meck:unload(emqx_exhook_demo_svr).
@@ -509,10 +468,6 @@ data_file(Name) ->
 
 cert_file(Name) ->
     data_file(filename:join(["certs", Name])).
-
-%% FIXME: this creates inter-test dependency
-stop_apps(Apps) ->
-    emqx_common_test_helpers:stop_apps(Apps, #{erase_all_configs => false}).
 
 shuffle(List) ->
     Sorted = lists:sort(lists:map(fun(L) -> {rand:uniform(), L} end, List)),

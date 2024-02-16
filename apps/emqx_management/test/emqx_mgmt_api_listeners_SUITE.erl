@@ -27,14 +27,19 @@
 all() ->
     [
         {group, with_defaults_in_file},
-        {group, without_defaults_in_file}
+        {group, without_defaults_in_file},
+        {group, max_connections}
     ].
 
 groups() ->
     AllTests = emqx_common_test_helpers:all(?MODULE),
+    MaxConnTests = [
+        t_max_connection_default
+    ],
     [
-        {with_defaults_in_file, AllTests},
-        {without_defaults_in_file, AllTests}
+        {with_defaults_in_file, AllTests -- MaxConnTests},
+        {without_defaults_in_file, AllTests -- MaxConnTests},
+        {max_connections, MaxConnTests}
     ].
 
 init_per_suite(Config) ->
@@ -44,29 +49,39 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(without_defaults_in_file, Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
-    Config;
+    init_group_apps(#{}, Config);
 init_per_group(with_defaults_in_file, Config) ->
     %% we have to materialize the config file with default values for this test group
     %% because we want to test the deletion of non-existing listener
     %% if there is no config file, the such deletion would result in a deletion
     %% of the default listener.
-    Name = atom_to_list(?MODULE) ++ "-default-listeners",
-    TmpConfFullPath = inject_tmp_config_content(Name, default_listeners_hocon_text()),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
-    [{injected_conf_file, TmpConfFullPath} | Config].
+    PrivDir = ?config(priv_dir, Config),
+    FileName = filename:join([PrivDir, "etc", atom_to_list(?MODULE) ++ "-default-listeners"]),
+    ok = filelib:ensure_dir(FileName),
+    ok = file:write_file(FileName, default_listeners_hocon_text()),
+    init_group_apps("include \"" ++ FileName ++ "\"", Config);
+init_per_group(max_connections, Config) ->
+    init_group_apps(
+        io_lib:format("listeners.tcp.max_connection_test {bind = \"0.0.0.0:~p\"}", [?PORT]),
+        Config
+    ).
 
-end_per_group(Group, Config) ->
-    emqx_conf:tombstone([listeners, tcp, new], #{override_to => cluster}),
-    emqx_conf:tombstone([listeners, tcp, new1], #{override_to => local}),
-    case Group =:= with_defaults_in_file of
-        true ->
-            {_, File} = lists:keyfind(injected_conf_file, 1, Config),
-            ok = file:delete(File);
-        false ->
-            ok
-    end,
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
+init_group_apps(Config, CTConfig) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, Config},
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{
+            work_dir => emqx_cth_suite:work_dir(CTConfig)
+        }
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    [{suite_apps, Apps} | CTConfig].
+
+end_per_group(_Group, Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(Case, Config) ->
     try
@@ -84,16 +99,6 @@ end_per_testcase(Case, Config) ->
             ok
     end.
 
-t_max_connection_default({init, Config}) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
-    Port = integer_to_binary(?PORT),
-    Bin = <<"listeners.tcp.max_connection_test {bind = \"0.0.0.0:", Port/binary, "\"}">>,
-    TmpConfName = atom_to_list(?FUNCTION_NAME) ++ ".conf",
-    TmpConfFullPath = inject_tmp_config_content(TmpConfName, Bin),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
-    [{tmp_config_file, TmpConfFullPath} | Config];
-t_max_connection_default({'end', Config}) ->
-    ok = file:delete(proplists:get_value(tmp_config_file, Config));
 t_max_connection_default(Config) when is_list(Config) ->
     #{<<"listeners">> := Listeners} = emqx_mgmt_api_listeners:do_list_listeners(),
     Target = lists:filter(
@@ -189,13 +194,19 @@ t_wss_crud_listeners_by_id(Config) when is_list(Config) ->
     crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 34000).
 
 t_api_listeners_list_not_ready(Config) when is_list(Config) ->
-    net_kernel:start(['listeners@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
-    snabbkaffe:fix_ct_logging(),
-    Cluster = [{Name, Opts}, {Name1, Opts1}] = cluster([core, core]),
-    ct:pal("Starting ~p", [Cluster]),
-    Node1 = emqx_common_test_helpers:start_peer(Name, Opts),
-    Node2 = emqx_common_test_helpers:start_peer(Name1, Opts1),
+    Apps = [
+        {emqx, #{after_start => fun() -> emqx_app:set_config_loader(emqx) end}},
+        {emqx_conf, #{}}
+    ],
+    Nodes =
+        [Node1, Node2] = emqx_cth_cluster:start(
+            [
+                {t_api_listeners_list_not_ready1, #{role => core, apps => Apps}},
+                {t_api_listeners_list_not_ready2, #{role => core, apps => Apps}}
+            ],
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        ),
     try
         L1 = get_tcp_listeners(Node1),
 
@@ -214,8 +225,7 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
         ?assert(length(L1) > length(L2), Comment),
         ?assertEqual(length(L2), length(L3), Comment)
     after
-        emqx_common_test_helpers:stop_peer(Node1),
-        emqx_common_test_helpers:stop_peer(Node2)
+        emqx_cth_cluster:stop(Nodes)
     end.
 
 t_clear_certs(Config) when is_list(Config) ->
@@ -295,25 +305,6 @@ get_tcp_listeners(Node) ->
 assert_config_load_not_done(Node) ->
     Prio = rpc:call(Node, emqx_app, get_config_loader, []),
     ?assertEqual(emqx, Prio, #{node => Node}).
-
-cluster(Specs) ->
-    Env = [
-        {emqx, boot_modules, []}
-    ],
-    emqx_common_test_helpers:emqx_cluster(Specs, [
-        {env, Env},
-        {apps, [emqx_conf]},
-        {load_schema, false},
-        {env_handler, fun
-            (emqx) ->
-                application:set_env(emqx, boot_modules, []),
-                %% test init_config not ready.
-                emqx_app:set_config_loader(emqx),
-                ok;
-            (_) ->
-                ok
-        end}
-    ]).
 
 crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, PortBase) ->
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
@@ -529,15 +520,3 @@ default_listeners_hocon_text() ->
     Listeners = hocon_tconf:make_serializable(Sc, #{}, #{}),
     Config = #{<<"listeners">> => Listeners},
     hocon_pp:do(Config, #{}).
-
-%% inject a 'include' at the end of emqx.conf.all
-%% the 'include' can be kept after test,
-%% as long as the file has been deleted it is a no-op
-inject_tmp_config_content(TmpFile, Content) ->
-    Etc = filename:join(["etc", "emqx.conf.all"]),
-    Inc = filename:join(["etc", TmpFile]),
-    ConfFile = emqx_common_test_helpers:app_path(emqx_conf, Etc),
-    TmpFileFullPath = emqx_common_test_helpers:app_path(emqx_conf, Inc),
-    ok = file:write_file(TmpFileFullPath, Content),
-    ok = file:write_file(ConfFile, ["\ninclude \"", TmpFileFullPath, "\"\n"], [append]),
-    TmpFileFullPath.

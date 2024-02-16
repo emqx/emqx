@@ -27,9 +27,10 @@ all() ->
 
 t_copy_conf_override_on_restarts(Config) ->
     ct:timetrap({seconds, 120}),
-    snabbkaffe:fix_ct_logging(),
     Cluster = cluster(
-        [cluster_spec({core, 1}), cluster_spec({core, 2}), cluster_spec({core, 3})], Config
+        ?FUNCTION_NAME,
+        [cluster_spec({core, 1}), cluster_spec({core, 2}), cluster_spec({core, 3})],
+        Config
     ),
 
     %% 1. Start all nodes
@@ -42,7 +43,7 @@ t_copy_conf_override_on_restarts(Config) ->
 
         %% 3. Restart nodes in the same order.  This should not
         %% crash and eventually all nodes should be ready.
-        start_cluster_async(Cluster),
+        restart_cluster_async(Cluster),
 
         timer:sleep(15000),
 
@@ -54,11 +55,12 @@ t_copy_conf_override_on_restarts(Config) ->
     end.
 
 t_copy_new_data_dir(Config) ->
-    net_kernel:start(['master1@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
     Cluster = cluster(
-        [cluster_spec({core, 4}), cluster_spec({core, 5}), cluster_spec({core, 6})], Config
+        ?FUNCTION_NAME,
+        [cluster_spec({core, 4}), cluster_spec({core, 5}), cluster_spec({core, 6})],
+        Config
     ),
 
     %% 1. Start all nodes
@@ -81,11 +83,11 @@ t_copy_new_data_dir(Config) ->
     end.
 
 t_copy_deprecated_data_dir(Config) ->
-    net_kernel:start(['master2@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
-    snabbkaffe:fix_ct_logging(),
     Cluster = cluster(
-        [cluster_spec({core, 7}), cluster_spec({core, 8}), cluster_spec({core, 9})], Config
+        ?FUNCTION_NAME,
+        [cluster_spec({core, 7}), cluster_spec({core, 8}), cluster_spec({core, 9})],
+        Config
     ),
 
     %% 1. Start all nodes
@@ -108,11 +110,11 @@ t_copy_deprecated_data_dir(Config) ->
     end.
 
 t_no_copy_from_newer_version_node(Config) ->
-    net_kernel:start(['master2@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
-    snabbkaffe:fix_ct_logging(),
     Cluster = cluster(
-        [cluster_spec({core, 10}), cluster_spec({core, 11}), cluster_spec({core, 12})], Config
+        ?FUNCTION_NAME,
+        [cluster_spec({core, 10}), cluster_spec({core, 11}), cluster_spec({core, 12})],
+        Config
     ),
     OKs = [ok, ok, ok],
     [First | Rest] = Nodes = start_cluster(Cluster),
@@ -222,39 +224,29 @@ assert_config_load_done(Nodes) ->
     ).
 
 stop_cluster(Nodes) ->
-    emqx_utils:pmap(fun emqx_common_test_helpers:stop_peer/1, Nodes).
+    emqx_cth_cluster:stop(Nodes).
 
 start_cluster(Specs) ->
-    [emqx_common_test_helpers:start_peer(Name, Opts) || {Name, Opts} <- Specs].
+    emqx_cth_cluster:start(Specs).
 
-start_cluster_async(Specs) ->
+restart_cluster_async(Specs) ->
     [
         begin
-            Opts1 = maps:remove(join_to, Opts),
-            spawn_link(fun() -> emqx_common_test_helpers:start_peer(Name, Opts1) end),
-            timer:sleep(7_000)
+            _Pid = spawn_link(emqx_cth_cluster, restart, [Spec]),
+            timer:sleep(1_000)
         end
-     || {Name, Opts} <- Specs
+     || Spec <- Specs
     ].
 
-cluster(Specs, Config) ->
-    PrivDataDir = ?config(priv_dir, Config),
-    Env = [
-        {emqx, boot_modules, []}
+cluster(TC, Specs, Config) ->
+    Apps = [
+        {emqx, #{override_env => [{boot_modules, [broker]}]}},
+        {emqx_conf, #{}}
     ],
-    emqx_common_test_helpers:emqx_cluster(Specs, [
-        {env, Env},
-        {apps, [emqx_conf]},
-        {load_schema, false},
-        {priv_data_dir, PrivDataDir},
-        {env_handler, fun
-            (emqx) ->
-                application:set_env(emqx, boot_modules, []),
-                ok;
-            (_) ->
-                ok
-        end}
-    ]).
+    emqx_cth_cluster:mk_nodespecs(
+        [{Name, #{role => Role, apps => Apps}} || {Role, Name} <- Specs],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ).
 
 cluster_spec({Type, Num}) ->
     {Type, list_to_atom(atom_to_list(?MODULE) ++ integer_to_list(Num))}.

@@ -44,31 +44,28 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    emqx_config:save_schema_mod_and_names(emqx_dashboard_schema),
-    emqx_mgmt_api_test_util:init_suite([emqx_dashboard, emqx_dashboard_sso]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            emqx_dashboard_sso
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    _ = emqx_common_test_http:create_default_app(),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    All = emqx_dashboard_admin:all_users(),
-    [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All],
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_dashboard_sso]).
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
     ?MODULE:Case({init, Config}),
     Config.
 
 end_per_testcase(Case, Config) ->
-    ?MODULE:Case({'end', Config}),
-    case erlang:whereis(node()) of
-        undefined ->
-            ok;
-        P ->
-            erlang:unlink(P),
-            erlang:exit(P, kill)
-    end,
-    ok.
+    ?MODULE:Case({'end', Config}).
 
 t_bad_create({init, Config}) ->
     Config;

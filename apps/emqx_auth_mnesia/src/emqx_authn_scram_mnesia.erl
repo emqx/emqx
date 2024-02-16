@@ -65,9 +65,7 @@
 
 -type user_group() :: binary().
 
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([init_tables/0]).
 
 -record(user_info, {
     user_id,
@@ -84,8 +82,8 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Create or replicate tables.
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
+-spec create_tables() -> [mria:table()].
+create_tables() ->
     ok = mria:create_table(?TAB, [
         {rlog_shard, ?AUTHN_SHARD},
         {type, ordered_set},
@@ -93,7 +91,12 @@ mnesia(boot) ->
         {record_name, user_info},
         {attributes, record_info(fields, user_info)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
+    ]),
+    [?TAB].
+
+-spec init_tables() -> ok.
+init_tables() ->
+    mria:wait_for_tables(create_tables()).
 
 %%------------------------------------------------------------------------------
 %% Data backup

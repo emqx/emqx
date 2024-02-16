@@ -20,10 +20,8 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
-
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx_management/include/emqx_mgmt.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 
 -define(HOST, "http://127.0.0.1:18083/").
@@ -32,63 +30,43 @@
 
 -define(BASE_PATH, "api").
 -define(NOW, erlang:system_time(millisecond)).
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -define(CONF_DEFAULT, <<
-    ""
-    "\n"
-    "slow_subs\n"
-    "{\n"
+    "slow_subs {\n"
     " enable = true\n"
     " top_k_num = 5,\n"
     " expire_interval = 60s\n"
     " stats_type = whole\n"
     "}"
-    ""
 >>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok),
-
-    ok = emqx_common_test_helpers:load_config(emqx_slow_subs_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_slow_subs]),
-    {ok, _} = application:ensure_all_started(emqx_auth),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_auth,
+            emqx_conf,
+            emqx_management,
+            {emqx_slow_subs, ?CONF_DEFAULT},
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    _ = emqx_common_test_http:create_default_app(),
+    [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    meck:unload(emqx_alarm),
-
-    application:stop(emqx_auth),
-    emqx_mgmt_api_test_util:end_suite([emqx_slow_subs]),
-    Config.
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
-    application:ensure_all_started(emqx_slow_subs),
-    timer:sleep(500),
+    {ok, _} = application:ensure_all_started(emqx_slow_subs),
     Config.
 
-end_per_testcase(_, Config) ->
-    application:stop(emqx_slow_subs),
-    case erlang:whereis(node()) of
-        undefined ->
-            ok;
-        P ->
-            erlang:unlink(P),
-            erlang:exit(P, kill)
-    end,
-    Config.
+end_per_testcase(_, _Config) ->
+    ok = application:stop(emqx_slow_subs).
 
 t_get_history(_) ->
     Now = ?NOW,

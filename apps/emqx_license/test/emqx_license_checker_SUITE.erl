@@ -14,32 +14,33 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(CtConfig) ->
-    _ = application:load(emqx_conf),
+init_per_suite(Config) ->
     emqx_license_test_lib:mock_parser(),
-    ok = emqx_common_test_helpers:start_apps([emqx_license], fun set_special_configs/1),
-    CtConfig.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_license, #{
+                config => #{license => #{key => emqx_license_test_lib:default_test_license()}}
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
     emqx_license_test_lib:unmock_parser(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_license]).
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(t_default_limits, Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_license]),
+    ok = application:stop(emqx_license),
     Config;
 init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
 end_per_testcase(t_default_limits, _Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_license], fun set_special_configs/1);
+    {ok, _} = application:ensure_all_started(emqx_license);
 end_per_testcase(_Case, _Config) ->
-    ok.
-
-set_special_configs(emqx_license) ->
-    Config = #{key => emqx_license_test_lib:default_test_license()},
-    emqx_config:put([license], Config);
-set_special_configs(_) ->
     ok.
 
 %%------------------------------------------------------------------------------

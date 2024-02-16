@@ -24,6 +24,7 @@
 ]).
 
 start(_Type, _Args) ->
+    ok = mria:wait_for_tables(emqx_delayed:create_tables()),
     {ok, Sup} = emqx_modules_sup:start_link(),
     maybe_enable_modules(),
     {ok, Sup}.
