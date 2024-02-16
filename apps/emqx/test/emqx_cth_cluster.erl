@@ -332,11 +332,12 @@ allocate_listener_ports(Types, Spec) ->
 
 start_nodes_init(Specs, Timeout) ->
     Names = lists:map(fun(#{name := Name}) -> Name end, Specs),
-    Nodes = start_bare_nodes(Names, Timeout),
-    lists:foreach(fun node_init/1, Nodes).
+    _Nodes = start_bare_nodes(Names, Timeout),
+    lists:foreach(fun node_init/1, Specs).
 
 start_bare_nodes(Names) ->
     start_bare_nodes(Names, ?TIMEOUT_NODE_START_MS).
+
 start_bare_nodes(Names, Timeout) ->
     Args = erl_flags(),
     Envs = [],
@@ -355,7 +356,7 @@ start_bare_nodes(Names, Timeout) ->
     Nodes.
 
 deadline(Timeout) ->
-    erlang:monotonic_time() + erlang:convert_time_unit(Timeout, millisecond, nanosecond).
+    erlang:monotonic_time() + erlang:convert_time_unit(Timeout, millisecond, native).
 
 is_overdue(Deadline) ->
     erlang:monotonic_time() > Deadline.
@@ -379,10 +380,15 @@ wait_boot_complete(Waits, Deadline) ->
         wait_boot_complete(Waits, Deadline)
     end.
 
-node_init(Node) ->
-    % Make it possible to call `ct:pal` and friends (if running under rebar3)
+node_init(#{name := Node, work_dir := WorkDir}) ->
+    %% Create exclusive current directory for the node.  Some configurations, like plugin
+    %% installation directory, are the same for the whole cluster, and nodes on the same
+    %% machine will step on each other's toes...
+    ok = filelib:ensure_path(WorkDir),
+    ok = erpc:call(Node, file, set_cwd, [WorkDir]),
+    %% Make it possible to call `ct:pal` and friends (if running under rebar3)
     _ = share_load_module(Node, cthr),
-    % Enable snabbkaffe trace forwarding
+    %% Enable snabbkaffe trace forwarding
     ok = snabbkaffe:forward_trace(Node),
     when_cover_enabled(fun() -> {ok, _} = cover:start([Node]) end),
     ok.
