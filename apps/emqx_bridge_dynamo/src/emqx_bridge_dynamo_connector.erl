@@ -12,7 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
 %% `emqx_resource' API
 -export([
@@ -32,6 +32,9 @@
 
 %%=====================================================================
 %% Hocon schema
+
+namespace() -> dynamodka.
+
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 

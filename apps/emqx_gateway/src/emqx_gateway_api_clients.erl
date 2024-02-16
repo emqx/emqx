@@ -42,7 +42,8 @@
 
 -export([
     roots/0,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 %% http handlers
@@ -774,6 +775,8 @@ schema_client() ->
         ]),
         examples_client()
     ).
+
+namespace() -> undefined.
 
 roots() ->
     [

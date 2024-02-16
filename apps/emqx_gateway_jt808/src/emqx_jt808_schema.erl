@@ -9,9 +9,11 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
--export([namespace/0, fields/1, desc/1]).
+-export([roots/0, namespace/0, fields/1, desc/1]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
+
+roots() -> [].
 
 namespace() -> gateway.
 

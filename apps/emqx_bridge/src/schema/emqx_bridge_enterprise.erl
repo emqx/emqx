@@ -13,7 +13,8 @@
     examples/1,
     resource_type/1,
     bridge_impl_module/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 api_schemas(Method) ->
@@ -138,6 +139,8 @@ bridge_impl_module(azure_event_hub_producer) ->
     emqx_bridge_azure_event_hub;
 bridge_impl_module(_BridgeType) ->
     undefined.
+
+namespace() -> undefined.
 
 fields(bridges) ->
     [

@@ -15,8 +15,8 @@
 -export([
     api_schemas/1,
     fields/1,
-    %%examples/1
-    schema_modules/0
+    schema_modules/0,
+    namespace/0
 ]).
 
 resource_type(Type) when is_binary(Type) ->
@@ -92,6 +92,8 @@ connector_impl_module(rabbitmq) ->
     emqx_bridge_rabbitmq_connector;
 connector_impl_module(_ConnectorType) ->
     undefined.
+
+namespace() -> undefined.
 
 fields(connectors) ->
     connector_structs().

@@ -115,7 +115,8 @@ action_values() ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge_rocketmq".
+
+namespace() -> "rocketmq".
 
 roots() -> [].
 

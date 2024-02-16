@@ -14,7 +14,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% schema
--export([roots/0, fields/1, desc/1]).
+-export([roots/0, fields/1, desc/1, namespace/0]).
 
 %% callbacks of behaviour emqx_resource
 -export([
@@ -55,6 +55,8 @@
 
 %%--------------------------------------------------------------------
 %% schema
+
+namespace() -> cassandra.
 
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].

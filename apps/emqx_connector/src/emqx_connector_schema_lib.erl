@@ -44,12 +44,6 @@
     password/0
 ]).
 
--export([roots/0, fields/1]).
-
-roots() -> [].
-
-fields(_) -> [].
-
 ssl_fields() ->
     [
         {ssl, #{

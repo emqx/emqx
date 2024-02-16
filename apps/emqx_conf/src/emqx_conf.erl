@@ -158,7 +158,6 @@ dump_schema(Dir, SchemaModule) ->
     ok = emqx_dashboard_desc_cache:init(),
     lists:foreach(
         fun(Lang) ->
-            ok = gen_config_md(Dir, SchemaModule, Lang),
             ok = gen_schema_json(Dir, SchemaModule, Lang)
         end,
         ["en", "zh"]
@@ -468,14 +467,6 @@ bridge_schema_json() ->
     SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => Version},
     gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
 
-%% TODO: remove it and also remove hocon_md.erl and friends.
-%% markdown generation from schema is a failure and we are moving to an interactive
-%% viewer like swagger UI.
-gen_config_md(Dir, SchemaModule, Lang) ->
-    SchemaMdFile = filename:join([Dir, "config-" ++ Lang ++ ".md"]),
-    io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
-    ok = gen_doc(SchemaMdFile, SchemaModule, Lang).
-
 %% @doc return the root schema module.
 -spec schema_module() -> module().
 schema_module() ->
@@ -514,19 +505,6 @@ make_desc_resolver(Lang) ->
         (Desc) ->
             unicode:characters_to_binary(Desc)
     end.
-
--spec gen_doc(file:name_all(), module(), string()) -> ok.
-gen_doc(File, SchemaModule, Lang) ->
-    Version = emqx_release:version(),
-    Title =
-        "# " ++ emqx_release:description() ++ " Configuration\n\n" ++
-            "<!--" ++ Version ++ "-->",
-    BodyFile = filename:join([rel, "emqx_conf.template." ++ Lang ++ ".md"]),
-    {ok, Body} = file:read_file(BodyFile),
-    Resolver = make_desc_resolver(Lang),
-    Opts = #{title => Title, body => Body, desc_resolver => Resolver},
-    Doc = hocon_schema_md:gen(SchemaModule, Opts),
-    file:write_file(File, Doc).
 
 gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
     emqx_dashboard_swagger:gen_api_schema_json_iodata(

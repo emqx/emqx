@@ -45,7 +45,8 @@
 
 -export([
     roots/0,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 %% http handlers
@@ -650,6 +651,9 @@ params_paging_in_qs() ->
 
 %%--------------------------------------------------------------------
 %% schemas
+
+namespace() ->
+    undefined.
 
 roots() ->
     [listener].

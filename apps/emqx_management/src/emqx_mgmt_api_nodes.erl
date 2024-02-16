@@ -30,7 +30,8 @@
     api_spec/0,
     schema/1,
     paths/0,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 %% API callbacks
@@ -44,6 +45,8 @@
 %%--------------------------------------------------------------------
 %% API spec funcs
 %%--------------------------------------------------------------------
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

@@ -23,7 +23,8 @@
 -export([
     roots/0,
     fields/1,
-    values/1
+    values/1,
+    namespace/0
 ]).
 
 %% callbacks for behaviour emqx_resource
@@ -71,6 +72,8 @@
 %%=====================================================================
 %% Configuration and default values
 %%=====================================================================
+
+namespace() -> clickhouse.
 
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].

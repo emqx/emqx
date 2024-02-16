@@ -23,7 +23,7 @@
 -include_lib("epgsql/include/epgsql.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
 -behaviour(emqx_resource).
 
@@ -70,6 +70,8 @@
 -dialyzer({nowarn_function, [execute_batch/3]}).
 
 %%=====================================================================
+
+namespace() -> postgres.
 
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
