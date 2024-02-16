@@ -206,7 +206,8 @@ t_ssl_update_opts(Config) ->
         {verify, verify_peer},
         {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
     ],
-    with_listener(ssl, updated, Conf, fun() ->
+    Name = ?FUNCTION_NAME,
+    with_listener(ssl, Name, Conf, fun() ->
         %% Client connects successfully.
         C1 = emqtt_connect_ssl(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
@@ -214,7 +215,7 @@ t_ssl_update_opts(Config) ->
 
         %% Change the listener SSL configuration: another set of cert/key files.
         {ok, _} = emqx:update_config(
-            [listeners, ssl, updated],
+            [listeners, ssl, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
@@ -238,7 +239,7 @@ t_ssl_update_opts(Config) ->
 
         %% Change the listener SSL configuration: require peer certificate.
         {ok, _} = emqx:update_config(
-            [listeners, ssl, updated],
+            [listeners, ssl, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"verify">> => verify_peer,
@@ -292,7 +293,8 @@ t_wss_update_opts(Config) ->
         {verify, verify_peer},
         {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
     ],
-    with_listener(wss, updated, Conf, fun() ->
+    Name = ?FUNCTION_NAME,
+    with_listener(wss, Name, Conf, fun() ->
         %% Start a client.
         C1 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")}
@@ -303,7 +305,7 @@ t_wss_update_opts(Config) ->
         %% 1. Another set of (password protected) cert/key files.
         %% 2. Require peer certificate.
         {ok, _} = emqx:update_config(
-            [listeners, wss, updated],
+            [listeners, wss, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
@@ -327,7 +329,7 @@ t_wss_update_opts(Config) ->
 
         %% Change the listener SSL configuration: require peer certificate.
         {ok, _} = emqx:update_config(
-            [listeners, wss, updated],
+            [listeners, wss, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"verify">> => verify_peer,
@@ -384,7 +386,8 @@ t_quic_update_opts(Config) ->
         {verify, verify_peer},
         {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
     ],
-    with_listener(ListenerType, updated, Conf, fun() ->
+    Name = ?FUNCTION_NAME,
+    with_listener(ListenerType, Name, Conf, fun() ->
         %% Client connects successfully.
         C1 = ConnectFun(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
@@ -392,7 +395,7 @@ t_quic_update_opts(Config) ->
 
         %% Change the listener SSL configuration: another set of cert/key files.
         {ok, _} = emqx:update_config(
-            [listeners, ListenerType, updated],
+            [listeners, ListenerType, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
@@ -419,7 +422,7 @@ t_quic_update_opts(Config) ->
 
         %% Change the listener SSL configuration: require peer certificate.
         {ok, _} = emqx:update_config(
-            [listeners, ListenerType, updated],
+            [listeners, ListenerType, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"verify">> => verify_peer,
@@ -447,7 +450,7 @@ t_quic_update_opts(Config) ->
         %% Change the listener port
         NewPort = emqx_common_test_helpers:select_free_port(ListenerType),
         {ok, _} = emqx:update_config(
-            [listeners, ListenerType, updated],
+            [listeners, ListenerType, Name],
             {update, #{
                 <<"bind">> => format_bind({Host, NewPort})
             }}
@@ -506,7 +509,8 @@ t_quic_update_opts_fail(Config) ->
         {verify, verify_peer},
         {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
     ],
-    with_listener(ListenerType, updated, Conf, fun() ->
+    Name = ?FUNCTION_NAME,
+    with_listener(ListenerType, Name, Conf, fun() ->
         %% GIVEN: an working Listener that client could connect to.
         C1 = ConnectFun(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
@@ -514,7 +518,7 @@ t_quic_update_opts_fail(Config) ->
 
         %% WHEN: reload the listener with invalid SSL options (certfile and keyfile missmatch).
         UpdateResult1 = emqx:update_config(
-            [listeners, ListenerType, updated],
+            [listeners, ListenerType, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
@@ -537,7 +541,7 @@ t_quic_update_opts_fail(Config) ->
 
         %% WHEN: Change the listener SSL configuration again
         UpdateResult2 = emqx:update_config(
-            [listeners, ListenerType, updated],
+            [listeners, ListenerType, Name],
             {update, #{
                 <<"ssl_options">> => #{
                     <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
@@ -581,7 +585,8 @@ with_listener(Type, Name, Config, Then) ->
     try
         Then()
     after
-        emqx:update_config([listeners, Type, Name], ?TOMBSTONE_CONFIG_CHANGE_REQ)
+        ok = emqx_listeners:stop(),
+        emqx:remove_config([listeners, Type, Name])
     end.
 
 emqtt_connect_ssl(Host, Port, SSLOpts) ->
