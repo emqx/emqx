@@ -1551,6 +1551,8 @@ set_username(
 set_username(_ConnPkt, ClientInfo) ->
     {ok, ClientInfo}.
 
+%% The `is_bridge` bit flag in CONNECT packet (parsed as `bridge_mode`)
+%% is invented by mosquitto, named 'try_private': https://mosquitto.org/man/mosquitto-conf-5.html
 set_bridge_mode(#mqtt_packet_connect{is_bridge = true}, ClientInfo) ->
     {ok, ClientInfo#{is_bridge => true}};
 set_bridge_mode(_ConnPkt, _ClientInfo) ->
