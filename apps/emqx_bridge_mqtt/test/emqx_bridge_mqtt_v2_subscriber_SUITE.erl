@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -77,6 +77,7 @@ init_per_testcase(TestCase, Config) ->
     ].
 
 end_per_testcase(_TestCase, _Config) ->
+    snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok.
