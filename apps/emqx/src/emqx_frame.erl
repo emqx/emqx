@@ -301,6 +301,7 @@ parse_connect2(
         proto_name = ProtoName,
         proto_ver = ProtoVer,
         %% For bridge mode, non-standard implementation
+        %% Invented by mosquitto, named 'try_private': https://mosquitto.org/man/mosquitto-conf-5.html
         is_bridge = (BridgeTag =:= 8),
         clean_start = bool(CleanStart),
         will_flag = bool(WillFlag),
@@ -772,6 +773,7 @@ serialize_variable(
         proto_name = ProtoName,
         proto_ver = ProtoVer,
         %% For bridge mode, non-standard implementation
+        %% Invented by mosquitto, named 'try_private': https://mosquitto.org/man/mosquitto-conf-5.html
         is_bridge = IsBridge,
         clean_start = CleanStart,
         will_flag = WillFlag,
