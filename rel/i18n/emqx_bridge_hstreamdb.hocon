@@ -54,43 +54,43 @@ action_parameters.label:
 """Action"""
 
 grpc_flush_timeout.desc:
-"""Period for flushing gRPC calls to the HStreamDB server"""
+"""Time interval for flushing gRPC calls to the HStreamDB server."""
 
 grpc_flush_timeout.label:
-"""gRPC Flush Period"""
+"""gRPC Flush Interval"""
 
 aggregation_pool_size.desc:
-"""Size of Record Aggregation Pool"""
+"""Size of record aggregation pool."""
 
 aggregation_pool_size.label:
 """Aggregation Pool Size"""
 
 max_batches.desc:
-"""Maximum number of unconfirmed batches in the flush queue"""
+"""Maximum number of unconfirmed batches in the flush queue."""
 
 max_batches.label:
 """Max Batches"""
 
 writer_pool_size.desc:
-"""Writer Pool Size"""
+"""The size of the writer pool."""
 
 writer_pool_size.label:
 """Writer Pool Size"""
 
 batch_size.desc:
-"""Maximum number of insert data clauses that can be sent in a single request"""
+"""Maximum number of insert data clauses that can be sent in a single request."""
 
 batch_size.label:
 """Max Batch Append Count"""
 
 batch_interval.desc:
-"""Maximum interval in milliseconds that is allowed between two successive (batch) request"""
+"""Maximum interval that is allowed between two successive (batch) request."""
 
 batch_interval.label:
 """Max Batch Interval"""
 
 hstreamdb_action.desc:
-"""Configuration for HStreamDB Action"""
+"""Configuration for HStreamDB action."""
 
 hstreamdb_action.label:
 """HStreamDB Action Configuration"""
