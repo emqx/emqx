@@ -138,8 +138,8 @@ t_parse_cont(_) ->
 
 t_parse_frame_too_large(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(1000)),
-    ?ASSERT_FRAME_THROW(frame_too_large, parse_serialize(Packet, #{max_size => 256})),
-    ?ASSERT_FRAME_THROW(frame_too_large, parse_serialize(Packet, #{max_size => 512})),
+    ?ASSERT_FRAME_THROW(#{hint := frame_too_large}, parse_serialize(Packet, #{max_size => 256})),
+    ?ASSERT_FRAME_THROW(#{hint := frame_too_large}, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
 
 t_parse_frame_malformed_variable_byte_integer(_) ->

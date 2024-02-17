@@ -168,7 +168,7 @@ parse_remaining_len(Rest, Header, Options) ->
 parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize}) when
     Length > MaxSize
 ->
-    ?PARSE_ERR(frame_too_large);
+    ?PARSE_ERR(#{hint => frame_too_large, limit => MaxSize, received => Length});
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
     {more, {{len, #{hdr => Header, len => {Multiplier, Length}}}, Options}};
 %% Match DISCONNECT without payload
@@ -213,7 +213,7 @@ parse_remaining_len(
 ) ->
     FrameLen = Value + Len * Multiplier,
     case FrameLen > MaxSize of
-        true -> ?PARSE_ERR(frame_too_large);
+        true -> ?PARSE_ERR(#{hint => frame_too_large, limit => MaxSize, received => FrameLen});
         false -> parse_frame(Rest, Header, FrameLen, Options)
     end.
 
