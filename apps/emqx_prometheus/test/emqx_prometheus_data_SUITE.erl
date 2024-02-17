@@ -117,6 +117,7 @@ init_per_suite(Config) ->
         end
     ),
     ok = emqx_prometheus_SUITE:maybe_meck_license(),
+    emqx_prometheus_SUITE:start_mock_pushgateway(9091),
 
     application:load(emqx_auth),
     Apps = emqx_cth_suite:start(
@@ -140,6 +141,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     meck:unload([emqx_retainer]),
     emqx_prometheus_SUITE:maybe_unmeck_license(),
+    emqx_prometheus_SUITE:stop_mock_pushgateway(),
     {ok, _} = emqx:update_config(
         [authorization],
         #{
