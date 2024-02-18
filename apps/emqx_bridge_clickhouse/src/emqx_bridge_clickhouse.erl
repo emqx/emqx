@@ -66,7 +66,7 @@ connector_examples(Method) ->
                 summary => <<"ClickHouse Connector">>,
                 value => emqx_connector_schema:connector_values(
                     Method, clickhouse, #{
-                        server => <<"127.0.0.1:8123">>,
+                        url => <<"http://localhost:8123">>,
                         database => <<"mqtt">>,
                         pool_size => 8,
                         username => <<"default">>,
