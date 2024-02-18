@@ -11,9 +11,9 @@ action_parameters.desc:
 action_parameters.label:
 """Action"""
 
-cassandra_action.desc:
+clickhouse_action.desc:
 """Action configs."""
-cassandra_action.label:
+clickhouse_action.label:
 """Action"""
 
 config_enable.desc:
