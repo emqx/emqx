@@ -57,11 +57,12 @@ groups() ->
             t_serialize_parse_v5_connect,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
+            t_serialize_parse_connect_with_malformed_will,
             t_serialize_parse_bridge_connect,
             t_parse_invalid_remaining_len,
             t_parse_malformed_properties,
             t_malformed_connect_header,
-            t_malformed_connect_payload,
+            t_malformed_connect_data,
             t_reserved_connect_flag,
             t_invalid_clientid
         ]},
@@ -276,6 +277,37 @@ t_serialize_parse_connect_with_will(_) ->
     },
     ?assertEqual(Bin, serialize_to_binary(Packet)),
     ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
+
+t_serialize_parse_connect_with_malformed_will(_) ->
+    Packet2 = #mqtt_packet{
+        header = #mqtt_packet_header{type = ?CONNECT},
+        variable = #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V3,
+            proto_name = <<"MQIsdp">>,
+            clientid = <<"mosqpub/10452-iMac.loca">>,
+            clean_start = true,
+            keepalive = 60,
+            will_retain = false,
+            will_qos = ?QOS_1,
+            will_flag = true,
+            will_topic = <<"/will">>,
+            will_payload = <<>>
+        }
+    },
+    <<16, 46, Body:44/binary, 0, 0>> = serialize_to_binary(Packet2),
+    %% too short
+    BadBin1 = <<16, 45, Body/binary, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{hint := malformed_will_payload, length_bytes := 1, expected_bytes := 2},
+        emqx_frame:parse(BadBin1)
+    ),
+    %% too long
+    BadBin2 = <<16, 47, Body/binary, 0, 2, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{hint := malformed_will_payload, parsed_length := 2, remaining_bytes := 1},
+        emqx_frame:parse(BadBin2)
+    ),
+    ok.
 
 t_serialize_parse_bridge_connect(_) ->
     Bin =
@@ -643,16 +675,14 @@ t_parse_malformed_properties(_) ->
     ).
 
 t_malformed_connect_header(_) ->
-    ?assertException(
-        throw,
-        {frame_parse_error, malformed_connect_header},
+    ?ASSERT_FRAME_THROW(
+        #{hint := malformed_connect, header_bytes := _},
         emqx_frame:parse(<<16, 11, 0, 6, 77, 81, 73, 115, 100, 112, 3, 130, 1, 6>>)
     ).
 
-t_malformed_connect_payload(_) ->
-    ?assertException(
-        throw,
-        {frame_parse_error, malformed_connect_data},
+t_malformed_connect_data(_) ->
+    ?ASSERT_FRAME_THROW(
+        #{hint := malformed_connect, unexpected_trailing_bytes := _},
         emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 0, 0, 0>>)
     ).
 

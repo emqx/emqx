@@ -330,10 +330,14 @@ parse_connect2(
         <<>> ->
             ConnPacket1#mqtt_packet_connect{username = Username, password = Password};
         _ ->
-            ?PARSE_ERR(malformed_connect_data)
+            ?PARSE_ERR(#{
+                hint => malformed_connect,
+                unexpected_trailing_bytes => size(Rest7)
+            })
     end;
-parse_connect2(_ProtoName, _, _) ->
-    ?PARSE_ERR(malformed_connect_header).
+parse_connect2(_ProtoName, Bin, _StrictMode) ->
+    %% sent less than 32 bytes
+    ?PARSE_ERR(#{hint => malformed_connect, header_bytes => Bin}).
 
 parse_packet(
     #mqtt_packet_header{type = ?CONNECT},
@@ -486,7 +490,7 @@ parse_will_message(
 ) ->
     {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
     {Topic, Rest1} = parse_utf8_string_with_hint(Rest, StrictMode, invalid_topic),
-    {Payload, Rest2} = parse_binary_data(Rest1),
+    {Payload, Rest2} = parse_will_payload(Rest1),
     {
         Packet#mqtt_packet_connect{
             will_props = Props,
@@ -687,20 +691,24 @@ parse_utf8_string(Bin, _) when
 ->
     ?PARSE_ERR(#{reason => malformed_utf8_string_length}).
 
-parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
+parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
     {Data, Rest};
-parse_binary_data(<<Len:16/big, Rest/binary>>) when
+parse_will_payload(<<Len:16/big, Rest/binary>>) when
     Len > byte_size(Rest)
 ->
     ?PARSE_ERR(#{
-        hint => malformed_binary_data,
+        hint => malformed_will_payload,
         parsed_length => Len,
-        remaining_bytes_length => byte_size(Rest)
+        remaining_bytes => byte_size(Rest)
     });
-parse_binary_data(Bin) when
+parse_will_payload(Bin) when
     2 > byte_size(Bin)
 ->
-    ?PARSE_ERR(malformed_binary_data_length).
+    ?PARSE_ERR(#{
+        hint => malformed_will_payload,
+        length_bytes => size(Bin),
+        expected_bytes => 2
+    }).
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet
