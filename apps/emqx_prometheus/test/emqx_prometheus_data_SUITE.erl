@@ -257,7 +257,7 @@ assert_json_data(_, Data, Mode) ->
     ok.
 
 fun_name(Seed) ->
-    binary_to_atom(<<"assert_json_data_", (atom_to_binary(Seed))/binary>>).
+    binary_to_atom(<<"assert_json_data__", (atom_to_binary(Seed))/binary>>).
 
 %%--------------------------------------------------------------------
 %% Internal Functions
@@ -341,7 +341,7 @@ metric_meta(_) -> #{}.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Assert Json Data Structure
 
-assert_json_data_messages(M, Mode) when
+assert_json_data__messages(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -368,10 +368,10 @@ assert_json_data_messages(M, Mode) when
         M
     ),
     ok;
-assert_json_data_messages(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
+assert_json_data__messages(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_stats(M, Mode) when
+assert_json_data__stats(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -402,18 +402,18 @@ assert_json_data_stats(M, Mode) when
         },
         M
     );
-assert_json_data_stats(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
+assert_json_data__stats(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_olp(M, Mode) when
+assert_json_data__olp(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
     ?assertMatch(#{}, M);
-assert_json_data_olp(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
+assert_json_data__olp(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
     ok.
 
-assert_json_data_client(M, Mode) when
+assert_json_data__client(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -431,10 +431,10 @@ assert_json_data_client(M, Mode) when
         },
         M
     );
-assert_json_data_client(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
+assert_json_data__client(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_session(M, Mode) when
+assert_json_data__session(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -448,10 +448,10 @@ assert_json_data_session(M, Mode) when
         },
         M
     );
-assert_json_data_session(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
+assert_json_data__session(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_metrics(M, ?PROM_DATA_MODE__NODE) ->
+assert_json_data__metrics(M, ?PROM_DATA_MODE__NODE) ->
     ?assertMatch(
         #{
             emqx_vm_cpu_use := _,
@@ -463,14 +463,14 @@ assert_json_data_metrics(M, ?PROM_DATA_MODE__NODE) ->
         },
         M
     );
-assert_json_data_metrics(Ms, Mode) when
+assert_json_data__metrics(Ms, Mode) when
     is_list(Ms) andalso
         (Mode =:= ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED orelse
             Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_delivery(M, Mode) when
+assert_json_data__delivery(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -485,12 +485,12 @@ assert_json_data_delivery(M, Mode) when
         },
         M
     );
-assert_json_data_delivery(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__delivery(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_cluster(M, Mode) when
+assert_json_data__cluster(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -498,12 +498,12 @@ assert_json_data_cluster(M, Mode) when
         #{emqx_cluster_nodes_running := _, emqx_cluster_nodes_stopped := _},
         M
     );
-assert_json_data_cluster(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__cluster(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_acl(M, Mode) when
+assert_json_data__acl(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -520,12 +520,12 @@ assert_json_data_acl(M, Mode) when
         },
         M
     );
-assert_json_data_acl(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__acl(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_authn(M, Mode) when
+assert_json_data__authn(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -537,12 +537,12 @@ assert_json_data_authn(M, Mode) when
         },
         M
     );
-assert_json_data_authn(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__authn(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
-assert_json_data_packets(M, Mode) when
+assert_json_data__packets(M, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -593,13 +593,13 @@ assert_json_data_packets(M, Mode) when
         },
         M
     );
-assert_json_data_packets(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__packets(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     eval_foreach_assert(?FUNCTION_NAME, Ms).
 
 %% certs always return json list
-assert_json_data_certs(Ms, _) ->
+assert_json_data__certs(Ms, _) ->
     lists:foreach(
         fun(M) ->
             ?assertMatch(
@@ -625,17 +625,17 @@ eval_foreach_assert(FunctionName, Ms) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 %% license always map
-assert_json_data_license(M, _) ->
+assert_json_data__license(M, _) ->
     ?assertMatch(#{emqx_license_expiry_at := _}, M).
 -else.
 -endif.
 
 -define(assert_node_foreach(Ms), lists:foreach(fun(M) -> ?assertMatch(#{node := _}, M) end, Ms)).
 
-assert_json_data_emqx_banned(M, _) ->
+assert_json_data__emqx_banned(M, _) ->
     ?assertMatch(#{emqx_banned_count := _}, M).
 
-assert_json_data_emqx_authn(Ms, Mode) when
+assert_json_data__emqx_authn(Ms, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -657,10 +657,13 @@ assert_json_data_emqx_authn(Ms, Mode) when
         end,
         Ms
     );
-assert_json_data_emqx_authn(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
+assert_json_data__emqx_authn(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
     ?assert_node_foreach(Ms).
 
-assert_json_data_emqx_authz(Ms, _) ->
+assert_json_data__emqx_authz(Ms, Mode) when
+    (Mode =:= ?PROM_DATA_MODE__NODE orelse
+        Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
+->
     lists:foreach(
         fun(M) ->
             ?assertMatch(
@@ -679,10 +682,10 @@ assert_json_data_emqx_authz(Ms, _) ->
         end,
         Ms
     );
-assert_json_data_emqx_authz(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
+assert_json_data__emqx_authz(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
     ?assert_node_foreach(Ms).
 
-assert_json_data_rules(Ms, Mode) when
+assert_json_data__rules(Ms, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -708,12 +711,12 @@ assert_json_data_rules(Ms, Mode) when
         end,
         Ms
     );
-assert_json_data_rules(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__rules(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     ?assert_node_foreach(Ms).
 
-assert_json_data_actions(Ms, Mode) when
+assert_json_data__actions(Ms, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -746,12 +749,12 @@ assert_json_data_actions(Ms, Mode) when
         end,
         Ms
     );
-assert_json_data_actions(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__actions(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     ?assert_node_foreach(Ms).
 
-assert_json_data_connectors(Ms, Mode) when
+assert_json_data__connectors(Ms, Mode) when
     (Mode =:= ?PROM_DATA_MODE__NODE orelse
         Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
 ->
@@ -768,12 +771,13 @@ assert_json_data_connectors(Ms, Mode) when
         end,
         Ms
     );
-assert_json_data_connectors(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
+assert_json_data__connectors(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when
     is_list(Ms)
 ->
     ?assert_node_foreach(Ms).
 
-assert_json_data_data_integration_overview(M, _) ->
+-if(?EMQX_RELEASE_EDITION == ee).
+assert_json_data__data_integration_overview(M, _) ->
     ?assertMatch(
         #{
             emqx_connectors_count := _,
@@ -782,6 +786,17 @@ assert_json_data_data_integration_overview(M, _) ->
         },
         M
     ).
+
+-else.
+assert_json_data__data_integration_overview(M, _) ->
+    ?assertMatch(
+        #{
+            emqx_connectors_count := _,
+            emqx_rules_count := _
+        },
+        M
+    ).
+-endif.
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
