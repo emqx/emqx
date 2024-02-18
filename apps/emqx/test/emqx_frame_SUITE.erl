@@ -139,8 +139,8 @@ t_parse_cont(_) ->
 
 t_parse_frame_too_large(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(1000)),
-    ?ASSERT_FRAME_THROW(#{hint := frame_too_large}, parse_serialize(Packet, #{max_size => 256})),
-    ?ASSERT_FRAME_THROW(#{hint := frame_too_large}, parse_serialize(Packet, #{max_size => 512})),
+    ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 256})),
+    ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
 
 t_parse_frame_malformed_variable_byte_integer(_) ->
@@ -298,13 +298,13 @@ t_serialize_parse_connect_with_malformed_will(_) ->
     %% too short
     BadBin1 = <<16, 45, Body/binary, 0>>,
     ?ASSERT_FRAME_THROW(
-        #{hint := malformed_will_payload, length_bytes := 1, expected_bytes := 2},
+        #{cause := malformed_will_payload, length_bytes := 1, expected_bytes := 2},
         emqx_frame:parse(BadBin1)
     ),
     %% too long
     BadBin2 = <<16, 47, Body/binary, 0, 2, 0>>,
     ?ASSERT_FRAME_THROW(
-        #{hint := malformed_will_payload, parsed_length := 2, remaining_bytes := 1},
+        #{cause := malformed_will_payload, parsed_length := 2, remaining_bytes := 1},
         emqx_frame:parse(BadBin2)
     ),
     ok.
@@ -617,7 +617,7 @@ t_serialize_parse_pingresp(_) ->
     Packet = serialize_to_binary(PingResp),
     ?assertException(
         throw,
-        {frame_parse_error, #{hint := unexpected_packet, header_type := 'PINGRESP'}},
+        {frame_parse_error, #{cause := unexpected_packet, header_type := 'PINGRESP'}},
         emqx_frame:parse(Packet)
     ).
 
@@ -664,7 +664,9 @@ t_serialize_parse_auth_v5(_) ->
 
 t_parse_invalid_remaining_len(_) ->
     ?assertException(
-        throw, {frame_parse_error, #{hint := zero_remaining_len}}, emqx_frame:parse(<<?CONNECT, 0>>)
+        throw,
+        {frame_parse_error, #{cause := zero_remaining_len}},
+        emqx_frame:parse(<<?CONNECT, 0>>)
     ).
 
 t_parse_malformed_properties(_) ->
@@ -676,13 +678,13 @@ t_parse_malformed_properties(_) ->
 
 t_malformed_connect_header(_) ->
     ?ASSERT_FRAME_THROW(
-        #{hint := malformed_connect, header_bytes := _},
+        #{cause := malformed_connect, header_bytes := _},
         emqx_frame:parse(<<16, 11, 0, 6, 77, 81, 73, 115, 100, 112, 3, 130, 1, 6>>)
     ).
 
 t_malformed_connect_data(_) ->
     ?ASSERT_FRAME_THROW(
-        #{hint := malformed_connect, unexpected_trailing_bytes := _},
+        #{cause := malformed_connect, unexpected_trailing_bytes := _},
         emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 0, 0, 0>>)
     ).
 
@@ -696,7 +698,7 @@ t_reserved_connect_flag(_) ->
 t_invalid_clientid(_) ->
     ?assertException(
         throw,
-        {frame_parse_error, #{hint := invalid_clientid}},
+        {frame_parse_error, #{cause := invalid_clientid}},
         emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 1, 0, 0>>)
     ).
 
