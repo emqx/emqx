@@ -60,7 +60,7 @@ grpc_flush_timeout.label:
 """gRPC Flush Interval"""
 
 aggregation_pool_size.desc:
-"""Size of record aggregation pool."""
+"""The size of the record aggregation pool. A larger aggregation pool size can lead to enhanced parallelization but may also result in reduced efficiency due to smaller batch sizes."""
 
 aggregation_pool_size.label:
 """Aggregation Pool Size"""
@@ -72,7 +72,7 @@ max_batches.label:
 """Max Batches"""
 
 writer_pool_size.desc:
-"""The size of the writer pool."""
+"""The size of the writer pool. A larger pool may increase parallelization and concurrent write operations, potentially boosting throughput. Trade-offs include greater memory consumption and possible resource contention."""
 
 writer_pool_size.label:
 """Writer Pool Size"""

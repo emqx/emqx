@@ -110,10 +110,10 @@ bridge_v2_examples(Method) ->
 action_values() ->
     #{
         <<"parameters">> => #{
-            <<"aggregation_pool_size">> => 8,
             <<"partition_key">> => <<"hej">>,
             <<"record_template">> => <<"${payload}">>,
             <<"stream">> => <<"mqtt_message">>,
+            <<"aggregation_pool_size">> => 8,
             <<"writer_pool_size">> => 8
         }
     }.
