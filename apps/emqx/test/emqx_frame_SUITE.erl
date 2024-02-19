@@ -57,11 +57,12 @@ groups() ->
             t_serialize_parse_v5_connect,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
+            t_serialize_parse_connect_with_malformed_will,
             t_serialize_parse_bridge_connect,
             t_parse_invalid_remaining_len,
             t_parse_malformed_properties,
             t_malformed_connect_header,
-            t_malformed_connect_payload,
+            t_malformed_connect_data,
             t_reserved_connect_flag,
             t_invalid_clientid
         ]},
@@ -138,8 +139,8 @@ t_parse_cont(_) ->
 
 t_parse_frame_too_large(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(1000)),
-    ?ASSERT_FRAME_THROW(frame_too_large, parse_serialize(Packet, #{max_size => 256})),
-    ?ASSERT_FRAME_THROW(frame_too_large, parse_serialize(Packet, #{max_size => 512})),
+    ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 256})),
+    ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
 
 t_parse_frame_malformed_variable_byte_integer(_) ->
@@ -276,6 +277,37 @@ t_serialize_parse_connect_with_will(_) ->
     },
     ?assertEqual(Bin, serialize_to_binary(Packet)),
     ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
+
+t_serialize_parse_connect_with_malformed_will(_) ->
+    Packet2 = #mqtt_packet{
+        header = #mqtt_packet_header{type = ?CONNECT},
+        variable = #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V3,
+            proto_name = <<"MQIsdp">>,
+            clientid = <<"mosqpub/10452-iMac.loca">>,
+            clean_start = true,
+            keepalive = 60,
+            will_retain = false,
+            will_qos = ?QOS_1,
+            will_flag = true,
+            will_topic = <<"/will">>,
+            will_payload = <<>>
+        }
+    },
+    <<16, 46, Body:44/binary, 0, 0>> = serialize_to_binary(Packet2),
+    %% too short
+    BadBin1 = <<16, 45, Body/binary, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := malformed_will_payload, length_bytes := 1, expected_bytes := 2},
+        emqx_frame:parse(BadBin1)
+    ),
+    %% too long
+    BadBin2 = <<16, 47, Body/binary, 0, 2, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := malformed_will_payload, parsed_length := 2, remaining_bytes := 1},
+        emqx_frame:parse(BadBin2)
+    ),
+    ok.
 
 t_serialize_parse_bridge_connect(_) ->
     Bin =
@@ -585,7 +617,7 @@ t_serialize_parse_pingresp(_) ->
     Packet = serialize_to_binary(PingResp),
     ?assertException(
         throw,
-        {frame_parse_error, #{hint := unexpected_packet, header_type := 'PINGRESP'}},
+        {frame_parse_error, #{cause := unexpected_packet, header_type := 'PINGRESP'}},
         emqx_frame:parse(Packet)
     ).
 
@@ -632,7 +664,9 @@ t_serialize_parse_auth_v5(_) ->
 
 t_parse_invalid_remaining_len(_) ->
     ?assertException(
-        throw, {frame_parse_error, #{hint := zero_remaining_len}}, emqx_frame:parse(<<?CONNECT, 0>>)
+        throw,
+        {frame_parse_error, #{cause := zero_remaining_len}},
+        emqx_frame:parse(<<?CONNECT, 0>>)
     ).
 
 t_parse_malformed_properties(_) ->
@@ -643,16 +677,14 @@ t_parse_malformed_properties(_) ->
     ).
 
 t_malformed_connect_header(_) ->
-    ?assertException(
-        throw,
-        {frame_parse_error, malformed_connect_header},
+    ?ASSERT_FRAME_THROW(
+        #{cause := malformed_connect, header_bytes := _},
         emqx_frame:parse(<<16, 11, 0, 6, 77, 81, 73, 115, 100, 112, 3, 130, 1, 6>>)
     ).
 
-t_malformed_connect_payload(_) ->
-    ?assertException(
-        throw,
-        {frame_parse_error, malformed_connect_data},
+t_malformed_connect_data(_) ->
+    ?ASSERT_FRAME_THROW(
+        #{cause := malformed_connect, unexpected_trailing_bytes := _},
         emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 0, 0, 0>>)
     ).
 
@@ -666,7 +698,7 @@ t_reserved_connect_flag(_) ->
 t_invalid_clientid(_) ->
     ?assertException(
         throw,
-        {frame_parse_error, #{hint := invalid_clientid}},
+        {frame_parse_error, #{cause := invalid_clientid}},
         emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 1, 0, 0>>)
     ).
 
