@@ -10,7 +10,6 @@ on:
   push:
     branches:
       - master
-      - 'release-5[0-9]'
   workflow_dispatch:
 
 permissions: read-all
