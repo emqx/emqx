@@ -9,6 +9,7 @@
 
 -define(APP, emqx_bridge_clickhouse).
 -define(CLICKHOUSE_HOST, "clickhouse").
+-define(CLICKHOUSE_PORT, "8123").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 %% See comment in
@@ -20,9 +21,9 @@
 %%------------------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_tcp_server_available(?CLICKHOUSE_HOST, ?CLICKHOUSE_DEFAULT_PORT)
-    of
+    Host = clickhouse_host(),
+    Port = list_to_integer(clickhouse_port()),
+    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
             emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
             ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
@@ -114,13 +115,15 @@ sql_drop_table() ->
 sql_create_database() ->
     "CREATE DATABASE IF NOT EXISTS mqtt".
 
+clickhouse_host() ->
+    os:getenv("CLICKHOUSE_HOST", ?CLICKHOUSE_HOST).
+clickhouse_port() ->
+    os:getenv("CLICKHOUSE_PORT", ?CLICKHOUSE_PORT).
+
 clickhouse_url() ->
-    erlang:iolist_to_binary([
-        <<"http://">>,
-        ?CLICKHOUSE_HOST,
-        ":",
-        erlang:integer_to_list(?CLICKHOUSE_DEFAULT_PORT)
-    ]).
+    Host = clickhouse_host(),
+    Port = clickhouse_port(),
+    erlang:iolist_to_binary(["http://", Host, ":", Port]).
 
 clickhouse_config(Config) ->
     SQL = maps:get(sql, Config, sql_insert_template_for_bridge()),

@@ -6,6 +6,16 @@ batch_value_separator.desc:
 batch_value_separator.label:
 """Batch Value Separator"""
 
+action_parameters.desc:
+"""Action specific configs."""
+action_parameters.label:
+"""Action"""
+
+clickhouse_action.desc:
+"""Action configs."""
+clickhouse_action.label:
+"""Action"""
+
 config_enable.desc:
 """Enable or disable this bridge"""
 

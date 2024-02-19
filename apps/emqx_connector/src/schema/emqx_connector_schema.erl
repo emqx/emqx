@@ -142,6 +142,8 @@ connector_type_to_bridge_types(influxdb) ->
     [influxdb, influxdb_api_v1, influxdb_api_v2];
 connector_type_to_bridge_types(cassandra) ->
     [cassandra];
+connector_type_to_bridge_types(clickhouse) ->
+    [clickhouse];
 connector_type_to_bridge_types(mysql) ->
     [mysql];
 connector_type_to_bridge_types(mqtt) ->
