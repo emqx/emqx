@@ -372,21 +372,7 @@ preproc_parameter(#{config_root := actions, parameters := Parameter}) ->
         config_root => actions
     };
 preproc_parameter(#{config_root := sources, parameters := Parameter, hookpoints := Hooks}) ->
-    #{
-        payload_template := PayloadTmpl,
-        qos := QosTmpl,
-        topic := TopicTmpl
-    } = Parameter,
-    Parameter#{
-        payload_template => emqx_placeholder:preproc_tmpl(PayloadTmpl),
-        qos => preproc_qos(QosTmpl),
-        topic => emqx_placeholder:preproc_tmpl(TopicTmpl),
-        hookpoints => Hooks,
-        config_root => sources
-    }.
-
-preproc_qos(Qos) when is_integer(Qos) -> Qos;
-preproc_qos(Qos) -> emqx_placeholder:preproc_tmpl(Qos).
+    Parameter#{hookpoints => Hooks, config_root => sources}.
 
 delivery_mode(non_persistent) -> 1;
 delivery_mode(persistent) -> 2.
