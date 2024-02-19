@@ -492,23 +492,27 @@ list_nodes() ->
 
 %%
 
+%% TODO
+%% Too large for normal operation, need better backpressure mechanism.
+-define(RA_TIMEOUT, 60 * 1000).
+
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,
         ?batch_messages => Messages
     },
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
-    case ra:process_command(Servers, Command) of
+    case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
-            error(Error, [DB, Shard])
+            Error
     end.
 
 ra_add_generation(DB, Shard) ->
     Command = #{?tag => add_generation},
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
-    case ra:process_command(Servers, Command) of
+    case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
@@ -518,7 +522,7 @@ ra_add_generation(DB, Shard) ->
 ra_update_config(DB, Shard, Opts) ->
     Command = #{?tag => update_config, ?config => Opts},
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
-    case ra:process_command(Servers, Command) of
+    case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
@@ -528,7 +532,7 @@ ra_update_config(DB, Shard, Opts) ->
 ra_drop_generation(DB, Shard, GenId) ->
     Command = #{?tag => drop_generation, ?generation => GenId},
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
-    case ra:process_command(Servers, Command) of
+    case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
         Error ->
