@@ -50,10 +50,10 @@
 -define(MSGS_LIST, emqx:get_config([log, throttling, msgs], [])).
 -define(TIME_WINDOW_MS, timer:seconds(emqx:get_config([log, throttling, time_window], 60))).
 
--spec allow(logger:level(), string()) -> boolean().
+-spec allow(logger:level(), atom()) -> boolean().
 allow(debug, _Msg) ->
     true;
-allow(_Level, Msg) ->
+allow(_Level, Msg) when is_atom(Msg) ->
     Seq = persistent_term:get(?SEQ_ID(Msg), undefined),
     case Seq of
         undefined ->
@@ -79,8 +79,9 @@ start_link() ->
 
 init([]) ->
     ok = lists:foreach(fun(Msg) -> ?NEW_THROTTLE(Msg, ?NEW_SEQ) end, ?MSGS_LIST),
-    TimerRef = schedule_refresh(?TIME_WINDOW_MS),
-    {ok, #{timer_ref => TimerRef}}.
+    CurrentPeriodMs = ?TIME_WINDOW_MS,
+    TimerRef = schedule_refresh(CurrentPeriodMs),
+    {ok, #{timer_ref => TimerRef, current_period_ms => CurrentPeriodMs}}.
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -90,8 +91,7 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info(refresh, State) ->
-    PeriodMs = ?TIME_WINDOW_MS,
+handle_info(refresh, #{current_period_ms := PeriodMs} = State) ->
     Msgs = ?MSGS_LIST,
     DroppedStats = lists:foldl(
         fun(Msg, Acc) ->
@@ -112,7 +112,11 @@ handle_info(refresh, State) ->
         Msgs
     ),
     maybe_log_dropped(DroppedStats, PeriodMs),
-    State1 = State#{timer_ref => schedule_refresh(PeriodMs)},
+    NewPeriodMs = ?TIME_WINDOW_MS,
+    State1 = State#{
+        timer_ref => schedule_refresh(NewPeriodMs),
+        current_period_ms => NewPeriodMs
+    },
     {noreply, State1};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unxpected_info", info => Info}),
@@ -143,4 +147,5 @@ maybe_log_dropped(_DroppedStats, _PeriodMs) ->
     ok.
 
 schedule_refresh(PeriodMs) ->
+    ?tp(log_throttler_sched_refresh, #{new_period_ms => PeriodMs}),
     erlang:send_after(PeriodMs, ?MODULE, refresh).

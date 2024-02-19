@@ -482,11 +482,11 @@ desc_log_throttling.desc:
 """Log throttling feature reduces the number of potentially flooding logged events by
 dropping all but the first event within a configured time window."""
 
-log_throttling_window_time.desc:
-"""A time interval at which log throttling is applied. Defaults to 1 minute."""
+log_throttling_time_window.desc:
+"""For throttled messages, only log 1 in each time window."""
 
-log_throttling_window_time.label:
-"""Log Throttling Window Time"""
+log_throttling_time_window.label:
+"""Log Throttling Time Window"""
 
 cluster_dns_record_type.desc:
 """DNS record type."""

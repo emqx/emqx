@@ -75,6 +75,14 @@
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
+-define(LOG_THROTTLING_MSGS, [
+    authorization_permission_denied,
+    cannot_publish_to_topic_due_to_not_authorized,
+    cannot_publish_to_topic_due_to_quota_exceeded,
+    connection_rejected_due_to_license_limit_reached,
+    dropped_msg_due_to_mqueue_is_full
+]).
+
 %% Callback to upgrade config after loaded from config file but before validation.
 upgrade_raw_conf(Raw0) ->
     Raw1 = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(Raw0),
@@ -910,7 +918,7 @@ fields("log") ->
                     importance => ?IMPORTANCE_HIGH
                 }
             )},
-        {"throttling",
+        {throttling,
             sc(?R_REF("log_throttling"), #{
                 desc => ?DESC("log_throttling"),
                 importance => ?IMPORTANCE_MEDIUM
@@ -1019,22 +1027,22 @@ fields("log_burst_limit") ->
     ];
 fields("log_throttling") ->
     [
-        {"window_time",
+        {time_window,
             sc(
                 emqx_schema:duration_s(),
                 #{
                     default => <<"1m">>,
-                    desc => ?DESC("log_throttling_window_time"),
+                    desc => ?DESC("log_throttling_time_window"),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        %% A static list of event ids used in ?SLOG_THROTTLE/3,4 macro.
+        %% A static list of msgs used in ?SLOG_THROTTLE/2,3 macro.
         %% For internal (developer) use only.
-        {"event_ids",
+        {msgs,
             sc(
-                hoconsc:array(atom()),
+                hoconsc:array(hoconsc:enum(?LOG_THROTTLING_MSGS)),
                 #{
-                    default => [],
+                    default => ?LOG_THROTTLING_MSGS,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}

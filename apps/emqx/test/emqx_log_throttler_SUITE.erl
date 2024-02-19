@@ -23,8 +23,10 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(THROTTLE_MSG, "test_throttle_msg").
--define(THROTTLE_MSG1, "test_throttle_msg1").
+%% Have to use real msgs, as the schema is guarded by enum.
+-define(THROTTLE_MSG, authorization_permission_denied).
+-define(THROTTLE_MSG1, cannot_publish_to_topic_due_to_not_authorized).
+-define(TIME_WINDOW, <<"1s">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -39,7 +41,7 @@ init_per_suite(Config) ->
                             #{
                                 log => #{
                                     throttling => #{
-                                        time_window => <<"1s">>, msgs => [?THROTTLE_MSG]
+                                        time_window => ?TIME_WINDOW, msgs => [?THROTTLE_MSG]
                                     }
                                 }
                             }
@@ -70,6 +72,10 @@ end_per_testcase(t_throttle_add_new_msg, _Config) ->
     ok = snabbkaffe:stop(),
     {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG], #{}),
     ok;
+end_per_testcase(t_update_time_window, _Config) ->
+    ok = snabbkaffe:stop(),
+    {ok, _} = emqx_conf:update([log, throttling, time_window], ?TIME_WINDOW, #{}),
+    ok;
 end_per_testcase(_TC, _Config) ->
     ok = snabbkaffe:stop().
 
@@ -87,7 +93,7 @@ t_throttle(_Config) ->
                 lists:seq(1, 100)
             ),
             {ok, _} = ?block_until(
-                #{?snk_kind := log_throttler_dropped, throttled_msg := ?THROTTLE_MSG}, 3000
+                #{?snk_kind := log_throttler_dropped, throttled_msg := ?THROTTLE_MSG}, 5000
             ),
 
             ?assert(emqx_log_throttler:allow(warning, ?THROTTLE_MSG)),
@@ -110,7 +116,7 @@ t_throttle_add_new_msg(_Config) ->
     ?check_trace(
         begin
             ?block_until(
-                #{?snk_kind := log_throttler_new_msg, throttled_msg := ?THROTTLE_MSG1}, 3000
+                #{?snk_kind := log_throttler_new_msg, throttled_msg := ?THROTTLE_MSG1}, 5000
             ),
             ?assert(emqx_log_throttler:allow(warning, ?THROTTLE_MSG1)),
             ?assertNot(emqx_log_throttler:allow(warning, ?THROTTLE_MSG1)),
@@ -128,10 +134,24 @@ t_throttle_add_new_msg(_Config) ->
 
 t_throttle_no_msg(_Config) ->
     %% Must simply pass with no crashes
-    ?assert(emqx_log_throttler:allow(warning, "no_test_throttle_msg")),
-    ?assert(emqx_log_throttler:allow(warning, "no_test_throttle_msg")),
+    ?assert(emqx_log_throttler:allow(warning, no_test_throttle_msg)),
+    ?assert(emqx_log_throttler:allow(warning, no_test_throttle_msg)),
     timer:sleep(10),
     ?assert(erlang:is_process_alive(erlang:whereis(emqx_log_throttler))).
+
+t_update_time_window(_Config) ->
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                emqx_conf:update([log, throttling, time_window], <<"2s">>, #{}),
+                #{?snk_kind := log_throttler_sched_refresh, new_period_ms := 2000},
+                5000
+            ),
+            timer:sleep(10),
+            ?assert(erlang:is_process_alive(erlang:whereis(emqx_log_throttler)))
+        end,
+        []
+    ).
 
 %%--------------------------------------------------------------------
 %% internal functions

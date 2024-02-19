@@ -40,8 +40,8 @@
     end
 ).
 
-%% NOTE: do not forget to add every used msg to the default value of
-%% `log.thorttling.msgs` list.
+%% NOTE: do not forget to use atom for msg and add every used msg to
+%% the default value of `log.thorttling.msgs` list.
 -define(SLOG_THROTTLE(Level, Data),
     ?SLOG_THROTTLE(Level, Data, #{})
 ).

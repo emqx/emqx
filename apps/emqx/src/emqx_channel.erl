@@ -616,10 +616,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
-            ?SLOG(
-                info,
+            ?SLOG_THROTTLE(
+                warning,
                 #{
-                    msg => "cannot_publish_to_topic",
+                    msg => cannot_publish_to_topic_due_to_not_authorized,
                     reason => emqx_reason_codes:name(Rc)
                 },
                 #{topic => Topic}
@@ -635,10 +635,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ?SLOG(
-                info,
+            ?SLOG_THROTTLE(
+                warning,
                 #{
-                    msg => "cannot_publish_to_topic",
+                    msg => cannot_publish_to_topic_due_to_quota_exceeded,
                     reason => emqx_reason_codes:name(Rc)
                 },
                 #{topic => Topic}
