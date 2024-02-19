@@ -172,6 +172,9 @@ start_shard(DB, Shard) ->
             %% Ensure that doing that on node restart does not disrupt consensus.
             %% Edit: looks like it doesn't, this could actually be quite useful
             %% to "steal" leadership from nodes that have too much leader load.
+            %% TODO
+            %% It doesn't really work that way. There's `ra:transfer_leadership/2`
+            %% for that.
             try
                 ra:trigger_election(LocalServer, _Timeout = 1_000)
             catch
