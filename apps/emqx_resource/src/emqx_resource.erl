@@ -329,7 +329,7 @@ reset_metrics_local(ResId) ->
 
 -spec reset_metrics(resource_id()) -> ok | {error, Reason :: term()}.
 reset_metrics(ResId) ->
-    emqx_resource_proto_v1:reset_metrics(ResId).
+    emqx_resource_proto_v2:reset_metrics(ResId).
 
 %% =================================================================================
 -spec query(resource_id(), Request :: term()) -> Result :: term().
