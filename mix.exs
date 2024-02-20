@@ -200,7 +200,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.4.5+v0.16.1"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.10.2"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
