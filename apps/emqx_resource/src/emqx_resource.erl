@@ -28,8 +28,6 @@
 
 -export([
     check_config/2,
-    check_and_create/4,
-    check_and_create/5,
     check_and_create_local/4,
     check_and_create_local/5,
     check_and_recreate/4,
@@ -42,12 +40,8 @@
 
 %% store the config and start the instance
 -export([
-    create/4,
-    create/5,
     create_local/4,
     create_local/5,
-    %% run start/2, health_check/2 and stop/1 sequentially
-    create_dry_run/2,
     create_dry_run_local/2,
     create_dry_run_local/3,
     create_dry_run_local/4,
@@ -275,16 +269,6 @@ is_resource_mod(Module) ->
 %% =================================================================================
 %% APIs for resource instances
 %% =================================================================================
--spec create(resource_id(), resource_group(), resource_type(), resource_config()) ->
-    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create(ResId, Group, ResourceType, Config) ->
-    create(ResId, Group, ResourceType, Config, #{}).
-
--spec create(resource_id(), resource_group(), resource_type(), resource_config(), creation_opts()) ->
-    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create(ResId, Group, ResourceType, Config, Opts) ->
-    emqx_resource_proto_v1:create(ResId, Group, ResourceType, Config, Opts).
-% --------------------------------------------
 
 -spec create_local(resource_id(), resource_group(), resource_type(), resource_config()) ->
     {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
@@ -301,11 +285,6 @@ create_local(ResId, Group, ResourceType, Config) ->
     {ok, resource_data()}.
 create_local(ResId, Group, ResourceType, Config, Opts) ->
     emqx_resource_manager:ensure_resource(ResId, Group, ResourceType, Config, Opts).
-
--spec create_dry_run(resource_type(), resource_config()) ->
-    ok | {error, Reason :: term()}.
-create_dry_run(ResourceType, Config) ->
-    emqx_resource_proto_v1:create_dry_run(ResourceType, Config).
 
 -spec create_dry_run_local(resource_type(), resource_config()) ->
     ok | {error, Reason :: term()}.
@@ -615,31 +594,6 @@ query_mode(Mod, Config, Opts) ->
     {ok, resource_config()} | {error, term()}.
 check_config(ResourceType, Conf) ->
     emqx_hocon:check(ResourceType, Conf).
-
--spec check_and_create(
-    resource_id(),
-    resource_group(),
-    resource_type(),
-    raw_resource_config()
-) ->
-    {ok, resource_data() | 'already_created'} | {error, term()}.
-check_and_create(ResId, Group, ResourceType, RawConfig) ->
-    check_and_create(ResId, Group, ResourceType, RawConfig, #{}).
-
--spec check_and_create(
-    resource_id(),
-    resource_group(),
-    resource_type(),
-    raw_resource_config(),
-    creation_opts()
-) ->
-    {ok, resource_data() | 'already_created'} | {error, term()}.
-check_and_create(ResId, Group, ResourceType, RawConfig, Opts) ->
-    check_and_do(
-        ResourceType,
-        RawConfig,
-        fun(ResConf) -> create(ResId, Group, ResourceType, ResConf, Opts) end
-    ).
 
 -spec check_and_create_local(
     resource_id(),

@@ -20,6 +20,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
     create/5,
     create_dry_run/2,
     recreate/4,
@@ -33,6 +34,10 @@
 introduced_in() ->
     "5.0.0".
 
+deprecated_since() ->
+    "5.6.0".
+
+%% deprecated, delete after 5.7.0
 -spec create(
     resource_id(),
     resource_group(),
@@ -46,6 +51,7 @@ create(ResId, Group, ResourceType, Config, Opts) ->
         ResId, Group, ResourceType, Config, Opts
     ]).
 
+%% deprecated, delete after 5.7.0
 -spec create_dry_run(
     resource_type(),
     resource_config()
