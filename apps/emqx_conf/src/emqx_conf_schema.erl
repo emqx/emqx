@@ -42,6 +42,8 @@
 %% internal exports for `emqx_enterprise_schema' only.
 -export([ensure_unicode_path/2, convert_rotation/2, log_handler_common_confs/2]).
 
+-define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
+
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
 %% by nodetool to generate app.<time>.config before EMQX is started
@@ -131,7 +133,8 @@ roots() ->
         lists:flatmap(fun roots/1, common_apps()).
 
 validations() ->
-    hocon_schema:validations(emqx_schema) ++
+    [{check_node_name_and_discovery_strategy, fun validate_cluster_strategy/1}] ++
+        hocon_schema:validations(emqx_schema) ++
         lists:flatmap(fun hocon_schema:validations/1, common_apps()).
 
 common_apps() ->
@@ -367,7 +370,7 @@ fields("node") ->
             sc(
                 string(),
                 #{
-                    default => <<"emqx@127.0.0.1">>,
+                    default => ?DEFAULT_NODE_NAME,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(node_name)
@@ -1473,3 +1476,55 @@ ensure_unicode_path(Path, Opts) ->
 
 log_level() ->
     hoconsc:enum([debug, info, notice, warning, error, critical, alert, emergency, all]).
+
+validate_cluster_strategy(#{<<"node">> := _, <<"cluster">> := _} = Conf) ->
+    Name = hocon_maps:get("node.name", Conf),
+    [_Prefix, Host] = re:split(Name, "@", [{return, list}, unicode]),
+    Strategy = hocon_maps:get("cluster.discovery_strategy", Conf),
+    Type = hocon_maps:get("cluster.dns.record_type", Conf),
+    validate_dns_cluster_strategy(Strategy, Type, Host);
+validate_cluster_strategy(_) ->
+    true.
+
+validate_dns_cluster_strategy(dns, srv, _Host) ->
+    ok;
+validate_dns_cluster_strategy(dns, Type, Host) ->
+    case is_ip_addr(unicode:characters_to_list(Host), Type) of
+        true ->
+            ok;
+        false ->
+            throw(#{
+                explain =>
+                    "Node name must be of name@IP format "
+                    "for DNS cluster discovery strategy with '" ++ atom_to_list(Type) ++
+                    "' record type.",
+                domain => unicode:characters_to_list(Host)
+            })
+    end;
+validate_dns_cluster_strategy(_Other, _Type, _Name) ->
+    true.
+
+is_ip_addr(Host, Type) ->
+    case inet:parse_address(Host) of
+        {ok, Ip} ->
+            AddrType = address_type(Ip),
+            case
+                (AddrType =:= ipv4 andalso Type =:= a) orelse
+                    (AddrType =:= ipv6 andalso Type =:= aaaa)
+            of
+                true ->
+                    true;
+                false ->
+                    throw(#{
+                        explain => "Node name address " ++ atom_to_list(AddrType) ++
+                            " is incompatible with DNS record type " ++ atom_to_list(Type),
+                        record_type => Type,
+                        address_type => address_type(Ip)
+                    })
+            end;
+        _ ->
+            false
+    end.
+
+address_type(IP) when tuple_size(IP) =:= 4 -> ipv4;
+address_type(IP) when tuple_size(IP) =:= 8 -> ipv6.
