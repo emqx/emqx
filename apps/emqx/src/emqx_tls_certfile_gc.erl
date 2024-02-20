@@ -57,7 +57,7 @@
     collect_files/2
 ]).
 
--define(GC_INVERVAL, 5 * 60 * 1000).
+-define(GC_INTERVAL, 5 * 60 * 1000).
 
 -define(HAS_OWNER_READ(Mode), ((Mode band 8#00400) > 0)).
 -define(HAS_OWNER_WRITE(Mode), ((Mode band 8#00200) > 0)).
@@ -84,7 +84,7 @@
 -spec start_link() ->
     {ok, pid()}.
 start_link() ->
-    start_link(?GC_INVERVAL).
+    start_link(?GC_INTERVAL).
 
 -spec start_link(_Interval :: pos_integer()) ->
     {ok, pid()}.
