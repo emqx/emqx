@@ -47,7 +47,6 @@
     recreate_local/3,
     recreate_local/4,
     %% remove the config and stop the instance
-    remove/1,
     remove_local/1,
     reset_metrics/1,
     reset_metrics_local/1,
@@ -306,10 +305,6 @@ recreate_local(ResId, ResourceType, Config) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(ResId, ResourceType, Config, Opts) ->
     emqx_resource_manager:recreate(ResId, ResourceType, Config, Opts).
-
--spec remove(resource_id()) -> ok | {error, Reason :: term()}.
-remove(ResId) ->
-    emqx_resource_proto_v1:remove(ResId).
 
 -spec remove_local(resource_id()) -> ok.
 remove_local(ResId) ->

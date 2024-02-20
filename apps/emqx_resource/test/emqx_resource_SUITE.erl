@@ -46,7 +46,7 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, _Config) ->
     snabbkaffe:stop(),
-    _ = emqx_resource:remove(?ID),
+    _ = emqx_resource:remove_local(?ID),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -110,8 +110,8 @@ t_create_remove(_) ->
 
             ?assert(is_process_alive(Pid)),
 
-            ?assertEqual(ok, emqx_resource:remove(?ID)),
-            ?assertMatch(ok, emqx_resource:remove(?ID)),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+            ?assertMatch(ok, emqx_resource:remove_local(?ID)),
 
             ?assertNot(is_process_alive(Pid))
         end,
@@ -1218,7 +1218,7 @@ t_reset_metrics(_) ->
     {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
     emqx_resource:reset_metrics(?ID),
     ?assert(is_process_alive(Pid)),
-    ok = emqx_resource:remove(?ID),
+    ok = emqx_resource:remove_local(?ID),
     ?assertNot(is_process_alive(Pid)).
 
 t_auto_retry(_) ->
