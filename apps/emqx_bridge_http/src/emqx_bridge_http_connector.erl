@@ -876,9 +876,9 @@ redact(Data) ->
 %% and we also can't know the body format and where the sensitive data will be
 %% so the easy way to keep data security is redacted the whole body
 redact_request({Path, Headers}) ->
-    {Path, Headers};
+    {Path, redact(Headers)};
 redact_request({Path, Headers, _Body}) ->
-    {Path, Headers, <<"******">>}.
+    {Path, redact(Headers), <<"******">>}.
 
 clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
