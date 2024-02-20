@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_pulsar_impl_producer).
+-module(emqx_bridge_pulsar_connector).
 
 -include("emqx_bridge_pulsar.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -13,8 +13,12 @@
     callback_mode/0,
     query_mode/1,
     on_start/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
     on_stop/2,
     on_get_status/2,
+    on_get_channel_status/3,
     on_query/3,
     on_query_async/4
 ]).
@@ -23,8 +27,7 @@
 -type state() :: #{
     pulsar_client_id := pulsar_client_id(),
     producers := pulsar_producers:producers(),
-    sync_timeout := erlang:timeout(),
-    message_template := message_template()
+    channels := map()
 }.
 -type buffer_mode() :: memory | disk | hybrid.
 -type compression_mode() :: no_compression | snappy | zlib.
@@ -77,16 +80,12 @@ query_mode(_Config) ->
 
 -spec on_start(resource_id(), config()) -> {ok, state()}.
 on_start(InstanceId, Config) ->
-    #{
-        bridge_name := BridgeName,
-        servers := Servers0,
-        ssl := SSL
-    } = Config,
+    #{servers := Servers0, ssl := SSL} = Config,
     Servers = format_servers(Servers0),
-    ClientId = make_client_id(InstanceId, BridgeName),
+    ClientId = make_client_id(InstanceId),
     ok = emqx_resource:allocate_resource(InstanceId, ?pulsar_client_id, ClientId),
     SSLOpts = emqx_tls_lib:to_client_opts(SSL),
-    ConnectTimeout = maps:get(connect_timeout, Config, timer:seconds(5)),
+    ConnectTimeout = maps:get(connect_timeout, Config, timer:seconds(10)),
     ClientOpts = #{
         connect_timeout => ConnectTimeout,
         ssl_opts => SSLOpts,
@@ -118,6 +117,30 @@ on_start(InstanceId, Config) ->
             throw(Message)
     end,
     start_producer(Config, InstanceId, ClientId, ClientOpts).
+
+on_add_channel(
+    _InstanceId,
+    #{channels := Channels} = State,
+    ChannelId,
+    #{parameters := #{message := Message, sync_timeout := SyncTimeout}}
+) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            {error, already_exists};
+        false ->
+            Parameters = #{
+                message => compile_message_template(Message),
+                sync_timeout => SyncTimeout
+            },
+            NewChannels = maps:put(ChannelId, Parameters, Channels),
+            {ok, State#{channels => NewChannels}}
+    end.
+
+on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
+    {ok, State#{channels => maps:remove(ChannelId, Channels)}}.
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
 
 -spec on_stop(resource_id(), state()) -> ok.
 on_stop(InstanceId, _State) ->
@@ -174,76 +197,77 @@ on_get_status(_InstanceId, _State) ->
     %% create the bridge is not quite finished, `State = undefined'.
     connecting.
 
--spec on_query(resource_id(), {send_message, map()}, state()) ->
+on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
+    case maps:is_key(ChannelId, Channels) of
+        true -> connected;
+        false -> {error, channel_not_exists}
+    end.
+
+-spec on_query(resource_id(), tuple(), state()) ->
     {ok, term()}
     | {error, timeout}
     | {error, term()}.
-on_query(_InstanceId, {send_message, Message}, State) ->
-    #{
-        producers := Producers,
-        sync_timeout := SyncTimeout,
-        message_template := MessageTemplate
-    } = State,
-    PulsarMessage = render_message(Message, MessageTemplate),
-    try
-        pulsar:send_sync(Producers, [PulsarMessage], SyncTimeout)
-    catch
-        error:timeout ->
-            {error, timeout}
+on_query(_InstanceId, {ChannelId, Message}, State) ->
+    #{producers := Producers, channels := Channels} = State,
+    case maps:find(ChannelId, Channels) of
+        error ->
+            {error, channel_not_exists};
+        {ok, #{message := MessageTmpl, sync_timeout := SyncTimeout}} ->
+            PulsarMessage = render_message(Message, MessageTmpl),
+            try
+                pulsar:send_sync(Producers, [PulsarMessage], SyncTimeout)
+            catch
+                error:timeout ->
+                    {error, timeout}
+            end
     end.
 
 -spec on_query_async(
-    resource_id(), {send_message, map()}, {ReplyFun :: function(), Args :: list()}, state()
+    resource_id(), tuple(), {ReplyFun :: function(), Args :: list()}, state()
 ) ->
     {ok, pid()}.
-on_query_async(_InstanceId, {send_message, Message}, AsyncReplyFn, State) ->
-    ?tp_span(
-        pulsar_producer_on_query_async,
-        #{instance_id => _InstanceId, message => Message},
-        do_on_query_async(Message, AsyncReplyFn, State)
-    ).
+on_query_async(_InstanceId, {ChannelId, Message}, AsyncReplyFn, State) ->
+    #{producers := Producers, channels := Channels} = State,
+    case maps:find(ChannelId, Channels) of
+        error ->
+            {error, channel_not_exists};
+        {ok, #{message := MessageTmpl}} ->
+            ?tp_span(
+                pulsar_producer_on_query_async,
+                #{instance_id => _InstanceId, message => Message},
+                on_query_async2(Producers, Message, MessageTmpl, AsyncReplyFn)
+            )
+    end.
 
-do_on_query_async(Message, AsyncReplyFn, State) ->
-    #{
-        producers := Producers,
-        message_template := MessageTemplate
-    } = State,
-    PulsarMessage = render_message(Message, MessageTemplate),
+on_query_async2(Producers, Message, MessageTmpl, AsyncReplyFn) ->
+    PulsarMessage = render_message(Message, MessageTmpl),
     pulsar:send(Producers, [PulsarMessage], #{callback_fn => AsyncReplyFn}).
 
 %%-------------------------------------------------------------------------------------
 %% Internal fns
 %%-------------------------------------------------------------------------------------
 
--spec to_bin(atom() | string() | binary()) -> binary().
-to_bin(A) when is_atom(A) ->
-    atom_to_binary(A);
-to_bin(L) when is_list(L) ->
-    list_to_binary(L);
-to_bin(B) when is_binary(B) ->
-    B.
-
 -spec format_servers(binary()) -> [string()].
 format_servers(Servers0) ->
-    Servers1 = emqx_schema:parse_servers(Servers0, ?PULSAR_HOST_OPTIONS),
     lists:map(
         fun(#{scheme := Scheme, hostname := Host, port := Port}) ->
             Scheme ++ "://" ++ Host ++ ":" ++ integer_to_list(Port)
         end,
-        Servers1
+        emqx_schema:parse_servers(Servers0, ?PULSAR_HOST_OPTIONS)
     ).
 
--spec make_client_id(resource_id(), atom() | binary()) -> pulsar_client_id().
-make_client_id(InstanceId, BridgeName) ->
+-spec make_client_id(resource_id()) -> pulsar_client_id().
+make_client_id(InstanceId) ->
     case is_dry_run(InstanceId) of
         true ->
             pulsar_producer_probe;
         false ->
+            {pulsar, Name} = emqx_connector_resource:parse_connector_id(InstanceId),
             ClientIdBin = iolist_to_binary([
-                <<"pulsar_producer:">>,
-                to_bin(BridgeName),
+                <<"pulsar:">>,
+                emqx_utils_conv:bin(Name),
                 <<":">>,
-                to_bin(node())
+                emqx_utils_conv:bin(node())
             ]),
             binary_to_atom(ClientIdBin)
     end.
@@ -252,10 +276,8 @@ make_client_id(InstanceId, BridgeName) ->
 is_dry_run(InstanceId) ->
     TestIdStart = string:find(InstanceId, ?TEST_ID_PREFIX),
     case TestIdStart of
-        nomatch ->
-            false;
-        _ ->
-            string:equal(TestIdStart, InstanceId)
+        nomatch -> false;
+        _ -> string:equal(TestIdStart, InstanceId)
     end.
 
 conn_opts(#{authentication := none}) ->
@@ -275,11 +297,11 @@ conn_opts(#{authentication := #{jwt := JWT}}) ->
 
 -spec replayq_dir(pulsar_client_id()) -> string().
 replayq_dir(ClientId) ->
-    filename:join([emqx:data_dir(), "pulsar", to_bin(ClientId)]).
+    filename:join([emqx:data_dir(), "pulsar", emqx_utils_conv:bin(ClientId)]).
 
 -spec producer_name(pulsar_client_id()) -> atom().
 producer_name(ClientId) ->
-    ClientIdBin = to_bin(ClientId),
+    ClientIdBin = emqx_utils_conv:bin(ClientId),
     binary_to_atom(
         iolist_to_binary([
             <<"producer-">>,
@@ -303,12 +325,10 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
         },
         compression := Compression,
         max_batch_bytes := MaxBatchBytes,
-        message := MessageTemplateOpts,
         pulsar_topic := PulsarTopic0,
         retention_period := RetentionPeriod,
         send_buffer := SendBuffer,
-        strategy := Strategy,
-        sync_timeout := SyncTimeout
+        strategy := Strategy
     } = Config,
     {OffloadMode, ReplayQDir} =
         case BufferMode of
@@ -330,7 +350,6 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
     },
     ProducerName = producer_name(ClientId),
     ?tp(pulsar_producer_capture_name, #{producer_name => ProducerName}),
-    MessageTemplate = compile_message_template(MessageTemplateOpts),
     ProducerOpts0 =
         #{
             batch_size => BatchSize,
@@ -353,8 +372,7 @@ start_producer(Config, InstanceId, ClientId, ClientOpts) ->
             State = #{
                 pulsar_client_id => ClientId,
                 producers => Producers,
-                sync_timeout => SyncTimeout,
-                message_template => MessageTemplate
+                channels => #{}
             },
             ?tp(pulsar_producer_bridge_started, #{}),
             {ok, State}

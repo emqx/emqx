@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_pulsar_impl_producer_SUITE).
+-module(emqx_bridge_pulsar_connector_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -550,7 +550,6 @@ kill_resource_managers() ->
 
 t_start_and_produce_ok(Config) ->
     MQTTTopic = ?config(mqtt_topic, Config),
-    ResourceId = resource_id(Config),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     QoS = 0,
     Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
@@ -600,6 +599,13 @@ t_start_and_produce_ok(Config) ->
                 _Sleep = 100,
                 _Attempts0 = 20,
                 begin
+                    BridgeId = emqx_bridge_resource:bridge_id(
+                        <<"pulsar">>, ?config(pulsar_name, Config)
+                    ),
+                    ConnectorId = emqx_bridge_resource:resource_id(
+                        <<"pulsar">>, ?config(pulsar_name, Config)
+                    ),
+                    Id = <<"action:", BridgeId/binary, ":", ConnectorId/binary>>,
                     ?assertMatch(
                         #{
                             counters := #{
@@ -612,7 +618,7 @@ t_start_and_produce_ok(Config) ->
                                 success := 2
                             }
                         },
-                        emqx_resource_manager:get_metrics(ResourceId)
+                        emqx_resource:get_metrics(Id)
                     ),
                     ?assertEqual(
                         1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')
@@ -631,17 +637,22 @@ t_start_and_produce_ok(Config) ->
 %% Under normal operations, the bridge will be called async via
 %% `simple_async_query'.
 t_sync_query(Config) ->
-    ResourceId = resource_id(Config),
     Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            Message = {send_message, #{payload => Payload}},
+            BridgeId = emqx_bridge_resource:bridge_id(<<"pulsar">>, ?config(pulsar_name, Config)),
+            ConnectorId = emqx_bridge_resource:resource_id(
+                <<"pulsar">>, ?config(pulsar_name, Config)
+            ),
+            Id = <<"action:", BridgeId/binary, ":", ConnectorId/binary>>,
+            Message = {Id, #{payload => Payload}},
             ?assertMatch(
                 {ok, #{sequence_id := _}}, emqx_resource:simple_sync_query(ResourceId, Message)
             ),
@@ -688,13 +699,13 @@ t_create_via_http(Config) ->
 
 t_start_stop(Config) ->
     PulsarName = ?config(pulsar_name, Config),
-    ResourceId = resource_id(Config),
     ?check_trace(
         begin
             ?assertMatch(
                 {ok, _},
                 create_bridge(Config)
             ),
+            ResourceId = resource_id(Config),
             %% Since the connection process is async, we give it some time to
             %% stabilize and avoid flakiness.
             ?retry(
@@ -745,11 +756,11 @@ t_on_get_status(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
-    ResourceId = resource_id(Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
+    ResourceId = resource_id(Config),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
     ?retry(
@@ -777,7 +788,6 @@ t_start_when_down(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
-    ResourceId = resource_id(Config),
     ?check_trace(
         begin
             emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
@@ -787,6 +797,7 @@ t_start_when_down(Config) ->
                 ),
                 ok
             end),
+            ResourceId = resource_id(Config),
             %% Should recover given enough time.
             ?retry(
                 _Sleep = 1_000,
@@ -902,7 +913,6 @@ t_failure_to_start_producer(Config) ->
 %% die for whatever reason.
 t_producer_process_crash(Config) ->
     MQTTTopic = ?config(mqtt_topic, Config),
-    ResourceId = resource_id(Config),
     QoS = 0,
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
@@ -934,6 +944,7 @@ t_producer_process_crash(Config) ->
                     ok
             after 1_000 -> ct:fail("pid didn't die")
             end,
+            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep0 = 50,
                 _Attempts0 = 50,
@@ -995,8 +1006,8 @@ t_resource_manager_crash_after_producers_started(Config) ->
                         Producers =/= undefined,
                     10_000
                 ),
-            ?assertMatch(ok, delete_bridge(Config)),
             ?assertEqual([], get_pulsar_producers()),
+            ?assertMatch({error, bridge_not_found}, delete_bridge(Config)),
             ok
         end,
         []
@@ -1028,8 +1039,8 @@ t_resource_manager_crash_before_producers_started(Config) ->
                     #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := undefined},
                     10_000
                 ),
-            ?assertMatch(ok, delete_bridge(Config)),
             ?assertEqual([], get_pulsar_producers()),
+            ?assertMatch({error, bridge_not_found}, delete_bridge(Config)),
             ok
         end,
         []
@@ -1046,7 +1057,7 @@ t_strategy_key_validation(Config) ->
                         <<"reason">> := <<"Message key cannot be empty", _/binary>>
                     }
             }}},
-        probe_bridge_api(
+        create_bridge_api(
             Config,
             #{<<"strategy">> => <<"key_dispatch">>, <<"message">> => #{<<"key">> => <<>>}}
         )
@@ -1060,7 +1071,7 @@ t_strategy_key_validation(Config) ->
                         <<"reason">> := <<"Message key cannot be empty", _/binary>>
                     }
             }}},
-        create_bridge_api(
+        probe_bridge_api(
             Config,
             #{<<"strategy">> => <<"key_dispatch">>, <<"message">> => #{<<"key">> => <<>>}}
         )
@@ -1075,7 +1086,6 @@ do_t_cluster(Config) ->
     ?check_trace(
         begin
             MQTTTopic = ?config(mqtt_topic, Config),
-            ResourceId = resource_id(Config),
             Nodes = [N1, N2 | _] = cluster(Config),
             ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
             QoS = 0,
@@ -1095,6 +1105,7 @@ do_t_cluster(Config) ->
                 ),
                 25_000
             ),
+            ResourceId = erpc:call(N1, ?MODULE, resource_id, [Config]),
             lists:foreach(
                 fun(N) ->
                     ?retry(
@@ -1147,12 +1158,12 @@ t_resilience(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
-    ResourceId = resource_id(Config),
     ?check_trace(
         begin
             {ok, _} = create_bridge(Config),
             {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
             on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep0 = 1_000,
                 _Attempts0 = 20,

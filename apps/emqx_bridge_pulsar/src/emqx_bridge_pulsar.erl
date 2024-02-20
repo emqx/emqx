@@ -31,7 +31,21 @@ roots() ->
     [].
 
 fields(pulsar_producer) ->
-    fields(config) ++ fields(producer_opts);
+    fields(config) ++
+        emqx_bridge_pulsar_pubsub_schema:fields(action_parameters) ++
+        fields(producer_opts) ++
+        [
+            {local_topic,
+                mk(binary(), #{required => false, desc => ?DESC("producer_local_topic")})},
+            {resource_opts,
+                mk(
+                    ref(producer_resource_opts),
+                    #{
+                        required => false,
+                        desc => ?DESC(emqx_resource_schema, "creation_opts")
+                    }
+                )}
+        ];
 fields(config) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -85,10 +99,6 @@ fields(producer_opts) ->
             mk(emqx_schema:bytesize(), #{
                 default => <<"1MB">>, desc => ?DESC("producer_send_buffer")
             })},
-        {sync_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"3s">>, desc => ?DESC("producer_sync_timeout")
-            })},
         {retention_period,
             mk(
                 %% not used in a `receive ... after' block, just timestamp comparison
@@ -100,26 +110,13 @@ fields(producer_opts) ->
                 emqx_schema:bytesize(),
                 #{default => <<"900KB">>, desc => ?DESC("producer_max_batch_bytes")}
             )},
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC("producer_local_topic")})},
         {pulsar_topic, mk(binary(), #{required => true, desc => ?DESC("producer_pulsar_topic")})},
         {strategy,
             mk(
                 hoconsc:enum([random, roundrobin, key_dispatch]),
                 #{default => random, desc => ?DESC("producer_strategy")}
             )},
-        {buffer, mk(ref(producer_buffer), #{required => false, desc => ?DESC("producer_buffer")})},
-        {message,
-            mk(ref(producer_pulsar_message), #{
-                required => false, desc => ?DESC("producer_message_opts")
-            })},
-        {resource_opts,
-            mk(
-                ref(producer_resource_opts),
-                #{
-                    required => false,
-                    desc => ?DESC(emqx_resource_schema, "creation_opts")
-                }
-            )}
+        {buffer, mk(ref(producer_buffer), #{required => false, desc => ?DESC("producer_buffer")})}
     ];
 fields(producer_buffer) ->
     [
@@ -143,12 +140,6 @@ fields(producer_buffer) ->
                 default => false,
                 desc => ?DESC("buffer_memory_overload_protection")
             })}
-    ];
-fields(producer_pulsar_message) ->
-    [
-        {key,
-            mk(string(), #{default => <<"${.clientid}">>, desc => ?DESC("producer_key_template")})},
-        {value, mk(string(), #{default => <<"${.}">>, desc => ?DESC("producer_value_template")})}
     ];
 fields(producer_resource_opts) ->
     SupportedOpts = [
@@ -225,8 +216,8 @@ producer_strategy_key_validator(
     producer_strategy_key_validator(emqx_utils_maps:binary_key_map(Conf));
 producer_strategy_key_validator(#{
     <<"strategy">> := key_dispatch,
-    <<"message">> := #{<<"key">> := ""}
-}) ->
+    <<"message">> := #{<<"key">> := Key}
+}) when Key =:= "" orelse Key =:= <<>> ->
     {error, "Message key cannot be empty when `key_dispatch` strategy is used"};
 producer_strategy_key_validator(_) ->
     ok.
@@ -248,8 +239,7 @@ struct_names() ->
     [
         auth_basic,
         auth_token,
-        producer_buffer,
-        producer_pulsar_message
+        producer_buffer
     ].
 
 override_default(OriginalFn, NewDefault) ->

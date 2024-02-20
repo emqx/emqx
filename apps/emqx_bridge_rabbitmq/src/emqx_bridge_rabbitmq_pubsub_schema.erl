@@ -170,7 +170,7 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?SOURCE_TYPE, fields(subscriber_source));
 fields(What) ->
-    error({emqx_bridge_mqtt_pubsub_schema, missing_field_handler, What}).
+    error({?MODULE, missing_field_handler, What}).
 %% v2: api schema
 %% The parameter equals to
 %%   `get_bridge_v2`, `post_bridge_v2`, `put_bridge_v2` from emqx_bridge_v2_schema:api_schema/1

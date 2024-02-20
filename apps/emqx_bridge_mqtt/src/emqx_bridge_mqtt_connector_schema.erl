@@ -308,7 +308,7 @@ fields(Field) when
     Fields = fields("specific_connector_config"),
     emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
 fields(What) ->
-    error({emqx_bridge_mqtt_connector_schema, missing_field_handler, What}).
+    error({?MODULE, missing_field_handler, What}).
 
 ingress_pool_size(desc) ->
     ?DESC("ingress_pool_size");

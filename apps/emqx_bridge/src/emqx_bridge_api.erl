@@ -761,7 +761,7 @@ is_bridge_enabled(BridgeType, BridgeName) ->
     end.
 
 is_bridge_enabled_v1(BridgeType, BridgeName) ->
-    %% we read from the transalted config because the defaults are populated here.
+    %% we read from the translated config because the defaults are populated here.
     try emqx:get_config([bridges, BridgeType, binary_to_existing_atom(BridgeName)]) of
         ConfMap ->
             maps:get(enable, ConfMap, false)
