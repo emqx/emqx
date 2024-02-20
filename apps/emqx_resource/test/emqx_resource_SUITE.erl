@@ -98,7 +98,7 @@ t_create_remove(_) ->
 
             ?assertMatch(
                 {ok, _},
-                emqx_resource:recreate(
+                emqx_resource:recreate_local(
                     ?ID,
                     ?TEST_RESOURCE,
                     #{name => test_resource},
@@ -964,7 +964,7 @@ t_stop_start(_) ->
 
             ?assertMatch(
                 {ok, _},
-                emqx_resource:check_and_recreate(
+                emqx_resource:check_and_recreate_local(
                     ?ID,
                     ?TEST_RESOURCE,
                     #{<<"name">> => <<"test_resource">>},

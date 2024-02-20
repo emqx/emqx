@@ -30,7 +30,6 @@
     check_config/2,
     check_and_create_local/4,
     check_and_create_local/5,
-    check_and_recreate/4,
     check_and_recreate_local/4
 ]).
 
@@ -45,9 +44,6 @@
     create_dry_run_local/2,
     create_dry_run_local/3,
     create_dry_run_local/4,
-    %% this will do create_dry_run, stop the old instance and start a new one
-    recreate/3,
-    recreate/4,
     recreate_local/3,
     recreate_local/4,
     %% remove the config and stop the instance
@@ -300,16 +296,6 @@ when
     OnReadyCallback :: fun((resource_id()) -> ok | {error, Reason :: term()}).
 create_dry_run_local(ResId, ResourceType, Config, OnReadyCallback) ->
     emqx_resource_manager:create_dry_run(ResId, ResourceType, Config, OnReadyCallback).
-
--spec recreate(resource_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
-recreate(ResId, ResourceType, Config) ->
-    recreate(ResId, ResourceType, Config, #{}).
-
--spec recreate(resource_id(), resource_type(), resource_config(), creation_opts()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
-recreate(ResId, ResourceType, Config, Opts) ->
-    emqx_resource_proto_v1:recreate(ResId, ResourceType, Config, Opts).
 
 -spec recreate_local(resource_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
@@ -617,20 +603,6 @@ check_and_create_local(ResId, Group, ResourceType, RawConfig, Opts) ->
         ResourceType,
         RawConfig,
         fun(ResConf) -> create_local(ResId, Group, ResourceType, ResConf, Opts) end
-    ).
-
--spec check_and_recreate(
-    resource_id(),
-    resource_type(),
-    raw_resource_config(),
-    creation_opts()
-) ->
-    {ok, resource_data()} | {error, term()}.
-check_and_recreate(ResId, ResourceType, RawConfig, Opts) ->
-    check_and_do(
-        ResourceType,
-        RawConfig,
-        fun(ResConf) -> recreate(ResId, ResourceType, ResConf, Opts) end
     ).
 
 -spec check_and_recreate_local(
