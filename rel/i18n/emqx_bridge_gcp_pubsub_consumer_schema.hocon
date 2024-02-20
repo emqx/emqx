@@ -3,7 +3,7 @@ emqx_bridge_gcp_pubsub_consumer_schema {
   source_parameters.desc:
   """Source specific configs."""
   source_parameters.label:
-  """Source"""
+  """Source Specific Configs"""
 
   consumer_source.desc:
   """Source configs."""
