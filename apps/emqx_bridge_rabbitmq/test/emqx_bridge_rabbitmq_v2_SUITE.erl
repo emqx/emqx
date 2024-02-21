@@ -144,6 +144,8 @@ t_source(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
     create_source(Name),
     Sources = emqx_bridge_v2:list(sources),
+    %% Don't show rabbitmq source in bridge_v1_list
+    ?assertEqual([], emqx_bridge_v2:bridge_v1_list_and_transform()),
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Sources), Sources),
     Topic = <<"tesldkafd">>,

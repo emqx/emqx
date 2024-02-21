@@ -1221,6 +1221,10 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
 bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
     bridge_v1_is_valid(?ROOT_KEY_ACTIONS, BridgeV1Type, BridgeName).
 
+%% rabbitmq's source don't have v1 version. but action has v1 version...
+%% There's no good way to distinguish it, so it has to be hardcoded here.
+bridge_v1_is_valid(?ROOT_KEY_SOURCES, rabbitmq, _BridgeName) ->
+    false;
 bridge_v1_is_valid(ConfRootKey, BridgeV1Type, BridgeName) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     case lookup_conf(ConfRootKey, BridgeV2Type, BridgeName) of
