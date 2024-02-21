@@ -37,7 +37,6 @@ introduced_in() ->
 deprecated_since() ->
     "5.6.0".
 
-%% deprecated, delete after 5.7.0
 -spec create(
     resource_id(),
     resource_group(),
@@ -51,7 +50,6 @@ create(ResId, Group, ResourceType, Config, Opts) ->
         ResId, Group, ResourceType, Config, Opts
     ]).
 
-%% deprecated, delete after 5.7.0
 -spec create_dry_run(
     resource_type(),
     resource_config()
