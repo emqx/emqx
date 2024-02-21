@@ -159,7 +159,7 @@ t_remove_fail({'init', Config}) ->
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
-    meck:expect(?CONNECTOR, on_get_channels, 1, [{<<"my_channel">>, #{}}]),
+    meck:expect(?CONNECTOR, on_get_channels, 1, [{<<"my_channel">>, #{enable => true}}]),
     meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_stop, 2, ok),
     meck:expect(?CONNECTOR, on_get_status, 2, connected),

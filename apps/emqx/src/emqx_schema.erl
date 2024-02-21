@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -94,6 +94,7 @@
     non_empty_string/1,
     validations/0,
     naive_env_interpolation/1,
+    ensure_unicode_path/2,
     validate_server_ssl_opts/1,
     validate_tcp_keepalive/1,
     parse_tcp_keepalive/1
@@ -181,7 +182,7 @@
 -define(DEFAULT_MULTIPLIER, 1.5).
 -define(DEFAULT_BACKOFF, 0.75).
 
-namespace() -> broker.
+namespace() -> emqx.
 
 tags() ->
     [<<"EMQX">>].
@@ -229,7 +230,7 @@ roots(high) ->
         );
 roots(medium) ->
     [
-        {"broker",
+        {broker,
             sc(
                 ref("broker"),
                 #{
@@ -1103,6 +1104,14 @@ fields("ws_opts") ->
             sc(
                 ref("deflate_opts"),
                 #{}
+            )},
+        {"validate_utf8",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(fields_ws_opts_validate_utf8)
+                }
             )}
     ];
 fields("tcp_opts") ->
@@ -1338,24 +1347,43 @@ fields("deflate_opts") ->
     ];
 fields("broker") ->
     [
-        {"enable_session_registry",
+        {enable_session_registry,
             sc(
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(broker_enable_session_registry)
                 }
             )},
-        {"session_locking_strategy",
+        {session_history_retain,
+            sc(
+                duration_s(),
+                #{
+                    default => <<"0s">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("broker_session_history_retain")
+                }
+            )},
+        {session_locking_strategy,
             sc(
                 hoconsc:enum([local, leader, quorum, all]),
                 #{
                     default => quorum,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(broker_session_locking_strategy)
                 }
             )},
-        shared_subscription_strategy(),
-        {"shared_dispatch_ack_enabled",
+        %% moved to under mqtt root
+        {shared_subscription_strategy,
+            sc(
+                string(),
+                #{
+                    deprecated => {since, "5.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {shared_dispatch_ack_enabled,
             sc(
                 boolean(),
                 #{
@@ -1365,7 +1393,7 @@ fields("broker") ->
                     desc => ?DESC(broker_shared_dispatch_ack_enabled)
                 }
             )},
-        {"route_batch_clean",
+        {route_batch_clean,
             sc(
                 boolean(),
                 #{
@@ -1374,18 +1402,18 @@ fields("broker") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"perf",
+        {perf,
             sc(
                 ref("broker_perf"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
-        {"routing",
+        {routing,
             sc(
                 ref("broker_routing"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
         %% FIXME: Need new design for shared subscription group
-        {"shared_subscription_group",
+        {shared_subscription_group,
             sc(
                 map(name, ref("shared_subscription_group")),
                 #{
@@ -1801,7 +1829,7 @@ fields("session_persistence") ->
             sc(
                 pos_integer(),
                 #{
-                    default => 1000,
+                    default => 100,
                     desc => ?DESC(session_ds_max_batch_size)
                 }
             )},
@@ -1854,6 +1882,14 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_session_gc_batch_size)
                 }
             )},
+        {"message_retention_period",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"1d">>,
+                    desc => ?DESC(session_ds_message_retention_period)
+                }
+            )},
         {"force_persistence",
             sc(
                 boolean(),
@@ -1882,6 +1918,16 @@ fields("session_storage_backend_builtin") ->
                     default => true
                 }
             )},
+        {"data_dir",
+            sc(
+                string(),
+                #{
+                    desc => ?DESC(session_builtin_data_dir),
+                    mapping => "emqx_durable_storage.db_data_dir",
+                    required => false,
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {"n_shards",
             sc(
                 pos_integer(),
@@ -1895,6 +1941,24 @@ fields("session_storage_backend_builtin") ->
                 pos_integer(),
                 #{
                     default => 3,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"egress_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 1000,
+                    mapping => "emqx_durable_storage.egress_batch_size",
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"egress_flush_interval",
+            sc(
+                timeout_duration_ms(),
+                #{
+                    default => 100,
+                    mapping => "emqx_durable_storage.egress_flush_interval",
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
@@ -3595,7 +3659,22 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_shared_subscription)
                 }
             )},
-        shared_subscription_strategy(),
+        {"shared_subscription_strategy",
+            sc(
+                hoconsc:enum([
+                    random,
+                    round_robin,
+                    round_robin_per_group,
+                    sticky,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
+                #{
+                    default => round_robin,
+                    desc => ?DESC(mqtt_shared_subscription_strategy)
+                }
+            )},
         {"exclusive_subscription",
             sc(
                 boolean(),
@@ -3700,6 +3779,15 @@ mqtt_session() ->
                     importance => ?IMPORTANCE_LOW
                 }
             )},
+        {"message_expiry_interval",
+            sc(
+                hoconsc:union([duration(), infinity]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(mqtt_message_expiry_interval),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {"max_awaiting_rel",
             sc(
                 hoconsc:union([non_neg_integer(), infinity]),
@@ -3792,24 +3880,6 @@ mqtt_session() ->
             )}
     ].
 
-shared_subscription_strategy() ->
-    {"shared_subscription_strategy",
-        sc(
-            hoconsc:enum([
-                random,
-                round_robin,
-                round_robin_per_group,
-                sticky,
-                local,
-                hash_topic,
-                hash_clientid
-            ]),
-            #{
-                default => round_robin,
-                desc => ?DESC(broker_shared_subscription_strategy)
-            }
-        )}.
-
 default_mem_check_interval() ->
     case emqx_os_mon:is_os_check_supported() of
         true -> <<"60s">>;
@@ -3836,3 +3906,20 @@ tags_schema() ->
             importance => ?IMPORTANCE_LOW
         }
     ).
+
+ensure_unicode_path(undefined, _) ->
+    undefined;
+ensure_unicode_path(Path, #{make_serializable := true}) ->
+    %% format back to serializable string
+    unicode:characters_to_binary(Path, utf8);
+ensure_unicode_path(Path, Opts) when is_binary(Path) ->
+    case unicode:characters_to_list(Path, utf8) of
+        {R, _, _} when R =:= error orelse R =:= incomplete ->
+            throw({"bad_file_path_string", Path});
+        PathStr ->
+            ensure_unicode_path(PathStr, Opts)
+    end;
+ensure_unicode_path(Path, _) when is_list(Path) ->
+    Path;
+ensure_unicode_path(Path, _) ->
+    throw({"not_string", Path}).

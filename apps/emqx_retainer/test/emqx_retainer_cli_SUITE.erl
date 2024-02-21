@@ -22,18 +22,20 @@
 -include("emqx_retainer.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_retainer_SUITE:load_conf(),
-    %% Start Apps
-    emqx_common_test_helpers:start_apps([emqx_retainer]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, emqx_retainer_SUITE:app_spec()],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_retainer]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_reindex_status(_Config) ->
     ok = emqx_retainer_mnesia_cli:retainer(["reindex", "status"]).

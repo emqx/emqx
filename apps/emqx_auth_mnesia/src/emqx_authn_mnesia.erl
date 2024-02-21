@@ -55,7 +55,7 @@
     do_update_user/3
 ]).
 
--export([mnesia/1, init_tables/0]).
+-export([init_tables/0]).
 
 -export([backup_tables/0]).
 
@@ -69,8 +69,6 @@
     is_superuser :: boolean()
 }).
 
--boot_mnesia({mnesia, [boot]}).
-
 -define(TAB, ?MODULE).
 -define(AUTHN_QSCHEMA, [
     {<<"like_user_id">>, binary},
@@ -83,8 +81,8 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Create or replicate tables.
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
+-spec create_tables() -> [mria:table()].
+create_tables() ->
     ok = mria:create_table(?TAB, [
         {rlog_shard, ?AUTHN_SHARD},
         {type, ordered_set},
@@ -92,12 +90,13 @@ mnesia(boot) ->
         {record_name, user_info},
         {attributes, record_info(fields, user_info)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
+    ]),
+    [?TAB].
 
 %% Init
 -spec init_tables() -> ok.
 init_tables() ->
-    ok = mria_rlog:wait_for_shards([?AUTHN_SHARD], infinity).
+    ok = mria:wait_for_tables(create_tables()).
 
 %%------------------------------------------------------------------------------
 %% Data backup

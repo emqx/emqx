@@ -37,14 +37,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+      - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
         with:
           name: ${{ env.EMQX_NAME }}-docker
           path: /tmp
       - name: load docker image
         run: |
-          EMQX_IMAGE_TAG=$(docker load < /tmp/${EMQX_NAME}-docker-${PKG_VSN}.tar.gz 2>/dev/null | sed 's/Loaded image: //g')
-          echo "EMQX_IMAGE_TAG=$EMQX_IMAGE_TAG" >> $GITHUB_ENV
+          _EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/${EMQX_NAME}-docker-${PKG_VSN}.tar.gz 2>/dev/null | sed 's/Loaded image: //g')
+          echo "_EMQX_DOCKER_IMAGE_TAG=$_EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
       - name: dashboard tests
         working-directory: ./scripts/ui-tests
         run: |
@@ -52,7 +52,7 @@ jobs:
           docker compose up --abort-on-container-exit --exit-code-from selenium
       - name: test two nodes cluster with proto_dist=inet_tls in docker
         run: |
-          ./scripts/test/start-two-nodes-in-docker.sh -P $EMQX_IMAGE_TAG $EMQX_IMAGE_OLD_VERSION_TAG
+          ./scripts/test/start-two-nodes-in-docker.sh -P $_EMQX_DOCKER_IMAGE_TAG $EMQX_IMAGE_OLD_VERSION_TAG
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' haproxy)
           ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
           ./scripts/test/start-two-nodes-in-docker.sh -c
@@ -84,7 +84,7 @@ jobs:
           - rlog
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
+      - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
         with:
           name: ${{ env.EMQX_NAME }}-docker
           path: /tmp
@@ -113,4 +113,4 @@ jobs:
       - name: test node_dump
         run: |
           docker exec -t -u root node1.emqx.io bash -c 'apt-get -y update && apt-get -y install net-tools'
-          docker exec node1.emqx.io node_dump
+          docker exec -t -u root node1.emqx.io node_dump

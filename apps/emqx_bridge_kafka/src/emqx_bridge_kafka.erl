@@ -188,6 +188,7 @@ values(producer_values) ->
         ],
         kafka_header_value_encode_mode => none,
         max_inflight => 10,
+        partitions_limit => all_partitions,
         buffer => #{
             mode => <<"hybrid">>,
             per_partition_limit => <<"2GB">>,
@@ -412,6 +413,14 @@ fields(producer_kafka_opts) ->
                 #{
                     default => <<"60s">>,
                     desc => ?DESC(partition_count_refresh_interval)
+                }
+            )},
+        {partitions_limit,
+            mk(
+                hoconsc:union([all_partitions, pos_integer()]),
+                #{
+                    default => <<"all_partitions">>,
+                    desc => ?DESC(partitions_limit)
                 }
             )},
         {max_inflight,

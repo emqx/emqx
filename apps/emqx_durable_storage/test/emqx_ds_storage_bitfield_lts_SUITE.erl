@@ -1,5 +1,17 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_ds_storage_bitfield_lts_SUITE).
 
@@ -16,8 +28,8 @@
 -define(DEFAULT_CONFIG, #{
     backend => builtin,
     storage => {emqx_ds_storage_bitfield_lts, #{}},
-    n_shards => 16,
-    replication_factor => 3
+    n_shards => 1,
+    replication_factor => 1
 }).
 
 -define(COMPACT_CONFIG, #{
@@ -26,14 +38,9 @@
         {emqx_ds_storage_bitfield_lts, #{
             bits_per_wildcard_level => 8
         }},
-    n_shards => 16,
-    replication_factor => 3
+    n_shards => 1,
+    replication_factor => 1
 }).
-
-%% Smoke test for opening and reopening the database
-t_open(_Config) ->
-    ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}).
 
 %% Smoke test of store function
 t_store(_Config) ->
@@ -98,8 +105,8 @@ t_get_streams(_Config) ->
     [FooBarBaz] = GetStream(<<"foo/bar/baz">>),
     [A] = GetStream(<<"a">>),
     %% Restart shard to make sure trie is persisted and restored:
-    ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}),
+    ok = emqx_ds_builtin_sup:stop_db(?FUNCTION_NAME),
+    {ok, _} = emqx_ds_builtin_sup:start_db(?FUNCTION_NAME, #{}),
     %% Verify that there are no "ghost streams" for topics that don't
     %% have any messages:
     [] = GetStream(<<"bar/foo">>),
@@ -129,6 +136,39 @@ t_get_streams(_Config) ->
     ?assert(lists:member(FooBar, AllStreams)),
     ?assert(lists:member(FooBarBaz, AllStreams)),
     ?assert(lists:member(A, AllStreams)),
+    ok.
+
+t_new_generation_inherit_trie(_Config) ->
+    %% This test checks that we inherit the previous generation's LTS when creating a new
+    %% generation.
+    ?check_trace(
+        begin
+            %% Create a bunch of topics to be learned in the first generation
+            Timestamps = lists:seq(1, 10_000, 100),
+            Batch = [
+                begin
+                    B = integer_to_binary(I),
+                    make_message(
+                        TS,
+                        <<"wildcard/", B/binary, "/suffix/", Suffix/binary>>,
+                        integer_to_binary(TS)
+                    )
+                end
+             || I <- lists:seq(1, 200),
+                TS <- Timestamps,
+                Suffix <- [<<"foo">>, <<"bar">>]
+            ],
+            ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
+            %% Now we create a new generation with the same LTS module.  It should inherit the
+            %% learned trie.
+            ok = emqx_ds_storage_layer:add_generation(?SHARD),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(bitfield_lts_inherited_trie, Trace)),
+            ok
+        end
+    ),
     ok.
 
 t_replay(_Config) ->
@@ -163,9 +203,9 @@ t_replay(_Config) ->
     ?assert(check(?SHARD, <<"foo/+/+">>, 0, Messages)),
     ?assert(check(?SHARD, <<"+/+/+">>, 0, Messages)),
     ?assert(check(?SHARD, <<"+/+/baz">>, 0, Messages)),
-    %% Restart shard to make sure trie is persisted and restored:
-    ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}),
+    %% Restart the DB to make sure trie is persisted and restored:
+    ok = emqx_ds_builtin_sup:stop_db(?FUNCTION_NAME),
+    {ok, _} = emqx_ds_builtin_sup:start_db(?FUNCTION_NAME, #{}),
     %% Learned wildcard topics:
     ?assertNot(check(?SHARD, <<"wildcard/1000/suffix/foo">>, 0, [])),
     ?assert(check(?SHARD, <<"wildcard/1/suffix/foo">>, 0, Messages)),
@@ -378,22 +418,27 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 suite() -> [{timetrap, {seconds, 20}}].
 
 init_per_suite(Config) ->
-    {ok, _} = application:ensure_all_started(emqx_durable_storage),
-    emqx_ds_sup:ensure_workers(),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx_durable_storage],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = application:stop(emqx_durable_storage).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(TC, Config) ->
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC), ?DEFAULT_CONFIG),
+    ok = emqx_ds:open_db(TC, ?DEFAULT_CONFIG),
     Config.
 
 end_per_testcase(TC, _Config) ->
-    ok = emqx_ds_storage_layer_sup:stop_shard(shard(TC)).
+    emqx_ds:drop_db(TC),
+    ok.
 
 shard(TC) ->
-    {?MODULE, atom_to_binary(TC)}.
+    {TC, <<"0">>}.
 
 keyspace(TC) ->
     TC.

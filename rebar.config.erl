@@ -103,6 +103,7 @@ is_community_umbrella_app("apps/emqx_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rabbitmq") -> false;
 is_community_umbrella_app("apps/emqx_ft") -> false;
 is_community_umbrella_app("apps/emqx_s3") -> false;
+is_community_umbrella_app("apps/emqx_bridge_s3") -> false;
 is_community_umbrella_app("apps/emqx_schema_registry") -> false;
 is_community_umbrella_app("apps/emqx_enterprise") -> false;
 is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;
@@ -565,6 +566,7 @@ coveralls() ->
                 {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
                 {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
                 {coveralls_coverdata, "_build/test/cover/*.coverdata"},
+                {coveralls_parallel, true},
                 {coveralls_service_name, "github"}
             ],
             case

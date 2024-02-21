@@ -21,9 +21,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
-
--define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -41,41 +38,38 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_prometheus_SUITE:init_group(),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_management,
+            {emqx_prometheus, #{start => false}},
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            {emqx_license, "license.key = default"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    [{suite_apps, Apps} | Config].
+
 end_per_suite(Config) ->
-    emqx_prometheus_SUITE:end_group(),
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
-    Config.
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_group(new_config, Config) ->
-    emqx_common_test_helpers:start_apps(
-        [emqx_prometheus],
-        fun(App) -> set_special_configs(App, new_config) end
+    Apps = emqx_cth_suite:start_app(
+        emqx_prometheus,
+        #{config => emqx_prometheus_SUITE:config(default)}
     ),
-    Config;
+    [{group_apps, Apps} | Config];
 init_per_group(legacy_config, Config) ->
-    emqx_common_test_helpers:start_apps(
-        [emqx_prometheus],
-        fun(App) -> set_special_configs(App, legacy_config) end
+    Apps = emqx_cth_suite:start_app(
+        emqx_prometheus,
+        #{config => emqx_prometheus_SUITE:config(legacy)}
     ),
-    Config.
+    [{group_apps, Apps} | Config].
 
 end_per_group(_Group, Config) ->
-    _ = application:stop(emqx_prometheus),
-    Config.
-
-set_special_configs(emqx_dashboard, _) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(emqx_prometheus, new_config) ->
-    emqx_prometheus_SUITE:load_config(),
-    ok;
-set_special_configs(emqx_prometheus, legacy_config) ->
-    emqx_prometheus_SUITE:load_legacy_config(),
-    ok;
-set_special_configs(_App, _) ->
-    ok.
+    ok = emqx_cth_suite:stop_apps(?config(group_apps, Config)).
 
 %%--------------------------------------------------------------------
 %% Cases
@@ -285,20 +279,23 @@ t_stats_no_auth_api(_) ->
             ok
     end,
     emqx_dashboard_listener:regenerate_minirest_dispatch(),
-    Json = [{"accept", "application/json"}],
-    request_stats(Json, []).
+    Headers = accept_josn_header(),
+    request_stats(Headers, []).
 
 t_stats_auth_api(_) ->
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
     emqx_dashboard_listener:regenerate_minirest_dispatch(),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    JsonAuth = [{"accept", "application/json"}, Auth],
-    request_stats(JsonAuth, Auth),
+    Headers = [Auth | accept_josn_header()],
+    request_stats(Headers, Auth),
     ok.
 
-request_stats(JsonAuth, Auth) ->
+accept_josn_header() ->
+    [{"accept", "application/json"}].
+
+request_stats(Headers, Auth) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", JsonAuth),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
     Data = emqx_utils_json:decode(Response, [return_maps]),
     ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),

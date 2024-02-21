@@ -18,7 +18,7 @@ The steps to integrate this application are:
 `ProfileName` is a unique name used to distinguish different sets of S3 settings. Each profile has its own connection pool and configuration.
 
 To use S3 from a _client_ application:
-* Create an uploader process with `{ok, Pid} = emqx_s3:start_uploader(ProfileName, #{key => MyKey})`.
+* Create an uploader process with `{ok, Pid} = emqx_s3:start_uploader(ProfileName, MyKey, _Opts = #{})`.
 * Write data with `emqx_s3_uploader:write(Pid, <<"data">>)`.
 * Finish the uploader with `emqx_s3_uploader:complete(Pid)` or `emqx_s3_uploader:abort(Pid)`.
 

@@ -27,7 +27,6 @@
 -define(TARGET_HOOK, 'message.publish').
 
 -define(CONF, <<
-    "\n"
     "exhook {\n"
     "  servers = [\n"
     "              { name = succed,\n"
@@ -48,24 +47,24 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Cfg) ->
-    application:load(emqx_conf),
     meck:new(emqx_exhook_mgr, [non_strict, passthrough, no_link]),
     meck:new(emqx_exhook_demo_svr, [non_strict, passthrough, no_link]),
     meck:expect(emqx_exhook_mgr, refresh_tick, fun() -> ok end),
     init_injections(hook_injects()),
-
-    emqx_exhook_SUITE:load_cfg(?CONF),
     _ = emqx_exhook_demo_svr:start(),
     _ = emqx_exhook_demo_svr:start(failed, 9001),
-    emqx_common_test_helpers:start_apps([emqx_exhook]),
-    Cfg.
+    Apps = emqx_cth_suite:start(
+        [emqx, {emqx_exhook, ?CONF}],
+        #{work_dir => emqx_cth_suite:work_dir(Cfg)}
+    ),
+    [{suite_apps, Apps} | Cfg].
 
-end_per_suite(_Cfg) ->
+end_per_suite(Cfg) ->
     meck:unload(emqx_exhook_demo_svr),
     meck:unload(emqx_exhook_mgr),
     emqx_exhook_demo_svr:stop(),
     emqx_exhook_demo_svr:stop(failed),
-    emqx_common_test_helpers:stop_apps([emqx_exhook]).
+    ok = emqx_cth_suite:stop(?config(suite_apps, Cfg)).
 
 init_per_testcase(_, Config) ->
     clear_metrics(),

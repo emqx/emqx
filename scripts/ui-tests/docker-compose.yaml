@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   emqx:
-    image: ${EMQX_IMAGE_TAG:-emqx/emqx:latest}
+    image: ${_EMQX_DOCKER_IMAGE_TAG:-emqx/emqx:latest}
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
 

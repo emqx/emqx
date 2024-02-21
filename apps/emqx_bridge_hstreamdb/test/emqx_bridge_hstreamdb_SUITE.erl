@@ -117,15 +117,20 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_to_hrecord_failed, Config) ->
+    init_per_testcase_common(),
     meck:new([hstreamdb], [passthrough, no_history, no_link]),
     meck:expect(hstreamdb, to_record, fun(_, _, _) -> error(trans_to_hrecord_failed) end),
     Config;
 init_per_testcase(_Testcase, Config) ->
+    init_per_testcase_common(),
     %% drop stream and will create a new one in common_init/1
     %% TODO: create a new stream for each test case
     delete_bridge(Config),
     snabbkaffe:start_trace(),
     Config.
+
+init_per_testcase_common() ->
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().
 
 end_per_testcase(t_to_hrecord_failed, _Config) ->
     meck:unload([hstreamdb]);
@@ -301,7 +306,10 @@ t_simple_query(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Requests = gen_batch_req(BatchSize),
+    Type = ?config(hstreamdb_bridge_type, Config),
+    Name = ?config(hstreamdb_name, Config),
+    ActionId = emqx_bridge_v2:id(Type, Name),
+    Requests = gen_batch_req(BatchSize, ActionId),
     ?check_trace(
         begin
             ?wait_async_action(
@@ -351,6 +359,24 @@ t_to_hrecord_failed(Config) ->
     end,
     ok.
 
+%% Connector Action Tests
+
+t_action_on_get_status(Config) ->
+    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}).
+
+t_action_create_via_http(Config) ->
+    emqx_bridge_v2_testlib:t_create_via_http(Config).
+
+t_action_sync_query(Config) ->
+    MakeMessageFun = fun() -> rand_data() end,
+    IsSuccessCheck = fun(Result) -> ?assertEqual(ok, Result) end,
+    TracePoint = hstreamdb_connector_query_append_return,
+    emqx_bridge_v2_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint).
+
+t_action_start_stop(Config) ->
+    StopTracePoint = hstreamdb_connector_on_stop,
+    emqx_bridge_v2_testlib:t_start_stop(Config, StopTracePoint).
+
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
@@ -362,6 +388,10 @@ common_init(ConfigT) ->
     URL = "http://" ++ Host ++ ":" ++ RawPort,
 
     Config0 = [
+        {bridge_type, <<"hstreamdb">>},
+        {bridge_name, <<"my_hstreamdb_action">>},
+        {connector_type, <<"hstreamdb">>},
+        {connector_name, <<"my_hstreamdb_connector">>},
         {hstreamdb_host, Host},
         {hstreamdb_port, Port},
         {hstreamdb_url, URL},
@@ -393,6 +423,8 @@ common_init(ConfigT) ->
                     {hstreamdb_config, HStreamDBConf},
                     {hstreamdb_bridge_type, BridgeType},
                     {hstreamdb_name, Name},
+                    {bridge_config, action_config(Config0)},
+                    {connector_config, connector_config(Config0)},
                     {proxy_host, ProxyHost},
                     {proxy_port, ProxyPort}
                     | Config0
@@ -424,7 +456,7 @@ hstreamdb_config(BridgeType, Config) ->
             "  resource_opts = {\n"
             %% always sync
             "    query_mode = sync\n"
-            "    request_ttl = 500ms\n"
+            "    request_ttl = 10000ms\n"
             "    batch_size = ~b\n"
             "    worker_pool_size = ~b\n"
             "  }\n"
@@ -443,6 +475,45 @@ hstreamdb_config(BridgeType, Config) ->
         ),
     {Name, parse_and_check(ConfigString, BridgeType, Name)}.
 
+action_config(Config) ->
+    ConnectorName = ?config(connector_name, Config),
+    BatchSize = batch_size(Config),
+    #{
+        <<"connector">> => ConnectorName,
+        <<"enable">> => true,
+        <<"parameters">> =>
+            #{
+                <<"aggregation_pool_size">> => ?POOL_SIZE,
+                <<"record_template">> => ?RECORD_TEMPLATE,
+                <<"stream">> => ?STREAM,
+                <<"writer_pool_size">> => ?POOL_SIZE
+            },
+        <<"resource_opts">> =>
+            #{
+                <<"batch_size">> => BatchSize,
+                <<"health_check_interval">> => <<"15s">>,
+                <<"inflight_window">> => 100,
+                <<"max_buffer_bytes">> => <<"256MB">>,
+                <<"query_mode">> => <<"sync">>,
+                <<"request_ttl">> => <<"45s">>,
+                <<"worker_pool_size">> => ?POOL_SIZE
+            }
+    }.
+
+connector_config(Config) ->
+    Port = integer_to_list(?config(hstreamdb_port, Config)),
+    URL = "http://" ++ ?config(hstreamdb_host, Config) ++ ":" ++ Port,
+    #{
+        <<"url">> => URL,
+        <<"ssl">> =>
+            #{<<"enable">> => false, <<"verify">> => <<"verify_peer">>},
+        <<"grpc_timeout">> => <<"30s">>,
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"15s">>,
+            <<"start_timeout">> => <<"5s">>
+        }
+    }.
+
 parse_and_check(ConfigString, BridgeType, Name) ->
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
     hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
@@ -454,10 +525,10 @@ parse_and_check(ConfigString, BridgeType, Name) ->
 -define(CONN_ATTEMPTS, 10).
 
 default_options(Config) ->
-    [
-        {url, ?config(hstreamdb_url, Config)},
-        {rpc_options, ?RPC_OPTIONS}
-    ].
+    #{
+        url => ?config(hstreamdb_url, Config),
+        rpc_options => ?RPC_OPTIONS
+    }.
 
 connect_direct_hstream(Name, Config) ->
     client(Name, Config, ?CONN_ATTEMPTS).
@@ -511,8 +582,9 @@ send_message(Config, Data) ->
 query_resource(Config, Request) ->
     Name = ?config(hstreamdb_name, Config),
     BridgeType = ?config(hstreamdb_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+    ID = emqx_bridge_v2:id(BridgeType, Name),
+    ResID = emqx_connector_resource:resource_id(BridgeType, Name),
+    emqx_resource:query(ID, Request, #{timeout => 1_000, connector_resource_id => ResID}).
 
 restart_resource(Config) ->
     BridgeName = ?config(hstreamdb_name, Config),
@@ -526,8 +598,16 @@ resource_id(Config) ->
     BridgeType = ?config(hstreamdb_bridge_type, Config),
     _ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName).
 
+action_id(Config) ->
+    ActionName = ?config(hstreamdb_name, Config),
+    ActionType = ?config(hstreamdb_bridge_type, Config),
+    _ActionID = emqx_bridge_v2:id(ActionType, ActionName).
+
 health_check_resource_ok(Config) ->
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))).
+    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))),
+    ActionName = ?config(hstreamdb_name, Config),
+    ActionType = ?config(hstreamdb_bridge_type, Config),
+    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(ActionType, ActionName)).
 
 health_check_resource_down(Config) ->
     case emqx_resource_manager:health_check(resource_id(Config)) of
@@ -539,6 +619,19 @@ health_check_resource_down(Config) ->
             ?assert(
                 false, lists:flatten(io_lib:format("invalid health check result:~p~n", [Other]))
             )
+    end,
+    ActionName = ?config(hstreamdb_name, Config),
+    ActionType = ?config(hstreamdb_bridge_type, Config),
+    #{status := StatusV2} = emqx_bridge_v2:health_check(ActionType, ActionName),
+    case StatusV2 of
+        disconnected ->
+            ok;
+        connecting ->
+            ok;
+        OtherV2 ->
+            ?assert(
+                false, lists:flatten(io_lib:format("invalid health check result:~p~n", [OtherV2]))
+            )
     end.
 
 % These funs start and then stop the hstreamdb connection
@@ -548,21 +641,35 @@ connect_and_create_stream(Config) ->
             Client, ?STREAM, ?REPLICATION_FACTOR, ?BACKLOG_RETENTION_SECOND, ?SHARD_COUNT
         )
     ),
-    %% force write to stream to make it created and ready to be written data for rest cases
-    ProducerOptions = [
-        {pool_size, 4},
-        {stream, ?STREAM},
-        {callback, fun(_) -> ok end},
-        {max_records, 10},
-        {interval, 1000}
-    ],
+    %% force write to stream to make it created and ready to be written data for test cases
+    ProducerOptions = #{
+        stream => ?STREAM,
+        buffer_options => #{
+            interval => 1000,
+            callback => {?MODULE, on_flush_result, [<<"WHAT">>]},
+            max_records => 1,
+            max_batches => 1
+        },
+        buffer_pool_size => 1,
+        writer_options => #{
+            grpc_timeout => 100
+        },
+        writer_pool_size => 1,
+        client_options => default_options(Config)
+    },
+
     ?WITH_CLIENT(
         begin
-            {ok, Producer} = hstreamdb:start_producer(Client, test_producer, ProducerOptions),
-            _ = hstreamdb:append_flush(Producer, hstreamdb:to_record([], raw, rand_payload())),
-            _ = hstreamdb:stop_producer(Producer)
+            ok = hstreamdb:start_producer(test_producer, ProducerOptions),
+            _ = hstreamdb:append_flush(test_producer, hstreamdb:to_record([], raw, rand_payload())),
+            _ = hstreamdb:stop_producer(test_producer)
         end
     ).
+
+on_flush_result({{flush, _Stream, _Records}, {ok, _Resp}}) ->
+    ok;
+on_flush_result({{flush, _Stream, _Records}, {error, _Reason}}) ->
+    ok.
 
 connect_and_delete_stream(Config) ->
     ?WITH_CLIENT(
@@ -593,11 +700,11 @@ rand_payload() ->
         temperature => rand:uniform(40), humidity => rand:uniform(100)
     }).
 
-gen_batch_req(Count) when
+gen_batch_req(Count, ActionId) when
     is_integer(Count) andalso Count > 0
 ->
-    [{send_message, rand_data()} || _Val <- lists:seq(1, Count)];
-gen_batch_req(Count) ->
+    [{ActionId, rand_data()} || _Val <- lists:seq(1, Count)];
+gen_batch_req(Count, _ActionId) ->
     ct:pal("Gen batch requests failed with unexpected Count: ~p", [Count]).
 
 str(List) when is_list(List) ->

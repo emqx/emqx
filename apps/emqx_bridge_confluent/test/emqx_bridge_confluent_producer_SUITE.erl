@@ -212,10 +212,7 @@ serde_roundtrip(InnerConfigMap0) ->
     InnerConfigMap.
 
 parse_and_check_bridge_config(InnerConfigMap, Name) ->
-    TypeBin = ?ACTION_TYPE_BIN,
-    RawConf = #{<<"bridges">> => #{TypeBin => #{Name => InnerConfigMap}}},
-    hocon_tconf:check_plain(emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}),
-    InnerConfigMap.
+    emqx_bridge_v2_testlib:parse_and_check(?ACTION_TYPE_BIN, Name, InnerConfigMap).
 
 shared_secret_path() ->
     os:getenv("CI_SHARED_SECRET_PATH", "/var/lib/secret").

@@ -38,7 +38,7 @@
 %%    in `end_per_suite/1` or `end_per_group/2`) with the result from step 2.
 -module(emqx_cth_cluster).
 
--export([start/1, start/2, restart/2]).
+-export([start/1, start/2, restart/1, restart/2]).
 -export([stop/1, stop_node/1]).
 
 -export([start_bare_nodes/1, start_bare_nodes/2]).
@@ -161,6 +161,9 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
             timer:sleep(100),
             wait_clustered(All, Check, Deadline)
     end.
+
+restart(NodeSpec) ->
+    restart(maps:get(name, NodeSpec), NodeSpec).
 
 restart(Node, Spec) ->
     ct:pal("Stopping peer node ~p", [Node]),
@@ -381,6 +384,7 @@ node_init(Node) ->
     _ = share_load_module(Node, cthr),
     % Enable snabbkaffe trace forwarding
     ok = snabbkaffe:forward_trace(Node),
+    when_cover_enabled(fun() -> {ok, _} = cover:start([Node]) end),
     ok.
 
 %% Returns 'true' if this node should appear in running nodes list.
@@ -445,6 +449,7 @@ stop(Nodes) ->
 
 stop_node(Name) ->
     Node = node_name(Name),
+    when_cover_enabled(fun() -> cover:flush([Node]) end),
     ok = emqx_cth_peer:stop(Node).
 
 %% Ports
@@ -506,3 +511,20 @@ host() ->
 
 format(Format, Args) ->
     unicode:characters_to_binary(io_lib:format(Format, Args)).
+
+is_cover_enabled() ->
+    case os:getenv("ENABLE_COVER_COMPILE") of
+        "1" -> true;
+        "true" -> true;
+        _ -> false
+    end.
+
+when_cover_enabled(Fun) ->
+    %% We need to check if cover is enabled to avoid crashes when attempting to start it
+    %% on the peer.
+    case is_cover_enabled() of
+        true ->
+            Fun();
+        false ->
+            ok
+    end.

@@ -149,12 +149,13 @@ remove_sensitive_data(Conf0) ->
 post_config_update(_, {change_i18n_lang, _}, _NewConf, _OldConf, _AppEnvs) ->
     delay_job(regenerate);
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
+    SwaggerSupport = diff_swagger_support(NewConf, OldConf),
     OldHttp = get_listener(http, OldConf),
     OldHttps = get_listener(https, OldConf),
     NewHttp = get_listener(http, NewConf),
     NewHttps = get_listener(https, NewConf),
-    {StopHttp, StartHttp} = diff_listeners(http, OldHttp, NewHttp),
-    {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps),
+    {StopHttp, StartHttp} = diff_listeners(http, OldHttp, NewHttp, SwaggerSupport),
+    {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps, SwaggerSupport),
     Stop = maps:merge(StopHttp, StopHttps),
     Start = maps:merge(StartHttp, StartHttps),
     delay_job({update_listeners, Stop, Start}).
@@ -168,10 +169,16 @@ delay_job(Msg) ->
 get_listener(Type, Conf) ->
     emqx_utils_maps:deep_get([listeners, Type], Conf, undefined).
 
-diff_listeners(_, Listener, Listener) -> {#{}, #{}};
-diff_listeners(Type, undefined, Start) -> {#{}, #{Type => Start}};
-diff_listeners(Type, Stop, undefined) -> {#{Type => Stop}, #{}};
-diff_listeners(Type, Stop, Start) -> {#{Type => Stop}, #{Type => Start}}.
+diff_swagger_support(NewConf, OldConf) ->
+    maps:get(swagger_support, NewConf, true) =:=
+        maps:get(swagger_support, OldConf, true).
+
+diff_listeners(_, undefined, undefined, _) -> {#{}, #{}};
+diff_listeners(_, Listener, Listener, true) -> {#{}, #{}};
+diff_listeners(Type, undefined, Start, _) -> {#{}, #{Type => Start}};
+diff_listeners(Type, Stop, undefined, _) -> {#{Type => Stop}, #{}};
+diff_listeners(Type, Listener, Listener, false) -> {#{Type => Listener}, #{Type => Listener}};
+diff_listeners(Type, Stop, Start, _) -> {#{Type => Stop}, #{Type => Start}}.
 
 -define(DIR, <<"dashboard">>).
 

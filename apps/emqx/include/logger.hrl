@@ -40,6 +40,21 @@
     end
 ).
 
+%% NOTE: do not forget to use atom for msg and add every used msg to
+%% the default value of `log.thorttling.msgs` list.
+-define(SLOG_THROTTLE(Level, Data),
+    ?SLOG_THROTTLE(Level, Data, #{})
+).
+
+-define(SLOG_THROTTLE(Level, Data, Meta),
+    case emqx_log_throttler:allow(Level, maps:get(msg, Data)) of
+        true ->
+            ?SLOG(Level, Data, Meta);
+        false ->
+            ok
+    end
+).
+
 -define(AUDIT_HANDLER, emqx_audit).
 -define(TRACE_FILTER, emqx_trace_filter).
 -define(OWN_KEYS, [level, filters, filter_default, handlers]).

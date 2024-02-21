@@ -85,7 +85,10 @@ check(_ConnInfo, AckProps) ->
         {ok, #{max_connections := MaxClients}} ->
             case check_max_clients_exceeded(MaxClients) of
                 true ->
-                    ?SLOG(error, #{msg => "connection_rejected_due_to_license_limit_reached"}),
+                    ?SLOG_THROTTLE(
+                        error,
+                        #{msg => connection_rejected_due_to_license_limit_reached}
+                    ),
                     {stop, {error, ?RC_QUOTA_EXCEEDED}};
                 false ->
                     {ok, AckProps}

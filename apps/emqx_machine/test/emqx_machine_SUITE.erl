@@ -24,25 +24,27 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(APPS, [
+    emqx_prometheus,
+    emqx_modules,
+    emqx_dashboard,
+    emqx_gateway,
+    emqx_resource,
+    emqx_rule_engine,
+    emqx_bridge,
+    emqx_management,
+    emqx_retainer,
+    emqx_exhook,
+    emqx_auth,
+    emqx_plugin,
+    emqx_opentelemetry
+]).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_opentelemetry]),
-    application:set_env(emqx_machine, applications, [
-        emqx_prometheus,
-        emqx_modules,
-        emqx_dashboard,
-        emqx_gateway,
-        emqx_resource,
-        emqx_rule_engine,
-        emqx_bridge,
-        emqx_management,
-        emqx_retainer,
-        emqx_exhook,
-        emqx_auth,
-        emqx_plugin,
-        emqx_opentelemetry
-    ]),
+    application:load(emqx_dashboard),
     Config.
 
 end_per_suite(_Config) ->
@@ -60,7 +62,11 @@ init_per_testcase(t_open_ports_check = TestCase, Config) ->
     ],
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
+init_per_testcase(t_sorted_reboot_apps, Config) ->
+    application:set_env(emqx_machine, applications, ?APPS ++ [emqx_license]),
+    Config;
 init_per_testcase(_TestCase, Config) ->
+    application:set_env(emqx_machine, applications, ?APPS),
     Config.
 
 end_per_testcase(t_custom_shard_transports, Config) ->
@@ -87,6 +93,12 @@ t_shutdown_reboot(_Config) ->
     true = emqx:is_running(node()),
     ok = emqx_machine_boot:stop_apps(),
     false = emqx:is_running(node()).
+
+t_sorted_reboot_apps(_Config) ->
+    Apps = emqx_machine_boot:sorted_reboot_apps(),
+    SortApps = [App || App <- Apps, (App =:= emqx_dashboard orelse App =:= emqx_license)],
+    %% make sure emqx_license start early than emqx_dashboard
+    ?assertEqual([emqx_license, emqx_dashboard], SortApps).
 
 t_custom_shard_transports(_Config) ->
     %% used to ensure the atom exists

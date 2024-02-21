@@ -101,8 +101,8 @@ elif [[ $(uname -m) == "armv7l" ]]; then
 fi
 ARCH="${ARCH:-${NATIVE_ARCH:-}}"
 
-[ -z "${PROFILE:-}" ] && die "missing --prifile"
-[ -z "${PKGTYPE:-}" ] && die "missing --pkgtyp"
+[ -z "${PROFILE:-}" ] && die "missing --profile"
+[ -z "${PKGTYPE:-}" ] && die "missing --pkgtype"
 [ -z "${BUILDER:-}" ] && die "missing --builder"
 [ -z "${ARCH:-}" ] && die "missing --arch"
 
@@ -135,13 +135,15 @@ else
 fi
 
 HOST_SYSTEM="$(./scripts/get-distro.sh)"
-BUILDER_SYSTEM="$(echo "$BUILDER" | awk -F'-' '{print $NF}')"
+BUILDER_SYSTEM="${BUILDER_SYSTEM:-$(echo "$BUILDER" | awk -F'-' '{print $NF}')}"
 
 CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
 
 IS_NATIVE_SYSTEM='no'
-if [[ "$BUILDER_SYSTEM" == "force_host" ]] || [[ "$BUILDER_SYSTEM" == "$HOST_SYSTEM" ]]; then
-    IS_NATIVE_SYSTEM='yes'
+if [[ "$BUILDER_SYSTEM" != "force_docker" ]]; then
+    if [[ "$BUILDER_SYSTEM" == "force_host" ]] || [[ "$BUILDER_SYSTEM" == "$HOST_SYSTEM" ]]; then
+        IS_NATIVE_SYSTEM='yes'
+    fi
 fi
 
 IS_NATIVE_ARCH='no'

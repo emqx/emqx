@@ -150,7 +150,7 @@ handle_cast(
             ),
             Now = erlang:system_time(second),
             Banned = #banned{
-                who = {clientid, ClientId},
+                who = emqx_banned:who(clientid, ClientId),
                 by = <<"flapping detector">>,
                 reason = <<"flapping is detected">>,
                 at = Now,

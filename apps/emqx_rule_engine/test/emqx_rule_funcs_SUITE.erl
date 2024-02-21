@@ -215,15 +215,32 @@ hex_convert() ->
     ).
 
 t_is_null(_) ->
+    ?assertEqual(false, emqx_rule_funcs:is_null(null)),
     ?assertEqual(true, emqx_rule_funcs:is_null(undefined)),
+    ?assertEqual(false, emqx_rule_funcs:is_null(<<"undefined">>)),
     ?assertEqual(false, emqx_rule_funcs:is_null(a)),
     ?assertEqual(false, emqx_rule_funcs:is_null(<<>>)),
     ?assertEqual(false, emqx_rule_funcs:is_null(<<"a">>)).
 
+t_is_null_var(_) ->
+    ?assertEqual(true, emqx_rule_funcs:is_null_var(null)),
+    ?assertEqual(false, emqx_rule_funcs:is_null_var(<<"null">>)),
+    ?assertEqual(true, emqx_rule_funcs:is_null_var(undefined)),
+    ?assertEqual(false, emqx_rule_funcs:is_null_var(<<"undefined">>)),
+    ?assertEqual(false, emqx_rule_funcs:is_null_var(a)),
+    ?assertEqual(false, emqx_rule_funcs:is_null_var(<<>>)),
+    ?assertEqual(false, emqx_rule_funcs:is_null_var(<<"a">>)).
+
 t_is_not_null(_) ->
     [
         ?assertEqual(emqx_rule_funcs:is_not_null(T), not emqx_rule_funcs:is_null(T))
-     || T <- [undefined, a, <<"a">>, <<>>]
+     || T <- [undefined, <<"undefined">>, null, <<"null">>, a, <<"a">>, <<>>]
+    ].
+
+t_is_not_null_var(_) ->
+    [
+        ?assertEqual(emqx_rule_funcs:is_not_null_var(T), not emqx_rule_funcs:is_null_var(T))
+     || T <- [undefined, <<"undefined">>, null, <<"null">>, a, <<"a">>, <<>>]
     ].
 
 t_is_str(_) ->
@@ -622,6 +639,63 @@ t_ascii(_) ->
     ?assertEqual(97, apply_func(ascii, [<<"a">>])),
     ?assertEqual(97, apply_func(ascii, [<<"ab">>])).
 
+t_join_to_string(_) ->
+    A = 1,
+    B = a,
+    C = <<"c">>,
+    D = #{a => 1},
+    E = [1, 2, 3],
+    F = [#{<<"key">> => 1, <<"value">> => 2}],
+    M = #{<<"a">> => a, <<"b">> => 1, <<"c">> => <<"c">>},
+    J = <<"{\"a\":\"a\",\"b\":1,\"c\":\"c\"}">>,
+    ?assertEqual(<<"a,b,c">>, apply_func(join_to_string, [<<",">>, [<<"a">>, <<"b">>, <<"c">>]])),
+    ?assertEqual(<<"a b c">>, apply_func(join_to_string, [<<" ">>, [<<"a">>, <<"b">>, <<"c">>]])),
+    ?assertEqual(
+        <<"a, b, c">>, apply_func(join_to_string, [<<", ">>, [<<"a">>, <<"b">>, <<"c">>]])
+    ),
+    ?assertEqual(
+        <<"1, a, c, {\"a\":1}, [1,2,3], [{\"value\":2,\"key\":1}]">>,
+        apply_func(join_to_string, [<<", ">>, [A, B, C, D, E, F]])
+    ),
+    ?assertEqual(<<"a">>, apply_func(join_to_string, [<<",">>, [<<"a">>]])),
+    ?assertEqual(<<"">>, apply_func(join_to_string, [<<",">>, []])),
+    ?assertEqual(<<"a, b, c">>, apply_func(join_to_string, [emqx_rule_funcs:map_keys(M)])),
+    ?assertEqual(<<"a, b, c">>, apply_func(join_to_string, [emqx_rule_funcs:map_keys(J)])),
+    ?assertEqual(<<"a, 1, c">>, apply_func(join_to_string, [emqx_rule_funcs:map_values(M)])),
+    ?assertEqual(<<"a, 1, c">>, apply_func(join_to_string, [emqx_rule_funcs:map_values(J)])).
+
+t_join_to_sql_values_string(_) ->
+    A = 1,
+    B = a,
+    C = <<"c">>,
+    D = #{a => 1},
+    E = [1, 2, 3],
+    E1 = [97, 98],
+    F = [#{<<"key">> => 1, <<"value">> => 2}],
+    M = #{<<"a">> => a, <<"b">> => 1, <<"c">> => <<"c">>},
+    J = <<"{\"a\":\"a\",\"b\":1,\"c\":\"c\"}">>,
+    ?assertEqual(
+        <<"'a', 'b', 'c'">>, apply_func(join_to_sql_values_string, [[<<"a">>, <<"b">>, <<"c">>]])
+    ),
+    ?assertEqual(
+        <<"1, 'a', 'c', '{\"a\":1}', '[1,2,3]', '[97,98]', '[{\"value\":2,\"key\":1}]'">>,
+        apply_func(join_to_sql_values_string, [[A, B, C, D, E, E1, F]])
+    ),
+    ?assertEqual(<<"'a'">>, apply_func(join_to_sql_values_string, [[<<"a">>]])),
+    ?assertEqual(<<"">>, apply_func(join_to_sql_values_string, [[]])),
+    ?assertEqual(
+        <<"'a', 'b', 'c'">>, apply_func(join_to_sql_values_string, [emqx_rule_funcs:map_keys(M)])
+    ),
+    ?assertEqual(
+        <<"'a', 'b', 'c'">>, apply_func(join_to_sql_values_string, [emqx_rule_funcs:map_keys(J)])
+    ),
+    ?assertEqual(
+        <<"'a', 1, 'c'">>, apply_func(join_to_sql_values_string, [emqx_rule_funcs:map_values(M)])
+    ),
+    ?assertEqual(
+        <<"'a', 1, 'c'">>, apply_func(join_to_sql_values_string, [emqx_rule_funcs:map_values(J)])
+    ).
+
 t_find(_) ->
     ?assertEqual(<<"cbcd">>, apply_func(find, [<<"acbcd">>, <<"c">>])),
     ?assertEqual(<<"cbcd">>, apply_func(find, [<<"acbcd">>, <<"c">>, <<"leading">>])),
@@ -746,14 +820,37 @@ t_map_put(_) ->
     ?assertEqual(#{a => 2}, apply_func(map_put, [<<"a">>, 2, #{a => 1}])).
 
 t_mget(_) ->
-    ?assertEqual(1, apply_func(map_get, [<<"a">>, #{a => 1}])),
-    ?assertEqual(1, apply_func(map_get, [<<"a">>, #{<<"a">> => 1}])),
-    ?assertEqual(undefined, apply_func(map_get, [<<"a">>, #{}])).
+    ?assertEqual(1, apply_func(mget, [<<"a">>, #{a => 1}])),
+    ?assertEqual(1, apply_func(mget, [<<"a">>, <<"{\"a\" : 1}">>])),
+    ?assertEqual(1, apply_func(mget, [<<"a">>, #{<<"a">> => 1}])),
+    ?assertEqual(1, apply_func(mget, [<<"a.b">>, #{<<"a.b">> => 1}])),
+    ?assertEqual(undefined, apply_func(mget, [<<"a">>, #{}])).
 
 t_mput(_) ->
-    ?assertEqual(#{<<"a">> => 1}, apply_func(map_put, [<<"a">>, 1, #{}])),
-    ?assertEqual(#{<<"a">> => 2}, apply_func(map_put, [<<"a">>, 2, #{<<"a">> => 1}])),
-    ?assertEqual(#{a => 2}, apply_func(map_put, [<<"a">>, 2, #{a => 1}])).
+    ?assertEqual(#{<<"a">> => 1}, apply_func(mput, [<<"a">>, 1, #{}])),
+    ?assertEqual(#{<<"a">> => 2}, apply_func(mput, [<<"a">>, 2, #{<<"a">> => 1}])),
+    ?assertEqual(#{<<"a">> => 2}, apply_func(mput, [<<"a">>, 2, <<"{\"a\" : 1}">>])),
+    ?assertEqual(#{<<"a.b">> => 2}, apply_func(mput, [<<"a.b">>, 2, #{<<"a.b">> => 1}])),
+    ?assertEqual(#{a => 2}, apply_func(mput, [<<"a">>, 2, #{a => 1}])).
+
+t_map_to_entries(_) ->
+    ?assertEqual([], apply_func(map_to_entries, [#{}])),
+    M = #{a => 1, b => <<"b">>},
+    J = <<"{\"a\":1,\"b\":\"b\"}">>,
+    ?assertEqual(
+        [
+            #{key => a, value => 1},
+            #{key => b, value => <<"b">>}
+        ],
+        apply_func(map_to_entries, [M])
+    ),
+    ?assertEqual(
+        [
+            #{key => <<"a">>, value => 1},
+            #{key => <<"b">>, value => <<"b">>}
+        ],
+        apply_func(map_to_entries, [J])
+    ).
 
 t_bitsize(_) ->
     ?assertEqual(8, apply_func(bitsize, [<<"a">>])),

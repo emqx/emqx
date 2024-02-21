@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -48,13 +48,14 @@ init(Opts) ->
 
 do_init(_Opts) ->
     SupFlags = #{
-        strategy => rest_for_one,
+        strategy => one_for_one,
         intensity => 10,
         period => 2,
         auto_shutdown => never
     },
     CoreChildren = [
-        worker(gc_worker, emqx_persistent_session_ds_gc_worker, [])
+        worker(session_gc_worker, emqx_persistent_session_ds_gc_worker, []),
+        worker(message_gc_worker, emqx_persistent_message_ds_gc_worker, [])
     ],
     Children =
         case mria_rlog:role() of

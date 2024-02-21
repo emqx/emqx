@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,75 +25,54 @@
 -define(SESSION_COMMITTED_OFFSET_TAB, emqx_ds_committed_offset_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
--define(T_INFLIGHT, 1).
--define(T_CHECKPOINT, 2).
+%%%%% Session sequence numbers:
 
--record(ds_sub, {
-    id :: emqx_persistent_session_ds:subscription_id(),
-    start_time :: emqx_ds:time(),
-    props = #{} :: map(),
-    extra = #{} :: map()
-}).
--type ds_sub() :: #ds_sub{}.
+%%
+%%   -----|----------|-----|-----|------> seqno
+%%        |          |     |     |
+%%   committed      dup   rec   next
+%%                       (Qos2)
 
--record(ds_stream, {
-    session :: emqx_persistent_session_ds:id(),
-    ref :: _StreamRef,
-    stream :: emqx_ds:stream(),
-    rank :: emqx_ds:stream_rank(),
-    beginning :: emqx_ds:iterator()
-}).
--type ds_stream() :: #ds_stream{}.
+%% Seqno becomes committed after receiving PUBACK for QoS1 or PUBCOMP
+%% for QoS2.
+-define(committed(QOS), QOS).
+%% Seqno becomes dup after broker sends QoS1 or QoS2 message to the
+%% client. Upon session reconnect, messages with seqno in the
+%% committed..dup range are retransmitted with DUP flag.
+%%
+-define(dup(QOS), (10 + QOS)).
+%% Rec flag is specific for the QoS2. It contains seqno of the last
+%% PUBREC received from the client. When the session reconnects,
+%% PUBREL packages for the dup..rec range are retransmitted.
+-define(rec, 22).
+%% Last seqno assigned to a message (it may not be sent yet).
+-define(next(QOS), (30 + QOS)).
 
--record(ds_pubrange, {
-    id :: {
-        %% What session this range belongs to.
-        _Session :: emqx_persistent_session_ds:id(),
-        %% Where this range starts.
-        _First :: emqx_persistent_message_ds_replayer:seqno(),
-        %% Which stream this range is over.
-        _StreamRef
-    },
-    %% Where this range ends: the first seqno that is not included in the range.
-    until :: emqx_persistent_message_ds_replayer:seqno(),
-    %% Type of a range:
-    %% * Inflight range is a range of yet unacked messages from this stream.
-    %% * Checkpoint range was already acked, its purpose is to keep track of the
-    %%   very last iterator for this stream.
-    type :: ?T_INFLIGHT | ?T_CHECKPOINT,
-    %% What commit tracks this range is part of.
-    tracks = 0 :: non_neg_integer(),
-    %% Meaning of this depends on the type of the range:
-    %% * For inflight range, this is the iterator pointing to the first message in
-    %%   the range.
-    %% * For checkpoint range, this is the iterator pointing right past the last
-    %%   message in the range.
-    iterator :: emqx_ds:iterator(),
-    %% Reserved for future use.
-    misc = #{} :: map()
-}).
--type ds_pubrange() :: #ds_pubrange{}.
-
--record(ds_committed_offset, {
-    id :: {
-        %% What session this marker belongs to.
-        _Session :: emqx_persistent_session_ds:id(),
-        %% Marker name.
-        _CommitType
-    },
-    %% Where this marker is pointing to: the first seqno that is not marked.
-    until :: emqx_persistent_message_ds_replayer:seqno()
+%%%%% Stream Replay State:
+-record(srs, {
+    rank_x :: emqx_ds:rank_x(),
+    rank_y :: emqx_ds:rank_y(),
+    %% Iterators at the beginning and the end of the last batch:
+    it_begin :: emqx_ds:iterator() | undefined,
+    it_end :: emqx_ds:iterator() | end_of_stream,
+    %% Size of the last batch:
+    batch_size = 0 :: non_neg_integer(),
+    %% Session sequence numbers at the time when the batch was fetched:
+    first_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
+    first_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
+    %% Sequence numbers that have to be committed for the batch:
+    last_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
+    last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
+    %% This stream belongs to an unsubscribed topic-filter, and is
+    %% marked for deletion:
+    unsubscribed = false :: boolean()
 }).
 
--record(session, {
-    %% same as clientid
-    id :: emqx_persistent_session_ds:id(),
-    %% creation time
-    created_at :: _Millisecond :: non_neg_integer(),
-    last_alive_at :: _Millisecond :: non_neg_integer(),
-    conninfo :: emqx_types:conninfo(),
-    %% for future usage
-    props = #{} :: map()
-}).
+%% Session metadata keys:
+-define(created_at, created_at).
+-define(last_alive_at, last_alive_at).
+-define(expiry_interval, expiry_interval).
+%% Unique integer used to create unique identities
+-define(last_id, last_id).
 
 -endif.

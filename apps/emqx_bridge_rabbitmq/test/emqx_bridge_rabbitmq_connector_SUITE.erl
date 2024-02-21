@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_rabbitmq_connector_SUITE).
@@ -12,109 +12,45 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
+-import(emqx_bridge_rabbitmq_test_utils, [
+    rabbit_mq_exchange/0,
+    rabbit_mq_routing_key/0,
+    rabbit_mq_queue/0,
+    rabbit_mq_host/0,
+    rabbit_mq_port/0,
+    get_rabbitmq/1,
+    ssl_options/1,
+    get_channel_connection/1,
+    parse_and_check/4,
+    receive_message_from_rabbitmq/1
+]).
 
 %% This test SUITE requires a running RabbitMQ instance. If you don't want to
-%% bring up the whole CI infrastuctucture with the `scripts/ct/run.sh` script
+%% bring up the whole CI infrastructure with the `scripts/ct/run.sh` script
 %% you can create a clickhouse instance with the following command.
 %% 5672 is the default port for AMQP 0-9-1 and 15672 is the default port for
-%% the HTTP managament interface.
+%% the HTTP management interface.
 %%
 %% docker run -it --rm --name rabbitmq -p 127.0.0.1:5672:5672 -p 127.0.0.1:15672:15672 rabbitmq:3.11-management
 
-rabbit_mq_host() ->
-    <<"rabbitmq">>.
-
-rabbit_mq_port() ->
-    5672.
-
-rabbit_mq_password() ->
-    <<"guest">>.
-
-rabbit_mq_exchange() ->
-    <<"test_exchange">>.
-
-rabbit_mq_queue() ->
-    <<"test_queue">>.
-
-rabbit_mq_routing_key() ->
-    <<"test_routing_key">>.
-
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, tcp},
+        {group, tls}
+    ].
 
-init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_tcp_server_available(
-            erlang:binary_to_list(rabbit_mq_host()), rabbit_mq_port()
-        )
-    of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [emqx_conf, emqx_connector, emqx_bridge_rabbitmq],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            ChannelConnection = setup_rabbit_mq_exchange_and_queue(),
-            [{channel_connection, ChannelConnection}, {suite_apps, Apps} | Config];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_rabbitmq);
-                _ ->
-                    {skip, no_rabbitmq}
-            end
-    end.
+groups() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {tcp, AllTCs},
+        {tls, AllTCs}
+    ].
 
-setup_rabbit_mq_exchange_and_queue() ->
-    %% Create an exachange and a queue
-    {ok, Connection} =
-        amqp_connection:start(#amqp_params_network{
-            host = erlang:binary_to_list(rabbit_mq_host()),
-            port = rabbit_mq_port()
-        }),
-    {ok, Channel} = amqp_connection:open_channel(Connection),
-    %% Create an exchange
-    #'exchange.declare_ok'{} =
-        amqp_channel:call(
-            Channel,
-            #'exchange.declare'{
-                exchange = rabbit_mq_exchange(),
-                type = <<"topic">>
-            }
-        ),
-    %% Create a queue
-    #'queue.declare_ok'{} =
-        amqp_channel:call(
-            Channel,
-            #'queue.declare'{queue = rabbit_mq_queue()}
-        ),
-    %% Bind the queue to the exchange
-    #'queue.bind_ok'{} =
-        amqp_channel:call(
-            Channel,
-            #'queue.bind'{
-                queue = rabbit_mq_queue(),
-                exchange = rabbit_mq_exchange(),
-                routing_key = rabbit_mq_routing_key()
-            }
-        ),
-    #{
-        connection => Connection,
-        channel => Channel
-    }.
+init_per_group(Group, Config) ->
+    emqx_bridge_rabbitmq_test_utils:init_per_group(Group, Config).
 
-get_channel_connection(Config) ->
-    proplists:get_value(channel_connection, Config).
-
-end_per_suite(Config) ->
-    #{
-        connection := Connection,
-        channel := Channel
-    } = get_channel_connection(Config),
-    %% Close the channel
-    ok = amqp_channel:close(Channel),
-    %% Close the connection
-    ok = amqp_connection:close(Connection),
-    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
+end_per_group(Group, Config) ->
+    emqx_bridge_rabbitmq_test_utils:end_per_group(Group, Config).
 
 % %%------------------------------------------------------------------------------
 % %% Testcases
@@ -122,7 +58,7 @@ end_per_suite(Config) ->
 
 t_lifecycle(Config) ->
     perform_lifecycle_check(
-        erlang:atom_to_binary(?MODULE),
+        erlang:atom_to_binary(?FUNCTION_NAME),
         rabbitmq_config(),
         Config
     ).
@@ -144,12 +80,10 @@ t_start_passfile(Config) ->
     ).
 
 perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
-    #{
-        channel := Channel
-    } = get_channel_connection(TestConfig),
     CheckedConfig = check_config(InitialConfig),
     #{
-        state := #{poolname := PoolName} = State,
+        id := PoolName,
+        state := State,
         status := InitialStatus
     } = create_local_resource(ResourceID, CheckedConfig),
     ?assertEqual(InitialStatus, connected),
@@ -161,7 +95,7 @@ perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
         emqx_resource:get_instance(ResourceID),
     ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceID)),
     %% Perform query as further check that the resource is working as expected
-    perform_query(ResourceID, Channel),
+    perform_query(ResourceID, TestConfig),
     ?assertEqual(ok, emqx_resource:stop(ResourceID)),
     %% Resource will be listed still, but state will be changed and healthcheck will fail
     %% as the worker no longer exists.
@@ -183,7 +117,7 @@ perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
         emqx_resource:get_instance(ResourceID),
     ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceID)),
     %% Check that everything is working again by performing a query
-    perform_query(ResourceID, Channel),
+    perform_query(ResourceID, TestConfig),
     % Stop and remove the resource in one go.
     ?assertEqual(ok, emqx_resource:remove_local(ResourceID)),
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(PoolName)),
@@ -211,34 +145,16 @@ create_local_resource(ResourceID, CheckedConfig) ->
 
 perform_query(PoolName, Channel) ->
     %% Send message to queue:
-    ok = emqx_resource:query(PoolName, {query, test_data()}),
+    ActionConfig = rabbitmq_action_config(),
+    ChannelId = <<"test_channel">>,
+    ?assertEqual(ok, emqx_resource_manager:add_channel(PoolName, ChannelId, ActionConfig)),
+    ok = emqx_resource:query(PoolName, {ChannelId, payload()}),
     %% Get the message from queue:
-    ok = receive_simple_test_message(Channel).
-
-receive_simple_test_message(Channel) ->
-    #'basic.consume_ok'{consumer_tag = ConsumerTag} =
-        amqp_channel:call(
-            Channel,
-            #'basic.consume'{
-                queue = rabbit_mq_queue()
-            }
-        ),
-    receive
-        %% This is the first message received
-        #'basic.consume_ok'{} ->
-            ok
-    end,
-    receive
-        {#'basic.deliver'{delivery_tag = DeliveryTag}, Content} ->
-            Expected = test_data(),
-            ?assertEqual(Expected, emqx_utils_json:decode(Content#amqp_msg.payload)),
-            %% Ack the message
-            amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = DeliveryTag}),
-            %% Cancel the consumer
-            #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
-                amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
-            ok
-    end.
+    SendData = test_data(),
+    RecvData = receive_message_from_rabbitmq(Channel),
+    ?assertMatch(SendData, RecvData),
+    ?assertEqual(ok, emqx_resource_manager:remove_channel(PoolName, ChannelId)),
+    ok.
 
 rabbitmq_config() ->
     rabbitmq_config(#{}).
@@ -255,5 +171,24 @@ rabbitmq_config(Overrides) ->
         },
     #{<<"config">> => maps:merge(Config, Overrides)}.
 
+payload() ->
+    #{<<"payload">> => test_data()}.
+
 test_data() ->
-    #{<<"msg_field">> => <<"Hello">>}.
+    #{<<"Hello">> => <<"World">>}.
+
+rabbitmq_action_config() ->
+    #{
+        config_root => actions,
+        parameters => #{
+            delivery_mode => non_persistent,
+            exchange => rabbit_mq_exchange(),
+            payload_template => <<"${.payload}">>,
+            publish_confirmation_timeout => 30000,
+            routing_key => rabbit_mq_routing_key(),
+            wait_for_publish_confirmations => true
+        }
+    }.
+
+rabbit_mq_password() ->
+    <<"guest">>.

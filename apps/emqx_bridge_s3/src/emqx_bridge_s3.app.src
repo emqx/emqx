@@ -1,0 +1,17 @@
+{application, emqx_bridge_s3, [
+    {description, "EMQX Enterprise S3 Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        erlcloud,
+        emqx_resource,
+        emqx_s3
+    ]},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_s3_action_info]}
+    ]},
+    {modules, []},
+    {links, []}
+]}.

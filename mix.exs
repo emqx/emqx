@@ -55,7 +55,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.11.1", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-2", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.18.3", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.18.4", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.15", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.40.4", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.41.0", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -182,6 +182,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ft,
       :emqx_license,
       :emqx_s3,
+      :emqx_bridge_s3,
       :emqx_schema_registry,
       :emqx_enterprise,
       :emqx_bridge_kinesis,
@@ -199,17 +200,17 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.4.5+v0.16.1"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.9.1"},
-      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.10.2"},
+      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.9", override: true},
       {:crc32cer, "0.1.8", override: true},
       {:supervisor3, "1.1.12", override: true},
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
-      {:greptimedb, github: "GreptimeTeam/greptimedb-client-erl", tag: "v0.1.6", override: true},
+      {:greptimedb, github: "GreptimeTeam/greptimedb-client-erl", tag: "v0.1.7", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions
       {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
@@ -680,7 +681,8 @@ defmodule EMQXUmbrella.MixProject do
 
     # the elixir version of escript + start.boot required the boot_var
     # RELEASE_LIB to be defined.
-    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
+    # enable-feature is not required when 1.6.x
+    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib -enable-feature maybe_expr"
 
     # Files with the version appended are expected by the release
     # upgrade script `install_upgrade.escript`

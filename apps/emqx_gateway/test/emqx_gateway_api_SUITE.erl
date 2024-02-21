@@ -45,17 +45,24 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
-    application:load(emqx),
-    emqx_gateway_test_utils:load_all_gateway_apps(),
-    emqx_config:delete_override_conf_files(),
-    emqx_config:erase(gateway),
-    emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([grpc, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_gateway]),
-    Conf.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            {emqx_gateway, ?CONF_DEFAULT}
+            | emqx_gateway_test_utils:all_gateway_apps()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+    ),
+    _ = emqx_common_test_http:create_default_app(),
+    [{suite_apps, Apps} | Conf].
 
 end_per_suite(Conf) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth_mnesia, emqx_auth, emqx_conf, grpc]),
-    Conf.
+    _ = emqx_common_test_http:delete_default_app(),
+    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)).
 
 init_per_testcase(t_gateway_fail, Config) ->
     meck:expect(

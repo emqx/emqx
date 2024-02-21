@@ -62,10 +62,10 @@ handle_event(ClientInfo, {dropped, Msg, #{reason := queue_full, logctx := Ctx}})
     ok = emqx_metrics:inc('delivery.dropped.queue_full'),
     ok = inc_pd('send_msg.dropped', 1),
     ok = inc_pd('send_msg.dropped.queue_full', 1),
-    ?SLOG(
+    ?SLOG_THROTTLE(
         warning,
         Ctx#{
-            msg => "dropped_msg_due_to_mqueue_is_full",
+            msg => dropped_msg_due_to_mqueue_is_full,
             payload => Msg#message.payload
         },
         #{topic => Msg#message.topic}

@@ -74,7 +74,10 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 t_registered_gateway(_) ->
-    [{coap, #{cbkmod := emqx_gateway_coap}} | _] = emqx_gateway:registered_gateway().
+    ?assertMatch(
+        [{coap, #{cbkmod := emqx_gateway_coap}} | _],
+        lists:sort(emqx_gateway:registered_gateway())
+    ).
 
 t_load_unload_list_lookup(_) ->
     {ok, _} = emqx_gateway:load(?GWNAME, #{idle_timeout => 1000}),

@@ -25,9 +25,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([create_tables/0]).
 
 -export([start_link/0, stop/0]).
 
@@ -39,7 +37,9 @@
     info/1,
     format/1,
     parse/1,
-    clear/0
+    clear/0,
+    who/2,
+    tables/0
 ]).
 
 %% gen_server callbacks
@@ -61,7 +61,8 @@
 
 -elvis([{elvis_style, state_record_and_type, disable}]).
 
--define(BANNED_TAB, ?MODULE).
+-define(BANNED_INDIVIDUAL_TAB, ?MODULE).
+-define(BANNED_RULE_TAB, emqx_banned_rules).
 
 %% The default expiration time should be infinite
 %% but for compatibility, a large number (1 years) is used here to represent the 'infinite'
@@ -76,20 +77,26 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
-    ok = mria:create_table(?BANNED_TAB, [
+create_tables() ->
+    Options = [
         {type, set},
         {rlog_shard, ?COMMON_SHARD},
         {storage, disc_copies},
         {record_name, banned},
         {attributes, record_info(fields, banned)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
+    ],
+    ok = mria:create_table(?BANNED_INDIVIDUAL_TAB, Options),
+    ok = mria:create_table(?BANNED_RULE_TAB, Options),
+    [?BANNED_INDIVIDUAL_TAB, ?BANNED_RULE_TAB].
 
 %%--------------------------------------------------------------------
 %% Data backup
 %%--------------------------------------------------------------------
-backup_tables() -> [?BANNED_TAB].
+backup_tables() -> tables().
+
+-spec tables() -> [atom()].
+tables() -> [?BANNED_RULE_TAB, ?BANNED_INDIVIDUAL_TAB].
 
 %% @doc Start the banned server.
 -spec start_link() -> startlink_ret().
@@ -104,16 +111,10 @@ stop() -> gen_server:stop(?MODULE).
 check(ClientInfo) ->
     do_check({clientid, maps:get(clientid, ClientInfo, undefined)}) orelse
         do_check({username, maps:get(username, ClientInfo, undefined)}) orelse
-        do_check({peerhost, maps:get(peerhost, ClientInfo, undefined)}).
+        do_check({peerhost, maps:get(peerhost, ClientInfo, undefined)}) orelse
+        do_check_rules(ClientInfo).
 
-do_check({_, undefined}) ->
-    false;
-do_check(Who) when is_tuple(Who) ->
-    case mnesia:dirty_read(?BANNED_TAB, Who) of
-        [] -> false;
-        [#banned{until = Until}] -> Until > erlang:system_time(second)
-    end.
-
+-spec format(emqx_types:banned()) -> map().
 format(#banned{
     who = Who0,
     by = By,
@@ -121,7 +122,7 @@ format(#banned{
     at = At,
     until = Until
 }) ->
-    {As, Who} = maybe_format_host(Who0),
+    {As, Who} = format_who(Who0),
     #{
         as => As,
         who => Who,
@@ -131,6 +132,7 @@ format(#banned{
         until => to_rfc3339(Until)
     }.
 
+-spec parse(map()) -> emqx_types:banned() | {error, term()}.
 parse(Params) ->
     case parse_who(Params) of
         {error, Reason} ->
@@ -155,24 +157,6 @@ parse(Params) ->
                     {error, ErrorReason}
             end
     end.
-parse_who(#{as := As, who := Who}) ->
-    parse_who(#{<<"as">> => As, <<"who">> => Who});
-parse_who(#{<<"as">> := peerhost, <<"who">> := Peerhost0}) ->
-    case inet:parse_address(binary_to_list(Peerhost0)) of
-        {ok, Peerhost} -> {peerhost, Peerhost};
-        {error, einval} -> {error, "bad peerhost"}
-    end;
-parse_who(#{<<"as">> := As, <<"who">> := Who}) ->
-    {As, Who}.
-
-maybe_format_host({peerhost, Host}) ->
-    AddrBinary = list_to_binary(inet:ntoa(Host)),
-    {peerhost, AddrBinary};
-maybe_format_host({As, Who}) ->
-    {As, Who}.
-
-to_rfc3339(Timestamp) ->
-    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, second).
 
 -spec create(emqx_types:banned() | map()) ->
     {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}.
@@ -194,7 +178,7 @@ create(#{
 create(Banned = #banned{who = Who}) ->
     case look_up(Who) of
         [] ->
-            insert_banned(Banned),
+            insert_banned(table(Who), Banned),
             {ok, Banned};
         [OldBanned = #banned{until = Until}] ->
             %% Don't support shorten or extend the until time by overwrite.
@@ -204,32 +188,51 @@ create(Banned = #banned{who = Who}) ->
                     {error, {already_exist, OldBanned}};
                 %% overwrite expired one is ok.
                 false ->
-                    insert_banned(Banned),
+                    insert_banned(table(Who), Banned),
                     {ok, Banned}
             end
     end.
 
+-spec look_up(emqx_types:banned_who() | map()) -> [emqx_types:banned()].
 look_up(Who) when is_map(Who) ->
     look_up(parse_who(Who));
 look_up(Who) ->
-    mnesia:dirty_read(?BANNED_TAB, Who).
+    mnesia:dirty_read(table(Who), Who).
 
--spec delete(
-    {clientid, emqx_types:clientid()}
-    | {username, emqx_types:username()}
-    | {peerhost, emqx_types:peerhost()}
-) -> ok.
+-spec delete(map() | emqx_types:banned_who()) -> ok.
 delete(Who) when is_map(Who) ->
     delete(parse_who(Who));
 delete(Who) ->
-    mria:dirty_delete(?BANNED_TAB, Who).
+    mria:dirty_delete(table(Who), Who).
 
-info(InfoKey) ->
-    mnesia:table_info(?BANNED_TAB, InfoKey).
+-spec info(size) -> non_neg_integer().
+info(size) ->
+    mnesia:table_info(?BANNED_INDIVIDUAL_TAB, size) + mnesia:table_info(?BANNED_RULE_TAB, size).
 
+-spec clear() -> ok.
 clear() ->
-    _ = mria:clear_table(?BANNED_TAB),
+    _ = mria:clear_table(?BANNED_INDIVIDUAL_TAB),
+    _ = mria:clear_table(?BANNED_RULE_TAB),
     ok.
+
+%% Creating banned with `#banned{}` records is exposed as a public API
+%% so we need helpers to create the `who` field of `#banned{}` records
+-spec who(atom(), binary() | inet:ip_address() | esockd_cidr:cidr()) -> emqx_types:banned_who().
+who(clientid, ClientId) when is_binary(ClientId) -> {clientid, ClientId};
+who(username, Username) when is_binary(Username) -> {username, Username};
+who(peerhost, Peerhost) when is_tuple(Peerhost) -> {peerhost, Peerhost};
+who(peerhost, Peerhost) when is_binary(Peerhost) ->
+    {ok, Addr} = inet:parse_address(binary_to_list(Peerhost)),
+    {peerhost, Addr};
+who(clientid_re, RE) when is_binary(RE) ->
+    {ok, RECompiled} = re:compile(RE),
+    {clientid_re, {RECompiled, RE}};
+who(username_re, RE) when is_binary(RE) ->
+    {ok, RECompiled} = re:compile(RE),
+    {username_re, {RECompiled, RE}};
+who(peerhost_net, CIDR) when is_tuple(CIDR) -> {peerhost_net, CIDR};
+who(peerhost_net, CIDR) when is_binary(CIDR) ->
+    {peerhost_net, esockd_cidr:parse(binary_to_list(CIDR), true)}.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -265,6 +268,81 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+do_check({_, undefined}) ->
+    false;
+do_check(Who) when is_tuple(Who) ->
+    case mnesia:dirty_read(table(Who), Who) of
+        [] -> false;
+        [#banned{until = Until}] -> Until > erlang:system_time(second)
+    end.
+
+do_check_rules(ClientInfo) ->
+    Rules = all_rules(),
+    Now = erlang:system_time(second),
+    lists:any(
+        fun(Rule) -> is_rule_actual(Rule, Now) andalso do_check_rule(Rule, ClientInfo) end, Rules
+    ).
+
+is_rule_actual(#banned{until = Until}, Now) ->
+    Until > Now.
+
+do_check_rule(#banned{who = {clientid_re, {RE, _}}}, #{clientid := ClientId}) ->
+    is_binary(ClientId) andalso re:run(ClientId, RE) =/= nomatch;
+do_check_rule(#banned{who = {clientid_re, _}}, #{}) ->
+    false;
+do_check_rule(#banned{who = {username_re, {RE, _}}}, #{username := Username}) ->
+    is_binary(Username) andalso re:run(Username, RE) =/= nomatch;
+do_check_rule(#banned{who = {username_re, _}}, #{}) ->
+    false;
+do_check_rule(#banned{who = {peerhost_net, CIDR}}, #{peerhost := Peerhost}) ->
+    esockd_cidr:match(Peerhost, CIDR);
+do_check_rule(#banned{who = {peerhost_net, _}}, #{}) ->
+    false.
+
+parse_who(#{as := As, who := Who}) ->
+    parse_who(#{<<"as">> => As, <<"who">> => Who});
+parse_who(#{<<"as">> := peerhost, <<"who">> := Peerhost0}) ->
+    case inet:parse_address(binary_to_list(Peerhost0)) of
+        {ok, Peerhost} -> {peerhost, Peerhost};
+        {error, einval} -> {error, "bad peerhost"}
+    end;
+parse_who(#{<<"as">> := peerhost_net, <<"who">> := CIDRString}) ->
+    try esockd_cidr:parse(binary_to_list(CIDRString), true) of
+        CIDR -> {peerhost_net, CIDR}
+    catch
+        error:Error -> {error, Error}
+    end;
+parse_who(#{<<"as">> := AsRE, <<"who">> := Who}) when
+    AsRE =:= clientid_re orelse AsRE =:= username_re
+->
+    case re:compile(Who) of
+        {ok, RE} -> {AsRE, {RE, Who}};
+        {error, _} = Error -> Error
+    end;
+parse_who(#{<<"as">> := As, <<"who">> := Who}) when As =:= clientid orelse As =:= username ->
+    {As, Who}.
+
+format_who({peerhost, Host}) ->
+    AddrBinary = list_to_binary(inet:ntoa(Host)),
+    {peerhost, AddrBinary};
+format_who({peerhost_net, CIDR}) ->
+    CIDRBinary = list_to_binary(esockd_cidr:to_string(CIDR)),
+    {peerhost_net, CIDRBinary};
+format_who({AsRE, {_RE, REOriginal}}) when AsRE =:= clientid_re orelse AsRE =:= username_re ->
+    {AsRE, REOriginal};
+format_who({As, Who}) when As =:= clientid orelse As =:= username ->
+    {As, Who}.
+
+to_rfc3339(Timestamp) ->
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, second).
+
+table({username, _Username}) -> ?BANNED_INDIVIDUAL_TAB;
+table({clientid, _ClientId}) -> ?BANNED_INDIVIDUAL_TAB;
+table({peerhost, _Peerhost}) -> ?BANNED_INDIVIDUAL_TAB;
+table({username_re, _UsernameRE}) -> ?BANNED_RULE_TAB;
+table({clientid_re, _ClientIdRE}) -> ?BANNED_RULE_TAB;
+table({peerhost_net, _PeerhostNet}) -> ?BANNED_RULE_TAB.
+
 -ifdef(TEST).
 ensure_expiry_timer(State) ->
     State#{expiry_timer := emqx_utils:start_timer(10, expire)}.
@@ -274,19 +352,27 @@ ensure_expiry_timer(State) ->
 -endif.
 
 expire_banned_items(Now) ->
+    lists:foreach(
+        fun(Tab) ->
+            expire_banned_items(Now, Tab)
+        end,
+        [?BANNED_INDIVIDUAL_TAB, ?BANNED_RULE_TAB]
+    ).
+
+expire_banned_items(Now, Tab) ->
     mnesia:foldl(
         fun
             (B = #banned{until = Until}, _Acc) when Until < Now ->
-                mnesia:delete_object(?BANNED_TAB, B, sticky_write);
+                mnesia:delete_object(Tab, B, sticky_write);
             (_, _Acc) ->
                 ok
         end,
         ok,
-        ?BANNED_TAB
+        Tab
     ).
 
-insert_banned(Banned) ->
-    mria:dirty_write(?BANNED_TAB, Banned),
+insert_banned(Tab, Banned) ->
+    mria:dirty_write(Tab, Banned),
     on_banned(Banned).
 
 on_banned(#banned{who = {clientid, ClientId}}) ->
@@ -302,3 +388,6 @@ on_banned(#banned{who = {clientid, ClientId}}) ->
     ok;
 on_banned(_) ->
     ok.
+
+all_rules() ->
+    ets:tab2list(?BANNED_RULE_TAB).

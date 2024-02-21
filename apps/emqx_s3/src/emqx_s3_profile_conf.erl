@@ -37,12 +37,24 @@
     code_change/3
 ]).
 
-%% For test purposes
+%% For connectors
 -export([
     client_config/2,
+    http_config/1
+]).
+
+%% For test purposes
+-export([
     start_http_pool/2,
     id/1
 ]).
+
+-type config_checkout() :: {
+    emqx_s3_client:bucket(),
+    emqx_s3_client:config(),
+    emqx_s3_client:upload_options(),
+    emqx_s3_uploader:config()
+}.
 
 -define(DEFAULT_CALL_TIMEOUT, 5000).
 
@@ -78,12 +90,12 @@ update_config(ProfileId, ProfileConfig, Timeout) ->
     ?SAFE_CALL_VIA_GPROC(ProfileId, {update_config, ProfileConfig}, Timeout).
 
 -spec checkout_config(emqx_s3:profile_id()) ->
-    {ok, emqx_s3_client:config(), emqx_s3_uploader:config()} | {error, profile_not_found}.
+    config_checkout() | {error, profile_not_found}.
 checkout_config(ProfileId) ->
     checkout_config(ProfileId, ?DEFAULT_CALL_TIMEOUT).
 
 -spec checkout_config(emqx_s3:profile_id(), timeout()) ->
-    {ok, emqx_s3_client:config(), emqx_s3_uploader:config()} | {error, profile_not_found}.
+    config_checkout() | {error, profile_not_found}.
 checkout_config(ProfileId, Timeout) ->
     ?SAFE_CALL_VIA_GPROC(ProfileId, {checkout_config, self()}, Timeout).
 
@@ -108,6 +120,8 @@ init([ProfileId, ProfileConfig]) ->
             {ok, #{
                 profile_id => ProfileId,
                 profile_config => ProfileConfig,
+                bucket => bucket(ProfileConfig),
+                upload_options => upload_options(ProfileConfig),
                 client_config => client_config(ProfileConfig, PoolName),
                 uploader_config => uploader_config(ProfileConfig),
                 pool_name => PoolName,
@@ -128,12 +142,14 @@ handle_call(
     {checkout_config, Pid},
     _From,
     #{
+        bucket := Bucket,
+        upload_options := Options,
         client_config := ClientConfig,
         uploader_config := UploaderConfig
     } = State
 ) ->
     ok = register_client(Pid, State),
-    {reply, {ok, ClientConfig, UploaderConfig}, State};
+    {reply, {Bucket, ClientConfig, Options, UploaderConfig}, State};
 handle_call({checkin_config, Pid}, _From, State) ->
     ok = unregister_client(Pid, State),
     {reply, ok, State};
@@ -146,6 +162,8 @@ handle_call(
         {ok, PoolName} ->
             NewState = State#{
                 profile_config => NewProfileConfig,
+                bucket => bucket(NewProfileConfig),
+                upload_options => upload_options(NewProfileConfig),
                 client_config => client_config(NewProfileConfig, PoolName),
                 uploader_config => uploader_config(NewProfileConfig),
                 http_pool_timeout => http_pool_timeout(NewProfileConfig),
@@ -198,8 +216,6 @@ client_config(ProfileConfig, PoolName) ->
         port => maps:get(port, ProfileConfig),
         url_expire_time => maps:get(url_expire_time, ProfileConfig),
         headers => maps:get(headers, HTTPOpts, #{}),
-        acl => maps:get(acl, ProfileConfig, undefined),
-        bucket => maps:get(bucket, ProfileConfig),
         access_key_id => maps:get(access_key_id, ProfileConfig, undefined),
         secret_access_key => maps:get(secret_access_key, ProfileConfig, undefined),
         request_timeout => maps:get(request_timeout, HTTPOpts, undefined),
@@ -213,6 +229,12 @@ uploader_config(#{max_part_size := MaxPartSize, min_part_size := MinPartSize} = 
         min_part_size => MinPartSize,
         max_part_size => MaxPartSize
     }.
+
+bucket(ProfileConfig) ->
+    maps:get(bucket, ProfileConfig).
+
+upload_options(ProfileConfig) ->
+    #{acl => maps:get(acl, ProfileConfig, undefined)}.
 
 scheme(#{ssl := #{enable := true}}) -> "https://";
 scheme(_TransportOpts) -> "http://".

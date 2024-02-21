@@ -292,16 +292,19 @@ t_update_source(_) ->
 t_replace_all(_) ->
     RootKey = [<<"authorization">>],
     Conf = emqx:get_raw_config(RootKey),
-    emqx_authz_utils:update_config(RootKey, Conf#{
-        <<"sources">> => [
-            ?SOURCE_FILE1,
-            ?SOURCE_REDIS,
-            ?SOURCE_POSTGRESQL,
-            ?SOURCE_MYSQL,
-            ?SOURCE_MONGODB,
-            ?SOURCE_HTTP
-        ]
-    }),
+    ?assertMatch(
+        {ok, _},
+        emqx_authz_utils:update_config(RootKey, Conf#{
+            <<"sources">> => [
+                ?SOURCE_FILE1,
+                ?SOURCE_REDIS,
+                ?SOURCE_POSTGRESQL,
+                ?SOURCE_MYSQL,
+                ?SOURCE_MONGODB,
+                ?SOURCE_HTTP
+            ]
+        })
+    ),
     %% config
     ?assertMatch(
         [
@@ -561,7 +564,7 @@ t_publish_last_will_testament_banned_client_connecting(_Config) ->
 
     %% Now we ban the client while it is connected.
     Now = erlang:system_time(second),
-    Who = {username, Username},
+    Who = emqx_banned:who(username, Username),
     emqx_banned:create(#{
         who => Who,
         by => <<"test">>,

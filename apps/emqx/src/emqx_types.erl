@@ -100,6 +100,7 @@
 
 -export_type([
     banned/0,
+    banned_who/0,
     command/0
 ]).
 
@@ -173,7 +174,7 @@
     atom() => term()
 }.
 -type clientinfo() :: #{
-    zone := maybe(zone()),
+    zone := option(zone()),
     protocol := protocol(),
     peerhost := peerhost(),
     sockport := non_neg_integer(),
@@ -181,9 +182,9 @@
     username := username(),
     is_bridge := boolean(),
     is_superuser := boolean(),
-    mountpoint := maybe(binary()),
-    ws_cookie => maybe(list()),
-    password => maybe(binary()),
+    mountpoint := option(binary()),
+    ws_cookie => option(list()),
+    password => option(binary()),
     auth_result => auth_result(),
     anonymous => boolean(),
     cn => binary(),
@@ -191,8 +192,8 @@
     atom() => term()
 }.
 -type clientid() :: binary() | atom().
--type username() :: maybe(binary()).
--type password() :: maybe(binary()).
+-type username() :: option(binary()).
+-type password() :: option(binary()).
 -type peerhost() :: inet:ip_address().
 -type peername() ::
     {inet:ip_address(), inet:port_number()}
@@ -222,8 +223,8 @@
 -type packet_id() :: 1..16#FFFF.
 -type alias_id() :: 0..16#FFFF.
 -type topic_aliases() :: #{
-    inbound => maybe(map()),
-    outbound => maybe(map())
+    inbound => option(map()),
+    outbound => option(map())
 }.
 -type properties() :: #{atom() => term()}.
 -type topic_filters() :: list({topic(), subopts()}).
@@ -246,6 +247,14 @@
 }.
 
 -type banned() :: #banned{}.
+-type banned_who() ::
+    {clientid, binary()}
+    | {peerhost, inet:ip_address()}
+    | {username, binary()}
+    | {clientid_re, {_RE :: tuple(), binary()}}
+    | {username_re, {_RE :: tuple(), binary()}}
+    | {peerhost_net, esockd_cidr:cidr()}.
+
 -type deliver() :: {deliver, topic(), message()}.
 -type delivery() :: #delivery{}.
 -type deliver_result() :: ok | {ok, non_neg_integer()} | {error, term()}.

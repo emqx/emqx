@@ -119,11 +119,13 @@ delete_all_connectors() ->
     ).
 
 %% test helpers
-parse_and_check(BridgeType, BridgeName, ConfigString) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{BridgeType := #{BridgeName := BridgeConfig}}} = RawConf,
-    BridgeConfig.
+parse_and_check(Type, Name, InnerConfigMap0) ->
+    TypeBin = emqx_utils_conv:bin(Type),
+    RawConf = #{<<"actions">> => #{TypeBin => #{Name => InnerConfigMap0}}},
+    #{<<"actions">> := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
+        emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}
+    ),
+    InnerConfigMap.
 
 bridge_id(Config) ->
     BridgeType = ?config(bridge_type, Config),

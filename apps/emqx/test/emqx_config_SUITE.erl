@@ -76,8 +76,7 @@ t_fill_default_values(C) when is_list(C) ->
                             <<"trie_compaction">> := true
                         },
                     <<"route_batch_clean">> := false,
-                    <<"session_locking_strategy">> := <<"quorum">>,
-                    <<"shared_subscription_strategy">> := <<"round_robin">>
+                    <<"session_history_retain">> := <<"0s">>
                 }
         },
         WithDefaults
@@ -446,6 +445,7 @@ zone_global_defaults() ->
                 response_information => [],
                 retain_available => true,
                 retry_interval => 30000,
+                message_expiry_interval => infinity,
                 server_keepalive => disabled,
                 session_expiry_interval => 7200000,
                 shared_subscription => true,

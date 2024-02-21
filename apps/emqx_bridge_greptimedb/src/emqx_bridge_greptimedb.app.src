@@ -1,6 +1,6 @@
 {application, emqx_bridge_greptimedb, [
     {description, "EMQX GreptimeDB Bridge"},
-    {vsn, "0.1.7"},
+    {vsn, "0.1.8"},
     {registered, []},
     {applications, [
         kernel,
@@ -8,7 +8,7 @@
         emqx_resource,
         greptimedb
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_greptimedb_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

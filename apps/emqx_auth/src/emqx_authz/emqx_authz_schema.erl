@@ -22,7 +22,8 @@
 -export([
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    namespace/0
 ]).
 
 -export([
@@ -40,6 +41,10 @@
     default_authz/0,
     authz_common_fields/1
 ]).
+
+-ifdef(TEST).
+-export([source_schema_mods/0]).
+-endif.
 
 -define(AUTHZ_MODS_PT_KEY, {?MODULE, authz_schema_mods}).
 
@@ -64,6 +69,8 @@
 %%--------------------------------------------------------------------
 
 roots() -> [].
+
+namespace() -> undefined.
 
 fields(?CONF_NS) ->
     emqx_schema:authz_fields() ++ authz_fields();

@@ -675,9 +675,19 @@ merge_to_override_config(RawConf, Opts) ->
     maps:merge(UpgradedOldConf, RawConf).
 
 upgrade_conf(Conf) ->
+    ConfigLoader = emqx_app:get_config_loader(),
+    %% ensure module loaded
+    _ = ConfigLoader:module_info(),
+    case erlang:function_exported(ConfigLoader, schema_module, 0) of
+        true ->
+            try_upgrade_conf(apply(ConfigLoader, schema_module, []), Conf);
+        false ->
+            %% this happens during emqx app standalone test
+            Conf
+    end.
+
+try_upgrade_conf(SchemaModule, Conf) ->
     try
-        ConfLoader = emqx_app:get_config_loader(),
-        SchemaModule = apply(ConfLoader, schema_module, []),
         apply(SchemaModule, upgrade_raw_conf, [Conf])
     catch
         ErrorType:Reason:Stack ->

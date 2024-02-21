@@ -1,5 +1,5 @@
 %%-------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -124,7 +124,8 @@
     {?CHAN_TAB, 'channels.count', 'channels.max'},
     {?CHAN_TAB, 'sessions.count', 'sessions.max'},
     {?CHAN_CONN_TAB, 'connections.count', 'connections.max'},
-    {?CHAN_LIVE_TAB, 'live_connections.count', 'live_connections.max'}
+    {?CHAN_LIVE_TAB, 'live_connections.count', 'live_connections.max'},
+    {?CHAN_REG_TAB, 'cluster_sessions.count', 'cluster_sessions.max'}
 ]).
 
 %% Batch drain
@@ -200,12 +201,12 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     true.
 
 %% @doc Get info of a channel.
--spec get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos()).
+-spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
 get_chan_info(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_info(ClientId, ChanPid) end).
 
 -spec do_get_chan_info(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:infos()).
+    option(emqx_types:infos()).
 do_get_chan_info(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try
@@ -215,7 +216,7 @@ do_get_chan_info(ClientId, ChanPid) ->
     end.
 
 -spec get_chan_info(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:infos()).
+    option(emqx_types:infos()).
 get_chan_info(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v2:get_chan_info(ClientId, ChanPid)).
 
@@ -230,12 +231,12 @@ set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
     end.
 
 %% @doc Get channel's stats.
--spec get_chan_stats(emqx_types:clientid()) -> maybe(emqx_types:stats()).
+-spec get_chan_stats(emqx_types:clientid()) -> option(emqx_types:stats()).
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:stats()).
+    option(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try
@@ -245,7 +246,7 @@ do_get_chan_stats(ClientId, ChanPid) ->
     end.
 
 -spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
-    maybe(emqx_types:stats()).
+    option(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v2:get_chan_stats(ClientId, ChanPid)).
 
@@ -325,7 +326,7 @@ takeover_session_end({ConnMod, ChanPid}) ->
     end.
 
 -spec pick_channel(emqx_types:clientid()) ->
-    maybe(pid()).
+    option(pid()).
 pick_channel(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
@@ -670,7 +671,11 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}
     ChanPids = [Pid | emqx_utils:drain_down(BatchSize)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
     lists:foreach(fun mark_channel_disconnected/1, ChanPids),
-    ok = emqx_pool:async_submit(fun lists:foreach/2, [fun ?MODULE:clean_down/1, Items]),
+    ok = emqx_pool:async_submit_to_pool(
+        ?CM_POOL,
+        fun lists:foreach/2,
+        [fun ?MODULE:clean_down/1, Items]
+    ),
     {noreply, State#{chan_pmon := PMon1}};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),

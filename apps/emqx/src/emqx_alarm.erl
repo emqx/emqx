@@ -21,12 +21,9 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
+-export([create_tables/0]).
 -export([start_link/0]).
+
 %% API
 -export([
     activate/1,
@@ -86,7 +83,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+create_tables() ->
     ok = mria:create_table(
         ?ACTIVATED_ALARM,
         [
@@ -106,7 +103,8 @@ mnesia(boot) ->
             {record_name, deactivated_alarm},
             {attributes, record_info(fields, deactivated_alarm)}
         ]
-    ).
+    ),
+    [?ACTIVATED_ALARM, ?DEACTIVATED_ALARM].
 
 %%--------------------------------------------------------------------
 %% API

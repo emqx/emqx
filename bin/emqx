@@ -408,6 +408,8 @@ remsh() {
             -setcookie "$COOKIE" \
             -hidden \
             -kernel net_ticktime "$TICKTIME" \
+            +Q 65536 \
+            +S 2 \
             $EPMD_ARGS
     else
         set -- "$REL_DIR/iex" \
@@ -418,6 +420,8 @@ remsh() {
             --erl "-kernel net_ticktime $TICKTIME" \
             --erl "$EPMD_ARGS" \
             --erl "$NAME_TYPE $id" \
+            --erl "+Q 65536" \
+            --erl "+S 2" \
             --boot "$REL_DIR/start_clean"
     fi
     exec "$@"
@@ -1184,10 +1188,10 @@ case "${COMMAND}" in
         esac
         case "$COMMAND" in
             foreground)
-                FOREGROUNDOPTIONS="-noshell -noinput +Bd"
+                FOREGROUNDOPTIONS="-enable-feature maybe_expr -noshell -noinput +Bd"
                 ;;
             *)
-                FOREGROUNDOPTIONS=''
+                FOREGROUNDOPTIONS='-enable-feature maybe_expr'
                 ;;
         esac
 

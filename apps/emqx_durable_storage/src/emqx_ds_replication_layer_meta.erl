@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@
     in_sync_replicas/2,
     sites/0,
     open_db/2,
+    get_options/1,
     update_db_config/2,
     drop_db/1,
     shard_leader/2,
@@ -126,15 +127,24 @@ print_status() ->
         end,
         eval_qlc(mnesia:table(?NODE_TAB))
     ),
-    io:format("~nSHARDS~n", []),
+    io:format(
+        "~nSHARDS:~nId                             Leader                            Status~n", []
+    ),
     lists:foreach(
         fun(#?SHARD_TAB{shard = {DB, Shard}, leader = Leader}) ->
+            ShardStr = string:pad(io_lib:format("~p/~s", [DB, Shard]), 30),
+            LeaderStr = string:pad(atom_to_list(Leader), 33),
             Status =
                 case lists:member(Leader, Nodes) of
-                    true -> up;
-                    false -> down
+                    true ->
+                        case node() of
+                            Leader -> "up *";
+                            _ -> "up"
+                        end;
+                    false ->
+                        "down"
                 end,
-            io:format("~p/~s    ~p    ~p~n", [DB, Shard, Leader, Status])
+            io:format("~s ~s ~s~n", [ShardStr, LeaderStr, Status])
         end,
         eval_qlc(mnesia:table(?SHARD_TAB))
     ).
@@ -230,6 +240,11 @@ is_leader(Node) ->
     {atomic, Result} = mria:transaction(?SHARD, fun ?MODULE:is_leader_trans/1, [Node]),
     Result.
 
+-spec get_options(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
+get_options(DB) ->
+    {atomic, Opts} = mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, undefined]),
+    Opts.
+
 -spec open_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db(DB, DefaultOpts) ->
@@ -293,11 +308,11 @@ terminate(_Reason, #s{}) ->
 %% Internal exports
 %%================================================================================
 
--spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
+-spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts() | undefined) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db_trans(DB, CreateOpts) ->
     case mnesia:wread({?META_TAB, DB}) of
-        [] ->
+        [] when is_map(CreateOpts) ->
             NShards = maps:get(n_shards, CreateOpts),
             ReplicationFactor = maps:get(replication_factor, CreateOpts),
             mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),
@@ -388,7 +403,7 @@ ensure_tables() ->
         {rlog_shard, ?SHARD},
         {majority, Majority},
         {type, ordered_set},
-        {storage, rocksdb_copies},
+        {storage, disc_copies},
         {record_name, ?META_TAB},
         {attributes, record_info(fields, ?META_TAB)}
     ]),
@@ -396,7 +411,7 @@ ensure_tables() ->
         {rlog_shard, ?SHARD},
         {majority, Majority},
         {type, ordered_set},
-        {storage, rocksdb_copies},
+        {storage, disc_copies},
         {record_name, ?NODE_TAB},
         {attributes, record_info(fields, ?NODE_TAB)}
     ]),
@@ -411,7 +426,7 @@ ensure_tables() ->
     ok = mria:wait_for_tables([?META_TAB, ?NODE_TAB, ?SHARD_TAB]).
 
 ensure_site() ->
-    Filename = filename:join(emqx:data_dir(), "emqx_ds_builtin_site.eterm"),
+    Filename = filename:join(emqx_ds:base_dir(), "emqx_ds_builtin_site.eterm"),
     case file:consult(Filename) of
         {ok, [Site]} ->
             ok;

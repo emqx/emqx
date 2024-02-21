@@ -42,10 +42,8 @@ suite() -> [{timetrap, {minutes, 5}}].
 groups() -> [].
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
     ok = emqx_common_test_helpers:start_apps([]),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
+    ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
     ok = emqx_config:put([node, cluster_call, retry_interval], 1000),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
@@ -56,10 +54,6 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([]),
-    ekka:stop(),
-    mria:stop(),
-    meck:unload(mria),
-    mria_mnesia:delete_schema(),
     meck:unload(emqx_alarm),
     ok.
 

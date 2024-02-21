@@ -47,13 +47,16 @@
     api_spec/0,
     paths/0,
     schema/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 -define(BAD_TOPIC, 'BAD_TOPIC').
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 -define(BAD_REQUEST, 'BAD_REQUEST').
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

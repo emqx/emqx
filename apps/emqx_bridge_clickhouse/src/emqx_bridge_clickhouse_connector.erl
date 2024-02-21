@@ -23,7 +23,8 @@
 -export([
     roots/0,
     fields/1,
-    values/1
+    values/1,
+    namespace/0
 ]).
 
 %% callbacks for behaviour emqx_resource
@@ -31,6 +32,10 @@
     callback_mode/0,
     on_start/2,
     on_stop/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channel_status/3,
+    on_get_channels/1,
     on_query/3,
     on_batch_query/3,
     on_get_status/2
@@ -61,6 +66,7 @@
 
 -type state() ::
     #{
+        channels => #{binary() => templates()},
         templates := templates(),
         pool_name := binary(),
         connect_timeout := pos_integer()
@@ -71,6 +77,8 @@
 %%=====================================================================
 %% Configuration and default values
 %%=====================================================================
+
+namespace() -> clickhouse.
 
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
@@ -152,10 +160,9 @@ on_start(
         {pool, InstanceID}
     ],
     try
-        Templates = prepare_sql_templates(Config),
         State = #{
+            channels => #{},
             pool_name => InstanceID,
-            templates => Templates,
             connect_timeout => ConnectTimeout
         },
         case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
@@ -192,10 +199,8 @@ prepare_sql_templates(#{
     sql := Template,
     batch_value_separator := Separator
 }) ->
-    InsertTemplate =
-        emqx_placeholder:preproc_tmpl(Template),
-    BulkExtendInsertTemplate =
-        prepare_sql_bulk_extend_template(Template, Separator),
+    InsertTemplate = emqx_placeholder:preproc_tmpl(Template),
+    BulkExtendInsertTemplate = prepare_sql_bulk_extend_template(Template, Separator),
     #{
         send_message_template => InsertTemplate,
         extend_send_message_template => BulkExtendInsertTemplate
@@ -283,6 +288,27 @@ on_stop(InstanceID, _State) ->
     emqx_resource_pool:stop(InstanceID).
 
 %% -------------------------------------------------------------------
+%% channel related emqx_resouce callbacks
+%% -------------------------------------------------------------------
+on_add_channel(_InstId, #{channels := Channs} = OldState, ChannId, ChannConf0) ->
+    #{parameters := ParamConf} = ChannConf0,
+    NewChanns = Channs#{ChannId => #{templates => prepare_sql_templates(ParamConf)}},
+    {ok, OldState#{channels => NewChanns}}.
+
+on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannId) ->
+    NewState = State#{channels => maps:remove(ChannId, Channels)},
+    {ok, NewState}.
+
+on_get_channel_status(InstanceId, _ChannId, State) ->
+    case on_get_status(InstanceId, State) of
+        {connected, _} -> connected;
+        {disconnected, _, _} -> disconnected
+    end.
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+
+%% -------------------------------------------------------------------
 %% on_get_status emqx_resouce callback and related functions
 %% -------------------------------------------------------------------
 
@@ -336,8 +362,8 @@ do_get_status(PoolName, Timeout) ->
 
 -spec on_query
     (resource_id(), Request, resource_state()) -> query_result() when
-        Request :: {RequestType, Data},
-        RequestType :: send_message,
+        Request :: {ChannId, Data},
+        ChannId :: binary(),
         Data :: map();
     (resource_id(), Request, resource_state()) -> query_result() when
         Request :: {RequestType, SQL},
@@ -358,12 +384,20 @@ on_query(
     }),
     %% Have we got a query or data to fit into an SQL template?
     SimplifiedRequestType = query_type(RequestType),
-    #{templates := Templates} = State,
+    Templates = get_templates(RequestType, State),
     SQL = get_sql(SimplifiedRequestType, Templates, DataOrSQL),
     ClickhouseResult = execute_sql_in_clickhouse_server(PoolName, SQL),
     transform_and_log_clickhouse_result(ClickhouseResult, ResourceID, SQL).
 
-get_sql(send_message, #{send_message_template := PreparedSQL}, Data) ->
+get_templates(ChannId, State) ->
+    case maps:find(channels, State) of
+        {ok, Channels} ->
+            maps:get(templates, maps:get(ChannId, Channels, #{}), #{});
+        error ->
+            #{}
+    end.
+
+get_sql(channel_message, #{send_message_template := PreparedSQL}, Data) ->
     emqx_placeholder:proc_tmpl(PreparedSQL, Data);
 get_sql(_, _, SQL) ->
     SQL.
@@ -373,24 +407,21 @@ query_type(sql) ->
 query_type(query) ->
     query;
 %% Data that goes to bridges use the prepared template
-query_type(send_message) ->
-    send_message.
+query_type(ChannId) when is_binary(ChannId) ->
+    channel_message.
 
 %% -------------------------------------------------------------------
 %% on_batch_query emqx_resouce callback and related functions
 %% -------------------------------------------------------------------
 
 -spec on_batch_query(resource_id(), BatchReq, resource_state()) -> query_result() when
-    BatchReq :: nonempty_list({'send_message', map()}).
+    BatchReq :: nonempty_list({binary(), map()}).
 
-on_batch_query(
-    ResourceID,
-    BatchReq,
-    #{pool_name := PoolName, templates := Templates} = _State
-) ->
-    %% Currently we only support batch requests with the send_message key
-    {Keys, ObjectsToInsert} = lists:unzip(BatchReq),
-    ensure_keys_are_of_type_send_message(Keys),
+on_batch_query(ResourceID, BatchReq, #{pool_name := PoolName} = State) ->
+    %% Currently we only support batch requests with a binary ChannId
+    {[ChannId | _] = Keys, ObjectsToInsert} = lists:unzip(BatchReq),
+    ensure_channel_messages(Keys),
+    Templates = get_templates(ChannId, State),
     %% Create batch insert SQL statement
     SQL = objects_to_sql(ObjectsToInsert, Templates),
     %% Do the actual query in the database
@@ -398,21 +429,15 @@ on_batch_query(
     %% Transform the result to a better format
     transform_and_log_clickhouse_result(ResultFromClickhouse, ResourceID, SQL).
 
-ensure_keys_are_of_type_send_message(Keys) ->
-    case lists:all(fun is_send_message_atom/1, Keys) of
+ensure_channel_messages(Keys) ->
+    case lists:all(fun is_binary/1, Keys) of
         true ->
             ok;
         false ->
             erlang:error(
-                {unrecoverable_error,
-                    <<"Unexpected type for batch message (Expected send_message)">>}
+                {unrecoverable_error, <<"Unexpected type for batch message (Expected channel-id)">>}
             )
     end.
-
-is_send_message_atom(send_message) ->
-    true;
-is_send_message_atom(_) ->
-    false.
 
 objects_to_sql(
     [FirstObject | RemainingObjects] = _ObjectsToInsert,

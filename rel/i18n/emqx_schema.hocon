@@ -191,6 +191,12 @@ mqtt_session_expiry_interval.desc:
 mqtt_session_expiry_interval.label:
 """Session Expiry Interval"""
 
+mqtt_message_expiry_interval.desc:
+"""The expiry interval of MQTT messages. For MQTT 5.0 clients, this configuration will only take effect when the Message-Expiry-Interval property is not set in the message; otherwise, the value of the Message-Expiry-Interval property will be used. For MQTT versions older than 5.0, this configuration will always take effect. Please note that setting message_expiry_interval greater than session_expiry_interval is meaningless, as all messages will be cleared when the session expires."""
+
+mqtt_message_expiry_interval.label:
+"""Message Expiry Interval"""
+
 fields_listener_enabled.desc:
 """Enable listener."""
 
@@ -1016,7 +1022,7 @@ fields_ws_opts_supported_subprotocols.desc:
 fields_ws_opts_supported_subprotocols.label:
 """Supported subprotocols"""
 
-broker_shared_subscription_strategy.desc:
+mqtt_shared_subscription_strategy.desc:
 """Dispatch strategy for shared subscription.
  - `random`: Randomly select a subscriber for dispatch;
  - `round_robin`: Messages from a single publisher are dispatched to subscribers in turn;
@@ -1275,6 +1281,13 @@ fields_ws_opts_allow_origin_absence.desc:
 fields_ws_opts_allow_origin_absence.label:
 """Allow origin absence"""
 
+fields_ws_opts_validate_utf8.desc:
+"""Set to <code>false</code> to disable WebSocket Frame UTF-8
+  validation for performance"""
+
+fields_ws_opts_validate_utf8.label:
+"""Enable/Disable WebSocket Frame utf8 validation"""
+
 common_ssl_opts_schema_versions.desc:
 """All TLS/DTLS versions to be supported.<br/>
 NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config.<br/>
@@ -1407,7 +1420,21 @@ force_shutdown_enable.label:
 """Enable `force_shutdown` feature"""
 
 broker_enable_session_registry.desc:
-"""Enable session registry"""
+"""The Global Session Registry is a cluster-wide mechanism designed to maintain the uniqueness of client IDs within the cluster.
+Recommendations for Use<br/>
+- Default Setting: It is generally advisable to enable. This feature is crucial for session takeover to work properly. For example if a client reconnected to another node in the cluster, the new connection will need to find the old session and take it over.
+- Disabling the Feature: Disabling is an option for scenarios when all sessions expire immediately after client is disconnected (i.e. session expiry interval is zero). This can be relevant in certain specialized use cases.
+
+Advantages of Disabling<br/>
+- Reduced Memory Usage: Turning off the session registry can lower the overall memory footprint of the system.
+- Improved Performance: Without the overhead of maintaining a global registry, the node can process client connections faster."""
+
+broker_session_history_retain.desc:
+"""The duration to retain the session registration history. Setting this to a value greater than `0s` will increase memory usage and impact peformance.
+This retained history can be used to monitor how many sessions were registered in the past configured duration.
+Note: This config has no effect if `enable_session_registry` is set to `false`.<br/>
+Note: If the clients are using random client IDs, it's not recommended to enable this feature, at least not for a long retention period.<br/>
+Note: When clustered, the lowest (but greater than `0s`) value among the nodes in the cluster will take effect."""
 
 overload_protection_backoff_delay.desc:
 """The maximum duration of delay for background task execution during high load conditions."""
@@ -1607,6 +1634,9 @@ session_ds_min_batch_size.desc:
 The session will query the DB for the new messages when the value of `FreeSpace` variable is larger than this value or `ReceiveMaximum` / 2, whichever is smaller.
 
 `FreeSpace` is calculated as `ReceiveMaximum` for the session - number of inflight messages."""
+
+session_ds_message_retention_period.desc:
+"""The minimum amount of time that messages should be retained for.  After messages have been in storage for at least this period of time, they'll be dropped."""
 
 
 }

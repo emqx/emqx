@@ -217,7 +217,7 @@ t_banned_delayed(_) ->
     ClientId2 = <<"bc2">>,
 
     Now = erlang:system_time(second),
-    Who = {clientid, ClientId2},
+    Who = emqx_banned:who(clientid, ClientId2),
     emqx_banned:create(#{
         who => Who,
         by => <<"test">>,

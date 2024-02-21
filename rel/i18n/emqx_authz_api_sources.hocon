@@ -35,6 +35,11 @@ authorization_sources_type_status_get.desc:
 authorization_sources_type_status_get.label:
 """Get a authorization source"""
 
+authorization_sources_order_put.desc:
+"""Reorder all authorization sources."""
+authorization_sources_order_put.label:
+"""Reorder Authorization Sources"""
+
 source.desc:
 """Authorization source"""
 source.label:

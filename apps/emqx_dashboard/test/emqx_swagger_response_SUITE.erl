@@ -282,7 +282,7 @@ t_bad_ref(_Config) ->
 t_none_ref(_Config) ->
     Path = "/ref/none",
     ?assertError(
-        {failed_to_generate_swagger_spec, ?MODULE, Path},
+        {failed_to_generate_swagger_spec, ?MODULE, Path, error, _FunctionClause, _Stacktrace},
         validate(Path, #{}, [])
     ),
     ok.
@@ -680,6 +680,7 @@ to_schema(Object) ->
         post => #{responses => #{200 => Object, 201 => Object}}
     }.
 
+rotos() -> [].
 namespace() -> undefined.
 
 fields(good_ref) ->

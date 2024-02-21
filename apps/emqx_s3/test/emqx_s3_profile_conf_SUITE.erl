@@ -46,7 +46,7 @@ end_per_testcase(_TestCase, _Config) ->
 t_regular_outdated_pool_cleanup(Config) ->
     _ = process_flag(trap_exit, true),
     Key = emqx_s3_test_helpers:unique_key(),
-    {ok, Pid} = emqx_s3:start_uploader(profile_id(), #{key => Key}),
+    {ok, Pid} = emqx_s3:start_uploader(profile_id(), Key, #{}),
 
     [OldPool] = emqx_s3_profile_http_pools:all(profile_id()),
 
@@ -94,7 +94,7 @@ t_timeout_pool_cleanup(Config) ->
 
     %% Start uploader
     Key = emqx_s3_test_helpers:unique_key(),
-    {ok, Pid} = emqx_s3:start_uploader(profile_id(), #{key => Key}),
+    {ok, Pid} = emqx_s3:start_uploader(profile_id(), Key, #{}),
     ok = emqx_s3_uploader:write(Pid, <<"data">>),
 
     [OldPool] = emqx_s3_profile_http_pools:all(profile_id()),

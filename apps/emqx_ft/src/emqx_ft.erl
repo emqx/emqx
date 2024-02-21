@@ -218,7 +218,7 @@ do_on_file_command(TopicReplyData, FileId, Msg, FileCommand) ->
         [<<"fin">>, FinalSizeBin | MaybeChecksum] when length(MaybeChecksum) =< 1 ->
             ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
             validate(
-                [{size, FinalSizeBin}, {{maybe, checksum}, ChecksumBin}],
+                [{size, FinalSizeBin}, {{option, checksum}, ChecksumBin}],
                 fun([FinalSize, FinalChecksum]) ->
                     on_fin(TopicReplyData, Msg, Transfer, FinalSize, FinalChecksum)
                 end
@@ -464,9 +464,9 @@ do_validate([{integrity, Payload, {Algo, Checksum}} | Rest], Parsed) ->
         Mismatch ->
             {error, {checksum_mismatch, binary:encode_hex(Mismatch)}}
     end;
-do_validate([{{maybe, _}, undefined} | Rest], Parsed) ->
+do_validate([{{option, _}, undefined} | Rest], Parsed) ->
     do_validate(Rest, [undefined | Parsed]);
-do_validate([{{maybe, T}, Value} | Rest], Parsed) ->
+do_validate([{{option, T}, Value} | Rest], Parsed) ->
     do_validate([{T, Value} | Rest], Parsed).
 
 parse_checksum(Checksum) when is_binary(Checksum) andalso byte_size(Checksum) =:= 64 ->

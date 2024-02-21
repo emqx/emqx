@@ -28,7 +28,8 @@
     api_spec/0,
     paths/0,
     schema/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 -export([format/1]).
@@ -38,12 +39,14 @@
     delete_banned/2
 ]).
 
--define(TAB, emqx_banned).
 -define(TAGS, [<<"Banned">>]).
 
--define(BANNED_TYPES, [clientid, username, peerhost]).
+-define(BANNED_TYPES, [clientid, username, peerhost, clientid_re, username_re, peerhost_net]).
 
 -define(FORMAT_FUN, {?MODULE, format}).
+
+namespace() ->
+    undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -161,7 +164,7 @@ fields(ban) ->
     ].
 
 banned(get, #{query_string := Params}) ->
-    Response = emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN),
+    Response = emqx_mgmt_api:paginate(emqx_banned:tables(), Params, ?FORMAT_FUN),
     {200, Response};
 banned(post, #{body := Body}) ->
     case emqx_banned:parse(Body) of

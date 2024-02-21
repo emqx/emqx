@@ -72,7 +72,7 @@ groups() ->
             t_dollar_topics,
             t_sub_non_utf8_topic
         ]},
-        {mqttv5, [non_parallel_tests], [t_basic_with_props_v5]},
+        {mqttv5, [non_parallel_tests], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
         {others, [non_parallel_tests], [
             t_username_as_clientid,
             t_certcn_as_clientid_default_config_tls,
@@ -103,14 +103,14 @@ end_per_testcase(_Case, _Config) ->
 %%--------------------------------------------------------------------
 
 t_basic_v3(_) ->
-    t_basic([{proto_ver, v3}]).
+    run_basic([{proto_ver, v3}]).
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v4
 %%--------------------------------------------------------------------
 
 t_basic_v4(_Config) ->
-    t_basic([{proto_ver, v4}]).
+    run_basic([{proto_ver, v4}]).
 
 t_cm(_) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
@@ -335,19 +335,30 @@ t_sub_non_utf8_topic(_) ->
 %% Test cases for MQTT v5
 %%--------------------------------------------------------------------
 
-t_basic_with_props_v5(_) ->
-    t_basic([
+v5_conn_props(ReceiveMaximum) ->
+    [
         {proto_ver, v5},
-        {properties, #{'Receive-Maximum' => 4}}
-    ]).
+        {properties, #{'Receive-Maximum' => ReceiveMaximum}}
+    ].
+
+t_basic_with_props_v5(_) ->
+    run_basic(v5_conn_props(4)).
+
+t_v5_receive_maximim_in_connack(_) ->
+    ReceiveMaximum = 7,
+    {ok, C} = emqtt:start_link(v5_conn_props(ReceiveMaximum)),
+    {ok, Props} = emqtt:connect(C),
+    ?assertMatch(#{'Receive-Maximum' := ReceiveMaximum}, Props),
+    ok = emqtt:disconnect(C),
+    ok.
 
 %%--------------------------------------------------------------------
 %% General test cases.
 %%--------------------------------------------------------------------
 
-t_basic(_Opts) ->
+run_basic(Opts) ->
     Topic = nth(1, ?TOPICS),
-    {ok, C} = emqtt:start_link([{proto_ver, v4}]),
+    {ok, C} = emqtt:start_link(Opts),
     {ok, _} = emqtt:connect(C),
     {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
     {ok, _, [2]} = emqtt:subscribe(C, Topic, qos2),

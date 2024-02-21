@@ -53,7 +53,8 @@
     <<"alarm">>,
     <<"sys_topics">>,
     <<"sysmon">>,
-    <<"log">>
+    <<"log">>,
+    <<"broker">>
     | ?ROOT_KEYS_EE
 ]).
 

@@ -22,6 +22,7 @@
 -export([init/1]).
 
 start_link() ->
+    _ = mria:wait_for_tables(emqx_alarm:create_tables()),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->

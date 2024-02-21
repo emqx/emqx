@@ -27,6 +27,8 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 
+-define(join(List), lists:join(", ", List)).
+
 -export([
     get_raw_sources/0,
     get_raw_source/1,
@@ -39,19 +41,24 @@
     api_spec/0,
     paths/0,
     schema/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 -export([
     sources/2,
     source/2,
     source_move/2,
+    sources_order/2,
     aggregate_metrics/1
 ]).
 
 -export([with_source/2]).
 
 -define(TAGS, [<<"Authorization">>]).
+
+namespace() ->
+    undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -61,7 +68,8 @@ paths() ->
         "/authorization/sources",
         "/authorization/sources/:type",
         "/authorization/sources/:type/status",
-        "/authorization/sources/:type/move"
+        "/authorization/sources/:type/move",
+        "/authorization/sources/order"
     ].
 
 fields(sources) ->
@@ -77,6 +85,15 @@ fields(position) ->
                     in => body
                 }
             )}
+    ];
+fields(request_sources_order) ->
+    [
+        {type,
+            mk(enum(emqx_authz_schema:source_types()), #{
+                desc => ?DESC(source_type),
+                required => true,
+                example => "file"
+            })}
     ].
 
 %%--------------------------------------------------------------------
@@ -196,6 +213,22 @@ schema("/authorization/sources/:type/move") ->
                         404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
                     }
             }
+    };
+schema("/authorization/sources/order") ->
+    #{
+        'operationId' => sources_order,
+        put => #{
+            tags => ?TAGS,
+            description => ?DESC(authorization_sources_order_put),
+            'requestBody' => mk(
+                hoconsc:array(ref(?MODULE, request_sources_order)),
+                #{}
+            ),
+            responses => #{
+                204 => <<"Authorization sources order updated">>,
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+            }
+        }
     }.
 
 %%--------------------------------------------------------------------
@@ -316,6 +349,30 @@ source_move(post, #{bindings := #{type := Type}, body := #{<<"position">> := Pos
             end
         end
     ).
+
+sources_order(put, #{body := AuthzOrder}) ->
+    SourcesOrder = [Type || #{<<"type">> := Type} <- AuthzOrder],
+    case emqx_authz:reorder(SourcesOrder) of
+        {ok, _} ->
+            {204};
+        {error, {_PrePostConfUpd, _, #{not_found := NotFound, not_reordered := NotReordered}}} ->
+            NotFoundFmt = "Authorization sources: ~ts are not found",
+            NotReorderedFmt = "No positions are specified for authorization sources: ~ts",
+            Msg =
+                case {NotFound, NotReordered} of
+                    {[_ | _], []} ->
+                        binfmt(NotFoundFmt, [?join(NotFound)]);
+                    {[], [_ | _]} ->
+                        binfmt(NotReorderedFmt, [?join(NotReordered)]);
+                    _ ->
+                        binfmt(NotFoundFmt ++ ", " ++ NotReorderedFmt, [
+                            ?join(NotFound), ?join(NotReordered)
+                        ])
+                end,
+            {400, #{code => <<"BAD_REQUEST">>, message => Msg}};
+        {error, Reason} ->
+            {400, #{code => <<"BAD_REQUEST">>, message => bin(Reason)}}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -556,7 +613,9 @@ position_example() ->
             }
     }.
 
-bin(Term) -> erlang:iolist_to_binary(io_lib:format("~p", [Term])).
+bin(Term) -> binfmt("~p", [Term]).
+
+binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
 status_metrics_example() ->
     #{

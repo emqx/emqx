@@ -28,7 +28,8 @@
     api_spec/0,
     paths/0,
     schema/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 -export([subscriptions/2]).
@@ -47,6 +48,9 @@
     {<<"qos">>, integer},
     {<<"match_topic">>, binary}
 ]).
+
+namespace() ->
+    undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

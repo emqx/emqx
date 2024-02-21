@@ -91,7 +91,6 @@ api_schemas(Method) ->
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
         api_ref(emqx_bridge_http_schema, <<"http">>, Method ++ "_connector"),
-        % api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt_subscriber">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt">>, Method ++ "_connector")
     ].
 
@@ -129,14 +128,24 @@ connector_type_to_bridge_types(confluent_producer) ->
     [confluent_producer];
 connector_type_to_bridge_types(gcp_pubsub_producer) ->
     [gcp_pubsub, gcp_pubsub_producer];
+connector_type_to_bridge_types(hstreamdb) ->
+    [hstreamdb];
 connector_type_to_bridge_types(kafka_producer) ->
     [kafka, kafka_producer];
+connector_type_to_bridge_types(kinesis) ->
+    [kinesis, kinesis_producer];
 connector_type_to_bridge_types(matrix) ->
     [matrix];
 connector_type_to_bridge_types(mongodb) ->
     [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
+connector_type_to_bridge_types(oracle) ->
+    [oracle];
 connector_type_to_bridge_types(influxdb) ->
     [influxdb, influxdb_api_v1, influxdb_api_v2];
+connector_type_to_bridge_types(cassandra) ->
+    [cassandra];
+connector_type_to_bridge_types(clickhouse) ->
+    [clickhouse];
 connector_type_to_bridge_types(mysql) ->
     [mysql];
 connector_type_to_bridge_types(mqtt) ->
@@ -145,6 +154,8 @@ connector_type_to_bridge_types(pgsql) ->
     [pgsql];
 connector_type_to_bridge_types(redis) ->
     [redis, redis_single, redis_sentinel, redis_cluster];
+connector_type_to_bridge_types(rocketmq) ->
+    [rocketmq];
 connector_type_to_bridge_types(syskeeper_forwarder) ->
     [syskeeper_forwarder];
 connector_type_to_bridge_types(syskeeper_proxy) ->
@@ -154,7 +165,17 @@ connector_type_to_bridge_types(timescale) ->
 connector_type_to_bridge_types(iotdb) ->
     [iotdb];
 connector_type_to_bridge_types(elasticsearch) ->
-    [elasticsearch].
+    [elasticsearch];
+connector_type_to_bridge_types(opents) ->
+    [opents];
+connector_type_to_bridge_types(greptimedb) ->
+    [greptimedb];
+connector_type_to_bridge_types(tdengine) ->
+    [tdengine];
+connector_type_to_bridge_types(rabbitmq) ->
+    [rabbitmq];
+connector_type_to_bridge_types(s3) ->
+    [s3].
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.
@@ -718,17 +739,17 @@ schema_homogeneous_test() ->
 is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
     ExpectedFieldNames = common_field_names(),
-    MissingFileds = lists:filter(
+    MissingFields = lists:filter(
         fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
     ),
-    case MissingFileds of
+    case MissingFields of
         [] ->
             false;
         _ ->
             {true, #{
                 schema_module => Module,
                 type_name => TypeName,
-                missing_fields => MissingFileds
+                missing_fields => MissingFields
             }}
     end.
 

@@ -28,11 +28,15 @@
     submit/1,
     submit/2,
     async_submit/1,
-    async_submit/2
+    async_submit/2,
+    submit_to_pool/2,
+    submit_to_pool/3,
+    async_submit_to_pool/2,
+    async_submit_to_pool/3
 ]).
 
 -ifdef(TEST).
--export([worker/0, flush_async_tasks/0]).
+-export([worker/0, flush_async_tasks/0, flush_async_tasks/1]).
 -endif.
 
 %% gen_server callbacks
@@ -57,7 +61,7 @@
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
     gen_server:start_link(
-        {local, emqx_utils:proc_name(?MODULE, Id)},
+        {local, emqx_utils:proc_name(Pool, Id)},
         ?MODULE,
         [Pool, Id],
         [{hibernate_after, 1000}]
@@ -66,32 +70,48 @@ start_link(Pool, Id) ->
 %% @doc Submit work to the pool.
 -spec submit(task()) -> any().
 submit(Task) ->
-    call({submit, Task}).
+    submit_to_pool(?POOL, Task).
 
 -spec submit(fun(), list(any())) -> any().
 submit(Fun, Args) ->
-    call({submit, {Fun, Args}}).
-
-%% @private
-call(Req) ->
-    gen_server:call(worker(), Req, infinity).
+    submit_to_pool(?POOL, Fun, Args).
 
 %% @doc Submit work to the pool asynchronously.
 -spec async_submit(task()) -> ok.
 async_submit(Task) ->
-    cast({async_submit, Task}).
+    async_submit_to_pool(?POOL, Task).
 
 -spec async_submit(fun(), list(any())) -> ok.
 async_submit(Fun, Args) ->
-    cast({async_submit, {Fun, Args}}).
+    async_submit_to_pool(?POOL, Fun, Args).
+
+-spec submit_to_pool(any(), task()) -> any().
+submit_to_pool(Pool, Task) ->
+    call(Pool, {submit, Task}).
+
+-spec submit_to_pool(any(), fun(), list(any())) -> any().
+submit_to_pool(Pool, Fun, Args) ->
+    call(Pool, {submit, {Fun, Args}}).
+
+-spec async_submit_to_pool(any(), task()) -> ok.
+async_submit_to_pool(Pool, Task) ->
+    cast(Pool, {async_submit, Task}).
+
+-spec async_submit_to_pool(any(), fun(), list(any())) -> ok.
+async_submit_to_pool(Pool, Fun, Args) ->
+    cast(Pool, {async_submit, {Fun, Args}}).
 
 %% @private
-cast(Msg) ->
-    gen_server:cast(worker(), Msg).
+call(Pool, Req) ->
+    gen_server:call(worker(Pool), Req, infinity).
 
 %% @private
-worker() ->
-    gproc_pool:pick_worker(?POOL).
+cast(Pool, Msg) ->
+    gen_server:cast(worker(Pool), Msg).
+
+%% @private
+worker(Pool) ->
+    gproc_pool:pick_worker(Pool).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -146,15 +166,25 @@ run(Fun) when is_function(Fun) ->
     Fun().
 
 -ifdef(TEST).
+
+worker() ->
+    worker(?POOL).
+
+flush_async_tasks() ->
+    flush_async_tasks(?POOL).
+
 %% This help function creates a large enough number of async tasks
 %% to force flush the pool workers.
 %% The number of tasks should be large enough to ensure all workers have
 %% the chance to work on at least one of the tasks.
-flush_async_tasks() ->
+flush_async_tasks(Pool) ->
     Ref = make_ref(),
     Self = self(),
     L = lists:seq(1, 997),
-    lists:foreach(fun(I) -> emqx_pool:async_submit(fun() -> Self ! {done, Ref, I} end, []) end, L),
+    lists:foreach(
+        fun(I) -> emqx_pool:async_submit_to_pool(Pool, fun() -> Self ! {done, Ref, I} end, []) end,
+        L
+    ),
     lists:foreach(
         fun(I) ->
             receive

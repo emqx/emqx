@@ -25,9 +25,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([create_tables/0]).
 
 %% API
 -export([
@@ -63,7 +61,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+create_tables() ->
     ok = mria:create_table(?ROUTING_NODE, [
         {type, set},
         {rlog_shard, ?ROUTE_SHARD},
@@ -71,7 +69,8 @@ mnesia(boot) ->
         {record_name, routing_node},
         {attributes, record_info(fields, routing_node)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
+    ]),
+    [?ROUTING_NODE].
 
 %%--------------------------------------------------------------------
 %% API

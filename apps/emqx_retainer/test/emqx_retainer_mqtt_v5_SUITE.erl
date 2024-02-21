@@ -20,17 +20,19 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_retainer_SUITE:load_conf(),
-    %% Start Apps
-    emqx_common_test_helpers:start_apps([emqx_retainer]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, emqx_retainer_SUITE:app_spec()],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_retainer]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 client_info(Key, Client) ->
     maps:get(Key, maps:from_list(emqtt:info(Client)), undefined).

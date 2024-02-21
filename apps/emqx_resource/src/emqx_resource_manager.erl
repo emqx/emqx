@@ -622,13 +622,16 @@ start_resource(Data, From) ->
 
 add_channels(Data) ->
     %% Add channels to the Channels map but not to the resource state
-    %% Channels will be added to the resouce state after the initial health_check
+    %% Channels will be added to the resource state after the initial health_check
     %% if that succeeds.
     ChannelIDConfigTuples = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
     Channels = Data#data.added_channels,
     NewChannels = lists:foldl(
-        fun({ChannelID, _Conf}, Acc) ->
-            maps:put(ChannelID, channel_status(), Acc)
+        fun
+            ({ChannelID, #{enable := true}}, Acc) ->
+                maps:put(ChannelID, channel_status(), Acc);
+            ({_, #{enable := false}}, Acc) ->
+                Acc
         end,
         Channels,
         ChannelIDConfigTuples
@@ -825,7 +828,7 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
 handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data) ->
     %% When state is not connected and not connecting the channel will be removed
     %% from the channels map but nothing else will happen since the channel
-    %% is not addded/installed in the resource state.
+    %% is not added/installed in the resource state.
     Channels = Data#data.added_channels,
     NewChannels = maps:remove(ChannelId, Channels),
     NewData = Data#data{added_channels = NewChannels},
@@ -915,7 +918,7 @@ with_health_check(#data{error = PrevError} = Data, Func) ->
 -spec channels_health_check(resource_status(), data()) -> data().
 channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
     Channels = maps:to_list(Data0#data.added_channels),
-    %% All channels with a stutus different from connected or connecting are
+    %% All channels with a status different from connected or connecting are
     %% not added
     ChannelsNotAdded = [
         ChannelId
@@ -1246,6 +1249,11 @@ channel_status_new_waiting_for_health_check() ->
 channel_status({?status_connecting, Error}) ->
     #{
         status => ?status_connecting,
+        error => Error
+    };
+channel_status({?status_disconnected, Error}) ->
+    #{
+        status => ?status_disconnected,
         error => Error
     };
 channel_status(?status_disconnected) ->

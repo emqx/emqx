@@ -1,7 +1,8 @@
 {application, emqx_bridge_rabbitmq, [
     {description, "EMQX Enterprise RabbitMQ Bridge"},
-    {vsn, "0.1.7"},
+    {vsn, "0.1.8"},
     {registered, []},
+    {mod, {emqx_bridge_rabbitmq_app, []}},
     {applications, [
         kernel,
         stdlib,

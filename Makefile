@@ -21,7 +21,7 @@ endif
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.7.0
-export EMQX_EE_DASHBOARD_VERSION ?= e1.5.0
+export EMQX_EE_DASHBOARD_VERSION ?= e1.5.1-s3-beta.1
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-enterprise
@@ -316,10 +316,9 @@ $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 .PHONY: fmt
 fmt: $(REBAR)
 	@$(SCRIPTS)/erlfmt -w 'apps/*/{src,include,priv,test,integration_test}/**/*.{erl,hrl,app.src,eterm}'
-	@$(SCRIPTS)/erlfmt -w '**/*.escript' --exclude-files '_build/**'
-	@$(SCRIPTS)/erlfmt -w '**/rebar.config' --exclude-files '_build/**'
-	@$(SCRIPTS)/erlfmt -w 'rebar.config.erl'
-	@$(SCRIPTS)/erlfmt -w 'bin/nodetool'
+	@$(SCRIPTS)/erlfmt -w 'apps/*/rebar.config' 'apps/emqx/rebar.config.script' '.ci/fvt_tests/http_server/rebar.config'
+	@$(SCRIPTS)/erlfmt -w 'rebar.config' 'rebar.config.erl'
+	@$(SCRIPTS)/erlfmt -w 'scripts/*.escript' 'bin/*.escript' 'bin/nodetool'
 	@mix format
 
 .PHONY: clean-test-cluster-config

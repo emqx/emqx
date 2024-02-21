@@ -27,13 +27,16 @@
 -export([
     paths/0,
     schema/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 -export([
     monitor/2,
     monitor_current/2
 ]).
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -193,6 +196,12 @@ swagger_desc(live_connections) ->
     <<
         "Connections at the time of sampling."
         " Can only represent the approximate state"
+    >>;
+swagger_desc(cluster_sessions) ->
+    <<
+        "Total number of sessions in the cluster at the time of sampling. "
+        "It includes expired sessions when `broker.session_history_retain` is set to a duration greater than `0s`. "
+        "Can only represent the approximate state"
     >>;
 swagger_desc(received_msg_rate) ->
     swagger_desc_format("Dropped messages ", per);

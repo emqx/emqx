@@ -19,16 +19,25 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_management]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_management, emqx_conf]).
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(t_log_path, Config) ->
     emqx_config_logger:add_handler(),
@@ -121,16 +130,17 @@ t_node_metrics_api(_) ->
         emqx_mgmt_api_test_util:request_api(get, BadNodePath)
     ).
 
-t_multiple_nodes_api(_) ->
-    net_kernel:start(['node_api@127.0.0.1', longnames]),
+t_multiple_nodes_api(Config) ->
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    Seq1 = list_to_atom(atom_to_list(?MODULE) ++ "1"),
-    Seq2 = list_to_atom(atom_to_list(?MODULE) ++ "2"),
-    Cluster = [{Name, Opts}, {Name1, Opts1}] = cluster([{core, Seq1}, {core, Seq2}]),
-    ct:pal("Starting ~p", [Cluster]),
-    Node1 = emqx_common_test_helpers:start_peer(Name, Opts),
-    Node2 = emqx_common_test_helpers:start_peer(Name1, Opts1),
+    Nodes =
+        [Node1, Node2] = emqx_cth_cluster:start(
+            [
+                {t_multiple_nodes_api1, #{role => core, apps => [emqx_conf, emqx_management]}},
+                {t_multiple_nodes_api2, #{role => core, apps => [emqx_conf, emqx_management]}}
+            ],
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        ),
     try
         {200, NodesList} = rpc:call(Node1, emqx_mgmt_api_nodes, nodes, [get, #{}]),
         All = [Node1, Node2],
@@ -148,22 +158,6 @@ t_multiple_nodes_api(_) ->
         ]),
         ?assertMatch(#{node := Node1}, Node11)
     after
-        emqx_common_test_helpers:stop_peer(Node1),
-        emqx_common_test_helpers:stop_peer(Node2)
+        emqx_cth_cluster:stop(Nodes)
     end,
     ok.
-
-cluster(Specs) ->
-    Env = [{emqx, boot_modules, []}],
-    emqx_common_test_helpers:emqx_cluster(Specs, [
-        {env, Env},
-        {apps, [emqx_conf, emqx_management]},
-        {load_schema, false},
-        {env_handler, fun
-            (emqx) ->
-                application:set_env(emqx, boot_modules, []),
-                ok;
-            (_) ->
-                ok
-        end}
-    ]).

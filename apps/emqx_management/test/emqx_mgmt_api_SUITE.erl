@@ -37,13 +37,27 @@ end_per_suite(_) ->
 %% cases
 %%--------------------------------------------------------------------
 
-t_cluster_query(_Config) ->
+t_cluster_query(Config) ->
     net_kernel:start(['master@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
-    [{Name, Opts}, {Name1, Opts1}] = cluster_specs(),
-    Node1 = emqx_common_test_helpers:start_peer(Name, Opts),
-    Node2 = emqx_common_test_helpers:start_peer(Name1, Opts1),
+    ListenerConf = fun(Port) ->
+        io_lib:format(
+            "\n listeners.tcp.default.bind = ~p"
+            "\n listeners.ssl.default.enable = false"
+            "\n listeners.ws.default.enable = false"
+            "\n listeners.wss.default.enable = false",
+            [Port]
+        )
+    end,
+    Nodes =
+        [Node1, Node2] = emqx_cth_cluster:start(
+            [
+                {corenode1, #{role => core, apps => [{emqx, ListenerConf(2883)}, emqx_management]}},
+                {corenode2, #{role => core, apps => [{emqx, ListenerConf(3883)}, emqx_management]}}
+            ],
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        ),
     try
         process_flag(trap_exit, true),
         ClientLs1 = [start_emqtt_client(Node1, I, 2883) || I <- lists:seq(1, 10)],
@@ -168,13 +182,19 @@ t_cluster_query(_Config) ->
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs2)
     after
-        emqx_common_test_helpers:stop_peer(Node1),
-        emqx_common_test_helpers:stop_peer(Node2)
-    end,
-    ok.
+        emqx_cth_cluster:stop(Nodes)
+    end.
 
-t_bad_rpc(_) ->
-    emqx_mgmt_api_test_util:init_suite(),
+t_bad_rpc(Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
     process_flag(trap_exit, true),
     ClientLs1 = [start_emqtt_client(node(), I, 1883) || I <- lists:seq(1, 10)],
     Path = emqx_mgmt_api_test_util:api_path(["clients?limit=2&page=2"]),
@@ -187,34 +207,12 @@ t_bad_rpc(_) ->
     after
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
         meck:unload(emqx),
-        emqx_mgmt_api_test_util:end_suite()
+        emqx_cth_suite:stop(Apps)
     end.
 
 %%--------------------------------------------------------------------
 %% helpers
 %%--------------------------------------------------------------------
-
-cluster_specs() ->
-    Specs =
-        %% default listeners port
-        [
-            {core, corenode1, #{listener_ports => [{tcp, 2883}]}},
-            {core, corenode2, #{listener_ports => [{tcp, 3883}]}}
-        ],
-    CommOpts =
-        [
-            {env, [{emqx, boot_modules, all}]},
-            {apps, []},
-            {conf, [
-                {[listeners, ssl, default, enable], false},
-                {[listeners, ws, default, enable], false},
-                {[listeners, wss, default, enable], false}
-            ]}
-        ],
-    emqx_common_test_helpers:emqx_cluster(
-        Specs,
-        CommOpts
-    ).
 
 start_emqtt_client(Node0, N, Port) ->
     Node = atom_to_binary(Node0),

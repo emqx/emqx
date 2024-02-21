@@ -135,6 +135,7 @@ create_producers_for_bridge_v2(
     KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
+    MaxPartitions = maps:get(partitions_limit, KafkaConfig, all_partitions),
     #{name := BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
     TestIdStart = string:find(BridgeV2Id, ?TEST_ID_PREFIX),
     IsDryRun =
@@ -144,7 +145,7 @@ create_producers_for_bridge_v2(
             _ ->
                 string:equal(TestIdStart, InstId)
         end,
-    ok = check_topic_and_leader_connections(ClientId, KafkaTopic),
+    ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
     WolffProducerConfig = producers_config(
         BridgeType, BridgeName, KafkaConfig, IsDryRun, BridgeV2Id
     ),
@@ -166,7 +167,8 @@ create_producers_for_bridge_v2(
                 kafka_config => KafkaConfig,
                 headers_tokens => KafkaHeadersTokens,
                 ext_headers_tokens => KafkaExtHeadersTokens,
-                headers_val_encode_mode => KafkaHeadersValEncodeMode
+                headers_val_encode_mode => KafkaHeadersValEncodeMode,
+                partitions_limit => MaxPartitions
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -376,6 +378,8 @@ on_query_async(
         ),
         do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
     catch
+        error:{invalid_partition_count, _Count, _Partitioner} ->
+            {error, invalid_partition_count};
         throw:{bad_kafka_header, _} = Error ->
             ?tp(
                 emqx_bridge_kafka_impl_producer_async_query_failed,
@@ -517,9 +521,9 @@ on_get_channel_status(
     %% `?status_disconnected' will make resource manager try to restart the producers /
     %% connector, thus potentially dropping data held in wolff producer's replayq.  The
     %% only exception is if the topic does not exist ("unhealthy target").
-    #{kafka_topic := KafkaTopic} = maps:get(ChannelId, Channels),
+    #{kafka_topic := KafkaTopic, partitions_limit := MaxPartitions} = maps:get(ChannelId, Channels),
     try
-        ok = check_topic_and_leader_connections(ClientId, KafkaTopic),
+        ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
         ?status_connected
     catch
         throw:{unhealthy_target, Msg} ->
@@ -528,11 +532,11 @@ on_get_channel_status(
             {?status_connecting, {K, E}}
     end.
 
-check_topic_and_leader_connections(ClientId, KafkaTopic) ->
+check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
             ok = check_topic_status(ClientId, Pid, KafkaTopic),
-            ok = check_if_healthy_leaders(ClientId, Pid, KafkaTopic);
+            ok = check_if_healthy_leaders(ClientId, Pid, KafkaTopic, MaxPartitions);
         {error, no_such_client} ->
             throw(#{
                 reason => cannot_find_kafka_client,
@@ -562,9 +566,9 @@ check_client_connectivity(ClientId) ->
             {error, {find_client, Reason}}
     end.
 
-check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic) when is_pid(ClientPid) ->
+check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic, MaxPartitions) when is_pid(ClientPid) ->
     Leaders =
-        case wolff_client:get_leader_connections(ClientPid, KafkaTopic) of
+        case wolff_client:get_leader_connections(ClientPid, KafkaTopic, MaxPartitions) of
             {ok, LeadersToCheck} ->
                 %% Kafka is considered healthy as long as any of the partition leader is reachable.
                 lists:filtermap(
@@ -584,7 +588,8 @@ check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic) when is_pid(ClientPid)
             throw(#{
                 error => no_connected_partition_leader,
                 kafka_client => ClientId,
-                kafka_topic => KafkaTopic
+                kafka_topic => KafkaTopic,
+                partitions_limit => MaxPartitions
             });
         _ ->
             ok
@@ -619,6 +624,7 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, BridgeV2Id) ->
         required_acks := RequiredAcks,
         partition_count_refresh_interval := PCntRefreshInterval,
         max_inflight := MaxInflight,
+        partitions_limit := MaxPartitions,
         buffer := #{
             mode := BufferMode0,
             per_partition_limit := PerPartitionLimit,
@@ -652,7 +658,8 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, BridgeV2Id) ->
         max_batch_bytes => MaxBatchBytes,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,
-        telemetry_meta_data => #{bridge_id => BridgeV2Id}
+        telemetry_meta_data => #{bridge_id => BridgeV2Id},
+        max_partitions => MaxPartitions
     }.
 
 %% Wolff API is a batch API.

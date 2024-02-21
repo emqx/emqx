@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -compile(export_all).
@@ -45,10 +46,20 @@ init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Cluster = cluster(),
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
+init_per_testcase(t_message_gc = TestCase, Config) ->
+    Opts = #{
+        extra_emqx_conf =>
+            "\n  session_persistence.message_retention_period = 1s"
+            "\n  session_persistence.storage.builtin.n_shards = 3"
+    },
+    common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
 init_per_testcase(TestCase, Config) ->
+    common_init_per_testcase(TestCase, Config, _Opts = #{}).
+
+common_init_per_testcase(TestCase, Config, Opts) ->
     ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     Apps = emqx_cth_suite:start(
-        app_specs(),
+        app_specs(Opts),
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
     [{apps, Apps} | Config].
@@ -205,31 +216,7 @@ t_session_subscription_iterators(Config) ->
                 messages => [Message1, Message2, Message3, Message4]
             }
         end,
-        fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
-            case ?of_kind(ds_session_subscription_added, Trace) of
-                [] ->
-                    %% Since `emqx_durable_storage' is a dependency of `emqx', it gets
-                    %% compiled in "prod" mode when running emqx standalone tests.
-                    ok;
-                [_ | _] ->
-                    ?assertMatch(
-                        [
-                            #{?snk_kind := ds_session_subscription_added},
-                            #{?snk_kind := ds_session_subscription_present}
-                        ],
-                        ?of_kind(
-                            [
-                                ds_session_subscription_added,
-                                ds_session_subscription_present
-                            ],
-                            Trace
-                        )
-                    ),
-                    ok
-            end,
-            ok
-        end
+        []
     ),
     ok.
 
@@ -307,11 +294,6 @@ t_qos0_only_many_streams(_Config) ->
             receive_messages(3)
         ),
 
-        ?assertMatch(
-            #{pubranges := [_, _, _]},
-            emqx_persistent_session_ds:print_session(ClientId)
-        ),
-
         Inflight1 = get_session_inflight(ConnPid),
 
         %% TODO: Kinda stupid way to verify that the runtime state is not growing.
@@ -365,7 +347,7 @@ t_publish_empty_topic_levels(_Config) ->
             {<<"t/3/bar">>, <<"6">>}
         ],
         [emqtt:publish(Pub, Topic, Payload, ?QOS_1) || {Topic, Payload} <- Messages],
-        Received = receive_messages(length(Messages), 1_500),
+        Received = receive_messages(length(Messages)),
         ?assertMatch(
             [
                 #{topic := <<"t//1/">>, payload := <<"2">>},
@@ -378,6 +360,100 @@ t_publish_empty_topic_levels(_Config) ->
         emqtt:stop(Sub),
         emqtt:stop(Pub)
     end.
+
+t_message_gc_too_young(_Config) ->
+    %% Check that GC doesn't attempt to create a new generation if there are fresh enough
+    %% generations around.  The stability of this test relies on the default value for
+    %% message retention being long enough.  Currently, the default is 1 hour.
+    ?check_trace(
+        ok = emqx_persistent_message_ds_gc_worker:gc(),
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(ps_message_gc_too_early, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+t_message_gc(Config) ->
+    %% Check that, after GC runs, a new generation is created, retaining messages, and
+    %% older messages no longer are accessible.
+    NShards = ?config(n_shards, Config),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            %% ensure some messages are in the first generation
+            ?force_ordering(
+                #{?snk_kind := inserted_batch},
+                #{?snk_kind := ps_message_gc_added_gen}
+            ),
+            Msgs0 = [
+                message(<<"foo/bar">>, <<"1">>, 0),
+                message(<<"foo/baz">>, <<"2">>, 1)
+            ],
+            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs0),
+            ?tp(inserted_batch, #{}),
+            {ok, _} = ?block_until(#{?snk_kind := ps_message_gc_added_gen}),
+
+            Now = emqx_message:timestamp_now(),
+            Msgs1 = [
+                message(<<"foo/bar">>, <<"3">>, Now + 100),
+                message(<<"foo/baz">>, <<"4">>, Now + 101)
+            ],
+            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs1),
+
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NShards, #{?snk_kind := message_gc_generation_dropped}),
+                infinity
+            ),
+
+            TopicFilter = emqx_topic:words(<<"#">>),
+            StartTime = 0,
+            Msgs = consume(TopicFilter, StartTime),
+            %% "1" and "2" should have been GC'ed
+            PresentMessages = sets:from_list(
+                [emqx_message:payload(Msg) || Msg <- Msgs],
+                [{version, 2}]
+            ),
+            ?assert(
+                sets:is_empty(
+                    sets:intersection(
+                        PresentMessages,
+                        sets:from_list([<<"1">>, <<"2">>], [{version, 2}])
+                    )
+                ),
+                #{present_messages => PresentMessages}
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_metrics_not_dropped(_Config) ->
+    %% Asserts that, if only persisted sessions are subscribed to a topic being published
+    %% to, we don't bump the `message.dropped' metric, nor we run the equivalent hook.
+    Sub = connect(<<?MODULE_STRING "1">>, true, 30),
+    on_exit(fun() -> emqtt:stop(Sub) end),
+    Pub = connect(<<?MODULE_STRING "2">>, true, 30),
+    on_exit(fun() -> emqtt:stop(Pub) end),
+    Hookpoint = 'message.dropped',
+    emqx_hooks:add(Hookpoint, {?MODULE, on_message_dropped, [self()]}, 1_000),
+    on_exit(fun() -> emqx_hooks:del(Hookpoint, {?MODULE, on_message_dropped}) end),
+
+    DroppedBefore = emqx_metrics:val('messages.dropped'),
+    DroppedNoSubBefore = emqx_metrics:val('messages.dropped.no_subscribers'),
+
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, <<"t/+">>, ?QOS_1),
+    emqtt:publish(Pub, <<"t/ps">>, <<"payload">>, ?QOS_1),
+    ?assertMatch([_], receive_messages(1)),
+    DroppedAfter = emqx_metrics:val('messages.dropped'),
+    DroppedNoSubAfter = emqx_metrics:val('messages.dropped.no_subscribers'),
+
+    ?assertEqual(DroppedBefore, DroppedAfter),
+    ?assertEqual(DroppedNoSubBefore, DroppedNoSubAfter),
+
+    ok.
 
 %%
 
@@ -419,7 +495,7 @@ consume(It) ->
     end.
 
 receive_messages(Count) ->
-    receive_messages(Count, 5_000).
+    receive_messages(Count, 10_000).
 
 receive_messages(Count, Timeout) ->
     lists:reverse(receive_messages(Count, [], Timeout)).
@@ -438,9 +514,13 @@ publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).
 
 app_specs() ->
+    app_specs(_Opts = #{}).
+
+app_specs(Opts) ->
+    ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
         emqx_durable_storage,
-        {emqx, "session_persistence {enable = true}"}
+        {emqx, "session_persistence {enable = true}" ++ ExtraEMQXConf}
     ].
 
 cluster() ->
@@ -459,3 +539,16 @@ clear_db() ->
     mria:stop(),
     ok = mnesia:delete_schema([node()]),
     ok.
+
+message(Topic, Payload, PublishedAt) ->
+    #message{
+        topic = Topic,
+        payload = Payload,
+        timestamp = PublishedAt,
+        id = emqx_guid:gen()
+    }.
+
+on_message_dropped(Msg, Context, Res, TestPid) ->
+    ErrCtx = #{msg => Msg, ctx => Context, res => Res},
+    ct:pal("this hook should not be called.\n  ~p", [ErrCtx]),
+    exit(TestPid, {hookpoint_called, ErrCtx}).

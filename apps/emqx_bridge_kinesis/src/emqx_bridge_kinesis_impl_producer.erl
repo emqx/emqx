@@ -13,27 +13,20 @@
     "Kinesis stream is invalid. Please check if the stream exist in Kinesis account."
 ).
 
--type config() :: #{
+-type config_connector() :: #{
     aws_access_key_id := binary(),
     aws_secret_access_key := emqx_secret:t(binary()),
     endpoint := binary(),
-    stream_name := binary(),
-    partition_key := binary(),
-    payload_template := binary(),
     max_retries := non_neg_integer(),
     pool_size := non_neg_integer(),
     instance_id => resource_id(),
     any() => term()
 }.
--type templates() :: #{
-    partition_key := list(),
-    send_message := list()
-}.
 -type state() :: #{
     pool_name := resource_id(),
-    templates := templates()
+    installed_channels := map()
 }.
--export_type([config/0]).
+-export_type([config_connector/0]).
 
 %% `emqx_resource' API
 -export([
@@ -42,7 +35,11 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
 
 -export([
@@ -55,7 +52,7 @@
 
 callback_mode() -> always_sync.
 
--spec on_start(resource_id(), config()) -> {ok, state()} | {error, term()}.
+-spec on_start(resource_id(), config_connector()) -> {ok, state()} | {error, term()}.
 on_start(
     InstanceId,
     #{
@@ -72,10 +69,9 @@ on_start(
         {config, Config},
         {pool_size, PoolSize}
     ],
-    Templates = parse_template(Config),
     State = #{
         pool_name => InstanceId,
-        templates => Templates
+        installed_channels => #{}
     },
 
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
@@ -92,7 +88,9 @@ on_stop(InstanceId, _State) ->
     emqx_resource_pool:stop(InstanceId).
 
 -spec on_get_status(resource_id(), state()) ->
-    connected | disconnected | {disconnected, state(), {unhealthy_target, string()}}.
+    ?status_connected
+    | ?status_disconnected
+    | {?status_disconnected, state(), {unhealthy_target, string()}}.
 on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
     case
         emqx_resource_pool:health_check_workers(
@@ -103,15 +101,15 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
         )
     of
         {ok, Values} ->
-            AllOk = lists:all(fun(S) -> S =:= {ok, connected} end, Values),
+            AllOk = lists:all(fun(S) -> S =:= {ok, ?status_connected} end, Values),
             case AllOk of
                 true ->
-                    connected;
+                    ?status_connected;
                 false ->
                     Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
                     case Unhealthy of
-                        true -> {disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
-                        false -> disconnected
+                        true -> {?status_disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
+                        false -> ?status_disconnected
                     end
             end;
         {error, Reason} ->
@@ -120,34 +118,114 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
                 state => State,
                 reason => Reason
             }),
-            disconnected
+            ?status_disconnected
     end.
+
+on_add_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId,
+    ChannelConfig
+) ->
+    {ok, ChannelState} = create_channel_state(ChannelConfig),
+    NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
+
+create_channel_state(
+    #{parameters := Parameters} = _ChannelConfig
+) ->
+    #{
+        stream_name := StreamName,
+        partition_key := PartitionKey
+    } = Parameters,
+    {ok, #{
+        templates => parse_template(Parameters),
+        stream_name => StreamName,
+        partition_key => PartitionKey
+    }}.
+
+on_remove_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId
+) ->
+    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
+
+on_get_channel_status(
+    _ResId,
+    ChannelId,
+    #{
+        pool_name := PoolName,
+        installed_channels := Channels
+    } = State
+) ->
+    #{stream_name := StreamName} = maps:get(ChannelId, Channels),
+    case
+        emqx_resource_pool:health_check_workers(
+            PoolName,
+            {emqx_bridge_kinesis_connector_client, connection_status, [StreamName]},
+            ?HEALTH_CHECK_TIMEOUT,
+            #{return_values => true}
+        )
+    of
+        {ok, Values} ->
+            AllOk = lists:all(fun(S) -> S =:= {ok, ?status_connected} end, Values),
+            case AllOk of
+                true ->
+                    ?status_connected;
+                false ->
+                    Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
+                    case Unhealthy of
+                        true -> {?status_disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
+                        false -> ?status_disconnected
+                    end
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "kinesis_producer_get_status_failed",
+                state => State,
+                reason => Reason
+            }),
+            ?status_disconnected
+    end.
+
+on_get_channels(ResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ResId).
 
 -spec on_query(
     resource_id(),
-    {send_message, map()},
+    {channel_id(), map()},
     state()
 ) ->
     {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(ResourceId, {send_message, Message}, State) ->
-    Requests = [{send_message, Message}],
+on_query(ResourceId, {ChannelId, Message}, State) ->
+    Requests = [{ChannelId, Message}],
     ?tp(emqx_bridge_kinesis_impl_producer_sync_query, #{message => Message}),
-    do_send_requests_sync(ResourceId, Requests, State).
+    do_send_requests_sync(ResourceId, Requests, State, ChannelId).
 
 -spec on_batch_query(
     resource_id(),
-    [{send_message, map()}],
+    [{channel_id(), map()}],
     state()
 ) ->
     {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 %% we only support batch insert
-on_batch_query(ResourceId, [{send_message, _} | _] = Requests, State) ->
+on_batch_query(ResourceId, [{ChannelId, _} | _] = Requests, State) ->
     ?tp(emqx_bridge_kinesis_impl_producer_sync_batch_query, #{requests => Requests}),
-    do_send_requests_sync(ResourceId, Requests, State).
+    do_send_requests_sync(ResourceId, Requests, State, ChannelId).
 
 connect(Opts) ->
     Options = proplists:get_value(config, Opts),
@@ -159,8 +237,9 @@ connect(Opts) ->
 
 -spec do_send_requests_sync(
     resource_id(),
-    [{send_message, map()}],
-    state()
+    [{channel_id(), map()}],
+    state(),
+    channel_id()
 ) ->
     {ok, jsx:json_term() | binary()}
     | {error, {recoverable_error, term()}}
@@ -171,12 +250,20 @@ connect(Opts) ->
 do_send_requests_sync(
     InstanceId,
     Requests,
-    #{pool_name := PoolName, templates := Templates}
+    #{
+        pool_name := PoolName,
+        installed_channels := InstalledChannels
+    } = _State,
+    ChannelId
 ) ->
+    #{
+        templates := Templates,
+        stream_name := StreamName
+    } = maps:get(ChannelId, InstalledChannels),
     Records = render_records(Requests, Templates),
     Result = ecpool:pick_and_do(
         PoolName,
-        {emqx_bridge_kinesis_connector_client, query, [Records]},
+        {emqx_bridge_kinesis_connector_client, query, [Records, StreamName]},
         no_handover
     ),
     handle_result(Result, Requests, InstanceId).
@@ -239,7 +326,7 @@ render_records(Items, Templates) ->
 render_messages([], _Templates, RenderedMsgs) ->
     RenderedMsgs;
 render_messages(
-    [{send_message, Msg} | Others],
+    [{_, Msg} | Others],
     {MsgTemplate, PartitionKeyTemplate} = Templates,
     RenderedMsgs
 ) ->

@@ -76,7 +76,8 @@ start_listeners(Listeners) ->
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => dispatch(),
-        middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler]
+        middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler],
+        swagger_support => emqx:get_config([dashboard, swagger_support], true)
     },
     {OkListeners, ErrListeners} =
         lists:foldl(
@@ -264,10 +265,11 @@ api_key_authorize(Req, Key, Secret) ->
     case emqx_mgmt_auth:authorize(Path, Req, Key, Secret) of
         ok ->
             {ok, #{auth_type => api_key, source => Key}};
-        {error, <<"not_allowed">>} ->
+        {error, <<"not_allowed">>, Resource} ->
             return_unauthorized(
-                ?BAD_API_KEY_OR_SECRET,
-                <<"Not allowed, Check api_key/api_secret">>
+                ?API_KEY_NOT_ALLOW,
+                <<"Please use bearer Token instead, using API key/secret in ", Resource/binary,
+                    " path is not permitted">>
             );
         {error, unauthorized_role} ->
             {403, 'UNAUTHORIZED_ROLE', ?API_KEY_NOT_ALLOW_MSG};

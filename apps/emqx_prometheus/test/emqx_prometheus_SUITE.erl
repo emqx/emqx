@@ -17,27 +17,29 @@
 -module(emqx_prometheus_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
--define(LEGACY_CONF_DEFAULT, <<
-    "\n"
-    "prometheus {\n"
-    "  push_gateway_server = \"http://127.0.0.1:9091\"\n"
-    "  interval = \"1s\"\n"
-    "  headers = { Authorization = \"some-authz-tokens\"}\n"
-    "  job_name = \"${name}~${host}\"\n"
-    "  enable = true\n"
-    "  vm_dist_collector = disabled\n"
-    "  mnesia_collector = disabled\n"
-    "  vm_statistics_collector = disabled\n"
-    "  vm_system_info_collector = disabled\n"
-    "  vm_memory_collector = disabled\n"
-    "  vm_msacc_collector = disabled\n"
-    "}\n"
->>).
+%% erlfmt-ignore
+-define(LEGACY_CONF_DEFAULT, <<"
+prometheus {
+    push_gateway_server = \"http://127.0.0.1:9091\"
+    interval = \"1s\"
+    headers = { Authorization = \"some-authz-tokens\"}
+    job_name = \"${name}~${host}\"
+    enable = true
+    vm_dist_collector = disabled
+    mnesia_collector = disabled
+    vm_statistics_collector = disabled
+    vm_system_info_collector = disabled
+    vm_memory_collector = disabled
+    vm_msacc_collector = disabled
+}
+">>).
+
 -define(CONF_DEFAULT, #{
     <<"prometheus">> =>
         #{
@@ -84,40 +86,29 @@ common_tests() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_group(new_config, Config) ->
-    init_group(),
-    load_config(),
-    emqx_common_test_helpers:start_apps([emqx_prometheus]),
-    %% coverage olp metrics
-    {ok, _} = emqx:update_config([overload_protection, enable], true),
-    Config;
+    Apps = emqx_cth_suite:start(
+        [
+            %% coverage olp metrics
+            {emqx, "overload_protection.enable = true"},
+            {emqx_license, "license.key = default"},
+            {emqx_prometheus, #{config => config(default)}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config];
 init_per_group(legacy_config, Config) ->
-    init_group(),
-    load_legacy_config(),
-    emqx_common_test_helpers:start_apps([emqx_prometheus]),
-    {ok, _} = emqx:update_config([overload_protection, enable], false),
-    Config.
-
-init_group() ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok),
-    meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end).
-
-end_group() ->
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    meck:unload(emqx_alarm),
-    meck:unload(emqx_license_checker),
-    emqx_common_test_helpers:stop_apps([emqx_prometheus]).
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, "overload_protection.enable = false"},
+            {emqx_license, "license.key = default"},
+            {emqx_prometheus, #{config => config(legacy)}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
 end_per_group(_Group, Config) ->
-    end_group(),
-    Config.
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(t_assert_push, Config) ->
     meck:new(httpc, [passthrough]),
@@ -137,12 +128,27 @@ end_per_testcase(t_assert_push, _Config) ->
 end_per_testcase(_Testcase, _Config) ->
     ok.
 
-load_config() ->
-    ok = emqx_common_test_helpers:load_config(emqx_prometheus_schema, ?CONF_DEFAULT).
+config(default) ->
+    ?CONF_DEFAULT;
+config(legacy) ->
+    ?LEGACY_CONF_DEFAULT.
 
-load_legacy_config() ->
-    ok = emqx_common_test_helpers:load_config(emqx_prometheus_schema, ?LEGACY_CONF_DEFAULT).
+conf_default() ->
+    ?CONF_DEFAULT.
 
+legacy_conf_default() ->
+    ?LEGACY_CONF_DEFAULT.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+maybe_meck_license() ->
+    meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end).
+maybe_unmeck_license() ->
+    meck:unload(emqx_license_checker).
+-else.
+maybe_meck_license() -> ok.
+maybe_unmeck_license() -> ok.
+-endif.
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------

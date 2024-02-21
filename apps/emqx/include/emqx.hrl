@@ -88,10 +88,7 @@
 %%--------------------------------------------------------------------
 
 -record(banned, {
-    who ::
-        {clientid, binary()}
-        | {peerhost, inet:ip_address()}
-        | {username, binary()},
+    who :: emqx_types:banned_who(),
     by :: binary(),
     reason :: binary(),
     at :: integer(),

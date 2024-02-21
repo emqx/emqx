@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,7 +18,12 @@
 
 %% API:
 -export([
-    trie_create/1, trie_create/0, trie_restore/2, topic_key/3, match_topics/2, lookup_topic_key/2
+    trie_create/1, trie_create/0,
+    trie_restore/2,
+    trie_copy_learned_paths/2,
+    topic_key/3,
+    match_topics/2,
+    lookup_topic_key/2
 ]).
 
 %% Debug:
@@ -123,6 +128,17 @@ trie_restore(Options, Dump) ->
     ),
     Trie.
 
+-spec trie_copy_learned_paths(trie(), trie()) -> trie().
+trie_copy_learned_paths(OldTrie, NewTrie) ->
+    WildcardPaths = [P || P <- paths(OldTrie), contains_wildcard(P)],
+    lists:foreach(
+        fun({{StateFrom, Token}, StateTo}) ->
+            trie_insert(NewTrie, StateFrom, Token, StateTo)
+        end,
+        lists:flatten(WildcardPaths)
+    ),
+    NewTrie.
+
 %% @doc Lookup the topic key. Create a new one, if not found.
 -spec topic_key(trie(), threshold_fun(), [binary() | '']) -> msg_storage_key().
 topic_key(Trie, ThresholdFun, Tokens) ->
@@ -197,6 +213,10 @@ trie_next(#trie{trie = Trie}, State, ?EOT) ->
         [] -> undefined
     end;
 trie_next(#trie{trie = Trie}, State, Token) ->
+    %% NOTE: it's crucial to return the original (non-wildcard) index
+    %% for the topic, if found. Otherwise messages from the same topic
+    %% will end up in different streams, once the wildcard is learned,
+    %% and their replay order will become undefined:
     case ets:lookup(Trie, {State, Token}) of
         [#trans{next = Next}] ->
             {false, Next};
@@ -375,6 +395,41 @@ emanating(#trie{trie = Tab}, State, Token) when is_binary(Token); Token =:= '' -
             ets:lookup(Tab, {State, ?PLUS}) ++
                 ets:lookup(Tab, {State, Token})
     ].
+
+all_emanating(#trie{trie = Tab}, State) ->
+    ets:select(
+        Tab,
+        ets:fun2ms(fun(#trans{key = {S, Edge}, next = Next}) when S == State ->
+            {{S, Edge}, Next}
+        end)
+    ).
+
+paths(#trie{} = T) ->
+    Roots = all_emanating(T, ?PREFIX),
+    lists:flatmap(
+        fun({Segment, Next}) ->
+            follow_path(T, Next, [{Segment, Next}])
+        end,
+        Roots
+    ).
+
+follow_path(#trie{} = T, State, Path) ->
+    lists:flatmap(
+        fun
+            ({{_State, ?EOT}, _Next} = Segment) ->
+                [lists:reverse([Segment | Path])];
+            ({_Edge, Next} = Segment) ->
+                follow_path(T, Next, [Segment | Path])
+        end,
+        all_emanating(T, State)
+    ).
+
+contains_wildcard([{{_State, ?PLUS}, _Next} | _Rest]) ->
+    true;
+contains_wildcard([_ | Rest]) ->
+    contains_wildcard(Rest);
+contains_wildcard([]) ->
+    false.
 
 %%================================================================================
 %% Tests
@@ -626,5 +681,101 @@ test_key(Trie, Threshold, Topic0) ->
     put(?keys_history, History),
     {ok, Ret} = lookup_topic_key(Trie, Topic),
     Ret.
+
+paths_test() ->
+    T = trie_create(),
+    Threshold = 4,
+    ThresholdFun = fun
+        (0) -> 1000;
+        (_) -> Threshold
+    end,
+    PathsToInsert =
+        [
+            [''],
+            [1],
+            [2, 2],
+            [3, 3, 3],
+            [2, 3, 4]
+        ] ++ [[4, I, 4] || I <- lists:seq(1, Threshold + 2)] ++
+            [['', I, ''] || I <- lists:seq(1, Threshold + 2)],
+    lists:foreach(
+        fun(PathSpec) ->
+            test_key(T, ThresholdFun, PathSpec)
+        end,
+        PathsToInsert
+    ),
+
+    %% Test that the paths we've inserted are produced in the output
+    Paths = paths(T),
+    FormattedPaths = lists:map(fun format_path/1, Paths),
+    ExpectedWildcardPaths =
+        [
+            [4, '+', 4],
+            ['', '+', '']
+        ],
+    ExpectedPaths =
+        [
+            [''],
+            [1],
+            [2, 2],
+            [3, 3, 3]
+        ] ++ [[4, I, 4] || I <- lists:seq(1, Threshold)] ++
+            [['', I, ''] || I <- lists:seq(1, Threshold)] ++
+            ExpectedWildcardPaths,
+    FormatPathSpec =
+        fun(PathSpec) ->
+            lists:map(
+                fun
+                    (I) when is_integer(I) -> integer_to_binary(I);
+                    (A) -> A
+                end,
+                PathSpec
+            ) ++ [?EOT]
+        end,
+    lists:foreach(
+        fun(PathSpec) ->
+            Path = FormatPathSpec(PathSpec),
+            ?assert(
+                lists:member(Path, FormattedPaths),
+                #{
+                    paths => FormattedPaths,
+                    expected_path => Path
+                }
+            )
+        end,
+        ExpectedPaths
+    ),
+
+    %% Test filter function for paths containing wildcards
+    WildcardPaths = lists:filter(fun contains_wildcard/1, Paths),
+    FormattedWildcardPaths = lists:map(fun format_path/1, WildcardPaths),
+    ?assertEqual(
+        sets:from_list(FormattedWildcardPaths, [{version, 2}]),
+        sets:from_list(lists:map(FormatPathSpec, ExpectedWildcardPaths), [{version, 2}]),
+        #{
+            expected => ExpectedWildcardPaths,
+            wildcards => FormattedWildcardPaths
+        }
+    ),
+
+    %% Test that we're able to reconstruct the same trie from the paths
+    T2 = trie_create(),
+    [
+        trie_insert(T2, State, Edge, Next)
+     || Path <- Paths,
+        {{State, Edge}, Next} <- Path
+    ],
+    #trie{trie = Tab1} = T,
+    #trie{trie = Tab2} = T2,
+    Dump1 = sets:from_list(ets:tab2list(Tab1), [{version, 2}]),
+    Dump2 = sets:from_list(ets:tab2list(Tab2), [{version, 2}]),
+    ?assertEqual(Dump1, Dump2),
+
+    ok.
+
+format_path([{{_State, Edge}, _Next} | Rest]) ->
+    [Edge | format_path(Rest)];
+format_path([]) ->
+    [].
 
 -endif.

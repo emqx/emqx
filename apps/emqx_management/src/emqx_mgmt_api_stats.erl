@@ -34,10 +34,13 @@
     api_spec/0,
     paths/0,
     schema/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 -export([list/2]).
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -89,6 +92,10 @@ fields(node_stats_data) ->
         stats_schema('delayed.max', <<"Historical maximum number of delayed messages">>),
         stats_schema('live_connections.count', <<"Number of current live connections">>),
         stats_schema('live_connections.max', <<"Historical maximum number of live connections">>),
+        stats_schema('cluster_sessions.count', <<"Number of sessions in the cluster">>),
+        stats_schema(
+            'cluster_sessions.max', <<"Historical maximum number of sessions in the cluster">>
+        ),
         stats_schema('retained.count', <<"Number of currently retained messages">>),
         stats_schema('retained.max', <<"Historical maximum number of retained messages">>),
         stats_schema('sessions.count', <<"Number of current sessions">>),

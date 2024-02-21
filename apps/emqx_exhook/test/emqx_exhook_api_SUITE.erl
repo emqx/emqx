@@ -20,16 +20,13 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
-
--define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
 
 -define(CONF_DEFAULT, <<
-    "\n"
     "exhook {\n"
     "  servers =\n"
     "    [ { name = default,\n"
@@ -56,54 +53,34 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok),
-
     _ = emqx_exhook_demo_svr:start(),
-    load_cfg(?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_exhook]),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_management,
+            {emqx_exhook, ?CONF_DEFAULT},
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
     [Conf] = emqx:get_raw_config([exhook, servers]),
-    [{template, Conf} | Config].
+    [{suite_apps, Apps}, {template, Conf} | Config].
 
 end_per_suite(Config) ->
-    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    meck:unload(emqx_alarm),
-
-    emqx_mgmt_api_test_util:end_suite([emqx_exhook]),
     emqx_exhook_demo_svr:stop(),
     emqx_exhook_demo_svr:stop(<<"test1">>),
-    Config.
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(t_add, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
     _ = emqx_exhook_demo_svr:start(<<"test1">>, 9001),
-    timer:sleep(200),
     Config;
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
-    timer:sleep(200),
     Config.
 
-end_per_testcase(_, Config) ->
-    case erlang:whereis(node()) of
-        undefined ->
-            ok;
-        P ->
-            erlang:unlink(P),
-            erlang:exit(P, kill)
-    end,
-    Config.
-
-load_cfg(Cfg) ->
-    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, Cfg).
+end_per_testcase(_, _Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases

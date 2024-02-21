@@ -73,23 +73,21 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    WorkDir = proplists:get_value(data_dir, Config),
-    filelib:ensure_path(WorkDir),
-    OrigInstallDir = emqx_plugins:get_config(install_dir, undefined),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_plugins]),
-    emqx_plugins:put_config(install_dir, WorkDir),
-    [{orig_install_dir, OrigInstallDir} | Config].
+    WorkDir = emqx_cth_suite:work_dir(Config),
+    InstallDir = filename:join([WorkDir, "plugins"]),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_ctl,
+            {emqx_plugins, #{config => #{plugins => #{install_dir => InstallDir}}}}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    ok = filelib:ensure_path(InstallDir),
+    [{suite_apps, Apps}, {install_dir, InstallDir} | Config].
 
 end_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_config:erase(plugins),
-    %% restore config
-    case proplists:get_value(orig_install_dir, Config) of
-        undefined -> ok;
-        OrigInstallDir -> emqx_plugins:put_config(install_dir, OrigInstallDir)
-    end,
-    emqx_common_test_helpers:stop_apps([emqx_plugins, emqx_conf]),
-    ok.
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(TestCase, Config) ->
     emqx_plugins:put_configured([]),
@@ -206,7 +204,7 @@ t_demo_install_start_stop_uninstall(Config) ->
 %% but since we are using hocon:load to load it
 %% ad-hoc test files can be in hocon format
 write_info_file(Config, NameVsn, Content) ->
-    WorkDir = proplists:get_value(data_dir, Config),
+    WorkDir = proplists:get_value(install_dir, Config),
     InfoFile = filename:join([WorkDir, NameVsn, "release.json"]),
     ok = filelib:ensure_dir(InfoFile),
     ok = file:write_file(InfoFile, Content).
@@ -371,7 +369,7 @@ t_bad_tar_gz({init, Config}) ->
 t_bad_tar_gz({'end', _Config}) ->
     ok;
 t_bad_tar_gz(Config) ->
-    WorkDir = proplists:get_value(data_dir, Config),
+    WorkDir = proplists:get_value(install_dir, Config),
     FakeTarTz = filename:join([WorkDir, "fake-vsn.tar.gz"]),
     ok = file:write_file(FakeTarTz, "a\n"),
     ?assertMatch(
@@ -396,7 +394,7 @@ t_bad_tar_gz(Config) ->
 %% create with incomplete info file
 %% failed install attempts should not leave behind extracted dir
 t_bad_tar_gz2({init, Config}) ->
-    WorkDir = proplists:get_value(data_dir, Config),
+    WorkDir = proplists:get_value(install_dir, Config),
     NameVsn = "foo-0.2",
     %% this an invalid info file content (description missing)
     BadInfo = "name=foo, rel_vsn=\"0.2\", rel_apps=[foo]",
@@ -422,7 +420,7 @@ t_bad_tar_gz2(Config) ->
 %% test that we even cleanup content that doesn't match the expected name-vsn
 %% pattern
 t_tar_vsn_content_mismatch({init, Config}) ->
-    WorkDir = proplists:get_value(data_dir, Config),
+    WorkDir = proplists:get_value(install_dir, Config),
     NameVsn = "bad_tar-0.2",
     %% this an invalid info file content
     BadInfo = "name=foo, rel_vsn=\"0.2\", rel_apps=[\"foo-0.2\"], description=\"lorem ipsum\"",
@@ -606,7 +604,7 @@ t_load_config_from_cli(Config) when is_list(Config) ->
     ok.
 
 group_t_copy_plugin_to_a_new_node({init, Config}) ->
-    WorkDir = proplists:get_value(data_dir, Config),
+    WorkDir = proplists:get_value(install_dir, Config),
     FromInstallDir = filename:join(WorkDir, atom_to_list(plugins_copy_from)),
     file:del_dir_r(FromInstallDir),
     ok = filelib:ensure_path(FromInstallDir),
@@ -614,25 +612,25 @@ group_t_copy_plugin_to_a_new_node({init, Config}) ->
     file:del_dir_r(ToInstallDir),
     ok = filelib:ensure_path(ToInstallDir),
     #{package := Package, release_name := PluginName} = get_demo_plugin_package(FromInstallDir),
-    [{CopyFrom, CopyFromOpts}, {CopyTo, CopyToOpts}] =
-        emqx_common_test_helpers:emqx_cluster(
+    Apps = [
+        emqx,
+        emqx_conf,
+        emqx_ctl,
+        emqx_plugins
+    ],
+    [SpecCopyFrom, SpecCopyTo] =
+        emqx_cth_cluster:mk_nodespecs(
             [
-                {core, plugins_copy_from},
-                {core, plugins_copy_to}
+                {plugins_copy_from, #{role => core, apps => Apps}},
+                {plugins_copy_to, #{role => core, apps => Apps}}
             ],
             #{
-                apps => [emqx_conf, emqx_plugins],
-                env => [
-                    {emqx, boot_modules, []}
-                ],
-                load_schema => false
+                work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)
             }
         ),
-    CopyFromNode = emqx_common_test_helpers:start_peer(
-        CopyFrom, maps:remove(join_to, CopyFromOpts)
-    ),
+    [CopyFromNode] = emqx_cth_cluster:start([SpecCopyFrom#{join_to => undefined}]),
     ok = rpc:call(CopyFromNode, emqx_plugins, put_config, [install_dir, FromInstallDir]),
-    CopyToNode = emqx_common_test_helpers:start_peer(CopyTo, maps:remove(join_to, CopyToOpts)),
+    [CopyToNode] = emqx_cth_cluster:start([SpecCopyTo#{join_to => undefined}]),
     ok = rpc:call(CopyToNode, emqx_plugins, put_config, [install_dir, ToInstallDir]),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     ok = rpc:call(CopyFromNode, emqx_plugins, ensure_installed, [NameVsn]),
@@ -656,16 +654,9 @@ group_t_copy_plugin_to_a_new_node({init, Config}) ->
         | Config
     ];
 group_t_copy_plugin_to_a_new_node({'end', Config}) ->
-    CopyFromNode = proplists:get_value(copy_from_node, Config),
-    CopyToNode = proplists:get_value(copy_to_node, Config),
-    ok = rpc:call(CopyFromNode, emqx_config, delete_override_conf_files, []),
-    ok = rpc:call(CopyToNode, emqx_config, delete_override_conf_files, []),
-    rpc:call(CopyToNode, ekka, leave, []),
-    rpc:call(CopyFromNode, ekka, leave, []),
-    ok = emqx_common_test_helpers:stop_peer(CopyToNode),
-    ok = emqx_common_test_helpers:stop_peer(CopyFromNode),
-    ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
-    ok = file:del_dir_r(proplists:get_value(from_install_dir, Config));
+    CopyFromNode = ?config(copy_from_node, Config),
+    CopyToNode = ?config(copy_to_node, Config),
+    ok = emqx_cth_cluster:stop([CopyFromNode, CopyToNode]);
 group_t_copy_plugin_to_a_new_node(Config) ->
     CopyFromNode = proplists:get_value(copy_from_node, Config),
     CopyToNode = proplists:get_value(copy_to_node, Config),
@@ -706,62 +697,48 @@ group_t_copy_plugin_to_a_new_node(Config) ->
 
 %% checks that we can start a cluster with a lone node.
 group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
-    PrivDataDir = ?config(priv_dir, Config),
-    ToInstallDir = filename:join(PrivDataDir, "plugins_copy_to"),
+    WorkDir = ?config(install_dir, Config),
+    ToInstallDir = filename:join(WorkDir, "plugins_copy_to"),
     file:del_dir_r(ToInstallDir),
     ok = filelib:ensure_path(ToInstallDir),
     #{package := Package, release_name := PluginName} = get_demo_plugin_package(ToInstallDir),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
-    [{CopyTo, CopyToOpts}] =
-        emqx_common_test_helpers:emqx_cluster(
-            [
-                {core, plugins_copy_to}
-            ],
-            #{
-                apps => [emqx_conf, emqx_plugins],
-                env => [
-                    {emqx, boot_modules, []}
-                ],
-                env_handler => fun
-                    (emqx_plugins) ->
-                        ok = emqx_plugins:put_config(install_dir, ToInstallDir),
-                        %% this is to simulate an user setting the state
-                        %% via environment variables before starting the node
-                        ok = emqx_plugins:put_config(
-                            states,
-                            [#{name_vsn => NameVsn, enable => true}]
-                        ),
-                        ok;
-                    (_) ->
-                        ok
-                end,
-                priv_data_dir => PrivDataDir,
-                schema_mod => emqx_conf_schema,
-                load_schema => true
+    Apps = [
+        emqx,
+        emqx_conf,
+        emqx_ctl,
+        {emqx_plugins, #{
+            config => #{
+                plugins => #{
+                    install_dir => ToInstallDir,
+                    states => [#{name_vsn => NameVsn, enable => true}]
+                }
             }
-        ),
+        }}
+    ],
+    [CopyToNode] = emqx_cth_cluster:start(
+        [{plugins_copy_to, #{role => core, apps => Apps}}],
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)
+        }
+    ),
     [
         {to_install_dir, ToInstallDir},
-        {copy_to_node_name, CopyTo},
-        {copy_to_opts, CopyToOpts},
+        {copy_to_node, CopyToNode},
         {name_vsn, NameVsn},
         {plugin_name, PluginName}
         | Config
     ];
 group_t_copy_plugin_to_a_new_node_single_node({'end', Config}) ->
-    CopyToNode = proplists:get_value(copy_to_node_name, Config),
-    ok = emqx_common_test_helpers:stop_peer(CopyToNode),
-    ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
-    ok;
+    CopyToNode = proplists:get_value(copy_to_node, Config),
+    ok = emqx_cth_cluster:stop([CopyToNode]);
 group_t_copy_plugin_to_a_new_node_single_node(Config) ->
-    CopyTo = ?config(copy_to_node_name, Config),
-    CopyToOpts = ?config(copy_to_opts, Config),
+    CopyToNode = ?config(copy_to_node, Config),
     ToInstallDir = ?config(to_install_dir, Config),
     NameVsn = proplists:get_value(name_vsn, Config),
     %% Start the node for the first time. The plugin should start
     %% successfully even if it's not extracted yet.  Simply starting
     %% the node would crash if not working properly.
-    CopyToNode = emqx_common_test_helpers:start_peer(CopyTo, CopyToOpts),
     ct:pal("~p config:\n  ~p", [
         CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config, [[], #{}])
     ]),
@@ -775,52 +752,44 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     ok.
 
 group_t_cluster_leave({init, Config}) ->
-    PrivDataDir = ?config(priv_dir, Config),
-    ToInstallDir = filename:join(PrivDataDir, "plugins_copy_to"),
+    WorkDir = ?config(install_dir, Config),
+    ToInstallDir = filename:join(WorkDir, "plugins_copy_to"),
     file:del_dir_r(ToInstallDir),
     ok = filelib:ensure_path(ToInstallDir),
     #{package := Package, release_name := PluginName} = get_demo_plugin_package(ToInstallDir),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
-    Cluster =
-        emqx_common_test_helpers:emqx_cluster(
-            [core, core],
-            #{
-                apps => [emqx_conf, emqx_plugins],
-                env => [
-                    {emqx, boot_modules, []}
-                ],
-                env_handler => fun
-                    (emqx_plugins) ->
-                        ok = emqx_plugins:put_config(install_dir, ToInstallDir),
-                        %% this is to simulate an user setting the state
-                        %% via environment variables before starting the node
-                        ok = emqx_plugins:put_config(
-                            states,
-                            [#{name_vsn => NameVsn, enable => true}]
-                        ),
-                        ok;
-                    (_) ->
-                        ok
-                end,
-                priv_data_dir => PrivDataDir,
-                schema_mod => emqx_conf_schema,
-                load_schema => true
+    Apps = [
+        emqx,
+        emqx_conf,
+        emqx_ctl,
+        {emqx_plugins, #{
+            config => #{
+                plugins => #{
+                    install_dir => ToInstallDir,
+                    states => [#{name_vsn => NameVsn, enable => true}]
+                }
             }
-        ),
-    Nodes = [emqx_common_test_helpers:start_peer(Name, Opts) || {Name, Opts} <- Cluster],
+        }}
+    ],
+    Nodes = emqx_cth_cluster:start(
+        [
+            {group_t_cluster_leave1, #{role => core, apps => Apps}},
+            {group_t_cluster_leave2, #{role => core, apps => Apps}}
+        ],
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)
+        }
+    ),
     [
         {to_install_dir, ToInstallDir},
-        {cluster, Cluster},
         {nodes, Nodes},
         {name_vsn, NameVsn},
         {plugin_name, PluginName}
         | Config
     ];
 group_t_cluster_leave({'end', Config}) ->
-    Nodes = proplists:get_value(nodes, Config),
-    [ok = emqx_common_test_helpers:stop_peer(N) || N <- Nodes],
-    ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
-    ok;
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes);
 group_t_cluster_leave(Config) ->
     [N1, N2] = ?config(nodes, Config),
     NameVsn = proplists:get_value(name_vsn, Config),

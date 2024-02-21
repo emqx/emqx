@@ -34,7 +34,8 @@
 -export([
     paths/0,
     fields/1,
-    schema/1
+    schema/1,
+    namespace/0
 ]).
 
 %% for rpc
@@ -54,6 +55,8 @@
 
 -define(INVALID_TOPIC, 'INVALID_TOPIC_NAME').
 -define(MESSAGE_NOT_FOUND, 'MESSAGE_NOT_FOUND').
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

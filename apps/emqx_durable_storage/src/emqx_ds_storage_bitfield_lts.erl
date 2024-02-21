@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,11 +27,13 @@
 -export([
     create/4,
     open/5,
+    drop/5,
     store_batch/4,
     get_streams/4,
     make_iterator/5,
     update_iterator/4,
-    next/4
+    next/4,
+    post_creation_actions/1
 ]).
 
 %% internal exports:
@@ -87,11 +89,7 @@
 
 -type s() :: #s{}.
 
--type stream() ::
-    #{
-        ?tag := ?STREAM,
-        ?storage_key := emqx_ds_lts:msg_storage_key()
-    }.
+-type stream() :: emqx_ds_lts:msg_storage_key().
 
 -type iterator() ::
     #{
@@ -199,6 +197,35 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         ts_offset = TSOffsetBits
     }.
 
+-spec post_creation_actions(emqx_ds_storage_layer:post_creation_context()) ->
+    s().
+post_creation_actions(
+    #{
+        new_gen_runtime_data := NewGenData,
+        old_gen_runtime_data := OldGenData
+    }
+) ->
+    #s{trie = OldTrie} = OldGenData,
+    #s{trie = NewTrie0} = NewGenData,
+    NewTrie = copy_previous_trie(OldTrie, NewTrie0),
+    ?tp(bitfield_lts_inherited_trie, #{}),
+    NewGenData#s{trie = NewTrie}.
+
+-spec drop(
+    emqx_ds_storage_layer:shard_id(),
+    rocksdb:db_handle(),
+    emqx_ds_storage_layer:gen_id(),
+    emqx_ds_storage_layer:cf_refs(),
+    s()
+) ->
+    ok.
+drop(_Shard, DBHandle, GenId, CFRefs, #s{}) ->
+    {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
+    {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
+    ok = rocksdb:drop_column_family(DBHandle, DataCF),
+    ok = rocksdb:drop_column_family(DBHandle, TrieCF),
+    ok.
+
 -spec store_batch(
     emqx_ds_storage_layer:shard_id(), s(), [emqx_types:message()], emqx_ds:message_store_opts()
 ) ->
@@ -220,8 +247,7 @@ store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
     emqx_ds:time()
 ) -> [stream()].
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
-    Indexes = emqx_ds_lts:match_topics(Trie, TopicFilter),
-    [#{?tag => ?STREAM, ?storage_key => I} || I <- Indexes].
+    emqx_ds_lts:match_topics(Trie, TopicFilter).
 
 -spec make_iterator(
     emqx_ds_storage_layer:shard_id(),
@@ -231,7 +257,7 @@ get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     emqx_ds:time()
 ) -> {ok, iterator()}.
 make_iterator(
-    _Shard, _Data, #{?tag := ?STREAM, ?storage_key := StorageKey}, TopicFilter, StartTime
+    _Shard, _Data, StorageKey, TopicFilter, StartTime
 ) ->
     %% Note: it's a good idea to keep the iterator structure lean,
     %% since it can be stored on a remote node that could update its
@@ -499,6 +525,10 @@ restore_trie(TopicIndexBytes, DB, CF) ->
     after
         rocksdb:iterator_close(IT)
     end.
+
+-spec copy_previous_trie(emqx_ds_lts:trie(), emqx_ds_lts:trie()) -> emqx_ds_lts:trie().
+copy_previous_trie(OldTrie, NewTrie) ->
+    emqx_ds_lts:trie_copy_learned_paths(OldTrie, NewTrie).
 
 read_persisted_trie(IT, {ok, KeyB, ValB}) ->
     [

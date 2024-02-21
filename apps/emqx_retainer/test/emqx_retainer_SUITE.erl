@@ -47,8 +47,6 @@ common_tests() ->
     emqx_common_test_helpers:all(?MODULE) -- [t_reindex].
 
 -define(BASE_CONF, <<
-    ""
-    "\n"
     "retainer {\n"
     "    enable = true\n"
     "    msg_clear_interval = 0s\n"
@@ -64,7 +62,6 @@ common_tests() ->
     "        max_retained_messages = 0\n"
     "     }\n"
     "}"
-    ""
 >>).
 
 %%--------------------------------------------------------------------
@@ -72,18 +69,14 @@ common_tests() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_conf]),
-    load_conf(),
-    emqx_limiter_sup:start_link(),
-    timer:sleep(200),
-    ok = application:ensure_started(?APP),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, app_spec()],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    emqx_common_test_helpers:stop_apps([?APP, emqx_conf]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_group(mnesia_without_indices, Config) ->
     mnesia:clear_table(?TAB_INDEX_META),
@@ -113,10 +106,8 @@ init_per_testcase(t_get_basic_usage_info, Config) ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-load_conf() ->
-    ok = emqx_config:delete_override_conf_files(),
-    emqx_ratelimiter_SUITE:init_config(),
-    ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF).
+app_spec() ->
+    {emqx_retainer, ?BASE_CONF}.
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -698,7 +689,7 @@ t_deliver_when_banned(_) ->
     ),
 
     Now = erlang:system_time(second),
-    Who = {clientid, Client2},
+    Who = emqx_banned:who(clientid, Client2),
 
     emqx_banned:create(#{
         who => Who,

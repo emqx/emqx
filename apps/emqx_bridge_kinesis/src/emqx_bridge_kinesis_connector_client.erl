@@ -11,9 +11,7 @@
 -behaviour(gen_server).
 
 -type state() :: #{
-    instance_id := resource_id(),
-    partition_key := binary(),
-    stream_name := binary()
+    instance_id := resource_id()
 }.
 -type record() :: {Data :: binary(), PartitionKey :: binary()}.
 
@@ -23,7 +21,8 @@
 -export([
     start_link/1,
     connection_status/1,
-    query/2
+    connection_status/2,
+    query/3
 ]).
 
 %% gen_server callbacks
@@ -56,8 +55,16 @@ connection_status(Pid) ->
             {error, timeout}
     end.
 
-query(Pid, Records) ->
-    gen_server:call(Pid, {query, Records}, infinity).
+connection_status(Pid, StreamName) ->
+    try
+        gen_server:call(Pid, {connection_status, StreamName}, ?HEALTH_CHECK_TIMEOUT)
+    catch
+        _:_ ->
+            {error, timeout}
+    end.
+
+query(Pid, Records, StreamName) ->
+    gen_server:call(Pid, {query, Records, StreamName}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,13 +79,12 @@ start_link(Options) ->
 %%%===================================================================
 
 %% Initialize kinesis connector
--spec init(emqx_bridge_kinesis_impl_producer:config()) -> {ok, state()}.
+-spec init(emqx_bridge_kinesis_impl_producer:config_connector()) ->
+    {ok, state()} | {stop, Reason :: term()}.
 init(#{
     aws_access_key_id := AwsAccessKey,
     aws_secret_access_key := AwsSecretAccessKey,
     endpoint := Endpoint,
-    partition_key := PartitionKey,
-    stream_name := StreamName,
     max_retries := MaxRetries,
     instance_id := InstanceId
 }) ->
@@ -93,9 +99,7 @@ init(#{
             }
         ),
     State = #{
-        instance_id => InstanceId,
-        partition_key => PartitionKey,
-        stream_name => StreamName
+        instance_id => InstanceId
     },
     %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
     ok = erlcloud_config:configure(
@@ -124,18 +128,19 @@ init(#{
             {stop, Reason}
     end.
 
-handle_call(connection_status, _From, #{stream_name := StreamName} = State) ->
+handle_call({connection_status, StreamName}, _From, State) ->
+    Status = get_status(StreamName),
+    {reply, Status, State};
+handle_call(connection_status, _From, State) ->
     Status =
-        case erlcloud_kinesis:describe_stream(StreamName) of
-            {ok, _} ->
+        case erlcloud_kinesis:list_streams() of
+            {ok, _ListStreamsResult} ->
                 {ok, connected};
-            {error, {<<"ResourceNotFoundException">>, _}} ->
-                {error, unhealthy_target};
             Error ->
                 {error, Error}
         end,
     {reply, Status, State};
-handle_call({query, Records}, _From, #{stream_name := StreamName} = State) ->
+handle_call({query, Records, StreamName}, _From, State) ->
     Result = do_query(StreamName, Records),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
@@ -157,6 +162,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+get_status(StreamName) ->
+    case erlcloud_kinesis:describe_stream(StreamName) of
+        {ok, _} ->
+            {ok, connected};
+        {error, {<<"ResourceNotFoundException">>, _}} ->
+            {error, unhealthy_target};
+        Error ->
+            {error, Error}
+    end.
 
 -spec do_query(binary(), [record()]) ->
     {ok, jsx:json_term() | binary()}

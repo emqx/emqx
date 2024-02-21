@@ -17,7 +17,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, mnesia/1]).
+-export([start_link/0, create_tables/0]).
 
 %% Note: multicall functions are statically checked by
 %% `emqx_bapi_trans' and `emqx_bpapi_static_checks' modules. Don't
@@ -65,8 +65,6 @@
 
 -export_type([tnx_id/0, succeed_num/0]).
 
--boot_mnesia({mnesia, [boot]}).
-
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_conf.hrl").
@@ -99,7 +97,8 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-mnesia(boot) ->
+
+create_tables() ->
     ok = mria:create_table(?CLUSTER_MFA, [
         {type, ordered_set},
         {rlog_shard, ?CLUSTER_RPC_SHARD},
@@ -113,7 +112,11 @@ mnesia(boot) ->
         {storage, disc_copies},
         {record_name, cluster_rpc_commit},
         {attributes, record_info(fields, cluster_rpc_commit)}
-    ]).
+    ]),
+    [
+        ?CLUSTER_MFA,
+        ?CLUSTER_COMMIT
+    ].
 
 start_link() ->
     start_link(node(), ?MODULE, get_retry_ms()).

@@ -71,11 +71,11 @@ register_sub(SubPid, SubId) when is_pid(SubPid) ->
             error(subid_conflict)
     end.
 
--spec lookup_subid(pid()) -> maybe(emqx_types:subid()).
+-spec lookup_subid(pid()) -> option(emqx_types:subid()).
 lookup_subid(SubPid) when is_pid(SubPid) ->
     emqx_utils_ets:lookup_value(?SUBMON, SubPid).
 
--spec lookup_subpid(emqx_types:subid()) -> maybe(pid()).
+-spec lookup_subpid(emqx_types:subid()) -> option(pid()).
 lookup_subpid(SubId) ->
     emqx_utils_ets:lookup_value(?SUBID, SubId).
 

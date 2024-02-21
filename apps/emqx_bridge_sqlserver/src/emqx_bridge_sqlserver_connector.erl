@@ -24,7 +24,8 @@
 %% Hocon config schema exports
 -export([
     roots/0,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 %% callbacks for behaviour emqx_resource
@@ -131,6 +132,8 @@
 %%====================================================================
 %% Configuration and default values
 %%====================================================================
+
+namespace() -> sqlserver.
 
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].

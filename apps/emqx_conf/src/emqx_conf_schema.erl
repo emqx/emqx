@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -42,6 +42,8 @@
 %% internal exports for `emqx_enterprise_schema' only.
 -export([ensure_unicode_path/2, convert_rotation/2, log_handler_common_confs/2]).
 
+-define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
+
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
 %% by nodetool to generate app.<time>.config before EMQX is started
@@ -74,6 +76,14 @@
 
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
+
+-define(LOG_THROTTLING_MSGS, [
+    authorization_permission_denied,
+    cannot_publish_to_topic_due_to_not_authorized,
+    cannot_publish_to_topic_due_to_quota_exceeded,
+    connection_rejected_due_to_license_limit_reached,
+    dropped_msg_due_to_mqueue_is_full
+]).
 
 %% Callback to upgrade config after loaded from config file but before validation.
 upgrade_raw_conf(Raw0) ->
@@ -123,7 +133,8 @@ roots() ->
         lists:flatmap(fun roots/1, common_apps()).
 
 validations() ->
-    hocon_schema:validations(emqx_schema) ++
+    [{check_node_name_and_discovery_strategy, fun validate_cluster_strategy/1}] ++
+        hocon_schema:validations(emqx_schema) ++
         lists:flatmap(fun hocon_schema:validations/1, common_apps()).
 
 common_apps() ->
@@ -259,7 +270,7 @@ fields(cluster_dns) ->
             )},
         {"record_type",
             sc(
-                hoconsc:enum([a, srv]),
+                hoconsc:enum([a, aaaa, srv]),
                 #{
                     default => a,
                     desc => ?DESC(cluster_dns_record_type),
@@ -359,7 +370,7 @@ fields("node") ->
             sc(
                 string(),
                 #{
-                    default => <<"emqx@127.0.0.1">>,
+                    default => ?DEFAULT_NODE_NAME,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(node_name)
@@ -909,7 +920,12 @@ fields("log") ->
                     aliases => [file_handlers],
                     importance => ?IMPORTANCE_HIGH
                 }
-            )}
+            )},
+        {throttling,
+            sc(?R_REF("log_throttling"), #{
+                desc => ?DESC("log_throttling"),
+                importance => ?IMPORTANCE_MEDIUM
+            })}
     ];
 fields("console_handler") ->
     log_handler_common_confs(console, #{});
@@ -1012,6 +1028,28 @@ fields("log_burst_limit") ->
                 }
             )}
     ];
+fields("log_throttling") ->
+    [
+        {time_window,
+            sc(
+                emqx_schema:duration_s(),
+                #{
+                    default => <<"1m">>,
+                    desc => ?DESC("log_throttling_time_window"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        %% A static list of msgs used in ?SLOG_THROTTLE/2,3 macro.
+        %% For internal (developer) use only.
+        {msgs,
+            sc(
+                hoconsc:array(hoconsc:enum(?LOG_THROTTLING_MSGS)),
+                #{
+                    default => ?LOG_THROTTLING_MSGS,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+    ];
 fields("authorization") ->
     emqx_schema:authz_fields() ++
         emqx_authz_schema:authz_fields().
@@ -1046,6 +1084,8 @@ desc("log_burst_limit") ->
     ?DESC("desc_log_burst_limit");
 desc("authorization") ->
     ?DESC("desc_authorization");
+desc("log_throttling") ->
+    ?DESC("desc_log_throttling");
 desc(_) ->
     undefined.
 
@@ -1431,22 +1471,60 @@ convert_rotation(#{} = Rotation, _Opts) -> maps:get(<<"count">>, Rotation, 10);
 convert_rotation(Count, _Opts) when is_integer(Count) -> Count;
 convert_rotation(Count, _Opts) -> throw({"bad_rotation", Count}).
 
-ensure_unicode_path(undefined, _) ->
-    undefined;
-ensure_unicode_path(Path, #{make_serializable := true}) ->
-    %% format back to serializable string
-    unicode:characters_to_binary(Path, utf8);
-ensure_unicode_path(Path, Opts) when is_binary(Path) ->
-    case unicode:characters_to_list(Path, utf8) of
-        {R, _, _} when R =:= error orelse R =:= incomplete ->
-            throw({"bad_file_path_string", Path});
-        PathStr ->
-            ensure_unicode_path(PathStr, Opts)
-    end;
-ensure_unicode_path(Path, _) when is_list(Path) ->
-    Path;
-ensure_unicode_path(Path, _) ->
-    throw({"not_string", Path}).
+ensure_unicode_path(Path, Opts) ->
+    emqx_schema:ensure_unicode_path(Path, Opts).
 
 log_level() ->
     hoconsc:enum([debug, info, notice, warning, error, critical, alert, emergency, all]).
+
+validate_cluster_strategy(#{<<"node">> := _, <<"cluster">> := _} = Conf) ->
+    Name = hocon_maps:get("node.name", Conf),
+    [_Prefix, Host] = re:split(Name, "@", [{return, list}, unicode]),
+    Strategy = hocon_maps:get("cluster.discovery_strategy", Conf),
+    Type = hocon_maps:get("cluster.dns.record_type", Conf),
+    validate_dns_cluster_strategy(Strategy, Type, Host);
+validate_cluster_strategy(_) ->
+    true.
+
+validate_dns_cluster_strategy(dns, srv, _Host) ->
+    ok;
+validate_dns_cluster_strategy(dns, Type, Host) ->
+    case is_ip_addr(unicode:characters_to_list(Host), Type) of
+        true ->
+            ok;
+        false ->
+            throw(#{
+                explain =>
+                    "Node name must be of name@IP format "
+                    "for DNS cluster discovery strategy with '" ++ atom_to_list(Type) ++
+                    "' record type.",
+                domain => unicode:characters_to_list(Host)
+            })
+    end;
+validate_dns_cluster_strategy(_Other, _Type, _Name) ->
+    true.
+
+is_ip_addr(Host, Type) ->
+    case inet:parse_address(Host) of
+        {ok, Ip} ->
+            AddrType = address_type(Ip),
+            case
+                (AddrType =:= ipv4 andalso Type =:= a) orelse
+                    (AddrType =:= ipv6 andalso Type =:= aaaa)
+            of
+                true ->
+                    true;
+                false ->
+                    throw(#{
+                        explain => "Node name address " ++ atom_to_list(AddrType) ++
+                            " is incompatible with DNS record type " ++ atom_to_list(Type),
+                        record_type => Type,
+                        address_type => address_type(Ip)
+                    })
+            end;
+        _ ->
+            false
+    end.
+
+address_type(IP) when tuple_size(IP) =:= 4 -> ipv4;
+address_type(IP) when tuple_size(IP) =:= 8 -> ipv6.

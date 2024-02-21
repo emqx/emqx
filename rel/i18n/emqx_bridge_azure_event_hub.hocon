@@ -342,4 +342,12 @@ server_name_indication.desc:
 server_name_indication.label:
 """SNI"""
 
+partitions_limit.desc:
+"""Limit the number of partitions to produce data for the given topic.
+The special value `all_partitions` is to utilize all partitions for the topic.
+Setting this to a value which is greater than the total number of partitions in has no effect."""
+
+partitions_limit.label:
+"""Max Partitions"""
+
 }

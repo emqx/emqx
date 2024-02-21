@@ -48,7 +48,7 @@
     %% AuthCode
     authcode :: undefined | anonymous | binary(),
     %% Keepalive
-    keepalive :: maybe(emqx_keepalive:keepalive()),
+    keepalive :: option(emqx_keepalive:keepalive()),
     %% Msg SN
     msg_sn,
     %% Down Topic

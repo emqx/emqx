@@ -11,7 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
 
 %% `emqx_resource' API
 -export([
@@ -20,8 +20,14 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
+
+-export([connector_examples/1]).
 
 -export([connect/1, do_get_status/1, execute/3, do_batch_insert/4]).
 
@@ -31,26 +37,61 @@
     default_port => 6041
 }).
 
+-define(CONNECTOR_TYPE, tdengine).
+
+namespace() -> "tdengine_connector".
+
 %%=====================================================================
-%% Hocon schema
+%% V1 Hocon schema
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
+    base_config(true);
+%%=====================================================================
+%% V2 Hocon schema
+
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        base_config(false) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
+fields("post") ->
+    emqx_connector_schema:type_and_name_fields(enum([tdengine])) ++ fields("config_connector");
+fields("put") ->
+    fields("config_connector");
+fields("get") ->
+    emqx_bridge_schema:status_fields() ++ fields("post").
+
+base_config(HasDatabase) ->
     [
         {server, server()}
-        | adjust_fields(emqx_connector_schema_lib:relational_db_fields())
+        | adjust_fields(emqx_connector_schema_lib:relational_db_fields(), HasDatabase)
     ].
 
-adjust_fields(Fields) ->
-    lists:map(
+desc(config) ->
+    ?DESC("desc_config");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
+desc("config_connector") ->
+    ?DESC("desc_config");
+desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
+    ["Configuration for TDengine using `", string:to_upper(Method), "` method."];
+desc(_) ->
+    undefined.
+
+adjust_fields(Fields, HasDatabase) ->
+    lists:filtermap(
         fun
             ({username, OrigUsernameFn}) ->
-                {username, add_default_fn(OrigUsernameFn, <<"root">>)};
+                {true, {username, add_default_fn(OrigUsernameFn, <<"root">>)}};
             ({password, _}) ->
-                {password, emqx_connector_schema_lib:password_field(#{required => true})};
-            (Field) ->
-                Field
+                {true, {password, emqx_connector_schema_lib:password_field(#{required => true})}};
+            ({database, _}) ->
+                HasDatabase;
+            (_Field) ->
+                true
         end,
         Fields
     ).
@@ -64,6 +105,32 @@ add_default_fn(OrigFn, Default) ->
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?TD_HOST_OPTIONS).
+
+%%=====================================================================
+%% V2 Hocon schema
+connector_examples(Method) ->
+    [
+        #{
+            <<"tdengine">> =>
+                #{
+                    summary => <<"TDengine Connector">>,
+                    value => emqx_connector_schema:connector_values(
+                        Method, ?CONNECTOR_TYPE, connector_example_values()
+                    )
+                }
+        }
+    ].
+
+connector_example_values() ->
+    #{
+        name => <<"tdengine_connector">>,
+        type => tdengine,
+        enable => true,
+        server => <<"127.0.0.1:6041">>,
+        pool_size => 8,
+        username => <<"root">>,
+        password => <<"******">>
+    }.
 
 %%========================================================================================
 %% `emqx_resource' API
@@ -93,11 +160,10 @@ on_start(
         {username, Username},
         {password, Password},
         {pool_size, PoolSize},
-        {pool, binary_to_atom(InstanceId, utf8)}
+        {pool, InstanceId}
     ],
 
-    Prepares = parse_prepare_sql(Config),
-    State = Prepares#{pool_name => InstanceId, query_opts => query_opts(Config)},
+    State = #{pool_name => InstanceId, channels => #{}},
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
@@ -110,34 +176,33 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_tdengine_connector",
         connector => InstanceId
     }),
+    ?tp(tdengine_connector_stop, #{instance_id => InstanceId}),
     emqx_resource_pool:stop(InstanceId).
 
-on_query(InstanceId, {query, SQL}, State) ->
-    do_query(InstanceId, SQL, State);
-on_query(InstanceId, {Key, Data}, #{insert_tokens := InsertTksMap} = State) ->
-    case maps:find(Key, InsertTksMap) of
-        {ok, Tokens} when is_map(Data) ->
-            SQL = emqx_placeholder:proc_tmpl(Tokens, Data),
-            do_query(InstanceId, SQL, State);
+on_query(InstanceId, {ChannelId, Data}, #{channels := Channels} = State) ->
+    case maps:find(ChannelId, Channels) of
+        {ok, #{insert := Tokens, opts := Opts}} ->
+            Query = emqx_placeholder:proc_tmpl(Tokens, Data),
+            do_query_job(InstanceId, {?MODULE, execute, [Query, Opts]}, State);
         _ ->
-            {error, {unrecoverable_error, invalid_request}}
+            {error, {unrecoverable_error, {invalid_channel_id, InstanceId}}}
     end.
 
 %% aggregate the batch queries to one SQL is a heavy job, we should put it in the worker process
 on_batch_query(
     InstanceId,
-    [{Key, _Data = #{}} | _] = BatchReq,
-    #{batch_tokens := BatchTksMap, query_opts := Opts} = State
+    [{ChannelId, _Data = #{}} | _] = BatchReq,
+    #{channels := Channels} = State
 ) ->
-    case maps:find(Key, BatchTksMap) of
-        {ok, Tokens} ->
+    case maps:find(ChannelId, Channels) of
+        {ok, #{batch := Tokens, opts := Opts}} ->
             do_query_job(
                 InstanceId,
                 {?MODULE, do_batch_insert, [Tokens, BatchReq, Opts]},
                 State
             );
         _ ->
-            {error, {unrecoverable_error, batch_prepare_not_implemented}}
+            {error, {unrecoverable_error, {invalid_channel_id, InstanceId}}}
     end;
 on_batch_query(InstanceId, BatchReq, State) ->
     LogMeta = #{connector => InstanceId, request => BatchReq, state => State},
@@ -157,12 +222,45 @@ do_get_status(Conn) ->
 status_result(_Status = true) -> connected;
 status_result(_Status = false) -> connecting.
 
+on_add_channel(
+    _InstanceId,
+    #{channels := Channels} = OldState,
+    ChannelId,
+    #{
+        parameters := #{database := Database, sql := SQL}
+    }
+) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            {error, already_exists};
+        _ ->
+            case parse_prepare_sql(SQL) of
+                {ok, Result} ->
+                    Opts = [{db_name, Database}],
+                    Channels2 = Channels#{ChannelId => Result#{opts => Opts}},
+                    {ok, OldState#{channels := Channels2}};
+                Error ->
+                    Error
+            end
+    end.
+
+on_remove_channel(_InstanceId, #{channels := Channels} = OldState, ChannelId) ->
+    {ok, OldState#{channels => maps:remove(ChannelId, Channels)}}.
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+
+on_get_channel_status(InstanceId, ChannelId, #{channels := Channels} = State) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            on_get_status(InstanceId, State);
+        _ ->
+            {error, not_exists}
+    end.
+
 %%========================================================================================
 %% Helper fns
 %%========================================================================================
-
-do_query(InstanceId, Query, #{query_opts := Opts} = State) ->
-    do_query_job(InstanceId, {?MODULE, execute, [Query, Opts]}, State).
 
 do_query_job(InstanceId, Job, #{pool_name := PoolName} = State) ->
     ?TRACE(
@@ -171,12 +269,11 @@ do_query_job(InstanceId, Job, #{pool_name := PoolName} = State) ->
         #{connector => InstanceId, job => Job, state => State}
     ),
     Result = ecpool:pick_and_do(PoolName, Job, no_handover),
-
     case Result of
         {error, Reason} ->
             ?tp(
                 tdengine_connector_query_return,
-                #{error => Reason}
+                #{instance_id => InstanceId, error => Reason}
             ),
             ?SLOG(error, #{
                 msg => "tdengine_connector_do_query_failed",
@@ -193,7 +290,7 @@ do_query_job(InstanceId, Job, #{pool_name := PoolName} = State) ->
         _ ->
             ?tp(
                 tdengine_connector_query_return,
-                #{result => Result}
+                #{instance_id => InstanceId, result => Result}
             ),
             Result
     end.
@@ -221,49 +318,23 @@ connect(Opts) ->
     NOpts = [{password, emqx_secret:unwrap(Secret)} | OptsRest],
     tdengine:start_link(NOpts).
 
-query_opts(#{database := Database} = _Opts) ->
-    [{db_name, Database}].
-
-parse_prepare_sql(Config) ->
-    SQL =
-        case maps:get(sql, Config, undefined) of
-            undefined -> #{};
-            Template -> #{send_message => Template}
-        end,
-
-    parse_batch_prepare_sql(maps:to_list(SQL), #{}, #{}).
-
-parse_batch_prepare_sql([{Key, H} | T], InsertTksMap, BatchTksMap) ->
-    case emqx_utils_sql:get_statement_type(H) of
-        select ->
-            parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap);
+parse_prepare_sql(SQL) ->
+    case emqx_utils_sql:get_statement_type(SQL) of
         insert ->
-            InsertTks = emqx_placeholder:preproc_tmpl(H),
-            H1 = string:trim(H, trailing, ";"),
-            case split_insert_sql(H1) of
+            InsertTks = emqx_placeholder:preproc_tmpl(SQL),
+            SQL1 = string:trim(SQL, trailing, ";"),
+            case split_insert_sql(SQL1) of
                 [_InsertPart, BatchDesc] ->
                     BatchTks = emqx_placeholder:preproc_tmpl(BatchDesc),
-                    parse_batch_prepare_sql(
-                        T,
-                        InsertTksMap#{Key => InsertTks},
-                        BatchTksMap#{Key => BatchTks}
-                    );
+                    {ok, #{insert => InsertTks, batch => BatchTks}};
                 Result ->
-                    ?SLOG(error, #{msg => "split_sql_failed", sql => H, result => Result}),
-                    parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap)
+                    {error, #{msg => "split_sql_failed", sql => SQL, result => Result}}
             end;
         Type when is_atom(Type) ->
-            ?SLOG(error, #{msg => "detect_sql_type_unsupported", sql => H, type => Type}),
-            parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap);
+            {error, #{msg => "detect_sql_type_unsupported", sql => SQL, type => Type}};
         {error, Reason} ->
-            ?SLOG(error, #{msg => "detect_sql_type_failed", sql => H, reason => Reason}),
-            parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap)
-    end;
-parse_batch_prepare_sql([], InsertTksMap, BatchTksMap) ->
-    #{
-        insert_tokens => InsertTksMap,
-        batch_tokens => BatchTksMap
-    }.
+            {error, #{msg => "detect_sql_type_failed", sql => SQL, reason => Reason}}
+    end.
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).

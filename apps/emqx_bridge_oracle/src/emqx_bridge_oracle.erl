@@ -9,7 +9,9 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -export([
-    conn_bridge_examples/1
+    bridge_v2_examples/1,
+    conn_bridge_examples/1,
+    connector_examples/1
 ]).
 
 -export([
@@ -20,22 +22,25 @@
     config_validator/1
 ]).
 
+-define(CONNECTOR_TYPE, oracle).
+-define(ACTION_TYPE, ?CONNECTOR_TYPE).
+
 -define(DEFAULT_SQL, <<
     "insert into t_mqtt_msgs(msgid, topic, qos, payload) "
     "values (${id}, ${topic}, ${qos}, ${payload})"
 >>).
 
-conn_bridge_examples(Method) ->
+conn_bridge_examples(_Method) ->
     [
         #{
             <<"oracle">> => #{
                 summary => <<"Oracle Database Bridge">>,
-                value => values(Method)
+                value => conn_bridge_examples_values()
             }
         }
     ].
 
-values(_Method) ->
+conn_bridge_examples_values() ->
     #{
         enable => true,
         type => oracle,
@@ -58,6 +63,54 @@ values(_Method) ->
         }
     }.
 
+connector_examples(Method) ->
+    [
+        #{
+            <<"oracle">> =>
+                #{
+                    summary => <<"Oracle Connector">>,
+                    value => emqx_connector_schema:connector_values(
+                        Method, ?CONNECTOR_TYPE, connector_values()
+                    )
+                }
+        }
+    ].
+
+connector_values() ->
+    #{
+        <<"username">> => <<"system">>,
+        <<"password">> => <<"oracle">>,
+        <<"server">> => <<"127.0.0.1:1521">>,
+        <<"service_name">> => <<"XE">>,
+        <<"sid">> => <<"XE">>,
+        <<"pool_size">> => 8,
+        <<"resource_opts">> =>
+            #{
+                <<"health_check_interval">> => <<"15s">>,
+                <<"start_timeout">> => <<"5s">>
+            }
+    }.
+
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"oracle">> =>
+                #{
+                    summary => <<"Oracle Action">>,
+                    value => emqx_bridge_v2_schema:action_values(
+                        Method, ?ACTION_TYPE, ?CONNECTOR_TYPE, action_values()
+                    )
+                }
+        }
+    ].
+
+action_values() ->
+    #{
+        parameters => #{
+            <<"sql">> => ?DEFAULT_SQL
+        }
+    }.
+
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 
@@ -65,6 +118,54 @@ namespace() -> "bridge_oracle".
 
 roots() -> [].
 
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    Fields =
+        fields(connector_fields) ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(oracle_action));
+fields(action) ->
+    {?ACTION_TYPE,
+        hoconsc:mk(
+            hoconsc:map(name, hoconsc:ref(?MODULE, oracle_action)),
+            #{
+                desc => <<"Oracle Action Config">>,
+                required => false
+            }
+        )};
+fields(oracle_action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        hoconsc:mk(
+            hoconsc:ref(?MODULE, action_parameters),
+            #{
+                required => true,
+                desc => ?DESC("action_parameters")
+            }
+        )
+    );
+fields(action_parameters) ->
+    [
+        {sql,
+            hoconsc:mk(
+                binary(),
+                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+            )}
+    ];
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        fields(connector_fields) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields("config") ->
     [
         {enable,
@@ -83,8 +184,10 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_oracle_schema:fields(config) --
-            emqx_connector_schema_lib:prepare_statement_fields());
+        fields(connector_fields);
+fields(connector_fields) ->
+    (emqx_oracle_schema:fields(config) --
+        emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
     fields("post", oracle);
 fields("put") ->
@@ -97,6 +200,16 @@ fields("post", Type) ->
 
 desc("config") ->
     ?DESC("desc_config");
+desc("creation_opts") ->
+    ?DESC(emqx_resource_schema, "creation_opts");
+desc("config_connector") ->
+    ?DESC("config_connector");
+desc(oracle_action) ->
+    ?DESC("oracle_action");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
@@ -116,5 +229,5 @@ config_validator(#{<<"server">> := Server} = Config) when
         not is_map_key(<<"service_name">>, Config)
 ->
     {error, "neither SID nor Service Name was set"};
-config_validator(_) ->
+config_validator(_Config) ->
     ok.

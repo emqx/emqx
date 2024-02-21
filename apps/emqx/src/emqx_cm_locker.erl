@@ -32,7 +32,7 @@ start_link() ->
     ekka_locker:start_link(?MODULE).
 
 -spec trans(
-    maybe(emqx_types:clientid()),
+    option(emqx_types:clientid()),
     fun(([node()]) -> any())
 ) -> any().
 trans(undefined, Fun) ->

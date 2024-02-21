@@ -381,6 +381,14 @@ consumer_kafka_opts.desc:
 consumer_kafka_opts.label:
 """Kafka Consumer"""
 
+partitions_limit.desc:
+"""Limit the number of partitions to produce data for the given topic.
+The special value `all_partitions` is to utilize all partitions for the topic.
+Setting this to a value which is greater than the total number of partitions in has no effect."""
+
+partitions_limit.label:
+"""Max Partitions"""
+
 max_inflight.desc:
 """The maximum number of message batches that the producer can send to each partition before it must wait for an acknowledgement.
 Setting a higher number can enhance throughput. However, value above 1 may lead to potential message reordering risks."""

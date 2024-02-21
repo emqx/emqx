@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,11 +39,11 @@
 -type match(ID) :: key(ID).
 
 -opaque t(ID, Value) :: gb_trees:tree(key(ID), Value).
--opaque t() :: t(_ID, _Value).
+-type t() :: t(_ID, _Value).
 
 %% @doc Create a new gb_tree and store it in the persitent_term with the
 %% given name.
--spec new() -> t().
+-spec new() -> t(_ID, _Value).
 new() ->
     gb_trees:empty().
 
@@ -54,19 +54,19 @@ size(Gbt) ->
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose
 %% between regular and "materialized" indexes, for example.
--spec insert(emqx_types:topic() | words(), _ID, _Record, t()) -> t().
+-spec insert(emqx_types:topic() | words(), ID, Record, t(ID, Record)) -> t(ID, Record).
 insert(Filter, ID, Record, Gbt) ->
     Key = key(Filter, ID),
     gb_trees:enter(Key, Record, Gbt).
 
 %% @doc Delete an entry from the index that associates given topic filter to given
 %% record ID. Deleting non-existing entry is not an error.
--spec delete(emqx_types:topic() | words(), _ID, t()) -> t().
+-spec delete(emqx_types:topic() | words(), ID, t(ID, Record)) -> t(ID, Record).
 delete(Filter, ID, Gbt) ->
     Key = key(Filter, ID),
     gb_trees:delete_any(Key, Gbt).
 
--spec lookup(emqx_types:topic() | words(), _ID, t(), Default) -> _Record | Default.
+-spec lookup(emqx_types:topic() | words(), ID, t(ID, Record), Default) -> Record | Default.
 lookup(Filter, ID, Gbt, Default) ->
     Key = key(Filter, ID),
     case gb_trees:lookup(Key, Gbt) of
@@ -76,7 +76,7 @@ lookup(Filter, ID, Gbt, Default) ->
             Default
     end.
 
--spec fold(fun((key(_ID), _Record, Acc) -> Acc), Acc, t()) -> Acc.
+-spec fold(fun((key(ID), Record, Acc) -> Acc), Acc, t(ID, Record)) -> Acc.
 fold(Fun, Acc, Gbt) ->
     Iter = gb_trees:iterator(Gbt),
     fold_iter(Fun, Acc, Iter).
@@ -91,13 +91,13 @@ fold_iter(Fun, Acc, Iter) ->
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
--spec match(emqx_types:topic(), t()) -> match(_ID) | false.
+-spec match(emqx_types:topic(), t(ID, _Record)) -> match(ID) | false.
 match(Topic, Gbt) ->
     emqx_trie_search:match(Topic, make_nextf(Gbt)).
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
--spec matches(emqx_types:topic(), t(), emqx_trie_search:opts()) -> [match(_ID)].
+-spec matches(emqx_types:topic(), t(ID, _Record), emqx_trie_search:opts()) -> [match(ID)].
 matches(Topic, Gbt, Opts) ->
     emqx_trie_search:matches(Topic, make_nextf(Gbt), Opts).
 
@@ -112,7 +112,7 @@ get_topic(Key) ->
     emqx_trie_search:get_topic(Key).
 
 %% @doc Fetch the record associated with the match.
--spec get_record(match(_ID), t()) -> _Record.
+-spec get_record(match(ID), t(ID, Record)) -> Record.
 get_record(Key, Gbt) ->
     gb_trees:get(Key, Gbt).
 

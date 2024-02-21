@@ -1,0 +1,34 @@
+emqx_bridge_rabbitmq_pubsub_schema {
+
+publisher_action.desc:
+"""Action configs."""
+publisher_action.label:
+"""Action"""
+
+subscriber_source.desc:
+"""Source configs."""
+subscriber_source.label:
+"""Source"""
+
+
+action_parameters.desc:
+"""The action config defines how this bridge send messages to the remote RabbitMQ broker"""
+action_parameters.label:
+"""Action Parameters"""
+
+source_parameters.desc:
+"""The source config defines how this bridge receive messages from the remote RabbitMQ broker"""
+source_parameters.label:
+"""Source Parameters"""
+
+source_queue.desc:
+"""The queue name of the RabbitMQ broker."""
+source_queue.label:
+"""Source Queue"""
+
+source_no_ack.desc:
+"""Whether to use no_ack mode when consuming messages from the RabbitMQ broker."""
+source_no_ack.label:
+"""Source No Ack"""
+
+}

@@ -30,7 +30,8 @@
     api_spec/0,
     schema/1,
     paths/0,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 %% API callbacks
@@ -44,6 +45,8 @@
 %%--------------------------------------------------------------------
 %% API spec funcs
 %%--------------------------------------------------------------------
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -159,6 +162,19 @@ fields(node_info) ->
             mk(
                 non_neg_integer(),
                 #{desc => <<"Number of clients currently connected to this node">>, example => 0}
+            )},
+        {cluster_sessions,
+            mk(
+                non_neg_integer(),
+                #{
+                    desc =>
+                        <<
+                            "By default, it includes only those sessions that have not expired. "
+                            "If the `broker.session_history_retain` config is set to a duration greater than `0s`, "
+                            "this count will also include sessions that expired within the specified retain time"
+                        >>,
+                    example => 0
+                }
             )},
         {load1,
             mk(

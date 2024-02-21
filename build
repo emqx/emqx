@@ -136,7 +136,7 @@ make_docs() {
     local docdir="_build/docgen/$PROFILE"
     mkdir -p "$docdir"
     # shellcheck disable=SC2086
-    erl -noshell -eval \
+    erl -enable-feature maybe_expr -noshell -eval \
         "ok = emqx_conf:dump_schema('$docdir', $SCHEMA_MODULE), \
          halt(0)."
     local desc="$docdir/desc.en.hocon"
@@ -394,7 +394,7 @@ make_docker() {
     local EMQX_BUILDER=${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VERSION}:${EMQX_BUILDER_ELIXIR}-${EMQX_BUILDER_OTP}-${EMQX_BUILDER_PLATFORM}}
     local EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
     local EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
-    local PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
+    local EMQX_SOURCE_TYPE="${EMQX_SOURCE_TYPE:-src}"
     # shellcheck disable=SC2155
     local VSN_MAJOR="$(scripts/semver.sh "$PKG_VSN" --major)"
     # shellcheck disable=SC2155
@@ -406,8 +406,14 @@ make_docker() {
         SUFFIX="-elixir"
     fi
     local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
+    local DOCKER_REGISTRIES=( )
+    IFS=',' read -ra DOCKER_REGISTRY_ARR <<< "$DOCKER_REGISTRY"
+    for r in "${DOCKER_REGISTRY_ARR[@]}"; do
+        # append to DOCKER_REGISTRIES
+        DOCKER_REGISTRIES+=("$r")
+    done
     local DOCKER_ORG="${DOCKER_ORG:-emqx}"
-    local EMQX_BASE_DOCKER_TAG="${DOCKER_REGISTRY}/${DOCKER_ORG}/${PROFILE%%-elixir}"
+    local EMQX_BASE_DOCKER_TAG="${DOCKER_ORG}/${PROFILE%%-elixir}"
     local default_tag="${EMQX_BASE_DOCKER_TAG}:${PKG_VSN}${SUFFIX}"
     local EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
     local EDITION=Opensource
@@ -432,11 +438,14 @@ make_docker() {
     local DOCKER_BUILDX_ARGS=(
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="${EMQX_RUNNER}" \
-       --build-arg EMQX_NAME="${PROFILE}" \
+       --build-arg SOURCE_TYPE="${EMQX_SOURCE_TYPE}" \
+       --build-arg PROFILE="${PROFILE%%-elixir}" \
+       --build-arg IS_ELIXIR="$([[ "$PROFILE" = *-elixir ]] && echo yes || echo no)" \
+       --build-arg SUFFIX="${SUFFIX}" \
        --build-arg EXTRA_DEPS="${EXTRA_DEPS}" \
        --build-arg PKG_VSN="${PKG_VSN}" \
        --file "${EMQX_DOCKERFILE}" \
-       --label org.opencontainers.image.title="${PROFILE}" \
+       --label org.opencontainers.image.title="${PROFILE%%-elixir}" \
        --label org.opencontainers.image.edition="${EDITION}" \
        --label org.opencontainers.image.version="${PKG_VSN}" \
        --label org.opencontainers.image.revision="${GIT_REVISION}" \
@@ -447,9 +456,13 @@ make_docker() {
        --label org.opencontainers.image.documentation="${DOCUMENTATION_URL}" \
        --label org.opencontainers.image.licenses="${LICENSE}" \
        --label org.opencontainers.image.otp.version="${EMQX_BUILDER_OTP}" \
-       --tag "${EMQX_IMAGE_TAG}" \
        --pull
     )
+    :> ./.emqx_docker_image_tags
+    for r in "${DOCKER_REGISTRIES[@]}"; do
+        DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_IMAGE_TAG}")
+        echo "$r/${EMQX_IMAGE_TAG}" >> ./.emqx_docker_image_tags
+    done
     if [ "${DOCKER_BUILD_NOCACHE:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--no-cache)
     fi
@@ -457,15 +470,23 @@ make_docker() {
         DOCKER_BUILDX_ARGS+=(--label org.opencontainers.image.elixir.version="${EMQX_BUILDER_ELIXIR}")
     fi
     if [ "${DOCKER_LATEST:-false}" = true ]; then
-        DOCKER_BUILDX_ARGS+=(--tag "${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}")
-        DOCKER_BUILDX_ARGS+=(--tag "${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}")
-        DOCKER_BUILDX_ARGS+=(--tag "${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}")
+        for r in "${DOCKER_REGISTRIES[@]}"; do
+          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}")
+          echo "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}" >> ./.emqx_docker_image_tags
+          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}")
+          echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" >> ./.emqx_docker_image_tags
+          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}")
+          echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" >> ./.emqx_docker_image_tags
+        done
     fi
     if [ "${DOCKER_PLATFORMS:-default}" != 'default' ]; then
         DOCKER_BUILDX_ARGS+=(--platform "${DOCKER_PLATFORMS}")
     fi
     if [ "${DOCKER_PUSH:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--push)
+    fi
+    if [ "${DOCKER_LOAD:-false}" = true ]; then
+        DOCKER_BUILDX_ARGS+=(--load)
     fi
     if [ -d "${REBAR_GIT_CACHE_DIR:-}" ]; then
         cache_tar="$(pwd)/rebar-git-cache.tar"
@@ -492,9 +513,8 @@ make_docker() {
         echo 'lux_logs/'
         echo '_upgrade_base/'
     } >> ./.dockerignore
-    echo "Docker build args: ${DOCKER_BUILDX_ARGS[*]}"
+    echo "Docker buildx args: ${DOCKER_BUILDX_ARGS[*]}"
     docker buildx build "${DOCKER_BUILDX_ARGS[@]}" .
-    echo "${EMQX_IMAGE_TAG}" > ./.docker_image_tag
 }
 
 function join {

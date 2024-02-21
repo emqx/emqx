@@ -76,15 +76,15 @@
     %% Channel
     channel :: emqx_channel:channel(),
     %% GC State
-    gc_state :: maybe(emqx_gc:gc_state()),
+    gc_state :: option(emqx_gc:gc_state()),
     %% Postponed Packets|Cmds|Events
     postponed :: list(emqx_types:packet() | ws_cmd() | tuple()),
     %% Stats Timer
-    stats_timer :: disabled | maybe(reference()),
+    stats_timer :: disabled | option(reference()),
     %% Idle Timeout
     idle_timeout :: timeout(),
     %% Idle Timer
-    idle_timer :: maybe(reference()),
+    idle_timer :: option(reference()),
     %% Zone name
     zone :: atom(),
     %% Listener Type and Name
@@ -205,7 +205,8 @@ init(Req, #{listener := {Type, Listener}} = Opts) ->
         compress => get_ws_opts(Type, Listener, compress),
         deflate_opts => get_ws_opts(Type, Listener, deflate_opts),
         max_frame_size => get_ws_opts(Type, Listener, max_frame_size),
-        idle_timeout => get_ws_opts(Type, Listener, idle_timeout)
+        idle_timeout => get_ws_opts(Type, Listener, idle_timeout),
+        validate_utf8 => get_ws_opts(Type, Listener, validate_utf8)
     },
     case check_origin_header(Req, Opts) of
         {error, Reason} ->

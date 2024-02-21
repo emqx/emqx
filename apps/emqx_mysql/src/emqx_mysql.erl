@@ -44,7 +44,7 @@
     unprepare_sql/1
 ]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, namespace/0]).
 
 -export([do_get_status/1]).
 
@@ -63,6 +63,9 @@
 -export_type([state/0]).
 %%=====================================================================
 %% Hocon schema
+
+namespace() -> mysql.
+
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 

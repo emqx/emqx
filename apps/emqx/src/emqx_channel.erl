@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -84,21 +84,21 @@
     %% MQTT ClientInfo
     clientinfo :: emqx_types:clientinfo(),
     %% MQTT Session
-    session :: maybe(emqx_session:t()),
+    session :: option(emqx_session:t()),
     %% Keepalive
-    keepalive :: maybe(emqx_keepalive:keepalive()),
+    keepalive :: option(emqx_keepalive:keepalive()),
     %% MQTT Will Msg
-    will_msg :: maybe(emqx_types:message()),
+    will_msg :: option(emqx_types:message()),
     %% MQTT Topic Aliases
     topic_aliases :: emqx_types:topic_aliases(),
     %% MQTT Topic Alias Maximum
-    alias_maximum :: maybe(map()),
+    alias_maximum :: option(map()),
     %% Authentication Data Cache
-    auth_cache :: maybe(map()),
+    auth_cache :: option(map()),
     %% Quota checkers
     quota :: emqx_limiter_container:container(),
     %% Timers
-    timers :: #{atom() => disabled | maybe(reference())},
+    timers :: #{atom() => disabled | option(reference())},
     %% Conn State
     conn_state :: conn_state(),
     %% Takeover
@@ -191,7 +191,11 @@ info(topic_aliases, #channel{topic_aliases = Aliases}) ->
 info(alias_maximum, #channel{alias_maximum = Limits}) ->
     Limits;
 info(timers, #channel{timers = Timers}) ->
-    Timers.
+    Timers;
+info(session_state, #channel{session = Session}) ->
+    Session;
+info(impl, #channel{session = Session}) ->
+    emqx_session:info(impl, Session).
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
@@ -536,13 +540,17 @@ handle_in(?AUTH_PACKET(), Channel) ->
     handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
     shutdown(shutdown_count(frame_error, Reason), Channel);
-handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connecting}) ->
+handle_in(
+    {frame_error, #{cause := frame_too_large} = R}, Channel = #channel{conn_state = connecting}
+) ->
     shutdown(
-        shutdown_count(frame_error, frame_too_large), ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel
+        shutdown_count(frame_error, R), ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel
     );
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connecting}) ->
     shutdown(shutdown_count(frame_error, Reason), ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
-handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = ConnState}) when
+handle_in(
+    {frame_error, #{cause := frame_too_large}}, Channel = #channel{conn_state = ConnState}
+) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
     handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
@@ -608,10 +616,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             Msg = packet_to_message(NPacket, NChannel),
             do_publish(PacketId, Msg, NChannel);
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
-            ?SLOG(
+            ?SLOG_THROTTLE(
                 warning,
                 #{
-                    msg => "cannot_publish_to_topic",
+                    msg => cannot_publish_to_topic_due_to_not_authorized,
                     reason => emqx_reason_codes:name(Rc)
                 },
                 #{topic => Topic}
@@ -627,10 +635,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ?SLOG(
+            ?SLOG_THROTTLE(
                 warning,
                 #{
-                    msg => "cannot_publish_to_topic",
+                    msg => cannot_publish_to_topic_due_to_quota_exceeded,
                     reason => emqx_reason_codes:name(Rc)
                 },
                 #{topic => Topic}
@@ -928,7 +936,8 @@ handle_deliver(
     Delivers1 = maybe_nack(Delivers),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
-    {ok, Channel#channel{session = NSession}};
+    %% we need to update stats here, as the stats_timer is canceled after disconnected
+    {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
     Delivers1 = emqx_external_trace:start_trace_send(Delivers, trace_info(Channel)),
     do_handle_deliver(Delivers1, Channel).
@@ -1546,6 +1555,8 @@ set_username(
 set_username(_ConnPkt, ClientInfo) ->
     {ok, ClientInfo}.
 
+%% The `is_bridge` bit flag in CONNECT packet (parsed as `bridge_mode`)
+%% is invented by mosquitto, named 'try_private': https://mosquitto.org/man/mosquitto-conf-5.html
 set_bridge_mode(#mqtt_packet_connect{is_bridge = true}, ClientInfo) ->
     {ok, ClientInfo#{is_bridge => true}};
 set_bridge_mode(_ConnPkt, _ClientInfo) ->
@@ -2002,14 +2013,15 @@ merge_default_subopts(SubOpts) ->
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps
 
-enrich_connack_caps(
-    AckProps,
-    ?IS_MQTT_V5 = #channel{
+enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
+    #channel{
         clientinfo = #{
             zone := Zone
+        },
+        conninfo = #{
+            receive_maximum := ReceiveMaximum
         }
-    }
-) ->
+    } = Channel,
     #{
         max_packet_size := MaxPktSize,
         max_qos_allowed := MaxQoS,
@@ -2024,7 +2036,8 @@ enrich_connack_caps(
         'Topic-Alias-Maximum' => MaxAlias,
         'Wildcard-Subscription-Available' => flag(Wildcard),
         'Subscription-Identifier-Available' => 1,
-        'Shared-Subscription-Available' => flag(Shared)
+        'Shared-Subscription-Available' => flag(Shared),
+        'Receive-Maximum' => ReceiveMaximum
     },
     %% MQTT 5.0 - 3.2.2.3.4:
     %% It is a Protocol Error to include Maximum QoS more than once,
@@ -2318,6 +2331,8 @@ shutdown(Reason, Reply, Packet, Channel) ->
 
 %% process exits with {shutdown, #{shutdown_count := Kind}} will trigger
 %% the connection supervisor (esockd) to keep a shutdown-counter grouped by Kind
+shutdown_count(_Kind, #{cause := Cause} = Reason) when is_atom(Cause) ->
+    Reason#{shutdown_count => Cause};
 shutdown_count(Kind, Reason) when is_map(Reason) ->
     Reason#{shutdown_count => Kind};
 shutdown_count(Kind, Reason) ->

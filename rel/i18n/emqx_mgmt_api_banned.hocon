@@ -1,7 +1,8 @@
 emqx_mgmt_api_banned {
 
 as.desc:
-"""Ban method, which can be client ID, username or IP address."""
+"""Ban method, which can be exact client ID, client ID regular expression, exact username, username regular expression,
+IP address or an IP address range."""
 
 as.label:
 """Ban Method"""

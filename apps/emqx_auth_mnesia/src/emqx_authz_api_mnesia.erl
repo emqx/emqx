@@ -35,7 +35,8 @@
     api_spec/0,
     paths/0,
     schema/1,
-    fields/1
+    fields/1,
+    namespace/0
 ]).
 
 %% operation funs
@@ -68,6 +69,8 @@
 -define(PAGE_QUERY_EXAMPLE, example_in_data).
 -define(PUT_MAP_EXAMPLE, in_put_requestBody).
 -define(POST_ARRAY_EXAMPLE, in_post_requestBody).
+
+namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
