@@ -12,14 +12,8 @@ Template with variables is allowed."""
 config_body.label:
 """HTTP Body"""
 
-config_direction.desc:
-"""Deprecated, The direction of this bridge, MUST be 'egress'"""
-
-config_direction.label:
-"""Bridge Direction"""
-
 config_enable_bridge.desc:
-"""Enable or disable this bridge"""
+"""Enable or disable this action."""
 
 config_enable_bridge.label:
 """Enable Or Disable Bridge"""
@@ -34,7 +28,7 @@ config_headers.label:
 config_local_topic.desc:
 """The MQTT topic filter to be forwarded to the HTTP server. All MQTT 'PUBLISH' messages with the topic
 matching the local_topic will be forwarded.<br/>
-NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
+NOTE: If this action is used as the action of a rule (EMQX rule engine), and also local_topic is
 configured, then both the data got from the rule and the MQTT messages that match local_topic
 will be forwarded."""
 
@@ -61,7 +55,7 @@ config_request_timeout.label:
 """HTTP Request Timeout"""
 
 config_url.desc:
-"""The URL of the HTTP Bridge.<br/>
+"""The URL of the HTTP action.<br/>
 Template with variables is allowed in the path, but variables cannot be used in the scheme, host,
 or port part.<br/>
 For example, <code> http://localhost:9901/${topic} </code> is allowed, but
@@ -69,7 +63,7 @@ For example, <code> http://localhost:9901/${topic} </code> is allowed, but
 is not allowed."""
 
 config_url.label:
-"""HTTP Bridge"""
+"""URL"""
 
 config_path.desc:
 """The URL path for this Action.<br/>
@@ -87,21 +81,21 @@ config_parameters_opts.label:
 """Parameters"""
 
 desc_config.desc:
-"""Configuration for an HTTP bridge."""
+"""Configuration for an HTTP action."""
 
 desc_config.label:
-"""HTTP Bridge Configuration"""
+"""HTTP Action Configuration"""
 
 desc_name.desc:
-"""Bridge name, used as a human-readable description of the bridge."""
+"""Action name, used as a human-readable identifier."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
-"""The Bridge Type"""
+"""The action type."""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 }

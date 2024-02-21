@@ -73,8 +73,8 @@ emqx_bridge_pulsar {
   }
 
   desc_name {
-    desc = "Bridge name, used as a human-readable description of the bridge."
-    label = "Bridge Name"
+    desc = "Action name, a human-readable identifier."
+    label = "Action Name"
   }
 
   desc_type {

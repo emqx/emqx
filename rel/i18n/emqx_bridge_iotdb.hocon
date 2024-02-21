@@ -66,10 +66,10 @@ desc_config.label:
 """IoTDB Bridge Configuration"""
 
 desc_name.desc:
-"""Bridge name, used as a human-readable description of the bridge."""
+"""Action name, a human-readable identifier."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 config_parameters_timestamp.desc:
 """Timestamp. Placeholders in format of ${var} is supported, the final value can be:</br>

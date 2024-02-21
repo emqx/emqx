@@ -187,7 +187,6 @@ request_config() ->
             mk(
                 egress,
                 #{
-                    desc => ?DESC("config_direction"),
                     required => {false, recursively},
                     deprecated => {since, "5.0.12"}
                 }
