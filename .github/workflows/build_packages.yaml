@@ -46,7 +46,8 @@ on:
       ref:
         required: false
       profile:
-        required: false
+        required: true
+        default: 'emqx'
       publish:
         required: false
         type: boolean
