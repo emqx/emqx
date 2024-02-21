@@ -2678,6 +2678,85 @@ t_expiration_retry_batch_multiple_times(_Config) ->
     ),
     ok.
 
+t_batch_individual_reply_sync(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 5,
+            batch_time => 100,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    do_t_batch_individual_reply().
+
+t_batch_individual_reply_async(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 5,
+            batch_time => 100,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    on_exit(fun() -> emqx_resource:remove_local(?ID) end),
+    do_t_batch_individual_reply().
+
+do_t_batch_individual_reply() ->
+    ?check_trace(
+        begin
+            {Results, {ok, _}} =
+                ?wait_async_action(
+                    emqx_utils:pmap(
+                        fun(N) ->
+                            emqx_resource:query(?ID, {individual_reply, N rem 2 =:= 0})
+                        end,
+                        lists:seq(1, 5)
+                    ),
+                    #{?snk_kind := buffer_worker_flush_ack, batch_or_query := [_, _ | _]},
+                    5_000
+                ),
+
+            Ok = ok,
+            Error = {error, {unrecoverable_error, bad_request}},
+            ?assertEqual([Error, Ok, Error, Ok, Error], Results),
+
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 5,
+                            failed := 3,
+                            success := 2
+                        }
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_recursive_flush(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
     {ok, _} = create(
