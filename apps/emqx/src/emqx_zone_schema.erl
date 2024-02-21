@@ -20,12 +20,12 @@
 
 -export([namespace/0, roots/0, fields/1, desc/1]).
 -export([zones_without_default/0, global_zone_with_default/0]).
+-export([zone_fields/0]).
 
 namespace() -> zone.
+roots() -> [].
 
-%% this schema module is not used at root level.
-%% roots are added only for document generation.
-roots() ->
+zone_fields() ->
     [
         "mqtt",
         "stats",
