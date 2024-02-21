@@ -13,7 +13,7 @@ type.label:
 """Connector Type"""
 
 name.desc:
-"""Connector name, used as a human-readable description of the connector."""
+"""A human-readable identifier for the connector."""
 
 name.label:
 """Connector Name"""

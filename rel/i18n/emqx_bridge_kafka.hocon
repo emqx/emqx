@@ -6,12 +6,6 @@ connect_timeout.desc:
 connect_timeout.label:
 """Connect Timeout"""
 
-producer_opts.desc:
-"""Local MQTT data source and Kafka bridge configs."""
-
-producer_opts.label:
-"""MQTT to Kafka"""
-
 min_metadata_refresh_interval.desc:
 """Minimum time interval the client has to wait before refreshing Kafka broker and topic metadata. Setting too small value may add extra load on Kafka."""
 
@@ -45,7 +39,7 @@ socket_receive_buffer.label:
 """Socket Receive Buffer Size"""
 
 socket_tcp_keepalive.desc:
-"""Enable TCP keepalive for Kafka bridge connections.
+"""Enable TCP keepalive.
 The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
  - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
  - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
@@ -57,10 +51,10 @@ socket_tcp_keepalive.label:
 """TCP keepalive options"""
 
 desc_name.desc:
-"""Bridge name, used as a human-readable description of the bridge."""
+"""Action name, used as a human-readable identifier."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 consumer_offset_commit_interval_seconds.desc:
 """Defines the time interval between two offset commit requests sent for each consumer group."""
@@ -191,7 +185,7 @@ max_batch_bytes.label:
 """Max Batch Bytes"""
 
 required_acks.desc:
-"""Required acknowledgements for Kafka partition leader to wait for its followers before it sends back the acknowledgement to EMQX Kafka producer
+"""The acknowledgement criteria for the partition leader. It determines the level of confirmation required from partition replicas before sending an acknowledgement back to the producer.
 
 <code>all_isr</code>: Require all in-sync replicas to acknowledge.
 <code>leader_only</code>: Require only the partition-leader's acknowledgement.
@@ -201,56 +195,56 @@ required_acks.label:
 """Required Acks"""
 
 kafka_headers.desc:
-"""Please provide a placeholder to be used as Kafka Headers<br/>
+"""Provide a placeholder for message headers<br/>
 e.g. <code>${pub_props}</code><br/>
-Notice that the value of the placeholder must either be an object:
+Note that the value of the placeholder must be either an object:
 <code>{\"foo\": \"bar\"}</code>
 or an array of key-value pairs:
 <code>[{\"key\": \"foo\", \"value\": \"bar\"}]</code>"""
 
 kafka_headers.label:
-"""Kafka Headers"""
+"""Message Headers"""
 
 producer_kafka_ext_headers.desc:
-"""Please provide more key-value pairs for Kafka headers<br/>
+"""Provide more key-value pairs for message headers<br/>
 The key-value pairs here will be combined with the
-value of <code>kafka_headers</code> field before sending to Kafka."""
+value of <code>kafka_headers</code> field before sending producing."""
 
 producer_kafka_ext_headers.label:
-"""Extra Kafka headers"""
+"""Extra Headers"""
 
 producer_kafka_ext_header_key.desc:
-"""Key of the Kafka header. Placeholders in format of ${var} are supported."""
+"""Key of the header. Placeholders in format of ${var} are supported."""
 
 producer_kafka_ext_header_key.label:
-"""Kafka extra header key."""
+"""Extra Headers Key"""
 
 producer_kafka_ext_header_value.desc:
-"""Value of the Kafka header. Placeholders in format of ${var} are supported."""
+"""Value of the header. Placeholders in format of ${var} are supported."""
 
 producer_kafka_ext_header_value.label:
-"""Value"""
+"""Extra Headers Value"""
 
 kafka_header_value_encode_mode.desc:
-"""Kafka headers value encode mode<br/>
- - NONE: only add binary values to Kafka headers;<br/>
- - JSON: only add JSON values to Kafka headers,
-and encode it to JSON strings before sending."""
+"""The encoding mode for headers.
+
+ - `none`: Add only strings are added as header values
+ - `json`: Encode header values as JSON string"""
 
 kafka_header_value_encode_mode.label:
-"""Kafka headers value encode mode"""
+"""Headers value encode mode"""
 
 metadata_request_timeout.desc:
-"""Maximum wait time when fetching metadata from Kafka."""
+"""Maximum wait time when fetching topic metadata."""
 
 metadata_request_timeout.label:
 """Metadata Request Timeout"""
 
 desc_type.desc:
-"""The Bridge Type"""
+"""The Action Type"""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 socket_nodelay.desc:
 """When set to 'true', TCP buffer is sent as soon as possible. Otherwise, the OS kernel may buffer small TCP packets for a while (40 ms by default)."""
@@ -278,7 +272,7 @@ auth_sasl_mechanism.label:
 """Mechanism"""
 
 config_enable.desc:
-"""Enable (true) or disable (false) this Kafka bridge."""
+"""Enable (true) or disable (false) config."""
 
 config_enable.label:
 """Enable or Disable"""
@@ -323,13 +317,13 @@ consumer_value_encoding_mode.label:
 """Value Encoding Mode"""
 
 buffer_per_partition_limit.desc:
-"""Number of bytes allowed to buffer for each Kafka partition. When this limit is exceeded, old messages will be dropped in a trade for credits for new messages to be buffered."""
+"""Number of bytes allowed to buffer for each partition. When this limit is exceeded, older messages will be discarded to make room for new messages to be buffered."""
 
 buffer_per_partition_limit.label:
 """Per-partition Buffer Limit"""
 
 bootstrap_hosts.desc:
-"""A comma separated list of Kafka <code>host[:port]</code> endpoints to bootstrap the client. Default port number is 9092."""
+"""A comma separated list of Kafka <code>host:port</code> endpoints to bootstrap the client."""
 
 bootstrap_hosts.label:
 """Bootstrap Hosts"""
@@ -341,41 +335,42 @@ consumer_max_rejoin_attempts.label:
 """Max Rejoin Attempts"""
 
 kafka_message_key.desc:
-"""Template to render Kafka message key. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Kafka's <code>NULL</code> (but not empty string) is used."""
+"""Template for rendering message key. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then <code>NULL</code> (but not empty string) is used."""
 
 kafka_message_key.label:
 """Message Key"""
 
 kafka_message.desc:
-"""Template to render a Kafka message."""
+"""Template for rendering a message."""
 
 kafka_message.label:
-"""Kafka Message Template"""
+"""Message Template"""
 
 mqtt_topic.desc:
-"""MQTT topic or topic filter as data source (bridge input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Kafka."""
+"""MQTT topic or topic filter as data source (action input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Kafka."""
 
 mqtt_topic.label:
 """Source MQTT Topic"""
 
 kafka_message_value.desc:
-"""Template to render Kafka message value. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Kafka's <code>NULL</code> (but not empty string) is used."""
+"""Template for rendering Kafka message value. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Kafka's <code>NULL</code> (but not empty string) is used."""
 
 kafka_message_value.label:
 """Message Value"""
 
 partition_strategy.desc:
-"""Partition strategy is to tell the producer how to dispatch messages to Kafka partitions.
+"""Partition strategy is to tell the producer how to dispatch messages to partitions.
 
-<code>random</code>: Randomly pick a partition for each message
-<code>key_dispatch</code>: Hash Kafka message key to a partition number"""
+<code>random</code>: Randomly pick a partition for each message.
+<code>key_dispatch</code>: Assigns messages to partitions based on a hash of the message key,
+ensuring consistent partition for messages with the same key."""
 
 partition_strategy.label:
 """Partition Strategy"""
 
 buffer_segment_bytes.desc:
 """Applicable when buffer mode is set to <code>disk</code> or <code>hybrid</code>.
-This value is to specify the size of each on-disk buffer file."""
+This setting specifies the size of each buffer file stored on disk."""
 
 buffer_segment_bytes.label:
 """Segment File Bytes"""
@@ -395,7 +390,8 @@ partitions_limit.label:
 """Max Partitions"""
 
 max_inflight.desc:
-"""Maximum number of batches allowed for Kafka producer (per-partition) to send before receiving acknowledgement from Kafka. Greater value typically means better throughput. However, there can be a risk of message reordering when this value is greater than 1."""
+"""The maximum number of message batches that the producer can send to each partition before it must wait for an acknowledgement.
+Setting a higher number can enhance throughput. However, value above 1 may lead to potential message reordering risks."""
 
 max_inflight.label:
 """Max Inflight"""
@@ -413,7 +409,7 @@ auth_kerberos_keytab_file.label:
 """Kerberos keytab file"""
 
 compression.desc:
-"""Compression method."""
+"""Specify the method of compression."""
 
 compression.label:
 """Compression"""
@@ -425,20 +421,19 @@ query_mode.label:
 """Query mode"""
 
 sync_query_timeout.desc:
-"""This parameter defines the timeout limit for synchronous queries. It applies only when the bridge query mode is configured to 'sync'."""
+"""This parameter defines the timeout limit for synchronous queries. It applies only when the query mode is configured to 'sync'."""
 
 sync_query_timeout.label:
 """Synchronous Query Timeout"""
 
-
 kafka_producer_action.desc:
-"""Kafka Producer Action"""
+"""Producer Action"""
 
 kafka_producer_action.label:
-"""Kafka Producer Action"""
+"""Producer Action"""
 
 ssl_client_opts.desc:
-"""TLS/SSL options for Kafka client."""
+"""TLS/SSL options for client."""
 ssl_client_opts.label:
 """TLS/SSL options"""
 

@@ -7,7 +7,7 @@ config.label:
 """Config"""
 
 desc_name.desc:
-"""Bridge name, used as a human-readable description of the bridge."""
+"""Bridge name, used as a human-readable identifier."""
 
 desc_name.label:
 """Bridge Name"""
