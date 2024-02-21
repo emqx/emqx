@@ -95,6 +95,10 @@ connector_config(Name, _Config) ->
             <<"pool_size">> => 4,
             <<"max_retries">> => 0,
             <<"enable_pipelining">> => 1
+        },
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"5s">>,
+            <<"start_timeout">> => <<"5s">>
         }
     }).
 

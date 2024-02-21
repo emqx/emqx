@@ -313,10 +313,9 @@ create_action_api(Config, Overrides) ->
     ActionConfig0 = ?config(action_config, Config),
     ActionConfig = emqx_utils_maps:deep_merge(ActionConfig0, Overrides),
     Params = ActionConfig#{<<"type">> => ActionType, <<"name">> => ActionName},
-    Method = post,
     Path = emqx_mgmt_api_test_util:api_path(["actions"]),
     ct:pal("creating action (http):\n  ~p", [Params]),
-    Res = request(Method, Path, Params),
+    Res = request(post, Path, Params),
     ct:pal("action create (http) result:\n  ~p", [Res]),
     Res.
 
@@ -324,11 +323,9 @@ get_action_api(Config) ->
     ActionName = ?config(action_name, Config),
     ActionType = ?config(action_type, Config),
     ActionId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
-    Params = [],
-    Method = get,
     Path = emqx_mgmt_api_test_util:api_path(["actions", ActionId]),
     ct:pal("getting action (http)"),
-    Res = request(Method, Path, Params),
+    Res = request(get, Path, []),
     ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
@@ -346,8 +343,7 @@ update_bridge_api(Config, Overrides) ->
     PathRoot = api_path_root(Kind),
     Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId]),
     ct:pal("updating bridge (~s, http):\n  ~p", [Kind, Params]),
-    Method = put,
-    Res = request(Method, Path, Params),
+    Res = request(put, Path, Params),
     ct:pal("update bridge (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
