@@ -295,16 +295,6 @@ roots(low) ->
                     converter => fun flapping_detect_converter/2
                 }
             )},
-        {persistent_session_store,
-            sc(
-                ref("persistent_session_store"),
-                #{
-                    %% NOTE
-                    %% Due to some quirks in interaction between `emqx_config` and
-                    %% `hocon_tconf`, schema roots cannot currently be deprecated.
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
         {session_persistence,
             sc(
                 ref("session_persistence"),
@@ -324,111 +314,6 @@ roots(low) ->
             )}
     ].
 
-fields("persistent_session_store") ->
-    Deprecated = #{deprecated => {since, "5.4.0"}},
-    [
-        {"enabled",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => false,
-                    %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
-                    aliases => [enable],
-                    desc => ?DESC(persistent_session_store_enabled)
-                }
-            )},
-        {"ds",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => false,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {"on_disc",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => true,
-                    desc => ?DESC(persistent_store_on_disc)
-                }
-            )},
-        {"ram_cache",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => false,
-                    desc => ?DESC(persistent_store_ram_cache)
-                }
-            )},
-        {"backend",
-            sc(
-                hoconsc:union([ref("persistent_session_builtin")]),
-                Deprecated#{
-                    default => #{
-                        <<"type">> => <<"builtin">>,
-                        <<"session">> =>
-                            #{<<"ram_cache">> => true},
-                        <<"session_messages">> =>
-                            #{<<"ram_cache">> => true},
-                        <<"messages">> =>
-                            #{<<"ram_cache">> => false}
-                    },
-                    desc => ?DESC(persistent_session_store_backend)
-                }
-            )},
-        {"max_retain_undelivered",
-            sc(
-                duration(),
-                Deprecated#{
-                    default => <<"1h">>,
-                    desc => ?DESC(persistent_session_store_max_retain_undelivered)
-                }
-            )},
-        {"message_gc_interval",
-            sc(
-                duration(),
-                Deprecated#{
-                    default => <<"1h">>,
-                    desc => ?DESC(persistent_session_store_message_gc_interval)
-                }
-            )},
-        {"session_message_gc_interval",
-            sc(
-                duration(),
-                Deprecated#{
-                    default => <<"1m">>,
-                    desc => ?DESC(persistent_session_store_session_message_gc_interval)
-                }
-            )}
-    ];
-fields("persistent_table_mria_opts") ->
-    [
-        {"ram_cache",
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(persistent_store_ram_cache)
-                }
-            )}
-    ];
-fields("persistent_session_builtin") ->
-    [
-        {"type", sc(hoconsc:enum([builtin]), #{default => builtin, desc => ""})},
-        {"session",
-            sc(ref("persistent_table_mria_opts"), #{
-                desc => ?DESC(persistent_session_builtin_session_table)
-            })},
-        {"session_messages",
-            sc(ref("persistent_table_mria_opts"), #{
-                desc => ?DESC(persistent_session_builtin_sess_msg_table)
-            })},
-        {"messages",
-            sc(ref("persistent_table_mria_opts"), #{
-                desc => ?DESC(persistent_session_builtin_messages_table)
-            })}
-    ];
 fields("stats") ->
     [
         {"enable",
