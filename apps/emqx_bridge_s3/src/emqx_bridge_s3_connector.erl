@@ -71,6 +71,7 @@ on_start(InstId, Config) ->
         channels => #{}
     },
     HttpConfig = emqx_s3_profile_conf:http_config(Config),
+    _ = ehttpc_sup:stop_pool(PoolName),
     case ehttpc_sup:start_pool(PoolName, HttpConfig) of
         {ok, Pid} ->
             ?SLOG(info, #{msg => "s3_connector_start_http_pool_success", pool_name => PoolName}),
