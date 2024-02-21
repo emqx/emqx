@@ -53,11 +53,7 @@ fields(action) ->
             }
         )};
 fields("config_connector") ->
-    lists:append([
-        emqx_connector_schema:common_fields(),
-        fields(s3_connector_config),
-        emqx_connector_schema:resource_opts_ref(?MODULE, s3_connector_resource_opts)
-    ]);
+    emqx_connector_schema:common_fields() ++ fields(s3_connector_config);
 fields(?ACTION) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(
@@ -72,7 +68,8 @@ fields(?ACTION) ->
         }
     );
 fields(s3_connector_config) ->
-    emqx_s3_schema:fields(s3_client);
+    emqx_s3_schema:fields(s3_client) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, s3_connector_resource_opts);
 fields(s3_upload_parameters) ->
     emqx_s3_schema:fields(s3_upload) ++
         [
