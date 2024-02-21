@@ -263,7 +263,7 @@ get_query_tuple({_ChannelId, Data} = _Query) ->
 get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
     error(
         {unrecoverable_error,
-            {invalid_request, <<"The only query type that support batching is insert.">>}}
+            {invalid_request, <<"The only query type that supports batching is insert.">>}}
     );
 get_query_tuple([InsertQuery | _]) ->
     get_query_tuple(InsertQuery).
