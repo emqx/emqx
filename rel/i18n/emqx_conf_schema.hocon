@@ -480,7 +480,8 @@ desc_log_throttling.label:
 
 desc_log_throttling.desc:
 """Log throttling feature reduces the number of potentially flooding logged events by
-dropping all but the first event within a configured time window."""
+dropping all but the first event within a configured time window.
+The throttling is automatically disabled if `console` or `file` log level is set to debug."""
 
 log_throttling_time_window.desc:
 """For throttled messages, only log 1 in each time window."""

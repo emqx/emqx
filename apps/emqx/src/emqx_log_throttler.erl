@@ -25,7 +25,7 @@
 -export([start_link/0]).
 
 %% throttler API
--export([allow/2]).
+-export([allow/1]).
 
 %% gen_server callbacks
 -export([
@@ -50,23 +50,13 @@
 -define(MSGS_LIST, emqx:get_config([log, throttling, msgs], [])).
 -define(TIME_WINDOW_MS, timer:seconds(emqx:get_config([log, throttling, time_window], 60))).
 
--spec allow(logger:level(), atom()) -> boolean().
-allow(debug, _Msg) ->
-    true;
-allow(_Level, Msg) when is_atom(Msg) ->
-    Seq = persistent_term:get(?SEQ_ID(Msg), undefined),
-    case Seq of
-        undefined ->
-            %% This is either a race condition (emqx_log_throttler is not started yet)
-            %% or a developer mistake (msg used in ?SLOG_THROTTLE/2,3 macro is
-            %% not added to the default value of `log.throttling.msgs`.
-            ?SLOG(info, #{
-                msg => "missing_log_throttle_sequence",
-                throttled_msg => Msg
-            }),
+-spec allow(atom()) -> boolean().
+allow(Msg) when is_atom(Msg) ->
+    case emqx_logger:get_primary_log_level() of
+        debug ->
             true;
-        SeqRef ->
-            ?IS_ALLOWED(SeqRef)
+        _ ->
+            do_allow(Msg)
     end.
 
 -spec start_link() -> startlink_ret().
@@ -131,6 +121,21 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% internal functions
 %%--------------------------------------------------------------------
+
+do_allow(Msg) ->
+    case persistent_term:get(?SEQ_ID(Msg), undefined) of
+        undefined ->
+            %% This is either a race condition (emqx_log_throttler is not started yet)
+            %% or a developer mistake (msg used in ?SLOG_THROTTLE/2,3 macro is
+            %% not added to the default value of `log.throttling.msgs`.
+            ?SLOG(info, #{
+                msg => "missing_log_throttle_sequence",
+                throttled_msg => Msg
+            }),
+            true;
+        SeqRef ->
+            ?IS_ALLOWED(SeqRef)
+    end.
 
 maybe_add_dropped(Msg, Dropped, DroppedAcc) when Dropped > 0 ->
     DroppedAcc#{Msg => Dropped};
