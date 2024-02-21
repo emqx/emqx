@@ -62,6 +62,7 @@
 {emqx_prometheus,1}.
 {emqx_prometheus,2}.
 {emqx_resource,1}.
+{emqx_resource,2}.
 {emqx_retainer,1}.
 {emqx_retainer,2}.
 {emqx_rule_engine,1}.
