@@ -26,6 +26,8 @@ resource_type(azure_event_hub_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(confluent_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(gcp_pubsub_consumer) ->
+    emqx_bridge_gcp_pubsub_impl_consumer;
 resource_type(gcp_pubsub_producer) ->
     emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(hstreamdb) ->
@@ -117,6 +119,14 @@ connector_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_confluent_producer, "config_connector")),
                 #{
                     desc => <<"Confluent Connector Config">>,
+                    required => false
+                }
+            )},
+        {gcp_pubsub_consumer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_consumer_schema, "config_connector")),
+                #{
+                    desc => <<"GCP PubSub Consumer Connector Config">>,
                     required => false
                 }
             )},
@@ -319,6 +329,7 @@ schema_modules() ->
     [
         emqx_bridge_azure_event_hub,
         emqx_bridge_confluent_producer,
+        emqx_bridge_gcp_pubsub_consumer_schema,
         emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_hstreamdb,
         emqx_bridge_kafka,
@@ -354,6 +365,11 @@ api_schemas(Method) ->
         ),
         api_ref(
             emqx_bridge_confluent_producer, <<"confluent_producer">>, Method ++ "_connector"
+        ),
+        api_ref(
+            emqx_bridge_gcp_pubsub_consumer_schema,
+            <<"gcp_pubsub_consumer">>,
+            Method ++ "_connector"
         ),
         api_ref(
             emqx_bridge_gcp_pubsub_producer_schema,

@@ -115,6 +115,7 @@
     | {error, term()}.
 
 -type action_resource_id() :: resource_id().
+-type source_resource_id() :: resource_id().
 -type connector_resource_id() :: resource_id().
 -type message_tag() :: action_resource_id().
 

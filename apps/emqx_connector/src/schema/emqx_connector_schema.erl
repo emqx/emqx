@@ -126,6 +126,8 @@ connector_type_to_bridge_types(azure_event_hub_producer) ->
     [azure_event_hub_producer];
 connector_type_to_bridge_types(confluent_producer) ->
     [confluent_producer];
+connector_type_to_bridge_types(gcp_pubsub_consumer) ->
+    [gcp_pubsub_consumer];
 connector_type_to_bridge_types(gcp_pubsub_producer) ->
     [gcp_pubsub, gcp_pubsub_producer];
 connector_type_to_bridge_types(hstreamdb) ->
@@ -529,14 +531,6 @@ fields(connectors) ->
                     required => false
                 }
             )}
-        % {mqtt_subscriber,
-        %     mk(
-        %         hoconsc:map(name, ref(emqx_bridge_mqtt_connector_schema, "config_connector")),
-        %         #{
-        %             desc => <<"MQTT Subscriber Connector Config">>,
-        %             required => false
-        %         }
-        %     )}
     ] ++ enterprise_fields_connectors();
 fields("node_status") ->
     [
