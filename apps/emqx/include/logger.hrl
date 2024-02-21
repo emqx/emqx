@@ -47,7 +47,7 @@
 ).
 
 -define(SLOG_THROTTLE(Level, Data, Meta),
-    case emqx_log_throttler:allow(Level, maps:get(msg, Data)) of
+    case emqx_log_throttler:allow(maps:get(msg, Data)) of
         true ->
             ?SLOG(Level, Data, Meta);
         false ->
