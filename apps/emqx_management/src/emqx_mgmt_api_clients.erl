@@ -916,7 +916,7 @@ add_persistent_session_count(QueryState0 = #{total := Totals0}) ->
             %% to traverse the whole table), but also hard to deduplicate live connections
             %% from it...  So this count will possibly overshoot the true count of
             %% sessions.
-            SessionCount = emqx_persistent_session_ds_state:session_count(),
+            SessionCount = persistent_session_count(),
             Totals = Totals0#{undefined => SessionCount},
             QueryState0#{total := Totals};
         false ->
@@ -963,6 +963,22 @@ no_persistent_sessions() ->
             end;
         false ->
             true
+    end.
+
+-spec persistent_session_count() -> non_neg_integer().
+persistent_session_count() ->
+    %% N.B.: this is potentially costly.  Should not be called in hot paths.
+    %% `mnesia:table_info(_, size)' is always zero for rocksdb, so we need to traverse...
+    do_persistent_session_count(init_persistent_session_iterator(), 0).
+
+do_persistent_session_count('$end_of_table', N) ->
+    N;
+do_persistent_session_count(Cursor, N) ->
+    case emqx_persistent_session_ds_state:session_iterator_next(Cursor, 1) of
+        {[], _} ->
+            N;
+        {_, NextCursor} ->
+            do_persistent_session_count(NextCursor, N + 1)
     end.
 
 do_persistent_session_query(ResultAcc, QueryState) ->
