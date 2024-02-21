@@ -82,7 +82,7 @@ connector_config(Name, _Config) ->
     parse_and_check_config(<<"connectors">>, ?CONNECTOR_TYPE, Name, #{
         <<"enable">> => true,
         <<"description">> => <<"S3 Connector">>,
-        <<"host">> => maps:get(<<"host">>, BaseConf),
+        <<"host">> => emqx_utils_conv:bin(maps:get(<<"host">>, BaseConf)),
         <<"port">> => maps:get(<<"port">>, BaseConf),
         <<"access_key_id">> => maps:get(<<"access_key_id">>, BaseConf),
         <<"secret_access_key">> => maps:get(<<"secret_access_key">>, BaseConf),
@@ -143,6 +143,38 @@ parse_and_check_config(Root, Type, Name, ConfigIn) ->
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, s3_bridge_stopped).
+
+t_start_broken_update_restart(Config) ->
+    Name = ?config(connector_name, Config),
+    Type = ?config(connector_type, Config),
+    ConnectorConf = ?config(connector_config, Config),
+    ConnectorConfBroken = maps:merge(
+        ConnectorConf,
+        #{<<"secret_access_key">> => <<"imnotanadmin">>}
+    ),
+    ?assertMatch(
+        {ok, {{_HTTP, 201, _}, _, _}},
+        emqx_bridge_v2_testlib:create_connector_api(Name, Type, ConnectorConfBroken)
+    ),
+    ConnectorId = emqx_connector_resource:resource_id(Type, Name),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ConnectorId))
+    ),
+    ?assertMatch(
+        {ok, {{_HTTP, 200, _}, _, _}},
+        emqx_bridge_v2_testlib:update_connector_api(Name, Type, ConnectorConf)
+    ),
+    ?assertMatch(
+        {ok, {{_HTTP, 204, _}, _, _}},
+        emqx_bridge_v2_testlib:start_connector_api(Name, Type)
+    ),
+    ?retry(
+        1_000,
+        20,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ConnectorId))
+    ).
 
 t_create_via_http(Config) ->
     emqx_bridge_v2_testlib:t_create_via_http(Config).

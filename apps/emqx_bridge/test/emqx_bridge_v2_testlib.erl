@@ -320,8 +320,7 @@ create_kind_api(Config, Overrides) ->
     PathRoot = api_path_root(Kind),
     Path = emqx_mgmt_api_test_util:api_path([PathRoot]),
     ct:pal("creating bridge (~s, http):\n  ~p", [Kind, Params]),
-    Method = post,
-    Res = request(Method, Path, Params),
+    Res = request(post, Path, Params),
     ct:pal("bridge create (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
@@ -332,13 +331,31 @@ create_connector_api(Config, Overrides) ->
     ConnectorConfig0 = ?config(connector_config, Config),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
-    Method = post,
-    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
     ConnectorConfig = emqx_utils_maps:deep_merge(ConnectorConfig0, Overrides),
+    create_connector_api(ConnectorName, ConnectorType, ConnectorConfig).
+
+create_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
+    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
     Params = ConnectorConfig#{<<"type">> => ConnectorType, <<"name">> => ConnectorName},
     ct:pal("creating connector (http):\n  ~p", [Params]),
-    Res = request(Method, Path, Params),
+    Res = request(post, Path, Params),
     ct:pal("connector create (http) result:\n  ~p", [Res]),
+    Res.
+
+update_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
+    ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
+    Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
+    ct:pal("updating connector ~s (http):\n  ~p", [ConnectorId, ConnectorConfig]),
+    Res = request(put, Path, ConnectorConfig),
+    ct:pal("connector update (http) result:\n  ~p", [Res]),
+    Res.
+
+start_connector_api(ConnectorName, ConnectorType) ->
+    ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
+    Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId, "start"]),
+    ct:pal("starting connector ~s (http)", [ConnectorId]),
+    Res = request(post, Path, #{}),
+    ct:pal("connector update (http) result:\n  ~p", [Res]),
     Res.
 
 create_action_api(Config) ->
