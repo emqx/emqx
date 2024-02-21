@@ -317,17 +317,17 @@ handle_result(Res) ->
 
 make_channel(PoolName, ChannelId, Params) ->
     Conns = get_rabbitmq_connections(PoolName),
-    make_channel(Conns, PoolName, ChannelId, Params, #{}).
+    make_channel(Conns, ChannelId, Params, #{}).
 
-make_channel([], _PoolName, _ChannelId, _Param, Acc) ->
+make_channel([], _ChannelId, _Param, Acc) ->
     {ok, Acc};
-make_channel([Conn | Conns], PoolName, ChannelId, Params, Acc) ->
+make_channel([Conn | Conns], ChannelId, Params, Acc) ->
     maybe
         {ok, RabbitMQChannel} ?= amqp_connection:open_channel(Conn),
         ok ?= try_confirm_channel(Params, RabbitMQChannel),
-        ok ?= try_subscribe(Params, RabbitMQChannel, PoolName, ChannelId),
+        ok ?= try_subscribe(Params, RabbitMQChannel, ChannelId),
         NewAcc = Acc#{Conn => RabbitMQChannel},
-        make_channel(Conns, PoolName, ChannelId, Params, NewAcc)
+        make_channel(Conns, ChannelId, Params, NewAcc)
     end.
 
 %% We need to enable confirmations if we want to wait for them
@@ -396,16 +396,15 @@ get_rabbitmq_connections(PoolName) ->
 try_subscribe(
     #{queue := Queue, no_ack := NoAck, config_root := sources} = Params,
     RabbitChan,
-    PoolName,
     ChannelId
 ) ->
-    WorkState = {RabbitChan, PoolName, Params},
+    WorkState = {RabbitChan, ChannelId, Params},
     {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
     BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
     #'basic.consume_ok'{consumer_tag = _} =
         amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
     ok;
-try_subscribe(#{config_root := actions}, _RabbitChan, _PoolName, _ChannelId) ->
+try_subscribe(#{config_root := actions}, _RabbitChan, _ChannelId) ->
     ok.
 
 try_unsubscribe(ChannelId, Channels) ->
