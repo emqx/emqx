@@ -22,8 +22,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
-
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 
 -include("emqx_mgmt.hrl").
 
@@ -47,7 +47,9 @@
     unsubscribe/2,
     unsubscribe_batch/2,
     set_keepalive/2,
-    sessions_count/2
+    sessions_count/2,
+    inflight_msgs/2,
+    mqueue_msgs/2
 ]).
 
 -export([
@@ -101,6 +103,8 @@ paths() ->
         "/clients/:clientid/unsubscribe",
         "/clients/:clientid/unsubscribe/bulk",
         "/clients/:clientid/keepalive",
+        "/clients/:clientid/mqueue_messages",
+        "/clients/:clientid/inflight_messages",
         "/sessions_count"
     ].
 
@@ -391,6 +395,14 @@ schema("/clients/:clientid/keepalive") ->
             }
         }
     };
+schema("/clients/:clientid/mqueue_messages") ->
+    ContExample = <<"AAYS53qRa0n07AAABFIACg">>,
+    RespSchema = ?R_REF(mqueue_messages),
+    client_msgs_schema(mqueue_msgs, ?DESC(get_client_mqueue_msgs), ContExample, RespSchema);
+schema("/clients/:clientid/inflight_messages") ->
+    ContExample = <<"10">>,
+    RespSchema = ?R_REF(inflight_messages),
+    client_msgs_schema(inflight_msgs, ?DESC(get_client_inflight_msgs), ContExample, RespSchema);
 schema("/sessions_count") ->
     #{
         'operationId' => sessions_count,
@@ -621,6 +633,26 @@ fields(subscribe) ->
 fields(unsubscribe) ->
     [
         {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>, example => <<"testtopic/#">>})}
+    ];
+fields(mqueue_messages) ->
+    [
+        {data, hoconsc:mk(hoconsc:array(?REF(message)), #{desc => ?DESC(mqueue_msgs_list)})},
+        {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, continuation_meta), #{})}
+    ];
+fields(inflight_messages) ->
+    [
+        {data, hoconsc:mk(hoconsc:array(?REF(message)), #{desc => ?DESC(inflight_msgs_list)})},
+        {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, continuation_meta), #{})}
+    ];
+fields(message) ->
+    [
+        {msgid, hoconsc:mk(binary(), #{desc => ?DESC(msg_id)})},
+        {topic, hoconsc:mk(binary(), #{desc => ?DESC(msg_topic)})},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => ?DESC(msg_qos)})},
+        {publish_at, hoconsc:mk(integer(), #{desc => ?DESC(msg_publish_at)})},
+        {from_clientid, hoconsc:mk(binary(), #{desc => ?DESC(msg_from_clientid)})},
+        {from_username, hoconsc:mk(binary(), #{desc => ?DESC(msg_from_username)})},
+        {payload, hoconsc:mk(binary(), #{desc => ?DESC(msg_payload)})}
     ].
 
 %%%==============================================================================================
@@ -692,6 +724,15 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
                 {error, Reason} -> {400, #{code => 'PARAM_ERROR', message => Reason}}
             end
     end.
+
+mqueue_msgs(get, #{bindings := #{clientid := ClientID}, query_string := QString}) ->
+    list_client_msgs(mqueue_msgs, ClientID, QString).
+
+inflight_msgs(get, #{
+    bindings := #{clientid := ClientID},
+    query_string := QString
+}) ->
+    list_client_msgs(inflight_msgs, ClientID, QString).
 
 %%%==============================================================================================
 %% api apply
@@ -824,6 +865,62 @@ unsubscribe_batch(#{clientid := ClientID, topics := Topics}) ->
 
 %%--------------------------------------------------------------------
 %% internal function
+
+client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
+    #{
+        'operationId' => OpId,
+        get => #{
+            description => Desc,
+            tags => ?TAGS,
+            parameters => client_msgs_params(),
+            responses => #{
+                200 =>
+                    emqx_dashboard_swagger:schema_with_example(RespSchema, #{
+                        <<"data">> => [message_example()],
+                        <<"meta">> => #{
+                            <<"count">> => 100,
+                            <<"last">> => ContExample
+                        }
+                    }),
+                400 =>
+                    emqx_dashboard_swagger:error_codes(
+                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                    ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                )
+            }
+        }
+    }.
+
+client_msgs_params() ->
+    [
+        {clientid, hoconsc:mk(binary(), #{in => path})},
+        {payload,
+            hoconsc:mk(hoconsc:enum([none, base64, plain]), #{
+                in => query,
+                default => base64,
+                desc => <<
+                    "Client's inflight/mqueue messages payload encoding."
+                    " If set to `none`, no payload is returned in the response."
+                >>
+            })},
+        {max_payload_bytes,
+            hoconsc:mk(emqx_schema:bytesize(), #{
+                in => query,
+                default => <<"1MB">>,
+                desc => <<
+                    "Client's inflight/mqueue messages payload limit."
+                    " The total payload size of all messages in the response will not exceed this value."
+                    " Messages beyond the limit will be silently omitted in the response."
+                    " The only exception to this rule is when the first message payload"
+                    " is already larger than the limit."
+                    " In this case, the first message will be returned in the response."
+                >>
+            })},
+        hoconsc:ref(emqx_dashboard_swagger, 'after'),
+        hoconsc:ref(emqx_dashboard_swagger, limit)
+    ].
 
 do_subscribe(ClientID, Topic0, Options) ->
     try emqx_topic:parse(Topic0, Options) of
@@ -1037,6 +1134,42 @@ remove_live_sessions(Rows) ->
         Rows
     ).
 
+list_client_msgs(MsgType, ClientID, QString) ->
+    case parse_cont_pager_params(QString, MsgType) of
+        false ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"after_limit_invalid">>}};
+        PagerParams = #{} ->
+            case emqx_mgmt:list_client_msgs(MsgType, ClientID, PagerParams) of
+                {error, not_found} ->
+                    {404, ?CLIENTID_NOT_FOUND};
+                {Msgs, Meta = #{}} when is_list(Msgs) ->
+                    format_msgs_resp(MsgType, Msgs, Meta, QString)
+            end
+    end.
+
+parse_cont_pager_params(QString, MsgType) ->
+    case emqx_mgmt_api:parse_cont_pager_params(QString, cont_encoding(MsgType)) of
+        false ->
+            false;
+        PagerParams ->
+            maybe_cast_cont(MsgType, PagerParams)
+    end.
+
+maybe_cast_cont(inflight_msgs, #{continuation := Cont} = PagerParams) when is_binary(Cont) ->
+    try
+        PagerParams#{continuation => emqx_utils_conv:int(Cont)}
+    catch
+        _:_ ->
+            false
+    end;
+maybe_cast_cont(_, PagerParams) ->
+    PagerParams.
+
+%% integer packet id
+cont_encoding(inflight_msgs) -> none;
+%% binary message id
+cont_encoding(mqueue_msgs) -> base64.
+
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
 
@@ -1197,6 +1330,79 @@ format_persistent_session_info(ClientId, PSInfo0) ->
     ),
     result_format_undefined_to_null(PSInfo).
 
+format_msgs_resp(MsgType, Msgs, Meta, QString) ->
+    #{
+        <<"payload">> := PayloadFmt,
+        <<"max_payload_bytes">> := MaxBytes
+    } = QString,
+    Meta1 = emqx_mgmt_api:encode_cont_pager_params(Meta, cont_encoding(MsgType)),
+    Resp = #{meta => Meta1, data => format_msgs(Msgs, PayloadFmt, MaxBytes)},
+    %% Make sure minirest won't set another content-type for self-encoded JSON response body
+    Headers = #{<<"content-type">> => <<"application/json">>},
+    case emqx_utils_json:safe_encode(Resp) of
+        {ok, RespBin} ->
+            {200, Headers, RespBin};
+        _Error when PayloadFmt =:= plain ->
+            ?BAD_REQUEST(
+                <<"INVALID_PARAMETER">>,
+                <<"Some message payloads are not JSON serializable">>
+            );
+        %% Unexpected internal error
+        Error ->
+            ?INTERNAL_ERROR(Error)
+    end.
+
+format_msgs([FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
+    %% Always include at least one message payload, even if it exceeds the limit
+    {FirstMsg1, PayloadSize0} = format_msg(FirstMsg, PayloadFmt),
+    {Msgs1, _} =
+        catch lists:foldl(
+            fun(Msg, {MsgsAcc, SizeAcc} = Acc) ->
+                {Msg1, PayloadSize} = format_msg(Msg, PayloadFmt),
+                case SizeAcc + PayloadSize of
+                    SizeAcc1 when SizeAcc1 =< MaxBytes ->
+                        {[Msg1 | MsgsAcc], SizeAcc1};
+                    _ ->
+                        throw(Acc)
+                end
+            end,
+            {[FirstMsg1], PayloadSize0},
+            Msgs
+        ),
+    lists:reverse(Msgs1);
+format_msgs([], _PayloadFmt, _MaxBytes) ->
+    [].
+
+format_msg(
+    #message{
+        id = ID,
+        qos = Qos,
+        topic = Topic,
+        from = From,
+        timestamp = Timestamp,
+        headers = Headers,
+        payload = Payload
+    },
+    PayloadFmt
+) ->
+    Msg = #{
+        msgid => emqx_guid:to_hexstr(ID),
+        qos => Qos,
+        topic => Topic,
+        publish_at => Timestamp,
+        from_clientid => emqx_utils_conv:bin(From),
+        from_username => maps:get(username, Headers, <<>>)
+    },
+    format_payload(PayloadFmt, Msg, Payload).
+
+format_payload(none, Msg, _Payload) ->
+    {Msg, 0};
+format_payload(base64, Msg, Payload) ->
+    Payload1 = base64:encode(Payload),
+    {Msg#{payload => Payload1}, erlang:byte_size(Payload1)};
+format_payload(plain, Msg, Payload) ->
+    {Msg#{payload => Payload}, erlang:iolist_size(Payload)}.
+
 %% format func helpers
 take_maps_from_inner(_Key, Value, Current) when is_map(Value) ->
     maps:merge(Current, Value);
@@ -1296,6 +1502,17 @@ client_example() ->
         <<"recv_pkt">> => 4,
         <<"recv_cnt">> => 4,
         <<"recv_msg.qos0">> => 0
+    }.
+
+message_example() ->
+    #{
+        <<"msgid">> => <<"000611F460D57FA9F44500000D360002">>,
+        <<"topic">> => <<"t/test">>,
+        <<"qos">> => 0,
+        <<"publish_at">> => 1709055346487,
+        <<"from_clientid">> => <<"mqttx_59ac0a87">>,
+        <<"from_username">> => <<"test-user">>,
+        <<"payload">> => <<"eyJmb28iOiAiYmFyIn0=">>
     }.
 
 sessions_count(get, #{query_string := QString}) ->

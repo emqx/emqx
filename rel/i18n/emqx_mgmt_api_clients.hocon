@@ -35,6 +35,57 @@ get_client_subs.desc:
 get_client_subs.label:
 """Get client subscriptions"""
 
+get_client_mqueue_msgs.desc:
+"""Get client mqueue messages"""
+get_client_mqueue_msgs.label:
+"""Get client mqueue messages"""
+
+get_client_inflight_msgs.desc:
+"""Get client inflight messages"""
+get_client_inflight_msgs.label:
+"""Get client inflight messages"""
+
+mqueue_msgs_list.desc:
+"""Client's mqueue messages list. The queue (FIFO) ordering is preserved."""
+mqueue_msgs_list.label:
+"""Client's mqueue messages"""
+
+inflight_msgs_list.desc:
+"""Client's inflight messages list.
+Ordered by MQTT Packet Id, which may not represent the chronological messages order."""
+inflight_msgs_list.label:
+"""Client's inflight messages"""
+
+msg_id.desc:
+"""Message ID."""
+msg_id.label:
+"""Message ID"""
+
+msg_topic.desc:
+"""Message topic."""
+msg_topic.label:
+"""Message Topic"""
+
+msg_qos.desc:
+"""Message QoS."""
+msg_topic.label:
+"""Message Qos"""
+
+msg_publish_at.desc:
+"""Message publish time, a millisecond precision Unix epoch timestamp."""
+msg_publish_at.label:
+"""Message Publish Time."""
+
+msg_from_clientid.desc:
+"""Message publisher's client ID."""
+msg_from_clientid.desc:
+"""Message publisher's Client ID"""
+
+msg_from_username.desc:
+"""Message publisher's username."""
+msg_from_username.label:
+"""Message Publisher's Username """
+
 subscribe.desc:
 """Subscribe"""
 subscribe.label:

@@ -22,6 +22,8 @@
 
 -define(LONG_QUERY_TIMEOUT, 50000).
 
+-define(CONT_BASE64_OPTS, #{mode => urlsafe, padding => false}).
+
 -export([
     paginate/3
 ]).
@@ -37,6 +39,8 @@
 
 -export([
     parse_pager_params/1,
+    parse_cont_pager_params/2,
+    encode_cont_pager_params/2,
     parse_qstring/2,
     init_query_result/0,
     init_query_state/5,
@@ -133,6 +137,33 @@ page(Params) ->
 
 limit(Params) when is_map(Params) ->
     maps:get(<<"limit">>, Params, emqx_mgmt:default_row_limit()).
+
+continuation(Params, Encoding) ->
+    try
+        decode_continuation(maps:get(<<"after">>, Params, none), Encoding)
+    catch
+        _:_ ->
+            error
+    end.
+
+decode_continuation(none, _Encoding) ->
+    none;
+decode_continuation(end_of_data, _Encoding) ->
+    %% Clients should not send "after=end_of_data" back to the server
+    error;
+decode_continuation(Cont, none) ->
+    Cont;
+decode_continuation(Cont, base64) ->
+    base64:decode(Cont, ?CONT_BASE64_OPTS).
+
+encode_continuation(none, _Encoding) ->
+    none;
+encode_continuation(end_of_data, _Encoding) ->
+    end_of_data;
+encode_continuation(Cont, none) ->
+    emqx_utils_conv:bin(Cont);
+encode_continuation(Cont, base64) ->
+    base64:encode(emqx_utils_conv:bin(Cont), ?CONT_BASE64_OPTS).
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -631,6 +662,25 @@ parse_pager_params(Params) ->
         false ->
             false
     end.
+
+-spec parse_cont_pager_params(map(), none | base64) ->
+    #{limit := pos_integer(), continuation := none | end_of_table | binary()} | false.
+parse_cont_pager_params(Params, Encoding) ->
+    Cont = continuation(Params, Encoding),
+    Limit = b2i(limit(Params)),
+    case Limit > 0 andalso Cont =/= error of
+        true ->
+            #{continuation => Cont, limit => Limit};
+        false ->
+            false
+    end.
+
+-spec encode_cont_pager_params(map(), none | base64) -> map().
+encode_cont_pager_params(#{continuation := Cont} = Meta, ContEncoding) ->
+    Meta1 = maps:remove(continuation, Meta),
+    Meta1#{last => encode_continuation(Cont, ContEncoding)};
+encode_cont_pager_params(Meta, _ContEncoding) ->
+    Meta.
 
 %%--------------------------------------------------------------------
 %% Types

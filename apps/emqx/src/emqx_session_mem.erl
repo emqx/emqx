@@ -268,6 +268,9 @@ info(inflight_cnt, #session{inflight = Inflight}) ->
     emqx_inflight:size(Inflight);
 info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
+info({inflight_msgs, PagerParams}, #session{inflight = Inflight}) ->
+    {InflightList, Meta} = emqx_inflight:query(Inflight, PagerParams),
+    {[I#inflight_data.message || {_, I} <- InflightList], Meta};
 info(retry_interval, #session{retry_interval = Interval}) ->
     Interval;
 info(mqueue, #session{mqueue = MQueue}) ->
@@ -278,6 +281,8 @@ info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
+info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->
+    emqx_mqueue:query(MQueue, PagerParams);
 info(next_pkt_id, #session{next_pkt_id = PacketId}) ->
     PacketId;
 info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->

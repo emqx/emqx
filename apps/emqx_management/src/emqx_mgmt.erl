@@ -52,6 +52,7 @@
     kickout_clients/1,
     list_authz_cache/1,
     list_client_subscriptions/1,
+    list_client_msgs/3,
     client_subscriptions/2,
     clean_authz_cache/1,
     clean_authz_cache/2,
@@ -416,6 +417,12 @@ list_client_subscriptions_mem(ClientId) ->
                 [Result | _] -> Result
             end
     end.
+
+list_client_msgs(MsgsType, ClientId, PagerParams) when
+    MsgsType =:= inflight_msgs;
+    MsgsType =:= mqueue_msgs
+->
+    call_client(ClientId, {MsgsType, PagerParams}).
 
 client_subscriptions(Node, ClientId) ->
     {Node, unwrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId))}.
