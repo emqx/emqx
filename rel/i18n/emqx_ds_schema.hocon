@@ -1,0 +1,35 @@
+emqx_ds_schema {
+
+messages.desc:
+"""Configuration related to the durable storage of MQTT messages."""
+
+builtin.desc:
+"""Builtin session storage backend utilizing embedded RocksDB key-value store."""
+
+builtin_data_dir.desc:
+"""File system directory where the database is located."""
+
+builtin_n_shards.desc:
+"""The builtin durable storage partitions data into shards.
+This configuration parameter defines the number of shards.
+Please note that it takes effect only during the initialization of the durable storage database.
+Changing this configuration parameter after the database has been already created won't take any effect."""
+
+builtin_egress.desc:
+"""Configuration related to the buffering of messages from the local node to the shard leader."""
+
+builtin_layout.desc:
+"""Storage layout is a method of arranging messages from various topics and clients on disc.
+
+Depending on the type of workload and the topic structure, different types of strategies for storing the data can be employed to maximize efficency of the replay."""
+
+
+layout_wildcard_optimized.desc:
+"""_Wildcard-optimized_ layout is designed to maximize the throughput of the wildcard subscriptions covering large numbers of topics."""
+
+wildcard_optimized_epoch_bits.desc:
+"""Wildcard-optimized layout partitions messages recorded at different times into "epochs".
+Each epoch can be consumed by the subscribers as a batch.
+Generally, larger epochs lead to higher throughput of subscribers, however currently they may increase latency."""
+
+}

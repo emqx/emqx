@@ -254,6 +254,11 @@ roots(medium) ->
             sc(
                 ref("overload_protection"),
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {"durable_storage",
+            sc(
+                ref("durable_storage"),
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
 roots(low) ->
@@ -1654,16 +1659,6 @@ fields("session_persistence") ->
                     default => false
                 }
             )},
-        {"storage",
-            sc(
-                ref("session_storage_backend"), #{
-                    desc => ?DESC(session_persistence_storage),
-                    validator => fun validate_backend_enabled/1,
-                    default => #{
-                        <<"builtin">> => #{}
-                    }
-                }
-            )},
         {"max_batch_size",
             sc(
                 pos_integer(),
@@ -1739,69 +1734,8 @@ fields("session_persistence") ->
                 }
             )}
     ];
-fields("session_storage_backend") ->
-    [
-        {"builtin",
-            sc(ref("session_storage_backend_builtin"), #{
-                desc => ?DESC(session_storage_backend_builtin),
-                required => {false, recursively}
-            })}
-    ] ++ emqx_schema_hooks:injection_point('session_persistence.storage_backends', []);
-fields("session_storage_backend_builtin") ->
-    [
-        {"enable",
-            sc(
-                boolean(),
-                #{
-                    desc => ?DESC(session_storage_backend_enable),
-                    default => true
-                }
-            )},
-        {"data_dir",
-            sc(
-                string(),
-                #{
-                    desc => ?DESC(session_builtin_data_dir),
-                    mapping => "emqx_durable_storage.db_data_dir",
-                    required => false,
-                    importance => ?IMPORTANCE_LOW
-                }
-            )},
-        {"n_shards",
-            sc(
-                pos_integer(),
-                #{
-                    desc => ?DESC(session_builtin_n_shards),
-                    default => 16
-                }
-            )},
-        {"replication_factor",
-            sc(
-                pos_integer(),
-                #{
-                    default => 3,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {"egress_batch_size",
-            sc(
-                pos_integer(),
-                #{
-                    default => 1000,
-                    mapping => "emqx_durable_storage.egress_batch_size",
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {"egress_flush_interval",
-            sc(
-                timeout_duration_ms(),
-                #{
-                    default => 100,
-                    mapping => "emqx_durable_storage.egress_flush_interval",
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )}
-    ].
+fields("durable_storage") ->
+    emqx_ds_schema:schema().
 
 mqtt_listener(Bind) ->
     base_listener(Bind) ++
@@ -2076,17 +2010,6 @@ ensure_list(V) ->
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
-
-validate_backend_enabled(Config) ->
-    Enabled = maps:filter(fun(_, #{<<"enable">> := E}) -> E end, Config),
-    case maps:to_list(Enabled) of
-        [{_Type, _BackendConfig}] ->
-            ok;
-        _Conflicts = [_ | _] ->
-            {error, multiple_enabled_backends};
-        _None = [] ->
-            {error, no_enabled_backend}
-    end.
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
