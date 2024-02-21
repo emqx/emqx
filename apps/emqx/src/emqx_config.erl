@@ -960,7 +960,7 @@ is_zone_root(Name) ->
 
 -spec zone_roots() -> [atom()].
 zone_roots() ->
-    lists:map(fun list_to_atom/1, emqx_zone_schema:roots()).
+    emqx_zone_schema:roots().
 
 %%%
 %%% @doc During init, ensure order of puts that zone is put after the other global defaults.

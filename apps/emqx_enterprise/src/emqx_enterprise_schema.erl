@@ -144,8 +144,8 @@ ee_delegate(Method, [], Name) ->
 
 redefine_roots(Roots) ->
     Overrides = [
-        {"node", #{type => hoconsc:ref(?MODULE, "node")}},
-        {"log", #{type => hoconsc:ref(?MODULE, "log")}}
+        {node, #{type => hoconsc:ref(?MODULE, "node")}},
+        {log, #{type => hoconsc:ref(?MODULE, "log")}}
     ],
     override(Roots, Overrides).
 

@@ -138,7 +138,7 @@ t_log(_Config) ->
 t_global_zone(_Config) ->
     {ok, Zones} = get_global_zone(),
     ZonesKeys = lists:map(
-        fun({K, _}) -> list_to_binary(K) end, emqx_zone_schema:global_zone_with_default()
+        fun({K, _}) -> atom_to_binary(K) end, emqx_zone_schema:global_zone_with_default()
     ),
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
     ?assertEqual(

@@ -516,7 +516,7 @@ cert_file(Name) ->
     data_file(filename:join(["certs", Name])).
 
 default_listeners_hocon_text() ->
-    Sc = #{roots => emqx_schema:fields("listeners")},
+    Sc = #{roots => emqx_schema:listeners()},
     Listeners = hocon_tconf:make_serializable(Sc, #{}, #{}),
     Config = #{<<"listeners">> => Listeners},
     hocon_pp:do(Config, #{}).

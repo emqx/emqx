@@ -139,6 +139,8 @@
     get_tombstone_map_value_type/1
 ]).
 
+-export([listeners/0]).
+
 -behaviour(hocon_schema).
 
 -reflect_type([
@@ -193,12 +195,12 @@ roots() ->
 
 roots(high) ->
     [
-        {"listeners",
+        {listeners,
             sc(
                 ref("listeners"),
                 #{importance => ?IMPORTANCE_HIGH}
             )},
-        {"mqtt",
+        {mqtt,
             sc(
                 ref("mqtt"),
                 #{
@@ -207,9 +209,9 @@ roots(high) ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {"zones",
+        {zones,
             sc(
-                map("name", ref("zone")),
+                map(name, ref("zone")),
                 #{
                     desc => ?DESC(zones),
                     importance => ?IMPORTANCE_HIDDEN
@@ -221,7 +223,7 @@ roots(high) ->
             [
                 %% NOTE: authorization schema here is only to keep emqx app pure
                 %% the full schema for EMQX node is injected in emqx_conf_schema.
-                {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
+                {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_ATOM,
                     sc(
                         ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
                         #{importance => ?IMPORTANCE_HIDDEN}
@@ -238,17 +240,17 @@ roots(medium) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"sys_topics",
+        {sys_topics,
             sc(
                 ref("sys_topics"),
                 #{desc => ?DESC(sys_topics)}
             )},
-        {"force_shutdown",
+        {force_shutdown,
             sc(
                 ref("force_shutdown"),
                 #{}
             )},
-        {"overload_protection",
+        {overload_protection,
             sc(
                 ref("overload_protection"),
                 #{importance => ?IMPORTANCE_HIDDEN}
@@ -256,36 +258,36 @@ roots(medium) ->
     ];
 roots(low) ->
     [
-        {"force_gc",
+        {force_gc,
             sc(
                 ref("force_gc"),
                 #{}
             )},
-        {"conn_congestion",
+        {conn_congestion,
             sc(
                 ref("conn_congestion"),
                 #{
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"stats",
+        {stats,
             sc(
                 ref("stats"),
                 #{
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"sysmon",
+        {sysmon,
             sc(
                 ref("sysmon"),
                 #{}
             )},
-        {"alarm",
+        {alarm,
             sc(
                 ref("alarm"),
                 #{}
             )},
-        {"flapping_detect",
+        {flapping_detect,
             sc(
                 ref("flapping_detect"),
                 #{
@@ -293,7 +295,7 @@ roots(low) ->
                     converter => fun flapping_detect_converter/2
                 }
             )},
-        {"persistent_session_store",
+        {persistent_session_store,
             sc(
                 ref("persistent_session_store"),
                 #{
@@ -303,19 +305,19 @@ roots(low) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"session_persistence",
+        {session_persistence,
             sc(
                 ref("session_persistence"),
                 #{
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"trace",
+        {trace,
             sc(
                 ref("trace"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
-        {"crl_cache",
+        {crl_cache,
             sc(
                 ref("crl_cache"),
                 #{importance => ?IMPORTANCE_HIDDEN}
@@ -441,7 +443,7 @@ fields("stats") ->
     ];
 fields("authorization") ->
     authz_fields();
-fields(authz_cache) ->
+fields("authz_cache") ->
     [
         {enable,
             sc(
@@ -630,55 +632,7 @@ fields("force_gc") ->
             )}
     ];
 fields("listeners") ->
-    [
-        {"tcp",
-            sc(
-                tombstone_map(name, ref("mqtt_tcp_listener")),
-                #{
-                    desc => ?DESC(fields_listeners_tcp),
-                    converter => fun(X, _) ->
-                        ensure_default_listener(X, tcp)
-                    end,
-                    required => {false, recursively}
-                }
-            )},
-        {"ssl",
-            sc(
-                tombstone_map(name, ref("mqtt_ssl_listener")),
-                #{
-                    desc => ?DESC(fields_listeners_ssl),
-                    converter => fun(X, _) -> ensure_default_listener(X, ssl) end,
-                    required => {false, recursively}
-                }
-            )},
-        {"ws",
-            sc(
-                tombstone_map(name, ref("mqtt_ws_listener")),
-                #{
-                    desc => ?DESC(fields_listeners_ws),
-                    converter => fun(X, _) -> ensure_default_listener(X, ws) end,
-                    required => {false, recursively}
-                }
-            )},
-        {"wss",
-            sc(
-                tombstone_map(name, ref("mqtt_wss_listener")),
-                #{
-                    desc => ?DESC(fields_listeners_wss),
-                    converter => fun(X, _) -> ensure_default_listener(X, wss) end,
-                    required => {false, recursively}
-                }
-            )},
-        {"quic",
-            sc(
-                tombstone_map(name, ref("mqtt_quic_listener")),
-                #{
-                    desc => ?DESC(fields_listeners_quic),
-                    converter => fun keep_default_tombstone/2,
-                    required => {false, recursively}
-                }
-            )}
-    ];
+    listeners();
 fields("crl_cache") ->
     %% Note: we make the refresh interval and HTTP timeout global (not
     %% per-listener) because multiple SSL listeners might point to the
@@ -2082,7 +2036,7 @@ desc("authorization") ->
     "Settings for client authorization.";
 desc("mqtt") ->
     "Global MQTT configuration.";
-desc(authz_cache) ->
+desc("authz_cache") ->
     "Settings for the authorization cache.";
 desc("zone") ->
     "A `Zone` defines a set of configuration items (such as the maximum number of connections)"
@@ -2644,7 +2598,7 @@ authz_fields() ->
             )},
         {"cache",
             sc(
-                ref(?MODULE, authz_cache),
+                ref(?MODULE, "authz_cache"),
                 #{}
             )}
     ].
@@ -3592,6 +3546,7 @@ flapping_detect_converter(Conf = #{<<"window_time">> := <<"disable">>}, _Opts) -
     Conf#{<<"window_time">> => ?DEFAULT_WINDOW_TIME, <<"enable">> => false};
 flapping_detect_converter(Conf, _Opts) ->
     Conf.
+
 mqtt_general() ->
     [
         {"idle_timeout",
@@ -3923,3 +3878,54 @@ ensure_unicode_path(Path, _) when is_list(Path) ->
     Path;
 ensure_unicode_path(Path, _) ->
     throw({"not_string", Path}).
+
+listeners() ->
+    [
+        {"tcp",
+            sc(
+                tombstone_map(name, ref("mqtt_tcp_listener")),
+                #{
+                    desc => ?DESC(fields_listeners_tcp),
+                    converter => fun(X, _) ->
+                        ensure_default_listener(X, tcp)
+                    end,
+                    required => {false, recursively}
+                }
+            )},
+        {"ssl",
+            sc(
+                tombstone_map(name, ref("mqtt_ssl_listener")),
+                #{
+                    desc => ?DESC(fields_listeners_ssl),
+                    converter => fun(X, _) -> ensure_default_listener(X, ssl) end,
+                    required => {false, recursively}
+                }
+            )},
+        {"ws",
+            sc(
+                tombstone_map(name, ref("mqtt_ws_listener")),
+                #{
+                    desc => ?DESC(fields_listeners_ws),
+                    converter => fun(X, _) -> ensure_default_listener(X, ws) end,
+                    required => {false, recursively}
+                }
+            )},
+        {"wss",
+            sc(
+                tombstone_map(name, ref("mqtt_wss_listener")),
+                #{
+                    desc => ?DESC(fields_listeners_wss),
+                    converter => fun(X, _) -> ensure_default_listener(X, wss) end,
+                    required => {false, recursively}
+                }
+            )},
+        {"quic",
+            sc(
+                tombstone_map(name, ref("mqtt_quic_listener")),
+                #{
+                    desc => ?DESC(fields_listeners_quic),
+                    converter => fun keep_default_tombstone/2,
+                    required => {false, recursively}
+                }
+            )}
+    ].
