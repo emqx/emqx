@@ -36,11 +36,7 @@
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
 -export([get_subscriptions/1, put_subscription/4, del_subscription/3]).
 
--export([
-    make_session_iterator/0,
-    session_iterator_next/2,
-    session_count/0
-]).
+-export([make_session_iterator/0, session_iterator_next/2]).
 
 -export_type([
     t/0,
@@ -369,12 +365,6 @@ del_rank(Key, Rec) ->
 fold_ranks(Fun, Acc, Rec) ->
     gen_fold(ranks, Fun, Acc, Rec).
 
--spec session_count() -> non_neg_integer().
-session_count() ->
-    %% N.B.: this is potentially costly.  Should not be called in hot paths.
-    %% `mnesia:table_info(_, size)' is always zero for rocksdb, so we need to traverse...
-    do_session_count(make_session_iterator(), 0).
-
 -spec make_session_iterator() -> session_iterator().
 make_session_iterator() ->
     mnesia:dirty_first(?session_tab).
@@ -576,16 +566,6 @@ ro_transaction(Fun) ->
 %%     Res.
 
 %%
-
-do_session_count('$end_of_table', N) ->
-    N;
-do_session_count(Cursor, N) ->
-    case session_iterator_next(Cursor, 1) of
-        {[], _} ->
-            N;
-        {_, NextCursor} ->
-            do_session_count(NextCursor, N + 1)
-    end.
 
 -compile({inline, check_sequence/1}).
 
