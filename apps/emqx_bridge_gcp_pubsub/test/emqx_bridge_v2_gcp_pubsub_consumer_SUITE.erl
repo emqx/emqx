@@ -35,7 +35,8 @@ common_init_per_testcase(TestCase, Config0) ->
     ServiceAccountJSON =
         #{<<"project_id">> := ProjectId} =
         emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
-    Name = atom_to_binary(TestCase),
+    UniqueNum = integer_to_binary(erlang:unique_integer()),
+    Name = <<(atom_to_binary(TestCase))/binary, UniqueNum/binary>>,
     ConnectorConfig = connector_config(Name, ServiceAccountJSON),
     PubsubTopic = Name,
     SourceConfig = source_config(#{
@@ -115,6 +116,10 @@ source_config(Overrides0) ->
 
 t_start_stop(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_stop(Config, gcp_pubsub_stop),
+    ok.
+
+t_create_via_http(Config) ->
+    ok = emqx_bridge_v2_testlib:t_create_via_http(Config),
     ok.
 
 t_consume(Config) ->

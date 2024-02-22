@@ -692,7 +692,6 @@ t_consume(Config, Opts) ->
                 )
             ),
             ok = add_source_hookpoint(Config),
-            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep = 200,
                 _Attempts = 20,
@@ -732,6 +731,13 @@ t_create_via_http(Config) ->
                     Config
                 )
             ),
+
+            %% check that v1 list API is fine
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, _}},
+                list_bridges_http_api_v1()
+            ),
+
             ok
         end,
         []

@@ -783,7 +783,7 @@ legacy_maybe_publish_mqtt_message(
     },
     SourceResId,
     FullMessage
-) ->
+) when MQTTTopic =/= <<>> ->
     Payload = render(FullMessage, PayloadTemplate),
     MQTTMessage = emqx_message:make(SourceResId, MQTTQoS, MQTTTopic, Payload),
     _ = emqx:publish(MQTTMessage),
