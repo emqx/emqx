@@ -63,7 +63,6 @@
 
 -type state() :: #{
     enable := boolean(),
-    context_id := non_neg_integer(),
     context := undefined | context(),
     clear_timer := undefined | reference()
 }.
@@ -72,8 +71,8 @@
 -define(DEF_EXPIRY_INTERVAL, 0).
 -define(MAX_PAYLOAD_SIZE_CONFIG_PATH, [retainer, max_payload_size]).
 
--define(CAST(Msg), gen_server:cast(?MODULE, Msg)).
-
+-callback create(map()) -> context().
+-callback close(context()) -> ok.
 -callback delete_message(context(), topic()) -> ok.
 -callback store_retained(context(), message()) -> ok.
 -callback read_message(context(), topic()) -> {ok, list()}.
@@ -264,14 +263,9 @@ code_change(_OldVsn, State, _Extra) ->
 new_state() ->
     #{
         enable => false,
-        context_id => 0,
         context => undefined,
         clear_timer => undefined
     }.
-
--spec new_context(pos_integer()) -> context().
-new_context(Id) ->
-    #{context_id => Id}.
 
 payload_size_limit() ->
     emqx_conf:get(?MAX_PAYLOAD_SIZE_CONFIG_PATH, ?DEF_MAX_PAYLOAD_SIZE).
@@ -361,18 +355,16 @@ update_config(
 
 -spec enable_retainer(state(), hocon:config()) -> state().
 enable_retainer(
-    #{context_id := ContextId} = State,
+    State,
     #{
         msg_clear_interval := ClearInterval,
         backend := BackendCfg
     }
 ) ->
-    NewContextId = ContextId + 1,
-    Context = create_resource(new_context(NewContextId), BackendCfg),
+    Context = create(BackendCfg),
     load(Context),
     State#{
         enable := true,
-        context_id := NewContextId,
         context := Context,
         clear_timer := add_timer(ClearInterval, clear_expired)
     }.
@@ -385,7 +377,7 @@ disable_retainer(
     } = State
 ) ->
     unload(),
-    ok = close_resource(Context),
+    ok = close(Context),
     State#{
         enable := false,
         clear_timer := stop_timer(ClearTimer)
@@ -416,22 +408,19 @@ check_timer(Timer, _, _) ->
 
 -spec get_backend_module() -> backend().
 get_backend_module() ->
-    ModName =
-        case emqx:get_config([retainer, backend]) of
-            #{type := built_in_database} -> mnesia;
-            #{type := Backend} -> Backend
-        end,
-    erlang:list_to_existing_atom(io_lib:format("~ts_~ts", [?APP, ModName])).
+    case emqx:get_config([retainer, backend]) of
+        #{type := built_in_database} -> emqx_retainer_mnesia;
+        #{type := Backend} -> Backend
+    end.
 
-create_resource(Context, #{type := built_in_database} = Cfg) ->
-    emqx_retainer_mnesia:create_resource(Cfg),
-    Context.
+create(#{type := built_in_database} = Cfg) ->
+    Mod = get_backend_module(),
+    Mod:create(Cfg).
 
--spec close_resource(context()) -> ok | {error, term()}.
-close_resource(#{resource_id := ResourceId}) ->
-    emqx_resource:stop(ResourceId);
-close_resource(_) ->
-    ok.
+-spec close(context()) -> ok | {error, term()}.
+close(Context) ->
+    Mod = get_backend_module(),
+    Mod:close(Context).
 
 -spec load(context()) -> ok.
 load(Context) ->

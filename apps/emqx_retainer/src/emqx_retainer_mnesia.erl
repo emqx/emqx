@@ -26,6 +26,8 @@
 
 %% emqx_retainer callbacks
 -export([
+    create/1,
+    close/1,
     delete_message/2,
     store_retained/2,
     read_message/2,
@@ -45,8 +47,6 @@
 
 %% Management API:
 -export([topics/0]).
-
--export([create_resource/1]).
 
 -export([reindex/2, reindex_status/0]).
 
@@ -78,7 +78,7 @@ topics() ->
 %% emqx_retainer callbacks
 %%--------------------------------------------------------------------
 
-create_resource(#{storage_type := StorageType}) ->
+create(#{storage_type := StorageType}) ->
     ok = create_table(
         ?TAB_INDEX_META,
         retained_index_meta,
@@ -100,7 +100,9 @@ create_resource(#{storage_type := StorageType}) ->
         record_info(fields, retained_index),
         ordered_set,
         StorageType
-    ).
+    ),
+    %% The context is not used by this backend
+    #{}.
 
 create_table(Table, RecordName, Attributes, Type, StorageType) ->
     Copies =
@@ -136,7 +138,9 @@ create_table(Table, RecordName, Attributes, Type, StorageType) ->
             ok
     end.
 
-store_retained(_, Msg = #message{topic = Topic}) ->
+close(_Context) -> ok.
+
+store_retained(_Context, Msg = #message{topic = Topic}) ->
     ExpiryTime = emqx_retainer:get_expiry_time(Msg),
     Tokens = topic_to_tokens(Topic),
     case is_table_full() andalso is_new_topic(Tokens) of
@@ -172,7 +176,7 @@ clear_expired() ->
     QC = qlc:cursor(QH),
     clear_batch(dirty_indices(write), QC).
 
-delete_message(_, Topic) ->
+delete_message(_Context, Topic) ->
     Tokens = topic_to_tokens(Topic),
     case emqx_topic:wildcard(Topic) of
         false ->
@@ -188,10 +192,10 @@ delete_message(_, Topic) ->
             )
     end.
 
-read_message(_, Topic) ->
+read_message(_Context, Topic) ->
     {ok, read_messages(Topic)}.
 
-match_messages(_, Topic, undefined) ->
+match_messages(_Context, Topic, undefined) ->
     Tokens = topic_to_tokens(Topic),
     Now = erlang:system_time(millisecond),
     QH = msg_table(search_table(Tokens, Now)),
@@ -202,7 +206,7 @@ match_messages(_, Topic, undefined) ->
             Cursor = qlc:cursor(QH),
             match_messages(undefined, Topic, {Cursor, BatchNum})
     end;
-match_messages(_, _Topic, {Cursor, BatchNum}) ->
+match_messages(_Context, _Topic, {Cursor, BatchNum}) ->
     case qlc_next_answers(Cursor, BatchNum) of
         {closed, Rows} ->
             {ok, Rows, undefined};
@@ -210,7 +214,7 @@ match_messages(_, _Topic, {Cursor, BatchNum}) ->
             {ok, Rows, {Cursor, BatchNum}}
     end.
 
-page_read(_, Topic, Page, Limit) ->
+page_read(_Context, Topic, Page, Limit) ->
     Now = erlang:system_time(millisecond),
     QH =
         case Topic of
