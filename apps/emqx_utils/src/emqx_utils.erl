@@ -730,8 +730,8 @@ redact(Term, Checker) ->
         is_sensitive_key(V) orelse Checker(V)
     end).
 
-do_redact(L, Checker) when is_list(L) ->
-    lists:map(fun(E) -> do_redact(E, Checker) end, L);
+do_redact([E | Rest], Checker) ->
+    [do_redact(E, Checker) | do_redact(Rest, Checker)];
 do_redact(M, Checker) when is_map(M) ->
     maps:map(
         fun(K, V) ->
@@ -838,14 +838,8 @@ ipv6_probe_test() ->
     end.
 
 redact_test_() ->
-    Case = fun(Type, KeyT) ->
-        Key =
-            case Type of
-                atom -> KeyT;
-                string -> erlang:atom_to_list(KeyT);
-                binary -> erlang:atom_to_binary(KeyT)
-            end,
-
+    Case = fun(TypeF, KeyIn) ->
+        Key = TypeF(KeyIn),
         ?assert(is_sensitive_key(Key)),
 
         %% direct
@@ -866,10 +860,16 @@ redact_test_() ->
         %% 3 level nested
         ?assertEqual([#{opts => [{Key, ?REDACT_VAL}]}], redact([#{opts => [{Key, foo}]}])),
         ?assertEqual([{opts, [{Key, ?REDACT_VAL}]}], redact([{opts, [{Key, foo}]}])),
-        ?assertEqual([{opts, [#{Key => ?REDACT_VAL}]}], redact([{opts, [#{Key => foo}]}]))
-    end,
+        ?assertEqual([{opts, [#{Key => ?REDACT_VAL}]}], redact([{opts, [#{Key => foo}]}])),
 
-    Types = [atom, string, binary],
+        %% improper lists
+        ?assertEqual([{opts, [{Key, ?REDACT_VAL} | oops]}], redact([{opts, [{Key, foo} | oops]}]))
+    end,
+    Types = [
+        {atom, fun identity/1},
+        {string, fun emqx_utils_conv:str/1},
+        {binary, fun emqx_utils_conv:bin/1}
+    ],
     Keys = [
         authorization,
         aws_secret_access_key,
@@ -882,7 +882,11 @@ redact_test_() ->
         token,
         bind_password
     ],
-    [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
+    [
+        {case_name(Type, Key), fun() -> Case(TypeF, Key) end}
+     || Key <- Keys,
+        {Type, TypeF} <- Types
+    ].
 
 redact2_test_() ->
     Case = fun(Key, Checker) ->
@@ -935,6 +939,9 @@ redact_is_authorization_test_() ->
 
 case_name(Type, Key) ->
     lists:concat([Type, "-", Key]).
+
+identity(X) ->
+    X.
 
 -endif.
 

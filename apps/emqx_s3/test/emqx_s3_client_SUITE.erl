@@ -145,16 +145,35 @@ t_extra_headers(Config0) ->
 
     Client = client(Config),
     Opts = #{acl => public_read},
-    Data = #{foo => bar},
+    Data = #{<<"foo">> => <<"bar">>},
     ok = emqx_s3_client:put_object(Client, Key, Opts, emqx_utils_json:encode(Data)),
 
     Url = emqx_s3_client:uri(Client, Key),
 
     {ok, {{_StatusLine, 200, "OK"}, _Headers, Content}} =
         httpc:request(get, {Url, []}, [{ssl, [{verify, verify_none}]}], []),
-    ?_assertEqual(
+    ?assertEqual(
         Data,
         emqx_utils_json:decode(Content)
+    ).
+
+t_no_credentials(Config) ->
+    Bucket = ?config(bucket, Config),
+    ProfileConfig = maps:merge(
+        profile_config(Config),
+        #{
+            access_key_id => undefined,
+            secret_access_key => undefined
+        }
+    ),
+    ClientConfig = emqx_s3_profile_conf:client_config(
+        ProfileConfig,
+        ?config(ehttpc_pool_name, Config)
+    ),
+    Client = emqx_s3_client:create(Bucket, ClientConfig),
+    ?assertMatch(
+        {error, {config_error, {failed_to_obtain_credentials, _}}},
+        emqx_s3_client:put_object(Client, ?config(key, Config), <<>>)
     ).
 
 %%--------------------------------------------------------------------
