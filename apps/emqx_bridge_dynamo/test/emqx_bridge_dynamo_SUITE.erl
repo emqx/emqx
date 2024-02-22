@@ -117,7 +117,11 @@ common_init(ConfigT) ->
         {host, Host},
         {port, Port},
         {query_mode, sync},
-        {proxy_name, "dynamo"}
+        {proxy_name, "dynamo"},
+        {bridge_type, <<"dynamo">>},
+        {bridge_name, <<"my_dynamo_action">>},
+        {connector_type, <<"dynamo">>},
+        {connector_name, <<"my_dynamo_connector">>}
         | ConfigT
     ],
 
@@ -143,6 +147,8 @@ common_init(ConfigT) ->
                     {dynamo_config, TDConf},
                     {dynamo_bridge_type, BridgeType},
                     {dynamo_name, Name},
+                    {bridge_config, action_config(Config0)},
+                    {connector_config, connector_config(Config0)},
                     {proxy_host, ProxyHost},
                     {proxy_port, ProxyPort}
                     | Config0
@@ -193,6 +199,48 @@ dynamo_config(BridgeType, Config) ->
         ),
     {Name, parse_and_check(ConfigString, BridgeType, Name)}.
 
+action_config(Config) ->
+    ConnectorName = ?config(connector_name, Config),
+    BatchSize = ?config(batch_size, Config),
+    QueryMode = ?config(query_mode, Config),
+    #{
+        <<"connector">> => ConnectorName,
+        <<"enable">> => true,
+        <<"parameters">> =>
+            #{
+                <<"table">> => ?TABLE
+            },
+        <<"resource_opts">> =>
+            #{
+                <<"health_check_interval">> => <<"15s">>,
+                <<"inflight_window">> => 100,
+                <<"max_buffer_bytes">> => <<"256MB">>,
+                <<"request_ttl">> => <<"45s">>,
+                <<"worker_pool_size">> => 16,
+                <<"query_mode">> => QueryMode,
+                <<"batch_size">> => BatchSize
+            }
+    }.
+
+connector_config(Config) ->
+    Host = ?config(host, Config),
+    Port = ?config(port, Config),
+    URL = list_to_binary("http://" ++ Host ++ ":" ++ integer_to_list(Port)),
+    SecretFile = ?config(dynamo_secretfile, Config),
+    AccessKey = "file://" ++ SecretFile,
+    #{
+        <<"url">> => URL,
+        <<"aws_access_key_id">> => ?ACCESS_KEY_ID,
+        <<"aws_secret_access_key">> => AccessKey,
+        <<"enable">> => true,
+        <<"pool_size">> => 8,
+        <<"resource_opts">> =>
+            #{
+                <<"health_check_interval">> => <<"15s">>,
+                <<"start_timeout">> => <<"5s">>
+            }
+    }.
+
 parse_and_check(ConfigString, BridgeType, Name) ->
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
     hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
@@ -234,8 +282,9 @@ send_message(Config, Payload) ->
 query_resource(Config, Request) ->
     Name = ?config(dynamo_name, Config),
     BridgeType = ?config(dynamo_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+    ID = emqx_bridge_v2:id(BridgeType, Name),
+    ResID = emqx_connector_resource:resource_id(BridgeType, Name),
+    emqx_resource:query(ID, Request, #{timeout => 500, connector_resource_id => ResID}).
 
 %% create a table, use the apps/emqx_bridge_dynamo/priv/dynamo/mqtt_msg.json as template
 create_table(Config) ->
@@ -403,7 +452,10 @@ t_simple_query(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Request = {get_item, {<<"id">>, <<"not_exists">>}},
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    Name = ?config(dynamo_name, Config),
+    ActionID = emqx_bridge_v2:id(BridgeType, Name),
+    Request = {ActionID, {get_item, {<<"id">>, <<"not_exists">>}}},
     Result = query_resource(Config, Request),
     case ?config(batch_size, Config) of
         ?BATCH_SIZE ->
@@ -427,10 +479,31 @@ t_bad_parameter(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Request = {insert_item, bad_parameter},
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    Name = ?config(dynamo_name, Config),
+    ActionID = emqx_bridge_v2:id(BridgeType, Name),
+    Request = {ActionID, {insert_item, bad_parameter}},
     Result = query_resource(Config, Request),
     ?assertMatch({error, {unrecoverable_error, {invalid_request, _}}}, Result),
     ok.
+
+%% Connector Action Tests
+
+t_action_on_get_status(Config) ->
+    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}).
+
+t_action_create_via_http(Config) ->
+    emqx_bridge_v2_testlib:t_create_via_http(Config).
+
+t_action_sync_query(Config) ->
+    MakeMessageFun = fun() -> #{id => <<"the_message_id">>, payload => ?PAYLOAD} end,
+    IsSuccessCheck = fun(Result) -> ?assertEqual({ok, []}, Result) end,
+    TracePoint = dynamo_connector_query_return,
+    emqx_bridge_v2_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint).
+
+t_action_start_stop(Config) ->
+    StopTracePoint = dynamo_connector_on_stop,
+    emqx_bridge_v2_testlib:t_start_stop(Config, StopTracePoint).
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8);

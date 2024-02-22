@@ -26,6 +26,8 @@ resource_type(azure_event_hub_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(confluent_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(dynamo) ->
+    emqx_bridge_dynamo_connector;
 resource_type(gcp_pubsub_consumer) ->
     emqx_bridge_gcp_pubsub_impl_consumer;
 resource_type(gcp_pubsub_producer) ->
@@ -119,6 +121,14 @@ connector_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_confluent_producer, "config_connector")),
                 #{
                     desc => <<"Confluent Connector Config">>,
+                    required => false
+                }
+            )},
+        {dynamo,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_dynamo, "config_connector")),
+                #{
+                    desc => <<"DynamoDB Connector Config">>,
                     required => false
                 }
             )},
@@ -329,6 +339,7 @@ schema_modules() ->
     [
         emqx_bridge_azure_event_hub,
         emqx_bridge_confluent_producer,
+        emqx_bridge_dynamo,
         emqx_bridge_gcp_pubsub_consumer_schema,
         emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_hstreamdb,
@@ -365,6 +376,9 @@ api_schemas(Method) ->
         ),
         api_ref(
             emqx_bridge_confluent_producer, <<"confluent_producer">>, Method ++ "_connector"
+        ),
+        api_ref(
+            emqx_bridge_dynamo, <<"dynamo">>, Method ++ "_connector"
         ),
         api_ref(
             emqx_bridge_gcp_pubsub_consumer_schema,
