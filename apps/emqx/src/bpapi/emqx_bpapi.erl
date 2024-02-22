@@ -18,14 +18,15 @@
 %% API:
 -export([
     start/0,
-    announce/1,
+    announce/2,
     supported_version/1, supported_version/2,
     versions_file/1
 ]).
 
 %% Internal exports (RPC)
 -export([
-    announce_fun/1
+    announce_fun/1,
+    announce_fun/2
 ]).
 
 -export_type([api/0, api_version/0, var_name/0, call/0, rpc/0, bpapi_meta/0]).
@@ -66,7 +67,7 @@ start() ->
         {rlog_shard, ?COMMON_SHARD}
     ]),
     ok = mria:wait_for_tables([?TAB]),
-    announce(emqx).
+    announce(node(), emqx).
 
 %% @doc Get maximum version of the backplane API supported by the node
 -spec supported_version(node(), api()) -> api_version() | undefined.
@@ -82,10 +83,10 @@ supported_version(Node, API) ->
 supported_version(API) ->
     ets:lookup_element(?TAB, {?multicall, API}, #?TAB.version).
 
--spec announce(atom()) -> ok.
-announce(App) ->
+-spec announce(node(), atom()) -> ok.
+announce(Node, App) ->
     {ok, Data} = file:consult(?MODULE:versions_file(App)),
-    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/1, [Data]),
+    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]),
     ok.
 
 -spec versions_file(atom()) -> file:filename_all().
@@ -96,11 +97,18 @@ versions_file(App) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% Attention:
+%% This function is just to prevent errors when being called during a rolling upgrade
+%% if the version is less than 5.5.0. Its 'node' parameter is wrong!
 -spec announce_fun([{api(), api_version()}]) -> ok.
 announce_fun(Data) ->
+    announce_fun(node(), Data).
+
+-spec announce_fun(node(), [{api(), api_version()}]) -> ok.
+announce_fun(Node, Data) ->
     %% Delete old records, if present:
-    MS = ets:fun2ms(fun(#?TAB{key = {node(), API}}) ->
-        {node(), API}
+    MS = ets:fun2ms(fun(#?TAB{key = {N, API}}) when N =:= Node ->
+        {N, API}
     end),
     OldKeys = mnesia:select(?TAB, MS, write),
     _ = [
@@ -109,7 +117,7 @@ announce_fun(Data) ->
     ],
     %% Insert new records:
     _ = [
-        mnesia:write(#?TAB{key = {node(), API}, version = Version})
+        mnesia:write(#?TAB{key = {Node, API}, version = Version})
      || {API, Version} <- Data
     ],
     %% Update maximum supported version:
