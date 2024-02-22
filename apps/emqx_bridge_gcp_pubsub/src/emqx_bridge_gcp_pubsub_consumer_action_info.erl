@@ -60,8 +60,9 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, SourceConfig) ->
             fun(RO) -> maps:with(bridge_v1_resource_opts_fields(), RO) end,
             BridgeV1Config2
         ),
-    BridgeV1Config4 = emqx_utils_maps:deep_remove([<<"parameters">>, <<"topic">>], BridgeV1Config3),
-    emqx_utils_maps:rename(<<"parameters">>, <<"consumer">>, BridgeV1Config4).
+    BridgeV1Config4 = maybe_fabricate_topic_mapping(BridgeV1Config3),
+    BridgeV1Config = emqx_utils_maps:deep_remove([<<"parameters">>, <<"topic">>], BridgeV1Config4),
+    emqx_utils_maps:rename(<<"parameters">>, <<"consumer">>, BridgeV1Config).
 
 %%------------------------------------------------------------------------------------------
 %% Internal helper fns
@@ -73,6 +74,23 @@ maybe_set_pubsub_topic(#{<<"topic_mapping">> := [#{<<"pubsub_topic">> := Topic} 
     Params#{<<"topic">> => Topic};
 maybe_set_pubsub_topic(Params) ->
     Params.
+
+%% The old schema requires `topic_mapping', which is now hidden.
+maybe_fabricate_topic_mapping(#{<<"parameters">> := Params0} = BridgeV1Config0) ->
+    #{<<"topic">> := Topic} = Params0,
+    case maps:get(<<"topic_mapping">>, Params0, undefined) of
+        [_ | _] ->
+            BridgeV1Config0;
+        _ ->
+            %% Have to fabricate an MQTT topic, unfortunately...  QoS and payload already
+            %% have defaults.
+            FakeTopicMapping = #{
+                <<"pubsub_topic">> => Topic,
+                <<"mqtt_topic">> => <<>>
+            },
+            Params = Params0#{<<"topic_mapping">> => [FakeTopicMapping]},
+            BridgeV1Config0#{<<"parameters">> := Params}
+    end.
 
 resource_opts_fields() ->
     [
