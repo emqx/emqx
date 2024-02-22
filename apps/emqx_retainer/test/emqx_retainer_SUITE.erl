@@ -19,8 +19,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
-
 -include("emqx_retainer.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
@@ -788,6 +786,11 @@ t_compatibility_for_deliver_rate(_) ->
         },
         Parser(DeliveryInf)
     ).
+
+t_update_config(_) ->
+    OldConf = emqx_config:get([retainer]),
+    NewConf = emqx_utils_maps:deep_put([backend, storage_type], OldConf, disk),
+    emqx_retainer:update_config(NewConf).
 
 %%--------------------------------------------------------------------
 %% Helper functions

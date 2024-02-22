@@ -27,6 +27,7 @@
 %% emqx_retainer callbacks
 -export([
     create/1,
+    update/2,
     close/1,
     delete_message/2,
     store_retained/2,
@@ -102,7 +103,7 @@ create(#{storage_type := StorageType}) ->
         StorageType
     ),
     %% The context is not used by this backend
-    #{}.
+    #{storage_type => StorageType}.
 
 create_table(Table, RecordName, Attributes, Type, StorageType) ->
     Copies =
@@ -137,6 +138,11 @@ create_table(Table, RecordName, Attributes, Type, StorageType) ->
             {atomic, ok} = mnesia:change_table_copy_type(Table, node(), Copies),
             ok
     end.
+
+update(#{storage_type := StorageType}, #{storage_type := StorageType}) ->
+    ok;
+update(_Context, _NewConfig) ->
+    need_recreate.
 
 close(_Context) -> ok.
 

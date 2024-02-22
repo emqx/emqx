@@ -58,6 +58,11 @@
     code_change/3
 ]).
 
+-export_type([
+    cursor/0,
+    context/0
+]).
+
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
 
@@ -66,12 +71,19 @@
     context := undefined | context(),
     clear_timer := undefined | reference()
 }.
+-type context() :: term().
+
+-type topic() :: emqx_types:topic().
+-type message() :: emqx_types:message().
+-type cursor() :: undefined | term().
+-type backend() :: emqx_retainer_mnesia | module().
 
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
 -define(DEF_EXPIRY_INTERVAL, 0).
 -define(MAX_PAYLOAD_SIZE_CONFIG_PATH, [retainer, max_payload_size]).
 
 -callback create(map()) -> context().
+-callback update(context(), map()) -> ok | need_recreate.
 -callback close(context()) -> ok.
 -callback delete_message(context(), topic()) -> ok.
 -callback store_retained(context(), message()) -> ok.
@@ -180,8 +192,7 @@ stats_fun() ->
 -spec get_basic_usage_info() -> #{retained_messages => non_neg_integer()}.
 get_basic_usage_info() ->
     try
-        RetainedMessages = gen_server:call(?MODULE, retained_count),
-        #{retained_messages => RetainedMessages}
+        #{retained_messages => retained_count()}
     catch
         _:_ ->
             #{retained_messages => 0}
@@ -319,27 +330,25 @@ update_config(true, false, State, NewConf, _) ->
 update_config(
     true,
     true,
-    #{clear_timer := ClearTimer} = State,
+    #{clear_timer := ClearTimer, context := Context} = State,
     NewConf,
     OldConf
 ) ->
     #{
         backend := #{
-            type := BackendType,
-            storage_type := StorageType
-        },
+            type := BackendType
+        } = NewBackendConfig,
         msg_clear_interval := ClearInterval
     } = NewConf,
 
     #{
         backend := #{
-            type := OldBackendType,
-            storage_type := OldStorageType
+            type := OldBackendType
         }
     } = OldConf,
     SameBackendType = BackendType =:= OldBackendType,
-    SameStorageType = StorageType =:= OldStorageType,
-    case SameBackendType andalso SameStorageType of
+    Mod = get_backend_module(),
+    case SameBackendType andalso ok =:= Mod:update(Context, NewBackendConfig) of
         true ->
             State#{
                 clear_timer := check_timer(
@@ -362,7 +371,7 @@ enable_retainer(
     }
 ) ->
     Context = create(BackendCfg),
-    load(Context),
+    ok = load(Context),
     State#{
         enable := true,
         context := Context,
@@ -376,7 +385,7 @@ disable_retainer(
         context := Context
     } = State
 ) ->
-    unload(),
+    ok = unload(),
     ok = close(Context),
     State#{
         enable := false,

@@ -44,6 +44,9 @@
 ]).
 
 -type limiter() :: emqx_htb_limiter:limiter().
+-type context() :: emqx_retainer:context().
+-type topic() :: emqx_types:topic().
+-type cursor() :: emqx_retainer:cursor().
 
 -define(POOL, ?MODULE).
 
