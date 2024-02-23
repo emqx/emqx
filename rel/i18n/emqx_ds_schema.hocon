@@ -47,4 +47,15 @@ wildcard_optimized_epoch_bits.desc:
   Each epoch can be consumed by the subscribers as a batch.
   Generally, larger epochs lead to higher throughput of subscribers, however currently they may increase latency.~"""
 
+egress_max_items.label: "Max items"
+egress_max_items.desc:
+  """~
+  This configuration parameter defines maximum number of buffered messages stored in the egress buffer.~"""
+
+egress_flush_interval.label: "Flush interval"
+egress_flush_interval.desc:
+  """~
+  Maximum linger time for the buffered messages.
+  Egress buffer will be flushed _at least_ as often as `flush_interval`.~"""
+
 }

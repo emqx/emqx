@@ -258,7 +258,7 @@ roots(medium) ->
         {"durable_storage",
             sc(
                 ref("durable_storage"),
-                #{importance => ?IMPORTANCE_HIDDEN}
+                #{importance => ?IMPORTANCE_MEDIUM}
             )}
     ];
 roots(low) ->

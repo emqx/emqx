@@ -77,7 +77,7 @@ schema() ->
         {messages,
             ds_schema(#{
                 desc => ?DESC(messages),
-                importance => ?IMPORTANCE_HIDDEN,
+                importance => ?IMPORTANCE_MEDIUM,
                 default =>
                     #{
                         <<"backend">> => builtin
@@ -165,7 +165,8 @@ fields(builtin_egress) ->
                 #{
                     default => 1000,
                     mapping => "emqx_durable_storage.egress_batch_size",
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(egress_max_items)
                 }
             )},
         {flush_interval,
@@ -174,7 +175,8 @@ fields(builtin_egress) ->
                 #{
                     default => 100,
                     mapping => "emqx_durable_storage.egress_flush_interval",
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(egress_flush_interval)
                 }
             )}
     ];
