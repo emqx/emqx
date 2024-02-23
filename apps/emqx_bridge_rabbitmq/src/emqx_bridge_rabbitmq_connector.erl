@@ -257,6 +257,38 @@ publish_messages(
     },
     Messages
 ) ->
+    try
+        publish_messages(
+            Conn,
+            RabbitMQ,
+            DeliveryMode,
+            Exchange,
+            RoutingKey,
+            PayloadTmpl,
+            Messages,
+            WaitForPublishConfirmations,
+            PublishConfirmationTimeout
+        )
+    catch
+        %% if send a message to a non-existent exchange, RabbitMQ client will crash
+        %% {shutdown,{server_initiated_close,404,<<"NOT_FOUND - no exchange 'xyz' in vhost '/'">>}
+        %% so we catch and return {recoverable_error, Reason} to increase metrics
+        _Type:Reason ->
+            Msg = iolist_to_binary(io_lib:format("RabbitMQ: publish_failed: ~p", [Reason])),
+            erlang:error({recoverable_error, Msg})
+    end.
+
+publish_messages(
+    Conn,
+    RabbitMQ,
+    DeliveryMode,
+    Exchange,
+    RoutingKey,
+    PayloadTmpl,
+    Messages,
+    WaitForPublishConfirmations,
+    PublishConfirmationTimeout
+) ->
     case maps:find(Conn, RabbitMQ) of
         {ok, Channel} ->
             MessageProperties = #'P_basic'{
