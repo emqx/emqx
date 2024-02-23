@@ -97,6 +97,15 @@ t_bootstrap_file(_) ->
     ?assertEqual(ok, auth_authorize(TestPath, <<"test-1">>, <<"secret-11">>)),
     ?assertMatch({error, _}, auth_authorize(TestPath, <<"test-2">>, <<"secret-12">>)),
     update_file(<<>>),
+
+    %% skip the empty line
+    Bin2 = <<"test-3:new-secret-1\n\n\n   \ntest-4:new-secret-2">>,
+    ok = file:write_file(File, Bin2),
+    update_file(File),
+    ?assertMatch({error, _}, auth_authorize(TestPath, <<"test-3">>, <<"secret-1">>)),
+    ?assertMatch({error, _}, auth_authorize(TestPath, <<"test-4">>, <<"secret-2">>)),
+    ?assertEqual(ok, auth_authorize(TestPath, <<"test-3">>, <<"new-secret-1">>)),
+    ?assertEqual(ok, auth_authorize(TestPath, <<"test-4">>, <<"new-secret-2">>)),
     ok.
 
 t_bootstrap_file_override(_) ->
