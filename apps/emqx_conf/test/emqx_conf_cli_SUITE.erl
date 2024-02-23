@@ -157,18 +157,25 @@ t_config_handler_hook_failed(Config) ->
 
 t_load_readonly(Config) ->
     Base0 = base_conf(),
-    Base1 = Base0#{<<"mqtt">> => emqx_conf:get_raw([mqtt])},
+    Mqtt = #{<<"mqtt">> => emqx_conf:get_raw([mqtt])},
     lists:foreach(
         fun(Key) ->
             KeyBin = atom_to_binary(Key),
             Conf = emqx_conf:get_raw([Key]),
-            ConfBin0 = hocon_pp:do(Base1#{KeyBin => Conf}, #{}),
+            ConfBin0 = hocon_pp:do(maps:merge(Mqtt, #{KeyBin => Conf}), #{}),
             ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
+            Msg = iolist_to_binary(
+                io_lib:format(
+                    "Cannot update read-only key '~s'.", [KeyBin]
+                )
+            ),
             ?assertEqual(
-                {error, <<"update_readonly_keys_prohibited">>},
-                emqx_conf_cli:conf(["load", ConfFile0])
+                {error, Msg},
+                emqx_conf_cli:conf(["load", ConfFile0]),
+                ConfFile0
             ),
             %% reload etc/emqx.conf changed readonly keys
+            Base1 = maps:merge(Base0, Mqtt),
             ConfBin1 = hocon_pp:do(Base1#{KeyBin => changed(Key)}, #{}),
             ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
             application:set_env(emqx, config_files, [ConfFile1]),
