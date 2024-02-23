@@ -74,7 +74,7 @@ namespace() ->
 
 schema() ->
     [
-        {"messages",
+        {messages,
             ds_schema(#{
                 desc => ?DESC(messages),
                 importance => ?IMPORTANCE_HIDDEN,
@@ -85,10 +85,10 @@ schema() ->
             })}
     ].
 
-fields("builtin") ->
+fields(builtin) ->
     %% Schema for the builtin backend:
     [
-        {"backend",
+        {backend,
             sc(
                 builtin,
                 #{
@@ -98,7 +98,7 @@ fields("builtin") ->
                     desc => ?DESC(builtin)
                 }
             )},
-        {"_config_handler",
+        {'_config_handler',
             sc(
                 {module(), atom()},
                 #{
@@ -107,7 +107,7 @@ fields("builtin") ->
                     default => {?MODULE, translate_builtin}
                 }
             )},
-        {"data_dir",
+        {data_dir,
             sc(
                 string(),
                 #{
@@ -117,7 +117,7 @@ fields("builtin") ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {"n_shards",
+        {n_shards,
             sc(
                 pos_integer(),
                 #{
@@ -126,7 +126,7 @@ fields("builtin") ->
                     default => 16
                 }
             )},
-        {"replication_factor",
+        {replication_factor,
             sc(
                 pos_integer(),
                 #{
@@ -134,18 +134,18 @@ fields("builtin") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"egress",
+        {egress,
             sc(
-                ref("builtin_egress"),
+                ref(builtin_egress),
                 #{
                     desc => ?DESC(builtin_egress),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {"layout",
+        {layout,
             sc(
                 hoconsc:union([
-                    ref("layout_builtin_wildcard_optimized"), ref("layout_builtin_reference")
+                    ref(layout_builtin_wildcard_optimized), ref(layout_builtin_reference)
                 ]),
                 #{
                     desc => ?DESC(builtin_layout),
@@ -157,9 +157,9 @@ fields("builtin") ->
                 }
             )}
     ];
-fields("builtin_egress") ->
+fields(builtin_egress) ->
     [
-        {"max_items",
+        {max_items,
             sc(
                 pos_integer(),
                 #{
@@ -168,7 +168,7 @@ fields("builtin_egress") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"flush_interval",
+        {flush_interval,
             sc(
                 emqx_schema:timeout_duration_ms(),
                 #{
@@ -178,9 +178,9 @@ fields("builtin_egress") ->
                 }
             )}
     ];
-fields("layout_builtin_wildcard_optimized") ->
+fields(layout_builtin_wildcard_optimized) ->
     [
-        {"type",
+        {type,
             sc(
                 wildcard_optimized,
                 #{
@@ -189,7 +189,7 @@ fields("layout_builtin_wildcard_optimized") ->
                     default => wildcard_optimized
                 }
             )},
-        {"bits_per_topic_level",
+        {bits_per_topic_level,
             sc(
                 range(1, 64),
                 #{
@@ -197,7 +197,7 @@ fields("layout_builtin_wildcard_optimized") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"epoch_bits",
+        {epoch_bits,
             sc(
                 range(0, 64),
                 #{
@@ -206,7 +206,7 @@ fields("layout_builtin_wildcard_optimized") ->
                     desc => ?DESC(wildcard_optimized_epoch_bits)
                 }
             )},
-        {"topic_index_bytes",
+        {topic_index_bytes,
             sc(
                 pos_integer(),
                 #{
@@ -215,9 +215,9 @@ fields("layout_builtin_wildcard_optimized") ->
                 }
             )}
     ];
-fields("layout_builtin_reference") ->
+fields(layout_builtin_reference) ->
     [
-        {"type",
+        {type,
             sc(
                 reference,
                 #{'readOnly' => true}
@@ -234,7 +234,7 @@ desc(_) ->
 ds_schema(Options) ->
     sc(
         hoconsc:union([
-            ref("builtin")
+            ref(builtin)
             | emqx_schema_hooks:injection_point('durable_storage.backends', [])
         ]),
         Options
