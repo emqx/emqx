@@ -258,7 +258,10 @@ roots(medium) ->
         {"durable_storage",
             sc(
                 ref("durable_storage"),
-                #{importance => ?IMPORTANCE_MEDIUM}
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(durable_storage)
+                }
             )}
     ];
 roots(low) ->
@@ -1659,20 +1662,33 @@ fields("session_persistence") ->
                     default => false
                 }
             )},
+        {"batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    desc => ?DESC(session_ds_batch_size),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        %% Deprecated, now the replayer always use constant batch size:
         {"max_batch_size",
             sc(
                 pos_integer(),
                 #{
                     default => 100,
-                    desc => ?DESC(session_ds_max_batch_size)
+                    desc => ?DESC(session_ds_max_batch_size),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
+        %% Deprecated, now the replayer always use constant batch size:
         {"min_batch_size",
             sc(
                 pos_integer(),
                 #{
                     default => 100,
-                    desc => ?DESC(session_ds_min_batch_size)
+                    desc => ?DESC(session_ds_min_batch_size),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"idle_poll_interval",
