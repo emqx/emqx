@@ -261,20 +261,6 @@ readable("comma_separated_atoms()") ->
         dashboard => #{type => comma_separated_string},
         docgen => #{type => "String", example => <<"item1,item2">>}
     };
-readable("service_account_json()") ->
-    %% This is a bit special,
-    %% service_account_josn in swagger spec is an object
-    %% the same in documenation.
-    %% However, dashboard wish it to be a string
-    %% TODO:
-    %%   - Change type definition to stirng().
-    %%   - Convert the embedded object to a escaped JSON string.
-    %%   - Delete this function clause once the above is done.
-    #{
-        swagger => #{type => object},
-        dashboard => #{type => string},
-        docgen => #{type => "Map"}
-    };
 readable("json_binary()") ->
     #{
         swagger => #{type => string, example => <<"{\"a\": [1,true]}">>},

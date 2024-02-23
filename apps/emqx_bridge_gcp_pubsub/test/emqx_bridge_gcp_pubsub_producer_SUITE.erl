@@ -909,7 +909,7 @@ t_not_a_json(Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            reason := #{exception := {error, {badmap, "not a json"}}},
+            reason := "not a json",
             %% should be censored as it contains secrets
             value := <<"******">>
         }},

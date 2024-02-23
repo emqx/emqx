@@ -110,6 +110,23 @@ source_config(Overrides0) ->
         },
     maps:merge(CommonConfig, Overrides).
 
+assert_persisted_service_account_json_is_binary(ConnectorName) ->
+    %% ensure cluster.hocon has a binary encoded json string as the value
+    {ok, Hocon} = hocon:files([application:get_env(emqx, cluster_hocon_file, undefined)]),
+    ?assertMatch(
+        Bin when is_binary(Bin),
+        emqx_utils_maps:deep_get(
+            [
+                <<"connectors">>,
+                <<"gcp_pubsub_consumer">>,
+                ConnectorName,
+                <<"service_account_json">>
+            ],
+            Hocon
+        )
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -120,6 +137,27 @@ t_start_stop(Config) ->
 
 t_create_via_http(Config) ->
     ok = emqx_bridge_v2_testlib:t_create_via_http(Config),
+    ok.
+
+t_create_via_http_json_object_service_account(Config0) ->
+    %% After the config goes through the roundtrip with `hocon_tconf:check_plain', service
+    %% account json comes back as a binary even if the input is a json object.
+    ConnectorName = ?config(connector_name, Config0),
+    ConnConfig0 = ?config(connector_config, Config0),
+    Config1 = proplists:delete(connector_config, Config0),
+    ConnConfig1 = maps:update_with(
+        <<"service_account_json">>,
+        fun(X) ->
+            ?assert(is_binary(X), #{json => X}),
+            JSON = emqx_utils_json:decode(X, [return_maps]),
+            ?assert(is_map(JSON)),
+            JSON
+        end,
+        ConnConfig0
+    ),
+    Config = [{connector_config, ConnConfig1} | Config1],
+    ok = emqx_bridge_v2_testlib:t_create_via_http(Config),
+    assert_persisted_service_account_json_is_binary(ConnectorName),
     ok.
 
 t_consume(Config) ->
