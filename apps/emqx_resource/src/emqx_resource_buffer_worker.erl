@@ -806,14 +806,7 @@ batch_reply_caller(Id, BatchResult, Batch, QueryOpts) ->
     {ShouldBlock, DeltaCounters}.
 
 batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
-    %% the `Mod:on_batch_query/3` returns a single result for a batch,
-    %% so we need to expand
-    Replies = lists:map(
-        fun(?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT)) ->
-            ?REPLY(FROM, SENT, BatchResult)
-        end,
-        Batch
-    ),
+    Replies = expand_batch_reply(BatchResult, Batch),
     {ShouldAck, PostFns, Counters} =
         lists:foldl(
             fun(Reply, {_ShouldAck, PostFns, OldCounters}) ->
@@ -828,6 +821,21 @@ batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
         ),
     PostFn = fun() -> lists:foreach(fun(F) -> F() end, lists:reverse(PostFns)) end,
     {ShouldAck, PostFn, Counters}.
+
+expand_batch_reply(BatchResults, Batch) when is_list(BatchResults) ->
+    lists:map(
+        fun({?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT), Result}) ->
+            ?REPLY(FROM, SENT, Result)
+        end,
+        lists:zip(Batch, BatchResults)
+    );
+expand_batch_reply(BatchResult, Batch) ->
+    lists:map(
+        fun(?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT)) ->
+            ?REPLY(FROM, SENT, BatchResult)
+        end,
+        Batch
+    ).
 
 reply_caller(Id, Reply, QueryOpts) ->
     {ShouldAck, PostFn, DeltaCounters} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
@@ -1465,7 +1473,7 @@ handle_async_batch_reply1(
 handle_async_batch_reply2([], _, _, _) ->
     %% this usually should never happen unless the async callback is being evaluated concurrently
     ok;
-handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
+handle_async_batch_reply2([Inflight], ReplyContext, Results0, Now) ->
     ?INFLIGHT_ITEM(_, RealBatch, _IsRetriable, _AsyncWorkerMRef) = Inflight,
     #{
         resource_id := Id,
@@ -1479,7 +1487,8 @@ handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
     %% and put it back to the batch found in inflight table
     %% which must have already been set to `false`
     [?QUERY(_ReplyTo, _, HasBeenSent, _ExpireAt) | _] = Batch,
-    {RealNotExpired0, RealExpired} = sieve_expired_requests(RealBatch, Now),
+    {RealNotExpired0, RealExpired, Results} =
+        sieve_expired_requests_with_results(RealBatch, Now, Results0),
     RealNotExpired =
         lists:map(
             fun(?QUERY(ReplyTo, CoreReq, _HasBeenSent, ExpireAt)) ->
@@ -1508,7 +1517,7 @@ handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
                     num_inflight_messages => inflight_num_msgs(InflightTID)
                 }
             ),
-            do_handle_async_batch_reply(ReplyContext#{min_batch := RealNotExpired}, Result)
+            do_handle_async_batch_reply(ReplyContext#{min_batch := RealNotExpired}, Results)
     end.
 
 do_handle_async_batch_reply(
@@ -1963,6 +1972,31 @@ sieve_expired_requests(Batch, Now) ->
         end,
         Batch
     ).
+
+sieve_expired_requests_with_results(Batch, Now, Results) when is_list(Results) ->
+    %% individual results; we need to drop those that match expired queries
+    {RevNotExpiredBatch, RevNotExpiredResults, ExpiredBatch} =
+        lists:foldl(
+            fun(
+                {?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt) = Query, Result},
+                {NotExpAcc, ResAcc, ExpAcc}
+            ) ->
+                case not is_expired(ExpireAt, Now) of
+                    true ->
+                        {[Query | NotExpAcc], [Result | ResAcc], ExpAcc};
+                    false ->
+                        {NotExpAcc, ResAcc, [Query | ExpAcc]}
+                end
+            end,
+            {[], [], []},
+            lists:zip(Batch, Results)
+        ),
+    {lists:reverse(RevNotExpiredBatch), lists:reverse(RevNotExpiredResults), ExpiredBatch};
+sieve_expired_requests_with_results(Batch, Now, Result) ->
+    %% one result for the whole batch, we just pass it along and
+    %% `batch_reply_caller_defer_metrics' will expand it
+    {NotExpiredBatch, ExpiredBatch} = sieve_expired_requests(Batch, Now),
+    {NotExpiredBatch, ExpiredBatch, Result}.
 
 -spec is_expired(infinity | integer(), integer()) -> boolean().
 is_expired(infinity = _ExpireAt, _Now) ->

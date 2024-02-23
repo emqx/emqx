@@ -170,7 +170,8 @@
 -callback on_query(resource_id(), Request :: term(), resource_state()) -> query_result().
 
 %% when calling emqx_resource:on_batch_query/3
--callback on_batch_query(resource_id(), Request :: term(), resource_state()) -> query_result().
+-callback on_batch_query(resource_id(), Request :: term(), resource_state()) ->
+    batch_query_result().
 
 %% when calling emqx_resource:on_query_async/4
 -callback on_query_async(
