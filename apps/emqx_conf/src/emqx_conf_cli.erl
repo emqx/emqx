@@ -35,7 +35,7 @@
 -define(CLUSTER_CALL, cluster_call).
 -define(CONF, conf).
 -define(AUDIT_MOD, audit).
--define(UPDATE_READONLY_KEYS_PROHIBITED, <<"update_readonly_keys_prohibited">>).
+-define(UPDATE_READONLY_KEYS_PROHIBITED, <<"Cannot update read-only key '~s'.">>).
 
 -dialyzer({no_match, [load/0]}).
 
@@ -242,9 +242,8 @@ load_config(Bin, Opts) when is_binary(Bin) ->
 load_config_from_raw(RawConf0, Opts) ->
     SchemaMod = emqx_conf:schema_module(),
     RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
-    RawConf = emqx_config:fill_defaults(RawConf1),
-    case check_config(RawConf) of
-        ok ->
+    case check_config(RawConf1) of
+        {ok, RawConf} ->
             %% It has been ensured that the connector is always the first configuration to be updated.
             %% However, when deleting the connector, we need to clean up the dependent actions first;
             %% otherwise, the deletion will fail.
@@ -264,7 +263,13 @@ load_config_from_raw(RawConf0, Opts) ->
                 <<"">> -> ok;
                 ErrorBin -> {error, ErrorBin}
             end;
-        {error, ?UPDATE_READONLY_KEYS_PROHIBITED = Reason} ->
+        {error, ?UPDATE_READONLY_KEYS_PROHIBITED, ReadOnlyKeyStr} ->
+            Reason = iolist_to_binary(
+                io_lib:format(
+                    ?UPDATE_READONLY_KEYS_PROHIBITED,
+                    [ReadOnlyKeyStr]
+                )
+            ),
             warning(Opts, "load config failed~n~ts~n", [Reason]),
             warning(
                 Opts,
@@ -385,16 +390,25 @@ suggest_msg(_, _) ->
 
 check_config(Conf) ->
     case check_keys_is_not_readonly(Conf) of
-        ok -> check_config_schema(Conf);
-        Error -> Error
+        ok ->
+            Conf1 = emqx_config:fill_defaults(Conf),
+            case check_config_schema(Conf1) of
+                ok -> {ok, Conf1};
+                {error, Reason} -> {error, Reason}
+            end;
+        Error ->
+            Error
     end.
 
 check_keys_is_not_readonly(Conf) ->
     Keys = maps:keys(Conf),
     ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
-    case ReadOnlyKeys -- Keys of
-        ReadOnlyKeys -> ok;
-        _ -> {error, ?UPDATE_READONLY_KEYS_PROHIBITED}
+    case lists:filter(fun(K) -> lists:member(K, Keys) end, ReadOnlyKeys) of
+        [] ->
+            ok;
+        BadKeys ->
+            BadKeysStr = lists:join(<<",">>, BadKeys),
+            {error, ?UPDATE_READONLY_KEYS_PROHIBITED, BadKeysStr}
     end.
 
 check_config_schema(Conf) ->
