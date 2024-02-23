@@ -1671,26 +1671,6 @@ fields("session_persistence") ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        %% Deprecated, now the replayer always use constant batch size:
-        {"max_batch_size",
-            sc(
-                pos_integer(),
-                #{
-                    default => 100,
-                    desc => ?DESC(session_ds_max_batch_size),
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        %% Deprecated, now the replayer always use constant batch size:
-        {"min_batch_size",
-            sc(
-                pos_integer(),
-                #{
-                    default => 100,
-                    desc => ?DESC(session_ds_min_batch_size),
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
         {"idle_poll_interval",
             sc(
                 timeout_duration(),
