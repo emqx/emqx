@@ -10,25 +10,46 @@ builtin.desc:
   """~
   Builtin session storage backend utilizing embedded RocksDB key-value store.~"""
 
+builtin_backend.label: "Backend type"
+builtin_backend.desc:
+  """~
+  Built-in backend.~"""
+
 builtin_data_dir.label: "Database location"
 builtin_data_dir.desc:
   """~
   File system directory where the database is located.
 
-  By default it is equal to `node.data_dir`.~"""
+  By default, it is equal to `node.data_dir`.~"""
 
 builtin_n_shards.label: "Number of shards"
 builtin_n_shards.desc:
   """~
-  The builtin durable storage partitions data into shards.
+  The built-in durable storage partitions data into shards.
   This configuration parameter defines the number of shards.
   Please note that it takes effect only during the initialization of the durable storage database.
   Changing this configuration parameter after the database has been already created won't take any effect.~"""
 
-builtin_egress.label: "Egress configuration"
-builtin_egress.desc:
+builtin_local_write_buffer.label: "Local write buffer"
+builtin_local_write_buffer.desc:
   """~
-  Configuration related to the buffering of messages from the local node to the shard leader.~"""
+  Configuration related to the buffering of messages sent from the local node to the shard leader.
+
+  EMQX accumulates PUBLISH messages from the local clients in a write buffer before committing them to the durable storage.
+  This helps to hide network latency between EMQX nodes and improves write throughput.~"""
+
+builtin_local_write_buffer_max_items.label: "Max items"
+builtin_local_write_buffer_max_items.desc:
+  """~
+  This configuration parameter defines maximum number of messages stored in the local write buffer.~"""
+
+builtin_local_write_buffer_flush_interval.label: "Flush interval"
+builtin_local_write_buffer_flush_interval.desc:
+  """~
+  Maximum linger time for the buffered messages.
+  Local write buffer will be flushed _at least_ as often as `flush_interval`.
+
+  Larger values of `flush_interval` may lead to higher throughput and better overall performance, but may increase end-to-end latency.~"""
 
 builtin_layout.label: "Storage layout"
 builtin_layout.desc:
@@ -37,8 +58,8 @@ builtin_layout.desc:
 
   Depending on the type of workload and the topic structure, different types of strategies for storing the data can be employed to maximize efficiency of reading messages from the durable storage.~"""
 
-layout_wildcard_optimized.label: "Wildcard-optimized storage layout"
-layout_wildcard_optimized.desc:
+layout_builtin_wildcard_optimized.label: "Wildcard-optimized storage layout"
+layout_builtin_wildcard_optimized.desc:
   """~
   _Wildcard-optimized_ layout is designed to maximize the throughput of wildcard subscriptions covering large numbers of topics.
 
@@ -47,11 +68,16 @@ layout_wildcard_optimized.desc:
 
   This layout is efficient for non-wildcard subscriptions as well.~"""
 
+layout_builtin_wildcard_optimized_type.label: "Layout type"
+layout_builtin_wildcard_optimized_type.desc:
+  """~
+  Wildcard-optimized layout type.~"""
+
 wildcard_optimized_epoch_bits.label: "Epoch bits"
 wildcard_optimized_epoch_bits.desc:
   """~
   Wildcard-optimized layout partitions messages recorded at different times into "epochs".
-  Reading messages from a single epoch can be done very efficiently, so larger epochs improve the throughput of subscribers, but may increase end-to-end latency
+  Reading messages from a single epoch can be done very efficiently, so larger epochs improve the throughput of subscribers, but may increase end-to-end latency.
 
   Time span covered by each epoch grows exponentially with the value of `epoch_bits`:
 
@@ -60,17 +86,6 @@ wildcard_optimized_epoch_bits.desc:
   ...
   - `epoch_bits = 10`: 1024 milliseconds
   - `epoch_bits = 13`: ~8 seconds
-  ....~"""
-
-egress_max_items.label: "Max items"
-egress_max_items.desc:
-  """~
-  This configuration parameter defines maximum number of buffered messages stored in the egress buffer.~"""
-
-egress_flush_interval.label: "Flush interval"
-egress_flush_interval.desc:
-  """~
-  Maximum linger time for the buffered messages.
-  Egress buffer will be flushed _at least_ as often as `flush_interval`.~"""
+  ...~"""
 
 }

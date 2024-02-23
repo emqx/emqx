@@ -76,12 +76,12 @@ schema() ->
     [
         {messages,
             ds_schema(#{
-                desc => ?DESC(messages),
-                importance => ?IMPORTANCE_MEDIUM,
                 default =>
                     #{
                         <<"backend">> => builtin
-                    }
+                    },
+                importance => ?IMPORTANCE_MEDIUM,
+                desc => ?DESC(messages)
             })}
     ].
 
@@ -92,38 +92,38 @@ fields(builtin) ->
             sc(
                 builtin,
                 #{
-                    importance => ?IMPORTANCE_MEDIUM,
                     'readOnly' => true,
                     default => builtin,
-                    desc => ?DESC(builtin)
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_backend)
                 }
             )},
         {'_config_handler',
             sc(
                 {module(), atom()},
                 #{
-                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true,
-                    default => {?MODULE, translate_builtin}
+                    default => {?MODULE, translate_builtin},
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {data_dir,
             sc(
                 string(),
                 #{
-                    desc => ?DESC(builtin_data_dir),
                     mapping => "emqx_durable_storage.db_data_dir",
                     required => false,
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_data_dir)
                 }
             )},
         {n_shards,
             sc(
                 pos_integer(),
                 #{
+                    default => 16,
                     importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_n_shards),
-                    default => 16
+                    desc => ?DESC(builtin_n_shards)
                 }
             )},
         {replication_factor,
@@ -134,22 +134,20 @@ fields(builtin) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {egress,
+        {local_write_buffer,
             sc(
-                ref(builtin_egress),
+                ref(builtin_local_write_buffer),
                 #{
-                    desc => ?DESC(builtin_egress),
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_local_write_buffer)
                 }
             )},
         {layout,
             sc(
-                hoconsc:union([
-                    ref(layout_builtin_wildcard_optimized), ref(layout_builtin_reference)
-                ]),
+                hoconsc:union(builtin_layouts()),
                 #{
                     desc => ?DESC(builtin_layout),
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_MEDIUM,
                     default =>
                         #{
                             <<"type">> => wildcard_optimized
@@ -157,7 +155,7 @@ fields(builtin) ->
                 }
             )}
     ];
-fields(builtin_egress) ->
+fields(builtin_local_write_buffer) ->
     [
         {max_items,
             sc(
@@ -166,7 +164,7 @@ fields(builtin_egress) ->
                     default => 1000,
                     mapping => "emqx_durable_storage.egress_batch_size",
                     importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(egress_max_items)
+                    desc => ?DESC(builtin_local_write_buffer_max_items)
                 }
             )},
         {flush_interval,
@@ -176,7 +174,7 @@ fields(builtin_egress) ->
                     default => 100,
                     mapping => "emqx_durable_storage.egress_flush_interval",
                     importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(egress_flush_interval)
+                    desc => ?DESC(builtin_local_write_buffer_flush_interval)
                 }
             )}
     ];
@@ -186,9 +184,9 @@ fields(layout_builtin_wildcard_optimized) ->
             sc(
                 wildcard_optimized,
                 #{
-                    desc => ?DESC(layout_wildcard_optimized),
                     'readOnly' => true,
-                    default => wildcard_optimized
+                    default => wildcard_optimized,
+                    desc => ?DESC(layout_builtin_wildcard_optimized_type)
                 }
             )},
         {bits_per_topic_level,
@@ -222,10 +220,19 @@ fields(layout_builtin_reference) ->
         {type,
             sc(
                 reference,
-                #{'readOnly' => true}
+                #{
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ].
 
+desc(builtin) ->
+    ?DESC(builtin);
+desc(builtin_local_write_buffer) ->
+    ?DESC(builtin_local_write_buffer);
+desc(layout_builtin_wildcard_optimized) ->
+    ?DESC(layout_builtin_wildcard_optimized);
 desc(_) ->
     undefined.
 
@@ -241,6 +248,18 @@ ds_schema(Options) ->
         ]),
         Options
     ).
+
+-ifndef(TEST).
+builtin_layouts() ->
+    [ref(layout_builtin_wildcard_optimized)].
+-else.
+builtin_layouts() ->
+    %% Reference layout stores everything in one stream, so it's not
+    %% suitable for production use. However, it's very simple and
+    %% produces a very predictabale replay order, which can be useful
+    %% for testing and debugging:
+    [ref(layout_builtin_wildcard_optimized), ref(layout_builtin_reference)].
+-endif.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 

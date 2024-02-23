@@ -255,9 +255,9 @@ roots(medium) ->
                 ref("overload_protection"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
-        {"durable_storage",
+        {durable_storage,
             sc(
-                ref("durable_storage"),
+                ref(durable_storage),
                 #{
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(durable_storage)
@@ -1730,7 +1730,7 @@ fields("session_persistence") ->
                 }
             )}
     ];
-fields("durable_storage") ->
+fields(durable_storage) ->
     emqx_ds_schema:schema().
 
 mqtt_listener(Bind) ->
@@ -1985,6 +1985,8 @@ desc("crl_cache") ->
     "Global CRL cache options.";
 desc("session_persistence") ->
     "Settings governing durable sessions persistence.";
+desc(durable_storage) ->
+    ?DESC(durable_storage);
 desc(_) ->
     undefined.
 

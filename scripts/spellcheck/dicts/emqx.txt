@@ -284,9 +284,11 @@ TDengine
 clickhouse
 FormatType
 RocketMQ
+RocksDB
 Keyspace
 OpenTSDB
 saml
+storages
 idp
 ocpp
 OCPP
