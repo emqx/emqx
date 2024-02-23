@@ -138,7 +138,7 @@ fields(builtin) ->
             sc(
                 ref(builtin_local_write_buffer),
                 #{
-                    importance => ?IMPORTANCE_MEDIUM,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(builtin_local_write_buffer)
                 }
             )},
@@ -163,7 +163,7 @@ fields(builtin_local_write_buffer) ->
                 #{
                     default => 1000,
                     mapping => "emqx_durable_storage.egress_batch_size",
-                    importance => ?IMPORTANCE_MEDIUM,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(builtin_local_write_buffer_max_items)
                 }
             )},
@@ -173,7 +173,7 @@ fields(builtin_local_write_buffer) ->
                 #{
                     default => 100,
                     mapping => "emqx_durable_storage.egress_flush_interval",
-                    importance => ?IMPORTANCE_MEDIUM,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(builtin_local_write_buffer_flush_interval)
                 }
             )}
@@ -202,7 +202,7 @@ fields(layout_builtin_wildcard_optimized) ->
                 range(0, 64),
                 #{
                     default => 10,
-                    importance => ?IMPORTANCE_MEDIUM,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(wildcard_optimized_epoch_bits)
                 }
             )},
