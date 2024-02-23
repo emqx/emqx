@@ -923,7 +923,6 @@ t_session_kicked({init, Config}) when is_list(Config) ->
 t_session_kicked({'end', Config}) when is_list(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0);
 t_session_kicked(Config) when is_list(Config) ->
-    emqx_logger:set_log_level(debug),
     Topic = <<"foo/bar/1">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
