@@ -392,18 +392,7 @@ probe_bridge_api(Config) ->
     TypeBin = ?BRIDGE_TYPE_BIN,
     Name = ?config(consumer_name, Config),
     ConsumerConfig = ?config(consumer_config, Config),
-    Params = ConsumerConfig#{<<"type">> => TypeBin, <<"name">> => Name},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("probing bridge (via http): ~p", [Params]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
-            Error -> Error
-        end,
-    ct:pal("bridge probe result: ~p", [Res]),
-    Res.
+    emqx_bridge_testlib:probe_bridge_api(TypeBin, Name, ConsumerConfig).
 
 start_and_subscribe_mqtt(Config) ->
     TopicMapping = ?config(topic_mapping, Config),
