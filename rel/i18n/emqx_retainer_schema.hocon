@@ -33,6 +33,9 @@ mnesia_config_storage_type.desc:
 mnesia_config_type.desc:
 """Backend type."""
 
+mnesia_enable.desc:
+"""Enable built-in Mnesia backend."""
+
 msg_clear_interval.desc:
 """Interval for EMQX to scan expired messages and delete them. Never scan if the value is 0."""
 

@@ -644,7 +644,7 @@ t_reindex(_) ->
 
 t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{retained_messages => 0}, emqx_retainer:get_basic_usage_info()),
-    Context = undefined,
+    Context = emqx_retainer:context(),
     lists:foreach(
         fun(N) ->
             Num = integer_to_binary(N),
@@ -788,8 +788,8 @@ t_compatibility_for_deliver_rate(_) ->
     ).
 
 t_update_config(_) ->
-    OldConf = emqx_config:get([retainer]),
-    NewConf = emqx_utils_maps:deep_put([backend, storage_type], OldConf, disk),
+    OldConf = emqx_config:get_raw([retainer]),
+    NewConf = emqx_utils_maps:deep_put([<<"backend">>, <<"storage_type">>], OldConf, <<"disk">>),
     emqx_retainer:update_config(NewConf).
 
 %%--------------------------------------------------------------------
@@ -836,7 +836,7 @@ with_conf(ConfMod, Case) ->
     emqx_retainer:update_config(NewConf),
     try
         Case(),
-        emqx_retainer:update_config(Conf)
+        {ok, _} = emqx_retainer:update_config(Conf)
     catch
         Type:Error:Strace ->
             emqx_retainer:update_config(Conf),

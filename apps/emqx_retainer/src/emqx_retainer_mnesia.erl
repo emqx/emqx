@@ -51,10 +51,8 @@
 
 -export([reindex/2, reindex_status/0]).
 
--ifdef(TEST).
 -export([populate_index_meta/0]).
 -export([reindex/3]).
--endif.
 
 -record(retained_message, {topic, msg, expiry_time}).
 -record(retained_index, {key, expiry_time}).
@@ -79,7 +77,7 @@ topics() ->
 %% emqx_retainer callbacks
 %%--------------------------------------------------------------------
 
-create(#{storage_type := StorageType}) ->
+create(#{storage_type := StorageType, max_retained_messages := MaxRetainedMessages} = Config) ->
     ok = create_table(
         ?TAB_INDEX_META,
         retained_index_meta,
@@ -87,7 +85,7 @@ create(#{storage_type := StorageType}) ->
         set,
         StorageType
     ),
-    ok = populate_index_meta(),
+    ok = populate_index_meta(Config),
     ok = create_table(
         ?TAB_MESSAGE,
         retained_message,
@@ -102,8 +100,7 @@ create(#{storage_type := StorageType}) ->
         ordered_set,
         StorageType
     ),
-    %% The context is not used by this backend
-    #{storage_type => StorageType}.
+    #{storage_type => StorageType, max_retained_messages => MaxRetainedMessages}.
 
 create_table(Table, RecordName, Attributes, Type, StorageType) ->
     Copies =
@@ -139,17 +136,15 @@ create_table(Table, RecordName, Attributes, Type, StorageType) ->
             ok
     end.
 
-update(#{storage_type := StorageType}, #{storage_type := StorageType}) ->
-    ok;
-update(_Context, _NewConfig) ->
+update(_State, _NewConfig) ->
     need_recreate.
 
-close(_Context) -> ok.
+close(_State) -> ok.
 
-store_retained(_Context, Msg = #message{topic = Topic}) ->
+store_retained(State, Msg = #message{topic = Topic}) ->
     ExpiryTime = emqx_retainer:get_expiry_time(Msg),
     Tokens = topic_to_tokens(Topic),
-    case is_table_full() andalso is_new_topic(Tokens) of
+    case is_table_full(State) andalso is_new_topic(Tokens) of
         true ->
             ?SLOG(error, #{
                 msg => "failed_to_retain_message",
@@ -182,7 +177,7 @@ clear_expired() ->
     QC = qlc:cursor(QH),
     clear_batch(dirty_indices(write), QC).
 
-delete_message(_Context, Topic) ->
+delete_message(_State, Topic) ->
     Tokens = topic_to_tokens(Topic),
     case emqx_topic:wildcard(Topic) of
         false ->
@@ -198,10 +193,10 @@ delete_message(_Context, Topic) ->
             )
     end.
 
-read_message(_Context, Topic) ->
+read_message(_State, Topic) ->
     {ok, read_messages(Topic)}.
 
-match_messages(_Context, Topic, undefined) ->
+match_messages(_State, Topic, undefined) ->
     Tokens = topic_to_tokens(Topic),
     Now = erlang:system_time(millisecond),
     QH = msg_table(search_table(Tokens, Now)),
@@ -212,7 +207,7 @@ match_messages(_Context, Topic, undefined) ->
             Cursor = qlc:cursor(QH),
             match_messages(undefined, Topic, {Cursor, BatchNum})
     end;
-match_messages(_Context, _Topic, {Cursor, BatchNum}) ->
+match_messages(_State, _Topic, {Cursor, BatchNum}) ->
     case qlc_next_answers(Cursor, BatchNum) of
         {closed, Rows} ->
             {ok, Rows, undefined};
@@ -220,7 +215,7 @@ match_messages(_Context, _Topic, {Cursor, BatchNum}) ->
             {ok, Rows, {Cursor, BatchNum}}
     end.
 
-page_read(_Context, Topic, Page, Limit) ->
+page_read(_State, Topic, Page, Limit) ->
     Now = erlang:system_time(millisecond),
     QH =
         case Topic of
@@ -263,7 +258,8 @@ size(_) ->
     table_size().
 
 reindex(Force, StatusFun) ->
-    reindex(config_indices(), Force, StatusFun).
+    Config = emqx:get_config([retainer, backend]),
+    reindex(config_indices(Config), Force, StatusFun).
 
 reindex_status() ->
     case mnesia:dirty_read(?TAB_INDEX_META, ?META_KEY) of
@@ -438,9 +434,8 @@ make_index_match_spec(Index, Tokens, NowMs) ->
     MsHd = #retained_index{key = Cond, expiry_time = '$3'},
     {[{MsHd, [{'orelse', {'=:=', '$3', 0}, {'>', '$3', NowMs}}], ['$_']}], IsExact}.
 
-is_table_full() ->
-    Limit = emqx:get_config([retainer, backend, max_retained_messages]),
-    Limit > 0 andalso (table_size() >= Limit).
+is_table_full(#{max_retained_messages := MaxRetainedMessages} = _State) ->
+    MaxRetainedMessages > 0 andalso (table_size() >= MaxRetainedMessages).
 
 is_new_topic(Tokens) ->
     case mnesia:dirty_read(?TAB_MESSAGE, Tokens) of
@@ -453,11 +448,15 @@ is_new_topic(Tokens) ->
 table_size() ->
     mnesia:table_info(?TAB_MESSAGE, size).
 
-config_indices() ->
-    lists:sort(emqx_config:get([retainer, backend, index_specs])).
+config_indices(#{index_specs := IndexSpecs}) ->
+    IndexSpecs.
 
 populate_index_meta() ->
-    ConfigIndices = config_indices(),
+    Config = emqx:get_config([retainer, backend]),
+    populate_index_meta(Config).
+
+populate_index_meta(Config) ->
+    ConfigIndices = config_indices(Config),
     case mria:transaction(?RETAINER_SHARD, fun ?MODULE:do_populate_index_meta/1, [ConfigIndices]) of
         {atomic, ok} ->
             ok;
