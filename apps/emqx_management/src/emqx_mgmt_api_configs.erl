@@ -502,7 +502,7 @@ conf_path(Req) ->
     string:lexemes(Path, "/ ").
 
 global_zone_roots() ->
-    lists:map(fun({K, _}) -> list_to_binary(K) end, global_zone_schema()).
+    lists:map(fun({K, _}) -> atom_to_binary(K) end, global_zone_schema()).
 
 global_zone_schema() ->
     emqx_zone_schema:global_zone_with_default().

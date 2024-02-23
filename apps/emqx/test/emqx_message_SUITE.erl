@@ -144,12 +144,13 @@ t_undefined_headers(_) ->
 t_is_expired_1(_) ->
     test_msg_expired_property(?MODULE).
 
+make_zone_default_conf() ->
+    maps:from_list([{Root, #{}} || Root <- emqx_zone_schema:roots()]).
+
 t_is_expired_2(_) ->
     %% if the 'Message-Expiry-Interval' property is set, the message_expiry_interval should be ignored
     try
-        emqx_config:put(
-            maps:from_list([{list_to_atom(Root), #{}} || Root <- emqx_zone_schema:roots()])
-        ),
+        emqx_config:put(make_zone_default_conf()),
         emqx_config:put_zone_conf(?MODULE, [mqtt, message_expiry_interval], timer:seconds(10)),
         test_msg_expired_property(?MODULE)
     after
@@ -158,9 +159,7 @@ t_is_expired_2(_) ->
 
 t_is_expired_3(_) ->
     try
-        emqx_config:put(
-            maps:from_list([{list_to_atom(Root), #{}} || Root <- emqx_zone_schema:roots()])
-        ),
+        emqx_config:put(make_zone_default_conf()),
         emqx_config:put_zone_conf(?MODULE, [mqtt, message_expiry_interval], 100),
         Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
         ?assertNot(emqx_message:is_expired(Msg, ?MODULE)),

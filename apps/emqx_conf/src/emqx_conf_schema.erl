@@ -99,19 +99,19 @@ roots() ->
     ok = emqx_schema_hooks:inject_from_modules(?INJECTING_CONFIGS),
     emqx_schema_high_prio_roots() ++
         [
-            {"node",
+            {node,
                 sc(
                     ?R_REF("node"),
                     #{
                         translate_to => ["emqx"]
                     }
                 )},
-            {"cluster",
+            {cluster,
                 sc(
                     ?R_REF("cluster"),
                     #{translate_to => ["ekka"]}
                 )},
-            {"log",
+            {log,
                 sc(
                     ?R_REF("log"),
                     #{
@@ -119,7 +119,7 @@ roots() ->
                         importance => ?IMPORTANCE_HIGH
                     }
                 )},
-            {"rpc",
+            {rpc,
                 sc(
                     ?R_REF("rpc"),
                     #{
@@ -1421,19 +1421,19 @@ roots(Module) ->
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
 
 %% Like authentication schema, authorization schema is incomplete in emqx_schema
-%% module, this function replaces the root field "authorization" with a new schema
+%% module, this function replaces the root field 'authorization' with a new schema
 emqx_schema_high_prio_roots() ->
     Roots = emqx_schema:roots(high),
     Authz =
-        {"authorization",
+        {authorization,
             sc(
                 ?R_REF("authorization"),
                 #{
-                    desc => ?DESC(authorization),
+                    desc => ?DESC("authorization"),
                     importance => ?IMPORTANCE_HIGH
                 }
             )},
-    lists:keyreplace("authorization", 1, Roots, Authz).
+    lists:keyreplace(authorization, 1, Roots, Authz).
 
 validate_time_offset(Offset) ->
     ValidTimeOffset = "^([\\-\\+][0-1][0-9]:[0-6][0-9]|system|utc)$",

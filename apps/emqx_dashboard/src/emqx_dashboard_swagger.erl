@@ -234,7 +234,7 @@ file_schema(FileName) ->
     }.
 
 gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
-    {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(
+    {ApiSpec0, Components0} = spec(
         SchemaMod,
         #{
             schema_converter => Converter,
