@@ -60,6 +60,8 @@ resource_type(syskeeper_forwarder) ->
     emqx_bridge_syskeeper_connector;
 resource_type(syskeeper_proxy) ->
     emqx_bridge_syskeeper_proxy_server;
+resource_type(sqlserver) ->
+    emqx_bridge_sqlserver;
 resource_type(timescale) ->
     emqx_postgresql;
 resource_type(redis) ->
@@ -283,6 +285,14 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {sqlserver,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_sqlserver, "config_connector")),
+                #{
+                    desc => <<"Microsoft SQL Server Connector Config">>,
+                    required => false
+                }
+            )},
         {timescale,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_timescale, "config_connector")),
@@ -377,6 +387,7 @@ schema_modules() ->
         emqx_bridge_mysql,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
+        emqx_bridge_sqlserver,
         emqx_bridge_timescale,
         emqx_postgresql_connector_schema,
         emqx_bridge_redis_schema,
@@ -427,6 +438,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_mysql, <<"mysql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
+        api_ref(emqx_bridge_sqlserver, <<"sqlserver">>, Method ++ "_connector"),
         api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),
         api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector"),

@@ -3,6 +3,7 @@
     {vsn, "0.1.6"},
     {registered, []},
     {applications, [kernel, stdlib, emqx_resource, odbc]},
+    {env, [{emqx_action_info_modules, [emqx_bridge_sqlserver_action_info]}]},
     {env, []},
     {modules, []},
     {links, []}

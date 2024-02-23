@@ -37,8 +37,8 @@
 %% provisional solution: rpc:multicall to all the nodes for creating/updating/removing
 %% todo: replicate operations
 
-%% store the config and start the instance
 -export([
+    %% store the config and start the instance
     create_local/4,
     create_local/5,
     create_dry_run_local/2,

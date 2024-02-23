@@ -11,6 +11,8 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
+    bridge_v2_examples/1,
+    connector_examples/1,
     conn_bridge_examples/1
 ]).
 
@@ -21,12 +23,18 @@
     desc/1
 ]).
 
+-define(CONNECTOR_TYPE, sqlserver).
+-define(ACTION_TYPE, ?CONNECTOR_TYPE).
+
 -define(DEFAULT_SQL, <<
     "insert into t_mqtt_msg(msgid, topic, qos, payload) "
     "values ( ${id}, ${topic}, ${qos}, ${payload} )"
 >>).
 
 -define(DEFAULT_DRIVER, <<"ms-sql">>).
+
+%% -------------------------------------------------------------------------------------------------
+%% api.
 
 conn_bridge_examples(Method) ->
     [
@@ -65,12 +73,76 @@ values(post) ->
 values(put) ->
     values(post).
 
+%% ====================
+%% Bridge V2: Connector + Action
+
+connector_examples(Method) ->
+    [
+        #{
+            <<"sqlserver">> =>
+                #{
+                    summary => <<"Microsoft SQL Server Connector">>,
+                    value => emqx_connector_schema:connector_values(
+                        Method, ?CONNECTOR_TYPE, connector_values()
+                    )
+                }
+        }
+    ].
+
+connector_values() ->
+    #{
+        server => <<"127.0.0.1:1433">>,
+        database => <<"test">>,
+        pool_size => 8,
+        username => <<"sa">>,
+        password => <<"******">>,
+        resource_opts => #{health_check_interval => <<"20s">>}
+    }.
+
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"sqlserver">> =>
+                #{
+                    summary => <<"Microsoft SQL Server Action">>,
+                    value => emqx_bridge_v2_schema:action_values(
+                        Method, ?ACTION_TYPE, ?CONNECTOR_TYPE, action_values()
+                    )
+                }
+        }
+    ].
+
+action_values() ->
+    #{parameters => #{sql => ?DEFAULT_SQL}}.
+
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 namespace() -> "bridge_sqlserver".
 
 roots() -> [].
 
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(sqlserver_action));
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(
+        Field,
+        ?CONNECTOR_TYPE,
+        fields("config_connector") -- emqx_connector_schema:common_fields()
+    );
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        emqx_bridge_sqlserver_connector:fields(config) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -97,6 +169,27 @@ fields("config") ->
     ] ++
         (emqx_bridge_sqlserver_connector:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
+fields(action) ->
+    {?ACTION_TYPE,
+        mk(
+            hoconsc:map(name, ref(?MODULE, sqlserver_action)),
+            #{desc => ?DESC("sqlserver_action"), required => false}
+        )};
+fields(sqlserver_action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        mk(
+            ref(?MODULE, action_parameters),
+            #{required => true, desc => ?DESC(action_parameters)}
+        )
+    );
+fields(action_parameters) ->
+    [
+        {sql,
+            mk(
+                binary(),
+                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+            )}
+    ];
 fields("creation_opts") ->
     emqx_resource_schema:fields("creation_opts");
 fields("post") ->
@@ -115,6 +208,14 @@ desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Microsoft SQL Server using `", string:to_upper(Method), "` method."];
 desc("creation_opts" = Name) ->
     emqx_resource_schema:desc(Name);
+desc("config_connector") ->
+    ?DESC("config_connector");
+desc(sqlserver_action) ->
+    ?DESC("sqlserver_action");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
