@@ -483,8 +483,13 @@ desc_log_throttling.desc:
 dropping all but the first event within a configured time window.
 The throttling is automatically disabled if `console` or `file` log level is set to debug."""
 
-log_throttling_time_window.desc:
-"""For throttled messages, only log 1 in each time window."""
+log_throttling_time_window.desc: """~
+    This configuration setting controls the logging behavior for throttled messages,
+    including, but not limited to messages like 'authorization_permission_denied'.
+    Within each defined time window, only one instance of a throttled message will be logged to prevent log flooding.
+    At the conclusion of each time window, a summary log will be generated, detailing the occurrence of any throttled messages during that period.
+    It's important to note that the shortest effective time window for this setting is 1 second (`1s`).
+    Should a value lower than `1s` be specified, it will automatically be adjusted to `1s`.~"""
 
 log_throttling_time_window.label:
 """Log Throttling Time Window"""
