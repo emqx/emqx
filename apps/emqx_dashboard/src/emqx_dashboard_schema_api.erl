@@ -44,6 +44,7 @@ paths() ->
     ["/schemas/:name"].
 
 %% This is a rather hidden API, so we don't need to add translations for the description.
+%% TODO(5.7): delete 'bridges'
 schema("/schemas/:name") ->
     Schemas = [hotconf, bridges, actions, connectors],
     #{
