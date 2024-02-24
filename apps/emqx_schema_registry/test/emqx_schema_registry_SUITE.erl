@@ -23,14 +23,15 @@
 all() ->
     [
         {group, avro},
-        {group, protobuf}
+        {group, protobuf},
+        {group, json}
     ] ++ sparkplug_tests().
 
 groups() ->
     AllTCsExceptSP = emqx_common_test_helpers:all(?MODULE) -- sparkplug_tests(),
     ProtobufOnlyTCs = protobuf_only_tcs(),
     TCs = AllTCsExceptSP -- ProtobufOnlyTCs,
-    [{avro, TCs}, {protobuf, AllTCsExceptSP}].
+    [{avro, TCs}, {json, TCs}, {protobuf, AllTCsExceptSP}].
 
 protobuf_only_tcs() ->
     [
@@ -57,6 +58,8 @@ end_per_suite(_Config) ->
 
 init_per_group(avro, Config) ->
     [{serde_type, avro} | Config];
+init_per_group(json, Config) ->
+    [{serde_type, json} | Config];
 init_per_group(protobuf, Config) ->
     [{serde_type, protobuf} | Config];
 init_per_group(_Group, Config) ->
@@ -140,6 +143,18 @@ schema_params(avro) ->
     },
     SourceBin = emqx_utils_json:encode(Source),
     #{type => avro, source => SourceBin};
+schema_params(json) ->
+    Source =
+        #{
+            type => object,
+            properties => #{
+                i => #{type => integer},
+                s => #{type => string}
+            },
+            required => [<<"i">>, <<"s">>]
+        },
+    SourceBin = emqx_utils_json:encode(Source),
+    #{type => json, source => SourceBin};
 schema_params(protobuf) ->
     SourceBin =
         <<
@@ -162,7 +177,7 @@ create_serde(SerdeType, SerdeName) ->
     ok = emqx_schema_registry:add_schema(SerdeName, Schema),
     ok.
 
-test_params_for(avro, encode_decode1) ->
+test_params_for(Type, encode_decode1) when Type =:= avro; Type =:= json ->
     SQL =
         <<
             "select\n"
@@ -186,7 +201,7 @@ test_params_for(avro, encode_decode1) ->
         expected_rule_output => ExpectedRuleOutput,
         extra_args => ExtraArgs
     };
-test_params_for(avro, encode1) ->
+test_params_for(Type, encode1) when Type =:= avro; Type =:= json ->
     SQL =
         <<
             "select\n"
@@ -202,7 +217,7 @@ test_params_for(avro, encode1) ->
         payload_template => PayloadTemplate,
         extra_args => ExtraArgs
     };
-test_params_for(avro, decode1) ->
+test_params_for(Type, decode1) when Type =:= avro; Type =:= json ->
     SQL =
         <<
             "select\n"
@@ -503,13 +518,18 @@ t_encode(Config) ->
     PayloadBin = emqx_utils_json:encode(Payload),
     emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
     Published = receive_published(?LINE),
-    ?assertMatch(
-        #{payload := P} when is_binary(P),
-        Published
-    ),
-    #{payload := Encoded} = Published,
-    {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
-    ?assertEqual(Payload, eval_decode(Serde, [Encoded | ExtraArgs])),
+    case SerdeType of
+        json ->
+            %% should have received binary
+            %% but since it's valid json, so it got
+            %% 'safe_decode' decoded in receive_published
+            ?assertMatch(#{payload := #{<<"i">> := _, <<"s">> := _}}, Published);
+        _ ->
+            ?assertMatch(#{payload := B} when is_binary(B), Published),
+            #{payload := Encoded} = Published,
+            {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
+            ?assertEqual(Payload, eval_decode(Serde, [Encoded | ExtraArgs]))
+    end,
     ok.
 
 t_decode(Config) ->
@@ -607,8 +627,13 @@ t_protobuf_union_decode(Config) ->
 t_fail_rollback(Config) ->
     SerdeType = ?config(serde_type, Config),
     OkSchema = emqx_utils_maps:binary_key_map(schema_params(SerdeType)),
-    BrokenSchema = OkSchema#{<<"source">> := <<"{}">>},
-
+    BrokenSchema =
+        case SerdeType of
+            json ->
+                OkSchema#{<<"source">> := <<"not a json value">>};
+            _ ->
+                OkSchema#{<<"source">> := <<"{}">>}
+        end,
     ?assertMatch(
         {ok, _},
         emqx_conf:update(

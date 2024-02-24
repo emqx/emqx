@@ -218,7 +218,10 @@ terminate(_Reason, _State) ->
 %%-------------------------------------------------------------------------------------------------
 
 create_tables() ->
-    ok = emqx_utils_ets:new(?SERDE_TAB, [public, {keypos, #serde.name}]),
+    ok = emqx_utils_ets:new(?SERDE_TAB, [public, ordered_set, {keypos, #serde.name}]),
+    %% have to create the table for jesse_database otherwise the on-demand table will disappear
+    %% when the caller process dies
+    ok = emqx_utils_ets:new(jesse_ets, [public, ordered_set]),
     ok = mria:create_table(?PROTOBUF_CACHE_TAB, [
         {type, set},
         {rlog_shard, ?SCHEMA_REGISTRY_SHARD},

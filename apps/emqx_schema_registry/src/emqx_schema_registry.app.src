@@ -10,7 +10,8 @@
         kernel,
         stdlib,
         erlavro,
-        gpb
+        gpb,
+        jesse
     ]},
     {env, []},
     {modules, []},

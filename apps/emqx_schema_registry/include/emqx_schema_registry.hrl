@@ -26,7 +26,7 @@
 -type encoded_data() :: iodata().
 -type decoded_data() :: map().
 
--type serde_type() :: avro | protobuf.
+-type serde_type() :: avro | protobuf | json.
 -type serde_opts() :: map().
 
 -record(serde, {
