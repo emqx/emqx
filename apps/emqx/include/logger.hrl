@@ -30,10 +30,7 @@
             logger:log(
                 Level,
                 (Data),
-                (Meta#{
-                    mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
-                    line => ?LINE
-                })
+                Meta
             );
         false ->
             ok
