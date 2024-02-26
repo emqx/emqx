@@ -2237,7 +2237,7 @@ session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
 
 %%--------------------------------------------------------------------
 %% Maybe Publish will msg
-%% @doc May publish will message [MQTT-3.1.2-8]
+%% @doc Maybe publish will message [MQTT-3.1.2-8]
 %%   When willmsg presents the decision whether or when to publish the Will Message are effected by
 %%   the followings:
 %%   - connecion state
@@ -2351,7 +2351,6 @@ maybe_publish_will_msg(
             ?tp(debug, maybe_publish_willmsg_takenover_skip, #{clientid => ClientId}),
             skip
     end,
-    %% Maybe we should cancel first then send
     remove_willmsg(Channel);
 maybe_publish_will_msg(
     Reason,
@@ -2368,7 +2367,6 @@ maybe_publish_will_msg(
                 clientid => ClientId, reason => Reason
             }),
             _ = publish_will_msg(ClientInfo, WillMsg),
-            %% Maybe we should cancel first then send
             remove_willmsg(Channel);
         I when I > 0 ->
             ?tp(debug, maybe_publish_will_msg_other_delay, #{clientid => ClientId, reason => Reason}),
@@ -2504,6 +2502,7 @@ get_mqtt_conf(Zone, Key) ->
 get_mqtt_conf(Zone, Key, Default) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key], Default).
 
+%% @doc unset will_msg and cancel the will_message timer
 -spec remove_willmsg(Old :: channel()) -> New :: channel().
 remove_willmsg(Channel = #channel{timers = Timers}) ->
     case maps:get(will_message, Timers, undefined) of
