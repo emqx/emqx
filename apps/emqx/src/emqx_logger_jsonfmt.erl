@@ -272,7 +272,6 @@ json_obj_root(Data0, Config) ->
             _ ->
                 json(Msg1, Config)
         end,
-    Mfal = emqx_utils:format_mfal(Data0),
     Data =
         maps:fold(
             fun(K, V, D) ->
@@ -281,12 +280,12 @@ json_obj_root(Data0, Config) ->
             end,
             [],
             maps:without(
-                [time, gl, file, report_cb, msg, '$kind', mfa, level, line, is_trace], Data0
+                [time, gl, file, report_cb, msg, '$kind', level, is_trace], Data0
             )
         ),
     lists:filter(
         fun({_, V}) -> V =/= undefined end,
-        [{time, Time}, {level, Level}, {msg, Msg}, {mfa, Mfal}]
+        [{time, Time}, {level, Level}, {msg, Msg}]
     ) ++ Data.
 
 json_obj(Data, Config) ->
