@@ -2354,22 +2354,6 @@ maybe_publish_will_msg(
     %% Maybe we should cancel first then send
     remove_willmsg(Channel);
 maybe_publish_will_msg(
-    {shutdown, _},
-    Channel = #channel{
-        conninfo = #{expiry_interval := 0, clientid := ClientId},
-        clientinfo = ClientInfo,
-        will_msg = WillMsg
-    }
-) ->
-    %% MQTT 5: 3.1.2.11.2 Session Expiry Interval
-    %%  If the Session Expiry Interval is absent the value 0 is used.
-    %%  If it is set to 0, or is absent, the Session ends when the Network Connection is closed.
-    %% Expire_interval == 0, means session is end at the time of calling with shutdown.
-    ?tp(debug, maybe_publish_will_msg_shutdown, #{clientid => ClientId}),
-    _ = publish_will_msg(ClientInfo, WillMsg),
-    %% Maybe we should cancel first then send
-    remove_willmsg(Channel);
-maybe_publish_will_msg(
     Reason,
     Channel = #channel{
         clientinfo = ClientInfo,
