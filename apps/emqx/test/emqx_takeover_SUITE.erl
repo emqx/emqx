@@ -41,6 +41,7 @@ init_per_suite(Config) ->
         [emqx],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    emqx_logger:set_log_level(debug),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -284,7 +285,7 @@ t_takeover_clean_session_with_delayed_willmsg(Config) ->
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill1, ReceivedNoWill0} = filter_payload(Received, <<"willpayload_delay10">>),
     {IsWill2, _ReceivedNoWill} = filter_payload(ReceivedNoWill0, <<"willpayload_2">>),
-    %% THEN: payload <<"willpayload_delay10">> should be published without delay.
+    %% THEN: payload <<"willpayload_delay10">> should be published without delay
     ?assert(IsWill1),
     ?assertNot(IsWill2),
     emqtt:stop(CPid2),
@@ -432,7 +433,7 @@ t_takeover_before_session_expire_willdelay0(Config) ->
     ],
     Commands =
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
-        %%        and delay-interval 10s session expiry 3s.
+        %%        and delay-interval 0s session expiry 3s.
         [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]}] ++
             [
                 {fun start_client/5, [
@@ -467,6 +468,7 @@ t_takeover_before_session_expire_willdelay0(Config) ->
     Received = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, _ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay10">>),
+    %% THEN: willmsg is published
     ?assert(IsWill),
     emqtt:stop(CPidSub),
     emqtt:stop(CPid2),
@@ -526,6 +528,7 @@ t_takeover_before_session_expire(Config) ->
     Received = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay10">>),
+    %% THEN: No Willmsg is published
     ?assertNot(IsWill),
     ?assertNotEqual([], ReceivedNoWill),
     emqtt:stop(CPidSub),
@@ -610,7 +613,7 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
     ],
     Commands =
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
-        %%        and delay-interval 10s, session expiry 3s.
+        %%        and will-delay-interval 10s >  session expiry 3s.
         [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]}] ++
             [
                 {fun start_client/5, [
@@ -645,7 +648,7 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
     Received = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay10">>),
-    %% THEN: willmsg is published before session expiry
+    %% THEN: willmsg is not published before session expiry
     ?assertNot(IsWill),
     ?assertNotEqual([], ReceivedNoWill),
     Received1 = [Msg || {publish, Msg} <- ?drainMailbox(3000)],
@@ -668,7 +671,16 @@ t_takeover_session_then_abnormal_disconnect_2(Config) ->
         {proto_ver, ?config(mqtt_vsn, Config)},
         {clean_start, false},
         {will_topic, WillTopic},
-        {will_payload, <<"willpayload_delay10">>},
+        {will_payload, <<"willpayload_delay1">>},
+        {will_qos, 1},
+        {will_props, #{'Will-Delay-Interval' => 1}},
+        {properties, #{'Session-Expiry-Interval' => 3}}
+    ],
+    WillOpts2 = [
+        {proto_ver, ?config(mqtt_vsn, Config)},
+        {clean_start, false},
+        {will_topic, WillTopic},
+        {will_payload, <<"willpayload_delay2">>},
         {will_qos, 1},
         {will_props, #{'Will-Delay-Interval' => 0}},
         {properties, #{'Session-Expiry-Interval' => 3}}
@@ -691,9 +703,9 @@ t_takeover_session_then_abnormal_disconnect_2(Config) ->
                     []
                 }
             ] ++
-            %% GIVEN: client reconnect with willmsg payload <<"willpayload_delay10">>
-            %%        and delay-interval 0s, session expiry 3s.
-            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]}],
+            %% GIVEN: client *reconnect* with willmsg payload <<"willpayload_delay2">>
+            %%        and will-delay-interval 0s, session expiry 3s.
+            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts2]}],
 
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
@@ -707,12 +719,15 @@ t_takeover_session_then_abnormal_disconnect_2(Config) ->
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
     %% WHEN: client disconnect abnormally
     emqtt:disconnect(CPid2, ?RC_DISCONNECT_WITH_WILL_MESSAGE),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(2000)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
-    {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay10">>),
-    %% THEN: willmsg is published after session expiry
-    ?assert(IsWill),
+    {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay1">>),
+    %% THEN: willmsg1 of old conn is not published because will-delay-interval > 0
+    ?assertNot(IsWill),
     ?assertNotEqual([], ReceivedNoWill),
+    %% THEN: willmsg1 is published because will-delay-interval is 0
+    {IsWill2, _} = filter_payload(Received, <<"willpayload_delay2">>),
+    ?assert(IsWill2),
     emqtt:stop(CPidSub),
     ?assert(not is_process_alive(CPid1)),
     ?assert(not is_process_alive(CPid2)),
