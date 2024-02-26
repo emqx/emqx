@@ -717,6 +717,9 @@ is_sensitive_key(<<"jwt">>) -> true;
 is_sensitive_key(authorization) -> true;
 is_sensitive_key("authorization") -> true;
 is_sensitive_key(<<"authorization">>) -> true;
+is_sensitive_key(headers) -> true;
+is_sensitive_key("headers") -> true;
+is_sensitive_key(<<"headers">>) -> true;
 is_sensitive_key(bind_password) -> true;
 is_sensitive_key("bind_password") -> true;
 is_sensitive_key(<<"bind_password">>) -> true;
@@ -879,6 +882,7 @@ redact_test_() ->
         secret_key,
         secret_access_key,
         security_token,
+        headers,
         token,
         bind_password
     ],
