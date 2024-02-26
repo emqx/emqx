@@ -355,14 +355,14 @@ do_stop_listener(Type, Id, #{bind := ListenOn}) when ?ESOCKD_LISTENER(Type) ->
 do_stop_listener(Type, Id, #{bind := ListenOn}) when ?COWBOY_LISTENER(Type) ->
     case cowboy:stop_listener(Id) of
         ok ->
-            wait_listener_stopped(ListenOn);
+            wait_listener_stopped(ListenOn, 0);
         Error ->
             Error
     end;
 do_stop_listener(quic, Id, _Conf) ->
     quicer:terminate_listener(Id).
 
-wait_listener_stopped(ListenOn) ->
+wait_listener_stopped(ListenOn, RetryMs) ->
     % NOTE
     % `cowboy:stop_listener/1` will not close the listening socket explicitly,
     % it will be closed by the runtime system **only after** the process exits.
@@ -383,7 +383,24 @@ wait_listener_stopped(ListenOn) ->
             %% NOTE
             %% Tiny chance to get a connected socket here, when some other process
             %% concurrently binds to the same port.
-            gen_tcp:close(Socket)
+            gen_tcp:close(Socket),
+            Log = #{
+                msg => "cowboy_listener_still_open_after_stopping_listener",
+                listener => ListenOn,
+                wait_ms => RetryMs
+            },
+            case RetryMs >= 3000 of
+                true ->
+                    %% Don't stop this listener, in case other processes start it again.
+                    ?SLOG(warning, Log),
+                    ok;
+                false ->
+                    ?SLOG(info, Log),
+                    Interval = 300,
+                    NewRetryMs = RetryMs + Interval,
+                    timer:sleep(Interval),
+                    wait_listener_stopped(ListenOn, NewRetryMs)
+            end
     end.
 
 -ifndef(TEST).
