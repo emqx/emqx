@@ -59,8 +59,6 @@
 -define(TRACE_FILTER, emqx_trace_filter).
 -define(OWN_KEYS, [level, filters, filter_default, handlers]).
 
--define(TRACE(Tag, Msg, Meta), ?TRACE(debug, Tag, Msg, Meta)).
-
 %% Internal macro
 -define(_DO_TRACE(Tag, Msg, Meta),
     case persistent_term:get(?TRACE_FILTER, []) of
@@ -72,6 +70,8 @@
         _ -> emqx_trace:log(persistent_term:get(?TRACE_FILTER, []), Msg, (Meta)#{trace_tag => Tag})
     end
 ).
+
+-define(TRACE(Tag, Msg, Meta), ?TRACE(debug, Tag, Msg, Meta)).
 
 %% Only evaluate when necessary
 -define(TRACE(Level, Tag, Msg, Meta), begin
