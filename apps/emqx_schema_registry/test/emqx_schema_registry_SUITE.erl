@@ -131,6 +131,8 @@ create_rule_http(RuleParams, Overrides) ->
 schema_params(avro) ->
     Source = #{
         type => record,
+        name => <<"test">>,
+        namespace => <<"emqx.com">>,
         fields => [
             #{name => <<"i">>, type => <<"int">>},
             #{name => <<"s">>, type => <<"string">>}
@@ -403,16 +405,6 @@ wait_for_cluster_rpc(Node) ->
         true = is_pid(erpc:call(Node, erlang, whereis, [emqx_config_handler]))
     ).
 
-serde_deletion_calls_destructor_spec(#{serde_type := SerdeType}, Trace) ->
-    ?assert(
-        ?strict_causality(
-            #{?snk_kind := will_delete_schema},
-            #{?snk_kind := serde_destroyed, type := SerdeType},
-            Trace
-        )
-    ),
-    ok.
-
 protobuf_unique_cache_hit_spec(#{serde_type := protobuf} = Res, Trace) ->
     #{nodes := Nodes} = Res,
     CacheEvents0 = ?of_kind(
@@ -516,8 +508,8 @@ t_encode(Config) ->
         Published
     ),
     #{payload := Encoded} = Published,
-    {ok, #{deserializer := Deserializer}} = emqx_schema_registry:get_serde(SerdeName),
-    ?assertEqual(Payload, apply(Deserializer, [Encoded | ExtraArgs])),
+    {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
+    ?assertEqual(Payload, eval_decode(Serde, [Encoded | ExtraArgs])),
     ok.
 
 t_decode(Config) ->
@@ -530,8 +522,8 @@ t_decode(Config) ->
         extra_args := ExtraArgs
     } = test_params_for(SerdeType, decode1),
     {ok, _} = create_rule_http(#{sql => SQL}),
-    {ok, #{serializer := Serializer}} = emqx_schema_registry:get_serde(SerdeName),
-    EncodedBin = apply(Serializer, [Payload | ExtraArgs]),
+    {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
+    EncodedBin = eval_encode(Serde, [Payload | ExtraArgs]),
     emqx:publish(emqx_message:make(<<"t">>, EncodedBin)),
     Published = receive_published(?LINE),
     ?assertMatch(
@@ -553,9 +545,9 @@ t_protobuf_union_encode(Config) ->
         extra_args := ExtraArgs
     } = test_params_for(SerdeType, union1),
     {ok, _} = create_rule_http(#{sql => SQL}),
-    {ok, #{serializer := Serializer}} = emqx_schema_registry:get_serde(SerdeName),
+    {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
 
-    EncodedBinA = apply(Serializer, [PayloadA | ExtraArgs]),
+    EncodedBinA = eval_encode(Serde, [PayloadA | ExtraArgs]),
     emqx:publish(emqx_message:make(<<"t">>, EncodedBinA)),
     PublishedA = receive_published(?LINE),
     ?assertMatch(
@@ -565,7 +557,7 @@ t_protobuf_union_encode(Config) ->
     #{payload := #{<<"decoded">> := DecodedA}} = PublishedA,
     ?assertEqual(PayloadA, DecodedA),
 
-    EncodedBinB = apply(Serializer, [PayloadB | ExtraArgs]),
+    EncodedBinB = eval_encode(Serde, [PayloadB | ExtraArgs]),
     emqx:publish(emqx_message:make(<<"t">>, EncodedBinB)),
     PublishedB = receive_published(?LINE),
     ?assertMatch(
@@ -588,7 +580,7 @@ t_protobuf_union_decode(Config) ->
         extra_args := ExtraArgs
     } = test_params_for(SerdeType, union2),
     {ok, _} = create_rule_http(#{sql => SQL}),
-    {ok, #{deserializer := Deserializer}} = emqx_schema_registry:get_serde(SerdeName),
+    {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
 
     EncodedBinA = emqx_utils_json:encode(PayloadA),
     emqx:publish(emqx_message:make(<<"t">>, EncodedBinA)),
@@ -598,7 +590,7 @@ t_protobuf_union_decode(Config) ->
         PublishedA
     ),
     #{payload := #{<<"encoded">> := EncodedA}} = PublishedA,
-    ?assertEqual(PayloadA, apply(Deserializer, [EncodedA | ExtraArgs])),
+    ?assertEqual(PayloadA, eval_decode(Serde, [EncodedA | ExtraArgs])),
 
     EncodedBinB = emqx_utils_json:encode(PayloadB),
     emqx:publish(emqx_message:make(<<"t">>, EncodedBinB)),
@@ -608,7 +600,7 @@ t_protobuf_union_decode(Config) ->
         PublishedB
     ),
     #{payload := #{<<"encoded">> := EncodedB}} = PublishedB,
-    ?assertEqual(PayloadB, apply(Deserializer, [EncodedB | ExtraArgs])),
+    ?assertEqual(PayloadB, eval_decode(Serde, [EncodedB | ExtraArgs])),
 
     ok.
 
@@ -633,7 +625,7 @@ t_fail_rollback(Config) ->
             #{}
         )
     ),
-    ?assertMatch({ok, #{name := <<"a">>}}, emqx_schema_registry:get_serde(<<"a">>)),
+    ?assertMatch({ok, #serde{name = <<"a">>}}, emqx_schema_registry:get_serde(<<"a">>)),
     %% no z serdes should be in the table
     ?assertEqual({error, not_found}, emqx_schema_registry:get_serde(<<"z">>)),
     ok.
@@ -659,16 +651,13 @@ t_cluster_serde_build(Config) ->
             %% check that we can serialize/deserialize in all nodes
             lists:foreach(
                 fun(N) ->
-                    erpc:call(N, fun() ->
+                    ok = erpc:call(N, fun() ->
                         Res0 = emqx_schema_registry:get_serde(SerdeName),
-                        ?assertMatch({ok, #{}}, Res0, #{node => N}),
-                        {ok, #{serializer := Serializer, deserializer := Deserializer}} = Res0,
+                        ?assertMatch({ok, #serde{}}, Res0, #{node => N}),
+                        {ok, Serde} = Res0,
                         ?assertEqual(
                             Payload,
-                            apply(
-                                Deserializer,
-                                [apply(Serializer, [Payload | ExtraArgs]) | ExtraArgs]
-                            ),
+                            encode_then_decode(Serde, Payload, ExtraArgs),
                             #{node => N}
                         ),
                         ok
@@ -676,8 +665,6 @@ t_cluster_serde_build(Config) ->
                 end,
                 Nodes
             ),
-            %% now we delete and check it's removed from the table
-            ?tp(will_delete_schema, #{}),
             {ok, SRef1} = snabbkaffe:subscribe(
                 ?match_event(#{?snk_kind := schema_registry_serdes_deleted}),
                 NumNodes,
@@ -687,7 +674,9 @@ t_cluster_serde_build(Config) ->
                 ok,
                 erpc:call(N1, emqx_schema_registry, delete_schema, [SerdeName])
             ),
-            {ok, _} = snabbkaffe:receive_events(SRef1),
+            {ok, DeleteEvents} = snabbkaffe:receive_events(SRef1),
+            %% expect all nodes to delete (local) serdes
+            ?assertEqual(NumNodes, length(DeleteEvents)),
             lists:foreach(
                 fun(N) ->
                     erpc:call(N, fun() ->
@@ -704,7 +693,6 @@ t_cluster_serde_build(Config) ->
             #{serde_type => SerdeType, nodes => Nodes}
         end,
         [
-            {"destructor is always called", fun ?MODULE:serde_deletion_calls_destructor_spec/2},
             {"protobuf is only built on one node", fun ?MODULE:protobuf_unique_cache_hit_spec/2}
         ]
     ),
@@ -723,6 +711,8 @@ t_import_config(_Config) ->
                                     emqx_utils_json:encode(
                                         #{
                                             type => <<"record">>,
+                                            name => <<"ct">>,
+                                            namespace => <<"emqx.com">>,
                                             fields => [
                                                 #{type => <<"int">>, name => <<"i">>},
                                                 #{type => <<"string">>, name => <<"s">>}
@@ -869,3 +859,13 @@ t_sparkplug_decode_encode_with_message_name(_Config) ->
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
+
+eval_encode(Serde, Args) ->
+    emqx_schema_registry_serde:eval_encode(Serde, Args).
+
+eval_decode(Serde, Args) ->
+    emqx_schema_registry_serde:eval_decode(Serde, Args).
+
+encode_then_decode(Serde, Payload, ExtraArgs) ->
+    Encoded = eval_encode(Serde, [Payload | ExtraArgs]),
+    eval_decode(Serde, [Encoded | ExtraArgs]).

@@ -9,8 +9,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_schema_registry_serde]}}]).
-
 %% API
 -export([
     decode/2,
@@ -18,7 +16,13 @@
     encode/2,
     encode/3,
     make_serde/3,
-    handle_rule_function/2
+    handle_rule_function/2,
+    destroy/1
+]).
+
+-export([
+    eval_decode/2,
+    eval_encode/2
 ]).
 
 %%------------------------------------------------------------------------------
@@ -70,8 +74,8 @@ decode(SerdeName, RawData, VarArgs) when is_list(VarArgs) ->
     case emqx_schema_registry:get_serde(SerdeName) of
         {error, not_found} ->
             error({serde_not_found, SerdeName});
-        {ok, #{deserializer := Deserializer}} ->
-            apply(Deserializer, [RawData | VarArgs])
+        {ok, Serde} ->
+            eval_decode(Serde, [RawData | VarArgs])
     end.
 
 -spec encode(schema_name(), decoded_data()) -> encoded_data().
@@ -83,54 +87,55 @@ encode(SerdeName, EncodedData, VarArgs) when is_list(VarArgs) ->
     case emqx_schema_registry:get_serde(SerdeName) of
         {error, not_found} ->
             error({serde_not_found, SerdeName});
-        {ok, #{serializer := Serializer}} ->
-            apply(Serializer, [EncodedData | VarArgs])
+        {ok, Serde} ->
+            eval_encode(Serde, [EncodedData | VarArgs])
     end.
 
--spec make_serde(serde_type(), schema_name(), schema_source()) ->
-    {serializer(), deserializer(), destructor()}.
-make_serde(avro, Name, Source0) ->
-    Source = inject_avro_name(Name, Source0),
-    Serializer = avro:make_simple_encoder(Source, _Opts = []),
-    Deserializer = avro:make_simple_decoder(Source, [{map_type, map}, {record_type, map}]),
-    Destructor = fun() ->
-        ?tp(serde_destroyed, #{type => avro, name => Name}),
-        ok
-    end,
-    {Serializer, Deserializer, Destructor};
+-spec make_serde(serde_type(), schema_name(), schema_source()) -> serde().
+make_serde(avro, Name, Source) ->
+    Store0 = avro_schema_store:new([map]),
+    %% import the schema into the map store with an assigned name
+    %% if it's a named schema (e.g. struct), then Name is added as alias
+    Store = avro_schema_store:import_schema_json(Name, Source, Store0),
+    #serde{
+        name = Name,
+        type = avro,
+        eval_context = Store
+    };
 make_serde(protobuf, Name, Source) ->
     SerdeMod = make_protobuf_serde_mod(Name, Source),
-    Serializer =
-        fun(DecodedData0, MessageName0) ->
-            DecodedData = emqx_utils_maps:safe_atom_key_map(DecodedData0),
-            MessageName = binary_to_existing_atom(MessageName0, utf8),
-            SerdeMod:encode_msg(DecodedData, MessageName)
-        end,
-    Deserializer =
-        fun(EncodedData, MessageName0) ->
-            MessageName = binary_to_existing_atom(MessageName0, utf8),
-            Decoded = SerdeMod:decode_msg(EncodedData, MessageName),
-            emqx_utils_maps:binary_key_map(Decoded)
-        end,
-    Destructor =
-        fun() ->
-            unload_code(SerdeMod),
-            ?tp(serde_destroyed, #{type => protobuf, name => Name}),
-            ok
-        end,
-    {Serializer, Deserializer, Destructor}.
+    #serde{
+        name = Name,
+        type = protobuf,
+        eval_context = SerdeMod
+    }.
+
+eval_decode(#serde{type = avro, name = Name, eval_context = Store}, [Data]) ->
+    Opts = avro:make_decoder_options([{map_type, map}, {record_type, map}]),
+    avro_binary_decoder:decode(Data, Name, Store, Opts);
+eval_decode(#serde{type = protobuf, eval_context = SerdeMod}, [EncodedData, MessageName0]) ->
+    MessageName = binary_to_existing_atom(MessageName0, utf8),
+    Decoded = apply(SerdeMod, decode_msg, [EncodedData, MessageName]),
+    emqx_utils_maps:binary_key_map(Decoded).
+
+eval_encode(#serde{type = avro, name = Name, eval_context = Store}, [Data]) ->
+    avro_binary_encoder:encode(Store, Name, Data);
+eval_encode(#serde{type = protobuf, eval_context = SerdeMod}, [DecodedData0, MessageName0]) ->
+    DecodedData = emqx_utils_maps:safe_atom_key_map(DecodedData0),
+    MessageName = binary_to_existing_atom(MessageName0, utf8),
+    apply(SerdeMod, encode_msg, [DecodedData, MessageName]).
+
+destroy(#serde{type = avro, name = _Name}) ->
+    ?tp(serde_destroyed, #{type => avro, name => _Name}),
+    ok;
+destroy(#serde{type = protobuf, name = _Name, eval_context = SerdeMod}) ->
+    unload_code(SerdeMod),
+    ?tp(serde_destroyed, #{type => protobuf, name => _Name}),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
-
--spec inject_avro_name(schema_name(), schema_source()) -> schema_source().
-inject_avro_name(Name, Source0) ->
-    %% The schema checks that the source is a valid JSON when
-    %% typechecking, so we shouldn't need to validate here.
-    Schema0 = emqx_utils_json:decode(Source0, [return_maps]),
-    Schema = Schema0#{<<"name">> => Name},
-    emqx_utils_json:encode(Schema).
 
 -spec make_protobuf_serde_mod(schema_name(), schema_source()) -> module().
 make_protobuf_serde_mod(Name, Source) ->

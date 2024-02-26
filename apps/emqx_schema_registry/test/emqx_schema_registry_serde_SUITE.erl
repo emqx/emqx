@@ -54,6 +54,7 @@ clear_schemas() ->
 schema_params(avro) ->
     Source = #{
         type => record,
+        name => <<"n1">>,
         fields => [
             #{name => <<"i">>, type => <<"int">>},
             #{name => <<"s">>, type => <<"string">>}

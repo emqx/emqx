@@ -45,6 +45,7 @@ end_per_suite(_Config) ->
 init_per_group(avro, Config) ->
     Source = #{
         type => record,
+        name => <<"apitest">>,
         fields => [
             #{name => <<"i">>, type => <<"int">>},
             #{name => <<"s">>, type => <<"string">>}
