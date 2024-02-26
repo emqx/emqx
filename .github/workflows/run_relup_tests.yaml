@@ -72,7 +72,7 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: erlef/setup-beam@8b9cac4c04dbcd7bf8fd673e16f988225d89b09b # v1.17.2
+    - uses: erlef/setup-beam@a23b1fc4452a892cf3e92cbc2c405256cd6c27ec # v1.17.3
       with:
         otp-version: 26.2.1
     - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
