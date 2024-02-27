@@ -312,11 +312,12 @@ do_ldap_query(
             {error, {unrecoverable_error, Reason}}
     end.
 
-log(Level, Format, Args) ->
+%% Note: the value of the `_Level` here always is 2
+log(_Level, Format, Args) ->
     ?SLOG(
-        Level,
+        info,
         #{
-            msg => "ldap_log",
+            msg => "eldap_info",
             log => io_lib:format(Format, Args)
         }
     ).
