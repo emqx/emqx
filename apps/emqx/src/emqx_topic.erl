@@ -269,10 +269,11 @@ do_join(_TopicAcc, [C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
 do_join(TopicAcc, [Word | Words]) ->
     do_join(<<TopicAcc/binary, "/", (bin(Word))/binary>>, Words).
 
--spec parse(topic() | {topic(), map()}) -> {topic() | share(), map()}.
-parse(TopicFilter) when is_binary(TopicFilter) ->
+-spec parse(TF | {TF, map()}) -> {TF, map()} when
+    TF :: topic() | share().
+parse(TopicFilter) when ?IS_TOPIC(TopicFilter) ->
     parse(TopicFilter, #{});
-parse({TopicFilter, Options}) when is_binary(TopicFilter) ->
+parse({TopicFilter, Options}) when ?IS_TOPIC(TopicFilter) ->
     parse(TopicFilter, Options).
 
 -spec parse(topic() | share(), map()) -> {topic() | share(), map()}.

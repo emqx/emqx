@@ -781,10 +781,13 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
     end.
 
 unsubscribe(#{clientid := ClientID, topic := Topic}) ->
+    {NTopic, _} = emqx_topic:parse(Topic),
     case do_unsubscribe(ClientID, Topic) of
         {error, channel_not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
-        {unsubscribe, [{Topic, #{}}]} ->
+        {unsubscribe, [{UnSubedT, #{}}]} when
+            (UnSubedT =:= NTopic) orelse (UnSubedT =:= Topic)
+        ->
             {204}
     end.
 
@@ -809,7 +812,7 @@ do_subscribe(ClientID, Topic0, Options) ->
         {subscribe, Subscriptions, Node} ->
             case proplists:is_defined(Topic, Subscriptions) of
                 true ->
-                    {ok, Options#{node => Node, clientid => ClientID, topic => Topic}};
+                    {ok, Options#{node => Node, clientid => ClientID, topic => Topic0}};
                 false ->
                     {error, unknow_error}
             end
