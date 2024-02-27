@@ -143,6 +143,44 @@ t_canonicalize_non_utf8(_) ->
         emqx_utils_fs:canonicalize(<<128, 128, 128>>)
     ).
 
+%%
+
+t_find_relpath(_) ->
+    ?assertEqual(
+        "d1/1",
+        emqx_utils_fs:find_relpath("/usr/local/nonempty/d1/1", "/usr/local/nonempty")
+    ).
+
+t_find_relpath_same(_) ->
+    ?assertEqual(
+        ".",
+        emqx_utils_fs:find_relpath("/usr/local/bin", "/usr/local/bin/")
+    ),
+    ?assertEqual(
+        ".",
+        emqx_utils_fs:find_relpath("/usr/local/bin/.", "/usr/local/bin")
+    ).
+
+t_find_relpath_no_prefix(_) ->
+    ?assertEqual(
+        "/usr/lib/erlang/lib",
+        emqx_utils_fs:find_relpath("/usr/lib/erlang/lib", "/usr/local/bin")
+    ).
+
+t_find_relpath_both_relative(_) ->
+    ?assertEqual(
+        "1/2/3",
+        emqx_utils_fs:find_relpath("local/nonempty/1/2/3", "local/nonempty")
+    ).
+
+t_find_relpath_different_types(_) ->
+    ?assertEqual(
+        "local/nonempty/1/2/3",
+        emqx_utils_fs:find_relpath("local/nonempty/1/2/3", "/usr/local/nonempty")
+    ).
+
+%%
+
 chmod_file(File, Mode) ->
     {ok, FileInfo} = file:read_file_info(File),
     ok = file:write_file_info(File, FileInfo#file_info{mode = Mode}).
