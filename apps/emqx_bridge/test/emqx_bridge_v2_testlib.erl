@@ -312,7 +312,7 @@ get_bridge_api(BridgeKind, BridgeType, BridgeName) ->
     Path = emqx_mgmt_api_test_util:api_path([Root, BridgeId]),
     ct:pal("get bridge ~p (via http)", [{BridgeKind, BridgeType, BridgeName}]),
     Res = request(get, Path, Params),
-    ct:pal("get bridge ~p result: ~p", [{BridgeType, BridgeName}, Res]),
+    ct:pal("get bridge ~p result: ~p", [{BridgeKind, BridgeType, BridgeName}, Res]),
     Res.
 
 create_bridge_api(Config) ->
