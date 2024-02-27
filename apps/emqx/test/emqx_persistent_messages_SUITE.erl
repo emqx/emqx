@@ -41,6 +41,7 @@ end_per_suite(_Config) ->
 init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Cluster = cluster(),
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
+    _ = wait_shards_online(Nodes),
     [{nodes, Nodes} | Config];
 init_per_testcase(t_message_gc = TestCase, Config) ->
     Opts = #{
@@ -53,7 +54,6 @@ init_per_testcase(TestCase, Config) ->
     common_init_per_testcase(TestCase, Config, _Opts = #{}).
 
 common_init_per_testcase(TestCase, Config, Opts) ->
-    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     Apps = emqx_cth_suite:start(
         app_specs(Opts),
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
@@ -63,14 +63,11 @@ common_init_per_testcase(TestCase, Config, Opts) ->
 end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
-    ok = emqx_cth_cluster:stop(Nodes),
-    end_per_testcase(common, Config);
+    ok = emqx_cth_cluster:stop(Nodes);
 end_per_testcase(_TestCase, Config) ->
     Apps = proplists:get_value(apps, Config, []),
     emqx_common_test_helpers:call_janitor(60_000),
-    clear_db(),
-    emqx_cth_suite:stop(Apps),
-    ok.
+    ok = emqx_cth_suite:stop(Apps).
 
 t_messages_persisted(_Config) ->
     C1 = connect(<<?MODULE_STRING "1">>, true, 30),
@@ -520,22 +517,23 @@ app_specs(Opts) ->
     ].
 
 cluster() ->
-    ExtraConf = "\n session_persistence.storage.builtin.n_sites = 2",
+    ExtraConf = "\n durable_storage.messages.n_sites = 2",
     Spec = #{role => core, apps => app_specs(#{extra_emqx_conf => ExtraConf})},
     [
         {persistent_messages_SUITE1, Spec},
         {persistent_messages_SUITE2, Spec}
     ].
 
+wait_shards_online(Nodes = [Node | _]) ->
+    NShards = erpc:call(Node, emqx_ds_replication_layer_meta, n_shards, [?PERSISTENT_MESSAGE_DB]),
+    ?retry(500, 10, [?assertEqual(NShards, shards_online(N)) || N <- Nodes]).
+
+shards_online(Node) ->
+    length(erpc:call(Node, emqx_ds_builtin_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
+
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
     Port.
-
-clear_db() ->
-    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
-    mria:stop(),
-    ok = mnesia:delete_schema([node()]),
-    ok.
 
 message(Topic, Payload, PublishedAt) ->
     #message{
