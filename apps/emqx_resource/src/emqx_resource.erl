@@ -84,6 +84,7 @@
     get_allocated_resources/1,
     get_allocated_resources_list/1,
     forget_allocated_resources/1,
+    deallocate_resource/2,
     %% Get channel config from resource
     call_get_channel_config/3
 ]).
@@ -648,6 +649,10 @@ get_allocated_resources_list(InstanceId) ->
 -spec forget_allocated_resources(resource_id()) -> ok.
 forget_allocated_resources(InstanceId) ->
     true = ets:delete(?RESOURCE_ALLOCATION_TAB, InstanceId),
+    ok.
+
+deallocate_resource(InstanceId, Key) ->
+    true = ets:match_delete(?RESOURCE_ALLOCATION_TAB, {InstanceId, Key, '_'}),
     ok.
 
 -spec create_metrics(resource_id()) -> ok.

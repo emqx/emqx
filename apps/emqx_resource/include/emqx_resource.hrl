@@ -154,7 +154,9 @@
 %% boolean
 -define(START_AFTER_CREATED, true).
 
--define(TEST_ID_PREFIX, "_probe_:").
+%% Keep this test_id_prefix is match "^[A-Za-z0-9]+[A-Za-z0-9-_]*$".
+%% See `hocon_tconf`
+-define(TEST_ID_PREFIX, "t_probe_").
 -define(RES_METRICS, resource_metrics).
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
