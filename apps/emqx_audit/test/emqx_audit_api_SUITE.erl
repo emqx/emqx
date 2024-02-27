@@ -88,7 +88,7 @@ t_http_api(_) ->
                         <<"method">> := <<"put">>,
                         <<"body">> := #{<<"mqtt">> := #{<<"max_qos_allowed">> := 1}},
                         <<"bindings">> := _,
-                        <<"headers">> := #{<<"authorization">> := <<"******">>}
+                        <<"headers">> := "******"
                     },
                     <<"http_status_code">> := 200,
                     <<"operation_result">> := <<"success">>,
