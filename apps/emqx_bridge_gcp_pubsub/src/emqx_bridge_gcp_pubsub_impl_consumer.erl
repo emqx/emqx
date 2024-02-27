@@ -94,8 +94,9 @@ query_mode(_Config) -> no_queries.
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, term()}.
 on_start(ConnectorResId, Config0) ->
-    %% ensure it's a binary key map
-    Config = maps:update_with(service_account_json, fun emqx_utils_maps:binary_key_map/1, Config0),
+    Config = maps:update_with(
+        service_account_json, fun(X) -> emqx_utils_json:decode(X, [return_maps]) end, Config0
+    ),
     #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
         {ok, Client} ->

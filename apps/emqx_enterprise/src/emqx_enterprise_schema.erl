@@ -19,7 +19,8 @@
 ]).
 
 %% Callback to upgrade config after loaded from config file but before validation.
-upgrade_raw_conf(RawConf) ->
+upgrade_raw_conf(RawConf0) ->
+    RawConf = emqx_bridge_gcp_pubsub:upgrade_raw_conf(RawConf0),
     emqx_conf_schema:upgrade_raw_conf(RawConf).
 
 namespace() ->

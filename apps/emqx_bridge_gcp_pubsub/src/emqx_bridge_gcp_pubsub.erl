@@ -21,11 +21,10 @@
     service_account_json_converter/2
 ]).
 
+-export([upgrade_raw_conf/1]).
+
 %% emqx_bridge_enterprise "unofficial" API
 -export([conn_bridge_examples/1]).
-
--type service_account_json() :: map().
--reflect_type([service_account_json/0]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 
@@ -101,7 +100,7 @@ fields(connector_config) ->
             )},
         {service_account_json,
             sc(
-                ?MODULE:service_account_json(),
+                binary(),
                 #{
                     required => true,
                     validator => fun ?MODULE:service_account_json_validator/1,
@@ -354,6 +353,22 @@ values(consumer, _Method) ->
             }
     }.
 
+upgrade_raw_conf(RawConf0) ->
+    lists:foldl(
+        fun(Path, Acc) ->
+            deep_update(
+                Path,
+                fun ensure_binary_service_account_json/1,
+                Acc
+            )
+        end,
+        RawConf0,
+        [
+            [<<"connectors">>, <<"gcp_pubsub_producer">>],
+            [<<"connectors">>, <<"gcp_pubsub_consumer">>]
+        ]
+    ).
+
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
@@ -371,46 +386,53 @@ type_field_consumer() ->
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
--spec service_account_json_validator(map()) ->
+-spec service_account_json_validator(binary()) ->
     ok
     | {error, {wrong_type, term()}}
     | {error, {missing_keys, [binary()]}}.
-service_account_json_validator(Map) ->
-    ExpectedKeys = [
-        <<"type">>,
-        <<"project_id">>,
-        <<"private_key_id">>,
-        <<"private_key">>,
-        <<"client_email">>
-    ],
-    MissingKeys = lists:sort([
-        K
-     || K <- ExpectedKeys,
-        not maps:is_key(K, Map)
-    ]),
-    Type = maps:get(<<"type">>, Map, null),
-    case {MissingKeys, Type} of
-        {[], <<"service_account">>} ->
-            ok;
-        {[], Type} ->
-            {error, #{wrong_type => Type}};
-        {_, _} ->
-            {error, #{missing_keys => MissingKeys}}
+service_account_json_validator(Val) ->
+    case emqx_utils_json:safe_decode(Val, [return_maps]) of
+        {ok, Map} ->
+            Map = emqx_utils_json:decode(Val, [return_maps]),
+            ExpectedKeys = [
+                <<"type">>,
+                <<"project_id">>,
+                <<"private_key_id">>,
+                <<"private_key">>,
+                <<"client_email">>
+            ],
+            MissingKeys = lists:sort([
+                K
+             || K <- ExpectedKeys,
+                not maps:is_key(K, Map)
+            ]),
+            Type = maps:get(<<"type">>, Map, null),
+            case {MissingKeys, Type} of
+                {[], <<"service_account">>} ->
+                    ok;
+                {[], Type} ->
+                    {error, #{wrong_type => Type}};
+                {_, _} ->
+                    {error, #{missing_keys => MissingKeys}}
+            end;
+        {error, _} ->
+            {error, "not a json"}
     end.
 
 service_account_json_converter(Val, #{make_serializable := true}) ->
-    Val;
+    case is_map(Val) of
+        true -> emqx_utils_json:encode(Val);
+        false -> Val
+    end;
 service_account_json_converter(Map, _Opts) when is_map(Map) ->
-    ExpectedKeys = [
-        <<"type">>,
-        <<"project_id">>,
-        <<"private_key_id">>,
-        <<"private_key">>,
-        <<"client_email">>
-    ],
-    maps:with(ExpectedKeys, Map);
+    emqx_utils_json:encode(Map);
 service_account_json_converter(Val, _Opts) ->
-    Val.
+    case emqx_utils_json:safe_decode(Val, [return_maps]) of
+        {ok, Str} when is_binary(Str) ->
+            emqx_utils_json:decode(Str, [return_maps]);
+        _ ->
+            Val
+    end.
 
 consumer_topic_mapping_validator(_TopicMapping = []) ->
     {error, "There must be at least one GCP PubSub-MQTT topic mapping"};
@@ -425,3 +447,29 @@ consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
         false ->
             {error, "GCP PubSub topics must not be repeated in a bridge"}
     end.
+
+deep_update(Path, Fun, Map) ->
+    case emqx_utils_maps:deep_get(Path, Map, #{}) of
+        M when map_size(M) > 0 ->
+            NewM = Fun(M),
+            emqx_utils_maps:deep_put(Path, Map, NewM);
+        _ ->
+            Map
+    end.
+
+ensure_binary_service_account_json(Connectors) ->
+    maps:map(
+        fun(_Name, Conf) ->
+            maps:update_with(
+                <<"service_account_json">>,
+                fun(JSON) ->
+                    case is_map(JSON) of
+                        true -> emqx_utils_json:encode(JSON);
+                        false -> JSON
+                    end
+                end,
+                Conf
+            )
+        end,
+        Connectors
+    ).

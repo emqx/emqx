@@ -25,7 +25,7 @@
 
 -export([get_jwt_authorization_header/1]).
 
--type service_account_json() :: emqx_bridge_gcp_pubsub:service_account_json().
+-type service_account_json() :: map().
 -type project_id() :: binary().
 -type duration() :: non_neg_integer().
 -type config() :: #{
