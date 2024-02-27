@@ -283,6 +283,10 @@ parse(#share{topic = Topic = <<?QUEUE, "/", _/binary>>}, _Options) ->
     error({invalid_topic_filter, Topic});
 parse(#share{topic = Topic = <<?SHARE, "/", _/binary>>}, _Options) ->
     error({invalid_topic_filter, Topic});
+parse(#share{} = T, #{nl := 1} = _Options) ->
+    %% Protocol Error and Should Disconnect
+    %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
+    error({invalid_subopts_nl, maybe_format_share(T)});
 parse(<<?QUEUE, "/", Topic/binary>>, Options) ->
     parse(#share{group = <<?QUEUE>>, topic = Topic}, Options);
 parse(TopicFilter = <<?SHARE, "/", Rest/binary>>, Options) ->
