@@ -1596,12 +1596,14 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
             Output
         ),
     %% Validate the connector config and the bridge_v2 config
-    NewFakeGlobalConfig = #{
+    NewFakeConnectorConfig = #{
         <<"connectors">> => #{
             bin(ConnectorType) => #{
                 bin(ConnectorName) => NewConnectorRawConf
             }
-        },
+        }
+    },
+    NewFakeBridgeV2Config = #{
         ConfRootKey => #{
             bin(BridgeV2Type) => #{
                 bin(BridgeName) => NewBridgeV2RawConf
@@ -1610,8 +1612,13 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
     },
     try
         hocon_tconf:check_plain(
-            emqx_schema,
-            NewFakeGlobalConfig,
+            emqx_connector_schema,
+            NewFakeConnectorConfig,
+            #{atom_key => false, required => false}
+        ),
+        hocon_tconf:check_plain(
+            emqx_bridge_v2_schema,
+            NewFakeBridgeV2Config,
             #{atom_key => false, required => false}
         )
     of
@@ -1627,8 +1634,10 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
             }
     catch
         %% validation errors
+        throw:{_Module, [Reason1 | _]} ->
+            throw(Reason1);
         throw:Reason1 ->
-            {error, Reason1}
+            throw(Reason1)
     end.
 
 get_conf_root_key(#{<<"actions">> := _}) ->

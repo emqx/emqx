@@ -154,7 +154,7 @@
 %% boolean
 -define(START_AFTER_CREATED, true).
 
--define(TEST_ID_PREFIX, "_probe_:").
+-define(TEST_ID_PREFIX, "probe__").
 -define(RES_METRICS, resource_metrics).
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
