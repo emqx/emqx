@@ -32,22 +32,23 @@ fields(publisher_action) ->
             ?R_REF(action_parameters),
             #{
                 required => true,
-                desc => ?DESC(action_parameters)
+                desc => ?DESC(action_parameters),
+                validator => fun emqx_bridge_pulsar:producer_strategy_key_validator/1
             }
         ),
         #{resource_opts_ref => ?R_REF(action_resource_opts)}
     );
 fields(action_parameters) ->
     [
-        {sync_timeout,
-            ?HOCON(emqx_schema:timeout_duration_ms(), #{
-                default => <<"3s">>, desc => ?DESC("producer_sync_timeout")
-            })},
         {message,
             ?HOCON(?R_REF(producer_pulsar_message), #{
                 required => false, desc => ?DESC("producer_message_opts")
+            })},
+        {sync_timeout,
+            ?HOCON(emqx_schema:timeout_duration_ms(), #{
+                default => <<"3s">>, desc => ?DESC("producer_sync_timeout")
             })}
-    ];
+    ] ++ emqx_bridge_pulsar:fields(producer_opts);
 fields(producer_pulsar_message) ->
     [
         {key,
@@ -114,7 +115,8 @@ bridge_v2_examples(Method) ->
                             message => #{
                                 key => <<"${.clientid}">>,
                                 value => <<"${.}">>
-                            }
+                            },
+                            pulsar_topic => <<"test_topic">>
                         }
                     }
                 )

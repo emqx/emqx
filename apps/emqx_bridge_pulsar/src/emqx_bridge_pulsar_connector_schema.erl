@@ -18,9 +18,8 @@ namespace() -> ?TYPE.
 roots() -> [].
 
 fields("config_connector") ->
-    lists:keydelete(enable, 1, emqx_bridge_schema:common_bridge_fields()) ++
-        emqx_bridge_pulsar:fields(config) ++
-        emqx_bridge_pulsar:fields(producer_opts) ++
+    emqx_bridge_schema:common_bridge_fields() ++
+        lists:keydelete(enable, 1, emqx_bridge_pulsar:fields(config)) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -59,13 +58,5 @@ connector_example_values() ->
         servers => <<"pulsar://127.0.0.1:6650">>,
         authentication => none,
         connect_timeout => <<"5s">>,
-        batch_size => 10,
-        compression => no_compression,
-        send_buffer => <<"1MB">>,
-        retention_period => <<"100s">>,
-        max_batch_bytes => <<"32MB">>,
-        pulsar_topic => <<"test_topic">>,
-        strategy => random,
-        buffer => #{mode => memory},
         ssl => #{enable => false}
     }.

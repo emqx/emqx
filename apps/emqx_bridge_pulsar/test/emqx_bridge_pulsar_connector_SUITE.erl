@@ -599,13 +599,7 @@ t_start_and_produce_ok(Config) ->
                 _Sleep = 100,
                 _Attempts0 = 20,
                 begin
-                    BridgeId = emqx_bridge_resource:bridge_id(
-                        <<"pulsar">>, ?config(pulsar_name, Config)
-                    ),
-                    ConnectorId = emqx_bridge_resource:resource_id(
-                        <<"pulsar">>, ?config(pulsar_name, Config)
-                    ),
-                    Id = <<"action:", BridgeId/binary, ":", ConnectorId/binary>>,
+                    Id = get_channel_id(Config),
                     ?assertMatch(
                         #{
                             counters := #{
@@ -633,6 +627,15 @@ t_start_and_produce_ok(Config) ->
         end
     ),
     ok.
+
+get_channel_id(Config) ->
+    BridgeId = emqx_bridge_resource:bridge_id(
+        <<"pulsar">>, ?config(pulsar_name, Config)
+    ),
+    ConnectorId = emqx_bridge_resource:resource_id(
+        <<"pulsar">>, ?config(pulsar_name, Config)
+    ),
+    <<"action:", BridgeId/binary, ":", ConnectorId/binary>>.
 
 %% Under normal operations, the bridge will be called async via
 %% `simple_async_query'.
@@ -900,7 +903,7 @@ t_failure_to_start_producer(Config) ->
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
-                    #{?snk_kind := pulsar_bridge_client_stopped},
+                    #{?snk_kind := pulsar_bridge_producer_stopped},
                     20_000
                 ),
             ok
@@ -928,6 +931,8 @@ t_producer_process_crash(Config) ->
                     #{?snk_kind := pulsar_producer_bridge_started},
                     10_000
                 ),
+            ResourceId = resource_id(Config),
+            ChannelId = get_channel_id(Config),
             [ProducerPid | _] = [
                 Pid
              || {_Name, PS, _Type, _Mods} <- supervisor:which_children(pulsar_producers_sup),
@@ -944,17 +949,23 @@ t_producer_process_crash(Config) ->
                     ok
             after 1_000 -> ct:fail("pid didn't die")
             end,
-            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep0 = 50,
                 _Attempts0 = 50,
-                ?assertEqual({ok, connecting}, emqx_resource_manager:health_check(ResourceId))
+                ?assertEqual(
+                    #{error => <<"Not connected for unknown reason">>, status => connecting},
+                    emqx_resource_manager:channel_health_check(ResourceId, ChannelId)
+                )
             ),
+            ?assertMatch({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
             %% Should recover given enough time.
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+                ?assertEqual(
+                    #{error => undefined, status => connected},
+                    emqx_resource_manager:channel_health_check(ResourceId, ChannelId)
+                )
             ),
             {_, {ok, _}} =
                 ?wait_async_action(
@@ -1002,8 +1013,8 @@ t_resource_manager_crash_after_producers_started(Config) ->
             {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
-                    #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := Producers} when
-                        Producers =/= undefined,
+                    #{?snk_kind := pulsar_bridge_stopped, instance_id := InstanceId} when
+                        InstanceId =/= undefined,
                     10_000
                 ),
             ?assertEqual([], get_pulsar_producers()),
@@ -1036,7 +1047,7 @@ t_resource_manager_crash_before_producers_started(Config) ->
             {{error, {config_update_crashed, _}}, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
-                    #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := undefined},
+                    #{?snk_kind := pulsar_bridge_stopped},
                     10_000
                 ),
             ?assertEqual([], get_pulsar_producers()),
@@ -1236,3 +1247,19 @@ t_resilience(Config) ->
         []
     ),
     ok.
+
+get_producers_config(ConnectorId, ChannelId) ->
+    [
+        #{
+            state :=
+                #{
+                    channels :=
+                        #{ChannelId := #{producers := Producers}}
+                }
+        }
+    ] =
+        lists:filter(
+            fun(#{id := Id}) -> Id =:= ConnectorId end,
+            emqx_resource_manager:list_all()
+        ),
+    Producers.

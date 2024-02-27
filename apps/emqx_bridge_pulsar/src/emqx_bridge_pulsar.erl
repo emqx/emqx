@@ -33,7 +33,6 @@ roots() ->
 fields(pulsar_producer) ->
     fields(config) ++
         emqx_bridge_pulsar_pubsub_schema:fields(action_parameters) ++
-        fields(producer_opts) ++
         [
             {local_topic,
                 mk(binary(), #{required => false, desc => ?DESC("producer_local_topic")})},
@@ -85,6 +84,7 @@ fields(config) ->
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(producer_opts) ->
     [
+        {pulsar_topic, mk(string(), #{required => true, desc => ?DESC("producer_pulsar_topic")})},
         {batch_size,
             mk(
                 pos_integer(),
@@ -110,7 +110,6 @@ fields(producer_opts) ->
                 emqx_schema:bytesize(),
                 #{default => <<"900KB">>, desc => ?DESC("producer_max_batch_bytes")}
             )},
-        {pulsar_topic, mk(binary(), #{required => true, desc => ?DESC("producer_pulsar_topic")})},
         {strategy,
             mk(
                 hoconsc:enum([random, roundrobin, key_dispatch]),
@@ -202,7 +201,37 @@ conn_bridge_examples(_Method) ->
         #{
             <<"pulsar_producer">> => #{
                 summary => <<"Pulsar Producer Bridge">>,
-                value => #{todo => true}
+                value => #{
+                    <<"authentication">> => <<"none">>,
+                    <<"batch_size">> => 1,
+                    <<"buffer">> =>
+                        #{
+                            <<"memory_overload_protection">> => true,
+                            <<"mode">> => <<"memory">>,
+                            <<"per_partition_limit">> => <<"10MB">>,
+                            <<"segment_bytes">> => <<"5MB">>
+                        },
+                    <<"compression">> => <<"no_compression">>,
+                    <<"enable">> => true,
+                    <<"local_topic">> => <<"mqtt/topic/-576460752303423482">>,
+                    <<"max_batch_bytes">> => <<"900KB">>,
+                    <<"message">> =>
+                        #{<<"key">> => <<"${.clientid}">>, <<"value">> => <<"${.}">>},
+                    <<"name">> => <<"pulsar_example_name">>,
+                    <<"pulsar_topic">> => <<"pulsar_example_topic">>,
+                    <<"retention_period">> => <<"infinity">>,
+                    <<"send_buffer">> => <<"1MB">>,
+                    <<"servers">> => <<"pulsar://127.0.0.1:6650">>,
+                    <<"ssl">> =>
+                        #{
+                            <<"enable">> => false,
+                            <<"server_name_indication">> => <<"auto">>,
+                            <<"verify">> => <<"verify_none">>
+                        },
+                    <<"strategy">> => <<"key_dispatch">>,
+                    <<"sync_timeout">> => <<"5s">>,
+                    <<"type">> => <<"pulsar_producer">>
+                }
             }
         }
     ].
