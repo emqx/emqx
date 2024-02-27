@@ -22,7 +22,9 @@
     list/1,
     mqueue/1,
     map/2,
-    chain/2
+    transpose/1,
+    chain/2,
+    repeat/1
 ]).
 
 %% Evaluating
@@ -91,6 +93,31 @@ map(F, S) ->
         end
     end.
 
+%% @doc Transpose a list of streams into a stream producing lists of their respective values.
+%% The resulting stream is as long as the shortest of the input streams.
+-spec transpose([stream(X)]) -> stream([X]).
+transpose([S]) ->
+    map(fun(X) -> [X] end, S);
+transpose([S | Streams]) ->
+    transpose_tail(S, transpose(Streams));
+transpose([]) ->
+    empty().
+
+transpose_tail(S, Tail) ->
+    fun() ->
+        case next(S) of
+            [X | SRest] ->
+                case next(Tail) of
+                    [Xs | TailRest] ->
+                        [[X | Xs] | transpose_tail(SRest, TailRest)];
+                    [] ->
+                        []
+                end;
+            [] ->
+                []
+        end
+    end.
+
 %% @doc Make a stream by chaining (concatenating) two streams.
 %% The second stream begins to produce values only after the first one is exhausted.
 -spec chain(stream(X), stream(Y)) -> stream(X | Y).
@@ -101,6 +128,19 @@ chain(SFirst, SThen) ->
                 [X | chain(SRest, SThen)];
             [] ->
                 next(SThen)
+        end
+    end.
+
+%% @doc Make an infinite stream out of repeats of given stream.
+%% If the given stream is empty, the resulting stream is also empty.
+-spec repeat(stream(X)) -> stream(X).
+repeat(S) ->
+    fun() ->
+        case next(S) of
+            [X | SRest] ->
+                [X | chain(SRest, repeat(S))];
+            [] ->
+                []
         end
     end.
 

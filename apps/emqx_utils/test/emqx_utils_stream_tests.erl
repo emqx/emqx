@@ -74,6 +74,80 @@ chain_list_map_test() ->
         emqx_utils_stream:consume(S)
     ).
 
+transpose_test() ->
+    S = emqx_utils_stream:transpose([
+        emqx_utils_stream:list([1, 2, 3]),
+        emqx_utils_stream:list([4, 5, 6, 7])
+    ]),
+    ?assertEqual(
+        [[1, 4], [2, 5], [3, 6]],
+        emqx_utils_stream:consume(S)
+    ).
+
+transpose_none_test() ->
+    ?assertEqual(
+        [],
+        emqx_utils_stream:consume(emqx_utils_stream:transpose([]))
+    ).
+
+transpose_one_test() ->
+    S = emqx_utils_stream:transpose([emqx_utils_stream:list([1, 2, 3])]),
+    ?assertEqual(
+        [[1], [2], [3]],
+        emqx_utils_stream:consume(S)
+    ).
+
+transpose_many_test() ->
+    S = emqx_utils_stream:transpose([
+        emqx_utils_stream:list([1, 2, 3]),
+        emqx_utils_stream:list([4, 5, 6, 7]),
+        emqx_utils_stream:list([8, 9])
+    ]),
+    ?assertEqual(
+        [[1, 4, 8], [2, 5, 9]],
+        emqx_utils_stream:consume(S)
+    ).
+
+transpose_many_empty_test() ->
+    S = emqx_utils_stream:transpose([
+        emqx_utils_stream:list([1, 2, 3]),
+        emqx_utils_stream:list([4, 5, 6, 7]),
+        emqx_utils_stream:empty()
+    ]),
+    ?assertEqual(
+        [],
+        emqx_utils_stream:consume(S)
+    ).
+
+repeat_test() ->
+    S = emqx_utils_stream:repeat(emqx_utils_stream:list([1, 2, 3])),
+    ?assertMatch(
+        {[1, 2, 3, 1, 2, 3, 1, 2], _},
+        emqx_utils_stream:consume(8, S)
+    ),
+    {_, SRest} = emqx_utils_stream:consume(8, S),
+    ?assertMatch(
+        {[3, 1, 2, 3, 1, 2, 3, 1], _},
+        emqx_utils_stream:consume(8, SRest)
+    ).
+
+repeat_empty_test() ->
+    S = emqx_utils_stream:repeat(emqx_utils_stream:list([])),
+    ?assertEqual(
+        [],
+        emqx_utils_stream:consume(8, S)
+    ).
+
+transpose_repeat_test() ->
+    S = emqx_utils_stream:transpose([
+        emqx_utils_stream:repeat(emqx_utils_stream:list([1, 2])),
+        emqx_utils_stream:list([4, 5, 6, 7, 8])
+    ]),
+    ?assertEqual(
+        [[1, 4], [2, 5], [1, 6], [2, 7], [1, 8]],
+        emqx_utils_stream:consume(S)
+    ).
+
 mqueue_test() ->
     _ = erlang:send_after(1, self(), 1),
     _ = erlang:send_after(100, self(), 2),
