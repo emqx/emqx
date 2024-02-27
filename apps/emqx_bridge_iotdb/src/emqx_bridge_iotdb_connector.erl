@@ -66,6 +66,7 @@
 -type manager_id() :: binary().
 
 -define(CONNECTOR_TYPE, iotdb).
+-define(IOTDB_PING_PATH, <<"ping">>).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -238,8 +239,26 @@ on_stop(InstanceId, State) ->
 
 -spec on_get_status(manager_id(), state()) ->
     {connected, state()} | {disconnected, state(), term()}.
-on_get_status(InstanceId, State) ->
-    emqx_bridge_http_connector:on_get_status(InstanceId, State).
+on_get_status(InstanceId, #{base_path := BasePath} = State) ->
+    Func = fun(Worker, Timeout) ->
+        Request = {?IOTDB_PING_PATH, [], undefined},
+        NRequest = emqx_bridge_http_connector:formalize_request(get, BasePath, Request),
+        Result0 = ehttpc:request(Worker, get, NRequest, Timeout),
+        case emqx_bridge_http_connector:transform_result(Result0) of
+            {ok, 200, _, Body} ->
+                case emqx_utils_json:decode(Body) of
+                    #{<<"code">> := 200} ->
+                        ok;
+                    Json ->
+                        {error, {unexpected_status, Json}}
+                end;
+            {error, _} = Error ->
+                Error;
+            Result ->
+                {error, {unexpected_ping_result, Result}}
+        end
+    end,
+    emqx_bridge_http_connector:on_get_status(InstanceId, State, Func).
 
 -spec on_query(manager_id(), {send_message, map()}, state()) ->
     {ok, pos_integer(), [term()], term()}
@@ -352,13 +371,8 @@ on_remove_channel(InstanceId, #{channels := Channels} = OldState0, ChannelId) ->
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
 
-on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
-    case maps:is_key(ChannelId, Channels) of
-        true ->
-            connected;
-        _ ->
-            {error, not_exists}
-    end.
+on_get_channel_status(InstanceId, _ChannelId, State) ->
+    on_get_status(InstanceId, State).
 
 %%--------------------------------------------------------------------
 %% Internal Functions
