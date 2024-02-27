@@ -430,6 +430,62 @@ t_client_id_not_found(_Config) ->
         {error, {Http, _, Body}}, PostFun(post, PathFun(["unsubscribe", "bulk"]), [UnsubBody])
     ).
 
+t_subscribe_shared_topic(_Config) ->
+    ClientId = <<"client_subscribe_shared">>,
+
+    {ok, C} = emqtt:start_link(#{clientid => ClientId}),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 1),
+
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+
+    Http200 = {"HTTP/1.1", 200, "OK"},
+    Http204 = {"HTTP/1.1", 204, "No Content"},
+
+    PathFun = fun(Suffix) ->
+        emqx_mgmt_api_test_util:api_path(["clients", "client_subscribe_shared"] ++ Suffix)
+    end,
+
+    PostFun = fun(Method, Path, Data) ->
+        emqx_mgmt_api_test_util:request_api(
+            Method, Path, "", AuthHeader, Data, #{return_all => true}
+        )
+    end,
+
+    SharedT = <<"$share/group/testtopic">>,
+    NonSharedT = <<"t/1">>,
+
+    SubBodyFun = fun(T) -> #{topic => T, qos => 1, nl => 1, rh => 1} end,
+    UnSubBodyFun = fun(T) -> #{topic => T} end,
+
+    %% Client Subscribe
+    ?assertMatch(
+        {ok, {Http200, _, _}},
+        PostFun(post, PathFun(["subscribe"]), SubBodyFun(SharedT))
+    ),
+    ?assertMatch(
+        {ok, {Http200, _, _}},
+        PostFun(
+            post,
+            PathFun(["subscribe", "bulk"]),
+            [SubBodyFun(T) || T <- [SharedT, NonSharedT]]
+        )
+    ),
+
+    %% Client Unsubscribe
+    ?assertMatch(
+        {ok, {Http204, _, _}},
+        PostFun(post, PathFun(["unsubscribe"]), UnSubBodyFun(SharedT))
+    ),
+    ?assertMatch(
+        {ok, {Http204, _, _}},
+        PostFun(
+            post,
+            PathFun(["unsubscribe", "bulk"]),
+            [UnSubBodyFun(T) || T <- [SharedT, NonSharedT]]
+        )
+    ).
+
 time_string_to_epoch_millisecond(DateTime) ->
     time_string_to_epoch(DateTime, millisecond).
 
