@@ -172,7 +172,7 @@ readable("duration()") ->
 readable("duration_s()") ->
     #{
         swagger => #{type => string, example => <<"1h">>},
-        dashboard => #{type => duration},
+        dashboard => #{type => duration, minimum => <<"1s">>},
         docgen => #{type => "Duration(s)", example => <<"1h">>, desc => ?DESC(duration)}
     };
 readable("duration_ms()") ->
@@ -190,7 +190,7 @@ readable("timeout_duration()") ->
 readable("timeout_duration_s()") ->
     #{
         swagger => #{type => string, example => <<"1h">>},
-        dashboard => #{type => duration},
+        dashboard => #{type => duration, minimum => <<"1s">>},
         docgen => #{type => "Duration(s)", example => <<"1h">>, desc => ?DESC(duration)}
     };
 readable("timeout_duration_ms()") ->
