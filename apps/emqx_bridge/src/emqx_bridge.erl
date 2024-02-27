@@ -98,9 +98,6 @@
 
 -define(ROOT_KEY, bridges).
 
-%% See `hocon_tconf`
--define(MAP_KEY_RE, <<"^[A-Za-z0-9]+[A-Za-z0-9-_]*$">>).
-
 load() ->
     Bridges = emqx:get_config([?ROOT_KEY], #{}),
     emqx_utils:pforeach(

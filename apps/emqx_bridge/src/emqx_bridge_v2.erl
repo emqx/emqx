@@ -1611,12 +1611,12 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
         }
     },
     try
-        hocon_tconf:check_plain(
+        _ = hocon_tconf:check_plain(
             emqx_connector_schema,
             NewFakeConnectorConfig,
             #{atom_key => false, required => false}
         ),
-        hocon_tconf:check_plain(
+        _ = hocon_tconf:check_plain(
             emqx_bridge_v2_schema,
             NewFakeBridgeV2Config,
             #{atom_key => false, required => false}
