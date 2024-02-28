@@ -5,6 +5,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_bridge_hstreamdb.hrl").
 
 -import(hoconsc, [mk/2, enum/1]).
 
@@ -23,8 +24,6 @@
 
 -define(CONNECTOR_TYPE, hstreamdb).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
--define(DEFAULT_GRPC_TIMEOUT_RAW, <<"30s">>).
--define(DEFAULT_GRPC_FLUSH_TIMEOUT_RAW, <<"10s">>).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
@@ -113,8 +112,8 @@ action_values() ->
             <<"partition_key">> => <<"hej">>,
             <<"record_template">> => <<"${payload}">>,
             <<"stream">> => <<"mqtt_message">>,
-            <<"aggregation_pool_size">> => 8,
-            <<"writer_pool_size">> => 8
+            <<"aggregation_pool_size">> => ?DEFAULT_AGG_POOL_SIZE,
+            <<"writer_pool_size">> => ?DEFAULT_WRITER_POOL_SIZE
         }
     }.
 
@@ -174,13 +173,17 @@ fields(action_parameters) ->
         {record_template,
             mk(binary(), #{default => <<"${payload}">>, desc => ?DESC("record_template")})},
         {aggregation_pool_size,
-            mk(integer(), #{default => 8, desc => ?DESC("aggregation_pool_size")})},
-        {max_batches, mk(integer(), #{default => 500, desc => ?DESC("max_batches")})},
-        {writer_pool_size, mk(integer(), #{default => 8, desc => ?DESC("writer_pool_size")})},
+            mk(integer(), #{
+                default => ?DEFAULT_AGG_POOL_SIZE, desc => ?DESC("aggregation_pool_size")
+            })},
+        {max_batches,
+            mk(integer(), #{default => ?DEFAULT_MAX_BATCHES, desc => ?DESC("max_batches")})},
+        {writer_pool_size,
+            mk(integer(), #{default => ?DEFAULT_WRITER_POOL_SIZE, desc => ?DESC("writer_pool_size")})},
         {batch_size, mk(integer(), #{default => 100, desc => ?DESC("batch_size")})},
         {batch_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"500ms">>, desc => ?DESC("batch_interval")
+                default => ?DEFAULT_BATCH_INTERVAL_RAW, desc => ?DESC("batch_interval")
             })}
     ];
 fields(connector_fields) ->

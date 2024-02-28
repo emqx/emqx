@@ -8,6 +8,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("emqx_bridge_hstreamdb.hrl").
 
 -import(hoconsc, [mk/2]).
 
@@ -40,14 +41,6 @@
 
 %% Allocatable resources
 -define(hstreamdb_client, hstreamdb_client).
-
--define(DEFAULT_GRPC_TIMEOUT, timer:seconds(30)).
--define(DEFAULT_GRPC_TIMEOUT_RAW, <<"30s">>).
--define(DEFAULT_GRPC_FLUSH_TIMEOUT, 10000).
--define(DEFAULT_MAX_BATCHES, 500).
--define(DEFAULT_BATCH_INTERVAL, 500).
--define(DEFAULT_AGG_POOL_SIZE, 8).
--define(DEFAULT_WRITER_POOL_SIZE, 8).
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
@@ -243,11 +236,9 @@ do_on_start(InstId, Config) ->
             {error, {connect_failed, Error}}
     end.
 
-client_options(Config = #{url := ServerURL, ssl := SSL}) ->
-    GRPCTimeout = maps:get(<<"grpc_timeout">>, Config, ?DEFAULT_GRPC_TIMEOUT),
-    EnableSSL = maps:get(enable, SSL),
+client_options(#{url := ServerURL, ssl := SSL, grpc_timeout := GRPCTimeout}) ->
     RpcOpts =
-        case EnableSSL of
+        case maps:get(enable, SSL) of
             false ->
                 #{pool_size => 1};
             true ->
