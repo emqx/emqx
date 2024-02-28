@@ -883,15 +883,33 @@ gen_point(Type, Name, Path) ->
 %% TODO: cert manager for more generic utils functions
 cert_expiry_at_from_path(Path0) ->
     Path = emqx_schema:naive_env_interpolation(Path0),
-    case file:read_file(Path) of
-        {ok, PemBin} ->
-            [CertEntry | _] = public_key:pem_decode(PemBin),
-            Cert = public_key:pem_entry_decode(CertEntry),
-            %% TODO: Not fully tested for all certs type
-            {'utcTime', NotAfterUtc} =
-                Cert#'Certificate'.'tbsCertificate'#'TBSCertificate'.validity#'Validity'.'notAfter',
-            utc_time_to_epoch(NotAfterUtc);
-        {error, _} ->
+    try
+        case file:read_file(Path) of
+            {ok, PemBin} ->
+                [CertEntry | _] = public_key:pem_decode(PemBin),
+                Cert = public_key:pem_entry_decode(CertEntry),
+                %% TODO: Not fully tested for all certs type
+                {'utcTime', NotAfterUtc} =
+                    Cert#'Certificate'.'tbsCertificate'#'TBSCertificate'.validity#'Validity'.'notAfter',
+                utc_time_to_epoch(NotAfterUtc);
+            {error, Reason} ->
+                ?SLOG(error, #{
+                    msg => "read_cert_file_failed",
+                    path => Path0,
+                    resolved_path => Path,
+                    reason => Reason
+                }),
+                0
+        end
+    catch
+        E:R ->
+            ?SLOG(error, #{
+                msg => "obtain_cert_expiry_time_failed",
+                error => E,
+                reason => R,
+                path => Path0,
+                resolved_path => Path
+            }),
             0
     end.
 
