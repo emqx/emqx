@@ -367,6 +367,8 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
 get_payload(#{payload := Payload}) ->
     Payload;
 get_payload(#{<<"payload">> := Payload}) ->
+    Payload;
+get_payload(Payload) ->
     Payload.
 
 parse_payload(ParsedPayload) when is_map(ParsedPayload) ->
@@ -694,7 +696,7 @@ render_channel_message(#{is_aligned := IsAligned} = Channel, IoTDBVsn, Message) 
         DeviceId ->
             case get_data_template(Channel, Payloads) of
                 [] ->
-                    {error, invalid_data};
+                    {error, invalid_template};
                 DataTemplate ->
                     case proc_data(DataTemplate, Message) of
                         {ok, DataList} ->
