@@ -830,8 +830,7 @@ cert_data(undefined) ->
 cert_data(AllListeners) ->
     Points = lists:foldl(
         fun(ListenerType, PointsAcc) ->
-            PointsAcc ++
-                points_of_listeners(ListenerType, AllListeners)
+            lists:append(PointsAcc, points_of_listeners(ListenerType, AllListeners))
         end,
         _PointsInitAcc = [],
         ?LISTENER_TYPES
@@ -843,41 +842,34 @@ cert_data(AllListeners) ->
 points_of_listeners(Type, AllListeners) ->
     do_points_of_listeners(Type, maps:get(Type, AllListeners, undefined)).
 
--define(CERT_TYPES, [certfile]).
-
--spec do_points_of_listeners(Type, TypeOfListeners) ->
+-spec do_points_of_listeners(Type, Listeners) ->
     [_Point :: {[{LabelKey, LabelValue}], Epoch}]
 when
     Type :: ssl | wss | quic,
-    TypeOfListeners :: #{ListenerName :: atom() => ListenerConf :: map()} | undefined,
+    Listeners :: #{ListenerName :: atom() => ListenerConf :: map()} | undefined,
     LabelKey :: atom(),
     LabelValue :: atom(),
     Epoch :: non_neg_integer().
 do_points_of_listeners(_, undefined) ->
     [];
-do_points_of_listeners(ListenerType, TypeOfListeners) ->
+do_points_of_listeners(Type, Listeners) ->
     lists:foldl(
         fun(Name, PointsAcc) ->
-            lists:foldl(
-                fun(CertType, AccIn) ->
-                    case
-                        emqx_utils_maps:deep_get(
-                            [Name, ssl_options, CertType], TypeOfListeners, undefined
-                        )
-                    of
-                        undefined -> AccIn;
-                        Path -> [gen_point(ListenerType, Name, Path) | AccIn]
-                    end
-                end,
-                [],
-                ?CERT_TYPES
-            ) ++ PointsAcc
+            case
+                emqx_utils_maps:deep_get(
+                    [Name, ssl_options, certfile], Listeners, undefined
+                )
+            of
+                undefined -> PointsAcc;
+                Path -> [gen_point_cert_expiry_at(Type, Name, Path) | PointsAcc]
+            end
         end,
         [],
-        maps:keys(TypeOfListeners)
+        %% listener names
+        maps:keys(Listeners)
     ).
 
-gen_point(Type, Name, Path) ->
+gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
 
 %% TODO: cert manager for more generic utils functions
