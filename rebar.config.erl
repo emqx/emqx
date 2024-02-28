@@ -352,16 +352,19 @@ overlay_vars(cloud, PkgType, Edition) ->
 overlay_vars_edition(ce) ->
     [
         {emqx_schema_mod, emqx_conf_schema},
+        {is_enterprise, "no"},
         {emqx_configuration_doc,
-            "https://www.emqx.io/docs/en/v5.0/configuration/configuration.html"},
-        {is_enterprise, "no"}
+            "https://www.emqx.io/docs/en/latest/configuration/configuration.html"},
+        {emqx_configuration_doc_log, "https://www.emqx.io/docs/en/latest/configuration/logs.html"}
     ];
 overlay_vars_edition(ee) ->
     [
         {emqx_schema_mod, emqx_enterprise_schema},
+        {is_enterprise, "yes"},
         {emqx_configuration_doc,
-            "https://docs.emqx.com/en/enterprise/v5.0/configuration/configuration.html"},
-        {is_enterprise, "yes"}
+            "https://docs.emqx.com/en/enterprise/latest/configuration/configuration.html"},
+        {emqx_configuration_doc_log,
+            "https://docs.emqx.com/en/enterprise/latest/configuration/logs.html"}
     ].
 
 %% vars per packaging type, bin(zip/tar.gz/docker) or pkg(rpm/deb)

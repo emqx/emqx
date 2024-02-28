@@ -722,7 +722,8 @@ defmodule EMQXUmbrella.MixProject do
   defp template_vars(release, release_type, :bin = _package_type, edition_type) do
     [
       emqx_default_erlang_cookie: default_cookie(),
-      emqx_configuration_doc: emqx_configuration_doc(edition_type),
+      emqx_configuration_doc: emqx_configuration_doc(edition_type, :root),
+      emqx_configuration_doc_log: emqx_configuration_doc(edition_type, :log),
       platform_data_dir: "data",
       platform_etc_dir: "etc",
       platform_plugins_dir: "plugins",
@@ -745,7 +746,8 @@ defmodule EMQXUmbrella.MixProject do
   defp template_vars(release, release_type, :pkg = _package_type, edition_type) do
     [
       emqx_default_erlang_cookie: default_cookie(),
-      emqx_configuration_doc: emqx_configuration_doc(edition_type),
+      emqx_configuration_doc: emqx_configuration_doc(edition_type, :root),
+      emqx_configuration_doc_log: emqx_configuration_doc(edition_type, :log),
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
       platform_plugins_dir: "/var/lib/emqx/plugins",
@@ -779,11 +781,17 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  defp emqx_configuration_doc(:enterprise),
-    do: "https://docs.emqx.com/en/enterprise/v5.0/configuration/configuration.html"
+  defp emqx_configuration_doc(:enterprise, :root),
+    do: "https://docs.emqx.com/en/enterprise/latest/configuration/configuration.html"
 
-  defp emqx_configuration_doc(:community),
-    do: "https://www.emqx.io/docs/en/v5.0/configuration/configuration.html"
+  defp emqx_configuration_doc(:enterprise, :log),
+    do: "https://docs.emqx.com/en/enterprise/latest/configuration/logs.html"
+
+  defp emqx_configuration_doc(:community, :root),
+    do: "https://www.emqx.io/docs/en/latest/configuration/configuration.html"
+
+  defp emqx_configuration_doc(:community, :log),
+    do: "https://www.emqx.io/docs/en/latest/configuration/logs.html"
 
   defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema

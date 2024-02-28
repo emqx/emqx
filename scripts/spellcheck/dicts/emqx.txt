@@ -239,6 +239,7 @@ superset
 sys
 sysmem
 sysmon
+systemd
 tcp
 ticktime
 timeseries

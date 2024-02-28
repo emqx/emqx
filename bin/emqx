@@ -604,7 +604,7 @@ check_license() {
         return 0
     fi
 
-    key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key')}"
+    key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key' || echo '')}"
 
     if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
       call_nodetool check_license_key "$key_license"

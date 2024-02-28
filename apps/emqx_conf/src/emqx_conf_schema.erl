@@ -116,7 +116,8 @@ roots() ->
                     ?R_REF("log"),
                     #{
                         translate_to => ["kernel"],
-                        importance => ?IMPORTANCE_HIGH
+                        importance => ?IMPORTANCE_HIGH,
+                        desc => ?DESC(log_root)
                     }
                 )},
             {rpc,
@@ -1234,9 +1235,10 @@ tr_cluster_discovery(Conf) ->
     {Strategy, filter(cluster_options(Strategy, Conf))}.
 
 log_handler_common_confs(Handler, Default) ->
-    %% we rarely support dynamic defaults like this
-    %% for this one, we have build-time default the same as runtime default
-    %% so it's less tricky
+    %% We rarely support dynamic defaults like this.
+    %% For this one, we have build-time default the same as runtime default so it's less tricky
+    %% Buildtime default: "" (which is the same as "file")
+    %% Runtime default: "file" (because .service file sets EMQX_DEFAULT_LOG_HANDLER to "file")
     EnableValues =
         case Handler of
             console -> ["console", "both"];
