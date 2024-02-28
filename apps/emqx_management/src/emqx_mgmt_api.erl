@@ -166,9 +166,7 @@ node_query(Node, Tab, QString, QSchema, MsFun, FmtFun, Options) ->
             {_CodCnt, NQString} = parse_qstring(QString, QSchema),
             ResultAcc = init_query_result(),
             QueryState = init_query_state(Tab, NQString, MsFun, Meta, Options),
-            NResultAcc = do_node_query(
-                Node, QueryState, ResultAcc
-            ),
+            NResultAcc = do_node_query(Node, QueryState, ResultAcc),
             format_query_result(FmtFun, Meta, NResultAcc)
     end.
 
