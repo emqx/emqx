@@ -59,7 +59,7 @@ init_per_suite(Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    ok = meck:unload(mria),
+    _ = meck:unload(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
