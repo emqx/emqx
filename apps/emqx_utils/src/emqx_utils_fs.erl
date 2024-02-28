@@ -20,6 +20,7 @@
 
 -export([traverse_dir/3]).
 -export([read_info/1]).
+-export([find_relpath/2]).
 -export([canonicalize/1]).
 
 -type fileinfo() :: #file_info{}.
@@ -61,6 +62,28 @@ traverse_dir(FoldFun, Acc, AbsPath, {error, Reason}) ->
     {ok, fileinfo()} | {error, file:posix() | badarg}.
 read_info(AbsPath) ->
     file:read_link_info(AbsPath, [{time, posix}, raw]).
+
+-spec find_relpath(file:name(), file:name()) ->
+    file:name().
+find_relpath(Path, RelativeTo) ->
+    case
+        filename:pathtype(Path) =:= filename:pathtype(RelativeTo) andalso
+            drop_path_prefix(filename:split(Path), filename:split(RelativeTo))
+    of
+        false ->
+            Path;
+        [] ->
+            ".";
+        RelativePath ->
+            filename:join(RelativePath)
+    end.
+
+drop_path_prefix([Name | T1], [Name | T2]) ->
+    drop_path_prefix(T1, T2);
+drop_path_prefix(Path, []) ->
+    Path;
+drop_path_prefix(_Path, _To) ->
+    false.
 
 %% @doc Canonicalize a file path.
 %% Removes stray slashes and converts to a string.

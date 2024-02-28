@@ -604,12 +604,9 @@ t_load_config_from_cli(Config) when is_list(Config) ->
     ok.
 
 group_t_copy_plugin_to_a_new_node({init, Config}) ->
-    WorkDir = proplists:get_value(install_dir, Config),
-    FromInstallDir = filename:join(WorkDir, atom_to_list(plugins_copy_from)),
-    file:del_dir_r(FromInstallDir),
+    FromInstallDir = filename:join(emqx_cth_suite:work_dir(?FUNCTION_NAME, Config), from),
     ok = filelib:ensure_path(FromInstallDir),
-    ToInstallDir = filename:join(WorkDir, atom_to_list(plugins_copy_to)),
-    file:del_dir_r(ToInstallDir),
+    ToInstallDir = filename:join(emqx_cth_suite:work_dir(?FUNCTION_NAME, Config), to),
     ok = filelib:ensure_path(ToInstallDir),
     #{package := Package, release_name := PluginName} = get_demo_plugin_package(FromInstallDir),
     Apps = [
@@ -697,8 +694,7 @@ group_t_copy_plugin_to_a_new_node(Config) ->
 
 %% checks that we can start a cluster with a lone node.
 group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
-    WorkDir = ?config(install_dir, Config),
-    ToInstallDir = filename:join(WorkDir, "plugins_copy_to"),
+    ToInstallDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
     file:del_dir_r(ToInstallDir),
     ok = filelib:ensure_path(ToInstallDir),
     #{package := Package, release_name := PluginName} = get_demo_plugin_package(ToInstallDir),
@@ -718,9 +714,7 @@ group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
     ],
     [CopyToNode] = emqx_cth_cluster:start(
         [{plugins_copy_to, #{role => core, apps => Apps}}],
-        #{
-            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)
-        }
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
     ),
     [
         {to_install_dir, ToInstallDir},
@@ -752,36 +746,31 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     ok.
 
 group_t_cluster_leave({init, Config}) ->
-    WorkDir = ?config(install_dir, Config),
-    ToInstallDir = filename:join(WorkDir, "plugins_copy_to"),
-    file:del_dir_r(ToInstallDir),
-    ok = filelib:ensure_path(ToInstallDir),
-    #{package := Package, release_name := PluginName} = get_demo_plugin_package(ToInstallDir),
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {group_t_cluster_leave1, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}},
+            {group_t_cluster_leave2, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    InstallRelDir = "plugins_copy_to",
+    InstallDirs = [filename:join(WD, InstallRelDir) || #{work_dir := WD} <- Specs],
+    ok = lists:foreach(fun filelib:ensure_path/1, InstallDirs),
+    #{package := Package, release_name := PluginName} = get_demo_plugin_package(hd(InstallDirs)),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
-    Apps = [
-        emqx,
-        emqx_conf,
-        emqx_ctl,
-        {emqx_plugins, #{
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{
             config => #{
                 plugins => #{
-                    install_dir => ToInstallDir,
+                    install_dir => InstallRelDir,
                     states => [#{name_vsn => NameVsn, enable => true}]
                 }
             }
-        }}
-    ],
-    Nodes = emqx_cth_cluster:start(
-        [
-            {group_t_cluster_leave1, #{role => core, apps => Apps}},
-            {group_t_cluster_leave2, #{role => core, apps => Apps}}
-        ],
-        #{
-            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)
         }
-    ),
+    ]),
     [
-        {to_install_dir, ToInstallDir},
         {nodes, Nodes},
         {name_vsn, NameVsn},
         {plugin_name, PluginName}
