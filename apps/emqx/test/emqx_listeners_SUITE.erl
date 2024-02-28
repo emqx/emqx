@@ -41,6 +41,7 @@ end_per_suite(Config) ->
 init_per_testcase(Case, Config) when
     Case =:= t_start_stop_listeners;
     Case =:= t_restart_listeners;
+    Case =:= t_wait_for_stop_listeners;
     Case =:= t_restart_listeners_with_hibernate_after_disabled
 ->
     ok = emqx_listeners:stop(),
@@ -56,6 +57,36 @@ t_start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
     ?assertException(error, _, emqx_listeners:start_listener(ws, {"127.0.0.1", 8083}, #{})),
     ok = emqx_listeners:stop().
+
+t_wait_for_stop_listeners(_) ->
+    ok = emqx_listeners:start(),
+    meck:new([cowboy], [passthrough, no_history, no_link]),
+    %% mock stop_listener return ok but listen port is still open
+    meck:expect(cowboy, stop_listener, fun(_) -> ok end),
+    List = [
+        {<<"ws:default">>, {"127.0.0.1", 8083}},
+        {<<"wss:default">>, {"127.0.0.1", 8084}}
+    ],
+    lists:foreach(
+        fun({Id, ListenerOn}) ->
+            Start = erlang:system_time(seconds),
+            ok = emqx_listeners:stop_listener(Id),
+            ?assertEqual(timeout, emqx_listeners:wait_listener_stopped(ListenerOn)),
+            End = erlang:system_time(seconds),
+            ?assert(End - Start >= 9, "wait_listener_stopped should wait at least 9 seconds")
+        end,
+        List
+    ),
+    meck:unload(cowboy),
+    lists:foreach(
+        fun({Id, ListenerOn}) ->
+            ok = emqx_listeners:stop_listener(Id),
+            ?assertEqual(ok, emqx_listeners:wait_listener_stopped(ListenerOn))
+        end,
+        List
+    ),
+    ok = emqx_listeners:stop(),
+    ok.
 
 t_restart_listeners(_) ->
     ok = emqx_listeners:start(),
