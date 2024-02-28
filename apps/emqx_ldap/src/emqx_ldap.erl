@@ -39,11 +39,12 @@
 
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
--export([do_get_status/1]).
+-export([do_get_status/1, get_status_with_poolname/1]).
 
 -define(LDAP_HOST_OPTIONS, #{
     default_port => 389
 }).
+-define(REDACT_VAL, "******").
 
 -type params_tokens() :: #{atom() => list()}.
 -type state() ::
@@ -154,18 +155,19 @@ on_start(
             false ->
                 Config2
         end,
+
     Options = [
         {pool_size, PoolSize},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {options, Config3}
     ],
 
-    case emqx_resource_pool:start(InstId, ?MODULE, Options) of
+    case emqx_resource_pool:start(InstId, ?MODULE, [{log_tag, "eldap_info"} | Options]) of
         ok ->
             emqx_ldap_bind_worker:on_start(
                 InstId,
                 Config,
-                Options,
+                [{log_tag, "eldap_bind_info"} | Options],
                 prepare_template(Config, #{pool_name => InstId})
             );
         {error, Reason} ->
@@ -193,7 +195,15 @@ on_query(InstId, {query, Data, Attrs, Timeout}, State) ->
 on_query(InstId, {bind, _DN, _Data} = Req, State) ->
     emqx_ldap_bind_worker:on_query(InstId, Req, State).
 
-on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
+on_get_status(InstId, #{pool_name := PoolName} = State) ->
+    case get_status_with_poolname(PoolName) of
+        connected ->
+            emqx_ldap_bind_worker:on_get_status(InstId, State);
+        disconnected ->
+            disconnected
+    end.
+
+get_status_with_poolname(PoolName) ->
     case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
         true ->
             connected;
@@ -209,7 +219,7 @@ do_get_status(Conn) ->
     %% if the server is down, the result is {error, ldap_closed}
     %% otherwise is {error, invalidDNSyntax/timeout}
     {error, ldap_closed} =/=
-        eldap:search(Conn, [{base, "checkalive"}, {filter, eldap:'approxMatch'("", "")}]).
+        eldap:search(Conn, [{base, "cn=checkalive"}, {filter, eldap:'approxMatch'("", "")}]).
 
 %% ===================================================================
 
@@ -222,7 +232,8 @@ connect(Options) ->
     } =
         Conf = proplists:get_value(options, Options),
     OpenOpts = maps:to_list(maps:with([port, sslopts], Conf)),
-    case eldap:open([Host], [{log, fun log/3}, {timeout, RequestTimeout} | OpenOpts]) of
+    LogTag = proplists:get_value(log_tag, Options),
+    case eldap:open([Host], [{log, mk_log_func(LogTag)}, {timeout, RequestTimeout} | OpenOpts]) of
         {ok, Handle} = Ret ->
             %% TODO: teach `eldap` to accept 0-arity closures as passwords.
             case eldap:simple_bind(Handle, Username, emqx_secret:unwrap(Password)) of
@@ -313,14 +324,21 @@ do_ldap_query(
     end.
 
 %% Note: the value of the `_Level` here always is 2
-log(_Level, Format, Args) ->
-    ?SLOG(
-        info,
-        #{
-            msg => "eldap_info",
-            log => io_lib:format(Format, Args)
-        }
-    ).
+mk_log_func(LogTag) ->
+    fun(_Level, Format, Args) ->
+        ?SLOG(
+            info,
+            #{
+                msg => LogTag,
+                log => io_lib:format(Format, [redact_ldap_log(Arg) || Arg <- Args])
+            }
+        )
+    end.
+
+redact_ldap_log({'BindRequest', Version, Name, {simple, _}}) ->
+    {'BindRequest', Version, Name, {simple, ?REDACT_VAL}};
+redact_ldap_log(Arg) ->
+    Arg.
 
 prepare_template(Config, State) ->
     maps:fold(fun prepare_template/3, State, Config).
