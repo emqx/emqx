@@ -29,7 +29,9 @@
     backend => builtin,
     storage => {emqx_ds_storage_bitfield_lts, #{}},
     n_shards => 1,
-    replication_factor => 1
+    n_sites => 1,
+    replication_factor => 1,
+    replication_options => #{}
 }).
 
 -define(COMPACT_CONFIG, #{

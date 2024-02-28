@@ -224,24 +224,10 @@ drop_db(DB) ->
 init([]) ->
     process_flag(trap_exit, true),
     logger:set_process_metadata(#{domain => [ds, meta]}),
-    init_ra(),
     ensure_tables(),
     ensure_site(),
     S = #s{},
     {ok, S}.
-
-init_ra() ->
-    DataDir = filename:join([emqx:data_dir(), "dsrepl"]),
-    Config = maps:merge(ra_system:default_config(), #{
-        data_dir => DataDir,
-        wal_data_dir => DataDir
-    }),
-    case ra_system:start(Config) of
-        {ok, _System} ->
-            ok;
-        {error, {already_started, _System}} ->
-            ok
-    end.
 
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.

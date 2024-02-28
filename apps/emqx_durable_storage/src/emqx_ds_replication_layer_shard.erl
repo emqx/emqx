@@ -16,7 +16,7 @@
 
 -module(emqx_ds_replication_layer_shard).
 
--export([start_link/2]).
+-export([start_link/3]).
 -export([shard_servers/2]).
 
 -export([
@@ -45,8 +45,8 @@
 
 %%
 
-start_link(DB, Shard) ->
-    gen_server:start_link(?MODULE, {DB, Shard}, []).
+start_link(DB, Shard, Opts) ->
+    gen_server:start_link(?MODULE, {DB, Shard, Opts}, []).
 
 shard_servers(DB, Shard) ->
     {ok, ReplicaSet} = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
@@ -125,9 +125,9 @@ get_shard_servers(DB, Shard) ->
 
 %%
 
-init({DB, Shard}) ->
+init({DB, Shard, Opts}) ->
     _ = process_flag(trap_exit, true),
-    _Meta = start_shard(DB, Shard),
+    _Meta = start_shard(DB, Shard, Opts),
     {ok, {DB, Shard}}.
 
 handle_call(_Call, _From, State) ->
@@ -138,28 +138,33 @@ handle_cast(_Msg, State) ->
 
 terminate(_Reason, {DB, Shard}) ->
     LocalServer = get_local_server(DB, Shard),
-    ok = ra:stop_server(LocalServer).
+    ok = ra:stop_server(DB, LocalServer).
 
 %%
 
-start_shard(DB, Shard) ->
-    System = default,
+start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
     Site = emqx_ds_replication_layer_meta:this_site(),
     ClusterName = cluster_name(DB, Shard),
     LocalServer = local_server(DB, Shard),
     Servers = shard_servers(DB, Shard),
-    case ra:restart_server(System, LocalServer) of
+    case ra:restart_server(DB, LocalServer) of
         ok ->
             Bootstrap = false;
         {error, name_not_registered} ->
             Bootstrap = true,
-            ok = ra:start_server(System, #{
+            ok = ra:start_server(DB, #{
                 id => LocalServer,
                 uid => <<ClusterName/binary, "_", Site/binary>>,
                 cluster_name => ClusterName,
                 initial_members => Servers,
                 machine => {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
-                log_init_args => #{}
+                log_init_args => maps:with(
+                    [
+                        snapshot_interval,
+                        resend_window
+                    ],
+                    ReplicationOpts
+                )
             })
     end,
     case Servers of

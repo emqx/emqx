@@ -101,6 +101,7 @@ init({#?db_sup{db = DB}, DefaultOpts}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
     Opts = emqx_ds_replication_layer_meta:open_db(DB, DefaultOpts),
+    ok = start_ra_system(DB, Opts),
     Children = [
         sup_spec(#?shard_sup{db = DB}, []),
         sup_spec(#?egress_sup{db = DB}, []),
@@ -135,12 +136,40 @@ init({allocator, DB, Opts}) ->
     _ = logger:set_process_metadata(#{db => DB, domain => [ds, db, shard_allocator]}),
     init_allocator(DB, Opts).
 
-start_shards(DB, Shards) ->
+start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
+    DataDir = filename:join([emqx:data_dir(), DB, dsrepl]),
+    Config = lists:foldr(fun maps:merge/2, #{}, [
+        ra_system:default_config(),
+        #{
+            name => DB,
+            data_dir => DataDir,
+            wal_data_dir => DataDir,
+            names => ra_system:derive_names(DB)
+        },
+        maps:with(
+            [
+                wal_max_size_bytes,
+                wal_max_batch_size,
+                wal_write_strategy,
+                wal_sync_method,
+                wal_compute_checksums
+            ],
+            ReplicationOpts
+        )
+    ]),
+    case ra_system:start(Config) of
+        {ok, _System} ->
+            ok;
+        {error, {already_started, _System}} ->
+            ok
+    end.
+
+start_shards(DB, Shards, Opts) ->
     SupRef = ?via(#?shard_sup{db = DB}),
     lists:foreach(
         fun(Shard) ->
-            {ok, _} = supervisor:start_child(SupRef, shard_spec(DB, Shard)),
-            {ok, _} = supervisor:start_child(SupRef, shard_replication_spec(DB, Shard))
+            {ok, _} = supervisor:start_child(SupRef, shard_spec(DB, Shard, Opts)),
+            {ok, _} = supervisor:start_child(SupRef, shard_replication_spec(DB, Shard, Opts))
         end,
         Shards
     ).
@@ -174,7 +203,9 @@ sup_spec(Id, Options) ->
     }.
 
 shard_spec(DB, Shard) ->
-    Options = emqx_ds_replication_layer_meta:get_options(DB),
+    shard_spec(DB, Shard, emqx_ds_replication_layer_meta:get_options(DB)).
+
+shard_spec(DB, Shard, Options) ->
     #{
         id => {Shard, storage},
         start => {emqx_ds_storage_layer, start_link, [{DB, Shard}, Options]},
@@ -183,10 +214,10 @@ shard_spec(DB, Shard) ->
         type => worker
     }.
 
-shard_replication_spec(DB, Shard) ->
+shard_replication_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, replication},
-        start => {emqx_ds_replication_layer_shard, start_link, [DB, Shard]},
+        start => {emqx_ds_replication_layer_shard, start_link, [DB, Shard, Opts]},
         restart => transient,
         type => worker
     }.
@@ -249,6 +280,7 @@ handle_info(timeout, State) ->
     end.
 
 terminate(_Reason, #{db := DB, shards := Shards}) ->
+    %% FIXME
     erase_shards_meta(DB, Shards).
 
 %%
@@ -258,7 +290,7 @@ allocate_shards(State = #{db := DB, opts := Opts}) ->
         {ok, Shards} ->
             logger:notice(#{msg => "Shards allocated", shards => Shards}),
             ok = save_shards_meta(DB, Shards),
-            ok = start_shards(DB, emqx_ds_replication_layer_meta:my_shards(DB)),
+            ok = start_shards(DB, emqx_ds_replication_layer_meta:my_shards(DB), Opts),
             logger:notice(#{
                 msg => "Shards started", shards => emqx_ds_replication_layer_meta:my_shards(DB)
             }),

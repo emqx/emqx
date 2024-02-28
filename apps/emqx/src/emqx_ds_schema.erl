@@ -36,13 +36,15 @@
 %% API
 %%================================================================================
 
-translate_builtin(#{
-    backend := builtin,
-    n_shards := NShards,
-    n_sites := NSites,
-    replication_factor := ReplFactor,
-    layout := Layout
-}) ->
+translate_builtin(
+    Backend = #{
+        backend := builtin,
+        n_shards := NShards,
+        n_sites := NSites,
+        replication_factor := ReplFactor,
+        layout := Layout
+    }
+) ->
     Storage =
         case Layout of
             #{
@@ -64,6 +66,7 @@ translate_builtin(#{
         n_shards => NShards,
         n_sites => NSites,
         replication_factor => ReplFactor,
+        replication_options => maps:get(replication_options, Backend, #{}),
         storage => Storage
     }.
 
@@ -141,6 +144,15 @@ fields(builtin) ->
                 pos_integer(),
                 #{
                     default => 3,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        %% TODO: Elaborate.
+        {"replication_options",
+            sc(
+                hoconsc:map(name, any()),
+                #{
+                    default => #{},
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},

@@ -92,7 +92,8 @@
         storage := emqx_ds_storage_layer:prototype(),
         n_shards => pos_integer(),
         n_sites => pos_integer(),
-        replication_factor => pos_integer()
+        replication_factor => pos_integer(),
+        replication_options => _TODO :: #{}
     }.
 
 %% This enapsulates the stream entity from the replication level.

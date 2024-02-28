@@ -50,6 +50,20 @@ init_per_testcase(t_message_gc = TestCase, Config) ->
             "\n  durable_storage.messages.n_shards = 3"
     },
     common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
+init_per_testcase(t_replication_options = TestCase, Config) ->
+    Opts = #{
+        extra_emqx_conf =>
+            "\n durable_storage.messages.replication_options {"
+            "\n  wal_max_size_bytes = 16000000"
+            "\n  wal_max_batch_size = 1024"
+            "\n  wal_write_strategy = o_sync"
+            "\n  wal_sync_method = datasync"
+            "\n  wal_compute_checksums = false"
+            "\n  snapshot_interval = 64"
+            "\n  resend_window = 60"
+            "\n}"
+    },
+    common_init_per_testcase(TestCase, Config, Opts);
 init_per_testcase(TestCase, Config) ->
     common_init_per_testcase(TestCase, Config, _Opts = #{}).
 
@@ -447,6 +461,33 @@ t_metrics_not_dropped(_Config) ->
     ?assertEqual(DroppedNoSubBefore, DroppedNoSubAfter),
 
     ok.
+
+t_replication_options(_Config) ->
+    ?assertMatch(
+        #{
+            backend := builtin,
+            replication_options := #{
+                wal_max_size_bytes := 16000000,
+                wal_max_batch_size := 1024,
+                wal_write_strategy := o_sync,
+                wal_sync_method := datasync,
+                wal_compute_checksums := false,
+                snapshot_interval := 64,
+                resend_window := 60
+            }
+        },
+        emqx_ds_replication_layer_meta:get_options(?PERSISTENT_MESSAGE_DB)
+    ),
+    ?assertMatch(
+        #{
+            wal_max_size_bytes := 16000000,
+            wal_max_batch_size := 1024,
+            wal_write_strategy := o_sync,
+            wal_compute_checksums := false,
+            wal_sync_method := datasync
+        },
+        ra_system:fetch(?PERSISTENT_MESSAGE_DB)
+    ).
 
 %%
 

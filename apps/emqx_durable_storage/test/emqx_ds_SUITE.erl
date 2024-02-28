@@ -31,7 +31,9 @@ opts() ->
         backend => builtin,
         storage => {emqx_ds_storage_reference, #{}},
         n_shards => ?N_SHARDS,
-        replication_factor => 3
+        n_sites => 1,
+        replication_factor => 3,
+        replication_options => #{}
     }.
 
 %% A simple smoke test that verifies that opening/closing the DB
