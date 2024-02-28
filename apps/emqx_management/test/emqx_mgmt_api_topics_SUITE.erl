@@ -64,12 +64,11 @@ t_nodes_api(Config) ->
         {"node", atom_to_list(node())}
     ]),
     ?assertMatch(
-        #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
-        maps:get(<<"meta">>, MatchData)
-    ),
-    ?assertMatch(
-        [#{<<"topic">> := Topic2, <<"node">> := Node}],
-        maps:get(<<"data">>, MatchData)
+        #{
+            <<"data">> := [#{<<"topic">> := Topic2, <<"node">> := Node}],
+            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 1}
+        },
+        MatchData
     ),
 
     %% get topics/:topic
@@ -114,6 +113,11 @@ t_paging(_Config) ->
         Matched,
         request_json(get, ["topics"], [{"node", Node}])
     ),
+    ?assertEqual(
+        %% NOTE: No `count` in this case.
+        #{<<"hasnext">> => true, <<"page">> => 1, <<"limit">> => 3},
+        maps:get(<<"meta">>, request_json(get, ["topics"], [{"node", Node}, {"limit", "3"}]))
+    ),
     R1 = #{<<"data">> := Data1} = request_json(get, ["topics"], [{"page", "1"}, {"limit", "5"}]),
     R2 = #{<<"data">> := Data2} = request_json(get, ["topics"], [{"page", "2"}, {"limit", "5"}]),
     ?assertMatch(
@@ -150,12 +154,11 @@ t_percent_topics(_Config) ->
         {"node", atom_to_list(node())}
     ]),
     ?assertMatch(
-        #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
-        maps:get(<<"meta">>, MatchData)
-    ),
-    ?assertMatch(
-        [#{<<"topic">> := Topic, <<"node">> := Node}],
-        maps:get(<<"data">>, MatchData)
+        #{
+            <<"data">> := [#{<<"topic">> := Topic, <<"node">> := Node}],
+            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 1}
+        },
+        MatchData
     ),
 
     ok = emqtt:stop(Client).
@@ -175,12 +178,11 @@ t_shared_topics(_Configs) ->
         {"node", atom_to_list(node())}
     ]),
     ?assertMatch(
-        #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
-        maps:get(<<"meta">>, MatchData)
-    ),
-    ?assertMatch(
-        [#{<<"topic">> := Topic, <<"node">> := Node}],
-        maps:get(<<"data">>, MatchData)
+        #{
+            <<"data">> := [#{<<"topic">> := Topic, <<"node">> := Node}],
+            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 1}
+        },
+        MatchData
     ),
 
     ok = emqtt:stop(Client).
