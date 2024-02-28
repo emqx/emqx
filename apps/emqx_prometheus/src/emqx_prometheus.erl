@@ -856,10 +856,12 @@ do_points_of_listeners(Type, Listeners) ->
     lists:foldl(
         fun(Name, PointsAcc) ->
             case
-                emqx_utils_maps:deep_get(
-                    [Name, ssl_options, certfile], Listeners, undefined
-                )
+                emqx_utils_maps:deep_get([Name, enable], Listeners, false) andalso
+                    emqx_utils_maps:deep_get(
+                        [Name, ssl_options, certfile], Listeners, undefined
+                    )
             of
+                false -> PointsAcc;
                 undefined -> PointsAcc;
                 Path -> [gen_point_cert_expiry_at(Type, Name, Path) | PointsAcc]
             end
@@ -894,11 +896,12 @@ cert_expiry_at_from_path(Path0) ->
                 0
         end
     catch
-        E:R ->
+        E:R:S ->
             ?SLOG(error, #{
                 msg => "obtain_cert_expiry_time_failed",
                 error => E,
                 reason => R,
+                stacktrace => S,
                 path => Path0,
                 resolved_path => Path
             }),
