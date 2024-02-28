@@ -70,6 +70,8 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
+-dialyzer({no_match, [on_get_channel_status/3]}).
+
 %%-------------------------------------------------------------------------------------
 %% connector examples
 %%-------------------------------------------------------------------------------------
@@ -372,7 +374,12 @@ on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
 
 on_get_channel_status(InstanceId, _ChannelId, State) ->
-    on_get_status(InstanceId, State).
+    case on_get_status(InstanceId, State) of
+        connected ->
+            connected;
+        _ ->
+            disconnected
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal Functions
