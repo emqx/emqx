@@ -32,6 +32,7 @@
     wait/1,
     getstat/2,
     fast_close/1,
+    shutdown/2,
     ensure_ok_or_exit/2,
     async_send/3,
     setopts/2,
@@ -146,6 +147,10 @@ fast_close({quic, _Conn, Stream, _Info}) ->
     %% gracefully shutdown the stream.
     % quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok.
+
+shutdown({quic, _Conn, Stream, _Info}, read_write) ->
+    %% A graceful shutdown means both side shutdown the read and write gracefully.
+    quicer:shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 1, 5000).
 
 -spec ensure_ok_or_exit(atom(), list(term())) -> term().
 ensure_ok_or_exit(Fun, Args = [Sock | _]) when is_atom(Fun), is_list(Args) ->

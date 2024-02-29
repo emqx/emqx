@@ -908,6 +908,8 @@ t_session_takeover(Config) when is_list(Config) ->
     ?assertMatch([_], emqx:publish(Message3)),
     ?assertMatch([_], emqx:publish(Message4)),
     {true, _} = last_message(<<"hello2">>, [ConnPid2]),
+    %% We may or may not recv dup hello2 due to QoS1 redelivery
+    _ = last_message(<<"hello2">>, [ConnPid2]),
     {true, _} = last_message(<<"hello3">>, [ConnPid2]),
     {true, _} = last_message(<<"hello4">>, [ConnPid2]),
     ?assertEqual([], collect_msgs(timer:seconds(2))),
@@ -951,6 +953,8 @@ t_session_kicked(Config) when is_list(Config) ->
     %% on if it's picked as the first one for round_robin
     MsgRec1 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P1}}, P1),
     MsgRec2 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P2}}, P2),
+
+    ct:pal("MsgRec1: ~p MsgRec2 ~p ~n", [MsgRec1, MsgRec2]),
     case MsgRec2 of
         <<"hello3">> ->
             ?assertEqual(<<"hello1">>, MsgRec1);

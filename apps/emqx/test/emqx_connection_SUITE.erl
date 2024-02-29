@@ -32,6 +32,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     %% Meck Transport
     ok = meck:new(emqx_transport, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_transport, shutdown, fun(_, _) -> ok end),
     %% Meck Channel
     ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
     %% Meck Cm
