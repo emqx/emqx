@@ -368,7 +368,8 @@ wait_listener_stopped(ListenOn) ->
 
 wait_listener_stopped(ListenOn, 3) ->
     Log = #{
-        msg => "cowboy_listener_not_closed_when_stopping_listener",
+        msg => "port_not_released_after_listener_stopped",
+        explain => "Expecting the operating system to release the port soon.",
         listener => ListenOn,
         wait_seconds => 9
     },
