@@ -9,6 +9,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% `emqx_resource' API
 -export([
@@ -69,8 +70,6 @@
 -define(IOTDB_PING_PATH, <<"ping">>).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
-
--dialyzer({no_match, [on_get_channel_status/3]}).
 
 %%-------------------------------------------------------------------------------------
 %% connector examples
@@ -240,7 +239,7 @@ on_stop(InstanceId, State) ->
     Res.
 
 -spec on_get_status(manager_id(), state()) ->
-    {connected, state()} | {disconnected, state(), term()}.
+    connected | connecting | {disconnected, state(), term()}.
 on_get_status(InstanceId, #{base_path := BasePath} = State) ->
     Func = fun(Worker, Timeout) ->
         Request = {?IOTDB_PING_PATH, [], undefined},
@@ -375,10 +374,10 @@ on_get_channels(InstanceId) ->
 
 on_get_channel_status(InstanceId, _ChannelId, State) ->
     case on_get_status(InstanceId, State) of
-        connected ->
-            connected;
+        ?status_connected ->
+            ?status_connected;
         _ ->
-            disconnected
+            ?status_disconnected
     end.
 
 %%--------------------------------------------------------------------
