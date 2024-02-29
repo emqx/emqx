@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_license).
@@ -85,7 +85,10 @@ check(_ConnInfo, AckProps) ->
         {ok, #{max_connections := MaxClients}} ->
             case check_max_clients_exceeded(MaxClients) of
                 true ->
-                    ?SLOG(info, #{msg => "connection_rejected_due_to_license_limit_reached"}),
+                    ?SLOG_THROTTLE(
+                        error,
+                        #{msg => connection_rejected_due_to_license_limit_reached}
+                    ),
                     {stop, {error, ?RC_QUOTA_EXCEEDED}};
                 false ->
                     {ok, AckProps}

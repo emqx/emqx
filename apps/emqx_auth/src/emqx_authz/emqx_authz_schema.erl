@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -72,6 +72,7 @@ roots() -> [].
 
 namespace() -> undefined.
 
+%% "authorization"
 fields(?CONF_NS) ->
     emqx_schema:authz_fields() ++ authz_fields();
 fields("metrics_status_fields") ->
@@ -127,7 +128,7 @@ injected_fields(AuthzSchemaMods) ->
     persistent_term:put(?AUTHZ_MODS_PT_KEY, AuthzSchemaMods),
     #{
         'roots.high' => [
-            {?CONF_NS, ?HOCON(?R_REF(?CONF_NS), #{desc => ?DESC(?CONF_NS)})}
+            {?CONF_NS_ATOM, ?HOCON(?R_REF(?CONF_NS), #{desc => ?DESC(?CONF_NS)})}
         ]
     }.
 

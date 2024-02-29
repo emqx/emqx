@@ -13,16 +13,16 @@ desc_config.label:
 """Syskeeper Proxy Connector Configuration"""
 
 desc_name.desc:
-"""Bridge name"""
+"""Action name"""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
-"""The Bridge Type"""
+"""The action type."""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 listen.desc:
 """The listening address for this Syskeeper proxy server"""

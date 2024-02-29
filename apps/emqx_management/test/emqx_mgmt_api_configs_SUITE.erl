@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -138,7 +138,7 @@ t_log(_Config) ->
 t_global_zone(_Config) ->
     {ok, Zones} = get_global_zone(),
     ZonesKeys = lists:map(
-        fun({K, _}) -> list_to_binary(K) end, emqx_zone_schema:global_zone_with_default()
+        fun({K, _}) -> atom_to_binary(K) end, emqx_zone_schema:global_zone_with_default()
     ),
     ?assertEqual(lists:usort(ZonesKeys), lists:usort(maps:keys(Zones))),
     ?assertEqual(
@@ -355,7 +355,7 @@ t_configs_key(_Config) ->
     },
     ReadOnlyBin = iolist_to_binary(hocon_pp:do(ReadOnlyConf, #{})),
     {error, ReadOnlyError} = update_configs_with_binary(ReadOnlyBin),
-    ?assertEqual(<<"update_readonly_keys_prohibited">>, ReadOnlyError),
+    ?assertEqual(<<"Cannot update read-only key 'cluster'.">>, ReadOnlyError),
     ok.
 
 t_get_configs_in_different_accept(_Config) ->

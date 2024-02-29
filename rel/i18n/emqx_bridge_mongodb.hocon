@@ -7,25 +7,25 @@ collection.label:
 """Collection to be used"""
 
 desc_config.desc:
-"""Configuration for MongoDB Bridge"""
+"""Configuration for MongoDB action"""
 
 desc_config.label:
-"""MongoDB Bridge Configuration"""
+"""MongoDB Action Configuration"""
 
 desc_name.desc:
-"""Bridge name."""
+"""Action name."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
-"""The Bridge Type."""
+"""The action type."""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 enable.desc:
-"""Enable or disable this MongoDB Bridge"""
+"""Enable or disable this MongoDB Action"""
 
 enable.label:
 """Enable or disable"""
@@ -76,7 +76,7 @@ mongodb_action.desc:
 """Action to interact with a MongoDB connector"""
 
 mqtt_topic.desc:
-"""MQTT topic or topic filter as data source (bridge input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in MongoDB."""
+"""MQTT topic or topic filter as data source (action input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in MongoDB."""
 mqtt_topic.label:
 """Source MQTT Topic"""
 

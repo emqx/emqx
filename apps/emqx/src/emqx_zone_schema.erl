@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -23,17 +23,17 @@
 
 namespace() -> zone.
 
-%% this schema module is not used at root level.
-%% roots are added only for document generation.
+%% Zone values are never checked as root level.
+%% We need roots defined here because it's used to generate config API schema.
 roots() ->
     [
-        "mqtt",
-        "stats",
-        "flapping_detect",
-        "force_shutdown",
-        "conn_congestion",
-        "force_gc",
-        "overload_protection"
+        mqtt,
+        stats,
+        flapping_detect,
+        force_shutdown,
+        conn_congestion,
+        force_gc,
+        overload_protection
     ].
 
 zones_without_default() ->
@@ -43,22 +43,25 @@ zones_without_default() ->
         fun(F) ->
             case lists:member(F, Hidden) of
                 true ->
-                    {F, ?HOCON(?R_REF(F), #{importance => ?IMPORTANCE_HIDDEN})};
+                    {F,
+                        ?HOCON(?R_REF(?MODULE, atom_to_list(F)), #{importance => ?IMPORTANCE_HIDDEN})};
                 false ->
-                    {F, ?HOCON(?R_REF(F), #{})}
+                    {F, ?HOCON(?R_REF(?MODULE, atom_to_list(F)), #{})}
             end
         end,
         Fields
     ).
 
 global_zone_with_default() ->
-    lists:map(fun(F) -> {F, ?HOCON(?R_REF(emqx_schema, F), #{})} end, roots() -- hidden()).
+    lists:map(
+        fun(F) -> {F, ?HOCON(?R_REF(emqx_schema, atom_to_list(F)), #{})} end, roots() -- hidden()
+    ).
 
 hidden() ->
     [
-        "stats",
-        "overload_protection",
-        "conn_congestion"
+        stats,
+        overload_protection,
+        conn_congestion
     ].
 
 %% zone schemas are clones from the same name from root level

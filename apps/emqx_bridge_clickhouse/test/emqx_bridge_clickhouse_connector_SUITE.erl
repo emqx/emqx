@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_clickhouse_connector_SUITE).
@@ -13,7 +13,6 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(APP, emqx_bridge_clickhouse).
--define(CLICKHOUSE_HOST, "clickhouse").
 -define(CLICKHOUSE_RESOURCE_MOD, emqx_bridge_clickhouse_connector).
 -define(CLICKHOUSE_PASSWORD, "public").
 
@@ -39,25 +38,17 @@ all() ->
 groups() ->
     [].
 
-clickhouse_url() ->
-    erlang:iolist_to_binary([
-        <<"http://">>,
-        ?CLICKHOUSE_HOST,
-        ":",
-        erlang:integer_to_list(?CLICKHOUSE_DEFAULT_PORT)
-    ]).
-
 init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_tcp_server_available(?CLICKHOUSE_HOST, ?CLICKHOUSE_DEFAULT_PORT)
-    of
+    Host = emqx_bridge_clickhouse_SUITE:clickhouse_host(),
+    Port = list_to_integer(emqx_bridge_clickhouse_SUITE:clickhouse_port()),
+    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
             ok = emqx_connector_test_helpers:start_apps([emqx_resource, ?APP]),
             %% Create the db table
             {ok, Conn} =
                 clickhouse:start_link([
-                    {url, clickhouse_url()},
+                    {url, emqx_bridge_clickhouse_SUITE:clickhouse_url()},
                     {user, <<"default">>},
                     {key, ?CLICKHOUSE_PASSWORD},
                     {pool, tmp_pool}
@@ -205,15 +196,7 @@ clickhouse_config(Overrides) ->
             username => <<"default">>,
             password => <<?CLICKHOUSE_PASSWORD>>,
             pool_size => 8,
-            url => iolist_to_binary(
-                io_lib:format(
-                    "http://~s:~b",
-                    [
-                        ?CLICKHOUSE_HOST,
-                        ?CLICKHOUSE_DEFAULT_PORT
-                    ]
-                )
-            ),
+            url => emqx_bridge_clickhouse_SUITE:clickhouse_url(),
             connect_timeout => <<"10s">>
         },
     #{<<"config">> => maps:merge(Config, Overrides)}.

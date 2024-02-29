@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -183,8 +183,13 @@ log_result(#{username := Username}, Topic, Action, From, Result) ->
         }
     end,
     case Result of
-        allow -> ?SLOG(info, (LogMeta())#{msg => "authorization_permission_allowed"});
-        deny -> ?SLOG(info, (LogMeta())#{msg => "authorization_permission_denied"})
+        allow ->
+            ?SLOG(info, (LogMeta())#{msg => "authorization_permission_allowed"});
+        deny ->
+            ?SLOG_THROTTLE(
+                warning,
+                (LogMeta())#{msg => authorization_permission_denied}
+            )
     end.
 
 %% @private Format authorization rules source.

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -37,9 +37,8 @@ format(#{msg := {string, String}} = Event, Config) ->
 %% trace
 format(#{msg := Msg0, meta := Meta} = Event, Config) ->
     Msg1 = enrich_client_info(Msg0, Meta),
-    Msg2 = enrich_mfa(Msg1, Meta),
-    Msg3 = enrich_topic(Msg2, Meta),
-    logger_formatter:format(Event#{msg := Msg3}, Config).
+    Msg2 = enrich_topic(Msg1, Meta),
+    logger_formatter:format(Event#{msg := Msg2}, Config).
 
 is_list_report_acceptable(#{report_cb := Cb}) ->
     Cb =:= fun logger:format_otp_report/1 orelse Cb =:= fun logger:format_report/1;
@@ -61,7 +60,6 @@ enrich_report(ReportRaw, Meta) ->
         end,
     ClientId = maps:get(clientid, Meta, undefined),
     Peer = maps:get(peername, Meta, undefined),
-    MFA = emqx_utils:format_mfal(Meta),
     Msg = maps:get(msg, ReportRaw, undefined),
     %% turn it into a list so that the order of the fields is determined
     lists:foldl(
@@ -75,7 +73,6 @@ enrich_report(ReportRaw, Meta) ->
             {topic, try_format_unicode(Topic)},
             {clientid, try_format_unicode(ClientId)},
             {peername, Peer},
-            {mfa, try_format_unicode(MFA)},
             {msg, Msg}
         ]
     ).
@@ -98,11 +95,6 @@ try_format_unicode(Char) ->
         error -> io_lib:format("~0p", [Char]);
         _ -> List
     end.
-
-enrich_mfa({Fmt, Args}, Data) when is_list(Fmt) ->
-    {Fmt ++ " mfa: ~ts", Args ++ [emqx_utils:format_mfal(Data)]};
-enrich_mfa(Msg, _) ->
-    Msg.
 
 enrich_client_info({Fmt, Args}, #{clientid := ClientId, peername := Peer}) when is_list(Fmt) ->
     {" ~ts@~ts " ++ Fmt, [ClientId, Peer | Args]};

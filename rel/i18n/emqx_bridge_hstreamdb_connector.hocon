@@ -13,13 +13,13 @@ type.label:
 """Connector Type"""
 
 name.desc:
-"""Connector name, used as a human-readable description of the connector."""
+"""A human-readable identifier for the connector."""
 
 name.label:
 """Connector Name"""
 
 url.desc:
-"""HStreamDB Server URL. Using gRPC http server address."""
+"""HStreamDB Server URL. This URL will be used as the gRPC HTTP server address."""
 
 url.label:
 """HStreamDB Server URL"""
@@ -37,13 +37,13 @@ partition_key.label:
 """HStreamDB Partition Key"""
 
 pool_size.desc:
-"""HStreamDB Pool Size."""
+"""The size of the aggregation pool and the writer pool (see the description of the HStreamDB action for more information about these pools). Larger pool sizes can enhance parallelization but may also reduce efficiency due to smaller batch sizes."""
 
 pool_size.label:
 """HStreamDB Pool Size"""
 
 grpc_timeout.desc:
-"""HStreamDB gRPC Timeout."""
+"""The timeout for HStreamDB gRPC requests."""
 
 grpc_timeout.label:
 """HStreamDB gRPC Timeout"""

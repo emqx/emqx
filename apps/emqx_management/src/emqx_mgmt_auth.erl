@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -299,14 +299,6 @@ maybe_cleanup_api_key(#?APP{name = Name, api_key = ApiKey}) ->
                 info => <<"The last `KEY:SECRET` in bootstrap file will be used.">>
             }),
             ok;
-        [_App1] ->
-            ?SLOG(info, #{
-                msg => "update_apikey_name_from_old_version",
-                info =>
-                    <<"Update ApiKey name with new name rule, see also: ",
-                        "https://github.com/emqx/emqx/pull/11798">>
-            }),
-            ok;
         Existed ->
             %% Duplicated or upgraded from old version:
             %% Which `Name` and `ApiKey` are not related in old version.
@@ -316,11 +308,16 @@ maybe_cleanup_api_key(#?APP{name = Name, api_key = ApiKey}) ->
             %% Use `from_bootstrap_file_` as the prefix, and the first 16 digits of the
             %% sha512 hexadecimal value of the `ApiKey` as the suffix to form the name of the apikey.
             %% e.g. The name of the apikey: `example-api-key:secret_xxxx` is `from_bootstrap_file_53280fb165b6cd37`
+
+            %% Note for EMQX-11844:
+            %% emqx.conf has the highest priority
+            %% if there is a key conflict, delete the old one and keep the key which from the bootstrap filex
             ?SLOG(info, #{
                 msg => "duplicated_apikey_detected",
-                info => <<"Delete duplicated apikeys and write a new one from bootstrap file">>
+                info => <<"Delete duplicated apikeys and write a new one from bootstrap file">>,
+                keys => [EName || #?APP{name = EName} <- Existed]
             }),
-            _ = lists:map(
+            lists:foreach(
                 fun(#?APP{name = N}) -> ok = mnesia:delete({?APP, N}) end, Existed
             ),
             ok
@@ -385,7 +382,7 @@ init_bootstrap_file(File, Dev, MP) ->
 -define(FROM_BOOTSTRAP_FILE_PREFIX, <<"from_bootstrap_file_">>).
 
 add_bootstrap_file(File, Dev, MP, Line) ->
-    case file:read_line(Dev) of
+    case read_line(Dev) of
         {ok, Bin} ->
             case parse_bootstrap_line(Bin, MP) of
                 {ok, [ApiKey, ApiSecret, Role]} ->
@@ -418,10 +415,25 @@ add_bootstrap_file(File, Dev, MP, Line) ->
                     ),
                     throw(#{file => File, line => Line, content => Bin, reason => Reason})
             end;
+        skip ->
+            add_bootstrap_file(File, Dev, MP, Line + 1);
         eof ->
             ok;
         {error, Reason} ->
             throw(#{file => File, line => Line, reason => Reason})
+    end.
+
+read_line(Dev) ->
+    case file:read_line(Dev) of
+        {ok, Bin} ->
+            case string:trim(Bin) of
+                <<>> ->
+                    skip;
+                Result ->
+                    {ok, Result}
+            end;
+        Result ->
+            Result
     end.
 
 parse_bootstrap_line(Bin, MP) ->

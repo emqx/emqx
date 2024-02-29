@@ -8,7 +8,7 @@
         emqx_resource,
         erlcloud
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_dynamo_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

@@ -185,11 +185,11 @@ lookup_retained(get, #{query_string := Qs}) ->
     Page = maps:get(<<"page">>, Qs, 1),
     Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:default_row_limit()),
     Topic = maps:get(<<"topic">>, Qs, undefined),
-    {ok, HasNext, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, Page, Limit),
+    {ok, HasNext, Msgs} = emqx_retainer:page_read(Topic, Page, Limit),
     Meta =
         case Topic of
             undefined ->
-                #{count => emqx_retainer_mnesia:size(?TAB_MESSAGE)};
+                #{count => emqx_retainer:retained_count()};
             _ ->
                 #{}
         end,
@@ -205,7 +205,7 @@ lookup_retained(get, #{query_string := Qs}) ->
 
 with_topic(get, #{bindings := Bindings}) ->
     Topic = maps:get(topic, Bindings),
-    {ok, _, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1),
+    {ok, _, Msgs} = emqx_retainer:page_read(Topic, 1, 1),
     case Msgs of
         [H | _] ->
             {200, format_detail_message(H)};
@@ -217,14 +217,14 @@ with_topic(get, #{bindings := Bindings}) ->
     end;
 with_topic(delete, #{bindings := Bindings}) ->
     Topic = maps:get(topic, Bindings),
-    case emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1) of
+    case emqx_retainer:page_read(Topic, 1, 1) of
         {ok, _, []} ->
             {404, #{
                 code => <<"NOT_FOUND">>,
                 message => <<"Viewed message doesn't exist">>
             }};
         {ok, _, _} ->
-            emqx_retainer_mnesia:delete_message(undefined, Topic),
+            emqx_retainer:delete(Topic),
             {204}
     end.
 
@@ -265,8 +265,8 @@ to_bin_string(Data) ->
     list_to_binary(io_lib:format("~p", [Data])).
 
 check_backend(Type, Params, Cont) ->
-    case emqx:get_config([retainer, backend, type]) of
-        built_in_database ->
+    case emqx_retainer:backend_module() of
+        emqx_retainer_mnesia ->
             Cont(Type, Params);
         _ ->
             {400, 'BAD_REQUEST', <<"This API only support built in database">>}

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,7 +35,9 @@ format(
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
     MetaBin = format_meta(Meta, PEncode),
-    [Time, " [", Tag, "] ", ClientId, "@", Peername, " msg: ", Msg, ", ", MetaBin, "\n"];
+    Msg1 = to_iolist(Msg),
+    Tag1 = to_iolist(Tag),
+    [Time, " [", Tag1, "] ", ClientId, "@", Peername, " msg: ", Msg1, ", ", MetaBin, "\n"];
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 

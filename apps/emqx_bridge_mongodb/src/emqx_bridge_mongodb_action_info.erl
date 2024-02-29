@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_mongodb_action_info).
@@ -10,6 +10,7 @@
 -export([
     bridge_v1_config_to_action_config/2,
     bridge_v1_config_to_connector_config/1,
+    connector_action_config_to_bridge_v1_config/2,
     action_type_name/0,
     bridge_v1_type_name/0,
     connector_type_name/0,
@@ -49,6 +50,13 @@ bridge_v1_config_to_connector_config(BridgeV1Config) ->
         fun emqx_connector_schema:project_to_connector_resource_opts/1,
         ConnConfig0
     ).
+
+connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
+    V1Config = emqx_action_info:connector_action_config_to_bridge_v1_config(
+        ConnectorConfig,
+        ActionConfig
+    ),
+    maps:remove(<<"local_topic">>, V1Config).
 
 make_config_map(PickKeys, IndentKeys, Config) ->
     Conf0 = maps:with(PickKeys, Config),

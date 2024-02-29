@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_gcp_pubsub_client).
@@ -25,7 +25,7 @@
 
 -export([get_jwt_authorization_header/1]).
 
--type service_account_json() :: emqx_bridge_gcp_pubsub:service_account_json().
+-type service_account_json() :: map().
 -type project_id() :: binary().
 -type duration() :: non_neg_integer().
 -type config() :: #{
@@ -180,17 +180,17 @@ query_async(
     ),
     do_send_requests_async(State, {prepared_request, PreparedRequest, ReqOpts}, ReplyFunAndArgs).
 
--spec get_status(state()) -> connected | disconnected.
+-spec get_status(state()) -> ?status_connected | ?status_disconnected.
 get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
     case do_get_status(PoolName, Timeout) of
         true ->
-            connected;
+            ?status_connected;
         false ->
             ?SLOG(error, #{
                 msg => "gcp_pubsub_bridge_get_status_failed",
                 state => State
             }),
-            disconnected
+            ?status_disconnected
     end.
 
 %%-------------------------------------------------------------------------------------------------

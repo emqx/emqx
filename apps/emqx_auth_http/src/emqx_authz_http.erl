@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -157,7 +157,7 @@ parse_config(
         method => Method,
         base_url => BaseUrl,
         headers => Headers,
-        base_path_templete => emqx_authz_utils:parse_str(Path, allowed_vars()),
+        base_path_template => emqx_authz_utils:parse_str(Path, allowed_vars()),
         base_query_template => emqx_authz_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query)),
             allowed_vars()
@@ -197,7 +197,7 @@ generate_request(
     #{
         method := Method,
         headers := Headers,
-        base_path_templete := BasePathTemplate,
+        base_path_template := BasePathTemplate,
         base_query_template := BaseQueryTemplate,
         body_template := BodyTemplate
     }

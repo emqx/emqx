@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     %% Meck Transport
     ok = meck:new(emqx_transport, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_transport, shutdown, fun(_, _) -> ok end),
     %% Meck Channel
     ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
     %% Meck Cm

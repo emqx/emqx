@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -680,7 +680,7 @@ to_schema(Object) ->
         post => #{responses => #{200 => Object, 201 => Object}}
     }.
 
-rotos() -> [].
+roots() -> [].
 namespace() -> undefined.
 
 fields(good_ref) ->

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -114,7 +114,10 @@
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 
+-type batch_query_result() :: query_result() | [query_result()].
+
 -type action_resource_id() :: resource_id().
+-type source_resource_id() :: resource_id().
 -type connector_resource_id() :: resource_id().
 -type message_tag() :: action_resource_id().
 
@@ -151,7 +154,9 @@
 %% boolean
 -define(START_AFTER_CREATED, true).
 
--define(TEST_ID_PREFIX, "_probe_:").
+%% Keep this test_id_prefix is match "^[A-Za-z0-9]+[A-Za-z0-9-_]*$".
+%% See `hocon_tconf`
+-define(TEST_ID_PREFIX, "t_probe_").
 -define(RES_METRICS, resource_metrics).
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).

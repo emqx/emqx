@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,7 +40,8 @@ init([]) ->
             child_spec(emqx_authn_authz_metrics_sup, supervisor),
             child_spec(emqx_ocsp_cache, worker),
             child_spec(emqx_crl_cache, worker),
-            child_spec(emqx_tls_lib_sup, supervisor)
+            child_spec(emqx_tls_lib_sup, supervisor),
+            child_spec(emqx_log_throttler, worker)
         ]
     }}.
 

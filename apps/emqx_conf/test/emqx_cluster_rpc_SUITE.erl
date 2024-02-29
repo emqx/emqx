@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,9 +19,9 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_conf.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+
 -define(NODE1, emqx_cluster_rpc).
 -define(NODE2, emqx_cluster_rpc2).
 -define(NODE3, emqx_cluster_rpc3).
@@ -42,20 +42,25 @@ suite() -> [{timetrap, {minutes, 5}}].
 groups() -> [].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([]),
-    ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
-    ok = emqx_config:put([node, cluster_call, retry_interval], 1000),
-    meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf,
+                "node.cluster_call {"
+                "\n  retry_interval = 1s"
+                "\n  max_history = 100"
+                "\n  cleanup_interval = 500ms"
+                "\n}"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     meck:new(mria, [non_strict, passthrough, no_link]),
     meck:expect(mria, running_nodes, 0, [?NODE1, {node(), ?NODE2}, {node(), ?NODE3}]),
-    Config.
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([]),
-    meck:unload(emqx_alarm),
-    ok.
+end_per_suite(Config) ->
+    _ = meck:unload(),
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
     stop(),
@@ -67,7 +72,6 @@ end_per_testcase(_Config) ->
     ok.
 
 t_base_test(_Config) ->
-    emqx_cluster_rpc:reset(),
     ?assertEqual(emqx_cluster_rpc:status(), {atomic, []}),
     Pid = self(),
     MFA = {M, F, A} = {?MODULE, echo, [Pid, test]},
@@ -94,7 +98,6 @@ t_base_test(_Config) ->
     ok.
 
 t_commit_fail_test(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE2)]},
     {init_failure, "MFA return not ok"} = multicall(M, F, A),
@@ -102,7 +105,6 @@ t_commit_fail_test(_Config) ->
     ok.
 
 t_commit_crash_test(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, no_exist_function, []},
     {init_failure, {error, Meta}} = multicall(M, F, A),
@@ -150,7 +152,6 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     ok.
 
 t_commit_concurrency(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     Pid = self(),
     {BaseM, BaseF, BaseA} = {?MODULE, echo, [Pid, test]},
@@ -211,7 +212,6 @@ receive_seq_msg(Acc) ->
     end.
 
 t_catch_up_status_handle_next_commit(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, failed_on_node_by_odd, [erlang:whereis(?NODE1)]},
     {ok, 1, ok} = multicall(M, F, A, 1, 1000),
@@ -220,7 +220,6 @@ t_catch_up_status_handle_next_commit(_Config) ->
     ok.
 
 t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     ets:new(test, [named_table, public]),
     ets:insert(test, {other_mfa_result, failed}),
@@ -247,7 +246,6 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     ok.
 
 t_del_stale_mfa(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     MFA = {M, F, A} = {io, format, ["test"]},
     Keys = lists:seq(1, 50),
@@ -289,7 +287,6 @@ t_del_stale_mfa(_Config) ->
     ok.
 
 t_skip_failed_commit(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {ok, 1, ok} = multicall(io, format, ["test~n"], all, 1000),
     ct:sleep(180),
@@ -310,7 +307,6 @@ t_skip_failed_commit(_Config) ->
     ok.
 
 t_fast_forward_commit(_Config) ->
-    emqx_cluster_rpc:reset(),
     {atomic, []} = emqx_cluster_rpc:status(),
     {ok, 1, ok} = multicall(io, format, ["test~n"], all, 1000),
     ct:sleep(180),
@@ -358,12 +354,10 @@ tnx_ids(Status) ->
     ).
 
 start() ->
-    {ok, Pid1} = emqx_cluster_rpc:start_link(),
-    {ok, Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2, 500),
-    {ok, Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3, 500),
-    {ok, Pid4} = emqx_cluster_rpc_cleaner:start_link(100, 500),
-    true = erlang:register(emqx_cluster_rpc_cleaner, Pid4),
-    {ok, [Pid1, Pid2, Pid3, Pid4]}.
+    {ok, _Pid2} = emqx_cluster_rpc:start_link({node(), ?NODE2}, ?NODE2, 500),
+    {ok, _Pid3} = emqx_cluster_rpc:start_link({node(), ?NODE3}, ?NODE3, 500),
+    ok = emqx_cluster_rpc:reset(),
+    ok.
 
 stop() ->
     [
@@ -376,7 +370,7 @@ stop() ->
                     erlang:exit(P, kill)
             end
         end
-     || N <- [?NODE1, ?NODE2, ?NODE3, emqx_cluster_rpc_cleaner]
+     || N <- [?NODE2, ?NODE3]
     ].
 
 receive_msg(0, _Msg) ->

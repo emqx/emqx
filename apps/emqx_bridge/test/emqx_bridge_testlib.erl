@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_testlib).
 
@@ -105,9 +105,15 @@ parse_and_check(BridgeType, BridgeName, ConfigString) ->
     BridgeConfig.
 
 resource_id(Config) ->
+    BridgeKind = proplists:get_value(bridge_kind, Config, action),
+    ConfRootKey =
+        case BridgeKind of
+            action -> actions;
+            source -> sources
+        end,
     BridgeType = ?config(bridge_type, Config),
     BridgeName = ?config(bridge_name, Config),
-    emqx_bridge_resource:resource_id(BridgeType, BridgeName).
+    emqx_bridge_resource:resource_id(ConfRootKey, BridgeType, BridgeName).
 
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -318,13 +318,10 @@ create_listener_schema(Opts) ->
     ).
 
 listeners_type() ->
-    lists:map(
-        fun({Type, _}) -> list_to_existing_atom(Type) end,
-        hocon_schema:fields(emqx_schema, "listeners")
-    ).
+    lists:map(fun({Type, _}) -> list_to_existing_atom(Type) end, emqx_schema:listeners()).
 
 listeners_info(Opts) ->
-    Listeners = hocon_schema:fields(emqx_schema, "listeners"),
+    Listeners = emqx_schema:listeners(),
     lists:map(
         fun({ListenerType, Schema}) ->
             Type = emqx_schema:get_tombstone_map_value_type(Schema),

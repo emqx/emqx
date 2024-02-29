@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
     create/5,
     create_dry_run/2,
     recreate/4,
@@ -32,6 +33,9 @@
 
 introduced_in() ->
     "5.0.0".
+
+deprecated_since() ->
+    "5.6.0".
 
 -spec create(
     resource_id(),

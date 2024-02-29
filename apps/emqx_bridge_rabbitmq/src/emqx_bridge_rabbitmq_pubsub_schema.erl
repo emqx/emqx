@@ -101,6 +101,7 @@ fields(action_parameters) ->
             hoconsc:mk(
                 binary(),
                 #{
+                    default => <<"">>,
                     desc => ?DESC(?CONNECTOR_SCHEMA, "payload_template")
                 }
             )}
@@ -126,45 +127,20 @@ fields(subscriber_source) ->
     );
 fields(source_parameters) ->
     [
-        {wait_for_publish_confirmations,
-            hoconsc:mk(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(?CONNECTOR_SCHEMA, "wait_for_publish_confirmations")
-                }
-            )},
-        {topic,
-            ?HOCON(
-                binary(),
-                #{
-                    required => true,
-                    validator => fun emqx_schema:non_empty_string/1,
-                    desc => ?DESC("source_topic")
-                }
-            )},
-        {qos,
-            ?HOCON(
-                ?UNION([emqx_schema:qos(), binary()]),
-                #{
-                    default => 0,
-                    desc => ?DESC("source_qos")
-                }
-            )},
-        {payload_template,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("source_payload_template")
-                }
-            )},
         {queue,
             ?HOCON(
                 binary(),
                 #{
                     required => true,
                     desc => ?DESC("source_queue")
+                }
+            )},
+        {wait_for_publish_confirmations,
+            hoconsc:mk(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(?CONNECTOR_SCHEMA, "wait_for_publish_confirmations")
                 }
             )},
         {no_ack,
@@ -194,7 +170,7 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?SOURCE_TYPE, fields(subscriber_source));
 fields(What) ->
-    error({emqx_bridge_mqtt_pubsub_schema, missing_field_handler, What}).
+    error({?MODULE, missing_field_handler, What}).
 %% v2: api schema
 %% The parameter equals to
 %%   `get_bridge_v2`, `post_bridge_v2`, `put_bridge_v2` from emqx_bridge_v2_schema:api_schema/1
@@ -260,9 +236,6 @@ source_examples(Method) ->
                     _ConnectorType = rabbitmq,
                     #{
                         parameters => #{
-                            topic => <<"${payload.mqtt_topic}">>,
-                            qos => <<"${payload.mqtt_qos}">>,
-                            payload_template => <<"${payload.mqtt_payload}">>,
                             queue => <<"test_queue">>,
                             no_ack => true
                         }

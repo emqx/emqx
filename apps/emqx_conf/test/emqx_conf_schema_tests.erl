@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -619,3 +619,72 @@ load_and_check_test_() ->
             end)
         end}
     ].
+
+%% erlfmt-ignore
+dns_record_conf(NodeName, DnsRecordType) ->
+    "
+             node {
+                name = \"" ++ NodeName ++ "\"
+                data_dir = \"data\"
+                cookie = cookie
+                max_ports = 2048
+                process_limit = 10240
+             }
+             cluster {
+                name = emqxcl
+                discovery_strategy = dns
+                dns.record_type = " ++ atom_to_list(DnsRecordType) ++"
+             }
+    ".
+
+a_record_with_non_ip_node_name_test_() ->
+    Test = fun(DnsRecordType) ->
+        {ok, ConfMap} = hocon:binary(dns_record_conf("emqx@local.host", DnsRecordType), #{
+            format => map
+        }),
+        ?assertThrow(
+            {emqx_conf_schema, [
+                #{
+                    reason := integrity_validation_failure,
+                    result := #{domain := "local.host"},
+                    kind := validation_error,
+                    validation_name := check_node_name_and_discovery_strategy
+                }
+            ]},
+            hocon_tconf:check_plain(emqx_conf_schema, ConfMap, #{required => false}, [node, cluster])
+        )
+    end,
+    [
+        {"a record", fun() -> Test(a) end},
+        {"aaaa record", fun() -> Test(aaaa) end}
+    ].
+
+dns_record_type_incompatiblie_with_node_host_ip_format_test_() ->
+    Test = fun(Ip, DnsRecordType) ->
+        {ok, ConfMap} = hocon:binary(dns_record_conf("emqx@" ++ Ip, DnsRecordType), #{format => map}),
+        ?assertThrow(
+            {emqx_conf_schema, [
+                #{
+                    reason := integrity_validation_failure,
+                    result := #{
+                        record_type := DnsRecordType,
+                        address_type := _
+                    },
+                    kind := validation_error,
+                    validation_name := check_node_name_and_discovery_strategy
+                }
+            ]},
+            hocon_tconf:check_plain(emqx_conf_schema, ConfMap, #{required => false}, [node, cluster])
+        )
+    end,
+    [
+        {"ipv4 address", fun() -> Test("::1", a) end},
+        {"ipv6 address", fun() -> Test("127.0.0.1", aaaa) end}
+    ].
+
+dns_srv_record_is_ok_test() ->
+    {ok, ConfMap} = hocon:binary(dns_record_conf("emqx@local.host", srv), #{format => map}),
+    ?assertMatch(
+        Value when is_map(Value),
+        hocon_tconf:check_plain(emqx_conf_schema, ConfMap, #{required => false}, [node, cluster])
+    ).

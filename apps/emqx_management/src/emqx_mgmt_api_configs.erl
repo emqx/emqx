@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -502,7 +502,7 @@ conf_path(Req) ->
     string:lexemes(Path, "/ ").
 
 global_zone_roots() ->
-    lists:map(fun({K, _}) -> list_to_binary(K) end, global_zone_schema()).
+    lists:map(fun({K, _}) -> atom_to_binary(K) end, global_zone_schema()).
 
 global_zone_schema() ->
     emqx_zone_schema:global_zone_with_default().

@@ -66,7 +66,10 @@ export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
 export EMQX_LOG__FILE__DEFAULT__ENABLE='false'
 export EMQX_LOG__CONSOLE__ENABLE='true'
 SYSTEM="$(./scripts/get-distro.sh)"
-EMQX_NODE_NAME="${EMQX_NODE__NAME:-${EMQX_NODE_NAME:-emqx@127.0.0.1}}"
+if [ -n "${EMQX_NODE_NAME:-}" ]; then
+    export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
+fi
+EMQX_NODE_NAME="${EMQX_NODE__NAME:-emqx@127.0.0.1}"
 PROFILE="${PROFILE:-emqx}"
 FORCE_COMPILE=0
 # Do not start using ekka epmd by default, so your IDE can connect to it

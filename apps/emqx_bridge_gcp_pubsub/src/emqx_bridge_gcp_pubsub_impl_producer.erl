@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_gcp_pubsub_impl_producer).
@@ -73,7 +73,9 @@ on_start(InstanceId, Config0) ->
         msg => "starting_gcp_pubsub_bridge",
         instance_id => InstanceId
     }),
-    Config = maps:update_with(service_account_json, fun emqx_utils_maps:binary_key_map/1, Config0),
+    Config = maps:update_with(
+        service_account_json, fun(X) -> emqx_utils_json:decode(X, [return_maps]) end, Config0
+    ),
     #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
         {ok, Client} ->

@@ -1,28 +1,28 @@
 emqx_bridge_syskeeper {
 
 config_enable.desc:
-"""Enable or disable this bridge"""
+"""Enable or disable this action."""
 
 config_enable.label:
-"""Enable Or Disable Bridge"""
+"""Enable Or Disable Action"""
 
 desc_config.desc:
-"""Configuration for a Syskeeper bridge"""
+"""Configuration for a Syskeeper action."""
 
 desc_config.label:
-"""Syskeeper Bridge Configuration"""
+"""Syskeeper Action Configuration"""
 
 desc_name.desc:
-"""Bridge name."""
+"""Action name."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
-"""The Bridge Type"""
+"""The action type."""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 template.desc:
 """Template"""
@@ -43,13 +43,13 @@ target_qos.label:
 """Target QoS"""
 
 parameters.desc:
-"""Syskeeper data bridge parameters"""
+"""Syskeeper action parameters"""
 
 parameters.label:
 """Parameters"""
 
 mqtt_topic.desc:
-"""MQTT topic or topic filter as data source (bridge input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Syskeeper."""
+"""MQTT topic or topic filter as data source (action input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Syskeeper."""
 
 mqtt_topic.label:
 """Source MQTT Topic"""

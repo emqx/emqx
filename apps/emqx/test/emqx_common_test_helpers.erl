@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1060,14 +1060,24 @@ expand_node_specs(Specs, CommonOpts) ->
         Specs
     ).
 
-%% is useful when iterating on the tests in a loop, to get rid of all
-%% the garbaged printed before the test itself beings.
+%% Useful when iterating on the tests in a loop, to get rid of all the garbaged printed
+%% before the test itself beings.
+%% Only actually does anything if the environment variable `CLEAR_SCREEN' is set to `true'
+%% and only clears the screen the screen the first time it's encountered, so it's harmless
+%% otherwise.
 clear_screen() ->
-    io:format(standard_io, "\033[H\033[2J", []),
-    io:format(standard_error, "\033[H\033[2J", []),
-    io:format(standard_io, "\033[H\033[3J", []),
-    io:format(standard_error, "\033[H\033[3J", []),
-    ok.
+    Key = {?MODULE, clear_screen},
+    case {os:getenv("CLEAR_SCREEN"), persistent_term:get(Key, false)} of
+        {"true", false} ->
+            io:format(standard_io, "\033[H\033[2J", []),
+            io:format(standard_error, "\033[H\033[2J", []),
+            io:format(standard_io, "\033[H\033[3J", []),
+            io:format(standard_error, "\033[H\033[3J", []),
+            persistent_term:put(Key, true),
+            ok;
+        _ ->
+            ok
+    end.
 
 with_mock(Mod, FnName, MockedFn, Fun) ->
     ok = meck:new(Mod, [non_strict, no_link, no_history, passthrough]),

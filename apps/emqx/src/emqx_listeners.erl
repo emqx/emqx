@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@
 -export([format_bind/1]).
 
 -ifdef(TEST).
--export([certs_dir/2]).
+-export([certs_dir/2, wait_listener_stopped/1]).
 -endif.
 
 -export_type([listener_id/0]).
@@ -355,7 +355,8 @@ do_stop_listener(Type, Id, #{bind := ListenOn}) when ?ESOCKD_LISTENER(Type) ->
 do_stop_listener(Type, Id, #{bind := ListenOn}) when ?COWBOY_LISTENER(Type) ->
     case cowboy:stop_listener(Id) of
         ok ->
-            wait_listener_stopped(ListenOn);
+            _ = wait_listener_stopped(ListenOn),
+            ok;
         Error ->
             Error
     end;
@@ -363,13 +364,25 @@ do_stop_listener(quic, Id, _Conf) ->
     quicer:terminate_listener(Id).
 
 wait_listener_stopped(ListenOn) ->
+    wait_listener_stopped(ListenOn, 0).
+
+wait_listener_stopped(ListenOn, 3) ->
+    Log = #{
+        msg => "port_not_released_after_listener_stopped",
+        explain => "Expecting the operating system to release the port soon.",
+        listener => ListenOn,
+        wait_seconds => 9
+    },
+    ?SLOG(warning, Log),
+    timeout;
+wait_listener_stopped(ListenOn, RetryCount) ->
     % NOTE
     % `cowboy:stop_listener/1` will not close the listening socket explicitly,
     % it will be closed by the runtime system **only after** the process exits.
     Endpoint = maps:from_list(ip_port(ListenOn)),
     case
         gen_tcp:connect(
-            maps:get(ip, Endpoint, loopback),
+            maps:get(ip, Endpoint, "127.0.0.1"),
             maps:get(port, Endpoint),
             [{active, false}]
         )
@@ -380,10 +393,19 @@ wait_listener_stopped(ListenOn) ->
             %% but don't want to crash if not, because this doesn't make any difference.
             ok;
         {ok, Socket} ->
-            %% NOTE
-            %% Tiny chance to get a connected socket here, when some other process
-            %% concurrently binds to the same port.
-            gen_tcp:close(Socket)
+            %% cowboy(ws/wss) will close the socket if we don't send packet in 5 seconds.
+            %% so we only wait 3 second here.
+            case gen_tcp:recv(Socket, 0, 3000) of
+                {ok, _} ->
+                    _ = gen_tcp:close(Socket),
+                    wait_listener_stopped(ListenOn, RetryCount + 1);
+                {error, timeout} ->
+                    _ = gen_tcp:close(Socket),
+                    wait_listener_stopped(ListenOn, RetryCount + 1);
+                {error, _} ->
+                    _ = gen_tcp:close(Socket),
+                    ok
+            end
     end.
 
 -ifndef(TEST).

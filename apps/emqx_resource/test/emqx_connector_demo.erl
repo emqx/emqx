@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -135,6 +135,15 @@ on_query(_InstId, get_counter, #{pid := Pid}) ->
     after 1000 ->
         {error, timeout}
     end;
+on_query(_InstId, {individual_reply, IsSuccess}, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, {individual_reply, IsSuccess}},
+    receive
+        {ReqRef, Res} -> Res
+    after 1000 ->
+        {error, timeout}
+    end;
 on_query(_InstId, {sleep_before_reply, For}, #{pid := Pid}) ->
     ?tp(connector_demo_sleep, #{mode => sync, for => For}),
     ReqRef = make_ref(),
@@ -169,6 +178,9 @@ on_query_async(_InstId, block_now, ReplyFun, #{pid := Pid}) ->
 on_query_async(_InstId, {big_payload, Payload}, ReplyFun, #{pid := Pid}) ->
     Pid ! {big_payload, Payload, ReplyFun},
     {ok, Pid};
+on_query_async(_InstId, {individual_reply, IsSuccess}, ReplyFun, #{pid := Pid}) ->
+    Pid ! {individual_reply, IsSuccess, ReplyFun},
+    {ok, Pid};
 on_query_async(_InstId, {sleep_before_reply, For}, ReplyFun, #{pid := Pid}) ->
     ?tp(connector_demo_sleep, #{mode => async, for => For}),
     Pid ! {{sleep_before_reply, For}, ReplyFun},
@@ -184,6 +196,8 @@ on_batch_query(InstId, BatchReq, State) ->
             batch_get_counter(sync, InstId, State);
         {big_payload, _Payload} ->
             batch_big_payload(sync, InstId, BatchReq, State);
+        {individual_reply, _IsSuccess} ->
+            batch_individual_reply(sync, InstId, BatchReq, State);
         {random_reply, Num} ->
             %% async batch retried
             make_random_reply(Num)
@@ -200,6 +214,8 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) -
             on_query_async(InstId, block_now, ReplyFunAndArgs, State);
         {big_payload, _Payload} ->
             batch_big_payload({async, ReplyFunAndArgs}, InstId, BatchReq, State);
+        {individual_reply, _IsSuccess} ->
+            batch_individual_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {random_reply, Num} ->
             %% only take the first Num in the batch should be random enough
             Pid ! {{random_reply, Num}, ReplyFunAndArgs},
@@ -241,6 +257,21 @@ batch_big_payload({async, ReplyFunAndArgs}, InstId, Batch, State = #{pid := Pid}
         fun(Req = {big_payload, _}) -> on_query_async(InstId, Req, ReplyFunAndArgs, State) end,
         Batch
     ),
+    {ok, Pid}.
+
+batch_individual_reply(sync, InstId, Batch, State) ->
+    lists:map(
+        fun(Req = {individual_reply, _}) -> on_query(InstId, Req, State) end,
+        Batch
+    );
+batch_individual_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
+    Pid = spawn(fun() ->
+        Results = lists:map(
+            fun(Req = {individual_reply, _}) -> on_query(InstId, Req, State) end,
+            Batch
+        ),
+        apply_reply(ReplyFunAndArgs, Results)
+    end),
     {ok, Pid}.
 
 on_get_status(_InstId, #{health_check_error := true}) ->
@@ -337,6 +368,22 @@ counter_loop(
                 State;
             {{FromPid, ReqRef}, get} ->
                 FromPid ! {ReqRef, Num},
+                State;
+            {{FromPid, ReqRef}, {individual_reply, IsSuccess}} ->
+                Res =
+                    case IsSuccess of
+                        true -> ok;
+                        false -> {error, {unrecoverable_error, bad_request}}
+                    end,
+                FromPid ! {ReqRef, Res},
+                State;
+            {individual_reply, IsSuccess, ReplyFun} ->
+                Res =
+                    case IsSuccess of
+                        true -> ok;
+                        false -> {error, {unrecoverable_error, bad_request}}
+                    end,
+                apply_reply(ReplyFun, Res),
                 State;
             {{random_reply, RandNum}, ReplyFun} ->
                 %% usually a behaving  connector should reply once and only once for

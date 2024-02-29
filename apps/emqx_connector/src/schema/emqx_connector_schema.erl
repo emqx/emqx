@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -126,8 +126,14 @@ connector_type_to_bridge_types(azure_event_hub_producer) ->
     [azure_event_hub_producer];
 connector_type_to_bridge_types(confluent_producer) ->
     [confluent_producer];
+connector_type_to_bridge_types(dynamo) ->
+    [dynamo];
+connector_type_to_bridge_types(gcp_pubsub_consumer) ->
+    [gcp_pubsub_consumer];
 connector_type_to_bridge_types(gcp_pubsub_producer) ->
     [gcp_pubsub, gcp_pubsub_producer];
+connector_type_to_bridge_types(hstreamdb) ->
+    [hstreamdb];
 connector_type_to_bridge_types(kafka_producer) ->
     [kafka, kafka_producer];
 connector_type_to_bridge_types(kinesis) ->
@@ -142,6 +148,8 @@ connector_type_to_bridge_types(influxdb) ->
     [influxdb, influxdb_api_v1, influxdb_api_v2];
 connector_type_to_bridge_types(cassandra) ->
     [cassandra];
+connector_type_to_bridge_types(clickhouse) ->
+    [clickhouse];
 connector_type_to_bridge_types(mysql) ->
     [mysql];
 connector_type_to_bridge_types(mqtt) ->
@@ -166,6 +174,8 @@ connector_type_to_bridge_types(opents) ->
     [opents];
 connector_type_to_bridge_types(greptimedb) ->
     [greptimedb];
+connector_type_to_bridge_types(pulsar) ->
+    [pulsar_producer, pulsar];
 connector_type_to_bridge_types(tdengine) ->
     [tdengine];
 connector_type_to_bridge_types(rabbitmq) ->
@@ -261,6 +271,7 @@ split_bridge_to_connector_and_action(
             #{<<"connector">> := ConnectorName0} -> ConnectorName0;
             _ -> generate_connector_name(ConnectorsMap, BridgeName, 0)
         end,
+
     OrgActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeType),
     {ActionMap, ActionType, ActionOrSource} =
         case emqx_action_info:has_custom_bridge_v1_config_to_action_config(BridgeType) of
@@ -525,14 +536,6 @@ fields(connectors) ->
                     required => false
                 }
             )}
-        % {mqtt_subscriber,
-        %     mk(
-        %         hoconsc:map(name, ref(emqx_bridge_mqtt_connector_schema, "config_connector")),
-        %         #{
-        %             desc => <<"MQTT Subscriber Connector Config">>,
-        %             required => false
-        %         }
-        %     )}
     ] ++ enterprise_fields_connectors();
 fields("node_status") ->
     [

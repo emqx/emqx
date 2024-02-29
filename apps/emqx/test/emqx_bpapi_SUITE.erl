@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,10 +44,11 @@ t_announce(Config) ->
     meck:new(emqx_bpapi, [passthrough, no_history]),
     Filename = filename:join(?config(data_dir, Config), "test.versions"),
     meck:expect(emqx_bpapi, versions_file, fun(_) -> Filename end),
-    ?assertMatch(ok, emqx_bpapi:announce(emqx)),
+    FakeNode = 'fake-node@127.0.0.1',
+    ?assertMatch(ok, emqx_bpapi:announce(FakeNode, emqx)),
     timer:sleep(100),
-    ?assertMatch(4, emqx_bpapi:supported_version(node(), api2)),
-    ?assertMatch(2, emqx_bpapi:supported_version(node(), api1)),
+    ?assertMatch(4, emqx_bpapi:supported_version(FakeNode, api2)),
+    ?assertMatch(2, emqx_bpapi:supported_version(FakeNode, api1)),
     ?assertMatch(2, emqx_bpapi:supported_version(api2)),
     ?assertMatch(2, emqx_bpapi:supported_version(api1)).
 

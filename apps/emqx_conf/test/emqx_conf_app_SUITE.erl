@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -74,10 +74,7 @@ t_copy_new_data_dir(Config) ->
         {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
         ok = rpc:call(First, application, start, [emqx_conf]),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
-
-        assert_data_copy_done(Nodes, File),
-        stop_cluster(Nodes),
-        ok
+        ok = assert_data_copy_done(Nodes, File)
     after
         stop_cluster(Nodes)
     end.
@@ -101,10 +98,7 @@ t_copy_deprecated_data_dir(Config) ->
         {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
         ok = rpc:call(First, application, start, [emqx_conf]),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
-
-        assert_data_copy_done(Nodes, File),
-        stop_cluster(Nodes),
-        ok
+        ok = assert_data_copy_done(Nodes, File)
     after
         stop_cluster(Nodes)
     end.
@@ -133,9 +127,7 @@ t_no_copy_from_newer_version_node(Config) ->
         ]),
         ok = rpc:call(First, application, start, [emqx_conf]),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
-        ok = assert_no_cluster_conf_copied(Rest, File),
-        stop_cluster(Nodes),
-        ok
+        ok = assert_no_cluster_conf_copied(Rest, File)
     after
         stop_cluster(Nodes)
     end.
@@ -155,25 +147,29 @@ create_data_dir(File) ->
 
 set_data_dir_env() ->
     NodeDataDir = emqx:data_dir(),
-    NodeStr = atom_to_list(node()),
+    NodeConfigDir = filename:join(NodeDataDir, "configs"),
     %% will create certs and authz dir
-    ok = filelib:ensure_dir(NodeDataDir ++ "/configs/"),
-    {ok, [ConfigFile]} = application:get_env(emqx, config_files),
-    NewConfigFile = ConfigFile ++ "." ++ NodeStr,
-    ok = filelib:ensure_dir(NewConfigFile),
-    {ok, _} = file:copy(ConfigFile, NewConfigFile),
-    Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]~n", [NewConfigFile])),
-    ok = file:write_file(NewConfigFile, Bin, [append]),
-    DataDir = iolist_to_binary(io_lib:format("node.data_dir = ~p~n", [NodeDataDir])),
-    ok = file:write_file(NewConfigFile, DataDir, [append]),
-    application:set_env(emqx, config_files, [NewConfigFile]),
+    ok = filelib:ensure_path(NodeConfigDir),
+    ConfigFile = filename:join(NodeConfigDir, "emqx.conf"),
+    ok = append_format(ConfigFile, "node.config_files = [~p]~n", [ConfigFile]),
+    ok = append_format(ConfigFile, "node.data_dir = ~p~n", [NodeDataDir]),
+    application:set_env(emqx, config_files, [ConfigFile]),
     %% application:set_env(emqx, data_dir, Node),
     %% We set env both cluster.hocon and cluster-override.conf, but only one will be used
-    application:set_env(emqx, cluster_hocon_file, NodeDataDir ++ "/configs/cluster.hocon"),
     application:set_env(
-        emqx, cluster_override_conf_file, NodeDataDir ++ "/configs/cluster-override.conf"
+        emqx,
+        cluster_hocon_file,
+        filename:join([NodeDataDir, "configs", "cluster.hocon"])
+    ),
+    application:set_env(
+        emqx,
+        cluster_override_conf_file,
+        filename:join([NodeDataDir, "configs", "cluster-override.conf"])
     ),
     ok.
+
+append_format(Filename, Fmt, Args) ->
+    ok = file:write_file(Filename, io_lib:format(Fmt, Args), [append]).
 
 assert_data_copy_done([_First | Rest], File) ->
     FirstDataDir = filename:dirname(filename:dirname(File)),

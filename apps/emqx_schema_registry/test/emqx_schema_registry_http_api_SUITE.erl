@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_http_api_SUITE).
 
@@ -45,6 +45,7 @@ end_per_suite(_Config) ->
 init_per_group(avro, Config) ->
     Source = #{
         type => record,
+        name => <<"apitest">>,
         fields => [
             #{name => <<"i">>, type => <<"int">>},
             #{name => <<"s">>, type => <<"string">>}

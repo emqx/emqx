@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_consumer_SUITE).
 
@@ -743,18 +743,7 @@ probe_bridge_api(Config) ->
     TypeBin = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
     KafkaConfig = ?config(kafka_config, Config),
-    Params = KafkaConfig#{<<"type">> => TypeBin, <<"name">> => Name},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("probing bridge (via http): ~p", [Params]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
-            Error -> Error
-        end,
-    ct:pal("bridge probe result: ~p", [Res]),
-    Res.
+    emqx_bridge_testlib:probe_bridge_api(TypeBin, Name, KafkaConfig).
 
 send_message(Config, Payload) ->
     Name = ?config(kafka_name, Config),

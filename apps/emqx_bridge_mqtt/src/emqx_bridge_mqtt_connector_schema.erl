@@ -1,5 +1,5 @@
 %%-------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -308,7 +308,7 @@ fields(Field) when
     Fields = fields("specific_connector_config"),
     emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
 fields(What) ->
-    error({emqx_bridge_mqtt_connector_schema, missing_field_handler, What}).
+    error({?MODULE, missing_field_handler, What}).
 
 ingress_pool_size(desc) ->
     ?DESC("ingress_pool_size");

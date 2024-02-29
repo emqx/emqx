@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry).
 
@@ -14,7 +14,6 @@
 %% API
 -export([
     start_link/0,
-    get_serde/1,
     add_schema/2,
     get_schema/1,
     delete_schema/1,
@@ -38,6 +37,11 @@
     import_config/1
 ]).
 
+%% for testing
+-export([
+    get_serde/1
+]).
+
 -type schema() :: #{
     type := serde_type(),
     source := binary(),
@@ -51,13 +55,13 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec get_serde(schema_name()) -> {ok, serde_map()} | {error, not_found}.
+-spec get_serde(schema_name()) -> {ok, serde()} | {error, not_found}.
 get_serde(SchemaName) ->
     case ets:lookup(?SERDE_TAB, to_bin(SchemaName)) of
         [] ->
             {error, not_found};
         [Serde] ->
-            {ok, serde_to_map(Serde)}
+            {ok, Serde}
     end.
 
 -spec get_schema(schema_name()) -> {ok, map()} | {error, not_found}.
@@ -214,13 +218,7 @@ terminate(_Reason, _State) ->
 %%-------------------------------------------------------------------------------------------------
 
 create_tables() ->
-    ok = mria:create_table(?SERDE_TAB, [
-        {type, ordered_set},
-        {rlog_shard, ?SCHEMA_REGISTRY_SHARD},
-        {storage, ram_copies},
-        {record_name, serde},
-        {attributes, record_info(fields, serde)}
-    ]),
+    ok = emqx_utils_ets:new(?SERDE_TAB, [public, {keypos, #serde.name}]),
     ok = mria:create_table(?PROTOBUF_CACHE_TAB, [
         {type, set},
         {rlog_shard, ?SCHEMA_REGISTRY_SHARD},
@@ -228,7 +226,7 @@ create_tables() ->
         {record_name, protobuf_cache},
         {attributes, record_info(fields, protobuf_cache)}
     ]),
-    ok = mria:wait_for_tables([?SERDE_TAB, ?PROTOBUF_CACHE_TAB]),
+    ok = mria:wait_for_tables([?PROTOBUF_CACHE_TAB]),
     ok.
 
 do_build_serdes(Schemas) ->
@@ -290,15 +288,8 @@ do_build_serde(Name, Serde) when not is_binary(Name) ->
     do_build_serde(to_bin(Name), Serde);
 do_build_serde(Name, #{type := Type, source := Source}) ->
     try
-        {Serializer, Deserializer, Destructor} =
-            emqx_schema_registry_serde:make_serde(Type, Name, Source),
-        Serde = #serde{
-            name = Name,
-            serializer = Serializer,
-            deserializer = Deserializer,
-            destructor = Destructor
-        },
-        ok = mria:dirty_write(?SERDE_TAB, Serde),
+        Serde = emqx_schema_registry_serde:make_serde(Type, Name, Source),
+        true = ets:insert(?SERDE_TAB, Serde),
         ok
     catch
         Kind:Error:Stacktrace ->
@@ -320,9 +311,9 @@ ensure_serde_absent(Name) when not is_binary(Name) ->
     ensure_serde_absent(to_bin(Name));
 ensure_serde_absent(Name) ->
     case get_serde(Name) of
-        {ok, #{destructor := Destructor}} ->
-            Destructor(),
-            ok = mria:dirty_delete(?SERDE_TAB, Name);
+        {ok, Serde} ->
+            _ = ets:delete(?SERDE_TAB, Name),
+            ok = emqx_schema_registry_serde:destroy(Serde);
         {error, not_found} ->
             ok
     end.
@@ -346,12 +337,3 @@ schema_name_bin_to_atom(Bin) when size(Bin) > 255 ->
     );
 schema_name_bin_to_atom(Bin) ->
     binary_to_atom(Bin, utf8).
-
--spec serde_to_map(serde()) -> serde_map().
-serde_to_map(#serde{} = Serde) ->
-    #{
-        name => Serde#serde.name,
-        serializer => Serde#serde.serializer,
-        deserializer => Serde#serde.deserializer,
-        destructor => Serde#serde.destructor
-    }.

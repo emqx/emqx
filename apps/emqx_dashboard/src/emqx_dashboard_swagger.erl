@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -234,7 +234,7 @@ file_schema(FileName) ->
     }.
 
 gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
-    {ApiSpec0, Components0} = emqx_dashboard_swagger:spec(
+    {ApiSpec0, Components0} = spec(
         SchemaMod,
         #{
             schema_converter => Converter,

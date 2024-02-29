@@ -39,7 +39,13 @@
 -export([make_session_iterator/0, session_iterator_next/2]).
 
 -export_type([
-    t/0, metadata/0, subscriptions/0, seqno_type/0, stream_key/0, rank_key/0, session_iterator/0
+    t/0,
+    metadata/0,
+    subscriptions/0,
+    seqno_type/0,
+    stream_key/0,
+    rank_key/0,
+    session_iterator/0
 ]).
 
 -include("emqx_mqtt.hrl").
@@ -361,15 +367,10 @@ fold_ranks(Fun, Acc, Rec) ->
 
 -spec make_session_iterator() -> session_iterator().
 make_session_iterator() ->
-    case mnesia:dirty_first(?session_tab) of
-        '$end_of_table' ->
-            '$end_of_table';
-        Key ->
-            Key
-    end.
+    mnesia:dirty_first(?session_tab).
 
 -spec session_iterator_next(session_iterator(), pos_integer()) ->
-    {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator()}.
+    {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
 session_iterator_next(Cursor, 0) ->
     {[], Cursor};
 session_iterator_next('$end_of_table', _N) ->
@@ -563,6 +564,8 @@ ro_transaction(Fun) ->
 %% ro_transaction(Fun) ->
 %%     {atomic, Res} = mria:ro_transaction(?DS_MRIA_SHARD, Fun),
 %%     Res.
+
+%%
 
 -compile({inline, check_sequence/1}).
 

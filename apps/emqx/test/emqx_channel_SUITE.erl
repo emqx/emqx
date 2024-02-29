@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -427,19 +427,32 @@ t_handle_in_auth(_) ->
 
 t_handle_in_frame_error(_) ->
     IdleChannel = channel(#{conn_state => idle}),
-    {shutdown, #{shutdown_count := frame_error, reason := frame_too_large}, _Chan} =
-        emqx_channel:handle_in({frame_error, frame_too_large}, IdleChannel),
+    {shutdown, #{shutdown_count := frame_too_large, cause := frame_too_large}, _Chan} =
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, IdleChannel),
     ConnectingChan = channel(#{conn_state => connecting}),
     ConnackPacket = ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE),
-    {shutdown, #{shutdown_count := frame_error, reason := frame_too_large}, ConnackPacket, _} =
-        emqx_channel:handle_in({frame_error, frame_too_large}, ConnectingChan),
+    {shutdown,
+        #{
+            shutdown_count := frame_too_large,
+            cause := frame_too_large,
+            limit := 100,
+            received := 101
+        },
+        ConnackPacket,
+        _} =
+        emqx_channel:handle_in(
+            {frame_error, #{cause => frame_too_large, received => 101, limit => 100}},
+            ConnectingChan
+        ),
     DisconnectPacket = ?DISCONNECT_PACKET(?RC_PACKET_TOO_LARGE),
     ConnectedChan = channel(#{conn_state => connected}),
-    {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _} =
-        emqx_channel:handle_in({frame_error, frame_too_large}, ConnectedChan),
+    ?assertMatch(
+        {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _},
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, ConnectedChan)
+    ),
     DisconnectedChan = channel(#{conn_state => disconnected}),
     {ok, DisconnectedChan} =
-        emqx_channel:handle_in({frame_error, frame_too_large}, DisconnectedChan).
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, DisconnectedChan).
 
 t_handle_in_expected_packet(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),

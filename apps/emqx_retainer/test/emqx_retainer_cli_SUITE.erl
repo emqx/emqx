@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -38,22 +38,22 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_reindex_status(_Config) ->
-    ok = emqx_retainer_mnesia_cli:retainer(["reindex", "status"]).
+    ok = emqx_retainer_cli:retainer(["reindex", "status"]).
 
 t_info(_Config) ->
-    ok = emqx_retainer_mnesia_cli:retainer(["info"]).
+    ok = emqx_retainer_cli:retainer(["info"]).
 
 t_topics(_Config) ->
-    ok = emqx_retainer_mnesia_cli:retainer(["topics"]).
+    ok = emqx_retainer_cli:retainer(["topics"]).
 
 t_topics_with_len(_Config) ->
-    ok = emqx_retainer_mnesia_cli:retainer(["topics", "100", "200"]).
+    ok = emqx_retainer_cli:retainer(["topics", "100", "200"]).
 
 t_clean(_Config) ->
-    ok = emqx_retainer_mnesia_cli:retainer(["clean"]).
+    ok = emqx_retainer_cli:retainer(["clean"]).
 
 t_topic(_Config) ->
-    ok = emqx_retainer_mnesia_cli:retainer(["clean", "foo/bar"]).
+    ok = emqx_retainer_cli:retainer(["clean", "foo/bar"]).
 
 t_reindex(_Config) ->
     {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
@@ -84,6 +84,6 @@ t_reindex(_Config) ->
     ),
 
     emqx_config:put([retainer, backend, index_specs], [[4, 5]]),
-    ok = emqx_retainer_mnesia_cli:retainer(["reindex", "start"]),
+    ok = emqx_retainer_cli:retainer(["reindex", "start"]),
 
     ?assertEqual(1000, mnesia:table_info(?TAB_INDEX, size)).

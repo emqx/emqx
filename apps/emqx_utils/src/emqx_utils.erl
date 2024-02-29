@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -65,7 +65,6 @@
     flattermap/2,
     tcp_keepalive_opts/4,
     format/1,
-    format_mfal/1,
     call_first_defined/1,
     ntoa/1
 ]).
@@ -553,30 +552,6 @@ tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
 format(Term) ->
     iolist_to_binary(io_lib:format("~0p", [Term])).
 
-%% @doc Helper function for log formatters.
--spec format_mfal(map()) -> undefined | binary().
-format_mfal(Data) ->
-    Line =
-        case maps:get(line, Data, undefined) of
-            undefined ->
-                <<"">>;
-            Num ->
-                ["(", integer_to_list(Num), ")"]
-        end,
-    case maps:get(mfa, Data, undefined) of
-        {M, F, A} ->
-            iolist_to_binary([
-                atom_to_binary(M, utf8),
-                $:,
-                atom_to_binary(F, utf8),
-                $/,
-                integer_to_binary(A),
-                Line
-            ]);
-        _ ->
-            undefined
-    end.
-
 -spec call_first_defined(list({module(), atom(), list()})) -> term() | no_return().
 call_first_defined([{Module, Function, Args} | Rest]) ->
     try
@@ -730,8 +705,8 @@ redact(Term, Checker) ->
         is_sensitive_key(V) orelse Checker(V)
     end).
 
-do_redact(L, Checker) when is_list(L) ->
-    lists:map(fun(E) -> do_redact(E, Checker) end, L);
+do_redact([E | Rest], Checker) ->
+    [do_redact(E, Checker) | do_redact(Rest, Checker)];
 do_redact(M, Checker) when is_map(M) ->
     maps:map(
         fun(K, V) ->
@@ -838,14 +813,8 @@ ipv6_probe_test() ->
     end.
 
 redact_test_() ->
-    Case = fun(Type, KeyT) ->
-        Key =
-            case Type of
-                atom -> KeyT;
-                string -> erlang:atom_to_list(KeyT);
-                binary -> erlang:atom_to_binary(KeyT)
-            end,
-
+    Case = fun(TypeF, KeyIn) ->
+        Key = TypeF(KeyIn),
         ?assert(is_sensitive_key(Key)),
 
         %% direct
@@ -866,10 +835,16 @@ redact_test_() ->
         %% 3 level nested
         ?assertEqual([#{opts => [{Key, ?REDACT_VAL}]}], redact([#{opts => [{Key, foo}]}])),
         ?assertEqual([{opts, [{Key, ?REDACT_VAL}]}], redact([{opts, [{Key, foo}]}])),
-        ?assertEqual([{opts, [#{Key => ?REDACT_VAL}]}], redact([{opts, [#{Key => foo}]}]))
-    end,
+        ?assertEqual([{opts, [#{Key => ?REDACT_VAL}]}], redact([{opts, [#{Key => foo}]}])),
 
-    Types = [atom, string, binary],
+        %% improper lists
+        ?assertEqual([{opts, [{Key, ?REDACT_VAL} | oops]}], redact([{opts, [{Key, foo} | oops]}]))
+    end,
+    Types = [
+        {atom, fun identity/1},
+        {string, fun emqx_utils_conv:str/1},
+        {binary, fun emqx_utils_conv:bin/1}
+    ],
     Keys = [
         authorization,
         aws_secret_access_key,
@@ -882,7 +857,11 @@ redact_test_() ->
         token,
         bind_password
     ],
-    [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
+    [
+        {case_name(Type, Key), fun() -> Case(TypeF, Key) end}
+     || Key <- Keys,
+        {Type, TypeF} <- Types
+    ].
 
 redact2_test_() ->
     Case = fun(Key, Checker) ->
@@ -935,6 +914,9 @@ redact_is_authorization_test_() ->
 
 case_name(Type, Key) ->
     lists:concat([Type, "-", Key]).
+
+identity(X) ->
+    X.
 
 -endif.
 

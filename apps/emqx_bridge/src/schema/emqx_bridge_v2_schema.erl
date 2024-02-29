@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -64,8 +64,9 @@
     make_producer_action_schema/1, make_producer_action_schema/2,
     make_consumer_action_schema/1, make_consumer_action_schema/2,
     top_level_common_action_keys/0,
+    top_level_common_source_keys/0,
     project_to_actions_resource_opts/1,
-    project_to_sources_resource_opts/1
+    project_to_sources_resource_opts/1, project_to_sources_resource_opts/2
 ]).
 
 -export([actions_convert_from_connectors/1]).
@@ -422,6 +423,16 @@ top_level_common_action_keys() ->
         <<"resource_opts">>
     ].
 
+top_level_common_source_keys() ->
+    [
+        <<"connector">>,
+        <<"tags">>,
+        <<"description">>,
+        <<"enable">>,
+        <<"parameters">>,
+        <<"resource_opts">>
+    ].
+
 %%======================================================================================
 %% Helper functions for making HOCON Schema
 %%======================================================================================
@@ -474,7 +485,9 @@ project_to_actions_resource_opts(OldResourceOpts) ->
     maps:with(Subfields, OldResourceOpts).
 
 project_to_sources_resource_opts(OldResourceOpts) ->
-    Subfields = common_source_resource_opts_subfields_bin(),
+    project_to_sources_resource_opts(OldResourceOpts, common_source_resource_opts_subfields_bin()).
+
+project_to_sources_resource_opts(OldResourceOpts, Subfields) ->
     maps:with(Subfields, OldResourceOpts).
 
 actions_convert_from_connectors(RawConf = #{<<"actions">> := Actions}) ->

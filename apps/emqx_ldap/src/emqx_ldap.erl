@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -312,11 +312,12 @@ do_ldap_query(
             {error, {unrecoverable_error, Reason}}
     end.
 
-log(Level, Format, Args) ->
+%% Note: the value of the `_Level` here always is 2
+log(_Level, Format, Args) ->
     ?SLOG(
-        Level,
+        info,
         #{
-            msg => "ldap_log",
+            msg => "eldap_info",
             log => io_lib:format(Format, Args)
         }
     ).

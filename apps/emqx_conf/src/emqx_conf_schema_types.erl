@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -172,7 +172,7 @@ readable("duration()") ->
 readable("duration_s()") ->
     #{
         swagger => #{type => string, example => <<"1h">>},
-        dashboard => #{type => duration},
+        dashboard => #{type => duration, minimum => <<"1s">>},
         docgen => #{type => "Duration(s)", example => <<"1h">>, desc => ?DESC(duration)}
     };
 readable("duration_ms()") ->
@@ -190,7 +190,7 @@ readable("timeout_duration()") ->
 readable("timeout_duration_s()") ->
     #{
         swagger => #{type => string, example => <<"1h">>},
-        dashboard => #{type => duration},
+        dashboard => #{type => duration, minimum => <<"1s">>},
         docgen => #{type => "Duration(s)", example => <<"1h">>, desc => ?DESC(duration)}
     };
 readable("timeout_duration_ms()") ->
@@ -260,20 +260,6 @@ readable("comma_separated_atoms()") ->
         swagger => #{type => string, example => <<"item1,item2">>},
         dashboard => #{type => comma_separated_string},
         docgen => #{type => "String", example => <<"item1,item2">>}
-    };
-readable("service_account_json()") ->
-    %% This is a bit special,
-    %% service_account_josn in swagger spec is an object
-    %% the same in documenation.
-    %% However, dashboard wish it to be a string
-    %% TODO:
-    %%   - Change type definition to stirng().
-    %%   - Convert the embedded object to a escaped JSON string.
-    %%   - Delete this function clause once the above is done.
-    #{
-        swagger => #{type => object},
-        dashboard => #{type => string},
-        docgen => #{type => "Map"}
     };
 readable("json_binary()") ->
     #{

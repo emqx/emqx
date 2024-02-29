@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_connector_ee_schema).
 
@@ -26,8 +26,14 @@ resource_type(azure_event_hub_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(confluent_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(dynamo) ->
+    emqx_bridge_dynamo_connector;
+resource_type(gcp_pubsub_consumer) ->
+    emqx_bridge_gcp_pubsub_impl_consumer;
 resource_type(gcp_pubsub_producer) ->
     emqx_bridge_gcp_pubsub_impl_producer;
+resource_type(hstreamdb) ->
+    emqx_bridge_hstreamdb_connector;
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(kinesis) ->
@@ -42,6 +48,8 @@ resource_type(influxdb) ->
     emqx_bridge_influxdb_connector;
 resource_type(cassandra) ->
     emqx_bridge_cassandra_connector;
+resource_type(clickhouse) ->
+    emqx_bridge_clickhouse_connector;
 resource_type(mysql) ->
     emqx_bridge_mysql_connector;
 resource_type(pgsql) ->
@@ -66,6 +74,8 @@ resource_type(greptimedb) ->
     emqx_bridge_greptimedb_connector;
 resource_type(tdengine) ->
     emqx_bridge_tdengine_connector;
+resource_type(pulsar) ->
+    emqx_bridge_pulsar_connector;
 resource_type(rabbitmq) ->
     emqx_bridge_rabbitmq_connector;
 resource_type(s3) ->
@@ -86,6 +96,8 @@ connector_impl_module(elasticsearch) ->
     emqx_bridge_es_connector;
 connector_impl_module(opents) ->
     emqx_bridge_opents_connector;
+connector_impl_module(pulsar) ->
+    emqx_bridge_pulsar_connector;
 connector_impl_module(tdengine) ->
     emqx_bridge_tdengine_connector;
 connector_impl_module(rabbitmq) ->
@@ -116,11 +128,35 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {dynamo,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_dynamo, "config_connector")),
+                #{
+                    desc => <<"DynamoDB Connector Config">>,
+                    required => false
+                }
+            )},
+        {gcp_pubsub_consumer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_consumer_schema, "config_connector")),
+                #{
+                    desc => <<"GCP PubSub Consumer Connector Config">>,
+                    required => false
+                }
+            )},
         {gcp_pubsub_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_producer_schema, "config_connector")),
                 #{
                     desc => <<"GCP PubSub Producer Connector Config">>,
+                    required => false
+                }
+            )},
+        {hstreamdb,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_hstreamdb, "config_connector")),
+                #{
+                    desc => <<"HStreamDB Connector Config">>,
                     required => false
                 }
             )},
@@ -178,6 +214,14 @@ connector_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_cassandra, "config_connector")),
                 #{
                     desc => <<"Cassandra Connector Config">>,
+                    required => false
+                }
+            )},
+        {clickhouse,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_clickhouse, "config_connector")),
+                #{
+                    desc => <<"ClickHouse Connector Config">>,
                     required => false
                 }
             )},
@@ -277,6 +321,14 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {pulsar,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_pulsar_connector_schema, "config_connector")),
+                #{
+                    desc => <<"Pulsar Connector Config">>,
+                    required => false
+                }
+            )},
         {rabbitmq,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_rabbitmq_connector_schema, "config_connector")),
@@ -299,7 +351,10 @@ schema_modules() ->
     [
         emqx_bridge_azure_event_hub,
         emqx_bridge_confluent_producer,
+        emqx_bridge_dynamo,
+        emqx_bridge_gcp_pubsub_consumer_schema,
         emqx_bridge_gcp_pubsub_producer_schema,
+        emqx_bridge_hstreamdb,
         emqx_bridge_kafka,
         emqx_bridge_kinesis,
         emqx_bridge_matrix,
@@ -307,6 +362,7 @@ schema_modules() ->
         emqx_bridge_oracle,
         emqx_bridge_influxdb,
         emqx_bridge_cassandra,
+        emqx_bridge_clickhouse,
         emqx_bridge_mysql,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
@@ -317,6 +373,7 @@ schema_modules() ->
         emqx_bridge_iotdb_connector,
         emqx_bridge_es_connector,
         emqx_bridge_rabbitmq_connector_schema,
+        emqx_bridge_pulsar_connector_schema,
         emqx_bridge_opents_connector,
         emqx_bridge_greptimedb,
         emqx_bridge_tdengine_connector,
@@ -334,10 +391,19 @@ api_schemas(Method) ->
             emqx_bridge_confluent_producer, <<"confluent_producer">>, Method ++ "_connector"
         ),
         api_ref(
+            emqx_bridge_dynamo, <<"dynamo">>, Method ++ "_connector"
+        ),
+        api_ref(
+            emqx_bridge_gcp_pubsub_consumer_schema,
+            <<"gcp_pubsub_consumer">>,
+            Method ++ "_connector"
+        ),
+        api_ref(
             emqx_bridge_gcp_pubsub_producer_schema,
             <<"gcp_pubsub_producer">>,
             Method ++ "_connector"
         ),
+        api_ref(emqx_bridge_hstreamdb, <<"hstreamdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kinesis, <<"kinesis">>, Method ++ "_connector"),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
@@ -345,6 +411,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_oracle, <<"oracle">>, Method ++ "_connector"),
         api_ref(emqx_bridge_influxdb, <<"influxdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_cassandra, <<"cassandra">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_clickhouse, <<"clickhouse">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mysql, <<"mysql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
@@ -356,6 +423,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_es_connector, <<"elasticsearch">>, Method),
         api_ref(emqx_bridge_opents_connector, <<"opents">>, Method),
         api_ref(emqx_bridge_rabbitmq_connector_schema, <<"rabbitmq">>, Method),
+        api_ref(emqx_bridge_pulsar_connector_schema, <<"pulsar">>, Method),
         api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_tdengine_connector, <<"tdengine">>, Method),
         api_ref(emqx_bridge_s3, <<"s3">>, Method ++ "_connector")

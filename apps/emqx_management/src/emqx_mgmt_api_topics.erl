@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -115,7 +115,7 @@ do_list(Params) ->
         {_, Query} = emqx_mgmt_api:parse_qstring(Params, ?TOPICS_QUERY_SCHEMA),
         QState = Pager#{continuation => undefined},
         QResult = eval_topic_query(qs2ms(Query), QState),
-        {200, format_list_response(Pager, QResult)}
+        {200, format_list_response(Pager, Query, QResult)}
     catch
         throw:{error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
@@ -164,14 +164,17 @@ eval_topic_query(MS, QState) ->
     finalize_query(eval_topic_query(MS, QState, emqx_mgmt_api:init_query_result())).
 
 eval_topic_query(MS, QState, QResult) ->
-    QPage = eval_topic_query_page(MS, QState),
-    case QPage of
+    case eval_topic_query_page(MS, QState) of
         {Rows, '$end_of_table'} ->
             {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
             NQResult#{complete => true};
         {Rows, NCont} ->
-            {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
-            eval_topic_query(MS, QState#{continuation := NCont}, NQResult);
+            case emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult) of
+                {more, NQResult} ->
+                    eval_topic_query(MS, QState#{continuation := NCont}, NQResult);
+                {enough, NQResult} ->
+                    NQResult#{complete => false}
+            end;
         '$end_of_table' ->
             QResult#{complete => true}
     end.
@@ -183,14 +186,21 @@ finalize_query(QResult = #{overflow := Overflow, complete := Complete}) ->
     HasNext = Overflow orelse not Complete,
     QResult#{hasnext => HasNext}.
 
-format_list_response(Meta, _QResult = #{hasnext := HasNext, rows := RowsAcc, cursor := Cursor}) ->
+format_list_response(Meta, Query, QResult = #{rows := RowsAcc}) ->
     #{
-        meta => Meta#{hasnext => HasNext, count => Cursor},
+        meta => format_response_meta(Meta, Query, QResult),
         data => lists:flatmap(
             fun({_Node, Rows}) -> [format(R) || R <- Rows] end,
             RowsAcc
         )
     }.
+
+format_response_meta(Meta, _Query, #{hasnext := HasNext, complete := true, cursor := Cursor}) ->
+    Meta#{hasnext => HasNext, count => Cursor};
+format_response_meta(Meta, _Query = {[], []}, #{hasnext := HasNext}) ->
+    Meta#{hasnext => HasNext, count => emqx_router:stats(n_routes)};
+format_response_meta(Meta, _Query, #{hasnext := HasNext}) ->
+    Meta#{hasnext => HasNext}.
 
 format(#route{topic = Topic, dest = {Group, Node}}) ->
     #{topic => ?SHARE(Group, Topic), node => Node};

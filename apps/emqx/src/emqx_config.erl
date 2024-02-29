@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -960,7 +960,7 @@ is_zone_root(Name) ->
 
 -spec zone_roots() -> [atom()].
 zone_roots() ->
-    lists:map(fun list_to_atom/1, emqx_zone_schema:roots()).
+    emqx_zone_schema:roots().
 
 %%%
 %%% @doc During init, ensure order of puts that zone is put after the other global defaults.

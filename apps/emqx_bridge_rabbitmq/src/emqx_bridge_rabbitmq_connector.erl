@@ -257,6 +257,38 @@ publish_messages(
     },
     Messages
 ) ->
+    try
+        publish_messages(
+            Conn,
+            RabbitMQ,
+            DeliveryMode,
+            Exchange,
+            RoutingKey,
+            PayloadTmpl,
+            Messages,
+            WaitForPublishConfirmations,
+            PublishConfirmationTimeout
+        )
+    catch
+        %% if send a message to a non-existent exchange, RabbitMQ client will crash
+        %% {shutdown,{server_initiated_close,404,<<"NOT_FOUND - no exchange 'xyz' in vhost '/'">>}
+        %% so we catch and return {recoverable_error, Reason} to increase metrics
+        _Type:Reason ->
+            Msg = iolist_to_binary(io_lib:format("RabbitMQ: publish_failed: ~p", [Reason])),
+            erlang:error({recoverable_error, Msg})
+    end.
+
+publish_messages(
+    Conn,
+    RabbitMQ,
+    DeliveryMode,
+    Exchange,
+    RoutingKey,
+    PayloadTmpl,
+    Messages,
+    WaitForPublishConfirmations,
+    PublishConfirmationTimeout
+) ->
     case maps:find(Conn, RabbitMQ) of
         {ok, Channel} ->
             MessageProperties = #'P_basic'{
@@ -317,17 +349,17 @@ handle_result(Res) ->
 
 make_channel(PoolName, ChannelId, Params) ->
     Conns = get_rabbitmq_connections(PoolName),
-    make_channel(Conns, PoolName, ChannelId, Params, #{}).
+    make_channel(Conns, ChannelId, Params, #{}).
 
-make_channel([], _PoolName, _ChannelId, _Param, Acc) ->
+make_channel([], _ChannelId, _Param, Acc) ->
     {ok, Acc};
-make_channel([Conn | Conns], PoolName, ChannelId, Params, Acc) ->
+make_channel([Conn | Conns], ChannelId, Params, Acc) ->
     maybe
         {ok, RabbitMQChannel} ?= amqp_connection:open_channel(Conn),
         ok ?= try_confirm_channel(Params, RabbitMQChannel),
-        ok ?= try_subscribe(Params, RabbitMQChannel, PoolName, ChannelId),
+        ok ?= try_subscribe(Params, RabbitMQChannel, ChannelId),
         NewAcc = Acc#{Conn => RabbitMQChannel},
-        make_channel(Conns, PoolName, ChannelId, Params, NewAcc)
+        make_channel(Conns, ChannelId, Params, NewAcc)
     end.
 
 %% We need to enable confirmations if we want to wait for them
@@ -372,21 +404,7 @@ preproc_parameter(#{config_root := actions, parameters := Parameter}) ->
         config_root => actions
     };
 preproc_parameter(#{config_root := sources, parameters := Parameter, hookpoints := Hooks}) ->
-    #{
-        payload_template := PayloadTmpl,
-        qos := QosTmpl,
-        topic := TopicTmpl
-    } = Parameter,
-    Parameter#{
-        payload_template => emqx_placeholder:preproc_tmpl(PayloadTmpl),
-        qos => preproc_qos(QosTmpl),
-        topic => emqx_placeholder:preproc_tmpl(TopicTmpl),
-        hookpoints => Hooks,
-        config_root => sources
-    }.
-
-preproc_qos(Qos) when is_integer(Qos) -> Qos;
-preproc_qos(Qos) -> emqx_placeholder:preproc_tmpl(Qos).
+    Parameter#{hookpoints => Hooks, config_root => sources}.
 
 delivery_mode(non_persistent) -> 1;
 delivery_mode(persistent) -> 2.
@@ -410,16 +428,15 @@ get_rabbitmq_connections(PoolName) ->
 try_subscribe(
     #{queue := Queue, no_ack := NoAck, config_root := sources} = Params,
     RabbitChan,
-    PoolName,
     ChannelId
 ) ->
-    WorkState = {RabbitChan, PoolName, Params},
+    WorkState = {RabbitChan, ChannelId, Params},
     {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
     BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
     #'basic.consume_ok'{consumer_tag = _} =
         amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
     ok;
-try_subscribe(#{config_root := actions}, _RabbitChan, _PoolName, _ChannelId) ->
+try_subscribe(#{config_root := actions}, _RabbitChan, _ChannelId) ->
     ok.
 
 try_unsubscribe(ChannelId, Channels) ->

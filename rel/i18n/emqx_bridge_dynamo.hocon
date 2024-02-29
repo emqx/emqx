@@ -42,4 +42,22 @@ The template can be any valid JSON with placeholders and make sure all keys for 
 template.label:
 """Template"""
 
+action_parameters.desc:
+"""Action specific configuration."""
+
+action_parameters.label:
+"""Action"""
+
+dynamo_action.desc:
+"""Configuration for DynamoDB action."""
+
+dynamo_action.label:
+"""DynamoDB Action Configuration"""
+
+config_connector.desc:
+"""Configuration for an DynamoDB connector."""
+
+config_connector.label:
+"""DynamoDB Connector Configuration"""
+
 }

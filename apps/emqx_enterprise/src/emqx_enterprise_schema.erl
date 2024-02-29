@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_enterprise_schema).
@@ -19,7 +19,8 @@
 ]).
 
 %% Callback to upgrade config after loaded from config file but before validation.
-upgrade_raw_conf(RawConf) ->
+upgrade_raw_conf(RawConf0) ->
+    RawConf = emqx_bridge_gcp_pubsub:upgrade_raw_conf(RawConf0),
     emqx_conf_schema:upgrade_raw_conf(RawConf).
 
 namespace() ->
@@ -144,8 +145,8 @@ ee_delegate(Method, [], Name) ->
 
 redefine_roots(Roots) ->
     Overrides = [
-        {"node", #{type => hoconsc:ref(?MODULE, "node")}},
-        {"log", #{type => hoconsc:ref(?MODULE, "log")}}
+        {node, #{type => hoconsc:ref(?MODULE, "node")}},
+        {log, #{type => hoconsc:ref(?MODULE, "log")}}
     ],
     override(Roots, Overrides).
 

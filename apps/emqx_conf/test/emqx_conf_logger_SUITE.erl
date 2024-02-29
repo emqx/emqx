@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,6 +35,10 @@
          level = info
          path = \"log/emqx.log\"
        }
+      throttling {
+         msgs = []
+         time_window = 1m
+      }
     }
     ").
 
@@ -84,7 +88,9 @@ t_log_conf(_Conf) ->
                 <<"time_offset">> => <<"system">>
             },
         <<"file">> =>
-            #{<<"default">> => FileExpect}
+            #{<<"default">> => FileExpect},
+        <<"throttling">> =>
+            #{<<"time_window">> => <<"1m">>, <<"msgs">> => []}
     },
     ?assertEqual(ExpectLog1, emqx_conf:get_raw([<<"log">>])),
     UpdateLog0 = emqx_utils_maps:deep_remove([<<"file">>, <<"default">>], ExpectLog1),

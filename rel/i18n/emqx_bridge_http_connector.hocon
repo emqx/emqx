@@ -16,7 +16,7 @@ enable_pipelining.desc:
 """A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
 
 enable_pipelining.label:
-"""HTTP Pipelineing"""
+"""HTTP Pipelining"""
 
 headers.desc:
 """List of HTTP headers."""

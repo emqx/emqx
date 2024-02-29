@@ -476,7 +476,7 @@ RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code><br/>
 NOTE: QUIC listener supports only 'tlsv1.3' ciphers"""
 
 ciphers_schema_quic.label:
-""""""
+"""QUIC TLS cipher suites"""
 
 fields_mqtt_quic_listener_max_bytes_per_key.desc:
 """Maximum number of bytes to encrypt with a single 1-RTT encryption key before initiating key update. Default: 274877906944"""
@@ -1472,7 +1472,7 @@ RSA-PSK-AES256-CBC-SHA,RSA-PSK-AES128-CBC-SHA,
 RSA-PSK-DES-CBC3-SHA,RSA-PSK-RC4-SHA"</code>"""
 
 ciphers_schema_common.label:
-""""""
+"""TLS cipher suites"""
 
 sys_event_client_disconnected.desc:
 """Enable to publish client disconnected event messages."""

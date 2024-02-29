@@ -10,19 +10,19 @@ desc_config.desc:
 """Configuration for a GCP PubSub bridge."""
 
 desc_config.label:
-"""GCP PubSub Bridge Configuration"""
+"""GCP PubSub Configuration"""
 
 desc_name.desc:
-"""Bridge name, used as a human-readable description of the bridge."""
+"""Action name, used as a human-readable identifier."""
 
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
-"""The Bridge Type"""
+"""The action type."""
 
 desc_type.label:
-"""Bridge Type"""
+"""Action Type"""
 
 local_topic.desc:
 """The MQTT topic filter to be forwarded to GCP PubSub. All MQTT 'PUBLISH' messages with the topic
@@ -62,7 +62,7 @@ pipelining.desc:
 """A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
 
 pipelining.label:
-"""HTTP Pipelineing"""
+"""HTTP Pipelining"""
 
 pool_size.desc:
 """The pool size."""
@@ -140,7 +140,7 @@ service_account_json.label:
   }
 
   consumer_mqtt_qos {
-    desc: "MQTT QoS used to publish messages consumed from GCP PubSub."
+    desc: "MQTT QoS level applied when publishing messages that are consumed from GCP PubSub."
     label: "QoS"
   }
 

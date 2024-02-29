@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_mongodb).
 
@@ -74,6 +74,11 @@ fields("creation_opts") ->
             importance => ?IMPORTANCE_HIDDEN,
             converter => fun(_, _) -> 1 end,
             desc => ?DESC("batch_size")
+        }},
+        {batch_time, #{
+            importance => ?IMPORTANCE_HIDDEN,
+            converter => fun(_, _) -> 0 end,
+            desc => ?DESC("batch_size")
         }}
     ]);
 fields(action) ->
@@ -101,6 +106,11 @@ fields(action_resource_opts) ->
         {batch_size, #{
             importance => ?IMPORTANCE_HIDDEN,
             converter => fun(_, _) -> 1 end,
+            desc => ?DESC("batch_size")
+        }},
+        {batch_time, #{
+            importance => ?IMPORTANCE_HIDDEN,
+            converter => fun(_, _) -> 0 end,
             desc => ?DESC("batch_size")
         }}
     ]);

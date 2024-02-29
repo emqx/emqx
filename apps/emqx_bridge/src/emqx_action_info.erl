@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -88,15 +88,19 @@ hard_coded_action_info_modules_ee() ->
     [
         emqx_bridge_azure_event_hub_action_info,
         emqx_bridge_confluent_producer_action_info,
+        emqx_bridge_dynamo_action_info,
+        emqx_bridge_gcp_pubsub_consumer_action_info,
         emqx_bridge_gcp_pubsub_producer_action_info,
         emqx_bridge_kafka_action_info,
         emqx_bridge_kinesis_action_info,
+        emqx_bridge_hstreamdb_action_info,
         emqx_bridge_matrix_action_info,
         emqx_bridge_mongodb_action_info,
         emqx_bridge_oracle_action_info,
         emqx_bridge_rocketmq_action_info,
         emqx_bridge_influxdb_action_info,
         emqx_bridge_cassandra_action_info,
+        emqx_bridge_clickhouse_action_info,
         emqx_bridge_mysql_action_info,
         emqx_bridge_pgsql_action_info,
         emqx_bridge_syskeeper_action_info,
@@ -106,6 +110,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_es_action_info,
         emqx_bridge_opents_action_info,
         emqx_bridge_rabbitmq_action_info,
+        emqx_bridge_pulsar_action_info,
         emqx_bridge_greptimedb_action_info,
         emqx_bridge_tdengine_action_info,
         emqx_bridge_s3_action_info

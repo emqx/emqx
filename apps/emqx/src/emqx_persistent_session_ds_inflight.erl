@@ -337,7 +337,7 @@ process_test_cmds([{push, N} | Tl], Cnt0) ->
     Cnt = Cnt0 + N,
     [{push, Cnt} | process_test_cmds(Tl, Cnt)].
 
-iqueue_print(I = #iqueue{head = Hd, head_end = HdEnd, queue = Q, tail = Tl, tail_end = TlEnd}) ->
+iqueue_print(#iqueue{head = Hd, head_end = HdEnd, queue = Q, tail = Tl, tail_end = TlEnd}) ->
     #{
         hd => {Hd, HdEnd},
         tl => {Tl, TlEnd},

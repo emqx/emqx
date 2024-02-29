@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,7 +39,13 @@
     parse_pager_params/1,
     parse_qstring/2,
     init_query_result/0,
-    accumulate_query_rows/4
+    init_query_state/5,
+    reset_query_state/1,
+    accumulate_query_rows/4,
+    finalize_query/2,
+    mark_complete/2,
+    format_query_result/3,
+    maybe_collect_total_from_tail_nodes/2
 ]).
 
 -ifdef(TEST).
@@ -160,9 +166,7 @@ node_query(Node, Tab, QString, QSchema, MsFun, FmtFun, Options) ->
             {_CodCnt, NQString} = parse_qstring(QString, QSchema),
             ResultAcc = init_query_result(),
             QueryState = init_query_state(Tab, NQString, MsFun, Meta, Options),
-            NResultAcc = do_node_query(
-                Node, QueryState, ResultAcc
-            ),
+            NResultAcc = do_node_query(Node, QueryState, ResultAcc),
             format_query_result(FmtFun, Meta, NResultAcc)
     end.
 

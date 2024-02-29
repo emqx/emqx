@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_clickhouse).
 
@@ -9,8 +9,11 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
+%% Examples
 -export([
-    conn_bridge_examples/1
+    bridge_v2_examples/1,
+    conn_bridge_examples/1,
+    connector_examples/1
 ]).
 
 -export([
@@ -20,12 +23,10 @@
     desc/1
 ]).
 
--define(DEFAULT_SQL,
-    <<"INSERT INTO mqtt_test(payload, arrived) VALUES ('${payload}', ${timestamp})">>
-).
-
+-define(DEFAULT_SQL, <<"INSERT INTO messages(data, arrived) VALUES ('${payload}', ${timestamp})">>).
 -define(DEFAULT_BATCH_VALUE_SEPARATOR, <<", ">>).
-
+-define(CONNECTOR_TYPE, clickhouse).
+-define(ACTION_TYPE, clickhouse).
 %% -------------------------------------------------------------------------------------------------
 %% Callback used by HTTP API
 %% -------------------------------------------------------------------------------------------------
@@ -36,6 +37,42 @@ conn_bridge_examples(Method) ->
             <<"clickhouse">> => #{
                 summary => <<"Clickhouse Bridge">>,
                 value => values(Method, "clickhouse")
+            }
+        }
+    ].
+
+bridge_v2_examples(Method) ->
+    ParamsExample = #{
+        parameters => #{
+            batch_value_separator => ?DEFAULT_BATCH_VALUE_SEPARATOR,
+            sql => ?DEFAULT_SQL
+        }
+    },
+    [
+        #{
+            <<"clickhouse">> => #{
+                summary => <<"ClickHouse Action">>,
+                value => emqx_bridge_v2_schema:action_values(
+                    Method, clickhouse, clickhouse, ParamsExample
+                )
+            }
+        }
+    ].
+
+connector_examples(Method) ->
+    [
+        #{
+            <<"clickhouse">> => #{
+                summary => <<"ClickHouse Connector">>,
+                value => emqx_connector_schema:connector_values(
+                    Method, clickhouse, #{
+                        url => <<"http://localhost:8123">>,
+                        database => <<"mqtt">>,
+                        pool_size => 8,
+                        username => <<"default">>,
+                        password => <<"******">>
+                    }
+                )
             }
         }
     ].
@@ -71,19 +108,49 @@ namespace() -> "bridge_clickhouse".
 
 roots() -> [].
 
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        emqx_bridge_clickhouse_connector:fields(config) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+fields(action) ->
+    {clickhouse,
+        mk(
+            hoconsc:map(name, ref(?MODULE, clickhouse_action)),
+            #{desc => <<"ClickHouse Action Config">>, required => false}
+        )};
+fields(clickhouse_action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        mk(ref(?MODULE, action_parameters), #{
+            required => true, desc => ?DESC(action_parameters)
+        })
+    );
+fields(action_parameters) ->
+    [
+        sql_field(),
+        batch_value_separator_field()
+    ];
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    Fields =
+        emqx_bridge_clickhouse_connector:fields(config) ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(clickhouse_action));
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {sql,
-            mk(
-                binary(),
-                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
-        {batch_value_separator,
-            mk(
-                binary(),
-                #{desc => ?DESC("batch_value_separator"), default => ?DEFAULT_BATCH_VALUE_SEPARATOR}
-            )},
+        sql_field(),
+        batch_value_separator_field(),
         {local_topic,
             mk(
                 binary(),
@@ -112,6 +179,28 @@ fields("get") ->
 fields("post", Type) ->
     [type_field(Type), name_field() | fields("config")].
 
+sql_field() ->
+    {sql,
+        mk(
+            binary(),
+            #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+        )}.
+
+batch_value_separator_field() ->
+    {batch_value_separator,
+        mk(
+            binary(),
+            #{desc => ?DESC("batch_value_separator"), default => ?DEFAULT_BATCH_VALUE_SEPARATOR}
+        )}.
+
+desc(clickhouse_action) ->
+    ?DESC(clickhouse_action);
+desc(action_parameters) ->
+    ?DESC(action_parameters);
+desc("config_connector") ->
+    ?DESC("desc_config");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->

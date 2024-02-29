@@ -55,7 +55,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.11.1", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-2", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.18.4", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.19.0", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.15", override: true},
@@ -200,7 +200,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.4.5+v0.16.1"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.10.2"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
@@ -722,7 +722,8 @@ defmodule EMQXUmbrella.MixProject do
   defp template_vars(release, release_type, :bin = _package_type, edition_type) do
     [
       emqx_default_erlang_cookie: default_cookie(),
-      emqx_configuration_doc: emqx_configuration_doc(edition_type),
+      emqx_configuration_doc: emqx_configuration_doc(edition_type, :root),
+      emqx_configuration_doc_log: emqx_configuration_doc(edition_type, :log),
       platform_data_dir: "data",
       platform_etc_dir: "etc",
       platform_plugins_dir: "plugins",
@@ -745,7 +746,8 @@ defmodule EMQXUmbrella.MixProject do
   defp template_vars(release, release_type, :pkg = _package_type, edition_type) do
     [
       emqx_default_erlang_cookie: default_cookie(),
-      emqx_configuration_doc: emqx_configuration_doc(edition_type),
+      emqx_configuration_doc: emqx_configuration_doc(edition_type, :root),
+      emqx_configuration_doc_log: emqx_configuration_doc(edition_type, :log),
       platform_data_dir: "/var/lib/emqx",
       platform_etc_dir: "/etc/emqx",
       platform_plugins_dir: "/var/lib/emqx/plugins",
@@ -779,11 +781,17 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  defp emqx_configuration_doc(:enterprise),
-    do: "https://docs.emqx.com/en/enterprise/v5.0/configuration/configuration.html"
+  defp emqx_configuration_doc(:enterprise, :root),
+    do: "https://docs.emqx.com/en/enterprise/latest/configuration/configuration.html"
 
-  defp emqx_configuration_doc(:community),
-    do: "https://www.emqx.io/docs/en/v5.0/configuration/configuration.html"
+  defp emqx_configuration_doc(:enterprise, :log),
+    do: "https://docs.emqx.com/en/enterprise/latest/configuration/logs.html"
+
+  defp emqx_configuration_doc(:community, :root),
+    do: "https://www.emqx.io/docs/en/latest/configuration/configuration.html"
+
+  defp emqx_configuration_doc(:community, :log),
+    do: "https://www.emqx.io/docs/en/latest/configuration/logs.html"
 
   defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema

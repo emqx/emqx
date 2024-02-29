@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2_testlib).
 
@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -120,10 +121,26 @@ delete_all_connectors() ->
 
 %% test helpers
 parse_and_check(Type, Name, InnerConfigMap0) ->
+    parse_and_check(action, Type, Name, InnerConfigMap0).
+
+parse_and_check(Kind, Type, Name, InnerConfigMap0) ->
+    RootBin =
+        case Kind of
+            action -> <<"actions">>;
+            source -> <<"sources">>
+        end,
     TypeBin = emqx_utils_conv:bin(Type),
-    RawConf = #{<<"actions">> => #{TypeBin => #{Name => InnerConfigMap0}}},
-    #{<<"actions">> := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
+    RawConf = #{RootBin => #{TypeBin => #{Name => InnerConfigMap0}}},
+    #{RootBin := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
         emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}
+    ),
+    InnerConfigMap.
+
+parse_and_check_connector(Type, Name, InnerConfigMap0) ->
+    TypeBin = emqx_utils_conv:bin(Type),
+    RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap0}}},
+    #{<<"connectors">> := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
+        emqx_connector_schema, RawConf, #{required => false, atom_key => false}
     ),
     InnerConfigMap.
 
@@ -134,10 +151,30 @@ bridge_id(Config) ->
     ConnectorId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     <<"action:", BridgeId/binary, ":", ConnectorId/binary>>.
 
+source_hookpoint(Config) ->
+    #{kind := source, type := Type, name := Name} = get_common_values(Config),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    emqx_bridge_v2:source_hookpoint(BridgeId).
+
+add_source_hookpoint(Config) ->
+    Hookpoint = source_hookpoint(Config),
+    ok = emqx_hooks:add(Hookpoint, {?MODULE, source_hookpoint_callback, [self()]}, 1000),
+    on_exit(fun() -> emqx_hooks:del(Hookpoint, {?MODULE, source_hookpoint_callback}) end),
+    ok.
+
 resource_id(Config) ->
-    BridgeType = ?config(bridge_type, Config),
-    BridgeName = ?config(bridge_name, Config),
-    emqx_bridge_resource:resource_id(BridgeType, BridgeName).
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name,
+        connector_name := ConnectorName
+    } = get_common_values(Config),
+    case Kind of
+        source ->
+            emqx_bridge_v2:source_id(Type, Name, ConnectorName);
+        action ->
+            emqx_bridge_resource:resource_id(Type, Name)
+    end.
 
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
@@ -283,8 +320,7 @@ create_kind_api(Config, Overrides) ->
     PathRoot = api_path_root(Kind),
     Path = emqx_mgmt_api_test_util:api_path([PathRoot]),
     ct:pal("creating bridge (~s, http):\n  ~p", [Kind, Params]),
-    Method = post,
-    Res = request(Method, Path, Params),
+    Res = request(post, Path, Params),
     ct:pal("bridge create (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
@@ -295,13 +331,31 @@ create_connector_api(Config, Overrides) ->
     ConnectorConfig0 = ?config(connector_config, Config),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
-    Method = post,
-    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
     ConnectorConfig = emqx_utils_maps:deep_merge(ConnectorConfig0, Overrides),
+    create_connector_api(ConnectorName, ConnectorType, ConnectorConfig).
+
+create_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
+    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
     Params = ConnectorConfig#{<<"type">> => ConnectorType, <<"name">> => ConnectorName},
     ct:pal("creating connector (http):\n  ~p", [Params]),
-    Res = request(Method, Path, Params),
+    Res = request(post, Path, Params),
     ct:pal("connector create (http) result:\n  ~p", [Res]),
+    Res.
+
+update_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
+    ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
+    Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
+    ct:pal("updating connector ~s (http):\n  ~p", [ConnectorId, ConnectorConfig]),
+    Res = request(put, Path, ConnectorConfig),
+    ct:pal("connector update (http) result:\n  ~p", [Res]),
+    Res.
+
+start_connector_api(ConnectorName, ConnectorType) ->
+    ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
+    Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId, "start"]),
+    ct:pal("starting connector ~s (http)", [ConnectorId]),
+    Res = request(post, Path, #{}),
+    ct:pal("connector update (http) result:\n  ~p", [Res]),
     Res.
 
 create_action_api(Config) ->
@@ -313,10 +367,9 @@ create_action_api(Config, Overrides) ->
     ActionConfig0 = ?config(action_config, Config),
     ActionConfig = emqx_utils_maps:deep_merge(ActionConfig0, Overrides),
     Params = ActionConfig#{<<"type">> => ActionType, <<"name">> => ActionName},
-    Method = post,
     Path = emqx_mgmt_api_test_util:api_path(["actions"]),
     ct:pal("creating action (http):\n  ~p", [Params]),
-    Res = request(Method, Path, Params),
+    Res = request(post, Path, Params),
     ct:pal("action create (http) result:\n  ~p", [Res]),
     Res.
 
@@ -324,11 +377,9 @@ get_action_api(Config) ->
     ActionName = ?config(action_name, Config),
     ActionType = ?config(action_type, Config),
     ActionId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
-    Params = [],
-    Method = get,
     Path = emqx_mgmt_api_test_util:api_path(["actions", ActionId]),
     ct:pal("getting action (http)"),
-    Res = request(Method, Path, Params),
+    Res = request(get, Path, []),
     ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
@@ -346,8 +397,7 @@ update_bridge_api(Config, Overrides) ->
     PathRoot = api_path_root(Kind),
     Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId]),
     ct:pal("updating bridge (~s, http):\n  ~p", [Kind, Params]),
-    Method = put,
-    Res = request(Method, Path, Params),
+    Res = request(put, Path, Params),
     ct:pal("update bridge (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
@@ -506,6 +556,54 @@ bridges_api_spec_schemas() ->
 actions_api_spec_schemas() ->
     api_spec_schemas("actions").
 
+get_value(Key, Config) ->
+    case proplists:get_value(Key, Config, undefined) of
+        undefined ->
+            error({missing_required_config, Key, Config});
+        Value ->
+            Value
+    end.
+
+get_common_values(Config) ->
+    Kind = proplists:get_value(bridge_kind, Config, action),
+    case Kind of
+        action ->
+            #{
+                conf_root_key => actions,
+                kind => Kind,
+                type => get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+                name => get_ct_config_with_fallback(Config, [action_name, bridge_name]),
+                connector_type => get_value(connector_type, Config),
+                connector_name => get_value(connector_name, Config)
+            };
+        source ->
+            #{
+                conf_root_key => sources,
+                kind => Kind,
+                type => get_value(source_type, Config),
+                name => get_value(source_name, Config),
+                connector_type => get_value(connector_type, Config),
+                connector_name => get_value(connector_name, Config)
+            }
+    end.
+
+connector_resource_id(Config) ->
+    #{connector_type := Type, connector_name := Name} = get_common_values(Config),
+    emqx_connector_resource:resource_id(Type, Name).
+
+health_check_channel(Config) ->
+    ConnectorResId = connector_resource_id(Config),
+    ChannelResId = resource_id(Config),
+    emqx_resource_manager:channel_health_check(ConnectorResId, ChannelResId).
+
+%%------------------------------------------------------------------------------
+%% Internal export
+%%------------------------------------------------------------------------------
+
+source_hookpoint_callback(Message, TestPid) ->
+    TestPid ! {consumed_message, Message},
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -574,6 +672,54 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     end,
     ok.
 
+%% - `ProduceFn': produces a message in the remote system that shall be consumed.
+%% - `Tracepoint': marks the end of consumed message processing.
+t_consume(Config, Opts) ->
+    #{
+        consumer_ready_tracepoint := ConsumerReadyTPFn,
+        produce_fn := ProduceFn,
+        check_fn := CheckFn,
+        produce_tracepoint := TracePointFn
+    } = Opts,
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {{ok, _}, {ok, _}},
+                snabbkaffe:wait_async_action(
+                    fun() -> create_bridge_api(Config) end,
+                    ConsumerReadyTPFn,
+                    15_000
+                )
+            ),
+            ok = add_source_hookpoint(Config),
+            ?retry(
+                _Sleep = 200,
+                _Attempts = 20,
+                ?assertMatch(
+                    #{status := ?status_connected},
+                    health_check_channel(Config)
+                )
+            ),
+            ?assertMatch(
+                {_, {ok, _}},
+                snabbkaffe:wait_async_action(
+                    ProduceFn,
+                    TracePointFn,
+                    15_000
+                )
+            ),
+            receive
+                {consumed_message, Message} ->
+                    CheckFn(Message)
+            after 5_000 ->
+                error({timeout, process_info(self(), messages)})
+            end,
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_create_via_http(Config) ->
     ?check_trace(
         begin
@@ -585,6 +731,13 @@ t_create_via_http(Config) ->
                     Config
                 )
             ),
+
+            %% check that v1 list API is fine
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, _}},
+                list_bridges_http_api_v1()
+            ),
+
             ok
         end,
         []
@@ -608,13 +761,15 @@ t_start_stop(Config, StopTracePoint) ->
 
     ?check_trace(
         begin
-            ProbeRes0 = probe_bridge_api(
-                Kind,
-                Type,
-                Name,
-                BridgeConfig
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, _Body}},
+                probe_bridge_api(
+                    Kind,
+                    Type,
+                    Name,
+                    BridgeConfig
+                )
             ),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
             %% Check that the bridge probe API doesn't leak atoms.
             AtomsBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.

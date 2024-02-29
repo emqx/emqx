@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -516,7 +516,7 @@ cert_file(Name) ->
     data_file(filename:join(["certs", Name])).
 
 default_listeners_hocon_text() ->
-    Sc = #{roots => emqx_schema:fields("listeners")},
+    Sc = #{roots => emqx_schema:listeners()},
     Listeners = hocon_tconf:make_serializable(Sc, #{}, #{}),
     Config = #{<<"listeners">> => Listeners},
     hocon_pp:do(Config, #{}).

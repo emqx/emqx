@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,8 +18,6 @@
 
 -compile(export_all).
 -compile(nowarn_export_all).
-
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
 -include("emqx_retainer.hrl").
 
@@ -646,7 +644,7 @@ t_reindex(_) ->
 
 t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{retained_messages => 0}, emqx_retainer:get_basic_usage_info()),
-    Context = undefined,
+    Context = emqx_retainer:context(),
     lists:foreach(
         fun(N) ->
             Num = integer_to_binary(N),
@@ -789,6 +787,11 @@ t_compatibility_for_deliver_rate(_) ->
         Parser(DeliveryInf)
     ).
 
+t_update_config(_) ->
+    OldConf = emqx_config:get_raw([retainer]),
+    NewConf = emqx_utils_maps:deep_put([<<"backend">>, <<"storage_type">>], OldConf, <<"disk">>),
+    emqx_retainer:update_config(NewConf).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -833,7 +836,7 @@ with_conf(ConfMod, Case) ->
     emqx_retainer:update_config(NewConf),
     try
         Case(),
-        emqx_retainer:update_config(Conf)
+        {ok, _} = emqx_retainer:update_config(Conf)
     catch
         Type:Error:Strace ->
             emqx_retainer:update_config(Conf),

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_gcp_pubsub_producer_SUITE).
@@ -909,7 +909,7 @@ t_not_a_json(Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            reason := #{exception := {error, {badmap, "not a json"}}},
+            reason := "not a json",
             %% should be censored as it contains secrets
             value := <<"******">>
         }},

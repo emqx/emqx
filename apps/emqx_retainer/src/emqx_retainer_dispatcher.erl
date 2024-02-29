@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,6 +44,9 @@
 ]).
 
 -type limiter() :: emqx_htb_limiter:limiter().
+-type context() :: emqx_retainer:context().
+-type topic() :: emqx_types:topic().
+-type cursor() :: emqx_retainer:cursor().
 
 -define(POOL, ?MODULE).
 
@@ -233,7 +236,7 @@ cast(Msg) ->
 
 -spec dispatch(context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
 dispatch(Context, Pid, Topic, Cursor, Limiter) ->
-    Mod = emqx_retainer:get_backend_module(),
+    Mod = emqx_retainer:backend_module(Context),
     case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
         false ->
             {ok, Result} = erlang:apply(Mod, read_message, [Context, Topic]),

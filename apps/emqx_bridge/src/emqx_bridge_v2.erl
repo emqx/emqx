@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,7 +27,9 @@
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
 -define(ROOT_KEY_ACTIONS, actions).
+-define(ROOT_KEY_ACTIONS_BIN, <<"actions">>).
 -define(ROOT_KEY_SOURCES, sources).
+-define(ROOT_KEY_SOURCES_BIN, <<"sources">>).
 
 %% Loading and unloading config when EMQX starts and stops
 -export([
@@ -91,6 +93,8 @@
 -export([
     id/2,
     id/3,
+    source_id/3,
+    source_hookpoint/1,
     bridge_v1_is_valid/2,
     bridge_v1_is_valid/3,
     extract_connector_id_from_bridge_v2_id/1
@@ -475,7 +479,7 @@ augment_channel_config(
         bridge_type => bin(BridgeV2Type),
         bridge_name => bin(BridgeName)
     },
-    case emqx_action_info:is_source(BridgeV2Type) of
+    case emqx_action_info:is_source(BridgeV2Type) andalso ConfigRoot =:= ?ROOT_KEY_SOURCES of
         true ->
             BId = emqx_bridge_resource:bridge_id(BridgeV2Type, BridgeName),
             BridgeHookpoint = emqx_bridge_resource:bridge_hookpoint(BId),
@@ -681,7 +685,8 @@ do_query_with_enabled_config(
 ) ->
     QueryMode = get_query_mode(BridgeType, Config),
     ConnectorName = maps:get(connector, Config),
-    ConnectorResId = emqx_connector_resource:resource_id(BridgeType, ConnectorName),
+    ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
+    ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
         emqx_bridge:query_opts(Config),
         QueryOpts0#{
@@ -750,16 +755,15 @@ create_dry_run(ConfRootKey, Type, Conf0) ->
             not_found ->
                 {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
             ConnectorRawConf ->
-                create_dry_run_helper(Type, ConnectorRawConf, Conf1)
+                create_dry_run_helper(
+                    ensure_atom_root_key(ConfRootKey), Type, ConnectorRawConf, Conf1
+                )
         end
     catch
         %% validation errors
         throw:Reason1 ->
             {error, Reason1}
     end.
-
-create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
-    create_dry_run_helper(?ROOT_KEY_ACTIONS, BridgeType, ConnectorRawConf, BridgeV2RawConf).
 
 create_dry_run_helper(ConfRootKey, BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
     BridgeName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
@@ -968,6 +972,9 @@ id(BridgeType, BridgeName) ->
 
 id(BridgeType, BridgeName, ConnectorName) ->
     id_with_root_name(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, ConnectorName).
+
+source_id(BridgeType, BridgeName, ConnectorName) ->
+    id_with_root_name(?ROOT_KEY_SOURCES, BridgeType, BridgeName, ConnectorName).
 
 id_with_root_name(RootName, BridgeType, BridgeName) ->
     case lookup_conf(RootName, BridgeType, BridgeName) of
@@ -1221,6 +1228,10 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
 bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
     bridge_v1_is_valid(?ROOT_KEY_ACTIONS, BridgeV1Type, BridgeName).
 
+%% rabbitmq's source don't have v1 version. but action has v1 version...
+%% There's no good way to distinguish it, so it has to be hardcoded here.
+bridge_v1_is_valid(?ROOT_KEY_SOURCES, rabbitmq, _BridgeName) ->
+    false;
 bridge_v1_is_valid(ConfRootKey, BridgeV1Type, BridgeName) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     case lookup_conf(ConfRootKey, BridgeV2Type, BridgeName) of
@@ -1585,12 +1596,14 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
             Output
         ),
     %% Validate the connector config and the bridge_v2 config
-    NewFakeGlobalConfig = #{
+    NewFakeConnectorConfig = #{
         <<"connectors">> => #{
             bin(ConnectorType) => #{
                 bin(ConnectorName) => NewConnectorRawConf
             }
-        },
+        }
+    },
+    NewFakeBridgeV2Config = #{
         ConfRootKey => #{
             bin(BridgeV2Type) => #{
                 bin(BridgeName) => NewBridgeV2RawConf
@@ -1598,9 +1611,14 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
         }
     },
     try
-        hocon_tconf:check_plain(
-            emqx_schema,
-            NewFakeGlobalConfig,
+        _ = hocon_tconf:check_plain(
+            emqx_connector_schema,
+            NewFakeConnectorConfig,
+            #{atom_key => false, required => false}
+        ),
+        _ = hocon_tconf:check_plain(
+            emqx_bridge_v2_schema,
+            NewFakeBridgeV2Config,
             #{atom_key => false, required => false}
         )
     of
@@ -1616,8 +1634,10 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
             }
     catch
         %% validation errors
+        throw:{_Module, [Reason1 | _]} ->
+            throw(Reason1);
         throw:Reason1 ->
-            {error, Reason1}
+            throw(Reason1)
     end.
 
 get_conf_root_key(#{<<"actions">> := _}) ->
@@ -1633,14 +1653,20 @@ bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
     PreviousRawConf = undefined,
     try
         #{
+            conf_root_key := ConfRootKey,
             connector_type := _ConnectorType,
             connector_name := _NewConnectorName,
             connector_conf := ConnectorRawConf,
             bridge_v2_type := BridgeV2Type,
             bridge_v2_name := _BridgeName,
-            bridge_v2_conf := BridgeV2RawConf
+            bridge_v2_conf := BridgeV2RawConf0
         } = split_and_validate_bridge_v1_config(BridgeType, TmpName, RawConf, PreviousRawConf),
-        create_dry_run_helper(BridgeV2Type, ConnectorRawConf, BridgeV2RawConf)
+        BridgeV2RawConf = emqx_action_info:action_convert_from_connector(
+            BridgeType, ConnectorRawConf, BridgeV2RawConf0
+        ),
+        create_dry_run_helper(
+            ensure_atom_root_key(ConfRootKey), BridgeV2Type, ConnectorRawConf, BridgeV2RawConf
+        )
     catch
         throw:Reason ->
             {error, Reason}
@@ -1858,6 +1884,13 @@ extract_connector_id_from_bridge_v2_id(Id) ->
             error({error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))})
     end.
 
+ensure_atom_root_key(ConfRootKey) when is_atom(ConfRootKey) ->
+    ConfRootKey;
+ensure_atom_root_key(?ROOT_KEY_ACTIONS_BIN) ->
+    ?ROOT_KEY_ACTIONS;
+ensure_atom_root_key(?ROOT_KEY_SOURCES_BIN) ->
+    ?ROOT_KEY_SOURCES.
+
 to_existing_atom(X) ->
     case emqx_utils:safe_to_existing_atom(X, utf8) of
         {ok, A} -> A;
@@ -1898,7 +1931,8 @@ convert_from_connectors(ConfRootKey, Conf) ->
 convert_from_connector(ConfRootKey, Type, Name, Action = #{<<"connector">> := ConnectorName}) ->
     case get_connector_info(ConnectorName, Type) of
         {ok, Connector} ->
-            Action1 = emqx_action_info:action_convert_from_connector(Type, Connector, Action),
+            TypeAtom = to_existing_atom(Type),
+            Action1 = emqx_action_info:action_convert_from_connector(TypeAtom, Connector, Action),
             {ok, Action1};
         {error, not_found} ->
             {error, #{

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_mongodb_SUITE).
@@ -414,18 +414,7 @@ probe_bridge_api(Config, Overrides) ->
     TypeBin = mongo_type_bin(?config(mongo_type, Config)),
     MongoConfig0 = ?config(mongo_config, Config),
     MongoConfig = emqx_utils_maps:deep_merge(MongoConfig0, Overrides),
-    Params = MongoConfig#{<<"type">> => TypeBin, <<"name">> => Name},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("probing bridge (via http): ~p", [Params]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
-            Error -> Error
-        end,
-    ct:pal("bridge probe result: ~p", [Res]),
-    Res.
+    emqx_bridge_testlib:probe_bridge_api(TypeBin, Name, MongoConfig).
 
 resource_id(Config) ->
     Type0 = ?config(mongo_type, Config),

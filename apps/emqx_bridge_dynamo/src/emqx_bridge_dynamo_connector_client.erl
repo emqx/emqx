@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_dynamo_connector_client).
@@ -144,7 +144,7 @@ apply_template({Key, Msg} = Req, Templates) ->
 %% 1. we can simply replace the `send_message` to `put`
 %% 2. convert the message to in_item() here, not at the time when calling `batch_write_items`,
 %%    so we can reduce some list map cost
-apply_template([{send_message, _Msg} | _] = Msgs, Templates) ->
+apply_template([{_, _Msg} | _] = Msgs, Templates) ->
     lists:map(
         fun(Req) ->
             {_, Msg} = apply_template(Req, Templates),

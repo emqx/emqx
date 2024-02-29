@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -493,8 +493,8 @@ format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, Pa
         "" -> [HeaderIO, ")"];
         VarIO -> [HeaderIO, ", ", VarIO, ")"]
     end;
-%% receive a frame error packet, such as {frame_error,frame_too_large} or
-%% {frame_error,#{expected => <<"'MQTT' or 'MQIsdp'">>,hint => invalid_proto_name,received => <<"bad_name">>}}
+%% receive a frame error packet, such as {frame_error,#{cause := frame_too_large}} or
+%% {frame_error,#{expected => <<"'MQTT' or 'MQIsdp'">>,cause => invalid_proto_name,received => <<"bad_name">>}}
 format(FrameError, _PayloadEncode) ->
     lists:flatten(io_lib:format("~tp", [FrameError])).
 

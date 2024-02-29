@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, _Config) ->
     snabbkaffe:stop(),
-    _ = emqx_resource:remove(?ID),
+    _ = emqx_resource:remove_local(?ID),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -88,7 +88,7 @@ t_create_remove(_) ->
 
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -98,7 +98,7 @@ t_create_remove(_) ->
 
             ?assertMatch(
                 {ok, _},
-                emqx_resource:recreate(
+                emqx_resource:recreate_local(
                     ?ID,
                     ?TEST_RESOURCE,
                     #{name => test_resource},
@@ -110,8 +110,8 @@ t_create_remove(_) ->
 
             ?assert(is_process_alive(Pid)),
 
-            ?assertEqual(ok, emqx_resource:remove(?ID)),
-            ?assertMatch(ok, emqx_resource:remove(?ID)),
+            ?assertEqual(ok, emqx_resource:remove_local(?ID)),
+            ?assertMatch(ok, emqx_resource:remove_local(?ID)),
 
             ?assertNot(is_process_alive(Pid))
         end,
@@ -136,7 +136,7 @@ t_create_remove_local(_) ->
 
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create_local(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -185,7 +185,7 @@ t_do_not_start_after_created(_) ->
         begin
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create_local(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -226,7 +226,7 @@ t_do_not_start_after_created(_) ->
     ).
 
 t_query(_) ->
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -243,7 +243,7 @@ t_query(_) ->
     ok = emqx_resource:remove_local(?ID).
 
 t_query_counter(_) ->
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -260,7 +260,7 @@ t_query_counter(_) ->
 
 t_batch_query_counter(_) ->
     BatchSize = 100,
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -313,7 +313,7 @@ t_batch_query_counter(_) ->
     ok = emqx_resource:remove_local(?ID).
 
 t_query_counter_async_query(_) ->
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -371,7 +371,7 @@ t_query_counter_async_callback(_) ->
         ets:insert(Tab, {make_ref(), Result})
     end,
     ReqOpts = #{async_reply_fun => {Insert, [Tab0]}},
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -452,7 +452,7 @@ t_query_counter_async_inflight(_) ->
     end,
     ReqOpts = fun() -> #{async_reply_fun => {Insert0, [Tab0, make_ref()]}} end,
     WindowSize = 15,
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -635,7 +635,7 @@ t_query_counter_async_inflight_batch(_) ->
     ReqOpts = fun() -> #{async_reply_fun => {Insert0, [Tab0, make_ref()]}} end,
     BatchSize = 2,
     WindowSize = 15,
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -837,7 +837,7 @@ t_healthy_timeout(_) ->
         begin
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create_local(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -866,7 +866,7 @@ t_healthy(_) ->
         begin
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create_local(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -904,7 +904,7 @@ t_unhealthy_target(_) ->
     HealthCheckError = {unhealthy_target, "some message"},
     ?assertMatch(
         {ok, _},
-        emqx_resource:create_local(
+        create(
             ?ID,
             ?DEFAULT_RESOURCE_GROUP,
             ?TEST_RESOURCE,
@@ -937,7 +937,7 @@ t_stop_start(_) ->
         begin
             ?assertMatch(
                 {error, _},
-                emqx_resource:check_and_create(
+                emqx_resource:check_and_create_local(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -947,7 +947,7 @@ t_stop_start(_) ->
 
             ?assertMatch(
                 {ok, _},
-                emqx_resource:check_and_create(
+                emqx_resource:check_and_create_local(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -964,7 +964,7 @@ t_stop_start(_) ->
 
             ?assertMatch(
                 {ok, _},
-                emqx_resource:check_and_recreate(
+                emqx_resource:check_and_recreate_local(
                     ?ID,
                     ?TEST_RESOURCE,
                     #{<<"name">> => <<"test_resource">>},
@@ -1071,13 +1071,13 @@ t_stop_start_local(_) ->
     ).
 
 t_list_filter(_) ->
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         emqx_resource:generate_id(<<"a">>),
         <<"group1">>,
         ?TEST_RESOURCE,
         #{name => a}
     ),
-    {ok, _} = emqx_resource:create_local(
+    {ok, _} = create(
         emqx_resource:generate_id(<<"a">>),
         <<"group2">>,
         ?TEST_RESOURCE,
@@ -1208,7 +1208,7 @@ t_test_func(_) ->
     ).
 
 t_reset_metrics(_) ->
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1218,11 +1218,11 @@ t_reset_metrics(_) ->
     {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
     emqx_resource:reset_metrics(?ID),
     ?assert(is_process_alive(Pid)),
-    ok = emqx_resource:remove(?ID),
+    ok = emqx_resource:remove_local(?ID),
     ?assertNot(is_process_alive(Pid)).
 
 t_auto_retry(_) ->
-    {Res, _} = emqx_resource:create_local(
+    {Res, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1239,7 +1239,7 @@ t_start_throw_error(_Config) ->
     ?assertMatch(
         {{ok, _}, {ok, _}},
         ?wait_async_action(
-            emqx_resource:create_local(
+            create(
                 ?ID,
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
@@ -1257,7 +1257,7 @@ t_start_throw_error(_Config) ->
 t_health_check_disconnected(_) ->
     ?check_trace(
         begin
-            _ = emqx_resource:create_local(
+            _ = create(
                 ?ID,
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
@@ -1276,7 +1276,7 @@ t_health_check_disconnected(_) ->
     ).
 
 t_unblock_only_required_buffer_workers(_) ->
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1292,7 +1292,7 @@ t_unblock_only_required_buffer_workers(_) ->
         fun emqx_resource_buffer_worker:block/1,
         emqx_resource_buffer_worker_sup:worker_pids(?ID)
     ),
-    emqx_resource:create(
+    create(
         ?ID1,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1323,7 +1323,7 @@ t_unblock_only_required_buffer_workers(_) ->
     ).
 
 t_retry_batch(_Config) ->
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1422,7 +1422,7 @@ t_retry_batch(_Config) ->
 
 t_delete_and_re_create_with_same_name(_Config) ->
     NumBufferWorkers = 2,
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1489,7 +1489,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
             %% re-create the resource with the *same name*
             {{ok, _}, {ok, _Events}} =
                 ?wait_async_action(
-                    emqx_resource:create(
+                    create(
                         ?ID,
                         ?DEFAULT_RESOURCE_GROUP,
                         ?TEST_RESOURCE,
@@ -1521,7 +1521,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
 %% check that, if we configure a max queue size too small, then we
 %% never send requests and always overflow.
 t_always_overflow(_Config) ->
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1560,7 +1560,7 @@ t_always_overflow(_Config) ->
 t_retry_sync_inflight(_Config) ->
     ResumeInterval = 1_000,
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1610,7 +1610,7 @@ t_retry_sync_inflight(_Config) ->
 t_retry_sync_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1662,7 +1662,7 @@ t_retry_sync_inflight_batch(_Config) ->
 t_retry_async_inflight(_Config) ->
     ResumeInterval = 1_000,
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1706,7 +1706,7 @@ t_retry_async_inflight_full(_Config) ->
     ResumeInterval = 1_000,
     AsyncInflightWindow = 5,
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1769,7 +1769,7 @@ t_async_reply_multi_eval(_Config) ->
     AsyncInflightWindow = 3,
     TotalQueries = AsyncInflightWindow * 5,
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1818,7 +1818,7 @@ t_async_reply_multi_eval(_Config) ->
 t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1865,7 +1865,7 @@ t_async_pool_worker_death(_Config) ->
     ResumeInterval = 1_000,
     NumBufferWorkers = 2,
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1956,7 +1956,7 @@ t_async_pool_worker_death(_Config) ->
 
 t_expiration_sync_before_sending(_Config) ->
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1973,7 +1973,7 @@ t_expiration_sync_before_sending(_Config) ->
 
 t_expiration_sync_batch_before_sending(_Config) ->
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -1991,7 +1991,7 @@ t_expiration_sync_batch_before_sending(_Config) ->
 
 t_expiration_async_before_sending(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2008,7 +2008,7 @@ t_expiration_async_before_sending(_Config) ->
 
 t_expiration_async_batch_before_sending(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2089,7 +2089,7 @@ do_t_expiration_before_sending(QueryMode) ->
 
 t_expiration_sync_before_sending_partial_batch(_Config) ->
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2108,7 +2108,7 @@ t_expiration_sync_before_sending_partial_batch(_Config) ->
 
 t_expiration_async_before_sending_partial_batch(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2265,7 +2265,7 @@ do_t_expiration_before_sending_partial_batch(QueryMode) ->
 
 t_expiration_async_after_reply(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2282,7 +2282,7 @@ t_expiration_async_after_reply(_Config) ->
 
 t_expiration_async_batch_after_reply(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2407,7 +2407,7 @@ do_t_expiration_async_after_reply(IsBatch) ->
 t_expiration_batch_all_expired_after_reply(_Config) ->
     ResumeInterval = 300,
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2496,7 +2496,7 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
 
 t_expiration_retry(_Config) ->
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2512,7 +2512,7 @@ t_expiration_retry(_Config) ->
 
 t_expiration_retry_batch(_Config) ->
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2612,7 +2612,7 @@ do_t_expiration_retry() ->
 t_expiration_retry_batch_multiple_times(_Config) ->
     ResumeInterval = 300,
     emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2678,9 +2678,88 @@ t_expiration_retry_batch_multiple_times(_Config) ->
     ),
     ok.
 
+t_batch_individual_reply_sync(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 5,
+            batch_time => 100,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    do_t_batch_individual_reply().
+
+t_batch_individual_reply_async(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 5,
+            batch_time => 100,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    on_exit(fun() -> emqx_resource:remove_local(?ID) end),
+    do_t_batch_individual_reply().
+
+do_t_batch_individual_reply() ->
+    ?check_trace(
+        begin
+            {Results, {ok, _}} =
+                ?wait_async_action(
+                    emqx_utils:pmap(
+                        fun(N) ->
+                            emqx_resource:query(?ID, {individual_reply, N rem 2 =:= 0})
+                        end,
+                        lists:seq(1, 5)
+                    ),
+                    #{?snk_kind := buffer_worker_flush_ack, batch_or_query := [_, _ | _]},
+                    5_000
+                ),
+
+            Ok = ok,
+            Error = {error, {unrecoverable_error, bad_request}},
+            ?assertEqual([Error, Ok, Error, Ok, Error], Results),
+
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 5,
+                            failed := 3,
+                            success := 2
+                        }
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_recursive_flush(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2695,7 +2774,7 @@ t_recursive_flush(_Config) ->
 
 t_recursive_flush_batch(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = emqx_resource:create(
+    {ok, _} = create(
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
@@ -2750,7 +2829,7 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
             %% calls, even if the underlying connector itself only
             %% supports sync calls.
             emqx_connector_demo:set_callback_mode(always_sync),
-            {ok, _} = emqx_resource:create(
+            {ok, _} = create(
                 ?ID,
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
@@ -2775,7 +2854,7 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
             %% calls can be called synchronously, but the underlying
             %% call should be async.
             emqx_connector_demo:set_callback_mode(async_if_possible),
-            {ok, _} = emqx_resource:create(
+            {ok, _} = create(
                 ?ID,
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
@@ -2829,7 +2908,7 @@ t_volatile_offload_mode(_Config) ->
             %% default to equal max bytes.
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -2842,7 +2921,7 @@ t_volatile_offload_mode(_Config) ->
             %% Create with segment bytes < max bytes
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -2857,7 +2936,7 @@ t_volatile_offload_mode(_Config) ->
             %% Create with segment bytes = max bytes
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -2874,7 +2953,7 @@ t_volatile_offload_mode(_Config) ->
             %% to max bytes.
             ?assertMatch(
                 {ok, _},
-                emqx_resource:create(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -2931,7 +3010,7 @@ t_late_call_reply(_Config) ->
     RequestTTL = 500,
     ?assertMatch(
         {ok, _},
-        emqx_resource:create(
+        create(
             ?ID,
             ?DEFAULT_RESOURCE_GROUP,
             ?TEST_RESOURCE,
@@ -2987,7 +3066,7 @@ do_t_resource_activate_alarm_once(ResourceConfig, SubscribeEvent) ->
     ?check_trace(
         begin
             ?wait_async_action(
-                emqx_resource:create_local(
+                create(
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -3288,3 +3367,9 @@ gauge_metric_set_fns() ->
             _ -> false
         end
     ].
+
+create(Id, Group, Type, Config) ->
+    emqx_resource:create_local(Id, Group, Type, Config).
+
+create(Id, Group, Type, Config, Opts) ->
+    emqx_resource:create_local(Id, Group, Type, Config, Opts).

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -315,7 +315,7 @@ delete_all_bridges() ->
     %% at some point during the tests, sometimes `emqx_bridge:list()'
     %% returns an empty list, but `emqx:get_config([bridges])' returns
     %% a bunch of orphan test bridges...
-    lists:foreach(fun emqx_resource:remove/1, emqx_resource:list_instances()),
+    lists:foreach(fun emqx_resource:remove_local/1, emqx_resource:list_instances()),
     emqx_config:put([bridges], #{}),
     ok.
 

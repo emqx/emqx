@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_cassandra_connector).
@@ -31,8 +31,6 @@
     on_batch_query_async/4,
     on_get_status/2
 ]).
-
--export([transform_bridge_v1_config_to_connector_config/1]).
 
 %% callbacks of ecpool
 -export([
@@ -447,9 +445,6 @@ handle_result({error, Error}) ->
     {error, {unrecoverable_error, Error}};
 handle_result(Res) ->
     Res.
-
-transform_bridge_v1_config_to_connector_config(_) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% utils
