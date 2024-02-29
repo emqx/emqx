@@ -36,7 +36,8 @@ roots() ->
     [
         {"retainer",
             hoconsc:mk(hoconsc:ref(?MODULE, "retainer"), #{
-                converter => fun retainer_converter/2
+                converter => fun retainer_converter/2,
+                validator => fun validate_backends_enabled/1
             })}
     ].
 
@@ -86,11 +87,29 @@ fields("retainer") ->
                     aliases => [deliver_rate]
                 }
             )},
-        {backend, backend_config()}
+        {backend, backend_config()},
+        {external_backends,
+            ?HOCON(
+                hoconsc:ref(?MODULE, external_backends),
+                #{
+                    desc => ?DESC(backends),
+                    required => false,
+                    default => #{},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
     ];
 fields(mnesia_config) ->
     [
-        {type, sc(built_in_database, mnesia_config_type, built_in_database)},
+        {type,
+            ?HOCON(
+                built_in_database,
+                #{
+                    desc => ?DESC(mnesia_config_type),
+                    required => false,
+                    default => built_in_database
+                }
+            )},
         {storage_type,
             sc(
                 hoconsc:enum([ram, disc]),
@@ -103,7 +122,13 @@ fields(mnesia_config) ->
                 max_retained_messages,
                 0
             )},
-        {index_specs, fun retainer_indices/1}
+        {index_specs, fun retainer_indices/1},
+        {enable,
+            ?HOCON(boolean(), #{
+                desc => ?DESC(mnesia_enable),
+                required => false,
+                default => true
+            })}
     ];
 fields(flow_control) ->
     [
@@ -125,7 +150,9 @@ fields(flow_control) ->
                 batch_deliver_limiter,
                 undefined
             )}
-    ].
+    ];
+fields(external_backends) ->
+    emqx_schema_hooks:injection_point('retainer.external_backends').
 
 desc("retainer") ->
     "Configuration related to handling `PUBLISH` packets with a `retain` flag set to 1.";
@@ -139,9 +166,6 @@ desc(_) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-%%sc(Type, DescId) ->
-%%    hoconsc:mk(Type, #{desc => ?DESC(DescId)}).
 
 sc(Type, DescId, Default) ->
     sc(Type, DescId, Default, ?DEFAULT_IMPORTANCE).
@@ -214,3 +238,16 @@ retainer_converter(#{<<"deliver_rate">> := Delivery} = Conf, Opts) ->
     retainer_converter(Conf1#{<<"delivery_rate">> => Delivery}, Opts);
 retainer_converter(Conf, _Opts) ->
     Conf.
+
+validate_backends_enabled(Config) ->
+    BuiltInBackend = maps:get(<<"backend">>, Config, #{}),
+    ExternalBackends = maps:values(maps:get(<<"external_backends">>, Config, #{})),
+    Enabled = lists:filter(fun(#{<<"enable">> := E}) -> E end, [BuiltInBackend | ExternalBackends]),
+    case Enabled of
+        [#{}] ->
+            ok;
+        _Conflicts = [_ | _] ->
+            {error, multiple_enabled_backends};
+        _None = [] ->
+            {error, no_enabled_backend}
+    end.

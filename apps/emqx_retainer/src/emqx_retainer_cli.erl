@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_retainer_mnesia_cli).
+-module(emqx_retainer_cli).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -32,36 +32,52 @@ load() ->
     ok = emqx_ctl:register_command(retainer, {?MODULE, retainer}, []).
 
 retainer(["info"]) ->
-    count();
+    if_enabled(fun() ->
+        count()
+    end);
 retainer(["topics"]) ->
-    topic(1, 1000);
+    if_enabled(fun() ->
+        topic(1, 1000)
+    end);
 retainer(["topics", Start, Len]) ->
-    topic(list_to_integer(Start), list_to_integer(Len));
+    if_enabled(fun() ->
+        topic(list_to_integer(Start), list_to_integer(Len))
+    end);
 retainer(["clean", Topic]) ->
-    emqx_retainer:delete(list_to_binary(Topic));
+    if_enabled(fun() ->
+        emqx_retainer:delete(list_to_binary(Topic))
+    end);
 retainer(["clean"]) ->
-    emqx_retainer:clean();
+    if_enabled(fun() ->
+        emqx_retainer:clean()
+    end);
 retainer(["reindex", "status"]) ->
-    case emqx_retainer_mnesia:reindex_status() of
-        true ->
-            ?PRINT_MSG("Reindexing is in progress~n");
-        false ->
-            ?PRINT_MSG("Reindexing is not running~n")
-    end;
+    if_mnesia_enabled(fun() ->
+        case emqx_retainer_mnesia:reindex_status() of
+            true ->
+                ?PRINT_MSG("Reindexing is in progress~n");
+            false ->
+                ?PRINT_MSG("Reindexing is not running~n")
+        end
+    end);
 retainer(["reindex", "start"]) ->
-    retainer(["reindex", "start", "false"]);
+    if_mnesia_enabled(fun() ->
+        retainer(["reindex", "start", "false"])
+    end);
 retainer(["reindex", "start", ForceParam]) ->
-    case mria_rlog:role() of
-        core ->
-            Force =
-                case ForceParam of
-                    "true" -> true;
-                    _ -> false
-                end,
-            do_reindex(Force);
-        replicant ->
-            ?PRINT_MSG("Can't run reindex on a replicant node")
-    end;
+    if_mnesia_enabled(fun() ->
+        case mria_rlog:role() of
+            core ->
+                Force =
+                    case ForceParam of
+                        "true" -> true;
+                        _ -> false
+                    end,
+                do_reindex(Force);
+            replicant ->
+                ?PRINT_MSG("Can't run reindex on a replicant node")
+        end
+    end);
 retainer(_) ->
     emqx_ctl:usage(
         [
@@ -71,10 +87,12 @@ retainer(_) ->
                 "Show topics of retained messages by the specified range"},
             {"retainer clean", "Clean all retained messages"},
             {"retainer clean <Topic>", "Clean retained messages by the specified topic filter"},
-            {"retainer reindex status", "Show reindex status"},
+            {"retainer reindex status",
+                "Show reindex status.\nOnly available for built-in backend."},
             {"retainer reindex start [force]",
                 "Generate new retainer topic indices from config settings.\n"
-                "Pass true as <Force> to ignore previously started reindexing"}
+                "Pass true as <Force> to ignore previously started reindexing.\n"
+                "Only available for built-in backend."}
         ]
     ).
 
@@ -107,6 +125,23 @@ count() ->
 
 topic(Start, Len) ->
     count(),
-    Topics = lists:sublist(emqx_retainer_mnesia:topics(), Start, Len),
-    [?PRINT("~ts~n", [I]) || I <- Topics],
+    {ok, _HasNext, Messages} = emqx_retainer:page_read(<<"#">>, Start, Len),
+    [?PRINT("~ts~n", [emqx_message:topic(M)]) || M <- Messages],
     ok.
+
+if_enabled(Fun) ->
+    case emqx_retainer:enabled() of
+        true -> Fun();
+        false -> ?PRINT_MSG("Retainer is not enabled~n")
+    end.
+
+if_mnesia_backend(Fun) ->
+    case emqx_retainer:backend_module() of
+        emqx_retainer_mnesia -> Fun();
+        _ -> ?PRINT_MSG("Command only applicable for builtin backend~n")
+    end.
+
+if_mnesia_enabled(Fun) ->
+    if_enabled(fun() ->
+        if_mnesia_backend(Fun)
+    end).

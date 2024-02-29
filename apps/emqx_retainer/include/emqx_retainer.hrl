@@ -13,6 +13,8 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(EMQX_RETAINER_HRL).
+-define(EMQX_RETAINER_HRL, true).
 
 -include_lib("emqx/include/emqx.hrl").
 
@@ -22,22 +24,4 @@
 -define(TAB_INDEX_META, emqx_retainer_index_meta).
 -define(RETAINER_SHARD, emqx_retainer_shard).
 
--type topic() :: binary().
--type payload() :: binary().
--type message() :: #message{}.
-
--type context() :: #{
-    context_id := pos_integer(),
-    atom() => term()
-}.
-
--define(DELIVER_SEMAPHORE, deliver_remained_quota).
--type semaphore() :: ?DELIVER_SEMAPHORE.
--type cursor() :: undefined | term().
--type result() :: term().
-
--define(SHARED_CONTEXT_TAB, emqx_retainer_ctx).
--record(shared_context, {key :: atom(), value :: term()}).
--type shared_context_key() :: ?DELIVER_SEMAPHORE.
-
--type backend() :: emqx_retainer_storage_mnesia.
+-endif.

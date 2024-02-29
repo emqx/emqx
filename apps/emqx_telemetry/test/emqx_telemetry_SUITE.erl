@@ -621,7 +621,7 @@ mock_httpc() ->
     ).
 
 mock_advanced_mqtt_features() ->
-    Context = undefined,
+    Context = emqx_retainer:context(),
     lists:foreach(
         fun(N) ->
             Num = integer_to_binary(N),

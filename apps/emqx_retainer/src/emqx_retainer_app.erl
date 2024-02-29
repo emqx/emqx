@@ -26,12 +26,12 @@
 ]).
 
 start(_Type, _Args) ->
-    ok = emqx_retainer_mnesia_cli:load(),
+    ok = emqx_retainer_cli:load(),
     init_bucket(),
     emqx_retainer_sup:start_link().
 
 stop(_State) ->
-    ok = emqx_retainer_mnesia_cli:unload(),
+    ok = emqx_retainer_cli:unload(),
     delete_bucket(),
     ok.
 

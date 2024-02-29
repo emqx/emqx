@@ -44,6 +44,9 @@
 ]).
 
 -type limiter() :: emqx_htb_limiter:limiter().
+-type context() :: emqx_retainer:context().
+-type topic() :: emqx_types:topic().
+-type cursor() :: emqx_retainer:cursor().
 
 -define(POOL, ?MODULE).
 
@@ -233,7 +236,7 @@ cast(Msg) ->
 
 -spec dispatch(context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
 dispatch(Context, Pid, Topic, Cursor, Limiter) ->
-    Mod = emqx_retainer:get_backend_module(),
+    Mod = emqx_retainer:backend_module(Context),
     case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
         false ->
             {ok, Result} = erlang:apply(Mod, read_message, [Context, Topic]),
