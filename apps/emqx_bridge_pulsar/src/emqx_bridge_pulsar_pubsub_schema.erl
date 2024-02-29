@@ -11,7 +11,6 @@
 -export([bridge_v2_examples/1]).
 
 -define(ACTION_TYPE, pulsar).
--define(CONNECTOR_SCHEMA, emqx_bridge_rabbitmq_connector_schema).
 
 namespace() -> "pulsar".
 
@@ -94,7 +93,7 @@ desc(action_parameters) ->
 desc(producer_pulsar_message) ->
     ?DESC("producer_message_opts");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
+    ["Configuration for Pulsar Producer using `", string:to_upper(Method), "` method."];
 desc(publisher_action) ->
     ?DESC(publisher_action);
 desc(_) ->

@@ -6,7 +6,7 @@ action_parameters.label:
 """Action"""
 
 publisher_action.desc:
-"""Publish message to pulsar topic"""
+"""Publish message to Pulsar topic"""
 publisher_action.label:
 """Publish Action """
 

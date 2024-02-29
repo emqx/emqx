@@ -182,7 +182,7 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
         {ok, #{producers := Producers}} ->
             get_producer_status(Producers);
         error ->
-            {error, channel_not_exists}
+            {error, channel_not_found}
     end.
 
 -spec on_query(resource_id(), tuple(), state()) ->
@@ -193,7 +193,7 @@ on_query(_InstanceId, {ChannelId, Message}, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         error ->
-            {error, channel_not_exists};
+            {error, channel_not_found};
         {ok, #{message := MessageTmpl, sync_timeout := SyncTimeout, producers := Producers}} ->
             PulsarMessage = render_message(Message, MessageTmpl),
             try
@@ -212,7 +212,7 @@ on_query_async(_InstanceId, {ChannelId, Message}, AsyncReplyFn, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         error ->
-            {error, channel_not_exists};
+            {error, channel_not_found};
         {ok, #{message := MessageTmpl, producers := Producers}} ->
             ?tp_span(
                 pulsar_producer_on_query_async,
