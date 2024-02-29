@@ -63,8 +63,10 @@
     message_key/0,
     message_store_opts/0,
     next_result/1, next_result/0,
+    delete_next_result/1, delete_next_result/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
+    make_delete_iterator_result/1, make_delete_iterator_result/0,
 
     ds_specific_stream/0,
     ds_specific_iterator/0,
