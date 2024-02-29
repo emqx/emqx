@@ -31,6 +31,7 @@
     on_query/3,
     on_query_async/4,
     on_get_status/2,
+    on_get_status/3,
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
@@ -50,7 +51,7 @@
 %% for other http-like connectors.
 -export([redact_request/1]).
 
--export([validate_method/1, join_paths/2]).
+-export([validate_method/1, join_paths/2, formalize_request/3, transform_result/1]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 -define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
@@ -511,8 +512,11 @@ resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
 
-on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State) ->
-    case do_get_status(InstId, Timeout) of
+on_get_status(InstId, State) ->
+    on_get_status(InstId, State, fun default_health_checker/2).
+
+on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State, DoPerWorker) ->
+    case do_get_status(InstId, Timeout, DoPerWorker) of
         ok ->
             connected;
         {error, still_connecting} ->
@@ -522,17 +526,11 @@ on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State
     end.
 
 do_get_status(PoolName, Timeout) ->
+    do_get_status(PoolName, Timeout, fun default_health_checker/2).
+
+do_get_status(PoolName, Timeout, DoPerWorker) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(PoolName)],
-    DoPerWorker =
-        fun(Worker) ->
-            case ehttpc:health_check(Worker, Timeout) of
-                ok ->
-                    ok;
-                {error, _} = Error ->
-                    Error
-            end
-        end,
-    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
+    try emqx_utils:pmap(fun(Worker) -> DoPerWorker(Worker, Timeout) end, Workers, Timeout) of
         [] ->
             {error, still_connecting};
         [_ | _] = Results ->
@@ -555,6 +553,14 @@ do_get_status(PoolName, Timeout) ->
                 connector => PoolName
             }),
             {error, timeout}
+    end.
+
+default_health_checker(Worker, Timeout) ->
+    case ehttpc:health_check(Worker, Timeout) of
+        ok ->
+            ok;
+        {error, _} = Error ->
+            Error
     end.
 
 on_get_channel_status(
