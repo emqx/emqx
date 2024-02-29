@@ -210,9 +210,15 @@ on_stop(ConnectorResId, State) ->
     ?tp(kafka_consumer_subcriber_and_client_stopped, #{instance_id => ConnectorResId}),
     ok.
 
--spec on_get_status(resource_id(), connector_state()) -> connected | disconnected.
-on_get_status(_ResourceID, _State) ->
-    ?status_connected.
+-spec on_get_status(connector_resource_id(), connector_state()) ->
+    ?status_connected | ?status_disconnected.
+on_get_status(_ConnectorResId, _State = #{kafka_client_id := ClientID}) ->
+    case brod_sup:find_client(ClientID) of
+        [_Pid] -> ?status_connected;
+        _ -> ?status_disconnected
+    end;
+on_get_status(_ConnectorResId, _State) ->
+    ?status_disconnected.
 
 -spec on_add_channel(
     connector_resource_id(),
