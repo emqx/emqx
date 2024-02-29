@@ -32,7 +32,9 @@
 -record(serde, {
     name :: schema_name(),
     type :: serde_type(),
-    eval_context :: term()
+    eval_context :: term(),
+    %% for future use
+    extra = []
 }).
 -type serde() :: #serde{}.
 

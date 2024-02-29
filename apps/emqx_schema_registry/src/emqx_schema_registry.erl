@@ -312,8 +312,9 @@ ensure_serde_absent(Name) when not is_binary(Name) ->
 ensure_serde_absent(Name) ->
     case get_serde(Name) of
         {ok, Serde} ->
+            ok = emqx_schema_registry_serde:destroy(Serde),
             _ = ets:delete(?SERDE_TAB, Name),
-            ok = emqx_schema_registry_serde:destroy(Serde);
+            ok;
         {error, not_found} ->
             ok
     end.
