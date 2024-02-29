@@ -174,6 +174,8 @@ connector_type_to_bridge_types(opents) ->
     [opents];
 connector_type_to_bridge_types(greptimedb) ->
     [greptimedb];
+connector_type_to_bridge_types(pulsar) ->
+    [pulsar_producer, pulsar];
 connector_type_to_bridge_types(tdengine) ->
     [tdengine];
 connector_type_to_bridge_types(rabbitmq) ->
@@ -269,6 +271,7 @@ split_bridge_to_connector_and_action(
             #{<<"connector">> := ConnectorName0} -> ConnectorName0;
             _ -> generate_connector_name(ConnectorsMap, BridgeName, 0)
         end,
+
     OrgActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeType),
     {ActionMap, ActionType, ActionOrSource} =
         case emqx_action_info:has_custom_bridge_v1_config_to_action_config(BridgeType) of

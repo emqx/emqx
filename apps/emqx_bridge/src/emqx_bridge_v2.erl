@@ -1659,8 +1659,11 @@ bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
             connector_conf := ConnectorRawConf,
             bridge_v2_type := BridgeV2Type,
             bridge_v2_name := _BridgeName,
-            bridge_v2_conf := BridgeV2RawConf
+            bridge_v2_conf := BridgeV2RawConf0
         } = split_and_validate_bridge_v1_config(BridgeType, TmpName, RawConf, PreviousRawConf),
+        BridgeV2RawConf = emqx_action_info:action_convert_from_connector(
+            BridgeType, ConnectorRawConf, BridgeV2RawConf0
+        ),
         create_dry_run_helper(
             ensure_atom_root_key(ConfRootKey), BridgeV2Type, ConnectorRawConf, BridgeV2RawConf
         )
@@ -1928,7 +1931,8 @@ convert_from_connectors(ConfRootKey, Conf) ->
 convert_from_connector(ConfRootKey, Type, Name, Action = #{<<"connector">> := ConnectorName}) ->
     case get_connector_info(ConnectorName, Type) of
         {ok, Connector} ->
-            Action1 = emqx_action_info:action_convert_from_connector(Type, Connector, Action),
+            TypeAtom = to_existing_atom(Type),
+            Action1 = emqx_action_info:action_convert_from_connector(TypeAtom, Connector, Action),
             {ok, Action1};
         {error, not_found} ->
             {error, #{

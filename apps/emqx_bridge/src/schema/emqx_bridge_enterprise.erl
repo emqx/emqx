@@ -123,7 +123,7 @@ resource_type(dynamo) -> emqx_bridge_dynamo_connector;
 resource_type(rocketmq) -> emqx_bridge_rocketmq_connector;
 resource_type(sqlserver) -> emqx_bridge_sqlserver_connector;
 resource_type(opents) -> emqx_bridge_opents_connector;
-resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
+resource_type(pulsar_producer) -> emqx_bridge_pulsar_connector;
 resource_type(oracle) -> emqx_oracle;
 resource_type(iotdb) -> emqx_bridge_iotdb_connector;
 resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector;

@@ -1,0 +1,38 @@
+emqx_bridge_pulsar_pubsub_schema {
+
+action_parameters.desc:
+"""Action specific configs."""
+action_parameters.label:
+"""Action"""
+
+publisher_action.desc:
+"""Publish message to Pulsar topic"""
+publisher_action.label:
+"""Publish Action """
+
+producer_sync_timeout.desc:
+"""Maximum wait time for receiving a receipt from Pulsar when publishing synchronously."""
+producer_sync_timeout.label:
+"""Sync publish timeout"""
+
+producer_key_template.desc:
+"""Template to render Pulsar message key."""
+producer_key_template.label:
+"""Message Key"""
+
+producer_value_template.desc:
+"""Template to render Pulsar message value."""
+producer_value_template.label:
+"""Message Value"""
+
+producer_message_opts.desc:
+"""Template to render a Pulsar message."""
+producer_message_opts.label:
+"""Pulsar Message Template"""
+
+producer_pulsar_message.desc:
+"""Template to render a Pulsar message."""
+producer_pulsar_message.label:
+"""Pulsar Message Template"""
+
+}
