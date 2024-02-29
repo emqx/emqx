@@ -2090,7 +2090,9 @@ t_begin_offset_earliest(Config) ->
                 ),
                 #{payloads => Payloads}
             ),
-            ?assertEqual(NumMessages, emqx_resource_metrics:received_get(ResourceId)),
+            ?retry(
+                100, 20, ?assertEqual(NumMessages, emqx_resource_metrics:received_get(ResourceId))
+            ),
             ok
         end
     ),
