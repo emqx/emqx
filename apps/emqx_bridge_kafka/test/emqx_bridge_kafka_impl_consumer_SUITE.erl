@@ -2158,7 +2158,7 @@ t_resource_manager_crash_before_subscriber_started(Config) ->
     ?check_trace(
         begin
             ?force_ordering(
-                #{?snk_kind := kafka_consumer_client_started},
+                #{?snk_kind := kafka_consumer_sup_started},
                 #{?snk_kind := will_kill_resource_manager}
             ),
             ?force_ordering(
