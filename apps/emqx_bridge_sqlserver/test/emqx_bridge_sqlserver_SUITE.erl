@@ -550,8 +550,15 @@ resource_id(Config) ->
 health_check_resource_ok(Config) ->
     BridgeType = ?config(sqlserver_bridge_type, Config),
     Name = ?config(sqlserver_name, Config),
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))),
-    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)).
+    % Wait for reconnection.
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 10,
+        begin
+            ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))),
+            ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
+        end
+    ).
 
 health_check_resource_down(Config) ->
     case emqx_resource_manager:health_check(resource_id(Config)) of

@@ -142,20 +142,10 @@ fields(Field) when
         fields("config_connector") -- emqx_connector_schema:common_fields()
     );
 fields("config_connector") ->
-    Config =
-        driver_fields() ++
-            emqx_connector_schema:common_fields() ++
-            emqx_bridge_sqlserver_connector:fields(config) ++
-            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
-    lists:foldl(
-        fun(Key, Acc) ->
-            proplists:delete(Key, Acc)
-        end,
-        Config,
-        [
-            auto_reconnect
-        ]
-    );
+    driver_fields() ++
+        emqx_connector_schema:common_fields() ++
+        emqx_bridge_sqlserver_connector:fields(config) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields("config") ->
