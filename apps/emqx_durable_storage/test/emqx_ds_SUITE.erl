@@ -404,7 +404,10 @@ t_drop_generation_with_never_used_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch({ok, end_of_stream, []}, iterate(DB, Iter0, 1)),
+    ?assertMatch(
+        {error, unrecoverable, generation_not_found, []},
+        iterate(DB, Iter0, 1)
+    ),
 
     %% New iterator for the new stream will only see the later messages.
     [{_, Stream1}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -453,9 +456,10 @@ t_drop_generation_with_used_once_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch({ok, end_of_stream, []}, iterate(DB, Iter1, 1)),
-
-    ok.
+    ?assertMatch(
+        {error, unrecoverable, generation_not_found, []},
+        iterate(DB, Iter1, 1)
+    ).
 
 t_drop_generation_update_iterator(_Config) ->
     %% This checks the behavior of `emqx_ds:update_iterator' after the generation
@@ -481,9 +485,10 @@ t_drop_generation_update_iterator(_Config) ->
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),
 
-    ?assertEqual({error, end_of_stream}, emqx_ds:update_iterator(DB, Iter1, Key2)),
-
-    ok.
+    ?assertEqual(
+        {error, unrecoverable, generation_not_found},
+        emqx_ds:update_iterator(DB, Iter1, Key2)
+    ).
 
 t_make_iterator_stale_stream(_Config) ->
     %% This checks the behavior of `emqx_ds:make_iterator' after the generation underlying
@@ -507,7 +512,7 @@ t_make_iterator_stale_stream(_Config) ->
     ok = emqx_ds:drop_generation(DB, GenId0),
 
     ?assertEqual(
-        {error, end_of_stream},
+        {error, unrecoverable, generation_not_found},
         emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime)
     ),
 
@@ -605,8 +610,8 @@ iterate(DB, It0, BatchSize, Acc) ->
             iterate(DB, It, BatchSize, Acc ++ Msgs);
         {ok, end_of_stream} ->
             {ok, end_of_stream, Acc};
-        Ret ->
-            Ret
+        {error, Class, Reason} ->
+            {error, Class, Reason, Acc}
     end.
 
 %% CT callbacks

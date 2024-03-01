@@ -256,12 +256,10 @@ make_iterator(
                     Err
             end;
         {error, not_found} ->
-            {error, end_of_stream}
+            {error, unrecoverable, generation_not_found}
     end.
 
--spec update_iterator(
-    shard_id(), iterator(), emqx_ds:message_key()
-) ->
+-spec update_iterator(shard_id(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(
     Shard,
@@ -281,7 +279,7 @@ update_iterator(
                     Err
             end;
         {error, not_found} ->
-            {error, end_of_stream}
+            {error, unrecoverable, generation_not_found}
     end.
 
 -spec next(shard_id(), iterator(), pos_integer()) ->
@@ -298,12 +296,12 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
                     {ok, end_of_stream};
                 {ok, GenIter, Batch} ->
                     {ok, Iter#{?enc := GenIter}, Batch};
-                Error = {error, _} ->
+                Error = {error, _, _} ->
                     Error
             end;
         {error, not_found} ->
             %% generation was possibly dropped by GC
-            {ok, end_of_stream}
+            {error, unrecoverable, generation_not_found}
     end.
 
 -spec update_config(shard_id(), emqx_ds:create_db_opts()) -> ok.

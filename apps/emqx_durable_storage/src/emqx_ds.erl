@@ -68,6 +68,8 @@
     make_iterator_result/1, make_iterator_result/0,
     make_delete_iterator_result/1, make_delete_iterator_result/0,
 
+    error/1,
+
     ds_specific_stream/0,
     ds_specific_iterator/0,
     ds_specific_generation_rank/0,
@@ -118,14 +120,14 @@
 
 -type message_key() :: binary().
 
--type store_batch_result() :: ok | {error, _}.
+-type store_batch_result() :: ok | error(_).
 
--type make_iterator_result(Iterator) :: {ok, Iterator} | {error, _}.
+-type make_iterator_result(Iterator) :: {ok, Iterator} | error(_).
 
 -type make_iterator_result() :: make_iterator_result(iterator()).
 
 -type next_result(Iterator) ::
-    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | {error, _}.
+    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | error(_).
 
 -type next_result() :: next_result(iterator()).
 
@@ -141,6 +143,8 @@
     {ok, DeleteIterator, non_neg_integer()} | {ok, end_of_stream} | {error, term()}.
 
 -type delete_next_result() :: delete_next_result(delete_iterator()).
+
+-type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
