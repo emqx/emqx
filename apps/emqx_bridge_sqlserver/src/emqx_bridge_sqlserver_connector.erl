@@ -128,9 +128,9 @@
 %% -type size() :: integer().
 
 -type state() :: #{
+    installed_channels := map(),
     pool_name := binary(),
-    resource_opts := map(),
-    sql_templates := map()
+    resource_opts := map()
 }.
 
 %%====================================================================
@@ -288,14 +288,14 @@ on_stop(InstanceId, _State) ->
 
 -spec on_query(
     resource_id(),
-    {?ACTION_SEND_MESSAGE, map()},
+    Query :: {channel_id(), map()},
     state()
 ) ->
     ok
     | {ok, list()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(ResourceId, {?ACTION_SEND_MESSAGE, _Msg} = Query, State) ->
+on_query(ResourceId, {_ChannelId, _Msg} = Query, State) ->
     ?TRACE(
         "SINGLE_QUERY_SYNC",
         "bridge_sqlserver_received",
@@ -305,7 +305,7 @@ on_query(ResourceId, {?ACTION_SEND_MESSAGE, _Msg} = Query, State) ->
 
 -spec on_batch_query(
     resource_id(),
-    [{?ACTION_SEND_MESSAGE, map()}],
+    [{channel_id(), map()}],
     state()
 ) ->
     ok
@@ -383,7 +383,7 @@ conn_str([{_, _} | Opts], Acc) ->
 %% Query with singe & batch sql statement
 -spec do_query(
     resource_id(),
-    Query :: {?ACTION_SEND_MESSAGE, map()} | [{?ACTION_SEND_MESSAGE, map()}],
+    Query :: {channel_id(), map()} | [{channel_id(), map()}],
     ApplyMode :: handover,
     state()
 ) ->

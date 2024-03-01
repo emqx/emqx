@@ -59,7 +59,7 @@ sqlserver_action.label:
 """Microsoft SOL Server Action Configuration"""
 
 config_connector.desc:
-"""Configuration for an Microsoft SOL Server connector."""
+"""Configuration for a Microsoft SOL Server connector."""
 
 config_connector.label:
 """Microsoft SOL Server Connector Configuration"""
