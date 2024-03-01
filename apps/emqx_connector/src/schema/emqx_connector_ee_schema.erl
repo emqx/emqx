@@ -61,7 +61,7 @@ resource_type(syskeeper_forwarder) ->
 resource_type(syskeeper_proxy) ->
     emqx_bridge_syskeeper_proxy_server;
 resource_type(sqlserver) ->
-    emqx_bridge_sqlserver;
+    emqx_bridge_sqlserver_connector;
 resource_type(timescale) ->
     emqx_postgresql;
 resource_type(redis) ->

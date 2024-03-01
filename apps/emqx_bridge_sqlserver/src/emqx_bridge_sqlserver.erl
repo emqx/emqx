@@ -96,6 +96,7 @@ connector_values() ->
         pool_size => 8,
         username => <<"sa">>,
         password => <<"******">>,
+        driver => ?DEFAULT_DRIVER,
         resource_opts => #{health_check_interval => <<"20s">>}
     }.
 
@@ -113,7 +114,10 @@ bridge_v2_examples(Method) ->
     ].
 
 action_values() ->
-    #{parameters => #{sql => ?DEFAULT_SQL}}.
+    #{
+        <<"parameters">> =>
+            #{<<"sql">> => ?DEFAULT_SQL}
+    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -138,9 +142,20 @@ fields(Field) when
         fields("config_connector") -- emqx_connector_schema:common_fields()
     );
 fields("config_connector") ->
-    emqx_connector_schema:common_fields() ++
-        emqx_bridge_sqlserver_connector:fields(config) ++
-        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+    Config =
+        driver_fields() ++
+            emqx_connector_schema:common_fields() ++
+            emqx_bridge_sqlserver_connector:fields(config) ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    lists:foldl(
+        fun(Key, Acc) ->
+            proplists:delete(Key, Acc)
+        end,
+        Config,
+        [
+            auto_reconnect
+        ]
+    );
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields("config") ->
@@ -151,7 +166,6 @@ fields("config") ->
                 binary(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
-        {driver, mk(binary(), #{desc => ?DESC("driver"), default => ?DEFAULT_DRIVER})},
         {local_topic,
             mk(
                 binary(),
@@ -166,7 +180,7 @@ fields("config") ->
                     desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
                 }
             )}
-    ] ++
+    ] ++ driver_fields() ++
         (emqx_bridge_sqlserver_connector:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields(action) ->
@@ -201,6 +215,9 @@ fields("get") ->
 
 fields("post", Type) ->
     [type_field(Type), name_field() | fields("config")].
+
+driver_fields() ->
+    [{driver, mk(binary(), #{desc => ?DESC("driver"), default => ?DEFAULT_DRIVER})}].
 
 desc("config") ->
     ?DESC("desc_config");
