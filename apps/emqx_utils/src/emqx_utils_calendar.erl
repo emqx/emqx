@@ -478,7 +478,8 @@ do_parse(DateStr, Unit, Formatter) ->
             (year, V, Res) ->
                 Res + dy(V) * ?SECONDS_PER_DAY * Precise - (?SECONDS_FROM_0_TO_1970 * Precise);
             (month, V, Res) ->
-                Res + dm(V) * ?SECONDS_PER_DAY * Precise;
+                Dm = dym(maps:get(year, DateInfo, 0), V),
+                Res + Dm * ?SECONDS_PER_DAY * Precise;
             (day, V, Res) ->
                 Res + (V * ?SECONDS_PER_DAY * Precise);
             (hour, V, Res) ->
@@ -562,6 +563,14 @@ date_size(nanosecond) -> 9;
 date_size(timezone) -> 5;
 date_size(timezone1) -> 6;
 date_size(timezone2) -> 9.
+
+dym(Y, M) ->
+    case is_leap_year(Y) of
+        true when M > 2 ->
+            dm(M) + 1;
+        _ ->
+            dm(M)
+    end.
 
 dm(1) -> 0;
 dm(2) -> 31;

@@ -1062,6 +1062,18 @@ t_parse_date_errors(_) ->
     ?assertEqual(
         UnixTs,
         emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2022-05-26 10-40-12">>)
+    ),
+
+    UnixTsLeap0 = 1582948800,
+    ?assertEqual(
+        UnixTsLeap0,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2020-02-29 12:00:00">>)
+    ),
+
+    UnixTsLeap1 = 1709265631,
+    ?assertEqual(
+        UnixTsLeap1,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-03-01 12:00:31">>)
     ).
 
 %%------------------------------------------------------------------------------
