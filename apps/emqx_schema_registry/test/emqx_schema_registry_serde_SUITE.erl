@@ -143,24 +143,26 @@ t_avro_invalid_schema(_Config) ->
 t_serde_not_found(_Config) ->
     %% for coverage
     NonexistentSerde = <<"nonexistent">>,
+    EncodeData = #{},
+    DecodeData = <<"data">>,
     ?assertError(
         {serde_not_found, NonexistentSerde},
-        emqx_schema_registry_serde:encode(NonexistentSerde, data)
+        emqx_schema_registry_serde:encode(NonexistentSerde, EncodeData)
     ),
     ?assertError(
         {serde_not_found, NonexistentSerde},
-        emqx_schema_registry_serde:decode(NonexistentSerde, data)
+        emqx_schema_registry_serde:decode(NonexistentSerde, DecodeData)
     ),
     ?assertError(
         {serde_not_found, NonexistentSerde},
-        emqx_schema_registry_serde:handle_rule_function(schema_check_decode, [
-            NonexistentSerde, data
+        emqx_schema_registry_serde:handle_rule_function(schema_check, [
+            NonexistentSerde, EncodeData
         ])
     ),
     ?assertError(
         {serde_not_found, NonexistentSerde},
-        emqx_schema_registry_serde:handle_rule_function(schema_check_encode, [
-            NonexistentSerde, data
+        emqx_schema_registry_serde:handle_rule_function(schema_check, [
+            NonexistentSerde, DecodeData
         ])
     ),
     ok.
@@ -232,9 +234,9 @@ t_json_validation(_Config) ->
     end,
     OK = #{<<"foo">> => 1, <<"bar">> => 2},
     NotOk = #{<<"bar">> => 2},
-    ?assert(F(schema_check_encode, OK)),
-    ?assert(F(schema_check_decode, <<"{\"foo\": 1, \"bar\": 2}">>)),
-    ?assertNot(F(schema_check_encode, NotOk)),
-    ?assertNot(F(schema_check_decode, <<"{\"bar\": 2}">>)),
-    ?assertNot(F(schema_check_decode, <<"{\"foo\": \"notinteger\", \"bar\": 2}">>)),
+    ?assert(F(schema_check, OK)),
+    ?assert(F(schema_check, <<"{\"foo\": 1, \"bar\": 2}">>)),
+    ?assertNot(F(schema_check, NotOk)),
+    ?assertNot(F(schema_check, <<"{\"bar\": 2}">>)),
+    ?assertNot(F(schema_check, <<"{\"foo\": \"notinteger\", \"bar\": 2}">>)),
     ok.

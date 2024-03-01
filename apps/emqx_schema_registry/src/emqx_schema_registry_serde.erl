@@ -74,24 +74,20 @@ handle_rule_function(schema_encode, [SchemaId, Term | MoreArgs]) ->
     iolist_to_binary(IOList);
 handle_rule_function(schema_encode, Args) ->
     error({args_count_error, {schema_encode, Args}});
-handle_rule_function(schema_check_decode, [SchemaId, Data | MoreArgs]) ->
-    check_decode(SchemaId, Data, MoreArgs);
-handle_rule_function(schema_check_encode, [SchemaId, Term | MoreArgs]) ->
-    check_encode(SchemaId, Term, MoreArgs);
+handle_rule_function(schema_check, [SchemaId, Data | MoreArgs]) ->
+    schema_check(SchemaId, Data, MoreArgs);
 handle_rule_function(_, _) ->
     {error, no_match_for_function}.
 
--spec check_decode(schema_name(), encoded_data(), [term()]) -> decoded_data().
-check_decode(SerdeName, Data, VarArgs) ->
+-spec schema_check(schema_name(), decoded_data() | encoded_data(), [term()]) -> decoded_data().
+schema_check(SerdeName, Data, VarArgs) when is_list(VarArgs), is_binary(Data) ->
     with_serde(
         SerdeName,
         fun(Serde) ->
             ?BOOL(SerdeName, eval_decode(Serde, [Data | VarArgs]))
         end
-    ).
-
--spec check_encode(schema_name(), decoded_data(), [term()]) -> encoded_data().
-check_encode(SerdeName, Data, VarArgs) when is_list(VarArgs) ->
+    );
+schema_check(SerdeName, Data, VarArgs) when is_list(VarArgs), is_map(Data) ->
     with_serde(
         SerdeName,
         fun(Serde) ->
