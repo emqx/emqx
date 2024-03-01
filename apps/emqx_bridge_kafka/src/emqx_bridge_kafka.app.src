@@ -12,7 +12,12 @@
         brod,
         brod_gssapi
     ]},
-    {env, [{emqx_action_info_modules, [emqx_bridge_kafka_action_info]}]},
+    {env, [
+        {emqx_action_info_modules, [
+            emqx_bridge_kafka_action_info,
+            emqx_bridge_kafka_consumer_action_info
+        ]}
+    ]},
     {modules, []},
 
     {links, []}

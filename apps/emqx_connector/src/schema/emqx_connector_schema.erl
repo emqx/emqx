@@ -134,6 +134,8 @@ connector_type_to_bridge_types(gcp_pubsub_producer) ->
     [gcp_pubsub, gcp_pubsub_producer];
 connector_type_to_bridge_types(hstreamdb) ->
     [hstreamdb];
+connector_type_to_bridge_types(kafka_consumer) ->
+    [kafka_consumer];
 connector_type_to_bridge_types(kafka_producer) ->
     [kafka, kafka_producer];
 connector_type_to_bridge_types(kinesis) ->
@@ -207,7 +209,11 @@ bridge_configs_to_transform(
                 emqx_utils_maps:deep_get(
                     [<<"actions">>, to_bin(BridgeType), to_bin(BridgeName)],
                     RawConfig,
-                    undefined
+                    emqx_utils_maps:deep_get(
+                        [<<"sources">>, to_bin(BridgeType), to_bin(BridgeName)],
+                        RawConfig,
+                        undefined
+                    )
                 ),
             [
                 {BridgeType, BridgeName, BridgeConf, ConnectorFields, PreviousRawConfig}

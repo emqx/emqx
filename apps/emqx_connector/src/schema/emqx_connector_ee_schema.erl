@@ -34,6 +34,8 @@ resource_type(gcp_pubsub_producer) ->
     emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(hstreamdb) ->
     emqx_bridge_hstreamdb_connector;
+resource_type(kafka_consumer) ->
+    emqx_bridge_kafka_impl_consumer;
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(kinesis) ->
@@ -160,11 +162,19 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {kafka_consumer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_kafka_consumer_schema, "config_connector")),
+                #{
+                    desc => <<"Kafka Consumer Connector Config">>,
+                    required => false
+                }
+            )},
         {kafka_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka, "config_connector")),
                 #{
-                    desc => <<"Kafka Connector Config">>,
+                    desc => <<"Kafka Producer Connector Config">>,
                     required => false
                 }
             )},
@@ -356,6 +366,7 @@ schema_modules() ->
         emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_hstreamdb,
         emqx_bridge_kafka,
+        emqx_bridge_kafka_consumer_schema,
         emqx_bridge_kinesis,
         emqx_bridge_matrix,
         emqx_bridge_mongodb,
@@ -405,6 +416,7 @@ api_schemas(Method) ->
         ),
         api_ref(emqx_bridge_hstreamdb, <<"hstreamdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_kafka_consumer_schema, <<"kafka_consumer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kinesis, <<"kinesis">>, Method ++ "_connector"),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),

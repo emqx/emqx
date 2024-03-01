@@ -136,20 +136,30 @@ t_connector_lifecycle(_Config) ->
     ?assert(meck:validate(?CONNECTOR)),
     ?assertMatch(
         [
-            {_, {?CONNECTOR, callback_mode, []}, _},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
-            {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
-            {_, {?CONNECTOR, callback_mode, []}, _},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok}
         ],
-        meck:history(?CONNECTOR)
+        lists:filter(
+            fun({_, {?CONNECTOR, Fun, _Args}, _}) ->
+                lists:member(
+                    Fun, [
+                        on_start,
+                        on_stop,
+                        on_get_channels,
+                        on_get_status,
+                        on_add_channel
+                    ]
+                )
+            end,
+            meck:history(?CONNECTOR)
+        )
     ),
     ok.
 

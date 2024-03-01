@@ -15,6 +15,8 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(BRIDGE_TYPE_BIN, <<"kafka_consumer">>).
+-define(CONNECTOR_TYPE_BIN, <<"kafka_consumer">>).
+-define(SOURCE_TYPE_BIN, <<"kafka_consumer">>).
 -define(APPS, [emqx_bridge, emqx_resource, emqx_rule_engine, emqx_bridge_kafka]).
 
 %%------------------------------------------------------------------------------
@@ -78,13 +80,29 @@ testcases(once) ->
     ].
 
 init_per_suite(Config) ->
-    [{bridge_type, <<"kafka_consumer">>} | Config].
+    emqx_common_test_helpers:clear_screen(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_kafka,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _Api} = emqx_common_test_http:create_default_app(),
+    [
+        {apps, Apps},
+        {bridge_type, <<"kafka_consumer">>}
+        | Config
+    ].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps(lists:reverse(?APPS)),
-    _ = application:stop(emqx_connector),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_group(plain = Type, Config) ->
@@ -242,11 +260,6 @@ common_init_per_group() ->
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    application:load(emqx_bridge),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps(?APPS),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    emqx_mgmt_api_test_util:init_suite(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     MQTTTopic = <<"mqtt/topic/", UniqueNum/binary>>,
     [
@@ -262,7 +275,7 @@ common_end_per_group(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok.
 
 end_per_group(Group, Config) when
@@ -327,7 +340,7 @@ init_per_testcase(TestCase, Config) ->
 
 common_init_per_testcase(TestCase, Config0) ->
     ct:timetrap(timer:seconds(60)),
-    delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_config:delete_override_conf_files(),
     KafkaTopic0 =
         <<
@@ -363,7 +376,12 @@ common_init_per_testcase(TestCase, Config0) ->
         {kafka_name, Name},
         {kafka_config_string, ConfigString},
         {kafka_config, KafkaConfig},
-        {kafka_producers, ProducersConfigs}
+        {kafka_producers, ProducersConfigs},
+        {bridge_kind, source},
+        {connector_name, Name},
+        {connector_type, ?CONNECTOR_TYPE_BIN},
+        {source_type, ?SOURCE_TYPE_BIN},
+        {source_name, Name}
         | Config
     ].
 
@@ -372,7 +390,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProducersConfigs = ?config(kafka_producers, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     #{clientid := KafkaProducerClientId, producers := ProducersMapping} =
         ProducersConfigs,
     lists:foreach(
@@ -681,19 +699,6 @@ create_bridge_wait_for_balance(Config) ->
         kill_group_subscriber_spy()
     end.
 
-delete_bridge(Config) ->
-    Type = ?BRIDGE_TYPE_BIN,
-    Name = ?config(kafka_name, Config),
-    emqx_bridge:remove(Type, Name).
-
-delete_all_bridges() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ).
-
 create_bridge_api(Config) ->
     create_bridge_api(Config, _Overrides = #{}).
 
@@ -752,9 +757,8 @@ send_message(Config, Payload) ->
     emqx_bridge:send_message(BridgeId, Payload).
 
 resource_id(Config) ->
-    Type = ?BRIDGE_TYPE_BIN,
     Name = ?config(kafka_name, Config),
-    emqx_bridge_resource:resource_id(Type, Name).
+    emqx_bridge_v2:source_id(?SOURCE_TYPE_BIN, Name, Name).
 
 instance_id(Config) ->
     ResourceId = resource_id(Config),
@@ -1084,6 +1088,12 @@ cluster(Config) ->
     ct:pal("cluster: ~p", [Cluster]),
     Cluster.
 
+start_peer(Name, Opts) ->
+    Node = emqx_common_test_helpers:start_peer(Name, Opts),
+    % Make it possible to call `ct:pal` and friends (if running under rebar3)
+    _ = emqx_cth_cluster:share_load_module(Node, cthr),
+    Node.
+
 start_async_publisher(Config, KafkaTopic) ->
     TId = ets:new(kafka_payloads, [public, ordered_set]),
     Loop = fun Go() ->
@@ -1128,6 +1138,15 @@ kill_resource_managers() ->
         end,
         supervisor:which_children(emqx_resource_manager_sup)
     ).
+
+health_check(Config) ->
+    health_check(node(), Config).
+
+health_check(Node, Config) ->
+    erpc:call(Node, fun() ->
+        #{status := Status} = emqx_bridge_v2_testlib:health_check_channel(Config),
+        {ok, Status}
+    end).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1344,19 +1363,13 @@ t_on_get_status(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
-    KafkaName = ?config(kafka_name, Config),
-    ResourceId = emqx_bridge_resource:resource_id(kafka_consumer, KafkaName),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
-    %% Since the connection process is async, we give it some time to
-    %% stabilize and avoid flakiness.
-    ct:sleep(1_200),
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
+    ?retry(100, 20, ?assertEqual({ok, connected}, health_check(Config))),
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ct:sleep(500),
-        ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId))
+        ?retry(100, 20, ?assertEqual({ok, disconnected}, health_check(Config)))
     end),
     ok.
 
@@ -1390,14 +1403,16 @@ t_failed_creation_then_fixed(Config) ->
     ?assertMatch(
         {{ok, _}, {ok, _}},
         ?wait_async_action(
-            update_bridge_api(Config),
+            update_bridge_api(Config, #{
+                <<"resource_opts">> =>
+                    #{<<"health_check_interval">> => <<"1s">>}
+            }),
             #{?snk_kind := kafka_consumer_subscriber_started},
             60_000
         )
     ),
     wait_until_subscribers_are_ready(NPartitions, 120_000),
-    ResourceId = resource_id(Config),
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
+    ?assertEqual({ok, connected}, health_check(Config)),
     ping_until_healthy(Config, _Period = 1_500, _Timeout = 24_000),
 
     {ok, C} = emqtt:start_link(),
@@ -1459,7 +1474,6 @@ t_receive_after_recovery(Config) ->
     KafkaName = ?config(kafka_name, Config),
     KafkaNameA = binary_to_atom(KafkaName),
     KafkaClientId = consumer_clientid(Config),
-    ResourceId = resource_id(Config),
     ?check_trace(
         begin
             {ok, _} = create_bridge(
@@ -1467,7 +1481,7 @@ t_receive_after_recovery(Config) ->
                 #{<<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}}
             ),
             ping_until_healthy(Config, _Period = 1_500, _Timeout0 = 24_000),
-            {ok, connected} = emqx_resource_manager:health_check(ResourceId),
+            {ok, connected} = health_check(Config),
             %% 0) ensure each partition commits its offset so it can
             %% recover later.
             Messages0 = [
@@ -1718,14 +1732,13 @@ t_cluster_group(Config) ->
     NPartitions = ?config(num_partitions, Config),
     KafkaTopic = ?config(kafka_topic, Config),
     KafkaName = ?config(kafka_name, Config),
-    ResourceId = resource_id(Config),
     BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, KafkaName),
     Cluster = cluster(Config),
     ?check_trace(
         begin
             Nodes =
                 [_N1, N2 | _] = [
-                    emqx_common_test_helpers:start_peer(Name, Opts)
+                    start_peer(Name, Opts)
                  || {Name, Opts} <- Cluster
                 ],
             on_exit(fun() ->
@@ -1765,7 +1778,7 @@ t_cluster_group(Config) ->
                 fun(N) ->
                     ?assertEqual(
                         {ok, connected},
-                        erpc:call(N, emqx_resource_manager, health_check, [ResourceId]),
+                        health_check(N, Config),
                         #{node => N}
                     )
                 end,
@@ -1801,14 +1814,13 @@ t_node_joins_existing_cluster(Config) ->
     NPartitions = ?config(num_partitions, Config),
     KafkaTopic = ?config(kafka_topic, Config),
     KafkaName = ?config(kafka_name, Config),
-    ResourceId = resource_id(Config),
     BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, KafkaName),
     Cluster = cluster(Config),
     ?check_trace(
         begin
             [{Name1, Opts1}, {Name2, Opts2} | _] = Cluster,
             ct:pal("starting ~p", [Name1]),
-            N1 = emqx_common_test_helpers:start_peer(Name1, Opts1),
+            N1 = start_peer(Name1, Opts1),
             on_exit(fun() ->
                 ct:pal("stopping ~p", [N1]),
                 ok = emqx_common_test_helpers:stop_peer(N1)
@@ -1834,7 +1846,7 @@ t_node_joins_existing_cluster(Config) ->
             {ok, _} = wait_until_group_is_balanced(KafkaTopic, NPartitions, [N1], 30_000),
             ?assertEqual(
                 {ok, connected},
-                erpc:call(N1, emqx_resource_manager, health_check, [ResourceId])
+                health_check(N1, Config)
             ),
 
             %% Now, we start the second node and have it join the cluster.
@@ -1851,7 +1863,7 @@ t_node_joins_existing_cluster(Config) ->
                 30_000
             ),
             ct:pal("starting ~p", [Name2]),
-            N2 = emqx_common_test_helpers:start_peer(Name2, Opts2),
+            N2 = start_peer(Name2, Opts2),
             on_exit(fun() ->
                 ct:pal("stopping ~p", [N2]),
                 ok = emqx_common_test_helpers:stop_peer(N2)
@@ -1944,7 +1956,7 @@ t_cluster_node_down(Config) ->
                 lists:map(
                     fun({Name, Opts}) ->
                         ct:pal("starting ~p", [Name]),
-                        emqx_common_test_helpers:start_peer(Name, Opts)
+                        start_peer(Name, Opts)
                     end,
                     Cluster
                 ),
@@ -2078,7 +2090,9 @@ t_begin_offset_earliest(Config) ->
                 ),
                 #{payloads => Payloads}
             ),
-            ?assertEqual(NumMessages, emqx_resource_metrics:received_get(ResourceId)),
+            ?retry(
+                100, 20, ?assertEqual(NumMessages, emqx_resource_metrics:received_get(ResourceId))
+            ),
             ok
         end
     ),
@@ -2130,7 +2144,6 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
                 _ ->
                     ct:fail("unexpected result: ~p", [Res])
             end,
-            ?assertMatch(ok, delete_bridge(Config)),
             ?retry(
                 _Sleep = 50,
                 _Attempts = 50,
@@ -2143,10 +2156,11 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
     ok.
 
 t_resource_manager_crash_before_subscriber_started(Config) ->
+    Name = ?config(kafka_name, Config),
     ?check_trace(
         begin
             ?force_ordering(
-                #{?snk_kind := kafka_consumer_client_started},
+                #{?snk_kind := kafka_consumer_sup_started},
                 #{?snk_kind := will_kill_resource_manager}
             ),
             ?force_ordering(
@@ -2183,11 +2197,15 @@ t_resource_manager_crash_before_subscriber_started(Config) ->
                 {ok, _} ->
                     %% the new manager may have had time to startup
                     %% before the resource status cache is read...
+                    {ok, {{_, 204, _}, _, _}} =
+                        emqx_bridge_testlib:delete_bridge_http_api_v1(#{
+                            name => Name,
+                            type => ?BRIDGE_TYPE_BIN
+                        }),
                     ok;
                 _ ->
                     ct:fail("unexpected result: ~p", [Res])
             end,
-            ?assertMatch(ok, delete_bridge(Config)),
             ?retry(
                 _Sleep = 50,
                 _Attempts = 50,

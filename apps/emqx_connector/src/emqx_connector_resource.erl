@@ -159,7 +159,7 @@ update(ConnectorId, {OldConf, Conf}) ->
 update(Type, Name, {OldConf, Conf}) ->
     update(Type, Name, {OldConf, Conf}, #{}).
 
-update(Type, Name, {OldConf, Conf}, Opts) ->
+update(Type, Name, {OldConf, Conf0}, Opts) ->
     %% TODO: sometimes its not necessary to restart the connector connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -168,6 +168,7 @@ update(Type, Name, {OldConf, Conf}, Opts) ->
     %% the `method` or `headers` of a WebHook is changed, then the connector can be updated
     %% without restarting the connector.
     %%
+    Conf = Conf0#{connector_type => bin(Type), connector_name => bin(Name)},
     case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{

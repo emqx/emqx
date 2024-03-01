@@ -775,7 +775,7 @@ handle_update(ConfRootKey, Id, Conf0) ->
         Id,
         case emqx_bridge_v2:lookup(ConfRootKey, BridgeType, BridgeName) of
             {ok, _} ->
-                RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
+                RawConf = emqx:get_raw_config([ConfRootKey, BridgeType, BridgeName], #{}),
                 Conf = emqx_utils:deobfuscate(Conf1, RawConf),
                 update_bridge(ConfRootKey, BridgeType, BridgeName, Conf);
             {error, not_found} ->

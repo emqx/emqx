@@ -89,6 +89,7 @@ end_per_testcase(_Testcase, Config) ->
             %% in CI, apparently this needs more time since the
             %% machines struggle with all the containers running...
             emqx_common_test_helpers:call_janitor(60_000),
+            delete_all_bridges_and_connectors(),
             ok = snabbkaffe:stop(),
             ok
     end.
@@ -132,7 +133,13 @@ parse_and_check(Kind, Type, Name, InnerConfigMap0) ->
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{RootBin => #{TypeBin => #{Name => InnerConfigMap0}}},
     #{RootBin := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
-        emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}
+        emqx_bridge_v2_schema,
+        RawConf,
+        #{
+            required => false,
+            atom_key => false,
+            make_serializable => true
+        }
     ),
     InnerConfigMap.
 
@@ -140,7 +147,13 @@ parse_and_check_connector(Type, Name, InnerConfigMap0) ->
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap0}}},
     #{<<"connectors">> := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
-        emqx_connector_schema, RawConf, #{required => false, atom_key => false}
+        emqx_connector_schema,
+        RawConf,
+        #{
+            required => false,
+            atom_key => false,
+            make_serializable => true
+        }
     ),
     InnerConfigMap.
 
@@ -282,20 +295,23 @@ list_bridges_api() ->
     ct:pal("list bridges result: ~p", [Res]),
     Res.
 
+get_source_api(BridgeType, BridgeName) ->
+    get_bridge_api(source, BridgeType, BridgeName).
+
 get_bridge_api(BridgeType, BridgeName) ->
+    get_bridge_api(action, BridgeType, BridgeName).
+
+get_bridge_api(BridgeKind, BridgeType, BridgeName) ->
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     Params = [],
-    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("get bridge ~p (via http)", [{BridgeType, BridgeName}]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader, Params, Opts) of
-            {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
-            Error ->
-                Error
+    Root =
+        case BridgeKind of
+            source -> "sources";
+            action -> "actions"
         end,
+    Path = emqx_mgmt_api_test_util:api_path([Root, BridgeId]),
+    ct:pal("get bridge ~p (via http)", [{BridgeKind, BridgeType, BridgeName}]),
+    Res = request(get, Path, Params),
     ct:pal("get bridge ~p result: ~p", [{BridgeType, BridgeName}, Res]),
     Res.
 
@@ -672,7 +688,8 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     end,
     ok.
 
-%% - `ProduceFn': produces a message in the remote system that shall be consumed.
+%% - `ProduceFn': produces a message in the remote system that shall be consumed.  May be
+%%    a `{function(), integer()}' tuple.
 %% - `Tracepoint': marks the end of consumed message processing.
 t_consume(Config, Opts) ->
     #{
@@ -683,14 +700,17 @@ t_consume(Config, Opts) ->
     } = Opts,
     ?check_trace(
         begin
-            ?assertMatch(
-                {{ok, _}, {ok, _}},
-                snabbkaffe:wait_async_action(
-                    fun() -> create_bridge_api(Config) end,
-                    ConsumerReadyTPFn,
-                    15_000
-                )
-            ),
+            ConsumerReadyTimeout = maps:get(consumer_ready_timeout, Opts, 15_000),
+            case ConsumerReadyTPFn of
+                {Predicate, NEvents} when is_function(Predicate) ->
+                    {ok, SRef0} = snabbkaffe:subscribe(Predicate, NEvents, ConsumerReadyTimeout);
+                Predicate when is_function(Predicate) ->
+                    {ok, SRef0} = snabbkaffe:subscribe(
+                        Predicate, _NEvents = 1, ConsumerReadyTimeout
+                    )
+            end,
+            ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ?assertMatch({ok, _}, snabbkaffe:receive_events(SRef0)),
             ok = add_source_hookpoint(Config),
             ?retry(
                 _Sleep = 200,

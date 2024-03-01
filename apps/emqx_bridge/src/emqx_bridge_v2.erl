@@ -765,19 +765,26 @@ create_dry_run(ConfRootKey, Type, Conf0) ->
             {error, Reason1}
     end.
 
-create_dry_run_helper(ConfRootKey, BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
+create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawConf) ->
     BridgeName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
-    ConnectorType = connector_type(BridgeType),
+    ConnectorType = connector_type(BridgeV2Type),
     OnReadyCallback =
         fun(ConnectorId) ->
             {_, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
-            ChannelTestId = id(BridgeType, BridgeName, ConnectorName),
-            Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2RawConf),
+            ChannelTestId = id(BridgeV2Type, BridgeName, ConnectorName),
+            BridgeV2Conf0 = fill_defaults(
+                BridgeV2Type,
+                BridgeV2RawConf,
+                bin(ConfRootKey),
+                emqx_bridge_v2_schema,
+                #{make_serializable => false}
+            ),
+            BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2Conf0),
             AugmentedConf = augment_channel_config(
                 ConfRootKey,
-                BridgeType,
+                BridgeV2Type,
                 BridgeName,
-                Conf
+                BridgeV2Conf
             ),
             case emqx_resource_manager:add_channel(ConnectorId, ChannelTestId, AugmentedConf) of
                 {error, Reason} ->
@@ -1204,8 +1211,11 @@ perform_bridge_changes([#{action := Action, data := MapConfs} = Task | Tasks], E
     perform_bridge_changes(Tasks, Errors).
 
 fill_defaults(Type, RawConf, TopLevelConf, SchemaModule) ->
+    fill_defaults(Type, RawConf, TopLevelConf, SchemaModule, _Opts = #{}).
+
+fill_defaults(Type, RawConf, TopLevelConf, SchemaModule, Opts) ->
     PackedConf = pack_bridge_conf(Type, RawConf, TopLevelConf),
-    FullConf = emqx_config:fill_defaults(SchemaModule, PackedConf, #{}),
+    FullConf = emqx_config:fill_defaults(SchemaModule, PackedConf, Opts),
     unpack_bridge_conf(Type, FullConf, TopLevelConf).
 
 pack_bridge_conf(Type, RawConf, TopLevelConf) ->

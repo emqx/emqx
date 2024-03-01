@@ -1,0 +1,18 @@
+emqx_bridge_kafka_consumer_schema {
+
+  source_parameters.desc:
+  """Source specific configs."""
+  source_parameters.label:
+  """Source Specific Configs"""
+
+  consumer_source.desc:
+  """Source configs."""
+  consumer_source.label:
+  """Source"""
+
+  config_connector.desc:
+  """Configuration for a Kafka Consumer Client."""
+  config_connector.label:
+  """Kafka Consumer Client Configuration"""
+
+}
