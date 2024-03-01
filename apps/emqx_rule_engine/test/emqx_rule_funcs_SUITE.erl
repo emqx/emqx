@@ -1048,6 +1048,7 @@ t_parse_date_errors(_) ->
     ),
 
     %% Compatibility test
+    %% UTC+0
     UnixTs = 1653561612,
     ?assertEqual(
         UnixTs,
@@ -1062,6 +1063,27 @@ t_parse_date_errors(_) ->
     ?assertEqual(
         UnixTs,
         emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2022-05-26 10-40-12">>)
+    ),
+
+    %% UTC+0
+    UnixTsLeap0 = 1582986700,
+    ?assertEqual(
+        UnixTsLeap0,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2020-02-29 14:31:40">>)
+    ),
+
+    %% UTC+0
+    UnixTsLeap1 = 1709297071,
+    ?assertEqual(
+        UnixTsLeap1,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-03-01 12:44:31">>)
+    ),
+
+    %% UTC+0
+    UnixTsLeap2 = 1709535387,
+    ?assertEqual(
+        UnixTsLeap2,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-03-04 06:56:27">>)
     ).
 
 %%------------------------------------------------------------------------------
