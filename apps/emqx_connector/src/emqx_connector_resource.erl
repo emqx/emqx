@@ -379,12 +379,5 @@ override_start_after_created(Config, Opts) ->
 set_no_buffer_workers(Opts) ->
     Opts#{spawn_buffer_workers => false}.
 
-%% TODO: introduce a formal callback?
-redact(Conf, Type) when
-    Type =:= http;
-    Type =:= <<"http">>
-->
-    %% CE bridge
-    emqx_utils:redact(Conf, fun emqx_bridge_http_connector:is_sensitive_key/1);
 redact(Conf, _Type) ->
     emqx_utils:redact(Conf).
