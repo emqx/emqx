@@ -198,6 +198,7 @@ procs
 progname
 prometheus
 proto
+protobuf
 ps
 psk
 pubsub

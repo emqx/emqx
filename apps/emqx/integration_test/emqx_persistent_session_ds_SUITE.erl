@@ -497,7 +497,7 @@ do_t_session_expiration(_Config, Opts) ->
     ok.
 
 t_session_gc(Config) ->
-    [Node1, Node2, _Node3] = Nodes = ?config(nodes, Config),
+    [Node1, _Node2, _Node3] = Nodes = ?config(nodes, Config),
     [
         Port1,
         Port2,

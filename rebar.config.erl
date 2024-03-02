@@ -50,8 +50,7 @@ deps(Config) ->
 
 overrides() ->
     [
-        {add, [{extra_src_dirs, [{"etc", [{recursive, true}]}]}]},
-        {add, jesse, [{erl_opts, [nowarn_match_float_zero]}]}
+        {add, [{extra_src_dirs, [{"etc", [{recursive, true}]}]}]}
     ] ++ snabbkaffe_overrides().
 
 %% Temporary workaround for a rebar3 erl_opts duplication

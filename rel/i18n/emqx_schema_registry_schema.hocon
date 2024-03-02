@@ -12,6 +12,14 @@ protobuf_type.desc:
 protobuf_type.label:
 """Protocol Buffers"""
 
+json_type.desc: """~
+    Supports JSON Schema
+    [Draft 03](http://tools.ietf.org/html/draft-zyp-json-schema-03)
+    [Draft 04](http://tools.ietf.org/html/draft-zyp-json-schema-04) and
+    [Draft 06](https://datatracker.ietf.org/doc/html/draft-wright-json-schema-00)."""
+
+json_type.label: "JSON Schema"
+
 schema_description.desc:
 """A description for this schema."""
 
@@ -42,10 +50,22 @@ schema_source.desc:
 schema_source.label:
 """Schema source"""
 
-schema_type.desc:
-"""Schema type."""
+schema_type_avro.desc:
+"""Must be `avro` for Avro schema."""
 
-schema_type.label:
-"""Schema type"""
+schema_type_avro.label:
+"""Avro Schema"""
+
+schema_type_protobuf.desc:
+"""Must be `protobuf` for protobuf schema."""
+
+schema_type_protobuf.label:
+"""Protobuf Schema"""
+
+schema_type_json.desc:
+"""Must be `json` for JSON schema."""
+
+schema_type_json.label:
+"""JSON Schema"""
 
 }

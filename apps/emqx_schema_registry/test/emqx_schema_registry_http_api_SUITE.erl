@@ -23,14 +23,16 @@
 all() ->
     [
         {group, avro},
-        {group, protobuf}
+        {group, protobuf},
+        {group, json}
     ].
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     [
         {avro, AllTCs},
-        {protobuf, AllTCs}
+        {protobuf, AllTCs},
+        {json, AllTCs}
     ].
 
 init_per_suite(Config) ->
@@ -77,6 +79,23 @@ init_per_group(protobuf, Config) ->
     InvalidSourceBin = <<"xxxx">>,
     [
         {serde_type, protobuf},
+        {schema_source, SourceBin},
+        {invalid_schema_source, InvalidSourceBin}
+        | Config
+    ];
+init_per_group(json, Config) ->
+    Source =
+        #{
+            properties => #{
+                foo => #{},
+                bar => #{}
+            },
+            required => [<<"foo">>]
+        },
+    SourceBin = emqx_utils_json:encode(Source),
+    InvalidSourceBin = <<"\"not an object\"">>,
+    [
+        {serde_type, json},
         {schema_source, SourceBin},
         {invalid_schema_source, InvalidSourceBin}
         | Config
@@ -279,7 +298,7 @@ t_crud(Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
                 #{
-                    <<"expected">> := <<"avro | protobuf">>,
+                    <<"expected">> := <<"avro | protobuf | json">>,
                     <<"field_name">> := <<"type">>
                 }
         }},
@@ -302,7 +321,7 @@ t_crud(Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
                 #{
-                    <<"expected">> := <<"avro | protobuf">>,
+                    <<"expected">> := <<"avro | protobuf | json">>,
                     <<"field_name">> := <<"type">>
                 }
         }},
