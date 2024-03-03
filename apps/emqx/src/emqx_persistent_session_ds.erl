@@ -533,7 +533,7 @@ replay_streams(Session0 = #{replay := []}, _ClientInfo) ->
     %% mechanisms to replay them:
     pull_now(Session).
 
--spec replay_batch(stream_state(), session(), clientinfo()) -> session().
+-spec replay_batch(stream_state(), session(), clientinfo()) -> session() | emqx_ds:error(_).
 replay_batch(Srs0, Session0, ClientInfo) ->
     #srs{batch_size = BatchSize} = Srs0,
     case enqueue_batch(true, BatchSize, Srs0, Session0, ClientInfo) of

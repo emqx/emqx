@@ -171,13 +171,12 @@ drop_db(DB) ->
 -spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
-    case emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts) of
+    try emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts) of
         ok ->
-            ok;
-        Error = {error, _, _} ->
-            Error;
-        RPCError = {badrpc, _} ->
-            {error, recoverable, RPCError}
+            ok
+    catch
+        error:{Reason, _Call} when Reason == timeout; Reason == noproc ->
+            {error, recoverable, Reason}
     end.
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
