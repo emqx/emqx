@@ -137,7 +137,7 @@ create(Type, Name, Conf0, Opts) ->
         msg => "create connector",
         type => Type,
         name => Name,
-        config => emqx_utils:redact(Conf0)
+        config => redact(Conf0, Type)
     }),
     TypeBin = bin(Type),
     ResourceId = resource_id(Type, Name),
@@ -175,7 +175,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
                 msg => "update connector",
                 type => Type,
                 name => Name,
-                config => emqx_utils:redact(Conf)
+                config => redact(Conf, Type)
             }),
             case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
@@ -185,7 +185,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
                         msg => "updating_a_non_existing_connector",
                         type => Type,
                         name => Name,
-                        config => emqx_utils:redact(Conf)
+                        config => redact(Conf, Type)
                     }),
                     create(Type, Name, Conf, Opts);
                 {error, Reason} ->
@@ -379,3 +379,6 @@ override_start_after_created(Config, Opts) ->
 
 set_no_buffer_workers(Opts) ->
     Opts#{spawn_buffer_workers => false}.
+
+redact(Conf, _Type) ->
+    emqx_utils:redact(Conf).
