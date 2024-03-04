@@ -269,10 +269,11 @@ do_join(_TopicAcc, [C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
 do_join(TopicAcc, [Word | Words]) ->
     do_join(<<TopicAcc/binary, "/", (bin(Word))/binary>>, Words).
 
--spec parse(topic() | {topic(), map()}) -> {topic() | share(), map()}.
-parse(TopicFilter) when is_binary(TopicFilter) ->
+-spec parse(TF | {TF, map()}) -> {TF, map()} when
+    TF :: topic() | share().
+parse(TopicFilter) when ?IS_TOPIC(TopicFilter) ->
     parse(TopicFilter, #{});
-parse({TopicFilter, Options}) when is_binary(TopicFilter) ->
+parse({TopicFilter, Options}) when ?IS_TOPIC(TopicFilter) ->
     parse(TopicFilter, Options).
 
 -spec parse(topic() | share(), map()) -> {topic() | share(), map()}.
@@ -282,6 +283,10 @@ parse(#share{topic = Topic = <<?QUEUE, "/", _/binary>>}, _Options) ->
     error({invalid_topic_filter, Topic});
 parse(#share{topic = Topic = <<?SHARE, "/", _/binary>>}, _Options) ->
     error({invalid_topic_filter, Topic});
+parse(#share{} = T, #{nl := 1} = _Options) ->
+    %% Protocol Error and Should Disconnect
+    %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
+    error({invalid_subopts_nl, maybe_format_share(T)});
 parse(<<?QUEUE, "/", Topic/binary>>, Options) ->
     parse(#share{group = <<?QUEUE>>, topic = Topic}, Options);
 parse(TopicFilter = <<?SHARE, "/", Rest/binary>>, Options) ->
