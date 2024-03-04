@@ -106,12 +106,8 @@ on_remove_channel(
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
 
-on_get_channel_status(
-    _ResId,
-    _ChannelId,
-    _State
-) ->
-    ?status_connected.
+on_get_channel_status(_ResId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, installed_channels, State).
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).

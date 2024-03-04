@@ -100,7 +100,7 @@ on_start(
     ],
     State = #{
         pool_name => InstanceId,
-        installed_channels => #{}
+        channels => #{}
     },
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
@@ -112,7 +112,7 @@ on_start(
 on_add_channel(
     _InstId,
     #{
-        installed_channels := InstalledChannels
+        channels := InstalledChannels
     } = OldState,
     ChannelId,
     ChannelConfig
@@ -120,7 +120,7 @@ on_add_channel(
     {ok, ChannelState} = create_channel_state(ChannelConfig),
     NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
     %% Update state
-    NewState = OldState#{installed_channels => NewInstalledChannels},
+    NewState = OldState#{channels => NewInstalledChannels},
     {ok, NewState}.
 
 create_channel_state(
@@ -139,21 +139,17 @@ create_channel_state(
 on_remove_channel(
     _InstId,
     #{
-        installed_channels := InstalledChannels
+        channels := InstalledChannels
     } = OldState,
     ChannelId
 ) ->
     NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
     %% Update state
-    NewState = OldState#{installed_channels => NewInstalledChannels},
+    NewState = OldState#{channels => NewInstalledChannels},
     {ok, NewState}.
 
-on_get_channel_status(
-    _ResId,
-    _ChannelId,
-    _State
-) ->
-    ?status_connected.
+on_get_channel_status(_ResId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, channels, State).
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -196,7 +192,7 @@ do_query(
     Query,
     #{
         pool_name := PoolName,
-        installed_channels := Channels
+        channels := Channels
     } = State
 ) ->
     ?TRACE(

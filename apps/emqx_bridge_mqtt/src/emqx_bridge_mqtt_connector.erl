@@ -186,15 +186,8 @@ on_remove_channel(
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
 
-on_get_channel_status(
-    _ResId,
-    ChannelId,
-    #{
-        installed_channels := Channels
-    } = _State
-) when is_map_key(ChannelId, Channels) ->
-    %% The channel should be ok as long as the MQTT client is ok
-    connected.
+on_get_channel_status(_ResId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, installed_channels, State).
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).

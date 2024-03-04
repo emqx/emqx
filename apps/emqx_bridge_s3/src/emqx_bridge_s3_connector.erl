@@ -138,16 +138,11 @@ on_get_channels(InstId) ->
 
 -spec on_get_channel_status(_InstanceId :: resource_id(), channel_id(), state()) ->
     channel_status().
-on_get_channel_status(_InstId, ChannelId, #{channels := Channels}) ->
-    case maps:get(ChannelId, Channels, undefined) of
-        _ChannelState = #{} ->
-            %% TODO
-            %% Since bucket name may be templated, we can't really provide any
-            %% additional information regarding the channel health.
-            ?status_connected;
-        undefined ->
-            ?status_disconnected
-    end.
+on_get_channel_status(_InstId, ChannId, State) ->
+    %% TODO
+    %% Since bucket name may be templated, we can't really provide any
+    %% additional information regarding the channel health.
+    emqx_resource:channel_status(ChannId, channels, State).
 
 init_channel_state(#{parameters := Parameters}) ->
     #{

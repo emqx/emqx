@@ -299,11 +299,8 @@ on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannId) ->
     NewState = State#{channels => maps:remove(ChannId, Channels)},
     {ok, NewState}.
 
-on_get_channel_status(InstanceId, _ChannId, State) ->
-    case on_get_status(InstanceId, State) of
-        {connected, _} -> connected;
-        {disconnected, _, _} -> disconnected
-    end.
+on_get_channel_status(_InstanceId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, channels, State).
 
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).

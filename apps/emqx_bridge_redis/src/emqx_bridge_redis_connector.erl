@@ -50,11 +50,8 @@ on_remove_channel(_InstanceId, State = #{channels := Channels}, ChannelId) ->
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
 
-on_get_channel_status(_ConnectorResId, ChannelId, #{channels := Channels}) ->
-    case maps:is_key(ChannelId, Channels) of
-        true -> ?status_connected;
-        false -> ?status_disconnected
-    end.
+on_get_channel_status(_ConnectorResId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, channels, State).
 
 on_start(InstId, Config) ->
     case emqx_redis:on_start(InstId, Config) of

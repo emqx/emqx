@@ -372,13 +372,8 @@ on_remove_channel(InstanceId, #{channels := Channels} = OldState0, ChannelId) ->
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
 
-on_get_channel_status(InstanceId, _ChannelId, State) ->
-    case on_get_status(InstanceId, State) of
-        ?status_connected ->
-            ?status_connected;
-        _ ->
-            ?status_disconnected
-    end.
+on_get_channel_status(_InstanceId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, channels, State).
 
 %%--------------------------------------------------------------------
 %% Internal Functions
