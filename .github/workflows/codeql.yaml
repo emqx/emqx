@@ -25,6 +25,7 @@ jobs:
         branch:
           - master
           - release-55
+          - release-56
         language:
           - cpp
           - python
