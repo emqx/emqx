@@ -50,7 +50,7 @@ init_per_testcase(t_message_gc = TestCase, Config) ->
     Opts = #{
         extra_emqx_conf =>
             "\n  session_persistence.message_retention_period = 1s"
-            "\n  session_persistence.storage.builtin.n_shards = 3"
+            "\n  durable_storage.messages.n_shards = 3"
     },
     common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
 init_per_testcase(TestCase, Config) ->

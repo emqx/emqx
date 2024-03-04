@@ -254,6 +254,14 @@ roots(medium) ->
             sc(
                 ref("overload_protection"),
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {durable_storage,
+            sc(
+                ref(durable_storage),
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(durable_storage)
+                }
             )}
     ];
 roots(low) ->
@@ -295,16 +303,6 @@ roots(low) ->
                     converter => fun flapping_detect_converter/2
                 }
             )},
-        {persistent_session_store,
-            sc(
-                ref("persistent_session_store"),
-                #{
-                    %% NOTE
-                    %% Due to some quirks in interaction between `emqx_config` and
-                    %% `hocon_tconf`, schema roots cannot currently be deprecated.
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
         {session_persistence,
             sc(
                 ref("session_persistence"),
@@ -324,111 +322,6 @@ roots(low) ->
             )}
     ].
 
-fields("persistent_session_store") ->
-    Deprecated = #{deprecated => {since, "5.4.0"}},
-    [
-        {"enabled",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => false,
-                    %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
-                    aliases => [enable],
-                    desc => ?DESC(persistent_session_store_enabled)
-                }
-            )},
-        {"ds",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => false,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {"on_disc",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => true,
-                    desc => ?DESC(persistent_store_on_disc)
-                }
-            )},
-        {"ram_cache",
-            sc(
-                boolean(),
-                Deprecated#{
-                    default => false,
-                    desc => ?DESC(persistent_store_ram_cache)
-                }
-            )},
-        {"backend",
-            sc(
-                hoconsc:union([ref("persistent_session_builtin")]),
-                Deprecated#{
-                    default => #{
-                        <<"type">> => <<"builtin">>,
-                        <<"session">> =>
-                            #{<<"ram_cache">> => true},
-                        <<"session_messages">> =>
-                            #{<<"ram_cache">> => true},
-                        <<"messages">> =>
-                            #{<<"ram_cache">> => false}
-                    },
-                    desc => ?DESC(persistent_session_store_backend)
-                }
-            )},
-        {"max_retain_undelivered",
-            sc(
-                duration(),
-                Deprecated#{
-                    default => <<"1h">>,
-                    desc => ?DESC(persistent_session_store_max_retain_undelivered)
-                }
-            )},
-        {"message_gc_interval",
-            sc(
-                duration(),
-                Deprecated#{
-                    default => <<"1h">>,
-                    desc => ?DESC(persistent_session_store_message_gc_interval)
-                }
-            )},
-        {"session_message_gc_interval",
-            sc(
-                duration(),
-                Deprecated#{
-                    default => <<"1m">>,
-                    desc => ?DESC(persistent_session_store_session_message_gc_interval)
-                }
-            )}
-    ];
-fields("persistent_table_mria_opts") ->
-    [
-        {"ram_cache",
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(persistent_store_ram_cache)
-                }
-            )}
-    ];
-fields("persistent_session_builtin") ->
-    [
-        {"type", sc(hoconsc:enum([builtin]), #{default => builtin, desc => ""})},
-        {"session",
-            sc(ref("persistent_table_mria_opts"), #{
-                desc => ?DESC(persistent_session_builtin_session_table)
-            })},
-        {"session_messages",
-            sc(ref("persistent_table_mria_opts"), #{
-                desc => ?DESC(persistent_session_builtin_sess_msg_table)
-            })},
-        {"messages",
-            sc(ref("persistent_table_mria_opts"), #{
-                desc => ?DESC(persistent_session_builtin_messages_table)
-            })}
-    ];
 fields("stats") ->
     [
         {"enable",
@@ -1769,30 +1662,13 @@ fields("session_persistence") ->
                     default => false
                 }
             )},
-        {"storage",
-            sc(
-                ref("session_storage_backend"), #{
-                    desc => ?DESC(session_persistence_storage),
-                    validator => fun validate_backend_enabled/1,
-                    default => #{
-                        <<"builtin">> => #{}
-                    }
-                }
-            )},
-        {"max_batch_size",
+        {"batch_size",
             sc(
                 pos_integer(),
                 #{
                     default => 100,
-                    desc => ?DESC(session_ds_max_batch_size)
-                }
-            )},
-        {"min_batch_size",
-            sc(
-                pos_integer(),
-                #{
-                    default => 100,
-                    desc => ?DESC(session_ds_min_batch_size)
+                    desc => ?DESC(session_ds_batch_size),
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {"idle_poll_interval",
@@ -1854,69 +1730,8 @@ fields("session_persistence") ->
                 }
             )}
     ];
-fields("session_storage_backend") ->
-    [
-        {"builtin",
-            sc(ref("session_storage_backend_builtin"), #{
-                desc => ?DESC(session_storage_backend_builtin),
-                required => {false, recursively}
-            })}
-    ] ++ emqx_schema_hooks:injection_point('session_persistence.storage_backends', []);
-fields("session_storage_backend_builtin") ->
-    [
-        {"enable",
-            sc(
-                boolean(),
-                #{
-                    desc => ?DESC(session_storage_backend_enable),
-                    default => true
-                }
-            )},
-        {"data_dir",
-            sc(
-                string(),
-                #{
-                    desc => ?DESC(session_builtin_data_dir),
-                    mapping => "emqx_durable_storage.db_data_dir",
-                    required => false,
-                    importance => ?IMPORTANCE_LOW
-                }
-            )},
-        {"n_shards",
-            sc(
-                pos_integer(),
-                #{
-                    desc => ?DESC(session_builtin_n_shards),
-                    default => 16
-                }
-            )},
-        {"replication_factor",
-            sc(
-                pos_integer(),
-                #{
-                    default => 3,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {"egress_batch_size",
-            sc(
-                pos_integer(),
-                #{
-                    default => 1000,
-                    mapping => "emqx_durable_storage.egress_batch_size",
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {"egress_flush_interval",
-            sc(
-                timeout_duration_ms(),
-                #{
-                    default => 100,
-                    mapping => "emqx_durable_storage.egress_flush_interval",
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )}
-    ].
+fields(durable_storage) ->
+    emqx_ds_schema:schema().
 
 mqtt_listener(Bind) ->
     base_listener(Bind) ++
@@ -2170,6 +1985,8 @@ desc("crl_cache") ->
     "Global CRL cache options.";
 desc("session_persistence") ->
     "Settings governing durable sessions persistence.";
+desc(durable_storage) ->
+    ?DESC(durable_storage);
 desc(_) ->
     undefined.
 
@@ -2191,17 +2008,6 @@ ensure_list(V) ->
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
-
-validate_backend_enabled(Config) ->
-    Enabled = maps:filter(fun(_, #{<<"enable">> := E}) -> E end, Config),
-    case maps:to_list(Enabled) of
-        [{_Type, _BackendConfig}] ->
-            ok;
-        _Conflicts = [_ | _] ->
-            {error, multiple_enabled_backends};
-        _None = [] ->
-            {error, no_enabled_backend}
-    end.
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
