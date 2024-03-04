@@ -175,7 +175,10 @@ jobs:
           EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker
+          echo "Built tags:"
+          echo "==========="
           cat .emqx_docker_image_tags
+          echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
 
       - name: smoke test
@@ -204,5 +207,6 @@ jobs:
         if: inputs.publish || github.repository_owner != 'emqx'
         run: |
           for tag in $(cat .emqx_docker_image_tags); do
+            echo "Pushing tag $tag"
             docker push $tag
           done
