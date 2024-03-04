@@ -221,9 +221,9 @@ jobs:
         set -eu
         cd packages/${{ matrix.profile }}
         # fix the .sha256 file format
-        for var in $(ls | grep emqx | grep -v sha256); do
-          dos2unix $var.sha256
-          echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
+        for f in *.sha256; do
+          dos2unix $f
+          echo "$(cat $f) ${f%.*}" | sha256sum -c || exit 1
         done
         cd -
     - uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a # v4.0.1
