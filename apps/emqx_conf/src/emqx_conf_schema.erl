@@ -1033,7 +1033,7 @@ fields("log_throttling") ->
     [
         {time_window,
             sc(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"1m">>,
                     desc => ?DESC("log_throttling_time_window"),
