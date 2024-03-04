@@ -36,6 +36,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     ProxyName = "elasticsearch",
     ESHost = os:getenv("ELASTICSEARCH_HOST", "elasticsearch"),
     ESPort = list_to_integer(os:getenv("ELASTICSEARCH_PORT", "9200")),
@@ -82,9 +83,6 @@ wait_until_elasticsearch_is_up(Count, Host, Port) ->
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
-    %ProxyHost = ?config(proxy_host, Config),
-    %ProxyPort = ?config(proxy_port, Config),
-    %emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     emqx_cth_suite:stop(Apps),
     ok.
 
@@ -92,9 +90,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    %ProxyHost = ?config(proxy_host, Config),
-    %ProxyPort = ?config(proxy_port, Config),
-    %emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(60_000),
     ok.
@@ -125,18 +120,20 @@ send_message(Topic) ->
 
 check_action_metrics(ActionName, ConnectorName, Expect) ->
     ActionId = emqx_bridge_v2:id(?TYPE, ActionName, ConnectorName),
-    Metrics =
-        #{
-            match => emqx_resource_metrics:matched_get(ActionId),
-            success => emqx_resource_metrics:success_get(ActionId),
-            failed => emqx_resource_metrics:failed_get(ActionId),
-            queuing => emqx_resource_metrics:queuing_get(ActionId),
-            dropped => emqx_resource_metrics:dropped_get(ActionId)
-        },
-    ?assertEqual(
-        Expect,
-        Metrics,
-        {ActionName, ConnectorName, ActionId}
+    ?retry(
+        300,
+        20,
+        ?assertEqual(
+            Expect,
+            #{
+                match => emqx_resource_metrics:matched_get(ActionId),
+                success => emqx_resource_metrics:success_get(ActionId),
+                failed => emqx_resource_metrics:failed_get(ActionId),
+                queuing => emqx_resource_metrics:queuing_get(ActionId),
+                dropped => emqx_resource_metrics:dropped_get(ActionId)
+            },
+            {ActionName, ConnectorName, ActionId}
+        )
     ).
 
 action_config(ConnectorName) ->
@@ -159,7 +156,8 @@ action(ConnectorName) ->
         <<"connector">> => ConnectorName,
         <<"resource_opts">> => #{
             <<"health_check_interval">> => <<"30s">>,
-            <<"query_mode">> => <<"sync">>
+            <<"query_mode">> => <<"sync">>,
+            <<"metrics_flush_interval">> => <<"300ms">>
         }
     }.
 
