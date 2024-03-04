@@ -1,5 +1,7 @@
 version: "3.9"
 
+# hint: run the following if the container fails to start locally
+# sysctl -w vm.max_map_count=262144
 services:
   setup:
     image: public.ecr.aws/elastic/elasticsearch:${ELASTIC_TAG}
@@ -54,7 +56,7 @@ services:
       - xpack.security.http.ssl.certificate=certs/es01/es01.crt
       - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.license.self_generated.type=${LICENSE}
-    mem_limit: 1073741824
+    mem_limit: 4G
     ulimits:
       memlock:
         soft: -1
