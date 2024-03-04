@@ -859,34 +859,19 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
 maybe_retry(Result, _Context, ReplyFunAndArgs) ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
-%% The HOCON schema system may generate sensitive keys with this format
-is_sensitive_key(Atom) when is_atom(Atom) ->
-    is_sensitive_key(erlang:atom_to_binary(Atom));
-is_sensitive_key(Bin) when is_binary(Bin), (size(Bin) =:= 19 orelse size(Bin) =:= 13) ->
-    %% We want to convert this to lowercase since the http header fields
-    %% are case insensitive, which means that a user of the Webhook bridge
-    %% can write this field name in many different ways.
-    case try_bin_to_lower(Bin) of
-        <<"authorization">> -> true;
-        <<"proxy-authorization">> -> true;
-        _ -> false
-    end;
-is_sensitive_key(_) ->
-    false.
-
 %% Function that will do a deep traversal of Data and remove sensitive
 %% information (i.e., passwords)
 redact(Data) ->
-    emqx_utils:redact(Data, fun is_sensitive_key/1).
+    emqx_utils:redact(Data).
 
 %% because the body may contain some sensitive data
 %% and at the same time the redact function will not scan the binary data
 %% and we also can't know the body format and where the sensitive data will be
 %% so the easy way to keep data security is redacted the whole body
 redact_request({Path, Headers}) ->
-    {Path, redact(Headers)};
+    {Path, emqx_utils_redact:redact_headers(Headers)};
 redact_request({Path, Headers, _Body}) ->
-    {Path, redact(Headers), <<"******">>}.
+    {Path, emqx_utils_redact:redact_headers(Headers), <<"******">>}.
 
 clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
@@ -901,13 +886,6 @@ redact_test_() ->
         ]
     },
     [
-        ?_assert(is_sensitive_key(<<"Authorization">>)),
-        ?_assert(is_sensitive_key(<<"AuthoriZation">>)),
-        ?_assert(is_sensitive_key('AuthoriZation')),
-        ?_assert(is_sensitive_key(<<"PrOxy-authoRizaTion">>)),
-        ?_assert(is_sensitive_key('PrOxy-authoRizaTion')),
-        ?_assertNot(is_sensitive_key(<<"Something">>)),
-        ?_assertNot(is_sensitive_key(89)),
         ?_assertNotEqual(TestData, redact(TestData))
     ].
 

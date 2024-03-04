@@ -834,8 +834,7 @@ cert_data(undefined) ->
 cert_data(AllListeners) ->
     Points = lists:foldl(
         fun(ListenerType, PointsAcc) ->
-            PointsAcc ++
-                points_of_listeners(ListenerType, AllListeners)
+            lists:append(PointsAcc, points_of_listeners(ListenerType, AllListeners))
         end,
         _PointsInitAcc = [],
         ?LISTENER_TYPES
@@ -847,53 +846,71 @@ cert_data(AllListeners) ->
 points_of_listeners(Type, AllListeners) ->
     do_points_of_listeners(Type, maps:get(Type, AllListeners, undefined)).
 
--define(CERT_TYPES, [certfile]).
-
--spec do_points_of_listeners(Type, TypeOfListeners) ->
+-spec do_points_of_listeners(Type, Listeners) ->
     [_Point :: {[{LabelKey, LabelValue}], Epoch}]
 when
     Type :: ssl | wss | quic,
-    TypeOfListeners :: #{ListenerName :: atom() => ListenerConf :: map()} | undefined,
+    Listeners :: #{ListenerName :: atom() => ListenerConf :: map()} | undefined,
     LabelKey :: atom(),
     LabelValue :: atom(),
     Epoch :: non_neg_integer().
 do_points_of_listeners(_, undefined) ->
     [];
-do_points_of_listeners(ListenerType, TypeOfListeners) ->
+do_points_of_listeners(Type, Listeners) ->
     lists:foldl(
         fun(Name, PointsAcc) ->
-            lists:foldl(
-                fun(CertType, AccIn) ->
-                    case
-                        emqx_utils_maps:deep_get(
-                            [Name, ssl_options, CertType], TypeOfListeners, undefined
-                        )
-                    of
-                        undefined -> AccIn;
-                        Path -> [gen_point(ListenerType, Name, Path) | AccIn]
-                    end
-                end,
-                [],
-                ?CERT_TYPES
-            ) ++ PointsAcc
+            case
+                emqx_utils_maps:deep_get([Name, enable], Listeners, false) andalso
+                    emqx_utils_maps:deep_get(
+                        [Name, ssl_options, certfile], Listeners, undefined
+                    )
+            of
+                false -> PointsAcc;
+                undefined -> PointsAcc;
+                Path -> [gen_point_cert_expiry_at(Type, Name, Path) | PointsAcc]
+            end
         end,
         [],
-        maps:keys(TypeOfListeners)
+        %% listener names
+        maps:keys(Listeners)
     ).
 
-gen_point(Type, Name, Path) ->
+gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
 
 %% TODO: cert manager for more generic utils functions
 cert_expiry_at_from_path(Path0) ->
     Path = emqx_schema:naive_env_interpolation(Path0),
-    {ok, PemBin} = file:read_file(Path),
-    [CertEntry | _] = public_key:pem_decode(PemBin),
-    Cert = public_key:pem_entry_decode(CertEntry),
-    %% TODO: Not fully tested for all certs type
-    {'utcTime', NotAfterUtc} =
-        Cert#'Certificate'.'tbsCertificate'#'TBSCertificate'.validity#'Validity'.'notAfter',
-    utc_time_to_epoch(NotAfterUtc).
+    try
+        case file:read_file(Path) of
+            {ok, PemBin} ->
+                [CertEntry | _] = public_key:pem_decode(PemBin),
+                Cert = public_key:pem_entry_decode(CertEntry),
+                %% TODO: Not fully tested for all certs type
+                {'utcTime', NotAfterUtc} =
+                    Cert#'Certificate'.'tbsCertificate'#'TBSCertificate'.validity#'Validity'.'notAfter',
+                utc_time_to_epoch(NotAfterUtc);
+            {error, Reason} ->
+                ?SLOG(error, #{
+                    msg => "read_cert_file_failed",
+                    path => Path0,
+                    resolved_path => Path,
+                    reason => Reason
+                }),
+                0
+        end
+    catch
+        E:R:S ->
+            ?SLOG(error, #{
+                msg => "obtain_cert_expiry_time_failed",
+                error => E,
+                reason => R,
+                stacktrace => S,
+                path => Path0,
+                resolved_path => Path
+            }),
+            0
+    end.
 
 utc_time_to_epoch(UtcTime) ->
     date_to_expiry_epoch(utc_time_to_datetime(UtcTime)).
@@ -902,7 +919,7 @@ utc_time_to_datetime(Str) ->
     {ok, [Year, Month, Day, Hour, Minute, Second], _} = io_lib:fread(
         "~2d~2d~2d~2d~2d~2dZ", Str
     ),
-    %% Alwoys Assuming YY is in 2000
+    %% Always Assuming YY is in 2000
     {{2000 + Year, Month, Day}, {Hour, Minute, Second}}.
 
 %% 62167219200 =:= calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}).
