@@ -22,7 +22,11 @@
 
 check_config(X) -> logger_formatter:check_config(X).
 
+%% Principle here is to delegate the formatting to logger_formatter:format/2
+%% as much as possible, and only enrich the report with clientid, peername, topic, username
 format(#{msg := {report, ReportMap}, meta := Meta} = Event, Config) when is_map(ReportMap) ->
+    %% The most common case, when entering from SLOG macro
+    %% i.e. logger:log(Level, #{msg => "my_msg", foo => bar})
     ReportList = enrich_report(ReportMap, Meta),
     Report =
         case is_list_report_acceptable(Meta) of
@@ -33,13 +37,17 @@ format(#{msg := {report, ReportMap}, meta := Meta} = Event, Config) when is_map(
         end,
     logger_formatter:format(Event#{msg := {report, Report}}, Config);
 format(#{msg := {string, String}} = Event, Config) ->
+    %% copied from logger_formatter:format/2
+    %% unsure how this case is triggered
     format(Event#{msg => {"~ts ", [String]}}, Config);
-%% trace
 format(#{msg := Msg0, meta := Meta} = Event, Config) ->
+    %% For format strings like logger:log(Level, "~p", [Var])
+    %% and logger:log(Level, "message", #{key => value})
     Msg1 = enrich_client_info(Msg0, Meta),
     Msg2 = enrich_topic(Msg1, Meta),
     logger_formatter:format(Event#{msg := Msg2}, Config).
 
+%% Other report callbacks may only accept map() reports such as gen_server formatter
 is_list_report_acceptable(#{report_cb := Cb}) ->
     Cb =:= fun logger:format_otp_report/1 orelse Cb =:= fun logger:format_report/1;
 is_list_report_acceptable(_) ->
@@ -61,19 +69,21 @@ enrich_report(ReportRaw, Meta) ->
     ClientId = maps:get(clientid, Meta, undefined),
     Peer = maps:get(peername, Meta, undefined),
     Msg = maps:get(msg, ReportRaw, undefined),
+    Tag = maps:get(tag, ReportRaw, undefined),
     %% turn it into a list so that the order of the fields is determined
     lists:foldl(
         fun
             ({_, undefined}, Acc) -> Acc;
             (Item, Acc) -> [Item | Acc]
         end,
-        maps:to_list(maps:without([topic, msg, clientid, username], ReportRaw)),
+        maps:to_list(maps:without([topic, msg, clientid, username, tag], ReportRaw)),
         [
-            {username, try_format_unicode(Username)},
             {topic, try_format_unicode(Topic)},
-            {clientid, try_format_unicode(ClientId)},
+            {username, try_format_unicode(Username)},
             {peername, Peer},
-            {msg, Msg}
+            {msg, Msg},
+            {clientid, try_format_unicode(ClientId)},
+            {tag, Tag}
         ]
     ).
 
