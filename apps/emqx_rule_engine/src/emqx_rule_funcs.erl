@@ -707,7 +707,20 @@ map(Data) ->
     error(badarg, [Data]).
 
 bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_utils:bin_to_hexstr(Bin, upper).
+    emqx_utils:bin_to_hexstr(Bin, upper);
+%% If Bin is a bitstring which is not divisible by 8, we pad it and then do the
+%% conversion
+bin2hexstr(Bin) when is_bitstring(Bin), (8 - (bit_size(Bin) rem 8)) >= 4 ->
+    PadSize = 8 - (bit_size(Bin) rem 8),
+    Padding = <<0:PadSize>>,
+    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
+    <<_FirstByte:8, HexStr/binary>> = emqx_utils:bin_to_hexstr(BinToConvert, upper),
+    HexStr;
+bin2hexstr(Bin) when is_bitstring(Bin) ->
+    PadSize = 8 - (bit_size(Bin) rem 8),
+    Padding = <<0:PadSize>>,
+    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
+    emqx_utils:bin_to_hexstr(BinToConvert, upper).
 
 hexstr2bin(Str) when is_binary(Str) ->
     emqx_utils:hexstr_to_bin(Str).
