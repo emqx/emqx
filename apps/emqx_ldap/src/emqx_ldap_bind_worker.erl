@@ -24,7 +24,8 @@
 -export([
     on_start/4,
     on_stop/2,
-    on_query/3
+    on_query/3,
+    on_get_status/2
 ]).
 
 %% ecpool connect & reconnect
@@ -102,6 +103,11 @@ on_query(
             ),
             {error, {unrecoverable_error, Reason}}
     end.
+
+on_get_status(_InstId, #{bind_pool_name := PoolName}) ->
+    emqx_ldap:get_status_with_poolname(PoolName);
+on_get_status(_InstId, _) ->
+    connected.
 
 %% ===================================================================
 

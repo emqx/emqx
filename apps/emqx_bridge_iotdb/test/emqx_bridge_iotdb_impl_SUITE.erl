@@ -503,11 +503,11 @@ t_extract_device_id_from_rule_engine_message(Config) ->
     ),
     ok.
 
-t_sync_invalid_data(Config) ->
+t_sync_invalid_template(Config) ->
     emqx_bridge_v2_testlib:t_sync_query(
         Config,
         make_message_fun(iotdb_topic(Config), #{foo => bar, device_id => <<"root.sg27">>}),
-        is_error_check(invalid_data),
+        is_error_check(invalid_template),
         iotdb_bridge_on_query
     ).
 
@@ -519,11 +519,11 @@ t_async_device_id_missing(Config) ->
         iotdb_bridge_on_query_async
     ).
 
-t_async_invalid_data(Config) ->
+t_async_invalid_template(Config) ->
     emqx_bridge_v2_testlib:t_async_query(
         Config,
         make_message_fun(iotdb_topic(Config), #{foo => bar, device_id => <<"root.sg27">>}),
-        is_error_check(invalid_data),
+        is_error_check(invalid_template),
         iotdb_bridge_on_query_async
     ).
 
