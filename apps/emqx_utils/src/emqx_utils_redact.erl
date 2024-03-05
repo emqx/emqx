@@ -16,7 +16,7 @@
 
 -module(emqx_utils_redact).
 
--export([redact/1, redact/2, is_redacted/2, is_redacted/3]).
+-export([redact/1, redact/2, redact_headers/1, is_redacted/2, is_redacted/3]).
 -export([deobfuscate/2]).
 
 -define(REDACT_VAL, "******").
@@ -61,6 +61,9 @@ redact(Term, Checker) ->
     do_redact(Term, fun(V) ->
         is_sensitive_key(V) orelse Checker(V)
     end).
+
+redact_headers(Term) ->
+    do_redact_headers(Term).
 
 do_redact(L, Checker) when is_list(L) ->
     lists:map(fun(E) -> do_redact(E, Checker) end, L);
@@ -128,7 +131,7 @@ do_redact_headers(Value) ->
     Value.
 
 check_is_sensitive_header(Key) ->
-    Key1 = emqx_utils_conv:str(Key),
+    Key1 = string:trim(emqx_utils_conv:str(Key)),
     is_sensitive_header(string:lowercase(Key1)).
 
 is_sensitive_header("authorization") ->
