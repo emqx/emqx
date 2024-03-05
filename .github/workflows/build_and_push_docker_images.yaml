@@ -81,14 +81,6 @@ jobs:
         profile:
           - ${{ inputs.profile }}
           - ${{ inputs.profile }}-elixir
-        registry:
-          - 'docker.io'
-          - 'public.ecr.aws'
-        exclude:
-          - profile: emqx-enterprise
-            registry: 'public.ecr.aws'
-          - profile: emqx-enterprise-elixir
-            registry: 'public.ecr.aws'
 
     steps:
     - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -101,14 +93,14 @@ jobs:
 
     - name: Login to hub.docker.com
       uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
-      if: matrix.registry == 'docker.io'
+      if: inputs.publish || github.repository_owner != 'emqx'
       with:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
     - name: Login to AWS ECR
       uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
-      if: matrix.registry == 'public.ecr.aws'
+      if: inputs.publish || github.repository_owner != 'emqx'
       with:
         registry: public.ecr.aws
         username: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -118,17 +110,54 @@ jobs:
     - name: Build docker image
       env:
         PROFILE: ${{ matrix.profile }}
-        DOCKER_REGISTRY: ${{ matrix.registry }}
+        DOCKER_REGISTRY: 'docker.io,public.ecr.aws'
         DOCKER_ORG: ${{ github.repository_owner }}
         DOCKER_LATEST: ${{ inputs.latest }}
-        DOCKER_PUSH: ${{ inputs.publish == 'true' || inputs.publish || github.repository_owner != 'emqx' }}
+        DOCKER_PUSH: false
         DOCKER_BUILD_NOCACHE: true
         DOCKER_PLATFORMS: linux/amd64,linux/arm64
-        EMQX_RUNNER: 'debian:11-slim'
+        DOCKER_LOAD: true
+        EMQX_RUNNER: 'public.ecr.aws/debian/debian:11-slim@sha256:22cfb3c06a7dd5e18d86123a73405664475b9d9fa209cbedcf4c50a25649cc74'
         EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
         PKG_VSN: ${{ inputs.version }}
         EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
         EMQX_BUILDER_OTP: ${{ inputs.otp_vsn }}
         EMQX_BUILDER_ELIXIR: ${{ inputs.elixir_vsn }}
+        EMQX_SOURCE_TYPE: tgz
       run: |
         ./build ${PROFILE} docker
+        echo "Built tags:"
+        echo "==========="
+        cat .emqx_docker_image_tags
+        echo "==========="
+        echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
+
+    - name: smoke test
+      timeout-minutes: 1
+      run: |
+        for tag in $(cat .emqx_docker_image_tags); do
+          CID=$(docker run -d -P $tag)
+          HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          docker rm -f $CID
+        done
+    - name: dashboard tests
+      working-directory: ./scripts/ui-tests
+      timeout-minutes: 5
+      run: |
+        set -eu
+        docker compose up --abort-on-container-exit --exit-code-from selenium
+        docker compose rm -fsv
+    - name: test node_dump
+      run: |
+        CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
+        docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
+        docker exec -t -u root $CID node_dump
+        docker rm -f $CID
+    - name: push images
+      if: inputs.publish || github.repository_owner != 'emqx'
+      run: |
+        for tag in $(cat .emqx_docker_image_tags); do
+          echo "Pushing tag $tag"
+          docker push $tag
+        done
