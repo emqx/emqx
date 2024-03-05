@@ -46,4 +46,22 @@ sql_template.desc:
 sql_template.label:
 """SQL Template"""
 
+action_parameters.desc:
+"""Action specific configuration."""
+
+action_parameters.label:
+"""Action"""
+
+sqlserver_action.desc:
+"""Configuration for Microsoft SOL Server action."""
+
+sqlserver_action.label:
+"""Microsoft SOL Server Action Configuration"""
+
+config_connector.desc:
+"""Configuration for a Microsoft SOL Server connector."""
+
+config_connector.label:
+"""Microsoft SOL Server Connector Configuration"""
+
 }

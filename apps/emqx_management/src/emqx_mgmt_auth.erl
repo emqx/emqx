@@ -311,7 +311,7 @@ maybe_cleanup_api_key(#?APP{name = Name, api_key = ApiKey}) ->
 
             %% Note for EMQX-11844:
             %% emqx.conf has the highest priority
-            %% if there is a key conflict, delete the old one and keep the key which from the bootstrap filex
+            %% if there is a key conflict, delete the old one and keep the key which from the bootstrap file
             ?SLOG(info, #{
                 msg => "duplicated_apikey_detected",
                 info => <<"Delete duplicated apikeys and write a new one from bootstrap file">>,
