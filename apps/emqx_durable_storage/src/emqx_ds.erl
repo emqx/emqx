@@ -263,7 +263,7 @@ list_generations_with_lifetimes(DB) ->
     Mod = ?module(DB),
     call_if_implemented(Mod, list_generations_with_lifetimes, [DB], #{}).
 
--spec drop_generation(db(), generation_rank()) -> ok | {error, _}.
+-spec drop_generation(db(), ds_specific_generation_rank()) -> ok | {error, _}.
 drop_generation(DB, GenId) ->
     Mod = ?module(DB),
     case erlang:function_exported(Mod, drop_generation, 2) of
