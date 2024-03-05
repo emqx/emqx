@@ -148,7 +148,7 @@ jobs:
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
-          retention-days: 1
+          retention-days: 7
 
   run_emqx_app_tests:
     needs:

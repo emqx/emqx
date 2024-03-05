@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-## EMQ docker image start script
+## EMQX docker image start script
 
 if [[ -n "$DEBUG" ]]; then
     set -ex

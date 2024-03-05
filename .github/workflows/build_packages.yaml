@@ -12,7 +12,7 @@ on:
         type: string
       publish:
         required: true
-        type: string
+        type: boolean
       otp_vsn:
         required: true
         type: string
@@ -203,7 +203,7 @@ jobs:
     needs:
       - mac
       - linux
-    if: inputs.publish == 'true' || inputs.publish
+    if: inputs.publish
     strategy:
       fail-fast: false
       matrix:
