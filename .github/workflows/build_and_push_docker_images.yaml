@@ -112,8 +112,8 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ${{ inputs.profile }}
-          - ${{ inputs.profile }}-elixir
+          - ["${{ inputs.profile }}", "${{ inputs.profile == 'emqx' && 'docker.io,public.ecr.aws' || 'docker.io' }}"]
+          - ["${{ inputs.profile }}-elixir", "${{ inputs.profile == 'emqx' && 'docker.io,public.ecr.aws' || 'docker.io' }}"]
 
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -121,7 +121,7 @@ jobs:
           ref: ${{ github.event.inputs.ref }}
       - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
         with:
-          pattern: "${{ matrix.profile }}-*.tar.gz"
+          pattern: "${{ matrix.profile[0] }}-*.tar.gz"
           path: _packages
           merge-multiple: true
 
@@ -158,8 +158,8 @@ jobs:
 
       - name: Build docker image
         env:
-          PROFILE: ${{ matrix.profile }}
-          DOCKER_REGISTRY: 'docker.io,public.ecr.aws'
+          PROFILE: ${{ matrix.profile[0] }}
+          DOCKER_REGISTRY: ${{ matrix.profile[1] }}
           DOCKER_ORG: ${{ github.repository_owner }}
           DOCKER_LATEST: ${{ inputs.latest }}
           DOCKER_PUSH: false
@@ -175,7 +175,10 @@ jobs:
           EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker
+          echo "Built tags:"
+          echo "==========="
           cat .emqx_docker_image_tags
+          echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
 
       - name: smoke test
