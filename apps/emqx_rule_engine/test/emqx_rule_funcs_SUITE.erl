@@ -911,6 +911,17 @@ t_subbits2_float(_) ->
     ct:pal(";;;;~p", [R2]),
     ?assert((RL2 >= 0 andalso RL2 < 0.0001) orelse (RL2 =< 0 andalso RL2 > -0.0001)).
 
+t_subbits_4_args(_) ->
+    R = apply_func(subbits, [<<5.3:64/float>>, 1, 64, <<"float">>]),
+    RL = (5.3 - R),
+    ?assert((RL >= 0 andalso RL < 0.0001) orelse (RL =< 0 andalso RL > -0.0001)).
+
+t_subbits_5_args(_) ->
+    ?assertEqual(
+        456,
+        apply_func(subbits, [<<456:32/integer>>, 1, 32, <<"integer">>, <<"unsigned">>])
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases for Hash funcs
 %%------------------------------------------------------------------------------
