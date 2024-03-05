@@ -532,8 +532,15 @@ replay_streams(Session0 = #{replay := [{_StreamKey, Srs0} | Rest]}, ClientInfo) 
     case replay_batch(Srs0, Session0, ClientInfo) of
         Session = #{} ->
             replay_streams(Session#{replay := Rest}, ClientInfo);
-        {error, _, _} ->
+        {error, recoverable, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_fetch_replay_batch",
+                stream => Srs0,
+                reason => Reason,
+                class => recoverable
+            }),
             Session0
+        %% TODO: Handle unrecoverable errors.
     end;
 replay_streams(Session0 = #{replay := []}, _ClientInfo) ->
     Session = maps:remove(replay, Session0),
@@ -554,13 +561,7 @@ replay_batch(Srs0, Session0, ClientInfo) ->
                     got => Srs
                 }),
             Session;
-        {error, recoverable, Reason} = Error ->
-            ?SLOG(warning, #{
-                msg => "failed_to_fetch_replay_batch",
-                stream => Srs0,
-                reason => Reason,
-                class => recoverable
-            }),
+        {error, _, _} = Error ->
             Error
     end.
 
