@@ -171,9 +171,8 @@ drop_db(DB) ->
 -spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
-    try emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts) of
-        ok ->
-            ok
+    try
+        emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts)
     catch
         error:{Reason, _Call} when Reason == timeout; Reason == noproc ->
             {error, recoverable, Reason}
