@@ -198,13 +198,13 @@ get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
 %%-------------------------------------------------------------------------------------------------
 
 -spec get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
-get_topic(Topic, ConnectorState, ReqOpts) ->
-    #{project_id := ProjectId} = ConnectorState,
+get_topic(Topic, ClientState, ReqOpts) ->
+    #{project_id := ProjectId} = ClientState,
     Method = get,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<>>,
     PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
-    ?MODULE:query_sync(PreparedRequest, ConnectorState).
+    ?MODULE:query_sync(PreparedRequest, ClientState).
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns

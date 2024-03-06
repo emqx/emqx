@@ -76,6 +76,7 @@ only_sync_tests() ->
     [t_query_sync].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -257,20 +258,31 @@ create_rule_and_action_http(Config) ->
 success_http_handler() ->
     TestPid = self(),
     fun(Req0, State) ->
-        {ok, Body, Req} = cowboy_req:read_body(Req0),
-        TestPid ! {http, cowboy_req:headers(Req), Body},
-        Rep = cowboy_req:reply(
-            200,
-            #{<<"content-type">> => <<"application/json">>},
-            emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
-            Req
-        ),
-        {ok, Rep, State}
+        case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
+            {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
+                Rep = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    <<"{}">>,
+                    Req0
+                ),
+                {ok, Rep, State};
+            _ ->
+                {ok, Body, Req} = cowboy_req:read_body(Req0),
+                TestPid ! {http, cowboy_req:headers(Req), Body},
+                Rep = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
+                    Req
+                ),
+                {ok, Rep, State}
+        end
     end.
 
 start_echo_http_server() ->
     HTTPHost = "localhost",
-    HTTPPath = <<"/v1/projects/myproject/topics/mytopic:publish">>,
+    HTTPPath = '_',
     ServerSSLOpts =
         [
             {verify, verify_none},
@@ -655,6 +667,20 @@ wait_n_events(TelemetryTable, ResourceId, NEvents, Timeout, EventName) ->
         ct:pal("current metrics: ~p", [CurrentMetrics]),
         error({timeout_waiting_for_telemetry, EventName})
     end.
+
+kill_gun_process(EhttpcPid) ->
+    State = ehttpc:get_state(EhttpcPid, minimal),
+    GunPid = maps:get(client, State),
+    true = is_pid(GunPid),
+    _ = exit(GunPid, kill),
+    ok.
+
+kill_gun_processes(ConnectorResourceId) ->
+    Pool = ehttpc:workers(ConnectorResourceId),
+    Workers = lists:map(fun({_, Pid}) -> Pid end, Pool),
+    %% assert there is at least one pool member
+    ?assertMatch([_ | _], Workers),
+    lists:foreach(fun(Pid) -> kill_gun_process(Pid) end, Workers).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1343,15 +1369,26 @@ t_failure_with_body(Config) ->
     TestPid = self(),
     FailureWithBodyHandler =
         fun(Req0, State) ->
-            {ok, Body, Req} = cowboy_req:read_body(Req0),
-            TestPid ! {http, cowboy_req:headers(Req), Body},
-            Rep = cowboy_req:reply(
-                400,
-                #{<<"content-type">> => <<"application/json">>},
-                emqx_utils_json:encode(#{}),
-                Req
-            ),
-            {ok, Rep, State}
+            case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
+                {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
+                    Rep = cowboy_req:reply(
+                        200,
+                        #{<<"content-type">> => <<"application/json">>},
+                        <<"{}">>,
+                        Req0
+                    ),
+                    {ok, Rep, State};
+                _ ->
+                    {ok, Body, Req} = cowboy_req:read_body(Req0),
+                    TestPid ! {http, cowboy_req:headers(Req), Body},
+                    Rep = cowboy_req:reply(
+                        400,
+                        #{<<"content-type">> => <<"application/json">>},
+                        emqx_utils_json:encode(#{}),
+                        Req
+                    ),
+                    {ok, Rep, State}
+            end
         end,
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureWithBodyHandler),
     Topic = <<"t/topic">>,
@@ -1381,15 +1418,26 @@ t_failure_no_body(Config) ->
     TestPid = self(),
     FailureNoBodyHandler =
         fun(Req0, State) ->
-            {ok, Body, Req} = cowboy_req:read_body(Req0),
-            TestPid ! {http, cowboy_req:headers(Req), Body},
-            Rep = cowboy_req:reply(
-                400,
-                #{<<"content-type">> => <<"application/json">>},
-                <<>>,
-                Req
-            ),
-            {ok, Rep, State}
+            case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
+                {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
+                    Rep = cowboy_req:reply(
+                        200,
+                        #{<<"content-type">> => <<"application/json">>},
+                        <<"{}">>,
+                        Req0
+                    ),
+                    {ok, Rep, State};
+                _ ->
+                    {ok, Body, Req} = cowboy_req:read_body(Req0),
+                    TestPid ! {http, cowboy_req:headers(Req), Body},
+                    Rep = cowboy_req:reply(
+                        400,
+                        #{<<"content-type">> => <<"application/json">>},
+                        <<>>,
+                        Req
+                    ),
+                    {ok, Rep, State}
+            end
         end,
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
     Topic = <<"t/topic">>,
@@ -1415,20 +1463,6 @@ t_failure_no_body(Config) ->
     ),
     ok.
 
-kill_gun_process(EhttpcPid) ->
-    State = ehttpc:get_state(EhttpcPid, minimal),
-    GunPid = maps:get(client, State),
-    true = is_pid(GunPid),
-    _ = exit(GunPid, kill),
-    ok.
-
-kill_gun_processes(ConnectorResourceId) ->
-    Pool = ehttpc:workers(ConnectorResourceId),
-    Workers = lists:map(fun({_, Pid}) -> Pid end, Pool),
-    %% assert there is at least one pool member
-    ?assertMatch([_ | _], Workers),
-    lists:foreach(fun(Pid) -> kill_gun_process(Pid) end, Workers).
-
 t_unrecoverable_error(Config) ->
     ActionResourceId = ?config(action_resource_id, Config),
     ConnectorResourceId = ?config(connector_resource_id, Config),
@@ -1436,19 +1470,30 @@ t_unrecoverable_error(Config) ->
     TestPid = self(),
     FailureNoBodyHandler =
         fun(Req0, State) ->
-            {ok, Body, Req} = cowboy_req:read_body(Req0),
-            TestPid ! {http, cowboy_req:headers(Req), Body},
-            %% kill the gun process while it's waiting for the
-            %% response so we provoke an `{error, _}' response from
-            %% ehttpc.
-            ok = kill_gun_processes(ConnectorResourceId),
-            Rep = cowboy_req:reply(
-                200,
-                #{<<"content-type">> => <<"application/json">>},
-                <<>>,
-                Req
-            ),
-            {ok, Rep, State}
+            case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
+                {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
+                    Rep = cowboy_req:reply(
+                        200,
+                        #{<<"content-type">> => <<"application/json">>},
+                        <<"{}">>,
+                        Req0
+                    ),
+                    {ok, Rep, State};
+                _ ->
+                    {ok, Body, Req} = cowboy_req:read_body(Req0),
+                    TestPid ! {http, cowboy_req:headers(Req), Body},
+                    %% kill the gun process while it's waiting for the
+                    %% response so we provoke an `{error, _}' response from
+                    %% ehttpc.
+                    ok = kill_gun_processes(ConnectorResourceId),
+                    Rep = cowboy_req:reply(
+                        200,
+                        #{<<"content-type">> => <<"application/json">>},
+                        <<>>,
+                        Req
+                    ),
+                    {ok, Rep, State}
+            end
         end,
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
     Topic = <<"t/topic">>,
