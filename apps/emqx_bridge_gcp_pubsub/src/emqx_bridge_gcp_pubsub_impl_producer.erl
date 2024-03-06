@@ -186,10 +186,14 @@ on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, ConnectorState) ->
     {ok, connector_state()}.
 on_add_channel(_ConnectorResId, ConnectorState0, ActionId, ActionConfig) ->
     #{installed_actions := InstalledActions0} = ConnectorState0,
-    ChannelState = install_channel(ActionConfig),
-    InstalledActions = InstalledActions0#{ActionId => ChannelState},
-    ConnectorState = ConnectorState0#{installed_actions := InstalledActions},
-    {ok, ConnectorState}.
+    case install_channel(ActionConfig, ConnectorState0) of
+        {ok, ChannelState} ->
+            InstalledActions = InstalledActions0#{ActionId => ChannelState},
+            ConnectorState = ConnectorState0#{installed_actions := InstalledActions},
+            {ok, ConnectorState};
+        Error = {error, _} ->
+            Error
+    end.
 
 -spec on_remove_channel(
     connector_resource_id(),
@@ -218,8 +222,7 @@ on_get_channel_status(_ConnectorResId, _ChannelId, _ConnectorState) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
-%% TODO: check if topic exists ("unhealthy target")
-install_channel(ActionConfig) ->
+install_channel(ActionConfig, ConnectorState) ->
     #{
         parameters := #{
             attributes_template := AttributesTemplate,
@@ -231,13 +234,27 @@ install_channel(ActionConfig) ->
             request_ttl := RequestTTL
         }
     } = ActionConfig,
-    #{
-        attributes_template => preproc_attributes(AttributesTemplate),
-        ordering_key_template => emqx_placeholder:preproc_tmpl(OrderingKeyTemplate),
-        payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
-        pubsub_topic => PubSubTopic,
-        request_ttl => RequestTTL
-    }.
+    #{client := Client} = ConnectorState,
+    case
+        emqx_bridge_gcp_pubsub_client:get_topic(PubSubTopic, Client, #{request_ttl => RequestTTL})
+    of
+        {error, #{status_code := 404}} ->
+            {error, {unhealthy_target, <<"Topic does not exist">>}};
+        {error, #{status_code := 403}} ->
+            {error, {unhealthy_target, <<"Permission denied for topic">>}};
+        {error, #{status_code := 401}} ->
+            {error, {unhealthy_target, <<"Bad credentials">>}};
+        {error, Reason} ->
+            {error, Reason};
+        {ok, _} ->
+            {ok, #{
+                attributes_template => preproc_attributes(AttributesTemplate),
+                ordering_key_template => emqx_placeholder:preproc_tmpl(OrderingKeyTemplate),
+                payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
+                pubsub_topic => PubSubTopic,
+                request_ttl => RequestTTL
+            }}
+    end.
 
 -spec do_send_requests_sync(
     connector_state(),
