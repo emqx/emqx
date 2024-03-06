@@ -230,6 +230,19 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{}) ->
     emqx_ds_storage_layer:shard_id(), s(), [emqx_types:message()], emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
+store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options = #{atomic := true}) ->
+    {ok, Batch} = rocksdb:batch(),
+    lists:foreach(
+        fun(Msg) ->
+            {Key, _} = make_key(S, Msg),
+            Val = serialize(Msg),
+            rocksdb:batch_put(Batch, Data, Key, Val)
+        end,
+        Messages
+    ),
+    Res = rocksdb:write_batch(DB, Batch, _WriteOptions = []),
+    rocksdb:release_batch(Batch),
+    Res;
 store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
     lists:foreach(
         fun(Msg) ->

@@ -219,6 +219,69 @@ t_replay(_Config) ->
     ?assert(check(?SHARD, <<"#">>, 0, Messages)),
     ok.
 
+t_atomic_store_batch(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            application:set_env(emqx_durable_storage, egress_batch_size, 1),
+            Msgs = [
+                make_message(0, <<"1">>, <<"1">>),
+                make_message(1, <<"2">>, <<"2">>),
+                make_message(2, <<"3">>, <<"3">>)
+            ],
+            ?assertEqual(
+                ok,
+                emqx_ds:store_batch(DB, Msgs, #{
+                    atomic => true,
+                    sync => true
+                })
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% Must contain exactly one flush with all messages.
+            ?assertMatch(
+                [#{batch := [_, _, _]}],
+                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_non_atomic_store_batch(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            application:set_env(emqx_durable_storage, egress_batch_size, 1),
+            Msgs = [
+                make_message(0, <<"1">>, <<"1">>),
+                make_message(1, <<"2">>, <<"2">>),
+                make_message(2, <<"3">>, <<"3">>)
+            ],
+            %% Non-atomic batches may be split.
+            ?assertEqual(
+                ok,
+                emqx_ds:store_batch(DB, Msgs, #{
+                    atomic => false,
+                    sync => true
+                })
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% Should contain one flush per message.
+            ?assertMatch(
+                [#{batch := [_]}, #{batch := [_]}, #{batch := [_]}],
+                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
 check(Shard, TopicFilter, StartTime, ExpectedMessages) ->
     ExpectedFiltered = lists:filter(
         fun(#message{topic = Topic, timestamp = TS}) ->
@@ -418,6 +481,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 suite() -> [{timetrap, {seconds, 20}}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Apps = emqx_cth_suite:start(
         [emqx_durable_storage],
         #{work_dir => emqx_cth_suite:work_dir(Config)}

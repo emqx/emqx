@@ -150,7 +150,16 @@
 
 -type message_store_opts() ::
     #{
-        sync => boolean()
+        %% Whether to wait until the message storage has been acknowledged to return from
+        %% `store_batch'.
+        %% Default: `true'.
+        sync => boolean(),
+        %% Whether the whole batch given to `store_batch' should be inserted atomically as
+        %% a unit.  Note: the whole batch must be crafted so that it belongs to a single
+        %% shard (if applicable to the backend), as the batch will be split accordingly
+        %% even if this flag is `true'.
+        %% Default: `false'.
+        atomic => boolean()
     }.
 
 -type generic_db_opts() ::

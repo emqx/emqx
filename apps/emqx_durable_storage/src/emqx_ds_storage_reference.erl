@@ -90,6 +90,20 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
     ok = rocksdb:drop_column_family(DBHandle, CFHandle),
     ok.
 
+store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options = #{atomic := true}) ->
+    {ok, Batch} = rocksdb:batch(),
+    lists:foreach(
+        fun(Msg) ->
+            Id = erlang:unique_integer([monotonic]),
+            Key = <<Id:64>>,
+            Val = term_to_binary(Msg),
+            rocksdb:batch_put(Batch, CF, Key, Val)
+        end,
+        Messages
+    ),
+    Res = rocksdb:write_batch(DB, Batch, _WriteOptions = []),
+    rocksdb:release_batch(Batch),
+    Res;
 store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options) ->
     lists:foreach(
         fun(Msg) ->

@@ -51,6 +51,7 @@
 -define(flush, flush).
 
 -record(enqueue_req, {message :: emqx_types:message(), sync :: boolean()}).
+-record(enqueue_atomic_req, {batch :: [emqx_types:message()], sync :: boolean()}).
 
 %%================================================================================
 %% API functions
@@ -64,13 +65,34 @@ start_link(DB, Shard) ->
     ok.
 store_batch(DB, Messages, Opts) ->
     Sync = maps:get(sync, Opts, true),
-    lists:foreach(
-        fun(Message) ->
-            Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
-            gen_server:call(?via(DB, Shard), #enqueue_req{message = Message, sync = Sync})
-        end,
-        Messages
-    ).
+    case maps:get(atomic, Opts, false) of
+        false ->
+            lists:foreach(
+                fun(Message) ->
+                    Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
+                    gen_server:call(?via(DB, Shard), #enqueue_req{
+                        message = Message,
+                        sync = Sync
+                    })
+                end,
+                Messages
+            );
+        true ->
+            maps:foreach(
+                fun(Shard, Batch) ->
+                    gen_server:call(?via(DB, Shard), #enqueue_atomic_req{
+                        batch = Batch,
+                        sync = Sync
+                    })
+                end,
+                maps:groups_from_list(
+                    fun(Message) ->
+                        emqx_ds_replication_layer:shard_of_message(DB, Message, clientid)
+                    end,
+                    Messages
+                )
+            )
+    end.
 
 %%================================================================================
 %% behavior callbacks
@@ -101,6 +123,9 @@ init([DB, Shard]) ->
 
 handle_call(#enqueue_req{message = Msg, sync = Sync}, From, S) ->
     do_enqueue(From, Sync, Msg, S);
+handle_call(#enqueue_atomic_req{batch = Batch, sync = Sync}, From, S) ->
+    Len = length(Batch),
+    do_enqueue(From, Sync, {atomic, Len, Batch}, S);
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -131,7 +156,7 @@ do_flush(
     Batch = #{?tag => ?BATCH, ?batch_messages => lists:reverse(Messages)},
     ok = emqx_ds_proto_v2:store_batch(Leader, DB, Shard, Batch, #{}),
     [gen_server:reply(From, ok) || From <- lists:reverse(Replies)],
-    ?tp(emqx_ds_replication_layer_egress_flush, #{db => DB, shard => Shard}),
+    ?tp(emqx_ds_replication_layer_egress_flush, #{db => DB, shard => Shard, batch => Messages}),
     erlang:garbage_collect(),
     S#s{
         n = 0,
@@ -140,9 +165,15 @@ do_flush(
         tref = start_timer()
     }.
 
-do_enqueue(From, Sync, Msg, S0 = #s{n = N, batch = Batch, pending_replies = Replies}) ->
+do_enqueue(From, Sync, MsgOrBatch, S0 = #s{n = N, batch = Batch, pending_replies = Replies}) ->
     NMax = application:get_env(emqx_durable_storage, egress_batch_size, 1000),
-    S1 = S0#s{n = N + 1, batch = [Msg | Batch]},
+    S1 =
+        case MsgOrBatch of
+            {atomic, NumMsgs, Msgs} ->
+                S0#s{n = N + NumMsgs, batch = Msgs ++ Batch};
+            Msg ->
+                S0#s{n = N + 1, batch = [Msg | Batch]}
+        end,
     S2 =
         case N >= NMax of
             true ->
