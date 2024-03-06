@@ -1181,7 +1181,18 @@ t_parse_date_errors(_) ->
     ?assertEqual(
         UnixTsLeap2,
         emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-03-04 06:56:27">>)
-    ).
+    ),
+
+    %% None zero zone shift with millisecond level precision
+    Tz1 = calendar:rfc3339_to_system_time("2024-02-23T15:00:00.123+08:00", [{unit, second}]),
+    ?assertEqual(
+        Tz1,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"%Y-%m-%d %H:%M:%S.%3N%:z">>, <<"2024-02-23 15:00:00.123+08:00">>
+        )
+    ),
+
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Utility functions
