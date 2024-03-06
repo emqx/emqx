@@ -208,3 +208,48 @@ t_consume(Config) ->
         }
     ),
     ok.
+
+t_update_topic(Config) ->
+    %% Tests that, if a bridge originally has the legacy field `topic_mapping' filled in
+    %% and later is updated using v2 APIs, then the legacy field is cleared and the new
+    %% `topic' field is used.
+    ConnectorConfig = ?config(connector_config, Config),
+    SourceConfig = ?config(source_config, Config),
+    Name = ?config(source_name, Config),
+    V1Config0 = emqx_action_info:connector_action_config_to_bridge_v1_config(
+        ?SOURCE_TYPE_BIN,
+        ConnectorConfig,
+        SourceConfig
+    ),
+    V1Config = emqx_utils_maps:deep_put(
+        [<<"consumer">>, <<"topic_mapping">>],
+        V1Config0,
+        [
+            #{
+                <<"pubsub_topic">> => <<"old_topic">>,
+                <<"mqtt_topic">> => <<"">>,
+                <<"qos">> => 2,
+                <<"payload_template">> => <<"template">>
+            }
+        ]
+    ),
+    %% Note: using v1 API
+    {ok, {{_, 201, _}, _, _}} = emqx_bridge_testlib:create_bridge_api(
+        ?SOURCE_TYPE_BIN,
+        Name,
+        V1Config
+    ),
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, #{<<"parameters">> := #{<<"topic">> := <<"old_topic">>}}}},
+        emqx_bridge_v2_testlib:get_source_api(?SOURCE_TYPE_BIN, Name)
+    ),
+    %% Note: we don't add `topic_mapping' again here to the parameters.
+    {ok, {{_, 200, _}, _, _}} = emqx_bridge_v2_testlib:update_bridge_api(
+        Config,
+        #{<<"parameters">> => #{<<"topic">> => <<"new_topic">>}}
+    ),
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, #{<<"parameters">> := #{<<"topic">> := <<"new_topic">>}}}},
+        emqx_bridge_v2_testlib:get_source_api(?SOURCE_TYPE_BIN, Name)
+    ),
+    ok.
