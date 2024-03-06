@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+if [ -n "$FORCE" ]; then
+    exit 0
+fi
+
 OPT="${1:--c}"
 
 # mix format check is quite fast
