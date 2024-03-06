@@ -2071,6 +2071,7 @@ t_begin_offset_earliest(Config) ->
             {ok, _} = create_bridge(Config, #{
                 <<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}
             }),
+            ?retry(500, 20, ?assertEqual({ok, connected}, health_check(Config))),
 
             #{num_published => NumMessages}
         end,

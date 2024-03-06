@@ -454,6 +454,24 @@ probe_bridge_api(Kind, BridgeType, BridgeName, BridgeConfig) ->
     ct:pal("bridge probe (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
+probe_connector_api(Config) ->
+    probe_connector_api(Config, _Overrides = #{}).
+
+probe_connector_api(Config, Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name
+    } = get_common_values(Config),
+    ConnectorConfig0 = get_value(connector_config, Config),
+    ConnectorConfig1 = emqx_utils_maps:deep_merge(ConnectorConfig0, Overrides),
+    Params = ConnectorConfig1#{<<"type">> => Type, <<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path(["connectors_probe"]),
+    ct:pal("probing connector (~s, http):\n  ~p", [Type, Params]),
+    Method = post,
+    Res = request(Method, Path, Params),
+    ct:pal("probing connector (~s, http) result:\n  ~p", [Type, Res]),
+    Res.
+
 list_bridges_http_api_v1() ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     ct:pal("list bridges (http v1)"),
