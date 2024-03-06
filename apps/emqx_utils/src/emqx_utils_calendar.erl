@@ -507,7 +507,7 @@ do_parse(DateStr, Unit, Formatter) ->
             (nanosecond, V, Res) ->
                 Res + V;
             (parsed_offset, V, Res) ->
-                Res - V
+                Res - V * Precise
         end,
     Count = maps:fold(Counter, 0, DateInfo) - (?SECONDS_PER_DAY * Precise),
     erlang:convert_time_unit(Count, PrecisionUnit, Unit).
