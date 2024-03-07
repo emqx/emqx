@@ -52,7 +52,7 @@ is_persistence_enabled() ->
 
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->
-    storage_backend(emqx_config:get([session_persistence, storage])).
+    storage_backend([durable_storage, messages]).
 
 %% Dev-only option: force all messages to go through
 %% `emqx_persistent_session_ds':
@@ -60,23 +60,9 @@ storage_backend() ->
 force_ds() ->
     emqx_config:get([session_persistence, force_persistence]).
 
-storage_backend(#{
-    builtin := #{
-        enable := true,
-        n_shards := NShards,
-        replication_factor := ReplicationFactor
-    }
-}) ->
-    #{
-        backend => builtin,
-        storage => {emqx_ds_storage_bitfield_lts, #{}},
-        n_shards => NShards,
-        replication_factor => ReplicationFactor
-    };
-storage_backend(#{
-    fdb := #{enable := true} = FDBConfig
-}) ->
-    FDBConfig#{backend => fdb}.
+storage_backend(Path) ->
+    ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
+    apply(Module, Function, [ConfigTree]).
 
 %%--------------------------------------------------------------------
 

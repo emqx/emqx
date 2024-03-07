@@ -307,6 +307,71 @@ t_08_smoke_list_drop_generation(_Config) ->
     ),
     ok.
 
+t_09_atomic_store_batch(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            application:set_env(emqx_durable_storage, egress_batch_size, 1),
+            ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+            Msgs = [
+                message(<<"1">>, <<"1">>, 0),
+                message(<<"2">>, <<"2">>, 1),
+                message(<<"3">>, <<"3">>, 2)
+            ],
+            ?assertEqual(
+                ok,
+                emqx_ds:store_batch(DB, Msgs, #{
+                    atomic => true,
+                    sync => true
+                })
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% Must contain exactly one flush with all messages.
+            ?assertMatch(
+                [#{batch := [_, _, _]}],
+                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_10_non_atomic_store_batch(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            application:set_env(emqx_durable_storage, egress_batch_size, 1),
+            ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+            Msgs = [
+                message(<<"1">>, <<"1">>, 0),
+                message(<<"2">>, <<"2">>, 1),
+                message(<<"3">>, <<"3">>, 2)
+            ],
+            %% Non-atomic batches may be split.
+            ?assertEqual(
+                ok,
+                emqx_ds:store_batch(DB, Msgs, #{
+                    atomic => false,
+                    sync => true
+                })
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% Should contain one flush per message.
+            ?assertMatch(
+                [#{batch := [_]}, #{batch := [_]}, #{batch := [_]}],
+                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
 t_drop_generation_with_never_used_iterator(_Config) ->
     %% This test checks how the iterator behaves when:
     %%   1) it's created at generation 1 and not consumed from.
@@ -549,6 +614,7 @@ iterate(DB, It0, BatchSize, Acc) ->
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Apps = emqx_cth_suite:start(
         [mria, emqx_durable_storage],
         #{work_dir => ?config(priv_dir, Config)}

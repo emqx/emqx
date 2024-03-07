@@ -721,8 +721,8 @@ do_get_chann_conn_mod(ClientId, ChanPid) ->
     end.
 
 mark_channel_connected(ChanPid) ->
-    ?tp(emqx_cm_connected_client_count_inc, #{chan_pid => ChanPid}),
     ets:insert_new(?CHAN_LIVE_TAB, {ChanPid, true}),
+    ?tp(emqx_cm_connected_client_count_inc, #{chan_pid => ChanPid}),
     ok.
 
 mark_channel_disconnected(ChanPid) ->

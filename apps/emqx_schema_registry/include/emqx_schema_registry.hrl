@@ -26,13 +26,15 @@
 -type encoded_data() :: iodata().
 -type decoded_data() :: map().
 
--type serde_type() :: avro | protobuf.
+-type serde_type() :: avro | protobuf | json.
 -type serde_opts() :: map().
 
 -record(serde, {
     name :: schema_name(),
     type :: serde_type(),
-    eval_context :: term()
+    eval_context :: term(),
+    %% for future use
+    extra = []
 }).
 -type serde() :: #serde{}.
 

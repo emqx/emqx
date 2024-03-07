@@ -148,12 +148,6 @@ mqtt_max_subscriptions.desc:
 mqtt_max_subscriptions.label:
 """Max Subscriptions"""
 
-persistent_session_builtin_messages_table.desc:
-"""Performance tuning options for built-in messages table."""
-
-persistent_session_builtin_messages_table.label:
-"""Persistent messages"""
-
 sysmon_os_cpu_low_watermark.desc:
 """The threshold, as percentage of system CPU load,
  for how much system cpu can be used before the corresponding alarm is cleared. Disabled on Windows platform"""
@@ -370,12 +364,6 @@ sysmon_top_num_items.desc:
 sysmon_top_num_items.label:
 """Top num items"""
 
-persistent_session_builtin_session_table.desc:
-"""Performance tuning options for built-in session table."""
-
-persistent_session_builtin_session_table.label:
-"""Persistent session"""
-
 mqtt_upgrade_qos.desc:
 """Force upgrade of QoS level according to subscription."""
 
@@ -518,14 +506,6 @@ mqtt_max_inflight.desc:
 mqtt_max_inflight.label:
 """Max Inflight"""
 
-persistent_session_store_enabled.desc:
-"""Use the database to store information about persistent sessions.
-This makes it possible to migrate a client connection to another
-cluster node if a node is stopped."""
-
-persistent_session_store_enabled.label:
-"""Enable persistent session store"""
-
 fields_deflate_opts_level.desc:
 """Compression level."""
 
@@ -543,14 +523,6 @@ fields_mqtt_quic_listener_load_balancing_mode.desc:
 
 fields_mqtt_quic_listener_load_balancing_mode.label:
 """Load balancing mode"""
-
-persistent_session_store_session_message_gc_interval.desc:
-"""The starting interval for garbage collection of transient data for
-persistent session messages. This does not affect the lifetime length
-of persistent session messages."""
-
-persistent_session_store_session_message_gc_interval.label:
-"""Session message GC interval"""
 
 server_ssl_opts_schema_ocsp_refresh_http_timeout.desc:
 """The timeout for the HTTP request when checking OCSP responses."""
@@ -611,12 +583,6 @@ broker_session_locking_strategy.desc:
   - `one`: select only one remote node to lock the session
   - `quorum`: select some nodes to lock the session
   - `all`: lock the session on all the nodes in the cluster"""
-
-persistent_store_ram_cache.desc:
-"""Maintain a copy of the data in RAM for faster access."""
-
-persistent_store_ram_cache.label:
-"""RAM cache"""
 
 fields_mqtt_quic_listener_stream_recv_window_default.desc:
 """Initial stream receive window size. Default: 32678"""
@@ -834,14 +800,6 @@ force_shutdown_max_heap_size.desc:
 force_shutdown_max_heap_size.label:
 """Total heap size"""
 
-persistent_store_on_disc.desc:
-"""Save information about the persistent sessions on disc.
-If this option is enabled, persistent sessions will survive full restart of the cluster.
-Otherwise, all the data will be stored in RAM, and it will be lost when all the nodes in the cluster are stopped."""
-
-persistent_store_on_disc.label:
-"""Persist on disc"""
-
 mqtt_ignore_loop_deliver.desc:
 """Whether the messages sent by the MQTT v3.1.1/v3.1.0 client will be looped back to the publisher itself, similar to <code>No Local</code> in MQTT 5.0."""
 
@@ -1051,13 +1009,6 @@ base_listener_limiter.desc:
 base_listener_limiter.label:
 """Type of the rate limit."""
 
-persistent_session_store_backend.desc:
-"""Database management system used to store information about persistent sessions and messages.
-- `builtin`: Use the embedded database (mria)"""
-
-persistent_session_store_backend.label:
-"""Backend"""
-
 alarm_validity_period.desc:
 """Retention time of deactivated alarms. Alarms are not deleted immediately
 when deactivated, but after the retention time."""
@@ -1094,14 +1045,6 @@ To disable this feature, input <code>""</code> in the text box below. Only appli
 
 mqtt_response_information.label:
 """Response Information"""
-
-persistent_session_store_max_retain_undelivered.desc:
-"""The time messages that was not delivered to a persistent session
-is stored before being garbage collected if the node the previous
-session was handled on restarts of is stopped."""
-
-persistent_session_store_max_retain_undelivered.label:
-"""Max retain undelivered"""
 
 fields_mqtt_quic_listener_migration_enabled.desc:
 """Enable clients to migrate IP addresses and tuples. Requires a cooperative load-balancer, or no load-balancer. Default: 1 (Enabled)"""
@@ -1198,12 +1141,6 @@ until the subscriber disconnects.
 - `hash`: select the subscribers by the hash of `clientIds`
 - `local`: send to a random local subscriber. If local
 subscriber was not found, send to a random subscriber cluster-wide"""
-
-persistent_session_builtin_sess_msg_table.desc:
-"""Performance tuning options for built-in session messages table."""
-
-persistent_session_builtin_sess_msg_table.label:
-"""Persistent session messages"""
 
 mqtt_mqueue_store_qos0.desc:
 """Specifies whether to store QoS 0 messages in the message queue while the connection is down but the session remains."""
@@ -1388,14 +1325,6 @@ Supported configurations are the following:
 
 mqtt_peer_cert_as_clientid.label:
 """Use Peer Certificate as Client ID"""
-
-persistent_session_store_message_gc_interval.desc:
-"""The starting interval for garbage collection of undelivered messages to
-a persistent session. This affects how often the "max_retain_undelivered"
-is checked for removal."""
-
-persistent_session_store_message_gc_interval.label:
-"""Message GC interval"""
 
 broker_shared_dispatch_ack_enabled.desc:
 """Deprecated.
@@ -1602,41 +1531,46 @@ resource_tags.label:
 resource_tags.desc:
 """Tags to annotate this config entry."""
 
+session_persistence_enable.label:
+"""Enable session persistence"""
+
 session_persistence_enable.desc:
 """Use durable storage for client sessions persistence.
-If enabled, sessions configured to outlive client connections, along with their corresponding messages, will be durably stored and survive broker downtime."""
+If enabled, sessions configured to outlive client connections, along with their corresponding messages, will be durably stored and survive broker downtime.
 
-session_persistence_storage.desc:
-"""Durable storage backend to use for session persistence."""
+:::warning
+This feature is currently experimental. Please don't enable it in the production environments that contain valuable data.
+:::"""
 
-session_storage_backend_enable.desc:
-"""Enable this backend."""
 
-session_builtin_n_shards.desc:
-"""Number of shards used for storing the messages."""
-
-session_storage_backend_builtin.desc:
-"""Builtin session storage backend utilizing embedded RocksDB key-value store."""
+session_ds_session_gc_interval.label:
+"""Session garbage collection interval"""
 
 session_ds_session_gc_interval.desc:
 """The interval at which session garbage collection is executed for persistent sessions."""
 
+session_ds_session_gc_batch_size.label:
+"""Session garbage collection batch size"""
+
 session_ds_session_gc_batch_size.desc:
 """The size of each batch of expired persistent sessions to be garbage collected per iteration."""
 
-session_ds_max_batch_size.desc:
+session_ds_batch_size.label:
+"""Batch size"""
+
+session_ds_batch_size.desc:
 """This value affects the flow control for the persistent sessions.
-The session queries the DB for the new messages in batches.
-Size of the batch doesn't exceed this value or `ReceiveMaximum`, whichever is smaller."""
+Persistent session queries the durable message storage in batches.
+This value specifies size of the batch.
 
-session_ds_min_batch_size.desc:
-"""This value affects the flow control for the persistent sessions.
-The session will query the DB for the new messages when the value of `FreeSpace` variable is larger than this value or `ReceiveMaximum` / 2, whichever is smaller.
+Note: larger batches generally improve the throughput and overall performance of the system, but increase RAM usage per client."""
 
-`FreeSpace` is calculated as `ReceiveMaximum` for the session - number of inflight messages."""
+durable_storage.label:
+"""Durable storage"""
 
-session_ds_message_retention_period.desc:
-"""The minimum amount of time that messages should be retained for.  After messages have been in storage for at least this period of time, they'll be dropped."""
+durable_storage.desc:
+"""Configuration related to the EMQX durable storages.
 
+EMQX uses durable storages to offload various data, such as MQTT messages, to disc."""
 
 }

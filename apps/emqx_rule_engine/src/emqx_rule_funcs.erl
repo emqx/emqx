@@ -96,6 +96,8 @@
     bytesize/1,
     subbits/2,
     subbits/3,
+    subbits/4,
+    subbits/5,
     subbits/6
 ]).
 
@@ -555,6 +557,16 @@ subbits(Bits, Len) when is_integer(Len), is_bitstring(Bits) ->
 
 subbits(Bits, Start, Len) when is_integer(Start), is_integer(Len), is_bitstring(Bits) ->
     get_subbits(Bits, Start, Len, <<"integer">>, <<"unsigned">>, <<"big">>).
+
+subbits(Bits, Start, Len, Type) when
+    is_integer(Start), is_integer(Len), is_bitstring(Bits)
+->
+    get_subbits(Bits, Start, Len, Type, <<"unsigned">>, <<"big">>).
+
+subbits(Bits, Start, Len, Type, Signedness) when
+    is_integer(Start), is_integer(Len), is_bitstring(Bits)
+->
+    get_subbits(Bits, Start, Len, Type, Signedness, <<"big">>).
 
 subbits(Bits, Start, Len, Type, Signedness, Endianness) when
     is_integer(Start), is_integer(Len), is_bitstring(Bits)

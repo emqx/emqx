@@ -33,6 +33,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     GCPEmulatorHost = os:getenv("GCP_EMULATOR_HOST", "toxiproxy"),
     GCPEmulatorPortStr = os:getenv("GCP_EMULATOR_PORT", "8085"),
     GCPEmulatorPort = list_to_integer(GCPEmulatorPortStr),

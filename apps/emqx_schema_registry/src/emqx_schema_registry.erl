@@ -218,7 +218,10 @@ terminate(_Reason, _State) ->
 %%-------------------------------------------------------------------------------------------------
 
 create_tables() ->
-    ok = emqx_utils_ets:new(?SERDE_TAB, [public, {keypos, #serde.name}]),
+    ok = emqx_utils_ets:new(?SERDE_TAB, [public, ordered_set, {keypos, #serde.name}]),
+    %% have to create the table for jesse_database otherwise the on-demand table will disappear
+    %% when the caller process dies
+    ok = emqx_utils_ets:new(jesse_ets, [public, ordered_set]),
     ok = mria:create_table(?PROTOBUF_CACHE_TAB, [
         {type, set},
         {rlog_shard, ?SCHEMA_REGISTRY_SHARD},
@@ -312,8 +315,9 @@ ensure_serde_absent(Name) when not is_binary(Name) ->
 ensure_serde_absent(Name) ->
     case get_serde(Name) of
         {ok, Serde} ->
+            ok = emqx_schema_registry_serde:destroy(Serde),
             _ = ets:delete(?SERDE_TAB, Name),
-            ok = emqx_schema_registry_serde:destroy(Serde);
+            ok;
         {error, not_found} ->
             ok
     end.

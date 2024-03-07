@@ -733,7 +733,7 @@ fetch_new_messages(Session = #{s := S}, ClientInfo) ->
 fetch_new_messages([], Session, _ClientInfo) ->
     Session;
 fetch_new_messages([I | Streams], Session0 = #{inflight := Inflight}, ClientInfo) ->
-    BatchSize = emqx_config:get([session_persistence, max_batch_size]),
+    BatchSize = emqx_config:get([session_persistence, batch_size]),
     case emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize of
         true ->
             %% Buffer is full:

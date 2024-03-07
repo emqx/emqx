@@ -1,57 +1,32 @@
 
-EMQX Retainer
-==============
+# Retainer
 
-The retainer plugin is responsible for storing retained MQTT messages.
+The `emqx_retainer` application is responsible for storing retained MQTT messages.
 
-Configuration
--------------
+The retained messages are messages associated with a topic that are stored on the broker and delivered to any new subscribers to that topic.
 
-etc/emqx_retainer.conf:
+More information about retained messages can be found in the following resources
+* [MQTT specification 3.3.1.3](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
+* Retained message concept in [EMQX documentation](https://www.emqx.io/docs/en/v5.0/messaging/mqtt-concepts.html#retained-message).
+* Instructions for publishing retained messages in [EMQX documentation](https://www.emqx.io/docs/en/v5.0/messaging/mqtt-retained-message.html#publish-retained-message-with-mqttx-client).
+* [The Beginner's Guide to MQTT Retained Messages](https://www.emqx.com/en/blog/mqtt5-features-retain-message).
 
-```
-## Where to store the retained messages.
-## Notice that all nodes in a cluster are to have the same storage_type.
-##
-## Value: ram | disc
-##  - ram: memory only
-##  - disc: both memory and disc
-##
-## Default: ram
-retainer.storage_type = ram
+## Usage
 
-## Maximum number of retained messages allowed.
-##
-## Value: Number >= 0
-retainer.max_retained_messages = 1000000
+ The `emqx_retainer` application is enabled by default. To turn it off, add the following configuration to the `emqx.conf` file:
 
-## Maximum payload size of a retained message.
-##
-## Value: Bytes
-retainer.max_payload_size = 64KB
-
-## Expiration interval of the retained messages. Never expire if the value is 0.
-##
-## Value: Duration
-##  - h: hour
-##  - m: minute
-##  - s: second
-##
-## Examples:
-##  - 2h:  2 hours
-##  - 30m: 30 minutes
-##  - 20s: 20 seconds
-##
-## Default: 0
-retainer.expiry_interval = 0
+ ```
+retainer {
+    enable = false
+}
 ```
 
-License
--------
+For other options, see the [configuration](https://www.emqx.io/docs/en/v5.2/configuration/configuration-manual.html#retainer) documentation.
 
-Apache License Version 2.0
+## Contributing
 
-Author
-------
+Please see our [contributing.md](../../CONTRIBUTING.md).
 
-EMQX Team
+## License
+
+See [LICENSE](../../APL.txt)
