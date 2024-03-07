@@ -23,16 +23,23 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 all() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {group, persistent_sessions}
-        | AllTCs -- persistent_session_testcases()
+        {group, persistent_sessions},
+        {group, msgs_base64_encoding},
+        {group, msgs_plain_encoding}
+        | AllTCs -- (persistent_session_testcases() ++ client_msgs_testcases())
     ].
 
 groups() ->
-    [{persistent_sessions, persistent_session_testcases()}].
+    [
+        {persistent_sessions, persistent_session_testcases()},
+        {msgs_base64_encoding, client_msgs_testcases()},
+        {msgs_plain_encoding, client_msgs_testcases()}
+    ].
 
 persistent_session_testcases() ->
     [
@@ -42,12 +49,19 @@ persistent_session_testcases() ->
         t_persistent_sessions4,
         t_persistent_sessions5
     ].
+client_msgs_testcases() ->
+    [
+        t_inflight_messages,
+        t_mqueue_messages
+    ].
 
 init_per_suite(Config) ->
+    ok = snabbkaffe:start_trace(),
     emqx_mgmt_api_test_util:init_suite(),
     Config.
 
 end_per_suite(_) ->
+    ok = snabbkaffe:stop(),
     emqx_mgmt_api_test_util:end_suite().
 
 init_per_group(persistent_sessions, Config) ->
@@ -67,6 +81,10 @@ init_per_group(persistent_sessions, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{nodes, Nodes} | Config];
+init_per_group(msgs_base64_encoding, Config) ->
+    [{payload_encoding, base64} | Config];
+init_per_group(msgs_plain_encoding, Config) ->
+    [{payload_encoding, plain} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -75,6 +93,21 @@ end_per_group(persistent_sessions, Config) ->
     emqx_cth_cluster:stop(Nodes),
     ok;
 end_per_group(_Group, _Config) ->
+    ok.
+
+end_per_testcase(TC, _Config) when
+    TC =:= t_inflight_messages;
+    TC =:= t_mqueue_messages
+->
+    ClientId = atom_to_binary(TC),
+    lists:foreach(fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, ClientId)),
+    ok = emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() -> [] =:= emqx_cm:lookup_channels(local, ClientId) end,
+        5000
+    );
+end_per_testcase(_TC, _Config) ->
     ok.
 
 t_clients(_) ->
@@ -759,7 +792,205 @@ t_client_id_not_found(_Config) ->
     ?assertMatch({error, {Http, _, Body}}, PostFun(post, PathFun(["unsubscribe"]), UnsubBody)),
     ?assertMatch(
         {error, {Http, _, Body}}, PostFun(post, PathFun(["unsubscribe", "bulk"]), [UnsubBody])
+    ),
+    %% Mqueue messages
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun(["mqueue_messages"]))),
+    %% Inflight messages
+    ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun(["inflight_messages"]))).
+
+t_mqueue_messages(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"t/test_mqueue_msgs">>,
+    Count = emqx_mgmt:default_row_limit(),
+    {ok, _Client} = client_with_mqueue(ClientId, Topic, Count),
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "mqueue_messages"]),
+    ?assert(Count =< emqx:get_config([mqtt, max_mqueue_len])),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    test_messages(Path, Topic, Count, AuthHeader, ?config(payload_encoding, Config)),
+
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(
+            get, Path, "limit=10&after=not-base64%23%21", AuthHeader
+        )
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(
+            get, Path, "limit=-5&after=not-base64%23%21", AuthHeader
+        )
     ).
+
+t_inflight_messages(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"t/test_inflight_msgs">>,
+    PubCount = emqx_mgmt:default_row_limit(),
+    {ok, Client} = client_with_inflight(ClientId, Topic, PubCount),
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "inflight_messages"]),
+    InflightLimit = emqx:get_config([mqtt, max_inflight]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    test_messages(Path, Topic, InflightLimit, AuthHeader, ?config(payload_encoding, Config)),
+
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(
+            get, Path, "limit=10&after=not-int", AuthHeader
+        )
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(
+            get, Path, "limit=-5&after=invalid-int", AuthHeader
+        )
+    ),
+    emqtt:stop(Client).
+
+client_with_mqueue(ClientId, Topic, Count) ->
+    {ok, Client} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 120}}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, Topic, 1),
+    ok = emqtt:disconnect(Client),
+    publish_msgs(Topic, Count),
+    {ok, Client}.
+
+client_with_inflight(ClientId, Topic, Count) ->
+    {ok, Client} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {clean_start, true},
+        {auto_ack, never}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, Topic, 1),
+    publish_msgs(Topic, Count),
+    {ok, Client}.
+
+publish_msgs(Topic, Count) ->
+    lists:foreach(
+        fun(Seq) ->
+            emqx_broker:publish(emqx_message:make(undefined, ?QOS_1, Topic, integer_to_binary(Seq)))
+        end,
+        lists:seq(1, Count)
+    ).
+
+test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding) ->
+    Qs0 = io_lib:format("payload=~s", [PayloadEncoding]),
+    {ok, MsgsResp} = emqx_mgmt_api_test_util:request_api(get, Path, Qs0, AuthHeader),
+    #{<<"meta">> := Meta, <<"data">> := Msgs} = emqx_utils_json:decode(MsgsResp),
+
+    ?assertMatch(
+        #{
+            <<"last">> := <<"end_of_data">>,
+            <<"count">> := Count
+        },
+        Meta
+    ),
+    ?assertEqual(length(Msgs), Count),
+    lists:foreach(
+        fun({Seq, #{<<"payload">> := P} = M}) ->
+            ?assertEqual(Seq, binary_to_integer(decode_payload(P, PayloadEncoding))),
+            ?assertMatch(
+                #{
+                    <<"msgid">> := _,
+                    <<"topic">> := Topic,
+                    <<"qos">> := _,
+                    <<"publish_at">> := _,
+                    <<"from_clientid">> := _,
+                    <<"from_username">> := _
+                },
+                M
+            )
+        end,
+        lists:zip(lists:seq(1, Count), Msgs)
+    ),
+
+    %% The first message payload is <<"1">>,
+    %% and when it is urlsafe base64 encoded (with no padding), it's <<"MQ">>,
+    %% so we cover both cases:
+    %% - when total payload size exceeds the limit,
+    %% - when the first message payload already exceeds the limit but is still returned in the response.
+    QsPayloadLimit = io_lib:format("payload=~s&max_payload_bytes=1", [PayloadEncoding]),
+    {ok, LimitedMsgsResp} = emqx_mgmt_api_test_util:request_api(
+        get, Path, QsPayloadLimit, AuthHeader
+    ),
+    #{<<"meta">> := _, <<"data">> := FirstMsgOnly} = emqx_utils_json:decode(LimitedMsgsResp),
+    ct:pal("~p", [FirstMsgOnly]),
+    ?assertEqual(1, length(FirstMsgOnly)),
+    ?assertEqual(
+        <<"1">>, decode_payload(maps:get(<<"payload">>, hd(FirstMsgOnly)), PayloadEncoding)
+    ),
+
+    Limit = 19,
+    LastCont = lists:foldl(
+        fun(PageSeq, Cont) ->
+            Qs = io_lib:format("payload=~s&after=~s&limit=~p", [PayloadEncoding, Cont, Limit]),
+            {ok, MsgsRespP} = emqx_mgmt_api_test_util:request_api(get, Path, Qs, AuthHeader),
+            #{
+                <<"meta">> := #{<<"last">> := NextCont} = MetaP,
+                <<"data">> := MsgsP
+            } = emqx_utils_json:decode(MsgsRespP),
+            ?assertMatch(#{<<"count">> := Count}, MetaP),
+            ?assertNotEqual(<<"end_of_data">>, NextCont),
+            ?assertEqual(length(MsgsP), Limit),
+            ExpFirstPayload = integer_to_binary(PageSeq * Limit - Limit + 1),
+            ExpLastPayload = integer_to_binary(PageSeq * Limit),
+            ?assertEqual(
+                ExpFirstPayload, decode_payload(maps:get(<<"payload">>, hd(MsgsP)), PayloadEncoding)
+            ),
+            ?assertEqual(
+                ExpLastPayload,
+                decode_payload(maps:get(<<"payload">>, lists:last(MsgsP)), PayloadEncoding)
+            ),
+            NextCont
+        end,
+        none,
+        lists:seq(1, Count div 19)
+    ),
+    LastPartialPage = Count div 19 + 1,
+    LastQs = io_lib:format("payload=~s&after=~s&limit=~p", [PayloadEncoding, LastCont, Limit]),
+    {ok, MsgsRespLastP} = emqx_mgmt_api_test_util:request_api(get, Path, LastQs, AuthHeader),
+    #{<<"meta">> := #{<<"last">> := EmptyCont} = MetaLastP, <<"data">> := MsgsLastP} = emqx_utils_json:decode(
+        MsgsRespLastP
+    ),
+    ?assertEqual(<<"end_of_data">>, EmptyCont),
+    ?assertMatch(#{<<"count">> := Count}, MetaLastP),
+
+    ?assertEqual(
+        integer_to_binary(LastPartialPage * Limit - Limit + 1),
+        decode_payload(maps:get(<<"payload">>, hd(MsgsLastP)), PayloadEncoding)
+    ),
+    ?assertEqual(
+        integer_to_binary(Count),
+        decode_payload(maps:get(<<"payload">>, lists:last(MsgsLastP)), PayloadEncoding)
+    ),
+
+    ExceedQs = io_lib:format("payload=~s&after=~s&limit=~p", [
+        PayloadEncoding, EmptyCont, Limit
+    ]),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(get, Path, ExceedQs, AuthHeader)
+    ),
+
+    %% Invalid common page params
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(get, Path, "limit=0", AuthHeader)
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(get, Path, "limit=limit", AuthHeader)
+    ).
+
+decode_payload(Payload, base64) ->
+    base64:decode(Payload);
+decode_payload(Payload, _) ->
+    Payload.
 
 t_subscribe_shared_topic(_Config) ->
     ClientId = <<"client_subscribe_shared">>,
