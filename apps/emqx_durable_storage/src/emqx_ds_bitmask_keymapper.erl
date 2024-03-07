@@ -112,7 +112,9 @@
     vector_to_key/2,
     bin_vector_to_key/2,
     key_to_vector/2,
+    key_to_coord/3,
     bin_key_to_vector/2,
+    bin_key_to_coord/3,
     key_to_bitstring/2,
     bitstring_to_key/2,
     make_filter/2,
@@ -297,13 +299,7 @@ bin_vector_to_key(Keymapper = #keymapper{vec_coord_size = DimSizeof, key_size = 
 key_to_vector(#keymapper{vec_scanner = Scanner}, Key) ->
     lists:map(
         fun(Actions) ->
-            lists:foldl(
-                fun(Action, Acc) ->
-                    Acc bor extract_inv(Key, Action)
-                end,
-                0,
-                Actions
-            )
+            extract_coord(Actions, Key)
         end,
         Scanner
     ).
@@ -323,6 +319,16 @@ bin_key_to_vector(Keymapper = #keymapper{vec_coord_size = DimSizeof, key_size = 
         Vector,
         DimSizeof
     ).
+
+-spec key_to_coord(keymapper(), key(), dimension()) -> coord().
+key_to_coord(#keymapper{vec_scanner = Scanner}, Key, Dim) ->
+    Actions = lists:nth(Dim, Scanner),
+    extract_coord(Actions, Key).
+
+-spec bin_key_to_coord(keymapper(), key(), dimension()) -> coord().
+bin_key_to_coord(Keymapper = #keymapper{key_size = Size}, BinKey, Dim) ->
+    <<Key:Size>> = BinKey,
+    key_to_coord(Keymapper, Key, Dim).
 
 %% @doc Transform a bitstring to a key
 -spec bitstring_to_key(keymapper(), bitstring()) -> scalar().
@@ -679,6 +685,15 @@ extract_inv(Dest, #scan_action{
     vec_coord_bitmask = SrcBitmask, vec_coord_offset = SrcOffset, scalar_offset = DestOffset
 }) ->
     ((Dest bsr DestOffset) band SrcBitmask) bsl SrcOffset.
+
+extract_coord(Actions, Key) ->
+    lists:foldl(
+        fun(Action, Acc) ->
+            Acc bor extract_inv(Key, Action)
+        end,
+        0,
+        Actions
+    ).
 
 ones(Bits) ->
     1 bsl Bits - 1.
