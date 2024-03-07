@@ -16,6 +16,8 @@
 
 -module(emqx_vm).
 
+-include("logger.hrl").
+
 -export([
     schedulers/0,
     scheduler_usage/1,
@@ -376,28 +378,29 @@ avg15() ->
     compat_windows(fun cpu_sup:avg15/0).
 
 cpu_util() ->
-    compat_windows(fun cpu_sup:util/0).
+    compat_windows(fun() -> emqx_cpu_sup_worker:cpu_util() end).
 
 cpu_util(Args) ->
-    compat_windows(fun cpu_sup:util/1, Args).
+    compat_windows(fun() -> emqx_cpu_sup_worker:cpu_util(Args) end).
 
+-spec compat_windows(function()) -> any().
+compat_windows(Fun) when is_function(Fun, 0) ->
+    case emqx_os_mon:is_os_check_supported() of
+        true ->
+            try Fun() of
+                Val when is_float(Val) -> floor(Val * 100) / 100;
+                Val when is_number(Val) -> Val;
+                Val when is_tuple(Val) -> Val;
+                _ -> 0.0
+            catch
+                _:_ -> 0.0
+            end;
+        false ->
+            0.0
+    end;
 compat_windows(Fun) ->
-    case compat_windows(Fun, []) of
-        Val when is_float(Val) -> floor(Val * 100) / 100;
-        Val when is_number(Val) -> Val;
-        _ -> 0.0
-    end.
-
-compat_windows(Fun, Args) ->
-    try
-        case emqx_os_mon:is_os_check_supported() of
-            false -> 0.0;
-            true when Args =:= [] -> Fun();
-            true -> Fun(Args)
-        end
-    catch
-        _:_ -> 0.0
-    end.
+    ?SLOG(warning, "Invalid function: ~p", [Fun]),
+    error({badarg, Fun}).
 
 load(Avg) ->
     floor((Avg / 256) * 100) / 100.

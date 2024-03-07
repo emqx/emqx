@@ -205,23 +205,17 @@ cpu_stats() ->
         false ->
             [];
         true ->
-            Idle = vm_stats('cpu.idle'),
-            [
-                {cpu_idle, Idle},
-                {cpu_use, 100 - Idle}
-            ]
+            vm_stats('cpu')
     end.
 
-vm_stats('cpu.idle') ->
-    case emqx_vm:cpu_util([detailed]) of
-        {_Num, _Use, List, _} when is_list(List) -> proplists:get_value(idle, List, 0);
-        %% return {all, 0, 0, []} when cpu_sup is not started
-        _ -> 0
-    end;
-vm_stats('cpu.use') ->
-    case vm_stats('cpu.idle') of
-        0 -> 0;
-        Idle -> 100 - Idle
+vm_stats('cpu') ->
+    CpuUtilArg = [],
+    case emqx_vm:cpu_util([CpuUtilArg]) of
+        %% return 0.0 when `emqx_cpu_sup_worker` is not started
+        {all, Use, Idle, _} ->
+            [{cpu_use, Use}, {cpu_idle, Idle}];
+        _ ->
+            [{cpu_use, 0}, {cpu_idle, 0}]
     end;
 vm_stats('total.memory') ->
     {_, MemTotal} = get_sys_memory(),

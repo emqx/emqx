@@ -28,7 +28,7 @@ start_link() ->
 init([]) ->
     OsMon =
         case emqx_os_mon:is_os_check_supported() of
-            true -> [child_spec(emqx_os_mon)];
+            true -> [child_spec(emqx_cpu_sup_worker), child_spec(emqx_os_mon)];
             false -> []
         end,
     Children =
