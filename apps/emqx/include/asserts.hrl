@@ -83,27 +83,6 @@
     end)()
 ).
 
--define(assertMatchOneOf(PAT1, PAT2, EXPR),
-    (fun() ->
-        case (X__V = (EXPR)) of
-            PAT1 ->
-                X__V;
-            PAT2 ->
-                X__V;
-            _ ->
-                erlang:error(
-                    {assertMatch, [
-                        {module, ?MODULE},
-                        {line, ?LINE},
-                        {expression, (??EXPR)},
-                        {pattern, "one of [ " ++ (??PAT1) ++ ", " ++ (??PAT2) ++ " ]"},
-                        {value, X__V}
-                    ]}
-                )
-        end
-    end)()
-).
-
 -define(assertExceptionOneOf(CT1, CT2, EXPR),
     (fun() ->
         X__Attrs = [

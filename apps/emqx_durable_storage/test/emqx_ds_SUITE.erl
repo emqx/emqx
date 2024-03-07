@@ -610,11 +610,14 @@ t_error_mapping_replication_layer(_Config) ->
     %% At least one of `emqx_ds:make_iterator/4` will end in an error.
     Results1 = lists:map(
         fun({_Rank, S}) ->
-            ?assertMatchOneOf(
-                {ok, _Iter},
-                {error, recoverable, {erpc, _}},
-                emqx_ds:make_iterator(DB, S, TopicFilter, 0)
-            )
+            case emqx_ds:make_iterator(DB, S, TopicFilter, 0) of
+                Ok = {ok, _Iter} ->
+                    Ok;
+                Error = {error, recoverable, {erpc, _}} ->
+                    Error;
+                Other ->
+                    ct:fail({unexpected_result, Other})
+            end
         end,
         Streams0
     ),
@@ -626,11 +629,14 @@ t_error_mapping_replication_layer(_Config) ->
     %% At least one of `emqx_ds:next/3` over initial set of iterators will end in an error.
     Results2 = lists:map(
         fun(Iter) ->
-            ?assertMatchOneOf(
-                {ok, _Iter, [_ | _]},
-                {error, recoverable, {badrpc, _}},
-                emqx_ds:next(DB, Iter, _BatchSize = 42)
-            )
+            case emqx_ds:next(DB, Iter, _BatchSize = 42) of
+                Ok = {ok, _Iter, [_ | _]} ->
+                    Ok;
+                Error = {error, recoverable, {badrpc, _}} ->
+                    Error;
+                Other ->
+                    ct:fail({unexpected_result, Other})
+            end
         end,
         Iterators0
     ),
