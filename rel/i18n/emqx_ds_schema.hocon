@@ -5,6 +5,11 @@ messages.desc:
   """~
   Configuration related to the durable storage of MQTT messages.~"""
 
+sessions.label: "MQTT session storage"
+sessions.desc:
+  """~
+  Configuration related to the durable storage of MQTT sessions.~"""
+
 builtin.label: "Builtin backend"
 builtin.desc:
   """~

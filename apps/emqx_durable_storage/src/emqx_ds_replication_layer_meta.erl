@@ -405,8 +405,8 @@ filter_shards(DB) ->
 
 -spec filter_shards(emqx_ds:db(), fun((_) -> boolean())) ->
     [emqx_ds_replication_layer:shard_id()].
-filter_shards(DB, Predicte) ->
-    filter_shards(DB, Predicte, fun(#?SHARD_TAB{shard = {_, ShardId}}) ->
+filter_shards(DB, Predicate) ->
+    filter_shards(DB, Predicate, fun(#?SHARD_TAB{shard = {_, ShardId}}) ->
         ShardId
     end).
 

@@ -49,8 +49,24 @@
 -define(via(DB, Shard), {via, gproc, {n, l, {?MODULE, DB, Shard}}}).
 -define(flush, flush).
 
--record(enqueue_req, {message :: emqx_types:message(), sync :: boolean()}).
--record(enqueue_atomic_req, {batch :: [emqx_types:message()], sync :: boolean()}).
+-type message() :: emqx_types:message().
+
+-record(enqueue_req, {
+    message :: message(),
+    sync :: boolean(),
+    auto_assign_timestamps :: boolean()
+}).
+-record(enqueue_atomic_req, {
+    batch :: [message()],
+    sync :: boolean(),
+    auto_assign_timestamps :: boolean()
+}).
+
+-type bucket() :: auto_ts | no_auto_ts.
+-type store_opts() :: #{
+    auto_assign_timestamps := boolean()
+}.
+-type msg_or_atomic_batch() :: {atomic, pos_integer(), [message()]} | message().
 
 %%================================================================================
 %% API functions
@@ -64,6 +80,7 @@ start_link(DB, Shard) ->
     ok.
 store_batch(DB, Messages, Opts) ->
     Sync = maps:get(sync, Opts, true),
+    AutoAssignTimestamps = maps:get(auto_assign_timestamps, Opts, true),
     case maps:get(atomic, Opts, false) of
         false ->
             lists:foreach(
@@ -73,7 +90,8 @@ store_batch(DB, Messages, Opts) ->
                         ?via(DB, Shard),
                         #enqueue_req{
                             message = Message,
-                            sync = Sync
+                            sync = Sync,
+                            auto_assign_timestamps = AutoAssignTimestamps
                         },
                         infinity
                     )
@@ -87,7 +105,8 @@ store_batch(DB, Messages, Opts) ->
                         ?via(DB, Shard),
                         #enqueue_atomic_req{
                             batch = Batch,
-                            sync = Sync
+                            sync = Sync,
+                            auto_assign_timestamps = AutoAssignTimestamps
                         },
                         infinity
                     )
@@ -110,9 +129,17 @@ store_batch(DB, Messages, Opts) ->
     shard :: emqx_ds_replication_layer:shard_id(),
     n = 0 :: non_neg_integer(),
     tref :: reference(),
-    batch = [] :: [emqx_types:message()],
-    pending_replies = [] :: [gen_server:from()]
+    buckets = #{} :: #{
+        _Bucket ::
+            term() =>
+                #{
+                    msgs := [emqx_types:message()],
+                    pending_replies := [gen_server:from()],
+                    n := non_neg_integer()
+                }
+    }
 }).
+-type s() :: #s{}.
 
 init([DB, Shard]) ->
     process_flag(trap_exit, true),
@@ -124,11 +151,13 @@ init([DB, Shard]) ->
     },
     {ok, S}.
 
-handle_call(#enqueue_req{message = Msg, sync = Sync}, From, S) ->
-    do_enqueue(From, Sync, Msg, S);
-handle_call(#enqueue_atomic_req{batch = Batch, sync = Sync}, From, S) ->
+handle_call(#enqueue_req{message = Msg, sync = Sync, auto_assign_timestamps = AutoTS}, From, S) ->
+    do_enqueue(From, Sync, AutoTS, Msg, S);
+handle_call(
+    #enqueue_atomic_req{batch = Batch, sync = Sync, auto_assign_timestamps = AutoTS}, From, S
+) ->
     Len = length(Batch),
-    do_enqueue(From, Sync, {atomic, Len, Batch}, S);
+    do_enqueue(From, Sync, AutoTS, {atomic, Len, Batch}, S);
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -154,12 +183,23 @@ terminate(_Reason, _S) ->
 -define(COOLDOWN_MIN, 1000).
 -define(COOLDOWN_MAX, 5000).
 
-do_flush(S = #s{batch = []}) ->
+do_flush(S = #s{n = 0}) ->
     S#s{tref = start_timer()};
-do_flush(
-    S = #s{batch = Messages, pending_replies = Replies, db = DB, shard = Shard}
+do_flush(S = #s{buckets = Buckets}) ->
+    do_flush1(maps:to_list(Buckets), S).
+
+do_flush1([] = _Buckets, S) ->
+    S#s{
+        n = 0,
+        buckets = #{},
+        tref = start_timer()
+    };
+do_flush1(
+    [{Bucket, #{msgs := Messages, pending_replies := Replies}} | Rest],
+    S = #s{db = DB, shard = Shard}
 ) ->
-    case emqx_ds_replication_layer:ra_store_batch(DB, Shard, lists:reverse(Messages)) of
+    StoreOpts = bucket_to_store_opts(Bucket),
+    case emqx_ds_replication_layer:ra_store_batch(DB, Shard, lists:reverse(Messages), StoreOpts) of
         ok ->
             ?tp(
                 emqx_ds_replication_layer_egress_flush,
@@ -182,22 +222,12 @@ do_flush(
             %% `infinity' timeout.
             lists:foreach(fun(From) -> gen_server:reply(From, {error, Error}) end, Replies)
     end,
-    S#s{
-        n = 0,
-        batch = [],
-        pending_replies = [],
-        tref = start_timer()
-    }.
+    do_flush1(Rest, S).
 
-do_enqueue(From, Sync, MsgOrBatch, S0 = #s{n = N, batch = Batch, pending_replies = Replies}) ->
+do_enqueue(From, Sync, AutoTS, MsgOrBatch, S0 = #s{n = N}) ->
     NMax = application:get_env(emqx_durable_storage, egress_batch_size, 1000),
-    S1 =
-        case MsgOrBatch of
-            {atomic, NumMsgs, Msgs} ->
-                S0#s{n = N + NumMsgs, batch = Msgs ++ Batch};
-            Msg ->
-                S0#s{n = N + 1, batch = [Msg | Batch]}
-        end,
+    Bucket = bucket(AutoTS),
+    S1 = add_to_bucket(Bucket, MsgOrBatch, S0),
     %% TODO: later we may want to delay the reply until the message is
     %% replicated, but it requies changes to the PUBACK/PUBREC flow to
     %% allow for async replies. For now, we ack when the message is
@@ -205,14 +235,7 @@ do_enqueue(From, Sync, MsgOrBatch, S0 = #s{n = N, batch = Batch, pending_replies
     %%
     %% Otherwise, the client would freeze for at least flush interval,
     %% or until the buffer is filled.
-    S2 =
-        case Sync of
-            true ->
-                S1#s{pending_replies = [From | Replies]};
-            false ->
-                gen_server:reply(From, ok),
-                S1
-        end,
+    S2 = add_pending_or_reply(Bucket, Sync, From, S1),
     S =
         case N >= NMax of
             true ->
@@ -228,3 +251,62 @@ do_enqueue(From, Sync, MsgOrBatch, S0 = #s{n = N, batch = Batch, pending_replies
 start_timer() ->
     Interval = application:get_env(emqx_durable_storage, egress_flush_interval, 100),
     erlang:send_after(Interval, self(), ?flush).
+
+-spec bucket(boolean()) -> bucket().
+bucket(AutoTS) ->
+    case AutoTS of
+        true -> auto_ts;
+        false -> no_auto_ts
+    end.
+
+-spec bucket_to_store_opts(bucket()) -> store_opts().
+bucket_to_store_opts(auto_ts) ->
+    #{auto_assign_timestamps => true};
+bucket_to_store_opts(no_auto_ts) ->
+    #{auto_assign_timestamps => false}.
+
+-spec add_to_bucket(bucket(), msg_or_atomic_batch(), s()) -> s().
+add_to_bucket(Bucket, {atomic, NumMsgs, Msgs}, S0 = #s{n = N0, buckets = Buckets0}) ->
+    Buckets =
+        maps:update_with(
+            Bucket,
+            fun(#{msgs := Msgs0, n := M0} = Previous) ->
+                Previous#{
+                    msgs := Msgs ++ Msgs0,
+                    n := M0 + NumMsgs
+                }
+            end,
+            #{msgs => Msgs, n => NumMsgs, pending_replies => []},
+            Buckets0
+        ),
+    S0#s{n = N0 + NumMsgs, buckets = Buckets};
+add_to_bucket(Bucket, Msg, S0 = #s{n = N0, buckets = Buckets0}) ->
+    Buckets =
+        maps:update_with(
+            Bucket,
+            fun(#{msgs := Msgs0, n := M0} = Previous) ->
+                Previous#{
+                    msgs := [Msg | Msgs0],
+                    n := M0 + 1
+                }
+            end,
+            #{msgs => [Msg], n => 1, pending_replies => []},
+            Buckets0
+        ),
+    S0#s{n = N0 + 1, buckets = Buckets}.
+
+-spec add_pending_or_reply(bucket(), boolean(), gen_server:from(), s()) -> s().
+add_pending_or_reply(_Bucket, _Sync = false, From, S) ->
+    gen_server:reply(From, ok),
+    S;
+add_pending_or_reply(Bucket, _Sync = true, From, S0) ->
+    #s{buckets = Buckets0} = S0,
+    Buckets =
+        maps:update_with(
+            Bucket,
+            fun(Previous = #{pending_replies := Replies}) ->
+                Previous#{pending_replies := [From | Replies]}
+            end,
+            Buckets0
+        ),
+    S0#s{buckets = Buckets}.

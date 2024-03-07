@@ -141,6 +141,7 @@ end_per_group(_, _Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Config1 = preconfig_per_testcase(TestCase, Config),
     case erlang:function_exported(?MODULE, TestCase, 2) of
         true -> ?MODULE:TestCase(init, Config1);

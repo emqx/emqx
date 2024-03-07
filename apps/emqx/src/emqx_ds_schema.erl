@@ -80,13 +80,22 @@ namespace() ->
 schema() ->
     [
         {messages,
-            ds_schema(#{
+            ds_schema(ref(builtin), #{
                 default =>
                     #{
                         <<"backend">> => builtin
                     },
                 importance => ?IMPORTANCE_MEDIUM,
                 desc => ?DESC(messages)
+            })},
+        {sessions,
+            ds_schema(ref(builtin_session), #{
+                default =>
+                    #{
+                        <<"backend">> => builtin
+                    },
+                importance => ?IMPORTANCE_MEDIUM,
+                desc => ?DESC(sessions)
             })}
     ].
 
@@ -179,6 +188,19 @@ fields(builtin) ->
                 }
             )}
     ];
+fields(builtin_session) ->
+    lists:map(
+        fun
+            ({layout = Key, Sc0}) ->
+                Override = #{type => hoconsc:union(builtin_layouts_session())},
+                {Key, hocon_schema:override(Sc0, Override)};
+            (Field) ->
+                Field
+        end,
+        fields(builtin)
+    );
+fields(layout_builtin_wildcard_optimized_session) ->
+    fields(layout_builtin_wildcard_optimized);
 fields(builtin_local_write_buffer) ->
     [
         {max_items,
@@ -253,9 +275,13 @@ fields(layout_builtin_reference) ->
 
 desc(builtin) ->
     ?DESC(builtin);
+desc(builtin_session) ->
+    ?DESC(builtin);
 desc(builtin_local_write_buffer) ->
     ?DESC(builtin_local_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
+    ?DESC(layout_builtin_wildcard_optimized);
+desc(layout_builtin_wildcard_optimized_session) ->
     ?DESC(layout_builtin_wildcard_optimized);
 desc(_) ->
     undefined.
@@ -264,10 +290,10 @@ desc(_) ->
 %% Internal functions
 %%================================================================================
 
-ds_schema(Options) ->
+ds_schema(MainRef, Options) ->
     sc(
         hoconsc:union([
-            ref(builtin)
+            MainRef
             | emqx_schema_hooks:injection_point('durable_storage.backends', [])
         ]),
         Options
@@ -276,6 +302,9 @@ ds_schema(Options) ->
 -ifndef(TEST).
 builtin_layouts() ->
     [ref(layout_builtin_wildcard_optimized)].
+
+builtin_layouts_session() ->
+    [ref(layout_builtin_wildcard_optimized_session)].
 -else.
 builtin_layouts() ->
     %% Reference layout stores everything in one stream, so it's not
@@ -283,6 +312,13 @@ builtin_layouts() ->
     %% produces a very predictabale replay order, which can be useful
     %% for testing and debugging:
     [ref(layout_builtin_wildcard_optimized), ref(layout_builtin_reference)].
+
+builtin_layouts_session() ->
+    %% Reference layout stores everything in one stream, so it's not
+    %% suitable for production use. However, it's very simple and
+    %% produces a very predictabale replay order, which can be useful
+    %% for testing and debugging:
+    [ref(layout_builtin_wildcard_optimized_session), ref(layout_builtin_reference)].
 -endif.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

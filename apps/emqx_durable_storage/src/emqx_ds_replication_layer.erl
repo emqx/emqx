@@ -60,7 +60,7 @@
     do_add_generation_v2/1,
 
     %% Egress API:
-    ra_store_batch/3
+    ra_store_batch/4
 ]).
 
 -export([
@@ -247,7 +247,14 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
-            Streams = ra_get_delete_streams(DB, Shard, TopicFilter, StartTime),
+            Streams =
+                try
+                    ra_get_delete_streams(DB, Shard, TopicFilter, StartTime)
+                catch
+                    error:{erpc, _} ->
+                        %% TODO: log?
+                        []
+                end,
             lists:map(
                 fun(StorageLayerStream) ->
                     ?delete_stream(Shard, StorageLayerStream)
@@ -491,10 +498,11 @@ list_nodes() ->
 %% Too large for normal operation, need better backpressure mechanism.
 -define(RA_TIMEOUT, 60 * 1000).
 
-ra_store_batch(DB, Shard, Messages) ->
+ra_store_batch(DB, Shard, Messages, Opts) ->
     Command = #{
         ?tag => ?BATCH,
-        ?batch_messages => Messages
+        ?batch_messages => Messages,
+        ?opts => Opts
     },
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
     case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
@@ -596,7 +604,8 @@ apply(
     #{index := RaftIdx},
     #{
         ?tag := ?BATCH,
-        ?batch_messages := MessagesIn
+        ?batch_messages := MessagesIn,
+        ?opts := Opts
     },
     #{db_shard := DBShard, latest := Latest} = State
 ) ->
@@ -604,7 +613,7 @@ apply(
     %% Unique timestamp tracking real time closely.
     %% With microsecond granularity it should be nearly impossible for it to run
     %% too far ahead than the real time clock.
-    {NLatest, Messages} = assign_timestamps(Latest, MessagesIn),
+    {NLatest, Messages} = assign_timestamps(Latest, MessagesIn, Opts),
     %% TODO
     %% Batch is now reversed, but it should not make a lot of difference.
     %% Even if it would be in order, it's still possible to write messages far away
@@ -643,19 +652,28 @@ apply(
     Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
     {State, Result}.
 
-assign_timestamps(Latest, Messages) ->
-    assign_timestamps(Latest, Messages, []).
+assign_timestamps(Latest, Messages, #{auto_assign_timestamps := true}) ->
+    do_auto_assign_timestamps(Latest, Messages, []);
+assign_timestamps(Latest, Messages, #{auto_assign_timestamps := false}) ->
+    lists:foldl(
+        fun(Message, {MaxIn, AccIn}) ->
+            MsgTs = emqx_message:timestamp(Message, microsecond),
+            {max(MaxIn, MsgTs), [assign_timestamp(MsgTs, Message) | AccIn]}
+        end,
+        {Latest, []},
+        Messages
+    ).
 
-assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
+do_auto_assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
     case emqx_message:timestamp(MessageIn, microsecond) of
         TimestampUs when TimestampUs > Latest ->
             Message = assign_timestamp(TimestampUs, MessageIn),
-            assign_timestamps(TimestampUs, Rest, [Message | Acc]);
+            do_auto_assign_timestamps(TimestampUs, Rest, [Message | Acc]);
         _Earlier ->
             Message = assign_timestamp(Latest + 1, MessageIn),
-            assign_timestamps(Latest + 1, Rest, [Message | Acc])
+            do_auto_assign_timestamps(Latest + 1, Rest, [Message | Acc])
     end;
-assign_timestamps(Latest, [], Acc) ->
+do_auto_assign_timestamps(Latest, [], Acc) ->
     {Latest, Acc}.
 
 assign_timestamp(TimestampUs, Message) ->

@@ -1112,7 +1112,6 @@ do_list_clients_cluster_query(
         {Rows, QueryState1 = #{complete := Complete0}} ->
             case emqx_mgmt_api:accumulate_query_rows(Node, Rows, QueryState1, ResultAcc) of
                 {enough, NResultAcc} ->
-                    %% TODO: add persistent session count?
                     %% TODO: this may return `{error, _, _}'...
                     QueryState2 = emqx_mgmt_api:maybe_collect_total_from_tail_nodes(
                         Tail, QueryState1

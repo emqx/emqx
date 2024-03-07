@@ -22,6 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(tab, ?MODULE).
+-define(DB, emqx_persistent_session).
 
 %%================================================================================
 %% Type declarations
@@ -34,6 +35,12 @@
 
 -type state() :: #{emqx_persistent_session_ds:id() => #s{}}.
 
+-define(metadata_domain, metadata).
+-define(subscription_domain, subscription).
+-define(stream_domain, stream).
+-define(rank_domain, rank).
+-define(seqno_domain, seqno).
+
 %%================================================================================
 %% Properties
 %%================================================================================
@@ -42,6 +49,42 @@ seqno_proper_test_() ->
     Props = [prop_consistency()],
     Opts = [{numtests, 10}, {to_file, user}, {max_size, 100}],
     {timeout, 300, [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}.
+
+-ifdef(STORE_STATE_IN_DS).
+domain_msg_roundtrip_proper_test_() ->
+    Props = [prop_domain_msg_roundtrip()],
+    Opts = [{numtests, 1000}, {to_file, user}, {max_size, 100}],
+    {timeout, 300, [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}.
+
+prop_domain_msg_roundtrip() ->
+    ?FORALL(
+        {SessionId, Domain, Val},
+        {session_id_gen(), domain_gen(), value_gen()},
+        ?FORALL(
+            Key,
+            key_gen(Domain),
+            begin
+                Msg = emqx_persistent_session_ds_state:to_domain_msg(Domain, SessionId, Key, Val),
+                Parsed = emqx_persistent_session_ds_state:from_domain_msg(Msg),
+                Expected = #{
+                    domain => Domain,
+                    session_id => SessionId,
+                    key => Key,
+                    val => Val
+                },
+                ?WHENFAIL(
+                    begin
+                        io:format(user, " *** Expected =~n       ~p~n", [Expected]),
+                        io:format(user, " *** Got =~n       ~p~n", [Parsed]),
+                        ok
+                    end,
+                    Expected =:= Parsed
+                )
+            end
+        )
+    ).
+%% -ifdef(STORE_STATE_IN_DS).
+-endif.
 
 prop_consistency() ->
     ?FORALL(
@@ -142,6 +185,55 @@ del_req() ->
     oneof([
         {#s.streams, del_stream, stream_id()}
     ]).
+
+value_gen() ->
+    oneof([proper_types:map(), tuple()]).
+
+session_id_gen() ->
+    frequency([
+        {5, clientid()},
+        {1, <<"a/">>},
+        {1, <<"a/b">>},
+        {1, <<"a/+">>},
+        {1, <<"a/+/#">>},
+        {1, <<"#">>},
+        {1, <<"+">>},
+        {1, <<"/">>}
+    ]).
+
+clientid() ->
+    %% empty string is not valid...
+    ?SUCHTHAT(ClientId, emqx_proper_types:clientid(), ClientId =/= <<>>).
+
+domain_gen() ->
+    oneof([
+        ?metadata_domain,
+        ?subscription_domain,
+        ?stream_domain,
+        ?rank_domain,
+        ?seqno_domain
+    ]).
+
+key_gen(?metadata_domain) ->
+    <<"metadata">>;
+key_gen(?subscription_domain) ->
+    {emqx_proper_types:normal_topic_filter(), []};
+key_gen(?stream_domain) ->
+    ?LET(
+        {Id, X, Y, Z, T},
+        {
+            integer(),
+            oneof([integer(), binary()]),
+            oneof([integer(), binary()]),
+            oneof([integer(), binary()]),
+            tuple()
+        },
+        {Id, [X, Y, Z | T]}
+    );
+key_gen(?rank_domain) ->
+    {integer(), binary()};
+key_gen(?seqno_domain) ->
+    integer().
 
 command(S) ->
     case maps:size(S) > 0 of
@@ -362,12 +454,57 @@ get_state(SessionId) ->
 put_state(SessionId, S) ->
     ets:insert(?tab, {SessionId, S}).
 
+-ifdef(STORE_STATE_IN_DS).
 init() ->
     _ = ets:new(?tab, [named_table, public, {keypos, 1}]),
     mria:start(),
-    emqx_persistent_session_ds_state:create_tables().
+    {ok, _} = application:ensure_all_started(emqx_durable_storage),
+    Dir = binary_to_list(filename:join(["/tmp", emqx_guid:to_hexstr(emqx_guid:gen())])),
+    persistent_term:put({?MODULE, data_dir}, Dir),
+    application:set_env(emqx_durable_storage, db_data_dir, Dir),
+    Defaults = #{
+        backend => builtin,
+        storage =>
+            {emqx_ds_storage_bitfield_lts, #{
+                topic_index_bytes => 4,
+                epoch_bits => 10,
+                bits_per_topic_level => 64
+            }},
+        n_shards => 16,
+        n_sites => 1,
+        replication_factor => 3,
+        replication_options => #{}
+    },
+    ok = emqx_persistent_session_ds_state:open_db(Defaults),
+    ok.
+%% -ifdef(STORE_STATE_IN_DS).
+-else.
+init() ->
+    _ = ets:new(?tab, [named_table, public, {keypos, 1}]),
+    mria:start(),
+    {ok, _} = application:ensure_all_started(emqx_durable_storage),
+    ok = emqx_persistent_session_ds_state:create_tables(),
+    ok.
+%% -ifdef(STORE_STATE_IN_DS).
+-endif.
 
+-ifdef(STORE_STATE_IN_DS).
+clean() ->
+    ets:delete(?tab),
+    emqx_ds:drop_db(?DB),
+    application:stop(emqx_durable_storage),
+    mria:stop(),
+    mria_mnesia:delete_schema(),
+    Dir = persistent_term:get({?MODULE, data_dir}),
+    persistent_term:erase({?MODULE, data_dir}),
+    ok = file:del_dir_r(Dir),
+    ok.
+%% -ifdef(STORE_STATE_IN_DS).
+-else.
 clean() ->
     ets:delete(?tab),
     mria:stop(),
-    mria_mnesia:delete_schema().
+    mria_mnesia:delete_schema(),
+    ok.
+%% -ifdef(STORE_STATE_IN_DS).
+-endif.
