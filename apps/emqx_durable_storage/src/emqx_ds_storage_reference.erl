@@ -33,9 +33,12 @@
     drop/5,
     store_batch/4,
     get_streams/4,
+    get_delete_streams/4,
     make_iterator/5,
+    make_delete_iterator/5,
     update_iterator/4,
-    next/4
+    next/4,
+    delete_next/5
 ]).
 
 %% internal exports:
@@ -62,7 +65,15 @@
 
 -record(stream, {}).
 
+-record(delete_stream, {}).
+
 -record(it, {
+    topic_filter :: emqx_ds:topic_filter(),
+    start_time :: emqx_ds:time(),
+    last_seen_message_key = first :: binary() | first
+}).
+
+-record(delete_it, {
     topic_filter :: emqx_ds:topic_filter(),
     start_time :: emqx_ds:time(),
     last_seen_message_key = first :: binary() | first
@@ -118,8 +129,17 @@ store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options) ->
 get_streams(_Shard, _Data, _TopicFilter, _StartTime) ->
     [#stream{}].
 
+get_delete_streams(_Shard, _Data, _TopicFilter, _StartTime) ->
+    [#delete_stream{}].
+
 make_iterator(_Shard, _Data, #stream{}, TopicFilter, StartTime) ->
     {ok, #it{
+        topic_filter = TopicFilter,
+        start_time = StartTime
+    }}.
+
+make_delete_iterator(_Shard, _Data, #delete_stream{}, TopicFilter, StartTime) ->
+    {ok, #delete_it{
         topic_filter = TopicFilter,
         start_time = StartTime
     }}.
@@ -151,6 +171,37 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     It = It0#it{last_seen_message_key = Key},
     {ok, It, lists:reverse(Messages)}.
 
+delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize) ->
+    #delete_it{
+        topic_filter = TopicFilter,
+        start_time = StartTime,
+        last_seen_message_key = Key0
+    } = It0,
+    {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
+    Action =
+        case Key0 of
+            first ->
+                first;
+            _ ->
+                _ = rocksdb:iterator_move(ITHandle, Key0),
+                next
+        end,
+    {Key, {NumDeleted, NumIterated}} = do_delete_next(
+        TopicFilter,
+        StartTime,
+        DB,
+        CF,
+        ITHandle,
+        Action,
+        Selector,
+        BatchSize,
+        Key0,
+        {0, 0}
+    ),
+    rocksdb:iterator_close(ITHandle),
+    It = It0#delete_it{last_seen_message_key = Key},
+    {ok, It, NumDeleted, NumIterated}.
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -170,6 +221,65 @@ do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
             end;
         {error, invalid_iterator} ->
             {Key0, Acc}
+    end.
+
+%% TODO: use a context map...
+do_delete_next(_, _, _, _, _, _, _, 0, Key, Acc) ->
+    {Key, Acc};
+do_delete_next(
+    TopicFilter, StartTime, DB, CF, IT, Action, Selector, NLeft, Key0, {AccDel, AccIter}
+) ->
+    case rocksdb:iterator_move(IT, Action) of
+        {ok, Key, Blob} ->
+            Msg = #message{topic = Topic, timestamp = TS} = binary_to_term(Blob),
+            TopicWords = emqx_topic:words(Topic),
+            case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
+                true ->
+                    case Selector(Msg) of
+                        true ->
+                            ok = rocksdb:delete(DB, CF, Key, _WriteOpts = []),
+                            do_delete_next(
+                                TopicFilter,
+                                StartTime,
+                                DB,
+                                CF,
+                                IT,
+                                next,
+                                Selector,
+                                NLeft - 1,
+                                Key,
+                                {AccDel + 1, AccIter + 1}
+                            );
+                        false ->
+                            do_delete_next(
+                                TopicFilter,
+                                StartTime,
+                                DB,
+                                CF,
+                                IT,
+                                next,
+                                Selector,
+                                NLeft - 1,
+                                Key,
+                                {AccDel, AccIter + 1}
+                            )
+                    end;
+                false ->
+                    do_delete_next(
+                        TopicFilter,
+                        StartTime,
+                        DB,
+                        CF,
+                        IT,
+                        next,
+                        Selector,
+                        NLeft,
+                        Key,
+                        {AccDel, AccIter + 1}
+                    )
+            end;
+        {error, invalid_iterator} ->
+            {Key0, {AccDel, AccIter}}
     end.
 
 %% @doc Generate a column family ID for the MQTT messages

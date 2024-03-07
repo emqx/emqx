@@ -23,6 +23,7 @@
 -define(STREAM, 1).
 -define(IT, 2).
 -define(BATCH, 3).
+-define(DELETE_IT, 4).
 
 %% keys:
 -define(tag, 1).
