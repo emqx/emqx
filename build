@@ -470,10 +470,8 @@ make_docker() {
     )
     :> ./.emqx_docker_image_tags
     for r in "${DOCKER_REGISTRIES[@]}"; do
-        if ! is_ecr_and_enterprise "$r" "$PROFILE"; then
-            DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_IMAGE_TAG}")
-            echo "$r/${EMQX_IMAGE_TAG}" >> ./.emqx_docker_image_tags
-        fi
+        DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_IMAGE_TAG}")
+        echo "$r/${EMQX_IMAGE_TAG}" >> ./.emqx_docker_image_tags
     done
     if [ "${DOCKER_BUILD_NOCACHE:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--no-cache)
@@ -483,14 +481,12 @@ make_docker() {
     fi
     if [ "${DOCKER_LATEST:-false}" = true ]; then
         for r in "${DOCKER_REGISTRIES[@]}"; do
-            if ! is_ecr_and_enterprise "$r" "$PROFILE"; then
-                DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}")
-                echo "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}" >> ./.emqx_docker_image_tags
-                DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}")
-                echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" >> ./.emqx_docker_image_tags
-                DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}")
-                echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" >> ./.emqx_docker_image_tags
-            fi
+          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}")
+          echo "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}" >> ./.emqx_docker_image_tags
+          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}")
+          echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" >> ./.emqx_docker_image_tags
+          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}")
+          echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" >> ./.emqx_docker_image_tags
         done
     fi
     if [ "${DOCKER_PLATFORMS:-default}" != 'default' ]; then
