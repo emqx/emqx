@@ -21,7 +21,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
 
 t_load(_Config) ->
     lists:foreach(
@@ -97,7 +98,7 @@ t_get_process_limit(_Config) ->
     emqx_vm:get_process_limit().
 
 t_cpu_util(_Config) ->
-    _Cpu = emqx_vm:cpu_util().
+    ?assertMatch(Val when is_number(Val), emqx_vm:cpu_util()).
 
 easy_server() ->
     {ok, LSock} = gen_tcp:listen(5678, [binary, {packet, 0}, {active, false}]),
