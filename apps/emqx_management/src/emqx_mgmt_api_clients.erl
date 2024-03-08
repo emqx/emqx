@@ -1166,9 +1166,9 @@ maybe_cast_cont(_, PagerParams) ->
     PagerParams.
 
 %% integer packet id
-cont_encoding(inflight_msgs) -> none;
+cont_encoding(inflight_msgs) -> ?URL_PARAM_INTEGER;
 %% binary message id
-cont_encoding(mqueue_msgs) -> base64.
+cont_encoding(mqueue_msgs) -> ?URL_PARAM_BINARY.
 
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
