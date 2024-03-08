@@ -372,6 +372,48 @@ t_10_non_atomic_store_batch(_Config) ->
     ),
     ok.
 
+t_smoke_delete_next(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+            StartTime = 0,
+            TopicFilter = [<<"foo">>, '#'],
+            Msgs =
+                [Msg1, _Msg2, Msg3] = [
+                    message(<<"foo/bar">>, <<"1">>, 0),
+                    message(<<"foo">>, <<"2">>, 1),
+                    message(<<"bar/bar">>, <<"3">>, 2)
+                ],
+            ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+
+            [DStream] = emqx_ds:get_delete_streams(DB, TopicFilter, StartTime),
+            {ok, DIter0} = emqx_ds:make_delete_iterator(DB, DStream, TopicFilter, StartTime),
+
+            Selector = fun(#message{topic = Topic}) ->
+                Topic == <<"foo">>
+            end,
+            {ok, DIter1, NumDeleted1} = delete(DB, DIter0, Selector, 1),
+            ?assertEqual(0, NumDeleted1),
+            {ok, DIter2, NumDeleted2} = delete(DB, DIter1, Selector, 1),
+            ?assertEqual(1, NumDeleted2),
+
+            TopicFilterHash = ['#'],
+            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilterHash, StartTime),
+            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilterHash, StartTime),
+            {ok, _Iter, Batch} = iterate(DB, Iter0, 1),
+            ?assertEqual([Msg1, Msg3], [Msg || {_Key, Msg} <- Batch]),
+
+            ok = emqx_ds:add_generation(DB),
+
+            ?assertMatch({ok, end_of_stream}, emqx_ds:delete_next(DB, DIter2, Selector, 1)),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_drop_generation_with_never_used_iterator(_Config) ->
     %% This test checks how the iterator behaves when:
     %%   1) it's created at generation 1 and not consumed from.
@@ -603,6 +645,21 @@ iterate(DB, It0, BatchSize, Acc) ->
             {ok, It, Acc};
         {ok, It, Msgs} ->
             iterate(DB, It, BatchSize, Acc ++ Msgs);
+        {ok, end_of_stream} ->
+            {ok, end_of_stream, Acc};
+        Ret ->
+            Ret
+    end.
+
+delete(DB, It, Selector, BatchSize) ->
+    delete(DB, It, Selector, BatchSize, 0).
+
+delete(DB, It0, Selector, BatchSize, Acc) ->
+    case emqx_ds:delete_next(DB, It0, Selector, BatchSize) of
+        {ok, It, 0} ->
+            {ok, It, Acc};
+        {ok, It, NumDeleted} ->
+            delete(DB, It, BatchSize, Selector, Acc + NumDeleted);
         {ok, end_of_stream} ->
             {ok, end_of_stream, Acc};
         Ret ->

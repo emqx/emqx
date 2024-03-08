@@ -30,9 +30,12 @@
     drop_db/1,
     store_batch/3,
     get_streams/3,
+    get_delete_streams/3,
     make_iterator/4,
+    make_delete_iterator/4,
     update_iterator/3,
     next/3,
+    delete_next/4,
     node_of_shard/2,
     shard_of_message/3,
     maybe_set_myself_as_leader/2
@@ -50,11 +53,22 @@
     do_next_v1/4,
     do_add_generation_v2/1,
     do_list_generations_with_lifetimes_v3/2,
-    do_drop_generation_v3/3
+    do_drop_generation_v3/3,
+    do_get_delete_streams_v4/4,
+    do_make_delete_iterator_v4/5,
+    do_delete_next_v4/5
 ]).
 
 -export_type([
-    shard_id/0, builtin_db_opts/0, stream_v1/0, stream/0, iterator/0, message_id/0, batch/0
+    shard_id/0,
+    builtin_db_opts/0,
+    stream_v1/0,
+    stream/0,
+    delete_stream/0,
+    iterator/0,
+    delete_iterator/0,
+    message_id/0,
+    batch/0
 ]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -86,14 +100,24 @@
     }.
 
 -define(stream_v2(SHARD, INNER), [2, SHARD | INNER]).
+-define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
 
 -opaque stream() :: nonempty_maybe_improper_list().
+
+-opaque delete_stream() :: nonempty_maybe_improper_list().
 
 -opaque iterator() ::
     #{
         ?tag := ?IT,
         ?shard := emqx_ds_replication_layer:shard_id(),
         ?enc := emqx_ds_storage_layer:iterator()
+    }.
+
+-opaque delete_iterator() ::
+    #{
+        ?tag := ?DELETE_IT,
+        ?shard := emqx_ds_replication_layer:shard_id(),
+        ?enc := emqx_ds_storage_layer:delete_iterator()
     }.
 
 -type message_id() :: emqx_ds:message_id().
@@ -193,6 +217,24 @@ get_streams(DB, TopicFilter, StartTime) ->
         Shards
     ).
 
+-spec get_delete_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    [delete_stream()].
+get_delete_streams(DB, TopicFilter, StartTime) ->
+    Shards = list_shards(DB),
+    lists:flatmap(
+        fun(Shard) ->
+            Node = node_of_shard(DB, Shard),
+            Streams = emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, StartTime),
+            lists:map(
+                fun(StorageLayerStream) ->
+                    ?delete_stream(Shard, StorageLayerStream)
+                end,
+                Streams
+            )
+        end,
+        Shards
+    ).
+
 -spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
@@ -201,6 +243,22 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
     case emqx_ds_proto_v4:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
+        Err = {error, _} ->
+            Err
+    end.
+
+-spec make_delete_iterator(emqx_ds:db(), delete_stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    emqx_ds:make_delete_iterator_result(delete_iterator()).
+make_delete_iterator(DB, Stream, TopicFilter, StartTime) ->
+    ?delete_stream(Shard, StorageStream) = Stream,
+    Node = node_of_shard(DB, Shard),
+    case
+        emqx_ds_proto_v4:make_delete_iterator(
+            Node, DB, Shard, StorageStream, TopicFilter, StartTime
+        )
+    of
+        {ok, Iter} ->
+            {ok, #{?tag => ?DELETE_IT, ?shard => Shard, ?enc => Iter}};
         Err = {error, _} ->
             Err
     end.
@@ -245,6 +303,19 @@ next(DB, Iter0, BatchSize) ->
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, Batch};
+        Other ->
+            Other
+    end.
+
+-spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
+    emqx_ds:delete_next_result(delete_iterator()).
+delete_next(DB, Iter0, Selector, BatchSize) ->
+    #{?tag := ?DELETE_IT, ?shard := Shard, ?enc := StorageIter0} = Iter0,
+    Node = node_of_shard(DB, Shard),
+    case emqx_ds_proto_v4:delete_next(Node, DB, Shard, StorageIter0, Selector, BatchSize) of
+        {ok, StorageIter, NumDeleted} ->
+            Iter = Iter0#{?enc := StorageIter},
+            {ok, Iter, NumDeleted};
         Other ->
             Other
     end.
@@ -352,6 +423,17 @@ do_make_iterator_v1(_DB, _Shard, _Stream, _TopicFilter, _StartTime) ->
 do_make_iterator_v2(DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator({DB, Shard}, Stream, TopicFilter, StartTime).
 
+-spec do_make_delete_iterator_v4(
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:delete_stream(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
+) ->
+    {ok, emqx_ds_storage_layer:delete_iterator()} | {error, _}.
+do_make_delete_iterator_v4(DB, Shard, Stream, TopicFilter, StartTime) ->
+    emqx_ds_storage_layer:make_delete_iterator({DB, Shard}, Stream, TopicFilter, StartTime).
+
 -spec do_update_iterator_v2(
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
@@ -374,6 +456,17 @@ do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
 do_next_v1(DB, Shard, Iter, BatchSize) ->
     emqx_ds_storage_layer:next({DB, Shard}, Iter, BatchSize).
 
+-spec do_delete_next_v4(
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:delete_iterator(),
+    emqx_ds:delete_selector(),
+    pos_integer()
+) ->
+    emqx_ds:delete_next_result(emqx_ds_storage_layer:delete_iterator()).
+do_delete_next_v4(DB, Shard, Iter, Selector, BatchSize) ->
+    emqx_ds_storage_layer:delete_next({DB, Shard}, Iter, Selector, BatchSize).
+
 -spec do_add_generation_v2(emqx_ds:db()) -> ok | {error, _}.
 do_add_generation_v2(DB) ->
     MyShards = emqx_ds_replication_layer_meta:my_owned_shards(DB),
@@ -393,6 +486,13 @@ do_list_generations_with_lifetimes_v3(DB, ShardId) ->
     ok | {error, _}.
 do_drop_generation_v3(DB, ShardId, GenId) ->
     emqx_ds_storage_layer:drop_generation({DB, ShardId}, GenId).
+
+-spec do_get_delete_streams_v4(
+    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
+) ->
+    [emqx_ds_storage_layer:delete_stream()].
+do_get_delete_streams_v4(DB, Shard, TopicFilter, StartTime) ->
+    emqx_ds_storage_layer:get_delete_streams({DB, Shard}, TopicFilter, StartTime).
 
 %%================================================================================
 %% Internal functions

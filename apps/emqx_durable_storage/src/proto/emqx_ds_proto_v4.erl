@@ -27,10 +27,13 @@
     next/5,
     update_iterator/5,
     add_generation/2,
-
-    %% introduced in v3
     list_generations_with_lifetimes/3,
-    drop_generation/4
+    drop_generation/4,
+
+    %% introduced in v4
+    get_delete_streams/5,
+    make_delete_iterator/6,
+    delete_next/6
 ]).
 
 %% behavior callbacks:
@@ -114,10 +117,6 @@ update_iterator(Node, DB, Shard, OldIter, DSKey) ->
 add_generation(Node, DB) ->
     erpc:multicall(Node, emqx_ds_replication_layer, do_add_generation_v2, [DB]).
 
-%%--------------------------------------------------------------------------------
-%% Introduced in V3
-%%--------------------------------------------------------------------------------
-
 -spec list_generations_with_lifetimes(
     node(),
     emqx_ds:db(),
@@ -139,9 +138,60 @@ list_generations_with_lifetimes(Node, DB, Shard) ->
 drop_generation(Node, DB, Shard, GenId) ->
     erpc:call(Node, emqx_ds_replication_layer, do_drop_generation_v3, [DB, Shard, GenId]).
 
+%%--------------------------------------------------------------------------------
+%% Introduced in V4
+%%--------------------------------------------------------------------------------
+
+-spec get_delete_streams(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
+) ->
+    [emqx_ds_storage_layer:delete_stream()].
+get_delete_streams(Node, DB, Shard, TopicFilter, Time) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_get_delete_streams_v4, [
+        DB, Shard, TopicFilter, Time
+    ]).
+
+-spec make_delete_iterator(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:delete_stream(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
+) ->
+    {ok, emqx_ds_storage_layer:delete_iterator()} | {error, _}.
+make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_make_delete_iterator_v4, [
+        DB, Shard, Stream, TopicFilter, StartTime
+    ]).
+
+-spec delete_next(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:delete_iterator(),
+    emqx_ds:delete_selector(),
+    pos_integer()
+) ->
+    {ok, emqx_ds_storage_layer:delete_iterator(), non_neg_integer()}
+    | {ok, end_of_stream}
+    | {error, _}.
+delete_next(Node, DB, Shard, Iter, Selector, BatchSize) ->
+    emqx_rpc:call(
+        Shard,
+        Node,
+        emqx_ds_replication_layer,
+        do_delete_next_v4,
+        [DB, Shard, Iter, Selector, BatchSize]
+    ).
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
 introduced_in() ->
-    "5.5.1".
+    "5.6.0".

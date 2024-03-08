@@ -83,6 +83,35 @@ t_iterate(_Config) ->
     ],
     ok.
 
+%% Smoke test for deleting messages.
+t_delete(_Config) ->
+    %% Prepare data:
+    TopicToDelete = <<"foo/bar/baz">>,
+    Topics = [<<"foo/bar">>, TopicToDelete, <<"a">>],
+    Timestamps = lists:seq(1, 10),
+    Batch = [
+        make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
+     || Topic <- Topics, PublishedAt <- Timestamps
+    ],
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
+
+    %% Iterate through topics:
+    StartTime = 0,
+    TopicFilter = parse_topic(<<"#">>),
+    Selector = fun(#message{topic = T} = Msg) ->
+        T == TopicToDelete
+    end,
+    NumDeleted = delete(?SHARD, TopicFilter, StartTime, Selector),
+    ?assertEqual(10, NumDeleted),
+
+    %% Read surviving messages.
+    Messages = [Msg || {_DSKey, Msg} <- replay(?SHARD, TopicFilter, StartTime)],
+    MessagesByTopic = maps:groups_from_list(fun emqx_message:topic/1, Messages),
+    ?assertNot(is_map_key(TopicToDelete, MessagesByTopic), #{msgs => MessagesByTopic}),
+    ?assertEqual(20, length(Messages)),
+
+    ok.
+
 -define(assertSameSet(A, B), ?assertEqual(lists:sort(A), lists:sort(B))).
 
 %% Smoke test that verifies that concrete topics are mapped to
@@ -509,3 +538,71 @@ keyspace(TC) ->
 
 set_keyspace_config(Keyspace, Config) ->
     ok = application:set_env(emqx_ds, keyspace_config, #{Keyspace => Config}).
+
+delete(Shard, TopicFilter, Time, Selector) ->
+    Streams = emqx_ds_storage_layer:get_delete_streams(Shard, TopicFilter, Time),
+    Iterators = lists:map(
+        fun(Stream) ->
+            {ok, Iterator} = emqx_ds_storage_layer:make_delete_iterator(
+                Shard,
+                Stream,
+                TopicFilter,
+                Time
+            ),
+            Iterator
+        end,
+        Streams
+    ),
+    delete(Shard, Iterators, Selector).
+
+delete(_Shard, [], _Selector) ->
+    0;
+delete(Shard, Iterators, Selector) ->
+    {NewIterators0, N} = lists:foldl(
+        fun(Iterator0, {AccIterators, NAcc}) ->
+            case emqx_ds_storage_layer:delete_next(Shard, Iterator0, Selector, 10) of
+                {ok, end_of_stream} ->
+                    {AccIterators, NAcc};
+                {ok, _Iterator1, 0} ->
+                    {AccIterators, NAcc};
+                {ok, Iterator1, NDeleted} ->
+                    {[Iterator1 | AccIterators], NDeleted + NAcc}
+            end
+        end,
+        {[], 0},
+        Iterators
+    ),
+    NewIterators1 = lists:reverse(NewIterators0),
+    N + delete(Shard, NewIterators1, Selector).
+
+replay(Shard, TopicFilter, Time) ->
+    StreamsByRank = emqx_ds_storage_layer:get_streams(Shard, TopicFilter, Time),
+    Iterators = lists:map(
+        fun({_Rank, Stream}) ->
+            {ok, Iterator} = emqx_ds_storage_layer:make_iterator(Shard, Stream, TopicFilter, Time),
+            Iterator
+        end,
+        StreamsByRank
+    ),
+    replay(Shard, Iterators).
+
+replay(_Shard, []) ->
+    [];
+replay(Shard, Iterators) ->
+    {NewIterators0, Messages0} = lists:foldl(
+        fun(Iterator0, {AccIterators, AccMessages}) ->
+            case emqx_ds_storage_layer:next(Shard, Iterator0, 10) of
+                {ok, end_of_stream} ->
+                    {AccIterators, AccMessages};
+                {ok, _Iterator1, []} ->
+                    {AccIterators, AccMessages};
+                {ok, Iterator1, NewMessages} ->
+                    {[Iterator1 | AccIterators], [NewMessages | AccMessages]}
+            end
+        end,
+        {[], []},
+        Iterators
+    ),
+    Messages1 = lists:flatten(lists:reverse(Messages0)),
+    NewIterators1 = lists:reverse(NewIterators0),
+    Messages1 ++ replay(Shard, NewIterators1).

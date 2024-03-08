@@ -30,9 +30,12 @@
     drop/5,
     store_batch/4,
     get_streams/4,
+    get_delete_streams/4,
     make_iterator/5,
+    make_delete_iterator/5,
     update_iterator/4,
     next/4,
+    delete_next/5,
     post_creation_actions/1
 ]).
 
@@ -54,6 +57,7 @@
 %% tags:
 -define(STREAM, 1).
 -define(IT, 2).
+-define(DELETE_IT, 3).
 
 %% keys:
 -define(tag, 1).
@@ -91,9 +95,20 @@
 
 -type stream() :: emqx_ds_lts:msg_storage_key().
 
+-type delete_stream() :: emqx_ds_lts:msg_storage_key().
+
 -type iterator() ::
     #{
         ?tag := ?IT,
+        ?topic_filter := emqx_ds:topic_filter(),
+        ?start_time := emqx_ds:time(),
+        ?storage_key := emqx_ds_lts:msg_storage_key(),
+        ?last_seen_key := binary()
+    }.
+
+-type delete_iterator() ::
+    #{
+        ?tag := ?DELETE_IT,
         ?topic_filter := emqx_ds:topic_filter(),
         ?start_time := emqx_ds:time(),
         ?storage_key := emqx_ds_lts:msg_storage_key(),
@@ -262,6 +277,15 @@ store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     emqx_ds_lts:match_topics(Trie, TopicFilter).
 
+-spec get_delete_streams(
+    emqx_ds_storage_layer:shard_id(),
+    s(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
+) -> [delete_stream()].
+get_delete_streams(Shard, State, TopicFilter, StartTime) ->
+    get_streams(Shard, State, TopicFilter, StartTime).
+
 -spec make_iterator(
     emqx_ds_storage_layer:shard_id(),
     s(),
@@ -277,6 +301,27 @@ make_iterator(
     %% code independently from us.
     {ok, #{
         ?tag => ?IT,
+        ?topic_filter => TopicFilter,
+        ?start_time => StartTime,
+        ?storage_key => StorageKey,
+        ?last_seen_key => <<>>
+    }}.
+
+-spec make_delete_iterator(
+    emqx_ds_storage_layer:shard_id(),
+    s(),
+    delete_stream(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
+) -> {ok, delete_iterator()}.
+make_delete_iterator(
+    _Shard, _Data, StorageKey, TopicFilter, StartTime
+) ->
+    %% Note: it's a good idea to keep the iterator structure lean,
+    %% since it can be stored on a remote node that could update its
+    %% code independently from us.
+    {ok, #{
+        ?tag => ?DELETE_IT,
         ?topic_filter => TopicFilter,
         ?start_time => StartTime,
         ?storage_key => StorageKey,
@@ -319,6 +364,76 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         ?start_time := StartTime,
         ?storage_key := {TopicIndex, Varying}
     } = It,
+    #{
+        it_handle := ITHandle,
+        keymapper := Keymapper,
+        filter := Filter
+    } = prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Keymappers),
+    try
+        put(?COUNTER, 0),
+        next_loop(ITHandle, Keymapper, Filter, SafeCutoffTime, It, [], BatchSize)
+    after
+        rocksdb:iterator_close(ITHandle),
+        erase(?COUNTER)
+    end.
+
+delete_next(_Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize) ->
+    %% Compute safe cutoff time.
+    %% It's the point in time where the last complete epoch ends, so we need to know
+    %% the current time to compute it.
+    Now = emqx_message:timestamp_now(),
+    SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
+    delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize).
+
+delete_next_until(
+    _Schema,
+    It = #{?tag := ?DELETE_IT, ?start_time := StartTime},
+    SafeCutoffTime,
+    _Selector,
+    _BatchSize
+) when
+    StartTime >= SafeCutoffTime
+->
+    %% We're in the middle of the current epoch, so we can't yet iterate over it.
+    %% It would be unsafe otherwise: messages can be stored in the current epoch
+    %% concurrently with iterating over it. They can end up earlier (in the iteration
+    %% order) due to the nature of keymapping, potentially causing us to miss them.
+    {ok, It, 0, 0};
+delete_next_until(
+    #s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, Selector, BatchSize
+) ->
+    #{
+        ?tag := ?DELETE_IT,
+        ?start_time := StartTime,
+        ?storage_key := {TopicIndex, Varying}
+    } = It,
+    #{it_handle := ITHandle} =
+        LoopContext0 = prepare_loop_context(
+            DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Keymappers
+        ),
+    try
+        put(?COUNTER, 0),
+        LoopContext = LoopContext0#{
+            db => DB,
+            cf => CF,
+            safe_cutoff_time => SafeCutoffTime,
+            storage_iter => It,
+            deleted => 0,
+            iterated_over => 0,
+            selector => Selector,
+            remaining => BatchSize
+        },
+        delete_next_loop(LoopContext)
+    after
+        rocksdb:iterator_close(ITHandle),
+        erase(?COUNTER)
+    end.
+
+%%================================================================================
+%% Internal functions
+%%================================================================================
+
+prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Keymappers) ->
     %% Make filter:
     Inequations = [
         {'=', TopicIndex},
@@ -350,17 +465,11 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         {iterate_lower_bound, emqx_ds_bitmask_keymapper:key_to_bitstring(Keymapper, LowerBound)},
         {iterate_upper_bound, emqx_ds_bitmask_keymapper:key_to_bitstring(Keymapper, UpperBound + 1)}
     ]),
-    try
-        put(?COUNTER, 0),
-        next_loop(ITHandle, Keymapper, Filter, SafeCutoffTime, It, [], BatchSize)
-    after
-        rocksdb:iterator_close(ITHandle),
-        erase(?COUNTER)
-    end.
-
-%%================================================================================
-%% Internal functions
-%%================================================================================
+    #{
+        it_handle => ITHandle,
+        keymapper => Keymapper,
+        filter => Filter
+    }.
 
 next_loop(_ITHandle, _KeyMapper, _Filter, _Cutoff, It, Acc, 0) ->
     {ok, It, lists:reverse(Acc)};
@@ -412,7 +521,108 @@ traverse_interval(ITHandle, Filter, Cutoff, It, Acc, N) ->
             {0, It, Acc}
     end.
 
--spec check_message(emqx_ds:time(), iterator(), emqx_types:message()) ->
+delete_next_loop(
+    #{deleted := AccDel, iterated_over := AccIter, storage_iter := It, remaining := 0}
+) ->
+    {ok, It, AccDel, AccIter};
+delete_next_loop(LoopContext0) ->
+    #{
+        storage_iter := It0,
+        filter := Filter,
+        deleted := AccDel0,
+        iterated_over := AccIter0,
+        it_handle := ITHandle
+    } = LoopContext0,
+    inc_counter(),
+    #{?tag := ?DELETE_IT, ?last_seen_key := Key0} = It0,
+    case emqx_ds_bitmask_keymapper:bin_increment(Filter, Key0) of
+        overflow ->
+            {ok, It0, AccDel0, AccIter0};
+        Key1 ->
+            %% assert
+            true = Key1 > Key0,
+            case rocksdb:iterator_move(ITHandle, {seek, Key1}) of
+                {ok, Key, Val} ->
+                    {N, It, AccDel, AccIter} =
+                        delete_traverse_interval(LoopContext0#{
+                            iterated_over := AccIter0 + 1,
+                            current_key => Key,
+                            current_val => Val
+                        }),
+                    delete_next_loop(LoopContext0#{
+                        iterated_over := AccIter,
+                        deleted := AccDel,
+                        remaining := N,
+                        storage_iter := It
+                    });
+                {error, invalid_iterator} ->
+                    {ok, It0, AccDel0, AccIter0}
+            end
+    end.
+
+delete_traverse_interval(LoopContext0) ->
+    #{
+        storage_iter := It0,
+        current_key := Key,
+        current_val := Val,
+        filter := Filter,
+        safe_cutoff_time := Cutoff,
+        selector := Selector,
+        db := DB,
+        cf := CF,
+        deleted := AccDel0,
+        iterated_over := AccIter0,
+        remaining := Remaining0
+    } = LoopContext0,
+    It = It0#{?last_seen_key := Key},
+    case emqx_ds_bitmask_keymapper:bin_checkmask(Filter, Key) of
+        true ->
+            Msg = deserialize(Val),
+            case check_message(Cutoff, It, Msg) of
+                true ->
+                    case Selector(Msg) of
+                        true ->
+                            ok = rocksdb:delete(DB, CF, Key, _WriteOpts = []),
+                            delete_traverse_interval1(LoopContext0#{
+                                deleted := AccDel0 + 1,
+                                remaining := Remaining0 - 1
+                            });
+                        false ->
+                            delete_traverse_interval1(LoopContext0#{remaining := Remaining0 - 1})
+                    end;
+                false ->
+                    delete_traverse_interval1(LoopContext0);
+                overflow ->
+                    {0, It0, AccDel0, AccIter0}
+            end;
+        false ->
+            {Remaining0, It, AccDel0, AccIter0}
+    end.
+
+delete_traverse_interval1(#{
+    storage_iter := It, deleted := AccDel, iterated_over := AccIter, remaining := 0
+}) ->
+    {0, It, AccDel, AccIter};
+delete_traverse_interval1(LoopContext0) ->
+    #{
+        it_handle := ITHandle,
+        deleted := AccDel,
+        iterated_over := AccIter,
+        storage_iter := It
+    } = LoopContext0,
+    inc_counter(),
+    case rocksdb:iterator_move(ITHandle, next) of
+        {ok, Key, Val} ->
+            delete_traverse_interval(LoopContext0#{
+                iterated_over := AccIter + 1,
+                current_key := Key,
+                current_val := Val
+            });
+        {error, invalid_iterator} ->
+            {0, It, AccDel, AccIter}
+    end.
+
+-spec check_message(emqx_ds:time(), iterator() | delete_iterator(), emqx_types:message()) ->
     true | false | overflow.
 check_message(
     Cutoff,
@@ -427,6 +637,12 @@ check_message(
 check_message(
     _Cutoff,
     #{?tag := ?IT, ?start_time := StartTime, ?topic_filter := TopicFilter},
+    #message{timestamp = Timestamp, topic = Topic}
+) when Timestamp >= StartTime ->
+    emqx_topic:match(emqx_topic:tokens(Topic), TopicFilter);
+check_message(
+    _Cutoff,
+    #{?tag := ?DELETE_IT, ?start_time := StartTime, ?topic_filter := TopicFilter},
     #message{timestamp = Timestamp, topic = Topic}
 ) when Timestamp >= StartTime ->
     emqx_topic:match(emqx_topic:tokens(Topic), TopicFilter);

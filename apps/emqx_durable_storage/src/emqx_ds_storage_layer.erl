@@ -23,9 +23,12 @@
     drop_shard/1,
     store_batch/3,
     get_streams/3,
+    get_delete_streams/3,
     make_iterator/4,
+    make_delete_iterator/4,
     update_iterator/3,
     next/3,
+    delete_next/4,
     update_config/2,
     add_generation/1,
     list_generations_with_lifetimes/1,
@@ -43,8 +46,10 @@
     generation/0,
     cf_refs/0,
     stream/0,
+    delete_stream/0,
     stream_v1/0,
     iterator/0,
+    delete_iterator/0,
     shard_id/0,
     options/0,
     prototype/0,
@@ -56,6 +61,7 @@
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
 -define(stream_v2(GENERATION, INNER), [GENERATION | INNER]).
+-define(delete_stream(GENERATION, INNER), [GENERATION | INNER]).
 
 %%================================================================================
 %% Type declarations
@@ -67,6 +73,7 @@
 %% tags:
 -define(STREAM, 1).
 -define(IT, 2).
+-define(DELETE_IT, 3).
 
 %% keys:
 -define(tag, 1).
@@ -94,10 +101,21 @@
 %% Note: this might be stored permanently on a remote node.
 -opaque stream() :: nonempty_maybe_improper_list(gen_id(), term()).
 
-%% Note: this might be stred permanently on a remote node.
+%% Note: this might be stored permanently on a remote node.
+-opaque delete_stream() :: stream().
+
+%% Note: this might be stored permanently on a remote node.
 -opaque iterator() ::
     #{
         ?tag := ?IT,
+        ?generation := gen_id(),
+        ?enc := term()
+    }.
+
+%% Note: this might be stored permanently on a remote node.
+-opaque delete_iterator() ::
+    #{
+        ?tag := ?DELETE_IT,
         ?generation := gen_id(),
         ?enc := term()
     }.
@@ -185,6 +203,11 @@
 -callback make_iterator(shard_id(), _Data, _Stream, emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(_Iterator).
 
+-callback make_delete_iterator(
+    shard_id(), _Data, _DeleteStream, emqx_ds:topic_filter(), emqx_ds:time()
+) ->
+    emqx_ds:make_delete_iterator_result(_Iterator).
+
 -callback next(shard_id(), _Data, Iter, pos_integer()) ->
     {ok, Iter, [emqx_types:message()]} | {error, _}.
 
@@ -238,6 +261,29 @@ get_streams(Shard, TopicFilter, StartTime) ->
         Gens
     ).
 
+-spec get_delete_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    [delete_stream()].
+get_delete_streams(Shard, TopicFilter, StartTime) ->
+    Gens = generations_since(Shard, StartTime),
+    ?tp(get_streams_all_gens, #{gens => Gens}),
+    lists:flatmap(
+        fun(GenId) ->
+            ?tp(get_streams_get_gen, #{gen_id => GenId}),
+            case generation_get_safe(Shard, GenId) of
+                {ok, #{module := Mod, data := GenData}} ->
+                    Streams = Mod:get_delete_streams(Shard, GenData, TopicFilter, StartTime),
+                    [
+                        ?delete_stream(GenId, InnerStream)
+                     || InnerStream <- Streams
+                    ];
+                {error, not_found} ->
+                    %% race condition: generation was dropped before getting its streams?
+                    []
+            end
+        end,
+        Gens
+    ).
+
 -spec make_iterator(shard_id(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(
@@ -249,6 +295,27 @@ make_iterator(
                 {ok, Iter} ->
                     {ok, #{
                         ?tag => ?IT,
+                        ?generation => GenId,
+                        ?enc => Iter
+                    }};
+                {error, _} = Err ->
+                    Err
+            end;
+        {error, not_found} ->
+            {error, end_of_stream}
+    end.
+
+-spec make_delete_iterator(shard_id(), delete_stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    emqx_ds:make_delete_iterator_result(delete_iterator()).
+make_delete_iterator(
+    Shard, ?delete_stream(GenId, Stream), TopicFilter, StartTime
+) ->
+    case generation_get_safe(Shard, GenId) of
+        {ok, #{module := Mod, data := GenData}} ->
+            case Mod:make_delete_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
+                {ok, Iter} ->
+                    {ok, #{
+                        ?tag => ?DELETE_IT,
                         ?generation => GenId,
                         ?enc => Iter
                     }};
@@ -298,6 +365,33 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
                     {ok, end_of_stream};
                 {ok, GenIter, Batch} ->
                     {ok, Iter#{?enc := GenIter}, Batch};
+                Error = {error, _} ->
+                    Error
+            end;
+        {error, not_found} ->
+            %% generation was possibly dropped by GC
+            {ok, end_of_stream}
+    end.
+
+-spec delete_next(shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
+    emqx_ds:delete_next_result(delete_iterator()).
+delete_next(
+    Shard,
+    Iter = #{?tag := ?DELETE_IT, ?generation := GenId, ?enc := GenIter0},
+    Selector,
+    BatchSize
+) ->
+    case generation_get_safe(Shard, GenId) of
+        {ok, #{module := Mod, data := GenData}} ->
+            Current = generation_current(Shard),
+            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize) of
+                {ok, _GenIter, _Deleted = 0, _IteratedOver = 0} when GenId < Current ->
+                    %% This is a past generation. Storage layer won't write
+                    %% any more messages here. The iterator reached the end:
+                    %% the stream has been fully replayed.
+                    {ok, end_of_stream};
+                {ok, GenIter, NumDeleted, _IteratedOver} ->
+                    {ok, Iter#{?enc := GenIter}, NumDeleted};
                 Error = {error, _} ->
                     Error
             end;
