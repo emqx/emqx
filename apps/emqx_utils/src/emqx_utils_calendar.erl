@@ -560,27 +560,6 @@ date_size(timezone) -> 5;
 date_size(timezone1) -> 6;
 date_size(timezone2) -> 9.
 
-dym(Y, M) ->
-    case is_leap_year(Y) of
-        true when M > 2 ->
-            dm(M) + 1;
-        _ ->
-            dm(M)
-    end.
-
-dm(1) -> 0;
-dm(2) -> 31;
-dm(3) -> 59;
-dm(4) -> 90;
-dm(5) -> 120;
-dm(6) -> 151;
-dm(7) -> 181;
-dm(8) -> 212;
-dm(9) -> 243;
-dm(10) -> 273;
-dm(11) -> 304;
-dm(12) -> 334.
-
 str_to_int_or_error(Str, Error) ->
     case string:to_integer(Str) of
         {Int, []} ->
