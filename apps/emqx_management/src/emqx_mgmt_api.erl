@@ -48,6 +48,7 @@
     finalize_query/2,
     mark_complete/2,
     format_query_result/3,
+    format_query_result/4,
     maybe_collect_total_from_tail_nodes/2
 ]).
 
@@ -619,10 +620,13 @@ is_fuzzy_key(<<"match_", _/binary>>) ->
 is_fuzzy_key(_) ->
     false.
 
-format_query_result(_FmtFun, _MetaIn, Error = {error, _Node, _Reason}) ->
+format_query_result(FmtFun, MetaIn, ResultAcc) ->
+    format_query_result(FmtFun, MetaIn, ResultAcc, #{}).
+
+format_query_result(_FmtFun, _MetaIn, Error = {error, _Node, _Reason}, _Opts) ->
     Error;
 format_query_result(
-    FmtFun, MetaIn, ResultAcc = #{hasnext := HasNext, rows := RowsAcc}
+    FmtFun, MetaIn, ResultAcc = #{hasnext := HasNext, rows := RowsAcc}, Opts
 ) ->
     Meta =
         case ResultAcc of
@@ -638,7 +642,10 @@ format_query_result(
         data => lists:flatten(
             lists:foldl(
                 fun({Node, Rows}, Acc) ->
-                    [lists:map(fun(Row) -> exec_format_fun(FmtFun, Node, Row) end, Rows) | Acc]
+                    [
+                        lists:map(fun(Row) -> exec_format_fun(FmtFun, Node, Row, Opts) end, Rows)
+                        | Acc
+                    ]
                 end,
                 [],
                 RowsAcc
@@ -646,10 +653,11 @@ format_query_result(
         )
     }.
 
-exec_format_fun(FmtFun, Node, Row) ->
+exec_format_fun(FmtFun, Node, Row, Opts) ->
     case erlang:fun_info(FmtFun, arity) of
         {arity, 1} -> FmtFun(Row);
-        {arity, 2} -> FmtFun(Node, Row)
+        {arity, 2} -> FmtFun(Node, Row);
+        {arity, 3} -> FmtFun(Node, Row, Opts)
     end.
 
 parse_pager_params(Params) ->
