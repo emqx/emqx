@@ -80,7 +80,7 @@ namespace() ->
 schema() ->
     [
         {messages,
-            ds_schema(ref(builtin), #{
+            ds_schema(ref(builtin), 'durable_storage.messages', #{
                 default =>
                     #{
                         <<"backend">> => builtin
@@ -89,7 +89,7 @@ schema() ->
                 desc => ?DESC(messages)
             })},
         {sessions,
-            ds_schema(ref(builtin_session), #{
+            ds_schema(ref(builtin_session), 'durable_storage.sessions', #{
                 default =>
                     #{
                         <<"backend">> => builtin
@@ -290,11 +290,11 @@ desc(_) ->
 %% Internal functions
 %%================================================================================
 
-ds_schema(MainRef, Options) ->
+ds_schema(MainRef, InjectionPoint, Options) ->
     sc(
         hoconsc:union([
             MainRef
-            | emqx_schema_hooks:injection_point('durable_storage.backends', [])
+            | emqx_schema_hooks:union_option_injections(InjectionPoint, [])
         ]),
         Options
     ).
