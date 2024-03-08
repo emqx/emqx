@@ -736,6 +736,60 @@ t_regex_replace(_) ->
     ?assertEqual(<<"aebed">>, apply_func(regex_replace, [<<"accbcd">>, <<"c+">>, <<"e">>])),
     ?assertEqual(<<"a[cc]b[c]d">>, apply_func(regex_replace, [<<"accbcd">>, <<"c+">>, <<"[&]">>])).
 
+t_unescape(_) ->
+    ?assertEqual(<<"\n">>, emqx_rule_funcs:unescape(<<"\\n">>)),
+    ?assertEqual(<<"\t">>, emqx_rule_funcs:unescape(<<"\\t">>)),
+    ?assertEqual(<<"\r">>, emqx_rule_funcs:unescape(<<"\\r">>)),
+    ?assertEqual(<<"\b">>, emqx_rule_funcs:unescape(<<"\\b">>)),
+    ?assertEqual(<<"\f">>, emqx_rule_funcs:unescape(<<"\\f">>)),
+    ?assertEqual(<<"\v">>, emqx_rule_funcs:unescape(<<"\\v">>)),
+    ?assertEqual(<<"'">>, emqx_rule_funcs:unescape(<<"\\'">>)),
+    ?assertEqual(<<"\"">>, emqx_rule_funcs:unescape(<<"\\\"">>)),
+    ?assertEqual(<<"?">>, emqx_rule_funcs:unescape(<<"\\?">>)),
+    ?assertEqual(<<"\a">>, emqx_rule_funcs:unescape(<<"\\a">>)),
+    % Test escaping backslash itself
+    ?assertEqual(<<"\\">>, emqx_rule_funcs:unescape(<<"\\\\">>)),
+    % Test a string without any escape sequences
+    ?assertEqual(<<"Hello, World!">>, emqx_rule_funcs:unescape(<<"Hello, World!">>)),
+    % Test a string with escape sequences
+    ?assertEqual(<<"Hello,\t World\n!">>, emqx_rule_funcs:unescape(<<"Hello,\\t World\\n!">>)),
+    % Test unrecognized escape sequence (should throw an error)
+    ?assertException(
+        throw, {unrecognized_escape_sequence, <<$\\, $L>>}, emqx_rule_funcs:unescape(<<"\\L">>)
+    ),
+    % Test hexadecimal escape sequences
+
+    % Newline
+    ?assertEqual(<<"\n">>, emqx_rule_funcs:unescape(<<"\\x0A">>)),
+    % Newline
+    ?assertEqual(<<"hej\n">>, emqx_rule_funcs:unescape(<<"hej\\x0A">>)),
+    % Newline
+    ?assertEqual(<<"\nhej">>, emqx_rule_funcs:unescape(<<"\\x0Ahej">>)),
+    % Newline
+    ?assertEqual(<<"hej\nhej">>, emqx_rule_funcs:unescape(<<"hej\\x0Ahej">>)),
+    % "ABC"
+    ?assertEqual(<<"ABC">>, emqx_rule_funcs:unescape(<<"\\x41\\x42\\x43">>)),
+    % "\xFF" = 255 in decimal
+    ?assertEqual(<<"\xFF"/utf8>>, emqx_rule_funcs:unescape(<<"\\xFF">>)),
+    % "W" = \x57
+    ?assertEqual(<<"Hello, World!">>, emqx_rule_funcs:unescape(<<"Hello, \\x57orld!">>)).
+
+t_unescape_hex(_) ->
+    ?assertEqual(<<"A"/utf8>>, emqx_rule_funcs:unescape(<<"\\x41">>)),
+    ?assertEqual(<<"Hello"/utf8>>, emqx_rule_funcs:unescape(<<"\\x48\\x65\\x6c\\x6c\\x6f">>)),
+    ?assertEqual(<<"A"/utf8>>, emqx_rule_funcs:unescape(<<"\\x0041">>)),
+    ?assertEqual(<<"€"/utf8>>, emqx_rule_funcs:unescape(<<"\\x20AC">>)),
+    ?assertEqual(<<"❤"/utf8>>, emqx_rule_funcs:unescape(<<"\\x2764">>)),
+    ?assertException(
+        throw, {unrecognized_escape_sequence, <<"\\x">>}, emqx_rule_funcs:unescape(<<"\\xG1">>)
+    ),
+    ?assertException(
+        throw, {invalid_unicode_character, _}, emqx_rule_funcs:unescape(<<"\\x11000000">>)
+    ),
+    ?assertEqual(
+        <<"Hello, 世界"/utf8>>, emqx_rule_funcs:unescape(<<"Hello, \\x00004E16\\x0000754C">>)
+    ).
+
 jq_1_elm_res(JSONString) ->
     Bin = list_to_binary(JSONString),
     [apply_func(json_decode, [Bin])].
