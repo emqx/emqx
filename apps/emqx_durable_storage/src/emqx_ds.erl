@@ -295,6 +295,7 @@ drop_db(DB) ->
         undefined ->
             ok;
         Module ->
+            _ = persistent_term:erase(?persistent_term(DB)),
             Module:drop_db(DB)
     end.
 

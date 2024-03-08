@@ -196,11 +196,11 @@ drop_generation(DB, {Shard, GenId}) ->
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
-    Nodes = list_nodes(),
-    _ = emqx_ds_proto_v4:drop_db(Nodes, DB),
-    _ = emqx_ds_replication_layer_meta:drop_db(DB),
-    emqx_ds_builtin_sup:stop_db(DB),
-    ok.
+    foreach_shard(DB, fun(Shard) ->
+        {ok, _} = ra_drop_shard(DB, Shard)
+    end),
+    _ = emqx_ds_proto_v4:drop_db(list_nodes(), DB),
+    emqx_ds_replication_layer_meta:drop_db(DB).
 
 -spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
@@ -357,8 +357,7 @@ do_drop_db_v1(DB) ->
     emqx_ds_builtin_sup:stop_db(DB),
     lists:foreach(
         fun(Shard) ->
-            emqx_ds_storage_layer:drop_shard({DB, Shard}),
-            ra_drop_shard(DB, Shard)
+            emqx_ds_storage_layer:drop_shard({DB, Shard})
         end,
         MyShards
     ).
@@ -492,8 +491,6 @@ do_get_delete_streams_v4(DB, Shard, TopicFilter, StartTime) ->
 list_nodes() ->
     mria:running_nodes().
 
-%%
-
 %% TODO
 %% Too large for normal operation, need better backpressure mechanism.
 -define(RA_TIMEOUT, 60 * 1000).
@@ -592,8 +589,7 @@ ra_list_generations_with_lifetimes(DB, Shard) ->
     ).
 
 ra_drop_shard(DB, Shard) ->
-    LocalServer = emqx_ds_replication_layer_shard:server(DB, Shard, local),
-    ra:force_delete_server(_System = default, LocalServer).
+    ra:delete_cluster(emqx_ds_replication_layer_shard:shard_servers(DB, Shard), ?RA_TIMEOUT).
 
 %%
 

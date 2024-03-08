@@ -17,8 +17,14 @@
 -module(emqx_ds_replication_layer_shard).
 
 -export([start_link/3]).
--export([shard_servers/2]).
 
+%% Static server configuration
+-export([
+    shard_servers/2,
+    local_server/2
+]).
+
+%% Dynamic server location API
 -export([
     servers/3,
     server/3
