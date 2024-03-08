@@ -98,6 +98,17 @@
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
 
+%% Make Dialyzer happy
+-define(NODE_PAT(),
+    %% Equivalent of `#?NODE_TAB{_ = '_'}`:
+    erlang:make_tuple(record_info(size, ?NODE_TAB), '_')
+).
+
+-define(SHARD_PAT(SHARD),
+    %% Equivalent of `#?SHARD_TAB{shard = SHARD, _ = '_'}`
+    erlang:make_tuple(record_info(size, ?SHARD_TAB), '_', [{#?SHARD_TAB.shard, SHARD}])
+).
+
 %%================================================================================
 %% API funcions
 %%================================================================================
@@ -264,14 +275,14 @@ allocate_shards_trans(DB, Opts) ->
     ReplicationFactor = maps:get(replication_factor, Opts),
     NReplicas = min(NSites, ReplicationFactor),
     Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
-    AllSites = mnesia:match_object(?NODE_TAB, #?NODE_TAB{_ = '_'}, read),
+    AllSites = mnesia:match_object(?NODE_TAB, ?NODE_PAT(), read),
     case length(AllSites) of
         N when N >= NSites ->
             ok;
         _ ->
             mnesia:abort({insufficient_sites_online, NSites, AllSites})
     end,
-    case mnesia:match_object(?SHARD_TAB, #?SHARD_TAB{shard = {DB, '_'}, _ = '_'}, write) of
+    case mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write) of
         [] ->
             ok;
         Records ->
