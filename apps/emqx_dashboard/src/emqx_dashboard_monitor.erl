@@ -357,8 +357,8 @@ next_interval() ->
 
 sample(Time) ->
     Fun =
-        fun(Key, Res) ->
-            maps:put(Key, getstats(Key), Res)
+        fun(Key, Acc) ->
+            Acc#{Key => getstats(Key)}
         end,
     Data = lists:foldl(Fun, #{}, ?SAMPLER_LIST),
     #emqx_monit{time = Time, data = Data}.
@@ -416,6 +416,8 @@ stats(live_connections) -> emqx_stats:getstat('live_connections.count');
 stats(cluster_sessions) -> emqx_stats:getstat('cluster_sessions.count');
 stats(topics) -> emqx_stats:getstat('topics.count');
 stats(subscriptions) -> emqx_stats:getstat('subscriptions.count');
+stats(shared_subscriptions) -> emqx_stats:getstat('subscriptions.shared.count');
+stats(retained_msg_count) -> emqx_stats:getstat('retained.count');
 stats(received) -> emqx_metrics:val('messages.received');
 stats(received_bytes) -> emqx_metrics:val('bytes.received');
 stats(sent) -> emqx_metrics:val('messages.sent');
@@ -428,7 +430,8 @@ stats(dropped) -> emqx_metrics:val('messages.dropped').
 %% the non rate values should be same on all nodes
 non_rate_value() ->
     (license_quota())#{
-        retained_msg_count => emqx_retainer:retained_count(),
+        retained_msg_count => stats(retained_msg_count),
+        shared_subscriptions => stats(shared_subscriptions),
         node_uptime => emqx_sys:uptime()
     }.
 
