@@ -1181,7 +1181,7 @@ format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
 
 date_to_unix_ts(TimeUnit, FormatString, InputString) ->
     Unit = time_unit(TimeUnit),
-    emqx_utils_calendar:parse(InputString, Unit, FormatString).
+    emqx_utils_calendar:formatted_datetime_to_system_time(InputString, Unit, FormatString).
 
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     Unit = time_unit(TimeUnit),

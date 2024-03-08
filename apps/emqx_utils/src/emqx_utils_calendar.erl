@@ -22,7 +22,7 @@
     formatter/1,
     format/3,
     format/4,
-    parse/3,
+    formatted_datetime_to_system_time/3,
     offset_second/1
 ]).
 
@@ -48,8 +48,9 @@
 -define(DAYS_PER_YEAR, 365).
 -define(DAYS_PER_LEAP_YEAR, 366).
 -define(DAYS_FROM_0_TO_1970, 719528).
--define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970 * ?SECONDS_PER_DAY)).
-
+-define(DAYS_FROM_0_TO_10000, 2932897).
+-define(SECONDS_FROM_0_TO_1970, ?DAYS_FROM_0_TO_1970 * ?SECONDS_PER_DAY).
+-define(SECONDS_FROM_0_TO_10000, (?DAYS_FROM_0_TO_10000 * ?SECONDS_PER_DAY)).
 %% the maximum value is the SECONDS_FROM_0_TO_10000 in the calendar.erl,
 %% here minus SECONDS_PER_DAY to tolerate timezone time offset,
 %% so the maximum date can reach 9999-12-31 which is ample.
@@ -171,10 +172,10 @@ format(Time, Unit, Offset, FormatterBin) when is_binary(FormatterBin) ->
 format(Time, Unit, Offset, Formatter) ->
     do_format(Time, time_unit(Unit), offset_second(Offset), Formatter).
 
-parse(DateStr, Unit, FormatterBin) when is_binary(FormatterBin) ->
-    parse(DateStr, Unit, formatter(FormatterBin));
-parse(DateStr, Unit, Formatter) ->
-    do_parse(DateStr, Unit, Formatter).
+formatted_datetime_to_system_time(DateStr, Unit, FormatterBin) when is_binary(FormatterBin) ->
+    formatted_datetime_to_system_time(DateStr, Unit, formatter(FormatterBin));
+formatted_datetime_to_system_time(DateStr, Unit, Formatter) ->
+    do_formatted_datetime_to_system_time(DateStr, Unit, Formatter).
 
 %%--------------------------------------------------------------------
 %% Time unit
@@ -467,56 +468,51 @@ padding(Data, _Len) ->
     Data.
 
 %%--------------------------------------------------------------------
-%% internal: parse part
+%% internal: formatted_datetime_to_system_time part
 %%--------------------------------------------------------------------
 
-do_parse(DateStr, Unit, Formatter) ->
+do_formatted_datetime_to_system_time(DateStr, Unit, Formatter) ->
     DateInfo = do_parse_date_str(DateStr, Formatter, #{}),
-    {Precise, PrecisionUnit} = precision(DateInfo),
-    Counter =
-        fun
-            (year, V, Res) ->
-                Res + dy(V) * ?SECONDS_PER_DAY * Precise - (?SECONDS_FROM_0_TO_1970 * Precise);
-            (month, V, Res) ->
-                Dm = dym(maps:get(year, DateInfo, 0), V),
-                Res + Dm * ?SECONDS_PER_DAY * Precise;
-            (day, V, Res) ->
-                Res + (V * ?SECONDS_PER_DAY * Precise);
-            (hour, V, Res) ->
-                Res + (V * ?SECONDS_PER_HOUR * Precise);
-            (minute, V, Res) ->
-                Res + (V * ?SECONDS_PER_MINUTE * Precise);
-            (second, V, Res) ->
-                Res + V * Precise;
-            (millisecond, V, Res) ->
-                case PrecisionUnit of
-                    millisecond ->
-                        Res + V;
-                    microsecond ->
-                        Res + (V * 1000);
-                    nanosecond ->
-                        Res + (V * 1000000)
-                end;
-            (microsecond, V, Res) ->
-                case PrecisionUnit of
-                    microsecond ->
-                        Res + V;
-                    nanosecond ->
-                        Res + (V * 1000)
-                end;
-            (nanosecond, V, Res) ->
-                Res + V;
-            (parsed_offset, V, Res) ->
-                Res - V * Precise
-        end,
-    Count = maps:fold(Counter, 0, DateInfo) - (?SECONDS_PER_DAY * Precise),
-    erlang:convert_time_unit(Count, PrecisionUnit, Unit).
+    PrecisionUnit = precision(DateInfo),
+    ToPrecisionUnit = fun(Time, FromUnit) ->
+        erlang:convert_time_unit(Time, FromUnit, PrecisionUnit)
+    end,
+    GetRequiredPart = fun(Key) ->
+        case maps:get(Key, DateInfo, undefined) of
+            undefined -> throw({missing_date_part, Key});
+            Value -> Value
+        end
+    end,
+    GetOptionalPart = fun(Key) -> maps:get(Key, DateInfo, 0) end,
+    Year = GetRequiredPart(year),
+    Month = GetRequiredPart(month),
+    Day = GetRequiredPart(day),
+    Hour = GetRequiredPart(hour),
+    Min = GetRequiredPart(minute),
+    Sec = GetRequiredPart(second),
+    DateTime = {{Year, Month, Day}, {Hour, Min, Sec}},
+    TotalSecs = datetime_to_system_time(DateTime) - GetOptionalPart(parsed_offset),
+    check(TotalSecs, DateStr, Unit),
+    TotalTime =
+        ToPrecisionUnit(TotalSecs, second) +
+            ToPrecisionUnit(GetOptionalPart(millisecond), millisecond) +
+            ToPrecisionUnit(GetOptionalPart(microsecond), microsecond) +
+            ToPrecisionUnit(GetOptionalPart(nanosecond), nanosecond),
+    erlang:convert_time_unit(TotalTime, PrecisionUnit, Unit).
 
-precision(#{nanosecond := _}) -> {1000_000_000, nanosecond};
-precision(#{microsecond := _}) -> {1000_000, microsecond};
-precision(#{millisecond := _}) -> {1000, millisecond};
-precision(#{second := _}) -> {1, second};
-precision(_) -> {1, second}.
+check(Secs, _, _) when Secs >= -?SECONDS_FROM_0_TO_1970, Secs < ?SECONDS_FROM_0_TO_10000 ->
+    ok;
+check(_Secs, DateStr, Unit) ->
+    throw({bad_format, #{date_string => DateStr, to_unit => Unit}}).
+
+datetime_to_system_time(DateTime) ->
+    calendar:datetime_to_gregorian_seconds(DateTime) - ?SECONDS_FROM_0_TO_1970.
+
+precision(#{nanosecond := _}) -> nanosecond;
+precision(#{microsecond := _}) -> microsecond;
+precision(#{millisecond := _}) -> millisecond;
+precision(#{second := _}) -> second;
+precision(_) -> second.
 
 do_parse_date_str(<<>>, _, Result) ->
     Result;
