@@ -161,7 +161,8 @@
     join_to_string/2,
     join_to_sql_values_string/1,
     jq/2,
-    jq/3
+    jq/3,
+    unescape/1
 ]).
 
 %% Map Funcs
@@ -936,6 +937,138 @@ jq(FilterProgram, JSONBin) ->
             jq_function_default_timeout
         ])
     ).
+
+unescape(Bin) when is_binary(Bin) ->
+    UnicodeList = unicode:characters_to_list(Bin, utf8),
+    UnescapedUnicodeList = unescape_string(UnicodeList),
+    UnescapedUTF8Bin = unicode:characters_to_binary(UnescapedUnicodeList, utf32, utf8),
+    case UnescapedUTF8Bin of
+        Out when is_binary(Out) ->
+            Out;
+        Error ->
+            throw({invalid_unicode_character, Error})
+    end.
+
+unescape_string(Input) -> unescape_string(Input, []).
+
+unescape_string([], Acc) ->
+    lists:reverse(Acc);
+unescape_string([$\\, $\\ | Rest], Acc) ->
+    unescape_string(Rest, [$\\ | Acc]);
+unescape_string([$\\, $n | Rest], Acc) ->
+    unescape_string(Rest, [$\n | Acc]);
+unescape_string([$\\, $t | Rest], Acc) ->
+    unescape_string(Rest, [$\t | Acc]);
+unescape_string([$\\, $r | Rest], Acc) ->
+    unescape_string(Rest, [$\r | Acc]);
+unescape_string([$\\, $b | Rest], Acc) ->
+    unescape_string(Rest, [$\b | Acc]);
+unescape_string([$\\, $f | Rest], Acc) ->
+    unescape_string(Rest, [$\f | Acc]);
+unescape_string([$\\, $v | Rest], Acc) ->
+    unescape_string(Rest, [$\v | Acc]);
+unescape_string([$\\, $' | Rest], Acc) ->
+    unescape_string(Rest, [$\' | Acc]);
+unescape_string([$\\, $" | Rest], Acc) ->
+    unescape_string(Rest, [$\" | Acc]);
+unescape_string([$\\, $? | Rest], Acc) ->
+    unescape_string(Rest, [$\? | Acc]);
+unescape_string([$\\, $a | Rest], Acc) ->
+    unescape_string(Rest, [$\a | Acc]);
+%% Start of HEX escape code
+unescape_string([$\\, $x | [$0 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$1 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$2 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$3 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$4 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$5 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$6 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$7 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$8 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$9 | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$A | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$B | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$C | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$D | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$E | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$F | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$a | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$b | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$c | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$d | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$e | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+unescape_string([$\\, $x | [$f | _] = HexStringStart], Acc) ->
+    unescape_handle_hex_string(HexStringStart, Acc);
+%% We treat all other escape sequences as not valid input to leave room for
+%% extending the function to support more escape codes
+unescape_string([$\\, X | _Rest], _Acc) ->
+    erlang:throw({unrecognized_escape_sequence, list_to_binary([$\\, X])});
+unescape_string([First | Rest], Acc) ->
+    unescape_string(Rest, [First | Acc]).
+
+unescape_handle_hex_string(HexStringStart, Acc) ->
+    {RemainingString, Num} = parse_hex_string(HexStringStart),
+    unescape_string(RemainingString, [Num | Acc]).
+
+parse_hex_string(SeqStartingWithHexDigit) ->
+    parse_hex_string(SeqStartingWithHexDigit, []).
+
+parse_hex_string([], Acc) ->
+    ReversedAcc = lists:reverse(Acc),
+    {[], list_to_integer(ReversedAcc, 16)};
+parse_hex_string([First | Rest] = String, Acc) ->
+    case is_hex_digit(First) of
+        true ->
+            parse_hex_string(Rest, [First | Acc]);
+        false ->
+            ReversedAcc = lists:reverse(Acc),
+            {String, list_to_integer(ReversedAcc, 16)}
+    end.
+
+is_hex_digit($0) -> true;
+is_hex_digit($1) -> true;
+is_hex_digit($2) -> true;
+is_hex_digit($3) -> true;
+is_hex_digit($4) -> true;
+is_hex_digit($5) -> true;
+is_hex_digit($6) -> true;
+is_hex_digit($7) -> true;
+is_hex_digit($8) -> true;
+is_hex_digit($9) -> true;
+is_hex_digit($A) -> true;
+is_hex_digit($B) -> true;
+is_hex_digit($C) -> true;
+is_hex_digit($D) -> true;
+is_hex_digit($E) -> true;
+is_hex_digit($F) -> true;
+is_hex_digit($a) -> true;
+is_hex_digit($b) -> true;
+is_hex_digit($c) -> true;
+is_hex_digit($d) -> true;
+is_hex_digit($e) -> true;
+is_hex_digit($f) -> true;
+is_hex_digit(_) -> false.
 
 %%------------------------------------------------------------------------------
 %% Array Funcs
