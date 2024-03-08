@@ -44,8 +44,6 @@ cleanup_key(Str0) ->
 
 do(Args) ->
     ok = do_with_halt(Args, "mnesia_dir", fun create_mnesia_dir/2),
-    ok = do_with_halt(Args, "chkconfig", fun("-config", X) -> chkconfig(X) end),
-    ok = do_with_halt(Args, "chkconfig", fun chkconfig/1),
     Args1 = do_with_ret(
         Args,
         "-name",
@@ -185,7 +183,7 @@ do(Args) ->
         Other ->
             io:format("Other: ~p~n", [Other]),
             io:format(
-                "Usage: nodetool chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n"
+                "Usage: nodetool getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n"
             )
     end,
     net_kernel:stop().
@@ -205,11 +203,7 @@ shutdown_status_loop() ->
 parse_eval_args(Args) ->
     % shells may process args into more than one, and end up stripping
     % spaces, so this converts all of that to a single string to parse
-    String = binary_to_list(
-        list_to_binary(
-            join(Args, " ")
-        )
-    ),
+    String = lists:flatten(lists:join(" ", Args)),
 
     % then just as a convenience to users, if they forgot a trailing
     % '.' add it for them.
@@ -309,36 +303,6 @@ create_mnesia_dir(DataDir, NodeName) ->
     io:format("~s", [MnesiaDir]),
     halt(0).
 
-chkconfig(File) ->
-    case file:consult(File) of
-        {ok, Terms} ->
-            case validate(Terms) of
-                ok ->
-                    halt(0);
-                {error, Problems} ->
-                    lists:foreach(fun print_issue/1, Problems),
-                    %% halt(1) if any problems were errors
-                    halt(
-                        case [x || {error, _} <- Problems] of
-                            [] -> 0;
-                            _ -> 1
-                        end
-                    )
-            end;
-        {error, {Line, Mod, Term}} ->
-            io:format(
-                standard_error, ["Error on line ", file:format_error({Line, Mod, Term}), "\n"], []
-            ),
-            halt(1);
-        {error, Error} ->
-            io:format(
-                standard_error,
-                ["Error reading config file: ", File, " ", file:format_error(Error), "\n"],
-                []
-            ),
-            halt(1)
-    end.
-
 check_license(Config) ->
     ok = ensure_application_load(emqx_license),
     %% This checks formal license validity to ensure
@@ -378,38 +342,6 @@ consult(Cont, Str, Acc) ->
         {more, Cont1} ->
             consult(Cont1, eof, Acc)
     end.
-
-%%
-%% Validation functions for checking the app.config
-%%
-validate([Terms]) ->
-    Results = [ValidateFun(Terms) || ValidateFun <- get_validation_funs()],
-    Failures = [Res || Res <- Results, Res /= true],
-    case Failures of
-        [] ->
-            ok;
-        _ ->
-            {error, Failures}
-    end.
-
-%% Some initial and basic checks for the app.config file
-get_validation_funs() ->
-    [].
-
-print_issue({warning, Warning}) ->
-    io:format(standard_error, "Warning in app.config: ~s~n", [Warning]);
-print_issue({error, Error}) ->
-    io:format(standard_error, "Error in app.config: ~s~n", [Error]).
-
-%% string:join/2 copy; string:join/2 is getting obsoleted
-%% and replaced by lists:join/2, but lists:join/2 is too new
-%% for version support (only appeared in 19.0) so it cannot be
-%% used. Instead we just adopt join/2 locally and hope it works
-%% for most unicode use cases anyway.
-join([], Sep) when is_list(Sep) ->
-    [];
-join([H | T], Sep) ->
-    H ++ lists:append([Sep ++ X || X <- T]).
 
 add_libs_dir() ->
     [_ | _] = RootDir = os:getenv("RUNNER_ROOT_DIR"),
