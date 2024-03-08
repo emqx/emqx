@@ -198,6 +198,19 @@ t_bin2hexstr(_) ->
     ?assertEqual(<<"0102">>, emqx_rule_funcs:bin2hexstr(<<1, 2>>)),
     ?assertEqual(<<"1121">>, emqx_rule_funcs:bin2hexstr(<<17, 33>>)).
 
+t_bin2hexstr_not_even_bytes(_) ->
+    ?assertEqual(<<"0102">>, emqx_rule_funcs:bin2hexstr(<<1:5, 2>>)),
+    ?assertEqual(<<"1002">>, emqx_rule_funcs:bin2hexstr(<<16:5, 2>>)),
+    ?assertEqual(<<"1002">>, emqx_rule_funcs:bin2hexstr(<<16:8, 2>>)),
+    ?assertEqual(<<"102">>, emqx_rule_funcs:bin2hexstr(<<1:4, 2>>)),
+    ?assertEqual(<<"102">>, emqx_rule_funcs:bin2hexstr(<<1:3, 2>>)),
+    ?assertEqual(<<"102">>, emqx_rule_funcs:bin2hexstr(<<1:1, 2>>)),
+    ?assertEqual(<<"002">>, emqx_rule_funcs:bin2hexstr(<<2:1, 2>>)),
+    ?assertEqual(<<"02">>, emqx_rule_funcs:bin2hexstr(<<2>>)),
+    ?assertEqual(<<"2">>, emqx_rule_funcs:bin2hexstr(<<2:2>>)),
+    ?assertEqual(<<"1121">>, emqx_rule_funcs:bin2hexstr(<<17, 33>>)),
+    ?assertEqual(<<"01121">>, emqx_rule_funcs:bin2hexstr(<<17:9, 33>>)).
+
 t_hex_convert(_) ->
     ?PROPTEST(hex_convert).
 
@@ -921,6 +934,11 @@ t_subbits_5_args(_) ->
         456,
         apply_func(subbits, [<<456:32/integer>>, 1, 32, <<"integer">>, <<"unsigned">>])
     ).
+
+t_subbits_not_even_bytes(_) ->
+    InputBin = apply_func(hexstr2bin, [<<"9F4E58">>]),
+    SubbitsRes = apply_func(subbits, [InputBin, 1, 6, <<"bits">>, <<"unsigned">>, <<"big">>]),
+    ?assertEqual(<<"27">>, apply_func(bin2hexstr, [SubbitsRes])).
 
 %%------------------------------------------------------------------------------
 %% Test cases for Hash funcs
