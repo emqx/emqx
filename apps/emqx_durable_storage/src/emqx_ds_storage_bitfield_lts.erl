@@ -245,16 +245,19 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{}) ->
     ok.
 
 -spec store_batch(
-    emqx_ds_storage_layer:shard_id(), s(), [emqx_types:message()], emqx_ds:message_store_opts()
+    emqx_ds_storage_layer:shard_id(),
+    s(),
+    [{emqx_ds:time(), emqx_types:message()}],
+    emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
 store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(
-        fun(Msg) ->
-            {Key, _} = make_key(S, Msg),
+        fun({Timestamp, Msg}) ->
+            {Key, _} = make_key(S, Timestamp, Msg),
             Val = serialize(Msg),
-            rocksdb:batch_put(Batch, Data, Key, Val)
+            rocksdb:put(DB, Data, Key, Val, [])
         end,
         Messages
     ),
@@ -652,8 +655,8 @@ format_key(KeyMapper, Key) ->
     Vec = [integer_to_list(I, 16) || I <- emqx_ds_bitmask_keymapper:key_to_vector(KeyMapper, Key)],
     lists:flatten(io_lib:format("~.16B (~s)", [Key, string:join(Vec, ",")])).
 
--spec make_key(s(), emqx_types:message()) -> {binary(), [binary()]}.
-make_key(#s{keymappers = KeyMappers, trie = Trie}, #message{timestamp = Timestamp, topic = TopicBin}) ->
+-spec make_key(s(), emqx_ds:time(), emqx_types:message()) -> {binary(), [binary()]}.
+make_key(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, #message{topic = TopicBin}) ->
     Tokens = emqx_topic:words(TopicBin),
     {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
     VaryingHashes = [hash_topic_level(I) || I <- Varying],

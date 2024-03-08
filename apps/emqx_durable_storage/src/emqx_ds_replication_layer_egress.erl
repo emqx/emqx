@@ -67,9 +67,8 @@ store_batch(DB, Messages, Opts) ->
     case maps:get(atomic, Opts, false) of
         false ->
             lists:foreach(
-                fun(MessageIn) ->
-                    Shard = emqx_ds_replication_layer:shard_of_message(DB, MessageIn, clientid),
-                    Message = emqx_message:set_timestamp(emqx_ds:timestamp_us(), MessageIn),
+                fun(Message) ->
+                    Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
                     gen_server:call(
                         ?via(DB, Shard),
                         #enqueue_req{
@@ -83,9 +82,7 @@ store_batch(DB, Messages, Opts) ->
             );
         true ->
             maps:foreach(
-                fun(Shard, BatchIn) ->
-                    Timestamp = emqx_ds:timestamp_us(),
-                    Batch = [emqx_message:set_timestamp(Timestamp, Message) || Message <- BatchIn],
+                fun(Shard, Batch) ->
                     gen_server:call(
                         ?via(DB, Shard),
                         #enqueue_atomic_req{

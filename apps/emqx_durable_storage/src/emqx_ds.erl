@@ -150,9 +150,6 @@
 %% Timestamp
 %% Each message must have unique timestamp.
 %% Earliest possible timestamp is 0.
-%% Granularity: microsecond.
-%% TODO: Currently, we should always use milliseconds, as that's the unit we
-%% use in emqx_guid. Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
 
 -type message_store_opts() ::

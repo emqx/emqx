@@ -117,8 +117,8 @@ store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options = #{atomic := tru
     Res;
 store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options) ->
     lists:foreach(
-        fun(Msg) ->
-            Key = <<(emqx_message:timestamp(Msg)):64>>,
+        fun({Timestamp, Msg}) ->
+            Key = <<Timestamp:64>>,
             Val = term_to_binary(Msg),
             rocksdb:put(DB, CF, Key, Val, [])
         end,
@@ -209,8 +209,8 @@ do_next(_, _, _, _, 0, Key, Acc) ->
     {Key, Acc};
 do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
     case rocksdb:iterator_move(IT, Action) of
-        {ok, Key, Blob} ->
-            Msg = #message{topic = Topic, timestamp = TS} = binary_to_term(Blob),
+        {ok, Key = <<TS:64>>, Blob} ->
+            Msg = #message{topic = Topic} = binary_to_term(Blob),
             TopicWords = emqx_topic:words(Topic),
             case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
                 true ->

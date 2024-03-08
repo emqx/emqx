@@ -320,7 +320,7 @@ bin_key_to_vector(Keymapper = #keymapper{vec_coord_size = DimSizeof, key_size = 
         DimSizeof
     ).
 
--spec key_to_coord(keymapper(), key(), dimension()) -> coord().
+-spec key_to_coord(keymapper(), scalar(), dimension()) -> coord().
 key_to_coord(#keymapper{vec_scanner = Scanner}, Key, Dim) ->
     Actions = lists:nth(Dim, Scanner),
     extract_coord(Actions, Key).

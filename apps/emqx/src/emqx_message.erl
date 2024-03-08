@@ -38,7 +38,8 @@
     from/1,
     topic/1,
     payload/1,
-    timestamp/1
+    timestamp/1,
+    timestamp/2
 ]).
 
 %% Flags
@@ -66,7 +67,6 @@
 
 -export([
     is_expired/2,
-    set_timestamp/2,
     update_expiry/1,
     timestamp_now/0
 ]).
@@ -80,7 +80,10 @@
     estimate_size/1
 ]).
 
--export_type([message_map/0]).
+-export_type([
+    timestamp/0,
+    message_map/0
+]).
 
 -type message_map() :: #{
     id := binary(),
@@ -90,9 +93,13 @@
     headers := emqx_types:headers(),
     topic := emqx_types:topic(),
     payload := emqx_types:payload(),
-    timestamp := integer(),
+    timestamp := timestamp(),
     extra := _
 }.
+
+%% Message timestamp
+%% Granularity: milliseconds.
+-type timestamp() :: non_neg_integer().
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -202,8 +209,13 @@ topic(#message{topic = Topic}) -> Topic.
 -spec payload(emqx_types:message()) -> emqx_types:payload().
 payload(#message{payload = Payload}) -> Payload.
 
--spec timestamp(emqx_types:message()) -> integer().
+-spec timestamp(emqx_types:message()) -> timestamp().
 timestamp(#message{timestamp = TS}) -> TS.
+
+-spec timestamp(emqx_types:message(), second | millisecond | microsecond) -> non_neg_integer().
+timestamp(#message{timestamp = TS}, second) -> TS div 1000;
+timestamp(#message{timestamp = TS}, millisecond) -> TS;
+timestamp(#message{timestamp = TS}, microsecond) -> TS * 1000.
 
 -spec is_sys(emqx_types:message()) -> boolean().
 is_sys(#message{flags = #{sys := true}}) ->
@@ -288,10 +300,6 @@ is_expired(#message{timestamp = CreatedAt}, Zone) ->
         infinity -> false;
         Interval -> elapsed(CreatedAt) > Interval
     end.
-
--spec set_timestamp(integer(), emqx_types:message()) -> emqx_types:message().
-set_timestamp(Timestamp, Msg) ->
-    Msg#message{timestamp = Timestamp}.
 
 -spec update_expiry(emqx_types:message()) -> emqx_types:message().
 update_expiry(
@@ -421,7 +429,7 @@ from_map(#{
     }.
 
 %% @doc Get current timestamp in milliseconds.
--spec timestamp_now() -> integer().
+-spec timestamp_now() -> timestamp().
 timestamp_now() ->
     erlang:system_time(millisecond).
 

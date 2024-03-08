@@ -34,8 +34,9 @@
 -define(batch_messages, 2).
 -define(timestamp, 3).
 
-%% update_config
+%% add_generation / update_config
 -define(config, 2).
+-define(since, 3).
 
 %% drop_generation
 -define(generation, 2).

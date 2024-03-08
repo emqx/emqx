@@ -371,7 +371,8 @@ do_drop_db_v1(DB) ->
 ) ->
     emqx_ds:store_batch_result().
 do_store_batch_v1(DB, Shard, #{?tag := ?BATCH, ?batch_messages := Messages}, Options) ->
-    emqx_ds_storage_layer:store_batch({DB, Shard}, Messages, Options).
+    Batch = [{emqx_message:timestamp(Message), Message} || Message <- Messages],
+    emqx_ds_storage_layer:store_batch({DB, Shard}, Batch, Options).
 
 %% Remove me in EMQX 5.6
 -dialyzer({nowarn_function, do_get_streams_v1/4}).
@@ -462,7 +463,7 @@ do_add_generation_v2(DB) ->
     MyShards = [],
     lists:foreach(
         fun(ShardId) ->
-            emqx_ds_storage_layer:add_generation({DB, ShardId})
+            emqx_ds_storage_layer:add_generation({DB, ShardId}, emqx_ds:timestamp_us())
         end,
         MyShards
     ).
@@ -511,7 +512,10 @@ ra_store_batch(DB, Shard, Messages) ->
     end.
 
 ra_add_generation(DB, Shard) ->
-    Command = #{?tag => add_generation},
+    Command = #{
+        ?tag => add_generation,
+        ?since => emqx_ds:timestamp_us()
+    },
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
     case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
@@ -521,7 +525,11 @@ ra_add_generation(DB, Shard) ->
     end.
 
 ra_update_config(DB, Shard, Opts) ->
-    Command = #{?tag => update_config, ?config => Opts},
+    Command = #{
+        ?tag => update_config,
+        ?config => Opts,
+        ?since => emqx_ds:timestamp_us()
+    },
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
     case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
@@ -541,16 +549,18 @@ ra_drop_generation(DB, Shard, GenId) ->
     end.
 
 ra_get_streams(DB, Shard, TopicFilter, Time) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, Time).
+    {_, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
+    TimestampUs = timestamp_to_timeus(Time),
+    emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, TimestampUs).
 
 ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time).
 
 ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
+    {_, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
+    TimestampUs = timestamp_to_timeus(StartTime),
+    emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, TimestampUs).
 
 ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
@@ -570,7 +580,16 @@ ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
 
 ra_list_generations_with_lifetimes(DB, Shard) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard).
+    Gens = emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard),
+    maps:map(
+        fun(_GenId, Data = #{since := Since, until := Until}) ->
+            Data#{
+                since := timeus_to_timestamp(Since),
+                until := emqx_maybe:apply(fun timeus_to_timestamp/1, Until)
+            }
+        end,
+        Gens
+    ).
 
 ra_drop_shard(DB, Shard) ->
     LocalServer = emqx_ds_replication_layer_shard:server(DB, Shard, local),
@@ -608,18 +627,22 @@ apply(
     {NState, Result, Effect};
 apply(
     _RaftMeta,
-    #{?tag := add_generation},
-    #{db_shard := DBShard} = State
+    #{?tag := add_generation, ?since := Since},
+    #{db_shard := DBShard, latest := Latest} = State
 ) ->
-    Result = emqx_ds_storage_layer:add_generation(DBShard),
-    {State, Result};
+    {Timestamp, NLatest} = ensure_monotonic_timestamp(Since, Latest),
+    Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
+    NState = State#{latest := NLatest},
+    {NState, Result};
 apply(
     _RaftMeta,
-    #{?tag := update_config, ?config := Opts},
-    #{db_shard := DBShard} = State
+    #{?tag := update_config, ?since := Since, ?config := Opts},
+    #{db_shard := DBShard, latest := Latest} = State
 ) ->
-    Result = emqx_ds_storage_layer:update_config(DBShard, Opts),
-    {State, Result};
+    {Timestamp, NLatest} = ensure_monotonic_timestamp(Since, Latest),
+    Result = emqx_ds_storage_layer:update_config(DBShard, Timestamp, Opts),
+    NState = State#{latest := NLatest},
+    {NState, Result};
 apply(
     _RaftMeta,
     #{?tag := drop_generation, ?generation := GenId},
@@ -632,12 +655,27 @@ assign_timestamps(Latest, Messages) ->
     assign_timestamps(Latest, Messages, []).
 
 assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
-    case emqx_message:timestamp(MessageIn) of
-        Later when Later > Latest ->
-            assign_timestamps(Later, Rest, [MessageIn | Acc]);
+    case emqx_message:timestamp(MessageIn, microsecond) of
+        TimestampUs when TimestampUs > Latest ->
+            Message = assign_timestamp(TimestampUs, MessageIn),
+            assign_timestamps(TimestampUs, Rest, [Message | Acc]);
         _Earlier ->
-            Message = emqx_message:set_timestamp(Latest + 1, MessageIn),
+            Message = assign_timestamp(Latest + 1, MessageIn),
             assign_timestamps(Latest + 1, Rest, [Message | Acc])
     end;
 assign_timestamps(Latest, [], Acc) ->
     {Latest, Acc}.
+
+assign_timestamp(TimestampUs, Message) ->
+    {TimestampUs, Message}.
+
+ensure_monotonic_timestamp(TimestampUs, Latest) when TimestampUs > Latest ->
+    {TimestampUs, TimestampUs + 1};
+ensure_monotonic_timestamp(_TimestampUs, Latest) ->
+    {Latest, Latest + 1}.
+
+timestamp_to_timeus(TimestampMs) ->
+    TimestampMs * 1000.
+
+timeus_to_timestamp(TimestampUs) ->
+    TimestampUs div 1000.

@@ -323,7 +323,7 @@ subscribe(
             ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, ID),
             {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
             Subscription = #{
-                start_time => emqx_ds:timestamp_us(),
+                start_time => now_ms(),
                 props => SubOpts,
                 id => SubId,
                 deleted => false
