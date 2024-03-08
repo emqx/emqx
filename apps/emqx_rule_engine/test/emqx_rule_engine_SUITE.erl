@@ -102,6 +102,7 @@ groups() ->
             t_sqlparse_array_index_3,
             t_sqlparse_array_index_4,
             t_sqlparse_array_index_5,
+            t_sqlparse_array_with_expressions,
             t_sqlparse_select_matadata_1,
             t_sqlparse_array_range_1,
             t_sqlparse_array_range_2,
@@ -3037,6 +3038,30 @@ t_sqlparse_array_index_5(_Config) ->
                 V =:= [1, 2, 3, 4]
             end,
             maps:to_list(Res00)
+        )
+    ).
+
+t_sqlparse_array_with_expressions(_Config) ->
+    Sql =
+        "select "
+        "  [21 + 21, abs(-abs(-2)), [1 + 1], 4] "
+        "from \"t/#\" ",
+    {ok, Res} =
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql,
+                context => #{
+                    payload => <<"">>,
+                    topic => <<"t/a">>
+                }
+            }
+        ),
+    ?assert(
+        lists:any(
+            fun({_K, V}) ->
+                V =:= [42, 2, [2], 4]
+            end,
+            maps:to_list(Res)
         )
     ).
 
