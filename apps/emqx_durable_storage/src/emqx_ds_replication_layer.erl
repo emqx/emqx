@@ -332,7 +332,7 @@ delete_next(DB, Iter0, Selector, BatchSize) ->
 -spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic) ->
     emqx_ds_replication_layer:shard_id().
 shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy) ->
-    N = emqx_ds_replication_layer_meta:n_shards(DB),
+    N = emqx_ds_replication_shard_allocator:n_shards(DB),
     Hash =
         case SerializeBy of
             clientid -> erlang:phash2(From, N);
