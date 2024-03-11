@@ -178,14 +178,42 @@ on_batch_query(InstanceId, [{_ChannelId, _} | _] = Query, State) ->
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
-on_get_status(_InstanceId, #{pool_name := Pool}) ->
-    Health = emqx_resource_pool:health_check_workers(
-        Pool, {emqx_bridge_dynamo_connector_client, is_connected, []}
-    ),
-    status_result(Health).
+health_check_timeout() ->
+    15000.
 
-status_result(_Status = true) -> ?status_connected;
-status_result(_Status = false) -> ?status_connecting.
+on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
+    Health = emqx_resource_pool:health_check_workers(
+        Pool,
+        {emqx_bridge_dynamo_connector_client, is_connected, [
+            emqx_resource_pool:health_check_timeout()
+        ]},
+        health_check_timeout(),
+        #{return_values => true}
+    ),
+    case Health of
+        {error, timeout} ->
+            {?status_connecting, State, <<"timeout_while_checking_connection">>};
+        {ok, [_ | _] = Results} ->
+            status_result(Results, State)
+    end.
+
+status_result(Results, State) ->
+    case lists:all(fun(Res) -> Res =:= true end, Results) of
+        true ->
+            ?status_connected;
+        false ->
+            {value, {false, Error}} =
+                lists:search(
+                    fun
+                        ({false, _Error}) ->
+                            true;
+                        (_) ->
+                            false
+                    end,
+                    Results
+                ),
+            {?status_connecting, State, Error}
+    end.
 
 %%========================================================================================
 %% Helper fns
