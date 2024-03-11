@@ -64,7 +64,8 @@ t_copy_new_data_dir(Config) ->
     ),
 
     %% 1. Start all nodes
-    [First | Rest] = Nodes = start_cluster(Cluster),
+    Nodes = start_cluster(Cluster),
+    [First | Rest] = sort_highest_uptime(Nodes),
     try
         NodeDataDir = erpc:call(First, emqx, data_dir, []),
         File = NodeDataDir ++ "/configs/cluster.hocon",
@@ -88,7 +89,8 @@ t_copy_deprecated_data_dir(Config) ->
     ),
 
     %% 1. Start all nodes
-    [First | Rest] = Nodes = start_cluster(Cluster),
+    Nodes = start_cluster(Cluster),
+    [First | Rest] = sort_highest_uptime(Nodes),
     try
         NodeDataDir = erpc:call(First, emqx, data_dir, []),
         File = NodeDataDir ++ "/configs/cluster-override.conf",
@@ -246,3 +248,11 @@ cluster(TC, Specs, Config) ->
 
 cluster_spec({Type, Num}) ->
     {Type, list_to_atom(atom_to_list(?MODULE) ++ integer_to_list(Num))}.
+
+sort_highest_uptime(Nodes) ->
+    Ranking = lists:sort([{-get_node_uptime(N), N} || N <- Nodes]),
+    element(2, lists:unzip(Ranking)).
+
+get_node_uptime(Node) ->
+    {Milliseconds, _} = erpc:call(Node, erlang, statistics, [wall_clock]),
+    Milliseconds.
