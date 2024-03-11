@@ -1135,7 +1135,7 @@ remove_live_sessions(Rows) ->
     ).
 
 list_client_msgs(MsgType, ClientID, QString) ->
-    case parse_cont_pager_params(QString, MsgType) of
+    case emqx_mgmt_api:parse_cont_pager_params(QString, cont_encoding(MsgType)) of
         false ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"after_limit_invalid">>}};
         PagerParams = #{} ->
@@ -1147,28 +1147,10 @@ list_client_msgs(MsgType, ClientID, QString) ->
             end
     end.
 
-parse_cont_pager_params(QString, MsgType) ->
-    case emqx_mgmt_api:parse_cont_pager_params(QString, cont_encoding(MsgType)) of
-        false ->
-            false;
-        PagerParams ->
-            maybe_cast_cont(MsgType, PagerParams)
-    end.
-
-maybe_cast_cont(inflight_msgs, #{continuation := Cont} = PagerParams) when is_binary(Cont) ->
-    try
-        PagerParams#{continuation => emqx_utils_conv:int(Cont)}
-    catch
-        _:_ ->
-            false
-    end;
-maybe_cast_cont(_, PagerParams) ->
-    PagerParams.
-
 %% integer packet id
-cont_encoding(inflight_msgs) -> none;
+cont_encoding(inflight_msgs) -> ?URL_PARAM_INTEGER;
 %% binary message id
-cont_encoding(mqueue_msgs) -> base64.
+cont_encoding(mqueue_msgs) -> ?URL_PARAM_BINARY.
 
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec

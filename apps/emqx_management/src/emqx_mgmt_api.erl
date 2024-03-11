@@ -17,12 +17,11 @@
 -module(emqx_mgmt_api).
 
 -include_lib("stdlib/include/qlc.hrl").
+-include("emqx_mgmt.hrl").
 
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
 
 -define(LONG_QUERY_TIMEOUT, 50000).
-
--define(CONT_BASE64_OPTS, #{mode => urlsafe, padding => false}).
 
 -export([
     paginate/3
@@ -151,19 +150,19 @@ decode_continuation(none, _Encoding) ->
 decode_continuation(end_of_data, _Encoding) ->
     %% Clients should not send "after=end_of_data" back to the server
     error;
-decode_continuation(Cont, none) ->
-    Cont;
-decode_continuation(Cont, base64) ->
-    base64:decode(Cont, ?CONT_BASE64_OPTS).
+decode_continuation(Cont, ?URL_PARAM_INTEGER) ->
+    binary_to_integer(Cont);
+decode_continuation(Cont, ?URL_PARAM_BINARY) ->
+    emqx_utils:hexstr_to_bin(Cont).
 
 encode_continuation(none, _Encoding) ->
     none;
 encode_continuation(end_of_data, _Encoding) ->
     end_of_data;
-encode_continuation(Cont, none) ->
-    emqx_utils_conv:bin(Cont);
-encode_continuation(Cont, base64) ->
-    base64:encode(emqx_utils_conv:bin(Cont), ?CONT_BASE64_OPTS).
+encode_continuation(Cont, ?URL_PARAM_INTEGER) ->
+    integer_to_binary(Cont);
+encode_continuation(Cont, ?URL_PARAM_BINARY) ->
+    emqx_utils:bin_to_hexstr(Cont, lower).
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -663,7 +662,7 @@ parse_pager_params(Params) ->
             false
     end.
 
--spec parse_cont_pager_params(map(), none | base64) ->
+-spec parse_cont_pager_params(map(), ?URL_PARAM_INTEGER | ?URL_PARAM_BINARY) ->
     #{limit := pos_integer(), continuation := none | end_of_table | binary()} | false.
 parse_cont_pager_params(Params, Encoding) ->
     Cont = continuation(Params, Encoding),
@@ -675,7 +674,7 @@ parse_cont_pager_params(Params, Encoding) ->
             false
     end.
 
--spec encode_cont_pager_params(map(), none | base64) -> map().
+-spec encode_cont_pager_params(map(), ?URL_PARAM_INTEGER | ?URL_PARAM_BINARY) -> map().
 encode_cont_pager_params(#{continuation := Cont} = Meta, ContEncoding) ->
     Meta1 = maps:remove(continuation, Meta),
     Meta1#{last => encode_continuation(Cont, ContEncoding)};

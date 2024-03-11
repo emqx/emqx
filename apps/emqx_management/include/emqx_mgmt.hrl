@@ -15,3 +15,6 @@
 %%--------------------------------------------------------------------
 
 -define(DEFAULT_ROW_LIMIT, 100).
+
+-define(URL_PARAM_INTEGER, url_param_integer).
+-define(URL_PARAM_BINARY, url_param_binary).
