@@ -230,7 +230,7 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{}) ->
     emqx_ds_storage_layer:shard_id(), s(), [emqx_types:message()], emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options = #{atomic := true}) ->
+store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(
         fun(Msg) ->
@@ -240,18 +240,17 @@ store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options = #{atomi
         end,
         Messages
     ),
-    Res = rocksdb:write_batch(DB, Batch, _WriteOptions = []),
+    Result = rocksdb:write_batch(DB, Batch, []),
     rocksdb:release_batch(Batch),
-    Res;
-store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
-    lists:foreach(
-        fun(Msg) ->
-            {Key, _} = make_key(S, Msg),
-            Val = serialize(Msg),
-            rocksdb:put(DB, Data, Key, Val, [])
-        end,
-        Messages
-    ).
+    %% NOTE
+    %% Strictly speaking, `{error, incomplete}` is a valid result but should be impossible to
+    %% observe until there's `{no_slowdown, true}` in write options.
+    case Result of
+        ok ->
+            ok;
+        {error, {error, Reason}} ->
+            {error, unrecoverable, {rocksdb, Reason}}
+    end.
 
 -spec get_streams(
     emqx_ds_storage_layer:shard_id(),

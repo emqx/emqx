@@ -118,7 +118,6 @@ app_specs() ->
 app_specs(Opts) ->
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
-        emqx_durable_storage,
         {emqx, "session_persistence = {enable = true}" ++ ExtraEMQXConf}
     ].
 
@@ -153,6 +152,14 @@ start_client(Opts0 = #{}) ->
     unlink(Client),
     on_exit(fun() -> catch emqtt:stop(Client) end),
     Client.
+
+start_connect_client(Opts = #{}) ->
+    Client = start_client(Opts),
+    ?assertMatch({ok, _}, emqtt:connect(Client)),
+    Client.
+
+mk_clientid(Prefix, ID) ->
+    iolist_to_binary(io_lib:format("~p/~p", [Prefix, ID])).
 
 restart_node(Node, NodeSpec) ->
     ?tp(will_restart_node, #{}),
@@ -599,3 +606,66 @@ t_session_gc(Config) ->
         []
     ),
     ok.
+
+t_session_replay_retry(_Config) ->
+    %% Verify that the session recovers smoothly from transient errors during
+    %% replay.
+
+    ok = emqx_ds_test_helpers:mock_rpc(),
+
+    NClients = 10,
+    ClientSubOpts = #{
+        clientid => mk_clientid(?FUNCTION_NAME, sub),
+        auto_ack => never
+    },
+    ClientSub = start_connect_client(ClientSubOpts),
+    ?assertMatch(
+        {ok, _, [?RC_GRANTED_QOS_1]},
+        emqtt:subscribe(ClientSub, <<"t/#">>, ?QOS_1)
+    ),
+
+    ClientsPub = [
+        start_connect_client(#{
+            clientid => mk_clientid(?FUNCTION_NAME, I),
+            properties => #{'Session-Expiry-Interval' => 0}
+        })
+     || I <- lists:seq(1, NClients)
+    ],
+    lists:foreach(
+        fun(Client) ->
+            Index = integer_to_binary(rand:uniform(NClients)),
+            Topic = <<"t/", Index/binary>>,
+            ?assertMatch({ok, #{}}, emqtt:publish(Client, Topic, Index, 1))
+        end,
+        ClientsPub
+    ),
+
+    Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
+    NPubs = length(Pubs0),
+    ?assertEqual(NClients, NPubs, ?drainMailbox()),
+
+    ok = emqtt:stop(ClientSub),
+
+    %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
+    ok = emqx_ds_test_helpers:mock_rpc_result(
+        fun(_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
+            case erlang:phash2(Shard) rem 2 of
+                0 -> unavailable;
+                1 -> passthrough
+            end
+        end
+    ),
+
+    _ClientSub = start_connect_client(ClientSubOpts#{clean_start => false}),
+
+    Pubs1 = emqx_common_test_helpers:wait_publishes(NPubs, 5_000),
+    ?assert(length(Pubs1) < length(Pubs0), Pubs1),
+
+    %% "Recover" the shards.
+    emqx_ds_test_helpers:unmock_rpc(),
+
+    Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 5_000),
+    ?assertEqual(
+        [maps:with([topic, payload, qos], P) || P <- Pubs0],
+        [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2]
+    ).

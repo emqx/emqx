@@ -35,6 +35,7 @@
 
 -export_type([
     badrpc/0,
+    call_result/1,
     call_result/0,
     cast_result/0,
     multicall_result/1,
