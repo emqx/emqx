@@ -162,7 +162,7 @@ encode_continuation(end_of_data, _Encoding) ->
 encode_continuation(Cont, ?URL_PARAM_INTEGER) ->
     integer_to_binary(Cont);
 encode_continuation(Cont, ?URL_PARAM_BINARY) ->
-    emqx_utils:bin_to_hexstr(Cont).
+    emqx_utils:bin_to_hexstr(Cont, lower).
 
 %%--------------------------------------------------------------------
 %% Node Query
