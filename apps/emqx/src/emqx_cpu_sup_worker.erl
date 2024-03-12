@@ -78,7 +78,8 @@ handle_call({cpu_util, Args}, _From, State) ->
     Val = erlang:apply(cpu_sup, util, Args),
     {reply, Val, State};
 handle_call(Req, _From, State) ->
-    {reply, {error, {unexpected_call, Req}}, State}.
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
