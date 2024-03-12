@@ -198,20 +198,12 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
     end.
 
 status_result(Results, State) ->
-    case lists:all(fun(Res) -> Res =:= true end, Results) of
-        true ->
+    case lists:filter(fun(Res) -> Res =/= true end, Results) of
+        [] when Results =:= [] ->
+            ?status_connecting;
+        [] ->
             ?status_connected;
-        false ->
-            {value, {false, Error}} =
-                lists:search(
-                    fun
-                        ({false, _Error}) ->
-                            true;
-                        (_) ->
-                            false
-                    end,
-                    Results
-                ),
+        [{false, Error} | _] ->
             {?status_connecting, State, Error}
     end.
 
