@@ -28,3 +28,37 @@ is_redacted_test_() ->
         ?_assert(emqx_utils:is_redacted(password, fun() -> <<"******">> end)),
         ?_assert(emqx_utils:is_redacted(password, emqx_secret:wrap(<<"******">>)))
     ].
+
+foldl_while_test_() ->
+    [
+        ?_assertEqual(
+            [3, 2, 1],
+            emqx_utils:foldl_while(fun(X, Acc) -> {cont, [X | Acc]} end, [], [1, 2, 3])
+        ),
+        ?_assertEqual(
+            [1],
+            emqx_utils:foldl_while(
+                fun
+                    (X, Acc) when X == 2 ->
+                        {halt, Acc};
+                    (X, Acc) ->
+                        {cont, [X | Acc]}
+                end,
+                [],
+                [1, 2, 3]
+            )
+        ),
+        ?_assertEqual(
+            finished,
+            emqx_utils:foldl_while(
+                fun
+                    (X, _Acc) when X == 3 ->
+                        {halt, finished};
+                    (X, Acc) ->
+                        {cont, [X | Acc]}
+                end,
+                [],
+                [1, 2, 3]
+            )
+        )
+    ].

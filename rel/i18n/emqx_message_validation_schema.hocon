@@ -1,0 +1,88 @@
+emqx_message_validation_schema {
+
+  check_avro_type.desc:
+  """Avro schema check"""
+  check_avro_type.label:
+  """Avro schema check"""
+
+  check_avro_schema.desc:
+  """Schema name to use during check."""
+  check_avro_schema.label:
+  """Schema name"""
+
+  check_json_type.desc:
+  """JSON schema check"""
+  check_json_type.label:
+  """JSON schema check"""
+
+  check_json_schema.desc:
+  """Schema name to use during check."""
+  check_json_schema.label:
+  """Schema name"""
+
+  check_protobuf_type.desc:
+  """Protobuf schema check"""
+  check_protobuf_type.label:
+  """Protobuf schema check"""
+
+  check_protobuf_schema.desc:
+  """Schema name to use during check."""
+  check_protobuf_schema.label:
+  """Schema name"""
+
+  check_protobuf_message_name.desc:
+  """Message name to use during check."""
+  check_protobuf_message_name.label:
+  """Message name"""
+
+  check_sql_type.desc:
+  """Use rule-engine's SQL to validate the message. SQL here is the same as in rule-engine,
+  just with the different that the `FROM` clause must be omitted.
+  A SQL statement which yields any value is considered successfully validated, otherwise failed.
+  For example <code>SELECT payload.foo + payload.bar as sum WHERE sum > 0</code>
+  validates that the sum of field `foo` and `bar` is a positive value."""
+  check_sql_type.label:
+  """SQL schema check"""
+
+  check_sql_schema.desc:
+  """Schema name to use during check."""
+  check_sql_schema.label:
+  """Schema name"""
+
+  topics.desc:
+  """A single topic filter or list of topic filters that this validation should validate."""
+  topics.label:
+  """Topic filter(s)"""
+
+  name.desc:
+  """The name for this validation.  Must be unique among all validations."""
+  name.desc:
+  """Name"""
+
+  strategy.desc:
+  """How the validation should consider the checks to be successful.
+
+  <code>all_pass</code>: All checks will be evaluated and must pass.
+  <code>any_pass</code>: Any passing check will suffice.  Stops at the first success."""
+  strategy.desc:
+  """Strategy"""
+
+  failure_action.desc:
+  """How to proceed if the validation fails.
+
+  <code>drop</code>: The offending message is simply dropped without further processing.
+  <code>disconnect</code>: The message is not published, and the publishing client is disconnected."""
+  failure_action.label:
+  """Failure action"""
+
+  log_failure_at.desc:
+  """Log level at which failures will be logged."""
+  log_failure_at.label:
+  """Failure log level"""
+
+  checks.desc:
+  """Checks that will be performed during validation.  They are evaluated in the same order as defined."""
+  checks.label:
+  """Checks"""
+
+}

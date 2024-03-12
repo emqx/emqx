@@ -41,4 +41,5 @@ stop(_State) ->
     RulePath = [RuleEngine | _] = ?KEY_PATH,
     emqx_conf:remove_handler(RulePath ++ ['?']),
     emqx_conf:remove_handler([RuleEngine]),
-    ok = emqx_rule_events:unload().
+    ok = emqx_rule_events:unload(),
+    ok.

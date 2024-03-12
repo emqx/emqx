@@ -65,7 +65,7 @@ defmodule EMQXUmbrella.MixProject do
       # maybe forbid to fetch quicer
       {:emqtt,
        github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()},
-      {:rulesql, github: "emqx/rulesql", tag: "0.1.8"},
+      {:rulesql, github: "emqx/rulesql", tag: "0.2.0"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
       {:telemetry, "1.1.0"},
@@ -184,6 +184,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_s3,
       :emqx_bridge_s3,
       :emqx_schema_registry,
+      :emqx_message_validation,
       :emqx_enterprise,
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,

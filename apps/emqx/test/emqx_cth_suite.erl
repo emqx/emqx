@@ -380,6 +380,10 @@ default_appspec(emqx_dashboard, _SuiteOpts) ->
             true = emqx_dashboard_listener:is_ready(infinity)
         end
     };
+default_appspec(emqx_schema_registry, _SuiteOpts) ->
+    #{schema_mod => emqx_schema_registry_schema, config => #{}};
+default_appspec(emqx_message_validation, _SuiteOpts) ->
+    #{schema_mod => emqx_message_validation_schema, config => #{}};
 default_appspec(_, _) ->
     #{}.
 

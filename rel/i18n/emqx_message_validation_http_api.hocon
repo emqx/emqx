@@ -1,0 +1,24 @@
+emqx_message_validation_http_api {
+
+  list_validations.desc:
+  """List validations"""
+
+  lookup_validation.desc:
+  """Lookup a validation"""
+
+  update_validation.desc:
+  """Update a validation"""
+
+  delete_validation.desc:
+  """Delete a validation"""
+
+  append_validation.desc:
+  """Append a new validation to the list of validations"""
+
+  move_validation.desc:
+  """Change the order of a validation in the list of validations"""
+
+  param_path_name.desc:
+  """Validation name"""
+
+}

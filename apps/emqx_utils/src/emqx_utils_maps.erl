@@ -158,7 +158,9 @@ deep_convert(Val, _, _Args) ->
 unsafe_atom_key_map(Map) ->
     convert_keys_to_atom(Map, fun(K) -> binary_to_atom(K, utf8) end).
 
--spec binary_key_map(map()) -> map().
+-spec binary_key_map
+    (map()) -> map();
+    (list()) -> list().
 binary_key_map(Map) ->
     deep_convert(
         Map,
