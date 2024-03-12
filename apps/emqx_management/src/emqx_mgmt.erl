@@ -18,6 +18,7 @@
 
 -include("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
@@ -117,6 +118,13 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+-define(maybe_log_node_errors(LogData, Errors),
+    case Errors of
+        [] -> ok;
+        _ -> ?SLOG(error, (LogData)#{node_errors => Errors})
+    end
+).
+
 %%--------------------------------------------------------------------
 %% Node Info
 %%--------------------------------------------------------------------
@@ -185,7 +193,7 @@ get_sys_memory() ->
     end.
 
 node_info(Nodes) ->
-    emqx_rpc:unwrap_erpc(emqx_management_proto_v4:node_info(Nodes)).
+    emqx_rpc:unwrap_erpc(emqx_management_proto_v5:node_info(Nodes)).
 
 stopped_node_info(Node) ->
     {Node, #{node => Node, node_status => 'stopped', role => core}}.
@@ -248,7 +256,7 @@ convert_broker_info({K, V}, M) ->
     M#{K => iolist_to_binary(V)}.
 
 broker_info(Nodes) ->
-    emqx_rpc:unwrap_erpc(emqx_management_proto_v4:broker_info(Nodes)).
+    emqx_rpc:unwrap_erpc(emqx_management_proto_v5:broker_info(Nodes)).
 
 %%--------------------------------------------------------------------
 %% Metrics and Stats
@@ -361,7 +369,7 @@ kickout_client(Node, ClientId) ->
 
 kickout_clients(ClientIds) when is_list(ClientIds) ->
     F = fun(Node) ->
-        emqx_management_proto_v4:kickout_clients(Node, ClientIds)
+        emqx_management_proto_v5:kickout_clients(Node, ClientIds)
     end,
     Results = lists:map(F, emqx:running_nodes()),
     case lists:filter(fun(Res) -> Res =/= ok end, Results) of
@@ -469,17 +477,26 @@ call_client(ClientId, Req) ->
     end.
 
 call_client_on_all_nodes(ClientId, Req) ->
-    Results = [call_client(Node, ClientId, Req) || Node <- emqx:running_nodes()],
-    Expected = lists:filter(
+    Nodes = emqx:running_nodes(),
+    Results = call_client(Nodes, ClientId, Req),
+    {Expected, Errs} = lists:foldr(
         fun
-            ({error, _}) -> false;
-            (_) -> true
+            ({_N, {error, not_found}}, Acc) -> Acc;
+            ({_N, {error, _}} = Err, {OkAcc, ErrAcc}) -> {OkAcc, [Err | ErrAcc]};
+            ({_N, OkRes}, {OkAcc, ErrAcc}) -> {[OkRes | OkAcc], ErrAcc}
         end,
-        Results
+        {[], []},
+        lists:zip(Nodes, Results)
     ),
+    ?maybe_log_node_errors(#{msg => "call_client_failed", request => Req}, Errs),
     case Expected of
-        [] -> {error, not_found};
-        [Result | _] -> Result
+        [] ->
+            case Errs of
+                [] -> {error, not_found};
+                [{_Node, FirstErr} | _] -> FirstErr
+            end;
+        [Result | _] ->
+            Result
     end.
 
 %% @private
@@ -499,8 +516,8 @@ do_call_client(ClientId, Req) ->
     end.
 
 %% @private
-call_client(Node, ClientId, Req) ->
-    unwrap_rpc(emqx_management_proto_v4:call_client(Node, ClientId, Req)).
+call_client(Nodes, ClientId, Req) ->
+    emqx_rpc:unwrap_erpc(emqx_management_proto_v5:call_client(Nodes, ClientId, Req)).
 
 %%--------------------------------------------------------------------
 %% Subscriptions
@@ -513,7 +530,7 @@ do_list_subscriptions() ->
     throw(not_implemented).
 
 list_subscriptions(Node) ->
-    unwrap_rpc(emqx_management_proto_v4:list_subscriptions(Node)).
+    unwrap_rpc(emqx_management_proto_v5:list_subscriptions(Node)).
 
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([
@@ -535,7 +552,7 @@ subscribe(ClientId, TopicTables) ->
     subscribe(emqx:running_nodes(), ClientId, TopicTables).
 
 subscribe([Node | Nodes], ClientId, TopicTables) ->
-    case unwrap_rpc(emqx_management_proto_v4:subscribe(Node, ClientId, TopicTables)) of
+    case unwrap_rpc(emqx_management_proto_v5:subscribe(Node, ClientId, TopicTables)) of
         {error, _} -> subscribe(Nodes, ClientId, TopicTables);
         {subscribe, Res} -> {subscribe, Res, Node}
     end;
@@ -562,7 +579,7 @@ unsubscribe(ClientId, Topic) ->
 -spec unsubscribe([node()], emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe([Node | Nodes], ClientId, Topic) ->
-    case unwrap_rpc(emqx_management_proto_v4:unsubscribe(Node, ClientId, Topic)) of
+    case unwrap_rpc(emqx_management_proto_v5:unsubscribe(Node, ClientId, Topic)) of
         {error, _} -> unsubscribe(Nodes, ClientId, Topic);
         Re -> Re
     end;
@@ -585,7 +602,7 @@ unsubscribe_batch(ClientId, Topics) ->
 -spec unsubscribe_batch([node()], emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, channel_not_found}.
 unsubscribe_batch([Node | Nodes], ClientId, Topics) ->
-    case unwrap_rpc(emqx_management_proto_v4:unsubscribe_batch(Node, ClientId, Topics)) of
+    case unwrap_rpc(emqx_management_proto_v5:unsubscribe_batch(Node, ClientId, Topics)) of
         {error, _} -> unsubscribe_batch(Nodes, ClientId, Topics);
         Re -> Re
     end;
@@ -664,6 +681,7 @@ lookup_running_client(ClientId, FormatFun) ->
 %%--------------------------------------------------------------------
 %% Internal Functions.
 %%--------------------------------------------------------------------
+
 unwrap_rpc({badrpc, Reason}) ->
     {error, Reason};
 unwrap_rpc(Res) ->
