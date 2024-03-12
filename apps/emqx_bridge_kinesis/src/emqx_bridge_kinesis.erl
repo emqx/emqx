@@ -212,6 +212,8 @@ desc(action_parameters) ->
     ?DESC("action_parameters");
 desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
+desc(action_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
