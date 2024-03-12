@@ -58,8 +58,8 @@ remove_handler() ->
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     #{os := OS1, vm := VM1} = OldConf,
     #{os := OS2, vm := VM2} = NewConf,
-    VM1 =/= VM2 andalso ?MODULE:update(VM2),
-    OS1 =/= OS2 andalso emqx_os_mon:update(OS2),
+    (VM1 =/= VM2) andalso ?MODULE:update(VM2),
+    (OS1 =/= OS2) andalso emqx_os_mon:update(OS2),
     ok.
 
 update(VM) ->
