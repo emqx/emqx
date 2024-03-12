@@ -193,7 +193,7 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
     case Health of
         {error, timeout} ->
             {?status_connecting, State, <<"timeout_while_checking_connection">>};
-        {ok, [_ | _] = Results} ->
+        {ok, Results} ->
             status_result(Results, State)
     end.
 
