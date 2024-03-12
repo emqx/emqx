@@ -69,7 +69,7 @@ permissions:
 jobs:
   build:
     runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.arch)) || 'ubuntu-22.04' }}
-    container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ inputs.otp_vsn }}-debian11"
+    container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ inputs.otp_vsn }}-debian12"
     outputs:
       PKG_VSN: ${{ steps.build.outputs.PKG_VSN }}
 
@@ -166,7 +166,7 @@ jobs:
           DOCKER_BUILD_NOCACHE: true
           DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: true
-          EMQX_RUNNER: 'public.ecr.aws/debian/debian:11-slim@sha256:22cfb3c06a7dd5e18d86123a73405664475b9d9fa209cbedcf4c50a25649cc74'
+          EMQX_RUNNER: 'public.ecr.aws/debian/debian:12-slim'
           EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
           PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
           EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}

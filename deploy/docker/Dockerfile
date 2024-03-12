@@ -1,5 +1,5 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-debian11@sha256:48b62a5636bd6bc59688fc98a498401fccf456fa63d843aa0b7279f3bc20b22e
-ARG RUN_FROM=public.ecr.aws/debian/debian:11-slim@sha256:22cfb3c06a7dd5e18d86123a73405664475b9d9fa209cbedcf4c50a25649cc74
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-debian12
+ARG RUN_FROM=public.ecr.aws/debian/debian:12-slim
 ARG SOURCE_TYPE=src # tgz
 
 FROM ${BUILD_FROM} as builder_src
@@ -10,7 +10,7 @@ ARG PROFILE=emqx
 ARG PKG_VSN
 ARG SUFFIX
 ARG TARGETARCH
-ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian11-$TARGETARCH.tar.gz /${PROFILE}.tar.gz
+ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian12-$TARGETARCH.tar.gz /${PROFILE}.tar.gz
 
 FROM builder_${SOURCE_TYPE} as builder
 
