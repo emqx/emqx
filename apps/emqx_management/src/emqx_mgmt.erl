@@ -461,6 +461,14 @@ set_keepalive(_ClientId, _Interval) ->
 
 %% @private
 call_client(ClientId, Req) ->
+    case emqx_cm_registry:is_enabled() of
+        true ->
+            do_call_client(ClientId, Req);
+        false ->
+            call_client_on_all_nodes(ClientId, Req)
+    end.
+
+call_client_on_all_nodes(ClientId, Req) ->
     Results = [call_client(Node, ClientId, Req) || Node <- emqx:running_nodes()],
     Expected = lists:filter(
         fun
