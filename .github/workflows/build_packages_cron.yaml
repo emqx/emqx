@@ -23,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ['emqx', 'master', '5.3-2:1.15.7-26.2.1-2']
-          - ['emqx-enterprise', 'release-56', '5.3-2:1.15.7-25.3.2-2']
+          - ['emqx', 'master', '5.3-3:1.15.7-26.2.3-1']
+          - ['emqx-enterprise', 'release-56', '5.3-3:1.15.7-25.3.2-2']
         os:
           - debian10
           - ubuntu22.04
@@ -93,7 +93,7 @@ jobs:
         branch:
           - master
         otp:
-          - 26.2.1-2
+          - 26.2.3-1
         os:
           - macos-12-arm64
 

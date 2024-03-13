@@ -397,7 +397,7 @@ function is_ecr_and_enterprise() {
 
 ## Build the default docker image based on debian 11.
 make_docker() {
-    local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.3-2}"
+    local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.3-3}"
     local EMQX_BUILDER_PLATFORM="${EMQX_BUILDER_PLATFORM:-debian11}"
     local EMQX_BUILDER_OTP="${EMQX_BUILDER_OTP:-25.3.2-2}"
     local EMQX_BUILDER_ELIXIR="${EMQX_BUILDER_ELIXIR:-1.15.7}"
