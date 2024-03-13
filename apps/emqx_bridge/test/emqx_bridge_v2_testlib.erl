@@ -132,22 +132,26 @@ parse_and_check(Kind, Type, Name, InnerConfigMap0) ->
         end,
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{RootBin => #{TypeBin => #{Name => InnerConfigMap0}}},
-    #{RootBin := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
-        emqx_bridge_v2_schema,
-        RawConf,
-        #{
-            required => false,
-            atom_key => false,
-            make_serializable => true
-        }
-    ),
-    InnerConfigMap.
+    do_parse_and_check(RootBin, TypeBin, Name, emqx_bridge_v2_schema, RawConf).
 
 parse_and_check_connector(Type, Name, InnerConfigMap0) ->
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap0}}},
-    #{<<"connectors">> := #{TypeBin := #{Name := InnerConfigMap}}} = hocon_tconf:check_plain(
-        emqx_connector_schema,
+    do_parse_and_check(<<"connectors">>, TypeBin, Name, emqx_connector_schema, RawConf).
+
+do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf) ->
+    #{RootBin := #{TypeBin := #{NameBin := _}}} = hocon_tconf:check_plain(
+        SchemaMod,
+        RawConf,
+        #{
+            required => false,
+            atom_key => false,
+            %% to trigger validators that otherwise aren't triggered
+            make_serializable => false
+        }
+    ),
+    #{RootBin := #{TypeBin := #{NameBin := InnerConfigMap}}} = hocon_tconf:check_plain(
+        SchemaMod,
         RawConf,
         #{
             required => false,
