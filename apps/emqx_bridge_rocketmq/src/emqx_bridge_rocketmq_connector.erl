@@ -244,7 +244,7 @@ do_query(
     ?TRACE(
         "QUERY",
         "rocketmq_connector_received",
-        #{connector => InstanceId, query => Query, state => State}
+        #{connector => InstanceId, query => Query, state => redact(State)}
     ),
     ChannelId = get_channel_id(Query),
     #{
