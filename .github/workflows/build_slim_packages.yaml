@@ -78,6 +78,9 @@ jobs:
       run: |
         make ${EMQX_NAME}-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-pkg
+    - name: tmp workaround for builder 5.3-3 (OTP 26.2.3-1)
+      run: |
+        mix archive.install github hexpm/hex branch latest
     - name: build and test tgz package (Elixir)
       if: matrix.profile[3] == 'elixir'
       run: |
