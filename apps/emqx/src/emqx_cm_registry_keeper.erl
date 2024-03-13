@@ -20,7 +20,8 @@
 
 -export([
     start_link/0,
-    count/1
+    count/1,
+    purge/0
 ]).
 
 %% gen_server callbacks
@@ -48,7 +49,10 @@ start_link() ->
 init(_) ->
     case mria_config:whoami() =:= replicant of
         true ->
-            ignore;
+            %% Do not run delete loops on replicant nodes
+            %% because the core nodes will do it anyway
+            %% The process is started to serve the 'count' calls
+            {ok, #{no_deletes => true}};
         false ->
             ok = send_delay_start(),
             {ok, #{next_clientid => undefined}}
@@ -69,6 +73,19 @@ count(Since) ->
         false ->
             %% make a gen call to avoid many callers doing the same concurrently
             gen_server:call(?MODULE, {count, Since}, infinity)
+    end.
+
+%% @doc Delete all retained history. Only for tests.
+-spec purge() -> ok.
+purge() ->
+    purge_loop(undefined).
+
+purge_loop(StartId) ->
+    case cleanup_one_chunk(StartId, _IsPurge = true) of
+        '$end_of_table' ->
+            ok;
+        NextId ->
+            purge_loop(NextId)
     end.
 
 handle_call({count, Since}, _From, State) ->
@@ -128,10 +145,13 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 cleanup_one_chunk(NextClientId) ->
+    cleanup_one_chunk(NextClientId, false).
+
+cleanup_one_chunk(NextClientId, IsPurge) ->
     Retain = retain_duration(),
     Now = now_ts(),
     IsExpired = fun(#channel{pid = Ts}) ->
-        is_integer(Ts) andalso (Ts < Now - Retain)
+        IsPurge orelse (is_integer(Ts) andalso (Ts < Now - Retain))
     end,
     cleanup_loop(NextClientId, ?CLEANUP_CHUNK_SIZE, IsExpired).
 

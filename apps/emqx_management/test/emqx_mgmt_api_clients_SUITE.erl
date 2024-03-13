@@ -798,6 +798,44 @@ t_client_id_not_found(_Config) ->
     %% Inflight messages
     ?assertMatch({error, {Http, _, Body}}, ReqFun(get, PathFun(["inflight_messages"]))).
 
+t_sessions_count(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"t/test_sessions_count">>,
+    Conf0 = emqx_config:get([broker]),
+    Conf1 = hocon_maps:deep_merge(Conf0, #{session_history_retain => 5}),
+    %% from 1 seconds ago, which is for sure less than histry retain duration
+    %% hence force a call to the gen_server emqx_cm_registry_keeper
+    Since = erlang:system_time(seconds) - 1,
+    ok = emqx_config:put(#{broker => Conf1}),
+    {ok, Client} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {clean_start, true}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, Topic, 1),
+    Path = emqx_mgmt_api_test_util:api_path(["sessions_count"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    ?assertMatch(
+        {ok, "1"},
+        emqx_mgmt_api_test_util:request_api(
+            get, Path, "since=" ++ integer_to_list(Since), AuthHeader
+        )
+    ),
+    ok = emqtt:disconnect(Client),
+    %% simulate the situation in which the process is not running
+    ok = supervisor:terminate_child(emqx_cm_sup, emqx_cm_registry_keeper),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(
+            get, Path, "since=" ++ integer_to_list(Since), AuthHeader
+        )
+    ),
+    %% restore default value
+    ok = emqx_config:put(#{broker => Conf0}),
+    ok = emqx_cm_registry_keeper:purge(),
+    ok.
+
 t_mqueue_messages(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Topic = <<"t/test_mqueue_msgs">>,
