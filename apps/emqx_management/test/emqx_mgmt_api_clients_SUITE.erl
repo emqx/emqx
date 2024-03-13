@@ -985,6 +985,24 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding) ->
     ?assertMatch(
         {error, {_, 400, _}},
         emqx_mgmt_api_test_util:request_api(get, Path, "limit=limit", AuthHeader)
+    ),
+
+    %% Invalid max_paylod_bytes param
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(get, Path, "max_payload_bytes=0", AuthHeader)
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(get, Path, "max_payload_bytes=-1", AuthHeader)
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(get, Path, "max_payload_bytes=-1MB", AuthHeader)
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(get, Path, "max_payload_bytes=0MB", AuthHeader)
     ).
 
 decode_payload(Payload, base64) ->

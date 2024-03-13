@@ -916,7 +916,8 @@ client_msgs_params() ->
                     " The only exception to this rule is when the first message payload"
                     " is already larger than the limit."
                     " In this case, the first message will be returned in the response."
-                >>
+                >>,
+                validator => fun max_bytes_validator/1
             })},
         hoconsc:ref(emqx_dashboard_swagger, 'after'),
         hoconsc:ref(emqx_dashboard_swagger, limit)
@@ -1151,6 +1152,11 @@ list_client_msgs(MsgType, ClientID, QString) ->
 cont_encoding(inflight_msgs) -> ?URL_PARAM_INTEGER;
 %% binary message id
 cont_encoding(mqueue_msgs) -> ?URL_PARAM_BINARY.
+
+max_bytes_validator(MaxBytes) when is_integer(MaxBytes), MaxBytes > 0 ->
+    ok;
+max_bytes_validator(_MaxBytes) ->
+    {error, "must be higher than 0"}.
 
 %%--------------------------------------------------------------------
 %% QueryString to Match Spec
