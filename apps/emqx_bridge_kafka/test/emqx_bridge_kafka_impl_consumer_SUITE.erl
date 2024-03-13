@@ -74,6 +74,7 @@ testcases(once) ->
         t_node_joins_existing_cluster,
         t_cluster_node_down,
         t_multiple_topic_mappings,
+        t_duplicated_kafka_topics,
         t_dynamic_mqtt_topic,
         t_resource_manager_crash_after_subscriber_started,
         t_resource_manager_crash_before_subscriber_started
@@ -292,7 +293,10 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(t_cluster_group = TestCase, Config0) ->
     Config = emqx_utils:merge_opts(Config0, [{num_partitions, 6}]),
     common_init_per_testcase(TestCase, Config);
-init_per_testcase(t_multiple_topic_mappings = TestCase, Config0) ->
+init_per_testcase(TestCase, Config0) when
+    TestCase =:= t_multiple_topic_mappings;
+    TestCase =:= t_duplicated_kafka_topics
+->
     KafkaTopicBase =
         <<
             (atom_to_binary(TestCase))/binary,
@@ -671,7 +675,12 @@ authentication(_) ->
 parse_and_check(ConfigString, Name) ->
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
     TypeBin = ?BRIDGE_TYPE_BIN,
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
+    #{<<"bridges">> := #{TypeBin := #{Name := _}}} =
+        hocon_tconf:check_plain(
+            emqx_bridge_schema,
+            RawConf,
+            #{required => false, atom_key => false}
+        ),
     #{<<"bridges">> := #{TypeBin := #{Name := Config}}} = RawConf,
     Config.
 
@@ -1356,6 +1365,28 @@ t_multiple_topic_mappings(Config) ->
             ?assertEqual(2, emqx_resource_metrics:received_get(ResourceId)),
             ok
         end
+    ),
+    ok.
+
+%% Although we have a test for the v1 schema, the v1 compatibility layer does some
+%% shenanigans that do not go through V1 schema validations...
+t_duplicated_kafka_topics(Config) ->
+    #{<<"topic_mapping">> := [#{<<"kafka_topic">> := KT} | _] = TM0} =
+        ?config(kafka_config, Config),
+    TM = [M#{<<"kafka_topic">> := KT} || M <- TM0],
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {error, {{_, 400, _}, _, _}},
+                create_bridge_api(
+                    Config,
+                    #{<<"topic_mapping">> => TM}
+                )
+            ),
+
+            ok
+        end,
+        []
     ),
     ok.
 

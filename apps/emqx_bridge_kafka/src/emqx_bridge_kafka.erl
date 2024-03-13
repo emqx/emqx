@@ -32,6 +32,9 @@
     producer_opts/1
 ]).
 
+%% Internal export to be used in v2 schema
+-export([consumer_topic_mapping_validator/1]).
+
 -export([
     kafka_connector_config_fields/0,
     kafka_producer_converter/2,

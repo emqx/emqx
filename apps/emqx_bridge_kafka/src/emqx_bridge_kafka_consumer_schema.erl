@@ -65,7 +65,7 @@ fields(source_parameters) ->
                     type => hocon_schema:field_schema(Sc, type),
                     required => false,
                     default => [],
-                    validator => fun(_) -> ok end,
+                    validator => fun legacy_consumer_topic_mapping_validator/1,
                     importance => ?IMPORTANCE_HIDDEN
                 },
                 {Name, hocon_schema:override(Sc, Override)};
@@ -231,3 +231,9 @@ connector_example(put) ->
                 start_timeout => <<"5s">>
             }
     }.
+
+legacy_consumer_topic_mapping_validator(_TopicMapping = []) ->
+    %% Can be (and should be, unless it has migrated from v1) empty in v2.
+    ok;
+legacy_consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
+    emqx_bridge_kafka:consumer_topic_mapping_validator(TopicMapping).
