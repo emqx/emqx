@@ -74,3 +74,7 @@ rebar-git-cache.tar
 # build docker image locally
 .docker_image_tag
 .git/
+# LaTeX
+*.aux
+*.log
+*.pdf
