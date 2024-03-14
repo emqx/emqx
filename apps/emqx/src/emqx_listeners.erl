@@ -610,7 +610,9 @@ esockd_opts(ListenerId, Type, Name, Opts0) ->
             ssl ->
                 OptsWithCRL = inject_crl_config(Opts0),
                 OptsWithSNI = inject_sni_fun(ListenerId, OptsWithCRL),
-                SSLOpts = ssl_opts(OptsWithSNI),
+                OptsWithRootFun = inject_root_fun(OptsWithSNI),
+                OptsWithVerifyFun = inject_verify_fun(OptsWithRootFun),
+                SSLOpts = ssl_opts(OptsWithVerifyFun),
                 Opts3#{ssl_options => SSLOpts, tcp_options => tcp_opts(Opts0)}
         end
     ).
@@ -634,8 +636,18 @@ ranch_opts(Type, Opts = #{bind := ListenOn}) ->
     MaxConnections = maps:get(max_connections, Opts, 1024),
     SocketOpts =
         case Type of
-            wss -> tcp_opts(Opts) ++ proplists:delete(handshake_timeout, ssl_opts(Opts));
-            ws -> tcp_opts(Opts)
+            wss ->
+                tcp_opts(Opts) ++
+                    lists:filter(
+                        fun
+                            ({partial_chain, _}) -> false;
+                            ({handshake_timeout, _}) -> false;
+                            (_) -> true
+                        end,
+                        ssl_opts(Opts)
+                    );
+            ws ->
+                tcp_opts(Opts)
         end,
     #{
         num_acceptors => NumAcceptors,
@@ -955,6 +967,16 @@ quic_listener_optional_settings() ->
         max_binding_stateless_operations,
         stateless_operation_expiration_ms
     ].
+
+inject_root_fun(#{ssl_options := SslOpts} = Opts) ->
+    Opts#{ssl_options := emqx_tls_lib:opt_partial_chain(SslOpts)};
+inject_root_fun(Opts) ->
+    Opts.
+
+inject_verify_fun(#{ssl_options := SslOpts} = Opts) ->
+    Opts#{ssl_options := emqx_tls_lib:opt_verify_fun(SslOpts)};
+inject_verify_fun(Opts) ->
+    Opts.
 
 inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}}) ->
     emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf);
