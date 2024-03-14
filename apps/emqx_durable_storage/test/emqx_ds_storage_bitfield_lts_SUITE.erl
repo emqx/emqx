@@ -98,7 +98,7 @@ t_delete(_Config) ->
     %% Iterate through topics:
     StartTime = 0,
     TopicFilter = parse_topic(<<"#">>),
-    Selector = fun(#message{topic = T} = Msg) ->
+    Selector = fun(#message{topic = T}) ->
         T == TopicToDelete
     end,
     NumDeleted = delete(?SHARD, TopicFilter, StartTime, Selector),
