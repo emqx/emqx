@@ -236,8 +236,9 @@ t_session_subscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
+            ConnInfo = #{peername => {undefined, undefined}},
             Session = erpc:call(
-                Node1, emqx_persistent_session_ds, session_open, [ClientId, _ConnInfo = #{}]
+                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo]
             ),
             ?assertMatch(
                 #{SubTopicFilter := #{}},
@@ -312,8 +313,9 @@ t_session_unsubscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
+            ConnInfo = #{peername => {undefined, undefined}},
             Session = erpc:call(
-                Node1, emqx_persistent_session_ds, session_open, [ClientId, _ConnInfo = #{}]
+                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo]
             ),
             ?assertEqual(
                 #{},

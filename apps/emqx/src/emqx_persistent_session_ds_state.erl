@@ -30,6 +30,7 @@
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
+-export([get_peername/1, set_peername/2]).
 -export([new_id/1]).
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3]).
 -export([get_seqno/2, put_seqno/3]).
@@ -92,7 +93,8 @@
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
         ?expiry_interval => non_neg_integer(),
-        ?last_id => integer()
+        ?last_id => integer(),
+        ?peername => emqx_types:peername()
     }.
 
 -type seqno_type() ::
@@ -277,6 +279,14 @@ get_expiry_interval(Rec) ->
 -spec set_expiry_interval(non_neg_integer(), t()) -> t().
 set_expiry_interval(Val, Rec) ->
     set_meta(?expiry_interval, Val, Rec).
+
+-spec get_peername(t()) -> emqx_types:peername() | undefined.
+get_peername(Rec) ->
+    get_meta(?peername, Rec).
+
+-spec set_peername(emqx_types:peername(), t()) -> t().
+set_peername(Val, Rec) ->
+    set_meta(?peername, Val, Rec).
 
 -spec new_id(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
 new_id(Rec) ->
