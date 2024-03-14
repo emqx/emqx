@@ -37,6 +37,7 @@
 -export([get_subscriptions/1, put_subscription/4, del_subscription/3]).
 
 -export([make_session_iterator/0, session_iterator_next/2]).
+-export([is_expired/1]).
 
 -export_type([
     t/0,
@@ -382,6 +383,10 @@ session_iterator_next(Cursor0, N) ->
     ],
     {NextVals, Cursor} = session_iterator_next(mnesia:dirty_next(?session_tab, Cursor0), N - 1),
     {ThisVal ++ NextVals, Cursor}.
+
+-spec is_expired(metadata()) -> boolean().
+is_expired(#{?last_alive_at := LastAliveAt, ?expiry_interval := ExpiryInterval}) ->
+    LastAliveAt + ExpiryInterval < erlang:system_time(millisecond).
 
 %%================================================================================
 %% Internal functions
