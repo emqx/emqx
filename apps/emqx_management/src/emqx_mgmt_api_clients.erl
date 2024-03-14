@@ -423,7 +423,10 @@ schema("/sessions_count") ->
             responses => #{
                 200 => hoconsc:mk(binary(), #{
                     desc => <<"Number of sessions">>
-                })
+                }),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], <<"Node {name} cannot handle this request.">>
+                )
             }
         }
     }.
@@ -1504,6 +1507,12 @@ message_example() ->
     }.
 
 sessions_count(get, #{query_string := QString}) ->
-    Since = maps:get(<<"since">>, QString, 0),
-    Count = emqx_cm_registry_keeper:count(Since),
-    {200, integer_to_binary(Count)}.
+    try
+        Since = maps:get(<<"since">>, QString, 0),
+        Count = emqx_cm_registry_keeper:count(Since),
+        {200, integer_to_binary(Count)}
+    catch
+        exit:{noproc, _} ->
+            Msg = io_lib:format("Node (~s) cannot handle this request.", [node()]),
+            {400, 'BAD_REQUEST', iolist_to_binary(Msg)}
+    end.
