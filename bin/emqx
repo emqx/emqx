@@ -529,7 +529,6 @@ else
         tmp_proto_dist=$(echo -e "$PS_LINE" | $GREP -oE '\s-ekka_proto_dist.*' | awk '{print $2}' || echo 'inet_tcp')
         SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
-        # data_dir is actually not needed, but kept anyway
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
         ## Make the format like what call_hocon multi_get prints out, but only need 4 args
         EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto_dist}\nnode.dist_net_ticktime=$tmp_ticktime\nnode.data_dir=${tmp_datadir}"
