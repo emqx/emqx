@@ -46,13 +46,17 @@
     data/1
 ]).
 
+-ifdef(TEST).
+-export([cluster_info/0]).
+-endif.
+
 -spec load() -> ok.
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
     lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
 
 is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, module_info]).
+    not lists:member(Fun, [init, load, module_info, cluster_info]).
 
 %%--------------------------------------------------------------------
 %% @doc Node status
@@ -939,10 +943,53 @@ with_log(Fun, Msg) ->
 cluster_info() ->
     RunningNodes = safe_call_mria(running_nodes, [], []),
     StoppedNodes = safe_call_mria(cluster_nodes, [stopped], []),
-    #{
+    Check = check_static_seeds(RunningNodes, StoppedNodes),
+    Check#{
         running_nodes => RunningNodes,
         stopped_nodes => StoppedNodes
     }.
+
+check_static_seeds(RunningNodes, StoppedNodes) ->
+    check_static_seeds(emqx_conf:get([cluster]), RunningNodes, StoppedNodes).
+
+check_static_seeds(
+    #{discovery_strategy := static, static := #{seeds := Seeds}},
+    RunningNodes,
+    StoppedNodes
+) ->
+    Msg0 = #{
+        seeds => Seeds,
+        discovery_strategy => static,
+        running_nodes => RunningNodes,
+        stopped_nodes => StoppedNodes
+    },
+    AllNodes = RunningNodes ++ StoppedNodes,
+    NodesMissInCluster = Seeds -- AllNodes,
+    NodeMissInSeeds = AllNodes -- Seeds,
+    case {NodesMissInCluster, NodeMissInSeeds} of
+        {[], []} ->
+            #{};
+        {[_ | _], _} ->
+            %% User should remove orphan nodes from seeds manually or start the orphan nodes.
+            %% so we call those orphan_nodes as `orphan_nodes_in_seeds`.
+            Msg = Msg0#{
+                msg => "node_configured_in_seeds_but_missing_in_cluster",
+                orphan_nodes_in_seeds => NodesMissInCluster
+            },
+            ?SLOG(warning, Msg),
+            Msg;
+        {_, [_ | _]} ->
+            %% User should add orphan nodes into seeds manually or stop the orphan nodes.
+            %% so we call those orphan_nodes as `orphan_nodes_not_in_seeds`.
+            Msg = Msg0#{
+                msg => "node_in_cluster_but_not_configured_in_seeds",
+                orphan_nodes_not_in_seeds => NodeMissInSeeds
+            },
+            ?SLOG(warning, Msg),
+            Msg
+    end;
+check_static_seeds(_, _, _) ->
+    #{}.
 
 %% CLI starts before mria, so we should handle errors gracefully:
 safe_call_mria(Fun, Args, OnFail) ->
