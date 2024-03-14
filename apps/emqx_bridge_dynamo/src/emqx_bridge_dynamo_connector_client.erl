@@ -34,6 +34,8 @@ is_connected(Pid, Timeout) ->
     try
         gen_server:call(Pid, is_connected, Timeout)
     catch
+        _:{timeout, _} ->
+            {false, <<"timeout_while_checking_connection_dynamo_client">>};
         _:Error ->
             {false, Error}
     end.

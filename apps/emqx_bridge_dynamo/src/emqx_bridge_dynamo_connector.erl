@@ -179,13 +179,13 @@ on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
 health_check_timeout() ->
-    15000.
+    2500.
 
 on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
     Health = emqx_resource_pool:health_check_workers(
         Pool,
         {emqx_bridge_dynamo_connector_client, is_connected, [
-            emqx_resource_pool:health_check_timeout()
+            health_check_timeout()
         ]},
         health_check_timeout(),
         #{return_values => true}
