@@ -62,7 +62,19 @@ fields(kinesis_action) ->
                 required => true,
                 desc => ?DESC("action_parameters")
             }
-        )
+        ),
+        #{
+            resource_opts_ref => hoconsc:ref(?MODULE, action_resource_opts)
+        }
+    );
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields(
+        _Overrides = [
+            {batch_size, #{
+                type => range(1, 500),
+                validator => emqx_resource_validator:max(int, 500)
+            }}
+        ]
     );
 fields("config_producer") ->
     emqx_bridge_schema:common_bridge_fields() ++
@@ -84,6 +96,7 @@ fields("resource_opts") ->
 fields("creation_opts") ->
     emqx_resource_schema:create_opts([
         {batch_size, #{
+            type => range(1, 500),
             validator => emqx_resource_validator:max(int, 500)
         }}
     ]);
@@ -198,6 +211,8 @@ desc(kinesis_action) ->
 desc(action_parameters) ->
     ?DESC("action_parameters");
 desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
+desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
