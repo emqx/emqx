@@ -532,7 +532,7 @@ call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, BridgeType, BridgeName]) 
 is_enabled_connector(ConnectorType, ConnectorName) ->
     try emqx:get_config([connectors, ConnectorType, binary_to_existing_atom(ConnectorName)]) of
         ConfMap ->
-            maps:get(enable, ConfMap, false)
+            maps:get(enable, ConfMap, true)
     catch
         error:{config_not_found, _} ->
             throw(not_found);

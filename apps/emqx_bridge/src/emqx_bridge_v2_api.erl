@@ -990,7 +990,7 @@ call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, ConfRootKey, BridgeType, 
 is_enabled_bridge(ConfRootKey, BridgeType, BridgeName) ->
     try emqx_bridge_v2:lookup(ConfRootKey, BridgeType, binary_to_existing_atom(BridgeName)) of
         {ok, #{raw_config := ConfMap}} ->
-            maps:get(<<"enable">>, ConfMap, false);
+            maps:get(<<"enable">>, ConfMap, true);
         {error, not_found} ->
             throw(not_found)
     catch
