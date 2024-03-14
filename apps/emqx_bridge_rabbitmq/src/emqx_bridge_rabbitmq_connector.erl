@@ -196,11 +196,11 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
     case emqx_utils_maps:deep_find([ChannelId, rabbitmq], Channels) of
         {ok, RabbitMQ} ->
             case lists:all(fun is_process_alive/1, maps:values(RabbitMQ)) of
-                true -> connected;
-                false -> {error, not_connected}
+                true -> ?status_connected;
+                false -> {?status_disconnected, <<"not_connected">>}
             end;
         _ ->
-            {error, not_exists}
+            {?status_connecting, <<"channel_not_found">>}
     end.
 
 on_query(ResourceID, {ChannelId, Data} = MsgReq, State) ->

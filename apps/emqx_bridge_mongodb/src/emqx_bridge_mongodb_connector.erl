@@ -47,13 +47,8 @@ on_add_channel(
     NewState = OldState#{channels => maps:put(ChannelId, ChannelConfig, Channels)},
     {ok, NewState}.
 
-on_get_channel_status(InstanceId, _ChannelId, State) ->
-    case on_get_status(InstanceId, State) of
-        connected ->
-            connected;
-        _ ->
-            connecting
-    end.
+on_get_channel_status(_InstanceId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, channels, State).
 
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).

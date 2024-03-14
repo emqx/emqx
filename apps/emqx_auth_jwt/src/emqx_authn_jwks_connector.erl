@@ -71,15 +71,12 @@ on_query(_InstId, {update, Opts}, #{pool_name := PoolName}) ->
     ok.
 
 on_get_status(_InstId, #{pool_name := PoolName}) ->
-    case emqx_resource_pool:health_check_workers(PoolName, fun health_check/1) of
-        true -> connected;
-        false -> disconnected
-    end.
+    emqx_resource_pool:health_check_workers(PoolName, fun health_check/1).
 
 health_check(Conn) ->
     case emqx_authn_jwks_client:get_jwks(Conn) of
-        {ok, _} -> true;
-        _ -> false
+        {ok, _} -> connected;
+        _ -> disconnected
     end.
 
 connect(Opts) ->

@@ -563,13 +563,8 @@ default_health_checker(Worker, Timeout) ->
             Error
     end.
 
-on_get_channel_status(
-    InstId,
-    _ChannelId,
-    State
-) ->
-    %% XXX: Reuse the connector status
-    on_get_status(InstId, State).
+on_get_channel_status(_InstId, ChannId, State) ->
+    emqx_resource:channel_status(ChannId, installed_actions, State).
 
 %%--------------------------------------------------------------------
 %% Internal functions

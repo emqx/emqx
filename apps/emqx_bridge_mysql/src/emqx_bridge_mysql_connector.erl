@@ -6,6 +6,7 @@
 -behaviour(emqx_resource).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% `emqx_resource' API
 -export([
@@ -61,11 +62,13 @@ on_add_channel(
     end.
 
 on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
-    case maps:get(ChannelId, Channels) of
-        #{prepares := ok} ->
-            connected;
-        #{prepares := {error, _}} ->
-            connecting
+    case maps:find(ChannelId, Channels) of
+        {ok, #{prepares := ok}} ->
+            ?status_connected;
+        {ok, #{prepares := {error, _}}} ->
+            {?status_connecting, <<"prepares sql error">>};
+        error ->
+            {?status_disconnected, <<"channel_not_found">>}
     end.
 
 on_get_channels(InstanceId) ->

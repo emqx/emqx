@@ -182,7 +182,7 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
         {ok, #{producers := Producers}} ->
             get_producer_status(Producers);
         error ->
-            {error, channel_not_found}
+            {?status_connecting, <<"channel_not_found">>}
     end.
 
 -spec on_query(resource_id(), tuple(), state()) ->
@@ -457,7 +457,7 @@ get_producer_status(Producers) ->
     do_get_producer_status(Producers, 0).
 
 do_get_producer_status(_Producers, TimeSpent) when TimeSpent > ?HEALTH_CHECK_RETRY_TIMEOUT ->
-    ?status_connecting;
+    {?status_connecting, <<"timeout">>};
 do_get_producer_status(Producers, TimeSpent) ->
     try pulsar_producers:all_connected(Producers) of
         true ->

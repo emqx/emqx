@@ -128,6 +128,7 @@
 ]).
 
 -export([apply_reply_fun/2]).
+-export([channel_status/3]).
 
 %% common validations
 -export([
@@ -627,6 +628,19 @@ apply_reply_fun({F, A}, Result) when is_function(F) ->
     ok;
 apply_reply_fun(From, Result) ->
     gen_server:reply(From, Result).
+
+channel_status(ChannId, Key, State = #{}) ->
+    case maps:find(Key, State) of
+        {ok, Channels} ->
+            case maps:is_key(ChannId, Channels) of
+                true -> ?status_connected;
+                false -> {?status_disconnected, <<"channel_not_found">>}
+            end;
+        error ->
+            {?status_connecting, <<"channel_not_found">>}
+    end;
+channel_status(_, _, _) ->
+    {?status_connecting, <<"connector_not_init">>}.
 
 -spec allocate_resource(resource_id(), any(), term()) -> ok.
 allocate_resource(InstanceId, Key, Value) ->
