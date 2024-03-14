@@ -17,6 +17,7 @@
     on_get_channels/1,
     on_get_status/2,
     on_query/3,
+    on_batch_query/3,
     on_start/2,
     on_stop/2
 ]).
@@ -79,6 +80,29 @@ on_query(InstanceId, {Channel, Message0}, #{channels := Channels, connector_stat
     Res;
 on_query(InstanceId, Request, _State = #{connector_state := ConnectorState}) ->
     emqx_mongodb:on_query(InstanceId, Request, ConnectorState).
+
+on_batch_query(
+    InstanceId,
+    [{Channel, Message0} | _] = BatchReq,
+    #{channels := Channels, connector_state := ConnectorState}
+) ->
+    #{
+        payload_template := PayloadTemplate,
+        collection_template := CollectionTemplate
+    } = ChannelState0 = maps:get(Channel, Channels),
+    ChannelState = ChannelState0#{
+        collection => emqx_placeholder:proc_tmpl(CollectionTemplate, Message0)
+    },
+    Messages = [render_message(PayloadTemplate, Msg) || {_, Msg} <- BatchReq],
+    Res = emqx_mongodb:on_query(
+        InstanceId,
+        {Channel, Messages},
+        maps:merge(ConnectorState, ChannelState)
+    ),
+    ?tp(mongo_bridge_connector_on_batch_query_return, #{instance_id => InstanceId, result => Res}),
+    Res;
+on_batch_query(_InstId, BatchReq, _State) ->
+    {error, {unrecoverable_error, {invalid_request, BatchReq}}}.
 
 on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
     NewState = State#{channels => maps:remove(ChannelId, Channels)},
