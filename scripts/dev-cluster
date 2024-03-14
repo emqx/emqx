@@ -1,0 +1,424 @@
+#!/bin/bash
+set -euo pipefail
+
+#############################################################################################
+## Process user options
+#############################################################################################
+
+[ -z ${LOG_LEVEL+x}    ] && export LOG_LEVEL=notice
+[ -z ${N_NODES+x}      ] && export N_NODES=10
+[ -z ${N_CORE_NODES+x} ] && export N_CORE_NODES=3
+[ -z ${LB_STRATEGY+x}  ] && export LB_STRATEGY=roundrobin
+[ -z ${DISCOVERY+x}    ] && export DISCOVERY=static
+[ -z ${HAPROXY_STATS_PORT+x} ] && export HAPROXY_STATS_PORT=8898
+[ -z ${GRAFNA_PORT+x}  ] && export GRAFANA_PORT=3000
+
+if ((N_CORE_NODES > N_NODES)); then
+    export N_CORE_NODES="${N_NODES}"
+fi
+
+#############################################################################################
+## Global variables and utility functions
+#############################################################################################
+
+export TMP_DIR=".dev-cluster"
+
+pwgen () {
+    openssl rand -base64 12
+}
+
+error() {
+  awk "BEGIN { print \"$@\" > \"/dev/fd/2\" }"
+}
+
+export ROOT_DIR="$(git rev-parse --show-toplevel)"
+export GRAFANA_PASS=$(pwgen)
+export SYSMON_PASS=$(pwgen)
+
+export CERTS_DIR=".ssl_certs"
+export ENVFILE=".emqx.env"
+
+get_rel_dir() {
+    if [ -d "_build/emqx/rel/emqx" ]; then
+        echo "_build/emqx/rel/emqx"
+    elif [ -d "_build/emqx-ee/rel/emqx" ] ; then
+        echo "_build/emqx-ee/rel/emqx"
+    else
+      error 'Could not find release directory! Did you forget to call "make emqx-rel"?'
+      exit 1
+    fi
+}
+
+export REL_DIR="${ROOT_DIR}/$(get_rel_dir)"
+
+## Unique suffix derived from the current EMQX repo root
+unique_suffix() {
+    echo "${ROOT_DIR}" | md5sum | head -c5
+}
+
+export EMQX_BASE_IMAGE="emqx-local-base-$(unique_suffix)"
+export EMQX_IMAGE="emqx-local-$(unique_suffix)"
+
+#############################################################################################
+## Service configuration templates
+#############################################################################################
+
+tpl_config_prometheus() {
+    cat <<EOF
+global:
+  scrape_interval: 1s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: 'emqx'
+    honor_labels: true
+
+    static_configs:
+      - targets:
+$(for i in $(seq 1 $N_NODES); do
+echo "        - 'emqx$i:18083'"
+done)
+    metrics_path: '/api/v5/prometheus/stats'
+  - job_name: 'pushgw'
+    honor_labels: true
+    static_configs:
+      - targets: ['sysmon_pushgateway:9091']
+EOF
+}
+
+tpl_config_haproxy() {
+    cat <<EOF
+defaults
+  log global
+  option dontlognull
+  timeout connect 5000ms
+  timeout client 60000ms
+  timeout server 60000ms
+
+resolvers dockerns
+  nameserver ns1 127.0.0.11:53
+
+listen stats
+  bind *:${HAPROXY_STATS_PORT}
+  mode http
+  stats enable
+  stats refresh 1s
+  stats show-node
+  stats uri /
+
+listen mqtt
+  bind *:1883
+  mode tcp
+  option clitcpka # For TCP keep-alive
+  timeout client 3h
+  timeout server 3h
+  option tcplog
+  balance ${LB_STRATEGY}
+$(for i in $(seq 1 10); do
+echo "  server emqx$i emqx$i:1883 check resolvers dockerns init-addr last,libc,none"
+done)
+
+listen dashboard
+  bind *:18083
+  mode http
+  timeout client 3h
+  timeout server 3h
+  option http-keep-alive
+  balance roundrobin
+  cookie SRVNAME insert
+$(for i in $(seq 1 $N_NODES); do
+echo "  server emqx$i emqx$i:18083 cookie S${i} check"
+done)
+EOF
+}
+
+#############################################################################################
+## Dockerfile templates
+#############################################################################################
+
+linux_distro() {
+    grep DISTRIB_ID /etc/lsb-release | cut -f2 -d'='
+}
+
+linux_distro_version() {
+    grep DISTRIB_RELEASE /etc/lsb-release | cut -f2 -d'='
+}
+
+tpl_dockerfile_emqx_base() {
+    case $(linux_distro) in
+      Arch)
+          cat <<EOF
+FROM archlinux/archlinux:base-devel-20211019.0.37052
+EOF
+        ;;
+      Ubuntu)
+        cat <<EOF
+FROM ubuntu:$(linux_distro_version)
+RUN apt-get update
+RUN apt-get install -y libssl-dev
+EOF
+        ;;
+    esac
+}
+
+tpl_dockerfile_emqx() {
+    cat <<EOF
+FROM ${EMQX_BASE_IMAGE}
+
+WORKDIR /opt/emqx
+ENV EMQX_RPC__CERTFILE=/var/lib/emqx/ssl/domain.pem
+ENV EMQX_RPC__CACERTFILE=/var/lib/emqx/ssl/rootCA.pem
+ENV EMQX_RPC__KEYFILE=/var/lib/emqx/ssl/domain.key
+
+CMD /opt/emqx/bin/emqx foreground
+EOF
+}
+
+#############################################################################################
+## Docker compose template
+#############################################################################################
+
+tpl_hostname() {
+    echo -n "n${1}.local"
+}
+
+tpl_nodename() {
+    echo -n "emqx@$(tpl_hostname $1)"
+}
+
+
+emqx_volumes() {
+    for dir in $(ls ${REL_DIR} | grep -vE "(data|log|emqx.*\.tar\.gz)"); do
+        echo "    - ${REL_DIR}/${dir}:/opt/emqx/${dir}"
+    done
+    echo "    - ${CERTS_DIR}:/var/lib/emqx/ssl/"
+}
+
+
+core() {
+    local SEEDS
+    SEEDS=$(for i in $(seq 1 $N_CORE_NODES); do
+                (tpl_nodename $i)
+                [ $i -eq $N_CORE_NODES ] || echo -n ','
+            done)
+
+    cat <<EOF
+  emqx${1}:
+    image: ${EMQX_IMAGE}
+    hostname: $(tpl_hostname $1)
+    depends_on:
+    - sysmon_postgres
+    ports:
+    - 1883
+    - 9091
+    networks:
+      backplane:
+        aliases:
+          - $(tpl_hostname $1)
+    volumes:
+$(emqx_volumes)
+
+    env_file:
+      - ${ENVFILE}
+    environment:
+    - "EMQX_NODE__COOKIE=$(cat ~/.erlang.cookie)"
+    - "EMQX_LOG__CONSOLE_HANDLER__ENABLE=true"
+    - "EMQX_LOG__CONSOLE_HANDLER__LEVEL=${LOG_LEVEL}"
+    - "EMQX_RPC__MODE=sync"
+
+    - "EMQX_NODE__NAME=$(tpl_nodename $1)"
+    - "EMQX_CLUSTER__DISCOVERY_STRATEGY=${DISCOVERY}"
+    - "EMQX_CLUSTER__STATIC__SEEDS=[${SEEDS}]"
+
+    - "EMQX_SYSMON__TOP__DB_HOSTNAME=sysmon_postgres"
+    - "EMQX_SYSMON__TOP__DB_PASSWORD=${SYSMON_PASS}"
+
+    - "EMQX_PROMETHEUS__ENABLE=true"
+    - "EMQX_PROMETHEUS__PUSH_GATEWAY_SERVER=\"http://sysmon_pushgateway:9091\""
+    - "EMQX_RPC__ENABLE_SSL=5369"
+EOF
+}
+
+replicant() {
+    core $1
+    cat <<EOF
+    - "EMQX_NODE__DB_ROLE=replicant"
+EOF
+}
+
+tpl_dockercompose() {
+    cat <<EOF
+version: '3.3'
+
+networks:
+  backplane:
+
+services:
+$(for i in $(seq 1 $N_CORE_NODES); do
+core $i
+done)
+
+$(for i in $(seq $(($N_CORE_NODES+1)) $N_NODES); do
+replicant $i
+done)
+
+  # Load balancer
+  haproxy:
+    image: haproxy:1.7
+    depends_on:
+$(for i in $(seq 1 $N_NODES); do
+echo "    - emqx$i"
+done)
+    ports:
+    - 1883:1883
+    - ${HAPROXY_STATS_PORT}:${HAPROXY_STATS_PORT}
+    - 18083:18083
+    networks:
+      backplane:
+    volumes:
+    - $(pwd)/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  # Monitoring
+  sysmon_postgres:
+    image: ghcr.io/iequ1/sysmon-postgres:1.5.0
+    networks:
+      backplane:
+    environment:
+      - POSTGRES_PASSWORD=${SYSMON_PASS}
+      - SYSMON_PASS=${SYSMON_PASS}
+      - GRAFANA_PASS=${GRAFANA_PASS}
+    logging:
+      driver: "none"
+
+  sysmon_pushgateway:
+    image: "prom/pushgateway:latest"
+    networks:
+      backplane:
+    ports:
+    - 9091:9091
+    logging:
+      driver: "none"
+
+  sysmon_prometheus:
+    image: "prom/prometheus:latest"
+    networks:
+      backplane:
+    volumes:
+    - $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+$(for i in $(seq 1 $N_NODES); do
+echo "    - 'emqx$i'"
+done)
+    - sysmon_pushgateway
+    ports:
+    - 9090:9090
+    logging:
+      driver: "none"
+
+  sysmon_grafana:
+    image: ghcr.io/iequ1/sysmon-grafana:1.5.0
+    depends_on:
+    - sysmon_postgres
+    - sysmon_prometheus
+    ports:
+    - ${GRAFANA_PORT}:3000
+    networks:
+      backplane:
+    environment:
+    - POSTGRES_PASS=${GRAFANA_PASS}
+    - POSTGRES_URL=sysmon_postgres:5432
+    - PROMETHEUS_URL=http://sysmon_prometheus:9090
+    - GF_AUTH_ANONYMOUS_ENABLED=true
+    logging:
+      driver: "none"
+EOF
+}
+
+#############################################################################################
+## Render templates and create all other files
+#############################################################################################
+
+mkdir -p "${ROOT_DIR}/${TMP_DIR}"
+cd "${ROOT_DIR}/${TMP_DIR}"
+
+create_certificates() {
+    [ -f "${CERTS_DIR}/domain.pem" ] && return 0
+    mkdir -p "${CERTS_DIR}"
+    pushd "${CERTS_DIR}"
+    # Create config:
+    cat <<EOF > domain.ext
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = backplane
+EOF
+    set -x
+    # Create self-signed root CA:
+    openssl req -nodes -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out rootCA.pem -subj "/O=LocalOrg/CN=LocalOrg-Root-CA"
+    # Create a private key:
+    openssl genrsa -out domain.key 2048
+    # Create CSR:
+    openssl req -key domain.key -new -out domain.csr -subj "/O=LocalOrg"
+    # Sign Our CSR With Root CA:
+    openssl x509 -req -CA rootCA.pem -CAkey rootCA.key -in domain.csr -out domain.pem -days 365 -CAcreateserial -extfile domain.ext
+    set +x
+    popd
+}
+
+build_emqx_base() {
+    local dir
+    dir="emqx_base_image"
+    if [ ! -f "${dir}/Dockerfile" ]; then
+        mkdir -p "${dir}"
+        tpl_dockerfile_emqx_base > "${dir}/Dockerfile"
+        docker build "${dir}" -t "${EMQX_BASE_IMAGE}"
+    fi
+}
+
+build_emqx_image() {
+    build_emqx_base
+    create_certificates
+    tpl_dockerfile_emqx > "Dockerfile"
+    docker build . -t "${EMQX_IMAGE}"
+}
+
+tpl_config_prometheus > prometheus.yml
+tpl_config_haproxy > haproxy.cfg
+
+## Create envfile:
+env | grep EMQX_ > "${ENVFILE}" || true
+## Render docker compose
+tpl_dockercompose > docker-compose.yml
+
+#############################################################################################
+## Run it:
+#############################################################################################
+
+if [[ $# -lt 1 ]]; then
+    cat docker-compose.yml
+else
+    build_emqx_image
+    docker compose $@
+fi
+
+#############################################################################################
+## Print summary:
+#############################################################################################
+echo
+echo "Monitoring:"
+echo "  Haproxy stats:    http://localhost:${HAPROXY_STATS_PORT}"
+echo "  Grafana:          http://localhost:${GRAFANA_PORT}"
+
+echo "Haproxy:"
+docker compose ps | awk '/haproxy/{print $1}' |
+while read container; do
+    docker inspect "${container}" --format '{{ .Name }}  {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+done
+
+echo
+echo "EMQX nodes:"
+docker compose ps | awk '/emqx/{print $1}' |
+while read container; do
+    docker inspect "${container}" --format '{{ .Name }}  {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+done
