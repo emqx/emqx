@@ -25,7 +25,7 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
+    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
       with:
         name: emqx-enterprise
     - name: extract artifact
@@ -72,7 +72,7 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: erlef/setup-beam@8b9cac4c04dbcd7bf8fd673e16f988225d89b09b # v1.17.2
+    - uses: erlef/setup-beam@2f0cc07b4b9bea248ae098aba9e1a8a1de5ec24c # v1.17.5
       with:
         otp-version: 26.2.1
     - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -88,7 +88,7 @@ jobs:
         ./configure
         make
         echo "$(pwd)/bin" >> $GITHUB_PATH
-    - uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe # v4.1.2
+    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
       name: Download built emqx and test scenario
       with:
         name: relup_tests_emqx_built
