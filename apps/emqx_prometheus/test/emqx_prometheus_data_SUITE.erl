@@ -287,12 +287,18 @@ assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
         undefined ->
             ok;
         N when is_integer(N) ->
-            %% ct:print(
-            %%     "====================~n"
-            %%     "%% Metric: ~p~n"
-            %%     "%% Expect labels count: ~p in Mode: ~p~n",
-            %%     [_Metric, N, Mode]
-            %% ),
+            case N =:= length(lists:droplast(R)) of
+                true ->
+                    ok;
+                false ->
+                    ct:print(
+                        "====================~n"
+                        "%% Metric: ~p~n"
+                        "%% Expect labels count: ~p in Mode: ~p~n"
+                        "%% But got labels: ~p~n",
+                        [_Metric, N, Mode, length(lists:droplast(R))]
+                    )
+            end,
             ?assertEqual(N, length(lists:droplast(R)))
     end.
 
@@ -304,10 +310,14 @@ assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
 
 %% `/prometheus/stats`
 %% BEGIN always no label
+metric_meta(<<"emqx_cluster_sessions_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_cluster_sessions_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_topics_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_topics_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_retained_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_retained_max">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_subscriptions_shared_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_subscriptions_shared_max">>) -> ?meta(0, 0, 0);
 %% END
 %% BEGIN no label in mode `node`
 metric_meta(<<"emqx_vm_cpu_use">>) -> ?meta(0, 1, 1);
@@ -316,6 +326,8 @@ metric_meta(<<"emqx_vm_run_queue">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_process_messages_in_queues">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_total_memory">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_used_memory">>) -> ?meta(0, 1, 1);
+metric_meta(<<"emqx_cluster_nodes_running">>) -> ?meta(0, 1, 1);
+metric_meta(<<"emqx_cluster_nodes_stopped">>) -> ?meta(0, 1, 1);
 %% END
 metric_meta(<<"emqx_cert_expiry_at">>) -> ?meta(2, 2, 2);
 metric_meta(<<"emqx_license_expiry_at">>) -> ?meta(0, 0, 0);
