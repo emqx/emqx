@@ -435,7 +435,7 @@ handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     delete_route_if_needed({Group, Topic}),
     maybe_delete_round_robin_count({Group, Topic}),
-    {reply, ok, State};
+    {reply, ok, update_stats(State)};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
