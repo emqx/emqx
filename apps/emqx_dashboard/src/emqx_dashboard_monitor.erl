@@ -264,6 +264,8 @@ merge_cluster_rate(Node, Cluster) ->
                 NCluster#{topics => V};
             (retained_msg_count, V, NCluster) ->
                 NCluster#{retained_msg_count => V};
+            (shared_subscriptions, V, NCluster) ->
+                NCluster#{shared_subscriptions => V};
             (license_quota, V, NCluster) ->
                 NCluster#{license_quota => V};
             %% for cluster sample, ignore node_uptime

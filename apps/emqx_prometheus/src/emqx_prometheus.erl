@@ -511,8 +511,6 @@ stats_metric_meta() ->
         {emqx_subscribers_max, gauge, 'subscribers.max'},
         {emqx_subscriptions_count, gauge, 'subscriptions.count'},
         {emqx_subscriptions_max, gauge, 'subscriptions.max'},
-        {emqx_subscriptions_shared_count, gauge, 'subscriptions.shared.count'},
-        {emqx_subscriptions_shared_max, gauge, 'subscriptions.shared.max'},
         %% delayed
         {emqx_delayed_count, gauge, 'delayed.count'},
         {emqx_delayed_max, gauge, 'delayed.max'}
@@ -525,7 +523,10 @@ stats_metric_cluster_consistened_meta() ->
         {emqx_topics_count, gauge, 'topics.count'},
         %% retained
         {emqx_retained_count, gauge, 'retained.count'},
-        {emqx_retained_max, gauge, 'retained.max'}
+        {emqx_retained_max, gauge, 'retained.max'},
+        %% shared subscriptions
+        {emqx_subscriptions_shared_count, gauge, 'subscriptions.shared.count'},
+        {emqx_subscriptions_shared_max, gauge, 'subscriptions.shared.max'}
     ].
 
 stats_data(Mode) ->
