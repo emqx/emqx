@@ -591,12 +591,19 @@ cluster_metric_meta() ->
         {emqx_cluster_nodes_stopped, gauge, undefined}
     ].
 
-cluster_data(Mode) ->
+cluster_data(node) ->
+    Labels = [],
+    do_cluster_data(Labels);
+cluster_data(_) ->
+    Labels = [{node, node(self())}],
+    do_cluster_data(Labels).
+
+do_cluster_data(Labels) ->
     Running = emqx:cluster_nodes(running),
     Stopped = emqx:cluster_nodes(stopped),
     #{
-        emqx_cluster_nodes_running => [{with_node_label(Mode, []), length(Running)}],
-        emqx_cluster_nodes_stopped => [{with_node_label(Mode, []), length(Stopped)}]
+        emqx_cluster_nodes_running => [{Labels, length(Running)}],
+        emqx_cluster_nodes_stopped => [{Labels, length(Stopped)}]
     }.
 
 %%========================================
