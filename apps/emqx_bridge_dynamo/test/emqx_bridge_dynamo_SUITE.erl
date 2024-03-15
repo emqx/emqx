@@ -88,7 +88,9 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_conf, erlcloud]),
+    ok = emqx_common_test_helpers:stop_apps([
+        emqx_rule_engine, emqx_bridge, emqx_resource, emqx_conf, erlcloud
+    ]),
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -134,7 +136,7 @@ common_init(ConfigT) ->
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             % Ensure enterprise bridge module is loaded
             ok = emqx_common_test_helpers:start_apps([
-                emqx_conf, emqx_resource, emqx_bridge
+                emqx_conf, emqx_resource, emqx_bridge, emqx_rule_engine
             ]),
             _ = application:ensure_all_started(erlcloud),
             _ = emqx_bridge_enterprise:module_info(),
@@ -273,6 +275,24 @@ create_bridge_http(Params) ->
         Error -> Error
     end.
 
+update_bridge_http(#{<<"type">> := Type, <<"name">> := Name} = Config) ->
+    BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
+    Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeID]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Config) of
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        Error -> Error
+    end.
+
+get_bridge_http(#{<<"type">> := Type, <<"name">> := Name} = Config) ->
+    BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
+    Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeID]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader) of
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        Error -> Error
+    end.
+
 send_message(Config, Payload) ->
     Name = ?config(dynamo_name, Config),
     BridgeType = ?config(dynamo_bridge_type, Config),
@@ -397,6 +417,30 @@ t_setup_via_http_api_and_publish(Config) ->
         end
     ),
     ok.
+
+%% https://emqx.atlassian.net/browse/EMQX-11984
+t_setup_via_http_api_and_update(Config) ->
+    BridgeType = ?config(dynamo_bridge_type, Config),
+    Name = ?config(dynamo_name, Config),
+    PgsqlConfig0 = ?config(dynamo_config, Config),
+    PgsqlConfig = PgsqlConfig0#{
+        <<"name">> => Name,
+        <<"type">> => BridgeType,
+        %% NOTE: using literal secret with HTTP API requests.
+        <<"aws_secret_access_key">> => <<?SECRET_ACCESS_KEY>>
+    },
+    ?assertMatch(
+        {ok, _},
+        create_bridge_http(PgsqlConfig)
+    ),
+    NewConfig = PgsqlConfig#{<<"aws_access_key_id">> => <<"hej">>},
+    ?assertMatch(
+        {ok, _},
+        update_bridge_http(NewConfig)
+    ),
+    %% Check that the update worked
+    {ok, Result} = get_bridge_http(PgsqlConfig),
+    ?assertMatch(#{<<"aws_access_key_id">> := <<"hej">>}, Result).
 
 t_get_status(Config) ->
     {{ok, _}, {ok, _}} =
