@@ -73,7 +73,7 @@ storage_backend(Path) ->
 
 -spec add_handler() -> ok.
 add_handler() ->
-    emqx_conf:add_handler([session_persistence], ?MODULE).
+    emqx_config_handler:add_handler([session_persistence], ?MODULE).
 
 pre_config_update([session_persistence], #{<<"enable">> := New}, #{<<"enable">> := Old}) when
     New =/= Old
