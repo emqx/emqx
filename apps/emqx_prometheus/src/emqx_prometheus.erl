@@ -502,8 +502,6 @@ stats_metric_meta() ->
         {emqx_sessions_max, gauge, 'sessions.max'},
         {emqx_channels_count, gauge, 'channels.count'},
         {emqx_channels_max, gauge, 'channels.max'},
-        {emqx_cluster_sessions_count, gauge, 'cluster_sessions.count'},
-        {emqx_cluster_sessions_max, gauge, 'cluster_sessions.max'},
         %% pub/sub stats
         {emqx_suboptions_count, gauge, 'suboptions.count'},
         {emqx_suboptions_max, gauge, 'suboptions.max'},
@@ -518,6 +516,9 @@ stats_metric_meta() ->
 
 stats_metric_cluster_consistented_meta() ->
     [
+        %% sessions
+        {emqx_cluster_sessions_count, gauge, 'cluster_sessions.count'},
+        {emqx_cluster_sessions_max, gauge, 'cluster_sessions.max'},
         %% topics
         {emqx_topics_max, gauge, 'topics.max'},
         {emqx_topics_count, gauge, 'topics.count'},
