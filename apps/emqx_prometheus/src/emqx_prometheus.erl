@@ -195,7 +195,7 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, stats_metric_meta(), ?MG(stats_data, RawData)),
     ok = add_collect_family(
         Callback,
-        stats_metric_cluster_consistened_meta(),
+        stats_metric_cluster_consistented_meta(),
         ?MG(stats_data_cluster_consistented, RawData)
     ),
     ok = add_collect_family(Callback, vm_metric_meta(), ?MG(vm_data, RawData)),
@@ -516,7 +516,7 @@ stats_metric_meta() ->
         {emqx_delayed_max, gauge, 'delayed.max'}
     ].
 
-stats_metric_cluster_consistened_meta() ->
+stats_metric_cluster_consistented_meta() ->
     [
         %% topics
         {emqx_topics_max, gauge, 'topics.max'},
@@ -546,7 +546,7 @@ stats_data_cluster_consistented() ->
             AccIn#{Name => [{[], ?C(MetricKAtom, Stats)}]}
         end,
         #{},
-        stats_metric_cluster_consistened_meta()
+        stats_metric_cluster_consistented_meta()
     ).
 
 %%========================================
