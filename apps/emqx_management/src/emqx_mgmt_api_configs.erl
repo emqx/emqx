@@ -407,7 +407,7 @@ get_configs_v1(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),
     case
         lists:member(Node, emqx:running_nodes()) andalso
-            emqx_management_proto_v4:get_full_config(Node)
+            emqx_management_proto_v5:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
