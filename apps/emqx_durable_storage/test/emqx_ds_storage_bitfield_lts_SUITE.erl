@@ -278,6 +278,7 @@ t_atomic_store_batch(_Config) ->
 t_non_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
+        #{timetrap => 10_000},
         begin
             application:set_env(emqx_durable_storage, egress_batch_size, 1),
             Msgs = [
@@ -292,6 +293,10 @@ t_non_atomic_store_batch(_Config) ->
                     atomic => false,
                     sync => true
                 })
+            ),
+            snabbkaffe:block_until(
+                ?match_n_events(3, #{?snk_kind := emqx_ds_replication_layer_egress_flush}),
+                infinity
             ),
 
             ok
