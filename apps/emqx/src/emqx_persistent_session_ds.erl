@@ -633,7 +633,10 @@ session_open(SessionId, NewConnInfo) ->
                     %% New connection being established
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
                     S2 = emqx_persistent_session_ds_state:set_last_alive_at(NowMS, S1),
-                    S = emqx_persistent_session_ds_state:commit(S2),
+                    S3 = emqx_persistent_session_ds_state:set_peername(
+                        maps:get(peername, NewConnInfo), S2
+                    ),
+                    S = emqx_persistent_session_ds_state:commit(S3),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),

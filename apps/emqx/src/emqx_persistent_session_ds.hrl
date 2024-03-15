@@ -74,5 +74,6 @@
 -define(expiry_interval, expiry_interval).
 %% Unique integer used to create unique identities
 -define(last_id, last_id).
+-define(peername, peername).
 
 -endif.

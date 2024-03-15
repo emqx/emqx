@@ -1181,14 +1181,21 @@ format_persistent_session_info(ClientId, PSInfo0) ->
     Metadata = maps:get(metadata, PSInfo0, #{}),
     PSInfo1 = maps:with([created_at, expiry_interval], Metadata),
     CreatedAt = maps:get(created_at, PSInfo1),
+    case Metadata of
+        #{peername := PeerName} ->
+            {IpAddress, Port} = peername_dispart(PeerName);
+        _ ->
+            IpAddress = undefined,
+            Port = undefined
+    end,
     PSInfo2 = convert_expiry_interval_unit(PSInfo1),
     PSInfo3 = PSInfo2#{
         clientid => ClientId,
         connected => false,
         connected_at => CreatedAt,
-        ip_address => undefined,
+        ip_address => IpAddress,
         is_persistent => true,
-        port => undefined
+        port => Port
     },
     PSInfo = lists:foldl(
         fun result_format_time_fun/2,
