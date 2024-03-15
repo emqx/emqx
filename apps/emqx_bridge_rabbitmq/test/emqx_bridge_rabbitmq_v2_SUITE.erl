@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
+-import(emqx_config_SUITE, [prepare_conf_file/3]).
 
 -import(emqx_bridge_rabbitmq_test_utils, [
     rabbit_mq_exchange/0,
@@ -315,6 +316,60 @@ t_action_not_exist_exchange(_Config) ->
     ok = delete_action(Name),
     ActionsAfterDelete = emqx_bridge_v2:list(actions),
     ?assertNot(lists:any(Any, ActionsAfterDelete), ActionsAfterDelete),
+    ok.
+
+t_replace_action_source(Config) ->
+    Action = #{<<"rabbitmq">> => #{<<"my_action">> => rabbitmq_action()}},
+    Source = #{<<"rabbitmq">> => #{<<"my_source">> => rabbitmq_source()}},
+    ConnectorName = atom_to_binary(?MODULE),
+    Connector = #{<<"rabbitmq">> => #{ConnectorName => rabbitmq_connector(get_rabbitmq(Config))}},
+    Rabbitmq = #{
+        <<"actions">> => Action,
+        <<"sources">> => Source,
+        <<"connectors">> => Connector
+    },
+    ConfBin0 = hocon_pp:do(Rabbitmq, #{}),
+    ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
+    ?assertMatch(ok, emqx_conf_cli:conf(["load", "--replace", ConfFile0])),
+    ?assertMatch(
+        #{<<"rabbitmq">> := #{<<"my_action">> := _}},
+        emqx_config:get_raw([<<"actions">>]),
+        Action
+    ),
+    ?assertMatch(
+        #{<<"rabbitmq">> := #{<<"my_source">> := _}},
+        emqx_config:get_raw([<<"sources">>]),
+        Source
+    ),
+    ?assertMatch(
+        #{<<"rabbitmq">> := #{ConnectorName := _}},
+        emqx_config:get_raw([<<"connectors">>]),
+        Connector
+    ),
+
+    Empty = #{
+        <<"actions">> => #{},
+        <<"sources">> => #{},
+        <<"connectors">> => #{}
+    },
+    ConfBin1 = hocon_pp:do(Empty, #{}),
+    ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
+    ?assertMatch(ok, emqx_conf_cli:conf(["load", "--replace", ConfFile1])),
+
+    ?assertEqual(#{}, emqx_config:get_raw([<<"actions">>])),
+    ?assertEqual(#{}, emqx_config:get_raw([<<"sources">>])),
+    ?assertMatch(#{}, emqx_config:get_raw([<<"connectors">>])),
+
+    %% restore connectors
+    Rabbitmq2 = #{<<"connectors">> => Connector},
+    ConfBin2 = hocon_pp:do(Rabbitmq2, #{}),
+    ConfFile2 = prepare_conf_file(?FUNCTION_NAME, ConfBin2, Config),
+    ?assertMatch(ok, emqx_conf_cli:conf(["load", "--replace", ConfFile2])),
+    ?assertMatch(
+        #{<<"rabbitmq">> := #{ConnectorName := _}},
+        emqx_config:get_raw([<<"connectors">>]),
+        Connector
+    ),
     ok.
 
 waiting_for_disconnected_alarms(InstanceId) ->

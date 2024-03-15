@@ -245,10 +245,11 @@ load_config_from_raw(RawConf0, Opts) ->
     case check_config(RawConf1) of
         {ok, RawConf} ->
             %% It has been ensured that the connector is always the first configuration to be updated.
-            %% However, when deleting the connector, we need to clean up the dependent actions first;
+            %% However, when deleting the connector, we need to clean up the dependent actions/sources first;
             %% otherwise, the deletion will fail.
-            %% notice: we can't create a action before connector.
-            uninstall_actions(RawConf, Opts),
+            %% notice: we can't create a action/sources before connector.
+            uninstall(<<"actions">>, RawConf, Opts),
+            uninstall(<<"sources">>, RawConf, Opts),
             Error =
                 lists:filtermap(
                     fun({K, V}) ->
@@ -288,27 +289,33 @@ load_config_from_raw(RawConf0, Opts) ->
             {error, Errors}
     end.
 
-uninstall_actions(#{<<"actions">> := New}, #{mode := replace}) ->
-    Old = emqx_conf:get_raw([<<"actions">>], #{}),
-    #{removed := Removed} = emqx_bridge_v2:diff_confs(New, Old),
-    maps:foreach(
-        fun({Type, Name}, _) ->
-            case emqx_bridge_v2:remove(Type, Name) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_remove_action",
-                        type => Type,
-                        name => Name,
-                        error => Reason
-                    })
-            end
-        end,
-        Removed
-    );
-%% we don't delete things when in merge mode or without actions key.
-uninstall_actions(_RawConf, _) ->
+uninstall(ActionOrSource, Conf, #{mode := replace}) ->
+    case maps:find(ActionOrSource, Conf) of
+        {ok, New} ->
+            Old = emqx_conf:get_raw([ActionOrSource], #{}),
+            ActionOrSourceAtom = binary_to_existing_atom(ActionOrSource),
+            #{removed := Removed} = emqx_bridge_v2:diff_confs(New, Old),
+            maps:foreach(
+                fun({Type, Name}, _) ->
+                    case emqx_bridge_v2:remove(ActionOrSourceAtom, Type, Name) of
+                        ok ->
+                            ok;
+                        {error, Reason} ->
+                            ?SLOG(error, #{
+                                msg => "failed_to_remove",
+                                type => Type,
+                                name => Name,
+                                error => Reason
+                            })
+                    end
+                end,
+                Removed
+            );
+        error ->
+            ok
+    end;
+%% we don't delete things when in merge mode or without actions/sources key.
+uninstall(_, _RawConf, _) ->
     ok.
 
 update_config_cluster(
@@ -481,7 +488,8 @@ filter_readonly_config(Raw) ->
     end.
 
 reload_config(AllConf, Opts) ->
-    uninstall_actions(AllConf, Opts),
+    uninstall(<<"actions">>, AllConf, Opts),
+    uninstall(<<"sources">>, AllConf, Opts),
     Fold = fun({Key, Conf}, Acc) ->
         case update_config_local(Key, Conf, Opts) of
             ok ->
