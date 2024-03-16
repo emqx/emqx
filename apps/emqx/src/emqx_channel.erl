@@ -259,7 +259,8 @@ init(
             mountpoint => MountPoint,
             is_bridge => false,
             is_superuser => false,
-            enable_authn => maps:get(enable_authn, Opts, true)
+            enable_authn => maps:get(enable_authn, Opts, true),
+            attrs => #{}
         },
         Zone
     ),

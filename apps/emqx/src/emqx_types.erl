@@ -54,7 +54,8 @@
     password/0,
     peerhost/0,
     peername/0,
-    protocol/0
+    protocol/0,
+    client_attrs/0
 ]).
 
 -export_type([
@@ -106,7 +107,7 @@
 
 -export_type([
     caps/0,
-    attrs/0,
+    channel_attrs/0,
     infos/0,
     stats/0
 ]).
@@ -189,8 +190,11 @@
     anonymous => boolean(),
     cn => binary(),
     dn => binary(),
+    %% extra attributes
+    attrs => client_attrs(),
     atom() => term()
 }.
+-type client_attrs() :: #{binary() => binary()}.
 -type clientid() :: binary() | atom().
 -type username() :: option(binary()).
 -type password() :: option(binary()).
@@ -270,7 +274,7 @@
 -type command() :: #command{}.
 
 -type caps() :: emqx_mqtt_caps:caps().
--type attrs() :: #{atom() => term()}.
+-type channel_attrs() :: #{atom() => term()}.
 -type infos() :: #{atom() => term()}.
 -type stats() :: [{atom(), term()}].
 
