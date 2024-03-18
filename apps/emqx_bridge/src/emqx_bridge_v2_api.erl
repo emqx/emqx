@@ -127,7 +127,7 @@ paths() ->
         "/sources/:id/metrics",
         "/sources/:id/metrics/reset",
         "/sources_probe"
-        %% "/source_types"
+        "/source_types"
     ].
 
 error_schema(Code, Message) ->
