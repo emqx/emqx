@@ -29,7 +29,8 @@
     transform_bridges_v1_to_connectors_and_bridges_v2/1,
     transform_bridge_v1_config_to_action_config/4,
     top_level_common_connector_keys/0,
-    project_to_connector_resource_opts/1
+    project_to_connector_resource_opts/1,
+    api_ref/3
 ]).
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
@@ -112,11 +113,18 @@ examples(Method) ->
 -if(?EMQX_RELEASE_EDITION == ee).
 schema_modules() ->
     [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema] ++
-        emqx_connector_ee_schema:schema_modules().
+        emqx_connector_ee_schema:schema_modules() ++ connector_info_schema_modules().
 -else.
 schema_modules() ->
-    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema].
+    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema] ++ connector_info_schema_modules().
 -endif.
+
+connector_info_schema_modules() ->
+    ConnectorTypes = emqx_connector_info:connector_types(),
+    [
+        emqx_connector_info:schema_module(Type)
+     || Type <- ConnectorTypes
+    ].
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
@@ -126,8 +134,6 @@ connector_type_to_bridge_types(azure_event_hub_producer) ->
     [azure_event_hub_producer];
 connector_type_to_bridge_types(confluent_producer) ->
     [confluent_producer];
-connector_type_to_bridge_types(dynamo) ->
-    [dynamo];
 connector_type_to_bridge_types(gcp_pubsub_consumer) ->
     [gcp_pubsub_consumer];
 connector_type_to_bridge_types(gcp_pubsub_producer) ->
@@ -185,7 +191,9 @@ connector_type_to_bridge_types(tdengine) ->
 connector_type_to_bridge_types(rabbitmq) ->
     [rabbitmq];
 connector_type_to_bridge_types(s3) ->
-    [s3].
+    [s3];
+connector_type_to_bridge_types(Type) ->
+    emqx_connector_info:bridge_types(Type).
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.
@@ -481,7 +489,15 @@ post_request() ->
 api_schema(Method) ->
     CE = api_schemas(Method),
     EE = enterprise_api_schemas(Method),
-    hoconsc:union(connector_api_union(CE ++ EE)).
+    InfoModSchemas = emqx_connector_info_api_schemas(Method),
+    hoconsc:union(connector_api_union(CE ++ EE ++ InfoModSchemas)).
+
+emqx_connector_info_api_schemas(Method) ->
+    ConnectorTypes = emqx_connector_info:connector_types(),
+    [
+        emqx_connector_info:api_schema(Type, Method)
+     || Type <- ConnectorTypes
+    ].
 
 connector_api_union(Refs) ->
     Index = maps:from_list(Refs),
@@ -544,7 +560,7 @@ fields(connectors) ->
                     required => false
                 }
             )}
-    ] ++ enterprise_fields_connectors();
+    ] ++ enterprise_fields_connectors() ++ connector_info_fields_connectors();
 fields("node_status") ->
     [
         node_name(),
@@ -555,6 +571,13 @@ fields("node_status") ->
                 desc => ?DESC("desc_status_reason"),
                 example => <<"Connection refused">>
             })}
+    ].
+
+connector_info_fields_connectors() ->
+    ConnectorTypes = emqx_connector_info:connector_types(),
+    [
+        emqx_connector_info:config_schema(Type)
+     || Type <- ConnectorTypes
     ].
 
 desc(connectors) ->
