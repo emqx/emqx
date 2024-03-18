@@ -41,20 +41,22 @@ get_client_mqueue_msgs.label:
 """Get client mqueue messages"""
 
 get_client_inflight_msgs.desc:
-"""Get client inflight messages"""
+"""Get client in-flight messages"""
 get_client_inflight_msgs.label:
-"""Get client inflight messages"""
+"""Get client in-flight messages"""
 
 mqueue_msgs_list.desc:
-"""Client's mqueue messages list. The queue (FIFO) ordering is preserved."""
+"""Client's mqueue messages list.
+Messages are ordered according to their priority and queue (FIFO) order: from higher priority to lower priority.
+By default, all messages in Mqueue have the same priority of 0."""
 mqueue_msgs_list.label:
 """Client's mqueue messages"""
 
 inflight_msgs_list.desc:
-"""Client's inflight messages list.
-Ordered by MQTT Packet Id, which may not represent the chronological messages order."""
+"""Client's in-flight messages list.
+Messages are sorted by time at which they were inserted to the In-flight storage (from older to newer messages)."""
 inflight_msgs_list.label:
-"""Client's inflight messages"""
+"""Client's in-flight messages"""
 
 msg_id.desc:
 """Message ID."""
@@ -74,7 +76,7 @@ msg_topic.label:
 msg_publish_at.desc:
 """Message publish time, a millisecond precision Unix epoch timestamp."""
 msg_publish_at.label:
-"""Message Publish Time."""
+"""Message Publish Time"""
 
 msg_from_clientid.desc:
 """Message publisher's client ID."""
@@ -84,7 +86,17 @@ msg_from_clientid.desc:
 msg_from_username.desc:
 """Message publisher's username."""
 msg_from_username.label:
-"""Message Publisher's Username """
+"""Message Publisher's Username"""
+
+msg_inserted_at.desc:
+"""A nanosecond precision Unix epoch timestamp at which a message was inserted to In-flight / Mqueue."""
+msg_inserted_at.label:
+"""Message Insertion Time"""
+
+msg_mqueue_priority.desc:
+"""Message Mqueue Priority."""
+msg_mqueue_priority.label:
+"""Message Mqueue Priority"""
 
 subscribe.desc:
 """Subscribe"""

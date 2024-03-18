@@ -98,6 +98,7 @@
 -define(HIGHEST_PRIORITY, infinity).
 -define(MAX_LEN_INFINITY, 0).
 -define(INFO_KEYS, [store_qos0, max_len, len, dropped]).
+-define(INSERT_TS, mqueue_insert_ts).
 
 -record(shift_opts, {
     multiplier :: non_neg_integer(),
@@ -172,54 +173,82 @@ filter(Pred, #mqueue{q = Q, len = Len, dropped = Droppend} = MQ) ->
             MQ#mqueue{q = Q2, len = Len2, dropped = Droppend + Diff}
     end.
 
--spec query(mqueue(), #{continuation => ContMsgId, limit := L}) ->
-    {[message()], #{continuation := ContMsgId, count := C}}
+-spec query(mqueue(), #{position => Pos, limit := Limit}) ->
+    {[message()], #{position := Pos, start := Pos}}
 when
-    ContMsgId :: none | end_of_data | binary(),
-    C :: non_neg_integer(),
-    L :: non_neg_integer().
-query(MQ, #{limit := Limit} = Pager) ->
-    ContMsgId = maps:get(continuation, Pager, none),
-    {List, NextCont} = sublist(skip_until(MQ, ContMsgId), Limit),
-    {List, #{continuation => NextCont, count => len(MQ)}}.
+    Pos :: none | {integer(), priority()},
+    Limit :: non_neg_integer().
+query(MQ, #{limit := Limit} = PagerParams) ->
+    Pos = maps:get(position, PagerParams, none),
+    PQsList = ?PQUEUE:to_queues_list(MQ#mqueue.q),
+    {Msgs, NxtPos} = sublist(skip_until(PQsList, Pos), Limit, [], Pos),
+    {Msgs, #{position => NxtPos, start => first_msg_pos(PQsList)}}.
 
-skip_until(MQ, none = _MsgId) ->
-    MQ;
-skip_until(MQ, MsgId) ->
-    do_skip_until(MQ, MsgId).
-
-do_skip_until(MQ, MsgId) ->
-    case out(MQ) of
-        {empty, MQ} ->
-            MQ;
-        {{value, #message{id = MsgId}}, Q1} ->
-            Q1;
-        {{value, _Msg}, Q1} ->
-            do_skip_until(Q1, MsgId)
+first_msg_pos([]) ->
+    none;
+first_msg_pos([{Prio, PQ} | T]) ->
+    case ?PQUEUE:out(PQ) of
+        {empty, _PQ} ->
+            first_msg_pos(T);
+        {{value, Msg}, _Q} ->
+            {insert_ts(Msg), Prio}
     end.
 
-sublist(_MQ, 0) ->
-    {[], none};
-sublist(MQ, Len) ->
-    {ListAcc, HasNext} = sublist(MQ, Len, []),
-    {lists:reverse(ListAcc), next_cont(ListAcc, HasNext)}.
-
-sublist(MQ, 0, Acc) ->
-    {Acc, element(1, out(MQ)) =/= empty};
-sublist(MQ, Len, Acc) ->
-    case out(MQ) of
-        {empty, _MQ} ->
-            {Acc, false};
-        {{value, Msg}, Q1} ->
-            sublist(Q1, Len - 1, [Msg | Acc])
+skip_until(PQsList, none = _Pos) ->
+    PQsList;
+skip_until(PQsList, {MsgPos, PrioPos}) ->
+    case skip_until_prio(PQsList, PrioPos) of
+        [{Prio, PQ} | T] ->
+            PQ1 = skip_until_msg(PQ, MsgPos),
+            [{Prio, PQ1} | T];
+        [] ->
+            []
     end.
 
-next_cont(_Acc, false) ->
-    end_of_data;
-next_cont([#message{id = Id} | _Acc], _HasNext) ->
-    Id;
-next_cont([], _HasNext) ->
-    end_of_data.
+skip_until_prio(PQsList, PrioPos) ->
+    lists:dropwhile(fun({Prio, _PQ}) -> Prio > PrioPos end, PQsList).
+
+skip_until_msg(PQ, MsgPos) ->
+    case ?PQUEUE:out(PQ) of
+        {empty, PQ1} ->
+            PQ1;
+        {{value, Msg}, PQ1} ->
+            case insert_ts(Msg) > MsgPos of
+                true -> PQ;
+                false -> skip_until_msg(PQ1, MsgPos)
+            end
+    end.
+
+sublist(PQs, Len, Acc, LastPosPrio) when PQs =:= []; Len =:= 0 ->
+    {Acc, LastPosPrio};
+sublist([{Prio, PQ} | T], Len, Acc, LastPosPrio) ->
+    {SingleQAcc, SingleQSize} = sublist_single_pq(Prio, PQ, Len, [], 0),
+    Acc1 = Acc ++ lists:reverse(SingleQAcc),
+    NxtPosPrio =
+        case SingleQAcc of
+            [H | _] -> {insert_ts(H), Prio};
+            [] -> LastPosPrio
+        end,
+    case SingleQSize =:= Len of
+        true ->
+            {Acc1, NxtPosPrio};
+        false ->
+            sublist(T, Len - SingleQSize, Acc1, NxtPosPrio)
+    end.
+
+sublist_single_pq(_Prio, _PQ, 0, Acc, AccSize) ->
+    {Acc, AccSize};
+sublist_single_pq(Prio, PQ, Len, Acc, AccSize) ->
+    case ?PQUEUE:out(0, PQ) of
+        {empty, _PQ} ->
+            {Acc, AccSize};
+        {{value, Msg}, PQ1} ->
+            Msg1 = with_prio(Msg, Prio),
+            sublist_single_pq(Prio, PQ1, Len - 1, [Msg1 | Acc], AccSize + 1)
+    end.
+
+with_prio(#message{extra = Extra} = Msg, Prio) ->
+    Msg#message{extra = Extra#{mqueue_priority => Prio}}.
 
 to_list(MQ, Acc) ->
     case out(MQ) of
@@ -256,14 +285,15 @@ in(
 ) ->
     Priority = get_priority(Topic, PTab, Dp),
     PLen = ?PQUEUE:plen(Priority, Q),
+    Msg1 = with_ts(Msg),
     case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
         true ->
             %% reached max length, drop the oldest message
             {{value, DroppedMsg}, Q1} = ?PQUEUE:out(Priority, Q),
-            Q2 = ?PQUEUE:in(Msg, Priority, Q1),
-            {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
+            Q2 = ?PQUEUE:in(Msg1, Priority, Q1),
+            {without_ts(DroppedMsg), MQ#mqueue{q = Q2, dropped = Dropped + 1}};
         false ->
-            {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = ?PQUEUE:in(Msg, Priority, Q)}}
+            {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = ?PQUEUE:in(Msg1, Priority, Q)}}
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
@@ -280,7 +310,7 @@ out(MQ = #mqueue{q = Q, len = Len, last_prio = undefined, shift_opts = ShiftOpts
         last_prio = Prio,
         p_credit = get_credits(Prio, ShiftOpts)
     },
-    {{value, Val}, MQ1};
+    {{value, without_ts(Val)}, MQ1};
 out(MQ = #mqueue{q = Q, p_credit = 0}) ->
     MQ1 = MQ#mqueue{
         q = ?PQUEUE:shift(Q),
@@ -288,8 +318,12 @@ out(MQ = #mqueue{q = Q, p_credit = 0}) ->
     },
     out(MQ1);
 out(MQ = #mqueue{q = Q, len = Len, p_credit = Cnt}) ->
-    {R, Q1} = ?PQUEUE:out(Q),
-    {R, MQ#mqueue{q = Q1, len = Len - 1, p_credit = Cnt - 1}}.
+    {R, Q2} =
+        case ?PQUEUE:out(Q) of
+            {{value, Val}, Q1} -> {{value, without_ts(Val)}, Q1};
+            Other -> Other
+        end,
+    {R, MQ#mqueue{q = Q2, len = Len - 1, p_credit = Cnt - 1}}.
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of
@@ -359,3 +393,23 @@ p_table(PTab = #{}) ->
     );
 p_table(PTab) ->
     PTab.
+
+%% This is used to sort/traverse messages in query/2
+with_ts(#message{extra = Extra} = Msg) ->
+    TsNano = erlang:system_time(nanosecond),
+    Extra1 =
+        case is_map(Extra) of
+            true -> Extra;
+            %% extra field has not being used before EMQX 5.4.0
+            %% and defaulted to an empty list,
+            %% if it's not a map it's safe to overwrite it
+            false -> #{}
+        end,
+    Msg#message{extra = Extra1#{?INSERT_TS => TsNano}}.
+
+without_ts(#message{extra = Extra} = Msg) ->
+    Msg#message{extra = maps:remove(?INSERT_TS, Extra)};
+without_ts(Msg) ->
+    Msg.
+
+insert_ts(#message{extra = #{?INSERT_TS := Ts}}) -> Ts.
