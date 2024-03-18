@@ -21,10 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(gcp_pubsub_consumer) ->
-    emqx_bridge_gcp_pubsub_impl_consumer;
-resource_type(gcp_pubsub_producer) ->
-    emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(hstreamdb) ->
     emqx_bridge_hstreamdb_connector;
 resource_type(kafka_consumer) ->
@@ -110,22 +106,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {gcp_pubsub_consumer,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_consumer_schema, "config_connector")),
-                #{
-                    desc => <<"GCP PubSub Consumer Connector Config">>,
-                    required => false
-                }
-            )},
-        {gcp_pubsub_producer,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_producer_schema, "config_connector")),
-                #{
-                    desc => <<"GCP PubSub Producer Connector Config">>,
-                    required => false
-                }
-            )},
         {hstreamdb,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_hstreamdb, "config_connector")),
@@ -339,8 +319,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_gcp_pubsub_consumer_schema,
-        emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_hstreamdb,
         emqx_bridge_kafka,
         emqx_bridge_kafka_consumer_schema,
@@ -373,16 +351,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(
-            emqx_bridge_gcp_pubsub_consumer_schema,
-            <<"gcp_pubsub_consumer">>,
-            Method ++ "_connector"
-        ),
-        api_ref(
-            emqx_bridge_gcp_pubsub_producer_schema,
-            <<"gcp_pubsub_producer">>,
-            Method ++ "_connector"
-        ),
         api_ref(emqx_bridge_hstreamdb, <<"hstreamdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kafka_consumer_schema, <<"kafka_consumer">>, Method ++ "_connector"),

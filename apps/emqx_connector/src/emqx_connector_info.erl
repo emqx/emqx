@@ -58,7 +58,9 @@ hard_coded_connector_info_modules_ee() ->
     [
         emqx_bridge_dynamo_connector_info,
         emqx_bridge_azure_event_hub_connector_info,
-        emqx_bridge_confluent_producer_connector_info
+        emqx_bridge_confluent_producer_connector_info,
+        emqx_bridge_gcp_pubsub_consumer_connector_info,
+        emqx_bridge_gcp_pubsub_producer_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->

@@ -130,10 +130,6 @@ connector_info_schema_modules() ->
 %% from the latest connector type name.
 connector_type_to_bridge_types(http) ->
     [webhook, http];
-connector_type_to_bridge_types(gcp_pubsub_consumer) ->
-    [gcp_pubsub_consumer];
-connector_type_to_bridge_types(gcp_pubsub_producer) ->
-    [gcp_pubsub, gcp_pubsub_producer];
 connector_type_to_bridge_types(hstreamdb) ->
     [hstreamdb];
 connector_type_to_bridge_types(kafka_consumer) ->
