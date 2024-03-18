@@ -17,6 +17,7 @@
 
     list/0,
     move/2,
+    reorder/1,
     lookup/1,
     insert/1,
     update/1,
@@ -84,6 +85,15 @@ move(Name, Position) ->
     emqx:update_config(
         ?VALIDATIONS_CONF_PATH,
         {move, Name, Position},
+        #{override_to => cluster}
+    ).
+
+-spec reorder([validation_name()]) ->
+    {ok, _} | {error, _}.
+reorder(Order) ->
+    emqx:update_config(
+        ?VALIDATIONS_CONF_PATH,
+        {reorder, Order},
         #{override_to => cluster}
     ).
 
@@ -165,7 +175,9 @@ pre_config_update(?VALIDATIONS_CONF_PATH, {update, Validation}, OldValidations) 
 pre_config_update(?VALIDATIONS_CONF_PATH, {delete, Validation}, OldValidations) ->
     delete(OldValidations, Validation);
 pre_config_update(?VALIDATIONS_CONF_PATH, {move, Name, Position}, OldValidations) ->
-    move(OldValidations, Name, Position).
+    move(OldValidations, Name, Position);
+pre_config_update(?VALIDATIONS_CONF_PATH, {reorder, Order}, OldValidations) ->
+    reorder(OldValidations, Order).
 
 post_config_update(?VALIDATIONS_CONF_PATH, {append, #{<<"name">> := Name}}, New, _Old, _AppEnvs) ->
     {Pos, Validation} = fetch_with_index(New, Name),
@@ -181,6 +193,9 @@ post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) 
     ok = emqx_message_validation_registry:delete(Validation),
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {move, _Name, _Position}, New, _Old, _AppEnvs) ->
+    ok = emqx_message_validation_registry:reindex_positions(New),
+    ok;
+post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, _Old, _AppEnvs) ->
     ok = emqx_message_validation_registry:reindex_positions(New),
     ok.
 
@@ -348,6 +363,52 @@ move(OldValidations, Name, {before, OtherName}) ->
     {OtherValidation, Front2, Rear2} = take(OtherName, Front1 ++ Rear1),
     {ok, Front2 ++ [Validation, OtherValidation] ++ Rear2}.
 
+reorder(Validations, Order) ->
+    Context = #{
+        not_found => sets:new([{version, 2}]),
+        duplicated => sets:new([{version, 2}]),
+        res => [],
+        seen => sets:new([{version, 2}])
+    },
+    reorder(Validations, Order, Context).
+
+reorder(NotReordered, _Order = [], #{not_found := NotFound0, duplicated := Duplicated0, res := Res}) ->
+    NotFound = sets:to_list(NotFound0),
+    Duplicated = sets:to_list(Duplicated0),
+    case {NotReordered, NotFound, Duplicated} of
+        {[], [], []} ->
+            {ok, lists:reverse(Res)};
+        {_, _, _} ->
+            Error = #{
+                not_found => NotFound,
+                duplicated => Duplicated,
+                not_reordered => [N || #{<<"name">> := N} <- NotReordered]
+            },
+            {error, Error}
+    end;
+reorder(RemainingValidations, [Name | Rest], Context0 = #{seen := Seen0}) ->
+    case sets:is_element(Name, Seen0) of
+        true ->
+            Context = maps:update_with(
+                duplicated, fun(S) -> sets:add_element(Name, S) end, Context0
+            ),
+            reorder(RemainingValidations, Rest, Context);
+        false ->
+            case safe_take(Name, RemainingValidations) of
+                error ->
+                    Context = maps:update_with(
+                        not_found, fun(S) -> sets:add_element(Name, S) end, Context0
+                    ),
+                    reorder(RemainingValidations, Rest, Context);
+                {ok, {Validation, Front, Rear}} ->
+                    Context1 = maps:update_with(
+                        seen, fun(S) -> sets:add_element(Name, S) end, Context0
+                    ),
+                    Context = maps:update_with(res, fun(Vs) -> [Validation | Vs] end, Context1),
+                    reorder(Front ++ Rear, Rest, Context)
+            end
+    end.
+
 fetch_with_index([{Pos, #{name := Name} = Validation} | _Rest], Name) ->
     {Pos, Validation};
 fetch_with_index([{_, _} | Rest], Name) ->
@@ -356,11 +417,19 @@ fetch_with_index(Validations, Name) ->
     fetch_with_index(lists:enumerate(Validations), Name).
 
 take(Name, Validations) ->
+    case safe_take(Name, Validations) of
+        error ->
+            throw({validation_not_found, Name});
+        {ok, {Found, Front, Rear}} ->
+            {Found, Front, Rear}
+    end.
+
+safe_take(Name, Validations) ->
     case lists:splitwith(fun(#{<<"name">> := N}) -> N =/= Name end, Validations) of
         {_Front, []} ->
-            throw({validation_not_found, Name});
+            error;
         {Front, [Found | Rear]} ->
-            {Found, Front, Rear}
+            {ok, {Found, Front, Rear}}
     end.
 
 do_lookup(_Name, _Validations = []) ->

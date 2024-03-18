@@ -22,6 +22,7 @@
 %% `minirest' handlers
 -export([
     '/message_validations'/2,
+    '/message_validations/reorder'/2,
     '/message_validations/validation/:name'/2,
     '/message_validations/validation/:name/move'/2
 ]).
@@ -44,6 +45,7 @@ api_spec() ->
 paths() ->
     [
         "/message_validations",
+        "/message_validations/reorder",
         "/message_validations/validation/:name",
         "/message_validations/validation/:name/move"
     ].
@@ -59,7 +61,7 @@ schema("/message_validations") ->
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            hoconsc:array(
+                            array(
                                 emqx_message_validation_schema:api_schema(list)
                             ),
                             #{
@@ -107,6 +109,35 @@ schema("/message_validations") ->
                 }
         }
     };
+schema("/message_validations/reorder") ->
+    #{
+        'operationId' => '/message_validations/reorder',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Reorder all validations">>,
+            description => ?DESC("reorder_validations"),
+            'requestBody' =>
+                emqx_dashboard_swagger:schema_with_examples(
+                    ref(reorder),
+                    example_input_reorder()
+                ),
+            responses =>
+                #{
+                    204 => <<"No Content">>,
+                    400 => error_schema(
+                        'BAD_REQUEST',
+                        <<"Bad request">>,
+                        [
+                            {not_found, mk(array(binary()), #{desc => "Validations not found"})},
+                            {not_reordered,
+                                mk(array(binary()), #{desc => "Validations not referenced in input"})},
+                            {duplicated,
+                                mk(array(binary()), #{desc => "Duplicated validations in input"})}
+                        ]
+                    )
+                }
+        }
+    };
 schema("/message_validations/validation/:name") ->
     #{
         'operationId' => '/message_validations/validation/:name',
@@ -119,7 +150,7 @@ schema("/message_validations/validation/:name") ->
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            hoconsc:array(
+                            array(
                                 emqx_message_validation_schema:api_schema(lookup)
                             ),
                             #{
@@ -189,6 +220,10 @@ fields(before) ->
     [
         {position, mk(before, #{default => before, required => true, in => body})},
         {validation, mk(binary(), #{required => true, in => body})}
+    ];
+fields(reorder) ->
+    [
+        {order, mk(array(binary()), #{required => true, in => body})}
     ].
 
 %%-------------------------------------------------------------------------------------------------
@@ -255,18 +290,26 @@ fields(before) ->
         not_found(Name)
     ).
 
+'/message_validations/reorder'(post, #{body := #{<<"order">> := Order}}) ->
+    do_reorder(Order).
+
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns
 %%-------------------------------------------------------------------------------------------------
 
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 mk(Type, Opts) -> hoconsc:mk(Type, Opts).
+array(Type) -> hoconsc:array(Type).
 
 example_input_create() ->
     %% TODO
     #{}.
 
 example_input_update() ->
+    %% TODO
+    #{}.
+
+example_input_reorder() ->
     %% TODO
     #{}.
 
@@ -290,12 +333,15 @@ example_position() ->
     %% TODO
     #{}.
 
-error_schema(Code, Message) when is_atom(Code) ->
-    error_schema([Code], Message);
-error_schema(Codes, Message) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message));
-error_schema(Codes, Message) when is_list(Codes) andalso is_binary(Message) ->
-    emqx_dashboard_swagger:error_codes(Codes, Message).
+error_schema(Code, Message) ->
+    error_schema(Code, Message, _ExtraFields = []).
+
+error_schema(Code, Message, ExtraFields) when is_atom(Code) ->
+    error_schema([Code], Message, ExtraFields);
+error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
+    error_schema(Codes, list_to_binary(Message), ExtraFields);
+error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
+    ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
 
 position_union_member_selector(all_union_members) ->
     position_refs();
@@ -355,6 +401,27 @@ do_move(ValidationName, Position) ->
     case emqx_message_validation:move(ValidationName, Position) of
         {ok, _} ->
             ?NO_CONTENT;
+        {error, Error} ->
+            ?BAD_REQUEST(Error)
+    end.
+
+do_reorder(Order) ->
+    case emqx_message_validation:reorder(Order) of
+        {ok, _} ->
+            ?NO_CONTENT;
+        {error,
+            {pre_config_update, _HandlerMod, #{
+                not_found := NotFound,
+                duplicated := Duplicated,
+                not_reordered := NotReordered
+            }}} ->
+            Msg0 = ?ERROR_MSG('BAD_REQUEST', <<"Bad request">>),
+            Msg = Msg0#{
+                not_found => NotFound,
+                duplicated => Duplicated,
+                not_reordered => NotReordered
+            },
+            {400, Msg};
         {error, Error} ->
             ?BAD_REQUEST(Error)
     end.

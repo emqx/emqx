@@ -182,7 +182,8 @@ move(Name, Pos) ->
 
 reorder(Order) ->
     Path = emqx_mgmt_api_test_util:api_path([api_root(), "reorder"]),
-    Res = request(post, Path, Order),
+    Params = #{<<"order">> => Order},
+    Res = request(post, Path, Params),
     ct:pal("reorder result:\n  ~p", [Res]),
     simplify_result(Res).
 
@@ -511,6 +512,103 @@ t_move(_Config) ->
         list()
     ),
     ?assertIndexOrder([Name3, Name2, Name1], Topic),
+
+    ok.
+
+%% test the "reorder" API
+t_reorder(_Config) ->
+    %% no validations to reorder
+    ?assertMatch({204, _}, reorder([])),
+
+    %% unknown validation
+    ?assertMatch(
+        {400, #{<<"not_found">> := [<<"nonexistent">>]}},
+        reorder([<<"nonexistent">>])
+    ),
+
+    Topic = <<"t">>,
+
+    Name1 = <<"foo">>,
+    Validation1 = validation(Name1, [sql_check()], #{<<"topics">> => Topic}),
+    {201, _} = insert(Validation1),
+
+    %% unknown validation
+    ?assertMatch(
+        {400, #{
+            %% Note: minirest currently encodes empty lists as a "[]" string...
+            <<"duplicated">> := "[]",
+            <<"not_found">> := [<<"nonexistent">>],
+            <<"not_reordered">> := [Name1]
+        }},
+        reorder([<<"nonexistent">>])
+    ),
+
+    %% repeated validations
+    ?assertMatch(
+        {400, #{
+            <<"not_found">> := "[]",
+            <<"duplicated">> := [Name1],
+            <<"not_reordered">> := "[]"
+        }},
+        reorder([Name1, Name1])
+    ),
+
+    %% mixed known, unknown and repeated validations
+    ?assertMatch(
+        {400, #{
+            <<"not_found">> := [<<"nonexistent">>],
+            <<"duplicated">> := [Name1],
+            %% Note: minirest currently encodes empty lists as a "[]" string...
+            <<"not_reordered">> := "[]"
+        }},
+        reorder([Name1, <<"nonexistent">>, <<"nonexistent">>, Name1])
+    ),
+
+    ?assertMatch({204, _}, reorder([Name1])),
+    ?assertMatch({200, [#{<<"name">> := Name1}]}, list()),
+    ?assertIndexOrder([Name1], Topic),
+
+    Name2 = <<"bar">>,
+    Validation2 = validation(Name2, [sql_check()], #{<<"topics">> => Topic}),
+    {201, _} = insert(Validation2),
+    Name3 = <<"baz">>,
+    Validation3 = validation(Name3, [sql_check()], #{<<"topics">> => Topic}),
+    {201, _} = insert(Validation3),
+
+    ?assertMatch(
+        {200, [#{<<"name">> := Name1}, #{<<"name">> := Name2}, #{<<"name">> := Name3}]},
+        list()
+    ),
+    ?assertIndexOrder([Name1, Name2, Name3], Topic),
+
+    %% Doesn't mention all validations
+    ?assertMatch(
+        {400, #{
+            %% Note: minirest currently encodes empty lists as a "[]" string...
+            <<"not_found">> := "[]",
+            <<"not_reordered">> := [_, _]
+        }},
+        reorder([Name1])
+    ),
+    ?assertMatch(
+        {200, [#{<<"name">> := Name1}, #{<<"name">> := Name2}, #{<<"name">> := Name3}]},
+        list()
+    ),
+    ?assertIndexOrder([Name1, Name2, Name3], Topic),
+
+    ?assertMatch({204, _}, reorder([Name3, Name2, Name1])),
+    ?assertMatch(
+        {200, [#{<<"name">> := Name3}, #{<<"name">> := Name2}, #{<<"name">> := Name1}]},
+        list()
+    ),
+    ?assertIndexOrder([Name3, Name2, Name1], Topic),
+
+    ?assertMatch({204, _}, reorder([Name1, Name3, Name2])),
+    ?assertMatch(
+        {200, [#{<<"name">> := Name1}, #{<<"name">> := Name3}, #{<<"name">> := Name2}]},
+        list()
+    ),
+    ?assertIndexOrder([Name1, Name3, Name2], Topic),
 
     ok.
 
