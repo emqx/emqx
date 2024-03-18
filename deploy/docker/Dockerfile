@@ -49,19 +49,18 @@ ENV LANG=C.UTF-8
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=builder /emqx-rel /opt/
 
-WORKDIR /opt/emqx
-
 RUN set -eu; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates procps $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
+    rm -rf /var/lib/apt/lists/*; \
     find /opt/emqx -name 'swagger*.js.map' -exec rm {} +; \
+    ln -s /opt/emqx/bin/* /usr/local/bin/; \
     groupadd -r -g 1000 emqx; \
     useradd -r -m -u 1000 -g emqx emqx; \
-    chgrp -Rf emqx /opt/emqx; \
-    chmod -Rf g+w /opt/emqx; \
-    chown -Rf emqx /opt/emqx; \
-    ln -s /opt/emqx/bin/* /usr/local/bin/; \
-    rm -rf /var/lib/apt/lists/*
+    mkdir -p /opt/emqx/log /opt/emqx/data /opt/emqx/plugins; \
+    chown -R emqx:emqx /opt/emqx/log /opt/emqx/data /opt/emqx/plugins
+
+WORKDIR /opt/emqx
 
 USER emqx
 
