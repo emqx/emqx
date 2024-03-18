@@ -151,7 +151,7 @@ list() ->
     simplify_result(Res).
 
 lookup(Name) ->
-    Path = emqx_mgmt_api_test_util:api_path([api_root(), Name]),
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name]),
     Res = request(get, Path, _Params = []),
     ct:pal("lookup ~s result:\n  ~p", [Name, Res]),
     simplify_result(Res).
@@ -169,15 +169,21 @@ update(Params) ->
     simplify_result(Res).
 
 delete(Name) ->
-    Path = emqx_mgmt_api_test_util:api_path([api_root(), Name]),
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name]),
     Res = request(delete, Path, _Params = []),
     ct:pal("delete result:\n  ~p", [Res]),
     simplify_result(Res).
 
 move(Name, Pos) ->
-    Path = emqx_mgmt_api_test_util:api_path([api_root(), Name, "move"]),
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name, "move"]),
     Res = request(post, Path, Pos),
     ct:pal("move result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+reorder(Order) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "reorder"]),
+    Res = request(post, Path, Order),
+    ct:pal("reorder result:\n  ~p", [Res]),
     simplify_result(Res).
 
 connect(ClientId) ->
@@ -410,6 +416,7 @@ t_crud(_Config) ->
 
     ok.
 
+%% test the "move" API
 t_move(_Config) ->
     lists:foreach(
         fun(Pos) ->

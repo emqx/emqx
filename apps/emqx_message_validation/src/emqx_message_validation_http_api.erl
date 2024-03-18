@@ -22,8 +22,8 @@
 %% `minirest' handlers
 -export([
     '/message_validations'/2,
-    '/message_validations/:name'/2,
-    '/message_validations/:name/move'/2
+    '/message_validations/validation/:name'/2,
+    '/message_validations/validation/:name/move'/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -44,8 +44,8 @@ api_spec() ->
 paths() ->
     [
         "/message_validations",
-        "/message_validations/:name",
-        "/message_validations/:name/move"
+        "/message_validations/validation/:name",
+        "/message_validations/validation/:name/move"
     ].
 
 schema("/message_validations") ->
@@ -107,9 +107,9 @@ schema("/message_validations") ->
                 }
         }
     };
-schema("/message_validations/:name") ->
+schema("/message_validations/validation/:name") ->
     #{
-        'operationId' => '/message_validations/:name',
+        'operationId' => '/message_validations/validation/:name',
         get => #{
             tags => ?TAGS,
             summary => <<"Lookup a validation">>,
@@ -142,9 +142,9 @@ schema("/message_validations/:name") ->
                 }
         }
     };
-schema("/message_validations/:name/move") ->
+schema("/message_validations/validation/:name/move") ->
     #{
-        'operationId' => '/message_validations/:name/move',
+        'operationId' => '/message_validations/validation/:name/move',
         post => #{
             tags => ?TAGS,
             summary => <<"Change the order of a validation">>,
@@ -226,13 +226,13 @@ fields(before) ->
         not_found()
     ).
 
-'/message_validations/:name'(get, #{bindings := #{name := Name}}) ->
+'/message_validations/validation/:name'(get, #{bindings := #{name := Name}}) ->
     with_validation(
         Name,
         fun(Validation) -> ?OK(Validation) end,
         not_found()
     );
-'/message_validations/:name'(delete, #{bindings := #{name := Name}}) ->
+'/message_validations/validation/:name'(delete, #{bindings := #{name := Name}}) ->
     with_validation(
         Name,
         fun() ->
@@ -246,7 +246,7 @@ fields(before) ->
         not_found()
     ).
 
-'/message_validations/:name/move'(post, #{bindings := #{name := Name}, body := Body}) ->
+'/message_validations/validation/:name/move'(post, #{bindings := #{name := Name}, body := Body}) ->
     with_validation(
         Name,
         fun() ->
