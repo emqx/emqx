@@ -21,8 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(confluent_producer) ->
-    emqx_bridge_kafka_impl_producer;
 resource_type(gcp_pubsub_consumer) ->
     emqx_bridge_gcp_pubsub_impl_consumer;
 resource_type(gcp_pubsub_producer) ->
@@ -90,8 +88,6 @@ resource_type(Type) ->
 %% For connectors that need to override connector configurations.
 connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
     connector_impl_module(binary_to_atom(ConnectorType, utf8));
-connector_impl_module(confluent_producer) ->
-    emqx_bridge_confluent_producer;
 connector_impl_module(iotdb) ->
     emqx_bridge_iotdb_connector;
 connector_impl_module(elasticsearch) ->
@@ -114,14 +110,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {confluent_producer,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_confluent_producer, "config_connector")),
-                #{
-                    desc => <<"Confluent Connector Config">>,
-                    required => false
-                }
-            )},
         {gcp_pubsub_consumer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_consumer_schema, "config_connector")),
@@ -351,7 +339,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_confluent_producer,
         emqx_bridge_gcp_pubsub_consumer_schema,
         emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_hstreamdb,
@@ -386,9 +373,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(
-            emqx_bridge_confluent_producer, <<"confluent_producer">>, Method ++ "_connector"
-        ),
         api_ref(
             emqx_bridge_gcp_pubsub_consumer_schema,
             <<"gcp_pubsub_consumer">>,
