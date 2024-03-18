@@ -126,7 +126,7 @@ paths() ->
         %% %% try to match the latter first, trying to interpret `metrics' as an operation...
         "/sources/:id/metrics",
         "/sources/:id/metrics/reset",
-        "/sources_probe"
+        "/sources_probe",
         "/source_types"
     ].
 
@@ -639,16 +639,16 @@ schema("/source_types") ->
         'operationId' => '/source_types',
         get => #{
             tags => [<<"sources">>],
-            desc => ?DESC("desc_api10"),
+            desc => ?DESC("desc_api11"),
             summary => <<"List available source types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    array(emqx_bridge_v2_schema:action_types_sc()),
+                    array(emqx_bridge_v2_schema:source_types_sc()),
                     #{
                         <<"types">> =>
                             #{
                                 summary => <<"Source types">>,
-                                value => emqx_bridge_v2_schema:action_types()
+                                value => emqx_bridge_v2_schema:source_types()
                             }
                     }
                 )
