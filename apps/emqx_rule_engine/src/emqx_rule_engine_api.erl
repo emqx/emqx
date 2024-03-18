@@ -705,7 +705,7 @@ generate_match_spec(Qs) ->
 generate_match_spec([], _, {MtchHead, Conds}) ->
     {MtchHead, lists:reverse(Conds)};
 generate_match_spec([Qs | Rest], N, {MtchHead, Conds}) ->
-    Holder = binary_to_atom(iolist_to_binary(["$", integer_to_list(N)]), utf8),
+    Holder = list_to_atom([$$ | integer_to_list(N)]),
     NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
     NConds = put_conds(Qs, Holder, Conds),
     generate_match_spec(Rest, N + 1, {NMtchHead, NConds}).
