@@ -54,7 +54,8 @@ sql_check(SQL) ->
 
 eval_sql(Message, SQL) ->
     {ok, Check} = emqx_message_validation:parse_sql_check(SQL),
-    emqx_message_validation:evaluate_sql_check(Check, Message).
+    Validation = #{log_failure_at => warning, name => <<"validation">>},
+    emqx_message_validation:evaluate_sql_check(Check, Validation, Message).
 
 message() ->
     message(_Opts = #{}).
