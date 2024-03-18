@@ -266,7 +266,7 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
                 []
         end,
     try
-        emqx_schema_registry_serde:handle_rule_function(schema_check, [SerdeName, Data | ExtraArgs])
+        emqx_schema_registry_serde:schema_check(SerdeName, Data, ExtraArgs)
     catch
         error:{serde_not_found, _} ->
             ?TRACE(

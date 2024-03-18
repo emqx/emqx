@@ -13,6 +13,7 @@
 -export([
     make_serde/3,
     handle_rule_function/2,
+    schema_check/3,
     destroy/1
 ]).
 
