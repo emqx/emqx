@@ -23,8 +23,6 @@
 
     collect_json_data/2,
 
-    aggre_cluster/3,
-
     point_to_map_fun/1,
 
     boolean_to_number/1,
@@ -82,9 +80,6 @@ aggre_cluster(Module, Mode) ->
         fetch_data_from_all_nodes(Module, Mode),
         Module:aggre_or_zip_init_acc()
     ).
-
-aggre_cluster(LogicSumKs, ResL, Init) ->
-    do_aggre_cluster(LogicSumKs, ResL, Init).
 
 do_aggre_cluster(_LogicSumKs, [], AccIn) ->
     AccIn;

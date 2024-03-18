@@ -195,7 +195,7 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, stats_metric_meta(), ?MG(stats_data, RawData)),
     ok = add_collect_family(
         Callback,
-        stats_metric_cluster_consistened_meta(),
+        stats_metric_cluster_consistented_meta(),
         ?MG(stats_data_cluster_consistented, RawData)
     ),
     ok = add_collect_family(Callback, vm_metric_meta(), ?MG(vm_data, RawData)),
@@ -502,8 +502,6 @@ stats_metric_meta() ->
         {emqx_sessions_max, gauge, 'sessions.max'},
         {emqx_channels_count, gauge, 'channels.count'},
         {emqx_channels_max, gauge, 'channels.max'},
-        {emqx_cluster_sessions_count, gauge, 'cluster_sessions.count'},
-        {emqx_cluster_sessions_max, gauge, 'cluster_sessions.max'},
         %% pub/sub stats
         {emqx_suboptions_count, gauge, 'suboptions.count'},
         {emqx_suboptions_max, gauge, 'suboptions.max'},
@@ -511,21 +509,25 @@ stats_metric_meta() ->
         {emqx_subscribers_max, gauge, 'subscribers.max'},
         {emqx_subscriptions_count, gauge, 'subscriptions.count'},
         {emqx_subscriptions_max, gauge, 'subscriptions.max'},
-        {emqx_subscriptions_shared_count, gauge, 'subscriptions.shared.count'},
-        {emqx_subscriptions_shared_max, gauge, 'subscriptions.shared.max'},
         %% delayed
         {emqx_delayed_count, gauge, 'delayed.count'},
         {emqx_delayed_max, gauge, 'delayed.max'}
     ].
 
-stats_metric_cluster_consistened_meta() ->
+stats_metric_cluster_consistented_meta() ->
     [
+        %% sessions
+        {emqx_cluster_sessions_count, gauge, 'cluster_sessions.count'},
+        {emqx_cluster_sessions_max, gauge, 'cluster_sessions.max'},
         %% topics
         {emqx_topics_max, gauge, 'topics.max'},
         {emqx_topics_count, gauge, 'topics.count'},
         %% retained
         {emqx_retained_count, gauge, 'retained.count'},
-        {emqx_retained_max, gauge, 'retained.max'}
+        {emqx_retained_max, gauge, 'retained.max'},
+        %% shared subscriptions
+        {emqx_subscriptions_shared_count, gauge, 'subscriptions.shared.count'},
+        {emqx_subscriptions_shared_max, gauge, 'subscriptions.shared.max'}
     ].
 
 stats_data(Mode) ->
@@ -545,7 +547,7 @@ stats_data_cluster_consistented() ->
             AccIn#{Name => [{[], ?C(MetricKAtom, Stats)}]}
         end,
         #{},
-        stats_metric_cluster_consistened_meta()
+        stats_metric_cluster_consistented_meta()
     ).
 
 %%========================================
@@ -589,12 +591,19 @@ cluster_metric_meta() ->
         {emqx_cluster_nodes_stopped, gauge, undefined}
     ].
 
-cluster_data(Mode) ->
+cluster_data(node) ->
+    Labels = [],
+    do_cluster_data(Labels);
+cluster_data(_) ->
+    Labels = [{node, node(self())}],
+    do_cluster_data(Labels).
+
+do_cluster_data(Labels) ->
     Running = emqx:cluster_nodes(running),
     Stopped = emqx:cluster_nodes(stopped),
     #{
-        emqx_cluster_nodes_running => [{with_node_label(Mode, []), length(Running)}],
-        emqx_cluster_nodes_stopped => [{with_node_label(Mode, []), length(Stopped)}]
+        emqx_cluster_nodes_running => [{Labels, length(Running)}],
+        emqx_cluster_nodes_stopped => [{Labels, length(Stopped)}]
     }.
 
 %%========================================
