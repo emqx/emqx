@@ -203,10 +203,22 @@ jobs:
           docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
-      - name: push images
-        if: inputs.publish || github.repository_owner != 'emqx'
+      - name: Push docker image
+        env:
+          PROFILE: ${{ matrix.profile[0] }}
+          DOCKER_REGISTRY: ${{ matrix.profile[1] }}
+          DOCKER_ORG: ${{ github.repository_owner }}
+          DOCKER_LATEST: ${{ inputs.latest }}
+          DOCKER_PUSH: true
+          DOCKER_BUILD_NOCACHE: false
+          DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          DOCKER_LOAD: false
+          EMQX_RUNNER: 'public.ecr.aws/debian/debian:12-slim'
+          EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
+          PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
+          EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
+          EMQX_BUILDER_OTP: ${{ inputs.otp_vsn }}
+          EMQX_BUILDER_ELIXIR: ${{ inputs.elixir_vsn }}
+          EMQX_SOURCE_TYPE: tgz
         run: |
-          for tag in $(cat .emqx_docker_image_tags); do
-            echo "Pushing tag $tag"
-            docker push $tag
-          done
+          ./build ${PROFILE} docker
