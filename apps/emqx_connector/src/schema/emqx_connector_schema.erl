@@ -130,8 +130,6 @@ connector_info_schema_modules() ->
 %% from the latest connector type name.
 connector_type_to_bridge_types(http) ->
     [webhook, http];
-connector_type_to_bridge_types(azure_event_hub_producer) ->
-    [azure_event_hub_producer];
 connector_type_to_bridge_types(confluent_producer) ->
     [confluent_producer];
 connector_type_to_bridge_types(gcp_pubsub_consumer) ->

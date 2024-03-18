@@ -21,9 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(azure_event_hub_producer) ->
-    %% We use AEH's Kafka interface.
-    emqx_bridge_kafka_impl_producer;
 resource_type(confluent_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(gcp_pubsub_consumer) ->
@@ -93,8 +90,6 @@ resource_type(Type) ->
 %% For connectors that need to override connector configurations.
 connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
     connector_impl_module(binary_to_atom(ConnectorType, utf8));
-connector_impl_module(azure_event_hub_producer) ->
-    emqx_bridge_azure_event_hub;
 connector_impl_module(confluent_producer) ->
     emqx_bridge_confluent_producer;
 connector_impl_module(iotdb) ->
@@ -119,14 +114,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {azure_event_hub_producer,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_azure_event_hub, "config_connector")),
-                #{
-                    desc => <<"Azure Event Hub Connector Config">>,
-                    required => false
-                }
-            )},
         {confluent_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_confluent_producer, "config_connector")),
@@ -364,7 +351,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_azure_event_hub,
         emqx_bridge_confluent_producer,
         emqx_bridge_gcp_pubsub_consumer_schema,
         emqx_bridge_gcp_pubsub_producer_schema,
@@ -400,9 +386,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(
-            emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_connector"
-        ),
         api_ref(
             emqx_bridge_confluent_producer, <<"confluent_producer">>, Method ++ "_connector"
         ),

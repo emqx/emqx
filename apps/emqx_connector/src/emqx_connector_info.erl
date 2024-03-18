@@ -25,7 +25,8 @@
     resource_callback_module/1,
     schema_module/1,
     config_schema/1,
-    api_schema/2
+    api_schema/2,
+    config_transform_module/1
 ]).
 
 -export([clean_cache/0]).
@@ -36,6 +37,15 @@
 -callback schema_module() -> atom().
 -callback config_schema() -> term().
 -callback api_schema([char()]) -> term().
+%% Optional callback that should return a module with an exported
+%% connector_config/2 function. If present this function will be used to
+%% transfrom the connector configuration. See the callback connector_config/2
+%% in emqx_connector_resource for more information.
+-callback config_transform_module() -> atom().
+
+-optional_callbacks([
+    config_transform_module/0
+]).
 
 %% ====================================================================
 %% HardCoded list of info modules for connectors
@@ -46,7 +56,8 @@
 -if(?EMQX_RELEASE_EDITION == ee).
 hard_coded_connector_info_modules_ee() ->
     [
-        emqx_bridge_dynamo_connector_info
+        emqx_bridge_dynamo_connector_info,
+        emqx_bridge_azure_event_hub_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->
@@ -70,6 +81,7 @@ hard_coded_connector_info_modules() ->
 -define(connector_type_to_resource_callback_module, connector_type_to_resource_callback_module).
 -define(connector_type_to_schema_module, connector_type_to_schema_module).
 -define(connector_type_to_config_schema, connector_type_to_config_schema).
+-define(connector_type_to_config_transform_module, connector_type_to_config_transform_module).
 
 %% ====================================================================
 %% API
@@ -101,14 +113,19 @@ config_schema(ConnectorType) ->
     maps:get(ConnectorType, ConToConfSchema).
 
 api_schema(ConnectorType, Method) ->
-    InfoMod = get_info_module(ConnectorType),
+    InfoMod = info_module(ConnectorType),
     InfoMod:api_schema(Method).
+
+config_transform_module(ConnectorType) ->
+    InfoMap = info_map(),
+    ConToConfTransMod = maps:get(?connector_type_to_config_transform_module, InfoMap),
+    maps:get(ConnectorType, ConToConfTransMod, undefined).
 
 %% ====================================================================
 %% Internal functions for building the info map and accessing it
 %% ====================================================================
 
-get_info_module(ConnectorType) ->
+info_module(ConnectorType) ->
     InfoMap = info_map(),
     ConToInfoMod = maps:get(?connector_type_to_info_module, InfoMap),
     maps:get(ConnectorType, ConToInfoMod).
@@ -164,13 +181,21 @@ initial_info_map() ->
         ?connector_type_to_bridge_types => #{},
         ?connector_type_to_resource_callback_module => #{},
         ?connector_type_to_schema_module => #{},
-        ?connector_type_to_config_schema => #{}
+        ?connector_type_to_config_schema => #{},
+        ?connector_type_to_config_transform_module => #{}
     }.
 
 get_info_map(Module) ->
     %% Force the module to get loaded
     _ = code:ensure_loaded(Module),
     Type = Module:type_name(),
+    ConfigTransformModule =
+        case erlang:function_exported(Module, config_transform_module, 0) of
+            true ->
+                Module:config_transform_module();
+            false ->
+                undefined
+        end,
     #{
         ?connector_type_names => #{
             Type => true
@@ -189,5 +214,8 @@ get_info_map(Module) ->
         },
         ?connector_type_to_config_schema => #{
             Type => Module:config_schema()
+        },
+        ?connector_type_to_config_transform_module => #{
+            Type => ConfigTransformModule
         }
     }.

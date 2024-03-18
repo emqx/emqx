@@ -67,15 +67,24 @@ connector_to_resource_type(ConnectorType) ->
             connector_to_resource_type_ce(ConnectorType)
     end.
 
+connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
+    connector_impl_module(binary_to_atom(ConnectorType, utf8));
 connector_impl_module(ConnectorType) ->
-    emqx_connector_ee_schema:connector_impl_module(ConnectorType).
+    case emqx_connector_ee_schema:connector_impl_module(ConnectorType) of
+        undefined ->
+            emqx_connector_info:config_transform_module(ConnectorType);
+        Module ->
+            Module
+    end.
 -else.
 
 connector_to_resource_type(ConnectorType) ->
     connector_to_resource_type_ce(ConnectorType).
 
-connector_impl_module(_ConnectorType) ->
-    undefined.
+connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
+    connector_impl_module(binary_to_atom(ConnectorType, utf8));
+connector_impl_module(ConnectorType) ->
+    emqx_connector_info:config_transform_module(ConnectorType).
 
 -endif.
 
