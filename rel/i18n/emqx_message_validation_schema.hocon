@@ -55,7 +55,7 @@ emqx_message_validation_schema {
   """Topic filter(s)"""
 
   name.desc:
-  """The name for this validation.  Must be unique among all validations."""
+  """The name for this validation.  Must be unique among all validations.  It must be a combination of alphanumeric characters and underscores, and cannot start with neither number nor an underscore."""
   name.desc:
   """Name"""
 

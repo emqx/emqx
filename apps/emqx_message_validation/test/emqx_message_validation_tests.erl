@@ -177,6 +177,30 @@ schema_test_() ->
             )}
     ].
 
+invalid_names_test_() ->
+    [
+        {InvalidName,
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"must conform to regex:", _/binary>>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.name"
+                    }
+                ]},
+                parse_and_check([validation(InvalidName, [sql_check()])])
+            )}
+     || InvalidName <- [
+            <<"">>,
+            <<"_name">>,
+            <<"name$">>,
+            <<"name!">>,
+            <<"some name">>,
+            <<"nãme"/utf8>>,
+            <<"test_哈哈"/utf8>>
+        ]
+    ].
+
 check_test_() ->
     [
         {"denied by payload 1",
