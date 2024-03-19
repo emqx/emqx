@@ -1146,9 +1146,11 @@ handle_call(
     kick,
     Channel = #channel{
         conn_state = ConnState,
-        conninfo = #{proto_ver := ProtoVer}
+        conninfo = #{proto_ver := ProtoVer},
+        session = Session
     }
 ) ->
+    emqx_session:destroy(Session),
     Channel0 = maybe_publish_will_msg(kicked, Channel),
     Channel1 =
         case ConnState of
