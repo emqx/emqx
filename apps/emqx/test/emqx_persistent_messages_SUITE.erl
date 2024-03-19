@@ -46,7 +46,7 @@ init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
 init_per_testcase(t_message_gc = TestCase, Config) ->
     Opts = #{
         extra_emqx_conf =>
-            "\n  session_persistence.message_retention_period = 1s"
+            "\n  session_persistence.message_retention_period = 3s"
             "\n  durable_storage.messages.n_shards = 3"
     },
     common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
@@ -397,7 +397,7 @@ t_message_gc(Config) ->
                 message(<<"foo/bar">>, <<"1">>, 0),
                 message(<<"foo/baz">>, <<"2">>, 1)
             ],
-            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs0),
+            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs0, #{sync => true}),
             ?tp(inserted_batch, #{}),
             {ok, _} = ?block_until(#{?snk_kind := ps_message_gc_added_gen}),
 
@@ -406,7 +406,7 @@ t_message_gc(Config) ->
                 message(<<"foo/bar">>, <<"3">>, Now + 100),
                 message(<<"foo/baz">>, <<"4">>, Now + 101)
             ],
-            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs1),
+            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs1, #{sync => true}),
 
             {ok, _} = snabbkaffe:block_until(
                 ?match_n_events(NShards, #{?snk_kind := message_gc_generation_dropped}),
