@@ -33,7 +33,8 @@ roots() ->
         force_shutdown,
         conn_congestion,
         force_gc,
-        overload_protection
+        overload_protection,
+        session_persistence
     ].
 
 zones_without_default() ->
