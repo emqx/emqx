@@ -21,6 +21,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(N_SHARDS, 1).
@@ -446,7 +447,10 @@ t_drop_generation_with_never_used_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch({ok, end_of_stream, []}, iterate(DB, Iter0, 1)),
+    ?assertMatch(
+        {error, unrecoverable, generation_not_found, []},
+        iterate(DB, Iter0, 1)
+    ),
 
     %% New iterator for the new stream will only see the later messages.
     [{_, Stream1}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -495,9 +499,10 @@ t_drop_generation_with_used_once_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch({ok, end_of_stream, []}, iterate(DB, Iter1, 1)),
-
-    ok.
+    ?assertMatch(
+        {error, unrecoverable, generation_not_found, []},
+        iterate(DB, Iter1, 1)
+    ).
 
 t_drop_generation_update_iterator(_Config) ->
     %% This checks the behavior of `emqx_ds:update_iterator' after the generation
@@ -523,9 +528,10 @@ t_drop_generation_update_iterator(_Config) ->
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),
 
-    ?assertEqual({error, end_of_stream}, emqx_ds:update_iterator(DB, Iter1, Key2)),
-
-    ok.
+    ?assertEqual(
+        {error, unrecoverable, generation_not_found},
+        emqx_ds:update_iterator(DB, Iter1, Key2)
+    ).
 
 t_make_iterator_stale_stream(_Config) ->
     %% This checks the behavior of `emqx_ds:make_iterator' after the generation underlying
@@ -549,7 +555,7 @@ t_make_iterator_stale_stream(_Config) ->
     ok = emqx_ds:drop_generation(DB, GenId0),
 
     ?assertEqual(
-        {error, end_of_stream},
+        {error, unrecoverable, generation_not_found},
         emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime)
     ),
 
@@ -590,9 +596,99 @@ t_get_streams_concurrently_with_drop_generation(_Config) ->
             ok
         end,
         []
+    ).
+
+t_error_mapping_replication_layer(_Config) ->
+    %% This checks that the replication layer maps recoverable errors correctly.
+
+    ok = emqx_ds_test_helpers:mock_rpc(),
+    ok = snabbkaffe:start_trace(),
+
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, (opts())#{n_shards => 2})),
+    [Shard1, Shard2] = emqx_ds_replication_layer_meta:shards(DB),
+
+    TopicFilter = emqx_topic:words(<<"foo/#">>),
+    Msgs = [
+        message(<<"C1">>, <<"foo/bar">>, <<"1">>, 0),
+        message(<<"C1">>, <<"foo/baz">>, <<"2">>, 1),
+        message(<<"C2">>, <<"foo/foo">>, <<"3">>, 2),
+        message(<<"C3">>, <<"foo/xyz">>, <<"4">>, 3),
+        message(<<"C4">>, <<"foo/bar">>, <<"5">>, 4),
+        message(<<"C5">>, <<"foo/oof">>, <<"6">>, 5)
+    ],
+
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+
+    ?block_until(#{?snk_kind := emqx_ds_replication_layer_egress_flush, shard := Shard1}),
+    ?block_until(#{?snk_kind := emqx_ds_replication_layer_egress_flush, shard := Shard2}),
+
+    Streams0 = emqx_ds:get_streams(DB, TopicFilter, 0),
+    Iterators0 = lists:map(
+        fun({_Rank, S}) ->
+            {ok, Iter} = emqx_ds:make_iterator(DB, S, TopicFilter, 0),
+            Iter
+        end,
+        Streams0
     ),
 
-    ok.
+    %% Disrupt the link to the second shard.
+    ok = emqx_ds_test_helpers:mock_rpc_result(
+        fun(_Node, emqx_ds_replication_layer, _Function, Args) ->
+            case Args of
+                [DB, Shard1 | _] -> passthrough;
+                [DB, Shard2 | _] -> unavailable
+            end
+        end
+    ),
+
+    %% Result of `emqx_ds:get_streams/3` will just contain partial results, not an error.
+    Streams1 = emqx_ds:get_streams(DB, TopicFilter, 0),
+    ?assert(
+        length(Streams1) > 0 andalso length(Streams1) =< length(Streams0),
+        Streams1
+    ),
+
+    %% At least one of `emqx_ds:make_iterator/4` will end in an error.
+    Results1 = lists:map(
+        fun({_Rank, S}) ->
+            case emqx_ds:make_iterator(DB, S, TopicFilter, 0) of
+                Ok = {ok, _Iter} ->
+                    Ok;
+                Error = {error, recoverable, {erpc, _}} ->
+                    Error;
+                Other ->
+                    ct:fail({unexpected_result, Other})
+            end
+        end,
+        Streams0
+    ),
+    ?assert(
+        length([error || {error, _, _} <- Results1]) > 0,
+        Results1
+    ),
+
+    %% At least one of `emqx_ds:next/3` over initial set of iterators will end in an error.
+    Results2 = lists:map(
+        fun(Iter) ->
+            case emqx_ds:next(DB, Iter, _BatchSize = 42) of
+                Ok = {ok, _Iter, [_ | _]} ->
+                    Ok;
+                Error = {error, recoverable, {badrpc, _}} ->
+                    Error;
+                Other ->
+                    ct:fail({unexpected_result, Other})
+            end
+        end,
+        Iterators0
+    ),
+    ?assert(
+        length([error || {error, _, _} <- Results2]) > 0,
+        Results2
+    ),
+
+    snabbkaffe:stop(),
+    meck:unload().
 
 update_data_set() ->
     [
@@ -628,6 +724,10 @@ fetch_all(DB, TopicFilter, StartTime) ->
         Streams
     ).
 
+message(ClientId, Topic, Payload, PublishedAt) ->
+    Msg = message(Topic, Payload, PublishedAt),
+    Msg#message{from = ClientId}.
+
 message(Topic, Payload, PublishedAt) ->
     #message{
         topic = Topic,
@@ -647,8 +747,8 @@ iterate(DB, It0, BatchSize, Acc) ->
             iterate(DB, It, BatchSize, Acc ++ Msgs);
         {ok, end_of_stream} ->
             {ok, end_of_stream, Acc};
-        Ret ->
-            Ret
+        {error, Class, Reason} ->
+            {error, Class, Reason, Acc}
     end.
 
 delete(DB, It, Selector, BatchSize) ->

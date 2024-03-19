@@ -178,8 +178,36 @@ fields(hasnext) ->
     >>,
     Meta = #{desc => Desc, required => true},
     [{hasnext, hoconsc:mk(boolean(), Meta)}];
+fields('after') ->
+    Desc = <<
+        "The value of \"last\" field returned in the previous response. It can then be used"
+        " in subsequent requests to get the next chunk of results.<br/>"
+        "It is used instead of \"page\" parameter to traverse volatile data.<br/>"
+        "Can be omitted or set to \"none\" to get the first chunk of data.<br/>"
+        "\last\" = end_of_data\" is returned, if there is no more data.<br/>"
+        "Sending \"after=end_of_table\" back to the server will result in \"400 Bad Request\""
+        " error response."
+    >>,
+    Meta = #{
+        in => query, desc => Desc, required => false, example => <<"AAYS53qRa0n07AAABFIACg">>
+    },
+    [{'after', hoconsc:mk(hoconsc:union([none, end_of_data, binary()]), Meta)}];
+fields(last) ->
+    Desc = <<
+        "An opaque token that can then be in subsequent requests to get "
+        " the next chunk of results: \"?after={last}\"<br/>"
+        "if there is no more data, \"last\" = end_of_data\" is returned.<br/>"
+        "Sending \"after=end_of_table\" back to the server will result in \"400 Bad Request\""
+        " error response."
+    >>,
+    Meta = #{
+        desc => Desc, required => true, example => <<"AAYS53qRa0n07AAABFIACg">>
+    },
+    [{last, hoconsc:mk(hoconsc:union([none, end_of_data, binary()]), Meta)}];
 fields(meta) ->
-    fields(page) ++ fields(limit) ++ fields(count) ++ fields(hasnext).
+    fields(page) ++ fields(limit) ++ fields(count) ++ fields(hasnext);
+fields(continuation_meta) ->
+    fields(last) ++ fields(count).
 
 -spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema().
 schema_with_example(Type, Example) ->
@@ -416,19 +444,78 @@ check_parameter(
 check_parameter([], _Bindings, _QueryStr, _Module, NewBindings, NewQueryStr) ->
     {NewBindings, NewQueryStr};
 check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, QueryStrAcc) ->
-    Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
     case hocon_schema:field_schema(Type, in) of
         path ->
+            Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
             Option = #{atom_key => true},
             NewBindings = hocon_tconf:check_plain(Schema, Bindings, Option),
             NewBindingsAcc = maps:merge(BindingsAcc, NewBindings),
             check_parameter(Spec, Bindings, QueryStr, Module, NewBindingsAcc, QueryStrAcc);
         query ->
+            Type1 = maybe_wrap_array_qs_param(Type),
+            Schema = ?INIT_SCHEMA#{roots => [{Name, Type1}]},
             Option = #{},
             NewQueryStr = hocon_tconf:check_plain(Schema, QueryStr, Option),
             NewQueryStrAcc = maps:merge(QueryStrAcc, NewQueryStr),
             check_parameter(Spec, Bindings, QueryStr, Module, BindingsAcc, NewQueryStrAcc)
     end.
+
+%% Compatibility layer for minirest 1.4.0 that parses repetitive QS params into lists.
+%% Previous minirest releases dropped all but the last repetitive params.
+
+maybe_wrap_array_qs_param(FieldSchema) ->
+    Conv = hocon_schema:field_schema(FieldSchema, converter),
+    Type = hocon_schema:field_schema(FieldSchema, type),
+    case array_or_single_qs_param(Type, Conv) of
+        any ->
+            FieldSchema;
+        array ->
+            override_conv(FieldSchema, fun wrap_array_conv/2, Conv);
+        single ->
+            override_conv(FieldSchema, fun unwrap_array_conv/2, Conv)
+    end.
+
+array_or_single_qs_param(?ARRAY(_Type), undefined) ->
+    array;
+%% Qs field schema is an array and defines a converter:
+%% don't change (wrap/unwrap) the original value, and let the converter handle it.
+%% For example, it can be a CSV list.
+array_or_single_qs_param(?ARRAY(_Type), _Conv) ->
+    any;
+array_or_single_qs_param(?UNION(Types), _Conv) ->
+    HasArray = lists:any(
+        fun
+            (?ARRAY(_)) -> true;
+            (_) -> false
+        end,
+        Types
+    ),
+    case HasArray of
+        true -> any;
+        false -> single
+    end;
+array_or_single_qs_param(_, _Conv) ->
+    single.
+
+override_conv(FieldSchema, NewConv, OldConv) ->
+    Conv = compose_converters(NewConv, OldConv),
+    hocon_schema:override(FieldSchema, FieldSchema#{converter => Conv}).
+
+compose_converters(NewFun, undefined = _OldFun) ->
+    NewFun;
+compose_converters(NewFun, OldFun) ->
+    case erlang:fun_info(OldFun, arity) of
+        {_, 2} ->
+            fun(V, Opts) -> OldFun(NewFun(V, Opts), Opts) end;
+        {_, 1} ->
+            fun(V, Opts) -> OldFun(NewFun(V, Opts)) end
+    end.
+
+wrap_array_conv(Val, _Opts) when is_list(Val); Val =:= undefined -> Val;
+wrap_array_conv(SingleVal, _Opts) -> [SingleVal].
+
+unwrap_array_conv([HVal | _], _Opts) -> HVal;
+unwrap_array_conv(SingleVal, _Opts) -> SingleVal.
 
 check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
     Type0 = hocon_schema:field_schema(Schema, type),

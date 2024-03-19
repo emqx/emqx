@@ -173,14 +173,16 @@ fields(action_parameters) ->
         {record_template,
             mk(binary(), #{default => <<"${payload}">>, desc => ?DESC("record_template")})},
         {aggregation_pool_size,
-            mk(integer(), #{
+            mk(pos_integer(), #{
                 default => ?DEFAULT_AGG_POOL_SIZE, desc => ?DESC("aggregation_pool_size")
             })},
         {max_batches,
-            mk(integer(), #{default => ?DEFAULT_MAX_BATCHES, desc => ?DESC("max_batches")})},
+            mk(pos_integer(), #{default => ?DEFAULT_MAX_BATCHES, desc => ?DESC("max_batches")})},
         {writer_pool_size,
-            mk(integer(), #{default => ?DEFAULT_WRITER_POOL_SIZE, desc => ?DESC("writer_pool_size")})},
-        {batch_size, mk(integer(), #{default => 100, desc => ?DESC("batch_size")})},
+            mk(pos_integer(), #{
+                default => ?DEFAULT_WRITER_POOL_SIZE, desc => ?DESC("writer_pool_size")
+            })},
+        {batch_size, mk(pos_integer(), #{default => 100, desc => ?DESC("batch_size")})},
         {batch_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => ?DEFAULT_BATCH_INTERVAL_RAW, desc => ?DESC("batch_interval")

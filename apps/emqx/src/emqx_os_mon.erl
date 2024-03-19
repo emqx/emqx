@@ -18,6 +18,7 @@
 
 -behaviour(gen_server).
 
+-include("emqx.hrl").
 -include("logger.hrl").
 
 -export([start_link/0]).
@@ -46,8 +47,6 @@
     code_change/3
 ]).
 -export([is_os_check_supported/0]).
-
--include("emqx.hrl").
 
 -define(OS_MON, ?MODULE).
 
@@ -92,6 +91,8 @@ handle_continue(setup, undefined) ->
     SysHW = init_os_monitor(),
     MemRef = start_mem_check_timer(),
     CpuRef = start_cpu_check_timer(),
+    %% the value of the first call should be regarded as garbage.
+    _Val = cpu_sup:util(),
     {noreply, #{sysmem_high_watermark => SysHW, mem_time_ref => MemRef, cpu_time_ref => CpuRef}}.
 
 init_os_monitor() ->
@@ -131,7 +132,7 @@ handle_info({timeout, _Timer, mem_check}, #{sysmem_high_watermark := HWM} = Stat
 handle_info({timeout, _Timer, cpu_check}, State) ->
     CPUHighWatermark = emqx:get_config([sysmon, os, cpu_high_watermark]) * 100,
     CPULowWatermark = emqx:get_config([sysmon, os, cpu_low_watermark]) * 100,
-    CPUVal = emqx_vm:cpu_util(),
+    CPUVal = cpu_sup:util(),
     case CPUVal of
         %% 0 or 0.0
         Busy when Busy == 0 ->

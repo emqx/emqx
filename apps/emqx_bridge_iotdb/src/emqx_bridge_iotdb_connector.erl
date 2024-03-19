@@ -544,6 +544,8 @@ convert_int(Str) when is_binary(Str) ->
         _:_ ->
             convert_int(binary_to_float(Str))
     end;
+convert_int(null) ->
+    null;
 convert_int(undefined) ->
     null.
 
@@ -556,6 +558,8 @@ convert_float(Str) when is_binary(Str) ->
         _:_ ->
             convert_float(binary_to_integer(Str))
     end;
+convert_float(null) ->
+    null;
 convert_float(undefined) ->
     null.
 

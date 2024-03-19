@@ -58,7 +58,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ekka, github: "emqx/ekka", tag: "0.19.0", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.15", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.4.0", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.7", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.42.0", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.42.1", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -98,7 +98,7 @@ defmodule EMQXUmbrella.MixProject do
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
       {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
-      {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.1", override: true},
+      {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
     ] ++

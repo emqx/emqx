@@ -85,3 +85,17 @@
     sent => sent_msg_rate,
     dropped => dropped_msg_rate
 }).
+
+-define(CURRENT_SAMPLE_NON_RATE,
+    [
+        node_uptime,
+        retained_msg_count,
+        shared_subscriptions
+    ] ++ ?LICENSE_QUOTA
+).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+-define(LICENSE_QUOTA, [license_quota]).
+-else.
+-define(LICENSE_QUOTA, []).
+-endif.

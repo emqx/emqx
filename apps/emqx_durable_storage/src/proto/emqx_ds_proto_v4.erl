@@ -67,7 +67,7 @@ get_streams(Node, DB, Shard, TopicFilter, Time) ->
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+    emqx_ds:make_iterator_result().
 make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v2, [
         DB, Shard, Stream, TopicFilter, StartTime
@@ -80,9 +80,7 @@ make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:iterator(),
     pos_integer()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator(), [{emqx_ds:message_key(), [emqx_types:message()]}]}
-    | {ok, end_of_stream}
-    | {error, _}.
+    emqx_rpc:call_result(emqx_ds:next_result()).
 next(Node, DB, Shard, Iter, BatchSize) ->
     emqx_rpc:call(Shard, Node, emqx_ds_replication_layer, do_next_v1, [DB, Shard, Iter, BatchSize]).
 
@@ -106,7 +104,7 @@ store_batch(Node, DB, Shard, Batch, Options) ->
     emqx_ds_storage_layer:iterator(),
     emqx_ds:message_key()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+    emqx_ds:make_iterator_result().
 update_iterator(Node, DB, Shard, OldIter, DSKey) ->
     erpc:call(Node, emqx_ds_replication_layer, do_update_iterator_v2, [
         DB, Shard, OldIter, DSKey

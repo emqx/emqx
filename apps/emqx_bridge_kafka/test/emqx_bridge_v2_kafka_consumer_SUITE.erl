@@ -339,3 +339,15 @@ t_update_topic(Config) ->
         emqx_bridge_v2_testlib:get_source_api(?SOURCE_TYPE_BIN, Name)
     ),
     ok.
+
+t_bad_bootstrap_host(Config) ->
+    ?assertMatch(
+        {error, {{_, 400, _}, _, _}},
+        emqx_bridge_v2_testlib:probe_connector_api(
+            Config,
+            #{
+                <<"bootstrap_hosts">> => <<"bad_host:9999">>
+            }
+        )
+    ),
+    ok.

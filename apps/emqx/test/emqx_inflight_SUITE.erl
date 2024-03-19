@@ -116,5 +116,83 @@ t_window(_) ->
     ),
     ?assertEqual([a, b], emqx_inflight:window(Inflight)).
 
-% t_to_list(_) ->
-%     error('TODO').
+t_to_list(_) ->
+    Inflight = lists:foldl(
+        fun(Seq, InflightAcc) ->
+            emqx_inflight:insert(Seq, integer_to_binary(Seq), InflightAcc)
+        end,
+        emqx_inflight:new(100),
+        [1, 6, 2, 3, 10, 7, 9, 8, 4, 5]
+    ),
+    ExpList = [{Seq, integer_to_binary(Seq)} || Seq <- lists:seq(1, 10)],
+    ?assertEqual(ExpList, emqx_inflight:to_list(Inflight)).
+
+t_query(_) ->
+    EmptyInflight = emqx_inflight:new(500),
+    ?assertMatch(
+        {[], #{continuation := end_of_data}}, emqx_inflight:query(EmptyInflight, #{limit => 50})
+    ),
+    ?assertMatch(
+        {[], #{continuation := end_of_data}},
+        emqx_inflight:query(EmptyInflight, #{continuation => <<"empty">>, limit => 50})
+    ),
+    ?assertMatch(
+        {[], #{continuation := end_of_data}},
+        emqx_inflight:query(EmptyInflight, #{continuation => none, limit => 50})
+    ),
+
+    Inflight = lists:foldl(
+        fun(Seq, QAcc) ->
+            emqx_inflight:insert(Seq, integer_to_binary(Seq), QAcc)
+        end,
+        EmptyInflight,
+        lists:reverse(lists:seq(1, 114))
+    ),
+
+    LastCont = lists:foldl(
+        fun(PageSeq, Cont) ->
+            Limit = 10,
+            PagerParams = #{continuation => Cont, limit => Limit},
+            {Page, #{continuation := NextCont} = Meta} = emqx_inflight:query(Inflight, PagerParams),
+            ?assertEqual(10, length(Page)),
+            ExpFirst = PageSeq * Limit - Limit + 1,
+            ExpLast = PageSeq * Limit,
+            ?assertEqual({ExpFirst, integer_to_binary(ExpFirst)}, lists:nth(1, Page)),
+            ?assertEqual({ExpLast, integer_to_binary(ExpLast)}, lists:nth(10, Page)),
+            ?assertMatch(
+                #{count := 114, continuation := IntCont} when is_integer(IntCont),
+                Meta
+            ),
+            NextCont
+        end,
+        none,
+        lists:seq(1, 11)
+    ),
+    {LastPartialPage, LastMeta} = emqx_inflight:query(Inflight, #{
+        continuation => LastCont, limit => 10
+    }),
+    ?assertEqual(4, length(LastPartialPage)),
+    ?assertEqual({111, <<"111">>}, lists:nth(1, LastPartialPage)),
+    ?assertEqual({114, <<"114">>}, lists:nth(4, LastPartialPage)),
+    ?assertMatch(#{continuation := end_of_data, count := 114}, LastMeta),
+
+    ?assertMatch(
+        {[], #{continuation := end_of_data}},
+        emqx_inflight:query(Inflight, #{continuation => <<"not-existing-cont-id">>, limit => 10})
+    ),
+
+    {LargePage, LargeMeta} = emqx_inflight:query(Inflight, #{limit => 1000}),
+    ?assertEqual(114, length(LargePage)),
+    ?assertEqual({1, <<"1">>}, hd(LargePage)),
+    ?assertEqual({114, <<"114">>}, lists:last(LargePage)),
+    ?assertMatch(#{continuation := end_of_data}, LargeMeta),
+
+    {FullPage, FullMeta} = emqx_inflight:query(Inflight, #{limit => 114}),
+    ?assertEqual(114, length(FullPage)),
+    ?assertEqual({1, <<"1">>}, hd(FullPage)),
+    ?assertEqual({114, <<"114">>}, lists:last(FullPage)),
+    ?assertMatch(#{continuation := end_of_data}, FullMeta),
+
+    {EmptyPage, EmptyMeta} = emqx_inflight:query(Inflight, #{limit => 0}),
+    ?assertEqual([], EmptyPage),
+    ?assertMatch(#{continuation := none, count := 114}, EmptyMeta).

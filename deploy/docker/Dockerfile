@@ -1,5 +1,5 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-debian11@sha256:48b62a5636bd6bc59688fc98a498401fccf456fa63d843aa0b7279f3bc20b22e
-ARG RUN_FROM=public.ecr.aws/debian/debian:11-slim@sha256:22cfb3c06a7dd5e18d86123a73405664475b9d9fa209cbedcf4c50a25649cc74
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-debian12
+ARG RUN_FROM=public.ecr.aws/debian/debian:12-slim
 ARG SOURCE_TYPE=src # tgz
 
 FROM ${BUILD_FROM} as builder_src
@@ -10,7 +10,7 @@ ARG PROFILE=emqx
 ARG PKG_VSN
 ARG SUFFIX
 ARG TARGETARCH
-ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian11-$TARGETARCH.tar.gz /${PROFILE}.tar.gz
+ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian12-$TARGETARCH.tar.gz /${PROFILE}.tar.gz
 
 FROM builder_${SOURCE_TYPE} as builder
 
@@ -49,19 +49,18 @@ ENV LANG=C.UTF-8
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=builder /emqx-rel /opt/
 
-WORKDIR /opt/emqx
-
 RUN set -eu; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates procps $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
+    rm -rf /var/lib/apt/lists/*; \
     find /opt/emqx -name 'swagger*.js.map' -exec rm {} +; \
+    ln -s /opt/emqx/bin/* /usr/local/bin/; \
     groupadd -r -g 1000 emqx; \
     useradd -r -m -u 1000 -g emqx emqx; \
-    chgrp -Rf emqx /opt/emqx; \
-    chmod -Rf g+w /opt/emqx; \
-    chown -Rf emqx /opt/emqx; \
-    ln -s /opt/emqx/bin/* /usr/local/bin/; \
-    rm -rf /var/lib/apt/lists/*
+    mkdir -p /opt/emqx/log /opt/emqx/data /opt/emqx/plugins; \
+    chown -R emqx:emqx /opt/emqx/log /opt/emqx/data /opt/emqx/plugins
+
+WORKDIR /opt/emqx
 
 USER emqx
 

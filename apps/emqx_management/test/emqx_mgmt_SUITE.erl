@@ -28,14 +28,19 @@
 all() ->
     [
         {group, persistence_disabled},
-        {group, persistence_enabled}
+        {group, persistence_enabled},
+        {group, cm_registry_enabled},
+        {group, cm_registry_disabled}
     ].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
+    CMRegistryTCs = [t_call_client_cluster],
+    TCs = emqx_common_test_helpers:all(?MODULE) -- CMRegistryTCs,
     [
         {persistence_disabled, [], TCs},
-        {persistence_enabled, [], [t_persist_list_subs]}
+        {persistence_enabled, [], [t_persist_list_subs]},
+        {cm_registry_enabled, CMRegistryTCs},
+        {cm_registry_disabled, CMRegistryTCs}
     ].
 
 init_per_group(persistence_disabled, Config) ->
@@ -66,10 +71,17 @@ init_per_group(persistence_enabled, Config) ->
     [
         {apps, Apps}
         | Config
-    ].
+    ];
+init_per_group(cm_registry_enabled, Config) ->
+    [{emqx_config, "broker.enable_session_registry = true"} | Config];
+init_per_group(cm_registry_disabled, Config) ->
+    [{emqx_config, "broker.enable_session_registry = false"} | Config].
 
 end_per_group(_Grp, Config) ->
-    emqx_cth_suite:stop(?config(apps, Config)).
+    case ?config(apps, Config) of
+        undefined -> ok;
+        Apps -> emqx_cth_suite:stop(Apps)
+    end.
 
 init_per_suite(Config) ->
     Config.
@@ -447,6 +459,83 @@ t_persist_list_subs(_) ->
     %% clients:
     VerifySubs().
 
+t_call_client_cluster(Config) ->
+    [Node1, Node2] = ?config(cluster, Config),
+    [Node1ClientId, Node2ClientId] = ?config(client_ids, Config),
+    ?assertMatch(
+        {[], #{}}, rpc:call(Node1, emqx_mgmt, list_client_msgs, client_msgs_args(Node1ClientId))
+    ),
+    ?assertMatch(
+        {[], #{}}, rpc:call(Node2, emqx_mgmt, list_client_msgs, client_msgs_args(Node2ClientId))
+    ),
+    ?assertMatch(
+        {[], #{}}, rpc:call(Node1, emqx_mgmt, list_client_msgs, client_msgs_args(Node2ClientId))
+    ),
+    ?assertMatch(
+        {[], #{}}, rpc:call(Node2, emqx_mgmt, list_client_msgs, client_msgs_args(Node1ClientId))
+    ),
+
+    case proplists:get_value(name, ?config(tc_group_properties, Config)) of
+        cm_registry_disabled ->
+            %% Simulating crashes that must be handled by erpc multicall
+            ?assertMatch(
+                {error, _},
+                rpc:call(Node1, emqx_mgmt, list_client_msgs, client_msgs_bad_args(Node2ClientId))
+            ),
+            ?assertMatch(
+                {error, _},
+                rpc:call(Node2, emqx_mgmt, list_client_msgs, client_msgs_bad_args(Node1ClientId))
+            );
+        cm_registry_enabled ->
+            %% Direct call to remote pid is expected to crash
+            ?assertMatch(
+                {badrpc, {'EXIT', _}},
+                rpc:call(Node1, emqx_mgmt, list_client_msgs, client_msgs_bad_args(Node1ClientId))
+            ),
+            ?assertMatch(
+                {badrpc, {'EXIT', _}},
+                rpc:call(Node2, emqx_mgmt, list_client_msgs, client_msgs_bad_args(Node2ClientId))
+            );
+        _ ->
+            ok
+    end,
+
+    NotFoundClientId = <<"no_such_client_id">>,
+    ?assertEqual(
+        {error, not_found},
+        rpc:call(Node2, emqx_mgmt, list_client_msgs, client_msgs_args(NotFoundClientId))
+    ),
+    ?assertEqual(
+        {error, not_found},
+        rpc:call(Node2, emqx_mgmt, list_client_msgs, client_msgs_args(NotFoundClientId))
+    ).
+
+t_call_client_cluster(init, Config) ->
+    Apps = [{emqx, ?config(emqx_config, Config)}, emqx_management],
+    [Node1, Node2] =
+        Cluster = emqx_cth_cluster:start(
+            [
+                {list_to_atom(atom_to_list(?MODULE) ++ "1"), #{role => core, apps => Apps}},
+                {list_to_atom(atom_to_list(?MODULE) ++ "2"), #{role => core, apps => Apps}}
+            ],
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        ),
+    {ok, Node1Client, Node1ClientId} = connect_client(Node1),
+    {ok, Node2Client, Node2ClientId} = connect_client(Node2),
+    %% They may exit during the test due to simulated crashes
+    unlink(Node1Client),
+    unlink(Node2Client),
+    [
+        {cluster, Cluster},
+        {client_ids, [Node1ClientId, Node2ClientId]},
+        {client_pids, [Node1Client, Node2Client]}
+        | Config
+    ];
+t_call_client_cluster('end', Config) ->
+    emqx_cth_cluster:stop(?config(cluster, Config)),
+    [exit(ClientPid, kill) || ClientPid <- ?config(client_pids, Config)],
+    ok.
+
 %%% helpers
 ident(Arg) ->
     Arg.
@@ -462,3 +551,24 @@ setup_clients(Config) ->
 disconnect_clients(Config) ->
     Clients = ?config(clients, Config),
     lists:foreach(fun emqtt:disconnect/1, Clients).
+
+get_mqtt_port(Node) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
+
+connect_client(Node) ->
+    Port = get_mqtt_port(Node),
+    ClientId = <<(atom_to_binary(Node))/binary, "_client">>,
+    {ok, Client} = emqtt:start_link([
+        {port, Port},
+        {proto_ver, v5},
+        {clientid, ClientId}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, Client, ClientId}.
+
+client_msgs_args(ClientId) ->
+    [mqueue_msgs, ClientId, #{limit => 10, continuation => none}].
+
+client_msgs_bad_args(ClientId) ->
+    [mqueue_msgs, ClientId, "bad_page_params"].

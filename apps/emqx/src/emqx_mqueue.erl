@@ -68,7 +68,8 @@
     stats/1,
     dropped/1,
     to_list/1,
-    filter/2
+    filter/2,
+    query/2
 ]).
 
 -define(NO_PRIORITY_TABLE, disabled).
@@ -170,6 +171,55 @@ filter(Pred, #mqueue{q = Q, len = Len, dropped = Droppend} = MQ) ->
             Diff = Len - Len2,
             MQ#mqueue{q = Q2, len = Len2, dropped = Droppend + Diff}
     end.
+
+-spec query(mqueue(), #{continuation => ContMsgId, limit := L}) ->
+    {[message()], #{continuation := ContMsgId, count := C}}
+when
+    ContMsgId :: none | end_of_data | binary(),
+    C :: non_neg_integer(),
+    L :: non_neg_integer().
+query(MQ, #{limit := Limit} = Pager) ->
+    ContMsgId = maps:get(continuation, Pager, none),
+    {List, NextCont} = sublist(skip_until(MQ, ContMsgId), Limit),
+    {List, #{continuation => NextCont, count => len(MQ)}}.
+
+skip_until(MQ, none = _MsgId) ->
+    MQ;
+skip_until(MQ, MsgId) ->
+    do_skip_until(MQ, MsgId).
+
+do_skip_until(MQ, MsgId) ->
+    case out(MQ) of
+        {empty, MQ} ->
+            MQ;
+        {{value, #message{id = MsgId}}, Q1} ->
+            Q1;
+        {{value, _Msg}, Q1} ->
+            do_skip_until(Q1, MsgId)
+    end.
+
+sublist(_MQ, 0) ->
+    {[], none};
+sublist(MQ, Len) ->
+    {ListAcc, HasNext} = sublist(MQ, Len, []),
+    {lists:reverse(ListAcc), next_cont(ListAcc, HasNext)}.
+
+sublist(MQ, 0, Acc) ->
+    {Acc, element(1, out(MQ)) =/= empty};
+sublist(MQ, Len, Acc) ->
+    case out(MQ) of
+        {empty, _MQ} ->
+            {Acc, false};
+        {{value, Msg}, Q1} ->
+            sublist(Q1, Len - 1, [Msg | Acc])
+    end.
+
+next_cont(_Acc, false) ->
+    end_of_data;
+next_cont([#message{id = Id} | _Acc], _HasNext) ->
+    Id;
+next_cont([], _HasNext) ->
+    end_of_data.
 
 to_list(MQ, Acc) ->
     case out(MQ) of

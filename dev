@@ -63,8 +63,23 @@ if [ -n "${DEBUG:-}" ]; then
 fi
 
 export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
-export EMQX_LOG__FILE__DEFAULT__ENABLE='false'
-export EMQX_LOG__CONSOLE__ENABLE='true'
+case "${EMQX_DEFAULT_LOG_HANDLER:-console}" in
+    console|default)
+        export EMQX_LOG__FILE__DEFAULT__ENABLE='false'
+        export EMQX_LOG__CONSOLE__ENABLE='true'
+        ;;
+    file)
+        export EMQX_LOG__FILE__DEFAULT__ENABLE='true'
+        export EMQX_LOG__CONSOLE__ENABLE='false'
+        ;;
+    both)
+        export EMQX_LOG__CONSOLE__ENABLE='true'
+        export EMQX_LOG__FILE__ENABLE='true'
+        ;;
+    *)
+        ;;
+esac
+
 SYSTEM="$(./scripts/get-distro.sh)"
 if [ -n "${EMQX_NODE_NAME:-}" ]; then
     export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
@@ -284,7 +299,8 @@ call_hocon() {
           os:putenv(\"EMQX_NODE__DB_BACKEND\", \"mnesia\"),
           os:putenv(\"EMQX_NODE__DB_ROLE\", \"core\")
         end,
-        ok = hocon_cli:main([$args]),
+        {Time, ok} = timer:tc(fun() -> ok = hocon_cli:main([$args]) end),
+        io:format(user, \"Took ~pms to generate config~n\", [Time div 1000]),
         init:stop().
     "
     erl -noshell -eval "$erl_code"
@@ -297,11 +313,18 @@ generate_app_conf() {
     local NOW_TIME
     NOW_TIME="$(date +'%Y.%m.%d.%H.%M.%S')"
 
-    ## this command populates two files: app.<time>.config and vm.<time>.args
-    ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
-    ## but does not include the cluster-override.conf and local-override.conf
-    ## meaning, certain overrides will not be mapped to app.<time>.config file
-    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -d "$EMQX_DATA_DIR"/configs generate
+    ## This command populates two files: app.<time>.config and vm.<time>.args
+    ## It takes input sources and overlays values in below order:
+    ##   - $DATA_DIR/cluster.hocon (if exists)
+    ##   - etc/emqx.conf
+    ##   - environment variables starts with EMQX_ e.g. EMQX_NODE__ROLE
+    ##
+    ## NOTE: it's a known issue that cluster.hocon may change right after the node boots up
+    ##       because it has to sync cluster.hocon from other nodes.
+    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" \
+        -c "$EMQX_DATA_DIR"/configs/cluster.hocon \
+        -c "$EMQX_ETC_DIR"/emqx.conf \
+        -d "$EMQX_DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"

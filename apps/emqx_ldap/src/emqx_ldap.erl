@@ -327,7 +327,7 @@ do_ldap_query(
 mk_log_func(LogTag) ->
     fun(_Level, Format, Args) ->
         ?SLOG(
-            info,
+            debug,
             #{
                 msg => LogTag,
                 log => io_lib:format(Format, [redact_ldap_log(Arg) || Arg <- Args])

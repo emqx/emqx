@@ -132,7 +132,8 @@ do_sys_mem_check_alarm(_Config) ->
         get_memory_usage,
         fun() -> Mem end,
         fun() ->
-            timer:sleep(500),
+            %% wait for `os_mon` started
+            timer:sleep(10_000),
             Alarms = emqx_alarm:get_alarms(activated),
             ?assert(
                 emqx_vm_mon_SUITE:is_existing(

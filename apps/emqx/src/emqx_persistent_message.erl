@@ -16,10 +16,15 @@
 
 -module(emqx_persistent_message).
 
+-behaviour(emqx_config_handler).
+
 -include("emqx.hrl").
 
 -export([init/0]).
 -export([is_persistence_enabled/0, force_ds/0]).
+
+%% Config handler
+-export([add_handler/0, pre_config_update/3]).
 
 %% Message persistence
 -export([
@@ -63,6 +68,19 @@ force_ds() ->
 storage_backend(Path) ->
     ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
     apply(Module, Function, [ConfigTree]).
+
+%%--------------------------------------------------------------------
+
+-spec add_handler() -> ok.
+add_handler() ->
+    emqx_config_handler:add_handler([session_persistence], ?MODULE).
+
+pre_config_update([session_persistence], #{<<"enable">> := New}, #{<<"enable">> := Old}) when
+    New =/= Old
+->
+    {error, "Hot update of session_persistence.enable parameter is currently not supported"};
+pre_config_update(_Root, _NewConf, _OldConf) ->
+    ok.
 
 %%--------------------------------------------------------------------
 

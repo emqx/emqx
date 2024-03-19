@@ -94,7 +94,7 @@ schema("/monitor_current/nodes/:node") ->
             description => ?DESC(current_stats_node),
             parameters => [parameter_node()],
             responses => #{
-                200 => hoconsc:mk(hoconsc:ref(sampler_current), #{}),
+                200 => hoconsc:mk(hoconsc:ref(sampler_current_node), #{}),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>)
             }
         }
@@ -125,8 +125,17 @@ fields(sampler) ->
          || SamplerName <- ?SAMPLER_LIST
         ],
     [{time_stamp, hoconsc:mk(non_neg_integer(), #{desc => <<"Timestamp">>})} | Samplers];
+fields(sampler_current_node) ->
+    fields_current(sample_names(sampler_current_node));
 fields(sampler_current) ->
-    Names = maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
+    fields_current(sample_names(sampler_current)).
+
+sample_names(sampler_current_node) ->
+    maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST ++ ?CURRENT_SAMPLE_NON_RATE;
+sample_names(sampler_current) ->
+    sample_names(sampler_current_node) -- [node_uptime].
+
+fields_current(Names) ->
     [
         {SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
      || SamplerName <- Names
@@ -167,6 +176,8 @@ current_rate(Node) ->
 %% -------------------------------------------------------------------------------------------------
 %% Internal
 
+-define(APPROXIMATE_DESC, " Can only represent an approximate state.").
+
 swagger_desc(received) ->
     swagger_desc_format("Received messages ");
 swagger_desc(received_bytes) ->
@@ -178,30 +189,18 @@ swagger_desc(sent_bytes) ->
 swagger_desc(dropped) ->
     swagger_desc_format("Dropped messages ");
 swagger_desc(subscriptions) ->
-    <<
-        "Subscriptions at the time of sampling."
-        " Can only represent the approximate state"
-    >>;
+    <<"Subscriptions at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(topics) ->
-    <<
-        "Count topics at the time of sampling."
-        " Can only represent the approximate state"
-    >>;
+    <<"Count topics at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(connections) ->
-    <<
-        "Sessions at the time of sampling."
-        " Can only represent the approximate state"
-    >>;
+    <<"Sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(live_connections) ->
-    <<
-        "Connections at the time of sampling."
-        " Can only represent the approximate state"
-    >>;
+    <<"Connections at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(cluster_sessions) ->
     <<
         "Total number of sessions in the cluster at the time of sampling. "
-        "It includes expired sessions when `broker.session_history_retain` is set to a duration greater than `0s`. "
-        "Can only represent the approximate state"
+        "It includes expired sessions when `broker.session_history_retain` is set to a duration greater than `0s`."
+        ?APPROXIMATE_DESC
     >>;
 swagger_desc(received_msg_rate) ->
     swagger_desc_format("Dropped messages ", per);
@@ -210,7 +209,15 @@ swagger_desc(sent_msg_rate) ->
     swagger_desc_format("Sent messages ", per);
 %swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
 swagger_desc(dropped_msg_rate) ->
-    swagger_desc_format("Dropped messages ", per).
+    swagger_desc_format("Dropped messages ", per);
+swagger_desc(retained_msg_count) ->
+    <<"Retained messages count at the time of sampling.", ?APPROXIMATE_DESC>>;
+swagger_desc(shared_subscriptions) ->
+    <<"Shared subscriptions count at the time of sampling.", ?APPROXIMATE_DESC>>;
+swagger_desc(node_uptime) ->
+    <<"Node up time in seconds. Only presented in endpoint: `/monitor_current/nodes/:node`.">>;
+swagger_desc(license_quota) ->
+    <<"License quota. AKA: limited max_connections for cluster">>.
 
 swagger_desc_format(Format) ->
     swagger_desc_format(Format, last).

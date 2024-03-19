@@ -220,10 +220,17 @@ on_stop(ConnectorResId, State) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected.
-on_get_status(_ConnectorResId, _State = #{kafka_client_id := ClientID}) ->
-    case brod_sup:find_client(ClientID) of
-        [_Pid] -> ?status_connected;
-        _ -> ?status_disconnected
+on_get_status(_ConnectorResId, State = #{kafka_client_id := ClientID}) ->
+    case whereis(ClientID) of
+        Pid when is_pid(Pid) ->
+            case check_client_connectivity(Pid) of
+                {Status, Reason} ->
+                    {Status, State, Reason};
+                Status ->
+                    Status
+            end;
+        _ ->
+            ?status_disconnected
     end;
 on_get_status(_ConnectorResId, _State) ->
     ?status_disconnected.
@@ -629,6 +636,39 @@ is_dry_run(ConnectorResId) ->
             false;
         _ ->
             string:equal(TestIdStart, ConnectorResId)
+    end.
+
+-spec check_client_connectivity(pid()) ->
+    ?status_connected
+    | ?status_disconnected
+    | {?status_disconnected, term()}.
+check_client_connectivity(ClientPid) ->
+    %% We use a fake group id just to probe the connection, as `get_group_coordinator'
+    %% will ensure a connection to the broker.
+    FakeGroupId = <<"____emqx_consumer_probe">>,
+    case brod_client:get_group_coordinator(ClientPid, FakeGroupId) of
+        {error, client_down} ->
+            ?status_disconnected;
+        {error, {client_down, Reason}} ->
+            %% `brod' should have already logged the client being down.
+            {?status_disconnected, maybe_clean_error(Reason)};
+        {error, Reason} ->
+            %% `brod' should have already logged the client being down.
+            {?status_disconnected, maybe_clean_error(Reason)};
+        {ok, _Metadata} ->
+            ?status_connected
+    end.
+
+%% Attempt to make the returned error a bit more friendly.
+maybe_clean_error(Reason) ->
+    case Reason of
+        [{{Host, Port}, {nxdomain, _Stacktrace}} | _] when is_integer(Port) ->
+            HostPort = iolist_to_binary([Host, ":", integer_to_binary(Port)]),
+            {HostPort, nxdomain};
+        [{error_code, Code}, {error_msg, Msg} | _] ->
+            {Code, Msg};
+        _ ->
+            Reason
     end.
 
 -spec make_client_id(connector_resource_id(), binary(), atom() | binary()) -> atom().

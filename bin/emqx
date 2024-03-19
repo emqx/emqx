@@ -529,7 +529,6 @@ else
         tmp_proto_dist=$(echo -e "$PS_LINE" | $GREP -oE '\s-ekka_proto_dist.*' | awk '{print $2}' || echo 'inet_tcp')
         SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
-        # data_dir is actually not needed, but kept anyway
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
         ## Make the format like what call_hocon multi_get prints out, but only need 4 args
         EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto_dist}\nnode.dist_net_ticktime=$tmp_ticktime\nnode.data_dir=${tmp_datadir}"
@@ -747,7 +746,11 @@ relx_start_command() {
 # Function to check configs without generating them
 check_config() {
     ## this command checks the configs without generating any files
-    call_hocon -v -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf check_schema
+    call_hocon -v \
+        -s "$SCHEMA_MOD" \
+        -c "$DATA_DIR"/configs/cluster.hocon \
+        -c "$EMQX_ETC_DIR"/emqx.conf \
+        check_schema
 }
 
 # Function to generate app.config and vm.args
@@ -763,11 +766,19 @@ generate_config() {
     local NOW_TIME
     NOW_TIME="$(date +'%Y.%m.%d.%H.%M.%S')"
 
-    ## this command populates two files: app.<time>.config and vm.<time>.args
-    ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
-    ## but does not include the cluster-override.conf and local-override.conf
-    ## meaning, certain overrides will not be mapped to app.<time>.config file
-    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -d "$DATA_DIR"/configs generate
+    ## This command populates two files: app.<time>.config and vm.<time>.args
+    ## It takes input sources and overlays values in below order:
+    ##   - $DATA_DIR/cluster.hocon (if exists)
+    ##   - etc/emqx.conf
+    ##   - environment variables starts with EMQX_ e.g. EMQX_NODE__ROLE
+    ##
+    ## NOTE: it's a known issue that cluster.hocon may change right after the node boots up
+    ##       because it has to sync cluster.hocon from other nodes.
+    call_hocon -v -t "$NOW_TIME" \
+        -s "$SCHEMA_MOD" \
+        -c "$DATA_DIR"/configs/cluster.hocon \
+        -c "$EMQX_ETC_DIR"/emqx.conf \
+        -d "$DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -986,7 +997,7 @@ if [[ "$IS_BOOT_COMMAND" == 'yes' && "$(get_boot_config 'node.db_backend')" == "
     if ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'MNESIA_OK'); then
       logwarn "DB Backend is RLOG, but an incompatible OTP version has been detected. Falling back to using Mnesia DB backend."
       export EMQX_NODE__DB_BACKEND=mnesia
-      export EMQX_NODE__DB_ROLE=core
+      export EMQX_NODE__ROLE=core
     fi
 fi
 
