@@ -373,10 +373,11 @@ process_connect(
     Channel = #channel{
         ctx = Ctx,
         conninfo = ConnInfo = #{clean_start := CleanStart},
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo,
+        will_msg = MaybeWillMsg
     }
 ) ->
-    SessFun = fun(ClientInfoT, _) -> emqx_mqttsn_session:init(ClientInfoT) end,
+    SessFun = fun(ClientInfoT, _) -> emqx_mqttsn_session:init(ClientInfoT, MaybeWillMsg) end,
     case
         emqx_gateway_ctx:open_session(
             Ctx,

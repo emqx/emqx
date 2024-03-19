@@ -32,7 +32,8 @@
 
 -type opts() :: #{
     conninfo := emqx_types:conninfo(),
-    clientinfo := emqx_types:clientinfo()
+    clientinfo := emqx_types:clientinfo(),
+    will_message => emqx_maybe:t(emqx_types:message())
 }.
 
 %%--------------------------------------------------------------------
@@ -81,11 +82,12 @@ stop(Pid) ->
 %% gen_server API
 %%--------------------------------------------------------------------
 
-init([#{conninfo := OldConnInfo, clientinfo := #{clientid := ClientId} = OldClientInfo}]) ->
+init([#{conninfo := OldConnInfo, clientinfo := #{clientid := ClientId} = OldClientInfo} = Opts]) ->
     process_flag(trap_exit, true),
     ClientInfo = clientinfo(OldClientInfo),
     ConnInfo = conninfo(OldConnInfo),
-    case open_session(ConnInfo, ClientInfo) of
+    MaybeWillMsg = maps:get(will_message, Opts, undefined),
+    case open_session(ConnInfo, ClientInfo, MaybeWillMsg) of
         {ok, Channel0} ->
             case set_expiry_timer(Channel0) of
                 {ok, Channel1} ->
@@ -221,9 +223,9 @@ set_expiry_timer(#{conninfo := ConnInfo} = Channel) ->
             {error, should_be_expired}
     end.
 
-open_session(ConnInfo, #{clientid := ClientId} = ClientInfo) ->
+open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
     Channel = channel(ConnInfo, ClientInfo),
-    case emqx_cm:open_session(_CleanSession = false, ClientInfo, ConnInfo) of
+    case emqx_cm:open_session(_CleanSession = false, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{present := false}} ->
             ?SLOG(
                 info,

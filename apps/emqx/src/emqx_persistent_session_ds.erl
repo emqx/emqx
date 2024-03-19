@@ -34,8 +34,8 @@
 
 %% Session API
 -export([
-    create/3,
-    open/3,
+    create/4,
+    open/4,
     destroy/1
 ]).
 
@@ -66,6 +66,11 @@
     terminate/2
 ]).
 
+%% Will message handling
+-export([
+    publish_will_message/2
+]).
+
 %% Managment APIs:
 -export([
     list_client_subscriptions/1
@@ -88,7 +93,7 @@
 
 -ifdef(TEST).
 -export([
-    session_open/2,
+    session_open/3,
     list_all_sessions/0
 ]).
 -endif.
@@ -155,6 +160,7 @@
 
 -type stream_state() :: #srs{}.
 
+-type message() :: emqx_types:message().
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
 -type millisecond() :: non_neg_integer().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -181,14 +187,14 @@
 
 %%
 
--spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     session().
-create(#{clientid := ClientID}, ConnInfo, Conf) ->
-    ensure_timers(session_ensure_new(ClientID, ConnInfo, Conf)).
+create(#{clientid := ClientID}, ConnInfo, MaybeWillMsg, Conf) ->
+    ensure_timers(session_ensure_new(ClientID, ConnInfo, MaybeWillMsg, Conf)).
 
--spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
+-spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
-open(#{clientid := ClientID} = _ClientInfo, ConnInfo, Conf) ->
+open(#{clientid := ClientID} = _ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     %% NOTE
     %% The fact that we need to concern about discarding all live channels here
     %% is essentially a consequence of the in-memory session design, where we
@@ -196,7 +202,7 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo, Conf) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    case session_open(ClientID, ConnInfo) of
+    case session_open(ClientID, ConnInfo, MaybeWillMsg) of
         Session0 = #{} ->
             Session = Session0#{props => Conf},
             {true, ensure_timers(Session), []};
@@ -679,9 +685,9 @@ sync(ClientId) ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(id(), emqx_types:conninfo()) ->
+-spec session_open(id(), emqx_types:conninfo(), emqx_maybe:t(message())) ->
     session() | false.
-session_open(SessionId, NewConnInfo) ->
+session_open(SessionId, NewConnInfo, MaybeWillMsg) ->
     NowMS = now_ms(),
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
@@ -699,7 +705,8 @@ session_open(SessionId, NewConnInfo) ->
                     S3 = emqx_persistent_session_ds_state:set_peername(
                         maps:get(peername, NewConnInfo), S2
                     ),
-                    S = emqx_persistent_session_ds_state:commit(S3),
+                    S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
+                    S = emqx_persistent_session_ds_state:commit(S4),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
@@ -714,9 +721,14 @@ session_open(SessionId, NewConnInfo) ->
             false
     end.
 
--spec session_ensure_new(id(), emqx_types:conninfo(), emqx_session:conf()) ->
+-spec session_ensure_new(
+    id(),
+    emqx_types:conninfo(),
+    emqx_maybe:t(message()),
+    emqx_session:conf()
+) ->
     session().
-session_ensure_new(Id, ConnInfo, Conf) ->
+session_ensure_new(Id, ConnInfo, MaybeWillMsg, Conf) ->
     ?tp(debug, persistent_session_ds_ensure_new, #{id => Id}),
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
@@ -738,7 +750,8 @@ session_ensure_new(Id, ConnInfo, Conf) ->
             ?committed(?QOS_2)
         ]
     ),
-    S = emqx_persistent_session_ds_state:commit(S4),
+    S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
+    S = emqx_persistent_session_ds_state:commit(S5),
     #{
         id => Id,
         props => Conf,
@@ -1190,6 +1203,15 @@ seqno_diff(?QOS_1, A, B) ->
     A - B - (EpochA - EpochB);
 seqno_diff(?QOS_2, A, B) ->
     A - B.
+
+%%--------------------------------------------------------------------
+%% Will message handling
+%%--------------------------------------------------------------------
+
+-spec publish_will_message(session(), message()) -> ok.
+publish_will_message(_Session, #message{} = _WillMsg) ->
+    %% TODO
+    ok.
 
 %%--------------------------------------------------------------------
 %% Tests

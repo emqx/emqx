@@ -613,7 +613,8 @@ channel(InitFields) ->
     },
     Session = emqx_session:create(
         ClientInfo,
-        #{receive_maximum => 0, expiry_interval => 0}
+        #{receive_maximum => 0, expiry_interval => 0},
+        _WillMsg = undefined
     ),
     maps:fold(
         fun(Field, Value, Channel) ->

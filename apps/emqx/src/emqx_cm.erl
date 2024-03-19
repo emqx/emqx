@@ -47,7 +47,7 @@
 ]).
 
 -export([
-    open_session/3,
+    open_session/4,
     discard_session/1,
     discard_session/2,
     takeover_session_begin/1,
@@ -109,6 +109,8 @@
     channel_info/0,
     chan_pid/0
 ]).
+
+-type message() :: emqx_types:message().
 
 -type chan_pid() :: pid().
 
@@ -266,24 +268,29 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     end.
 
 %% @doc Open a session.
--spec open_session(_CleanStart :: boolean(), emqx_types:clientinfo(), emqx_types:conninfo()) ->
+-spec open_session(
+    _CleanStart :: boolean(),
+    emqx_types:clientinfo(),
+    emqx_types:conninfo(),
+    emqx_maybe:t(message())
+) ->
     {ok, #{
         session := emqx_session:t(),
         present := boolean(),
         replay => _ReplayContext
     }}
     | {error, Reason :: term()}.
-open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
     Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
         ok = discard_session(ClientId),
         ok = emqx_session:destroy(ClientInfo, ConnInfo),
-        create_register_session(ClientInfo, ConnInfo, Self)
+        create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, Self)
     end);
-open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
     Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
-        case emqx_session:open(ClientInfo, ConnInfo) of
+        case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
             {true, Session, ReplayContext} ->
                 ok = register_channel(ClientId, Self, ConnInfo),
                 {ok, #{session => Session, present => true, replay => ReplayContext}};
@@ -293,8 +300,8 @@ open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo
         end
     end).
 
-create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, ChanPid) ->
-    Session = emqx_session:create(ClientInfo, ConnInfo),
+create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg, ChanPid) ->
+    Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
     ok = register_channel(ClientId, ChanPid, ConnInfo),
     {ok, #{session => Session, present => false}}.
 

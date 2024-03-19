@@ -21,6 +21,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -1240,6 +1241,49 @@ t_multiple_subscription_matches(Config) ->
     ?assertEqual({ok, 2}, maps:find(qos, Msg2)),
     ok = emqtt:disconnect(Client2).
 
+%% Check that we get a single will message when the client disconnects with a non
+%% successfull reason code, with `Will-Delay-Interval' = `Session-Expiry-Interval' > 0,
+%% QoS = 1.
+t_will_message1(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    WillTopic = ?config(topic, Config),
+    WillPayload = <<"will message">>,
+    ClientId = ?config(client_id, Config),
+    ok = emqx_hooks:add('client.connack', {?MODULE, on_client_connack, [self()]}, _Prio = 1000),
+
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            ok = emqx:subscribe(WillTopic, #{qos => 2}),
+            {ok, Client} = emqtt:start_link([
+                {clientid, ClientId},
+                {proto_ver, v5},
+                {properties, #{'Session-Expiry-Interval' => 1}},
+                {will_topic, WillTopic},
+                {will_payload, WillPayload},
+                {will_qos, 1},
+                {will_props, #{'Will-Delay-Interval' => 1}}
+                | Config
+            ]),
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(emqtt:ConnFun(Client), #{?snk_kind := client_connack}),
+            ok = emqtt:disconnect(Client, ?RC_UNSPECIFIED_ERROR),
+
+            ?assertReceive({deliver, WillTopic, #message{payload = WillPayload}}, 5_000),
+            %% No duplicates
+            ?assertNotReceive({deliver, WillTopic, _}, 1_000),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+t_will_message1(init, Config) ->
+    Config;
+t_will_message1('end', _Config) ->
+    ok = emqx_hooks:del('client.connack', {?MODULE, on_client_connack}),
+    ok.
+
 get_topicwise_order(Msgs) ->
     maps:groups_from_list(fun get_msgpub_topic/1, fun get_msgpub_payload/1, Msgs).
 
@@ -1267,3 +1311,7 @@ pick_respective_msgs(MsgRefs, Msgs) ->
 debug_info(ClientId) ->
     Info = emqx_persistent_session_ds:print_session(ClientId),
     ct:pal("*** State:~n~p", [Info]).
+
+on_client_connack(_ConnInfo, _ReasonCode, _Props, _TestPid) ->
+    ?tp(client_connack, #{}),
+    ok.

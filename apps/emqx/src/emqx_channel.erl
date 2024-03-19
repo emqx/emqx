@@ -584,11 +584,12 @@ process_connect(
     AckProps,
     Channel = #channel{
         conninfo = ConnInfo,
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo,
+        will_msg = MaybeWillMsg
     }
 ) ->
     #{clean_start := CleanStart} = ConnInfo,
-    case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
+    case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
@@ -1019,7 +1020,6 @@ handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = Conn
         [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)],
         AckProps
     ),
-
     return_connack(
         ?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
         ensure_keepalive(NAckProps, Channel)
@@ -1378,9 +1378,9 @@ handle_timeout(_TRef, expire_session, Channel = #channel{session = Session}) ->
 handle_timeout(
     _TRef,
     will_message = TimerName,
-    Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}
+    Channel = #channel{will_msg = WillMsg}
 ) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
+    (WillMsg =/= undefined) andalso publish_will_msg(Channel),
     {ok, clean_timer(TimerName, Channel#channel{will_msg = undefined})};
 handle_timeout(
     _TRef,
@@ -2302,19 +2302,17 @@ maybe_publish_will_msg(
 maybe_publish_will_msg(
     _Reason,
     Channel = #channel{
-        conninfo = #{proto_ver := ?MQTT_PROTO_V3, clientid := ClientId}, will_msg = WillMsg
+        conninfo = #{proto_ver := ?MQTT_PROTO_V3, clientid := ClientId}
     }
 ) ->
     %% Unconditionally publish will message for MQTT 3.1.1
     ?tp(debug, maybe_publish_willmsg_v3, #{clientid => ClientId}),
-    _ = publish_will_msg(Channel#channel.clientinfo, WillMsg),
+    _ = publish_will_msg(Channel),
     Channel#channel{will_msg = undefined};
 maybe_publish_will_msg(
     Reason,
     Channel = #channel{
-        clientinfo = ClientInfo,
-        conninfo = #{clientid := ClientId},
-        will_msg = WillMsg
+        conninfo = #{clientid := ClientId}
     }
 ) when
     Reason =:= expired orelse
@@ -2332,12 +2330,11 @@ maybe_publish_will_msg(
     %% This ensures willmsg will be published if the willmsg timer is scheduled but not fired
     %% OR fired but not yet handled
     ?tp(debug, maybe_publish_willmsg_session_ends, #{clientid => ClientId, reason => Reason}),
-    _ = publish_will_msg(ClientInfo, WillMsg),
+    _ = publish_will_msg(Channel),
     remove_willmsg(Channel);
 maybe_publish_will_msg(
     takenover,
     Channel = #channel{
-        clientinfo = ClientInfo,
         will_msg = WillMsg,
         conninfo = #{clientid := ClientId}
     }
@@ -2355,7 +2352,7 @@ maybe_publish_will_msg(
     case will_delay_interval(WillMsg) of
         0 ->
             ?tp(debug, maybe_publish_willmsg_takenover_pub, #{clientid => ClientId}),
-            _ = publish_will_msg(ClientInfo, WillMsg);
+            _ = publish_will_msg(Channel);
         I when I > 0 ->
             %% @NOTE Non-normative comment in MQTT 5.0 spec
             %% """
@@ -2370,7 +2367,6 @@ maybe_publish_will_msg(
 maybe_publish_will_msg(
     Reason,
     Channel = #channel{
-        clientinfo = ClientInfo,
         will_msg = WillMsg,
         conninfo = #{clientid := ClientId}
     }
@@ -2381,7 +2377,7 @@ maybe_publish_will_msg(
             ?tp(debug, maybe_publish_will_msg_other_publish, #{
                 clientid => ClientId, reason => Reason
             }),
-            _ = publish_will_msg(ClientInfo, WillMsg),
+            _ = publish_will_msg(Channel),
             remove_willmsg(Channel);
         I when I > 0 ->
             ?tp(debug, maybe_publish_will_msg_other_delay, #{clientid => ClientId, reason => Reason}),
@@ -2396,8 +2392,11 @@ will_delay_interval(WillMsg) ->
     ).
 
 publish_will_msg(
-    ClientInfo = #{mountpoint := MountPoint},
-    Msg = #message{topic = Topic}
+    #channel{
+        session = Session,
+        clientinfo = ClientInfo = #{mountpoint := MountPoint},
+        will_msg = Msg = #message{topic = Topic}
+    }
 ) ->
     Action = authz_action(Msg),
     PublishingDisallowed = emqx_access_control:authorize(ClientInfo, Action, Topic) =/= allow,
@@ -2417,7 +2416,7 @@ publish_will_msg(
         false ->
             NMsg = emqx_mountpoint:mount(MountPoint, Msg),
             NMsg2 = NMsg#message{timestamp = erlang:system_time(millisecond)},
-            _ = emqx_broker:publish(NMsg2),
+            ok = emqx_session:publish_will_message(Session, NMsg2),
             ok
     end.
 

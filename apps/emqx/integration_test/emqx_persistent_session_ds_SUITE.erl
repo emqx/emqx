@@ -25,6 +25,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     TCApps = emqx_cth_suite:start(
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -244,8 +245,9 @@ t_session_subscription_idempotency(Config) ->
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
             ConnInfo = #{peername => {undefined, undefined}},
+            WillMsg = undefined,
             Session = erpc:call(
-                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo]
+                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo, WillMsg]
             ),
             ?assertMatch(
                 #{SubTopicFilter := #{}},
@@ -321,8 +323,9 @@ t_session_unsubscription_idempotency(Config) ->
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
             ConnInfo = #{peername => {undefined, undefined}},
+            WillMsg = undefined,
             Session = erpc:call(
-                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo]
+                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo, WillMsg]
             ),
             ?assertEqual(
                 #{},
