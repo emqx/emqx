@@ -36,7 +36,8 @@
     max_size/1,
     is_full/1,
     is_empty/1,
-    window/1
+    window/1,
+    query/2
 ]).
 
 -export_type([inflight/0]).
@@ -138,3 +139,47 @@ size(?INFLIGHT(Tree)) ->
 -spec max_size(inflight()) -> non_neg_integer().
 max_size(?INFLIGHT(MaxSize, _Tree)) ->
     MaxSize.
+
+-spec query(inflight(), #{continuation => Cont, limit := L}) ->
+    {[{key(), term()}], #{continuation := Cont, count := C}}
+when
+    Cont :: none | end_of_data | key(),
+    L :: non_neg_integer(),
+    C :: non_neg_integer().
+query(?INFLIGHT(Tree), #{limit := Limit} = Pager) ->
+    Count = gb_trees:size(Tree),
+    ContKey = maps:get(continuation, Pager, none),
+    {List, NextCont} = sublist(iterator_from(ContKey, Tree), Limit),
+    {List, #{continuation => NextCont, count => Count}}.
+
+iterator_from(none, Tree) ->
+    gb_trees:iterator(Tree);
+iterator_from(ContKey, Tree) ->
+    It = gb_trees:iterator_from(ContKey, Tree),
+    case gb_trees:next(It) of
+        {ContKey, _Val, ItNext} -> ItNext;
+        _ -> It
+    end.
+
+sublist(_It, 0) ->
+    {[], none};
+sublist(It, Len) ->
+    {ListAcc, HasNext} = sublist(It, Len, []),
+    {lists:reverse(ListAcc), next_cont(ListAcc, HasNext)}.
+
+sublist(It, 0, Acc) ->
+    {Acc, gb_trees:next(It) =/= none};
+sublist(It, Len, Acc) ->
+    case gb_trees:next(It) of
+        none ->
+            {Acc, false};
+        {Key, Val, ItNext} ->
+            sublist(ItNext, Len - 1, [{Key, Val} | Acc])
+    end.
+
+next_cont(_Acc, false) ->
+    end_of_data;
+next_cont([{LastKey, _LastVal} | _Acc], _HasNext) ->
+    LastKey;
+next_cont([], _HasNext) ->
+    end_of_data.

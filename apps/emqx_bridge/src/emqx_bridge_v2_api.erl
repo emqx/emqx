@@ -126,8 +126,8 @@ paths() ->
         %% %% try to match the latter first, trying to interpret `metrics' as an operation...
         "/sources/:id/metrics",
         "/sources/:id/metrics/reset",
-        "/sources_probe"
-        %% "/source_types"
+        "/sources_probe",
+        "/source_types"
     ].
 
 error_schema(Code, Message) ->
@@ -639,16 +639,16 @@ schema("/source_types") ->
         'operationId' => '/source_types',
         get => #{
             tags => [<<"sources">>],
-            desc => ?DESC("desc_api10"),
+            desc => ?DESC("desc_api11"),
             summary => <<"List available source types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    array(emqx_bridge_v2_schema:action_types_sc()),
+                    array(emqx_bridge_v2_schema:source_types_sc()),
                     #{
                         <<"types">> =>
                             #{
                                 summary => <<"Source types">>,
-                                value => emqx_bridge_v2_schema:action_types()
+                                value => emqx_bridge_v2_schema:source_types()
                             }
                     }
                 )
@@ -990,7 +990,7 @@ call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, ConfRootKey, BridgeType, 
 is_enabled_bridge(ConfRootKey, BridgeType, BridgeName) ->
     try emqx_bridge_v2:lookup(ConfRootKey, BridgeType, binary_to_existing_atom(BridgeName)) of
         {ok, #{raw_config := ConfMap}} ->
-            maps:get(<<"enable">>, ConfMap, false);
+            maps:get(<<"enable">>, ConfMap, true);
         {error, not_found} ->
             throw(not_found)
     catch

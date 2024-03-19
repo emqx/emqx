@@ -195,7 +195,12 @@ drop_db(DB) ->
 -spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
-    emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts).
+    try
+        emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts)
+    catch
+        error:{Reason, _Call} when Reason == timeout; Reason == noproc ->
+            {error, recoverable, Reason}
+    end.
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{emqx_ds:stream_rank(), stream()}].
@@ -204,7 +209,14 @@ get_streams(DB, TopicFilter, StartTime) ->
     lists:flatmap(
         fun(Shard) ->
             Node = node_of_shard(DB, Shard),
-            Streams = emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, StartTime),
+            Streams =
+                try
+                    emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, StartTime)
+                catch
+                    error:{erpc, _} ->
+                        %% TODO: log?
+                        []
+                end,
             lists:map(
                 fun({RankY, StorageLayerStream}) ->
                     RankX = Shard,
@@ -240,11 +252,14 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?stream_v2(Shard, StorageStream) = Stream,
     Node = node_of_shard(DB, Shard),
-    case emqx_ds_proto_v4:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
+    try emqx_ds_proto_v4:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
-        Err = {error, _} ->
-            Err
+        Error = {error, _, _} ->
+            Error
+    catch
+        error:RPCError = {erpc, _} ->
+            {error, recoverable, RPCError}
     end.
 
 -spec make_delete_iterator(emqx_ds:db(), delete_stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -263,28 +278,19 @@ make_delete_iterator(DB, Stream, TopicFilter, StartTime) ->
             Err
     end.
 
--spec update_iterator(
-    emqx_ds:db(),
-    iterator(),
-    emqx_ds:message_key()
-) ->
+-spec update_iterator(emqx_ds:db(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(DB, OldIter, DSKey) ->
     #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
     Node = node_of_shard(DB, Shard),
-    case
-        emqx_ds_proto_v4:update_iterator(
-            Node,
-            DB,
-            Shard,
-            StorageIter,
-            DSKey
-        )
-    of
+    try emqx_ds_proto_v4:update_iterator(Node, DB, Shard, StorageIter, DSKey) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
-        Err = {error, _} ->
-            Err
+        Error = {error, _, _} ->
+            Error
+    catch
+        error:RPCError = {erpc, _} ->
+            {error, recoverable, RPCError}
     end.
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
@@ -303,8 +309,12 @@ next(DB, Iter0, BatchSize) ->
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, Batch};
-        Other ->
-            Other
+        Ok = {ok, _} ->
+            Ok;
+        Error = {error, _, _} ->
+            Error;
+        RPCError = {badrpc, _} ->
+            {error, recoverable, RPCError}
     end.
 
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
@@ -408,7 +418,7 @@ do_get_streams_v2(DB, Shard, TopicFilter, StartTime) ->
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+    emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
 do_make_iterator_v1(_DB, _Shard, _Stream, _TopicFilter, _StartTime) ->
     error(obsolete_api).
 
@@ -419,7 +429,7 @@ do_make_iterator_v1(_DB, _Shard, _Stream, _TopicFilter, _StartTime) ->
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+    emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
 do_make_iterator_v2(DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator({DB, Shard}, Stream, TopicFilter, StartTime).
 

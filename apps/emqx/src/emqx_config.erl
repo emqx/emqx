@@ -715,6 +715,7 @@ add_handlers() ->
     ok = emqx_config_logger:add_handler(),
     ok = emqx_config_zones:add_handler(),
     emqx_sys_mon:add_handler(),
+    emqx_persistent_message:add_handler(),
     ok.
 
 remove_handlers() ->

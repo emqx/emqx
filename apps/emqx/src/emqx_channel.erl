@@ -1221,6 +1221,10 @@ handle_call(
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
     reply(ok, reset_timer(keepalive, NChannel));
+handle_call({Type, _Meta} = MsgsReq, Channel = #channel{session = Session}) when
+    Type =:= mqueue_msgs; Type =:= inflight_msgs
+->
+    {reply, emqx_session:info(MsgsReq, Session), Channel};
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).

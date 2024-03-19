@@ -17,6 +17,7 @@
 -module(emqx_mgmt_api).
 
 -include_lib("stdlib/include/qlc.hrl").
+-include("emqx_mgmt.hrl").
 
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
 
@@ -37,6 +38,8 @@
 
 -export([
     parse_pager_params/1,
+    parse_cont_pager_params/2,
+    encode_cont_pager_params/2,
     parse_qstring/2,
     init_query_result/0,
     init_query_state/5,
@@ -45,6 +48,7 @@
     finalize_query/2,
     mark_complete/2,
     format_query_result/3,
+    format_query_result/4,
     maybe_collect_total_from_tail_nodes/2
 ]).
 
@@ -133,6 +137,33 @@ page(Params) ->
 
 limit(Params) when is_map(Params) ->
     maps:get(<<"limit">>, Params, emqx_mgmt:default_row_limit()).
+
+continuation(Params, Encoding) ->
+    try
+        decode_continuation(maps:get(<<"after">>, Params, none), Encoding)
+    catch
+        _:_ ->
+            error
+    end.
+
+decode_continuation(none, _Encoding) ->
+    none;
+decode_continuation(end_of_data, _Encoding) ->
+    %% Clients should not send "after=end_of_data" back to the server
+    error;
+decode_continuation(Cont, ?URL_PARAM_INTEGER) ->
+    binary_to_integer(Cont);
+decode_continuation(Cont, ?URL_PARAM_BINARY) ->
+    emqx_utils:hexstr_to_bin(Cont).
+
+encode_continuation(none, _Encoding) ->
+    none;
+encode_continuation(end_of_data, _Encoding) ->
+    end_of_data;
+encode_continuation(Cont, ?URL_PARAM_INTEGER) ->
+    integer_to_binary(Cont);
+encode_continuation(Cont, ?URL_PARAM_BINARY) ->
+    emqx_utils:bin_to_hexstr(Cont, lower).
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -589,10 +620,13 @@ is_fuzzy_key(<<"match_", _/binary>>) ->
 is_fuzzy_key(_) ->
     false.
 
-format_query_result(_FmtFun, _MetaIn, Error = {error, _Node, _Reason}) ->
+format_query_result(FmtFun, MetaIn, ResultAcc) ->
+    format_query_result(FmtFun, MetaIn, ResultAcc, #{}).
+
+format_query_result(_FmtFun, _MetaIn, Error = {error, _Node, _Reason}, _Opts) ->
     Error;
 format_query_result(
-    FmtFun, MetaIn, ResultAcc = #{hasnext := HasNext, rows := RowsAcc}
+    FmtFun, MetaIn, ResultAcc = #{hasnext := HasNext, rows := RowsAcc}, Opts
 ) ->
     Meta =
         case ResultAcc of
@@ -608,7 +642,10 @@ format_query_result(
         data => lists:flatten(
             lists:foldl(
                 fun({Node, Rows}, Acc) ->
-                    [lists:map(fun(Row) -> exec_format_fun(FmtFun, Node, Row) end, Rows) | Acc]
+                    [
+                        lists:map(fun(Row) -> exec_format_fun(FmtFun, Node, Row, Opts) end, Rows)
+                        | Acc
+                    ]
                 end,
                 [],
                 RowsAcc
@@ -616,10 +653,11 @@ format_query_result(
         )
     }.
 
-exec_format_fun(FmtFun, Node, Row) ->
+exec_format_fun(FmtFun, Node, Row, Opts) ->
     case erlang:fun_info(FmtFun, arity) of
         {arity, 1} -> FmtFun(Row);
-        {arity, 2} -> FmtFun(Node, Row)
+        {arity, 2} -> FmtFun(Node, Row);
+        {arity, 3} -> FmtFun(Node, Row, Opts)
     end.
 
 parse_pager_params(Params) ->
@@ -631,6 +669,25 @@ parse_pager_params(Params) ->
         false ->
             false
     end.
+
+-spec parse_cont_pager_params(map(), ?URL_PARAM_INTEGER | ?URL_PARAM_BINARY) ->
+    #{limit := pos_integer(), continuation := none | end_of_table | binary()} | false.
+parse_cont_pager_params(Params, Encoding) ->
+    Cont = continuation(Params, Encoding),
+    Limit = b2i(limit(Params)),
+    case Limit > 0 andalso Cont =/= error of
+        true ->
+            #{continuation => Cont, limit => Limit};
+        false ->
+            false
+    end.
+
+-spec encode_cont_pager_params(map(), ?URL_PARAM_INTEGER | ?URL_PARAM_BINARY) -> map().
+encode_cont_pager_params(#{continuation := Cont} = Meta, ContEncoding) ->
+    Meta1 = maps:remove(continuation, Meta),
+    Meta1#{last => encode_continuation(Cont, ContEncoding)};
+encode_cont_pager_params(Meta, _ContEncoding) ->
+    Meta.
 
 %%--------------------------------------------------------------------
 %% Types

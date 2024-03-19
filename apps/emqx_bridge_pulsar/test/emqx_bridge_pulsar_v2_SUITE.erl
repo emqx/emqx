@@ -212,20 +212,25 @@ t_action(Config) ->
     ?assertEqual(ReqPayload, emqx_utils_json:decode(RespPayload)),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
-    #{counters := Counters} = emqx_resource:get_metrics(InstanceId),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            #{
+                counters := #{
+                    dropped := 0,
+                    success := 1,
+                    matched := 1,
+                    failed := 0,
+                    received := 0
+                }
+            },
+            emqx_resource:get_metrics(InstanceId)
+        )
+    ),
     ok = delete_action(Name),
     ActionsAfterDelete = emqx_bridge_v2:list(actions),
     ?assertNot(lists:any(Any, ActionsAfterDelete), ActionsAfterDelete),
-    ?assertMatch(
-        #{
-            dropped := 0,
-            success := 1,
-            matched := 1,
-            failed := 0,
-            received := 0
-        },
-        Counters
-    ),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -292,7 +297,8 @@ pulsar_action(Config) ->
                         <<"pulsar_topic">> => ?config(pulsar_topic, Config)
                     },
                     <<"resource_opts">> => #{
-                        <<"health_check_interval">> => <<"1s">>
+                        <<"health_check_interval">> => <<"1s">>,
+                        <<"metrics_flush_interval">> => <<"300ms">>
                     }
                 }
             }

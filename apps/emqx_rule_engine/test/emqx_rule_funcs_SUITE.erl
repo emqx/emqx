@@ -1222,6 +1222,50 @@ timezone_to_offset_seconds_helper(FunctionName) ->
     apply_func(FunctionName, [local]),
     ok.
 
+t_date_to_unix_ts(_) ->
+    TestTab = [
+        {{"2024-03-01T10:30:38+08:00", second}, [
+            <<"second">>, <<"+08:00">>, <<"%Y-%m-%d %H-%M-%S">>, <<"2024-03-01 10:30:38">>
+        ]},
+        {{"2024-03-01T10:30:38.333+08:00", second}, [
+            <<"second">>, <<"+08:00">>, <<"%Y-%m-%d %H-%M-%S.%3N">>, <<"2024-03-01 10:30:38.333">>
+        ]},
+        {{"2024-03-01T10:30:38.333+08:00", millisecond}, [
+            <<"millisecond">>,
+            <<"+08:00">>,
+            <<"%Y-%m-%d %H-%M-%S.%3N">>,
+            <<"2024-03-01 10:30:38.333">>
+        ]},
+        {{"2024-03-01T10:30:38.333+08:00", microsecond}, [
+            <<"microsecond">>,
+            <<"+08:00">>,
+            <<"%Y-%m-%d %H-%M-%S.%3N">>,
+            <<"2024-03-01 10:30:38.333">>
+        ]},
+        {{"2024-03-01T10:30:38.333+08:00", nanosecond}, [
+            <<"nanosecond">>,
+            <<"+08:00">>,
+            <<"%Y-%m-%d %H-%M-%S.%3N">>,
+            <<"2024-03-01 10:30:38.333">>
+        ]},
+        {{"2024-03-01T10:30:38.333444+08:00", microsecond}, [
+            <<"microsecond">>,
+            <<"+08:00">>,
+            <<"%Y-%m-%d %H-%M-%S.%6N">>,
+            <<"2024-03-01 10:30:38.333444">>
+        ]}
+    ],
+    lists:foreach(
+        fun({{DateTime3339, Unit}, DateToTsArgs}) ->
+            ?assertEqual(
+                calendar:rfc3339_to_system_time(DateTime3339, [{unit, Unit}]),
+                apply_func(date_to_unix_ts, DateToTsArgs),
+                "Failed on test: " ++ DateTime3339 ++ "/" ++ atom_to_list(Unit)
+            )
+        end,
+        TestTab
+    ).
+
 t_parse_date_errors(_) ->
     ?assertError(
         bad_formatter_or_date,
@@ -1232,6 +1276,37 @@ t_parse_date_errors(_) ->
     ?assertError(
         bad_formatter_or_date,
         emqx_rule_funcs:date_to_unix_ts(second, <<"%y-%m-%d %H:%M:%S">>, <<"2022-05-26 10:40:12">>)
+    ),
+    %% invalid formats
+    ?assertThrow(
+        {missing_date_part, month},
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"%Y-%d %H:%M:%S">>, <<"2022-32 10:40:12">>
+        )
+    ),
+    ?assertThrow(
+        {missing_date_part, year},
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"%H:%M:%S">>, <<"10:40:12">>
+        )
+    ),
+    ?assertError(
+        _,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"%Y-%m-%d %H:%M:%S">>, <<"2022-05-32 10:40:12">>
+        )
+    ),
+    ?assertError(
+        _,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"%Y-%m-%d %H:%M:%S">>, <<"2023-02-29 10:40:12">>
+        )
+    ),
+    ?assertError(
+        _,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-02-30 10:40:12">>
+        )
     ),
 
     %% Compatibility test
@@ -1252,25 +1327,42 @@ t_parse_date_errors(_) ->
         emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2022-05-26 10-40-12">>)
     ),
 
-    %% UTC+0
-    UnixTsLeap0 = 1582986700,
+    %% leap year checks
     ?assertEqual(
-        UnixTsLeap0,
-        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2020-02-29 14:31:40">>)
+        %% UTC+0
+        1709217100,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-02-29 14:31:40">>)
     ),
-
-    %% UTC+0
-    UnixTsLeap1 = 1709297071,
     ?assertEqual(
-        UnixTsLeap1,
+        %% UTC+0
+        1709297071,
         emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-03-01 12:44:31">>)
     ),
-
-    %% UTC+0
-    UnixTsLeap2 = 1709535387,
     ?assertEqual(
-        UnixTsLeap2,
-        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-03-04 06:56:27">>)
+        %% UTC+0
+        4107588271,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2100-03-01 12:44:31">>)
+    ),
+    ?assertEqual(
+        %% UTC+8
+        1709188300,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"+08:00">>, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-02-29 14:31:40">>
+        )
+    ),
+    ?assertEqual(
+        %% UTC+8
+        1709268271,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"+08:00">>, <<"%Y-%m-%d %H:%M:%S">>, <<"2024-03-01 12:44:31">>
+        )
+    ),
+    ?assertEqual(
+        %% UTC+8
+        4107559471,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"+08:00">>, <<"%Y-%m-%d %H:%M:%S">>, <<"2100-03-01 12:44:31">>
+        )
     ),
 
     %% None zero zone shift with millisecond level precision

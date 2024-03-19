@@ -72,5 +72,7 @@ ct_run*/
 apps/emqx_conf/etc/emqx.conf.all.rendered*
 rebar-git-cache.tar
 # build docker image locally
+.dockerignore
 .docker_image_tag
+.emqx_docker_image_tags
 .git/

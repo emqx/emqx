@@ -7,8 +7,8 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-debian11
-export EMQX_DEFAULT_RUNNER = public.ecr.aws/debian/debian:11-slim
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.3-2:1.15.7-26.2.1-2-debian12
+export EMQX_DEFAULT_RUNNER = public.ecr.aws/debian/debian:12-slim
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
@@ -21,7 +21,7 @@ endif
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.7.0
-export EMQX_EE_DASHBOARD_VERSION ?= e1.6.0-beta.2
+export EMQX_EE_DASHBOARD_VERSION ?= e1.6.0-beta.5
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-enterprise

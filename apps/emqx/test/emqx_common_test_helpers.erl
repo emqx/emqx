@@ -61,6 +61,7 @@
     read_schema_configs/2,
     render_config_file/2,
     wait_for/4,
+    wait_publishes/2,
     wait_mqtt_payload/1,
     select_free_port/1
 ]).
@@ -425,6 +426,16 @@ ensure_mnesia_stopped() ->
 wait_for(Fn, Ln, F, Timeout) ->
     {Pid, Mref} = erlang:spawn_monitor(fun() -> wait_loop(F, catch_call(F)) end),
     wait_for_down(Fn, Ln, Timeout, Pid, Mref, false).
+
+wait_publishes(0, _Timeout) ->
+    [];
+wait_publishes(Count, Timeout) ->
+    receive
+        {publish, Msg} ->
+            [Msg | wait_publishes(Count - 1, Timeout)]
+    after Timeout ->
+        []
+    end.
 
 flush() ->
     flush([]).

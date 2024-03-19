@@ -60,6 +60,12 @@ desc_api10.desc:
 desc_api10.label:
 """List action types"""
 
+desc_api11.desc:
+"""Lists the available source types."""
+
+desc_api11.label:
+"""List source types"""
+
 desc_bridge_metrics.desc:
 """Get bridge metrics by id."""
 

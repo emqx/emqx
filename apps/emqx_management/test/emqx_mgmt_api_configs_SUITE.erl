@@ -287,12 +287,12 @@ t_configs_node({'init', Config}) ->
         (other_node, _) -> <<"log=2">>;
         (bad_node, _) -> {badrpc, bad}
     end,
-    meck:expect(emqx_management_proto_v4, get_full_config, F),
+    meck:expect(emqx_management_proto_v5, get_full_config, F),
     meck:expect(emqx_conf_proto_v3, get_hocon_config, F2),
     meck:expect(hocon_pp, do, fun(Conf, _) -> Conf end),
     Config;
 t_configs_node({'end', _}) ->
-    meck:unload([emqx, emqx_management_proto_v4, emqx_conf_proto_v3, hocon_pp]);
+    meck:unload([emqx, emqx_management_proto_v5, emqx_conf_proto_v3, hocon_pp]);
 t_configs_node(_) ->
     Node = atom_to_list(node()),
 

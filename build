@@ -183,10 +183,10 @@ just_compile() {
 just_compile_elixir() {
     ./scripts/pre-compile.sh "$PROFILE"
     rm -f rebar.lock
-    # shellcheck disable=SC1010
-    env MIX_ENV="$PROFILE" mix do local.hex --if-missing --force, \
-        local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
-        deps.get
+    env MIX_ENV="$PROFILE" mix local.rebar --if-missing --force
+    env MIX_ENV="$PROFILE" mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
+    env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
+    env MIX_ENV="$PROFILE" mix deps.get
     env MIX_ENV="$PROFILE" mix compile
 }
 
@@ -201,13 +201,11 @@ make_rel() {
 make_elixir_rel() {
     ./scripts/pre-compile.sh "$PROFILE"
     export_elixir_release_vars "$PROFILE"
-    # for some reason, this has to be run outside "do"...
-    mix local.rebar --if-missing --force
-    # shellcheck disable=SC1010
-    mix do local.hex --if-missing --force, \
-        local.rebar rebar3 "${PWD}/rebar3" --if-missing --force, \
-        deps.get
-    mix release --overwrite
+    env MIX_ENV="$PROFILE" mix local.rebar --if-missing --force
+    env MIX_ENV="$PROFILE" mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
+    env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
+    env MIX_ENV="$PROFILE" mix deps.get
+    env MIX_ENV="$PROFILE" mix release --overwrite
     assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
@@ -395,10 +393,10 @@ function is_ecr_and_enterprise() {
   fi
 }
 
-## Build the default docker image based on debian 11.
+## Build the default docker image based on debian 12.
 make_docker() {
     local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.3-2}"
-    local EMQX_BUILDER_PLATFORM="${EMQX_BUILDER_PLATFORM:-debian11}"
+    local EMQX_BUILDER_PLATFORM="${EMQX_BUILDER_PLATFORM:-debian12}"
     local EMQX_BUILDER_OTP="${EMQX_BUILDER_OTP:-25.3.2-2}"
     local EMQX_BUILDER_ELIXIR="${EMQX_BUILDER_ELIXIR:-1.15.7}"
     local EMQX_BUILDER=${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VERSION}:${EMQX_BUILDER_ELIXIR}-${EMQX_BUILDER_OTP}-${EMQX_BUILDER_PLATFORM}}
@@ -431,7 +429,7 @@ make_docker() {
     local PRODUCT_URL='https://www.emqx.io'
     local PRODUCT_DESCRIPTION='Official docker image for EMQX, the most scalable open-source MQTT broker for IoT, IIoT, and connected vehicles.'
     local DOCUMENTATION_URL='https://www.emqx.io/docs/en/latest/'
-    ## extra_deps is a comma separated list of debian 11 package names
+    ## extra_deps is a comma separated list of debian 12 package names
     local EXTRA_DEPS=''
     if [[ "$PROFILE" = *enterprise* ]]; then
         EXTRA_DEPS='libsasl2-2,libsasl2-modules-gssapi-mit'

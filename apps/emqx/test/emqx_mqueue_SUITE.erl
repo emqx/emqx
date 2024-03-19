@@ -282,6 +282,74 @@ t_dropped(_) ->
     {Msg, Q2} = ?Q:in(Msg, Q1),
     ?assertEqual(1, ?Q:dropped(Q2)).
 
+t_query(_) ->
+    EmptyQ = ?Q:init(#{max_len => 500, store_qos0 => true}),
+    ?assertMatch({[], #{continuation := end_of_data}}, ?Q:query(EmptyQ, #{limit => 50})),
+    ?assertMatch(
+        {[], #{continuation := end_of_data}},
+        ?Q:query(EmptyQ, #{continuation => <<"empty">>, limit => 50})
+    ),
+    ?assertMatch(
+        {[], #{continuation := end_of_data}}, ?Q:query(EmptyQ, #{continuation => none, limit => 50})
+    ),
+
+    Q = lists:foldl(
+        fun(Seq, QAcc) ->
+            Msg = emqx_message:make(<<"t">>, integer_to_binary(Seq)),
+            {_, QAcc1} = ?Q:in(Msg, QAcc),
+            QAcc1
+        end,
+        EmptyQ,
+        lists:seq(1, 114)
+    ),
+
+    LastCont = lists:foldl(
+        fun(PageSeq, Cont) ->
+            Limit = 10,
+            PagerParams = #{continuation => Cont, limit => Limit},
+            {Page, #{continuation := NextCont} = Meta} = ?Q:query(Q, PagerParams),
+            ?assertEqual(10, length(Page)),
+            ExpFirstPayload = integer_to_binary(PageSeq * Limit - Limit + 1),
+            ExpLastPayload = integer_to_binary(PageSeq * Limit),
+            ?assertEqual(
+                ExpFirstPayload,
+                emqx_message:payload(lists:nth(1, Page)),
+                #{page_seq => PageSeq, page => Page, meta => Meta}
+            ),
+            ?assertEqual(ExpLastPayload, emqx_message:payload(lists:nth(10, Page))),
+            ?assertMatch(#{count := 114, continuation := <<_/binary>>}, Meta),
+            NextCont
+        end,
+        none,
+        lists:seq(1, 11)
+    ),
+    {LastPartialPage, LastMeta} = ?Q:query(Q, #{continuation => LastCont, limit => 10}),
+    ?assertEqual(4, length(LastPartialPage)),
+    ?assertEqual(<<"111">>, emqx_message:payload(lists:nth(1, LastPartialPage))),
+    ?assertEqual(<<"114">>, emqx_message:payload(lists:nth(4, LastPartialPage))),
+    ?assertMatch(#{continuation := end_of_data, count := 114}, LastMeta),
+
+    ?assertMatch(
+        {[], #{continuation := end_of_data}},
+        ?Q:query(Q, #{continuation => <<"not-existing-cont-id">>, limit => 10})
+    ),
+
+    {LargePage, LargeMeta} = ?Q:query(Q, #{limit => 1000}),
+    ?assertEqual(114, length(LargePage)),
+    ?assertEqual(<<"1">>, emqx_message:payload(hd(LargePage))),
+    ?assertEqual(<<"114">>, emqx_message:payload(lists:last(LargePage))),
+    ?assertMatch(#{continuation := end_of_data}, LargeMeta),
+
+    {FullPage, FullMeta} = ?Q:query(Q, #{limit => 114}),
+    ?assertEqual(114, length(FullPage)),
+    ?assertEqual(<<"1">>, emqx_message:payload(hd(FullPage))),
+    ?assertEqual(<<"114">>, emqx_message:payload(lists:last(FullPage))),
+    ?assertMatch(#{continuation := end_of_data}, FullMeta),
+
+    {EmptyPage, EmptyMeta} = ?Q:query(Q, #{limit => 0}),
+    ?assertEqual([], EmptyPage),
+    ?assertMatch(#{continuation := none, count := 114}, EmptyMeta).
+
 conservation_prop() ->
     ?FORALL(
         {Priorities, Messages},

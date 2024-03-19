@@ -9,7 +9,7 @@
 %% API
 -export([
     start_link/1,
-    is_connected/1,
+    is_connected/2,
     query/4
 ]).
 
@@ -27,20 +27,17 @@
 -export([execute/2]).
 -endif.
 
-%% The default timeout for DynamoDB REST API calls is 10 seconds,
-%% but this value for `gen_server:call` is 5s,
-%% so we should pass the timeout to `gen_server:call`
--define(HEALTH_CHECK_TIMEOUT, 10000).
-
 %%%===================================================================
 %%% API
 %%%===================================================================
-is_connected(Pid) ->
+is_connected(Pid, Timeout) ->
     try
-        gen_server:call(Pid, is_connected, ?HEALTH_CHECK_TIMEOUT)
+        gen_server:call(Pid, is_connected, Timeout)
     catch
-        _:_ ->
-            false
+        _:{timeout, _} ->
+            {false, <<"timeout_while_checking_connection_dynamo_client">>};
+        _:Error ->
+            {false, Error}
     end.
 
 query(Pid, Table, Query, Templates) ->
@@ -76,8 +73,8 @@ handle_call(is_connected, _From, State) ->
         case erlcloud_ddb2:list_tables([{limit, 1}]) of
             {ok, _} ->
                 true;
-            _ ->
-                false
+            Error ->
+                {false, Error}
         end,
     {reply, IsConnected, State};
 handle_call({query, Table, Query, Templates}, _From, State) ->

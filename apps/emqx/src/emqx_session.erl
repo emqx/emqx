@@ -527,7 +527,7 @@ info(Session) ->
 
 -spec info
     ([atom()], t()) -> [{atom(), _Value}];
-    (atom(), t()) -> _Value.
+    (atom() | {atom(), _Meta}, t()) -> _Value.
 info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(impl, Session) ->
