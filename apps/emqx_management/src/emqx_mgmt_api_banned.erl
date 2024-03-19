@@ -169,7 +169,8 @@ banned(get, #{query_string := Params}) ->
 banned(post, #{body := Body}) ->
     case emqx_banned:parse(Body) of
         {error, Reason} ->
-            {400, 'BAD_REQUEST', list_to_binary(Reason)};
+            ErrorReason = io_lib:format("~p", [Reason]),
+            {400, 'BAD_REQUEST', list_to_binary(ErrorReason)};
         Ban ->
             case emqx_banned:create(Ban) of
                 {ok, Banned} ->
