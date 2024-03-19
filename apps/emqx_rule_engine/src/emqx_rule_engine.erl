@@ -51,12 +51,6 @@
     get_rules_ordered_by_ts/0
 ]).
 
-%% exported for cluster_call
--export([
-    do_delete_rule/1,
-    do_insert_rule/1
-]).
-
 -export([
     load_hooks_for_rule/1,
     unload_hooks_for_rule/1,

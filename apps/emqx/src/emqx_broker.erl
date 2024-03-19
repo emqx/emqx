@@ -235,6 +235,12 @@ publish(Msg) when is_record(Msg, message) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
+        #message{headers = #{should_disconnect := true}, topic = Topic} ->
+            ?TRACE("MQTT", "msg_publish_not_allowed_disconnect", #{
+                message => emqx_message:to_log_map(Msg),
+                topic => Topic
+            }),
+            disconnect;
         #message{headers = #{allow_publish := false}, topic = Topic} ->
             ?TRACE("MQTT", "msg_publish_not_allowed", #{
                 message => emqx_message:to_log_map(Msg),

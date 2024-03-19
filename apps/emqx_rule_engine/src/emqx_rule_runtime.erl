@@ -26,6 +26,9 @@
     inc_action_metrics/2
 ]).
 
+%% Internal exports used by message validation
+-export([evaluate_select/3, clear_rule_payload/0]).
+
 -import(
     emqx_rule_maps,
     [
@@ -129,27 +132,16 @@ do_apply_rule(
     Columns,
     Envs
 ) ->
-    {Selected, Collection} = ?RAISE(
-        select_and_collect(Fields, Columns),
-        {select_and_collect_error, {EXCLASS, EXCPTION, ST}}
-    ),
-    ColumnsAndSelected = maps:merge(Columns, Selected),
-    case
-        ?RAISE(
-            match_conditions(Conditions, ColumnsAndSelected),
-            {match_conditions_error, {EXCLASS, EXCPTION, ST}}
-        )
-    of
-        true ->
-            Collection2 = filter_collection(ColumnsAndSelected, InCase, DoEach, Collection),
-            case Collection2 of
+    case evaluate_foreach(Fields, Columns, Conditions, InCase, DoEach) of
+        {ok, ColumnsAndSelected, FinalCollection} ->
+            case FinalCollection of
                 [] ->
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result');
                 _ ->
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
             end,
             NewEnvs = maps:merge(ColumnsAndSelected, Envs),
-            {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- Collection2]};
+            {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- FinalCollection]};
         false ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
             {error, nomatch}
@@ -165,6 +157,16 @@ do_apply_rule(
     Columns,
     Envs
 ) ->
+    case evaluate_select(Fields, Columns, Conditions) of
+        {ok, Selected} ->
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed'),
+            {ok, handle_action_list(RuleId, Actions, Selected, maps:merge(Columns, Envs))};
+        false ->
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
+            {error, nomatch}
+    end.
+
+evaluate_select(Fields, Columns, Conditions) ->
     Selected = ?RAISE(
         select_and_transform(Fields, Columns),
         {select_and_transform_error, {EXCLASS, EXCPTION, ST}}
@@ -176,11 +178,28 @@ do_apply_rule(
         )
     of
         true ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed'),
-            {ok, handle_action_list(RuleId, Actions, Selected, maps:merge(Columns, Envs))};
+            {ok, Selected};
         false ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
-            {error, nomatch}
+            false
+    end.
+
+evaluate_foreach(Fields, Columns, Conditions, InCase, DoEach) ->
+    {Selected, Collection} = ?RAISE(
+        select_and_collect(Fields, Columns),
+        {select_and_collect_error, {EXCLASS, EXCPTION, ST}}
+    ),
+    ColumnsAndSelected = maps:merge(Columns, Selected),
+    case
+        ?RAISE(
+            match_conditions(Conditions, ColumnsAndSelected),
+            {match_conditions_error, {EXCLASS, EXCPTION, ST}}
+        )
+    of
+        true ->
+            FinalCollection = filter_collection(ColumnsAndSelected, InCase, DoEach, Collection),
+            {ok, ColumnsAndSelected, FinalCollection};
+        false ->
+            false
     end.
 
 clear_rule_payload() ->
@@ -281,6 +300,10 @@ match_conditions({'fun', {_, Name}, Args}, Data) ->
     apply_func(Name, [eval(Arg, Data) || Arg <- Args], Data);
 match_conditions({Op, L, R}, Data) when ?is_comp(Op) ->
     compare(Op, eval(L, Data), eval(R, Data));
+match_conditions({const, true}, _Data) ->
+    true;
+match_conditions({const, false}, _Data) ->
+    false;
 match_conditions({}, _Data) ->
     true.
 

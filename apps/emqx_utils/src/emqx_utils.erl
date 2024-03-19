@@ -66,7 +66,8 @@
     tcp_keepalive_opts/4,
     format/1,
     call_first_defined/1,
-    ntoa/1
+    ntoa/1,
+    foldl_while/3
 ]).
 
 -export([
@@ -174,6 +175,17 @@ pipeline([Fun | More], Input, State) ->
         {ok, Output, NState} -> pipeline(More, Output, NState);
         {error, Reason} -> {error, Reason, State};
         {error, Reason, NState} -> {error, Reason, NState}
+    end.
+
+-spec foldl_while(fun((X, Acc) -> {cont | halt, Acc}), Acc, [X]) -> Acc.
+foldl_while(_Fun, Acc, []) ->
+    Acc;
+foldl_while(Fun, Acc, [X | Xs]) ->
+    case Fun(X, Acc) of
+        {cont, NewAcc} ->
+            foldl_while(Fun, NewAcc, Xs);
+        {halt, NewAcc} ->
+            NewAcc
     end.
 
 -compile({inline, [apply_fun/3]}).

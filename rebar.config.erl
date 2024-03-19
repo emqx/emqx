@@ -115,6 +115,7 @@ is_community_umbrella_app("apps/emqx_gateway_gbt32960") -> false;
 is_community_umbrella_app("apps/emqx_gateway_ocpp") -> false;
 is_community_umbrella_app("apps/emqx_gateway_jt808") -> false;
 is_community_umbrella_app("apps/emqx_bridge_syskeeper") -> false;
+is_community_umbrella_app("apps/emqx_message_validation") -> false;
 is_community_umbrella_app(_) -> true.
 
 %% BUILD_WITHOUT_JQ

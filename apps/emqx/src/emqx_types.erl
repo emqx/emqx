@@ -258,11 +258,13 @@
 -type deliver() :: {deliver, topic(), message()}.
 -type delivery() :: #delivery{}.
 -type deliver_result() :: ok | {ok, non_neg_integer()} | {error, term()}.
--type publish_result() :: [
-    {node(), topic(), deliver_result()}
-    | {share, topic(), deliver_result()}
-    | persisted
-].
+-type publish_result() ::
+    [
+        {node(), topic(), deliver_result()}
+        | {share, topic(), deliver_result()}
+        | persisted
+    ]
+    | disconnect.
 -type route() :: #route{}.
 -type route_entry() :: {topic(), node()} | {topic, group()}.
 -type command() :: #command{}.

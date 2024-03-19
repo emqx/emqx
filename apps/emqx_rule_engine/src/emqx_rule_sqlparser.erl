@@ -18,7 +18,7 @@
 
 -include("rule_engine.hrl").
 
--export([parse/1]).
+-export([parse/1, parse/2]).
 
 -export([
     select_fields/1,
@@ -62,37 +62,29 @@
 
 -type field() :: const() | variable() | {as, field(), alias()} | sql_func().
 
+-type parse_opts() :: #{
+    %% Whether `from' clause should be mandatory.
+    %% Default: `true'.
+    with_from => boolean()
+}.
+
 -export_type([select/0]).
 
 %% Parse one select statement.
 -spec parse(string() | binary()) -> {ok, select()} | {error, term()}.
 parse(Sql) ->
-    try
-        case rulesql:parsetree(Sql) of
-            {ok, {select, Clauses}} ->
-                {ok, #select{
-                    is_foreach = false,
-                    fields = get_value(fields, Clauses),
-                    doeach = [],
-                    incase = {},
-                    from = get_value(from, Clauses),
-                    where = get_value(where, Clauses)
-                }};
-            {ok, {foreach, Clauses}} ->
-                {ok, #select{
-                    is_foreach = true,
-                    fields = get_value(fields, Clauses),
-                    doeach = get_value(do, Clauses, []),
-                    incase = get_value(incase, Clauses, {}),
-                    from = get_value(from, Clauses),
-                    where = get_value(where, Clauses)
-                }};
-            Error ->
-                {error, Error}
-        end
-    catch
-        _Error:Reason:StackTrace ->
-            {error, {Reason, StackTrace}}
+    parse(Sql, _Opts = #{}).
+
+-spec parse(string() | binary(), parse_opts()) -> {ok, select()} | {error, term()}.
+parse(Sql, Opts) ->
+    WithFrom = maps:get(with_from, Opts, true),
+    case do_parse(Sql) of
+        {ok, Parsed} when WithFrom ->
+            ensure_non_empty_from(Parsed);
+        {ok, Parsed} ->
+            ensure_empty_from(Parsed);
+        Error = {error, _} ->
+            Error
     end.
 
 -spec select_fields(select()) -> list(field()).
@@ -118,3 +110,45 @@ select_from(#select{from = From}) ->
 -spec select_where(select()) -> tuple().
 select_where(#select{where = Where}) ->
     Where.
+
+-spec do_parse(string() | binary()) -> {ok, select()} | {error, term()}.
+do_parse(Sql) ->
+    try
+        case rulesql:parsetree(Sql) of
+            {ok, {select, Clauses}} ->
+                Parsed = #select{
+                    is_foreach = false,
+                    fields = get_value(fields, Clauses),
+                    doeach = [],
+                    incase = {},
+                    from = get_value(from, Clauses),
+                    where = get_value(where, Clauses)
+                },
+                {ok, Parsed};
+            {ok, {foreach, Clauses}} ->
+                Parsed = #select{
+                    is_foreach = true,
+                    fields = get_value(fields, Clauses),
+                    doeach = get_value(do, Clauses, []),
+                    incase = get_value(incase, Clauses, {}),
+                    from = get_value(from, Clauses),
+                    where = get_value(where, Clauses)
+                },
+                {ok, Parsed};
+            Error ->
+                {error, Error}
+        end
+    catch
+        _Error:Reason:StackTrace ->
+            {error, {Reason, StackTrace}}
+    end.
+
+ensure_non_empty_from(#select{from = []}) ->
+    {error, empty_from_clause};
+ensure_non_empty_from(Parsed) ->
+    {ok, Parsed}.
+
+ensure_empty_from(#select{from = [_ | _]}) ->
+    {error, non_empty_from_clause};
+ensure_empty_from(Parsed) ->
+    {ok, Parsed}.

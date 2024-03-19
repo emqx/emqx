@@ -25,6 +25,7 @@
 -define(HP_AUTHN, 970).
 -define(HP_AUTHZ, 960).
 -define(HP_SYS_MSGS, 950).
+-define(HP_MSG_VALIDATION, 945).
 -define(HP_TOPIC_METRICS, 940).
 -define(HP_RETAINER, 930).
 -define(HP_AUTO_SUB, 920).

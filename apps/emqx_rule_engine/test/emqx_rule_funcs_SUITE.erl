@@ -27,12 +27,19 @@
 %%-define(PROPTEST(F), ?assert(proper:quickcheck(F(), [{on_output, fun ct:print/2}]))).
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ConfigConf = <<"rule_engine {jq_function_default_timeout=10s}">>,
-    ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, ConfigConf),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_rule_engine, "rule_engine {jq_function_default_timeout=10s}"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 eventmsg_publish(Msg) ->
