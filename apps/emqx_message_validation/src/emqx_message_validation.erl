@@ -16,7 +16,6 @@
     unload/0,
 
     list/0,
-    move/2,
     reorder/1,
     lookup/1,
     insert/1,
@@ -53,7 +52,6 @@
 
 -type validation_name() :: binary().
 -type validation() :: _TODO.
--type position() :: front | rear | {'after', validation_name()} | {before, validation_name()}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -78,15 +76,6 @@ unload() ->
 -spec list() -> [validation()].
 list() ->
     emqx:get_config(?VALIDATIONS_CONF_PATH, []).
-
--spec move(validation_name(), position()) ->
-    {ok, _} | {error, _}.
-move(Name, Position) ->
-    emqx:update_config(
-        ?VALIDATIONS_CONF_PATH,
-        {move, Name, Position},
-        #{override_to => cluster}
-    ).
 
 -spec reorder([validation_name()]) ->
     {ok, _} | {error, _}.
@@ -174,8 +163,6 @@ pre_config_update(?VALIDATIONS_CONF_PATH, {update, Validation}, OldValidations) 
     replace(OldValidations, Validation);
 pre_config_update(?VALIDATIONS_CONF_PATH, {delete, Validation}, OldValidations) ->
     delete(OldValidations, Validation);
-pre_config_update(?VALIDATIONS_CONF_PATH, {move, Name, Position}, OldValidations) ->
-    move(OldValidations, Name, Position);
 pre_config_update(?VALIDATIONS_CONF_PATH, {reorder, Order}, OldValidations) ->
     reorder(OldValidations, Order).
 
@@ -191,9 +178,6 @@ post_config_update(?VALIDATIONS_CONF_PATH, {update, #{<<"name">> := Name}}, New,
 post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) ->
     {_Pos, Validation} = fetch_with_index(Old, Name),
     ok = emqx_message_validation_registry:delete(Validation),
-    ok;
-post_config_update(?VALIDATIONS_CONF_PATH, {move, _Name, _Position}, New, _Old, _AppEnvs) ->
-    ok = emqx_message_validation_registry:reindex_positions(New),
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, _Old, _AppEnvs) ->
     ok = emqx_message_validation_registry:reindex_positions(New),
@@ -348,21 +332,6 @@ delete(OldValidations, Name) ->
             {error, not_found}
     end.
 
-move(OldValidations, Name, front) ->
-    {Validation, Front, Rear} = take(Name, OldValidations),
-    {ok, [Validation | Front ++ Rear]};
-move(OldValidations, Name, rear) ->
-    {Validation, Front, Rear} = take(Name, OldValidations),
-    {ok, Front ++ Rear ++ [Validation]};
-move(OldValidations, Name, {'after', OtherName}) ->
-    {Validation, Front1, Rear1} = take(Name, OldValidations),
-    {OtherValidation, Front2, Rear2} = take(OtherName, Front1 ++ Rear1),
-    {ok, Front2 ++ [OtherValidation, Validation] ++ Rear2};
-move(OldValidations, Name, {before, OtherName}) ->
-    {Validation, Front1, Rear1} = take(Name, OldValidations),
-    {OtherValidation, Front2, Rear2} = take(OtherName, Front1 ++ Rear1),
-    {ok, Front2 ++ [Validation, OtherValidation] ++ Rear2}.
-
 reorder(Validations, Order) ->
     Context = #{
         not_found => sets:new([{version, 2}]),
@@ -415,14 +384,6 @@ fetch_with_index([{_, _} | Rest], Name) ->
     fetch_with_index(Rest, Name);
 fetch_with_index(Validations, Name) ->
     fetch_with_index(lists:enumerate(Validations), Name).
-
-take(Name, Validations) ->
-    case safe_take(Name, Validations) of
-        error ->
-            throw({validation_not_found, Name});
-        {ok, {Found, Front, Rear}} ->
-            {Found, Front, Rear}
-    end.
 
 safe_take(Name, Validations) ->
     case lists:splitwith(fun(#{<<"name">> := N}) -> N =/= Name end, Validations) of

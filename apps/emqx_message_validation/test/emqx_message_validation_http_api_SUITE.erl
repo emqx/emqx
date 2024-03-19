@@ -174,12 +174,6 @@ delete(Name) ->
     ct:pal("delete result:\n  ~p", [Res]),
     simplify_result(Res).
 
-move(Name, Pos) ->
-    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name, "move"]),
-    Res = request(post, Path, Pos),
-    ct:pal("move result:\n  ~p", [Res]),
-    simplify_result(Res).
-
 reorder(Order) ->
     Path = emqx_mgmt_api_test_util:api_path([api_root(), "reorder"]),
     Params = #{<<"order">> => Order},
@@ -414,104 +408,6 @@ t_crud(_Config) ->
     ?assertMatch({404, _}, lookup(Name1)),
     ?assertMatch({200, [#{<<"name">> := Name2}]}, list()),
     ?assertMatch({404, _}, update(Validation1)),
-
-    ok.
-
-%% test the "move" API
-t_move(_Config) ->
-    lists:foreach(
-        fun(Pos) ->
-            ?assertMatch({404, _}, move(<<"nonexistent_validation">>, Pos))
-        end,
-        [
-            #{<<"position">> => <<"front">>},
-            #{<<"position">> => <<"rear">>},
-            #{<<"position">> => <<"after">>, <<"validation">> => <<"also_non_existent">>},
-            #{<<"position">> => <<"before">>, <<"validation">> => <<"also_non_existent">>}
-        ]
-    ),
-
-    Topic = <<"t">>,
-
-    Name1 = <<"foo">>,
-    Validation1 = validation(Name1, [sql_check()], #{<<"topics">> => Topic}),
-    {201, _} = insert(Validation1),
-
-    %% bogus positions
-    lists:foreach(
-        fun(Pos) ->
-            ?assertMatch(
-                {400, #{<<"message">> := #{<<"kind">> := <<"validation_error">>}}},
-                move(Name1, Pos)
-            )
-        end,
-        [
-            #{<<"position">> => <<"foo">>},
-            #{<<"position">> => <<"bar">>, <<"validation">> => Name1}
-        ]
-    ),
-
-    lists:foreach(
-        fun(Pos) ->
-            ?assertMatch({204, _}, move(Name1, Pos)),
-            ?assertMatch({200, [#{<<"name">> := Name1}]}, list())
-        end,
-        [
-            #{<<"position">> => <<"front">>},
-            #{<<"position">> => <<"rear">>}
-        ]
-    ),
-
-    lists:foreach(
-        fun(Pos) ->
-            ?assertMatch({400, _}, move(Name1, Pos))
-        end,
-        [
-            #{<<"position">> => <<"after">>, <<"validation">> => <<"nonexistent">>},
-            #{<<"position">> => <<"before">>, <<"validation">> => <<"nonexistent">>}
-        ]
-    ),
-
-    Name2 = <<"bar">>,
-    Validation2 = validation(Name2, [sql_check()], #{<<"topics">> => Topic}),
-    {201, _} = insert(Validation2),
-    ?assertMatch({200, [#{<<"name">> := Name1}, #{<<"name">> := Name2}]}, list()),
-    ?assertIndexOrder([Name1, Name2], Topic),
-
-    ?assertMatch({204, _}, move(Name1, #{<<"position">> => <<"rear">>})),
-    ?assertMatch({200, [#{<<"name">> := Name2}, #{<<"name">> := Name1}]}, list()),
-    ?assertIndexOrder([Name2, Name1], Topic),
-
-    ?assertMatch({204, _}, move(Name1, #{<<"position">> => <<"front">>})),
-    ?assertMatch({200, [#{<<"name">> := Name1}, #{<<"name">> := Name2}]}, list()),
-    ?assertIndexOrder([Name1, Name2], Topic),
-
-    Name3 = <<"baz">>,
-    Validation3 = validation(Name3, [sql_check()], #{<<"topics">> => Topic}),
-    {201, _} = insert(Validation3),
-    ?assertMatch(
-        {200, [#{<<"name">> := Name1}, #{<<"name">> := Name2}, #{<<"name">> := Name3}]},
-        list()
-    ),
-    ?assertIndexOrder([Name1, Name2, Name3], Topic),
-
-    ?assertMatch(
-        {204, _}, move(Name3, #{<<"position">> => <<"before">>, <<"validation">> => Name2})
-    ),
-    ?assertMatch(
-        {200, [#{<<"name">> := Name1}, #{<<"name">> := Name3}, #{<<"name">> := Name2}]},
-        list()
-    ),
-    ?assertIndexOrder([Name1, Name3, Name2], Topic),
-
-    ?assertMatch(
-        {204, _}, move(Name1, #{<<"position">> => <<"after">>, <<"validation">> => Name2})
-    ),
-    ?assertMatch(
-        {200, [#{<<"name">> := Name3}, #{<<"name">> := Name2}, #{<<"name">> := Name1}]},
-        list()
-    ),
-    ?assertIndexOrder([Name3, Name2, Name1], Topic),
 
     ok.
 

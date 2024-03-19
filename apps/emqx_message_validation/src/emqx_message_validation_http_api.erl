@@ -23,8 +23,7 @@
 -export([
     '/message_validations'/2,
     '/message_validations/reorder'/2,
-    '/message_validations/validation/:name'/2,
-    '/message_validations/validation/:name/move'/2
+    '/message_validations/validation/:name'/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -46,8 +45,7 @@ paths() ->
     [
         "/message_validations",
         "/message_validations/reorder",
-        "/message_validations/validation/:name",
-        "/message_validations/validation/:name/move"
+        "/message_validations/validation/:name"
     ].
 
 schema("/message_validations") ->
@@ -172,27 +170,6 @@ schema("/message_validations/validation/:name") ->
                     404 => error_schema('NOT_FOUND', "Validation not found")
                 }
         }
-    };
-schema("/message_validations/validation/:name/move") ->
-    #{
-        'operationId' => '/message_validations/validation/:name/move',
-        post => #{
-            tags => ?TAGS,
-            summary => <<"Change the order of a validation">>,
-            description => ?DESC("move_validation"),
-            parameters => [param_path_name()],
-            'requestBody' =>
-                emqx_dashboard_swagger:schema_with_examples(
-                    hoconsc:union(fun position_union_member_selector/1),
-                    example_position()
-                ),
-            responses =>
-                #{
-                    204 => <<"No Content">>,
-                    400 => error_schema('BAD_REQUEST', <<"Bad request">>),
-                    404 => error_schema('NOT_FOUND', "Validation not found")
-                }
-        }
     }.
 
 param_path_name() ->
@@ -281,15 +258,6 @@ fields(reorder) ->
         not_found()
     ).
 
-'/message_validations/validation/:name/move'(post, #{bindings := #{name := Name}, body := Body}) ->
-    with_validation(
-        Name,
-        fun() ->
-            do_move(Name, parse_position(Body))
-        end,
-        not_found(Name)
-    ).
-
 '/message_validations/reorder'(post, #{body := #{<<"order">> := Order}}) ->
     do_reorder(Order).
 
@@ -329,10 +297,6 @@ example_return_lookup() ->
     %% TODO
     #{}.
 
-example_position() ->
-    %% TODO
-    #{}.
-
 error_schema(Code, Message) ->
     error_schema(Code, Message, _ExtraFields = []).
 
@@ -342,68 +306,6 @@ error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
     error_schema(Codes, list_to_binary(Message), ExtraFields);
 error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
     ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
-
-position_union_member_selector(all_union_members) ->
-    position_refs();
-position_union_member_selector({value, V}) ->
-    position_refs(V).
-
-position_refs() ->
-    [].
-
-position_types() ->
-    [
-        front,
-        rear,
-        'after',
-        before
-    ].
-
-position_refs(#{<<"position">> := <<"front">>}) ->
-    [ref(front)];
-position_refs(#{<<"position">> := <<"rear">>}) ->
-    [ref(rear)];
-position_refs(#{<<"position">> := <<"after">>}) ->
-    [ref('after')];
-position_refs(#{<<"position">> := <<"before">>}) ->
-    [ref(before)];
-position_refs(_) ->
-    Expected = lists:join(" | ", [atom_to_list(T) || T <- position_types()]),
-    throw(#{
-        field_name => position,
-        expected => iolist_to_binary(Expected)
-    }).
-
-%% Schema is already checked, so we don't need to do further validation.
-parse_position(#{<<"position">> := <<"front">>}) ->
-    front;
-parse_position(#{<<"position">> := <<"rear">>}) ->
-    rear;
-parse_position(#{<<"position">> := <<"after">>, <<"validation">> := OtherValidationName}) ->
-    {'after', OtherValidationName};
-parse_position(#{<<"position">> := <<"before">>, <<"validation">> := OtherValidationName}) ->
-    {before, OtherValidationName}.
-
-do_move(ValidationName, {_, OtherValidationName} = Position) ->
-    with_validation(
-        OtherValidationName,
-        fun() ->
-            case emqx_message_validation:move(ValidationName, Position) of
-                {ok, _} ->
-                    ?NO_CONTENT;
-                {error, Error} ->
-                    ?BAD_REQUEST(Error)
-            end
-        end,
-        bad_request_not_found(OtherValidationName)
-    );
-do_move(ValidationName, Position) ->
-    case emqx_message_validation:move(ValidationName, Position) of
-        {ok, _} ->
-            ?NO_CONTENT;
-        {error, Error} ->
-            ?BAD_REQUEST(Error)
-    end.
 
 do_reorder(Order) ->
     case emqx_message_validation:reorder(Order) of
@@ -443,10 +345,3 @@ return(Response) ->
 
 not_found() ->
     return(?NOT_FOUND(<<"Validation not found">>)).
-
-not_found(Name) ->
-    return(?NOT_FOUND(<<"Validation not found: ", Name/binary>>)).
-
-%% After we found the base validation, but not the other one being referenced in a move.
-bad_request_not_found(Name) ->
-    return(?BAD_REQUEST(<<"Validation not found: ", Name/binary>>)).

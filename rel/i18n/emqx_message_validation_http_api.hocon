@@ -15,9 +15,6 @@ emqx_message_validation_http_api {
   append_validation.desc:
   """Append a new validation to the list of validations"""
 
-  move_validation.desc:
-  """Change the order of a validation in the list of validations"""
-
   reorder_validations.desc:
   """Reorder of all validations"""
 
