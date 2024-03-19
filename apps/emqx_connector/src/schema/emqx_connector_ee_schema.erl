@@ -72,12 +72,7 @@ resource_type(rabbitmq) ->
 resource_type(s3) ->
     emqx_bridge_s3_connector;
 resource_type(Type) ->
-    try
-        emqx_connector_info:resource_callback_module(Type)
-    catch
-        _:_ ->
-            error({unknown_connector_type, Type})
-    end.
+    error({unknown_connector_type, Type}).
 
 %% For connectors that need to override connector configurations.
 connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->

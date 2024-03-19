@@ -91,7 +91,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_http_schema, <<"http">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt">>, Method ++ "_connector")
     ].
 
@@ -112,11 +111,11 @@ examples(Method) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 schema_modules() ->
-    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema] ++
+    [emqx_bridge_mqtt_connector_schema] ++
         emqx_connector_ee_schema:schema_modules() ++ connector_info_schema_modules().
 -else.
 schema_modules() ->
-    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema] ++ connector_info_schema_modules().
+    [emqx_bridge_mqtt_connector_schema] ++ connector_info_schema_modules().
 -endif.
 
 connector_info_schema_modules() ->
@@ -128,8 +127,6 @@ connector_info_schema_modules() ->
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(http) ->
-    [webhook, http];
 connector_type_to_bridge_types(kafka_consumer) ->
     [kafka_consumer];
 connector_type_to_bridge_types(kafka_producer) ->
@@ -533,15 +530,6 @@ roots() ->
 
 fields(connectors) ->
     [
-        {http,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_http_schema, "config_connector")),
-                #{
-                    alias => [webhook],
-                    desc => <<"HTTP Connector Config">>,
-                    required => false
-                }
-            )},
         {mqtt,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mqtt_connector_schema, "config_connector")),
