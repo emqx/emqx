@@ -32,6 +32,9 @@
     foldl_routes/2
 ]).
 
+%% Topics API
+-export([stream/1]).
+
 -export([cleanup_routes/1]).
 -export([print_routes/1]).
 -export([topics/0]).
@@ -197,6 +200,15 @@ foldr_routes(FoldFun, AccIn) ->
     fold_routes(foldr, FoldFun, AccIn).
 
 %%--------------------------------------------------------------------
+%% Topic API
+%%--------------------------------------------------------------------
+
+-spec stream(_MTopic :: '_' | emqx_types:topic()) ->
+    emqx_utils_stream:stream(emqx_types:topic()).
+stream(MTopic) ->
+    emqx_utils_stream:chain(stream(?PS_ROUTER_TAB, MTopic), stream(?PS_FILTERS_TAB, MTopic)).
+
+%%--------------------------------------------------------------------
 %% Internal fns
 %%--------------------------------------------------------------------
 
@@ -225,6 +237,12 @@ get_dest_session_id({_, DSSessionId}) ->
 get_dest_session_id(DSSessionId) ->
     DSSessionId.
 
+export_route(#ps_route{topic = Topic, dest = Dest}) ->
+    #route{topic = Topic, dest = Dest}.
+
+export_routeidx(#ps_routeidx{entry = M}) ->
+    #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
+
 match_to_route(M) ->
     #ps_route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
 
@@ -242,3 +260,30 @@ list_route_tab_topics() ->
 
 mria_route_tab_delete(Route) ->
     mria:dirty_delete_object(?PS_ROUTER_TAB, Route).
+
+stream(Tab = ?PS_ROUTER_TAB, MTopic) ->
+    case MTopic == '_' orelse not emqx_topic:wildcard(MTopic) of
+        true ->
+            MatchSpec = #ps_route{topic = MTopic, _ = '_'},
+            mk_tab_stream(Tab, MatchSpec, fun export_route/1);
+        false ->
+            emqx_utils_stream:empty()
+    end;
+stream(Tab = ?PS_FILTERS_TAB, MTopic) ->
+    case MTopic == '_' orelse emqx_topic:wildcard(MTopic) of
+        true ->
+            MatchSpec = #ps_routeidx{entry = emqx_trie_search:make_pat(MTopic, '_'), _ = '_'},
+            mk_tab_stream(Tab, MatchSpec, fun export_routeidx/1);
+        false ->
+            emqx_utils_stream:empty()
+    end.
+
+mk_tab_stream(Tab, MatchSpec, Mapper) ->
+    %% NOTE: Currently relying on the fact that tables are backed by ETSes.
+    emqx_utils_stream:map(
+        Mapper,
+        emqx_utils_stream:ets(fun
+            (undefined) -> ets:match_object(Tab, MatchSpec, 1);
+            (Cont) -> ets:match_object(Cont)
+        end)
+    ).

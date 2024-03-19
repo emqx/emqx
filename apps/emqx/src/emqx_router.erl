@@ -58,7 +58,7 @@
 ]).
 
 %% Topics API
--export([select/3]).
+-export([stream/1]).
 
 -export([print_routes/1]).
 
@@ -266,18 +266,15 @@ mria_batch_v1(Batch) ->
 batch_get_action(Op) ->
     element(1, Op).
 
--spec select(Spec, _Limit :: pos_integer(), Continuation) ->
-    {[emqx_types:route()], Continuation} | '$end_of_table'
-when
-    Spec :: {_TopicPat, _DestPat},
-    Continuation :: term() | '$end_of_table'.
-select(MatchSpec, Limit, Cont) ->
-    select(get_schema_vsn(), MatchSpec, Limit, Cont).
+-spec stream(_Spec :: {_TopicPat, _DestPat}) ->
+    emqx_utils_stream:stream(emqx_types:route()).
+stream(MatchSpec) ->
+    stream(get_schema_vsn(), MatchSpec).
 
-select(v2, MatchSpec, Limit, Cont) ->
-    select_v2(MatchSpec, Limit, Cont);
-select(v1, MatchSpec, Limit, Cont) ->
-    select_v1(MatchSpec, Limit, Cont).
+stream(v2, MatchSpec) ->
+    stream_v2(MatchSpec);
+stream(v1, MatchSpec) ->
+    stream_v1(MatchSpec).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
@@ -452,10 +449,8 @@ cleanup_routes_v1_fallback(Node) ->
         ]
     end).
 
-select_v1({MTopic, MDest}, Limit, undefined) ->
-    ets:match_object(?ROUTE_TAB, #route{topic = MTopic, dest = MDest}, Limit);
-select_v1(_Spec, _Limit, Cont) ->
-    ets:select(Cont).
+stream_v1(Spec) ->
+    mk_route_stream(?ROUTE_TAB, Spec).
 
 list_topics_v1() ->
     list_route_tab_topics().
@@ -591,36 +586,27 @@ make_route_rec_pat(DestPattern) ->
         [{1, route}, {#route.dest, DestPattern}]
     ).
 
-select_v2(Spec, Limit, undefined) ->
-    Stream = mk_route_stream(Spec),
-    select_next(Limit, Stream);
-select_v2(_Spec, Limit, Stream) ->
-    select_next(Limit, Stream).
-
-select_next(N, Stream) ->
-    case emqx_utils_stream:consume(N, Stream) of
-        {Routes, SRest} ->
-            {Routes, SRest};
-        Routes ->
-            {Routes, '$end_of_table'}
-    end.
-
-mk_route_stream(Spec) ->
+stream_v2(Spec) ->
     emqx_utils_stream:chain(
-        mk_route_stream(route, Spec),
-        mk_route_stream(filter, Spec)
+        mk_route_stream(?ROUTE_TAB, Spec),
+        mk_route_stream(?ROUTE_TAB_FILTERS, Spec)
     ).
 
-mk_route_stream(route, Spec) ->
-    emqx_utils_stream:ets(fun(Cont) -> select_v1(Spec, 1, Cont) end);
-mk_route_stream(filter, {MTopic, MDest}) ->
+mk_route_stream(Tab = ?ROUTE_TAB, {MTopic, MDest}) ->
+    emqx_utils_stream:ets(fun
+        (undefined) ->
+            ets:match_object(Tab, #route{topic = MTopic, dest = MDest}, 1);
+        (Cont) ->
+            ets:match_object(Cont)
+    end);
+mk_route_stream(Tab = ?ROUTE_TAB_FILTERS, {MTopic, MDest}) ->
     emqx_utils_stream:map(
         fun routeidx_to_route/1,
         emqx_utils_stream:ets(
             fun
                 (undefined) ->
                     MatchSpec = #routeidx{entry = emqx_trie_search:make_pat(MTopic, MDest)},
-                    ets:match_object(?ROUTE_TAB_FILTERS, MatchSpec, 1);
+                    ets:match_object(Tab, MatchSpec, 1);
                 (Cont) ->
                     ets:match_object(Cont)
             end
