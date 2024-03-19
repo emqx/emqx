@@ -207,9 +207,19 @@ is_superuser(#{}) ->
     #{is_superuser => false}.
 
 client_attrs(#{<<"client_attrs">> := Attrs}) ->
-    #{client_attrs => Attrs};
+    #{client_attrs => drop_invalid_attr(Attrs)};
 client_attrs(_) ->
     #{client_attrs => #{}}.
+
+drop_invalid_attr(Map) when is_map(Map) ->
+    maps:from_list(do_drop_invalid_attr(maps:to_list(Map))).
+
+do_drop_invalid_attr(KVL) ->
+    F = fun({K, V}) ->
+        emqx_utils:is_restricted_str(K) andalso
+            emqx_utils:is_restricted_str(V)
+    end,
+    lists:filter(F, KVL).
 
 ensure_apps_started(bcrypt) ->
     {ok, _} = application:ensure_all_started(bcrypt),

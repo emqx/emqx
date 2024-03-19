@@ -542,13 +542,21 @@ samples() ->
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    emqx_utils_json:encode(#{result => allow, is_superuser => true}),
+                    emqx_utils_json:encode(#{
+                        result => allow,
+                        is_superuser => true,
+                        client_attrs => #{
+                            fid => <<"n11">>,
+                            <<"_bad_key">> => <<"v">>,
+                            <<"ok_key">> => <<"but bad value">>
+                        }
+                    }),
                     Req0
                 ),
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => true, client_attrs => #{}}}
+            result => {ok, #{is_superuser => true, client_attrs => #{<<"fid">> => <<"n11">>}}}
         },
 
         %% get request with url-form-encoded body response

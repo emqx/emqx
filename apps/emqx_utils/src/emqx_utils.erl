@@ -67,7 +67,8 @@
     format/1,
     call_first_defined/1,
     ntoa/1,
-    foldl_while/3
+    foldl_while/3,
+    is_restricted_str/1
 ]).
 
 -export([
@@ -860,6 +861,13 @@ ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
     inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});
 ntoa(IP) ->
     inet_parse:ntoa(IP).
+
+%% @doc Return true if the provided string is a restricted string:
+%% Start with a letter or a digit,
+%% remaining characters can be '-' or '_' in addition to letters and digits
+is_restricted_str(String) ->
+    RE = <<"^[A-Za-z0-9]+[A-Za-z0-9-_]*$">>,
+    match =:= re:run(String, RE, [{capture, none}]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
