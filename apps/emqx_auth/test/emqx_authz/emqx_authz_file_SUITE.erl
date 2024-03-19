@@ -74,6 +74,30 @@ t_ok(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
     ).
 
+t_client_attrs(_Config) ->
+    ClientInfo0 = emqx_authz_test_lib:base_client_info(),
+    ClientInfo = ClientInfo0#{client_attrs => #{<<"device_id">> => <<"id1">>}},
+
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{allow, all, all, [\"t/${client_attrs.device_id}/#\"]}.">>
+    }),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/id1/1">>)
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/id1/#">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/id2/#">>)
+    ),
+    ok.
+
 t_rich_actions(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 

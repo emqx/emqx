@@ -145,17 +145,41 @@ parse_accessor(Var) ->
 %% @doc Validate a template against a set of allowed variables.
 %% If the given template contains any variable not in the allowed set, an error
 %% is returned.
--spec validate([varname()], t()) ->
+-spec validate([varname() | {var_namespace, varname()}], t()) ->
     ok | {error, [_Error :: {varname(), disallowed}]}.
 validate(Allowed, Template) ->
     {_, Errors} = render(Template, #{}),
     {Used, _} = lists:unzip(Errors),
-    case lists:usort(Used) -- Allowed of
+    case find_disallowed(lists:usort(Used), Allowed) of
         [] ->
             ok;
         Disallowed ->
             {error, [{Var, disallowed} || Var <- Disallowed]}
     end.
+
+find_disallowed([], _Allowed) ->
+    [];
+find_disallowed([Var | Rest], Allowed) ->
+    case is_allowed(Var, Allowed) of
+        true ->
+            find_disallowed(Rest, Allowed);
+        false ->
+            [Var | find_disallowed(Rest, Allowed)]
+    end.
+
+is_allowed(_Var, []) ->
+    false;
+is_allowed(Var, [{var_namespace, VarPrefix} | Allowed]) ->
+    case lists:prefix(VarPrefix ++ ".", Var) of
+        true ->
+            true;
+        false ->
+            is_allowed(Var, Allowed)
+    end;
+is_allowed(Var, [Var | _Allowed]) ->
+    true;
+is_allowed(Var, [_ | Allowed]) ->
+    is_allowed(Var, Allowed).
 
 %% @doc Check if a template is constant with respect to rendering, i.e. does not
 %% contain any placeholders.

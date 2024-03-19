@@ -40,7 +40,8 @@
     ?VAR_CLIENTID,
     ?VAR_PEERHOST,
     ?VAR_CERT_CN_NAME,
-    ?VAR_CERT_SUBJECT
+    ?VAR_CERT_SUBJECT,
+    ?VAR_NS_CLIENT_ATTRS
 ]).
 
 description() ->

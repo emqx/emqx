@@ -36,6 +36,7 @@
 -define(VAR_CLIENTID, "clientid").
 -define(VAR_USERNAME, "username").
 -define(VAR_TOPIC, "topic").
+-define(VAR_NS_CLIENT_ATTRS, {var_namespace, "client_attrs"}).
 -define(PH_PASSWORD, ?PH(?VAR_PASSWORD)).
 -define(PH_CLIENTID, ?PH(?VAR_CLIENTID)).
 -define(PH_FROM_CLIENTID, ?PH("from_clientid")).

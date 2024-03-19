@@ -337,6 +337,18 @@ t_unparse_tmpl_deep(_) ->
     Template = emqx_template:parse_deep(Term),
     ?assertEqual(Term, emqx_template:unparse(Template)).
 
+t_allow_var_by_namespace(_) ->
+    Context = #{d => #{d1 => <<"hi">>}},
+    Template = emqx_template:parse(<<"d.d1:${d.d1}">>),
+    ?assertEqual(
+        ok,
+        emqx_template:validate([{var_namespace, "d"}], Template)
+    ),
+    ?assertEqual(
+        {<<"d.d1:hi">>, []},
+        render_string(Template, Context)
+    ).
+
 %%
 
 render_string(Template, Context) ->

@@ -46,6 +46,7 @@
     default_headers_no_content_type/0
 ]).
 
+%% VAR_NS_CLIENT_ATTRS is not added to this list because client_attrs is to be initialized from authn result
 -define(ALLOWED_VARS, [
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
