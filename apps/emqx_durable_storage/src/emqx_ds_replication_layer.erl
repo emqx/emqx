@@ -41,22 +41,25 @@
 
 %% internal exports:
 -export([
+    %% RPC Targets:
     do_drop_db_v1/1,
     do_store_batch_v1/4,
     do_get_streams_v1/4,
     do_get_streams_v2/4,
-    do_make_iterator_v1/5,
     do_make_iterator_v2/5,
     do_update_iterator_v2/4,
     do_next_v1/4,
-    do_add_generation_v2/1,
     do_list_generations_with_lifetimes_v3/2,
-    do_drop_generation_v3/3,
     do_get_delete_streams_v4/4,
     do_make_delete_iterator_v4/5,
     do_delete_next_v4/5,
+    %% Unused:
+    do_drop_generation_v3/3,
+    %% Obsolete:
+    do_make_iterator_v1/5,
+    do_add_generation_v2/1,
 
-    %% FIXME
+    %% Egress API:
     ra_store_batch/3
 ]).
 
@@ -456,16 +459,9 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
 do_delete_next_v4(DB, Shard, Iter, Selector, BatchSize) ->
     emqx_ds_storage_layer:delete_next({DB, Shard}, Iter, Selector, BatchSize).
 
--spec do_add_generation_v2(emqx_ds:db()) -> ok | {error, _}.
-do_add_generation_v2(DB) ->
-    %% FIXME
-    MyShards = [],
-    lists:foreach(
-        fun(ShardId) ->
-            emqx_ds_storage_layer:add_generation({DB, ShardId}, emqx_ds:timestamp_us())
-        end,
-        MyShards
-    ).
+-spec do_add_generation_v2(emqx_ds:db()) -> no_return().
+do_add_generation_v2(_DB) ->
+    error(obsolete_api).
 
 -spec do_list_generations_with_lifetimes_v3(emqx_ds:db(), shard_id()) ->
     #{emqx_ds:ds_specific_generation_rank() => emqx_ds:generation_info()}.
