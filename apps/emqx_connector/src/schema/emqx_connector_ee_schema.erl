@@ -21,10 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(kinesis) ->
-    emqx_bridge_kinesis_impl_producer;
-resource_type(matrix) ->
-    emqx_postgresql;
 resource_type(mongodb) ->
     emqx_bridge_mongodb_connector;
 resource_type(oracle) ->
@@ -37,16 +33,12 @@ resource_type(clickhouse) ->
     emqx_bridge_clickhouse_connector;
 resource_type(mysql) ->
     emqx_bridge_mysql_connector;
-resource_type(pgsql) ->
-    emqx_postgresql;
 resource_type(syskeeper_forwarder) ->
     emqx_bridge_syskeeper_connector;
 resource_type(syskeeper_proxy) ->
     emqx_bridge_syskeeper_proxy_server;
 resource_type(sqlserver) ->
     emqx_bridge_sqlserver_connector;
-resource_type(timescale) ->
-    emqx_postgresql;
 resource_type(redis) ->
     emqx_bridge_redis_connector;
 resource_type(rocketmq) ->
@@ -95,22 +87,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {kinesis,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_kinesis, "config_connector")),
-                #{
-                    desc => <<"Kinesis Connector Config">>,
-                    required => false
-                }
-            )},
-        {matrix,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_matrix, "config_connector")),
-                #{
-                    desc => <<"Matrix Connector Config">>,
-                    required => false
-                }
-            )},
         {mongodb,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mongodb, "config_connector")),
@@ -160,14 +136,6 @@ connector_structs() ->
                     required => false
                 }
             )},
-        {pgsql,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_pgsql, "config_connector")),
-                #{
-                    desc => <<"PostgreSQL Connector Config">>,
-                    required => false
-                }
-            )},
         {redis,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_redis_schema, "config_connector")),
@@ -205,14 +173,6 @@ connector_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_sqlserver, "config_connector")),
                 #{
                     desc => <<"Microsoft SQL Server Connector Config">>,
-                    required => false
-                }
-            )},
-        {timescale,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_timescale, "config_connector")),
-                #{
-                    desc => <<"Timescale Connector Config">>,
                     required => false
                 }
             )},
@@ -284,8 +244,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_kinesis,
-        emqx_bridge_matrix,
         emqx_bridge_mongodb,
         emqx_bridge_oracle,
         emqx_bridge_influxdb,
@@ -295,7 +253,6 @@ schema_modules() ->
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
         emqx_bridge_sqlserver,
-        emqx_bridge_timescale,
         emqx_postgresql_connector_schema,
         emqx_bridge_redis_schema,
         emqx_bridge_rocketmq,
@@ -313,8 +270,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_kinesis, <<"kinesis">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_oracle, <<"oracle">>, Method ++ "_connector"),
         api_ref(emqx_bridge_influxdb, <<"influxdb">>, Method ++ "_connector"),
@@ -324,8 +279,6 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
         api_ref(emqx_bridge_sqlserver, <<"sqlserver">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),
-        api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector"),
         api_ref(emqx_bridge_rocketmq, <<"rocketmq">>, Method ++ "_connector"),
         api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method),

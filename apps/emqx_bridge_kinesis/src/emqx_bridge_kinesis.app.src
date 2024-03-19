@@ -8,6 +8,7 @@
         erlcloud
     ]},
     {env, [{emqx_action_info_modules, [emqx_bridge_kinesis_action_info]}]},
+    {env, [{emqx_connector_info_modules, [emqx_bridge_kinesis_connector_info]}]},
     {modules, []},
     {links, []}
 ]}.

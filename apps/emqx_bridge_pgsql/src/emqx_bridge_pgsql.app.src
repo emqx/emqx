@@ -1,6 +1,6 @@
 {application, emqx_bridge_pgsql, [
     {description, "EMQX Enterprise PostgreSQL Bridge"},
-    {vsn, "0.1.5"},
+    {vsn, "0.1.6"},
     {registered, []},
     {applications, [
         kernel,
@@ -8,7 +8,10 @@
         emqx_resource,
         emqx_postgresql
     ]},
-    {env, [{emqx_action_info_modules, [emqx_bridge_pgsql_action_info]}]},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_pgsql_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_pgsql_connector_info]}
+    ]},
     {modules, []},
     {links, []}
 ]}.

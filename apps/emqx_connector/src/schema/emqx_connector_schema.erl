@@ -127,10 +127,6 @@ connector_info_schema_modules() ->
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(kinesis) ->
-    [kinesis, kinesis_producer];
-connector_type_to_bridge_types(matrix) ->
-    [matrix];
 connector_type_to_bridge_types(mongodb) ->
     [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
 connector_type_to_bridge_types(oracle) ->
@@ -145,8 +141,6 @@ connector_type_to_bridge_types(mysql) ->
     [mysql];
 connector_type_to_bridge_types(mqtt) ->
     [mqtt];
-connector_type_to_bridge_types(pgsql) ->
-    [pgsql];
 connector_type_to_bridge_types(redis) ->
     [redis, redis_single, redis_sentinel, redis_cluster];
 connector_type_to_bridge_types(rocketmq) ->
@@ -157,8 +151,6 @@ connector_type_to_bridge_types(syskeeper_proxy) ->
     [];
 connector_type_to_bridge_types(sqlserver) ->
     [sqlserver];
-connector_type_to_bridge_types(timescale) ->
-    [timescale];
 connector_type_to_bridge_types(iotdb) ->
     [iotdb];
 connector_type_to_bridge_types(elasticsearch) ->
