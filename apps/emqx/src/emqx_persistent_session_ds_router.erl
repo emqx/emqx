@@ -203,8 +203,11 @@ foldr_routes(FoldFun, AccIn) ->
 %% Topic API
 %%--------------------------------------------------------------------
 
+%% @doc Create a `emqx_utils_stream:stream(#route{})` out of the router state,
+%% potentially filtered by a topic or topic filter. The stream emits `#route{}`
+%% records since this is what `emqx_mgmt_api_topics` knows how to deal with.
 -spec stream(_MTopic :: '_' | emqx_types:topic()) ->
-    emqx_utils_stream:stream(emqx_types:topic()).
+    emqx_utils_stream:stream(emqx_types:route()).
 stream(MTopic) ->
     emqx_utils_stream:chain(stream(?PS_ROUTER_TAB, MTopic), stream(?PS_FILTERS_TAB, MTopic)).
 
@@ -261,6 +264,11 @@ list_route_tab_topics() ->
 mria_route_tab_delete(Route) ->
     mria:dirty_delete_object(?PS_ROUTER_TAB, Route).
 
+%% @doc Create a `emqx_utils_stream:stream(#route{})` out of contents of either of
+%% 2 route tables, optionally filtered by a topic or topic filter. If the latter is
+%% specified, then it doesn't make sense to scan through `?PS_ROUTER_TAB` if it's
+%% a wildcard topic, and vice versa for `?PS_FILTERS_TAB` if it's not, so we optimize
+%% it away by returning an empty stream in those cases.
 stream(Tab = ?PS_ROUTER_TAB, MTopic) ->
     case MTopic == '_' orelse not emqx_topic:wildcard(MTopic) of
         true ->
