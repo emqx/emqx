@@ -67,7 +67,8 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_kinesis_connector_info,
         emqx_bridge_matrix_connector_info,
         emqx_bridge_pgsql_connector_info,
-        emqx_bridge_timescale_connector_info
+        emqx_bridge_timescale_connector_info,
+        emqx_bridge_mongodb_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->
