@@ -54,7 +54,7 @@ init({DB, Opts}) ->
     _ = logger:set_process_metadata(#{db => DB, domain => [ds, db, shard_allocator]}),
     State = #{db => DB, opts => Opts, status => allocating},
     case allocate_shards(State) of
-        NState = #{} ->
+        {ok, NState} ->
             {ok, NState};
         {error, Data} ->
             _ = logger:notice(
@@ -74,7 +74,7 @@ handle_cast(_Cast, State) ->
 
 handle_info(timeout, State) ->
     case allocate_shards(State) of
-        NState = #{} ->
+        {ok, NState} ->
             {noreply, NState};
         {error, Data} ->
             _ = logger:notice(
@@ -84,7 +84,9 @@ handle_info(timeout, State) ->
                 }
             ),
             {noreply, State, ?ALLOCATE_RETRY_TIMEOUT}
-    end.
+    end;
+handle_info(_Info, State) ->
+    {noreply, State}.
 
 terminate(_Reason, #{db := DB, shards := Shards}) ->
     erase_db_meta(DB),
@@ -102,7 +104,7 @@ allocate_shards(State = #{db := DB, opts := Opts}) ->
             ok = start_egresses(DB, Shards),
             ok = save_db_meta(DB, Shards),
             ok = save_shards_meta(DB, Shards),
-            State#{shards => Shards, status := ready};
+            {ok, State#{shards => Shards, status := ready}};
         {error, Reason} ->
             {error, Reason}
     end.
