@@ -38,17 +38,6 @@
     terminate/2
 ]).
 
--define(PTERM(DB, SHARD, L), {?MODULE, DB, SHARD, L}).
--define(MEMOIZE(DB, SHARD, EXPR),
-    case persistent_term:get(__X_Key = ?PTERM(DB, SHARD, ?LINE), undefined) of
-        undefined ->
-            ok = persistent_term:put(__X_Key, __X_Value = (EXPR)),
-            __X_Value;
-        __X_Value ->
-            __X_Value
-    end
-).
-
 %%
 
 start_link(DB, Shard, Opts) ->
@@ -121,10 +110,10 @@ pick_random(Servers) ->
     lists:nth(rand:uniform(length(Servers)), Servers).
 
 get_cluster_name(DB, Shard) ->
-    ?MEMOIZE(DB, Shard, cluster_name(DB, Shard)).
+    memoize(fun cluster_name/2, [DB, Shard]).
 
 get_local_server(DB, Shard) ->
-    ?MEMOIZE(DB, Shard, local_server(DB, Shard)).
+    memoize(fun local_server/2, [DB, Shard]).
 
 get_shard_servers(DB, Shard) ->
     maps:get(servers, emqx_ds_replication_shard_allocator:shard_meta(DB, Shard)).
@@ -203,3 +192,16 @@ start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
         servers => Servers,
         local_server => LocalServer
     }.
+
+%%
+
+memoize(Fun, Args) ->
+    %% NOTE: Assuming that the function is pure and never returns `undefined`.
+    case persistent_term:get([Fun | Args], undefined) of
+        undefined ->
+            Result = erlang:apply(Fun, Args),
+            _ = persistent_term:put([Fun | Args], Result),
+            Result;
+        Result ->
+            Result
+    end.
