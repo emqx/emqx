@@ -96,6 +96,11 @@ fields(topic) ->
             hoconsc:mk(binary(), #{
                 desc => <<"Node">>,
                 required => true
+            })},
+        {session,
+            hoconsc:mk(binary(), #{
+                desc => <<"Session ID">>,
+                required => false
             })}
     ].
 
@@ -113,8 +118,8 @@ do_list(Params) ->
     try
         Pager = parse_pager_params(Params),
         {_, Query} = emqx_mgmt_api:parse_qstring(Params, ?TOPICS_QUERY_SCHEMA),
-        QState = Pager#{continuation => undefined},
-        QResult = eval_topic_query(qs2ms(Query), QState),
+        Stream = mk_topic_stream(qs2ms(Query)),
+        QResult = eval_topic_query(Stream, Pager, emqx_mgmt_api:init_query_result()),
         {200, format_list_response(Pager, Query, QResult)}
     catch
         throw:{error, page_limit_invalid} ->
@@ -160,31 +165,37 @@ gen_match_spec({topic, '=:=', QTopic}, {_MTopic, MNode}) when is_atom(MNode) ->
 gen_match_spec({node, '=:=', QNode}, {MTopic, _MDest}) ->
     {MTopic, QNode}.
 
-eval_topic_query(MS, QState) ->
-    finalize_query(eval_topic_query(MS, QState, emqx_mgmt_api:init_query_result())).
+mk_topic_stream(Spec = {MTopic, _MDest = '_'}) ->
+    emqx_utils_stream:chain(emqx_router:stream(Spec), mk_persistent_topic_stream(MTopic));
+mk_topic_stream(Spec) ->
+    %% NOTE: Assuming that no persistent topic ever matches a query with `node` filter.
+    emqx_router:stream(Spec).
 
-eval_topic_query(MS, QState, QResult) ->
-    case eval_topic_query_page(MS, QState) of
-        {Rows, '$end_of_table'} ->
-            {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
-            NQResult#{complete => true};
-        {Rows, NCont} ->
-            case emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult) of
-                {more, NQResult} ->
-                    eval_topic_query(MS, QState#{continuation := NCont}, NQResult);
-                {enough, NQResult} ->
-                    NQResult#{complete => false}
-            end;
-        '$end_of_table' ->
-            QResult#{complete => true}
+mk_persistent_topic_stream(Spec) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            emqx_persistent_session_ds_router:stream(Spec);
+        false ->
+            emqx_utils_stream:empty()
     end.
 
-eval_topic_query_page(MS, #{limit := Limit, continuation := Cont}) ->
-    emqx_router:select(MS, Limit, Cont).
+eval_topic_query(Stream, QState = #{limit := Limit}, QResult) ->
+    case emqx_utils_stream:consume(Limit, Stream) of
+        {Rows, NStream} ->
+            case emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult) of
+                {more, NQResult} ->
+                    eval_topic_query(NStream, QState, NQResult);
+                {enough, NQResult} ->
+                    finalize_query(false, NQResult)
+            end;
+        Rows when is_list(Rows) ->
+            {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
+            finalize_query(true, NQResult)
+    end.
 
-finalize_query(QResult = #{overflow := Overflow, complete := Complete}) ->
+finalize_query(Complete, QResult = #{overflow := Overflow}) ->
     HasNext = Overflow orelse not Complete,
-    QResult#{hasnext => HasNext}.
+    QResult#{complete => Complete, hasnext => HasNext}.
 
 format_list_response(Meta, Query, QResult = #{rows := RowsAcc}) ->
     #{
@@ -205,7 +216,9 @@ format_response_meta(Meta, _Query, #{hasnext := HasNext}) ->
 format(#route{topic = Topic, dest = {Group, Node}}) ->
     #{topic => ?SHARE(Group, Topic), node => Node};
 format(#route{topic = Topic, dest = Node}) when is_atom(Node) ->
-    #{topic => Topic, node => Node}.
+    #{topic => Topic, node => Node};
+format(#route{topic = Topic, dest = SessionId}) when is_binary(SessionId) ->
+    #{topic => Topic, session => SessionId}.
 
 topic_param(In) ->
     {

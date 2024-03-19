@@ -27,7 +27,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
+            {emqx, "session_persistence.enable = true"},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -204,13 +204,82 @@ t_shared_topics_invalid(_Config) ->
         emqx_utils_json:decode(Body, [return_maps])
     ).
 
+t_persistent_topics(_Config) ->
+    PersistentOpts = #{
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 300}
+    },
+    Client1 = client(t_persistent_topics_m1),
+    Client2 = client(t_persistent_topics_m2),
+    SessionId1 = <<"t_persistent_topics_p1">>,
+    SessionId2 = <<"t_persistent_topics_p2">>,
+    ClientPersistent1 = client(SessionId1, PersistentOpts),
+    ClientPersistent2 = client(SessionId2, PersistentOpts),
+    _ = [
+        ?assertMatch({ok, _, _}, emqtt:subscribe(Client, Topic))
+     || {Client, Topics} <- [
+            {Client1, [<<"t/client/mem">>, <<"t/+">>]},
+            {Client2, [<<"t/client/mem">>, <<"t/+">>]},
+            {ClientPersistent1, [<<"t/persistent/#">>, <<"t/client/ps">>, <<"t/+">>]},
+            {ClientPersistent2, [<<"t/persistent/#">>, <<"t/client/ps">>, <<"t/+">>]}
+        ],
+        Topic <- Topics
+    ],
+    Matched = request_json(get, ["topics"]),
+    ?assertMatch(
+        #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 8},
+        maps:get(<<"meta">>, Matched)
+    ),
+    %% Get back both topics for both persistent and in-memory subscriptions.
+    Expected = [
+        #{<<"topic">> => <<"t/+">>, <<"node">> => atom_to_binary(node())},
+        #{<<"topic">> => <<"t/+">>, <<"session">> => SessionId1},
+        #{<<"topic">> => <<"t/+">>, <<"session">> => SessionId2},
+        #{<<"topic">> => <<"t/client/mem">>, <<"node">> => atom_to_binary(node())},
+        #{<<"topic">> => <<"t/client/ps">>, <<"session">> => SessionId1},
+        #{<<"topic">> => <<"t/client/ps">>, <<"session">> => SessionId2},
+        #{<<"topic">> => <<"t/persistent/#">>, <<"session">> => SessionId1},
+        #{<<"topic">> => <<"t/persistent/#">>, <<"session">> => SessionId2}
+    ],
+    ?assertEqual(
+        lists:sort(Expected),
+        lists:sort(maps:get(<<"data">>, Matched))
+    ),
+    %% Are results the same when paginating?
+    #{<<"data">> := Page1} = request_json(get, ["topics"], [{"page", "1"}, {"limit", "3"}]),
+    #{<<"data">> := Page2} = request_json(get, ["topics"], [{"page", "2"}, {"limit", "3"}]),
+    #{<<"data">> := Page3} = request_json(get, ["topics"], [{"page", "3"}, {"limit", "3"}]),
+    ?assertEqual(
+        lists:sort(Expected),
+        lists:sort(Page1 ++ Page2 ++ Page3)
+    ),
+    %% Filtering by node makes no sense for persistent sessions.
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{<<"topic">> := <<"t/client/mem">>, <<"node">> := _},
+                #{<<"topic">> := <<"t/+">>, <<"node">> := _}
+            ],
+            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 2}
+        },
+        request_json(get, ["topics"], [{"node", atom_to_list(node())}])
+    ).
+
 %% Utilities
 
 client(Name) ->
-    {ok, Client} = emqtt:start_link(#{
-        username => emqx_utils_conv:bin(Name),
-        clientid => emqx_utils_conv:bin(Name)
-    }),
+    client(Name, #{}).
+
+client(Name, Overrides) ->
+    {ok, Client} = emqtt:start_link(
+        maps:merge(
+            #{
+                username => emqx_utils_conv:bin(Name),
+                clientid => emqx_utils_conv:bin(Name)
+            },
+            Overrides
+        )
+    ),
     {ok, _} = emqtt:connect(Client),
     Client.
 

@@ -56,12 +56,10 @@ client_msgs_testcases() ->
     ].
 
 init_per_suite(Config) ->
-    ok = snabbkaffe:start_trace(),
     emqx_mgmt_api_test_util:init_suite(),
     Config.
 
 end_per_suite(_) ->
-    ok = snabbkaffe:stop(),
     emqx_mgmt_api_test_util:end_suite().
 
 init_per_group(persistent_sessions, Config) ->
@@ -95,10 +93,15 @@ end_per_group(persistent_sessions, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
+init_per_testcase(_TC, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config.
+
 end_per_testcase(TC, _Config) when
     TC =:= t_inflight_messages;
     TC =:= t_mqueue_messages
 ->
+    ok = snabbkaffe:stop(),
     ClientId = atom_to_binary(TC),
     lists:foreach(fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, ClientId)),
     ok = emqx_common_test_helpers:wait_for(
@@ -108,7 +111,7 @@ end_per_testcase(TC, _Config) when
         5000
     );
 end_per_testcase(_TC, _Config) ->
-    ok.
+    ok = snabbkaffe:stop().
 
 t_clients(_) ->
     process_flag(trap_exit, true),
@@ -313,8 +316,7 @@ t_persistent_sessions2(Config) ->
             %% 2) Client connects to the same node and takes over, listed only once.
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
             assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
-            ok = emqtt:stop(C2),
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0}),
             ?retry(
                 100,
                 20,
@@ -322,9 +324,7 @@ t_persistent_sessions2(Config) ->
                     {ok, {{_, 200, _}, _, #{<<"data">> := []}}},
                     list_request(APIPort)
                 )
-            ),
-
-            ok
+            )
         end,
         []
     ),
@@ -360,10 +360,7 @@ t_persistent_sessions3(Config) ->
                     list_request(APIPort, "node=" ++ atom_to_list(N1))
                 )
             ),
-            ok = emqtt:stop(C2),
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
-
-            ok
+            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0})
         end,
         []
     ),
@@ -403,10 +400,7 @@ t_persistent_sessions4(Config) ->
                     list_request(APIPort, "node=" ++ atom_to_list(N1))
                 )
             ),
-            ok = emqtt:stop(C2),
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
-
-            ok
+            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0})
         end,
         []
     ),
