@@ -137,7 +137,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
-    DataDir = filename:join([emqx:data_dir(), DB, dsrepl]),
+    DataDir = filename:join([emqx_ds:base_dir(), DB, dsrepl]),
     Config = lists:foldr(fun maps:merge/2, #{}, [
         ra_system:default_config(),
         #{
