@@ -191,7 +191,7 @@
     cn => binary(),
     dn => binary(),
     %% extra attributes
-    attrs => client_attrs(),
+    client_attrs => client_attrs(),
     atom() => term()
 }.
 -type client_attrs() :: #{binary() => binary()}.

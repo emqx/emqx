@@ -198,7 +198,7 @@ handle_response(Headers, Body) ->
             case maps:get(<<"result">>, NBody, <<"ignore">>) of
                 <<"allow">> ->
                     IsSuperuser = emqx_authn_utils:is_superuser(NBody),
-                    Attrs = maps:get(<<"attrs">>, NBody, #{}),
+                    Attrs = emqx_authn_utils:client_attrs(NBody),
                     Result = maps:merge(IsSuperuser, Attrs),
                     {ok, Result};
                 <<"deny">> ->

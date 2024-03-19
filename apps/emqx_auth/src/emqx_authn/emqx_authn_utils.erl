@@ -32,6 +32,7 @@
     render_urlencoded_str/2,
     render_sql_params/2,
     is_superuser/1,
+    client_attrs/1,
     bin/1,
     ensure_apps_started/1,
     cleanup_resources/0,
@@ -203,6 +204,11 @@ is_superuser(#{<<"is_superuser">> := Value}) ->
     #{is_superuser => to_bool(Value)};
 is_superuser(#{}) ->
     #{is_superuser => false}.
+
+client_attrs(#{<<"client_attrs">> := Attrs}) ->
+    #{client_attrs => Attrs};
+client_attrs(_) ->
+    #{client_attrs => #{}}.
 
 ensure_apps_started(bcrypt) ->
     {ok, _} = application:ensure_all_started(bcrypt),

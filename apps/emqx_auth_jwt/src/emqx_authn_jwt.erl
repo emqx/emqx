@@ -219,10 +219,11 @@ verify(undefined, _, _, _) ->
 verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
         {ok, Extra} ->
+            IsSuperuser = emqx_authn_utils:is_superuser(Extra),
+            Attrs = emqx_authn_utils:client_attrs(Extra),
             try
                 ACL = acl(Extra, AclClaimName),
-                Attrs = maps:get(<<"attrs">>, Extra, #{}),
-                Result = maps:merge(Attrs, ACL),
+                Result = maps:merge(IsSuperuser, maps:merge(ACL, Attrs)),
                 {ok, Result}
             catch
                 throw:{bad_acl_rule, Reason} ->
@@ -245,20 +246,18 @@ verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
     end.
 
 acl(Claims, AclClaimName) ->
-    Acl =
-        case Claims of
-            #{AclClaimName := Rules} ->
-                #{
-                    acl => #{
-                        rules => parse_rules(Rules),
-                        source_for_logging => jwt,
-                        expire => maps:get(<<"exp">>, Claims, undefined)
-                    }
-                };
-            _ ->
-                #{}
-        end,
-    maps:merge(emqx_authn_utils:is_superuser(Claims), Acl).
+    case Claims of
+        #{AclClaimName := Rules} ->
+            #{
+                acl => #{
+                    rules => parse_rules(Rules),
+                    source_for_logging => jwt,
+                    expire => maps:get(<<"exp">>, Claims, undefined)
+                }
+            };
+        _ ->
+            #{}
+    end.
 
 do_verify(_JWT, [], _VerifyClaims) ->
     {error, invalid_signature};
