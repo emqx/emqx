@@ -380,7 +380,7 @@ ensure_site() ->
         {ok, [Site]} ->
             ok;
         _ ->
-            Site = binary:encode_hex(crypto:strong_rand_bytes(4)),
+            Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
             logger:notice("Creating a new site with ID=~s", [Site]),
             ok = filelib:ensure_dir(Filename),
             {ok, FD} = file:open(Filename, [write]),
