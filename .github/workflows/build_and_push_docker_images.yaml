@@ -204,6 +204,7 @@ jobs:
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
       - name: Push docker image
+        if: inputs.publish || github.repository_owner != 'emqx'
         env:
           PROFILE: ${{ matrix.profile[0] }}
           DOCKER_REGISTRY: ${{ matrix.profile[1] }}
