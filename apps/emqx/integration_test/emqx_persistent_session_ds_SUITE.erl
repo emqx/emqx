@@ -116,9 +116,10 @@ app_specs() ->
     app_specs(_Opts = #{}).
 
 app_specs(Opts) ->
+    DefaultEMQXConf = "session_persistence {enable = true, renew_streams_interval = 1s}",
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
-        {emqx, "session_persistence = {enable = true}" ++ ExtraEMQXConf}
+        {emqx, DefaultEMQXConf ++ ExtraEMQXConf}
     ].
 
 get_mqtt_port(Node, Type) ->
@@ -130,15 +131,6 @@ wait_nodeup(Node) ->
         _Sleep0 = 500,
         _Attempts0 = 50,
         pong = net_adm:ping(Node)
-    ).
-
-wait_gen_rpc_down(_NodeSpec = #{apps := Apps}) ->
-    #{override_env := Env} = proplists:get_value(gen_rpc, Apps),
-    Port = proplists:get_value(tcp_server_port, Env),
-    ?retry(
-        _Sleep0 = 500,
-        _Attempts0 = 50,
-        false = emqx_common_test_helpers:is_tcp_server_available("127.0.0.1", Port)
     ).
 
 start_client(Opts0 = #{}) ->
