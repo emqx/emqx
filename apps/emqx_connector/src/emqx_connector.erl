@@ -473,6 +473,8 @@ ensure_no_channels(Configs) ->
             fun({Type, ConnectorName}) ->
                 fun(_) ->
                     case emqx_connector_resource:get_channels(Type, ConnectorName) of
+                        {error, not_found} ->
+                            ok;
                         {ok, []} ->
                             ok;
                         {ok, Channels} ->
