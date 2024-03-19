@@ -36,7 +36,8 @@
 -export([
     create/3,
     open/3,
-    destroy/1
+    destroy/1,
+    kick_offline_session/1
 ]).
 
 -export([
@@ -203,6 +204,14 @@ destroy(#{clientid := ClientID}) ->
 
 destroy_session(ClientID) ->
     session_drop(ClientID, destroy).
+
+kick_offline_session(ClientID) ->
+    emqx_cm_locker:trans(
+        ClientID,
+        fun(_Nodes) ->
+            session_drop(ClientID, kicked)
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
