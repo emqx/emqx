@@ -21,8 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(hstreamdb) ->
-    emqx_bridge_hstreamdb_connector;
 resource_type(kafka_consumer) ->
     emqx_bridge_kafka_impl_consumer;
 resource_type(kafka_producer) ->
@@ -106,14 +104,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {hstreamdb,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_hstreamdb, "config_connector")),
-                #{
-                    desc => <<"HStreamDB Connector Config">>,
-                    required => false
-                }
-            )},
         {kafka_consumer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka_consumer_schema, "config_connector")),
@@ -319,7 +309,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_hstreamdb,
         emqx_bridge_kafka,
         emqx_bridge_kafka_consumer_schema,
         emqx_bridge_kinesis,
@@ -351,7 +340,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_hstreamdb, <<"hstreamdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kafka_consumer_schema, <<"kafka_consumer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kinesis, <<"kinesis">>, Method ++ "_connector"),
