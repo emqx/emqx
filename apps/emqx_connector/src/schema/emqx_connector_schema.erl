@@ -127,10 +127,6 @@ connector_info_schema_modules() ->
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(kafka_consumer) ->
-    [kafka_consumer];
-connector_type_to_bridge_types(kafka_producer) ->
-    [kafka, kafka_producer];
 connector_type_to_bridge_types(kinesis) ->
     [kinesis, kinesis_producer];
 connector_type_to_bridge_types(matrix) ->

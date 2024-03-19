@@ -21,10 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(kafka_consumer) ->
-    emqx_bridge_kafka_impl_consumer;
-resource_type(kafka_producer) ->
-    emqx_bridge_kafka_impl_producer;
 resource_type(kinesis) ->
     emqx_bridge_kinesis_impl_producer;
 resource_type(matrix) ->
@@ -99,22 +95,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {kafka_consumer,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_kafka_consumer_schema, "config_connector")),
-                #{
-                    desc => <<"Kafka Consumer Connector Config">>,
-                    required => false
-                }
-            )},
-        {kafka_producer,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_kafka, "config_connector")),
-                #{
-                    desc => <<"Kafka Producer Connector Config">>,
-                    required => false
-                }
-            )},
         {kinesis,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kinesis, "config_connector")),
@@ -304,8 +284,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_kafka,
-        emqx_bridge_kafka_consumer_schema,
         emqx_bridge_kinesis,
         emqx_bridge_matrix,
         emqx_bridge_mongodb,
@@ -335,8 +313,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_kafka_consumer_schema, <<"kafka_consumer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_kinesis, <<"kinesis">>, Method ++ "_connector"),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
