@@ -104,7 +104,7 @@ safe_stop_default_metrics() ->
         _ = opentelemetry_experimental:stop_default_metrics(),
         ok
     catch
-        %% noramal scenario, metrics supervisor is not started
+        %% normal scenario, metrics supervisor is not started
         exit:{noproc, _} -> ok
     end.
 
@@ -254,6 +254,18 @@ create_counter(Meter, Counters, CallBack) ->
         Counters
     ).
 
+%% Note: list_to_existing_atom("cpu.use") will crash
+%% so we make sure the atom is already existing here
+normalize_name(cpu_use) ->
+    'cpu.use';
+normalize_name(cpu_idle) ->
+    'cpu.idle';
+normalize_name(run_queue) ->
+    'run.queue';
+normalize_name(total_memory) ->
+    'total.memory';
+normalize_name(used_memory) ->
+    'used.memory';
 normalize_name(Name) ->
     list_to_existing_atom(lists:flatten(string:replace(atom_to_list(Name), "_", ".", all))).
 
