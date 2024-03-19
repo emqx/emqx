@@ -533,7 +533,7 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, attrs => #{}}}
         },
 
         %% get request with json body response
@@ -548,7 +548,7 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => true, user_property => #{}}}
+            result => {ok, #{is_superuser => true, attrs => #{}}}
         },
 
         %% get request with url-form-encoded body response
@@ -566,7 +566,7 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => true, user_property => #{}}}
+            result => {ok, #{is_superuser => true, attrs => #{}}}
         },
 
         %% get request with response of unknown encoding
@@ -608,7 +608,7 @@ samples() ->
                 <<"method">> => <<"post">>,
                 <<"headers">> => #{<<"content-type">> => <<"application/json">>}
             },
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, attrs => #{}}}
         },
 
         %% simple post request, application/x-www-form-urlencoded
@@ -634,7 +634,7 @@ samples() ->
                         <<"application/x-www-form-urlencoded">>
                 }
             },
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, attrs => #{}}}
         },
 
         %% simple post request for placeholders, application/json
@@ -669,7 +669,7 @@ samples() ->
                     <<"cert_common_name">> => ?PH_CERT_CN_NAME
                 }
             },
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, attrs => #{}}}
         },
 
         %% custom headers

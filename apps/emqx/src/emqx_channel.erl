@@ -1726,9 +1726,21 @@ do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
 
-merge_auth_result(ClientInfo, AuthResult) when is_map(ClientInfo) andalso is_map(AuthResult) ->
+%% Merge authentication result into ClientInfo
+%% Authentication result may include:
+%% 1. `is_superuser': The superuser flag from various backends
+%% 2. `acl': ACL rules from JWT, HTTP auth backend
+%% 3. `attrs': Extra client attributes from JWT, HTTP auth backend
+merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult, false),
-    maps:merge(ClientInfo, AuthResult#{is_superuser => IsSuperuser}).
+    AuthResult = maps:without([attrs], AuthResult0),
+    Attrs0 = maps:get(attrs, ClientInfo, #{}),
+    Attrs1 = maps:get(attrs, AuthResult0, #{}),
+    Attrs = maps:merge(Attrs0, Attrs1),
+    maps:merge(
+        ClientInfo#{attrs => Attrs},
+        AuthResult#{is_superuser => IsSuperuser}
+    ).
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias

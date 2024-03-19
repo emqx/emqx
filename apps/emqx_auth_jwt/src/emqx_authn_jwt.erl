@@ -220,7 +220,10 @@ verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
         {ok, Extra} ->
             try
-                {ok, acl(Extra, AclClaimName)}
+                ACL = acl(Extra, AclClaimName),
+                Attrs = maps:get(<<"attrs">>, Extra, #{}),
+                Result = maps:merge(Attrs, ACL),
+                {ok, Result}
             catch
                 throw:{bad_acl_rule, Reason} ->
                     %% it's a invalid token, so ok to log

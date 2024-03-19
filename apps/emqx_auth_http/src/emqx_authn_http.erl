@@ -197,9 +197,10 @@ handle_response(Headers, Body) ->
         {ok, NBody} ->
             case maps:get(<<"result">>, NBody, <<"ignore">>) of
                 <<"allow">> ->
-                    Res = emqx_authn_utils:is_superuser(NBody),
-                    %% TODO: Return by user property
-                    {ok, Res#{user_property => maps:get(<<"user_property">>, NBody, #{})}};
+                    IsSuperuser = emqx_authn_utils:is_superuser(NBody),
+                    Attrs = maps:get(<<"attrs">>, NBody, #{}),
+                    Result = maps:merge(IsSuperuser, Attrs),
+                    {ok, Result};
                 <<"deny">> ->
                     {error, not_authorized};
                 <<"ignore">> ->
