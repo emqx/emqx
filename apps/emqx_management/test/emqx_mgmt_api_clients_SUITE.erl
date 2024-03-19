@@ -56,12 +56,10 @@ client_msgs_testcases() ->
     ].
 
 init_per_suite(Config) ->
-    ok = snabbkaffe:start_trace(),
     emqx_mgmt_api_test_util:init_suite(),
     Config.
 
 end_per_suite(_) ->
-    ok = snabbkaffe:stop(),
     emqx_mgmt_api_test_util:end_suite().
 
 init_per_group(persistent_sessions, Config) ->
@@ -95,10 +93,15 @@ end_per_group(persistent_sessions, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
+init_per_testcase(_TC, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config.
+
 end_per_testcase(TC, _Config) when
     TC =:= t_inflight_messages;
     TC =:= t_mqueue_messages
 ->
+    ok = snabbkaffe:stop(),
     ClientId = atom_to_binary(TC),
     lists:foreach(fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, ClientId)),
     ok = emqx_common_test_helpers:wait_for(
@@ -108,7 +111,7 @@ end_per_testcase(TC, _Config) when
         5000
     );
 end_per_testcase(_TC, _Config) ->
-    ok.
+    ok = snabbkaffe:stop().
 
 t_clients(_) ->
     process_flag(trap_exit, true),
