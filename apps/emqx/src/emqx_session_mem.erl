@@ -108,7 +108,8 @@
 
 %% Will message handling
 -export([
-    publish_will_message/2
+    clear_will_message/1,
+    publish_will_message_now/2
 ]).
 
 %% Export for CT
@@ -808,10 +809,14 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 %% Will message handling
 %%--------------------------------------------------------------------
 
--spec publish_will_message(session(), message()) -> ok.
-publish_will_message(#session{}, #message{} = WillMsg) ->
+-spec clear_will_message(session()) -> session().
+clear_will_message(#session{} = Session) ->
+    Session.
+
+-spec publish_will_message_now(session(), message()) -> session().
+publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
     _ = emqx_broker:publish(WillMsg),
-    ok.
+    Session.
 
 %%--------------------------------------------------------------------
 %% Helper functions

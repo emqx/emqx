@@ -53,7 +53,8 @@
     takeover_session_begin/1,
     takeover_session_end/1,
     kick_session/1,
-    kick_session/2
+    kick_session/2,
+    takeover_kick/1
 ]).
 
 -export([
@@ -100,6 +101,7 @@
     takeover_session/2,
     takeover_finish/2,
     do_kick_session/3,
+    do_takeover_kick_session_v3/2,
     do_get_chan_info/2,
     do_get_chan_stats/2,
     do_get_chann_conn_mod/2
@@ -121,6 +123,8 @@
 }.
 
 -type takeover_state() :: {_ConnMod :: module(), _ChanPid :: pid()}.
+
+-define(BPAPI_NAME, emqx_cm).
 
 -define(CHAN_STATS, [
     {?CHAN_TAB, 'channels.count', 'channels.max'},
@@ -352,6 +356,38 @@ pick_channel(ClientId) ->
             ChanPid
     end.
 
+%% Used by `emqx_persistent_session_ds'
+-spec takeover_kick(emqx_types:clientid()) -> ok.
+takeover_kick(ClientId) ->
+    case lookup_channels(ClientId) of
+        [] ->
+            ok;
+        ChanPids ->
+            lists:foreach(
+                fun(Pid) ->
+                    do_takeover_session(ClientId, Pid)
+                end,
+                ChanPids
+            )
+    end.
+
+%% Used by `emqx_persistent_session_ds'.
+%% We stop any running channels with reason `takenover' so that correct reason codes and
+%% will message processing may take place.  For older BPAPI nodes, we don't have much
+%% choice other than calling the old `discard_session' code.
+do_takeover_session(ClientId, Pid) ->
+    Node = node(Pid),
+    case emqx_bpapi:supported_version(Node, ?BPAPI_NAME) of
+        undefined ->
+            %% Race: node (re)starting? Assume v2.
+            discard_session(ClientId, Pid);
+        Vsn when Vsn =< 2 ->
+            discard_session(ClientId, Pid);
+        _Vsn ->
+            takeover_kick_session(ClientId, Pid)
+    end.
+
+%% Used only by `emqx_session_mem'
 takeover_finish(ConnMod, ChanPid) ->
     request_stepdown(
         {takeover, 'end'},
@@ -360,6 +396,7 @@ takeover_finish(ConnMod, ChanPid) ->
     ).
 
 %% @doc RPC Target @ emqx_cm_proto_v2:takeover_session/2
+%% Used only by `emqx_session_mem'
 takeover_session(ClientId, Pid) ->
     try
         do_takeover_begin(ClientId, Pid)
@@ -415,7 +452,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
     | {ok, emqx_session:t() | _ReplayContext}
     | {error, term()}
 when
-    Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
+    Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'} | takeover_kick.
 request_stepdown(Action, ConnMod, Pid) ->
     Timeout =
         case Action == kick orelse Action == discard of
@@ -496,7 +533,19 @@ do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
             ok = request_stepdown(Action, ConnMod, ChanPid)
     end.
 
-%% @private This function is shared for session 'kick' and 'discard' (as the first arg Action).
+%% @doc RPC Target for emqx_cm_proto_v3:takeover_kick_session/3
+-spec do_takeover_kick_session_v3(emqx_types:clientid(), chan_pid()) -> ok.
+do_takeover_kick_session_v3(ClientId, ChanPid) when node(ChanPid) =:= node() ->
+    case do_get_chann_conn_mod(ClientId, ChanPid) of
+        undefined ->
+            %% already deregistered
+            ok;
+        ConnMod when is_atom(ConnMod) ->
+            ok = request_stepdown(takeover_kick, ConnMod, ChanPid)
+    end.
+
+%% @private This function is shared for session `kick' and `discard' (as the first arg
+%% Action).
 kick_session(Action, ClientId, ChanPid) ->
     try
         wrap_rpc(emqx_cm_proto_v2:kick_session(Action, ClientId, ChanPid))
@@ -512,6 +561,28 @@ kick_session(Action, ClientId, ChanPid) ->
                     msg => "failed_to_kick_session_on_remote_node",
                     node => node(ChanPid),
                     action => Action,
+                    error => Error,
+                    reason => Reason
+                },
+                #{clientid => ClientId}
+            )
+    end.
+
+takeover_kick_session(ClientId, ChanPid) ->
+    try
+        wrap_rpc(emqx_cm_proto_v3:takeover_kick_session(ClientId, ChanPid))
+    catch
+        Error:Reason ->
+            %% This should mostly be RPC failures.
+            %% However, if the node is still running the old version
+            %% code (prior to emqx app 4.3.10) some of the RPC handler
+            %% exceptions may get propagated to a new version node
+            ?SLOG(
+                error,
+                #{
+                    msg => "failed_to_kick_session_on_remote_node",
+                    node => node(ChanPid),
+                    action => takeover,
                     error => Error,
                     reason => Reason
                 },

@@ -64,6 +64,12 @@
     maybe_nack/1
 ]).
 
+%% Export for DS session GC worker and session implementations
+-export([
+    will_delay_interval/1,
+    prepare_will_message_for_publishing/2
+]).
+
 %% Exports for CT
 -export([set_field/3]).
 
@@ -885,9 +891,10 @@ do_unsubscribe(
 %%--------------------------------------------------------------------
 
 %% MQTT-v5.0: 3.14.4 DISCONNECT Actions
-maybe_clean_will_msg(?RC_SUCCESS, Channel) ->
+maybe_clean_will_msg(?RC_SUCCESS, Channel = #channel{session = Session0}) ->
     %% [MQTT-3.14.4-3]
-    Channel#channel{will_msg = undefined};
+    Session = emqx_session:clear_will_message(Session0),
+    Channel#channel{will_msg = undefined, session = Session};
 maybe_clean_will_msg(_ReasonCode, Channel) ->
     Channel.
 
@@ -1204,6 +1211,9 @@ handle_call(
     ),
     Channel0 = maybe_publish_will_msg(takenover, Channel),
     disconnect_and_shutdown(takenover, AllPendings, Channel0);
+handle_call(takeover_kick, Channel) ->
+    Channel0 = maybe_publish_will_msg(takenover, Channel),
+    disconnect_and_shutdown(takenover, ok, Channel0);
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 handle_call(
@@ -2301,17 +2311,17 @@ maybe_publish_will_msg(
     Channel;
 maybe_publish_will_msg(
     _Reason,
-    Channel = #channel{
+    Channel0 = #channel{
         conninfo = #{proto_ver := ?MQTT_PROTO_V3, clientid := ClientId}
     }
 ) ->
     %% Unconditionally publish will message for MQTT 3.1.1
     ?tp(debug, maybe_publish_willmsg_v3, #{clientid => ClientId}),
-    _ = publish_will_msg(Channel),
-    Channel#channel{will_msg = undefined};
+    Channel = publish_will_msg(Channel0),
+    remove_willmsg(Channel);
 maybe_publish_will_msg(
     Reason,
-    Channel = #channel{
+    Channel0 = #channel{
         conninfo = #{clientid := ClientId}
     }
 ) when
@@ -2329,12 +2339,20 @@ maybe_publish_will_msg(
     %% d. internal_error (maybe not recoverable)
     %% This ensures willmsg will be published if the willmsg timer is scheduled but not fired
     %% OR fired but not yet handled
-    ?tp(debug, maybe_publish_willmsg_session_ends, #{clientid => ClientId, reason => Reason}),
-    _ = publish_will_msg(Channel),
-    remove_willmsg(Channel);
+    %% NOTE! For durable sessions, `?chan_terminating' does NOT imply that the session is
+    %% gone.
+    case is_durable_session(Channel0) andalso Reason =:= ?chan_terminating of
+        false ->
+            ?tp(debug, maybe_publish_willmsg_session_ends, #{clientid => ClientId, reason => Reason}),
+
+            Channel = publish_will_msg(Channel0),
+            remove_willmsg(Channel);
+        true ->
+            Channel0
+    end;
 maybe_publish_will_msg(
     takenover,
-    Channel = #channel{
+    Channel0 = #channel{
         will_msg = WillMsg,
         conninfo = #{clientid := ClientId}
     }
@@ -2352,7 +2370,8 @@ maybe_publish_will_msg(
     case will_delay_interval(WillMsg) of
         0 ->
             ?tp(debug, maybe_publish_willmsg_takenover_pub, #{clientid => ClientId}),
-            _ = publish_will_msg(Channel);
+            Channel = publish_will_msg(Channel0),
+            ok;
         I when I > 0 ->
             %% @NOTE Non-normative comment in MQTT 5.0 spec
             %% """
@@ -2361,12 +2380,13 @@ maybe_publish_will_msg(
             %% before the Will Message is published.
             %% """
             ?tp(debug, maybe_publish_willmsg_takenover_skip, #{clientid => ClientId}),
+            Channel = Channel0,
             skip
     end,
     remove_willmsg(Channel);
 maybe_publish_will_msg(
     Reason,
-    Channel = #channel{
+    Channel0 = #channel{
         will_msg = WillMsg,
         conninfo = #{clientid := ClientId}
     }
@@ -2377,11 +2397,11 @@ maybe_publish_will_msg(
             ?tp(debug, maybe_publish_will_msg_other_publish, #{
                 clientid => ClientId, reason => Reason
             }),
-            _ = publish_will_msg(Channel),
+            Channel = publish_will_msg(Channel0),
             remove_willmsg(Channel);
         I when I > 0 ->
             ?tp(debug, maybe_publish_will_msg_other_delay, #{clientid => ClientId, reason => Reason}),
-            ensure_timer(will_message, timer:seconds(I), Channel)
+            ensure_timer(will_message, timer:seconds(I), Channel0)
     end.
 
 will_delay_interval(WillMsg) ->
@@ -2394,15 +2414,15 @@ will_delay_interval(WillMsg) ->
 publish_will_msg(
     #channel{
         session = Session,
-        clientinfo = ClientInfo = #{mountpoint := MountPoint},
+        clientinfo = ClientInfo,
         will_msg = Msg = #message{topic = Topic}
-    }
+    } = Channel
 ) ->
-    Action = authz_action(Msg),
-    PublishingDisallowed = emqx_access_control:authorize(ClientInfo, Action, Topic) =/= allow,
-    ClientBanned = emqx_banned:check(ClientInfo),
-    case PublishingDisallowed orelse ClientBanned of
-        true ->
+    case prepare_will_message_for_publishing(ClientInfo, Msg) of
+        {ok, PreparedMessage} ->
+            NSession = emqx_session:publish_will_message_now(Session, PreparedMessage),
+            Channel#channel{session = NSession};
+        {error, #{client_banned := ClientBanned, publishing_disallowed := PublishingDisallowed}} ->
             ?tp(
                 warning,
                 last_will_testament_publish_denied,
@@ -2412,12 +2432,23 @@ publish_will_msg(
                     publishing_disallowed => PublishingDisallowed
                 }
             ),
-            ok;
+            Channel
+    end.
+
+prepare_will_message_for_publishing(
+    ClientInfo = #{mountpoint := MountPoint},
+    Msg = #message{topic = Topic}
+) ->
+    Action = authz_action(Msg),
+    PublishingDisallowed = emqx_access_control:authorize(ClientInfo, Action, Topic) =/= allow,
+    ClientBanned = emqx_banned:check(ClientInfo),
+    case PublishingDisallowed orelse ClientBanned of
+        true ->
+            {error, #{client_banned => ClientBanned, publishing_disallowed => PublishingDisallowed}};
         false ->
             NMsg = emqx_mountpoint:mount(MountPoint, Msg),
-            NMsg2 = NMsg#message{timestamp = erlang:system_time(millisecond)},
-            ok = emqx_session:publish_will_message(Session, NMsg2),
-            ok
+            PreparedMessage = NMsg#message{timestamp = emqx_message:timestamp_now()},
+            {ok, PreparedMessage}
     end.
 
 %%--------------------------------------------------------------------
@@ -2529,6 +2560,15 @@ remove_willmsg(Channel = #channel{timers = Timers}) ->
                 timers = maps:remove(will_message, Timers)
             }
     end.
+
+is_durable_session(#channel{session = Session}) ->
+    case emqx_session:info(impl, Session) of
+        emqx_persistent_session_ds ->
+            true;
+        _ ->
+            false
+    end.
+
 %%--------------------------------------------------------------------
 %% For CT tests
 %%--------------------------------------------------------------------

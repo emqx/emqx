@@ -90,7 +90,8 @@
 
 %% Will message handling
 -export([
-    publish_will_message/2
+    clear_will_message/1,
+    publish_will_message_now/2
 ]).
 
 % Timers
@@ -185,7 +186,8 @@
 -callback open(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
 -callback destroy(t() | clientinfo()) -> ok.
--callback publish_will_message(t(), message()) -> ok.
+-callback clear_will_message(t()) -> t().
+-callback publish_will_message_now(t(), message()) -> t().
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -645,6 +647,10 @@ run_hook(Name, Args) ->
 %% Will message handling
 %%--------------------------------------------------------------------
 
--spec publish_will_message(t(), message()) -> ok.
-publish_will_message(Session, WillMsg) ->
-    ?IMPL(Session):publish_will_message(Session, WillMsg).
+-spec clear_will_message(t()) -> t().
+clear_will_message(Session) ->
+    ?IMPL(Session):clear_will_message(Session).
+
+-spec publish_will_message_now(t(), message()) -> t().
+publish_will_message_now(Session, WillMsg) ->
+    ?IMPL(Session):publish_will_message_now(Session, WillMsg).

@@ -150,6 +150,7 @@ when
         work_dir := file:name()
     }.
 start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
+    emqx_common_test_helpers:clear_screen(),
     % 1. Prepare appspec instructions
     AppSpecs = [mk_appspec(App, SuiteOpts) || App <- Apps],
     % 2. Load every app so that stuff scanning attributes of loaded modules works

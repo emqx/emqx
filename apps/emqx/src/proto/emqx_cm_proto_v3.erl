@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,13 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_cm_proto_v2).
+-module(emqx_cm_proto_v3).
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
 
     lookup_client/2,
     kickout_client/2,
@@ -31,16 +30,16 @@
 
     takeover_session/2,
     takeover_finish/2,
-    kick_session/3
+    kick_session/3,
+
+    %% Introduced in v3
+    takeover_kick_session/2
 ]).
 
 -include("bpapi.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 
 introduced_in() ->
-    "5.0.0".
-
-deprecated_since() ->
     "5.7.0".
 
 -spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
@@ -94,3 +93,14 @@ takeover_finish(ConnMod, ChanPid) ->
 -spec kick_session(kick | discard, emqx_types:clientid(), emqx_cm:chan_pid()) -> ok | {badrpc, _}.
 kick_session(Action, ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_kick_session, [Action, ClientId, ChanPid], ?T_KICK * 2).
+
+%%--------------------------------------------------------------------------------
+%% Introduced in v3
+%%--------------------------------------------------------------------------------
+
+-spec takeover_kick_session(emqx_types:clientid(), emqx_cm:chan_pid()) ->
+    ok | {badrpc, _}.
+takeover_kick_session(ClientId, ChanPid) ->
+    rpc:call(
+        node(ChanPid), emqx_cm, do_takeover_kick_session_v3, [ClientId, ChanPid], ?T_TAKEOVER * 2
+    ).
