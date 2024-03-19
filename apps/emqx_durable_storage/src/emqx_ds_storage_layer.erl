@@ -19,9 +19,12 @@
 
 %% Replication layer API:
 -export([
-    open_shard/2,
+    %% Lifecycle
+    start_link/2,
     drop_shard/1,
     shard_info/2,
+
+    %% Data
     store_batch/3,
     get_streams/3,
     get_delete_streams/3,
@@ -30,14 +33,20 @@
     update_iterator/3,
     next/3,
     delete_next/4,
+
+    %% Generations
     update_config/3,
     add_generation/2,
     list_generations_with_lifetimes/1,
-    drop_generation/2
+    drop_generation/2,
+
+    %% Snapshotting
+    take_snapshot/1,
+    accept_snapshot/1
 ]).
 
 %% gen_server
--export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
 -export([db_dir/1]).
@@ -230,10 +239,7 @@
 -record(call_update_config, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
 -record(call_list_generations_with_lifetimes, {}).
 -record(call_drop_generation, {gen_id :: gen_id()}).
-
--spec open_shard(shard_id(), options()) -> ok.
-open_shard(Shard, Options) ->
-    emqx_ds_storage_layer_sup:ensure_shard(Shard, Options).
+-record(call_take_snapshot, {}).
 
 -spec drop_shard(shard_id()) -> ok.
 drop_shard(Shard) ->
@@ -245,11 +251,23 @@ drop_shard(Shard) ->
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-store_batch(Shard, Messages, Options) ->
+store_batch(Shard, Messages0, Options) ->
     %% We always store messages in the current generation:
     GenId = generation_current(Shard),
-    #{module := Mod, data := GenData} = generation_get(Shard, GenId),
+    #{module := Mod, data := GenData, since := Since} = generation_get(Shard, GenId),
+    case Messages0 of
+        [{Time, _Msg} | Rest] when Time < Since ->
+            %% FIXME: log / feedback
+            Messages = skip_outdated_messages(Since, Rest);
+        _ ->
+            Messages = Messages0
+    end,
     Mod:store_batch(Shard, GenData, Messages, Options).
+
+skip_outdated_messages(Since, [{Time, _Msg} | Rest]) when Time < Since ->
+    skip_outdated_messages(Since, Rest);
+skip_outdated_messages(_Since, Messages) ->
+    Messages.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -445,6 +463,20 @@ shard_info(ShardId, status) ->
         error:badarg -> down
     end.
 
+-spec take_snapshot(shard_id()) -> {ok, emqx_ds_storage_snapshot:reader()} | {error, _Reason}.
+take_snapshot(ShardId) ->
+    case gen_server:call(?REF(ShardId), #call_take_snapshot{}, infinity) of
+        {ok, Dir} ->
+            emqx_ds_storage_snapshot:new_reader(Dir);
+        Error ->
+            Error
+    end.
+
+-spec accept_snapshot(shard_id()) -> {ok, emqx_ds_storage_snapshot:writer()} | {error, _Reason}.
+accept_snapshot(ShardId) ->
+    ok = drop_shard(ShardId),
+    handle_accept_snapshot(ShardId).
+
 %%================================================================================
 %% gen_server for the shard
 %%================================================================================
@@ -514,6 +546,9 @@ handle_call(#call_drop_generation{gen_id = GenId}, _From, S0) ->
     {Reply, S} = handle_drop_generation(S0, GenId),
     commit_metadata(S),
     {reply, Reply, S};
+handle_call(#call_take_snapshot{}, _From, S) ->
+    Snapshot = handle_take_snapshot(S),
+    {reply, Snapshot, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -735,7 +770,11 @@ rocksdb_open(Shard, Options) ->
 
 -spec db_dir(shard_id()) -> file:filename().
 db_dir({DB, ShardId}) ->
-    filename:join([emqx_ds:base_dir(), atom_to_list(DB), binary_to_list(ShardId)]).
+    filename:join([emqx_ds:base_dir(), DB, binary_to_list(ShardId)]).
+
+-spec checkpoint_dir(shard_id(), _Name :: file:name()) -> file:filename().
+checkpoint_dir({DB, ShardId}, Name) ->
+    filename:join([emqx_ds:base_dir(), DB, checkpoints, binary_to_list(ShardId), Name]).
 
 -spec update_last_until(Schema, emqx_ds:time()) ->
     Schema | {error, exists | overlaps_existing_generations}
@@ -767,6 +806,21 @@ run_post_creation_actions(
 run_post_creation_actions(#{new_gen_runtime_data := NewGenData}) ->
     %% Different implementation modules
     NewGenData.
+
+handle_take_snapshot(#s{db = DB, shard_id = ShardId}) ->
+    Name = integer_to_list(erlang:system_time(millisecond)),
+    Dir = checkpoint_dir(ShardId, Name),
+    _ = filelib:ensure_dir(Dir),
+    case rocksdb:checkpoint(DB, Dir) of
+        ok ->
+            {ok, Dir};
+        {error, _} = Error ->
+            Error
+    end.
+
+handle_accept_snapshot(ShardId) ->
+    Dir = db_dir(ShardId),
+    emqx_ds_storage_snapshot:new_writer(Dir).
 
 %%--------------------------------------------------------------------------------
 %% Schema access

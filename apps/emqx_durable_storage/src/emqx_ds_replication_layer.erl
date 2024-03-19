@@ -65,7 +65,9 @@
 
 -export([
     init/1,
-    apply/3
+    apply/3,
+
+    snapshot_module/0
 ]).
 
 -export_type([
@@ -78,6 +80,10 @@
     delete_iterator/0,
     message_id/0,
     batch/0
+]).
+
+-export_type([
+    ra_state/0
 ]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -139,6 +145,20 @@
 }.
 
 -type generation_rank() :: {shard_id(), term()}.
+
+%% Core state of the replication, i.e. the state of ra machine.
+-type ra_state() :: #{
+    db_shard := {emqx_ds:db(), shard_id()},
+    latest := timestamp_us()
+}.
+
+%% Command. Each command is an entry in the replication log.
+-type ra_command() :: #{
+    ?tag := ?BATCH | add_generation | update_config | drop_generation,
+    _ => _
+}.
+
+-type timestamp_us() :: non_neg_integer().
 
 %%================================================================================
 %% API functions
@@ -635,9 +655,12 @@ ra_drop_shard(DB, Shard) ->
 
 %%
 
+-spec init(_Args :: map()) -> ra_state().
 init(#{db := DB, shard := Shard}) ->
     #{db_shard => {DB, Shard}, latest => 0}.
 
+-spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
+    {ra_state(), _Reply, _Effects}.
 apply(
     #{index := RaftIdx},
     #{
@@ -717,3 +740,6 @@ timestamp_to_timeus(TimestampMs) ->
 
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
+
+snapshot_module() ->
+    emqx_ds_replication_snapshot.
