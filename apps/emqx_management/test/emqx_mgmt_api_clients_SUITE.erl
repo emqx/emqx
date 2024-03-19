@@ -715,6 +715,238 @@ t_query_clients_with_time(_) ->
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client1Path),
     {ok, _} = emqx_mgmt_api_test_util:request_api(delete, Client2Path).
 
+t_query_multiple_clients(_) ->
+    process_flag(trap_exit, true),
+    ClientIdsUsers = [
+        {<<"multi_client1">>, <<"multi_user1">>},
+        {<<"multi_client1-1">>, <<"multi_user1">>},
+        {<<"multi_client2">>, <<"multi_user2">>},
+        {<<"multi_client2-1">>, <<"multi_user2">>},
+        {<<"multi_client3">>, <<"multi_user3">>},
+        {<<"multi_client3-1">>, <<"multi_user3">>},
+        {<<"multi_client4">>, <<"multi_user4">>},
+        {<<"multi_client4-1">>, <<"multi_user4">>}
+    ],
+    _Clients = lists:map(
+        fun({ClientId, Username}) ->
+            {ok, C} = emqtt:start_link(#{clientid => ClientId, username => Username}),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        ClientIdsUsers
+    ),
+    timer:sleep(100),
+
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+
+    %% Not found clients/users
+    ?assertEqual([], get_clients(Auth, "clientid=no_such_client")),
+    ?assertEqual([], get_clients(Auth, "clientid=no_such_client&clientid=no_such_client1")),
+    %% Duplicates must cause no issues
+    ?assertEqual([], get_clients(Auth, "clientid=no_such_client&clientid=no_such_client")),
+    ?assertEqual([], get_clients(Auth, "username=no_such_user&clientid=no_such_user1")),
+    ?assertEqual([], get_clients(Auth, "username=no_such_user&clientid=no_such_user")),
+    ?assertEqual(
+        [],
+        get_clients(
+            Auth,
+            "clientid=no_such_client&clientid=no_such_client"
+            "username=no_such_user&clientid=no_such_user1"
+        )
+    ),
+
+    %% Requested ClientId / username values relate to different clients
+    ?assertEqual([], get_clients(Auth, "clientid=multi_client1&username=multi_user2")),
+    ?assertEqual(
+        [],
+        get_clients(
+            Auth,
+            "clientid=multi_client1&clientid=multi_client1-1"
+            "&username=multi_user2&username=multi_user3"
+        )
+    ),
+    ?assertEqual([<<"multi_client1">>], get_clients(Auth, "clientid=multi_client1")),
+    %% Duplicates must cause no issues
+    ?assertEqual(
+        [<<"multi_client1">>], get_clients(Auth, "clientid=multi_client1&clientid=multi_client1")
+    ),
+    ?assertEqual(
+        [<<"multi_client1">>], get_clients(Auth, "clientid=multi_client1&username=multi_user1")
+    ),
+    ?assertEqual(
+        lists:sort([<<"multi_client1">>, <<"multi_client1-1">>]),
+        lists:sort(get_clients(Auth, "username=multi_user1"))
+    ),
+    ?assertEqual(
+        lists:sort([<<"multi_client1">>, <<"multi_client1-1">>]),
+        lists:sort(get_clients(Auth, "clientid=multi_client1&clientid=multi_client1-1"))
+    ),
+    ?assertEqual(
+        lists:sort([<<"multi_client1">>, <<"multi_client1-1">>]),
+        lists:sort(
+            get_clients(
+                Auth,
+                "clientid=multi_client1&clientid=multi_client1-1"
+                "&username=multi_user1"
+            )
+        )
+    ),
+    ?assertEqual(
+        lists:sort([<<"multi_client1">>, <<"multi_client1-1">>]),
+        lists:sort(
+            get_clients(
+                Auth,
+                "clientid=no-such-client&clientid=multi_client1&clientid=multi_client1-1"
+                "&username=multi_user1"
+            )
+        )
+    ),
+    ?assertEqual(
+        lists:sort([<<"multi_client1">>, <<"multi_client1-1">>]),
+        lists:sort(
+            get_clients(
+                Auth,
+                "clientid=no-such-client&clientid=multi_client1&clientid=multi_client1-1"
+                "&username=multi_user1&username=no-such-user"
+            )
+        )
+    ),
+
+    AllQsFun = fun(QsKey, Pos) ->
+        QsParts = [
+            QsKey ++ "=" ++ binary_to_list(element(Pos, ClientUser))
+         || ClientUser <- ClientIdsUsers
+        ],
+        lists:flatten(lists:join("&", QsParts))
+    end,
+    AllClientsQs = AllQsFun("clientid", 1),
+    AllUsersQs = AllQsFun("username", 2),
+    AllClientIds = lists:sort([C || {C, _U} <- ClientIdsUsers]),
+
+    ?assertEqual(AllClientIds, lists:sort(get_clients(Auth, AllClientsQs))),
+    ?assertEqual(AllClientIds, lists:sort(get_clients(Auth, AllUsersQs))),
+    ?assertEqual(AllClientIds, lists:sort(get_clients(Auth, AllClientsQs ++ "&" ++ AllUsersQs))),
+
+    %% Test with other filter params
+    NodeQs = "&node=" ++ atom_to_list(node()),
+    NoNodeQs = "&node=nonode@nohost",
+    ?assertEqual(
+        AllClientIds, lists:sort(get_clients(Auth, AllClientsQs ++ "&" ++ AllUsersQs ++ NodeQs))
+    ),
+    ?assertMatch(
+        {error, _}, get_clients_expect_error(Auth, AllClientsQs ++ "&" ++ AllUsersQs ++ NoNodeQs)
+    ),
+
+    %% fuzzy search (like_{key}) must be ignored if accurate filter ({key}) is present
+    ?assertEqual(
+        AllClientIds,
+        lists:sort(get_clients(Auth, AllClientsQs ++ "&" ++ AllUsersQs ++ "&like_clientid=multi"))
+    ),
+    ?assertEqual(
+        AllClientIds,
+        lists:sort(get_clients(Auth, AllClientsQs ++ "&" ++ AllUsersQs ++ "&like_username=multi"))
+    ),
+    ?assertEqual(
+        AllClientIds,
+        lists:sort(
+            get_clients(Auth, AllClientsQs ++ "&" ++ AllUsersQs ++ "&like_clientid=does-not-matter")
+        )
+    ),
+    ?assertEqual(
+        AllClientIds,
+        lists:sort(
+            get_clients(Auth, AllClientsQs ++ "&" ++ AllUsersQs ++ "&like_username=does-not-matter")
+        )
+    ),
+
+    %% Combining multiple clientids with like_username and vice versa must narrow down search results
+    ?assertEqual(
+        lists:sort([<<"multi_client1">>, <<"multi_client1-1">>]),
+        lists:sort(get_clients(Auth, AllClientsQs ++ "&like_username=user1"))
+    ),
+    ?assertEqual(
+        lists:sort([<<"multi_client1">>, <<"multi_client1-1">>]),
+        lists:sort(get_clients(Auth, AllUsersQs ++ "&like_clientid=client1"))
+    ),
+    ?assertEqual([], get_clients(Auth, AllClientsQs ++ "&like_username=nouser")),
+    ?assertEqual([], get_clients(Auth, AllUsersQs ++ "&like_clientid=nouser")).
+
+t_query_multiple_clients_urlencode(_) ->
+    process_flag(trap_exit, true),
+    ClientIdsUsers = [
+        {<<"multi_client=a?">>, <<"multi_user=a?">>},
+        {<<"mutli_client=b?">>, <<"multi_user=b?">>}
+    ],
+    _Clients = lists:map(
+        fun({ClientId, Username}) ->
+            {ok, C} = emqtt:start_link(#{clientid => ClientId, username => Username}),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        ClientIdsUsers
+    ),
+    timer:sleep(100),
+
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    ClientsQs = uri_string:compose_query([{<<"clientid">>, C} || {C, _} <- ClientIdsUsers]),
+    UsersQs = uri_string:compose_query([{<<"username">>, U} || {_, U} <- ClientIdsUsers]),
+    ExpectedClients = lists:sort([C || {C, _} <- ClientIdsUsers]),
+    ?assertEqual(ExpectedClients, lists:sort(get_clients(Auth, ClientsQs))),
+    ?assertEqual(ExpectedClients, lists:sort(get_clients(Auth, UsersQs))).
+
+t_query_clients_with_fields(_) ->
+    process_flag(trap_exit, true),
+    TCBin = atom_to_binary(?FUNCTION_NAME),
+    ClientId = <<TCBin/binary, "_client">>,
+    Username = <<TCBin/binary, "_user">>,
+    {ok, C} = emqtt:start_link(#{clientid => ClientId, username => Username}),
+    {ok, _} = emqtt:connect(C),
+    timer:sleep(100),
+
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    ?assertEqual([#{<<"clientid">> => ClientId}], get_clients_all_fields(Auth, "fields=clientid")),
+    ?assertEqual(
+        [#{<<"clientid">> => ClientId, <<"username">> => Username}],
+        get_clients_all_fields(Auth, "fields=clientid,username")
+    ),
+
+    AllFields = get_clients_all_fields(Auth, "fields=all"),
+    DefaultFields = get_clients_all_fields(Auth, ""),
+
+    ?assertEqual(AllFields, DefaultFields),
+    ?assertMatch(
+        [#{<<"clientid">> := ClientId, <<"username">> := Username}],
+        AllFields
+    ),
+    ?assert(map_size(hd(AllFields)) > 2),
+    ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=bad_field_name")),
+    ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,bad_field_name")),
+    ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,username,clientid")).
+
+get_clients_all_fields(Auth, Qs) ->
+    get_clients(Auth, Qs, false, false).
+
+get_clients_expect_error(Auth, Qs) ->
+    get_clients(Auth, Qs, true, true).
+
+get_clients(Auth, Qs) ->
+    get_clients(Auth, Qs, false, true).
+
+get_clients(Auth, Qs, ExpectError, ClientIdOnly) ->
+    ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
+    Resp = emqx_mgmt_api_test_util:request_api(get, ClientsPath, Qs, Auth),
+    case ExpectError of
+        false ->
+            {ok, Body} = Resp,
+            #{<<"data">> := Clients} = emqx_utils_json:decode(Body),
+            case ClientIdOnly of
+                true -> [ClientId || #{<<"clientid">> := ClientId} <- Clients];
+                false -> Clients
+            end;
+        true ->
+            Resp
+    end.
+
 t_keepalive(_Config) ->
     Username = "user_keepalive",
     ClientId = "client_keepalive",
