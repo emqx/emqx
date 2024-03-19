@@ -78,10 +78,10 @@ fields(validation) ->
                 hoconsc:enum([drop, disconnect]),
                 #{desc => ?DESC("failure_action"), required => true}
             )},
-        {log_failure_at,
+        {log_failure,
             mk(
-                hoconsc:enum([error, warning, notice, info, debug]),
-                #{desc => ?DESC("log_failure_at"), default => info}
+                ref(log_failure),
+                #{desc => ?DESC("log_failure_at"), default => #{}}
             )},
         {checks,
             mk(
@@ -98,6 +98,14 @@ fields(validation) ->
                             ok
                     end
                 }
+            )}
+    ];
+fields(log_failure) ->
+    [
+        {level,
+            mk(
+                hoconsc:enum([error, warning, notice, info, debug]),
+                #{desc => ?DESC("log_failure_at"), default => info}
             )}
     ];
 fields(check_sql) ->

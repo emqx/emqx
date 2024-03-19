@@ -38,7 +38,7 @@ validation(Name, Checks, Overrides) ->
         <<"topics">> => <<"t/+">>,
         <<"strategy">> => <<"all_pass">>,
         <<"failure_action">> => <<"drop">>,
-        <<"log_failure_at">> => <<"warning">>,
+        <<"log_failure">> => #{<<"level">> => <<"warning">>},
         <<"checks">> => Checks
     },
     emqx_utils_maps:deep_merge(Default, Overrides).
@@ -54,7 +54,7 @@ sql_check(SQL) ->
 
 eval_sql(Message, SQL) ->
     {ok, Check} = emqx_message_validation:parse_sql_check(SQL),
-    Validation = #{log_failure_at => warning, name => <<"validation">>},
+    Validation = #{log_failure => #{level => warning}, name => <<"validation">>},
     emqx_message_validation:evaluate_sql_check(Check, Validation, Message).
 
 message() ->

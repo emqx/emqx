@@ -108,7 +108,7 @@ validation(Name, Checks, Overrides) ->
         <<"topics">> => <<"t/+">>,
         <<"strategy">> => <<"all_pass">>,
         <<"failure_action">> => <<"drop">>,
-        <<"log_failure_at">> => <<"warning">>,
+        <<"log_failure">> => #{<<"level">> => <<"warning">>},
         <<"checks">> => Checks
     },
     emqx_utils_maps:deep_merge(Default, Overrides).

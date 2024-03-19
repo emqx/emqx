@@ -216,7 +216,7 @@ evaluate_sql_check(Check, Validation, Message) ->
     } = Check,
     #{
         name := Name,
-        log_failure_at := FailureLogLevel
+        log_failure := #{level := FailureLogLevel}
     } = Validation,
     {Data, _} = emqx_rule_events:eventmsg_publish(Message),
     try emqx_rule_runtime:evaluate_select(Fields, Data, Conditions) of
@@ -255,7 +255,7 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
     #{schema := SerdeName} = Check,
     #{
         name := Name,
-        log_failure_at := FailureLogLevel
+        log_failure := #{level := FailureLogLevel}
     } = Validation,
     ExtraArgs =
         case Check of
@@ -406,7 +406,7 @@ run_validations(Validations, Message) ->
         Fun = fun(Validation, Acc) ->
             #{
                 name := Name,
-                log_failure_at := FailureLogLevel
+                log_failure := #{level := FailureLogLevel}
             } = Validation,
             case run_validation(Validation, Message) of
                 ok ->
