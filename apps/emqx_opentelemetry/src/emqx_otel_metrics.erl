@@ -258,8 +258,6 @@ create_counter(Meter, Counters, CallBack) ->
         Counters
     ).
 
-%% Note: list_to_existing_atom("cpu.use") will crash
-%% so we make sure the atom is already existing here
 normalize_name(cpu_use) ->
     'cpu.use';
 normalize_name(cpu_idle) ->
