@@ -23,7 +23,8 @@
 -export([
     '/message_validations'/2,
     '/message_validations/reorder'/2,
-    '/message_validations/validation/:name'/2
+    '/message_validations/validation/:name'/2,
+    '/message_validations/validation/:name/enable/:enable'/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -45,7 +46,8 @@ paths() ->
     [
         "/message_validations",
         "/message_validations/reorder",
-        "/message_validations/validation/:name"
+        "/message_validations/validation/:name",
+        "/message_validations/validation/:name/enable/:enable"
     ].
 
 schema("/message_validations") ->
@@ -170,6 +172,22 @@ schema("/message_validations/validation/:name") ->
                     404 => error_schema('NOT_FOUND', "Validation not found")
                 }
         }
+    };
+schema("/message_validations/validation/:name/enable/:enable") ->
+    #{
+        'operationId' => '/message_validations/validation/:name/enable/:enable',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Enable or disable validation">>,
+            description => ?DESC("enable_disable_validation"),
+            parameters => [param_path_name(), param_path_enable()],
+            responses =>
+                #{
+                    204 => <<"No content">>,
+                    404 => error_schema('NOT_FOUND', "Validation not found"),
+                    400 => error_schema('BAD_REQUEST', "Bad params")
+                }
+        }
     }.
 
 param_path_name() ->
@@ -181,6 +199,17 @@ param_path_name() ->
                 required => true,
                 example => <<"my_validation">>,
                 desc => ?DESC("param_path_name")
+            }
+        )}.
+
+param_path_enable() ->
+    {enable,
+        mk(
+            boolean(),
+            #{
+                in => path,
+                required => true,
+                desc => ?DESC("param_path_enable")
             }
         )}.
 
@@ -261,6 +290,15 @@ fields(reorder) ->
 '/message_validations/reorder'(post, #{body := #{<<"order">> := Order}}) ->
     do_reorder(Order).
 
+'/message_validations/validation/:name/enable/:enable'(post, #{
+    bindings := #{name := Name, enable := Enable}
+}) ->
+    with_validation(
+        Name,
+        fun(Validation) -> do_enable_disable(Validation, Enable) end,
+        not_found()
+    ).
+
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns
 %%-------------------------------------------------------------------------------------------------
@@ -328,6 +366,15 @@ do_reorder(Order) ->
             ?BAD_REQUEST(Error)
     end.
 
+do_enable_disable(Validation, Enable) ->
+    RawValidation = make_serializable(Validation),
+    case emqx_message_validation:update(RawValidation#{<<"enable">> => Enable}) of
+        {ok, _} ->
+            ?NO_CONTENT;
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
 with_validation(Name, FoundFn, NotFoundFn) ->
     case emqx_message_validation:lookup(Name) of
         {ok, Validation} ->
@@ -345,3 +392,20 @@ return(Response) ->
 
 not_found() ->
     return(?NOT_FOUND(<<"Validation not found">>)).
+
+make_serializable(Validation) ->
+    Schema = emqx_message_validation_schema,
+    RawConfig = #{
+        <<"message_validation">> => #{
+            <<"validations">> =>
+                [emqx_utils_maps:binary_key_map(Validation)]
+        }
+    },
+    #{
+        <<"message_validation">> := #{
+            <<"validations">> :=
+                [Serialized]
+        }
+    } =
+        hocon_tconf:make_serializable(Schema, RawConfig, #{}),
+    Serialized.

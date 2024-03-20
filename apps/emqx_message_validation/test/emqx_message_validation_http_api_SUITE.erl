@@ -182,6 +182,18 @@ reorder(Order) ->
     ct:pal("reorder result:\n  ~p", [Res]),
     simplify_result(Res).
 
+enable(Name) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name, "enable", "true"]),
+    Res = request(post, Path, _Params = []),
+    ct:pal("enable result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+disable(Name) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name, "enable", "false"]),
+    Res = request(post, Path, _Params = []),
+    ct:pal("disable result:\n  ~p", [Res]),
+    simplify_result(Res).
+
 connect(ClientId) ->
     connect(ClientId, _IsPersistent = false).
 
@@ -598,6 +610,55 @@ t_action_ignore(_Config) ->
             ok
         end
     ),
+    ok.
+
+t_enable_disable_via_api_endpoint(_Config) ->
+    Topic = <<"t">>,
+
+    Name1 = <<"foo">>,
+    AlwaysFailCheck = sql_check(<<"select * where false">>),
+    Validation1 = validation(Name1, [AlwaysFailCheck], #{<<"topics">> => Topic}),
+
+    {201, _} = insert(Validation1),
+    ?assertIndexOrder([Name1], Topic),
+
+    C = connect(<<"c1">>),
+    {ok, _, [_]} = emqtt:subscribe(C, Topic),
+
+    ok = publish(C, Topic, #{}),
+    ?assertNotReceive({publish, _}),
+
+    %% already enabled
+    {204, _} = enable(Name1),
+    ?assertIndexOrder([Name1], Topic),
+    ?assertMatch({200, #{<<"enable">> := true}}, lookup(Name1)),
+
+    ok = publish(C, Topic, #{}),
+    ?assertNotReceive({publish, _}),
+
+    {204, _} = disable(Name1),
+    ?assertIndexOrder([], Topic),
+    ?assertMatch({200, #{<<"enable">> := false}}, lookup(Name1)),
+
+    ok = publish(C, Topic, #{}),
+    ?assertReceive({publish, _}),
+
+    %% already disabled
+    {204, _} = disable(Name1),
+    ?assertIndexOrder([], Topic),
+    ?assertMatch({200, #{<<"enable">> := false}}, lookup(Name1)),
+
+    ok = publish(C, Topic, #{}),
+    ?assertReceive({publish, _}),
+
+    %% Re-enable
+    {204, _} = enable(Name1),
+    ?assertIndexOrder([Name1], Topic),
+    ?assertMatch({200, #{<<"enable">> := true}}, lookup(Name1)),
+
+    ok = publish(C, Topic, #{}),
+    ?assertNotReceive({publish, _}),
+
     ok.
 
 %% Check the `all_pass' strategy
