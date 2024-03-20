@@ -131,12 +131,14 @@ fields(builtin) ->
                     desc => ?DESC(builtin_n_shards)
                 }
             )},
-        %% TODO: Minimum number of sites that will be responsible for the shards
+        %% TODO: Deprecate once cluster management and rebalancing is implemented.
         {"n_sites",
             sc(
                 pos_integer(),
                 #{
-                    default => 1
+                    default => 1,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(builtin_n_sites)
                 }
             )},
         {replication_factor,
