@@ -154,7 +154,7 @@ do_authorize(ClientInfo, Action, Topic) ->
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
-            ok = log_result(ClientInfo, Topic, Action, From, Result),
+            ok = log_result(Topic, Action, From, Result),
             emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, Result, From]
@@ -173,24 +173,28 @@ do_authorize(ClientInfo, Action, Topic) ->
             deny
     end.
 
-log_result(#{username := Username}, Topic, Action, From, Result) ->
+log_result(Topic, Action, From, Result) ->
     LogMeta = fun() ->
         #{
-            username => Username,
             topic => Topic,
             action => format_action(Action),
             source => format_from(From)
         }
     end,
-    case Result of
-        allow ->
-            ?SLOG(info, (LogMeta())#{msg => "authorization_permission_allowed"});
-        deny ->
-            ?SLOG_THROTTLE(
-                warning,
-                (LogMeta())#{msg => authorization_permission_denied}
-            )
-    end.
+    do_log_result(Action, Result, LogMeta).
+
+do_log_result(_Action, allow, LogMeta) ->
+    ?SLOG(info, (LogMeta())#{msg => "authorization_permission_allowed"}, #{tag => "AUTHZ"});
+do_log_result(?AUTHZ_PUBLISH_MATCH_MAP(_, _), deny, LogMeta) ->
+    %% for publish action, we do not log permission deny at warning level here
+    %% because it will be logged as cannot_publish_to_topic_due_to_not_authorized
+    ?SLOG(info, (LogMeta())#{msg => "authorization_permission_denied"}, #{tag => "AUTHZ"});
+do_log_result(_, deny, LogMeta) ->
+    ?SLOG_THROTTLE(
+        warning,
+        (LogMeta())#{msg => authorization_permission_denied},
+        #{tag => "AUTHZ"}
+    ).
 
 %% @private Format authorization rules source.
 format_from(default) ->

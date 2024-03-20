@@ -78,6 +78,7 @@
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
 -define(LOG_THROTTLING_MSGS, [
+    authentication_failure,
     authorization_permission_denied,
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
