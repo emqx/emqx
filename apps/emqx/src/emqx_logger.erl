@@ -43,6 +43,7 @@
 -export([
     set_metadata_peername/1,
     set_metadata_clientid/1,
+    set_metadata_username/1,
     set_proc_metadata/1,
     set_primary_log_level/1,
     set_log_handler_level/2,
@@ -141,6 +142,12 @@ set_metadata_clientid(<<>>) ->
     ok;
 set_metadata_clientid(ClientId) ->
     set_proc_metadata(#{clientid => ClientId}).
+
+-spec set_metadata_username(emqx_types:username()) -> ok.
+set_metadata_username(Username) when Username =:= undefined orelse Username =:= <<>> ->
+    ok;
+set_metadata_username(Username) ->
+    set_proc_metadata(#{username => Username}).
 
 -spec set_metadata_peername(peername_str()) -> ok.
 set_metadata_peername(Peername) ->

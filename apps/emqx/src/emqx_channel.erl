@@ -633,7 +633,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     msg => cannot_publish_to_topic_due_to_not_authorized,
                     reason => emqx_reason_codes:name(Rc)
                 },
-                #{topic => Topic}
+                #{topic => Topic, tag => "AUTHZ"}
             ),
             case emqx:get_config([authorization, deny_action], ignore) of
                 ignore ->
@@ -652,7 +652,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     msg => cannot_publish_to_topic_due_to_quota_exceeded,
                     reason => emqx_reason_codes:name(Rc)
                 },
-                #{topic => Topic}
+                #{topic => Topic, tag => "AUTHZ"}
             ),
             case QoS of
                 ?QOS_0 ->
@@ -1612,8 +1612,10 @@ fix_mountpoint(_ConnPkt, ClientInfo = #{mountpoint := MountPoint}) ->
 %%--------------------------------------------------------------------
 %% Set log metadata
 
-set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId}}) ->
-    emqx_logger:set_metadata_clientid(ClientId).
+set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
+    Username = maps:get(username, ClientInfo, undefined),
+    emqx_logger:set_metadata_clientid(ClientId),
+    emqx_logger:set_metadata_username(Username).
 
 %%--------------------------------------------------------------------
 %% Check banned
@@ -1680,6 +1682,7 @@ authenticate(
                 Channel
             );
         _ ->
+            log_auth_failure("bad_authentication_method"),
             {error, ?RC_BAD_AUTHENTICATION_METHOD}
     end.
 
@@ -1706,6 +1709,7 @@ do_authenticate(
                 auth_cache = AuthCache
             }};
         {error, Reason} ->
+            log_auth_failure(Reason),
             {error, emqx_reason_codes:connack_error(Reason)}
     end;
 do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
@@ -1713,8 +1717,19 @@ do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
         {ok, AuthResult} ->
             {ok, #{}, Channel#channel{clientinfo = merge_auth_result(ClientInfo, AuthResult)}};
         {error, Reason} ->
+            log_auth_failure(Reason),
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
+
+log_auth_failure(Reason) ->
+    ?SLOG_THROTTLE(
+        warning,
+        #{
+            msg => authentication_failure,
+            reason => Reason
+        },
+        #{tag => "AUTHN"}
+    ).
 
 merge_auth_result(ClientInfo, AuthResult) when is_map(ClientInfo) andalso is_map(AuthResult) ->
     IsSuperuser = maps:get(is_superuser, AuthResult, false),

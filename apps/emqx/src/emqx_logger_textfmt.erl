@@ -69,7 +69,9 @@ enrich_report(ReportRaw, Meta) ->
     ClientId = maps:get(clientid, Meta, undefined),
     Peer = maps:get(peername, Meta, undefined),
     Msg = maps:get(msg, ReportRaw, undefined),
-    Tag = maps:get(tag, ReportRaw, undefined),
+    %% TODO: move all tags to Meta so we can filter traces
+    %% based on tags (currently not supported)
+    Tag = maps:get(tag, ReportRaw, maps:get(tag, Meta, undefined)),
     %% turn it into a list so that the order of the fields is determined
     lists:foldl(
         fun
