@@ -72,7 +72,8 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_oracle_connector_info,
         emqx_bridge_influxdb_connector_info,
         emqx_bridge_cassandra_connector_info,
-        emqx_bridge_clickhouse_connector_info
+        emqx_bridge_clickhouse_connector_info,
+        emqx_bridge_mysql_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->

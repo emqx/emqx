@@ -21,8 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(mysql) ->
-    emqx_bridge_mysql_connector;
 resource_type(syskeeper_forwarder) ->
     emqx_bridge_syskeeper_connector;
 resource_type(syskeeper_proxy) ->
@@ -77,14 +75,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {mysql,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_mysql, "config_connector")),
-                #{
-                    desc => <<"MySQL Connector Config">>,
-                    required => false
-                }
-            )},
         {redis,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_redis_schema, "config_connector")),
@@ -193,7 +183,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_mysql,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
         emqx_bridge_sqlserver,
@@ -214,7 +203,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_mysql, <<"mysql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
         api_ref(emqx_bridge_sqlserver, <<"sqlserver">>, Method ++ "_connector"),
