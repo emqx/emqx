@@ -661,6 +661,21 @@ t_enable_disable_via_api_endpoint(_Config) ->
 
     ok.
 
+t_duplicated_schema_checks(_Config) ->
+    Name1 = <<"foo">>,
+    SerdeName = <<"myserde">>,
+    Check = schema_check(json, SerdeName),
+
+    Validation1 = validation(Name1, [Check, sql_check(), Check]),
+    ?assertMatch({400, _}, insert(Validation1)),
+
+    Validation2 = validation(Name1, [Check, sql_check()]),
+    ?assertMatch({201, _}, insert(Validation2)),
+
+    ?assertMatch({400, _}, update(Validation1)),
+
+    ok.
+
 %% Check the `all_pass' strategy
 t_all_pass(_Config) ->
     Name1 = <<"foo">>,

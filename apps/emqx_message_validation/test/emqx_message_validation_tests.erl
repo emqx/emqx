@@ -52,6 +52,18 @@ sql_check(SQL) ->
         <<"sql">> => SQL
     }.
 
+schema_check(Type, SerdeName) ->
+    schema_check(Type, SerdeName, _Overrides = #{}).
+
+schema_check(Type, SerdeName, Overrides) ->
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"type">> => emqx_utils_conv:bin(Type),
+            <<"schema">> => SerdeName
+        },
+        Overrides
+    ).
+
 eval_sql(Message, SQL) ->
     {ok, Check} = emqx_message_validation:parse_sql_check(SQL),
     Validation = #{log_failure => #{level => warning}, name => <<"validation">>},
@@ -216,4 +228,115 @@ check_test_() ->
         {"never passes 1", ?_assertNot(eval_sql(message(), <<"select * where false">>))},
         {"never passes 2", ?_assertNot(eval_sql(message(), <<"select * where 1 = 2">>))},
         {"never passes 3", ?_assertNot(eval_sql(message(), <<"select * where true and false">>))}
+    ].
+
+duplicated_check_test_() ->
+    [
+        {"duplicated sql checks are not checked",
+            ?_assertMatch(
+                [#{<<"checks">> := [_, _]}],
+                parse_and_check([
+                    validation(<<"foo">>, [sql_check(), sql_check()])
+                ])
+            )},
+        {"different serdes with same name",
+            ?_assertMatch(
+                [#{<<"checks">> := [_, _, _]}],
+                parse_and_check([
+                    validation(<<"foo">>, [
+                        schema_check(json, <<"a">>),
+                        schema_check(avro, <<"a">>),
+                        schema_check(
+                            protobuf,
+                            <<"a">>,
+                            #{<<"message_name">> => <<"a">>}
+                        )
+                    ])
+                ])
+            )},
+        {"duplicated serdes 1",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated schema checks: json:a">>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.checks"
+                    }
+                ]},
+                parse_and_check([
+                    validation(<<"foo">>, [
+                        schema_check(json, <<"a">>),
+                        schema_check(json, <<"a">>)
+                    ])
+                ])
+            )},
+        {"duplicated serdes 2",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated schema checks: json:a">>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.checks"
+                    }
+                ]},
+                parse_and_check([
+                    validation(<<"foo">>, [
+                        schema_check(json, <<"a">>),
+                        sql_check(),
+                        schema_check(json, <<"a">>)
+                    ])
+                ])
+            )},
+        {"duplicated serdes 3",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated schema checks: json:a">>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.checks"
+                    }
+                ]},
+                parse_and_check([
+                    validation(<<"foo">>, [
+                        schema_check(json, <<"a">>),
+                        schema_check(json, <<"a">>),
+                        sql_check()
+                    ])
+                ])
+            )},
+        {"duplicated serdes 4",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated schema checks: json:a">>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.checks"
+                    }
+                ]},
+                parse_and_check([
+                    validation(<<"foo">>, [
+                        schema_check(json, <<"a">>),
+                        schema_check(json, <<"a">>),
+                        schema_check(json, <<"a">>)
+                    ])
+                ])
+            )},
+        {"duplicated serdes 4",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated schema checks: ", _/binary>>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.checks"
+                    }
+                ]},
+                parse_and_check([
+                    validation(<<"foo">>, [
+                        schema_check(json, <<"a">>),
+                        schema_check(json, <<"a">>),
+                        schema_check(avro, <<"b">>),
+                        schema_check(avro, <<"b">>)
+                    ])
+                ])
+            )}
     ].

@@ -91,12 +91,7 @@ fields(validation) ->
                 #{
                     required => true,
                     desc => ?DESC("checks"),
-                    validator => fun
-                        ([]) ->
-                            {error, "at least one check must be defined"};
-                        (_) ->
-                            ok
-                    end
+                    validator => fun validate_unique_schema_checks/1
                 }
             )}
     ];
@@ -232,3 +227,45 @@ do_validate_unique_names([#{<<"name">> := Name} | _Rest], Acc) when is_map_key(N
     {error, <<"duplicated name: ", Name/binary>>};
 do_validate_unique_names([#{<<"name">> := Name} | Rest], Acc) ->
     do_validate_unique_names(Rest, Acc#{Name => true}).
+
+validate_unique_schema_checks([]) ->
+    {error, "at least one check must be defined"};
+validate_unique_schema_checks(Checks) ->
+    Seen = sets:new([{version, 2}]),
+    Duplicated = sets:new([{version, 2}]),
+    do_validate_unique_schema_checks(Checks, Seen, Duplicated).
+
+do_validate_unique_schema_checks(_Checks = [], _Seen, Duplicated) ->
+    case sets:to_list(Duplicated) of
+        [] ->
+            ok;
+        DuplicatedChecks0 ->
+            DuplicatedChecks =
+                lists:map(
+                    fun({Type, SerdeName}) ->
+                        [atom_to_binary(Type), ":", SerdeName]
+                    end,
+                    DuplicatedChecks0
+                ),
+            Msg = iolist_to_binary([
+                <<"duplicated schema checks: ">>,
+                lists:join(", ", DuplicatedChecks)
+            ]),
+            {error, Msg}
+    end;
+do_validate_unique_schema_checks(
+    [#{<<"type">> := Type, <<"schema">> := SerdeName} | Rest],
+    Seen0,
+    Duplicated0
+) ->
+    Check = {Type, SerdeName},
+    case sets:is_element(Check, Seen0) of
+        true ->
+            Duplicated = sets:add_element(Check, Duplicated0),
+            do_validate_unique_schema_checks(Rest, Seen0, Duplicated);
+        false ->
+            Seen = sets:add_element(Check, Seen0),
+            do_validate_unique_schema_checks(Rest, Seen, Duplicated0)
+    end;
+do_validate_unique_schema_checks([_Check | Rest], Seen, Duplicated) ->
+    do_validate_unique_schema_checks(Rest, Seen, Duplicated).
