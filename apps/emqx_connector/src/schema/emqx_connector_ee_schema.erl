@@ -21,8 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(oracle) ->
-    emqx_oracle;
 resource_type(influxdb) ->
     emqx_bridge_influxdb_connector;
 resource_type(cassandra) ->
@@ -85,15 +83,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {oracle,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_oracle, "config_connector")),
-                #{
-                    desc => <<"Oracle Connector Config">>,
-                    required => false,
-                    validator => fun emqx_bridge_oracle:config_validator/1
-                }
-            )},
         {influxdb,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_influxdb, "config_connector")),
@@ -234,7 +223,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_oracle,
         emqx_bridge_influxdb,
         emqx_bridge_cassandra,
         emqx_bridge_clickhouse,
@@ -259,7 +247,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_oracle, <<"oracle">>, Method ++ "_connector"),
         api_ref(emqx_bridge_influxdb, <<"influxdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_cassandra, <<"cassandra">>, Method ++ "_connector"),
         api_ref(emqx_bridge_clickhouse, <<"clickhouse">>, Method ++ "_connector"),
