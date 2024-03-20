@@ -36,12 +36,15 @@
 %% API
 %%================================================================================
 
-translate_builtin(#{
-    backend := builtin,
-    n_shards := NShards,
-    replication_factor := ReplFactor,
-    layout := Layout
-}) ->
+translate_builtin(
+    Backend = #{
+        backend := builtin,
+        n_shards := NShards,
+        n_sites := NSites,
+        replication_factor := ReplFactor,
+        layout := Layout
+    }
+) ->
     Storage =
         case Layout of
             #{
@@ -61,7 +64,9 @@ translate_builtin(#{
     #{
         backend => builtin,
         n_shards => NShards,
+        n_sites => NSites,
         replication_factor => ReplFactor,
+        replication_options => maps:get(replication_options, Backend, #{}),
         storage => Storage
     }.
 
@@ -126,11 +131,30 @@ fields(builtin) ->
                     desc => ?DESC(builtin_n_shards)
                 }
             )},
+        %% TODO: Deprecate once cluster management and rebalancing is implemented.
+        {"n_sites",
+            sc(
+                pos_integer(),
+                #{
+                    default => 1,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(builtin_n_sites)
+                }
+            )},
         {replication_factor,
             sc(
                 pos_integer(),
                 #{
                     default => 3,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        %% TODO: Elaborate.
+        {"replication_options",
+            sc(
+                hoconsc:map(name, any()),
+                #{
+                    default => #{},
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -201,7 +225,7 @@ fields(layout_builtin_wildcard_optimized) ->
             sc(
                 range(0, 64),
                 #{
-                    default => 10,
+                    default => 20,
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(wildcard_optimized_epoch_bits)
                 }

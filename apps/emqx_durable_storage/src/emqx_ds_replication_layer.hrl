@@ -29,6 +29,16 @@
 -define(tag, 1).
 -define(shard, 2).
 -define(enc, 3).
+
+%% ?BATCH
 -define(batch_messages, 2).
+-define(timestamp, 3).
+
+%% add_generation / update_config
+-define(config, 2).
+-define(since, 3).
+
+%% drop_generation
+-define(generation, 2).
 
 -endif.

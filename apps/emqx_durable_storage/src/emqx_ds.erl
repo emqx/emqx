@@ -43,6 +43,7 @@
 
 %% Misc. API:
 -export([count/1]).
+-export([timestamp_us/0]).
 
 -export_type([
     create_db_opts/0,
@@ -147,9 +148,8 @@
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
 %% Timestamp
+%% Each message must have unique timestamp.
 %% Earliest possible timestamp is 0.
-%% TODO granularity?  Currently, we should always use milliseconds, as that's the unit we
-%% use in emqx_guid.  Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
 
 -type message_store_opts() ::
@@ -295,6 +295,7 @@ drop_db(DB) ->
         undefined ->
             ok;
         Module ->
+            _ = persistent_term:erase(?persistent_term(DB)),
             Module:drop_db(DB)
     end.
 
@@ -393,6 +394,10 @@ count(DB) ->
 %%================================================================================
 %% Internal exports
 %%================================================================================
+
+-spec timestamp_us() -> time().
+timestamp_us() ->
+    erlang:system_time(microsecond).
 
 %%================================================================================
 %% Internal functions

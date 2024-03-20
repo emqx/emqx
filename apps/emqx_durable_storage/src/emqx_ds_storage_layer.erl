@@ -29,8 +29,8 @@
     update_iterator/3,
     next/3,
     delete_next/4,
-    update_config/2,
-    add_generation/1,
+    update_config/3,
+    add_generation/2,
     list_generations_with_lifetimes/1,
     drop_generation/2
 ]).
@@ -133,7 +133,7 @@
     cf_refs := cf_refs(),
     %% Time at which this was created.  Might differ from `since', in particular for the
     %% first generation.
-    created_at := emqx_ds:time(),
+    created_at := emqx_message:timestamp(),
     %% When should this generation become active?
     %% This generation should only contain messages timestamped no earlier than that.
     %% The very first generation will have `since` equal 0.
@@ -194,7 +194,12 @@
 -callback drop(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _RuntimeData) ->
     ok | {error, _Reason}.
 
--callback store_batch(shard_id(), _Data, [emqx_types:message()], emqx_ds:message_store_opts()) ->
+-callback store_batch(
+    shard_id(),
+    _Data,
+    [{emqx_ds:time(), emqx_types:message()}],
+    emqx_ds:message_store_opts()
+) ->
     emqx_ds:store_batch_result().
 
 -callback get_streams(shard_id(), _Data, emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -219,6 +224,9 @@
 %% API for the replication layer
 %%================================================================================
 
+%% Note: we specify gen_server requests as records to make use of Dialyzer:
+-record(call_add_generation, {since :: emqx_ds:time()}).
+-record(call_update_config, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
 -record(call_list_generations_with_lifetimes, {}).
 -record(call_drop_generation, {gen_id :: gen_id()}).
 
@@ -230,7 +238,11 @@ open_shard(Shard, Options) ->
 drop_shard(Shard) ->
     ok = rocksdb:destroy(db_dir(Shard), []).
 
--spec store_batch(shard_id(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
+-spec store_batch(
+    shard_id(),
+    [{emqx_ds:time(), emqx_types:message()}],
+    emqx_ds:message_store_opts()
+) ->
     emqx_ds:store_batch_result().
 store_batch(Shard, Messages, Options) ->
     %% We always store messages in the current generation:
@@ -398,13 +410,16 @@ delete_next(
             {ok, end_of_stream}
     end.
 
--spec update_config(shard_id(), emqx_ds:create_db_opts()) -> ok.
-update_config(ShardId, Options) ->
-    gen_server:call(?REF(ShardId), {?FUNCTION_NAME, Options}, infinity).
+-spec update_config(shard_id(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
+    ok | {error, overlaps_existing_generations}.
+update_config(ShardId, Since, Options) ->
+    Call = #call_update_config{since = Since, options = Options},
+    gen_server:call(?REF(ShardId), Call, infinity).
 
--spec add_generation(shard_id()) -> ok.
-add_generation(ShardId) ->
-    gen_server:call(?REF(ShardId), add_generation, infinity).
+-spec add_generation(shard_id(), emqx_ds:time()) ->
+    ok | {error, overlaps_existing_generations}.
+add_generation(ShardId, Since) ->
+    gen_server:call(?REF(ShardId), #call_add_generation{since = Since}, infinity).
 
 -spec list_generations_with_lifetimes(shard_id()) ->
     #{
@@ -438,9 +453,6 @@ start_link(Shard = {_, _}, Options) ->
     shard :: shard()
 }).
 
-%% Note: we specify gen_server requests as records to make use of Dialyzer:
--record(call_create_generation, {since :: emqx_ds:time()}).
-
 -type server_state() :: #s{}.
 
 -define(DEFAULT_CF, "default").
@@ -470,18 +482,22 @@ init({ShardId, Options}) ->
     commit_metadata(S),
     {ok, S}.
 
-handle_call({update_config, Options}, _From, #s{schema = Schema} = S0) ->
-    Prototype = maps:get(storage, Options),
-    S1 = S0#s{schema = Schema#{prototype := Prototype}},
-    Since = emqx_message:timestamp_now(),
-    S = add_generation(S1, Since),
-    commit_metadata(S),
-    {reply, ok, S};
-handle_call(add_generation, _From, S0) ->
-    Since = emqx_message:timestamp_now(),
-    S = add_generation(S0, Since),
-    commit_metadata(S),
-    {reply, ok, S};
+handle_call(#call_update_config{since = Since, options = Options}, _From, S0) ->
+    case handle_update_config(S0, Since, Options) of
+        S = #s{} ->
+            commit_metadata(S),
+            {reply, ok, S};
+        Error = {error, _} ->
+            {reply, Error, S0}
+    end;
+handle_call(#call_add_generation{since = Since}, _From, S0) ->
+    case handle_add_generation(S0, Since) of
+        S = #s{} ->
+            commit_metadata(S),
+            {reply, ok, S};
+        Error = {error, _} ->
+            {reply, Error, S0}
+    end;
 handle_call(#call_list_generations_with_lifetimes{}, _From, S) ->
     Generations = handle_list_generations_with_lifetimes(S),
     {reply, Generations, S};
@@ -489,10 +505,6 @@ handle_call(#call_drop_generation{gen_id = GenId}, _From, S0) ->
     {Reply, S} = handle_drop_generation(S0, GenId),
     commit_metadata(S),
     {reply, Reply, S};
-handle_call(#call_create_generation{since = Since}, _From, S0) ->
-    S = add_generation(S0, Since),
-    commit_metadata(S),
-    {reply, ok, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -528,11 +540,10 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
         ShardSchema
     ).
 
--spec add_generation(server_state(), emqx_ds:time()) -> server_state().
-add_generation(S0, Since) ->
+-spec handle_add_generation(server_state(), emqx_ds:time()) ->
+    server_state() | {error, overlaps_existing_generations}.
+handle_add_generation(S0, Since) ->
     #s{shard_id = ShardId, db = DB, schema = Schema0, shard = Shard0, cf_refs = CFRefs0} = S0,
-    Schema1 = update_last_until(Schema0, Since),
-    Shard1 = update_last_until(Shard0, Since),
 
     #{current_generation := OldGenId, prototype := {CurrentMod, _ModConf}} = Schema0,
     OldKey = ?GEN_KEY(OldGenId),
@@ -540,39 +551,53 @@ add_generation(S0, Since) ->
     #{cf_refs := OldCFRefs} = OldGenSchema,
     #{OldKey := #{module := OldMod, data := OldGenData}} = Shard0,
 
-    {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema1, Since),
+    Schema1 = update_last_until(Schema0, Since),
+    Shard1 = update_last_until(Shard0, Since),
 
-    CFRefs = NewCFRefs ++ CFRefs0,
-    Key = ?GEN_KEY(GenId),
-    Generation0 =
-        #{data := NewGenData0} =
-        open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
+    case Schema1 of
+        _Updated = #{} ->
+            {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema1, Since),
+            CFRefs = NewCFRefs ++ CFRefs0,
+            Key = ?GEN_KEY(GenId),
+            Generation0 =
+                #{data := NewGenData0} =
+                open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
+            %% When the new generation's module is the same as the last one, we might want to
+            %% perform actions like inheriting some of the previous (meta)data.
+            NewGenData =
+                run_post_creation_actions(
+                    #{
+                        shard_id => ShardId,
+                        db => DB,
+                        new_gen_id => GenId,
+                        old_gen_id => OldGenId,
+                        new_cf_refs => NewCFRefs,
+                        old_cf_refs => OldCFRefs,
+                        new_gen_runtime_data => NewGenData0,
+                        old_gen_runtime_data => OldGenData,
+                        new_module => CurrentMod,
+                        old_module => OldMod
+                    }
+                ),
+            Generation = Generation0#{data := NewGenData},
+            Shard = Shard1#{current_generation := GenId, Key => Generation},
+            S0#s{
+                cf_refs = CFRefs,
+                schema = Schema,
+                shard = Shard
+            };
+        {error, exists} ->
+            S0;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
-    %% When the new generation's module is the same as the last one, we might want to
-    %% perform actions like inheriting some of the previous (meta)data.
-    NewGenData =
-        run_post_creation_actions(
-            #{
-                shard_id => ShardId,
-                db => DB,
-                new_gen_id => GenId,
-                old_gen_id => OldGenId,
-                new_cf_refs => NewCFRefs,
-                old_cf_refs => OldCFRefs,
-                new_gen_runtime_data => NewGenData0,
-                old_gen_runtime_data => OldGenData,
-                new_module => CurrentMod,
-                old_module => OldMod
-            }
-        ),
-    Generation = Generation0#{data := NewGenData},
-
-    Shard = Shard1#{current_generation := GenId, Key => Generation},
-    S0#s{
-        cf_refs = CFRefs,
-        schema = Schema,
-        shard = Shard
-    }.
+-spec handle_update_config(server_state(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
+    server_state() | {error, overlaps_existing_generations}.
+handle_update_config(S0 = #s{schema = Schema}, Since, Options) ->
+    Prototype = maps:get(storage, Options),
+    S = S0#s{schema = Schema#{prototype := Prototype}},
+    handle_add_generation(S, Since).
 
 -spec handle_list_generations_with_lifetimes(server_state()) -> #{gen_id() => map()}.
 handle_list_generations_with_lifetimes(#s{schema = ShardSchema}) ->
@@ -652,7 +677,7 @@ new_generation(ShardId, DB, Schema0, Since) ->
         module => Mod,
         data => GenData,
         cf_refs => NewCFRefs,
-        created_at => emqx_message:timestamp_now(),
+        created_at => erlang:system_time(millisecond),
         since => Since,
         until => undefined
     },
@@ -703,12 +728,19 @@ rocksdb_open(Shard, Options) ->
 db_dir({DB, ShardId}) ->
     filename:join([emqx_ds:base_dir(), atom_to_list(DB), binary_to_list(ShardId)]).
 
--spec update_last_until(Schema, emqx_ds:time()) -> Schema when Schema :: shard_schema() | shard().
-update_last_until(Schema, Until) ->
-    #{current_generation := GenId} = Schema,
-    GenData0 = maps:get(?GEN_KEY(GenId), Schema),
-    GenData = GenData0#{until := Until},
-    Schema#{?GEN_KEY(GenId) := GenData}.
+-spec update_last_until(Schema, emqx_ds:time()) ->
+    Schema | {error, exists | overlaps_existing_generations}
+when
+    Schema :: shard_schema() | shard().
+update_last_until(Schema = #{current_generation := GenId}, Until) ->
+    case maps:get(?GEN_KEY(GenId), Schema) of
+        GenData = #{since := CurrentSince} when CurrentSince < Until ->
+            Schema#{?GEN_KEY(GenId) := GenData#{until := Until}};
+        #{since := Until} ->
+            {error, exists};
+        #{since := CurrentSince} when CurrentSince > Until ->
+            {error, overlaps_existing_generations}
+    end.
 
 run_post_creation_actions(
     #{

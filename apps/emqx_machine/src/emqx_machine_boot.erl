@@ -31,7 +31,7 @@
 -endif.
 
 %% These apps are always (re)started by emqx_machine:
--define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx]).
+-define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx_durable_storage, emqx]).
 
 %% If any of these applications crash, the entire EMQX node shuts down:
 -define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx]).

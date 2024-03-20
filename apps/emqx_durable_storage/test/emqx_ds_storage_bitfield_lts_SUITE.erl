@@ -29,7 +29,9 @@
     backend => builtin,
     storage => {emqx_ds_storage_bitfield_lts, #{}},
     n_shards => 1,
-    replication_factor => 1
+    n_sites => 1,
+    replication_factor => 1,
+    replication_options => #{}
 }).
 
 -define(COMPACT_CONFIG, #{
@@ -54,7 +56,7 @@ t_store(_Config) ->
         payload = Payload,
         timestamp = PublishedAt
     },
-    ?assertMatch(ok, emqx_ds_storage_layer:store_batch(?SHARD, [Msg], #{})).
+    ?assertMatch(ok, emqx_ds_storage_layer:store_batch(?SHARD, [{PublishedAt, Msg}], #{})).
 
 %% Smoke test for iteration through a concrete topic
 t_iterate(_Config) ->
@@ -62,7 +64,7 @@ t_iterate(_Config) ->
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"a">>],
     Timestamps = lists:seq(1, 10),
     Batch = [
-        make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
+        {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
     ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
@@ -90,7 +92,7 @@ t_delete(_Config) ->
     Topics = [<<"foo/bar">>, TopicToDelete, <<"a">>],
     Timestamps = lists:seq(1, 10),
     Batch = [
-        make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
+        {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
     ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
@@ -121,7 +123,7 @@ t_get_streams(_Config) ->
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"a">>],
     Timestamps = lists:seq(1, 10),
     Batch = [
-        make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
+        {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
     ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
@@ -147,7 +149,7 @@ t_get_streams(_Config) ->
     NewBatch = [
         begin
             B = integer_to_binary(I),
-            make_message(100, <<"foo/bar/", B/binary>>, <<"filler", B/binary>>)
+            {100, make_message(100, <<"foo/bar/", B/binary>>, <<"filler", B/binary>>)}
         end
      || I <- lists:seq(1, 200)
     ],
@@ -176,12 +178,8 @@ t_new_generation_inherit_trie(_Config) ->
             Timestamps = lists:seq(1, 10_000, 100),
             Batch = [
                 begin
-                    B = integer_to_binary(I),
-                    make_message(
-                        TS,
-                        <<"wildcard/", B/binary, "/suffix/", Suffix/binary>>,
-                        integer_to_binary(TS)
-                    )
+                    Topic = emqx_topic:join(["wildcard", integer_to_binary(I), "suffix", Suffix]),
+                    {TS, make_message(TS, Topic, integer_to_binary(TS))}
                 end
              || I <- lists:seq(1, 200),
                 TS <- Timestamps,
@@ -190,7 +188,7 @@ t_new_generation_inherit_trie(_Config) ->
             ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
             %% Now we create a new generation with the same LTS module.  It should inherit the
             %% learned trie.
-            ok = emqx_ds_storage_layer:add_generation(?SHARD),
+            ok = emqx_ds_storage_layer:add_generation(?SHARD, _Since = 1000),
             ok
         end,
         fun(Trace) ->
@@ -205,23 +203,21 @@ t_replay(_Config) ->
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>],
     Timestamps = lists:seq(1, 10_000, 100),
     Batch1 = [
-        make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
+        {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
     ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch1, []),
     %% Create wildcard topics `wildcard/+/suffix/foo' and `wildcard/+/suffix/bar':
     Batch2 = [
         begin
-            B = integer_to_binary(I),
-            make_message(
-                TS, <<"wildcard/", B/binary, "/suffix/", Suffix/binary>>, integer_to_binary(TS)
-            )
+            Topic = emqx_topic:join(["wildcard", integer_to_list(I), "suffix", Suffix]),
+            {TS, make_message(TS, Topic, integer_to_binary(TS))}
         end
      || I <- lists:seq(1, 200), TS <- Timestamps, Suffix <- [<<"foo">>, <<"bar">>]
     ],
     ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch2, []),
     %% Check various topic filters:
-    Messages = Batch1 ++ Batch2,
+    Messages = [M || {_TS, M} <- Batch1 ++ Batch2],
     %% Missing topics (no ghost messages):
     ?assertNot(check(?SHARD, <<"missing/foo/bar">>, 0, Messages)),
     %% Regular topics:
@@ -478,18 +474,6 @@ make_message(PublishedAt, Topic, Payload) when is_binary(Topic) ->
         timestamp = PublishedAt,
         payload = Payload
     }.
-
-store(Shard, PublishedAt, TopicL, Payload) when is_list(TopicL) ->
-    store(Shard, PublishedAt, list_to_binary(TopicL), Payload);
-store(Shard, PublishedAt, Topic, Payload) ->
-    ID = emqx_guid:gen(),
-    Msg = #message{
-        id = ID,
-        topic = Topic,
-        timestamp = PublishedAt,
-        payload = Payload
-    },
-    emqx_ds_storage_layer:message_store(Shard, [Msg], #{}).
 
 payloads(Messages) ->
     lists:map(

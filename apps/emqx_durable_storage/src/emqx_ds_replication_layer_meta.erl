@@ -29,19 +29,15 @@
 -export([
     shards/1,
     my_shards/1,
-    my_owned_shards/1,
-    leader_nodes/1,
+    allocate_shards/2,
     replica_set/2,
-    in_sync_replicas/2,
     sites/0,
+    node/1,
     open_db/2,
     get_options/1,
     update_db_config/2,
     drop_db/1,
-    shard_leader/2,
     this_site/0,
-    set_leader/3,
-    is_leader/1,
     print_status/0
 ]).
 
@@ -51,12 +47,10 @@
 %% internal exports:
 -export([
     open_db_trans/2,
+    allocate_shards_trans/2,
     update_db_config_trans/2,
     drop_db_trans/1,
     claim_site/2,
-    in_sync_replicas_trans/2,
-    set_leader_trans/3,
-    is_leader_trans/1,
     n_shards/1
 ]).
 
@@ -95,9 +89,6 @@
     %% Sites that should contain the data when the cluster is in the
     %% stable state (no nodes are being added or removed from it):
     replica_set :: [site()],
-    %% Sites that contain the actual data:
-    in_sync_replicas :: [site()],
-    leader :: node() | undefined,
     misc = #{} :: map()
 }).
 
@@ -107,13 +98,24 @@
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
 
+%% Make Dialyzer happy
+-define(NODE_PAT(),
+    %% Equivalent of `#?NODE_TAB{_ = '_'}`:
+    erlang:make_tuple(record_info(size, ?NODE_TAB), '_')
+).
+
+-define(SHARD_PAT(SHARD),
+    %% Equivalent of `#?SHARD_TAB{shard = SHARD, _ = '_'}`
+    erlang:make_tuple(record_info(size, ?SHARD_TAB), '_', [{#?SHARD_TAB.shard, SHARD}])
+).
+
 %%================================================================================
 %% API funcions
 %%================================================================================
 
 -spec print_status() -> ok.
 print_status() ->
-    io:format("THIS SITE:~n~s~n", [base64:encode(this_site())]),
+    io:format("THIS SITE:~n~s~n", [this_site()]),
     io:format("~nSITES:~n", []),
     Nodes = [node() | nodes()],
     lists:foreach(
@@ -123,28 +125,18 @@ print_status() ->
                     true -> up;
                     false -> down
                 end,
-            io:format("~s    ~p    ~p~n", [base64:encode(Site), Node, Status])
+            io:format("~s    ~p    ~p~n", [Site, Node, Status])
         end,
         eval_qlc(mnesia:table(?NODE_TAB))
     ),
     io:format(
-        "~nSHARDS:~nId                             Leader                            Status~n", []
+        "~nSHARDS:~nId                             Replicas~n", []
     ),
     lists:foreach(
-        fun(#?SHARD_TAB{shard = {DB, Shard}, leader = Leader}) ->
+        fun(#?SHARD_TAB{shard = {DB, Shard}, replica_set = RS}) ->
             ShardStr = string:pad(io_lib:format("~p/~s", [DB, Shard]), 30),
-            LeaderStr = string:pad(atom_to_list(Leader), 33),
-            Status =
-                case lists:member(Leader, Nodes) of
-                    true ->
-                        case node() of
-                            Leader -> "up *";
-                            _ -> "up"
-                        end;
-                    false ->
-                        "down"
-                end,
-            io:format("~s ~s ~s~n", [ShardStr, LeaderStr, Status])
+            ReplicasStr = string:pad(io_lib:format("~p", [RS]), 40),
+            io:format("~s ~s~n", [ShardStr, ReplicasStr])
         end,
         eval_qlc(mnesia:table(?SHARD_TAB))
     ).
@@ -169,30 +161,19 @@ shards(DB) ->
 -spec my_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 my_shards(DB) ->
     Site = this_site(),
-    filter_shards(DB, fun(#?SHARD_TAB{replica_set = ReplicaSet, in_sync_replicas = InSync}) ->
-        lists:member(Site, ReplicaSet) orelse lists:member(Site, InSync)
+    filter_shards(DB, fun(#?SHARD_TAB{replica_set = ReplicaSet}) ->
+        lists:member(Site, ReplicaSet)
     end).
 
--spec my_owned_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
-my_owned_shards(DB) ->
-    Self = node(),
-    filter_shards(DB, fun(#?SHARD_TAB{leader = Leader}) ->
-        Self =:= Leader
-    end).
-
--spec leader_nodes(emqx_ds:db()) -> [node()].
-leader_nodes(DB) ->
-    lists:uniq(
-        filter_shards(
-            DB,
-            fun(#?SHARD_TAB{leader = Leader}) ->
-                Leader =/= undefined
-            end,
-            fun(#?SHARD_TAB{leader = Leader}) ->
-                Leader
-            end
-        )
-    ).
+allocate_shards(DB, Opts) ->
+    case mria:transaction(?SHARD, fun ?MODULE:allocate_shards_trans/2, [DB, Opts]) of
+        {atomic, Shards} ->
+            {ok, Shards};
+        {aborted, {shards_already_allocated, Shards}} ->
+            {ok, Shards};
+        {aborted, {insufficient_sites_online, Needed, Sites}} ->
+            {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}}
+    end.
 
 -spec replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     {ok, [site()]} | {error, _}.
@@ -204,46 +185,27 @@ replica_set(DB, Shard) ->
             {error, no_shard}
     end.
 
--spec in_sync_replicas(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    [site()].
-in_sync_replicas(DB, ShardId) ->
-    {atomic, Result} = mria:transaction(?SHARD, fun ?MODULE:in_sync_replicas_trans/2, [DB, ShardId]),
-    case Result of
-        {ok, InSync} ->
-            InSync;
-        {error, _} ->
-            []
-    end.
-
 -spec sites() -> [site()].
 sites() ->
     eval_qlc(qlc:q([Site || #?NODE_TAB{site = Site} <- mnesia:table(?NODE_TAB)])).
 
--spec shard_leader(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    {ok, node()} | {error, no_leader_for_shard}.
-shard_leader(DB, Shard) ->
-    case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
-        [#?SHARD_TAB{leader = Leader}] when Leader =/= undefined ->
-            {ok, Leader};
-        _ ->
-            {error, no_leader_for_shard}
+-spec node(site()) -> node() | undefined.
+node(Site) ->
+    case mnesia:dirty_read(?NODE_TAB, Site) of
+        [#?NODE_TAB{node = Node}] ->
+            Node;
+        [] ->
+            undefined
     end.
-
--spec set_leader(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), node()) ->
-    ok.
-set_leader(DB, Shard, Node) ->
-    {atomic, _} = mria:transaction(?SHARD, fun ?MODULE:set_leader_trans/3, [DB, Shard, Node]),
-    ok.
-
--spec is_leader(node()) -> boolean().
-is_leader(Node) ->
-    {atomic, Result} = mria:transaction(?SHARD, fun ?MODULE:is_leader_trans/1, [Node]),
-    Result.
 
 -spec get_options(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
 get_options(DB) ->
-    {atomic, Opts} = mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, undefined]),
-    Opts.
+    case mnesia:dirty_read(?META_TAB, DB) of
+        [#?META_TAB{db_props = Opts}] ->
+            Opts;
+        [] ->
+            #{}
+    end.
 
 -spec open_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     emqx_ds_replication_layer:builtin_db_opts().
@@ -275,7 +237,6 @@ init([]) ->
     logger:set_process_metadata(#{domain => [ds, meta]}),
     ensure_tables(),
     ensure_site(),
-    {ok, _} = mnesia:subscribe({table, ?META_TAB, detailed}),
     S = #s{},
     {ok, S}.
 
@@ -285,18 +246,6 @@ handle_call(_Call, _From, S) ->
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
-handle_info(
-    {mnesia_table_event, {write, ?META_TAB, #?META_TAB{db = DB, db_props = Options}, [_], _}}, S
-) ->
-    MyShards = my_owned_shards(DB),
-
-    lists:foreach(
-        fun(ShardId) ->
-            emqx_ds_storage_layer:update_config({DB, ShardId}, Options)
-        end,
-        MyShards
-    ),
-    {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
@@ -308,19 +257,59 @@ terminate(_Reason, #s{}) ->
 %% Internal exports
 %%================================================================================
 
--spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts() | undefined) ->
+-spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db_trans(DB, CreateOpts) ->
     case mnesia:wread({?META_TAB, DB}) of
-        [] when is_map(CreateOpts) ->
-            NShards = maps:get(n_shards, CreateOpts),
-            ReplicationFactor = maps:get(replication_factor, CreateOpts),
+        [] ->
             mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),
-            create_shards(DB, NShards, ReplicationFactor),
             CreateOpts;
         [#?META_TAB{db_props = Opts}] ->
             Opts
     end.
+
+-spec allocate_shards_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) -> [_Shard].
+allocate_shards_trans(DB, Opts) ->
+    NShards = maps:get(n_shards, Opts),
+    NSites = maps:get(n_sites, Opts),
+    ReplicationFactor = maps:get(replication_factor, Opts),
+    NReplicas = min(NSites, ReplicationFactor),
+    Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
+    AllSites = mnesia:match_object(?NODE_TAB, ?NODE_PAT(), read),
+    case length(AllSites) of
+        N when N >= NSites ->
+            ok;
+        _ ->
+            mnesia:abort({insufficient_sites_online, NSites, AllSites})
+    end,
+    case mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write) of
+        [] ->
+            ok;
+        Records ->
+            ShardsAllocated = [Shard || #?SHARD_TAB{shard = {_DB, Shard}} <- Records],
+            mnesia:abort({shards_already_allocated, ShardsAllocated})
+    end,
+    {Allocation, _} = lists:mapfoldl(
+        fun(Shard, SSites) ->
+            {Sites, _} = emqx_utils_stream:consume(NReplicas, SSites),
+            {_, SRest} = emqx_utils_stream:consume(1, SSites),
+            {{Shard, Sites}, SRest}
+        end,
+        emqx_utils_stream:repeat(emqx_utils_stream:list(AllSites)),
+        Shards
+    ),
+    lists:map(
+        fun({Shard, Sites}) ->
+            ReplicaSet = [Site || #?NODE_TAB{site = Site} <- Sites],
+            Record = #?SHARD_TAB{
+                shard = {DB, Shard},
+                replica_set = ReplicaSet
+            },
+            ok = mnesia:write(Record),
+            Shard
+        end,
+        Allocation
+    ).
 
 -spec update_db_config_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     ok | {error, database}.
@@ -357,51 +346,13 @@ drop_db_trans(DB) ->
 claim_site(Site, Node) ->
     mnesia:write(#?NODE_TAB{site = Site, node = Node}).
 
--spec in_sync_replicas_trans(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    {ok, [site()]} | {error, no_shard}.
-in_sync_replicas_trans(DB, Shard) ->
-    case mnesia:read(?SHARD_TAB, {DB, Shard}) of
-        [#?SHARD_TAB{in_sync_replicas = InSync}] ->
-            {ok, InSync};
-        [] ->
-            {error, no_shard}
-    end.
-
--spec set_leader_trans(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), node()) ->
-    ok.
-set_leader_trans(DB, Shard, Node) ->
-    [Record0] = mnesia:wread({?SHARD_TAB, {DB, Shard}}),
-    Record = Record0#?SHARD_TAB{leader = Node},
-    mnesia:write(Record).
-
--spec is_leader_trans(node) -> boolean().
-is_leader_trans(Node) ->
-    case
-        mnesia:select(
-            ?SHARD_TAB,
-            ets:fun2ms(fun(#?SHARD_TAB{leader = Leader}) ->
-                Leader =:= Node
-            end),
-            1,
-            read
-        )
-    of
-        {[_ | _], _Cont} ->
-            true;
-        _ ->
-            false
-    end.
-
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
 ensure_tables() ->
-    %% TODO: seems like it may introduce flakiness
-    Majority = false,
     ok = mria:create_table(?META_TAB, [
         {rlog_shard, ?SHARD},
-        {majority, Majority},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?META_TAB},
@@ -409,7 +360,6 @@ ensure_tables() ->
     ]),
     ok = mria:create_table(?NODE_TAB, [
         {rlog_shard, ?SHARD},
-        {majority, Majority},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?NODE_TAB},
@@ -417,7 +367,6 @@ ensure_tables() ->
     ]),
     ok = mria:create_table(?SHARD_TAB, [
         {rlog_shard, ?SHARD},
-        {majority, Majority},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?SHARD_TAB},
@@ -431,8 +380,8 @@ ensure_site() ->
         {ok, [Site]} ->
             ok;
         _ ->
-            Site = crypto:strong_rand_bytes(8),
-            logger:notice("Creating a new site with ID=~s", [base64:encode(Site)]),
+            Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
+            logger:notice("Creating a new site with ID=~s", [Site]),
             ok = filelib:ensure_dir(Filename),
             {ok, FD} = file:open(Filename, [write]),
             io:format(FD, "~p.", [Site]),
@@ -441,30 +390,6 @@ ensure_site() ->
     {atomic, ok} = mria:transaction(?SHARD, fun ?MODULE:claim_site/2, [Site, node()]),
     persistent_term:put(?emqx_ds_builtin_site, Site),
     ok.
-
--spec create_shards(emqx_ds:db(), pos_integer(), pos_integer()) -> ok.
-create_shards(DB, NShards, ReplicationFactor) ->
-    Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
-    AllSites = sites(),
-    lists:foreach(
-        fun(Shard) ->
-            Hashes0 = [{hash(Shard, Site), Site} || Site <- AllSites],
-            Hashes = lists:sort(Hashes0),
-            {_, Sites} = lists:unzip(Hashes),
-            [First | ReplicaSet] = lists:sublist(Sites, 1, ReplicationFactor),
-            Record = #?SHARD_TAB{
-                shard = {DB, Shard},
-                replica_set = ReplicaSet,
-                in_sync_replicas = [First]
-            },
-            mnesia:write(Record)
-        end,
-        Shards
-    ).
-
--spec hash(emqx_ds_replication_layer:shard_id(), site()) -> any().
-hash(Shard, Site) ->
-    erlang:phash2({Shard, Site}).
 
 eval_qlc(Q) ->
     case mnesia:is_transaction() of
