@@ -197,6 +197,10 @@ bytes_metrics() ->
 get_stats_gauge(Name) ->
     [{emqx_stats:getstat(Name), #{}}].
 
+get_vm_gauge('cpu.use') ->
+    [{emqx_otel_cpu_sup:stats('cpu.use'), #{}}];
+get_vm_gauge('cpu.idle') ->
+    [{emqx_otel_cpu_sup:stats('cpu.idle'), #{}}];
 get_vm_gauge(Name) ->
     [{emqx_mgmt:vm_stats(Name), #{}}].
 
