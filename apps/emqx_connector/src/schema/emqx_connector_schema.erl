@@ -122,24 +122,6 @@ connector_info_schema_modules() ->
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(sqlserver) ->
-    [sqlserver];
-connector_type_to_bridge_types(iotdb) ->
-    [iotdb];
-connector_type_to_bridge_types(elasticsearch) ->
-    [elasticsearch];
-connector_type_to_bridge_types(opents) ->
-    [opents];
-connector_type_to_bridge_types(greptimedb) ->
-    [greptimedb];
-connector_type_to_bridge_types(pulsar) ->
-    [pulsar_producer, pulsar];
-connector_type_to_bridge_types(tdengine) ->
-    [tdengine];
-connector_type_to_bridge_types(rabbitmq) ->
-    [rabbitmq];
-connector_type_to_bridge_types(s3) ->
-    [s3];
 connector_type_to_bridge_types(Type) ->
     emqx_connector_info:bridge_types(Type).
 

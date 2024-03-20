@@ -77,7 +77,16 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_redis_connector_info,
         emqx_bridge_rocketmq_connector_info,
         emqx_bridge_syskeeper_connector_info,
-        emqx_bridge_syskeeper_proxy_connector_info
+        emqx_bridge_syskeeper_proxy_connector_info,
+        emqx_bridge_sqlserver_connector_info,
+        emqx_bridge_iotdb_connector_info,
+        emqx_bridge_es_connector_info,
+        emqx_bridge_opents_connector_info,
+        emqx_bridge_greptimedb_connector_info,
+        emqx_bridge_pulsar_connector_info,
+        emqx_bridge_tdengine_connector_info,
+        emqx_bridge_rabbitmq_connector_info,
+        emqx_bridge_s3_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->

@@ -1,7 +1,8 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_redis_connector_info).
+
+-module(emqx_bridge_greptimedb_connector_info).
 
 -behaviour(emqx_connector_info).
 
@@ -15,28 +16,28 @@
 ]).
 
 type_name() ->
-    redis.
+    greptimedb.
 
 bridge_types() ->
-    [redis, redis_single, redis_sentinel, redis_cluster].
+    [greptimedb].
 
 resource_callback_module() ->
-    emqx_bridge_redis_connector.
+    emqx_bridge_greptimedb_connector.
 
 config_schema() ->
-    {redis,
+    {greptimedb,
         hoconsc:mk(
-            hoconsc:map(name, hoconsc:ref(emqx_bridge_redis_schema, "config_connector")),
+            hoconsc:map(name, hoconsc:ref(emqx_bridge_greptimedb, "config_connector")),
             #{
-                desc => <<"Redis Connector Config">>,
+                desc => <<"GreptimeDB Connector Config">>,
                 required => false
             }
         )}.
 
 schema_module() ->
-    emqx_bridge_redis_schema.
+    emqx_bridge_greptimedb.
 
 api_schema(Method) ->
     emqx_connector_schema:api_ref(
-        emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector"
+        emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_connector"
     ).

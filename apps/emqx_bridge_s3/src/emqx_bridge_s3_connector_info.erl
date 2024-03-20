@@ -1,7 +1,8 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_redis_connector_info).
+
+-module(emqx_bridge_s3_connector_info).
 
 -behaviour(emqx_connector_info).
 
@@ -9,34 +10,38 @@
     type_name/0,
     bridge_types/0,
     resource_callback_module/0,
+    config_transform_module/0,
     config_schema/0,
     schema_module/0,
     api_schema/1
 ]).
 
 type_name() ->
-    redis.
+    s3.
 
 bridge_types() ->
-    [redis, redis_single, redis_sentinel, redis_cluster].
+    [s3].
 
 resource_callback_module() ->
-    emqx_bridge_redis_connector.
+    emqx_bridge_s3_connector.
+
+config_transform_module() ->
+    emqx_bridge_s3.
 
 config_schema() ->
-    {redis,
+    {s3,
         hoconsc:mk(
-            hoconsc:map(name, hoconsc:ref(emqx_bridge_redis_schema, "config_connector")),
+            hoconsc:map(name, hoconsc:ref(emqx_bridge_s3, "config_connector")),
             #{
-                desc => <<"Redis Connector Config">>,
+                desc => <<"S3 Connector Config">>,
                 required => false
             }
         )}.
 
 schema_module() ->
-    emqx_bridge_redis_schema.
+    emqx_bridge_s3.
 
 api_schema(Method) ->
     emqx_connector_schema:api_ref(
-        emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector"
+        emqx_bridge_s3, <<"s3">>, Method ++ "_connector"
     ).

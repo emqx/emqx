@@ -8,7 +8,10 @@
         emqx_resource,
         tdengine
     ]},
-    {env, []},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_tdengine_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_tdengine_connector_info]}
+    ]},
     {modules, []},
     {links, []}
 ]}.

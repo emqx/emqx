@@ -8,7 +8,10 @@
         emqx_resource,
         greptimedb
     ]},
-    {env, [{emqx_action_info_modules, [emqx_bridge_greptimedb_action_info]}]},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_greptimedb_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_greptimedb_connector_info]}
+    ]},
     {modules, []},
     {links, []}
 ]}.
