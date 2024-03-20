@@ -508,6 +508,42 @@ t_reorder(_Config) ->
 
     ok.
 
+t_enable_disable_via_update(_Config) ->
+    Topic = <<"t">>,
+
+    Name1 = <<"foo">>,
+    AlwaysFailCheck = sql_check(<<"select * where false">>),
+    Validation1 = validation(Name1, [AlwaysFailCheck], #{<<"topics">> => Topic}),
+
+    {201, _} = insert(Validation1#{<<"enable">> => false}),
+    ?assertIndexOrder([], Topic),
+
+    C = connect(<<"c1">>),
+    {ok, _, [_]} = emqtt:subscribe(C, Topic),
+
+    ok = publish(C, Topic, #{}),
+    ?assertReceive({publish, _}),
+
+    {200, _} = update(Validation1#{<<"enable">> => true}),
+    ?assertIndexOrder([Name1], Topic),
+
+    ok = publish(C, Topic, #{}),
+    ?assertNotReceive({publish, _}),
+
+    {200, _} = update(Validation1#{<<"enable">> => false}),
+    ?assertIndexOrder([], Topic),
+
+    ok = publish(C, Topic, #{}),
+    ?assertReceive({publish, _}),
+
+    %% Test index after delete; ensure it's in the index before
+    {200, _} = update(Validation1#{<<"enable">> => true}),
+    ?assertIndexOrder([Name1], Topic),
+    {204, _} = delete(Name1),
+    ?assertIndexOrder([], Topic),
+
+    ok.
+
 %% Check the `all_pass' strategy
 t_all_pass(_Config) ->
     Name1 = <<"foo">>,

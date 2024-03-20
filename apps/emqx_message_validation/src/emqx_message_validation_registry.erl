@@ -153,24 +153,26 @@ do_reindex_positions(Validations) ->
 
 do_insert(Pos, Validation) ->
     #{
+        enable := Enabled,
         name := Name,
         topics := Topics
     } = Validation,
     maybe_create_metrics(Name),
     do_insert_into_tab(Name, Validation, Pos),
-    update_topic_index(Name, Pos, Topics),
+    Enabled andalso update_topic_index(Name, Pos, Topics),
     ok.
 
 do_update(OldValidation, Pos, NewValidation) ->
     #{topics := OldTopics} = OldValidation,
     #{
+        enable := Enabled,
         name := Name,
         topics := NewTopics
     } = NewValidation,
     maybe_create_metrics(Name),
     do_insert_into_tab(Name, NewValidation, Pos),
     delete_topic_index(Name, OldTopics),
-    update_topic_index(Name, Pos, NewTopics),
+    Enabled andalso update_topic_index(Name, Pos, NewTopics),
     ok.
 
 do_delete(Validation) ->
