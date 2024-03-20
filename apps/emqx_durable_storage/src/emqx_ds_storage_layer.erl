@@ -53,6 +53,7 @@
     shard_id/0,
     options/0,
     prototype/0,
+    message_batch/0,
     post_creation_context/0
 ]).
 
@@ -182,6 +183,9 @@
 %% Generation callbacks
 %%================================================================================
 
+-type message_batch() :: [{emqx_ds:time(), emqx_types:message()}].
+-type storage_batch() :: _ImplementationDependent :: term().
+
 %% Create the new schema given generation id and the options.
 %% Create rocksdb column families.
 -callback create(shard_id(), rocksdb:db_handle(), gen_id(), Options :: map()) ->
@@ -194,12 +198,10 @@
 -callback drop(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _RuntimeData) ->
     ok | {error, _Reason}.
 
--callback store_batch(
-    shard_id(),
-    _Data,
-    [{emqx_ds:time(), emqx_types:message()}],
-    emqx_ds:message_store_opts()
-) ->
+-callback prepare_batch(shard_id(), _Data, message_batch()) ->
+    storage_batch().
+
+-callback store_batch(shard_id(), _Data, storage_batch(), emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 
 -callback get_streams(shard_id(), _Data, emqx_ds:topic_filter(), emqx_ds:time()) ->

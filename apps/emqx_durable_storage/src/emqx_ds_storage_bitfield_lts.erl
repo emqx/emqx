@@ -42,7 +42,10 @@
 %% internal exports:
 -export([format_key/2]).
 
--export_type([options/0]).
+-export_type([
+    options/0,
+    storage_batch/0
+]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -114,6 +117,23 @@
         ?storage_key := emqx_ds_lts:msg_storage_key(),
         ?last_seen_key := binary()
     }.
+
+%% Batch operations:
+
+-define(OP_CF_DATA, 1).
+-define(OP_CF_TRIE, 2).
+
+%% A sequence of operations to be applied to the storage:
+%% Example:
+%% ```
+%% [ ?OP_CF_DATA
+%% , {K1, V1}, {K2, V2}, {K3, V3}
+%% , ?OP_CF_TRIE
+%% , {TrieEgde1, TrieState1}, {TrieEgde2, TrieState2}
+%% ]
+%% ```
+-type storage_batch() :: [?OP_CF_DATA | ?OP_CF_TRIE | storage_operation()].
+-type storage_operation() :: {_Key :: binary(), _Value :: iodata()}.
 
 -define(COUNTER, emqx_ds_storage_bitfield_lts_counter).
 
