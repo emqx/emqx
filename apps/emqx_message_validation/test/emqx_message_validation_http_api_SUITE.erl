@@ -50,6 +50,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     clear_all_validations(),
+    snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -541,6 +542,39 @@ t_enable_disable_via_update(_Config) ->
     ?assertIndexOrder([Name1], Topic),
     {204, _} = delete(Name1),
     ?assertIndexOrder([], Topic),
+
+    ok.
+
+t_log_failure_none(_Config) ->
+    ?check_trace(
+        begin
+            Name1 = <<"foo">>,
+            AlwaysFailCheck = sql_check(<<"select * where false">>),
+            Validation1 = validation(
+                Name1,
+                [AlwaysFailCheck],
+                #{<<"log_failure">> => #{<<"level">> => <<"none">>}}
+            ),
+
+            {201, _} = insert(Validation1),
+
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+
+            ok = publish(C, <<"t/1">>, #{}),
+            ?assertNotReceive({publish, _}),
+
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([#{log_level := none}], ?of_kind(message_validation_failure, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+
+
 
     ok.
 

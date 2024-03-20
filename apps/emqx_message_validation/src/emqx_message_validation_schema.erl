@@ -104,7 +104,7 @@ fields(log_failure) ->
     [
         {level,
             mk(
-                hoconsc:enum([error, warning, notice, info, debug]),
+                hoconsc:enum([error, warning, notice, info, debug, none]),
                 #{desc => ?DESC("log_failure_at"), default => info}
             )}
     ];
