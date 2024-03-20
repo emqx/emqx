@@ -88,10 +88,6 @@ connector_impl_module(ConnectorType) ->
 
 -endif.
 
-connector_to_resource_type_ce(mqtt) ->
-    emqx_bridge_mqtt_connector;
-% connector_to_resource_type_ce(mqtt_subscriber) ->
-%     emqx_bridge_mqtt_subscriber_connector;
 connector_to_resource_type_ce(ConnectorType) ->
     try
         emqx_connector_info:resource_callback_module(ConnectorType)

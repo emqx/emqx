@@ -88,11 +88,7 @@ enterprise_fields_connectors() -> [].
 -endif.
 
 api_schemas(Method) ->
-    [
-        %% We need to map the `type' field of a request (binary) to a
-        %% connector schema module.
-        api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt">>, Method ++ "_connector")
-    ].
+    [].
 
 api_ref(Module, Type, Method) ->
     {Type, ref(Module, Method)}.
@@ -111,11 +107,10 @@ examples(Method) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 schema_modules() ->
-    [emqx_bridge_mqtt_connector_schema] ++
-        emqx_connector_ee_schema:schema_modules() ++ connector_info_schema_modules().
+    emqx_connector_ee_schema:schema_modules() ++ connector_info_schema_modules().
 -else.
 schema_modules() ->
-    [emqx_bridge_mqtt_connector_schema] ++ connector_info_schema_modules().
+    connector_info_schema_modules().
 -endif.
 
 connector_info_schema_modules() ->
@@ -127,8 +122,6 @@ connector_info_schema_modules() ->
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(mqtt) ->
-    [mqtt];
 connector_type_to_bridge_types(redis) ->
     [redis, redis_single, redis_sentinel, redis_cluster];
 connector_type_to_bridge_types(rocketmq) ->
@@ -505,16 +498,7 @@ roots() ->
     end.
 
 fields(connectors) ->
-    [
-        {mqtt,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_mqtt_connector_schema, "config_connector")),
-                #{
-                    desc => <<"MQTT Publisher Connector Config">>,
-                    required => false
-                }
-            )}
-    ] ++ enterprise_fields_connectors() ++ connector_info_fields_connectors();
+    [] ++ enterprise_fields_connectors() ++ connector_info_fields_connectors();
 fields("node_status") ->
     [
         node_name(),
