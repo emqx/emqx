@@ -178,36 +178,27 @@ fields(hasnext) ->
     >>,
     Meta = #{desc => Desc, required => true},
     [{hasnext, hoconsc:mk(boolean(), Meta)}];
-fields('after') ->
-    Desc = <<
-        "The value of \"last\" field returned in the previous response. It can then be used"
-        " in subsequent requests to get the next chunk of results.<br/>"
-        "It is used instead of \"page\" parameter to traverse volatile data.<br/>"
-        "Can be omitted or set to \"none\" to get the first chunk of data.<br/>"
-        "\last\" = end_of_data\" is returned, if there is no more data.<br/>"
-        "Sending \"after=end_of_table\" back to the server will result in \"400 Bad Request\""
-        " error response."
-    >>,
-    Meta = #{
-        in => query, desc => Desc, required => false, example => <<"AAYS53qRa0n07AAABFIACg">>
-    },
-    [{'after', hoconsc:mk(hoconsc:union([none, end_of_data, binary()]), Meta)}];
-fields(last) ->
+fields(position) ->
     Desc = <<
         "An opaque token that can then be in subsequent requests to get "
-        " the next chunk of results: \"?after={last}\"<br/>"
-        "if there is no more data, \"last\" = end_of_data\" is returned.<br/>"
-        "Sending \"after=end_of_table\" back to the server will result in \"400 Bad Request\""
-        " error response."
+        " the next chunk of results: \"?position={prev_response.meta.position}\"<br/>"
+        "It is used instead of \"page\" parameter to traverse highly volatile data.<br/>"
+        "Can be omitted or set to \"none\" to get the first chunk of data."
     >>,
     Meta = #{
-        desc => Desc, required => true, example => <<"AAYS53qRa0n07AAABFIACg">>
+        in => query, desc => Desc, required => false, example => <<"none">>
     },
-    [{last, hoconsc:mk(hoconsc:union([none, end_of_data, binary()]), Meta)}];
+    [{position, hoconsc:mk(hoconsc:union([none, end_of_data, binary()]), Meta)}];
+fields(start) ->
+    Desc = <<"The position of the current first element of the data collection.">>,
+    Meta = #{
+        desc => Desc, required => true, example => <<"none">>
+    },
+    [{start, hoconsc:mk(hoconsc:union([none, binary()]), Meta)}];
 fields(meta) ->
     fields(page) ++ fields(limit) ++ fields(count) ++ fields(hasnext);
 fields(continuation_meta) ->
-    fields(last) ++ fields(count).
+    fields(start) ++ fields(position).
 
 -spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema().
 schema_with_example(Type, Example) ->

@@ -39,7 +39,6 @@
 -export([
     parse_pager_params/1,
     parse_cont_pager_params/2,
-    encode_cont_pager_params/2,
     parse_qstring/2,
     init_query_result/0,
     init_query_state/5,
@@ -138,32 +137,18 @@ page(Params) ->
 limit(Params) when is_map(Params) ->
     maps:get(<<"limit">>, Params, emqx_mgmt:default_row_limit()).
 
-continuation(Params, Encoding) ->
+position(Params, Decoder) ->
     try
-        decode_continuation(maps:get(<<"after">>, Params, none), Encoding)
+        decode_position(maps:get(<<"position">>, Params, none), Decoder)
     catch
         _:_ ->
             error
     end.
 
-decode_continuation(none, _Encoding) ->
+decode_position(none, _Decoder) ->
     none;
-decode_continuation(end_of_data, _Encoding) ->
-    %% Clients should not send "after=end_of_data" back to the server
-    error;
-decode_continuation(Cont, ?URL_PARAM_INTEGER) ->
-    binary_to_integer(Cont);
-decode_continuation(Cont, ?URL_PARAM_BINARY) ->
-    emqx_utils:hexstr_to_bin(Cont).
-
-encode_continuation(none, _Encoding) ->
-    none;
-encode_continuation(end_of_data, _Encoding) ->
-    end_of_data;
-encode_continuation(Cont, ?URL_PARAM_INTEGER) ->
-    integer_to_binary(Cont);
-encode_continuation(Cont, ?URL_PARAM_BINARY) ->
-    emqx_utils:bin_to_hexstr(Cont, lower).
+decode_position(Pos, Decoder) ->
+    Decoder(Pos).
 
 %%--------------------------------------------------------------------
 %% Node Query
@@ -670,24 +655,17 @@ parse_pager_params(Params) ->
             false
     end.
 
--spec parse_cont_pager_params(map(), ?URL_PARAM_INTEGER | ?URL_PARAM_BINARY) ->
-    #{limit := pos_integer(), continuation := none | end_of_table | binary()} | false.
-parse_cont_pager_params(Params, Encoding) ->
-    Cont = continuation(Params, Encoding),
+-spec parse_cont_pager_params(map(), fun((binary()) -> term())) ->
+    #{limit := pos_integer(), position := none | term()} | false.
+parse_cont_pager_params(Params, PositionDecoder) ->
+    Pos = position(Params, PositionDecoder),
     Limit = b2i(limit(Params)),
-    case Limit > 0 andalso Cont =/= error of
+    case Limit > 0 andalso Pos =/= error of
         true ->
-            #{continuation => Cont, limit => Limit};
+            #{position => Pos, limit => Limit};
         false ->
             false
     end.
-
--spec encode_cont_pager_params(map(), ?URL_PARAM_INTEGER | ?URL_PARAM_BINARY) -> map().
-encode_cont_pager_params(#{continuation := Cont} = Meta, ContEncoding) ->
-    Meta1 = maps:remove(continuation, Meta),
-    Meta1#{last => encode_continuation(Cont, ContEncoding)};
-encode_cont_pager_params(Meta, _ContEncoding) ->
-    Meta.
 
 %%--------------------------------------------------------------------
 %% Types

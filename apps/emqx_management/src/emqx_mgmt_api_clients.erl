@@ -413,11 +413,11 @@ schema("/clients/:clientid/keepalive") ->
         }
     };
 schema("/clients/:clientid/mqueue_messages") ->
-    ContExample = <<"AAYS53qRa0n07AAABFIACg">>,
+    ContExample = <<"1710785444656449826_10">>,
     RespSchema = ?R_REF(mqueue_messages),
     client_msgs_schema(mqueue_msgs, ?DESC(get_client_mqueue_msgs), ContExample, RespSchema);
 schema("/clients/:clientid/inflight_messages") ->
-    ContExample = <<"10">>,
+    ContExample = <<"1710785444656449826">>,
     RespSchema = ?R_REF(inflight_messages),
     client_msgs_schema(inflight_msgs, ?DESC(get_client_inflight_msgs), ContExample, RespSchema);
 schema("/sessions_count") ->
@@ -656,7 +656,7 @@ fields(unsubscribe) ->
     ];
 fields(mqueue_messages) ->
     [
-        {data, hoconsc:mk(hoconsc:array(?REF(message)), #{desc => ?DESC(mqueue_msgs_list)})},
+        {data, hoconsc:mk(hoconsc:array(?REF(mqueue_message)), #{desc => ?DESC(mqueue_msgs_list)})},
         {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, continuation_meta), #{})}
     ];
 fields(inflight_messages) ->
@@ -672,8 +672,18 @@ fields(message) ->
         {publish_at, hoconsc:mk(integer(), #{desc => ?DESC(msg_publish_at)})},
         {from_clientid, hoconsc:mk(binary(), #{desc => ?DESC(msg_from_clientid)})},
         {from_username, hoconsc:mk(binary(), #{desc => ?DESC(msg_from_username)})},
-        {payload, hoconsc:mk(binary(), #{desc => ?DESC(msg_payload)})}
+        {payload, hoconsc:mk(binary(), #{desc => ?DESC(msg_payload)})},
+        {inserted_at, hoconsc:mk(binary(), #{desc => ?DESC(msg_inserted_at)})}
     ];
+fields(mqueue_message) ->
+    fields(message) ++
+        [
+            {mqueue_priority,
+                hoconsc:mk(
+                    hoconsc:union([integer(), infinity]),
+                    #{desc => ?DESC(msg_mqueue_priority)}
+                )}
+        ];
 fields(requested_client_fields) ->
     %% NOTE: some Client fields actually returned in response are missing in schema:
     %%  enable_authn, is_persistent, listener, peerport
@@ -920,7 +930,7 @@ client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
             responses => #{
                 200 =>
                     emqx_dashboard_swagger:schema_with_example(RespSchema, #{
-                        <<"data">> => [message_example()],
+                        <<"data">> => [message_example(OpId)],
                         <<"meta">> => #{
                             <<"count">> => 100,
                             <<"last">> => ContExample
@@ -963,7 +973,7 @@ client_msgs_params() ->
                 >>,
                 validator => fun max_bytes_validator/1
             })},
-        hoconsc:ref(emqx_dashboard_swagger, 'after'),
+        hoconsc:ref(emqx_dashboard_swagger, position),
         hoconsc:ref(emqx_dashboard_swagger, limit)
     ].
 
@@ -1200,9 +1210,9 @@ is_live_session(ClientId) ->
     [] =/= emqx_cm_registry:lookup_channels(ClientId).
 
 list_client_msgs(MsgType, ClientID, QString) ->
-    case emqx_mgmt_api:parse_cont_pager_params(QString, cont_encoding(MsgType)) of
+    case emqx_mgmt_api:parse_cont_pager_params(QString, pos_decoder(MsgType)) of
         false ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"after_limit_invalid">>}};
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"position_limit_invalid">>}};
         PagerParams = #{} ->
             case emqx_mgmt:list_client_msgs(MsgType, ClientID, PagerParams) of
                 {error, not_found} ->
@@ -1212,10 +1222,34 @@ list_client_msgs(MsgType, ClientID, QString) ->
             end
     end.
 
-%% integer packet id
-cont_encoding(inflight_msgs) -> ?URL_PARAM_INTEGER;
-%% binary message id
-cont_encoding(mqueue_msgs) -> ?URL_PARAM_BINARY.
+pos_decoder(mqueue_msgs) -> fun decode_mqueue_pos/1;
+pos_decoder(inflight_msgs) -> fun decode_msg_pos/1.
+
+encode_msgs_meta(_MsgType, #{start := StartPos, position := Pos}) ->
+    #{start => encode_pos(StartPos), position => encode_pos(Pos)}.
+
+encode_pos(none) ->
+    none;
+encode_pos({MsgPos, PrioPos}) ->
+    MsgPosBin = integer_to_binary(MsgPos),
+    PrioPosBin =
+        case PrioPos of
+            infinity -> <<"infinity">>;
+            _ -> integer_to_binary(PrioPos)
+        end,
+    <<MsgPosBin/binary, "_", PrioPosBin/binary>>;
+encode_pos(Pos) when is_integer(Pos) ->
+    integer_to_binary(Pos).
+
+-spec decode_mqueue_pos(binary()) -> {integer(), infinity | integer()}.
+decode_mqueue_pos(Pos) ->
+    [MsgPos, PrioPos] = binary:split(Pos, <<"_">>),
+    {decode_msg_pos(MsgPos), decode_priority_pos(PrioPos)}.
+
+decode_msg_pos(Pos) -> binary_to_integer(Pos).
+
+decode_priority_pos(<<"infinity">>) -> infinity;
+decode_priority_pos(Pos) -> binary_to_integer(Pos).
 
 max_bytes_validator(MaxBytes) when is_integer(MaxBytes), MaxBytes > 0 ->
     ok;
@@ -1415,8 +1449,8 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
         <<"payload">> := PayloadFmt,
         <<"max_payload_bytes">> := MaxBytes
     } = QString,
-    Meta1 = emqx_mgmt_api:encode_cont_pager_params(Meta, cont_encoding(MsgType)),
-    Resp = #{meta => Meta1, data => format_msgs(Msgs, PayloadFmt, MaxBytes)},
+    Meta1 = encode_msgs_meta(MsgType, Meta),
+    Resp = #{meta => Meta1, data => format_msgs(MsgType, Msgs, PayloadFmt, MaxBytes)},
     %% Make sure minirest won't set another content-type for self-encoded JSON response body
     Headers = #{<<"content-type">> => <<"application/json">>},
     case emqx_utils_json:safe_encode(Resp) of
@@ -1432,13 +1466,13 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
             ?INTERNAL_ERROR(Error)
     end.
 
-format_msgs([FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
+format_msgs(MsgType, [FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
     %% Always include at least one message payload, even if it exceeds the limit
-    {FirstMsg1, PayloadSize0} = format_msg(FirstMsg, PayloadFmt),
+    {FirstMsg1, PayloadSize0} = format_msg(MsgType, FirstMsg, PayloadFmt),
     {Msgs1, _} =
         catch lists:foldl(
             fun(Msg, {MsgsAcc, SizeAcc} = Acc) ->
-                {Msg1, PayloadSize} = format_msg(Msg, PayloadFmt),
+                {Msg1, PayloadSize} = format_msg(MsgType, Msg, PayloadFmt),
                 case SizeAcc + PayloadSize of
                     SizeAcc1 when SizeAcc1 =< MaxBytes ->
                         {[Msg1 | MsgsAcc], SizeAcc1};
@@ -1450,10 +1484,11 @@ format_msgs([FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
             Msgs
         ),
     lists:reverse(Msgs1);
-format_msgs([], _PayloadFmt, _MaxBytes) ->
+format_msgs(_MsgType, [], _PayloadFmt, _MaxBytes) ->
     [].
 
 format_msg(
+    MsgType,
     #message{
         id = ID,
         qos = Qos,
@@ -1462,10 +1497,10 @@ format_msg(
         timestamp = Timestamp,
         headers = Headers,
         payload = Payload
-    },
+    } = Msg,
     PayloadFmt
 ) ->
-    Msg = #{
+    MsgMap = #{
         msgid => emqx_guid:to_hexstr(ID),
         qos => Qos,
         topic => Topic,
@@ -1473,15 +1508,23 @@ format_msg(
         from_clientid => emqx_utils_conv:bin(From),
         from_username => maps:get(username, Headers, <<>>)
     },
-    format_payload(PayloadFmt, Msg, Payload).
+    MsgMap1 = format_by_msg_type(MsgType, Msg, MsgMap),
+    format_payload(PayloadFmt, MsgMap1, Payload).
 
-format_payload(none, Msg, _Payload) ->
-    {Msg, 0};
-format_payload(base64, Msg, Payload) ->
+format_by_msg_type(mqueue_msgs, Msg, MsgMap) ->
+    #message{extra = #{mqueue_priority := Prio, mqueue_insert_ts := Ts}} = Msg,
+    MsgMap#{mqueue_priority => Prio, inserted_at => integer_to_binary(Ts)};
+format_by_msg_type(inflight_msgs, Msg, MsgMap) ->
+    #message{extra = #{inflight_insert_ts := Ts}} = Msg,
+    MsgMap#{inserted_at => integer_to_binary(Ts)}.
+
+format_payload(none, MsgMap, _Payload) ->
+    {MsgMap, 0};
+format_payload(base64, MsgMap, Payload) ->
     Payload1 = base64:encode(Payload),
-    {Msg#{payload => Payload1}, erlang:byte_size(Payload1)};
-format_payload(plain, Msg, Payload) ->
-    {Msg#{payload => Payload}, erlang:iolist_size(Payload)}.
+    {MsgMap#{payload => Payload1}, erlang:byte_size(Payload1)};
+format_payload(plain, MsgMap, Payload) ->
+    {MsgMap#{payload => Payload}, erlang:iolist_size(Payload)}.
 
 %% format func helpers
 take_maps_from_inner(_Key, Value, Current) when is_map(Value) ->
@@ -1583,6 +1626,11 @@ client_example() ->
         <<"recv_cnt">> => 4,
         <<"recv_msg.qos0">> => 0
     }.
+
+message_example(inflight_msgs) ->
+    message_example();
+message_example(mqueue_msgs) ->
+    (message_example())#{<<"mqueue_priority">> => 0}.
 
 message_example() ->
     #{
