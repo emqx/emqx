@@ -376,6 +376,7 @@ kickout_clients(ClientIds) when is_list(ClientIds) ->
         emqx_management_proto_v5:kickout_clients(Node, ClientIds)
     end,
     Results = lists:map(F, emqx:running_nodes()),
+    lists:foreach(fun emqx_persistent_session_ds:kick_offline_session/1, ClientIds),
     case lists:filter(fun(Res) -> Res =/= ok end, Results) of
         [] ->
             ok;
