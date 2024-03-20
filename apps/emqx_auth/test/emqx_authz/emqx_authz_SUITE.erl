@@ -19,6 +19,7 @@
 -compile(export_all).
 
 -include("emqx_authz.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -163,6 +164,16 @@ end_per_testcase(_TestCase, _Config) ->
     ?SOURCE_FILE(
         <<
             "{allow,{username,\"some_client\"},publish,[\"some_client/lwt\"]}.\n"
+            "{deny, all}."
+        >>
+    )
+).
+
+%% Allow all clients to publish or subscribe to topics with their alias as prefix.
+-define(SOURCE_FILE_CLIENT_ATTR,
+    ?SOURCE_FILE(
+        <<
+            "{allow,all,all,[\"${client_attrs.alias}/#\"]}.\n"
             "{deny, all}."
         >>
     )
@@ -542,6 +553,26 @@ t_publish_last_will_testament_denied_topic(_Config) ->
         ok
     end,
 
+    ok.
+
+t_alias_prefix(_Config) ->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE_CLIENT_ATTR]),
+    ExtractSuffix = <<"^.*-(.*)$">>,
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
+        extract_from => clientid,
+        extract_regexp => ExtractSuffix,
+        extract_as => <<"alias">>
+    }),
+    ClientId = <<"org1-name2">>,
+    SubTopic = <<"name2/#">>,
+    SubTopicNotAllowed = <<"name3/#">>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    ?assertMatch({ok, _}, emqtt:connect(C)),
+    ?assertMatch({ok, _, [?RC_SUCCESS]}, emqtt:subscribe(C, SubTopic)),
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, SubTopicNotAllowed)),
+    unlink(C),
+    emqtt:stop(C),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], disalbed),
     ok.
 
 %% client is allowed by ACL to publish to its LWT topic, is connected,

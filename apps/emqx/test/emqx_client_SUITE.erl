@@ -75,6 +75,8 @@ groups() ->
         {mqttv5, [non_parallel_tests], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
         {others, [non_parallel_tests], [
             t_username_as_clientid,
+            t_certcn_as_alias,
+            t_certdn_as_alias,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
@@ -383,6 +385,32 @@ t_username_as_clientid(_) ->
         throw({error, "expect_client_identifier_not_valid"})
     end,
     emqtt:disconnect(C).
+
+t_certcn_as_alias(_) ->
+    test_cert_extraction_as_alias(cn).
+
+t_certdn_as_alias(_) ->
+    test_cert_extraction_as_alias(dn).
+
+test_cert_extraction_as_alias(Which) ->
+    %% extract the first two chars
+    Re = <<"^(..).*$">>,
+    ClientId = iolist_to_binary(["ClientIdFor_", atom_to_list(Which)]),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
+        extract_from => Which,
+        extract_regexp => Re,
+        extract_as => <<"alias">>
+    }),
+    SslConf = emqx_common_test_helpers:client_mtls('tlsv1.2'),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId}, {port, 8883}, {ssl, true}, {ssl_opts, SslConf}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    %% assert only two chars are extracted
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := #{alias := <<_, _>>}}}, emqx_cm:get_chan_info(ClientId)
+    ),
+    emqtt:disconnect(Client).
 
 t_certcn_as_clientid_default_config_tls(_) ->
     tls_certcn_as_clientid(default).

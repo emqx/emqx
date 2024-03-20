@@ -1731,7 +1731,30 @@ fields("session_persistence") ->
             )}
     ];
 fields(durable_storage) ->
-    emqx_ds_schema:schema().
+    emqx_ds_schema:schema();
+fields("client_attrs_init") ->
+    [
+        {extract_from,
+            sc(
+                hoconsc:enum([clientid, username, cn, dn]),
+                #{desc => ?DESC("client_atrs_init_extract_from")}
+            )},
+        {extract_regexp, sc(binary(), #{desc => ?DESC("client_attrs_init_extract_regexp")})},
+        {extract_as,
+            sc(binary(), #{
+                default => <<"alias">>,
+                desc => ?DESC("client_attrs_init_extract_as"),
+                validator => fun restricted_string/1
+            })}
+    ].
+
+restricted_string(undefined) ->
+    undefined;
+restricted_string(Str) ->
+    case emqx_utils:is_restricted_str(Str) of
+        true -> ok;
+        false -> {error, <<"Invalid string for attribute name">>}
+    end.
 
 mqtt_listener(Bind) ->
     base_listener(Bind) ++
@@ -3525,6 +3548,14 @@ mqtt_general() ->
                 #{
                     default => disabled,
                     desc => ?DESC(mqtt_peer_cert_as_clientid)
+                }
+            )},
+        {"client_attrs_init",
+            sc(
+                hoconsc:union([disabled, ref("client_attrs_init")]),
+                #{
+                    default => disabled,
+                    desc => ?DESC("client_attrs_init")
                 }
             )}
     ].

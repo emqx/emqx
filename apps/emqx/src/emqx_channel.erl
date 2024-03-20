@@ -245,7 +245,7 @@ init(
             MP -> MP
         end,
     ListenerId = emqx_listeners:listener_id(Type, Listener),
-    ClientInfo = set_peercert_infos(
+    ClientInfo0 = set_peercert_infos(
         Peercert,
         #{
             zone => Zone,
@@ -259,11 +259,11 @@ init(
             mountpoint => MountPoint,
             is_bridge => false,
             is_superuser => false,
-            enable_authn => maps:get(enable_authn, Opts, true),
-            client_attrs => #{}
+            enable_authn => maps:get(enable_authn, Opts, true)
         },
         Zone
     ),
+    ClientInfo = initialize_client_attrs_from_cert(ClientInfo0, Peercert, Zone),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{
         conninfo = NConnInfo,
@@ -1561,6 +1561,9 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             fun set_bridge_mode/2,
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
+            %% attr init should happen after clientid and username assign
+            fun maybe_set_client_initial_attr/2,
+            %% moutpoint fix should happen after attr init
             fun fix_mountpoint/2
         ],
         ConnPkt,
@@ -1572,6 +1575,46 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
         {error, ReasonCode, NClientInfo} ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
+
+initialize_client_attrs_from_cert(ClientInfo, Peercert, Zone) ->
+    case get_mqtt_conf(Zone, client_attrs_init) of
+        #{
+            extract_from := From,
+            extract_regexp := Regexp,
+            extract_as := AttrName
+        } when From =:= cn orelse From =:= dn ->
+            case extract_client_attr_from_cert(From, Regexp, Peercert) of
+                {ok, Value} ->
+                    ?SLOG(
+                        debug,
+                        #{
+                            msg => "client_attr_init_from_cert",
+                            extracted_as => AttrName,
+                            extracted_value => Value
+                        }
+                    ),
+                    ClientInfo#{client_attrs => #{AttrName => Value}};
+                _ ->
+                    ClientInfo#{client_attrs => #{}}
+            end;
+        _ ->
+            ClientInfo#{client_attrs => #{}}
+    end.
+
+extract_client_attr_from_cert(cn, Regexp, Peercert) ->
+    CN = esockd_peercert:common_name(Peercert),
+    re_extract(CN, Regexp);
+extract_client_attr_from_cert(dn, Regexp, Peercert) ->
+    DN = esockd_peercert:subject(Peercert),
+    re_extract(DN, Regexp).
+
+re_extract(Str, Regexp) when is_binary(Str) ->
+    case re:run(Str, Regexp, [{capture, all_but_first, list}]) of
+        {match, [_ | _] = List} -> {ok, iolist_to_binary(List)};
+        _ -> nomatch
+    end;
+re_extract(_NotStr, _Regexp) ->
+    ignored.
 
 set_username(
     #mqtt_packet_connect{username = Username},
@@ -1612,6 +1655,38 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
     {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
+
+maybe_set_client_initial_attr(_, #{zone := Zone} = ClientInfo) ->
+    Attrs = maps:get(client_attrs, ClientInfo, #{}),
+    Config = get_mqtt_conf(Zone, client_attrs_init),
+    case extract_attr_from_clientinfo(Config, ClientInfo) of
+        {ok, Value} ->
+            #{extract_as := Name} = Config,
+            ?SLOG(
+                debug,
+                #{
+                    msg => "client_attr_init_from_clientinfo",
+                    extracted_as => Name,
+                    extracted_value => Value
+                }
+            ),
+            {ok, ClientInfo#{client_attrs => Attrs#{Name => Value}}};
+        _ ->
+            {ok, ClientInfo}
+    end.
+
+extract_attr_from_clientinfo(#{extract_from := clientid, extract_regexp := Regexp}, #{
+    clientid := ClientId
+}) ->
+    re_extract(ClientId, Regexp);
+extract_attr_from_clientinfo(#{extract_from := username, extract_regexp := Regexp}, #{
+    username := Username
+}) when
+    Username =/= undefined
+->
+    re_extract(Username, Regexp);
+extract_attr_from_clientinfo(_Config, _CLientInfo) ->
+    ignored.
 
 fix_mountpoint(_ConnPkt, #{mountpoint := undefined}) ->
     ok;

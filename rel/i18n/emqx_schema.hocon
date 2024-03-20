@@ -1565,12 +1565,52 @@ This value specifies size of the batch.
 
 Note: larger batches generally improve the throughput and overall performance of the system, but increase RAM usage per client."""
 
-durable_storage.label:
-"""Durable storage"""
+durable_storage.label:"Durable storage"
+durable_storage.desc: """~
+    Configuration related to the EMQX durable storages.
 
-durable_storage.desc:
-"""Configuration related to the EMQX durable storages.
+    EMQX uses durable storages to offload various data, such as MQTT messages, to disc."""
 
-EMQX uses durable storages to offload various data, such as MQTT messages, to disc."""
+client_attrs_init {
+  label: "Client attributes init"
+  desc: """~
+    Specify how to initialize client attributes.
+    One initial client attribute can be initialized as `client_attrs.NAME`,
+    where `NAME` is the name of the attribute specified in the config `extract_as`.
+    The initialized client attribute will be stored in the `client_attr` property with the specified name,
+    and can be used as a placeholder in a template.
+    For example, `${client_attrs.alias}` if `extract_as` is set to `alias`."""
+}
+
+client_attrs_init_extract_from {
+  label: "Client property to extract attribute from"
+  desc: """~
+    Specify from which client property the client attribute should be extracted.
+
+    Supported values:
+    - `clientid`: Extract from the client ID.
+    - `username`: Extract from the username.
+    - `cn`: Extract from the Common Name (CN) field of the client certificate.
+    - `dn`: Extract from the Distinguished Name (DN) field of the client certficate.
+
+    NOTE: this extraction happens **after** `clientid` or `username` is initialized
+    from `peer_cert_as_clientid` or `peer_cert_as_username` config."""
+}
+
+client_attrs_init_extract_regex {
+  label: "Client attribute extract regex"
+  desc: """~
+    The regular expression to extract a client attribute from the client property specified by `client_attrs_init.extract_from` config.
+    The expression should match the entire client property value, and capturing groups are concatenated to make the client attribute.
+    For example if the client attribute is the first part of the client ID delemited by a dash, the regular expression would be `^(.+?)-.*$`.
+    Note that failure to match the regular expression will result in the client attribute being absence but not an empty string."""
+}
+
+client_attrs_init_extract_as {
+  label: "Name the extracted attribute"
+  desc: """~
+    The name of the client attribute extracted from the client property specified by `client_attrs_init.extract_from` config.
+    The extracted attribute will be stored in the `client_attr` property with this name."""
+}
 
 }
