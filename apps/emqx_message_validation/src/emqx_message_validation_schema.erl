@@ -75,7 +75,7 @@ fields(validation) ->
             )},
         {failure_action,
             mk(
-                hoconsc:enum([drop, disconnect]),
+                hoconsc:enum([drop, disconnect, ignore]),
                 #{desc => ?DESC("failure_action"), required => true}
             )},
         {log_failure,

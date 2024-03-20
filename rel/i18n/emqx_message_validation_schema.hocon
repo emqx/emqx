@@ -71,7 +71,8 @@ emqx_message_validation_schema {
   """How to proceed if the validation fails.
 
   <code>drop</code>: The offending message is simply dropped without further processing.
-  <code>disconnect</code>: The message is not published, and the publishing client is disconnected."""
+  <code>disconnect</code>: The message is not published, and the publishing client is disconnected.
+  <code>ignore</code>: Only the failure is logged and traced.  No other action is taken."""
   failure_action.label:
   """Failure action"""
 

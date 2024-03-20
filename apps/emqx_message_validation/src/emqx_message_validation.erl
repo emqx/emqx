@@ -383,6 +383,12 @@ run_validations(Validations, Message) ->
             case run_validation(Validation, Message) of
                 ok ->
                     {cont, Acc};
+                ignore ->
+                    trace_failure(Validation, "validation_failed", #{
+                        validation => Name,
+                        action => ignore
+                    }),
+                    {cont, Acc};
                 FailureAction ->
                     trace_failure(Validation, "validation_failed", #{
                         validation => Name,

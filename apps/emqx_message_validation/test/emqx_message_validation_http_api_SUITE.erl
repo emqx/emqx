@@ -573,9 +573,31 @@ t_log_failure_none(_Config) ->
     ),
     ok.
 
+t_action_ignore(_Config) ->
+    ?check_trace(
+        begin
+            Name1 = <<"foo">>,
+            AlwaysFailCheck = sql_check(<<"select * where false">>),
+            Validation1 = validation(
+                Name1,
+                [AlwaysFailCheck],
+                #{<<"failure_action">> => <<"ignore">>}
+            ),
 
+            {201, _} = insert(Validation1),
 
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
 
+            ok = publish(C, <<"t/1">>, #{}),
+            ?assertReceive({publish, _}),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([#{action := ignore}], ?of_kind(message_validation_failure, Trace)),
+            ok
+        end
+    ),
     ok.
 
 %% Check the `all_pass' strategy
