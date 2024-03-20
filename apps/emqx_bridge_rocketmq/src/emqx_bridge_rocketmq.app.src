@@ -3,7 +3,10 @@
     {vsn, "0.1.5"},
     {registered, []},
     {applications, [kernel, stdlib, emqx_resource, rocketmq]},
-    {env, [{emqx_action_info_modules, [emqx_bridge_rocketmq_action_info]}]},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_rocketmq_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_rocketmq_connector_info]}
+    ]},
     {modules, []},
     {links, []}
 ]}.
