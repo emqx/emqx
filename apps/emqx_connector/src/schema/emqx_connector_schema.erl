@@ -127,8 +127,6 @@ connector_info_schema_modules() ->
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(clickhouse) ->
-    [clickhouse];
 connector_type_to_bridge_types(mysql) ->
     [mysql];
 connector_type_to_bridge_types(mqtt) ->

@@ -21,8 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(clickhouse) ->
-    emqx_bridge_clickhouse_connector;
 resource_type(mysql) ->
     emqx_bridge_mysql_connector;
 resource_type(syskeeper_forwarder) ->
@@ -79,14 +77,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {clickhouse,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_clickhouse, "config_connector")),
-                #{
-                    desc => <<"ClickHouse Connector Config">>,
-                    required => false
-                }
-            )},
         {mysql,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mysql, "config_connector")),
@@ -203,7 +193,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_clickhouse,
         emqx_bridge_mysql,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
@@ -225,7 +214,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_clickhouse, <<"clickhouse">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mysql, <<"mysql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
