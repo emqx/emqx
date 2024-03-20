@@ -388,12 +388,14 @@ run_validations(Validations, Message) ->
                         validation => Name,
                         action => ignore
                     }),
+                    run_message_validation_failed_hook(Message, Validation),
                     {cont, Acc};
                 FailureAction ->
                     trace_failure(Validation, "validation_failed", #{
                         validation => Name,
                         action => FailureAction
                     }),
+                    run_message_validation_failed_hook(Message, Validation),
                     {halt, FailureAction}
             end
         end,
@@ -436,12 +438,17 @@ trace_failure(#{log_failure := #{level := none}} = Validation, _Msg, _Meta) ->
         name := _Name,
         failure_action := _Action
     } = Validation,
-    ?tp(message_validation_failure, #{log_level => none, name => _Name, action => _Action}),
+    ?tp(message_validation_failed, #{log_level => none, name => _Name, action => _Action}),
     ok;
 trace_failure(#{log_failure := #{level := Level}} = Validation, Msg, Meta) ->
     #{
         name := _Name,
         failure_action := _Action
     } = Validation,
-    ?tp(message_validation_failure, #{log_level => Level, name => _Name, action => _Action}),
+    ?tp(message_validation_failed, #{log_level => Level, name => _Name, action => _Action}),
     ?TRACE(Level, ?TRACE_TAG, Msg, Meta).
+
+run_message_validation_failed_hook(Message, Validation) ->
+    #{name := Name} = Validation,
+    ValidationContext = #{name => Name},
+    emqx_hooks:run('message.validation_failed', [Message, ValidationContext]).

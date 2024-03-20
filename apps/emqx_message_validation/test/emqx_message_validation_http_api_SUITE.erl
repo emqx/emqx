@@ -14,6 +14,8 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+-define(RECORDED_EVENTS_TAB, recorded_actions).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -328,6 +330,39 @@ assert_index_order(ExpectedOrder, Topic, Comment) ->
         Comment
     ).
 
+create_failure_tracing_rule() ->
+    Params = #{
+        enable => true,
+        sql => <<"select * from \"$events/message_validation_failed\" ">>,
+        actions => [make_trace_fn_action()]
+    },
+    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
+    Res = request(post, Path, Params),
+    ct:pal("create failure tracing rule result:\n  ~p", [Res]),
+    case Res of
+        {ok, {{_, 201, _}, _, #{<<"id">> := RuleId}}} ->
+            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            simplify_result(Res);
+        _ ->
+            simplify_result(Res)
+    end.
+
+make_trace_fn_action() ->
+    persistent_term:put({?MODULE, test_pid}, self()),
+    Fn = <<(atom_to_binary(?MODULE))/binary, ":trace_rule">>,
+    emqx_utils_ets:new(?RECORDED_EVENTS_TAB, [named_table, public, ordered_set]),
+    #{function => Fn, args => #{}}.
+
+trace_rule(Data, Envs, _Args) ->
+    Now = erlang:monotonic_time(),
+    ets:insert(?RECORDED_EVENTS_TAB, {Now, #{data => Data, envs => Envs}}),
+    TestPid = persistent_term:get({?MODULE, test_pid}),
+    TestPid ! {action, #{data => Data, envs => Envs}},
+    ok.
+
+get_traced_failures_from_rule_engine() ->
+    ets:tab2list(?RECORDED_EVENTS_TAB).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -579,16 +614,16 @@ t_log_failure_none(_Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([#{log_level := none}], ?of_kind(message_validation_failure, Trace)),
+            ?assertMatch([#{log_level := none}], ?of_kind(message_validation_failed, Trace)),
             ok
         end
     ),
     ok.
 
 t_action_ignore(_Config) ->
+    Name1 = <<"foo">>,
     ?check_trace(
         begin
-            Name1 = <<"foo">>,
             AlwaysFailCheck = sql_check(<<"select * where false">>),
             Validation1 = validation(
                 Name1,
@@ -598,17 +633,24 @@ t_action_ignore(_Config) ->
 
             {201, _} = insert(Validation1),
 
+            {201, _} = create_failure_tracing_rule(),
+
             C = connect(<<"c1">>),
             {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
 
             ok = publish(C, <<"t/1">>, #{}),
             ?assertReceive({publish, _}),
+
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([#{action := ignore}], ?of_kind(message_validation_failure, Trace)),
+            ?assertMatch([#{action := ignore}], ?of_kind(message_validation_failed, Trace)),
             ok
         end
+    ),
+    ?assertMatch(
+        [{_, #{data := #{validation := Name1, event := 'message.validation_failed'}}}],
+        get_traced_failures_from_rule_engine()
     ),
     ok.
 
@@ -717,6 +759,8 @@ t_any_pass(_Config) ->
 
 %% Checks that multiple validations are run in order.
 t_multiple_validations(_Config) ->
+    {201, _} = create_failure_tracing_rule(),
+
     Name1 = <<"foo">>,
     Check1 = sql_check(<<"select payload.x as x, payload.y as y where x > 10 or y > 0">>),
     Validation1 = validation(Name1, [Check1], #{<<"failure_action">> => <<"drop">>}),
@@ -732,13 +776,23 @@ t_multiple_validations(_Config) ->
 
     ok = publish(C, <<"t/1">>, #{x => 11, y => 1}),
     ?assertReceive({publish, _}),
+    %% Barred by `Name1'
     ok = publish(C, <<"t/1">>, #{x => 7, y => 0}),
     ?assertNotReceive({publish, _}),
     ?assertNotReceive({disconnected, _, _}),
+    %% Barred by `Name2'
     unlink(C),
     ok = publish(C, <<"t/1">>, #{x => 0, y => 1}),
     ?assertNotReceive({publish, _}),
     ?assertReceive({disconnected, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, _}),
+
+    ?assertMatch(
+        [
+            {_, #{data := #{validation := Name1, event := 'message.validation_failed'}}},
+            {_, #{data := #{validation := Name2, event := 'message.validation_failed'}}}
+        ],
+        get_traced_failures_from_rule_engine()
+    ),
 
     ok.
 
