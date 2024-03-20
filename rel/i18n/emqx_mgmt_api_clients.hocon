@@ -68,8 +68,8 @@ msg_topic.label:
 
 msg_qos.desc:
 """Message QoS."""
-msg_topic.label:
-"""Message Qos"""
+msg_qos.label:
+"""Message QoS"""
 
 msg_publish_at.desc:
 """Message publish time, a millisecond precision Unix epoch timestamp."""
