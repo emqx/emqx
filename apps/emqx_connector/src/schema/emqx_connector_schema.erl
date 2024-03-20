@@ -87,7 +87,7 @@ enterprise_fields_connectors() -> [].
 
 -endif.
 
-api_schemas(Method) ->
+api_schemas(_Method) ->
     [].
 
 api_ref(Module, Type, Method) ->
@@ -122,8 +122,6 @@ connector_info_schema_modules() ->
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(redis) ->
-    [redis, redis_single, redis_sentinel, redis_cluster];
 connector_type_to_bridge_types(rocketmq) ->
     [rocketmq];
 connector_type_to_bridge_types(syskeeper_forwarder) ->

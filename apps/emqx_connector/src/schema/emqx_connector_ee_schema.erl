@@ -27,8 +27,6 @@ resource_type(syskeeper_proxy) ->
     emqx_bridge_syskeeper_proxy_server;
 resource_type(sqlserver) ->
     emqx_bridge_sqlserver_connector;
-resource_type(redis) ->
-    emqx_bridge_redis_connector;
 resource_type(rocketmq) ->
     emqx_bridge_rocketmq_connector;
 resource_type(iotdb) ->
@@ -75,14 +73,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {redis,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_redis_schema, "config_connector")),
-                #{
-                    desc => <<"Redis Connector Config">>,
-                    required => false
-                }
-            )},
         {rocketmq,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_rocketmq, "config_connector")),
@@ -187,7 +177,6 @@ schema_modules() ->
         emqx_bridge_syskeeper_proxy,
         emqx_bridge_sqlserver,
         emqx_postgresql_connector_schema,
-        emqx_bridge_redis_schema,
         emqx_bridge_rocketmq,
         emqx_bridge_iotdb_connector,
         emqx_bridge_es_connector,
@@ -206,7 +195,6 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
         api_ref(emqx_bridge_sqlserver, <<"sqlserver">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector"),
         api_ref(emqx_bridge_rocketmq, <<"rocketmq">>, Method ++ "_connector"),
         api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method),
         api_ref(emqx_bridge_es_connector, <<"elasticsearch">>, Method),
