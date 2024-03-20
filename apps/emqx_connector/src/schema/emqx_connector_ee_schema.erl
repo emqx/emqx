@@ -21,10 +21,6 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-resource_type(syskeeper_forwarder) ->
-    emqx_bridge_syskeeper_connector;
-resource_type(syskeeper_proxy) ->
-    emqx_bridge_syskeeper_proxy_server;
 resource_type(sqlserver) ->
     emqx_bridge_sqlserver_connector;
 resource_type(iotdb) ->
@@ -71,22 +67,6 @@ fields(connectors) ->
 
 connector_structs() ->
     [
-        {syskeeper_forwarder,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_syskeeper_connector, config)),
-                #{
-                    desc => <<"Syskeeper Connector Config">>,
-                    required => false
-                }
-            )},
-        {syskeeper_proxy,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_syskeeper_proxy, config)),
-                #{
-                    desc => <<"Syskeeper Proxy Connector Config">>,
-                    required => false
-                }
-            )},
         {sqlserver,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_sqlserver, "config_connector")),
@@ -163,8 +143,6 @@ connector_structs() ->
 
 schema_modules() ->
     [
-        emqx_bridge_syskeeper_connector,
-        emqx_bridge_syskeeper_proxy,
         emqx_bridge_sqlserver,
         emqx_postgresql_connector_schema,
         emqx_bridge_iotdb_connector,
@@ -181,8 +159,6 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
-        api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
         api_ref(emqx_bridge_sqlserver, <<"sqlserver">>, Method ++ "_connector"),
         api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method),
         api_ref(emqx_bridge_es_connector, <<"elasticsearch">>, Method),
