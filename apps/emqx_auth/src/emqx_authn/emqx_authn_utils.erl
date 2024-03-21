@@ -46,14 +46,16 @@
     default_headers_no_content_type/0
 ]).
 
-%% VAR_NS_CLIENT_ATTRS is not added to this list because client_attrs is to be initialized from authn result
+%% VAR_NS_CLIENT_ATTRS is added here because it can be initialized before authn.
+%% NOTE: authn return may add more to (or even overwrite) client_attrs.
 -define(ALLOWED_VARS, [
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
     ?VAR_PASSWORD,
     ?VAR_PEERHOST,
     ?VAR_CERT_SUBJECT,
-    ?VAR_CERT_CN_NAME
+    ?VAR_CERT_CN_NAME,
+    ?VAR_NS_CLIENT_ATTRS
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{

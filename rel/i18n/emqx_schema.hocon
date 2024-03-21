@@ -1578,8 +1578,8 @@ client_attrs_init {
     One initial client attribute can be initialized as `client_attrs.NAME`,
     where `NAME` is the name of the attribute specified in the config `extract_as`.
     The initialized client attribute will be stored in the `client_attr` property with the specified name,
-    and can be used as a placeholder in a template.
-    For example, `${client_attrs.alias}` if `extract_as` is set to `alias`."""
+    and can be used as a placeholder in a template for authentication and authorization.
+    For example, use `${client_attrs.alias}` to render a HTTP POST body when `extract_as = alias`."""
 }
 
 client_attrs_init_extract_from {
