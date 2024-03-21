@@ -179,6 +179,17 @@ mk_persistent_topic_stream(Spec) ->
             emqx_utils_stream:empty()
     end.
 
+eval_count() ->
+    emqx_router:stats(n_routes) + eval_persistent_count().
+
+eval_persistent_count() ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            emqx_persistent_session_ds_router:stats(n_routes);
+        false ->
+            0
+    end.
+
 eval_topic_query(Stream, QState = #{limit := Limit}, QResult) ->
     case emqx_utils_stream:consume(Limit, Stream) of
         {Rows, NStream} ->
@@ -209,7 +220,7 @@ format_list_response(Meta, Query, QResult = #{rows := RowsAcc}) ->
 format_response_meta(Meta, _Query, #{hasnext := HasNext, complete := true, cursor := Cursor}) ->
     Meta#{hasnext => HasNext, count => Cursor};
 format_response_meta(Meta, _Query = {[], []}, #{hasnext := HasNext}) ->
-    Meta#{hasnext => HasNext, count => emqx_router:stats(n_routes)};
+    Meta#{hasnext => HasNext, count => eval_count()};
 format_response_meta(Meta, _Query, #{hasnext := HasNext}) ->
     Meta#{hasnext => HasNext}.
 
