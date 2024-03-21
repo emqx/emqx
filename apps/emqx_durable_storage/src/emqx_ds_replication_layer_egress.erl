@@ -175,7 +175,11 @@ do_flush(
                 #{db => DB, shard => Shard, reason => Error}
             ),
             Cooldown = ?COOLDOWN_MIN + rand:uniform(?COOLDOWN_MAX - ?COOLDOWN_MIN),
-            ok = timer:sleep(Cooldown)
+            ok = timer:sleep(Cooldown),
+            %% Since we drop the entire batch here, we at least reply callers with an
+            %% error so they don't hang indefinitely in the `gen_server' call with
+            %% `infinity' timeout.
+            lists:foreach(fun(From) -> gen_server:reply(From, {error, Error}) end, Replies)
     end,
     S#s{
         n = 0,
