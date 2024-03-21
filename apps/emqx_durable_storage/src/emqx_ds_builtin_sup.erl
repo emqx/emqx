@@ -81,6 +81,7 @@ stop_db(DB) ->
 %% Chidren are attached dynamically to this one.
 init(?top) ->
     %% Children:
+    MetricsWorker = emqx_ds_builtin_metrics:child_spec(),
     MetadataServer = #{
         id => metadata_server,
         start => {emqx_ds_replication_layer_meta, start_link, []},
@@ -102,7 +103,7 @@ init(?top) ->
         period => 1,
         auto_shutdown => never
     },
-    {ok, {SupFlags, [MetadataServer, DBsSup]}};
+    {ok, {SupFlags, [MetricsWorker, MetadataServer, DBsSup]}};
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
