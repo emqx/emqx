@@ -58,38 +58,6 @@
 
 -export([examples/1]).
 
--if(?EMQX_RELEASE_EDITION == ee).
-enterprise_api_schemas(Method) ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_connector_ee_schema:module_info(),
-    case erlang:function_exported(emqx_connector_ee_schema, api_schemas, 1) of
-        true -> emqx_connector_ee_schema:api_schemas(Method);
-        false -> []
-    end.
-
-enterprise_fields_connectors() ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_connector_ee_schema:module_info(),
-    case erlang:function_exported(emqx_connector_ee_schema, fields, 1) of
-        true ->
-            emqx_connector_ee_schema:fields(connectors);
-        false ->
-            []
-    end.
-
--else.
-
-enterprise_api_schemas(_Method) -> [].
-
-enterprise_fields_connectors() -> [].
-
--endif.
-
-api_schemas(_Method) ->
-    [].
-
 api_ref(Module, Type, Method) ->
     {Type, ref(Module, Method)}.
 
@@ -105,15 +73,7 @@ examples(Method) ->
         end,
     lists:foldl(Fun, #{}, schema_modules()).
 
--if(?EMQX_RELEASE_EDITION == ee).
 schema_modules() ->
-    emqx_connector_ee_schema:schema_modules() ++ connector_info_schema_modules().
--else.
-schema_modules() ->
-    connector_info_schema_modules().
--endif.
-
-connector_info_schema_modules() ->
     ConnectorTypes = emqx_connector_info:connector_types(),
     [
         emqx_connector_info:schema_module(Type)
@@ -417,10 +377,8 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    CE = api_schemas(Method),
-    EE = enterprise_api_schemas(Method),
     InfoModSchemas = emqx_connector_info_api_schemas(Method),
-    hoconsc:union(connector_api_union(CE ++ EE ++ InfoModSchemas)).
+    hoconsc:union(connector_api_union(InfoModSchemas)).
 
 emqx_connector_info_api_schemas(Method) ->
     ConnectorTypes = emqx_connector_info:connector_types(),
@@ -472,7 +430,7 @@ roots() ->
     end.
 
 fields(connectors) ->
-    [] ++ enterprise_fields_connectors() ++ connector_info_fields_connectors();
+    connector_info_fields_connectors();
 fields("node_status") ->
     [
         node_name(),

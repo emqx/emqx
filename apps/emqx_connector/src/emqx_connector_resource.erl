@@ -57,44 +57,18 @@ when
     ParsedConfig :: #{atom() => any()}, Context :: #{atom() => any()}.
 -optional_callbacks([connector_config/2]).
 
--if(?EMQX_RELEASE_EDITION == ee).
 connector_to_resource_type(ConnectorType) ->
-    try
-        emqx_connector_ee_schema:resource_type(ConnectorType)
-    catch
-        error:{unknown_connector_type, _} ->
-            %% maybe it's a CE connector
-            connector_to_resource_type_ce(ConnectorType)
-    end.
-
-connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
-    connector_impl_module(binary_to_atom(ConnectorType, utf8));
-connector_impl_module(ConnectorType) ->
-    case emqx_connector_ee_schema:connector_impl_module(ConnectorType) of
-        undefined ->
-            emqx_connector_info:config_transform_module(ConnectorType);
-        Module ->
-            Module
-    end.
--else.
-
-connector_to_resource_type(ConnectorType) ->
-    connector_to_resource_type_ce(ConnectorType).
-
-connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
-    connector_impl_module(binary_to_atom(ConnectorType, utf8));
-connector_impl_module(ConnectorType) ->
-    emqx_connector_info:config_transform_module(ConnectorType).
-
--endif.
-
-connector_to_resource_type_ce(ConnectorType) ->
     try
         emqx_connector_info:resource_callback_module(ConnectorType)
     catch
         _:_ ->
             error({unknown_connector_type, ConnectorType})
     end.
+
+connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
+    connector_impl_module(binary_to_atom(ConnectorType, utf8));
+connector_impl_module(ConnectorType) ->
+    emqx_connector_info:config_transform_module(ConnectorType).
 
 resource_id(ConnectorId) when is_binary(ConnectorId) ->
     <<"connector:", ConnectorId/binary>>.

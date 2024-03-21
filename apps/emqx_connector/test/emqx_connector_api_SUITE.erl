@@ -221,8 +221,8 @@ end_per_testcase(TestCase, Config) ->
 
 -define(CONNECTOR_IMPL, dummy_connector_impl).
 init_mocks(_TestCase) ->
-    meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
+    meck:new(emqx_connector_resource, [passthrough, no_link]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
     meck:new(?CONNECTOR_IMPL, [non_strict, no_link]),
     meck:expect(?CONNECTOR_IMPL, callback_mode, 0, async_if_possible),
     meck:expect(
@@ -265,7 +265,7 @@ init_mocks(_TestCase) ->
             emqx_bridge_v2:get_channels_for_connector(ResId)
         end
     ),
-    [?CONNECTOR_IMPL, emqx_connector_ee_schema].
+    [?CONNECTOR_IMPL, emqx_connector_resource].
 
 clear_resources(_) ->
     lists:foreach(

@@ -248,16 +248,8 @@ end_per_testcase(_TestCase, Config) ->
 
 -define(CONNECTOR_IMPL, emqx_bridge_v2_dummy_connector).
 init_mocks() ->
-    case emqx_release:edition() of
-        ee ->
-            meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
-            meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
-            ok;
-        ce ->
-            meck:new(emqx_connector_resource, [passthrough, no_link]),
-            meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
-            ok
-    end,
+    meck:new(emqx_connector_resource, [passthrough, no_link]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
     meck:new(?CONNECTOR_IMPL, [non_strict, no_link]),
     meck:expect(?CONNECTOR_IMPL, callback_mode, 0, async_if_possible),
     meck:expect(

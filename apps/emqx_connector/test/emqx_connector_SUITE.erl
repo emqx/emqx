@@ -44,14 +44,14 @@ end_per_testcase(TestCase, Config) ->
 %% the 2 test cases below are based on kafka connector which is ee only
 -if(?EMQX_RELEASE_EDITION == ee).
 t_connector_lifecycle({init, Config}) ->
-    meck:new(emqx_connector_ee_schema, [passthrough]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(emqx_connector_resource, [passthrough]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_stop, 2, ok),
     meck:expect(?CONNECTOR, on_get_status, 2, connected),
-    [{mocked_mods, [?CONNECTOR, emqx_connector_ee_schema]} | Config];
+    [{mocked_mods, [?CONNECTOR, emqx_connector_resource]} | Config];
 t_connector_lifecycle({'end', Config}) ->
     MockedMods = ?config(mocked_mods, Config),
     meck:unload(MockedMods),
@@ -164,8 +164,8 @@ t_connector_lifecycle(_Config) ->
     ok.
 
 t_remove_fail({'init', Config}) ->
-    meck:new(emqx_connector_ee_schema, [passthrough]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(emqx_connector_resource, [passthrough]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
@@ -228,8 +228,8 @@ t_remove_fail(_Config) ->
     ok.
 
 t_create_with_bad_name_direct_path({init, Config}) ->
-    meck:new(emqx_connector_ee_schema, [passthrough]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(emqx_connector_resource, [passthrough]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
@@ -259,8 +259,8 @@ t_create_with_bad_name_direct_path(_Config) ->
     ok.
 
 t_create_with_bad_name_root_path({init, Config}) ->
-    meck:new(emqx_connector_ee_schema, [passthrough]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(emqx_connector_resource, [passthrough]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
@@ -293,8 +293,8 @@ t_create_with_bad_name_root_path(_Config) ->
     ok.
 
 t_no_buffer_workers({'init', Config}) ->
-    meck:new(emqx_connector_ee_schema, [passthrough]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(emqx_connector_resource, [passthrough]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
