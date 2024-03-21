@@ -246,12 +246,20 @@ t_persistent_topics(_Config) ->
         lists:sort(maps:get(<<"data">>, Matched))
     ),
     %% Are results the same when paginating?
-    #{<<"data">> := Page1} = request_json(get, ["topics"], [{"page", "1"}, {"limit", "3"}]),
+    #{<<"data">> := Page1} = R1 = request_json(get, ["topics"], [{"page", "1"}, {"limit", "3"}]),
     #{<<"data">> := Page2} = request_json(get, ["topics"], [{"page", "2"}, {"limit", "3"}]),
     #{<<"data">> := Page3} = request_json(get, ["topics"], [{"page", "3"}, {"limit", "3"}]),
     ?assertEqual(
         lists:sort(Expected),
         lists:sort(Page1 ++ Page2 ++ Page3)
+    ),
+    %% Count respects persistent sessions.
+    ?assertMatch(
+        #{
+            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 3, <<"count">> := 8},
+            <<"data">> := [_, _, _]
+        },
+        R1
     ),
     %% Filtering by node makes no sense for persistent sessions.
     ?assertMatch(

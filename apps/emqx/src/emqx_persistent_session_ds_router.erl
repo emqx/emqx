@@ -33,7 +33,10 @@
 ]).
 
 %% Topics API
--export([stream/1]).
+-export([
+    stream/1,
+    stats/1
+]).
 
 -export([cleanup_routes/1]).
 -export([print_routes/1]).
@@ -210,6 +213,14 @@ foldr_routes(FoldFun, AccIn) ->
     emqx_utils_stream:stream(emqx_types:route()).
 stream(MTopic) ->
     emqx_utils_stream:chain(stream(?PS_ROUTER_TAB, MTopic), stream(?PS_FILTERS_TAB, MTopic)).
+
+%% @doc Retrieve router stats.
+%% n_routes: total number of routes, should be equal to the length of `stream('_')`.
+-spec stats(n_routes) -> non_neg_integer().
+stats(n_routes) ->
+    NTopics = ets:info(?PS_ROUTER_TAB, size),
+    NFilters = ets:info(?PS_FILTERS_TAB, size),
+    emqx_maybe:define(NTopics, 0) + emqx_maybe:define(NFilters, 0).
 
 %%--------------------------------------------------------------------
 %% Internal fns
