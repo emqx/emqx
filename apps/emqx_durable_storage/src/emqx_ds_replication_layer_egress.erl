@@ -161,12 +161,13 @@ do_flush(
 ) ->
     case emqx_ds_replication_layer:ra_store_batch(DB, Shard, lists:reverse(Messages)) of
         ok ->
-            lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Replies),
-            true = erlang:garbage_collect(),
             ?tp(
                 emqx_ds_replication_layer_egress_flush,
                 #{db => DB, shard => Shard, batch => Messages}
-            );
+            ),
+            lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Replies),
+            true = erlang:garbage_collect(),
+            ok;
         Error ->
             true = erlang:garbage_collect(),
             ?tp(
