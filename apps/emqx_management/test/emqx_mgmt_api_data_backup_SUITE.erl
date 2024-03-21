@@ -199,7 +199,11 @@ upload_backup_test(Config, BackupName) ->
     ?assertEqual(ok, upload_backup(?NODE3_PORT, Auth, UploadFile)),
     %% This file was specially forged to pass upload validation bat fail on import
     ?assertEqual(ok, upload_backup(?NODE2_PORT, Auth, BadImportFile)),
-    ?assertEqual({error, bad_request}, upload_backup(?NODE1_PORT, Auth, BadUploadFile)).
+    ?assertEqual({error, bad_request}, upload_backup(?NODE1_PORT, Auth, BadUploadFile)),
+    %% Invalid file must not be kept
+    ?assertMatch(
+        {error, {_, 404, _}}, backup_file_op(get, ?NODE1_PORT, Auth, ?BAD_UPLOAD_BACKUP, [])
+    ).
 
 import_backup_test(Config, BackupName) ->
     Auth = ?config(auth, Config),

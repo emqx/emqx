@@ -315,8 +315,10 @@ do_upload(BackupFileNameStr, BackupFileContent) ->
     catch
         error:{badmatch, {error, Reason}}:Stack ->
             ?SLOG(error, #{msg => "emqx_data_upload_failed", reason => Reason, stacktrace => Stack}),
+            _ = file:delete(FilePath),
             {error, Reason};
         Class:Reason:Stack ->
+            _ = file:delete(FilePath),
             ?SLOG(error, #{
                 msg => "emqx_data_upload_failed",
                 exception => Class,
