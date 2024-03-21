@@ -23,6 +23,7 @@
 
 -include("emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SERVER, "http://127.0.0.1:18083").
 -define(BASE_PATH, "/api/v5").
@@ -176,28 +177,28 @@ t_monitor_current_shared_subscription(_) ->
     {ok, _} = emqtt:connect(C1),
     _ = emqtt:subscribe(C1, {ShareT, 1}),
 
-    ok = AssertFun(1),
+    ok = ?retry(100, 10, AssertFun(1)),
 
     {ok, C2} = emqtt:start_link([{clean_start, true}, {clientid, ClientId2}]),
     {ok, _} = emqtt:connect(C2),
     _ = emqtt:subscribe(C2, {ShareT, 1}),
-    ok = AssertFun(2),
+    ok = ?retry(100, 10, AssertFun(2)),
 
     _ = emqtt:unsubscribe(C2, ShareT),
-    ok = AssertFun(1),
+    ok = ?retry(100, 10, AssertFun(1)),
     _ = emqtt:subscribe(C2, {ShareT, 1}),
-    ok = AssertFun(2),
+    ok = ?retry(100, 10, AssertFun(2)),
 
     ok = emqtt:disconnect(C1),
     %% C1: clean_start = false, proto_ver = 3.1.1
     %% means disconnected but the session pid with a share-subscription is still alive
-    ok = AssertFun(2),
+    ok = ?retry(100, 10, AssertFun(2)),
 
     _ = emqx_cm:kick_session(ClientId1),
-    ok = AssertFun(1),
+    ok = ?retry(100, 10, AssertFun(1)),
 
     ok = emqtt:disconnect(C2),
-    ok = AssertFun(0),
+    ok = ?retry(100, 10, AssertFun(0)),
     ok.
 
 t_monitor_reset(_) ->
