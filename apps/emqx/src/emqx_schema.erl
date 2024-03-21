@@ -1736,8 +1736,8 @@ fields("client_attrs_init") ->
     [
         {extract_from,
             sc(
-                hoconsc:enum([clientid, username, cn, dn]),
-                #{desc => ?DESC("client_atrs_init_extract_from")}
+                hoconsc:enum([clientid, username, cn, dn, user_property]),
+                #{desc => ?DESC("client_attrs_init_extract_from")}
             )},
         {extract_regexp, sc(binary(), #{desc => ?DESC("client_attrs_init_extract_regexp")})},
         {extract_as,
@@ -2010,6 +2010,8 @@ desc("session_persistence") ->
     "Settings governing durable sessions persistence.";
 desc(durable_storage) ->
     ?DESC(durable_storage);
+desc("client_attrs_init") ->
+    ?DESC(client_attrs_init);
 desc(_) ->
     undefined.
 

@@ -263,7 +263,8 @@ init(
         },
         Zone
     ),
-    ClientInfo = initialize_client_attrs_from_cert(ClientInfo0, Peercert, Zone),
+    AttrExtractionConfig = get_mqtt_conf(Zone, client_attrs_init),
+    ClientInfo = initialize_client_attrs_from_cert(AttrExtractionConfig, ClientInfo0, Peercert),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{
         conninfo = NConnInfo,
@@ -1576,30 +1577,31 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
 
-initialize_client_attrs_from_cert(ClientInfo, Peercert, Zone) ->
-    case get_mqtt_conf(Zone, client_attrs_init) of
-        #{
-            extract_from := From,
-            extract_regexp := Regexp,
-            extract_as := AttrName
-        } when From =:= cn orelse From =:= dn ->
-            case extract_client_attr_from_cert(From, Regexp, Peercert) of
-                {ok, Value} ->
-                    ?SLOG(
-                        debug,
-                        #{
-                            msg => "client_attr_init_from_cert",
-                            extracted_as => AttrName,
-                            extracted_value => Value
-                        }
-                    ),
-                    ClientInfo#{client_attrs => #{AttrName => Value}};
-                _ ->
-                    ClientInfo#{client_attrs => #{}}
-            end;
+initialize_client_attrs_from_cert(
+    #{
+        extract_from := From,
+        extract_regexp := Regexp,
+        extract_as := AttrName
+    },
+    ClientInfo,
+    Peercert
+) when From =:= cn orelse From =:= dn ->
+    case extract_client_attr_from_cert(From, Regexp, Peercert) of
+        {ok, Value} ->
+            ?SLOG(
+                debug,
+                #{
+                    msg => "client_attr_init_from_cert",
+                    extracted_as => AttrName,
+                    extracted_value => Value
+                }
+            ),
+            ClientInfo#{client_attrs => #{AttrName => Value}};
         _ ->
             ClientInfo#{client_attrs => #{}}
-    end.
+    end;
+initialize_client_attrs_from_cert(_, ClientInfo, _Peercert) ->
+    ClientInfo.
 
 extract_client_attr_from_cert(cn, Regexp, Peercert) ->
     CN = esockd_peercert:common_name(Peercert),
@@ -1656,9 +1658,10 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
 maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
 
-maybe_set_client_initial_attr(_, #{zone := Zone} = ClientInfo) ->
-    Attrs = maps:get(client_attrs, ClientInfo, #{}),
+maybe_set_client_initial_attr(ConnPkt, #{zone := Zone} = ClientInfo0) ->
     Config = get_mqtt_conf(Zone, client_attrs_init),
+    ClientInfo = initialize_client_attrs_from_user_property(Config, ConnPkt, ClientInfo0),
+    Attrs = maps:get(client_attrs, ClientInfo, #{}),
     case extract_attr_from_clientinfo(Config, ClientInfo) of
         {ok, Value} ->
             #{extract_as := Name} = Config,
@@ -1674,6 +1677,43 @@ maybe_set_client_initial_attr(_, #{zone := Zone} = ClientInfo) ->
         _ ->
             {ok, ClientInfo}
     end.
+
+initialize_client_attrs_from_user_property(
+    #{
+        extract_from := user_property,
+        extract_as := PropertyKey
+    },
+    ConnPkt,
+    ClientInfo
+) ->
+    case extract_client_attr_from_user_property(ConnPkt, PropertyKey) of
+        {ok, Value} ->
+            ?SLOG(
+                debug,
+                #{
+                    msg => "client_attr_init_from_user_property",
+                    extracted_as => PropertyKey,
+                    extracted_value => Value
+                }
+            ),
+            ClientInfo#{client_attrs => #{PropertyKey => Value}};
+        _ ->
+            ClientInfo
+    end;
+initialize_client_attrs_from_user_property(_, _ConnInfo, ClientInfo) ->
+    ClientInfo.
+
+extract_client_attr_from_user_property(
+    #mqtt_packet_connect{properties = #{'User-Property' := UserProperty}}, PropertyKey
+) ->
+    case lists:keyfind(PropertyKey, 1, UserProperty) of
+        {_, Value} ->
+            {ok, Value};
+        _ ->
+            not_found
+    end;
+extract_client_attr_from_user_property(_ConnPkt, _PropertyKey) ->
+    ignored.
 
 extract_attr_from_clientinfo(#{extract_from := clientid, extract_regexp := Regexp}, #{
     clientid := ClientId

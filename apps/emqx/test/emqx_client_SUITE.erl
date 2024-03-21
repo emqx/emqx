@@ -77,6 +77,7 @@ groups() ->
             t_username_as_clientid,
             t_certcn_as_alias,
             t_certdn_as_alias,
+            t_client_attr_from_user_property,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
@@ -408,10 +409,33 @@ test_cert_extraction_as_alias(Which) ->
     {ok, _} = emqtt:connect(Client),
     %% assert only two chars are extracted
     ?assertMatch(
-        #{clientinfo := #{client_attrs := #{alias := <<_, _>>}}}, emqx_cm:get_chan_info(ClientId)
+        #{clientinfo := #{client_attrs := #{<<"alias">> := <<_, _>>}}},
+        emqx_cm:get_chan_info(ClientId)
     ),
     emqtt:disconnect(Client).
 
+t_client_attr_from_user_property(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
+        extract_from => user_property,
+        extract_as => <<"group">>
+    }),
+    SslConf = emqx_common_test_helpers:client_mtls('tlsv1.3'),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {port, 8883},
+        {ssl, true},
+        {ssl_opts, SslConf},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"group">>, <<"g1">>}]}}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    %% assert only two chars are extracted
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := #{<<"group">> := <<"g1">>}}},
+        emqx_cm:get_chan_info(ClientId)
+    ),
+    emqtt:disconnect(Client).
 t_certcn_as_clientid_default_config_tls(_) ->
     tls_certcn_as_clientid(default).
 

@@ -1592,12 +1592,14 @@ client_attrs_init_extract_from {
     - `username`: Extract from the username.
     - `cn`: Extract from the Common Name (CN) field of the client certificate.
     - `dn`: Extract from the Distinguished Name (DN) field of the client certficate.
+    - `user_property`: Extract from the user property sent in the MQTT v5 `CONNECT` packet.
+      In this case, `extract_regex` is not applicable, and `extract_as` should be the user property key.
 
     NOTE: this extraction happens **after** `clientid` or `username` is initialized
     from `peer_cert_as_clientid` or `peer_cert_as_username` config."""
 }
 
-client_attrs_init_extract_regex {
+client_attrs_init_extract_regexp {
   label: "Client attribute extract regex"
   desc: """~
     The regular expression to extract a client attribute from the client property specified by `client_attrs_init.extract_from` config.
@@ -1610,7 +1612,8 @@ client_attrs_init_extract_as {
   label: "Name the extracted attribute"
   desc: """~
     The name of the client attribute extracted from the client property specified by `client_attrs_init.extract_from` config.
-    The extracted attribute will be stored in the `client_attr` property with this name."""
+    The extracted attribute will be stored in the `client_attr` property with this name.
+    In case `extract_from = user_property`, this should be the key of the user property."""
 }
 
 }
