@@ -132,6 +132,7 @@
 -type replies() :: emqx_session:replies().
 
 -define(STATS_KEYS, [
+    durable,
     subscriptions_cnt,
     subscriptions_max,
     inflight_cnt,
@@ -254,6 +255,8 @@ info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt;
 info(is_persistent, #session{is_persistent = IsPersistent}) ->
     IsPersistent;
+info(durable, _) ->
+    false;
 info(subscriptions, #session{subscriptions = Subs}) ->
     Subs;
 info(subscriptions_cnt, #session{subscriptions = Subs}) ->

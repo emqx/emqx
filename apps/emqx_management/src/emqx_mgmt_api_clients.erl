@@ -621,7 +621,67 @@ fields(client) ->
                         " Maximum number of subscriptions allowed by this client">>
             })},
         {username, hoconsc:mk(binary(), #{desc => <<"User name of client when connecting">>})},
-        {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})}
+        {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})},
+        {durable, hoconsc:mk(boolean(), #{desc => <<"Session is durable">>})},
+        {n_streams,
+            hoconsc:mk(non_neg_integer(), #{
+                desc => <<"Number of streams used by the durable session">>
+            })},
+
+        {seqno_q1_comm,
+            hoconsc:mk(non_neg_integer(), #{
+                desc =>
+                    <<
+                        "Sequence number of the last PUBACK received from the client "
+                        "(Durable sessions only)"
+                    >>
+            })},
+        {seqno_q1_dup,
+            hoconsc:mk(non_neg_integer(), #{
+                desc =>
+                    <<
+                        "Sequence number of the last QoS1 message sent to the client, that hasn't been acked "
+                        "(Durable sessions only)"
+                    >>
+            })},
+        {seqno_q1_next,
+            hoconsc:mk(non_neg_integer(), #{
+                desc =>
+                    <<
+                        "Sequence number of next QoS1 message to be added to the batch "
+                        "(Durable sessions only)"
+                    >>
+            })},
+
+        {seqno_q2_comm,
+            hoconsc:mk(non_neg_integer(), #{
+                desc =>
+                    <<
+                        "Sequence number of the last PUBCOMP received from the client "
+                        "(Durable sessions only)"
+                    >>
+            })},
+        {seqno_q2_dup,
+            hoconsc:mk(non_neg_integer(), #{
+                desc =>
+                    <<
+                        "Sequence number of last unacked QoS2 PUBLISH message sent to the client "
+                        "(Durable sessions only)"
+                    >>
+            })},
+        {seqno_q2_rec,
+            hoconsc:mk(non_neg_integer(), #{
+                desc =>
+                    <<"Sequence number of last PUBREC received from the client (Durable sessions only)">>
+            })},
+        {seqno_q2_next,
+            hoconsc:mk(non_neg_integer(), #{
+                desc =>
+                    <<
+                        "Sequence number of next QoS2 message to be added to the batch "
+                        "(Durable sessions only)"
+                    >>
+            })}
     ];
 fields(authz_cache) ->
     [
@@ -1588,7 +1648,8 @@ client_example() ->
         <<"recv_msg">> => 0,
         <<"recv_pkt">> => 4,
         <<"recv_cnt">> => 4,
-        <<"recv_msg.qos0">> => 0
+        <<"recv_msg.qos0">> => 0,
+        <<"durable">> => false
     }.
 
 message_example() ->
