@@ -644,7 +644,7 @@ t_session_replay_retry(_Config) ->
 
     Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
     NPubs = length(Pubs0),
-    ?assertEqual(NClients, NPubs, ?drainMailbox()),
+    ?assertEqual(NClients, NPubs, ?drainMailbox(1_500)),
 
     ok = emqtt:stop(ClientSub),
 
