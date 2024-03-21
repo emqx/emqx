@@ -18,7 +18,13 @@ emqx_message_validation_http_api {
   reorder_validations.desc:
   """Reorder of all validations"""
 
+  enable_disable_validation.desc:
+  """Enable or disable a particular validation"""
+
   param_path_name.desc:
   """Validation name"""
+
+  param_path_enable.desc:
+  """Enable or disable validation"""
 
 }

@@ -44,6 +44,7 @@
     on_session_unsubscribed/4,
     on_message_publish/2,
     on_message_dropped/4,
+    on_message_validation_failed/3,
     on_message_delivered/3,
     on_message_acked/3,
     on_delivery_dropped/4,
@@ -78,6 +79,7 @@ event_names() ->
         'message.delivered',
         'message.acked',
         'message.dropped',
+        'message.validation_failed',
         'delivery.dropped'
     ].
 
@@ -93,6 +95,7 @@ event_topics_enum() ->
         '$events/message_delivered',
         '$events/message_acked',
         '$events/message_dropped',
+        '$events/message_validation_failed',
         '$events/delivery_dropped'
         % '$events/message_publish' % not possible to use in SELECT FROM
     ].
@@ -216,6 +219,19 @@ on_message_dropped(Message, _, Reason, Conf) ->
             apply_event(
                 'message.dropped',
                 fun() -> eventmsg_dropped(Message, Reason) end,
+                Conf
+            )
+    end,
+    {ok, Message}.
+
+on_message_validation_failed(Message, ValidationContext, Conf) ->
+    case ignore_sys_message(Message) of
+        true ->
+            ok;
+        false ->
+            apply_event(
+                'message.validation_failed',
+                fun() -> eventmsg_validation_failed(Message, ValidationContext) end,
                 Conf
             )
     end,
@@ -477,6 +493,38 @@ eventmsg_dropped(
         #{headers => Headers}
     ).
 
+eventmsg_validation_failed(
+    Message = #message{
+        id = Id,
+        from = ClientId,
+        qos = QoS,
+        flags = Flags,
+        topic = Topic,
+        headers = Headers,
+        payload = Payload,
+        timestamp = Timestamp
+    },
+    ValidationContext
+) ->
+    #{name := ValidationName} = ValidationContext,
+    with_basic_columns(
+        'message.validation_failed',
+        #{
+            id => emqx_guid:to_hexstr(Id),
+            validation => ValidationName,
+            clientid => ClientId,
+            username => emqx_message:get_header(username, Message, undefined),
+            payload => Payload,
+            peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
+            topic => Topic,
+            qos => QoS,
+            flags => Flags,
+            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            publish_received_at => Timestamp
+        },
+        #{headers => Headers}
+    ).
+
 eventmsg_delivered(
     _ClientInfo = #{
         peerhost := PeerHost,
@@ -627,6 +675,7 @@ event_info() ->
         event_info_message_deliver(),
         event_info_message_acked(),
         event_info_message_dropped(),
+        event_info_message_validation_failed(),
         event_info_client_connected(),
         event_info_client_disconnected(),
         event_info_client_connack(),
@@ -665,6 +714,13 @@ event_info_message_dropped() ->
         {<<"messages are discarded during routing, usually because there are no subscribers">>,
             <<"消息在转发的过程中被丢弃，一般是由于没有订阅者"/utf8>>},
         <<"SELECT * FROM \"$events/message_dropped\" WHERE topic =~ 't/#'">>
+    ).
+event_info_message_validation_failed() ->
+    event_info_common(
+        'message.validation_failed',
+        {<<"message validation failed">>, <<"TODO"/utf8>>},
+        {<<"messages that do not pass configured validations">>, <<"TODO"/utf8>>},
+        <<"SELECT * FROM \"$events/message_validation_failed\" WHERE topic =~ 't/#'">>
     ).
 event_info_delivery_dropped() ->
     event_info_common(
@@ -736,6 +792,9 @@ event_info_common(Event, {TitleEN, TitleZH}, {DescrEN, DescrZH}, SqlExam) ->
 
 test_columns('message.dropped') ->
     [{<<"reason">>, [<<"no_subscribers">>, <<"the reason of dropping">>]}] ++
+        test_columns('message.publish');
+test_columns('message.validation_failed') ->
+    [{<<"validation">>, <<"myvalidation">>}] ++
         test_columns('message.publish');
 test_columns('message.publish') ->
     [
@@ -828,6 +887,23 @@ columns_with_exam('message.dropped') ->
         {<<"event">>, 'message.dropped'},
         {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
         {<<"reason">>, no_subscribers},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"flags">>, #{}},
+        {<<"publish_received_at">>, erlang:system_time(millisecond)},
+        columns_example_props(pub_props),
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
+    ];
+columns_with_exam('message.validation_failed') ->
+    [
+        {<<"event">>, 'message.validation_failed'},
+        {<<"validation">>, <<"my_validation">>},
+        {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
         {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
@@ -1030,6 +1106,7 @@ hook_fun('session.unsubscribed') -> fun ?MODULE:on_session_unsubscribed/4;
 hook_fun('message.delivered') -> fun ?MODULE:on_message_delivered/3;
 hook_fun('message.acked') -> fun ?MODULE:on_message_acked/3;
 hook_fun('message.dropped') -> fun ?MODULE:on_message_dropped/4;
+hook_fun('message.validation_failed') -> fun ?MODULE:on_message_validation_failed/3;
 hook_fun('delivery.dropped') -> fun ?MODULE:on_delivery_dropped/4;
 hook_fun('message.publish') -> fun ?MODULE:on_message_publish/2;
 hook_fun(Event) -> error({invalid_event, Event}).
@@ -1054,6 +1131,7 @@ event_name(<<"$events/session_unsubscribed">>) -> 'session.unsubscribed';
 event_name(<<"$events/message_delivered">>) -> 'message.delivered';
 event_name(<<"$events/message_acked">>) -> 'message.acked';
 event_name(<<"$events/message_dropped">>) -> 'message.dropped';
+event_name(<<"$events/message_validation_failed">>) -> 'message.validation_failed';
 event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
@@ -1067,6 +1145,7 @@ event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
 event_topic('message.acked') -> <<"$events/message_acked">>;
 event_topic('message.dropped') -> <<"$events/message_dropped">>;
+event_topic('message.validation_failed') -> <<"$events/message_validation_failed">>;
 event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
 event_topic('message.publish') -> <<"$events/message_publish">>.
 
