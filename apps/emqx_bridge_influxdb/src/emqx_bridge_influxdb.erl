@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_influxdb).
 
+-behaviour(emqx_connector_examples).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").

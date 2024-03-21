@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_matrix).
 
+-behaviour(emqx_connector_examples).
+
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([

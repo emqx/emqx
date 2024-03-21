@@ -4,6 +4,8 @@
 
 -module(emqx_bridge_redis_schema).
 
+-behaviour(emqx_connector_examples).
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -define(TYPE, redis).

@@ -4,6 +4,8 @@
 
 -module(emqx_bridge_s3).
 
+-behaviour(emqx_connector_examples).
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_bridge_s3.hrl").

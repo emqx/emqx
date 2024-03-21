@@ -16,6 +16,8 @@
 
 -module(emqx_postgresql_connector_schema).
 
+-behaviour(emqx_connector_examples).
+
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_postgresql/include/emqx_postgresql.hrl").
 

@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_iotdb_connector).
 
+-behaviour(emqx_connector_examples).
+
 -behaviour(emqx_resource).
 
 -include("emqx_bridge_iotdb.hrl").

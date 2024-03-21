@@ -31,15 +31,33 @@
 
 -export([clean_cache/0]).
 
+%% The type name for the conncector
 -callback type_name() -> atom().
+
+%% The action, source and bridge_v1 types that are using the connector
 -callback bridge_types() -> [atom()].
+
+%% The implementation of the emqx_resource behavior for the connector
 -callback resource_callback_module() -> atom().
+
+%% The module containing implementation of the emqx_connector_examples behavior.
 -callback schema_module() -> atom().
+
+%% The hocon configuration schema for the connector. This schema should usually
+%% contain a reference to the schema_module(). See
+%% emqx_bridge_oracle_connector_info:config_schema/0 for an example.
 -callback config_schema() -> term().
--callback api_schema([char()]) -> term().
+
+%% Should return the hocon configuration schema for the connector HTTP method.
+%% Note that one can use the helper functions emqx_connector_schema:api_ref/3
+%% and emqx_connector_schema:api_fields/3 to implement this. See
+%% emqx_bridge_oracle_connector_info:api_schema/1 and the corresponding clause
+%% in emqx_bridge_oracle:fields/1 for an example. Method is "get", "post" or "put".
+-callback api_schema(Method :: string()) -> term().
+
 %% Optional callback that should return a module with an exported
 %% connector_config/2 function. If present this function will be used to
-%% transfrom the connector configuration. See the callback connector_config/2
+%% transform the connector configuration. See the callback connector_config/2
 %% in emqx_connector_resource for more information.
 -callback config_transform_module() -> atom().
 
@@ -48,7 +66,7 @@
 ]).
 
 %% ====================================================================
-%% HardCoded list of info modules for connectors
+%% Hard coded list of info modules for connectors
 %% TODO: Remove this list once we have made sure that all relevants
 %% apps are loaded before this module is called.
 %% ====================================================================
