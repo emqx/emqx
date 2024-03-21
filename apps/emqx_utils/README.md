@@ -16,6 +16,7 @@ handling, data conversions, and more.
 - `emqx_utils_json`: JSON encoding and decoding
 - `emqx_utils_maps`: convenience functions for map lookup and manipulation like
   deep_get etc.
+- `emqx_metrics`: counters, gauges, slides
 
 ## Contributing
 
