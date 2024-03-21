@@ -16,7 +16,14 @@
 -module(emqx_ds_builtin_metrics).
 
 %% API:
--export([child_spec/0, init_for_db/1, init_for_shard/2]).
+-export([child_spec/0, init_for_db/1, shard_metric_id/2, init_for_shard/1]).
+-export([
+    inc_egress_batches/1,
+    inc_egress_batches_retry/1,
+    inc_egress_messages/2,
+    inc_egress_bytes/2,
+    observe_egress_flush_time/2
+]).
 
 %% behavior callbacks:
 -export([]).
@@ -24,7 +31,7 @@
 %% internal exports:
 -export([]).
 
--export_type([]).
+-export_type([shard_metrics_id/0]).
 
 %%================================================================================
 %% Type declarations
@@ -32,18 +39,17 @@
 
 -define(WORKER, ?MODULE).
 
--define(DB_METRICS,
-        [
+-define(DB_METRICS, []).
 
-        ]).
+-define(SHARD_METRICS, [
+    'egress.batches',
+    'egress.batches.retry',
+    'egress.messages',
+    'egress.bytes',
+    {slide, 'egress.flush_time'}
+]).
 
--define(SHARD_METRICS,
-        [
-         'egress.bytes',
-         'egress.batches',
-         'egress.messages',
-         {slide, 'egress.flush_time'}
-        ]).
+-type shard_metrics_id() :: binary().
 
 %%================================================================================
 %% API functions
@@ -57,18 +63,39 @@ child_spec() ->
 init_for_db(DB) ->
     emqx_metrics_worker:create_metrics(?WORKER, DB, ?DB_METRICS, []).
 
--spec init_for_shard(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> ok.
-init_for_shard(DB, ShardId) ->
-    Id = iolist_to_binary([atom_to_list(DB), $/, ShardId]),
-    emqx_metrics_worker:create_metrics(?WORKER, Id, ?SHARD_METRICS, []).
+-spec shard_metric_id(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> shard_metrics_id().
+shard_metric_id(DB, ShardId) ->
+    iolist_to_binary([atom_to_list(DB), $/, ShardId]).
 
-%%================================================================================
-%% behavior callbacks
-%%================================================================================
+-spec init_for_shard(shard_metrics_id()) -> ok.
+init_for_shard(ShardId) ->
+    emqx_metrics_worker:create_metrics(?WORKER, ShardId, ?SHARD_METRICS, []).
 
-%%================================================================================
-%% Internal exports
-%%================================================================================
+%% @doc Increase the number of successfully flushed batches
+-spec inc_egress_batches(shard_metrics_id()) -> ok.
+inc_egress_batches(Id) ->
+    emqx_metrics_worker:inc(?WORKER, Id, 'egress.batches').
+
+%% @doc Increase the number of time the egress worker had to retry
+%% flushing the batch
+-spec inc_egress_batches_retry(shard_metrics_id()) -> ok.
+inc_egress_batches_retry(Id) ->
+    emqx_metrics_worker:inc(?WORKER, Id, 'egress.batches.retry').
+
+%% @doc Increase the number of messages successfully saved to the shard
+-spec inc_egress_messages(shard_metrics_id(), non_neg_integer()) -> ok.
+inc_egress_messages(Id, NMessages) ->
+    emqx_metrics_worker:inc(?WORKER, Id, 'egress.messages', NMessages).
+
+%% @doc Increase the number of messages successfully saved to the shard
+-spec inc_egress_bytes(shard_metrics_id(), non_neg_integer()) -> ok.
+inc_egress_bytes(Id, NMessages) ->
+    emqx_metrics_worker:inc(?WORKER, Id, 'egress.bytes', NMessages).
+
+%% @doc Add a sample of time spent flushing the egress to the Raft log (in microseconds)
+-spec observe_egress_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
+observe_egress_flush_time(Id, FlushTime) ->
+    emqx_metrics_worker:observe(?WORKER, Id, 'egress.flush_time', FlushTime).
 
 %%================================================================================
 %% Internal functions

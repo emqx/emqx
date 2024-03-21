@@ -212,6 +212,7 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, cert_metric_meta(), ?MG(cert_data, RawData)),
     ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
+    ok = add_collect_family(Callback, ds_metric_meta(), ?MG(ds_data, RawData)),
     ok = maybe_license_add_collect_family(Callback, RawData),
     ok;
 collect_mf(_Registry, _Callback) ->
@@ -1010,6 +1011,18 @@ catch_all(DataFun) ->
     catch
         _:_ -> undefined
     end.
+
+%%========================================
+%% Durable storge
+%%========================================
+
+ds_metric_meta() ->
+    [
+     {emqx_ds_egress_batches, counter, 'egress.batches'},
+     {emqx_ds_egress_batches_retry, counter, 'egress.batches.retry'},
+     {emqx_ds_egress_messages, counter, 'egress.messages'},
+     {emqx_ds_egress_bytes, counter, 'egress.bytes'}
+    ].
 
 %%--------------------------------------------------------------------
 %% Collect functions
