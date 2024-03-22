@@ -261,7 +261,7 @@ check_oom(Pid, #{
             ok;
         [{message_queue_len, QLen}, {total_heap_size, HeapSize}] ->
             do_check_oom([
-                {QLen, MaxQLen, message_queue_too_long},
+                {QLen, MaxQLen, mailbox_overflow},
                 {HeapSize, MaxHeapSize, proc_heap_too_large}
             ])
     end.

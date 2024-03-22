@@ -150,7 +150,7 @@ t_check(_) ->
     ?assertEqual(ok, emqx_utils:check_oom(Policy)),
     [self() ! {msg, I} || I <- lists:seq(1, 6)],
     ?assertEqual(
-        {shutdown, #{reason => message_queue_too_long, value => 11, max => 10}},
+        {shutdown, #{reason => mailbox_overflow, value => 11, max => 10}},
         emqx_utils:check_oom(Policy)
     ).
 
