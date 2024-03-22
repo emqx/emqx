@@ -35,7 +35,7 @@ config_schema() ->
         )}.
 
 schema_module() ->
-    emqx_bridge_azure_event_hub.
+    emqx_bridge_es_connector.
 
 api_schema(Method) ->
     emqx_connector_schema:api_ref(

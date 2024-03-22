@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_kafka_connector_info).
+-module(emqx_bridge_kafka_producer_connector_info).
 
 -behaviour(emqx_connector_info).
 
