@@ -453,7 +453,8 @@ zone_global_defaults() ->
                 strict_mode => false,
                 upgrade_qos => false,
                 use_username_as_clientid => false,
-                wildcard_subscription => true
+                wildcard_subscription => true,
+                client_attrs_init => disabled
             },
         overload_protection =>
             #{

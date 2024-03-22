@@ -190,8 +190,9 @@
     anonymous => boolean(),
     cn => binary(),
     dn => binary(),
-    %% extra attributes
-    client_attrs => client_attrs(),
+    %% Extra client attributes, commented out for bpapi spec backward compatibility.
+    %% This field is never used in RPC calls.
+    %% client_attrs => client_attrs(),
     atom() => term()
 }.
 -type client_attrs() :: #{binary() => binary()}.
