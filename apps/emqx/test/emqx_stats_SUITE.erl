@@ -105,10 +105,10 @@ t_helper(_) ->
             end
         end,
     [
-        {"emqx_broker", MkTestFun(emqx_broker, stats_fun)},
-        {"emqx_sm", MkTestFun(emqx_sm, stats_fun)},
+        {"emqx_broker_helper", MkTestFun(emqx_broker_helper, stats_fun)},
         {"emqx_router_helper", MkTestFun(emqx_router_helper, stats_fun)},
-        {"emqx_cm", MkTestFun(emqx_cm, stats_fun)}
+        {"emqx_cm", MkTestFun(emqx_cm, stats_fun)},
+        {"emqx_retainer", MkTestFun(emqx_retainer, stats_fun)}
     ].
 
 with_proc(F) ->

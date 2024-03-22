@@ -158,7 +158,7 @@ t_stats_fun(Config) when is_list(Config) ->
     ok = emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
     ok = emqx_broker:subscribe(<<"topic2">>, <<"clientid">>),
     %% ensure stats refreshed
-    emqx_broker:stats_fun(),
+    emqx_broker_helper:stats_fun(),
     %% emqx_stats:set_stat is a gen_server cast
     %% make a synced call sync
     ignored = gen_server:call(emqx_stats, call, infinity),
