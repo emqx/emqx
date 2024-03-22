@@ -28,6 +28,17 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     BridgeV1Config2 = emqx_utils_maps:deep_merge(ConnectorConfig, BridgeV1Config1),
     emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, BridgeV1Config2).
 
+bridge_v1_config_to_action_config(BridgeV1Conf0 = #{<<"producer">> := _}, ConnectorName) ->
+    %% Ancient v1 config, when `kafka' key was wrapped by `producer'
+    BridgeV1Conf1 = emqx_utils_maps:unindent(<<"producer">>, BridgeV1Conf0),
+    BridgeV1Conf =
+        case maps:take(<<"mqtt">>, BridgeV1Conf1) of
+            {#{<<"topic">> := Topic}, BridgeV1Conf2} when is_binary(Topic) ->
+                BridgeV1Conf2#{<<"local_topic">> => Topic};
+            _ ->
+                maps:remove(<<"mqtt">>, BridgeV1Conf1)
+        end,
+    bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName);
 bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
     Config0 = emqx_action_info:transform_bridge_v1_config_to_action_config(
         BridgeV1Conf, ConnectorName, schema_module(), kafka_producer
