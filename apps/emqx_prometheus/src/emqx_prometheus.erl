@@ -212,7 +212,9 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, cert_metric_meta(), ?MG(cert_data, RawData)),
     ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
-    ok = add_collect_family(Callback, ds_metric_meta(), ?MG(ds_data, RawData)),
+    ok = add_collect_family(
+        Callback, emqx_ds_builtin_metrics:prometheus_meta(), ?MG(ds_data, RawData)
+    ),
     ok = maybe_license_add_collect_family(Callback, RawData),
     ok;
 collect_mf(_Registry, _Callback) ->
@@ -265,6 +267,7 @@ fetch_from_local_node(Mode) ->
         emqx_olp_data => emqx_metric_data(olp_metric_meta(), Mode),
         emqx_acl_data => emqx_metric_data(acl_metric_meta(), Mode),
         emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode),
+        ds_data => emqx_ds_builtin_metrics:prometheus_collect(Mode),
         mria_data => mria_data(Mode)
     }}.
 
@@ -481,7 +484,14 @@ emqx_collect(K = emqx_mria_lag, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_mria_bootstrap_time, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_mria_bootstrap_num_keys, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_mria_message_queue_len, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_mria_replayq_len, D) -> gauge_metrics(?MG(K, D, [])).
+emqx_collect(K = emqx_mria_replayq_len, D) -> gauge_metrics(?MG(K, D, []));
+%% DS
+emqx_collect(K = emqx_ds_egress_batches, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_ds_egress_batches_retry, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_ds_egress_batches_failed, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_ds_egress_messages, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_ds_egress_bytes, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_ds_egress_flush_time, D) -> gauge_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators
@@ -1011,18 +1021,6 @@ catch_all(DataFun) ->
     catch
         _:_ -> undefined
     end.
-
-%%========================================
-%% Durable storge
-%%========================================
-
-ds_metric_meta() ->
-    [
-     {emqx_ds_egress_batches, counter, 'egress.batches'},
-     {emqx_ds_egress_batches_retry, counter, 'egress.batches.retry'},
-     {emqx_ds_egress_messages, counter, 'egress.messages'},
-     {emqx_ds_egress_bytes, counter, 'egress.bytes'}
-    ].
 
 %%--------------------------------------------------------------------
 %% Collect functions
