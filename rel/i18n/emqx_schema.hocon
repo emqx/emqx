@@ -1577,7 +1577,7 @@ client_attrs_init {
     Specify how to initialize client attributes.
     One initial client attribute can be initialized as `client_attrs.NAME`,
     where `NAME` is the name of the attribute specified in the config `extract_as`.
-    The initialized client attribute will be stored in the `client_attr` property with the specified name,
+    The initialized client attribute will be stored in the `client_attrs` property with the specified name,
     and can be used as a placeholder in a template for authentication and authorization.
     For example, use `${client_attrs.alias}` to render a HTTP POST body when `extract_as = alias`."""
 }
@@ -1605,14 +1605,14 @@ client_attrs_init_extract_regexp {
     The regular expression to extract a client attribute from the client property specified by `client_attrs_init.extract_from` config.
     The expression should match the entire client property value, and capturing groups are concatenated to make the client attribute.
     For example if the client attribute is the first part of the client ID delemited by a dash, the regular expression would be `^(.+?)-.*$`.
-    Note that failure to match the regular expression will result in the client attribute being absence but not an empty string."""
+    Note that failure to match the regular expression will result in the client attribute being absent but not an empty string."""
 }
 
 client_attrs_init_extract_as {
   label: "Name the extracted attribute"
   desc: """~
     The name of the client attribute extracted from the client property specified by `client_attrs_init.extract_from` config.
-    The extracted attribute will be stored in the `client_attr` property with this name.
+    The extracted attribute will be stored in the `client_attrs` property with this name.
     In case `extract_from = user_property`, this should be the key of the user property."""
 }
 

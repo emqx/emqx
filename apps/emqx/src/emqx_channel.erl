@@ -1846,7 +1846,7 @@ do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
 %% 1. `is_superuser': The superuser flag from various backends
 %% 2. `acl': ACL rules from JWT, HTTP auth backend
 %% 3. `client_attrs': Extra client attributes from JWT, HTTP auth backend
-%% 4. Maybe more non-standard fileds used by hook callbacks
+%% 4. Maybe more non-standard fields used by hook callbacks
 merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult0, false),
     AuthResult = maps:without([client_attrs], AuthResult0),

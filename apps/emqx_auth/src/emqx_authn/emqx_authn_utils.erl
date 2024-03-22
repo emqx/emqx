@@ -216,12 +216,18 @@ client_attrs(_) ->
 drop_invalid_attr(Map) when is_map(Map) ->
     maps:from_list(do_drop_invalid_attr(maps:to_list(Map))).
 
-do_drop_invalid_attr(KVL) ->
-    F = fun({K, V}) ->
-        emqx_utils:is_restricted_str(K) andalso
-            emqx_utils:is_restricted_str(V)
-    end,
-    lists:filter(F, KVL).
+do_drop_invalid_attr([]) ->
+    [];
+do_drop_invalid_attr([{K, V} | More]) ->
+    case emqx_utils:is_restricted_str(K) andalso emqx_utils:is_restricted_str(V) of
+        true ->
+            [{iolist_to_binary(K), iolist_to_binary(V)} | do_drop_invalid_attr(More)];
+        false ->
+            ?SLOG(debug, #{msg => "invalid_client_attr_dropped", key => K, value => V}, #{
+                tag => "AUTHN"
+            }),
+            do_drop_invalid_attr(More)
+    end.
 
 ensure_apps_started(bcrypt) ->
     {ok, _} = application:ensure_all_started(bcrypt),

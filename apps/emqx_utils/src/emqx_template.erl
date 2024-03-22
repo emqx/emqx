@@ -157,15 +157,8 @@ validate(Allowed, Template) ->
             {error, [{Var, disallowed} || Var <- Disallowed]}
     end.
 
-find_disallowed([], _Allowed) ->
-    [];
-find_disallowed([Var | Rest], Allowed) ->
-    case is_allowed(Var, Allowed) of
-        true ->
-            find_disallowed(Rest, Allowed);
-        false ->
-            [Var | find_disallowed(Rest, Allowed)]
-    end.
+find_disallowed(Vars, Allowed) ->
+    lists:filter(fun(Var) -> not is_allowed(Var, Allowed) end, Vars).
 
 is_allowed(_Var, []) ->
     false;
