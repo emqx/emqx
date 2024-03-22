@@ -514,7 +514,7 @@ do_call_client(ClientId, Req) ->
             Pid = lists:last(Pids),
             case emqx_cm:get_chan_info(ClientId, Pid) of
                 #{conninfo := #{conn_mod := ConnMod}} ->
-                    erlang:apply(ConnMod, call, [Pid, Req]);
+                    call_conn(ConnMod, Pid, Req);
                 undefined ->
                     {error, not_found}
             end
@@ -703,3 +703,13 @@ check_results(Results) ->
 
 default_row_limit() ->
     ?DEFAULT_ROW_LIMIT.
+
+call_conn(ConnMod, Pid, Req) ->
+    try
+        erlang:apply(ConnMod, call, [Pid, Req])
+    catch
+        exit:R when R =:= shutdown; R =:= normal ->
+            {error, shutdown};
+        exit:{R, _} when R =:= shutdown; R =:= noproc ->
+            {error, shutdown}
+    end.
