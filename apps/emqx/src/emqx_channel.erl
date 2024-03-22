@@ -1563,9 +1563,7 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
             %% attr init should happen after clientid and username assign
-            fun maybe_set_client_initial_attr/2,
-            %% moutpoint fix should happen after attr init
-            fun fix_mountpoint/2
+            fun maybe_set_client_initial_attr/2
         ],
         ConnPkt,
         ClientInfo
@@ -1728,11 +1726,11 @@ extract_attr_from_clientinfo(#{extract_from := username, extract_regexp := Regex
 extract_attr_from_clientinfo(_Config, _CLientInfo) ->
     ignored.
 
-fix_mountpoint(_ConnPkt, #{mountpoint := undefined}) ->
-    ok;
-fix_mountpoint(_ConnPkt, ClientInfo = #{mountpoint := MountPoint}) ->
+fix_mountpoint(#{mountpoint := undefined} = ClientInfo) ->
+    ClientInfo;
+fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := MountPoint1}}.
+    ClientInfo#{mountpoint := MountPoint1}.
 
 %%--------------------------------------------------------------------
 %% Set log metadata
@@ -1853,10 +1851,11 @@ merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_ma
     Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
     Attrs1 = maps:get(client_attrs, AuthResult0, #{}),
     Attrs = maps:merge(Attrs0, Attrs1),
-    maps:merge(
+    NewClientInfo = maps:merge(
         ClientInfo#{client_attrs => Attrs},
         AuthResult#{is_superuser => IsSuperuser}
-    ).
+    ),
+    fix_mountpoint(NewClientInfo).
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias

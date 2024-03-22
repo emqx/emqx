@@ -548,8 +548,7 @@ samples() ->
                         is_superuser => true,
                         client_attrs => #{
                             fid => <<"n11">>,
-                            <<"_bad_key">> => <<"v">>,
-                            <<"ok_key">> => <<"but bad value">>
+                            <<"#_bad_key">> => <<"v">>
                         }
                     }),
                     Req0

@@ -87,18 +87,12 @@ unmount_maybe_share(MountPoint, TopicFilter = #share{topic = Topic}) when
 -spec replvar(option(mountpoint()), map()) -> option(mountpoint()).
 replvar(undefined, _Vars) ->
     undefined;
-replvar(MountPoint, Vars) ->
-    ClientID = maps:get(clientid, Vars, undefined),
-    UserName = maps:get(username, Vars, undefined),
-    EndpointName = maps:get(endpoint_name, Vars, undefined),
-    List = [
-        {?PH_CLIENTID, ClientID},
-        {?PH_USERNAME, UserName},
-        {?PH_ENDPOINT_NAME, EndpointName}
-    ],
-    lists:foldl(fun feed_var/2, MountPoint, List).
-
-feed_var({_PlaceHolder, undefined}, MountPoint) ->
-    MountPoint;
-feed_var({PlaceHolder, Value}, MountPoint) ->
-    emqx_topic:feed_var(PlaceHolder, Value, MountPoint).
+replvar(MountPoint, Vars0) ->
+    Allowed = [clientid, username, endpoint_name, client_attrs],
+    Vars = maps:filter(
+        fun(K, V) -> V =/= undefined andalso lists:member(K, Allowed) end,
+        Vars0
+    ),
+    Template = emqx_template:parse(MountPoint),
+    {String, _Errors} = emqx_template:render(Template, Vars),
+    unicode:characters_to_binary(String).

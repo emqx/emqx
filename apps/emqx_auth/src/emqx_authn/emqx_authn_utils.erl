@@ -219,11 +219,11 @@ drop_invalid_attr(Map) when is_map(Map) ->
 do_drop_invalid_attr([]) ->
     [];
 do_drop_invalid_attr([{K, V} | More]) ->
-    case emqx_utils:is_restricted_str(K) andalso emqx_utils:is_restricted_str(V) of
+    case emqx_utils:is_restricted_str(K) of
         true ->
             [{iolist_to_binary(K), iolist_to_binary(V)} | do_drop_invalid_attr(More)];
         false ->
-            ?SLOG(debug, #{msg => "invalid_client_attr_dropped", key => K, value => V}, #{
+            ?SLOG(debug, #{msg => "invalid_client_attr_dropped", attr_name => K}, #{
                 tag => "AUTHN"
             }),
             do_drop_invalid_attr(More)

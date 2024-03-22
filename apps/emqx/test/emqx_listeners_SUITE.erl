@@ -143,6 +143,36 @@ t_max_conns_tcp(_Config) ->
         )
     end).
 
+t_client_attr_as_mountpoint(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    ListenerConf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"limiter">> => #{},
+        <<"mountpoint">> => <<"groups/${client_attrs.ns}/">>
+    },
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
+        extract_from => clientid,
+        extract_regexp => <<"^(.+)-.+$">>,
+        extract_as => <<"ns">>
+    }),
+    emqx_logger:set_log_level(debug),
+    with_listener(tcp, attr_as_moutpoint, ListenerConf, fun() ->
+        {ok, Client} = emqtt:start_link(#{
+            hosts => [{"127.0.0.1", Port}],
+            clientid => <<"abc-123">>
+        }),
+        unlink(Client),
+        {ok, _} = emqtt:connect(Client),
+        TopicPrefix = atom_to_binary(?FUNCTION_NAME),
+        SubTopic = <<TopicPrefix/binary, "/#">>,
+        MatchTopic = <<"groups/abc/", TopicPrefix/binary, "/1">>,
+        {ok, _, [1]} = emqtt:subscribe(Client, SubTopic, 1),
+        ?assertMatch([_], emqx_router:match_routes(MatchTopic)),
+        emqtt:stop(Client)
+    end),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], disabled),
+    ok.
+
 t_current_conns_tcp(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{

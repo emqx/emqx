@@ -1579,7 +1579,8 @@ client_attrs_init {
     where `NAME` is the name of the attribute specified in the config `extract_as`.
     The initialized client attribute will be stored in the `client_attrs` property with the specified name,
     and can be used as a placeholder in a template for authentication and authorization.
-    For example, use `${client_attrs.alias}` to render a HTTP POST body when `extract_as = alias`."""
+    For example, use `${client_attrs.alias}` to render an HTTP POST body when `extract_as = alias`,
+    or render listener config `moutpoint = devices/${client_attrs.alias}/` to initialize a per-client topic namespace."""
 }
 
 client_attrs_init_extract_from {
