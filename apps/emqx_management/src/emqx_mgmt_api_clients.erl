@@ -942,6 +942,9 @@ client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
                     ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                ),
+                ?NOT_IMPLEMENTED => emqx_dashboard_swagger:error_codes(
+                    ['NOT_IMPLEMENTED'], <<"API not implemented">>
                 )
             }
         }
@@ -1217,6 +1220,11 @@ list_client_msgs(MsgType, ClientID, QString) ->
             case emqx_mgmt:list_client_msgs(MsgType, ClientID, PagerParams) of
                 {error, not_found} ->
                     {404, ?CLIENTID_NOT_FOUND};
+                {error, not_implemented} ->
+                    {?NOT_IMPLEMENTED, #{
+                        code => 'NOT_IMPLEMENTED',
+                        message => <<"API not implemented for persistent sessions">>
+                    }};
                 {Msgs, Meta = #{}} when is_list(Msgs) ->
                     format_msgs_resp(MsgType, Msgs, Meta, QString)
             end
