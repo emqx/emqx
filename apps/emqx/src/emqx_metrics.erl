@@ -207,6 +207,10 @@
         {counter, 'messages.publish'},
         % Messages dropped due to no subscribers
         {counter, 'messages.dropped'},
+        %% % Messages that failed validations
+        {counter, 'messages.validation_failed'},
+        %% % Messages that passed validations
+        {counter, 'messages.validation_succeeded'},
         % QoS2 Messages expired
         {counter, 'messages.dropped.await_pubrel_timeout'},
         % Messages dropped
@@ -712,4 +716,6 @@ reserved_idx('overload_protection.delay.timeout') -> 401;
 reserved_idx('overload_protection.hibernation') -> 402;
 reserved_idx('overload_protection.gc') -> 403;
 reserved_idx('overload_protection.new_conn') -> 404;
+reserved_idx('messages.validation_succeeded') -> 405;
+reserved_idx('messages.validation_failed') -> 406;
 reserved_idx(_) -> undefined.

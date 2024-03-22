@@ -24,6 +24,8 @@
     '/message_validations'/2,
     '/message_validations/reorder'/2,
     '/message_validations/validation/:name'/2,
+    '/message_validations/validation/:name/metrics'/2,
+    '/message_validations/validation/:name/metrics/reset'/2,
     '/message_validations/validation/:name/enable/:enable'/2
 ]).
 
@@ -32,6 +34,7 @@
 %%-------------------------------------------------------------------------------------------------
 
 -define(TAGS, [<<"Message Validation">>]).
+-define(METRIC_NAME, message_validation).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
@@ -47,6 +50,8 @@ paths() ->
         "/message_validations",
         "/message_validations/reorder",
         "/message_validations/validation/:name",
+        "/message_validations/validation/:name/metrics",
+        "/message_validations/validation/:name/metrics/reset",
         "/message_validations/validation/:name/enable/:enable"
     ].
 
@@ -173,6 +178,43 @@ schema("/message_validations/validation/:name") ->
                 }
         }
     };
+schema("/message_validations/validation/:name/metrics") ->
+    #{
+        'operationId' => '/message_validations/validation/:name/metrics',
+        get => #{
+            tags => ?TAGS,
+            summary => <<"Get validation metrics">>,
+            description => ?DESC("get_validation_metrics"),
+            parameters => [param_path_name()],
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            ref(get_metrics),
+                            #{
+                                sample =>
+                                    #{value => example_return_metrics()}
+                            }
+                        ),
+                    404 => error_schema('NOT_FOUND', "Validation not found")
+                }
+        }
+    };
+schema("/message_validations/validation/:name/metrics/reset") ->
+    #{
+        'operationId' => '/message_validations/validation/:name/metrics/reset',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Reset validation metrics">>,
+            description => ?DESC("reset_validation_metrics"),
+            parameters => [param_path_name()],
+            responses =>
+                #{
+                    204 => <<"No content">>,
+                    404 => error_schema('NOT_FOUND', "Validation not found")
+                }
+        }
+    };
 schema("/message_validations/validation/:name/enable/:enable") ->
     #{
         'operationId' => '/message_validations/validation/:name/enable/:enable',
@@ -230,6 +272,22 @@ fields(before) ->
 fields(reorder) ->
     [
         {order, mk(array(binary()), #{required => true, in => body})}
+    ];
+fields(get_metrics) ->
+    [
+        {metrics, mk(ref(metrics), #{})},
+        {node_metrics, mk(ref(node_metrics), #{})}
+    ];
+fields(metrics) ->
+    [
+        {matched, mk(non_neg_integer(), #{})},
+        {succeeded, mk(non_neg_integer(), #{})},
+        {failed, mk(non_neg_integer(), #{})}
+    ];
+fields(node_metrics) ->
+    [
+        {node, mk(binary(), #{})}
+        | fields(metrics)
     ].
 
 %%-------------------------------------------------------------------------------------------------
@@ -299,6 +357,47 @@ fields(reorder) ->
         not_found()
     ).
 
+'/message_validations/validation/:name/metrics'(get, #{bindings := #{name := Name}}) ->
+    with_validation(
+        Name,
+        fun() ->
+            Nodes = emqx:running_nodes(),
+            Results = emqx_metrics_proto_v2:get_metrics(Nodes, ?METRIC_NAME, Name, 5_000),
+            NodeResults = lists:zip(Nodes, Results),
+            NodeErrors = [Result || Result = {_Node, {NOk, _}} <- NodeResults, NOk =/= ok],
+            NodeErrors == [] orelse
+                ?SLOG(warning, #{
+                    msg => "rpc_get_validation_metrics_errors",
+                    errors => NodeErrors
+                }),
+            NodeMetrics = [format_metrics(Node, Metrics) || {Node, {ok, Metrics}} <- NodeResults],
+            Response = #{
+                metrics => aggregate_metrics(NodeMetrics),
+                node_metrics => NodeMetrics
+            },
+            ?OK(Response)
+        end,
+        not_found()
+    ).
+
+'/message_validations/validation/:name/metrics/reset'(post, #{bindings := #{name := Name}}) ->
+    with_validation(
+        Name,
+        fun() ->
+            Nodes = emqx:running_nodes(),
+            Results = emqx_metrics_proto_v2:reset_metrics(Nodes, ?METRIC_NAME, Name, 5_000),
+            NodeResults = lists:zip(Nodes, Results),
+            NodeErrors = [Result || Result = {_Node, {NOk, _}} <- NodeResults, NOk =/= ok],
+            NodeErrors == [] orelse
+                ?SLOG(warning, #{
+                    msg => "rpc_reset_validation_metrics_errors",
+                    errors => NodeErrors
+                }),
+            ?NO_CONTENT
+        end,
+        not_found()
+    ).
+
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns
 %%-------------------------------------------------------------------------------------------------
@@ -332,6 +431,10 @@ example_return_update() ->
     #{}.
 
 example_return_lookup() ->
+    %% TODO
+    #{}.
+
+example_return_metrics() ->
     %% TODO
     #{}.
 
@@ -409,3 +512,51 @@ make_serializable(Validation) ->
     } =
         hocon_tconf:make_serializable(Schema, RawConfig, #{}),
     Serialized.
+
+format_metrics(Node, #{
+    counters := #{
+        'matched' := Matched,
+        'succeeded' := Succeeded,
+        'failed' := Failed
+    },
+    rate := #{
+        'matched' := #{
+            current := MatchedRate,
+            last5m := Matched5mRate,
+            max := MatchedMaxRate
+        }
+    }
+}) ->
+    #{
+        metrics => #{
+            'matched' => Matched,
+            'succeeded' => Succeeded,
+            'failed' => Failed,
+            rate => MatchedRate,
+            rate_last5m => Matched5mRate,
+            rate_max => MatchedMaxRate
+        },
+        node => Node
+    };
+format_metrics(Node, _) ->
+    #{
+        metrics => #{
+            'matched' => 0,
+            'succeeded' => 0,
+            'failed' => 0,
+            rate => 0,
+            rate_last5m => 0,
+            rate_max => 0
+        },
+        node => Node
+    }.
+
+aggregate_metrics(NodeMetrics) ->
+    ErrorLogger = fun(_) -> ok end,
+    lists:foldl(
+        fun(#{metrics := Metrics}, Acc) ->
+            emqx_utils_maps:best_effort_recursive_sum(Metrics, Acc, ErrorLogger)
+        end,
+        #{},
+        NodeMetrics
+    ).

@@ -123,7 +123,7 @@ all_collectors() ->
             prometheus_registry:collectors(Registry) ++ AccIn
         end,
         _InitAcc = [],
-        ?PROMETHEUS_ALL_REGISTRYS
+        ?PROMETHEUS_ALL_REGISTRIES
     ).
 
 update_push_gateway(Prometheus) ->

@@ -65,6 +65,8 @@
     %, received_bytes
     sent,
     %, sent_bytes
+    validation_succeeded,
+    validation_failed,
     dropped
 ]).
 
@@ -83,6 +85,8 @@
     %received_bytes  => received_bytes_rate,
     %sent_bytes      => sent_bytes_rate,
     sent => sent_msg_rate,
+    validation_succeeded => validation_succeeded_rate,
+    validation_failed => validation_failed_rate,
     dropped => dropped_msg_rate
 }).
 

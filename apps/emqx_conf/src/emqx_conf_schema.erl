@@ -38,6 +38,7 @@
 
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([upgrade_raw_conf/1]).
+-export([tr_prometheus_collectors/1]).
 
 %% internal exports for `emqx_enterprise_schema' only.
 -export([ensure_unicode_path/2, convert_rotation/2, log_handler_common_confs/2]).

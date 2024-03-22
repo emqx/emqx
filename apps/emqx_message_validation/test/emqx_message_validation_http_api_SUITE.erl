@@ -53,6 +53,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     clear_all_validations(),
     snabbkaffe:stop(),
+    reset_all_global_metrics(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -68,6 +69,14 @@ clear_all_validations() ->
             {ok, _} = emqx_message_validation:delete(Name)
         end,
         emqx_message_validation:list()
+    ).
+
+reset_all_global_metrics() ->
+    lists:foreach(
+        fun({Name, _}) ->
+            emqx_metrics:set(Name, 0)
+        end,
+        emqx_metrics:all()
     ).
 
 maybe_json_decode(X) ->
@@ -194,6 +203,30 @@ disable(Name) ->
     Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name, "enable", "false"]),
     Res = request(post, Path, _Params = []),
     ct:pal("disable result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+get_metrics(Name) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name, "metrics"]),
+    Res = request(get, Path, _Params = []),
+    ct:pal("get metrics result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+reset_metrics(Name) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "validation", Name, "metrics", "reset"]),
+    Res = request(post, Path, _Params = []),
+    ct:pal("reset metrics result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+all_metrics() ->
+    Path = emqx_mgmt_api_test_util:api_path(["metrics"]),
+    Res = request(get, Path, _Params = []),
+    ct:pal("all metrics result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+monitor_metrics() ->
+    Path = emqx_mgmt_api_test_util:api_path(["monitor"]),
+    Res = request(get, Path, _Params = []),
+    ct:pal("monitor metrics result:\n  ~p", [Res]),
     simplify_result(Res).
 
 connect(ClientId) ->
@@ -362,6 +395,48 @@ trace_rule(Data, Envs, _Args) ->
 
 get_traced_failures_from_rule_engine() ->
     ets:tab2list(?RECORDED_EVENTS_TAB).
+
+assert_all_metrics(Line, Expected) ->
+    Keys = maps:keys(Expected),
+    ?retry(
+        100,
+        10,
+        begin
+            Res = all_metrics(),
+            ?assertMatch({200, _}, Res),
+            {200, [Metrics]} = Res,
+            ?assertEqual(Expected, maps:with(Keys, Metrics), #{line => Line})
+        end
+    ),
+    ok.
+
+-define(assertAllMetrics(Expected), assert_all_metrics(?LINE, Expected)).
+
+%% check that dashboard monitor contains the success and failure metric keys
+assert_monitor_metrics() ->
+    ok = snabbkaffe:start_trace(),
+    %% hack: force monitor to flush data now
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx_dashboard_monitor ! {sample, erlang:system_time(millisecond)},
+            #{?snk_kind := dashboard_monitor_flushed}
+        ),
+    Res = monitor_metrics(),
+    ?assertMatch({200, _}, Res),
+    {200, Metrics} = Res,
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    <<"validation_failed">> := _,
+                    <<"validation_succeeded">> := _
+                },
+                M
+            )
+        end,
+        Metrics
+    ),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -700,6 +775,236 @@ t_enable_disable_via_api_endpoint(_Config) ->
 
     ok = publish(C, Topic, #{}),
     ?assertNotReceive({publish, _}),
+
+    ok.
+
+t_metrics(_Config) ->
+    %% extra validation that always passes at the head to check global metrics
+    Name0 = <<"bar">>,
+    Check0 = sql_check(<<"select 1 where true">>),
+    Validation0 = validation(Name0, [Check0]),
+    {201, _} = insert(Validation0),
+
+    Name1 = <<"foo">>,
+    Check1 = sql_check(<<"select payload.x as x where x > 5">>),
+    Validation1 = validation(Name1, [Check1]),
+
+    %% Non existent
+    ?assertMatch({404, _}, get_metrics(Name1)),
+    ?assertAllMetrics(#{
+        <<"messages.dropped">> => 0,
+        <<"messages.validation_failed">> => 0,
+        <<"messages.validation_succeeded">> => 0
+    }),
+
+    {201, _} = insert(Validation1),
+
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> :=
+                #{
+                    <<"matched">> := 0,
+                    <<"succeeded">> := 0,
+                    <<"failed">> := 0,
+                    <<"rate">> := _,
+                    <<"rate_last5m">> := _,
+                    <<"rate_max">> := _
+                },
+            <<"node_metrics">> :=
+                [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> := #{
+                            <<"matched">> := 0,
+                            <<"succeeded">> := 0,
+                            <<"failed">> := 0,
+                            <<"rate">> := _,
+                            <<"rate_last5m">> := _,
+                            <<"rate_max">> := _
+                        }
+                    }
+                ]
+        }},
+        get_metrics(Name1)
+    ),
+    ?assertAllMetrics(#{
+        <<"messages.dropped">> => 0,
+        <<"messages.validation_failed">> => 0,
+        <<"messages.validation_succeeded">> => 0
+    }),
+
+    C = connect(<<"c1">>),
+    {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+
+    ok = publish(C, <<"t/1">>, #{x => 10}),
+    ?assertReceive({publish, _}),
+
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> :=
+                    #{
+                        <<"matched">> := 1,
+                        <<"succeeded">> := 1,
+                        <<"failed">> := 0
+                    },
+                <<"node_metrics">> :=
+                    [
+                        #{
+                            <<"node">> := _,
+                            <<"metrics">> := #{
+                                <<"matched">> := 1,
+                                <<"succeeded">> := 1,
+                                <<"failed">> := 0
+                            }
+                        }
+                    ]
+            }},
+            get_metrics(Name1)
+        )
+    ),
+    ?assertAllMetrics(#{
+        <<"messages.dropped">> => 0,
+        <<"messages.validation_failed">> => 0,
+        <<"messages.validation_succeeded">> => 1
+    }),
+
+    ok = publish(C, <<"t/1">>, #{x => 5}),
+    ?assertNotReceive({publish, _}),
+
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> :=
+                    #{
+                        <<"matched">> := 2,
+                        <<"succeeded">> := 1,
+                        <<"failed">> := 1
+                    },
+                <<"node_metrics">> :=
+                    [
+                        #{
+                            <<"node">> := _,
+                            <<"metrics">> := #{
+                                <<"matched">> := 2,
+                                <<"succeeded">> := 1,
+                                <<"failed">> := 1
+                            }
+                        }
+                    ]
+            }},
+            get_metrics(Name1)
+        )
+    ),
+    ?assertAllMetrics(#{
+        <<"messages.dropped">> => 0,
+        <<"messages.validation_failed">> => 1,
+        <<"messages.validation_succeeded">> => 1
+    }),
+
+    ?assertMatch({204, _}, reset_metrics(Name1)),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> :=
+                    #{
+                        <<"matched">> := 0,
+                        <<"succeeded">> := 0,
+                        <<"failed">> := 0,
+                        <<"rate">> := _,
+                        <<"rate_last5m">> := _,
+                        <<"rate_max">> := _
+                    },
+                <<"node_metrics">> :=
+                    [
+                        #{
+                            <<"node">> := _,
+                            <<"metrics">> := #{
+                                <<"matched">> := 0,
+                                <<"succeeded">> := 0,
+                                <<"failed">> := 0,
+                                <<"rate">> := _,
+                                <<"rate_last5m">> := _,
+                                <<"rate_max">> := _
+                            }
+                        }
+                    ]
+            }},
+            get_metrics(Name1)
+        )
+    ),
+    ?assertAllMetrics(#{
+        <<"messages.dropped">> => 0,
+        <<"messages.validation_failed">> => 1,
+        <<"messages.validation_succeeded">> => 1
+    }),
+
+    %% updating a validation resets its metrics
+    ok = publish(C, <<"t/1">>, #{x => 5}),
+    ?assertNotReceive({publish, _}),
+    ok = publish(C, <<"t/1">>, #{x => 10}),
+    ?assertReceive({publish, _}),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> :=
+                    #{
+                        <<"matched">> := 2,
+                        <<"succeeded">> := 1,
+                        <<"failed">> := 1
+                    },
+                <<"node_metrics">> :=
+                    [
+                        #{
+                            <<"node">> := _,
+                            <<"metrics">> := #{
+                                <<"matched">> := 2,
+                                <<"succeeded">> := 1,
+                                <<"failed">> := 1
+                            }
+                        }
+                    ]
+            }},
+            get_metrics(Name1)
+        )
+    ),
+    {200, _} = update(Validation1),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> :=
+                    #{
+                        <<"matched">> := 0,
+                        <<"succeeded">> := 0,
+                        <<"failed">> := 0
+                    },
+                <<"node_metrics">> :=
+                    [
+                        #{
+                            <<"node">> := _,
+                            <<"metrics">> := #{
+                                <<"matched">> := 0,
+                                <<"succeeded">> := 0,
+                                <<"failed">> := 0
+                            }
+                        }
+                    ]
+            }},
+            get_metrics(Name1)
+        )
+    ),
+
+    assert_monitor_metrics(),
 
     ok.
 

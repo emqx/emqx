@@ -140,10 +140,13 @@ on_message_publish(Message = #message{topic = Topic, headers = Headers}) ->
         Validations ->
             case run_validations(Validations, Message) of
                 ok ->
+                    emqx_metrics:inc('messages.validation_succeeded'),
                     {ok, Message};
                 drop ->
+                    emqx_metrics:inc('messages.validation_failed'),
                     {stop, Message#message{headers = Headers#{allow_publish => false}}};
                 disconnect ->
+                    emqx_metrics:inc('messages.validation_failed'),
                     {stop, Message#message{
                         headers = Headers#{
                             allow_publish => false,
@@ -380,14 +383,17 @@ run_validations(Validations, Message) ->
         emqx_rule_runtime:clear_rule_payload(),
         Fun = fun(Validation, Acc) ->
             #{name := Name} = Validation,
+            emqx_message_validation_registry:inc_matched(Name),
             case run_validation(Validation, Message) of
                 ok ->
+                    emqx_message_validation_registry:inc_succeeded(Name),
                     {cont, Acc};
                 ignore ->
                     trace_failure(Validation, "validation_failed", #{
                         validation => Name,
                         action => ignore
                     }),
+                    emqx_message_validation_registry:inc_failed(Name),
                     run_message_validation_failed_hook(Message, Validation),
                     {cont, Acc};
                 FailureAction ->
@@ -395,6 +401,7 @@ run_validations(Validations, Message) ->
                         validation => Name,
                         action => FailureAction
                     }),
+                    emqx_message_validation_registry:inc_failed(Name),
                     run_message_validation_failed_hook(Message, Validation),
                     {halt, FailureAction}
             end
