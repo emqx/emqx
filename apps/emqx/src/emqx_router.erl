@@ -645,6 +645,8 @@ match_to_route(M) ->
 
 -type schemavsn() :: v1 | v2.
 
+%% @doc Get the schema version in use.
+%% BPAPI RPC Target @ emqx_router_proto
 -spec get_schema_vsn() -> schemavsn().
 get_schema_vsn() ->
     persistent_term:get(?PT_SCHEMA_VSN).
