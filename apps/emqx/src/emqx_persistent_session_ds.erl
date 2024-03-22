@@ -264,7 +264,9 @@ info(awaiting_rel_max, #{props := Conf}) ->
 info(await_rel_timeout, #{props := _Conf}) ->
     %% TODO: currently this setting is ignored:
     %% maps:get(await_rel_timeout, Conf).
-    0.
+    0;
+info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= inflight_msgs ->
+    {error, not_implemented}.
 
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) ->
