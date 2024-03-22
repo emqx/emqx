@@ -28,9 +28,18 @@
 
 -export([replvar/2]).
 
+-export([lookup/2]).
+
 -export_type([mountpoint/0]).
 
 -type mountpoint() :: binary().
+
+-define(ALLOWED_VARS, [
+    ?VAR_CLIENTID,
+    ?VAR_USERNAME,
+    ?VAR_ENDPOINT_NAME,
+    ?VAR_NS_CLIENT_ATTRS
+]).
 
 -spec mount(option(mountpoint()), Any) -> Any when
     Any ::
@@ -87,12 +96,29 @@ unmount_maybe_share(MountPoint, TopicFilter = #share{topic = Topic}) when
 -spec replvar(option(mountpoint()), map()) -> option(mountpoint()).
 replvar(undefined, _Vars) ->
     undefined;
-replvar(MountPoint, Vars0) ->
-    Allowed = [clientid, username, endpoint_name, client_attrs],
-    Vars = maps:filter(
-        fun(K, V) -> V =/= undefined andalso lists:member(K, Allowed) end,
-        Vars0
-    ),
-    Template = emqx_template:parse(MountPoint),
-    {String, _Errors} = emqx_template:render(Template, Vars),
+replvar(MountPoint, Vars) ->
+    Template = parse(MountPoint),
+    {String, _Errors} = emqx_template:render(Template, {?MODULE, Vars}),
     unicode:characters_to_binary(String).
+
+lookup([<<?VAR_CLIENTID>>], #{clientid := ClientId}) when is_binary(ClientId) ->
+    {ok, ClientId};
+lookup([<<?VAR_USERNAME>>], #{username := Username}) when is_binary(Username) ->
+    {ok, Username};
+lookup([<<?VAR_ENDPOINT_NAME>>], #{endpoint_name := Name}) when is_binary(Name) ->
+    {ok, Name};
+lookup([<<"client_attrs">>, AttrName], #{client_attrs := Attrs}) when is_map(Attrs) ->
+    Original = iolist_to_binary(["${client_attrs.", AttrName, "}"]),
+    {ok, maps:get(AttrName, Attrs, Original)};
+lookup(Accessor, _) ->
+    {ok, iolist_to_binary(["${", lists:join(".", Accessor), "}"])}.
+
+parse(Template) ->
+    Parsed = emqx_template:parse(Template),
+    case emqx_template:validate(?ALLOWED_VARS, Parsed) of
+        ok ->
+            Parsed;
+        {error, _Disallowed} ->
+            Escaped = emqx_template:escape_disallowed(Parsed, ?ALLOWED_VARS),
+            emqx_template:parse(Escaped)
+    end.

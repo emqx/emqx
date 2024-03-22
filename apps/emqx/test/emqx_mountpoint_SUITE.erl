@@ -116,4 +116,32 @@ t_replvar(_) ->
                 username => undefined
             }
         )
+    ),
+    ?assertEqual(
+        <<"mount/g1/clientid/">>,
+        replvar(
+            <<"mount/${client_attrs.group}/${clientid}/">>,
+            #{
+                clientid => <<"clientid">>,
+                client_attrs => #{<<"group">> => <<"g1">>}
+            }
+        )
+    ),
+    ?assertEqual(
+        <<"mount/${client_attrs.group}/clientid/">>,
+        replvar(
+            <<"mount/${client_attrs.group}/${clientid}/">>,
+            #{
+                clientid => <<"clientid">>
+            }
+        )
+    ),
+    ?assertEqual(
+        <<"mount/${not.allowed}/clientid/">>,
+        replvar(
+            <<"mount/${not.allowed}/${clientid}/">>,
+            #{
+                clientid => <<"clientid">>
+            }
+        )
     ).
