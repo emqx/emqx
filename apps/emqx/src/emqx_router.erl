@@ -654,7 +654,8 @@ init_schema() ->
     ok = mria:wait_for_tables([?ROUTE_TAB, ?ROUTE_TAB_FILTERS]),
     ok = emqx_trie:wait_for_tables(),
     ConfSchema = emqx_config:get([broker, routing, storage_schema]),
-    Schema = choose_schema_vsn(ConfSchema),
+    ClusterSchema = discover_cluster_schema_vsn(),
+    Schema = choose_schema_vsn(ConfSchema, ClusterSchema),
     ok = persistent_term:put(?PT_SCHEMA_VSN, Schema),
     case Schema of
         ConfSchema ->
@@ -669,8 +670,7 @@ init_schema() ->
                 configured => ConfSchema,
                 reason =>
                     "Could not use configured routing storage schema because "
-                    "there are already non-empty routing tables pertaining to "
-                    "another schema."
+                    "cluster is already running with a different schema."
             })
     end.
 
@@ -679,30 +679,88 @@ deinit_schema() ->
     _ = persistent_term:erase(?PT_SCHEMA_VSN),
     ok.
 
--spec choose_schema_vsn(schemavsn()) -> schemavsn().
-choose_schema_vsn(ConfType) ->
-    IsEmptyIndex = emqx_trie:empty(),
-    IsEmptyFilters = is_empty(?ROUTE_TAB_FILTERS),
-    case {IsEmptyIndex, IsEmptyFilters} of
-        {true, true} ->
-            ConfType;
-        {false, true} ->
-            v1;
-        {true, false} ->
-            v2;
-        {false, false} ->
+-spec discover_cluster_schema_vsn() -> schemavsn() | undefined.
+discover_cluster_schema_vsn() ->
+    discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]).
+
+discover_cluster_schema_vsn([]) ->
+    undefined;
+discover_cluster_schema_vsn(Nodes) ->
+    Responses = lists:zipwith(
+        fun
+            (Node, {ok, Schema}) ->
+                {Node, Schema, configured};
+            (Node, {error, {exception, undef, _Stacktrace}}) ->
+                %% No such function on the remote node, assuming it doesn't know about v2 routing.
+                {Node, v1, legacy};
+            (Node, {error, {exception, badarg, _Stacktrace}}) ->
+                %% Likely, persistent term is not defined yet.
+                {Node, unknown, starting};
+            (Node, Error) ->
+                {Node, unknown, Error}
+        end,
+        Nodes,
+        emqx_router_proto_v1:get_routing_schema_vsn(Nodes)
+    ),
+    case lists:usort([Vsn || {_Node, Vsn, _} <- Responses, Vsn /= unknown]) of
+        [Vsn] when Vsn =:= v1; Vsn =:= v2 ->
+            Vsn;
+        [] ->
+            ?SLOG(notice, #{
+                msg => "cluster_routing_schema_discovery_failed",
+                responses => Responses,
+                reason =>
+                    "Could not determine configured routing storage schema in the cluster."
+            }),
+            undefined;
+        [_ | _] ->
+            ?SLOG(critical, #{
+                msg => "conflicting_routing_schemas_configured_in_cluster",
+                responses => Responses,
+                reason =>
+                    "There are nodes in the cluster with different configured routing "
+                    "storage schemas. This probably means that some nodes use v1 schema "
+                    "and some use v2, independently of each other. The routing is likely "
+                    "broken. Manual intervention required."
+            }),
+            error(conflicting_routing_schemas_configured_in_cluster)
+    end.
+
+-spec choose_schema_vsn(schemavsn(), schemavsn() | undefined) -> schemavsn().
+choose_schema_vsn(ConfSchema, ClusterSchema) ->
+    case detect_table_schema_vsn() of
+        [ClusterSchema] ->
+            %% Table contents match configured schema in the cluster.
+            ClusterSchema;
+        [Schema] when ClusterSchema =:= undefined ->
+            %% There are existing records following some schema, we have to use it.
+            Schema;
+        [] ->
+            %% No records in the tables, use schema configured in the cluster if any,
+            %% otherwise use configured.
+            emqx_maybe:define(ClusterSchema, ConfSchema);
+        ConlictingSchemas ->
             ?SLOG(critical, #{
                 msg => "conflicting_routing_schemas_detected_in_cluster",
-                configured => ConfType,
+                detected => ConlictingSchemas,
+                configured => ConfSchema,
+                configured_in_cluster => ClusterSchema,
                 reason =>
-                    "There are records in the routing tables related to both v1 "
-                    "and v2 storage schemas. This probably means that some nodes "
-                    "in the cluster use v1 schema and some use v2, independently "
-                    "of each other. The routing is likely broken. Manual intervention "
-                    "and full cluster restart is required. This node will shut down."
+                    "There are records in the routing tables either related to both v1 "
+                    "and v2 storage schemas, or conflicting with storage schema assumed "
+                    "by the cluster. This probably means that some nodes in the cluster "
+                    "use v1 schema and some use v2, independently of each other. The "
+                    "routing is likely broken. Manual intervention and full cluster "
+                    "restart is required. This node will shut down."
             }),
             error(conflicting_routing_schemas_detected_in_cluster)
     end.
+
+detect_table_schema_vsn() ->
+    lists:flatten([
+        [v1 || _NonEmptyTrieIndex = not emqx_trie:empty()],
+        [v2 || _NonEmptyFilterTab = not is_empty(?ROUTE_TAB_FILTERS)]
+    ]).
 
 is_empty(Tab) ->
     ets:first(Tab) =:= '$end_of_table'.
