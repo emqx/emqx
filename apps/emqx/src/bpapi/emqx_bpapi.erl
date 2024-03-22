@@ -89,7 +89,8 @@ announce(Node, App) ->
     %% replicant(5.6.0) will call old core(<5.6.0) announce_fun/2 is undef on old core
     %% so we just use anonymous function to update.
     try
-        {atomic, ok} = mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/2, [Node, Data])
+        {atomic, ok} = mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]),
+        ok
     catch
         error:undef ->
             {atomic, ok} = mria:transaction(
@@ -112,9 +113,9 @@ announce(Node, App) ->
                     _ = [update_minimum(API) || {API, _} <- Data],
                     ok
                 end
-            )
-    end,
-    ok.
+            ),
+            ok
+    end.
 
 -spec versions_file(atom()) -> file:filename_all().
 versions_file(App) ->
