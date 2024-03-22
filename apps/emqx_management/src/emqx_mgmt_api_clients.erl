@@ -90,6 +90,11 @@
     message => <<"Client ID not found">>
 }).
 
+-define(CLIENT_SHUTDOWN, #{
+    code => 'CLIENT_SHUTDOWN',
+    message => <<"Client connection has been shutdown">>
+}).
+
 namespace() -> undefined.
 
 api_spec() ->
@@ -941,7 +946,7 @@ client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
                         ['INVALID_PARAMETER'], <<"Invalid parameters">>
                     ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND', 'CLIENT_SHUTDOWN'], <<"Client ID not found">>
                 ),
                 ?NOT_IMPLEMENTED => emqx_dashboard_swagger:error_codes(
                     ['NOT_IMPLEMENTED'], <<"API not implemented">>
@@ -1220,6 +1225,8 @@ list_client_msgs(MsgType, ClientID, QString) ->
             case emqx_mgmt:list_client_msgs(MsgType, ClientID, PagerParams) of
                 {error, not_found} ->
                     {404, ?CLIENTID_NOT_FOUND};
+                {error, shutdown} ->
+                    {404, ?CLIENT_SHUTDOWN};
                 {error, not_implemented} ->
                     {?NOT_IMPLEMENTED, #{
                         code => 'NOT_IMPLEMENTED',
