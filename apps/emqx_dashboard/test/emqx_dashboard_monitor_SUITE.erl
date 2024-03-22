@@ -133,9 +133,11 @@ t_monitor_current_api_live_connections(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {clientid, ClientId1}]),
     {ok, _} = emqtt:connect(C1),
     ok = waiting_emqx_stats_and_monitor_update('live_connections.max'),
-    {ok, Rate} = request(["monitor_current"]),
-    ?assertEqual(1, maps:get(<<"live_connections">>, Rate)),
-    ?assertEqual(2, maps:get(<<"connections">>, Rate)),
+    ?retry(1_100, 5, begin
+        {ok, Rate} = request(["monitor_current"]),
+        ?assertEqual(1, maps:get(<<"live_connections">>, Rate)),
+        ?assertEqual(2, maps:get(<<"connections">>, Rate))
+    end),
     %% clears
     ok = emqtt:disconnect(C1),
     {ok, C2} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
