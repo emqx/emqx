@@ -36,6 +36,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "toxiproxy.emqx.net"),
@@ -79,9 +80,22 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(Apps),
     ok.
 
+init_per_testcase(t_ancient_v1_config_migration_with_local_topic = TestCase, Config) ->
+    Cluster = setup_cluster_ancient_config(TestCase, Config, #{with_local_topic => true}),
+    [{cluster, Cluster} | Config];
+init_per_testcase(t_ancient_v1_config_migration_without_local_topic = TestCase, Config) ->
+    Cluster = setup_cluster_ancient_config(TestCase, Config, #{with_local_topic => false}),
+    [{cluster, Cluster} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
+end_per_testcase(TestCase, Config) when
+    TestCase =:= t_ancient_v1_config_migration_with_local_topic;
+    TestCase =:= t_ancient_v1_config_migration_without_local_topic
+->
+    Cluster = ?config(cluster, Config),
+    emqx_cth_cluster:stop(Cluster),
+    ok;
 end_per_testcase(_TestCase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
@@ -93,6 +107,32 @@ end_per_testcase(_TestCase, Config) ->
 %%-------------------------------------------------------------------------------------
 %% Helper fns
 %%-------------------------------------------------------------------------------------
+
+basic_node_conf(WorkDir) ->
+    #{
+        <<"node">> => #{
+            <<"cookie">> => erlang:get_cookie(),
+            <<"data_dir">> => unicode:characters_to_binary(WorkDir)
+        }
+    }.
+
+setup_cluster_ancient_config(TestCase, Config, #{with_local_topic := WithLocalTopic}) ->
+    AncientIOList = emqx_bridge_kafka_tests:kafka_producer_old_hocon(WithLocalTopic),
+    {ok, AncientCfg0} = hocon:binary(AncientIOList),
+    WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
+    BasicConf = basic_node_conf(WorkDir),
+    AncientCfg = emqx_utils_maps:deep_merge(BasicConf, AncientCfg0),
+    Apps = [
+        emqx,
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge_kafka,
+        {emqx_bridge, #{schema_mod => emqx_enterprise_schema, config => AncientCfg}}
+    ],
+    emqx_cth_cluster:start(
+        [{kafka_producer_ancient_cfg1, #{apps => Apps}}],
+        #{work_dir => WorkDir}
+    ).
 
 check_send_message_with_bridge(BridgeName) ->
     #{offset := Offset, payload := Payload} = send_message(BridgeName),
@@ -576,5 +616,25 @@ t_create_connector_while_connection_is_down(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+t_ancient_v1_config_migration_with_local_topic(Config) ->
+    %% Simply starting this test case successfully is enough, as the core of the test is
+    %% to be able to successfully start the node with the ancient config.
+    [Node] = ?config(cluster, Config),
+    ?assertMatch(
+        [#{type := <<"kafka_producer">>}],
+        erpc:call(Node, fun emqx_bridge_v2:list/0)
+    ),
+    ok.
+
+t_ancient_v1_config_migration_without_local_topic(Config) ->
+    %% Simply starting this test case successfully is enough, as the core of the test is
+    %% to be able to successfully start the node with the ancient config.
+    [Node] = ?config(cluster, Config),
+    ?assertMatch(
+        [#{type := <<"kafka_producer">>}],
+        erpc:call(Node, fun emqx_bridge_v2:list/0)
     ),
     ok.
