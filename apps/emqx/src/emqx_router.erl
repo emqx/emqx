@@ -92,9 +92,11 @@
 ]).
 
 -export_type([dest/0]).
+-export_type([schemavsn/0]).
 
 -type group() :: binary().
 -type dest() :: node() | {group(), node()}.
+-type schemavsn() :: v1 | v2.
 
 %% Operation :: {add, ...} | {delete, ...}.
 -type batch() :: #{batch_route() => _Operation :: tuple()}.
@@ -642,8 +644,6 @@ match_to_route(M) ->
 %% --------------------------------------------------------------------
 
 -define(PT_SCHEMA_VSN, {?MODULE, schemavsn}).
-
--type schemavsn() :: v1 | v2.
 
 %% @doc Get the schema version in use.
 %% BPAPI RPC Target @ emqx_router_proto

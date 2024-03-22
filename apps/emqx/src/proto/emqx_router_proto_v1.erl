@@ -32,6 +32,6 @@ introduced_in() ->
     "5.6.0".
 
 -spec get_routing_schema_vsn([node()]) ->
-    [emqx_rpc:erpc(emqx_router:schema_vsn())].
+    [emqx_rpc:erpc(emqx_router:schemavsn())].
 get_routing_schema_vsn(Nodes) ->
     erpc:multicall(Nodes, emqx_router, get_schema_vsn, [], ?TIMEOUT).
