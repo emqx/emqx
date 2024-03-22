@@ -322,17 +322,10 @@ t_09_atomic_store_batch(_Config) ->
                     sync => true
                 })
             ),
-
-            ok
+            {ok, Flush} = ?block_until(#{?snk_kind := emqx_ds_replication_layer_egress_flush}),
+            ?assertMatch(#{batch := [_, _, _]}, Flush)
         end,
-        fun(Trace) ->
-            %% Must contain exactly one flush with all messages.
-            ?assertMatch(
-                [#{batch := [_, _, _]}],
-                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
-            ),
-            ok
-        end
+        []
     ),
     ok.
 
@@ -355,14 +348,15 @@ t_10_non_atomic_store_batch(_Config) ->
                     sync => true
                 })
             ),
-
-            ok
+            timer:sleep(1000)
         end,
         fun(Trace) ->
             %% Should contain one flush per message.
+            Batches = ?projection(batch, ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)),
+            ?assertMatch([_], Batches),
             ?assertMatch(
-                [#{batch := [_]}, #{batch := [_]}, #{batch := [_]}],
-                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+                [_, _, _],
+                lists:append(Batches)
             ),
             ok
         end
@@ -681,9 +675,85 @@ t_error_mapping_replication_layer(_Config) ->
         length([error || {error, _, _} <- Results2]) > 0,
         Results2
     ),
-
-    snabbkaffe:stop(),
     meck:unload().
+
+%% This test suite verifies the behavior of `store_batch' operation
+%% when the underlying code experiences recoverable or unrecoverable
+%% problems.
+t_store_batch_fail(_Config) ->
+    ?check_trace(
+        #{timetrap => 15_000},
+        try
+            meck:new(emqx_ds_replication_layer, [passthrough, no_history]),
+            DB = ?FUNCTION_NAME,
+            ?assertMatch(ok, emqx_ds:open_db(DB, (opts())#{n_shards => 2})),
+            %% Success:
+            Batch1 = [
+                message(<<"C1">>, <<"foo/bar">>, <<"1">>, 1),
+                message(<<"C1">>, <<"foo/bar">>, <<"2">>, 1)
+            ],
+            ?assertMatch(ok, emqx_ds:store_batch(DB, Batch1, #{sync => true})),
+            %% Inject unrecoverable error:
+            meck:expect(emqx_ds_replication_layer, ra_store_batch, fun(_DB, _Shard, _Messages) ->
+                {error, unrecoverable, mock}
+            end),
+            Batch2 = [
+                message(<<"C1">>, <<"foo/bar">>, <<"3">>, 1),
+                message(<<"C1">>, <<"foo/bar">>, <<"4">>, 1)
+            ],
+            ?assertMatch(
+                {error, unrecoverable, mock}, emqx_ds:store_batch(DB, Batch2, #{sync => true})
+            ),
+            %% Inject a recoverable error:
+            Batch3 = [
+                message(<<"C1">>, <<"foo/bar">>, <<"5">>, 2),
+                message(<<"C2">>, <<"foo/bar">>, <<"6">>, 2),
+                message(<<"C1">>, <<"foo/bar">>, <<"7">>, 3),
+                message(<<"C2">>, <<"foo/bar">>, <<"8">>, 3)
+            ],
+            meck:expect(emqx_ds_replication_layer, ra_store_batch, fun(DB, Shard, Messages) ->
+                try
+                    ?tp(store_batch, #{messages => Messages}),
+                    meck:passthrough([DB, Shard, Messages])
+                catch
+                    _:_ ->
+                        {error, recoverable, mock}
+                end
+            end),
+            ?inject_crash(#{?snk_kind := store_batch}, snabbkaffe_nemesis:recover_after(3)),
+            ?assertMatch(ok, emqx_ds:store_batch(DB, Batch3, #{sync => true})),
+            lists:sort(emqx_ds_test_helpers:consume_per_stream(DB, ['#'], 1))
+        after
+            meck:unload()
+        end,
+        [
+            {"number of successfull flushes after retry", fun(Trace) ->
+                ?assertMatch([_, _], ?of_kind(store_batch, Trace))
+            end},
+            {"number of retries", fun(Trace) ->
+                ?assertMatch([_, _, _], ?of_kind(snabbkaffe_crash, Trace))
+            end},
+            {"message ordering", fun(StoredMessages, _Trace) ->
+                [{_, Stream1}, {_, Stream2}] = StoredMessages,
+                ?assertMatch(
+                    [
+                        #message{payload = <<"1">>},
+                        #message{payload = <<"2">>},
+                        #message{payload = <<"5">>},
+                        #message{payload = <<"7">>}
+                    ],
+                    Stream1
+                ),
+                ?assertMatch(
+                    [
+                        #message{payload = <<"6">>},
+                        #message{payload = <<"8">>}
+                    ],
+                    Stream2
+                )
+            end}
+        ]
+    ).
 
 update_data_set() ->
     [
@@ -748,6 +818,7 @@ init_per_testcase(_TC, Config) ->
     Config.
 
 end_per_testcase(_TC, _Config) ->
+    snabbkaffe:stop(),
     ok = application:stop(emqx_durable_storage),
     mria:stop(),
     _ = mnesia:delete_schema([node()]),

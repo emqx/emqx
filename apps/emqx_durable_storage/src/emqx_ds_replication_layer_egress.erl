@@ -51,13 +51,10 @@
 -define(flush, flush).
 
 -record(enqueue_req, {
-    message :: emqx_types:message(),
+    messages :: [emqx_types:message()],
     sync :: boolean(),
-    payload_bytes :: non_neg_integer()
-}).
--record(enqueue_atomic_req, {
-    batch :: [emqx_types:message()],
-    sync :: boolean(),
+    atomic :: boolean(),
+    n_messages :: non_neg_integer(),
     payload_bytes :: non_neg_integer()
 }).
 
@@ -70,53 +67,33 @@ start_link(DB, Shard) ->
     gen_server:start_link(?via(DB, Shard), ?MODULE, [DB, Shard], []).
 
 -spec store_batch(emqx_ds:db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
-    ok.
+    emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
     Sync = maps:get(sync, Opts, true),
-    case maps:get(atomic, Opts, false) of
-        false ->
-            lists:foreach(
-                fun(Message) ->
-                    Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
-                    gen_server:call(
-                        ?via(DB, Shard),
-                        #enqueue_req{
-                            message = Message,
-                            sync = Sync,
-                            payload_bytes = payload_size(Message)
-                        },
-                        infinity
-                    )
-                end,
-                Messages
+    Atomic = maps:get(atomic, Opts, false),
+    %% Usually we expect all messages in the batch to go into the
+    %% single shard, so this function is optimized for the happy case.
+    case shards_of_batch(DB, Messages) of
+        [{Shard, {NMsgs, NBytes}}] ->
+            %% Happy case:
+            gen_server:call(
+                ?via(DB, Shard),
+                #enqueue_req{
+                    messages = Messages,
+                    sync = Sync,
+                    atomic = Atomic,
+                    n_messages = NMsgs,
+                    payload_bytes = NBytes
+                },
+                infinity
             );
-        true ->
-            maps:foreach(
-                fun(Shard, Batch) ->
-                    PayloadBytes = lists:foldl(
-                        fun(Msg, Acc) ->
-                            Acc + payload_size(Msg)
-                        end,
-                        0,
-                        Batch
-                    ),
-                    gen_server:call(
-                        ?via(DB, Shard),
-                        #enqueue_atomic_req{
-                            batch = Batch,
-                            sync = Sync,
-                            payload_bytes = PayloadBytes
-                        },
-                        infinity
-                    )
-                end,
-                maps:groups_from_list(
-                    fun(Message) ->
-                        emqx_ds_replication_layer:shard_of_message(DB, Message, clientid)
-                    end,
-                    Messages
-                )
-            )
+        [_, _ | _] when Atomic ->
+            %% It's impossible to commit a batch to multiple shards
+            %% atomically
+            {error, unrecoverable, atomic_commit_to_multiple_shards};
+        _Shards ->
+            %% Use a slower implementation for the unlikely case:
+            repackage_messages(DB, Messages, Sync, Atomic)
     end.
 
 %%================================================================================
@@ -129,7 +106,7 @@ store_batch(DB, Messages, Opts) ->
     metrics_id :: emqx_ds_builtin_metrics:shard_metrics_id(),
     n = 0 :: non_neg_integer(),
     n_bytes = 0 :: non_neg_integer(),
-    tref :: reference(),
+    tref :: undefined | reference(),
     queue :: queue:queue(emqx_types:message()),
     pending_replies = [] :: [gen_server:from()]
 }).
@@ -143,16 +120,18 @@ init([DB, Shard]) ->
         db = DB,
         shard = Shard,
         metrics_id = MetricsId,
-        tref = start_timer(),
         queue = queue:new()
     },
-    {ok, S}.
+    {ok, start_timer(S)}.
 
-handle_call(#enqueue_req{message = Msg, sync = Sync, payload_bytes = NBytes}, From, S) ->
-    do_enqueue(From, Sync, Msg, NBytes, S);
-handle_call(#enqueue_atomic_req{batch = Batch, sync = Sync, payload_bytes = NBytes}, From, S) ->
-    Len = length(Batch),
-    do_enqueue(From, Sync, {atomic, Len, Batch}, NBytes, S);
+handle_call(
+    #enqueue_req{
+        messages = Msgs, sync = Sync, atomic = Atomic, n_messages = NMsgs, payload_bytes = NBytes
+    },
+    From,
+    S
+) ->
+    {noreply, enqueue(From, Sync, Atomic, Msgs, NMsgs, NBytes, S)};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -160,7 +139,7 @@ handle_cast(_Cast, S) ->
     {noreply, S}.
 
 handle_info(?flush, S) ->
-    {noreply, do_flush(S)};
+    {noreply, flush(S)};
 handle_info(_Info, S) ->
     {noreply, S}.
 
@@ -175,9 +154,60 @@ terminate(_Reason, _S) ->
 %% Internal functions
 %%================================================================================
 
+enqueue(
+    From,
+    Sync,
+    Atomic,
+    Msgs,
+    BatchSize,
+    BatchBytes,
+    S0 = #s{n = NMsgs0, n_bytes = NBytes0, queue = Q0, pending_replies = Replies0}
+) ->
+    %% At this point we don't split the batches, even when they aren't
+    %% atomic. It wouldn't win us anything in terms of memory, and
+    %% EMQX currently feeds data to DS in very small batches, so
+    %% granularity should be fine enough.
+    NMax = application:get_env(emqx_durable_storage, egress_batch_size, 1000),
+    NBytesMax = application:get_env(emqx_durable_storage, egress_batch_bytes, infinity),
+    NMsgs = NMsgs0 + BatchSize,
+    NBytes = NBytes0 + BatchBytes,
+    case (NMsgs >= NMax orelse NBytes >= NBytesMax) andalso (NMsgs0 > 0) of
+        true ->
+            %% Adding this batch would cause buffer to overflow. Flush
+            %% it now, and retry:
+            cancel_timer(S0),
+            S1 = flush(S0),
+            enqueue(From, Sync, Atomic, Msgs, BatchSize, BatchBytes, S1);
+        false ->
+            %% The buffer is empty, we enqueue the atomic batch in its
+            %% entirety:
+            Q1 = lists:foldl(fun queue:in/2, Q0, Msgs),
+            Replies =
+                case Sync of
+                    true ->
+                        [From | Replies0];
+                    false ->
+                        gen_server:reply(From, ok),
+                        Replies0
+                end,
+            S1 = S0#s{n = NMsgs, n_bytes = NBytes, queue = Q1, pending_replies = Replies},
+            case NMsgs >= NMax orelse NBytes >= NBytes of
+                true ->
+                    cancel_timer(S1),
+                    flush(S1);
+                false ->
+                    S1
+            end
+    end.
+
 -define(COOLDOWN_MIN, 1000).
 -define(COOLDOWN_MAX, 5000).
 
+flush(S) ->
+    start_timer(do_flush(S)).
+
+do_flush(S0 = #s{n = 0}) ->
+    S0;
 do_flush(
     S = #s{queue = Q, pending_replies = Replies, db = DB, shard = Shard, metrics_id = Metrics}
 ) ->
@@ -202,73 +232,103 @@ do_flush(
                 n = 0,
                 n_bytes = 0,
                 queue = queue:new(),
-                pending_replies = [],
-                tref = start_timer()
+                pending_replies = []
             };
-        Error ->
-            emqx_ds_builtin_metrics:inc_egress_batches_retry(S#s.metrics_id),
+        {error, recoverable, Reason} ->
+            %% Retry sending the batch:
+            emqx_ds_builtin_metrics:inc_egress_batches_retry(Metrics),
             erlang:garbage_collect(),
+            %% We block the gen_server until the next retry.
+            BlockTime = ?COOLDOWN_MIN + rand:uniform(?COOLDOWN_MAX - ?COOLDOWN_MIN),
+            timer:sleep(BlockTime),
             ?tp(
                 warning,
                 emqx_ds_replication_layer_egress_flush_failed,
-                #{db => DB, shard => Shard, reason => Error}
+                #{db => DB, shard => Shard, reason => Reason}
             ),
-            Cooldown = ?COOLDOWN_MIN + rand:uniform(?COOLDOWN_MAX - ?COOLDOWN_MIN),
+            S;
+        Err = {error, unrecoverable, _} ->
+            emqx_ds_builtin_metrics:inc_egress_batches_failed(Metrics),
+            lists:foreach(fun(From) -> gen_server:reply(From, Err) end, Replies),
+            erlang:garbage_collect(),
             S#s{
-                tref = start_timer(Cooldown)
+                n = 0,
+                n_bytes = 0,
+                queue = queue:new(),
+                pending_replies = []
             }
     end.
 
-do_enqueue(
-    From,
-    Sync,
-    MsgOrBatch,
-    BatchBytes,
-    S0 = #s{n = N, n_bytes = NBytes0, queue = Q0, pending_replies = Replies}
-) ->
-    NBytes = NBytes0 + BatchBytes,
-    NMax = application:get_env(emqx_durable_storage, egress_batch_size, 1000),
-    S1 =
-        case MsgOrBatch of
-            {atomic, NumMsgs, Msgs} ->
-                Q = lists:foldl(fun queue:in/2, Q0, Msgs),
-                S0#s{n = N + NumMsgs, n_bytes = NBytes, queue = Q};
-            Msg ->
-                S0#s{n = N + 1, n_bytes = NBytes, queue = queue:in(Msg, Q0)}
-        end,
-    %% TODO: later we may want to delay the reply until the message is
-    %% replicated, but it requies changes to the PUBACK/PUBREC flow to
-    %% allow for async replies. For now, we ack when the message is
-    %% _buffered_ rather than stored.
-    %%
-    %% Otherwise, the client would freeze for at least flush interval,
-    %% or until the buffer is filled.
-    S2 =
-        case Sync of
-            true ->
-                S1#s{pending_replies = [From | Replies]};
-            false ->
-                gen_server:reply(From, ok),
-                S1
-        end,
-    S =
-        case N >= NMax of
-            true ->
-                _ = erlang:cancel_timer(S2#s.tref),
-                do_flush(S2);
-            false ->
-                S2
-        end,
-    %% TODO: add a backpressure mechanism for the server to avoid
-    %% building a long message queue.
-    {noreply, S}.
+-spec shards_of_batch(emqx_ds:db(), [emqx_types:message()]) ->
+    [{emqx_ds_replication_layer:shard_id(), {NMessages, NBytes}}]
+when
+    NMessages :: non_neg_integer(),
+    NBytes :: non_neg_integer().
+shards_of_batch(DB, Messages) ->
+    maps:to_list(
+        lists:foldl(
+            fun(Message, Acc) ->
+                %% TODO: sharding strategy must be part of the DS DB schema:
+                Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
+                Size = payload_size(Message),
+                maps:update_with(
+                    Shard,
+                    fun({N, S}) ->
+                        {N + 1, S + Size}
+                    end,
+                    {1, Size},
+                    Acc
+                )
+            end,
+            #{},
+            Messages
+        )
+    ).
 
-start_timer() ->
+repackage_messages(DB, Messages, Sync, Atomic) ->
+    Batches = lists:foldl(
+        fun(Message, Acc) ->
+            Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
+            Size = payload_size(Message),
+            maps:update_with(
+                Shard,
+                fun({N, S, Msgs}) ->
+                    {N + 1, S + Size, [Message | Msgs]}
+                end,
+                {1, Size, [Message]},
+                Acc
+            )
+        end,
+        #{},
+        Messages
+    ),
+    maps:foreach(
+        fun(Shard, {NMsgs, ByteSize, RevMessages}) ->
+            gen_server:call(
+                ?via(DB, Shard),
+                #enqueue_req{
+                    messages = lists:reverse(RevMessages),
+                    sync = Sync,
+                    atomic = Atomic,
+                    n_messages = NMsgs,
+                    payload_bytes = ByteSize
+                },
+                infinity
+            )
+        end,
+        Batches
+    ).
+
+start_timer(S) ->
     Interval = application:get_env(emqx_durable_storage, egress_flush_interval, 100),
-    start_timer(Interval).
+    Tref = erlang:send_after(Interval, self(), ?flush),
+    S#s{tref = Tref}.
 
-start_timer(Interval) ->
-    erlang:send_after(Interval, self(), ?flush).
+cancel_timer(#s{tref = undefined}) ->
+    ok;
+cancel_timer(#s{tref = TRef}) ->
+    _ = erlang:cancel_timer(TRef),
+    ok.
 
 %% @doc Return approximate size of the MQTT message (it doesn't take
 %% all things into account, for example headers and extras)

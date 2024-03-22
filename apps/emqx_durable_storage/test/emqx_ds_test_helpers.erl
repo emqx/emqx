@@ -63,9 +63,16 @@ consume(DB, TopicFilter) ->
     consume(DB, TopicFilter, 0).
 
 consume(DB, TopicFilter, StartTime) ->
-    Streams = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     lists:flatmap(
-        fun({_Rank, Stream}) -> consume_stream(DB, Stream, TopicFilter, StartTime) end,
+      fun({_Stream, Msgs}) ->
+              Msgs
+      end,
+      consume_per_stream(DB, TopicFilter, StartTime)).
+
+consume_per_stream(DB, TopicFilter, StartTime) ->
+    Streams = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    lists:map(
+        fun({_Rank, Stream}) -> {Stream, consume_stream(DB, Stream, TopicFilter, StartTime)} end,
         Streams
     ).
 

@@ -254,6 +254,9 @@ drop_shard(Shard) ->
 store_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
     %% NOTE
     %% We assume that batches do not span generations. Callers should enforce this.
+    ?tp(emqx_ds_storage_layer_store_batch, #{
+        shard => Shard, messages => Messages, options => Options
+    }),
     #{module := Mod, data := GenData} = generation_at(Shard, Time),
     Mod:store_batch(Shard, GenData, Messages, Options);
 store_batch(_Shard, [], _Options) ->
