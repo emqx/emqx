@@ -324,7 +324,7 @@ query_by_clientid(Topic, ClientId, Config) ->
         {"Content-Type", "application/x-www-form-urlencoded"}
     ],
     Body = <<"sql=select * from \"", Topic/binary, "\" where clientid='", ClientId/binary, "'">>,
-    {ok, 200, _Headers, RawBody0} =
+    {ok, _, _Headers, RawBody0} =
         ehttpc:request(
             EHttpcPoolName,
             post,
@@ -335,7 +335,6 @@ query_by_clientid(Topic, ClientId, Config) ->
 
     case emqx_utils_json:decode(RawBody0, [return_maps]) of
         #{
-            <<"code">> := 0,
             <<"output">> := [
                 #{
                     <<"records">> := #{
