@@ -251,23 +251,13 @@ drop_shard(Shard) ->
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-store_batch(Shard, Messages0, Options) ->
-    %% We always store messages in the current generation:
-    GenId = generation_current(Shard),
-    #{module := Mod, data := GenData, since := Since} = generation_get(Shard, GenId),
-    case Messages0 of
-        [{Time, _Msg} | Rest] when Time < Since ->
-            %% FIXME: log / feedback
-            Messages = skip_outdated_messages(Since, Rest);
-        _ ->
-            Messages = Messages0
-    end,
-    Mod:store_batch(Shard, GenData, Messages, Options).
-
-skip_outdated_messages(Since, [{Time, _Msg} | Rest]) when Time < Since ->
-    skip_outdated_messages(Since, Rest);
-skip_outdated_messages(_Since, Messages) ->
-    Messages.
+store_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
+    %% NOTE
+    %% We assume that batches do not span generations. Callers should enforce this.
+    #{module := Mod, data := GenData} = generation_at(Shard, Time),
+    Mod:store_batch(Shard, GenData, Messages, Options);
+store_batch(_Shard, [], _Options) ->
+    ok.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -715,7 +705,7 @@ create_new_shard_schema(ShardId, DB, CFRefs, Prototype) ->
     {gen_id(), shard_schema(), cf_refs()}.
 new_generation(ShardId, DB, Schema0, Since) ->
     #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
-    GenId = PrevGenId + 1,
+    GenId = next_generation_id(PrevGenId),
     {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf),
     GenSchema = #{
         module => Mod,
@@ -730,6 +720,14 @@ new_generation(ShardId, DB, Schema0, Since) ->
         ?GEN_KEY(GenId) => GenSchema
     },
     {GenId, Schema, NewCFRefs}.
+
+-spec next_generation_id(gen_id()) -> gen_id().
+next_generation_id(GenId) ->
+    GenId + 1.
+
+-spec prev_generation_id(gen_id()) -> gen_id().
+prev_generation_id(GenId) when GenId > 0 ->
+    GenId - 1.
 
 %% @doc Commit current state of the server to both rocksdb and the persistent term
 -spec commit_metadata(server_state()) -> ok.
@@ -853,6 +851,20 @@ generations_since(Shard, Since) ->
         [],
         Schema
     ).
+
+-spec generation_at(shard_id(), emqx_ds:time()) -> generation().
+generation_at(Shard, Time) ->
+    Schema = #{current_generation := Current} = get_schema_runtime(Shard),
+    generation_at(Time, Current, Schema).
+
+generation_at(Time, GenId, Schema) ->
+    #{?GEN_KEY(GenId) := Gen} = Schema,
+    case Gen of
+        #{since := Since} when Time < Since andalso GenId > 0 ->
+            generation_at(Time, prev_generation_id(GenId), Schema);
+        _ ->
+            Gen
+    end.
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
