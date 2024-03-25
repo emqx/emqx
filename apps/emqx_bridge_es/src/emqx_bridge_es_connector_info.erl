@@ -1,3 +1,7 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
 -module(emqx_bridge_es_connector_info).
 
 -behaviour(emqx_connector_info).
