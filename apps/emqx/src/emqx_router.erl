@@ -707,7 +707,7 @@ discover_cluster_schema_vsn(Nodes) ->
     ),
     case lists:usort([Vsn || {_Node, Vsn, _} <- Responses, Vsn /= unknown]) of
         [Vsn] when Vsn =:= v1; Vsn =:= v2 ->
-            Vsn;
+            {Vsn, Responses};
         [] ->
             ?SLOG(notice, #{
                 msg => "cluster_routing_schema_discovery_failed",
@@ -715,7 +715,7 @@ discover_cluster_schema_vsn(Nodes) ->
                 reason =>
                     "Could not determine configured routing storage schema in the cluster."
             }),
-            undefined;
+            {undefined, Responses};
         [_ | _] ->
             ?SLOG(critical, #{
                 msg => "conflicting_routing_schemas_configured_in_cluster",
@@ -747,20 +747,27 @@ choose_schema_vsn(ConfSchema, {ClusterSchema, State}) ->
             %% otherwise use configured.
             emqx_maybe:define(ClusterSchema, ConfSchema);
         ConlictingSchemas ->
+            Reason =
+                "There are records in the routing tables either related to both v1 "
+                "and v2 storage schemas, or conflicting with storage schema assumed "
+                "by the cluster. This probably means that some nodes in the cluster "
+                "use v1 schema and some use v2, independently of each other. The "
+                "routing is likely broken. Manual intervention and full cluster "
+                "restart is required. This node will shut down.",
+            Action = mk_conflict_resolution_action(State),
             ?SLOG(critical, #{
                 msg => "conflicting_routing_schemas_detected_in_cluster",
                 detected => ConlictingSchemas,
                 configured => ConfSchema,
                 configured_in_cluster => ClusterSchema,
-                reason =>
-                    "There are records in the routing tables either related to both v1 "
-                    "and v2 storage schemas, or conflicting with storage schema assumed "
-                    "by the cluster. This probably means that some nodes in the cluster "
-                    "use v1 schema and some use v2, independently of each other. The "
-                    "routing is likely broken. Manual intervention and full cluster "
-                    "restart is required. This node will shut down.",
-                action => mk_conflict_resolution_action(State)
+                reason => Reason,
+                action => Action
             }),
+            io:format(
+                standard_error,
+                "Error: conflicting routing schemas detected in the cluster.\n~s\n~s\n",
+                [Reason, Action]
+            ),
             error(conflicting_routing_schemas_detected_in_cluster)
     end.
 
@@ -783,16 +790,15 @@ mk_conflict_resolution_action(State) ->
         "\n 1. Stop listeners on those nodes: `$ emqx eval 'emqx_listener:stop()'`"
         "\n 2. Wait until they are safe to restart."
         "\n This could take some time, depending on the number of clients and their subscriptions."
-        "\n Those conditions should be true for each of the nodes in order to proceed:"
+        "\n The following conditions should be both true for each of the nodes in order to proceed:"
         "\n   * `$ emqx eval 'ets:info(emqx_subscriber, size)'` prints `0`."
         "\n   * `$ emqx ctl topics list` prints `No topics.`"
-        "\n 3. Upgrade the nodes to the latest version."
+        "\n 3. Upgrade the nodes to version ~s."
         "\n 4. Restart the nodes.",
     FormatUnkown =
-        "Additionally, following nodes were unreachable during startup:"
-        "\n ~p"
-        "It's strongly advised to include them in the manual resolution procedure as well.",
-    Message = io_lib:format(Format, [NodesV1]),
+        "Additionally, the following nodes were unreachable during startup: ~p."
+        "It is strongly advised to include them in the manual resolution procedure as well.",
+    Message = io_lib:format(Format, [NodesV1, emqx_release:version_with_prefix()]),
     MessageUnknown = [io_lib:format(FormatUnkown, [NodesUnknown]) || NodesUnknown =/= []],
     unicode:characters_to_list(Message ++ "\n" ++ MessageUnknown).
 
