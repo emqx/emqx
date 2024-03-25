@@ -192,7 +192,7 @@ create(ClientInfo, ConnInfo) ->
 
 create(ClientInfo, ConnInfo, Conf) ->
     % FIXME error conditions
-    create(choose_impl_mod(ConnInfo), ClientInfo, ConnInfo, Conf).
+    create(hd(choose_impl_candidates(ClientInfo, ConnInfo)), ClientInfo, ConnInfo, Conf).
 
 create(Mod, ClientInfo, ConnInfo, Conf) ->
     % FIXME error conditions
@@ -205,7 +205,7 @@ create(Mod, ClientInfo, ConnInfo, Conf) ->
     {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
 open(ClientInfo, ConnInfo) ->
     Conf = get_session_conf(ClientInfo),
-    Mods = [Default | _] = choose_impl_candidates(ConnInfo),
+    Mods = [Default | _] = choose_impl_candidates(ClientInfo, ConnInfo),
     %% NOTE
     %% Try to look the existing session up in session stores corresponding to the given
     %% `Mods` in order, starting from the last one.
@@ -253,7 +253,7 @@ destroy(ClientInfo, ConnInfo) ->
     %% 0, and later reconnects with `Session-Expiry-Interval' = 0 and `clean_start' =
     %% true.  So we may simply destroy sessions from all implementations, since the key
     %% (ClientID) is the same.
-    Mods = choose_impl_candidates(ConnInfo),
+    Mods = choose_impl_candidates(ClientInfo, ConnInfo),
     lists:foreach(fun(Mod) -> Mod:destroy(ClientInfo) end, Mods).
 
 -spec destroy(t()) -> ok.
@@ -610,31 +610,26 @@ maybe_mock_impl_mod(Session) ->
     error(noimpl, [Session]).
 -endif.
 
--spec choose_impl_mod(conninfo()) -> module().
-choose_impl_mod(#{expiry_interval := EI}) ->
-    hd(choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled())).
-
--spec choose_impl_candidates(conninfo()) -> [module()].
-choose_impl_candidates(#{expiry_interval := EI}) ->
-    choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled()).
-
-choose_impl_candidates(_, _IsPSStoreEnabled = false) ->
-    [emqx_session_mem];
-choose_impl_candidates(0, _IsPSStoreEnabled = true) ->
-    case emqx_persistent_message:force_ds() of
+choose_impl_candidates(#{zone := Zone}, #{expiry_interval := EI}) ->
+    case emqx_persistent_message:is_persistence_enabled(Zone) of
         false ->
-            %% NOTE
-            %% If ExpiryInterval is 0, the natural choice is
-            %% `emqx_session_mem'. Yet we still need to look the
-            %% existing session up in the `emqx_persistent_session_ds'
-            %% store first, because previous connection may have set
-            %% ExpiryInterval to a non-zero value.
-            [emqx_session_mem, emqx_persistent_session_ds];
+            [emqx_session_mem];
         true ->
-            [emqx_persistent_session_ds]
-    end;
-choose_impl_candidates(EI, _IsPSStoreEnabled = true) when EI > 0 ->
-    [emqx_persistent_session_ds].
+            Force = emqx_persistent_message:force_ds(Zone),
+            case EI of
+                0 when not Force ->
+                    %% NOTE
+                    %% If ExpiryInterval is 0, the natural choice is
+                    %% `emqx_session_mem'. Yet we still need to look
+                    %% the existing session up in the
+                    %% `emqx_persistent_session_ds' store first,
+                    %% because previous connection may have set
+                    %% ExpiryInterval to a non-zero value.
+                    [emqx_session_mem, emqx_persistent_session_ds];
+                _ ->
+                    [emqx_persistent_session_ds]
+            end
+    end.
 
 -compile({inline, [run_hook/2]}).
 run_hook(Name, Args) ->

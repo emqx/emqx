@@ -502,7 +502,7 @@ handle_timeout(ClientInfo, ?TIMER_PULL, Session0) ->
     Timeout =
         case Publishes of
             [] ->
-                emqx_config:get([session_persistence, idle_poll_interval]);
+                get_config(ClientInfo, [idle_poll_interval]);
             [_ | _] ->
                 0
         end,
@@ -511,10 +511,10 @@ handle_timeout(ClientInfo, ?TIMER_PULL, Session0) ->
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], Session};
-handle_timeout(_ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0}) ->
+handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0}) ->
     S1 = emqx_persistent_session_ds_subs:gc(S0),
     S = emqx_persistent_session_ds_stream_scheduler:renew_streams(S1),
-    Interval = emqx_config:get([session_persistence, renew_streams_interval]),
+    Interval = get_config(ClientInfo, [renew_streams_interval]),
     Session = emqx_session:ensure_timer(
         ?TIMER_GET_STREAMS,
         Interval,
@@ -799,7 +799,7 @@ fetch_new_messages(Session = #{s := S}, ClientInfo) ->
 fetch_new_messages([], Session, _ClientInfo) ->
     Session;
 fetch_new_messages([I | Streams], Session0 = #{inflight := Inflight}, ClientInfo) ->
-    BatchSize = emqx_config:get([session_persistence, batch_size]),
+    BatchSize = get_config(ClientInfo, [batch_size]),
     case emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize of
         true ->
             %% Buffer is full:
@@ -1055,8 +1055,14 @@ receive_maximum(ConnInfo) ->
 expiry_interval(ConnInfo) ->
     maps:get(expiry_interval, ConnInfo, 0).
 
+%% Note: we don't allow overriding `last_alive_update_interval' per
+%% zone, since the GC process is responsible for all sessions
+%% regardless of the zone.
 bump_interval() ->
     emqx_config:get([session_persistence, last_alive_update_interval]).
+
+get_config(#{zone := Zone}, Key) ->
+    emqx_config:get_zone_conf(Zone, [session_persistence | Key]).
 
 -spec try_get_live_session(emqx_types:clientid()) ->
     {pid(), session()} | not_found | not_persistent.

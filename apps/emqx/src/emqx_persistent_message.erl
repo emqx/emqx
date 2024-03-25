@@ -19,9 +19,10 @@
 -behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([init/0]).
--export([is_persistence_enabled/0, force_ds/0]).
+-export([is_persistence_enabled/0, is_persistence_enabled/1, force_ds/1]).
 
 %% Config handler
 -export([add_handler/0, pre_config_update/3]).
@@ -32,6 +33,7 @@
 ]).
 
 -define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+-define(PERSISTENCE_ENABLED, emqx_message_persistence_enabled).
 
 -define(WHEN_ENABLED(DO),
     case is_persistence_enabled() of
@@ -43,7 +45,14 @@
 %%--------------------------------------------------------------------
 
 init() ->
+    %% Note: currently persistence can't be enabled or disabled in the
+    %% runtime. If persistence is enabled for any of the zones, we
+    %% consider durability feature to be on:
+    Zones = maps:keys(emqx_config:get([zones])),
+    IsEnabled = lists:any(fun is_persistence_enabled/1, Zones),
+    persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
     ?WHEN_ENABLED(begin
+        ?SLOG(notice, #{msg => "Session durability is enabled"}),
         Backend = storage_backend(),
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, Backend),
         ok = emqx_persistent_session_ds_router:init_tables(),
@@ -53,7 +62,11 @@ init() ->
 
 -spec is_persistence_enabled() -> boolean().
 is_persistence_enabled() ->
-    emqx_config:get([session_persistence, enable]).
+    persistent_term:get(?PERSISTENCE_ENABLED).
+
+-spec is_persistence_enabled(emqx_types:zone()) -> boolean().
+is_persistence_enabled(Zone) ->
+    emqx_config:get_zone_conf(Zone, [session_persistence, enable]).
 
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->
@@ -61,9 +74,9 @@ storage_backend() ->
 
 %% Dev-only option: force all messages to go through
 %% `emqx_persistent_session_ds':
--spec force_ds() -> boolean().
-force_ds() ->
-    emqx_config:get([session_persistence, force_persistence]).
+-spec force_ds(emqx_types:zone()) -> boolean().
+force_ds(Zone) ->
+    emqx_config:get_zone_conf(Zone, [session_persistence, force_persistence]).
 
 storage_backend(Path) ->
     ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),

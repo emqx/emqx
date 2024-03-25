@@ -463,5 +463,17 @@ zone_global_defaults() ->
                 backoff_new_conn => true,
                 enable => false
             },
-        stats => #{enable => true}
+        stats => #{enable => true},
+        session_persistence =>
+            #{
+                enable => false,
+                batch_size => 100,
+                force_persistence => false,
+                idle_poll_interval => 100,
+                last_alive_update_interval => 5000,
+                message_retention_period => 86400000,
+                renew_streams_interval => 5000,
+                session_gc_batch_size => 100,
+                session_gc_interval => 600000
+            }
     }.
