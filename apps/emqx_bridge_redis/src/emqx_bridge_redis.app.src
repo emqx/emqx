@@ -1,6 +1,6 @@
 {application, emqx_bridge_redis, [
     {description, "EMQX Enterprise Redis Bridge"},
-    {vsn, "0.1.5"},
+    {vsn, "0.1.6"},
     {registered, []},
     {applications, [
         kernel,
@@ -9,7 +9,8 @@
         emqx_redis
     ]},
     {env, [
-        {emqx_action_info_modules, [emqx_bridge_redis_action_info]}
+        {emqx_action_info_modules, [emqx_bridge_redis_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_redis_connector_info]}
     ]},
     {modules, []},
     {links, []}

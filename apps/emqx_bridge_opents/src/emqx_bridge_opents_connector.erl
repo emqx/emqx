@@ -4,6 +4,8 @@
 
 -module(emqx_bridge_opents_connector).
 
+-behaviour(emqx_connector_examples).
+
 -behaviour(emqx_resource).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").

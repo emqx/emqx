@@ -14,8 +14,12 @@
     ]},
     {env, [
         {emqx_action_info_modules, [
-            emqx_bridge_kafka_action_info,
+            emqx_bridge_kafka_producer_action_info,
             emqx_bridge_kafka_consumer_action_info
+        ]},
+        {emqx_connector_info_modules, [
+            emqx_bridge_kafka_consumer_connector_info,
+            emqx_bridge_kafka_producer_connector_info
         ]}
     ]},
     {modules, []},

@@ -1,3 +1,6 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
 -module(emqx_bridge_cassandra_action_info).
 
 -behaviour(emqx_action_info).

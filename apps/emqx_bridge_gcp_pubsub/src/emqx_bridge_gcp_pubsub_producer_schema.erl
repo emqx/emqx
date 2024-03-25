@@ -4,6 +4,8 @@
 
 -module(emqx_bridge_gcp_pubsub_producer_schema).
 
+-behaviour(emqx_connector_examples).
+
 -import(hoconsc, [mk/2, ref/2]).
 
 -include_lib("typerefl/include/types.hrl").

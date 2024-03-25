@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_es_connector).
 
+-behaviour(emqx_connector_examples).
+
 -behaviour(emqx_resource).
 
 -include("emqx_bridge_es.hrl").

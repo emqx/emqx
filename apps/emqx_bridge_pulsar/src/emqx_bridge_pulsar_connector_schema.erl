@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_pulsar_connector_schema).
 
+-behaviour(emqx_connector_examples).
+
 -export([namespace/0, roots/0, fields/1, desc/1]).
 -export([connector_examples/1, connector_example_values/0]).
 

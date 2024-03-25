@@ -91,7 +91,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_dynamo_action_info,
         emqx_bridge_gcp_pubsub_consumer_action_info,
         emqx_bridge_gcp_pubsub_producer_action_info,
-        emqx_bridge_kafka_action_info,
+        emqx_bridge_kafka_producer_action_info,
         emqx_bridge_kafka_consumer_action_info,
         emqx_bridge_kinesis_action_info,
         emqx_bridge_hstreamdb_action_info,

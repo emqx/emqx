@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_http_schema).
 
+-behaviour(emqx_connector_examples).
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 

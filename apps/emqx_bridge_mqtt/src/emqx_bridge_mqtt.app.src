@@ -10,7 +10,10 @@
         emqx_resource,
         emqtt
     ]},
-    {env, []},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_mqtt_pubsub_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_mqtt_pubsub_connector_info]}
+    ]},
     {modules, []},
     {licenses, ["Apache 2.0"]},
     {links, []}

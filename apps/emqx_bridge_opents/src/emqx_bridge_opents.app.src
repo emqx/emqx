@@ -8,7 +8,10 @@
         emqx_resource,
         opentsdb
     ]},
-    {env, []},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_opents_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_opents_connector_info]}
+    ]},
     {modules, []},
 
     {licenses, ["BSL"]},

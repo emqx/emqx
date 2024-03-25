@@ -8,7 +8,10 @@
         emqx_resource,
         hstreamdb_erl
     ]},
-    {env, [{emqx_action_info_modules, [emqx_bridge_hstreamdb_action_info]}]},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_hstreamdb_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_hstreamdb_connector_info]}
+    ]},
     {modules, []},
     {links, []}
 ]}.

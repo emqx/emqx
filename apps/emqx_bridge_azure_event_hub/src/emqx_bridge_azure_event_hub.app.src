@@ -1,6 +1,6 @@
 {application, emqx_bridge_azure_event_hub, [
     {description, "EMQX Enterprise Azure Event Hub Bridge"},
-    {vsn, "0.1.6"},
+    {vsn, "0.1.7"},
     {registered, []},
     {applications, [
         kernel,
@@ -9,7 +9,10 @@
         telemetry,
         wolff
     ]},
-    {env, [{emqx_action_info_modules, [emqx_bridge_azure_event_hub_action_info]}]},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_azure_event_hub_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_azure_event_hub_connector_info]}
+    ]},
     {modules, []},
     {links, []}
 ]}.

@@ -24,9 +24,11 @@ connector_type_name() -> azure_event_hub_producer.
 schema_module() -> emqx_bridge_azure_event_hub.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    emqx_bridge_kafka_action_info:connector_action_config_to_bridge_v1_config(
+    emqx_bridge_kafka_producer_action_info:connector_action_config_to_bridge_v1_config(
         ConnectorConfig, ActionConfig
     ).
 
 bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
-    emqx_bridge_kafka_action_info:bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName).
+    emqx_bridge_kafka_producer_action_info:bridge_v1_config_to_action_config(
+        BridgeV1Conf, ConnectorName
+    ).

@@ -16,6 +16,8 @@
 
 -module(emqx_bridge_mqtt_connector_schema).
 
+-behaviour(emqx_connector_examples).
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").

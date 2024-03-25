@@ -29,7 +29,8 @@
     transform_bridges_v1_to_connectors_and_bridges_v2/1,
     transform_bridge_v1_config_to_action_config/4,
     top_level_common_connector_keys/0,
-    project_to_connector_resource_opts/1
+    project_to_connector_resource_opts/1,
+    api_ref/3
 ]).
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
@@ -57,43 +58,6 @@
 
 -export([examples/1]).
 
--if(?EMQX_RELEASE_EDITION == ee).
-enterprise_api_schemas(Method) ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_connector_ee_schema:module_info(),
-    case erlang:function_exported(emqx_connector_ee_schema, api_schemas, 1) of
-        true -> emqx_connector_ee_schema:api_schemas(Method);
-        false -> []
-    end.
-
-enterprise_fields_connectors() ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_connector_ee_schema:module_info(),
-    case erlang:function_exported(emqx_connector_ee_schema, fields, 1) of
-        true ->
-            emqx_connector_ee_schema:fields(connectors);
-        false ->
-            []
-    end.
-
--else.
-
-enterprise_api_schemas(_Method) -> [].
-
-enterprise_fields_connectors() -> [].
-
--endif.
-
-api_schemas(Method) ->
-    [
-        %% We need to map the `type' field of a request (binary) to a
-        %% connector schema module.
-        api_ref(emqx_bridge_http_schema, <<"http">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt">>, Method ++ "_connector")
-    ].
-
 api_ref(Module, Type, Method) ->
     {Type, ref(Module, Method)}.
 
@@ -109,83 +73,17 @@ examples(Method) ->
         end,
     lists:foldl(Fun, #{}, schema_modules()).
 
--if(?EMQX_RELEASE_EDITION == ee).
 schema_modules() ->
-    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema] ++
-        emqx_connector_ee_schema:schema_modules().
--else.
-schema_modules() ->
-    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema].
--endif.
+    ConnectorTypes = emqx_connector_info:connector_types(),
+    [
+        emqx_connector_info:schema_module(Type)
+     || Type <- ConnectorTypes
+    ].
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
 %% from the latest connector type name.
-connector_type_to_bridge_types(http) ->
-    [webhook, http];
-connector_type_to_bridge_types(azure_event_hub_producer) ->
-    [azure_event_hub_producer];
-connector_type_to_bridge_types(confluent_producer) ->
-    [confluent_producer];
-connector_type_to_bridge_types(dynamo) ->
-    [dynamo];
-connector_type_to_bridge_types(gcp_pubsub_consumer) ->
-    [gcp_pubsub_consumer];
-connector_type_to_bridge_types(gcp_pubsub_producer) ->
-    [gcp_pubsub, gcp_pubsub_producer];
-connector_type_to_bridge_types(hstreamdb) ->
-    [hstreamdb];
-connector_type_to_bridge_types(kafka_consumer) ->
-    [kafka_consumer];
-connector_type_to_bridge_types(kafka_producer) ->
-    [kafka, kafka_producer];
-connector_type_to_bridge_types(kinesis) ->
-    [kinesis, kinesis_producer];
-connector_type_to_bridge_types(matrix) ->
-    [matrix];
-connector_type_to_bridge_types(mongodb) ->
-    [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
-connector_type_to_bridge_types(oracle) ->
-    [oracle];
-connector_type_to_bridge_types(influxdb) ->
-    [influxdb, influxdb_api_v1, influxdb_api_v2];
-connector_type_to_bridge_types(cassandra) ->
-    [cassandra];
-connector_type_to_bridge_types(clickhouse) ->
-    [clickhouse];
-connector_type_to_bridge_types(mysql) ->
-    [mysql];
-connector_type_to_bridge_types(mqtt) ->
-    [mqtt];
-connector_type_to_bridge_types(pgsql) ->
-    [pgsql];
-connector_type_to_bridge_types(redis) ->
-    [redis, redis_single, redis_sentinel, redis_cluster];
-connector_type_to_bridge_types(rocketmq) ->
-    [rocketmq];
-connector_type_to_bridge_types(syskeeper_forwarder) ->
-    [syskeeper_forwarder];
-connector_type_to_bridge_types(syskeeper_proxy) ->
-    [];
-connector_type_to_bridge_types(sqlserver) ->
-    [sqlserver];
-connector_type_to_bridge_types(timescale) ->
-    [timescale];
-connector_type_to_bridge_types(iotdb) ->
-    [iotdb];
-connector_type_to_bridge_types(elasticsearch) ->
-    [elasticsearch];
-connector_type_to_bridge_types(opents) ->
-    [opents];
-connector_type_to_bridge_types(greptimedb) ->
-    [greptimedb];
-connector_type_to_bridge_types(pulsar) ->
-    [pulsar_producer, pulsar];
-connector_type_to_bridge_types(tdengine) ->
-    [tdengine];
-connector_type_to_bridge_types(rabbitmq) ->
-    [rabbitmq];
-connector_type_to_bridge_types(s3) ->
-    [s3].
+connector_type_to_bridge_types(Type) ->
+    emqx_connector_info:bridge_types(Type).
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.
@@ -479,9 +377,15 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    CE = api_schemas(Method),
-    EE = enterprise_api_schemas(Method),
-    hoconsc:union(connector_api_union(CE ++ EE)).
+    InfoModSchemas = emqx_connector_info_api_schemas(Method),
+    hoconsc:union(connector_api_union(InfoModSchemas)).
+
+emqx_connector_info_api_schemas(Method) ->
+    ConnectorTypes = emqx_connector_info:connector_types(),
+    [
+        emqx_connector_info:api_schema(Type, Method)
+     || Type <- ConnectorTypes
+    ].
 
 connector_api_union(Refs) ->
     Index = maps:from_list(Refs),
@@ -526,25 +430,7 @@ roots() ->
     end.
 
 fields(connectors) ->
-    [
-        {http,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_http_schema, "config_connector")),
-                #{
-                    alias => [webhook],
-                    desc => <<"HTTP Connector Config">>,
-                    required => false
-                }
-            )},
-        {mqtt,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_mqtt_connector_schema, "config_connector")),
-                #{
-                    desc => <<"MQTT Publisher Connector Config">>,
-                    required => false
-                }
-            )}
-    ] ++ enterprise_fields_connectors();
+    connector_info_fields_connectors();
 fields("node_status") ->
     [
         node_name(),
@@ -555,6 +441,13 @@ fields("node_status") ->
                 desc => ?DESC("desc_status_reason"),
                 example => <<"Connection refused">>
             })}
+    ].
+
+connector_info_fields_connectors() ->
+    ConnectorTypes = emqx_connector_info:connector_types(),
+    [
+        emqx_connector_info:config_schema(Type)
+     || Type <- ConnectorTypes
     ].
 
 desc(connectors) ->
