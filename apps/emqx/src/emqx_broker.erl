@@ -60,9 +60,6 @@
 
 -export([topics/0]).
 
-%% Stats fun
--export([stats_fun/0]).
-
 %% gen_server callbacks
 -export([
     init/1,
@@ -474,21 +471,6 @@ set_subopts(SubPid, Topic, NewOpts) ->
 -spec topics() -> [emqx_types:topic() | emqx_types:share()].
 topics() ->
     emqx_router:topics().
-
-%%--------------------------------------------------------------------
-%% Stats fun
-%%--------------------------------------------------------------------
-
-stats_fun() ->
-    safe_update_stats(?SUBSCRIBER, 'subscribers.count', 'subscribers.max'),
-    safe_update_stats(?SUBSCRIPTION, 'subscriptions.count', 'subscriptions.max'),
-    safe_update_stats(?SUBOPTION, 'suboptions.count', 'suboptions.max').
-
-safe_update_stats(Tab, Stat, MaxStat) ->
-    case ets:info(Tab, size) of
-        undefined -> ok;
-        Size -> emqx_stats:setstat(Stat, MaxStat, Size)
-    end.
 
 %%--------------------------------------------------------------------
 %% call, cast, pick
