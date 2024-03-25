@@ -43,7 +43,6 @@
 -export([
     %% RPC Targets:
     do_drop_db_v1/1,
-    do_store_batch_v1/4,
     do_get_streams_v1/4,
     do_get_streams_v2/4,
     do_make_iterator_v2/5,
@@ -53,11 +52,11 @@
     do_get_delete_streams_v4/4,
     do_make_delete_iterator_v4/5,
     do_delete_next_v4/5,
-    %% Unused:
-    do_drop_generation_v3/3,
     %% Obsolete:
+    do_store_batch_v1/4,
     do_make_iterator_v1/5,
     do_add_generation_v2/1,
+    do_drop_generation_v3/3,
 
     %% Egress API:
     ra_store_batch/3
@@ -139,6 +138,8 @@
 
 -type message_id() :: emqx_ds:message_id().
 
+%% TODO: this type is obsolete and is kept only for compatibility with
+%% BPAPIs. Remove it when emqx_ds_proto_v4 is gone (EMQX 5.6)
 -type batch() :: #{
     ?tag := ?BATCH,
     ?batch_messages := [emqx_types:message()]
@@ -400,10 +401,9 @@ do_drop_db_v1(DB) ->
     batch(),
     emqx_ds:message_store_opts()
 ) ->
-    emqx_ds:store_batch_result().
-do_store_batch_v1(DB, Shard, #{?tag := ?BATCH, ?batch_messages := Messages}, Options) ->
-    Batch = [{emqx_message:timestamp(Message), Message} || Message <- Messages],
-    emqx_ds_storage_layer:store_batch({DB, Shard}, Batch, Options).
+    no_return().
+do_store_batch_v1(_DB, _Shard, _Batch, _Options) ->
+    error(obsolete_api).
 
 %% Remove me in EMQX 5.6
 -dialyzer({nowarn_function, do_get_streams_v1/4}).
@@ -516,9 +516,9 @@ do_list_generations_with_lifetimes_v3(DB, Shard) ->
     ).
 
 -spec do_drop_generation_v3(emqx_ds:db(), shard_id(), emqx_ds_storage_layer:gen_id()) ->
-    ok | {error, _}.
-do_drop_generation_v3(DB, ShardId, GenId) ->
-    emqx_ds_storage_layer:drop_generation({DB, ShardId}, GenId).
+    no_return().
+do_drop_generation_v3(_DB, _ShardId, _GenId) ->
+    error(obsolete_api).
 
 -spec do_get_delete_streams_v4(
     emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
