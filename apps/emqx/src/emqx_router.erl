@@ -750,9 +750,19 @@ choose_schema_vsn(ConfSchema, ClusterSchema, State) ->
         _Conflicting when ClusterSchema =/= undefined ->
             %% There are existing records in both v1 and v2 schema,
             %% we have to use what the peer nodes agreed on.
-            %% because it could be HTIS node which caused cnoflict.
+            %% because it could be THIS node which caused the cnoflict.
             %%
             %% The stale records will be left-over, but harmless
+            Desc =
+                "Conflicting schema version detected for routing records, but "
+                "all the peer nodes are running the same version, so this node "
+                "will use the same schema but discard the harmless stale records. "
+                "This warning will go away after the next full cluster (non-rolling) restart.",
+            ?SLOG(warning, #{
+                msg => "conflicting_routing_storage_detected",
+                resolved => ClusterSchema,
+                description => Desc
+            }),
             ClusterSchema;
         _Conflicting ->
             Desc = schema_conflict_reason(records, State),
