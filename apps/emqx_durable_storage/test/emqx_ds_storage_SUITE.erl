@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_ds_storage_snapshot_SUITE).
+-module(emqx_ds_storage_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -27,18 +27,37 @@ opts() ->
 
 %%
 
+t_idempotent_store_batch(_Config) ->
+    Shard = {?FUNCTION_NAME, _ShardId = <<"42">>},
+    {ok, Pid} = emqx_ds_storage_layer:start_link(Shard, opts()),
+    %% Push some messages to the shard.
+    Msgs1 = [gen_message(N) || N <- lists:seq(10, 20)],
+    GenTs = 30,
+    Msgs2 = [gen_message(N) || N <- lists:seq(40, 50)],
+    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs1), #{})),
+    %% Add new generation and push the same batch + some more.
+    ?assertEqual(ok, emqx_ds_storage_layer:add_generation(Shard, GenTs)),
+    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs1), #{})),
+    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs2), #{})),
+    %% First batch should have been handled idempotently.
+    ?assertEqual(
+        Msgs1 ++ Msgs2,
+        lists:keysort(#message.timestamp, consume(Shard, ['#']))
+    ),
+    ok = stop_shard(Pid).
+
 t_snapshot_take_restore(_Config) ->
     Shard = {?FUNCTION_NAME, _ShardId = <<"42">>},
     {ok, Pid} = emqx_ds_storage_layer:start_link(Shard, opts()),
 
     %% Push some messages to the shard.
     Msgs1 = [gen_message(N) || N <- lists:seq(1000, 2000)],
-    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, mk_batch(Msgs1), #{})),
+    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs1), #{})),
 
     %% Add new generation and push some more.
     ?assertEqual(ok, emqx_ds_storage_layer:add_generation(Shard, 3000)),
     Msgs2 = [gen_message(N) || N <- lists:seq(4000, 5000)],
-    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, mk_batch(Msgs2), #{})),
+    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs2), #{})),
     ?assertEqual(ok, emqx_ds_storage_layer:add_generation(Shard, 6000)),
 
     %% Take a snapshot of the shard.
@@ -46,11 +65,10 @@ t_snapshot_take_restore(_Config) ->
 
     %% Push even more messages to the shard AFTER taking the snapshot.
     Msgs3 = [gen_message(N) || N <- lists:seq(7000, 8000)],
-    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, mk_batch(Msgs3), #{})),
+    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs3), #{})),
 
     %% Destroy the shard.
-    _ = unlink(Pid),
-    ok = proc_lib:stop(Pid, shutdown, infinity),
+    ok = stop_shard(Pid),
     ok = emqx_ds_storage_layer:drop_shard(Shard),
 
     %% Restore the shard from the snapshot.
@@ -64,12 +82,41 @@ t_snapshot_take_restore(_Config) ->
         lists:keysort(#message.timestamp, consume(Shard, ['#']))
     ).
 
-mk_batch(Msgs) ->
-    [{emqx_message:timestamp(Msg, microsecond), Msg} || Msg <- Msgs].
+transfer_snapshot(Reader, Writer) ->
+    ChunkSize = rand:uniform(1024),
+    ReadResult = emqx_ds_storage_snapshot:read_chunk(Reader, ChunkSize),
+    ?assertMatch({RStatus, _, _} when RStatus == next; RStatus == last, ReadResult),
+    {RStatus, Chunk, NReader} = ReadResult,
+    Data = iolist_to_binary(Chunk),
+    {WStatus, NWriter} = emqx_ds_storage_snapshot:write_chunk(Writer, Data),
+    %% Verify idempotency.
+    ?assertMatch(
+        {WStatus, NWriter},
+        emqx_ds_storage_snapshot:write_chunk(NWriter, Data)
+    ),
+    %% Verify convergence.
+    ?assertEqual(
+        RStatus,
+        WStatus,
+        #{reader => NReader, writer => NWriter}
+    ),
+    case WStatus of
+        last ->
+            ?assertEqual(ok, emqx_ds_storage_snapshot:release_reader(NReader)),
+            ?assertEqual(ok, emqx_ds_storage_snapshot:release_writer(NWriter)),
+            ok;
+        next ->
+            transfer_snapshot(NReader, NWriter)
+    end.
+
+%%
+
+batch(Msgs) ->
+    [{emqx_message:timestamp(Msg), Msg} || Msg <- Msgs].
 
 gen_message(N) ->
     Topic = emqx_topic:join([<<"foo">>, <<"bar">>, integer_to_binary(N)]),
-    message(Topic, integer_to_binary(N), N * 100).
+    message(Topic, crypto:strong_rand_bytes(16), N).
 
 message(Topic, Payload, PublishedAt) ->
     #message{
@@ -79,35 +126,6 @@ message(Topic, Payload, PublishedAt) ->
         timestamp = PublishedAt,
         id = emqx_guid:gen()
     }.
-
-transfer_snapshot(Reader, Writer) ->
-    ChunkSize = rand:uniform(1024),
-    case emqx_ds_storage_snapshot:read_chunk(Reader, ChunkSize) of
-        {RStatus, Chunk, NReader} ->
-            Data = iolist_to_binary(Chunk),
-            {WStatus, NWriter} = emqx_ds_storage_snapshot:write_chunk(Writer, Data),
-            %% Verify idempotency.
-            ?assertEqual(
-                {WStatus, NWriter},
-                emqx_ds_storage_snapshot:write_chunk(Writer, Data)
-            ),
-            %% Verify convergence.
-            ?assertEqual(
-                RStatus,
-                WStatus,
-                #{reader => NReader, writer => NWriter}
-            ),
-            case WStatus of
-                last ->
-                    ?assertEqual(ok, emqx_ds_storage_snapshot:release_reader(NReader)),
-                    ?assertEqual(ok, emqx_ds_storage_snapshot:release_writer(NWriter)),
-                    ok;
-                next ->
-                    transfer_snapshot(NReader, NWriter)
-            end;
-        {error, Reason} ->
-            {error, Reason, Reader}
-    end.
 
 consume(Shard, TopicFilter) ->
     consume(Shard, TopicFilter, 0).
@@ -131,6 +149,10 @@ consume_stream(Shard, It) ->
         {ok, end_of_stream} ->
             []
     end.
+
+stop_shard(Pid) ->
+    _ = unlink(Pid),
+    proc_lib:stop(Pid, shutdown, infinity).
 
 %%
 
