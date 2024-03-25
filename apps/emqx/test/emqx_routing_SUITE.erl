@@ -30,7 +30,8 @@ all() ->
         {group, routing_schema_v1},
         {group, routing_schema_v2},
         t_routing_schema_switch_v1,
-        t_routing_schema_switch_v2
+        t_routing_schema_switch_v2,
+        t_routing_schema_consistent_clean_cluster
     ].
 
 groups() ->
@@ -473,6 +474,60 @@ t_routing_schema_switch(VFrom, VTo, WorkDir) ->
         ok = emqtt:stop(C1),
         ok = emqtt:stop(C2),
         ok = emqtt:stop(C3)
+    after
+        ok = emqx_cth_cluster:stop(Nodes)
+    end.
+
+t_routing_schema_consistent_clean_cluster(Config) ->
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+    % Start first node with routing schema v1
+    [Node1] = emqx_cth_cluster:start(
+        [
+            {routing_schema_consistent1, #{
+                apps => [mk_genrpc_appspec(), mk_emqx_appspec(1, v1)]
+            }}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    % Start rest of nodes with routing schema v2
+    NodesRest = emqx_cth_cluster:start(
+        [
+            {routing_schema_consistent2, #{
+                apps => [mk_genrpc_appspec(), mk_emqx_appspec(2, v2)],
+                base_port => 20000,
+                join_to => Node1
+            }},
+            {routing_schema_consistent3, #{
+                apps => [mk_genrpc_appspec(), mk_emqx_appspec(3, v2)],
+                base_port => 20100,
+                join_to => Node1
+            }}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    Nodes = [Node1 | NodesRest],
+    try
+        % Verify that cluser is still on v1
+        ?assertEqual(
+            [{ok, v1} || _ <- Nodes],
+            erpc:multicall(Nodes, emqx_router, get_schema_vsn, [])
+        ),
+        % Wait for all nodes to agree on cluster state
+        ?retry(
+            500,
+            10,
+            ?assertEqual(
+                [{ok, Nodes} || _ <- Nodes],
+                erpc:multicall(Nodes, emqx, running_nodes, [])
+            )
+        ),
+        C1 = start_client(Node1),
+        C2 = start_client(hd(NodesRest)),
+        ok = subscribe(C2, <<"t/#">>),
+        {ok, _} = publish(C1, <<"t/a/b/c">>, <<"yayconsistency">>),
+        ?assertReceive({pub, C2, #{topic := <<"t/a/b/c">>, payload := <<"yayconsistency">>}}),
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2)
     after
         ok = emqx_cth_cluster:stop(Nodes)
     end.
