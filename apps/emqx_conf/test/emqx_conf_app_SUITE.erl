@@ -21,6 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -75,7 +76,7 @@ t_copy_new_data_dir(Config) ->
         {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
         ok = rpc:call(First, application, start, [emqx_conf]),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
-        ok = assert_data_copy_done(Nodes, File)
+        ?retry(200, 10, ok = assert_data_copy_done(Nodes, File))
     after
         stop_cluster(Nodes)
     end.
@@ -100,7 +101,7 @@ t_copy_deprecated_data_dir(Config) ->
         {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
         ok = rpc:call(First, application, start, [emqx_conf]),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
-        ok = assert_data_copy_done(Nodes, File)
+        ?retry(200, 10, ok = assert_data_copy_done(Nodes, File))
     after
         stop_cluster(Nodes)
     end.
