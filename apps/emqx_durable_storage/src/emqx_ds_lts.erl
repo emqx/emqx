@@ -263,12 +263,14 @@ trie_insert(#trie{trie = Trie, stats = Stats, persist = Persist}, State, Token, 
     end.
 
 -spec get_id_for_key(trie(), state(), edge()) -> static_key().
-get_id_for_key(#trie{static_key_size = Size}, _State, _Token) ->
+get_id_for_key(#trie{static_key_size = Size}, State, Token) when Size =< 32 ->
     %% Requirements for the return value:
     %%
     %% It should be globally unique for the `{State, Token}` pair. Other
     %% than that, there's no requirements. The return value doesn't even
     %% have to be deterministic, since the states are saved in the trie.
+    %% Yet, it helps a lot if it is, so that applying the same sequence
+    %% of topics to different tries will result in the same trie state.
     %%
     %% The generated value becomes the ID of the topic in the durable
     %% storage. Its size should be relatively small to reduce the
@@ -277,7 +279,7 @@ get_id_for_key(#trie{static_key_size = Size}, _State, _Token) ->
     %% If we want to impress computer science crowd, sorry, I mean to
     %% minimize storage requirements, we can even employ Huffman coding
     %% based on the frequency of messages.
-    <<Int:(Size * 8)>> = crypto:strong_rand_bytes(Size),
+    <<Int:(Size * 8), _/bytes>> = crypto:hash(sha256, term_to_binary([State | Token])),
     Int.
 
 %% erlfmt-ignore
