@@ -747,14 +747,14 @@ choose_schema_vsn(ConfSchema, ClusterSchema, State) ->
         [Schema] when ClusterSchema =:= undefined ->
             %% There are existing records following some schema, we have to use it.
             Schema;
-        [v1, v2] when ClusterSchema =/= undefined ->
+        _Conflicting when ClusterSchema =/= undefined ->
             %% There are existing records in both v1 and v2 schema,
             %% we have to use what the peer nodes agreed on.
             %% because it could be HTIS node which caused cnoflict.
             %%
             %% The stale records will be left-over, but harmless
             ClusterSchema;
-        [v1, v2] ->
+        _Conflicting ->
             Desc = schema_conflict_reason(records, State),
             io:format(standard_error, "Error: ~ts~n", [Desc]),
             ?SLOG(critical, #{
