@@ -324,7 +324,7 @@ query_by_clientid(Topic, ClientId, Config) ->
         {"Content-Type", "application/x-www-form-urlencoded"}
     ],
     Body = <<"sql=select * from \"", Topic/binary, "\" where clientid='", ClientId/binary, "'">>,
-    {ok, _, _Headers, RawBody0} =
+    {ok, StatusCode, _Headers, RawBody0} =
         ehttpc:request(
             EHttpcPoolName,
             post,
@@ -343,12 +343,12 @@ query_by_clientid(Topic, ClientId, Config) ->
                     }
                 }
             ]
-        } ->
+        } when StatusCode >= 200 andalso StatusCode =< 300 ->
             make_row(Schema, Rows);
         #{
             <<"code">> := Code,
             <<"error">> := Error
-        } ->
+        } when StatusCode > 300 ->
             GreptimedbName = ?config(greptimedb_name, Config),
             Type = greptimedb_type_bin(?config(greptimedb_type, Config)),
             BridgeId = emqx_bridge_resource:bridge_id(Type, GreptimedbName),
@@ -366,7 +366,9 @@ query_by_clientid(Topic, ClientId, Config) ->
                 _ ->
                     %% Table not found
                     #{}
-            end
+            end;
+        Error ->
+            {error, Error}
     end.
 
 make_row(null, _Rows) ->
