@@ -686,9 +686,11 @@ deinit_schema() ->
 discover_cluster_schema_vsn() ->
     discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]).
 
+-spec discover_cluster_schema_vsn([node()]) ->
+    {schemavsn() | undefined, _State :: [{node(), schemavsn() | undefined, _Details}]}.
 discover_cluster_schema_vsn([]) ->
     %% single node
-    undefined;
+    {undefined, []};
 discover_cluster_schema_vsn(Nodes) ->
     Responses = lists:zipwith(
         fun
