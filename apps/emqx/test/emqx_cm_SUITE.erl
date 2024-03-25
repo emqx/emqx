@@ -60,6 +60,13 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 %%--------------------------------------------------------------------
+%% Helper fns
+%%--------------------------------------------------------------------
+
+open_session(CleanStart, ClientInfo, ConnInfo) ->
+    emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, _WillMsg = undefined).
+
+%%--------------------------------------------------------------------
 %% TODO: Add more test cases
 %%--------------------------------------------------------------------
 
@@ -129,10 +136,10 @@ t_open_session(_) ->
         receive_maximum => 100
     },
     {ok, #{session := Session1, present := false}} =
-        emqx_cm:open_session(true, ClientInfo, ConnInfo),
+        open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
     {ok, #{session := Session2, present := false}} =
-        emqx_cm:open_session(true, ClientInfo, ConnInfo),
+        open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session2)),
 
     emqx_cm:unregister_channel(<<"clientid">>),
@@ -163,7 +170,7 @@ t_open_session_race_condition(_) ->
     Parent = self(),
     OpenASession = fun() ->
         timer:sleep(rand:uniform(100)),
-        OpenR = (emqx_cm:open_session(true, ClientInfo, ConnInfo)),
+        OpenR = open_session(true, ClientInfo, ConnInfo),
         Parent ! OpenR,
         case OpenR of
             {ok, _} ->

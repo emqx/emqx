@@ -21,6 +21,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -76,6 +77,7 @@ init_per_group(persistence_enabled, Config) ->
             "  enable = true\n"
             "  last_alive_update_interval = 100ms\n"
             "  renew_streams_interval = 100ms\n"
+            "  session_gc_interval = 2s\n"
             "}"},
         {persistence, ds}
         | Config
@@ -1239,6 +1241,98 @@ t_multiple_subscription_matches(Config) ->
     ?assertEqual({ok, 2}, maps:find(qos, Msg1)),
     ?assertEqual({ok, 2}, maps:find(qos, Msg2)),
     ok = emqtt:disconnect(Client2).
+
+%% Check that we don't get a will message when the client disconnects with success reason
+%% code, with `Will-Delay-Interval' = 0, `Session-Expiry-Interval' > 0, QoS = 1.
+t_no_will_message(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    WillTopic = ?config(topic, Config),
+    WillPayload = <<"will message">>,
+    ClientId = ?config(client_id, Config),
+
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            ok = emqx:subscribe(WillTopic, #{qos => 2}),
+            {ok, Client} = emqtt:start_link([
+                {clientid, ClientId},
+                {proto_ver, v5},
+                {properties, #{'Session-Expiry-Interval' => 1}},
+                {will_topic, WillTopic},
+                {will_payload, WillPayload},
+                {will_qos, 1},
+                {will_props, #{'Will-Delay-Interval' => 0}}
+                | Config
+            ]),
+            {ok, _} = emqtt:ConnFun(Client),
+            ok = emqtt:disconnect(Client, ?RC_SUCCESS),
+
+            %% No will message
+            ?assertNotReceive({deliver, WillTopic, _}, 5_000),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Check that we get a single will message when the client disconnects with a non
+%% successfull reason code, with `Will-Delay-Interval' = `Session-Expiry-Interval' > 0,
+%% QoS = 1.
+t_will_message1(Config) ->
+    do_t_will_message(Config, #{will_delay => 1, session_expiry => 1}),
+    ok.
+
+%% Check that we get a single will message when the client disconnects with a non
+%% successfull reason code, with `Will-Delay-Interval' = 0, `Session-Expiry-Interval' > 0,
+%% QoS = 1.
+t_will_message2(Config) ->
+    do_t_will_message(Config, #{will_delay => 0, session_expiry => 1}),
+    ok.
+
+%% Check that we get a single will message when the client disconnects with a non
+%% successfull reason code, with `Will-Delay-Interval' >> `Session-Expiry-Interval' > 0,
+%% QoS = 1.
+t_will_message3(Config) ->
+    do_t_will_message(Config, #{will_delay => 300, session_expiry => 1}),
+    ok.
+
+do_t_will_message(Config, Opts) ->
+    #{
+        session_expiry := SessionExpiry,
+        will_delay := WillDelay
+    } = Opts,
+    ConnFun = ?config(conn_fun, Config),
+    WillTopic = ?config(topic, Config),
+    WillPayload = <<"will message">>,
+    ClientId = ?config(client_id, Config),
+
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            ok = emqx:subscribe(WillTopic, #{qos => 2}),
+            {ok, Client} = emqtt:start_link([
+                {clientid, ClientId},
+                {proto_ver, v5},
+                {properties, #{'Session-Expiry-Interval' => SessionExpiry}},
+                {will_topic, WillTopic},
+                {will_payload, WillPayload},
+                {will_qos, 1},
+                {will_props, #{'Will-Delay-Interval' => WillDelay}}
+                | Config
+            ]),
+            {ok, _} = emqtt:ConnFun(Client),
+            ok = emqtt:disconnect(Client, ?RC_UNSPECIFIED_ERROR),
+
+            ?assertReceive({deliver, WillTopic, #message{payload = WillPayload}}, 10_000),
+            %% No duplicates
+            ?assertNotReceive({deliver, WillTopic, _}, 100),
+
+            ok
+        end,
+        []
+    ),
+    ok.
 
 get_topicwise_order(Msgs) ->
     maps:groups_from_list(fun get_msgpub_topic/1, fun get_msgpub_payload/1, Msgs).

@@ -34,8 +34,8 @@
 
 %% Session API
 -export([
-    create/3,
-    open/3,
+    create/4,
+    open/4,
     destroy/1
 ]).
 
@@ -66,6 +66,12 @@
     terminate/2
 ]).
 
+%% Will message handling
+-export([
+    clear_will_message/1,
+    publish_will_message_now/2
+]).
+
 %% Managment APIs:
 -export([
     list_client_subscriptions/1
@@ -88,7 +94,7 @@
 
 -ifdef(TEST).
 -export([
-    session_open/2,
+    session_open/4,
     list_all_sessions/0
 ]).
 -endif.
@@ -155,6 +161,7 @@
 
 -type stream_state() :: #srs{}.
 
+-type message() :: emqx_types:message().
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
 -type millisecond() :: non_neg_integer().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -181,22 +188,22 @@
 
 %%
 
--spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     session().
-create(#{clientid := ClientID}, ConnInfo, Conf) ->
-    ensure_timers(session_ensure_new(ClientID, ConnInfo, Conf)).
+create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+    ensure_timers(session_ensure_new(ClientID, ClientInfo, ConnInfo, MaybeWillMsg, Conf)).
 
--spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
+-spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
-open(#{clientid := ClientID} = _ClientInfo, ConnInfo, Conf) ->
+open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     %% NOTE
     %% The fact that we need to concern about discarding all live channels here
     %% is essentially a consequence of the in-memory session design, where we
     %% have disconnected channels holding onto session state. Ideally, we should
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
-    ok = emqx_cm:discard_session(ClientID),
-    case session_open(ClientID, ConnInfo) of
+    ok = emqx_cm:takeover_kick(ClientID),
+    case session_open(ClientID, ClientInfo, ConnInfo, MaybeWillMsg) of
         Session0 = #{} ->
             Session = Session0#{props => Conf},
             {true, ensure_timers(Session), []};
@@ -607,7 +614,8 @@ disconnect(Session = #{s := S0}, ConnInfo) ->
     {shutdown, Session#{s => S}}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
-terminate(_Reason, _Session = #{id := Id, s := S}) ->
+terminate(_Reason, Session = #{id := Id, s := S}) ->
+    maybe_set_will_message_timer(Session),
     _ = emqx_persistent_session_ds_state:commit(S),
     ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
@@ -679,9 +687,9 @@ sync(ClientId) ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(id(), emqx_types:conninfo()) ->
+-spec session_open(id(), emqx_types:clientinfo(), emqx_types:conninfo(), emqx_maybe:t(message())) ->
     session() | false.
-session_open(SessionId, NewConnInfo) ->
+session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
     NowMS = now_ms(),
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
@@ -699,7 +707,9 @@ session_open(SessionId, NewConnInfo) ->
                     S3 = emqx_persistent_session_ds_state:set_peername(
                         maps:get(peername, NewConnInfo), S2
                     ),
-                    S = emqx_persistent_session_ds_state:commit(S3),
+                    S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
+                    S5 = emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S4),
+                    S = emqx_persistent_session_ds_state:commit(S5),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
@@ -714,9 +724,15 @@ session_open(SessionId, NewConnInfo) ->
             false
     end.
 
--spec session_ensure_new(id(), emqx_types:conninfo(), emqx_session:conf()) ->
+-spec session_ensure_new(
+    id(),
+    emqx_types:clientinfo(),
+    emqx_types:conninfo(),
+    emqx_maybe:t(message()),
+    emqx_session:conf()
+) ->
     session().
-session_ensure_new(Id, ConnInfo, Conf) ->
+session_ensure_new(Id, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     ?tp(debug, persistent_session_ds_ensure_new, #{id => Id}),
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
@@ -738,7 +754,9 @@ session_ensure_new(Id, ConnInfo, Conf) ->
             ?committed(?QOS_2)
         ]
     ),
-    S = emqx_persistent_session_ds_state:commit(S4),
+    S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
+    S6 = emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S5),
+    S = emqx_persistent_session_ds_state:commit(S6),
     #{
         id => Id,
         props => Conf,
@@ -1190,6 +1208,34 @@ seqno_diff(?QOS_1, A, B) ->
     A - B - (EpochA - EpochB);
 seqno_diff(?QOS_2, A, B) ->
     A - B.
+
+%%--------------------------------------------------------------------
+%% Will message handling
+%%--------------------------------------------------------------------
+
+-spec clear_will_message(session()) -> session().
+clear_will_message(#{s := S0} = Session) ->
+    S = emqx_persistent_session_ds_state:clear_will_message(S0),
+    Session#{s := S}.
+
+-spec publish_will_message_now(session(), message()) -> session().
+publish_will_message_now(#{} = Session, WillMsg = #message{}) ->
+    _ = emqx_broker:publish(WillMsg),
+    clear_will_message(Session).
+
+maybe_set_will_message_timer(#{id := SessionId, s := S}) ->
+    case emqx_persistent_session_ds_state:get_will_message(S) of
+        #message{} = WillMsg ->
+            WillDelayInterval = emqx_channel:will_delay_interval(WillMsg),
+            WillDelayInterval > 0 andalso
+                emqx_persistent_session_ds_gc_worker:check_session_after(
+                    SessionId,
+                    timer:seconds(WillDelayInterval)
+                ),
+            ok;
+        _ ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Tests

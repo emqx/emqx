@@ -143,6 +143,7 @@ wait_gen_rpc_down(_NodeSpec = #{apps := Apps}) ->
 
 start_client(Opts0 = #{}) ->
     Defaults = #{
+        port => 1883,
         proto_ver => v5,
         properties => #{'Session-Expiry-Interval' => 300}
     },
@@ -188,6 +189,23 @@ list_all_subscriptions(Node) ->
 
 list_all_pubranges(Node) ->
     erpc:call(Node, emqx_persistent_session_ds, list_all_pubranges, []).
+
+session_open(Node, ClientId) ->
+    ClientInfo = #{},
+    ConnInfo = #{peername => {undefined, undefined}},
+    WillMsg = undefined,
+    erpc:call(
+        Node,
+        emqx_persistent_session_ds,
+        session_open,
+        [ClientId, ClientInfo, ConnInfo, WillMsg]
+    ).
+
+force_last_alive_at(ClientId, Time) ->
+    {ok, S0} = emqx_persistent_session_ds_state:open(ClientId),
+    S = emqx_persistent_session_ds_state:set_last_alive_at(Time, S0),
+    _ = emqx_persistent_session_ds_state:commit(S),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -243,10 +261,7 @@ t_session_subscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            ConnInfo = #{peername => {undefined, undefined}},
-            Session = erpc:call(
-                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo]
-            ),
+            Session = session_open(Node1, ClientId),
             ?assertMatch(
                 #{SubTopicFilter := #{}},
                 emqx_session:info(subscriptions, Session)
@@ -320,10 +335,7 @@ t_session_unsubscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            ConnInfo = #{peername => {undefined, undefined}},
-            Session = erpc:call(
-                Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo]
-            ),
+            Session = session_open(Node1, ClientId),
             ?assertEqual(
                 #{},
                 emqx_session:info(subscriptions, Session)
@@ -552,6 +564,7 @@ t_session_gc(Config) ->
             ),
 
             %% Clients are still alive; no session is garbage collected.
+            ?tp(notice, "waiting for gc", #{}),
             ?assertMatch(
                 {ok, _},
                 ?block_until(
@@ -564,9 +577,11 @@ t_session_gc(Config) ->
             ),
             ?assertMatch([_, _, _], list_all_sessions(Node1), sessions),
             ?assertMatch([_, _, _], list_all_subscriptions(Node1), subscriptions),
+            ?tp(notice, "gc ran", #{}),
 
             %% Now we disconnect 2 of them; only those should be GC'ed.
 
+            ?tp(notice, "disconnecting client1", #{}),
             ?assertMatch(
                 {ok, {ok, _}},
                 ?wait_async_action(
@@ -671,3 +686,42 @@ t_session_replay_retry(_Config) ->
         [maps:with([topic, payload, qos], P) || P <- Pubs0],
         [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2]
     ).
+
+%% Check that we send will messages when performing GC without relying on timers set by
+%% the channel process.
+t_session_gc_will_message(_Config) ->
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            WillTopic = <<"will/t">>,
+            ok = emqx:subscribe(WillTopic, #{qos => 2}),
+            ClientId = <<"will_msg_client">>,
+            Client = start_client(#{
+                clientid => ClientId,
+                will_topic => WillTopic,
+                will_payload => <<"will payload">>,
+                will_qos => 0,
+                will_props => #{'Will-Delay-Interval' => 300}
+            }),
+            {ok, _} = emqtt:connect(Client),
+            %% Use reason code =/= `?RC_SUCCESS' to allow will message
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:disconnect(Client, ?RC_UNSPECIFIED_ERROR),
+                    #{?snk_kind := emqx_cm_clean_down}
+                ),
+            ?assertNotReceive({deliver, WillTopic, _}),
+            %% Set fake `last_alive_at' to trigger immediate will message.
+            force_last_alive_at(ClientId, _Time = 0),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_persistent_session_ds_gc_worker:check_session(ClientId),
+                    #{?snk_kind := session_gc_published_will_msg}
+                ),
+            ?assertReceive({deliver, WillTopic, _}),
+
+            ok
+        end,
+        []
+    ),
+    ok.

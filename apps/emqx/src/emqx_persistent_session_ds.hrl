@@ -75,5 +75,7 @@
 %% Unique integer used to create unique identities
 -define(last_id, last_id).
 -define(peername, peername).
+-define(will_message, will_message).
+-define(clientinfo, clientinfo).
 
 -endif.

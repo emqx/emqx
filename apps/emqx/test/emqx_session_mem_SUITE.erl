@@ -67,6 +67,7 @@ t_session_init(_) ->
     Session = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
+        _WillMsg = undefined,
         emqx_session:get_session_conf(ClientInfo)
     ),
     ?assertEqual(#{}, emqx_session_mem:info(subscriptions, Session)),
@@ -531,6 +532,7 @@ session(InitFields) when is_map(InitFields) ->
     Session = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
+        _WillMsg = undefined,
         emqx_session:get_session_conf(ClientInfo)
     ),
     maps:fold(

@@ -19,7 +19,7 @@
 -export([registry/1, set_registry/2]).
 
 -export([
-    init/1,
+    init/2,
     info/1,
     info/2,
     stats/1
@@ -52,12 +52,12 @@
 
 -export_type([session/0]).
 
-init(ClientInfo) ->
+init(ClientInfo, MaybeWillMsg) ->
     ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
     SessionConf = emqx_session:get_session_conf(ClientInfo),
     #{
         registry => emqx_mqttsn_registry:init(),
-        session => emqx_session_mem:create(ClientInfo, ConnInfo, SessionConf)
+        session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf)
     }.
 
 registry(#{registry := Registry}) ->

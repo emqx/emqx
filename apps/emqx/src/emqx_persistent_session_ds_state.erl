@@ -30,6 +30,8 @@
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
+-export([get_clientinfo/1, set_clientinfo/2]).
+-export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
 -export([get_peername/1, set_peername/2]).
 -export([new_id/1]).
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3]).
@@ -57,6 +59,8 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type message() :: emqx_types:message().
 
 -type subscriptions() :: emqx_topic_gbt:t(_SubId, emqx_persistent_session_ds:subscription()).
 
@@ -287,6 +291,39 @@ get_peername(Rec) ->
 -spec set_peername(emqx_types:peername(), t()) -> t().
 set_peername(Val, Rec) ->
     set_meta(?peername, Val, Rec).
+
+-spec get_clientinfo(t()) -> emqx_maybe:t(emqx_types:clientinfo()).
+get_clientinfo(Rec) ->
+    get_meta(?clientinfo, Rec).
+
+-spec set_clientinfo(emqx_types:clientinfo(), t()) -> t().
+set_clientinfo(Val, Rec) ->
+    set_meta(?clientinfo, Val, Rec).
+
+-spec get_will_message(t()) -> emqx_maybe:t(message()).
+get_will_message(Rec) ->
+    get_meta(?will_message, Rec).
+
+-spec set_will_message(emqx_maybe:t(message()), t()) -> t().
+set_will_message(Val, Rec) ->
+    set_meta(?will_message, Val, Rec).
+
+-spec clear_will_message_now(emqx_persistent_session_ds:id()) -> ok.
+clear_will_message_now(SessionId) when is_binary(SessionId) ->
+    transaction(fun() ->
+        case kv_restore(?session_tab, SessionId) of
+            [Metadata0] ->
+                Metadata = Metadata0#{?will_message => undefined},
+                kv_persist(?session_tab, SessionId, Metadata),
+                ok;
+            [] ->
+                ok
+        end
+    end).
+
+-spec clear_will_message(t()) -> t().
+clear_will_message(Rec) ->
+    set_will_message(undefined, Rec).
 
 -spec new_id(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
 new_id(Rec) ->

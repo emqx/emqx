@@ -27,12 +27,15 @@
     evict_connections/1,
     evict_sessions/2,
     evict_sessions/3,
-    purge_sessions/1,
-    evict_session_channel/3
+    purge_sessions/1
 ]).
 
 %% RPC targets
--export([all_local_channels_count/0]).
+-export([
+    all_local_channels_count/0,
+    evict_session_channel/3,
+    do_evict_session_channel_v3/4
+]).
 
 -behaviour(gen_server).
 
@@ -397,12 +400,23 @@ evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
             Res
     end.
 
+%% RPC target for `emqx_eviction_agent_proto_v2'
 -spec evict_session_channel(
     emqx_types:clientid(),
     emqx_types:conninfo(),
     emqx_types:clientinfo()
 ) -> supervisor:startchild_ret().
 evict_session_channel(ClientId, ConnInfo, ClientInfo) ->
+    do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, _WillMsg = undefined).
+
+%% RPC target for `emqx_eviction_agent_proto_v3'
+-spec do_evict_session_channel_v3(
+    emqx_types:clientid(),
+    emqx_types:conninfo(),
+    emqx_types:clientinfo(),
+    emqx_maybe:t(emqx_types:message())
+) -> supervisor:startchild_ret().
+do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
     ?SLOG(info, #{
         msg => "evict_session_channel",
         client_id => ClientId,
@@ -412,7 +426,8 @@ evict_session_channel(ClientId, ConnInfo, ClientInfo) ->
     Result = emqx_eviction_agent_channel:start_supervised(
         #{
             conninfo => ConnInfo,
-            clientinfo => ClientInfo
+            clientinfo => ClientInfo,
+            will_message => MaybeWillMsg
         }
     ),
     ?SLOG(

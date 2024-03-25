@@ -58,8 +58,8 @@
 -endif.
 
 -export([
-    create/3,
-    open/3,
+    create/4,
+    open/4,
     destroy/1
 ]).
 
@@ -106,6 +106,12 @@
     dedup/4
 ]).
 
+%% Will message handling
+-export([
+    clear_will_message/1,
+    publish_will_message_now/2
+]).
+
 %% Export for CT
 -export([set_field/3]).
 
@@ -127,6 +133,7 @@
 -type session() :: #session{}.
 -type replayctx() :: [emqx_types:message()].
 
+-type message() :: emqx_types:message().
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
@@ -151,11 +158,12 @@
 %% Init a Session
 %%--------------------------------------------------------------------
 
--spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     session().
 create(
     #{zone := Zone, clientid := ClientId},
     #{expiry_interval := EI, receive_maximum := ReceiveMax},
+    _MaybeWillMsg,
     Conf
 ) ->
     QueueOpts = get_mqueue_conf(Zone),
@@ -200,9 +208,9 @@ destroy(_Session) ->
 %% Open a (possibly existing) Session
 %%--------------------------------------------------------------------
 
--spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
+-spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
-open(ClientInfo = #{clientid := ClientId}, ConnInfo, Conf) ->
+open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, SessionRemote, TakeoverState} ->
             Session0 = resume(ClientInfo, SessionRemote),
@@ -796,6 +804,19 @@ next_pkt_id(Session = #session{next_pkt_id = ?MAX_PACKET_ID}) ->
     Session#session{next_pkt_id = 1};
 next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
+
+%%--------------------------------------------------------------------
+%% Will message handling
+%%--------------------------------------------------------------------
+
+-spec clear_will_message(session()) -> session().
+clear_will_message(#session{} = Session) ->
+    Session.
+
+-spec publish_will_message_now(session(), message()) -> session().
+publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
+    _ = emqx_broker:publish(WillMsg),
+    Session.
 
 %%--------------------------------------------------------------------
 %% Helper functions

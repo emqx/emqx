@@ -55,8 +55,8 @@
 -endif.
 
 -export([
-    create/2,
-    open/2,
+    create/3,
+    open/3,
     destroy/1,
     destroy/2
 ]).
@@ -86,6 +86,12 @@
     handle_timeout/3,
     disconnect/3,
     terminate/3
+]).
+
+%% Will message handling
+-export([
+    clear_will_message/1,
+    publish_will_message_now/2
 ]).
 
 % Timers
@@ -175,57 +181,58 @@
 %% Behaviour
 %% -------------------------------------------------------------------
 
--callback create(clientinfo(), conninfo(), conf()) ->
+-callback create(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
     t().
--callback open(clientinfo(), conninfo(), conf()) ->
+-callback open(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
 -callback destroy(t() | clientinfo()) -> ok.
+-callback clear_will_message(t()) -> t().
+-callback publish_will_message_now(t(), message()) -> t().
 
 %%--------------------------------------------------------------------
 %% Create a Session
 %%--------------------------------------------------------------------
 
--spec create(clientinfo(), conninfo()) -> t().
-create(ClientInfo, ConnInfo) ->
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) -> t().
+create(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
-    create(ClientInfo, ConnInfo, Conf).
-
-create(ClientInfo, ConnInfo, Conf) ->
     % FIXME error conditions
-    create(hd(choose_impl_candidates(ClientInfo, ConnInfo)), ClientInfo, ConnInfo, Conf).
+    create(
+        hd(choose_impl_candidates(ClientInfo, ConnInfo)), ClientInfo, ConnInfo, MaybeWillMsg, Conf
+    ).
 
-create(Mod, ClientInfo, ConnInfo, Conf) ->
+create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     % FIXME error conditions
-    Session = Mod:create(ClientInfo, ConnInfo, Conf),
+    Session = Mod:create(ClientInfo, ConnInfo, MaybeWillMsg, Conf),
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
     Session.
 
--spec open(clientinfo(), conninfo()) ->
+-spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
-open(ClientInfo, ConnInfo) ->
+open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
     Mods = [Default | _] = choose_impl_candidates(ClientInfo, ConnInfo),
     %% NOTE
     %% Try to look the existing session up in session stores corresponding to the given
     %% `Mods` in order, starting from the last one.
-    case try_open(Mods, ClientInfo, ConnInfo, Conf) of
+    case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
         {_IsPresent = true, _, _} = Present ->
             Present;
         false ->
             %% NOTE
             %% Nothing was found, create a new session with the `Default` implementation.
-            {false, create(Default, ClientInfo, ConnInfo, Conf)}
+            {false, create(Default, ClientInfo, ConnInfo, MaybeWillMsg, Conf)}
     end.
 
-try_open([Mod | Rest], ClientInfo, ConnInfo, Conf) ->
-    case try_open(Rest, ClientInfo, ConnInfo, Conf) of
+try_open([Mod | Rest], ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+    case try_open(Rest, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
         {_IsPresent = true, _, _} = Present ->
             Present;
         false ->
-            Mod:open(ClientInfo, ConnInfo, Conf)
+            Mod:open(ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     end;
-try_open([], _ClientInfo, _ConnInfo, _Conf) ->
+try_open([], _ClientInfo, _ConnInfo, _MaybeWillMsg, _Conf) ->
     false.
 
 -spec get_session_conf(clientinfo()) -> conf().
@@ -635,3 +642,15 @@ choose_impl_candidates(#{zone := Zone}, #{expiry_interval := EI}) ->
 run_hook(Name, Args) ->
     ok = emqx_metrics:inc(Name),
     emqx_hooks:run(Name, Args).
+
+%%--------------------------------------------------------------------
+%% Will message handling
+%%--------------------------------------------------------------------
+
+-spec clear_will_message(t()) -> t().
+clear_will_message(Session) ->
+    ?IMPL(Session):clear_will_message(Session).
+
+-spec publish_will_message_now(t(), message()) -> t().
+publish_will_message_now(Session, WillMsg) ->
+    ?IMPL(Session):publish_will_message_now(Session, WillMsg).
