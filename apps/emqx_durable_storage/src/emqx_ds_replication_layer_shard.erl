@@ -82,7 +82,7 @@ get_servers_leader_preferred(DB, Shard) ->
             [Leader | lists:delete(Leader, Servers)];
         undefined ->
             %% TODO: Dynamic membership.
-            get_shard_servers(DB, Shard)
+            get_online_servers(DB, Shard)
     end.
 
 get_server_local_preferred(DB, Shard) ->
@@ -97,8 +97,26 @@ get_server_local_preferred(DB, Shard) ->
             %% Leader is unkonwn if there are no servers of this group on the
             %% local node. We want to pick a replica in that case as well.
             %% TODO: Dynamic membership.
-            pick_random(get_shard_servers(DB, Shard))
+            pick_random(get_online_servers(DB, Shard))
     end.
+
+get_online_servers(DB, Shard) ->
+    filter_online(get_shard_servers(DB, Shard)).
+
+filter_online(Servers) ->
+    case lists:filter(fun is_server_online/1, Servers) of
+        [] ->
+            %% FIXME
+            Servers;
+        Online ->
+            Online
+    end.
+
+is_server_online({_Name, Node}) ->
+    is_node_online(Node).
+
+is_node_online(Node) ->
+    Node == node() orelse lists:member(Node, nodes()).
 
 pick_local(Servers) ->
     case lists:dropwhile(fun({_Name, Node}) -> Node =/= node() end, Servers) of
