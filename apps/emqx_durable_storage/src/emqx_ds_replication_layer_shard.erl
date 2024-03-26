@@ -21,7 +21,9 @@
 %% Static server configuration
 -export([
     shard_servers/2,
-    local_server/2
+    local_server/2,
+    cluster_name/2,
+    server_name/3
 ]).
 
 %% Dynamic server location API

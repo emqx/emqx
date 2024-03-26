@@ -130,16 +130,39 @@ print_status() ->
         eval_qlc(mnesia:table(?NODE_TAB))
     ),
     io:format(
-        "~nSHARDS:~nId                             Replicas~n", []
+        "~nSHARDS:~n~s~s~s~n", [
+            string:pad("Id", 30),
+            string:pad("Leader", 24),
+            string:pad("Replicas", 60)
+        ]
     ),
+    Leaderboard = ra_leaderboard:overview(),
     lists:foreach(
         fun(#?SHARD_TAB{shard = {DB, Shard}, replica_set = RS}) ->
             ShardStr = string:pad(io_lib:format("~p/~s", [DB, Shard]), 30),
-            ReplicasStr = string:pad(io_lib:format("~p", [RS]), 40),
-            io:format("~s ~s~n", [ShardStr, ReplicasStr])
+            LeaderStr = string:pad(print_leader({DB, Shard}, RS, Leaderboard), 24),
+            ReplicasStr = string:pad([[R, " "] || R <- RS], 60),
+            io:format("~s~s~s~n", [ShardStr, LeaderStr, ReplicasStr])
         end,
         eval_qlc(mnesia:table(?SHARD_TAB))
     ).
+
+print_leader({DB, Shard}, Sites, Leaderboard) ->
+    ClusterName = emqx_ds_replication_layer_shard:cluster_name(DB, Shard),
+    Servers = [
+        {{emqx_ds_replication_layer_shard:server_name(DB, Shard, S), ?MODULE:node(S)}, S}
+     || S <- Sites
+    ],
+    case lists:keyfind(ClusterName, 1, Leaderboard) of
+        {ClusterName, Leader, _Members} ->
+            case lists:keyfind(Leader, 1, Servers) of
+                {{_Name, Node}, Site} when Node == node() -> [Site, " *"];
+                {{_Name, _}, Site} -> Site;
+                false -> "X"
+            end;
+        false ->
+            "?"
+    end.
 
 -spec this_site() -> site().
 this_site() ->
