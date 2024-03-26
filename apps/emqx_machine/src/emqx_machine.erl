@@ -27,6 +27,7 @@
 ]).
 
 -export([open_ports_check/0]).
+-export([mria_lb_custom_info/0, mria_lb_custom_info_check/1]).
 
 -ifdef(TEST).
 -export([create_plan/0]).
@@ -51,6 +52,13 @@ start() ->
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
     emqx_otel_app:configure_otel_deps(),
+    %% Register mria callbacks that help to check compatibility of the
+    %% replicant with the core node. Currently they rely on the exact
+    %% match of the version of EMQX OTP application:
+    _ = application:load(mria),
+    _ = application:load(emqx),
+    mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
+    mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
     ekka:start(),
     ok.
 
@@ -226,4 +234,22 @@ resolve_dist_address_type() ->
             inet6;
         _ ->
             inet
+    end.
+
+%% Note: this function is stored in the Mria's application environment
+mria_lb_custom_info() ->
+    get_emqx_vsn().
+
+%% Note: this function is stored in the Mria's application environment
+mria_lb_custom_info_check(undefined) ->
+    false;
+mria_lb_custom_info_check(OtherVsn) ->
+    get_emqx_vsn() =:= OtherVsn.
+
+get_emqx_vsn() ->
+    case application:get_key(emqx, vsn) of
+        {ok, Vsn} ->
+            Vsn;
+        undefined ->
+            undefined
     end.
