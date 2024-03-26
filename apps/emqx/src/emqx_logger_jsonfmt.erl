@@ -285,8 +285,20 @@ json_obj_root(Data0, Config) ->
         ),
     lists:filter(
         fun({_, V}) -> V =/= undefined end,
-        [{time, Time}, {level, Level}, {msg, Msg}]
+        [{time, format_ts(Time, Config)}, {level, Level}, {msg, Msg}]
     ) ++ Data.
+
+format_ts(Ts, #{timestamp_format := rfc3339, time_offset := Offset}) when is_integer(Ts) ->
+    iolist_to_binary(
+        calendar:system_time_to_rfc3339(Ts, [
+            {unit, microsecond},
+            {offset, Offset},
+            {time_designator, $T}
+        ])
+    );
+format_ts(Ts, _Config) ->
+    % auto | epoch
+    Ts.
 
 json_obj(Data, Config) ->
     maps:fold(
