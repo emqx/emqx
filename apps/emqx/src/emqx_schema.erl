@@ -1748,8 +1748,6 @@ fields("client_attrs_init") ->
             })}
     ].
 
-restricted_string(undefined) ->
-    undefined;
 restricted_string(Str) ->
     case emqx_utils:is_restricted_str(Str) of
         true -> ok;
