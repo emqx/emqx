@@ -77,7 +77,8 @@ t_log_conf(_Conf) ->
         <<"rotation_count">> => 10,
         <<"rotation_size">> => <<"50MB">>,
         <<"time_offset">> => <<"system">>,
-        <<"path">> => <<"log/emqx.log">>
+        <<"path">> => <<"log/emqx.log">>,
+        <<"timestamp_format">> => <<"auto">>
     },
     ExpectLog1 = #{
         <<"console">> =>
@@ -85,7 +86,8 @@ t_log_conf(_Conf) ->
                 <<"enable">> => true,
                 <<"formatter">> => <<"text">>,
                 <<"level">> => <<"debug">>,
-                <<"time_offset">> => <<"system">>
+                <<"time_offset">> => <<"system">>,
+                <<"timestamp_format">> => <<"auto">>
             },
         <<"file">> =>
             #{<<"default">> => FileExpect},

@@ -78,7 +78,8 @@ t_audit_log_conf(_Config) ->
         <<"rotation_count">> => 10,
         <<"rotation_size">> => <<"50MB">>,
         <<"time_offset">> => <<"system">>,
-        <<"path">> => <<"log/emqx.log">>
+        <<"path">> => <<"log/emqx.log">>,
+        <<"timestamp_format">> => <<"auto">>
     },
     ExpectLog1 = #{
         <<"console">> =>
@@ -86,7 +87,8 @@ t_audit_log_conf(_Config) ->
                 <<"enable">> => false,
                 <<"formatter">> => <<"text">>,
                 <<"level">> => <<"warning">>,
-                <<"time_offset">> => <<"system">>
+                <<"time_offset">> => <<"system">>,
+                <<"timestamp_format">> => <<"auto">>
             },
         <<"file">> =>
             #{<<"default">> => FileExpect},
@@ -99,7 +101,8 @@ t_audit_log_conf(_Config) ->
                 <<"max_filter_size">> => 5000,
                 <<"rotation_count">> => 10,
                 <<"rotation_size">> => <<"50MB">>,
-                <<"time_offset">> => <<"system">>
+                <<"time_offset">> => <<"system">>,
+                <<"timestamp_format">> => <<"auto">>
             }
     },
     %% The default value of throttling.msgs can be frequently updated,

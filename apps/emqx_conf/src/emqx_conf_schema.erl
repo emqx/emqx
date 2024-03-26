@@ -1277,6 +1277,15 @@ log_handler_common_confs(Handler, Default) ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
+        {"timestamp_format",
+            sc(
+                hoconsc:enum([auto, epoch, rfc3339]),
+                #{
+                    default => auto,
+                    desc => ?DESC("common_handler_timestamp_format"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
         {"time_offset",
             sc(
                 string(),
