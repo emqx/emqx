@@ -569,7 +569,7 @@ replay_streams(Session0 = #{replay := [{_StreamKey, Srs0} | Rest]}, ClientInfo) 
             RetryTimeout = ?TIMEOUT_RETRY_REPLAY,
             ?SLOG(warning, #{
                 msg => "failed_to_fetch_replay_batch",
-                stream => Srs0,
+                iterator => Srs0#srs.it_end,
                 reason => Reason,
                 class => recoverable,
                 retry_in_ms => RetryTimeout
