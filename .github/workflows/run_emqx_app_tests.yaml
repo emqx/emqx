@@ -27,19 +27,20 @@ permissions:
   contents: read
 
 jobs:
-  run_emqx_app_tests:
+  prepare_matrix:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
-
     defaults:
       run:
         shell: bash
-
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
     - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
       with:
         fetch-depth: 0
-    - name: run
+    - name: prepare test matrix
+      id: matrix
       env:
         BEFORE_REF: ${{ inputs.before_ref }}
         AFTER_REF: ${{ inputs.after_ref }}
@@ -48,19 +49,50 @@ jobs:
         changed_files="$(git diff --name-only ${BEFORE_REF} ${AFTER_REF} apps/emqx)"
         if [ "$changed_files" = '' ]; then
           echo "nothing changed in apps/emqx, ignored."
+          echo "matrix=[]" | tee -a $GITHUB_OUTPUT
           exit 0
         fi
+        echo 'matrix=[{"type": "eunit_proper_and_static"},{"type": "1_3"},{"type": "2_3"},{"type": "3_3"}]' | tee -a $GITHUB_OUTPUT
+
+  run_emqx_app_tests:
+    needs:
+      - prepare_matrix
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    container: ${{ inputs.builder }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      with:
+        fetch-depth: 0
+    - name: run
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         make ensure-rebar3
         cp rebar3 apps/emqx/
         cd apps/emqx
-        ./rebar3 xref
-        ./rebar3 dialyzer
-        ./rebar3 eunit -v --name 'eunit@127.0.0.1'
-        ./rebar3 as standalone_test ct --name 'test@127.0.0.1' -v --readable=true
-        ./rebar3 proper -d test/props
+        if [[ ${{ matrix.type }} == "eunit_proper_and_static" ]]; then
+            ./rebar3 xref
+            ./rebar3 dialyzer
+            ./rebar3 eunit -v --name 'eunit@127.0.0.1'
+            ./rebar3 proper -d test/props
+        else
+            export SUITEGROUP=${{ matrix.type }}
+            SUITES=$(../../scripts/find-suites.sh apps/emqx | \
+                       sed -e 's|apps/emqx/test/||g' | \
+                       sed -Ee 's|,?apps/emqx/integration_test/.*||g' | \
+                       sed -e 's/\.erl//g')
+            echo "Suites: $SUITES"
+            ./rebar3 as standalone_test ct --name 'test@127.0.0.1' -v --readable=true --suite="$SUITES"
+        fi
     - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
       if: failure()
       with:
-        name: logs-emqx-app-tests
+        name: logs-emqx-app-tests-${{ matrix.type }}
         path: apps/emqx/_build/test/logs
         retention-days: 7
