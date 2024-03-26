@@ -767,7 +767,7 @@ common_handler_timestamp_format.label:
 common_handler_timestamp_format.desc: """~
     Pick a timestamp format:
     - `auto`: automatically choose the best format based on log formatter. `epoch` for JSON and `rfc3339` for text.
-    - `epoch`: Unix epoch time in milliseconds.
+    - `epoch`: Unix epoch time in microseconds.
     - `rfc3339`: RFC3339 format."""
 
 rpc_async_batch_size.desc:
