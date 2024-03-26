@@ -22,6 +22,7 @@
     %% Lifecycle
     start_link/2,
     drop_shard/1,
+    shard_info/2,
 
     %% Data
     store_batch/3,
@@ -457,6 +458,14 @@ take_snapshot(ShardId) ->
 accept_snapshot(ShardId) ->
     ok = drop_shard(ShardId),
     handle_accept_snapshot(ShardId).
+
+-spec shard_info(shard_id(), status) -> running | down.
+shard_info(ShardId, status) ->
+    try get_schema_runtime(ShardId) of
+        #{} -> running
+    catch
+        error:badarg -> down
+    end.
 
 %%================================================================================
 %% gen_server for the shard
