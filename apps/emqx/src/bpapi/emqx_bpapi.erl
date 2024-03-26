@@ -109,25 +109,20 @@ announce(Node, App) ->
                      || {API, Version} <- Data
                     ],
                     %% Update maximum supported version:
-                    _ = [
-                        begin
-                            MS = ets:fun2ms(fun(
-                                #?TAB{
-                                    key = {N, A},
-                                    version = Value
+                    lists:foreach(
+                        fun({API, _}) ->
+                            MS = [
+                                {
+                                    #?TAB{key = {'$1', '$2'}, version = '$3'},
+                                    [{'=/=', '$1', ?multicall}, {'=:=', '$2', {const, API}}],
+                                    ['$3']
                                 }
-                            ) when
-                                N =/= ?multicall,
-                                A =:= API
-                            ->
-                                Value
-                            end),
+                            ],
                             MinVersion = lists:min(mnesia:select(?TAB, MS)),
                             mnesia:write(#?TAB{key = {?multicall, API}, version = MinVersion})
-                        end
-                     || {API, _} <- Data
-                    ],
-                    ok
+                        end,
+                        Data
+                    )
                 end
             ),
             ok
