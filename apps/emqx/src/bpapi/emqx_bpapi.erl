@@ -88,11 +88,10 @@ announce(Node, App) ->
     {ok, Data} = file:consult(?MODULE:versions_file(App)),
     %% replicant(5.6.0) will call old core(<5.6.0) announce_fun/2 is undef on old core
     %% so we just use anonymous function to update.
-    try
-        {atomic, ok} = mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]),
-        ok
-    catch
-        error:undef ->
+    case mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]) of
+        {atomic, ok} ->
+            ok;
+        {aborted, {undef, [{?MODULE, announce_fun, _, _} | _]}} ->
             {atomic, ok} = mria:transaction(
                 ?COMMON_SHARD,
                 fun() ->
