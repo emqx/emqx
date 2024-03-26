@@ -188,6 +188,10 @@ swagger_desc(sent_bytes) ->
     swagger_desc_format("Sent bytes ");
 swagger_desc(dropped) ->
     swagger_desc_format("Dropped messages ");
+swagger_desc(validation_succeeded) ->
+    swagger_desc_format("Message validations succeeded ");
+swagger_desc(validation_failed) ->
+    swagger_desc_format("Message validations failed ");
 swagger_desc(subscriptions) ->
     <<"Subscriptions at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(topics) ->
@@ -210,6 +214,10 @@ swagger_desc(sent_msg_rate) ->
 %swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
 swagger_desc(dropped_msg_rate) ->
     swagger_desc_format("Dropped messages ", per);
+swagger_desc(validation_succeeded_rate) ->
+    swagger_desc_format("Message validations succeeded ", per);
+swagger_desc(validation_failed_rate) ->
+    swagger_desc_format("Message validations failed ", per);
 swagger_desc(retained_msg_count) ->
     <<"Retained messages count at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(shared_subscriptions) ->

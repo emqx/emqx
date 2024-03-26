@@ -111,6 +111,10 @@ fields(Name) ->
 translations() ->
     emqx_conf_schema:translations().
 
+translation("prometheus") ->
+    [
+        {"collectors", fun tr_prometheus_collectors/1}
+    ];
 translation(Name) ->
     emqx_conf_schema:translation(Name).
 
@@ -188,4 +192,10 @@ audit_log_conf() ->
                     default => #{<<"enable">> => false, <<"level">> => <<"info">>}
                 }
             )}
+    ].
+
+tr_prometheus_collectors(Conf) ->
+    [
+        {'/prometheus/message_validation', emqx_prometheus_message_validation}
+        | emqx_conf_schema:tr_prometheus_collectors(Conf)
     ].

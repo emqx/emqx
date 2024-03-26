@@ -540,7 +540,7 @@ printable_function_name(Mod, Func) ->
 
 get_rule_metrics(Id) ->
     Nodes = emqx:running_nodes(),
-    Results = emqx_metrics_proto_v1:get_metrics(Nodes, rule_metrics, Id, ?RPC_GET_METRICS_TIMEOUT),
+    Results = emqx_metrics_proto_v2:get_metrics(Nodes, rule_metrics, Id, ?RPC_GET_METRICS_TIMEOUT),
     NodeResults = lists:zip(Nodes, Results),
     NodeMetrics = [format_metrics(Node, Metrics) || {Node, {ok, Metrics}} <- NodeResults],
     NodeErrors = [Result || Result = {_Node, {NOk, _}} <- NodeResults, NOk =/= ok],

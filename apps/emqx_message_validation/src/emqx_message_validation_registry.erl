@@ -15,6 +15,12 @@
 
     matching_validations/1,
 
+    %% metrics
+    get_metrics/1,
+    inc_matched/1,
+    inc_succeeded/1,
+    inc_failed/1,
+
     start_link/0,
     metrics_worker_spec/0
 ]).
@@ -36,7 +42,7 @@
 -define(METRIC_NAME, message_validation).
 -define(METRICS, [
     'matched',
-    'passed',
+    'succeeded',
     'failed'
 ]).
 -define(RATE_METRICS, ['matched']).
@@ -101,6 +107,22 @@ matching_validations(Topic) ->
 -spec metrics_worker_spec() -> supervisor:child_spec().
 metrics_worker_spec() ->
     emqx_metrics_worker:child_spec(message_validation_metrics, ?METRIC_NAME).
+
+-spec get_metrics(validation_name()) -> emqx_metrics_worker:metrics().
+get_metrics(Name) ->
+    emqx_metrics_worker:get_metrics(?METRIC_NAME, Name).
+
+-spec inc_matched(validation_name()) -> ok.
+inc_matched(Name) ->
+    emqx_metrics_worker:inc(?METRIC_NAME, Name, 'matched').
+
+-spec inc_succeeded(validation_name()) -> ok.
+inc_succeeded(Name) ->
+    emqx_metrics_worker:inc(?METRIC_NAME, Name, 'succeeded').
+
+-spec inc_failed(validation_name()) -> ok.
+inc_failed(Name) ->
+    emqx_metrics_worker:inc(?METRIC_NAME, Name, 'failed').
 
 %%------------------------------------------------------------------------------
 %% `gen_server' API

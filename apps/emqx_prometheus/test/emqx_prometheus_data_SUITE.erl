@@ -78,11 +78,12 @@ rule_engine {
 ">>).
 
 all() ->
-    [
+    lists:flatten([
         {group, '/prometheus/stats'},
         {group, '/prometheus/auth'},
-        {group, '/prometheus/data_integration'}
-    ].
+        {group, '/prometheus/data_integration'},
+        [{group, '/prometheus/message_validation'} || emqx_release:edition() == ee]
+    ]).
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
@@ -99,6 +100,7 @@ groups() ->
         {'/prometheus/stats', ModeGroups},
         {'/prometheus/auth', ModeGroups},
         {'/prometheus/data_integration', ModeGroups},
+        {'/prometheus/message_validation', ModeGroups},
         {?PROM_DATA_MODE__NODE, AcceptGroups},
         {?PROM_DATA_MODE__ALL_NODES_AGGREGATED, AcceptGroups},
         {?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, AcceptGroups},
@@ -107,6 +109,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     meck:new(emqx_retainer, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_retainer, retained_count, fun() -> 0 end),
     meck:expect(
@@ -121,7 +124,7 @@ init_per_suite(Config) ->
 
     application:load(emqx_auth),
     Apps = emqx_cth_suite:start(
-        [
+        lists:flatten([
             emqx,
             {emqx_conf, ?EMQX_CONF},
             emqx_auth,
@@ -129,8 +132,12 @@ init_per_suite(Config) ->
             emqx_rule_engine,
             emqx_bridge_http,
             emqx_connector,
+            [
+                {emqx_message_validation, #{config => message_validation_config()}}
+             || emqx_release:edition() == ee
+            ],
             {emqx_prometheus, emqx_prometheus_SUITE:legacy_conf_default()}
-        ],
+        ]),
         #{
             work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
         }
@@ -159,6 +166,8 @@ init_per_group('/prometheus/auth', Config) ->
     [{module, emqx_prometheus_auth} | Config];
 init_per_group('/prometheus/data_integration', Config) ->
     [{module, emqx_prometheus_data_integration} | Config];
+init_per_group('/prometheus/message_validation', Config) ->
+    [{module, emqx_prometheus_message_validation} | Config];
 init_per_group(?PROM_DATA_MODE__NODE, Config) ->
     [{mode, ?PROM_DATA_MODE__NODE} | Config];
 init_per_group(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Config) ->
@@ -346,6 +355,8 @@ metric_meta(<<"emqx_schema_registrys_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_rule_", _Tail/binary>>) -> ?meta(1, 1, 2);
 metric_meta(<<"emqx_action_", _Tail/binary>>) -> ?meta(1, 1, 2);
 metric_meta(<<"emqx_connector_", _Tail/binary>>) -> ?meta(1, 1, 2);
+%% `/prometheus/message_validation`
+metric_meta(<<"emqx_message_validation_", _Tail/binary>>) -> ?meta(1, 1, 2);
 %% normal emqx metrics
 metric_meta(<<"emqx_", _Tail/binary>>) -> ?meta(0, 0, 1);
 metric_meta(_) -> #{}.
@@ -809,6 +820,43 @@ assert_json_data__data_integration_overview(M, _) ->
         M
     ).
 -endif.
+
+assert_json_data__message_validations(Ms, _) ->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    validation_name := _,
+                    emqx_message_validation_enable := _,
+                    emqx_message_validation_matched := _,
+                    emqx_message_validation_failed := _,
+                    emqx_message_validation_succeeded := _
+                },
+                M
+            )
+        end,
+        Ms
+    ).
+
+message_validation_config() ->
+    Validation = #{
+        <<"enable">> => true,
+        <<"name">> => <<"my_validation">>,
+        <<"topics">> => [<<"t/#">>],
+        <<"strategy">> => <<"all_pass">>,
+        <<"failure_action">> => <<"drop">>,
+        <<"checks">> => [
+            #{
+                <<"type">> => <<"sql">>,
+                <<"sql">> => <<"select * where true">>
+            }
+        ]
+    },
+    #{
+        <<"message_validation">> => #{
+            <<"validations">> => [Validation]
+        }
+    }.
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).

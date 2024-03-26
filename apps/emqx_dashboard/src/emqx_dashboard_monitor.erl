@@ -18,6 +18,7 @@
 
 -include("emqx_dashboard.hrl").
 
+-include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(gen_server).
@@ -186,6 +187,7 @@ handle_cast(_Request, State = #state{}) ->
 handle_info({sample, Time}, State = #state{last = Last}) ->
     Now = sample(Time),
     {atomic, ok} = flush(Last, Now),
+    ?tp(dashboard_monitor_flushed, #{}),
     sample_timer(),
     {noreply, State#state{last = Now}};
 handle_info(clean_expired, State) ->
@@ -424,6 +426,8 @@ stats(received) -> emqx_metrics:val('messages.received');
 stats(received_bytes) -> emqx_metrics:val('bytes.received');
 stats(sent) -> emqx_metrics:val('messages.sent');
 stats(sent_bytes) -> emqx_metrics:val('bytes.sent');
+stats(validation_succeeded) -> emqx_metrics:val('messages.validation_succeeded');
+stats(validation_failed) -> emqx_metrics:val('messages.validation_failed');
 stats(dropped) -> emqx_metrics:val('messages.dropped').
 
 %% -------------------------------------------------------------------------------------------------

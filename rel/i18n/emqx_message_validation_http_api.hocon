@@ -21,6 +21,12 @@ emqx_message_validation_http_api {
   enable_disable_validation.desc:
   """Enable or disable a particular validation"""
 
+  get_validation_metrics.desc:
+  """Get metrics for a particular validation"""
+
+  reset_validation_metrics.desc:
+  """Reset metrics for a particular validation"""
+
   param_path_name.desc:
   """Validation name"""
 

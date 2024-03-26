@@ -23,6 +23,7 @@
 
 -include("emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SERVER, "http://127.0.0.1:18083").
@@ -54,16 +55,35 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_mgmt_api_test_util:init_suite([emqx, emqx_conf, emqx_retainer]),
+    emqx_common_test_helpers:clear_screen(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_retainer, ?BASE_RETAINER_CONF},
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard(
+                "dashboard.listeners.http { enable = true, bind = 18083 }\n"
+                "dashboard.sample_interval = 1s"
+            )
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    ok = snabbkaffe:start_trace(),
+    ct:timetrap({seconds, 30}),
     Config.
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_retainer]).
-
-set_special_configs(emqx_retainer) ->
-    emqx_retainer:update_config(?BASE_RETAINER_CONF),
-    ok;
-set_special_configs(_App) ->
+end_per_testcase(_TestCase, _Config) ->
+    ok = snabbkaffe:stop(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -71,7 +91,11 @@ set_special_configs(_App) ->
 %%--------------------------------------------------------------------
 
 t_monitor_samplers_all(_Config) ->
-    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
     Size = mnesia:table_info(emqx_dashboard_monitor, size),
     All = emqx_dashboard_monitor:samplers(all, infinity),
     All2 = emqx_dashboard_monitor:samplers(),
@@ -80,25 +104,39 @@ t_monitor_samplers_all(_Config) ->
     ok.
 
 t_monitor_samplers_latest(_Config) ->
-    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
-    Samplers = emqx_dashboard_monitor:samplers(node(), 2),
-    Latest = emqx_dashboard_monitor:samplers(node(), 1),
-    ?assert(erlang:length(Samplers) == 2),
-    ?assert(erlang:length(Latest) == 1),
-    ?assert(hd(Latest) == lists:nth(2, Samplers)),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
+    ?retry(1_000, 10, begin
+        Samplers = emqx_dashboard_monitor:samplers(node(), 2),
+        Latest = emqx_dashboard_monitor:samplers(node(), 1),
+        ?assert(erlang:length(Samplers) == 2, #{samplers => Samplers}),
+        ?assert(erlang:length(Latest) == 1, #{latest => Latest}),
+        ?assert(hd(Latest) == lists:nth(2, Samplers))
+    end),
     ok.
 
 t_monitor_sampler_format(_Config) ->
-    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_event(#{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
     Latest = hd(emqx_dashboard_monitor:samplers(node(), 1)),
     SamplerKeys = maps:keys(Latest),
     [?assert(lists:member(SamplerName, SamplerKeys)) || SamplerName <- ?SAMPLER_LIST],
     ok.
 
 t_monitor_api(_) ->
-    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
-    {ok, Samplers} = request(["monitor"], "latest=20"),
-    ?assert(erlang:length(Samplers) >= 2),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
+    {ok, Samplers} = request(["monitor"], "latest=200"),
+    ?assert(erlang:length(Samplers) >= 2, #{samplers => Samplers}),
     Fun =
         fun(Sampler) ->
             Keys = [binary_to_atom(Key, utf8) || Key <- maps:keys(Sampler)],
@@ -110,7 +148,11 @@ t_monitor_api(_) ->
     ok.
 
 t_monitor_current_api(_) ->
-    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
     {ok, Rate} = request(["monitor_current"]),
     [
         ?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
@@ -210,7 +252,11 @@ t_monitor_reset(_) ->
         ?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
      || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
     ],
-    timer:sleep(?DEFAULT_SAMPLE_INTERVAL * 2 * 1000 + 20),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_n_events(1, #{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
     {ok, Samplers} = request(["monitor"], "latest=1"),
     ?assertEqual(1, erlang:length(Samplers)),
     ok.
