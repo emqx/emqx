@@ -246,6 +246,9 @@ drop_shard(Shard) ->
     emqx_ds:store_batch_result().
 store_batch(Shard, Messages, Options) ->
     %% We always store messages in the current generation:
+    ?tp(emqx_ds_storage_layer_store_batch, #{
+        shard => Shard, messages => Messages, options => Options
+    }),
     GenId = generation_current(Shard),
     #{module := Mod, data := GenData} = generation_get(Shard, GenId),
     Mod:store_batch(Shard, GenData, Messages, Options).
