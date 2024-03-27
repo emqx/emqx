@@ -69,10 +69,7 @@ schema("/message_validations") ->
                             array(
                                 emqx_message_validation_schema:api_schema(list)
                             ),
-                            #{
-                                sample =>
-                                    #{value => example_return_list()}
-                            }
+                            example_return_list()
                         )
                 }
         },
@@ -158,10 +155,7 @@ schema("/message_validations/validation/:name") ->
                             array(
                                 emqx_message_validation_schema:api_schema(lookup)
                             ),
-                            #{
-                                sample =>
-                                    #{value => example_return_lookup()}
-                            }
+                            example_return_lookup()
                         ),
                     404 => error_schema('NOT_FOUND', "Validation not found")
                 }
@@ -191,10 +185,7 @@ schema("/message_validations/validation/:name/metrics") ->
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
                             ref(get_metrics),
-                            #{
-                                sample =>
-                                    #{value => example_return_metrics()}
-                            }
+                            example_return_metrics()
                         ),
                     404 => error_schema('NOT_FOUND', "Validation not found")
                 }
@@ -407,36 +398,112 @@ mk(Type, Opts) -> hoconsc:mk(Type, Opts).
 array(Type) -> hoconsc:array(Type).
 
 example_input_create() ->
-    %% TODO
-    #{}.
+    #{
+        <<"sql_check">> =>
+            #{
+                summary => <<"Using a SQL check">>,
+                value => example_validation([example_sql_check()])
+            },
+        <<"avro_check">> =>
+            #{
+                summary => <<"Using an Avro schema check">>,
+                value => example_validation([example_avro_check()])
+            }
+    }.
 
 example_input_update() ->
-    %% TODO
-    #{}.
+    #{
+        <<"update">> =>
+            #{
+                summary => <<"Update">>,
+                value => example_validation([example_sql_check()])
+            }
+    }.
 
 example_input_reorder() ->
-    %% TODO
-    #{}.
+    #{
+        <<"reorder">> =>
+            #{
+                summary => <<"Update">>,
+                value => #{
+                    order => [<<"bar">>, <<"foo">>, <<"baz">>]
+                }
+            }
+    }.
 
 example_return_list() ->
-    %% TODO
-    [].
+    OtherVal0 = example_validation([example_avro_check()]),
+    OtherVal = OtherVal0#{name => <<"other_validation">>},
+    #{
+        <<"list">> =>
+            #{
+                summary => <<"List">>,
+                value => [
+                    example_validation([example_sql_check()]),
+                    OtherVal
+                ]
+            }
+    }.
 
 example_return_create() ->
-    %% TODO
-    #{}.
+    example_input_create().
 
 example_return_update() ->
-    %% TODO
-    #{}.
+    example_input_update().
 
 example_return_lookup() ->
-    %% TODO
-    #{}.
+    example_input_create().
 
 example_return_metrics() ->
-    %% TODO
-    #{}.
+    Metrics = #{
+        matched => 2,
+        succeeded => 1,
+        failed => 1,
+        rate => 1.23,
+        rate_last5m => 0.88,
+        rate_max => 1.87
+    },
+    #{
+        <<"metrics">> =>
+            #{
+                summary => <<"Metrics">>,
+                value => #{
+                    metrics => Metrics,
+                    node_metrics =>
+                        [
+                            #{
+                                node => <<"emqx@127.0.0.1">>,
+                                metrics => Metrics
+                            }
+                        ]
+                }
+            }
+    }.
+
+example_validation(Checks) ->
+    #{
+        name => <<"my_validation">>,
+        enable => true,
+        description => <<"my validation">>,
+        tags => [<<"validation">>],
+        topics => [<<"t/+">>],
+        strategy => <<"all_pass">>,
+        failure_action => <<"drop">>,
+        log_failure => #{<<"level">> => <<"info">>},
+        checks => Checks
+    }.
+
+example_sql_check() ->
+    #{
+        type => <<"sql">>,
+        sql => <<"select payload.temp as t where t > 10">>
+    }.
+
+example_avro_check() ->
+    #{
+        type => <<"avro">>,
+        schema => <<"my_avro_schema">>
+    }.
 
 error_schema(Code, Message) ->
     error_schema(Code, Message, _ExtraFields = []).
