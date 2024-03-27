@@ -56,7 +56,7 @@ file_mtime.label:
 """file mtime"""
 
 trace_name.desc:
-"""Unique name of the trace. Only ascii letters in a-z, A-Z, 0-9 and underscore '_' are allowed."""
+"""Unique name of the trace. Only ASCII letters in a-z, A-Z, 0-9 and underscore '_' are allowed."""
 trace_name.label:
 """Unique name of the trace"""
 

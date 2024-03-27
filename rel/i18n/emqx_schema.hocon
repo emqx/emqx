@@ -1572,7 +1572,7 @@ durable_storage.desc: """~
     EMQX uses durable storages to offload various data, such as MQTT messages, to disc."""
 
 client_attrs_init {
-  label: "Client attributes init"
+  label: "Client Attributes Initialization"
   desc: """~
     Specify how to initialize client attributes.
     One initial client attribute can be initialized as `client_attrs.NAME`,
@@ -1584,7 +1584,7 @@ client_attrs_init {
 }
 
 client_attrs_init_extract_from {
-  label: "Client property to extract attribute from"
+  label: "Client Property to Extract Attribute"
   desc: """~
     Specify from which client property the client attribute should be extracted.
 
@@ -1594,23 +1594,24 @@ client_attrs_init_extract_from {
     - `cn`: Extract from the Common Name (CN) field of the client certificate.
     - `dn`: Extract from the Distinguished Name (DN) field of the client certificate.
     - `user_property`: Extract from the user property sent in the MQTT v5 `CONNECT` packet.
-      In this case, `extract_regex` is not applicable, and `extract_as` should be the user property key.
+      In this case, `extract_regexp` is not applicable, and `extract_as` should be the user property key.
 
     NOTE: this extraction happens **after** `clientid` or `username` is initialized
     from `peer_cert_as_clientid` or `peer_cert_as_username` config."""
 }
 
 client_attrs_init_extract_regexp {
-  label: "Client attribute extract regex"
+  label: "Client Attribute Extraction Regular Expression"
   desc: """~
     The regular expression to extract a client attribute from the client property specified by `client_attrs_init.extract_from` config.
     The expression should match the entire client property value, and capturing groups are concatenated to make the client attribute.
     For example if the client attribute is the first part of the client ID delimited by a dash, the regular expression would be `^(.+?)-.*$`.
-    Note that failure to match the regular expression will result in the client attribute being absent but not an empty string."""
+    Note that failure to match the regular expression will result in the client attribute being absent but not an empty string.
+    Note also that currently only printable ASCII characters are allowed as input for the regular expression extraction."""
 }
 
 client_attrs_init_extract_as {
-  label: "Name the extracted attribute"
+  label: "Name The Extracted Attribute"
   desc: """~
     The name of the client attribute extracted from the client property specified by `client_attrs_init.extract_from` config.
     The extracted attribute will be stored in the `client_attrs` property with this name.
