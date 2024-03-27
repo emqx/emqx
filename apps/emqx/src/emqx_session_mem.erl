@@ -637,10 +637,10 @@ do_retry_delivery(
             _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
             {Acc, emqx_inflight:delete(PacketId, Inflight)};
         false ->
-            Msg1 = without_inflight_insert_ts(emqx_message:set_flag(dup, true, Msg)),
+            Msg1 = emqx_message:set_flag(dup, true, Msg),
             Update = Data#inflight_data{message = Msg1, timestamp = Now},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-            {[{PacketId, Msg1} | Acc], Inflight1}
+            {[{PacketId, without_inflight_insert_ts(Msg1)} | Acc], Inflight1}
     end;
 do_retry_delivery(_ClientInfo, PacketId, Data, Now, Acc, Inflight) ->
     Update = Data#inflight_data{timestamp = Now},
