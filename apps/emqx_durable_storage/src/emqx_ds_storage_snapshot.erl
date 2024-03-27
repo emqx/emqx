@@ -145,11 +145,11 @@ read_chunk_file(RelPath, RFile0 = #rfile{fd = IoDev, pos = Pos, abspath = AbsPat
             ChunkSize = byte_size(Chunk),
             HasMore = ChunkSize div Size,
             RFile1 = RFile0#rfile{pos = Pos + ChunkSize},
-            case ChunkSize < Size of
-                false ->
+            case HasMore of
+                _Yes = 1 ->
                     Status = next,
                     RFile = RFile1;
-                true ->
+                _No = 0 ->
                     Status = last,
                     RFile = release_reader_file(RFile1)
             end,
@@ -315,7 +315,7 @@ make_packet(Header, Rest) ->
 parse_packet(Packet) ->
     try binary_to_term(Packet, [safe, used]) of
         {Header = ?PAT_HEADER(), Length} ->
-            Rest = binary:part(Packet, Length, byte_size(Packet) - Length),
+            {_, Rest} = split_binary(Packet, Length),
             {Header, Rest};
         {Header, _} ->
             {error, {bad_header, Header}}
