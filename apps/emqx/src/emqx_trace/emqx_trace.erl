@@ -66,6 +66,9 @@
 -export_type([ip_address/0]).
 -type ip_address() :: string().
 
+-export_type([ruleid/0]).
+-type ruleid() :: binary().
+
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
@@ -517,6 +520,9 @@ to_trace(#{type := ip_address, ip_address := Filter} = Trace, Rec) ->
         Error ->
             Error
     end;
+to_trace(#{type := ruleid, ruleid := Filter} = Trace, Rec) ->
+    Trace0 = maps:without([type, ruleid], Trace),
+    to_trace(Trace0, Rec#?TRACE{type = ruleid, filter = Filter});
 to_trace(#{type := Type}, _Rec) ->
     {error, io_lib:format("required ~s field", [Type])};
 to_trace(#{payload_encode := PayloadEncode} = Trace, Rec) ->

@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 
 -include_lib("common_test/include/ct.hrl").
 -define(CLIENT, [
@@ -29,11 +30,12 @@
     {password, <<"pass">>}
 ]).
 
-all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address, t_trace_clientid_utf8].
+all() ->
+    [t_trace_clientid, t_trace_topic, t_trace_ip_address, t_trace_clientid_utf8, t_trace_rule_id].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx],
+        [emqx, emqx_rule_engine],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -205,6 +207,79 @@ t_trace_topic(_Config) ->
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
 
+create_rule(Name, SQL) ->
+    Rule = emqx_rule_engine_SUITE:make_simple_rule(Name, SQL),
+    {ok, _} = emqx_rule_engine:create_rule(Rule).
+
+t_trace_rule_id(_Config) ->
+    %% Start MQTT Client
+    {ok, T} = emqtt:start_link(?CLIENT),
+    emqtt:connect(T),
+    %% Create rules
+    create_rule(
+        <<"test_rule_id_1">>,
+        <<"select 1 as rule_number from \"rule_1_topic\"">>
+    ),
+    create_rule(
+        <<"test_rule_id_2">>,
+        <<"select 2 as rule_number from \"rule_2_topic\"">>
+    ),
+    %% Start tracing
+    ok = emqx_trace_handler:install(
+        "CLI-RULE-1", ruleid, <<"test_rule_id_1">>, all, "tmp/rule_trace_1.log"
+    ),
+    ok = emqx_trace_handler:install(
+        "CLI-RULE-2", ruleid, <<"test_rule_id_2">>, all, "tmp/rule_trace_2.log"
+    ),
+    emqx_trace:check(),
+    ok = filesync("CLI-RULE-1", ruleid),
+    ok = filesync("CLI-RULE-2", ruleid),
+
+    %% Verify the tracing file exits
+    ?assert(filelib:is_regular("tmp/rule_trace_1.log")),
+    ?assert(filelib:is_regular("tmp/rule_trace_2.log")),
+
+    %% Get current traces
+    ?assertMatch(
+        [
+            #{
+                type := ruleid,
+                filter := <<"test_rule_id_1">>,
+                level := debug,
+                dst := "tmp/rule_trace_1.log",
+                name := <<"CLI-RULE-1">>
+            },
+            #{
+                type := ruleid,
+                filter := <<"test_rule_id_2">>,
+                name := <<"CLI-RULE-2">>,
+                level := debug,
+                dst := "tmp/rule_trace_2.log"
+            }
+        ],
+        emqx_trace_handler:running()
+    ),
+
+    %% Trigger rule
+    emqtt:publish(T, <<"rule_1_topic">>, <<"my_traced_message">>),
+    ?retry(
+        100,
+        5,
+        begin
+            ok = filesync("CLI-RULE-1", ruleid),
+            {ok, Bin} = file:read_file("tmp/rule_trace_1.log"),
+            ?assertNotEqual(nomatch, binary:match(Bin, [<<"my_traced_message">>]))
+        end
+    ),
+    ok = filesync("CLI-RULE-2", ruleid),
+    ?assert(filelib:file_size("tmp/rule_trace_2.log") =:= 0),
+
+    %% Stop tracing
+    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-1">>),
+    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-2">>),
+    ?assertEqual([], emqx_trace_handler:running()),
+    emqtt:disconnect(T).
+
 t_trace_ip_address(_Config) ->
     {ok, T} = emqtt:start_link(?CLIENT),
     emqtt:connect(T),
@@ -272,11 +347,11 @@ t_trace_ip_address(_Config) ->
 
 filesync(Name, Type) ->
     ct:sleep(50),
-    filesync(Name, Type, 3).
+    filesync(Name, Type, 5).
 
 %% sometime the handler process is not started yet.
-filesync(_Name, _Type, 0) ->
-    ok;
+filesync(Name, Type, 0) ->
+    ct:fail("Handler process not started ~p ~p", [Name, Type]);
 filesync(Name0, Type, Retry) ->
     Name =
         case is_binary(Name0) of

@@ -80,6 +80,11 @@ client_ip_addess.desc:
 client_ip_addess.label:
 """Client IP Address"""
 
+ruleid.desc:
+"""Specify the Rule ID if the trace type is 'ruleid'."""
+ruleid.label:
+"""Rule ID"""
+
 trace_status.desc:
 """trace status"""
 trace_status.label:

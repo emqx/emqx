@@ -69,6 +69,9 @@ apply_rule_discard_result(Rule, Columns, Envs) ->
     ok.
 
 apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
+    ?TRACE("APPLY_RULE", "rule_activated", #{
+        ruleid => RuleID, input => Columns, environment => Envs
+    }),
     ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'matched'),
     clear_rule_payload(),
     try
