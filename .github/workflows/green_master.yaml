@@ -31,8 +31,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api --method GET -f head_sha=$(git rev-parse HEAD) -f status=completed -f exclude_pull_requests=true /repos/emqx/emqx/actions/runs > runs.json
-          for id in $(jq -r '.workflow_runs[] | select((."conclusion" != "success") and .run_attempt < 3) | .id' runs.json); do
+          gh api --method GET -f head_branch=master -f status=completed -f exclude_pull_requests=true /repos/emqx/emqx/actions/runs > runs.json
+          for id in $(jq -r '.workflow_runs[] | select((."conclusion" == "failure") and (."name" != "Keep master green") and .run_attempt < 3) | .id' runs.json); do
             echo "rerun https://github.com/emqx/emqx/actions/runs/$id"
-            gh api --method POST /repos/emqx/emqx/actions/runs/$id/rerun-failed-jobs
+            gh api --method POST /repos/emqx/emqx/actions/runs/$id/rerun-failed-jobs || true
           done
