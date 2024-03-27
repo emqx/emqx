@@ -29,7 +29,7 @@ set +e
 docker run --rm -i ${DOCKER_TERMINAL_OPT} --name spellcheck \
     -v "${PROJ_ROOT}"/scripts/spellcheck/dicts:/dicts \
     -v "$SCHEMA":/schema.json \
-    ghcr.io/emqx/emqx-schema-validate:0.5.0 -j 10 /schema.json
+    ghcr.io/emqx/emqx-schema-validate:0.5.1 -j 10 /schema.json
 
 result="$?"
 
