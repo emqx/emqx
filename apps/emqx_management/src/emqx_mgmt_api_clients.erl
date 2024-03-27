@@ -38,6 +38,7 @@
 
 -export([
     clients/2,
+    list_clients_v2/2,
     kickout_clients/2,
     client/2,
     subscriptions/2,
@@ -62,6 +63,10 @@
 
 %% for batch operation
 -export([do_subscribe/3]).
+
+-ifdef(TEST).
+-export([parse_cursor/2, serialize_cursor/1]).
+-endif.
 
 -define(TAGS, [<<"Clients">>]).
 
@@ -95,6 +100,14 @@
     message => <<"Client connection has been shutdown">>
 }).
 
+%% tags
+-define(CURSOR_VSN1, 1).
+-define(CURSOR_TYPE_ETS, 1).
+-define(CURSOR_TYPE_DS, 2).
+%% field keys
+-define(CURSOR_ETS_NODE_IDX, 1).
+-define(CURSOR_ETS_CONT, 2).
+
 namespace() -> undefined.
 
 api_spec() ->
@@ -103,6 +116,7 @@ api_spec() ->
 paths() ->
     [
         "/clients",
+        "/clients_v2",
         "/clients/kickout/bulk",
         "/clients/:clientid",
         "/clients/:clientid/authorization/cache",
@@ -117,115 +131,38 @@ paths() ->
         "/sessions_count"
     ].
 
+schema("/clients_v2") ->
+    #{
+        'operationId' => list_clients_v2,
+        get => #{
+            security => [],
+            description => ?DESC(list_clients),
+            tags => ?TAGS,
+            parameters => fields(list_clients_v2_inputs),
+            responses => #{
+                200 =>
+                    emqx_dashboard_swagger:schema_with_example(?R_REF(list_clients_v2_response), #{
+                        <<"data">> => [client_example()],
+                        <<"meta">> => #{
+                            <<"count">> => 1,
+                            <<"cursor">> => <<"g2wAAAADYQFhAm0AAAACYzJq">>,
+                            <<"hasnext">> => true
+                        }
+                    }),
+                400 =>
+                    emqx_dashboard_swagger:error_codes(
+                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                    )
+            }
+        }
+    };
 schema("/clients") ->
     #{
         'operationId' => clients,
         get => #{
             description => ?DESC(list_clients),
             tags => ?TAGS,
-            parameters => [
-                hoconsc:ref(emqx_dashboard_swagger, page),
-                hoconsc:ref(emqx_dashboard_swagger, limit),
-                {node,
-                    hoconsc:mk(binary(), #{
-                        in => query,
-                        required => false,
-                        desc => <<"Node name">>,
-                        example => <<"emqx@127.0.0.1">>
-                    })},
-                {username,
-                    hoconsc:mk(hoconsc:array(binary()), #{
-                        in => query,
-                        required => false,
-                        desc => <<
-                            "User name, multiple values can be specified by"
-                            " repeating the parameter: username=u1&username=u2"
-                        >>
-                    })},
-                {ip_address,
-                    hoconsc:mk(binary(), #{
-                        in => query,
-                        required => false,
-                        desc => <<"Client's IP address">>,
-                        example => <<"127.0.0.1">>
-                    })},
-                {conn_state,
-                    hoconsc:mk(hoconsc:enum([connected, idle, disconnected]), #{
-                        in => query,
-                        required => false,
-                        desc =>
-                            <<"The current connection status of the client, ",
-                                "the possible values are connected,idle,disconnected">>
-                    })},
-                {clean_start,
-                    hoconsc:mk(boolean(), #{
-                        in => query,
-                        required => false,
-                        description => <<"Whether the client uses a new session">>
-                    })},
-                {proto_ver,
-                    hoconsc:mk(binary(), #{
-                        in => query,
-                        required => false,
-                        desc => <<"Client protocol version">>
-                    })},
-                {like_clientid,
-                    hoconsc:mk(binary(), #{
-                        in => query,
-                        required => false,
-                        desc => <<"Fuzzy search `clientid` as substring">>
-                    })},
-                {like_username,
-                    hoconsc:mk(binary(), #{
-                        in => query,
-                        required => false,
-                        desc => <<"Fuzzy search `username` as substring">>
-                    })},
-                {gte_created_at,
-                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
-                        in => query,
-                        required => false,
-                        desc =>
-                            <<"Search client session creation time by greater",
-                                " than or equal method, rfc3339 or timestamp(millisecond)">>
-                    })},
-                {lte_created_at,
-                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
-                        in => query,
-                        required => false,
-                        desc =>
-                            <<"Search client session creation time by less",
-                                " than or equal method, rfc3339 or timestamp(millisecond)">>
-                    })},
-                {gte_connected_at,
-                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
-                        in => query,
-                        required => false,
-                        desc => <<
-                            "Search client connection creation time by greater"
-                            " than or equal method, rfc3339 or timestamp(epoch millisecond)"
-                        >>
-                    })},
-                {lte_connected_at,
-                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
-                        in => query,
-                        required => false,
-                        desc => <<
-                            "Search client connection creation time by less"
-                            " than or equal method, rfc3339 or timestamp(millisecond)"
-                        >>
-                    })},
-                {clientid,
-                    hoconsc:mk(hoconsc:array(binary()), #{
-                        in => query,
-                        required => false,
-                        desc => <<
-                            "Client ID, multiple values can be specified by"
-                            " repeating the parameter: clientid=c1&clientid=c2"
-                        >>
-                    })},
-                ?R_REF(requested_client_fields)
-            ],
+            parameters => fields(list_clients_v1_inputs),
             responses => #{
                 200 =>
                     emqx_dashboard_swagger:schema_with_example(?R_REF(clients), #{
@@ -453,10 +390,128 @@ schema("/sessions_count") ->
         }
     }.
 
+fields(list_clients_v2_inputs) ->
+    [
+        hoconsc:ref(emqx_dashboard_swagger, cursor)
+        | fields(common_list_clients_input)
+    ];
+fields(list_clients_v1_inputs) ->
+    [
+        hoconsc:ref(emqx_dashboard_swagger, page),
+        {node,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Node name">>,
+                example => <<"emqx@127.0.0.1">>
+            })}
+        | fields(common_list_clients_input)
+    ];
+fields(common_list_clients_input) ->
+    [
+        hoconsc:ref(emqx_dashboard_swagger, limit),
+        {username,
+            hoconsc:mk(hoconsc:array(binary()), #{
+                in => query,
+                required => false,
+                desc => <<
+                    "User name, multiple values can be specified by"
+                    " repeating the parameter: username=u1&username=u2"
+                >>
+            })},
+        {ip_address,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Client's IP address">>,
+                example => <<"127.0.0.1">>
+            })},
+        {conn_state,
+            hoconsc:mk(hoconsc:enum([connected, idle, disconnected]), #{
+                in => query,
+                required => false,
+                desc =>
+                    <<"The current connection status of the client, ",
+                        "the possible values are connected,idle,disconnected">>
+            })},
+        {clean_start,
+            hoconsc:mk(boolean(), #{
+                in => query,
+                required => false,
+                description => <<"Whether the client uses a new session">>
+            })},
+        {proto_ver,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Client protocol version">>
+            })},
+        {like_clientid,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Fuzzy search `clientid` as substring">>
+            })},
+        {like_username,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => <<"Fuzzy search `username` as substring">>
+            })},
+        {gte_created_at,
+            hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
+                in => query,
+                required => false,
+                desc =>
+                    <<"Search client session creation time by greater",
+                        " than or equal method, rfc3339 or timestamp(millisecond)">>
+            })},
+        {lte_created_at,
+            hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
+                in => query,
+                required => false,
+                desc =>
+                    <<"Search client session creation time by less",
+                        " than or equal method, rfc3339 or timestamp(millisecond)">>
+            })},
+        {gte_connected_at,
+            hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
+                in => query,
+                required => false,
+                desc => <<
+                    "Search client connection creation time by greater"
+                    " than or equal method, rfc3339 or timestamp(epoch millisecond)"
+                >>
+            })},
+        {lte_connected_at,
+            hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
+                in => query,
+                required => false,
+                desc => <<
+                    "Search client connection creation time by less"
+                    " than or equal method, rfc3339 or timestamp(millisecond)"
+                >>
+            })},
+        {clientid,
+            hoconsc:mk(hoconsc:array(binary()), #{
+                in => query,
+                required => false,
+                desc => <<
+                    "Client ID, multiple values can be specified by"
+                    " repeating the parameter: clientid=c1&clientid=c2"
+                >>
+            })},
+        ?R_REF(requested_client_fields)
+    ];
 fields(clients) ->
     [
         {data, hoconsc:mk(hoconsc:array(?REF(client)), #{})},
         {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
+    ];
+fields(list_clients_v2_response) ->
+    [
+        {data, hoconsc:mk(hoconsc:array(?REF(client)), #{})},
+        {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
     ];
 fields(client) ->
     [
@@ -888,6 +943,218 @@ list_clients(QString) ->
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
         Response ->
             {200, Response}
+    end.
+
+list_clients_v2(get, #{query_string := QString0}) ->
+    Nodes = emqx:running_nodes(),
+    case maps:get(<<"cursor">>, QString0, none) of
+        none ->
+            Cursor = initial_ets_cursor(Nodes),
+            do_list_clients_v2(Nodes, Cursor, QString0);
+        CursorBin when is_binary(CursorBin) ->
+            case parse_cursor(CursorBin, Nodes) of
+                {ok, Cursor} ->
+                    do_list_clients_v2(Nodes, Cursor, QString0);
+                {error, bad_cursor} ->
+                    ?BAD_REQUEST(<<"bad cursor">>)
+            end
+    end.
+
+do_list_clients_v2(Nodes, Cursor, QString0) ->
+    Limit = maps:get(<<"limit">>, QString0, 100),
+    Acc = #{
+        rows => [],
+        n => 0,
+        limit => Limit
+    },
+    do_list_clients_v2(Nodes, Cursor, QString0, Acc).
+
+do_list_clients_v2(_Nodes, Cursor = done, _QString, Acc) ->
+    format_results(Acc, Cursor);
+do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
+    {Rows, NewCursor} = do_ets_select(Nodes, QString0, Cursor),
+    Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
+    Acc = #{limit := Limit, n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+    case N >= Limit of
+        true ->
+            format_results(Acc, NewCursor);
+        false ->
+            do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+    end;
+do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
+    #{limit := Limit} = Acc0,
+    {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
+    NewCursor = next_ds_cursor(Iter),
+    Rows1 = drop_live_and_expired(Rows0),
+    Rows = maybe_run_fuzzy_filter(Rows1, QString0),
+    Acc1 = maps:update_with(rows, fun(Rs) -> [{undefined, Rows} | Rs] end, Acc0),
+    Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+    case N >= Limit of
+        true ->
+            format_results(Acc, NewCursor);
+        false ->
+            do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+    end.
+
+format_results(Acc, Cursor) ->
+    #{
+        rows := NodeRows,
+        n := N
+    } = Acc,
+    Meta =
+        case Cursor of
+            done ->
+                #{
+                    hasnext => false,
+                    count => N
+                };
+            _ ->
+                #{
+                    hasnext => true,
+                    count => N,
+                    cursor => serialize_cursor(Cursor)
+                }
+        end,
+    Resp = #{
+        meta => Meta,
+        data => [
+            format_channel_info(Node, Row)
+         || {Node, Rows} <- NodeRows,
+            Row <- Rows
+        ]
+    },
+    ?OK(Resp).
+
+do_ets_select(Nodes, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
+    {_, QString1} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    Limit = maps:get(<<"limit">>, QString0, 10),
+    {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
+        QString1, Limit, Node, NodeIdx, Cont
+    ),
+    {Rows, next_ets_cursor(Nodes, NewNodeIdx, NewCont)}.
+
+maybe_run_fuzzy_filter(Rows, QString0) ->
+    {_, {_, FuzzyQString}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    FuzzyFilterFn = fuzzy_filter_fun(FuzzyQString),
+    case FuzzyFilterFn of
+        undefined ->
+            Rows;
+        {Fn, Args} ->
+            lists:filter(
+                fun(E) -> erlang:apply(Fn, [E | Args]) end,
+                Rows
+            )
+    end.
+
+initial_ets_cursor([Node | _Rest] = _Nodes) ->
+    #{
+        type => ?CURSOR_TYPE_ETS,
+        node => Node,
+        node_idx => 1,
+        cont => undefined
+    }.
+
+initial_ds_cursor() ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            #{
+                type => ?CURSOR_TYPE_DS,
+                iterator => init_persistent_session_iterator()
+            };
+        false ->
+            done
+    end.
+
+next_ets_cursor(Nodes, NodeIdx, Cont) ->
+    case NodeIdx > length(Nodes) of
+        true ->
+            initial_ds_cursor();
+        false ->
+            Node = lists:nth(NodeIdx, Nodes),
+            #{
+                type => ?CURSOR_TYPE_ETS,
+                node_idx => NodeIdx,
+                node => Node,
+                cont => Cont
+            }
+    end.
+
+next_ds_cursor('$end_of_table') ->
+    done;
+next_ds_cursor(Iter) ->
+    #{
+        type => ?CURSOR_TYPE_DS,
+        iterator => Iter
+    }.
+
+parse_cursor(CursorBin, Nodes) ->
+    try base64:decode(CursorBin, #{mode => urlsafe, padding => false}) of
+        Bin ->
+            parse_cursor1(Bin, Nodes)
+    catch
+        _:_ ->
+            {error, bad_cursor}
+    end.
+
+parse_cursor1(CursorBin, Nodes) ->
+    try binary_to_term(CursorBin, [safe]) of
+        [
+            ?CURSOR_VSN1,
+            ?CURSOR_TYPE_ETS,
+            #{?CURSOR_ETS_NODE_IDX := NodeIdx, ?CURSOR_ETS_CONT := Cont}
+        ] ->
+            case NodeIdx > length(Nodes) of
+                true ->
+                    {error, bad_cursor};
+                false ->
+                    Node = lists:nth(NodeIdx, Nodes),
+                    Cursor = #{
+                        type => ?CURSOR_TYPE_ETS,
+                        node => Node,
+                        node_idx => NodeIdx,
+                        cont => Cont
+                    },
+                    {ok, Cursor}
+            end;
+        [?CURSOR_VSN1, ?CURSOR_TYPE_DS, DSIter] ->
+            Cursor = #{type => ?CURSOR_TYPE_DS, iterator => DSIter},
+            {ok, Cursor};
+        _ ->
+            {error, bad_cursor}
+    catch
+        error:badarg ->
+            {error, bad_cursor}
+    end.
+
+serialize_cursor(#{type := ?CURSOR_TYPE_ETS, node_idx := NodeIdx, cont := Cont}) ->
+    Cursor0 = [
+        ?CURSOR_VSN1,
+        ?CURSOR_TYPE_ETS,
+        #{?CURSOR_ETS_NODE_IDX => NodeIdx, ?CURSOR_ETS_CONT => Cont}
+    ],
+    Bin = term_to_binary(Cursor0, [{compressed, 9}]),
+    base64:encode(Bin, #{mode => urlsafe, padding => false});
+serialize_cursor(#{type := ?CURSOR_TYPE_DS, iterator := Iter}) ->
+    Cursor0 = [?CURSOR_VSN1, ?CURSOR_TYPE_DS, Iter],
+    Bin = term_to_binary(Cursor0, [{compressed, 9}]),
+    base64:encode(Bin, #{mode => urlsafe, padding => false}).
+
+%% An adapter function so we can reutilize all the logic in `emqx_mgmt_api' for
+%% selecting/fuzzy filters, and also reutilize its BPAPI for selecting rows.
+ets_select(NQString, Limit, Node, NodeIdx, Cont) ->
+    QueryState0 = emqx_mgmt_api:init_query_state(
+        ?CHAN_INFO_TAB,
+        NQString,
+        fun ?MODULE:qs2ms/2,
+        _Meta = #{page => unused, limit => Limit},
+        _Options = #{}
+    ),
+    QueryState = QueryState0#{continuation => Cont},
+    case emqx_mgmt_api:do_query(Node, QueryState) of
+        {Rows, #{complete := true}} ->
+            {Rows, #{node_idx => NodeIdx + 1, cont => undefined}};
+        {Rows, #{continuation := NCont}} ->
+            {Rows, #{node_idx => NodeIdx, cont => NCont}}
     end.
 
 lookup(#{clientid := ClientID}) ->
@@ -1410,13 +1677,25 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | Fuzzy]) ->
+run_fuzzy_filter(
+    Row = {_, #{metadata := #{clientinfo := ClientInfo}}},
+    [{Key, like, SubStr} | RestArgs]
+) ->
+    %% Row from DS
+    run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
+        run_fuzzy_filter(Row, RestArgs);
+run_fuzzy_filter(Row = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | RestArgs]) ->
+    %% Row from ETS
+    run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
+        run_fuzzy_filter(Row, RestArgs).
+
+run_fuzzy_filter1(ClientInfo, Key, SubStr) ->
     Val =
         case maps:get(Key, ClientInfo, <<>>) of
             undefined -> <<>>;
             V -> V
         end,
-    binary:match(Val, SubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
+    binary:match(Val, SubStr) /= nomatch.
 
 %%--------------------------------------------------------------------
 %% format funcs
