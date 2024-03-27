@@ -19,8 +19,9 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("proper/include/proper.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -47,7 +48,8 @@ persistent_session_testcases() ->
         t_persistent_sessions2,
         t_persistent_sessions3,
         t_persistent_sessions4,
-        t_persistent_sessions5
+        t_persistent_sessions5,
+        t_list_clients_v2
     ].
 client_msgs_testcases() ->
     [
@@ -56,11 +58,23 @@ client_msgs_testcases() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite(),
-    Config.
+    ok = snabbkaffe:start_trace(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite().
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_group(persistent_sessions, Config) ->
     AppSpecs = [
@@ -109,9 +123,12 @@ end_per_testcase(TC, _Config) when
         ?LINE,
         fun() -> [] =:= emqx_cm:lookup_channels(local, ClientId) end,
         5000
-    );
+    ),
+    ok = snabbkaffe:stop(),
+    ok;
 end_per_testcase(_TC, _Config) ->
-    ok = snabbkaffe:stop().
+    ok = snabbkaffe:stop(),
+    ok.
 
 t_clients(_) ->
     process_flag(trap_exit, true),
@@ -522,6 +539,12 @@ t_persistent_sessions5(Config) ->
             ),
 
             lists:foreach(fun emqtt:stop/1, [C3, C4]),
+            lists:foreach(
+                fun(ClientId) ->
+                    ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
+                end,
+                [ClientId1, ClientId2, ClientId3, ClientId4]
+            ),
 
             ok
         end,
@@ -1415,6 +1438,319 @@ t_subscribe_shared_topic_nl(_Config) ->
         PostFun(post, PathFun(["subscribe"]), #{topic => T, qos => 1, nl => 1, rh => 1})
     ).
 
+t_list_clients_v2(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+
+    ?check_trace(
+        begin
+            ClientId1 = <<"ca1">>,
+            ClientId2 = <<"c2">>,
+            ClientId3 = <<"c3">>,
+            ClientId4 = <<"ca4">>,
+            ClientId5 = <<"ca5">>,
+            ClientId6 = <<"c6">>,
+            AllClientIds = [
+                ClientId1,
+                ClientId2,
+                ClientId3,
+                ClientId4,
+                ClientId5,
+                ClientId6
+            ],
+            C1 = connect_client(#{port => Port1, clientid => ClientId1, clean_start => true}),
+            C2 = connect_client(#{port => Port2, clientid => ClientId2, clean_start => true}),
+            C3 = connect_client(#{port => Port1, clientid => ClientId3, clean_start => true}),
+            C4 = connect_client(#{port => Port2, clientid => ClientId4, clean_start => true}),
+            %% in-memory clients
+            C5 = connect_client(#{
+                port => Port1, clientid => ClientId5, expiry => 0, clean_start => true
+            }),
+            C6 = connect_client(#{
+                port => Port2, clientid => ClientId6, expiry => 0, clean_start => true
+            }),
+            %% offline persistent clients
+            ok = emqtt:stop(C3),
+            ok = emqtt:stop(C4),
+
+            %% one by one
+            QueryParams1 = #{limit => "1"},
+            Res1 = list_all_v2(APIPort, QueryParams1),
+            ?assertMatch(
+                [
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 1,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 1,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 1,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 1,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 1,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := false,
+                                <<"count">> := 1
+                            }
+                    }
+                ],
+                Res1
+            ),
+            assert_contains_clientids(Res1, AllClientIds),
+
+            %% Reusing the same cursors yield the same pages
+            traverse_in_reverse_v2(APIPort, QueryParams1, Res1),
+
+            %% paging
+            QueryParams2 = #{limit => "4"},
+            Res2 = list_all_v2(APIPort, QueryParams2),
+            ?assertMatch(
+                [
+                    #{
+                        <<"data">> := [_, _, _, _],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 4,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_, _],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := false,
+                                <<"count">> := 2
+                            }
+                    }
+                ],
+                Res2
+            ),
+            assert_contains_clientids(Res2, AllClientIds),
+            traverse_in_reverse_v2(APIPort, QueryParams2, Res2),
+
+            QueryParams3 = #{limit => "2"},
+            Res3 = list_all_v2(APIPort, QueryParams3),
+            ?assertMatch(
+                [
+                    #{
+                        <<"data">> := [_, _],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 2,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_, _],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 2,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_, _],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := false,
+                                <<"count">> := 2
+                            }
+                    }
+                ],
+                Res3
+            ),
+            assert_contains_clientids(Res3, AllClientIds),
+            traverse_in_reverse_v2(APIPort, QueryParams3, Res3),
+
+            %% fuzzy filters
+            QueryParams4 = #{limit => "100", like_clientid => "ca"},
+            Res4 = list_all_v2(APIPort, QueryParams4),
+            ?assertMatch(
+                [
+                    #{
+                        <<"data">> := [_, _, _],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := false,
+                                <<"count">> := 3
+                            }
+                    }
+                ],
+                Res4
+            ),
+            assert_contains_clientids(Res4, [ClientId1, ClientId4, ClientId5]),
+            traverse_in_reverse_v2(APIPort, QueryParams4, Res4),
+            QueryParams5 = #{limit => "1", like_clientid => "ca"},
+            Res5 = list_all_v2(APIPort, QueryParams5),
+            ?assertMatch(
+                [
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 1,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := true,
+                                <<"count">> := 1,
+                                <<"cursor">> := _
+                            }
+                    },
+                    #{
+                        <<"data">> := [_],
+                        <<"meta">> :=
+                            #{
+                                <<"hasnext">> := false,
+                                <<"count">> := 1
+                            }
+                    }
+                ],
+                Res5
+            ),
+            assert_contains_clientids(Res5, [ClientId1, ClientId4, ClientId5]),
+            traverse_in_reverse_v2(APIPort, QueryParams5, Res5),
+
+            lists:foreach(
+                fun(C) ->
+                    {_, {ok, _}} =
+                        ?wait_async_action(
+                            emqtt:stop(C),
+                            #{?snk_kind := emqx_cm_clean_down}
+                        )
+                end,
+                [C1, C2, C5, C6]
+            ),
+
+            %% Verify that a malicious cursor that could generate an atom on the node is
+            %% rejected
+            EvilAtomBin0 = <<131, 100, 0, 5, "some_atom_that_doesnt_exist_on_the_remote_node">>,
+            EvilAtomBin = base64:encode(EvilAtomBin0, #{mode => urlsafe, padding => false}),
+
+            ?assertMatch(
+                {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
+                list_v2_request(APIPort, #{limit => "1", cursor => EvilAtomBin})
+            ),
+            %% Verify that the atom was not created
+            erpc:call(N1, fun() ->
+                ?assertError(badarg, binary_to_term(EvilAtomBin0, [safe]))
+            end),
+            ?assert(is_atom(binary_to_term(EvilAtomBin0))),
+
+            lists:foreach(
+                fun(ClientId) ->
+                    ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
+                end,
+                AllClientIds
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_cursor_serde_prop(_Config) ->
+    ?assert(proper:quickcheck(cursor_serde_prop(), [{numtests, 100}, {to_file, user}])).
+
+cursor_serde_prop() ->
+    ?FORALL(
+        NumNodes,
+        range(1, 10),
+        ?FORALL(
+            Cursor,
+            list_clients_cursor_gen(NumNodes),
+            begin
+                Nodes = lists:seq(1, NumNodes),
+                Bin = emqx_mgmt_api_clients:serialize_cursor(Cursor),
+                Res = emqx_mgmt_api_clients:parse_cursor(Bin, Nodes),
+                ?WHENFAIL(
+                    ct:pal("original:\n  ~p\nroundtrip:\n  ~p", [Cursor, Res]),
+                    {ok, Cursor} =:= Res
+                )
+            end
+        )
+    ).
+
+list_clients_cursor_gen(NumNodes) ->
+    oneof([
+        lists_clients_ets_cursor_gen(NumNodes),
+        lists_clients_ds_cursor_gen()
+    ]).
+
+-define(CURSOR_TYPE_ETS, 1).
+-define(CURSOR_TYPE_DS, 2).
+
+lists_clients_ets_cursor_gen(NumNodes) ->
+    ?LET(
+        {NodeIdx, Cont},
+        {range(1, NumNodes), oneof([undefined, tuple()])},
+        #{
+            type => ?CURSOR_TYPE_ETS,
+            node => NodeIdx,
+            node_idx => NodeIdx,
+            cont => Cont
+        }
+    ).
+
+lists_clients_ds_cursor_gen() ->
+    ?LET(
+        Iter,
+        oneof(['$end_of_table', list(term())]),
+        #{
+            type => ?CURSOR_TYPE_DS,
+            iterator => Iter
+        }
+    ).
+
 time_string_to_epoch_millisecond(DateTime) ->
     time_string_to_epoch(DateTime, millisecond).
 
@@ -1471,6 +1807,31 @@ list_request(Port, QueryParams) ->
     Host = "http://127.0.0.1:" ++ integer_to_list(Port),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["clients"]),
     request(get, Path, [], QueryParams).
+
+list_v2_request(Port, QueryParams = #{}) ->
+    Host = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["clients_v2"]),
+    QS = uri_string:compose_query(maps:to_list(emqx_utils_maps:binary_key_map(QueryParams))),
+    request(get, Path, [], QS).
+
+list_all_v2(Port, QueryParams = #{}) ->
+    do_list_all_v2(Port, QueryParams, _Acc = []).
+
+do_list_all_v2(Port, QueryParams, Acc) ->
+    case list_v2_request(Port, QueryParams) of
+        {ok, {{_, 200, _}, _, Resp = #{<<"meta">> := #{<<"cursor">> := Cursor}}}} ->
+            do_list_all_v2(Port, QueryParams#{cursor => Cursor}, [Resp | Acc]);
+        {ok, {{_, 200, _}, _, Resp = #{<<"meta">> := #{<<"hasnext">> := false}}}} ->
+            lists:reverse([Resp | Acc]);
+        Other ->
+            error(
+                {unexpected_response, #{
+                    acc_so_far => Acc,
+                    response => Other,
+                    query_params => QueryParams
+                }}
+            )
+    end.
 
 lookup_request(ClientId) ->
     lookup_request(ClientId, 18083).
@@ -1535,3 +1896,44 @@ connect_client(Opts) ->
     ]),
     {ok, _} = emqtt:connect(C),
     C.
+
+assert_contains_clientids(Results, ExpectedClientIds) ->
+    ContainedClientIds = [
+        ClientId
+     || #{<<"data">> := Rows} <- Results,
+        #{<<"clientid">> := ClientId} <- Rows
+    ],
+    ?assertEqual(
+        lists:sort(ExpectedClientIds),
+        lists:sort(ContainedClientIds),
+        #{results => Results}
+    ).
+
+traverse_in_reverse_v2(APIPort, QueryParams0, Results) ->
+    Cursors0 =
+        lists:map(
+            fun(#{<<"meta">> := Meta}) ->
+                maps:get(<<"cursor">>, Meta, <<"wontbeused">>)
+            end,
+            Results
+        ),
+    Cursors1 = [<<"none">> | lists:droplast(Cursors0)],
+    DirectOrderClientIds = [
+        ClientId
+     || #{<<"data">> := Rows} <- Results,
+        #{<<"clientid">> := ClientId} <- Rows
+    ],
+    ReverseCursors = lists:reverse(Cursors1),
+    do_traverse_in_reverse_v2(
+        APIPort, QueryParams0, ReverseCursors, DirectOrderClientIds, _Acc = []
+    ).
+
+do_traverse_in_reverse_v2(_APIPort, _QueryParams0, _Cursors = [], DirectOrderClientIds, Acc) ->
+    ?assertEqual(DirectOrderClientIds, Acc);
+do_traverse_in_reverse_v2(APIPort, QueryParams0, [Cursor | Rest], DirectOrderClientIds, Acc) ->
+    QueryParams = QueryParams0#{cursor => Cursor},
+    Res0 = list_v2_request(APIPort, QueryParams),
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := _}}}, Res0),
+    {ok, {{_, 200, _}, _, #{<<"data">> := Rows}}} = Res0,
+    ClientIds = [ClientId || #{<<"clientid">> := ClientId} <- Rows],
+    do_traverse_in_reverse_v2(APIPort, QueryParams0, Rest, DirectOrderClientIds, ClientIds ++ Acc).
