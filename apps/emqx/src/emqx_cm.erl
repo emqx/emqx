@@ -227,7 +227,7 @@ get_chan_info(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v2:get_chan_info(ClientId, ChanPid)).
 
 %% @doc Update infos of the channel.
--spec set_chan_info(emqx_types:clientid(), emqx_types:attrs()) -> boolean().
+-spec set_chan_info(emqx_types:clientid(), emqx_types:channel_attrs()) -> boolean().
 set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, self()},
     try

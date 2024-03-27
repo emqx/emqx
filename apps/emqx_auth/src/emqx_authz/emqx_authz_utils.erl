@@ -139,7 +139,7 @@ handle_disallowed_placeholders(Template, Source, Allowed) ->
                     " However, consider using `${$}` escaping for literal `$` where"
                     " needed to avoid unexpected results."
             }),
-            Result = prerender_disallowed_placeholders(Template, Allowed),
+            Result = emqx_template:escape_disallowed(Template, Allowed),
             case Source of
                 {string, _} ->
                     emqx_template:parse(Result);
@@ -147,20 +147,6 @@ handle_disallowed_placeholders(Template, Source, Allowed) ->
                     emqx_template:parse_deep(Result)
             end
     end.
-
-prerender_disallowed_placeholders(Template, Allowed) ->
-    {Result, _} = emqx_template:render(Template, #{}, #{
-        var_trans => fun(Name, _) ->
-            % NOTE
-            % Rendering disallowed placeholders in escaped form, which will then
-            % parse as a literal string.
-            case lists:member(Name, Allowed) of
-                true -> "${" ++ Name ++ "}";
-                false -> "${$}{" ++ Name ++ "}"
-            end
-        end
-    }),
-    Result.
 
 render_deep(Template, Values) ->
     % NOTE

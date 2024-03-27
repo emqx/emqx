@@ -31,11 +31,14 @@
 -define(PH_CERT_SUBJECT, ?PH(?VAR_CERT_SUBJECT)).
 -define(PH_CERT_CN_NAME, ?PH(?VAR_CERT_CN_NAME)).
 
-%% MQTT
+%% MQTT/Gateway
 -define(VAR_PASSWORD, "password").
 -define(VAR_CLIENTID, "clientid").
 -define(VAR_USERNAME, "username").
 -define(VAR_TOPIC, "topic").
+-define(VAR_ENDPOINT_NAME, "endpoint_name").
+-define(VAR_NS_CLIENT_ATTRS, {var_namespace, "client_attrs"}).
+
 -define(PH_PASSWORD, ?PH(?VAR_PASSWORD)).
 -define(PH_CLIENTID, ?PH(?VAR_CLIENTID)).
 -define(PH_FROM_CLIENTID, ?PH("from_clientid")).
@@ -89,7 +92,7 @@
 -define(PH_NODE, ?PH("node")).
 -define(PH_REASON, ?PH("reason")).
 
--define(PH_ENDPOINT_NAME, ?PH("endpoint_name")).
+-define(PH_ENDPOINT_NAME, ?PH(?VAR_ENDPOINT_NAME)).
 -define(VAR_RETAIN, "retain").
 -define(PH_RETAIN, ?PH(?VAR_RETAIN)).
 

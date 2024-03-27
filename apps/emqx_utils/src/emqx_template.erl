@@ -32,6 +32,7 @@
 -export([lookup/2]).
 
 -export([to_string/1]).
+-export([escape_disallowed/2]).
 
 -export_type([t/0]).
 -export_type([str/0]).
@@ -145,17 +146,56 @@ parse_accessor(Var) ->
 %% @doc Validate a template against a set of allowed variables.
 %% If the given template contains any variable not in the allowed set, an error
 %% is returned.
--spec validate([varname()], t()) ->
+-spec validate([varname() | {var_namespace, varname()}], t()) ->
     ok | {error, [_Error :: {varname(), disallowed}]}.
 validate(Allowed, Template) ->
     {_, Errors} = render(Template, #{}),
     {Used, _} = lists:unzip(Errors),
-    case lists:usort(Used) -- Allowed of
+    case find_disallowed(lists:usort(Used), Allowed) of
         [] ->
             ok;
         Disallowed ->
             {error, [{Var, disallowed} || Var <- Disallowed]}
     end.
+
+%% @doc Escape `$' with `${$}' for the variable references
+%% which are not allowed, so the original variable name
+%% can be preserved instead of rendered as `undefined'.
+%% E.g. to render `${var1}/${clientid}', if only `clientid'
+%% is allowed, the rendering result should be `${var1}/client1'
+%% but not `undefined/client1'.
+escape_disallowed(Template, Allowed) ->
+    {Result, _} = render(Template, #{}, #{
+        var_trans => fun(Name, _) ->
+            case is_allowed(Name, Allowed) of
+                true -> "${" ++ Name ++ "}";
+                false -> "${$}{" ++ Name ++ "}"
+            end
+        end
+    }),
+    Result.
+
+find_disallowed(Vars, Allowed) ->
+    lists:filter(fun(Var) -> not is_allowed(Var, Allowed) end, Vars).
+
+%% @private Return 'true' if a variable reference matches
+%% at least one allowed variables.
+%% For `"${var_name}"' kind of reference, its a `=:=' compare
+%% for `{var_namespace, "namespace"}' kind of reference
+%% it matches the `"namespace."' prefix.
+is_allowed(_Var, []) ->
+    false;
+is_allowed(Var, [{var_namespace, VarPrefix} | Allowed]) ->
+    case lists:prefix(VarPrefix ++ ".", Var) of
+        true ->
+            true;
+        false ->
+            is_allowed(Var, Allowed)
+    end;
+is_allowed(Var, [Var | _Allowed]) ->
+    true;
+is_allowed(Var, [_ | Allowed]) ->
+    is_allowed(Var, Allowed).
 
 %% @doc Check if a template is constant with respect to rendering, i.e. does not
 %% contain any placeholders.

@@ -88,6 +88,7 @@
 -type rule_precompile() :: {permission(), who_condition(), action_precompile(), [topic_filter()]}.
 
 -define(IS_PERMISSION(Permission), (Permission =:= allow orelse Permission =:= deny)).
+-define(ALLOWED_VARS, [?VAR_USERNAME, ?VAR_CLIENTID, ?VAR_NS_CLIENT_ATTRS]).
 
 -spec compile(permission(), who_condition(), action_precompile(), [topic_filter()]) -> rule().
 compile(Permission, Who, Action, TopicFilters) ->
@@ -223,7 +224,7 @@ compile_topic(<<"eq ", Topic/binary>>) ->
 compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
-    Template = emqx_authz_utils:parse_str(Topic, [?VAR_USERNAME, ?VAR_CLIENTID]),
+    Template = emqx_authz_utils:parse_str(Topic, ?ALLOWED_VARS),
     case emqx_template:is_const(Template) of
         true -> emqx_topic:words(bin(Topic));
         false -> {pattern, Template}

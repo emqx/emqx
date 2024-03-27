@@ -32,6 +32,7 @@
     render_urlencoded_str/2,
     render_sql_params/2,
     is_superuser/1,
+    client_attrs/1,
     bin/1,
     ensure_apps_started/1,
     cleanup_resources/0,
@@ -45,13 +46,16 @@
     default_headers_no_content_type/0
 ]).
 
+%% VAR_NS_CLIENT_ATTRS is added here because it can be initialized before authn.
+%% NOTE: authn return may add more to (or even overwrite) client_attrs.
 -define(ALLOWED_VARS, [
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
     ?VAR_PASSWORD,
     ?VAR_PEERHOST,
     ?VAR_CERT_SUBJECT,
-    ?VAR_CERT_CN_NAME
+    ?VAR_CERT_CN_NAME,
+    ?VAR_NS_CLIENT_ATTRS
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{
@@ -203,6 +207,27 @@ is_superuser(#{<<"is_superuser">> := Value}) ->
     #{is_superuser => to_bool(Value)};
 is_superuser(#{}) ->
     #{is_superuser => false}.
+
+client_attrs(#{<<"client_attrs">> := Attrs}) ->
+    #{client_attrs => drop_invalid_attr(Attrs)};
+client_attrs(_) ->
+    #{client_attrs => #{}}.
+
+drop_invalid_attr(Map) when is_map(Map) ->
+    maps:from_list(do_drop_invalid_attr(maps:to_list(Map))).
+
+do_drop_invalid_attr([]) ->
+    [];
+do_drop_invalid_attr([{K, V} | More]) ->
+    case emqx_utils:is_restricted_str(K) of
+        true ->
+            [{iolist_to_binary(K), iolist_to_binary(V)} | do_drop_invalid_attr(More)];
+        false ->
+            ?SLOG(debug, #{msg => "invalid_client_attr_dropped", attr_name => K}, #{
+                tag => "AUTHN"
+            }),
+            do_drop_invalid_attr(More)
+    end.
 
 ensure_apps_started(bcrypt) ->
     {ok, _} = application:ensure_all_started(bcrypt),

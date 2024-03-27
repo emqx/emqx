@@ -251,7 +251,7 @@ init(
             MP -> MP
         end,
     ListenerId = emqx_listeners:listener_id(Type, Listener),
-    ClientInfo = set_peercert_infos(
+    ClientInfo0 = set_peercert_infos(
         Peercert,
         #{
             zone => Zone,
@@ -269,6 +269,8 @@ init(
         },
         Zone
     ),
+    AttrExtractionConfig = get_mqtt_conf(Zone, client_attrs_init),
+    ClientInfo = initialize_client_attrs_from_cert(AttrExtractionConfig, ClientInfo0, Peercert),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{
         conninfo = NConnInfo,
@@ -1570,7 +1572,8 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             fun set_bridge_mode/2,
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
-            fun fix_mountpoint/2
+            %% attr init should happen after clientid and username assign
+            fun maybe_set_client_initial_attr/2
         ],
         ConnPkt,
         ClientInfo
@@ -1581,6 +1584,47 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
         {error, ReasonCode, NClientInfo} ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
+
+initialize_client_attrs_from_cert(
+    #{
+        extract_from := From,
+        extract_regexp := Regexp,
+        extract_as := AttrName
+    },
+    ClientInfo,
+    Peercert
+) when From =:= cn orelse From =:= dn ->
+    case extract_client_attr_from_cert(From, Regexp, Peercert) of
+        {ok, Value} ->
+            ?SLOG(
+                debug,
+                #{
+                    msg => "client_attr_init_from_cert",
+                    extracted_as => AttrName,
+                    extracted_value => Value
+                }
+            ),
+            ClientInfo#{client_attrs => #{AttrName => Value}};
+        _ ->
+            ClientInfo#{client_attrs => #{}}
+    end;
+initialize_client_attrs_from_cert(_, ClientInfo, _Peercert) ->
+    ClientInfo.
+
+extract_client_attr_from_cert(cn, Regexp, Peercert) ->
+    CN = esockd_peercert:common_name(Peercert),
+    re_extract(CN, Regexp);
+extract_client_attr_from_cert(dn, Regexp, Peercert) ->
+    DN = esockd_peercert:subject(Peercert),
+    re_extract(DN, Regexp).
+
+re_extract(Str, Regexp) when is_binary(Str) ->
+    case re:run(Str, Regexp, [{capture, all_but_first, list}]) of
+        {match, [_ | _] = List} -> {ok, iolist_to_binary(List)};
+        _ -> nomatch
+    end;
+re_extract(_NotStr, _Regexp) ->
+    ignored.
 
 set_username(
     #mqtt_packet_connect{username = Username},
@@ -1622,11 +1666,81 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
 maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
 
-fix_mountpoint(_ConnPkt, #{mountpoint := undefined}) ->
-    ok;
-fix_mountpoint(_ConnPkt, ClientInfo = #{mountpoint := MountPoint}) ->
+maybe_set_client_initial_attr(ConnPkt, #{zone := Zone} = ClientInfo0) ->
+    Config = get_mqtt_conf(Zone, client_attrs_init),
+    ClientInfo = initialize_client_attrs_from_user_property(Config, ConnPkt, ClientInfo0),
+    Attrs = maps:get(client_attrs, ClientInfo, #{}),
+    case extract_attr_from_clientinfo(Config, ClientInfo) of
+        {ok, Value} ->
+            #{extract_as := Name} = Config,
+            ?SLOG(
+                debug,
+                #{
+                    msg => "client_attr_init_from_clientinfo",
+                    extracted_as => Name,
+                    extracted_value => Value
+                }
+            ),
+            {ok, ClientInfo#{client_attrs => Attrs#{Name => Value}}};
+        _ ->
+            {ok, ClientInfo}
+    end.
+
+initialize_client_attrs_from_user_property(
+    #{
+        extract_from := user_property,
+        extract_as := PropertyKey
+    },
+    ConnPkt,
+    ClientInfo
+) ->
+    case extract_client_attr_from_user_property(ConnPkt, PropertyKey) of
+        {ok, Value} ->
+            ?SLOG(
+                debug,
+                #{
+                    msg => "client_attr_init_from_user_property",
+                    extracted_as => PropertyKey,
+                    extracted_value => Value
+                }
+            ),
+            ClientInfo#{client_attrs => #{PropertyKey => Value}};
+        _ ->
+            ClientInfo
+    end;
+initialize_client_attrs_from_user_property(_, _ConnInfo, ClientInfo) ->
+    ClientInfo.
+
+extract_client_attr_from_user_property(
+    #mqtt_packet_connect{properties = #{'User-Property' := UserProperty}}, PropertyKey
+) ->
+    case lists:keyfind(PropertyKey, 1, UserProperty) of
+        {_, Value} ->
+            {ok, Value};
+        _ ->
+            not_found
+    end;
+extract_client_attr_from_user_property(_ConnPkt, _PropertyKey) ->
+    ignored.
+
+extract_attr_from_clientinfo(#{extract_from := clientid, extract_regexp := Regexp}, #{
+    clientid := ClientId
+}) ->
+    re_extract(ClientId, Regexp);
+extract_attr_from_clientinfo(#{extract_from := username, extract_regexp := Regexp}, #{
+    username := Username
+}) when
+    Username =/= undefined
+->
+    re_extract(Username, Regexp);
+extract_attr_from_clientinfo(_Config, _CLientInfo) ->
+    ignored.
+
+fix_mountpoint(#{mountpoint := undefined} = ClientInfo) ->
+    ClientInfo;
+fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := MountPoint1}}.
+    ClientInfo#{mountpoint := MountPoint1}.
 
 %%--------------------------------------------------------------------
 %% Set log metadata
@@ -1735,9 +1849,23 @@ do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
 
-merge_auth_result(ClientInfo, AuthResult) when is_map(ClientInfo) andalso is_map(AuthResult) ->
-    IsSuperuser = maps:get(is_superuser, AuthResult, false),
-    maps:merge(ClientInfo, AuthResult#{is_superuser => IsSuperuser}).
+%% Merge authentication result into ClientInfo
+%% Authentication result may include:
+%% 1. `is_superuser': The superuser flag from various backends
+%% 2. `acl': ACL rules from JWT, HTTP auth backend
+%% 3. `client_attrs': Extra client attributes from JWT, HTTP auth backend
+%% 4. Maybe more non-standard fields used by hook callbacks
+merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
+    IsSuperuser = maps:get(is_superuser, AuthResult0, false),
+    AuthResult = maps:without([client_attrs], AuthResult0),
+    Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
+    Attrs1 = maps:get(client_attrs, AuthResult0, #{}),
+    Attrs = maps:merge(Attrs0, Attrs1),
+    NewClientInfo = maps:merge(
+        ClientInfo#{client_attrs => Attrs},
+        AuthResult#{is_superuser => IsSuperuser}
+    ),
+    fix_mountpoint(NewClientInfo).
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias

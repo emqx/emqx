@@ -424,14 +424,14 @@ is_missing_namespace(ShortName, FullName, RootNames) ->
             ShortName =:= FullName
     end.
 
-%% Returns short name from full name, fullname delemited by colon(:).
+%% Returns short name from full name, fullname delimited by colon(:).
 short_name(FullName) ->
     case string:split(FullName, ":") of
         [_, Name] -> to_bin(Name);
         _ -> to_bin(FullName)
     end.
 
-%% Returns the hash-anchor from full name, fullname delemited by colon(:).
+%% Returns the hash-anchor from full name, fullname delimited by colon(:).
 format_hash(FullName) ->
     case string:split(FullName, ":") of
         [Namespace, Name] ->

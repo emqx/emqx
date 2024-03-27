@@ -36,7 +36,8 @@
     listener => 'tcp:default',
     protocol => mqtt,
     cert_subject => <<"cert_subject_data">>,
-    cert_common_name => <<"cert_common_name_data">>
+    cert_common_name => <<"cert_common_name_data">>,
+    client_attrs => #{<<"group">> => <<"g1">>}
 }).
 
 -define(SERVER_RESPONSE_JSON(Result), ?SERVER_RESPONSE_JSON(Result, false)).
@@ -533,7 +534,7 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, client_attrs => #{}}}
         },
 
         %% get request with json body response
@@ -542,13 +543,20 @@ samples() ->
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
-                    emqx_utils_json:encode(#{result => allow, is_superuser => true}),
+                    emqx_utils_json:encode(#{
+                        result => allow,
+                        is_superuser => true,
+                        client_attrs => #{
+                            fid => <<"n11">>,
+                            <<"#_bad_key">> => <<"v">>
+                        }
+                    }),
                     Req0
                 ),
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => true, user_property => #{}}}
+            result => {ok, #{is_superuser => true, client_attrs => #{<<"fid">> => <<"n11">>}}}
         },
 
         %% get request with url-form-encoded body response
@@ -566,7 +574,7 @@ samples() ->
                 {ok, Req, State}
             end,
             config_params => #{},
-            result => {ok, #{is_superuser => true, user_property => #{}}}
+            result => {ok, #{is_superuser => true, client_attrs => #{}}}
         },
 
         %% get request with response of unknown encoding
@@ -608,7 +616,7 @@ samples() ->
                 <<"method">> => <<"post">>,
                 <<"headers">> => #{<<"content-type">> => <<"application/json">>}
             },
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, client_attrs => #{}}}
         },
 
         %% simple post request, application/x-www-form-urlencoded
@@ -634,7 +642,7 @@ samples() ->
                         <<"application/x-www-form-urlencoded">>
                 }
             },
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, client_attrs => #{}}}
         },
 
         %% simple post request for placeholders, application/json
@@ -647,7 +655,8 @@ samples() ->
                     <<"clientid">> := <<"clienta">>,
                     <<"peerhost">> := <<"127.0.0.1">>,
                     <<"cert_subject">> := <<"cert_subject_data">>,
-                    <<"cert_common_name">> := <<"cert_common_name_data">>
+                    <<"cert_common_name">> := <<"cert_common_name_data">>,
+                    <<"the_group">> := <<"g1">>
                 } = emqx_utils_json:decode(RawBody, [return_maps]),
                 Req = cowboy_req:reply(
                     200,
@@ -666,10 +675,11 @@ samples() ->
                     <<"password">> => ?PH_PASSWORD,
                     <<"peerhost">> => ?PH_PEERHOST,
                     <<"cert_subject">> => ?PH_CERT_SUBJECT,
-                    <<"cert_common_name">> => ?PH_CERT_CN_NAME
+                    <<"cert_common_name">> => ?PH_CERT_CN_NAME,
+                    <<"the_group">> => <<"${client_attrs.group}">>
                 }
             },
-            result => {ok, #{is_superuser => false, user_property => #{}}}
+            result => {ok, #{is_superuser => false, client_attrs => #{}}}
         },
 
         %% custom headers
