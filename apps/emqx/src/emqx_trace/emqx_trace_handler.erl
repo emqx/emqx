@@ -169,7 +169,9 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
 formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.
-        template => [time, " [", level, "] ", msg, "\n"],
+        %% XXX: Don't need to print the time field in logger_formatter due to we manually concat it
+        %% in emqx_logger_textfmt:fmt/2
+        template => ["[", level, "] ", msg, "\n"],
         single_line => true,
         max_size => unlimited,
         depth => unlimited,
