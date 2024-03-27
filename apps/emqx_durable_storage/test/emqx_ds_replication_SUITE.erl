@@ -52,7 +52,7 @@ t_replication_transfers_snapshots(Config) ->
     ?retry(
         500,
         10,
-        ?assertMatch([_], shards_online(Node, ?DB))
+        ?assertMatch([[_], [_], [_]], [shards_online(N, ?DB) || N <- Nodes])
     ),
 
     %% Stop the DB on the "offline" node.
