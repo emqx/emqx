@@ -76,3 +76,5 @@ rebar-git-cache.tar
 .docker_image_tag
 .emqx_docker_image_tags
 .git/
+apps/emqx/src/emqx_variform_parser.erl
+apps/emqx/src/variform/emqx_variform_scan.erl
