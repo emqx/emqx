@@ -108,6 +108,7 @@ cluster(["join", SNode]) ->
             emqx_ctl:print("Failed to join the cluster: ~0p~n", [Error])
     end;
 cluster(["leave"]) ->
+    _ = maybe_disable_autocluster(),
     case mria:leave() of
         ok ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
@@ -139,12 +140,15 @@ cluster(["status"]) ->
 cluster(["status", "--json"]) ->
     Info = sort_map_list_fields(cluster_info()),
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Info)]);
+cluster(["autocluster", "enable"]) ->
+    enable_autocluster();
 cluster(_) ->
     emqx_ctl:usage([
         {"cluster join <Node>", "Join the cluster"},
         {"cluster leave", "Leave the cluster"},
         {"cluster force-leave <Node>", "Force the node leave from cluster"},
-        {"cluster status [--json]", "Cluster status"}
+        {"cluster status [--json]", "Cluster status"},
+        {"cluster autocluster enable", "Enable and run automatic cluster discovery (if configured)"}
     ]).
 
 %% sort lists for deterministic output
@@ -161,6 +165,24 @@ sort_map_list_field(Field, Map) ->
     case maps:get(Field, Map) of
         [_ | _] = L -> Map#{Field := lists:sort(L)};
         _ -> Map
+    end.
+
+enable_autocluster() ->
+    ok = ekka:enable_autocluster(),
+    _ = ekka:autocluster(emqx),
+    emqx_ctl:print("Automatic cluster discovery enabled.~n").
+
+maybe_disable_autocluster() ->
+    case ekka:autocluster_enabled() of
+        true ->
+            ok = ekka:disable_autocluster(),
+            emqx_ctl:print(
+                "Automatic cluster discovery disabled to avoid"
+                " re-joing the same cluster again, if the node is not stopped."
+                " To enable it run: 'emqx ctl cluster autocluster enable' or restart the node.~n"
+            );
+        false ->
+            ok
     end.
 
 %%--------------------------------------------------------------------
