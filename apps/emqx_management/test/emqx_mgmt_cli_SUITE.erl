@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -30,6 +31,47 @@ init_per_suite(Config) ->
 
 end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite([emqx_management, emqx_conf]).
+
+init_per_testcase(t_autocluster_leave = TC, Config) ->
+    [Core1, Core2, Core3, Repl] =
+        Nodes = [
+            t_autocluster_leave_core1,
+            t_autocluster_leave_core2,
+            t_autocluster_leave_core3,
+            t_autocluster_leave_replicant
+        ],
+
+    NodeNames = [emqx_cth_cluster:node_name(N) || N <- Nodes],
+    AppSpec = [
+        emqx,
+        {emqx_conf, #{
+            config => #{
+                cluster => #{
+                    discovery_strategy => static,
+                    static => #{seeds => NodeNames}
+                }
+            }
+        }},
+        emqx_management
+    ],
+    Cluster = emqx_cth_cluster:start(
+        [
+            {Core1, #{role => core, apps => AppSpec}},
+            {Core2, #{role => core, apps => AppSpec}},
+            {Core3, #{role => core, apps => AppSpec}},
+            {Repl, #{role => replicant, apps => AppSpec}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    [{cluster, Cluster} | Config];
+init_per_testcase(_TC, Config) ->
+    Config.
+
+end_per_testcase(_TC, Config) ->
+    case ?config(cluster, Config) of
+        undefined -> ok;
+        Cluster -> emqx_cth_cluster:stop(Cluster)
+    end.
 
 t_status(_Config) ->
     emqx_ctl:run_command([]),
@@ -263,3 +305,44 @@ t_admin(_Config) ->
     %% admins passwd <Username> <Password>            # Reset dashboard user password
     %% admins del <Username>                          # Delete dashboard user
     ok.
+
+t_autocluster_leave(Config) ->
+    [Core1, Core2, Core3, Repl] = Cluster = ?config(cluster, Config),
+    %% Mria membership updates are async, makes sense to wait a little
+    timer:sleep(300),
+    ClusterView = [lists:sort(rpc:call(N, emqx, running_nodes, [])) || N <- Cluster],
+    [View1, View2, View3, View4] = ClusterView,
+    ?assertEqual(lists:sort(Cluster), View1),
+    ?assertEqual(View1, View2),
+    ?assertEqual(View1, View3),
+    ?assertEqual(View1, View4),
+
+    rpc:call(Core3, emqx_mgmt_cli, cluster, [["leave"]]),
+    timer:sleep(1000),
+    %% Replicant node may still discover and join Core3 which is now split from [Core1, Core2],
+    %% but it's expected to choose a bigger cluster of [Core1, Core2]..
+    ?assertMatch([Core3], rpc:call(Core3, emqx, running_nodes, [])),
+    ?assertEqual(undefined, rpc:call(Core1, erlang, whereis, [ekka_autocluster])),
+    ?assertEqual(lists:sort([Core1, Core2, Repl]), rpc:call(Core1, emqx, running_nodes, [])),
+    ?assertEqual(lists:sort([Core1, Core2, Repl]), rpc:call(Core2, emqx, running_nodes, [])),
+    ?assertEqual(lists:sort([Core1, Core2, Repl]), rpc:call(Repl, emqx, running_nodes, [])),
+
+    rpc:call(Repl, emqx_mgmt_cli, cluster, [["leave"]]),
+    timer:sleep(1000),
+    ?assertEqual(lists:sort([Core1, Core2]), rpc:call(Core1, emqx, running_nodes, [])),
+    ?assertEqual(lists:sort([Core1, Core2]), rpc:call(Core2, emqx, running_nodes, [])),
+
+    rpc:call(Core3, emqx_mgmt_cli, cluster, [["discovery", "enable"]]),
+    rpc:call(Repl, emqx_mgmt_cli, cluster, [["discovery", "enable"]]),
+    %% core nodes will join and restart asyncly, may need more time to re-cluster
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                [lists:sort(rpc:call(N, emqx, running_nodes, [])) || N <- Cluster] =:= ClusterView
+            end,
+            10_000
+        )
+    ).
