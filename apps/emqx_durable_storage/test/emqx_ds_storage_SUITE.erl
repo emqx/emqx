@@ -42,7 +42,7 @@ t_idempotent_store_batch(_Config) ->
     %% First batch should have been handled idempotently.
     ?assertEqual(
         Msgs1 ++ Msgs2,
-        lists:keysort(#message.timestamp, consume(Shard, ['#']))
+        lists:keysort(#message.timestamp, emqx_ds_test_helpers:storage_consume(Shard, ['#']))
     ),
     ok = stop_shard(Pid).
 
@@ -79,7 +79,7 @@ t_snapshot_take_restore(_Config) ->
     {ok, _Pid} = emqx_ds_storage_layer:start_link(Shard, opts()),
     ?assertEqual(
         Msgs1 ++ Msgs2,
-        lists:keysort(#message.timestamp, consume(Shard, ['#']))
+        lists:keysort(#message.timestamp, emqx_ds_test_helpers:storage_consume(Shard, ['#']))
     ).
 
 transfer_snapshot(Reader, Writer) ->
@@ -126,29 +126,6 @@ message(Topic, Payload, PublishedAt) ->
         timestamp = PublishedAt,
         id = emqx_guid:gen()
     }.
-
-consume(Shard, TopicFilter) ->
-    consume(Shard, TopicFilter, 0).
-
-consume(Shard, TopicFilter, StartTime) ->
-    Streams = emqx_ds_storage_layer:get_streams(Shard, TopicFilter, StartTime),
-    lists:flatmap(
-        fun({_Rank, Stream}) ->
-            {ok, It} = emqx_ds_storage_layer:make_iterator(Shard, Stream, TopicFilter, StartTime),
-            consume_stream(Shard, It)
-        end,
-        Streams
-    ).
-
-consume_stream(Shard, It) ->
-    case emqx_ds_storage_layer:next(Shard, It, 100) of
-        {ok, _NIt, _Msgs = []} ->
-            [];
-        {ok, NIt, Batch} ->
-            [Msg || {_DSKey, Msg} <- Batch] ++ consume_stream(Shard, NIt);
-        {ok, end_of_stream} ->
-            []
-    end.
 
 stop_shard(Pid) ->
     _ = unlink(Pid),

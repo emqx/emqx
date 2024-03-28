@@ -136,28 +136,7 @@ message(Topic, Payload, PublishedAt) ->
     }.
 
 consume(Node, DB, Shard, TopicFilter, StartTime) ->
-    Streams = erpc:call(Node, emqx_ds_storage_layer, get_streams, [
-        {DB, Shard}, TopicFilter, StartTime
-    ]),
-    lists:flatmap(
-        fun({_Rank, Stream}) ->
-            {ok, It} = erpc:call(Node, emqx_ds_storage_layer, make_iterator, [
-                {DB, Shard}, Stream, TopicFilter, StartTime
-            ]),
-            consume_stream(Node, DB, Shard, It)
-        end,
-        Streams
-    ).
-
-consume_stream(Node, DB, Shard, It) ->
-    case erpc:call(Node, emqx_ds_storage_layer, next, [{DB, Shard}, It, 100]) of
-        {ok, _NIt, _Msgs = []} ->
-            [];
-        {ok, NIt, Batch} ->
-            [Msg || {_Key, Msg} <- Batch] ++ consume_stream(Node, DB, Shard, NIt);
-        {ok, end_of_stream} ->
-            []
-    end.
+    erpc:call(Node, emqx_ds_test_helpers, storage_consume, [{DB, Shard}, TopicFilter, StartTime]).
 
 probably(P, Fun) ->
     case rand:uniform() of
