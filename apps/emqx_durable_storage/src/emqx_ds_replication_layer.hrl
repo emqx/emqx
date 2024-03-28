@@ -33,7 +33,6 @@
 %% ?BATCH
 -define(batch_messages, 2).
 -define(timestamp, 3).
--define(opts, 4).
 
 %% add_generation / update_config
 -define(config, 2).

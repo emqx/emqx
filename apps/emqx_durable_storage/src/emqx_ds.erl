@@ -163,14 +163,7 @@
         %% shard (if applicable to the backend), as the batch will be split accordingly
         %% even if this flag is `true'.
         %% Default: `false'.
-        atomic => boolean(),
-        %% Defines whether to automatically assign strictly monotonically increasing
-        %% internal timestamps when storing messages (which precludes upserting even if
-        %% crafting timestamps in the message), or allow repeated timestamps in the DB
-        %% (which allows upserting keys, depending on the properties of the layout
-        %% keymapper).
-        %% Default: `true'.
-        auto_assign_timestamps => boolean()
+        atomic => boolean()
     }.
 
 -type generic_db_opts() ::
@@ -306,11 +299,15 @@ drop_db(DB) ->
             Module:drop_db(DB)
     end.
 
--spec store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
+-spec store_batch(
+    db(), [emqx_types:message() | {time(), emqx_types:message()}], message_store_opts()
+) ->
+    store_batch_result().
 store_batch(DB, Msgs, Opts) ->
     ?module(DB):store_batch(DB, Msgs, Opts).
 
--spec store_batch(db(), [emqx_types:message()]) -> store_batch_result().
+-spec store_batch(db(), [emqx_types:message() | {time(), emqx_types:message()}]) ->
+    store_batch_result().
 store_batch(DB, Msgs) ->
     store_batch(DB, Msgs, #{}).
 

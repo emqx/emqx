@@ -374,7 +374,8 @@ commit(
         ?unset_dirty
     }.
 
-store_batch(Batch) ->
+store_batch(Batch0) ->
+    Batch = [{emqx_message:timestamp(Msg, microsecond), Msg} || Msg <- Batch0],
     emqx_ds:store_batch(?DB, Batch, #{atomic => true, auto_assign_timestamps => false}).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.

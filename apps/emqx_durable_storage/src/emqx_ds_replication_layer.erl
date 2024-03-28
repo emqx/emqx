@@ -60,7 +60,7 @@
     do_add_generation_v2/1,
 
     %% Egress API:
-    ra_store_batch/4
+    ra_store_batch/3
 ]).
 
 -export([
@@ -205,7 +205,11 @@ drop_db(DB) ->
     _ = emqx_ds_proto_v4:drop_db(list_nodes(), DB),
     emqx_ds_replication_layer_meta:drop_db(DB).
 
--spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
+-spec store_batch(
+    emqx_ds:db(),
+    [emqx_types:message() | {emqx_ds:time(), emqx_types:message()}, ...],
+    emqx_ds:message_store_opts()
+) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
     try
@@ -498,11 +502,10 @@ list_nodes() ->
 %% Too large for normal operation, need better backpressure mechanism.
 -define(RA_TIMEOUT, 60 * 1000).
 
-ra_store_batch(DB, Shard, Messages, Opts) ->
+ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,
-        ?batch_messages => Messages,
-        ?opts => Opts
+        ?batch_messages => Messages
     },
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
     case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
@@ -604,8 +607,7 @@ apply(
     #{index := RaftIdx},
     #{
         ?tag := ?BATCH,
-        ?batch_messages := MessagesIn,
-        ?opts := Opts
+        ?batch_messages := MessagesIn
     },
     #{db_shard := DBShard, latest := Latest} = State
 ) ->
@@ -613,7 +615,7 @@ apply(
     %% Unique timestamp tracking real time closely.
     %% With microsecond granularity it should be nearly impossible for it to run
     %% too far ahead than the real time clock.
-    {NLatest, Messages} = assign_timestamps(Latest, MessagesIn, Opts),
+    {NLatest, Messages} = assign_timestamps(Latest, MessagesIn),
     %% TODO
     %% Batch is now reversed, but it should not make a lot of difference.
     %% Even if it would be in order, it's still possible to write messages far away
@@ -652,28 +654,22 @@ apply(
     Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
     {State, Result}.
 
-assign_timestamps(Latest, Messages, #{auto_assign_timestamps := true}) ->
-    do_auto_assign_timestamps(Latest, Messages, []);
-assign_timestamps(Latest, Messages, #{auto_assign_timestamps := false}) ->
-    lists:foldl(
-        fun(Message, {MaxIn, AccIn}) ->
-            MsgTs = emqx_message:timestamp(Message, microsecond),
-            {max(MaxIn, MsgTs), [assign_timestamp(MsgTs, Message) | AccIn]}
-        end,
-        {Latest, []},
-        Messages
-    ).
+assign_timestamps(Latest, Messages) ->
+    assign_timestamps(Latest, Messages, []).
 
-do_auto_assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
+assign_timestamps(Latest, [MessageIn = #message{} | Rest], Acc) ->
     case emqx_message:timestamp(MessageIn, microsecond) of
         TimestampUs when TimestampUs > Latest ->
             Message = assign_timestamp(TimestampUs, MessageIn),
-            do_auto_assign_timestamps(TimestampUs, Rest, [Message | Acc]);
+            assign_timestamps(TimestampUs, Rest, [Message | Acc]);
         _Earlier ->
             Message = assign_timestamp(Latest + 1, MessageIn),
-            do_auto_assign_timestamps(Latest + 1, Rest, [Message | Acc])
+            assign_timestamps(Latest + 1, Rest, [Message | Acc])
     end;
-do_auto_assign_timestamps(Latest, [], Acc) ->
+assign_timestamps(Latest0, [{TimestampIn, #message{}} = TsMessageIn | Rest], Acc) ->
+    Latest = max(Latest0, TimestampIn),
+    assign_timestamps(Latest, Rest, [TsMessageIn | Acc]);
+assign_timestamps(Latest, [], Acc) ->
     {Latest, Acc}.
 
 assign_timestamp(TimestampUs, Message) ->
