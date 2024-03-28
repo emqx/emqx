@@ -80,24 +80,29 @@ update_setting(Setting) when is_map(Setting) ->
 check(_ConnInfo, AckProps) ->
     case emqx_license_checker:limits() of
         {ok, #{max_connections := ?ERR_EXPIRED}} ->
-            ?SLOG(error, #{msg => "connection_rejected_due_to_license_expired"}),
+            ?SLOG(error, #{msg => "connection_rejected_due_to_license_expired"}, #{tag => "LICENSE"}),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
         {ok, #{max_connections := MaxClients}} ->
             case check_max_clients_exceeded(MaxClients) of
                 true ->
                     ?SLOG_THROTTLE(
                         error,
-                        #{msg => connection_rejected_due_to_license_limit_reached}
+                        #{msg => connection_rejected_due_to_license_limit_reached},
+                        #{tag => "LICENSE"}
                     ),
                     {stop, {error, ?RC_QUOTA_EXCEEDED}};
                 false ->
                     {ok, AckProps}
             end;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "connection_rejected_due_to_license_not_loaded",
-                reason => Reason
-            }),
+            ?SLOG(
+                error,
+                #{
+                    msg => "connection_rejected_due_to_license_not_loaded",
+                    reason => Reason
+                },
+                #{tag => "LICENSE"}
+            ),
             {stop, {error, ?RC_QUOTA_EXCEEDED}}
     end.
 

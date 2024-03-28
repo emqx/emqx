@@ -20,7 +20,7 @@
 -export([check_config/1]).
 -export([try_format_unicode/1]).
 
-check_config(X) -> logger_formatter:check_config(X).
+check_config(X) -> logger_formatter:check_config(maps:without([timestamp_format], X)).
 
 %% Principle here is to delegate the formatting to logger_formatter:format/2
 %% as much as possible, and only enrich the report with clientid, peername, topic, username
@@ -35,7 +35,7 @@ format(#{msg := {report, ReportMap}, meta := Meta} = Event, Config) when is_map(
             false ->
                 maps:from_list(ReportList)
         end,
-    logger_formatter:format(Event#{msg := {report, Report}}, Config);
+    fmt(Event#{msg := {report, Report}}, Config);
 format(#{msg := {string, String}} = Event, Config) ->
     %% copied from logger_formatter:format/2
     %% unsure how this case is triggered
@@ -45,7 +45,23 @@ format(#{msg := Msg0, meta := Meta} = Event, Config) ->
     %% and logger:log(Level, "message", #{key => value})
     Msg1 = enrich_client_info(Msg0, Meta),
     Msg2 = enrich_topic(Msg1, Meta),
-    logger_formatter:format(Event#{msg := Msg2}, Config).
+    fmt(Event#{msg := Msg2}, Config).
+
+fmt(#{meta := #{time := Ts}} = Data, Config) ->
+    Timestamp =
+        case Config of
+            #{timestamp_format := epoch} ->
+                integer_to_list(Ts);
+            _ ->
+                % auto | rfc3339
+                TimeOffset = maps:get(time_offset, Config, ""),
+                calendar:system_time_to_rfc3339(Ts, [
+                    {unit, microsecond},
+                    {offset, TimeOffset},
+                    {time_designator, $T}
+                ])
+        end,
+    [Timestamp, " ", logger_formatter:format(Data, Config)].
 
 %% Other report callbacks may only accept map() reports such as gen_server formatter
 is_list_report_acceptable(#{report_cb := Cb}) ->
@@ -69,7 +85,9 @@ enrich_report(ReportRaw, Meta) ->
     ClientId = maps:get(clientid, Meta, undefined),
     Peer = maps:get(peername, Meta, undefined),
     Msg = maps:get(msg, ReportRaw, undefined),
-    Tag = maps:get(tag, ReportRaw, undefined),
+    %% TODO: move all tags to Meta so we can filter traces
+    %% based on tags (currently not supported)
+    Tag = maps:get(tag, ReportRaw, maps:get(tag, Meta, undefined)),
     %% turn it into a list so that the order of the fields is determined
     lists:foldl(
         fun

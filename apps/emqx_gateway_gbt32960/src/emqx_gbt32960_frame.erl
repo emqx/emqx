@@ -234,7 +234,7 @@ parse_data(
     <<Year:?BYTE, Month:?BYTE, Day:?BYTE, Hour:?BYTE, Minute:?BYTE, Second:?BYTE, Total:?BYTE,
         Rest/binary>>
 ) ->
-    %% XXX: need check ACK filed?
+    %% XXX: need check ACK field?
     #{
         <<"Time">> => #{
             <<"Year">> => Year,

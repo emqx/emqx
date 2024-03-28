@@ -124,9 +124,12 @@ ensure_otel_metrics(
 ) ->
     ok;
 ensure_otel_metrics(#{metrics := #{enable := true}} = Conf, _Old) ->
+    ok = emqx_otel_cpu_sup:stop_otel_cpu_sup(),
+    _ = emqx_otel_cpu_sup:start_otel_cpu_sup(Conf),
     _ = emqx_otel_metrics:stop_otel(),
     emqx_otel_metrics:start_otel(Conf);
 ensure_otel_metrics(#{metrics := #{enable := false}}, _Old) ->
+    ok = emqx_otel_cpu_sup:stop_otel_cpu_sup(),
     emqx_otel_metrics:stop_otel();
 ensure_otel_metrics(_, _) ->
     ok.

@@ -172,11 +172,15 @@ refresh(State) ->
     State.
 
 log_new_license(Old, New) ->
-    ?SLOG(info, #{
-        msg => "new_license_loaded",
-        old_license => emqx_license_parser:summary(Old),
-        new_license => emqx_license_parser:summary(New)
-    }).
+    ?SLOG(
+        info,
+        #{
+            msg => "new_license_loaded",
+            old_license => emqx_license_parser:summary(Old),
+            new_license => emqx_license_parser:summary(New)
+        },
+        #{tag => "LICENSE"}
+    ).
 
 ensure_check_license_timer(#{check_license_interval := CheckInterval} = State) ->
     ok = cancel_timer(State, check_timer),

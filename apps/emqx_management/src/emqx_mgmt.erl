@@ -359,6 +359,10 @@ kickout_client(ClientId) ->
     case lookup_client({clientid, ClientId}, undefined) of
         [] ->
             {error, not_found};
+        [{ClientId, _}] ->
+            %% Offline durable session (client ID is a plain binary
+            %% without channel pid):
+            emqx_persistent_session_ds:kick_offline_session(ClientId);
         _ ->
             Results = [kickout_client(Node, ClientId) || Node <- emqx:running_nodes()],
             check_results(Results)
@@ -372,6 +376,7 @@ kickout_clients(ClientIds) when is_list(ClientIds) ->
         emqx_management_proto_v5:kickout_clients(Node, ClientIds)
     end,
     Results = lists:map(F, emqx:running_nodes()),
+    lists:foreach(fun emqx_persistent_session_ds:kick_offline_session/1, ClientIds),
     case lists:filter(fun(Res) -> Res =/= ok end, Results) of
         [] ->
             ok;
@@ -509,7 +514,7 @@ do_call_client(ClientId, Req) ->
             Pid = lists:last(Pids),
             case emqx_cm:get_chan_info(ClientId, Pid) of
                 #{conninfo := #{conn_mod := ConnMod}} ->
-                    erlang:apply(ConnMod, call, [Pid, Req]);
+                    call_conn(ConnMod, Pid, Req);
                 undefined ->
                     {error, not_found}
             end
@@ -698,3 +703,13 @@ check_results(Results) ->
 
 default_row_limit() ->
     ?DEFAULT_ROW_LIMIT.
+
+call_conn(ConnMod, Pid, Req) ->
+    try
+        erlang:apply(ConnMod, call, [Pid, Req])
+    catch
+        exit:R when R =:= shutdown; R =:= normal ->
+            {error, shutdown};
+        exit:{R, _} when R =:= shutdown; R =:= noproc ->
+            {error, shutdown}
+    end.

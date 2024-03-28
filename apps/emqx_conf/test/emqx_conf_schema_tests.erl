@@ -131,8 +131,9 @@ log.file_handlers {
         chars_limit => unlimited,
         depth => 100,
         single_line => true,
-        template => [time, " [", level, "] ", msg, "\n"],
-        time_offset => TimeOffset
+        template => ["[", level, "] ", msg, "\n"],
+        time_offset => TimeOffset,
+        timestamp_format => auto
     }}
 ).
 

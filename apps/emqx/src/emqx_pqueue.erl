@@ -46,6 +46,7 @@
     len/1,
     plen/2,
     to_list/1,
+    to_queues_list/1,
     from_list/1,
     in/2,
     in/3,
@@ -120,6 +121,18 @@ to_list({pqueue, Queues}) ->
      || {P, Q} <- Queues,
         {0, V} <- to_list(Q)
     ].
+
+-spec to_queues_list(pqueue()) -> [{priority(), squeue()}].
+to_queues_list({queue, _In, _Out, _Len} = Squeue) ->
+    [{0, Squeue}];
+to_queues_list({pqueue, Queues}) ->
+    lists:sort(
+        fun
+            ({infinity = _P1, _}, {_P2, _}) -> true;
+            ({P1, _}, {P2, _}) -> P1 >= P2
+        end,
+        [{maybe_negate_priority(P), Q} || {P, Q} <- Queues]
+    ).
 
 -spec from_list([{priority(), any()}]) -> pqueue().
 from_list(L) ->

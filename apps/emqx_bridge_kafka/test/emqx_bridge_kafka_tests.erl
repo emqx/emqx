@@ -6,7 +6,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--export([atoms/0]).
+-export([atoms/0, kafka_producer_old_hocon/1]).
+
 %% ensure atoms exist
 atoms() -> [myproducer, my_consumer].
 

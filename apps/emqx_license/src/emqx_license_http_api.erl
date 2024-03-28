@@ -129,13 +129,17 @@ error_msg(Code, Msg) ->
 '/license'(post, #{body := #{<<"key">> := Key}}) ->
     case emqx_license:update_key(Key) of
         {error, Error} ->
-            ?SLOG(error, #{
-                msg => "bad_license_key",
-                reason => Error
-            }),
+            ?SLOG(
+                error,
+                #{
+                    msg => "bad_license_key",
+                    reason => Error
+                },
+                #{tag => "LICENSE"}
+            ),
             {400, error_msg(?BAD_REQUEST, <<"Bad license key">>)};
         {ok, _} ->
-            ?SLOG(info, #{msg => "updated_license_key"}),
+            ?SLOG(info, #{msg => "updated_license_key"}, #{tag => "LICENSE"}),
             License = maps:from_list(emqx_license_checker:dump()),
             {200, License}
     end;
@@ -147,13 +151,17 @@ error_msg(Code, Msg) ->
 '/license/setting'(put, #{body := Setting}) ->
     case emqx_license:update_setting(Setting) of
         {error, Error} ->
-            ?SLOG(error, #{
-                msg => "bad_license_setting",
-                reason => Error
-            }),
+            ?SLOG(
+                error,
+                #{
+                    msg => "bad_license_setting",
+                    reason => Error
+                },
+                #{tag => "LICENSE"}
+            ),
             {400, error_msg(?BAD_REQUEST, <<"Bad license setting">>)};
         {ok, _} ->
-            ?SLOG(info, #{msg => "updated_license_setting"}),
+            ?SLOG(info, #{msg => "updated_license_setting"}, #{tag => "LICENSE"}),
             '/license/setting'(get, undefined)
     end.
 

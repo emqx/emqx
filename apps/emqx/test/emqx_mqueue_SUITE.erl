@@ -284,13 +284,15 @@ t_dropped(_) ->
 
 t_query(_) ->
     EmptyQ = ?Q:init(#{max_len => 500, store_qos0 => true}),
-    ?assertMatch({[], #{continuation := end_of_data}}, ?Q:query(EmptyQ, #{limit => 50})),
-    ?assertMatch(
-        {[], #{continuation := end_of_data}},
-        ?Q:query(EmptyQ, #{continuation => <<"empty">>, limit => 50})
+    ?assertEqual({[], #{position => none, start => none}}, ?Q:query(EmptyQ, #{limit => 50})),
+    RandPos = {erlang:system_time(nanosecond), 0},
+    ?assertEqual(
+        {[], #{position => RandPos, start => none}},
+        ?Q:query(EmptyQ, #{position => RandPos, limit => 50})
     ),
-    ?assertMatch(
-        {[], #{continuation := end_of_data}}, ?Q:query(EmptyQ, #{continuation => none, limit => 50})
+    ?assertEqual(
+        {[], #{position => none, start => none}},
+        ?Q:query(EmptyQ, #{continuation => none, limit => 50})
     ),
 
     Q = lists:foldl(
@@ -303,52 +305,146 @@ t_query(_) ->
         lists:seq(1, 114)
     ),
 
-    LastCont = lists:foldl(
-        fun(PageSeq, Cont) ->
+    {LastPos, LastStart} = lists:foldl(
+        fun(PageSeq, {Pos, PrevStart}) ->
             Limit = 10,
-            PagerParams = #{continuation => Cont, limit => Limit},
-            {Page, #{continuation := NextCont} = Meta} = ?Q:query(Q, PagerParams),
+            PagerParams = #{position => Pos, limit => Limit},
+            {Page, #{position := NextPos, start := Start}} = ?Q:query(Q, PagerParams),
             ?assertEqual(10, length(Page)),
             ExpFirstPayload = integer_to_binary(PageSeq * Limit - Limit + 1),
             ExpLastPayload = integer_to_binary(PageSeq * Limit),
-            ?assertEqual(
-                ExpFirstPayload,
-                emqx_message:payload(lists:nth(1, Page)),
-                #{page_seq => PageSeq, page => Page, meta => Meta}
-            ),
-            ?assertEqual(ExpLastPayload, emqx_message:payload(lists:nth(10, Page))),
-            ?assertMatch(#{count := 114, continuation := <<_/binary>>}, Meta),
-            NextCont
+            FirstMsg = lists:nth(1, Page),
+            LastMsg = lists:nth(10, Page),
+            ?assertEqual(ExpFirstPayload, emqx_message:payload(FirstMsg)),
+            ?assertEqual(ExpLastPayload, emqx_message:payload(LastMsg)),
+            %% start value must not change as Mqueue is not modified during traversal
+            NextStart =
+                case PageSeq of
+                    1 ->
+                        ?assertEqual({mqueue_ts(FirstMsg), 0}, Start),
+                        Start;
+                    _ ->
+                        ?assertEqual(PrevStart, Start),
+                        PrevStart
+                end,
+            {NextPos, NextStart}
         end,
-        none,
+        {none, none},
         lists:seq(1, 11)
     ),
-    {LastPartialPage, LastMeta} = ?Q:query(Q, #{continuation => LastCont, limit => 10}),
+
+    {LastPartialPage, #{position := FinalPos} = LastMeta} = ?Q:query(Q, #{
+        position => LastPos, limit => 10
+    }),
+    LastMsg = lists:nth(4, LastPartialPage),
     ?assertEqual(4, length(LastPartialPage)),
     ?assertEqual(<<"111">>, emqx_message:payload(lists:nth(1, LastPartialPage))),
-    ?assertEqual(<<"114">>, emqx_message:payload(lists:nth(4, LastPartialPage))),
-    ?assertMatch(#{continuation := end_of_data, count := 114}, LastMeta),
-
-    ?assertMatch(
-        {[], #{continuation := end_of_data}},
-        ?Q:query(Q, #{continuation => <<"not-existing-cont-id">>, limit => 10})
+    ?assertEqual(<<"114">>, emqx_message:payload(LastMsg)),
+    ?assertEqual(#{position => {mqueue_ts(LastMsg), 0}, start => LastStart}, LastMeta),
+    ?assertEqual(
+        {[], #{start => LastStart, position => FinalPos}},
+        ?Q:query(Q, #{position => FinalPos, limit => 10})
     ),
 
-    {LargePage, LargeMeta} = ?Q:query(Q, #{limit => 1000}),
+    {LargePage, LargeMeta} = ?Q:query(Q, #{position => none, limit => 1000}),
     ?assertEqual(114, length(LargePage)),
     ?assertEqual(<<"1">>, emqx_message:payload(hd(LargePage))),
     ?assertEqual(<<"114">>, emqx_message:payload(lists:last(LargePage))),
-    ?assertMatch(#{continuation := end_of_data}, LargeMeta),
+    ?assertEqual(#{start => LastStart, position => FinalPos}, LargeMeta),
 
-    {FullPage, FullMeta} = ?Q:query(Q, #{limit => 114}),
-    ?assertEqual(114, length(FullPage)),
-    ?assertEqual(<<"1">>, emqx_message:payload(hd(FullPage))),
-    ?assertEqual(<<"114">>, emqx_message:payload(lists:last(FullPage))),
-    ?assertMatch(#{continuation := end_of_data}, FullMeta),
+    {FullPage, FullMeta} = ?Q:query(Q, #{position => none, limit => 114}),
+    ?assertEqual(LargePage, FullPage),
+    ?assertEqual(LargeMeta, FullMeta),
 
-    {EmptyPage, EmptyMeta} = ?Q:query(Q, #{limit => 0}),
-    ?assertEqual([], EmptyPage),
-    ?assertMatch(#{continuation := none, count := 114}, EmptyMeta).
+    {_, Q1} = emqx_mqueue:out(Q),
+    {PageAfterRemove, #{start := StartAfterRemove}} = ?Q:query(Q1, #{position => none, limit => 10}),
+    ?assertEqual(<<"2">>, emqx_message:payload(hd(PageAfterRemove))),
+    ?assertEqual(StartAfterRemove, {mqueue_ts(hd(PageAfterRemove)), 0}).
+
+t_query_with_priorities(_) ->
+    Priorities = #{<<"t/infinity">> => infinity, <<"t/10">> => 10, <<"t/5">> => 5},
+    EmptyQ = ?Q:init(#{max_len => 500, store_qos0 => true, priorities => Priorities}),
+
+    ?assertEqual({[], #{position => none, start => none}}, ?Q:query(EmptyQ, #{limit => 50})),
+    RandPos = {erlang:system_time(nanosecond), 0},
+    ?assertEqual(
+        {[], #{position => RandPos, start => none}},
+        ?Q:query(EmptyQ, #{position => RandPos, limit => 50})
+    ),
+    ?assertEqual(
+        {[], #{position => none, start => none}},
+        ?Q:query(EmptyQ, #{continuation => none, limit => 50})
+    ),
+
+    {Q, ExpMsgsAcc} = lists:foldl(
+        fun(Topic, {QAcc, MsgsAcc}) ->
+            {TopicQ, TopicMsgs} =
+                lists:foldl(
+                    fun(Seq, {TopicQAcc, TopicMsgsAcc}) ->
+                        Payload = <<Topic/binary, "_", (integer_to_binary(Seq))/binary>>,
+                        Msg = emqx_message:make(Topic, Payload),
+                        {_, TopicQAcc1} = ?Q:in(Msg, TopicQAcc),
+                        {TopicQAcc1, [Msg | TopicMsgsAcc]}
+                    end,
+                    {QAcc, []},
+                    lists:seq(1, 10)
+                ),
+            {TopicQ, [lists:reverse(TopicMsgs) | MsgsAcc]}
+        end,
+        {EmptyQ, []},
+        [<<"t/test">>, <<"t/5">>, <<"t/infinity">>, <<"t/10">>]
+    ),
+
+    %% Manual resorting from the highest to the lowest priority
+    [ExpMsgsPrio0, ExpMsgsPrio5, ExpMsgsPrioInf, ExpMsgsPrio10] = lists:reverse(ExpMsgsAcc),
+    ExpMsgs = ExpMsgsPrioInf ++ ExpMsgsPrio10 ++ ExpMsgsPrio5 ++ ExpMsgsPrio0,
+    {AllMsgs, #{start := StartPos, position := Pos}} = ?Q:query(Q, #{position => none, limit => 40}),
+    ?assertEqual(40, length(AllMsgs)),
+    ?assertEqual(ExpMsgs, with_empty_extra(AllMsgs)),
+    FirstMsg = hd(AllMsgs),
+    LastMsg = lists:last(AllMsgs),
+    ?assertEqual(<<"t/infinity_1">>, emqx_message:payload(FirstMsg)),
+    ?assertEqual(StartPos, {mqueue_ts(FirstMsg), infinity}),
+    ?assertEqual(<<"t/test_10">>, emqx_message:payload(LastMsg)),
+    ?assertMatch({_, 0}, Pos),
+    ?assertEqual(Pos, {mqueue_ts(LastMsg), mqueue_prio(LastMsg)}),
+
+    Pos5 = {mqueue_ts(lists:nth(5, AllMsgs)), mqueue_prio(lists:nth(5, AllMsgs))},
+    LastInfPos = {mqueue_ts(lists:nth(10, AllMsgs)), mqueue_prio(lists:nth(5, AllMsgs))},
+
+    {MsgsPrioInfTo10, #{start := StartPos, position := PosPrio10Msg5}} = ?Q:query(Q, #{
+        position => Pos5, limit => 10
+    }),
+    ?assertEqual(10, length(MsgsPrioInfTo10)),
+    ?assertEqual(<<"t/infinity_6">>, emqx_message:payload(hd(MsgsPrioInfTo10))),
+    ?assertEqual(<<"t/10_5">>, emqx_message:payload(lists:last(MsgsPrioInfTo10))),
+    ?assertEqual(PosPrio10Msg5, {
+        mqueue_ts(lists:last(MsgsPrioInfTo10)), mqueue_prio(lists:last(MsgsPrioInfTo10))
+    }),
+
+    {MsgsPrioInfTo5, #{start := StartPos, position := PosPrio5Msg5}} = ?Q:query(Q, #{
+        position => Pos5, limit => 20
+    }),
+    ?assertEqual(20, length(MsgsPrioInfTo5)),
+    ?assertEqual(<<"t/infinity_6">>, emqx_message:payload(hd(MsgsPrioInfTo5))),
+    ?assertEqual(<<"t/5_5">>, emqx_message:payload(lists:last(MsgsPrioInfTo5))),
+    ?assertEqual(PosPrio5Msg5, {
+        mqueue_ts(lists:last(MsgsPrioInfTo5)), mqueue_prio(lists:last(MsgsPrioInfTo5))
+    }),
+
+    {MsgsPrio10, #{start := StartPos, position := PosPrio10}} = ?Q:query(Q, #{
+        position => LastInfPos, limit => 10
+    }),
+    ?assertEqual(ExpMsgsPrio10, with_empty_extra(MsgsPrio10)),
+    ?assertEqual(10, length(MsgsPrio10)),
+    ?assertEqual(<<"t/10_1">>, emqx_message:payload(hd(MsgsPrio10))),
+    ?assertEqual(<<"t/10_10">>, emqx_message:payload(lists:last(MsgsPrio10))),
+    ?assertEqual(PosPrio10, {mqueue_ts(lists:last(MsgsPrio10)), mqueue_prio(lists:last(MsgsPrio10))}),
+
+    {MsgsPrio10To5, #{start := StartPos, position := _}} = ?Q:query(Q, #{
+        position => LastInfPos, limit => 20
+    }),
+    ?assertEqual(ExpMsgsPrio10 ++ ExpMsgsPrio5, with_empty_extra(MsgsPrio10To5)).
 
 conservation_prop() ->
     ?FORALL(
@@ -413,3 +509,9 @@ drain(Q) ->
         {{value, #message{topic = T, payload = P}}, Q1} ->
             [{T, P} | drain(Q1)]
     end.
+
+mqueue_ts(#message{extra = #{mqueue_insert_ts := Ts}}) -> Ts.
+mqueue_prio(#message{extra = #{mqueue_priority := Prio}}) -> Prio.
+
+with_empty_extra(Msgs) ->
+    [M#message{extra = #{}} || M <- Msgs].
