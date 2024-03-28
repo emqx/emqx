@@ -81,6 +81,12 @@
     "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2"
 ).
 
+%% Only the APIs for the features that haven't reached General
+%% Availability can be added here:
+-define(EXPERIMENTAL_APIS, [
+    {emqx_ds, 4}
+]).
+
 -define(XREF, myxref).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -132,33 +138,46 @@ check_compat(_, _) ->
 check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api := APIs2}) ->
     %% TODO: Handle API deprecation
     _ = maps:map(
-        fun(Key = {API, Version}, Val) ->
-            case maps:get(Key, APIs2, undefined) of
-                Val ->
-                    ok;
-                undefined ->
-                    case lists:member(Key, ?FORCE_DELETED_APIS) of
-                        true ->
-                            ok;
-                        false ->
-                            setnok(),
-                            logger:error(
-                                "API ~p v~p was removed in release ~p without being deprecated. "
-                                "Old release: ~p",
-                                [API, Version, Rel2, Rel1]
-                            )
-                    end;
-                _Val ->
-                    setnok(),
-                    logger:error(
-                        "API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
-                        [API, Version, Rel1, Rel2]
-                    )
-            end
+        fun(Key, Val) ->
+                case lists:member(Key, ?EXPERIMENTAL_APIS) of
+                    true ->
+                        ok;
+                    false ->
+                        do_check_api_immutability(Rel1, Rel2, APIs2, Key, Val)
+                end
         end,
         APIs1
     ),
     ok.
+
+do_check_api_immutability(Rel1, Rel2, APIs2, Key = {API, Version}, Val) ->
+    case maps:get(Key, APIs2, undefined) of
+        Val ->
+            ok;
+        undefined ->
+            case lists:member(Key, ?FORCE_DELETED_APIS) of
+                true ->
+                    ok;
+                false ->
+                    setnok(),
+                    logger:error(
+                        "API ~p v~p was removed in release ~p without being deprecated. "
+                        "Old release: ~p",
+                        [API, Version, Rel2, Rel1]
+                    )
+            end;
+        OldVal ->
+            setnok(),
+            logger:error(
+                "API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
+                [API, Version, Rel1, Rel2]
+            ),
+            D21 = maps:get(calls, Val) -- maps:get(calls, OldVal),
+            D12 = maps:get(calls, OldVal) -- maps:get(calls, Val),
+            logger:error("Added calls:~n  ~p", [D21]),
+            logger:error("Removed calls:~n  ~p", [D12])
+    end.
+
 
 filter_calls(Calls) ->
     F = fun({{Mf, _, _}, {Mt, _, _}}) ->
