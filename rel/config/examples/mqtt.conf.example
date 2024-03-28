@@ -127,7 +127,9 @@ mqtt {
     ##   - round_robin :: select the subscribers in a round-robin manner
     ##   - round_robin_per_group :: select the subscribers in round-robin fashion within each shared subscriber group
     ##   - local :: select random local subscriber otherwise select random cluster-wide
-    ##   - sticky :: always use the last selected subscriber to dispatch, until the subscriber disconnects.
+    ##   - sticky :: always use the last selected subscriber to dispatch, until the publisher or subscriber disconnects.
+    ##   - sticky_clientid :: like sticky, but the initial subscriber is picked by the hash_clientid strategy.
+    ##   - sticky_leastpubs :: like sticky, but the initial subscriber is the one with least amount of sticked publishers.
     ##   - hash_clientid :: select the subscribers by hashing the `clientIds`
     ##   - hash_topic :: select the subscribers by hashing the source topic"""
     shared_subscription_strategy = round_robin

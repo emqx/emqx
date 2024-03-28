@@ -387,6 +387,44 @@ t_hash_clientid(Config) when is_list(Config) ->
     ok = ensure_config(hash_clientid, false),
     test_two_messages(hash_clientid).
 
+t_sticky_clientid(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_clientid),
+    test_two_messages(sticky_clientid).
+
+t_sticky_leastpubs(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_leastpubs),
+
+    Group = <<"group1">>,
+    Topic = <<"foo/bar">>,
+    ClientId1 = <<"ClientId1">>,
+    ClientId2 = <<"ClientId2">>,
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, _} = emqtt:connect(ConnPid2),
+
+    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
+
+    Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
+    Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
+    ct:sleep(100),
+
+    emqx:publish(Message1),
+    {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
+
+    %% Clear the sticky subscription stored in the process dictionary so that the
+    %% second "client" can pick a new one.
+    erlang:erase({shared_sub_sticky, Group, Topic}),
+
+    emqx:publish(Message2),
+    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
+
+    emqtt:stop(ConnPid1),
+    emqtt:stop(ConnPid2),
+
+    ?assertNotEqual(UsedSubPid1, UsedSubPid2).
+
 t_hash_topic(Config) when is_list(Config) ->
     ok = ensure_config(hash_topic, false),
     ClientId1 = <<"ClientId1">>,
@@ -431,9 +469,20 @@ t_hash_topic(Config) when is_list(Config) ->
     emqtt:stop(ConnPid2),
     ok.
 
-%% if the original subscriber dies, change to another one alive
 t_not_so_sticky(Config) when is_list(Config) ->
     ok = ensure_config(sticky),
+    do_not_so_sticky().
+
+t_not_so_sticky_clientid(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_clientid),
+    do_not_so_sticky().
+
+t_not_so_sticky_leastpubs(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_clientid),
+    do_not_so_sticky().
+
+%% if the original subscriber dies, change to another one alive
+do_not_so_sticky() ->
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
     {ok, C1} = emqtt:start_link([{clientid, ClientId1}]),
@@ -486,6 +535,7 @@ test_two_messages(Strategy, Group) ->
 
     case Strategy of
         sticky -> ?assertEqual(UsedSubPid1, UsedSubPid2);
+        sticky_clientid -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         round_robin -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
         round_robin_per_group -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
         hash_clientid -> ?assertEqual(UsedSubPid1, UsedSubPid2);
