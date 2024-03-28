@@ -139,12 +139,12 @@ check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api 
     %% TODO: Handle API deprecation
     _ = maps:map(
         fun(Key, Val) ->
-                case lists:member(Key, ?EXPERIMENTAL_APIS) of
-                    true ->
-                        ok;
-                    false ->
-                        do_check_api_immutability(Rel1, Rel2, APIs2, Key, Val)
-                end
+            case lists:member(Key, ?EXPERIMENTAL_APIS) of
+                true ->
+                    ok;
+                false ->
+                    do_check_api_immutability(Rel1, Rel2, APIs2, Key, Val)
+            end
         end,
         APIs1
     ),
@@ -177,7 +177,6 @@ do_check_api_immutability(Rel1, Rel2, APIs2, Key = {API, Version}, Val) ->
             logger:error("Added calls:~n  ~p", [D21]),
             logger:error("Removed calls:~n  ~p", [D12])
     end.
-
 
 filter_calls(Calls) ->
     F = fun({{Mf, _, _}, {Mt, _, _}}) ->
