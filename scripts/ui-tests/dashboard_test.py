@@ -48,20 +48,21 @@ def ensure_current_url(driver, url):
         count += 1
         time.sleep(1)
 
-def wait_title(driver):
-    return WebDriverWait(driver, 10).until(lambda x: x.find_element("xpath", "//div[@id='app']//h1[@class='header-title']")) 
+def title(driver):
+    return driver.find_element("xpath", "//div[@id='app']//h1[@class='header-title']")
+
+def wait_title_text(driver, text):
+    return WebDriverWait(driver, 10).until(lambda x: title(x).text == text)
 
 def test_basic(driver, login, dashboard_url):
     driver.get(dashboard_url)
-    title = wait_title(driver)
-    assert "Cluster Overview" == title.text
+    wait_title_text(driver, "Cluster Overview")
 
 def test_log(driver, login, dashboard_url):
     dest_url = urljoin(dashboard_url, "/#/log")
     driver.get(dest_url)
     ensure_current_url(driver, dest_url)
-    title = wait_title(driver)
-    assert "Logging" == title.text
+    wait_title_text(driver, "Logging")
 
     label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Enable Log Handler')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
