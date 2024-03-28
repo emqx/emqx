@@ -536,13 +536,13 @@ connect_direct_hstream(Name, Config) ->
 client(_Name, _Config, N) when N =< 0 -> error(cannot_connect);
 client(Name, Config, N) ->
     try
-        %%_ = hstreamdb:stop_client(Name),
+        _ = hstreamdb:stop_client(Name),
         {ok, Client} = hstreamdb:start_client(Name, default_options(Config)),
         ok = hstreamdb_client:echo(Client),
         Client
     catch
-        Class:Error:Stk ->
-            ct:print("Error connecting: ~p, stacktrace: ~p", [{Class, Error}, Stk]),
+        Class:Error ->
+            ct:print("Error connecting: ~p", [{Class, Error}]),
             ct:sleep(timer:seconds(1)),
             client(Name, Config, N - 1)
     end.
