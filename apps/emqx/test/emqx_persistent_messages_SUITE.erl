@@ -584,6 +584,8 @@ message(Topic, Payload, PublishedAt) ->
         id = emqx_guid:gen()
     }.
 
+on_message_dropped(#message{flags = #{sys := true}}, _Context, _Res, _TestPid) ->
+    ok;
 on_message_dropped(Msg, Context, Res, TestPid) ->
     ErrCtx = #{msg => Msg, ctx => Context, res => Res},
     ct:pal("this hook should not be called.\n  ~p", [ErrCtx]),
