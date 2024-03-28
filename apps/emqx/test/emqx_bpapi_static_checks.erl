@@ -111,7 +111,7 @@ check_compat(DumpFilenames) ->
     Dumps = lists:map(
         fun(FN) ->
             {ok, [Dump]} = file:consult(FN),
-            Dump
+            Dump#{release => filename:basename(FN)}
         end,
         DumpFilenames
     ),
