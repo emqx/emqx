@@ -76,3 +76,7 @@ rebar-git-cache.tar
 .docker_image_tag
 .emqx_docker_image_tags
 .git/
+# LaTeX
+*.aux
+*.log
+*.pdf
