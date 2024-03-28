@@ -56,3 +56,63 @@ mock_rpc_result(gen_rpc, ExpectFun) ->
                 {badrpc, timeout}
         end
     end).
+
+%% Consuming streams and iterators
+
+consume(DB, TopicFilter) ->
+    consume(DB, TopicFilter, 0).
+
+consume(DB, TopicFilter, StartTime) ->
+    Streams = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    lists:flatmap(
+        fun({_Rank, Stream}) -> consume_stream(DB, Stream, TopicFilter, StartTime) end,
+        Streams
+    ).
+
+consume_stream(DB, Stream, TopicFilter, StartTime) ->
+    {ok, It0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+    {ok, _It, Msgs} = consume_iter(DB, It0),
+    Msgs.
+
+consume_iter(DB, It) ->
+    consume_iter(DB, It, #{}).
+
+consume_iter(DB, It, Opts) ->
+    consume_iter_with(fun emqx_ds:next/3, [DB], It, Opts).
+
+storage_consume(ShardId, TopicFilter) ->
+    storage_consume(ShardId, TopicFilter, 0).
+
+storage_consume(ShardId, TopicFilter, StartTime) ->
+    Streams = emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime),
+    lists:flatmap(
+        fun({_Rank, Stream}) ->
+            storage_consume_stream(ShardId, Stream, TopicFilter, StartTime)
+        end,
+        Streams
+    ).
+
+storage_consume_stream(ShardId, Stream, TopicFilter, StartTime) ->
+    {ok, It0} = emqx_ds_storage_layer:make_iterator(ShardId, Stream, TopicFilter, StartTime),
+    {ok, _It, Msgs} = storage_consume_iter(ShardId, It0),
+    Msgs.
+
+storage_consume_iter(ShardId, It) ->
+    storage_consume_iter(ShardId, It, #{}).
+
+storage_consume_iter(ShardId, It, Opts) ->
+    consume_iter_with(fun emqx_ds_storage_layer:next/3, [ShardId], It, Opts).
+
+consume_iter_with(NextFun, Args, It0, Opts) ->
+    BatchSize = maps:get(batch_size, Opts, 5),
+    case erlang:apply(NextFun, Args ++ [It0, BatchSize]) of
+        {ok, It, _Msgs = []} ->
+            {ok, It, []};
+        {ok, It1, Batch} ->
+            {ok, It, Msgs} = consume_iter_with(NextFun, Args, It1, Opts),
+            {ok, It, [Msg || {_DSKey, Msg} <- Batch] ++ Msgs};
+        {ok, Eos = end_of_stream} ->
+            {ok, Eos, []};
+        {error, Class, Reason} ->
+            error({error, Class, Reason})
+    end.
