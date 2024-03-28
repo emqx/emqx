@@ -18,6 +18,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -behaviour(emqx_resource).
 
@@ -276,15 +277,22 @@ batch_individual_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
 
 on_get_status(_InstId, #{health_check_error := true}) ->
     ?tp(connector_demo_health_check_error, #{}),
-    disconnected;
+    ?status_disconnected;
 on_get_status(_InstId, State = #{health_check_error := {msg, Message}}) ->
     ?tp(connector_demo_health_check_error, #{}),
-    {disconnected, State, Message};
+    {?status_disconnected, State, Message};
+on_get_status(_InstId, #{pid := Pid, health_check_error := {delay, Delay}}) ->
+    ?tp(connector_demo_health_check_delay, #{}),
+    timer:sleep(Delay),
+    case is_process_alive(Pid) of
+        true -> ?status_connected;
+        false -> ?status_disconnected
+    end;
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
     case is_process_alive(Pid) of
-        true -> connected;
-        false -> disconnected
+        true -> ?status_connected;
+        false -> ?status_disconnected
     end.
 
 spawn_counter_process(Name, Register) ->

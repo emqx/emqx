@@ -52,12 +52,20 @@ end_per_testcase(_, _Config) ->
 
 init_per_suite(Config) ->
     code:ensure_loaded(?TEST_RESOURCE),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    {ok, _} = application:ensure_all_started(emqx_resource),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_resource
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_resource, emqx_conf]).
+end_per_suite(Config) ->
+    Apps = proplists:get_value(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -115,10 +123,7 @@ t_create_remove(_) ->
 
             ?assertNot(is_process_alive(Pid))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_create_remove_local(_) ->
@@ -174,10 +179,7 @@ t_create_remove_local(_) ->
 
             ?assertNot(is_process_alive(Pid))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_do_not_start_after_created(_) ->
@@ -219,10 +221,7 @@ t_do_not_start_after_created(_) ->
 
             ?assertNot(is_process_alive(Pid2))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_query(_) ->
@@ -855,14 +854,12 @@ t_healthy_timeout(_) ->
             ),
             ?assertEqual(ok, emqx_resource:remove_local(?ID))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_healthy(_) ->
     ?check_trace(
+        #{timetrap => 10_000},
         begin
             ?assertMatch(
                 {ok, _},
@@ -873,10 +870,13 @@ t_healthy(_) ->
                     #{name => test_resource}
                 )
             ),
+            ct:pal("getting state"),
             {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
             timer:sleep(300),
+            ct:pal("setting state as `connecting`"),
             emqx_resource:set_resource_status_connecting(?ID),
 
+            ct:pal("health check"),
             ?assertEqual({ok, connected}, emqx_resource:health_check(?ID)),
             ?assertMatch(
                 [#{status := connected}],
@@ -894,10 +894,7 @@ t_healthy(_) ->
 
             ?assertEqual(ok, emqx_resource:remove_local(?ID))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_unhealthy_target(_) ->
@@ -1005,11 +1002,7 @@ t_stop_start(_) ->
             ?assertEqual(ok, emqx_resource:stop(?ID)),
             ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID))
         end,
-
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_stop_start_local(_) ->
@@ -1064,10 +1057,7 @@ t_stop_start_local(_) ->
 
             ?assert(is_process_alive(Pid1))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_list_filter(_) ->
@@ -1269,10 +1259,7 @@ t_health_check_disconnected(_) ->
                 emqx_resource:health_check(?ID)
             )
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_unblock_only_required_buffer_workers(_) ->
@@ -3116,6 +3103,44 @@ t_telemetry_handler_crash(_Config) ->
     ),
     ok.
 
+t_non_blocking_resource_health_check(_Config) ->
+    ?check_trace(
+        begin
+            {ok, _} =
+                create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource, health_check_error => {delay, 1_000}},
+                    #{health_check_interval => 100}
+                ),
+            %% concurrently attempt to health check the resource; should do it only once
+            %% for all callers
+            NumCallers = 20,
+            Expected = lists:duplicate(NumCallers, {ok, connected}),
+            ?assertEqual(
+                Expected,
+                emqx_utils:pmap(
+                    fun(_) -> emqx_resource:health_check(?ID) end,
+                    lists:seq(1, NumCallers)
+                )
+            ),
+
+            NumCallers
+        end,
+        [
+            log_consistency_prop(),
+            fun(NumCallers, Trace) ->
+                %% shouldn't have one health check per caller
+                SubTrace = ?of_kind(connector_demo_health_check_delay, Trace),
+                ?assertMatch([_ | _], SubTrace),
+                ?assert(length(SubTrace) < (NumCallers div 2), #{trace => Trace}),
+                ok
+            end
+        ]
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -3373,3 +3398,10 @@ create(Id, Group, Type, Config) ->
 
 create(Id, Group, Type, Config, Opts) ->
     emqx_resource:create_local(Id, Group, Type, Config, Opts).
+
+log_consistency_prop() ->
+    {"check state and cache consistency", fun ?MODULE:log_consistency_prop/1}.
+log_consistency_prop(Trace) ->
+    ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
+    ?assertEqual([], ?of_kind("inconsistent_cache", Trace)),
+    ok.
