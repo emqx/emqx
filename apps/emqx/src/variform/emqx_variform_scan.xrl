@@ -6,6 +6,8 @@ DQ_STRING   = \"[^\"]*\"
 NUMBER      = [+-]?(\\d+\\.\\d+|[0-9]+)
 LPAREN      = \(
 RPAREN      = \)
+LBRACKET    = \[
+RBRACKET    = \]
 COMMA       = ,
 WHITESPACE  = [\s\t\n]+
 
@@ -18,6 +20,8 @@ Rules.
 {NUMBER}     : {token, {number, TokenLine, TokenChars}}.
 {LPAREN}     : {token, {'(', TokenLine}}.
 {RPAREN}     : {token, {')', TokenLine}}.
+{LBRACKET}   : {token, {'[', TokenLine}}.
+{RBRACKET}   : {token, {']', TokenLine}}.
 {COMMA}      : {token, {',', TokenLine}}.
 
 Erlang code.

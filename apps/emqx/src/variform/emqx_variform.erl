@@ -78,6 +78,8 @@ eval({str, Str}, _Bindings) ->
     str(Str);
 eval({num, Num}, _Bindings) ->
     str(Num);
+eval({array, Args}, Bindings) ->
+    eval(Args, Bindings);
 eval({call, FuncNameStr, Args}, Bindings) ->
     {Mod, Fun} = resolve_func_name(FuncNameStr),
     ok = assert_func_exported(Mod, Fun, length(Args)),
