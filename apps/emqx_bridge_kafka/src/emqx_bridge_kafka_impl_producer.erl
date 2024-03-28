@@ -668,15 +668,22 @@ partitioner(random) -> random;
 partitioner(key_dispatch) -> first_key_dispatch.
 
 replayq_dir(BridgeType, BridgeName) ->
-    RawConf = emqx_conf:get_raw([actions, BridgeType, BridgeName]),
     DirName = iolist_to_binary([
-        emqx_bridge_lib:downgrade_type(BridgeType, RawConf),
+        maybe_v1_type_name(BridgeType),
         ":",
         BridgeName,
         ":",
         atom_to_list(node())
     ]),
     filename:join([emqx:data_dir(), "kafka", DirName]).
+
+%% To avoid losing queued data on disk, we must use the same directory as the old v1
+%% bridges, if any.  Among the Kafka-based bridges that exist since v1, only Kafka changed
+%% its type name.  Other bridges are either unchanged, or v2-only, and should use their v2
+%% type names.
+maybe_v1_type_name(Type) when is_atom(Type) -> maybe_v1_type_name(atom_to_binary(Type));
+maybe_v1_type_name(<<"kafka_producer">>) -> <<"kafka">>;
+maybe_v1_type_name(Type) -> Type.
 
 with_log_at_error(Fun, Log) ->
     try
