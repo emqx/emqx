@@ -65,8 +65,11 @@ redact(Term, Checker) ->
 redact_headers(Term) ->
     do_redact_headers(Term).
 
-do_redact(L, Checker) when is_list(L) ->
-    lists:map(fun(E) -> do_redact(E, Checker) end, L);
+do_redact([], _Checker) ->
+    [];
+do_redact([X | Xs], Checker) ->
+    %% Note: we could be dealing with an improper list
+    [do_redact(X, Checker) | do_redact(Xs, Checker)];
 do_redact(M, Checker) when is_map(M) ->
     maps:map(
         fun(K, V) ->
