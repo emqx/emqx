@@ -536,7 +536,7 @@ connect_direct_hstream(Name, Config) ->
 client(_Name, _Config, N) when N =< 0 -> error(cannot_connect);
 client(Name, Config, N) ->
     try
-        _ = hstreamdb:stop_client(Name),
+        %%_ = hstreamdb:stop_client(Name),
         {ok, Client} = hstreamdb:start_client(Name, default_options(Config)),
         ok = hstreamdb_client:echo(Client),
         Client
