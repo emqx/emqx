@@ -14,6 +14,8 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+-define(SESSION_DB, emqx_persistent_session).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -199,22 +201,6 @@ force_last_alive_at(ClientId, Time) ->
     S = emqx_persistent_session_ds_state:set_last_alive_at(Time, S0),
     _ = emqx_persistent_session_ds_state:commit(S),
     ok.
-
-%% Helper for determining if rpc faults should be injected.
-%% When storing session data in DS, failing here could lead to a session being considered
-%% new and not loaded, since we read non-atomically from the DB.  If getting the streams
-%% fail due to rpc problems, it leniently returns an empty list of streams, and that
-%% results in a "new" session.
-is_restoring_session() ->
-    {current_stacktrace, Stacktrace} = process_info(self(), current_stacktrace),
-    is_restoring_session(Stacktrace).
-
-is_restoring_session([]) ->
-    false;
-is_restoring_session([{emqx_persistent_session_ds, session_open, _, _} | _Rest]) ->
-    true;
-is_restoring_session([_ | Rest]) ->
-    is_restoring_session(Rest).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -674,20 +660,18 @@ t_session_replay_retry(_Config) ->
 
     %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
     ok = emqx_ds_test_helpers:mock_rpc_result(
-        fun(_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
-            %% When storing session data in DS, failing here could lead to a session being
-            %% considered new and not loaded, since we read non-atomically from the DB.
-            %% If getting the streams fail due to rpc problems, it leniently returns an
-            %% empty list of streams, and that results in a "new" session.
-            case is_restoring_session() of
-                true ->
-                    passthrough;
-                false ->
-                    case erlang:phash2(Shard) rem 2 of
-                        0 -> unavailable;
-                        1 -> passthrough
-                    end
-            end
+        fun
+            (_Node, emqx_ds_replication_layer, _Function, [?SESSION_DB | _]) ->
+                %% When storing session data in DS, failing here could lead to a session
+                %% being considered new and not loaded, since we read non-atomically from
+                %% the DB.  If getting the streams fail due to rpc problems, it leniently
+                %% returns an empty list of streams, and that results in a "new" session.
+                passthrough;
+            (_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
+                case erlang:phash2(Shard) rem 2 of
+                    0 -> unavailable;
+                    1 -> passthrough
+                end
         end
     ),
 
