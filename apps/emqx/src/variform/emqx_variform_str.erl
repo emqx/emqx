@@ -64,10 +64,10 @@
 %% @doc Return the first non-empty string
 coalesce(A, B) when ?IS_EMPTY(A) andalso ?IS_EMPTY(B) ->
     <<>>;
-coalesce(A, _) when is_binary(A) ->
-    A;
-coalesce(_, B) ->
-    B.
+coalesce(A, B) when ?IS_EMPTY(A) ->
+    B;
+coalesce(A, _B) ->
+    A.
 
 %% @doc Return the first non-empty string
 coalesce([]) ->
@@ -140,7 +140,7 @@ tokens(S, Separators, <<"nocrlf">>) ->
 
 %% implicit convert args to strings, and then do concatenation
 concat(S1, S2) ->
-    concat([S1, S2], unicode).
+    concat([S1, S2]).
 
 concat(List) ->
     unicode:characters_to_binary(lists:map(fun str/1, List), unicode).

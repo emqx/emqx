@@ -145,6 +145,7 @@
     upper/1,
     split/2,
     split/3,
+    concat/1,
     concat/2,
     tokens/2,
     tokens/3,
