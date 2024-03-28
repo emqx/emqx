@@ -37,6 +37,9 @@
     %% Timestamp (Unit: millisecond)
     timestamp :: integer(),
     %% Miscellaneous extensions, currently used for OpenTelemetry context propagation
+    %% and storing mqueue/inflight insertion timestamps.
+    %% It was not used prior to 5.4.0 and defaulted to an empty list.
+    %% Must be a map now.
     extra = #{} :: term()
 }).
 

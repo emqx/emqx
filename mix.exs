@@ -55,7 +55,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.11.1", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-2", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.19.0", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.19.1", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.4.0", override: true},
@@ -202,7 +202,8 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1"},
+      {:hstreamdb_erl,
+       github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.10.2"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},

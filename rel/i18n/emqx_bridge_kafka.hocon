@@ -198,9 +198,9 @@ kafka_headers.desc:
 """Provide a placeholder for message headers<br/>
 e.g. <code>${pub_props}</code><br/>
 Note that the value of the placeholder must be either an object:
-<code>{\"foo\": \"bar\"}</code>
+<code>{"foo": "bar"}</code>
 or an array of key-value pairs:
-<code>[{\"key\": \"foo\", \"value\": \"bar\"}]</code>"""
+<code>[{"key": "foo", "value": "bar"}]</code>"""
 
 kafka_headers.label:
 """Message Headers"""

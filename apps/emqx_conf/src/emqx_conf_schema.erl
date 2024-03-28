@@ -79,6 +79,7 @@
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
 -define(LOG_THROTTLING_MSGS, [
+    authentication_failure,
     authorization_permission_denied,
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
@@ -1274,6 +1275,15 @@ log_handler_common_confs(Handler, Default) ->
                     aliases => [format],
                     default => maps:get(formatter, Default, text),
                     desc => ?DESC("common_handler_formatter"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"timestamp_format",
+            sc(
+                hoconsc:enum([auto, epoch, rfc3339]),
+                #{
+                    default => auto,
+                    desc => ?DESC("common_handler_timestamp_format"),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},

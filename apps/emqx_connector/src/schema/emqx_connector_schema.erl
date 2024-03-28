@@ -238,7 +238,7 @@ transform_bridge_v1_config_to_action_config(
     ActionMap0 = lists:foldl(
         fun
             ({enable, _Spec}, ToTransformSoFar) ->
-                %% Enable filed is used in both
+                %% Enable field is used in both
                 ToTransformSoFar;
             ({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
                 ConnectorFieldNameBin = to_bin(ConnectorFieldName),

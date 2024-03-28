@@ -36,7 +36,8 @@
 -export([
     create/4,
     open/4,
-    destroy/1
+    destroy/1,
+    kick_offline_session/1
 ]).
 
 -export([
@@ -220,6 +221,15 @@ destroy(#{clientid := ClientID}) ->
 destroy_session(ClientID) ->
     session_drop(ClientID, destroy).
 
+-spec kick_offline_session(emqx_types:clientid()) -> ok.
+kick_offline_session(ClientID) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            session_drop(ClientID, kicked);
+        false ->
+            ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
@@ -292,7 +302,9 @@ info(awaiting_rel_max, #{props := Conf}) ->
 info(await_rel_timeout, #{props := _Conf}) ->
     %% TODO: currently this setting is ignored:
     %% maps:get(await_rel_timeout, Conf).
-    0.
+    0;
+info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= inflight_msgs ->
+    {error, not_implemented}.
 
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) ->

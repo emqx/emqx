@@ -59,7 +59,8 @@
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
     {emqx_plugin_libs, 1},
-    {emqx_persistent_session, 1}
+    {emqx_persistent_session, 1},
+    {emqx_ds, 3}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
@@ -79,6 +80,12 @@
     % check it
     "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2"
 ).
+
+%% Only the APIs for the features that haven't reached General
+%% Availability can be added here:
+-define(EXPERIMENTAL_APIS, [
+    {emqx_ds, 4}
+]).
 
 -define(XREF, myxref).
 
@@ -110,7 +117,7 @@ check_compat(DumpFilenames) ->
     Dumps = lists:map(
         fun(FN) ->
             {ok, [Dump]} = file:consult(FN),
-            Dump
+            Dump#{release => filename:basename(FN)}
         end,
         DumpFilenames
     ),
@@ -119,47 +126,57 @@ check_compat(DumpFilenames) ->
 
 %% Note: sets nok flag
 -spec check_compat(fulldump(), fulldump()) -> ok.
-check_compat(Dump1 = #{release := Rel1}, Dump2 = #{release := Rel2}) ->
+check_compat(Dump1 = #{release := Rel1}, Dump2 = #{release := Rel2}) when Rel2 >= Rel1 ->
     check_api_immutability(Dump1, Dump2),
-    Rel2 >= Rel1 andalso
-        typecheck_apis(Dump1, Dump2).
+    typecheck_apis(Dump1, Dump2);
+check_compat(_, _) ->
+    ok.
 
 %% It's not allowed to change BPAPI modules. Check that no changes
 %% have been made. (sets nok flag)
 -spec check_api_immutability(fulldump(), fulldump()) -> ok.
-check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api := APIs2}) when
-    Rel2 >= Rel1
-->
+check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api := APIs2}) ->
     %% TODO: Handle API deprecation
     _ = maps:map(
-        fun(Key = {API, Version}, Val) ->
-            case maps:get(Key, APIs2, undefined) of
-                Val ->
+        fun(Key, Val) ->
+            case lists:member(Key, ?EXPERIMENTAL_APIS) of
+                true ->
                     ok;
-                undefined ->
-                    case lists:member({API, Version}, ?FORCE_DELETED_APIS) of
-                        true ->
-                            ok;
-                        false ->
-                            setnok(),
-                            logger:error(
-                                "API ~p v~p was removed in release ~p without being deprecated.",
-                                [API, Version, Rel2]
-                            )
-                    end;
-                _Val ->
-                    setnok(),
-                    logger:error(
-                        "API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
-                        [API, Version, Rel1, Rel2]
-                    )
+                false ->
+                    do_check_api_immutability(Rel1, Rel2, APIs2, Key, Val)
             end
         end,
         APIs1
     ),
-    ok;
-check_api_immutability(_, _) ->
     ok.
+
+do_check_api_immutability(Rel1, Rel2, APIs2, Key = {API, Version}, Val) ->
+    case maps:get(Key, APIs2, undefined) of
+        Val ->
+            ok;
+        undefined ->
+            case lists:member(Key, ?FORCE_DELETED_APIS) of
+                true ->
+                    ok;
+                false ->
+                    setnok(),
+                    logger:error(
+                        "API ~p v~p was removed in release ~p without being deprecated. "
+                        "Old release: ~p",
+                        [API, Version, Rel2, Rel1]
+                    )
+            end;
+        OldVal ->
+            setnok(),
+            logger:error(
+                "API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
+                [API, Version, Rel1, Rel2]
+            ),
+            D21 = maps:get(calls, Val) -- maps:get(calls, OldVal),
+            D12 = maps:get(calls, OldVal) -- maps:get(calls, Val),
+            logger:error("Added calls:~n  ~p", [D21]),
+            logger:error("Removed calls:~n  ~p", [D12])
+    end.
 
 filter_calls(Calls) ->
     F = fun({{Mf, _, _}, {Mt, _, _}}) ->
@@ -181,8 +198,8 @@ typecheck_apis(
     AllCalls = filter_calls(AllCalls0),
     lists:foreach(
         fun({From, To}) ->
-            Caller = get_param_types(CallerSigs, From),
-            Callee = get_param_types(CalleeSigs, To),
+            Caller = get_param_types(CallerSigs, From, From),
+            Callee = get_param_types(CalleeSigs, From, To),
             %% TODO: check return types
             case typecheck_rpc(Caller, Callee) of
                 [] ->
@@ -226,8 +243,8 @@ typecheck_rpc(Caller, Callee) ->
         Callee
     ).
 
--spec get_param_types(dialyzer_dump(), emqx_bpapi:call()) -> param_types().
-get_param_types(Signatures, {M, F, A}) ->
+%%-spec get_param_types(dialyzer_dump(), emqx_bpapi:call()) -> param_types().
+get_param_types(Signatures, From, {M, F, A}) ->
     Arity = length(A),
     case Signatures of
         #{{M, F, Arity} := {_RetType, AttrTypes}} ->
@@ -235,7 +252,7 @@ get_param_types(Signatures, {M, F, A}) ->
             Arity = length(AttrTypes),
             maps:from_list(lists:zip(A, AttrTypes));
         _ ->
-            logger:critical("Call ~p:~p/~p is not found in PLT~n", [M, F, Arity]),
+            logger:critical("Call ~p:~p/~p from ~p is not found in PLT~n", [M, F, Arity, From]),
             error({badkey, {M, F, A}})
     end.
 

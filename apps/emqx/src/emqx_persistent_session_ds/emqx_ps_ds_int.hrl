@@ -21,11 +21,12 @@
 
 -record(ps_route, {
     topic :: binary(),
-    dest :: emqx_persistent_session_ds:id()
+    dest :: emqx_persistent_session_ds:id() | '_'
 }).
+
 -record(ps_routeidx, {
     entry :: '$1' | emqx_topic_index:key(emqx_persistent_session_ds_router:dest()),
-    unused = [] :: nil()
+    unused = [] :: nil() | '_'
 }).
 
 -endif.

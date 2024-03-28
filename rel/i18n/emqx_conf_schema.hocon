@@ -761,6 +761,15 @@ common_handler_formatter.desc:
 common_handler_formatter.label:
 """Log Formatter"""
 
+common_handler_timestamp_format.label:
+"""Timestamp Format"""
+
+common_handler_timestamp_format.desc: """~
+    Pick a timestamp format:
+    - `auto`: automatically choose the best format based on log formatter. `epoch` for JSON and `rfc3339` for text.
+    - `epoch`: Unix epoch time in microseconds.
+    - `rfc3339`: RFC3339 format."""
+
 rpc_async_batch_size.desc:
 """The maximum number of batch messages sent in asynchronous mode.
       Note that this configuration does not work in synchronous mode."""
