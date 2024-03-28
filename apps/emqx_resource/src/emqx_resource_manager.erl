@@ -73,7 +73,11 @@
     state,
     error,
     pid,
-    added_channels,
+    added_channels = #{},
+    %% Reference to process performing resource health check.
+    health_check_worker :: emqx_maybe:t({pid(), reference()}),
+    %% Callers waiting on health check
+    health_check_pending_callers = [] :: [gen_server:from()],
     extra
 }).
 -type data() :: #data{}.
@@ -463,7 +467,7 @@ handle_event({call, From}, {channel_health_check, _}, ?state_stopped, _Data) ->
     Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
 handle_event({call, From}, health_check, _State, Data) ->
-    handle_manually_health_check(From, Data);
+    handle_manual_health_check(From, Data);
 handle_event({call, From}, {channel_health_check, ChannelId}, _State, Data) ->
     handle_manually_channel_health_check(From, Data, ChannelId);
 % State: CONNECTING
@@ -473,7 +477,7 @@ handle_event(enter, _OldState, ?state_connecting = State, Data) ->
 handle_event(internal, start_resource, ?state_connecting, Data) ->
     start_resource(Data, undefined);
 handle_event(state_timeout, health_check, ?state_connecting, Data) ->
-    handle_connecting_health_check(Data);
+    start_health_check(Data);
 handle_event(
     {call, From}, {remove_channel, ChannelId}, ?state_connecting = _State, Data
 ) ->
@@ -487,7 +491,7 @@ handle_event(enter, _OldState, ?state_connected = State, Data) ->
     ?tp(resource_connected_enter, #{}),
     {keep_state_and_data, health_check_actions(Data)};
 handle_event(state_timeout, health_check, ?state_connected, Data) ->
-    handle_connected_health_check(Data);
+    start_health_check(Data);
 handle_event(
     {call, From}, {add_channel, ChannelId, Config}, ?state_connected = _State, Data
 ) ->
@@ -523,6 +527,10 @@ handle_event(
 ) ->
     Channels = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
     {keep_state_and_data, {reply, From, {ok, Channels}}};
+handle_event(
+    info, {'DOWN', Ref, process, Pid, Res}, State0, Data0 = #data{health_check_worker = {Pid, Ref}}
+) ->
+    handle_health_check_worker_down(State0, Data0, Res);
 % Ignore all other events
 handle_event(EventType, EventData, State, Data) ->
     ?SLOG(
@@ -835,14 +843,84 @@ handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data) ->
     _ = maybe_clear_alarm(ChannelId),
     {keep_state, update_state(NewData, Data), [{reply, From, ok}]}.
 
-handle_manually_health_check(From, Data) ->
-    with_health_check(
-        Data,
-        fun(Status, UpdatedData) ->
-            Actions = [{reply, From, {ok, Status}}],
-            {next_state, Status, channels_health_check(Status, UpdatedData), Actions}
-        end
-    ).
+handle_manual_health_check(From, Data0 = #data{health_check_worker = {_, _}}) ->
+    %% ongoing health check
+    #data{health_check_pending_callers = Pending} = Data0,
+    Data = update_state(Data0#data{health_check_pending_callers = [From | Pending]}, Data0),
+    {keep_state, Data};
+handle_manual_health_check(From, Data0 = #data{health_check_pending_callers = Pending}) ->
+    Data = update_state(Data0#data{health_check_pending_callers = [From | Pending]}, Data0),
+    start_health_check(Data).
+
+reply_pending_health_check_callers(Status, Data0 = #data{health_check_pending_callers = Pending}) ->
+    Actions = [{reply, From, {ok, Status}} || From <- Pending],
+    {Actions, Data0#data{health_check_pending_callers = []}}.
+
+start_health_check(#data{state = undefined} = Data) ->
+    %% No resource running, thus disconnected.
+    %% A health check spawn when state is undefined can only happen when someone manually
+    %% asks for a health check and the resource could not initialize or has not had enough
+    %% time to do so.  Let's assume the continuation is as if we were `?status_connecting'.
+    continue_health_check_connecting(?status_disconnected, Data);
+start_health_check(#data{health_check_worker = {_, _}}) ->
+    %% Already ongoing
+    keep_state_and_data;
+start_health_check(#data{} = Data0) ->
+    WorkerRef = {_, _} = spawn_health_check_worker(Data0),
+    Data = update_state(Data0#data{health_check_worker = WorkerRef}, Data0),
+    {keep_state, Data}.
+
+spawn_health_check_worker(#data{} = Data) ->
+    spawn_monitor(fun() ->
+        HCRes = emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state),
+        exit({ok, HCRes})
+    end).
+
+handle_health_check_worker_down(CurrentState, Data0, ExitResult) ->
+    Data1 = Data0#data{health_check_worker = undefined},
+    case ExitResult of
+        {ok, HCRes} ->
+            continue_with_health_check(Data1, CurrentState, HCRes);
+        _ ->
+            %% Unexpected: `emqx_resource:call_health_check' catches all exceptions.
+            continue_with_health_check(Data1, CurrentState, {error, ExitResult})
+    end.
+
+%% Continuation to be used when the current resource state is `?state_connected'.
+continue_health_check_connected(NewStatus, Data0) ->
+    case NewStatus of
+        ?status_connected ->
+            Data1 = channels_health_check(?status_connected, Data0),
+            {Replies, Data} = reply_pending_health_check_callers(NewStatus, Data1),
+            Actions = Replies ++ health_check_actions(Data),
+            {keep_state, Data, Actions};
+        _ ->
+            ?SLOG(warning, #{
+                msg => "health_check_failed",
+                id => Data0#data.id,
+                status => NewStatus
+            }),
+            %% Note: works because, coincidentally, channel/resource status is a
+            %% subset of resource manager state...  But there should be a conversion
+            %% between the two here, as resource manager also has `stopped', which is
+            %% not a valid status at the time of writing.
+            {Replies, Data} = reply_pending_health_check_callers(NewStatus, Data0),
+            {next_state, NewStatus, channels_health_check(NewStatus, Data), Replies}
+    end.
+
+%% Continuation to be used when the current resource state is `?state_connecting'.
+continue_health_check_connecting(NewStatus, Data0) ->
+    {Replies, Data} = reply_pending_health_check_callers(NewStatus, Data0),
+    case NewStatus of
+        ?status_connected ->
+            {next_state, ?state_connected, channels_health_check(?status_connected, Data), Replies};
+        ?status_connecting ->
+            Actions = Replies ++ health_check_actions(Data),
+            {keep_state, channels_health_check(?status_connecting, Data), Actions};
+        ?status_disconnected ->
+            {next_state, ?state_disconnected, channels_health_check(?status_disconnected, Data),
+                Replies}
+    end.
 
 handle_manually_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
     {keep_state_and_data, [{reply, From, channel_status({error, resource_disconnected})}]};
@@ -865,55 +943,27 @@ get_channel_status_channel_added(#data{id = ResId, mod = Mod, state = State}, Ch
     RawStatus = emqx_resource:call_channel_health_check(ResId, ChannelId, Mod, State),
     channel_status(RawStatus).
 
-handle_connecting_health_check(Data) ->
-    with_health_check(
-        Data,
-        fun
-            (?status_connected, UpdatedData) ->
-                {next_state, ?state_connected,
-                    channels_health_check(?status_connected, UpdatedData)};
-            (?status_connecting, UpdatedData) ->
-                {keep_state, channels_health_check(?status_connecting, UpdatedData),
-                    health_check_actions(UpdatedData)};
-            (?status_disconnected, UpdatedData) ->
-                {next_state, ?state_disconnected,
-                    channels_health_check(?status_disconnected, UpdatedData)}
-        end
-    ).
-
-handle_connected_health_check(Data) ->
-    with_health_check(
-        Data,
-        fun
-            (?status_connected, UpdatedData0) ->
-                UpdatedData1 = channels_health_check(?status_connected, UpdatedData0),
-                {keep_state, UpdatedData1, health_check_actions(UpdatedData1)};
-            (Status, UpdatedData) ->
-                ?SLOG(warning, #{
-                    msg => "health_check_failed",
-                    id => Data#data.id,
-                    status => Status
-                }),
-                %% Note: works because, coincidentally, channel/resource status is a
-                %% subset of resource manager state...  But there should be a conversion
-                %% between the two here, as resource manager also has `stopped', which is
-                %% not a valid status at the time of writing.
-                {next_state, Status, channels_health_check(Status, UpdatedData)}
-        end
-    ).
-
-with_health_check(#data{state = undefined} = Data, Func) ->
-    Func(disconnected, Data);
-with_health_check(#data{error = PrevError} = Data, Func) ->
-    ResId = Data#data.id,
-    HCRes = emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state),
-    {Status, NewState, Err} = parse_health_check_result(HCRes, Data),
-    _ = maybe_alarm(Status, ResId, Err, PrevError),
-    ok = maybe_resume_resource_workers(ResId, Status),
-    UpdatedData = Data#data{
-        state = NewState, status = Status, error = Err
+continue_with_health_check(#data{} = Data0, CurrentState, HCRes) ->
+    #data{
+        id = ResId,
+        error = PrevError
+    } = Data0,
+    {NewStatus, NewState, Err} = parse_health_check_result(HCRes, Data0),
+    _ = maybe_alarm(NewStatus, ResId, Err, PrevError),
+    ok = maybe_resume_resource_workers(ResId, NewStatus),
+    Data1 = Data0#data{
+        state = NewState, status = NewStatus, error = Err
     },
-    Func(Status, update_state(UpdatedData, Data)).
+    Data = update_state(Data1, Data0),
+    case CurrentState of
+        ?state_connected ->
+            continue_health_check_connected(NewStatus, Data);
+        ?state_connecting ->
+            continue_health_check_connecting(NewStatus, Data);
+        _ ->
+            %% `?state_disconnected' | `?state_stopped'
+            todo
+    end.
 
 -spec channels_health_check(resource_status(), data()) -> data().
 channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
