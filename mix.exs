@@ -264,8 +264,23 @@ defmodule EMQXUmbrella.MixProject do
       :debug_info,
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
       {:d, :EMQX_RELEASE_EDITION, erlang_edition(edition_type)},
+      ## Uncomment to force enable the experimental feature of storing session data in
+      ## durable storage.
+      # {:d, :STORE_STATE_IN_DS, true},
       {:d, :snk_kind, :msg}
-    ]
+    ] ++ store_state_in_ds_flag()
+  end
+
+  defp store_state_in_ds_flag() do
+    if store_state_in_ds?() do
+      [{:d, :STORE_STATE_IN_DS, true}]
+    else
+      []
+    end
+  end
+
+  defp store_state_in_ds?() do
+    "1" == System.get_env("STORE_STATE_IN_DS")
   end
 
   def maybe_no_quic_env() do

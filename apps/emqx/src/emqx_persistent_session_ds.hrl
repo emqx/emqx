@@ -18,12 +18,18 @@
 
 -define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
 
+-ifdef(STORE_STATE_IN_DS).
+-define(PERSISTENT_SESSION_DB, emqx_persistent_session).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 -define(SESSION_TAB, emqx_ds_session).
 -define(SESSION_SUBSCRIPTIONS_TAB, emqx_ds_session_subscriptions).
 -define(SESSION_STREAM_TAB, emqx_ds_stream_tab).
 -define(SESSION_PUBRANGE_TAB, emqx_ds_pubrange_tab).
 -define(SESSION_COMMITTED_OFFSET_TAB, emqx_ds_committed_offset_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %%%%% Session sequence numbers:
 
