@@ -711,5 +711,7 @@ call_conn(ConnMod, Pid, Req) ->
         exit:R when R =:= shutdown; R =:= normal ->
             {error, shutdown};
         exit:{R, _} when R =:= shutdown; R =:= noproc ->
+            {error, shutdown};
+        exit:{{shutdown, _OOMInfo}, _Location} ->
             {error, shutdown}
     end.
