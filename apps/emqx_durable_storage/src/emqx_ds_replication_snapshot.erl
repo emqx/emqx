@@ -72,11 +72,25 @@ write(Dir, Meta, MachineState) ->
     ra_log_snapshot:write(Dir, Meta, MachineState).
 
 %% Reading a snapshot.
+%%
 %% This is triggered by the leader when it finds out that a follower is
 %% behind so much that there are no log segments covering the gap anymore.
 %% This process, on the other hand, MUST involve reading the storage snapshot,
 %% (in addition to the log snapshot) to reconstruct the storage state on the
-%% target node.
+%% target server.
+%%
+%% Currently, a snapshot reader is owned by a special "snapshot sender" process
+%% spawned by the leader `ra` server, which sends chunks to the target server
+%% in a tight loop. This process terminates under the following conditions:
+%% 1. The snapshot is completely read and sent.
+%% 2. Remote server fails to accept a chunk, either due to network failure (most
+%%    likely) or a logic error (very unlikely).
+%%
+%% TODO
+%% In the latter case the process terminates without the chance to clean up the
+%% snapshot reader resource, which will cause the snapshot to linger indefinitely.
+%% For better control over resources, observability, and niceties like flow
+%% control and backpressure we need to move this into a dedicated process tree.
 
 -spec begin_read(_SnapshotDir :: file:filename(), _Context :: #{}) ->
     {ok, ra_snapshot:meta(), rs()} | {error, _Reason :: term()}.
@@ -131,9 +145,22 @@ complete_read(RS = #rs{reader = SnapReader, started_at = StartedAt}) ->
     }).
 
 %% Accepting a snapshot.
+%%
 %% This process is triggered by the target server, when the leader finds out
 %% that the target server is severely lagging behind. This is receiving side of
 %% `begin_read/2` and `read_chunk/3`.
+%%
+%% Currently, a snapshot writer is owned by the follower `ra` server process
+%% residing in dedicated `receive_snapshot` state. This process reverts back
+%% to the regular `follower` state under the following conditions:
+%% 1. The snapshot is completely accepted, and the machine state is recovered.
+%% 2. The process times out waiting for the next chunk.
+%% 3. The process encounters a logic error (very unlikely).
+%%
+%% TODO
+%% In the latter cases, the snapshot writer will not have a chance to clean up.
+%% For better control over resources, observability, and niceties like flow
+%% control and backpressure we need to move this into a dedicated process tree.
 
 -spec begin_accept(_SnapshotDir :: file:filename(), ra_snapshot:meta()) ->
     {ok, ws()}.
