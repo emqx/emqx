@@ -114,6 +114,7 @@ needs_persistence(Msg) ->
 
 -spec store_message(emqx_types:message()) -> emqx_ds:store_batch_result().
 store_message(Msg) ->
+    emqx_metrics:inc('messages.persisted'),
     emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg], #{sync => false}).
 
 has_subscribers(#message{topic = Topic}) ->

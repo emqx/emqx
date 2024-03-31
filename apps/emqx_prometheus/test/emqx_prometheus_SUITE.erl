@@ -89,7 +89,9 @@ init_per_group(new_config, Config) ->
     Apps = emqx_cth_suite:start(
         [
             %% coverage olp metrics
-            {emqx, "overload_protection.enable = true"},
+            {emqx,
+                "overload_protection.enable = true\n"
+                "session_persistence.enable = true"},
             {emqx_license, "license.key = default"},
             {emqx_prometheus, #{config => config(default)}}
         ],
