@@ -27,7 +27,9 @@
     inc_egress_batches_failed/1,
     inc_egress_messages/2,
     inc_egress_bytes/2,
-    observe_egress_flush_time/2
+
+    observe_egress_flush_time/2,
+    observe_next_time/3
 ]).
 
 %% behavior callbacks:
@@ -46,7 +48,7 @@
 
 -define(DB_METRICS, []).
 
--define(SHARD_METRICS, [
+-define(EGRESS_METRICS, [
     {counter, 'emqx_ds_egress_batches'},
     {counter, 'emqx_ds_egress_batches_retry'},
     {counter, 'emqx_ds_egress_batches_failed'},
@@ -54,6 +56,12 @@
     {counter, 'emqx_ds_egress_bytes'},
     {slide, 'emqx_ds_egress_flush_time'}
 ]).
+
+-define(INGRESS_METRICS, [
+    {slide, 'emqx_ds_builtin_next_time'}
+]).
+
+-define(SHARD_METRICS, ?EGRESS_METRICS ++ ?INGRESS_METRICS).
 
 -type shard_metrics_id() :: binary().
 
@@ -111,6 +119,14 @@ inc_egress_bytes(Id, NMessages) ->
 -spec observe_egress_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
 observe_egress_flush_time(Id, FlushTime) ->
     emqx_metrics_worker:observe(?WORKER, Id, 'emqx_ds_egress_flush_time', FlushTime).
+
+%% @doc Add a sample of elapsed time spent waiting for a
+%% `emqx_ds_replication_layer:next'
+-spec observe_next_time(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), non_neg_integer()) ->
+    ok.
+observe_next_time(DB, Shard, NextTime) ->
+    Id = shard_metric_id(DB, Shard),
+    emqx_metrics_worker:observe(?WORKER, Id, 'emqx_ds_builtin_next_time', NextTime).
 
 prometheus_meta() ->
     lists:map(
