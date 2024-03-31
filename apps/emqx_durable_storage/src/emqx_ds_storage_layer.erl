@@ -258,7 +258,11 @@ store_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
         shard => Shard, messages => Messages, options => Options
     }),
     #{module := Mod, data := GenData} = generation_at(Shard, Time),
-    Mod:store_batch(Shard, GenData, Messages, Options);
+    T0 = erlang:monotonic_time(microsecond),
+    Result = Mod:store_batch(Shard, GenData, Messages, Options),
+    T1 = erlang:monotonic_time(microsecond),
+    emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
+    Result;
 store_batch(_Shard, [], _Options) ->
     ok.
 

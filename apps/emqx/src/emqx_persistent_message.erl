@@ -98,7 +98,7 @@ pre_config_update(_Root, _NewConf, _OldConf) ->
 %%--------------------------------------------------------------------
 
 -spec persist(emqx_types:message()) ->
-    ok | {skipped, _Reason} | {error, _TODO}.
+    emqx_ds:store_batch_result() | {skipped, needs_no_persistence}.
 persist(Msg) ->
     ?WHEN_ENABLED(
         case needs_persistence(Msg) andalso has_subscribers(Msg) of

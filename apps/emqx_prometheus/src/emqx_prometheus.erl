@@ -491,7 +491,9 @@ emqx_collect(K = emqx_ds_egress_batches_retry, D) -> counter_metrics(?MG(K, D, [
 emqx_collect(K = emqx_ds_egress_batches_failed, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_ds_egress_messages, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_ds_egress_bytes, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_egress_flush_time, D) -> gauge_metrics(?MG(K, D, [])).
+emqx_collect(K = emqx_ds_egress_flush_time, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_ds_store_batch_time, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_ds_builtin_next_time, D) -> gauge_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators

@@ -332,7 +332,7 @@ next(DB, Iter0, BatchSize) ->
     T0 = erlang:monotonic_time(microsecond),
     Result = ra_next(DB, Shard, StorageIter0, BatchSize),
     T1 = erlang:monotonic_time(microsecond),
-    emqx_ds_builtin_metrics:observe_next_time(DB, Shard, T1 - T0),
+    emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
     case Result of
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},
