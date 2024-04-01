@@ -255,7 +255,7 @@ fields("cluster") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ];
+    ] ++ emqx_schema_hooks:injection_point(cluster);
 fields(cluster_static) ->
     [
         {"seeds",

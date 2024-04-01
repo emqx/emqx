@@ -33,7 +33,8 @@
     feed_var/3,
     systop/1,
     parse/1,
-    parse/2
+    parse/2,
+    intersection/2
 ]).
 
 -export([
@@ -51,6 +52,8 @@
 -define(MULTI_LEVEL_WILDCARD_NOT_LAST(C, REST),
     ((C =:= '#' orelse C =:= <<"#">>) andalso REST =/= [])
 ).
+
+-define(IS_WILDCARD(W), W =:= '+' orelse W =:= '#').
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -97,6 +100,45 @@ match(_, ['#']) ->
     true;
 match(_, _) ->
     false.
+
+%% @doc Finds an intersection between two topics, two filters or a topic and a filter.
+%% The function is commutative: reversing parameters doesn't affect the returned value.
+%% Two topics intersect only when they are equal.
+%% The intersection of a topic and a filter is always either the topic itself or false (no intersection).
+%% The intersection of two filters is either false or a new topic filter that would match only those topics,
+%% that can be matched by both input filters.
+%% For example, the intersection of "t/global/#" and "t/+/1/+" is "t/global/1/+".
+-spec intersection(TopicOrFilter, TopicOrFilter) -> TopicOrFilter | false when
+    TopicOrFilter :: emqx_types:topic().
+intersection(Topic1, Topic2) when is_binary(Topic1), is_binary(Topic2) ->
+    case intersection(words(Topic1), words(Topic2), []) of
+        [] -> false;
+        Intersection -> join(lists:reverse(Intersection))
+    end.
+
+intersection(Words1, ['#'], Acc) ->
+    lists:reverse(Words1, Acc);
+intersection(['#'], Words2, Acc) ->
+    lists:reverse(Words2, Acc);
+intersection([W1], ['+'], Acc) ->
+    [W1 | Acc];
+intersection(['+'], [W2], Acc) ->
+    [W2 | Acc];
+intersection([W1 | T1], [W2 | T2], Acc) when ?IS_WILDCARD(W1), ?IS_WILDCARD(W2) ->
+    intersection(T1, T2, [wildcard_intersection(W1, W2) | Acc]);
+intersection([W | T1], [W | T2], Acc) ->
+    intersection(T1, T2, [W | Acc]);
+intersection([W1 | T1], [W2 | T2], Acc) when ?IS_WILDCARD(W1) ->
+    intersection(T1, T2, [W2 | Acc]);
+intersection([W1 | T1], [W2 | T2], Acc) when ?IS_WILDCARD(W2) ->
+    intersection(T1, T2, [W1 | Acc]);
+intersection([], [], Acc) ->
+    Acc;
+intersection(_, _, _) ->
+    [].
+
+wildcard_intersection(W, W) -> W;
+wildcard_intersection(_, _) -> '+'.
 
 -spec match_share(Name, Filter) -> boolean() when
     Name :: share(),

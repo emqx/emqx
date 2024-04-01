@@ -23,6 +23,7 @@
 -export([delete/3]).
 -export([match/2]).
 -export([matches/3]).
+-export([matches_filter/3]).
 
 -export([make_key/2]).
 
@@ -71,6 +72,12 @@ match(Topic, Tab) ->
 -spec matches(emqx_types:topic(), ets:table(), emqx_trie_search:opts()) -> [match(_ID)].
 matches(Topic, Tab, Opts) ->
     emqx_trie_search:matches(Topic, make_nextf(Tab), Opts).
+
+%% @doc Match given topic filter against the index and return _all_ matches.
+%% If `unique` option is given, return only unique matches by record ID.
+-spec matches_filter(emqx_types:topic(), ets:table(), emqx_trie_search:opts()) -> [match(_ID)].
+matches_filter(TopicFilter, Tab, Opts) ->
+    emqx_trie_search:matches_filter(TopicFilter, make_nextf(Tab), Opts).
 
 %% @doc Extract record ID from the match.
 -spec get_id(match(ID)) -> ID.
