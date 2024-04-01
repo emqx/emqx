@@ -677,7 +677,7 @@ t_error_mapping_replication_layer(_Config) ->
     ),
     meck:unload().
 
-%% This test suite verifies the behavior of `store_batch' operation
+%% This testcase verifies the behavior of `store_batch' operation
 %% when the underlying code experiences recoverable or unrecoverable
 %% problems.
 t_store_batch_fail(_Config) ->

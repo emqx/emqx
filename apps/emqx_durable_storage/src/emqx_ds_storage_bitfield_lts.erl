@@ -44,6 +44,7 @@
 
 -export_type([options/0]).
 
+-include("emqx_ds_metrics.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -115,8 +116,6 @@
         ?last_seen_key := binary()
     }.
 
--define(COUNTER, emqx_ds_storage_bitfield_lts_counter).
-
 %% Limit on the number of wildcard levels in the learned topic trie:
 -define(WILDCARD_LIMIT, 10).
 
@@ -139,6 +138,8 @@
 
 -define(DIM_TOPIC, 1).
 -define(DIM_TS, 2).
+
+-define(DS_LTS_COUNTERS, [?DS_LTS_SEEK_COUNTER, ?DS_LTS_NEXT_COUNTER, ?DS_LTS_COLLISION_COUNTER]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -347,13 +348,18 @@ update_iterator(
 ) ->
     {ok, OldIter#{?last_seen_key => DSKey}}.
 
-next(_Shard, Schema = #s{ts_offset = TSOffset}, It, BatchSize) ->
+next(Shard, Schema = #s{ts_offset = TSOffset}, It, BatchSize) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
     %% the current time to compute it.
+    init_counters(),
     Now = emqx_ds:timestamp_us(),
     SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
-    next_until(Schema, It, SafeCutoffTime, BatchSize).
+    try
+        next_until(Schema, It, SafeCutoffTime, BatchSize)
+    after
+        report_counters(Shard)
+    end.
 
 next_until(_Schema, It = #{?tag := ?IT, ?start_time := StartTime}, SafeCutoffTime, _BatchSize) when
     StartTime >= SafeCutoffTime
@@ -375,20 +381,23 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         filter := Filter
     } = prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Keymappers),
     try
-        put(?COUNTER, 0),
         next_loop(ITHandle, Keymapper, Filter, SafeCutoffTime, It, [], BatchSize)
     after
-        rocksdb:iterator_close(ITHandle),
-        erase(?COUNTER)
+        rocksdb:iterator_close(ITHandle)
     end.
 
-delete_next(_Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize) ->
+delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
     %% the current time to compute it.
+    init_counters(),
     Now = emqx_message:timestamp_now(),
     SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
-    delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize).
+    try
+        delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize)
+    after
+        report_counters(Shard)
+    end.
 
 delete_next_until(
     _Schema,
@@ -417,7 +426,6 @@ delete_next_until(
             DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Keymappers
         ),
     try
-        put(?COUNTER, 0),
         LoopContext = LoopContext0#{
             db => DB,
             cf => CF,
@@ -430,8 +438,7 @@ delete_next_until(
         },
         delete_next_loop(LoopContext)
     after
-        rocksdb:iterator_close(ITHandle),
-        erase(?COUNTER)
+        rocksdb:iterator_close(ITHandle)
     end.
 
 %%================================================================================
@@ -477,7 +484,6 @@ prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Key
 next_loop(_ITHandle, _KeyMapper, _Filter, _Cutoff, It, Acc, 0) ->
     {ok, It, lists:reverse(Acc)};
 next_loop(ITHandle, KeyMapper, Filter, Cutoff, It0, Acc0, N0) ->
-    inc_counter(),
     #{?tag := ?IT, ?last_seen_key := Key0} = It0,
     case emqx_ds_bitmask_keymapper:bin_increment(Filter, Key0) of
         overflow ->
@@ -485,6 +491,7 @@ next_loop(ITHandle, KeyMapper, Filter, Cutoff, It0, Acc0, N0) ->
         Key1 ->
             %% assert
             true = Key1 > Key0,
+            inc_counter(?DS_LTS_SEEK_COUNTER),
             case rocksdb:iterator_move(ITHandle, {seek, Key1}) of
                 {ok, Key, Val} ->
                     {N, It, Acc} = traverse_interval(
@@ -510,6 +517,7 @@ traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N) -
                     Acc = [{Key, Msg} | Acc0],
                     traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc, N - 1);
                 false ->
+                    inc_counter(?DS_LTS_COLLISION_COUNTER),
                     traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc0, N)
             end;
         overflow ->
@@ -521,7 +529,7 @@ traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N) -
 traverse_interval(_ITHandle, _KeyMapper, _Filter, _Cutoff, It, Acc, 0) ->
     {0, It, Acc};
 traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc, N) ->
-    inc_counter(),
+    inc_counter(?DS_LTS_NEXT_COUNTER),
     case rocksdb:iterator_move(ITHandle, next) of
         {ok, Key, Val} ->
             traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It, Acc, N);
@@ -541,7 +549,7 @@ delete_next_loop(LoopContext0) ->
         iterated_over := AccIter0,
         it_handle := ITHandle
     } = LoopContext0,
-    inc_counter(),
+    inc_counter(?DS_LTS_SEEK_COUNTER),
     #{?tag := ?DELETE_IT, ?last_seen_key := Key0} = It0,
     case emqx_ds_bitmask_keymapper:bin_increment(Filter, Key0) of
         overflow ->
@@ -623,7 +631,7 @@ delete_traverse_interval1(LoopContext0) ->
         iterated_over := AccIter,
         storage_iter := It
     } = LoopContext0,
-    inc_counter(),
+    inc_counter(?DS_LTS_NEXT_COUNTER),
     case rocksdb:iterator_move(ITHandle, next) of
         {ok, Key, Val} ->
             delete_traverse_interval(LoopContext0#{
@@ -767,9 +775,20 @@ read_persisted_trie(IT, {ok, KeyB, ValB}) ->
 read_persisted_trie(_IT, {error, invalid_iterator}) ->
     [].
 
-inc_counter() ->
-    N = get(?COUNTER),
-    put(?COUNTER, N + 1).
+inc_counter(Counter) ->
+    N = get(Counter),
+    put(Counter, N + 1).
+
+init_counters() ->
+    _ = [put(I, 0) || I <- ?DS_LTS_COUNTERS],
+    ok.
+
+report_counters(Shard) ->
+    emqx_ds_builtin_metrics:inc_lts_seek_counter(Shard, get(?DS_LTS_SEEK_COUNTER)),
+    emqx_ds_builtin_metrics:inc_lts_next_counter(Shard, get(?DS_LTS_NEXT_COUNTER)),
+    emqx_ds_builtin_metrics:inc_lts_collision_counter(Shard, get(?DS_LTS_COLLISION_COUNTER)),
+    _ = [erase(I) || I <- ?DS_LTS_COUNTERS],
+    ok.
 
 %% @doc Generate a column family ID for the MQTT messages
 -spec data_cf(emqx_ds_storage_layer:gen_id()) -> [char()].

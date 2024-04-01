@@ -37,6 +37,7 @@
 -include_lib("public_key/include/public_key.hrl").
 -include_lib("prometheus/include/prometheus_model.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_metrics.hrl").
 
 -import(
     prometheus_model_helpers,
@@ -501,14 +502,17 @@ emqx_collect(K = emqx_mria_bootstrap_num_keys, D) -> gauge_metrics(?MG(K, D, [])
 emqx_collect(K = emqx_mria_message_queue_len, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_mria_replayq_len, D) -> gauge_metrics(?MG(K, D, []));
 %% DS
-emqx_collect(K = emqx_ds_egress_batches, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_egress_batches_retry, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_egress_batches_failed, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_egress_messages, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_egress_bytes, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_egress_flush_time, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_store_batch_time, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_ds_builtin_next_time, D) -> gauge_metrics(?MG(K, D, [])).
+emqx_collect(K = ?DS_EGRESS_BATCHES, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_BATCHES_RETRY, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_BATCHES_FAILED, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_MESSAGES, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_BYTES, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_FLUSH_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_STORE_BATCH_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_BUILTIN_NEXT_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_LTS_SEEK_COUNTER, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_LTS_NEXT_COUNTER, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_LTS_COLLISION_COUNTER, D) -> counter_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators

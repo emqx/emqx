@@ -32,7 +32,11 @@
 
     observe_store_batch_time/2,
 
-    observe_next_time/2
+    observe_next_time/2,
+
+    inc_lts_seek_counter/2,
+    inc_lts_next_counter/2,
+    inc_lts_collision_counter/2
 ]).
 
 %% behavior callbacks:
@@ -43,6 +47,8 @@
 
 -export_type([shard_metrics_id/0]).
 
+-include("emqx_ds_metrics.hrl").
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
@@ -50,22 +56,25 @@
 -define(WORKER, ?MODULE).
 
 -define(STORAGE_LAYER_METRICS, [
-    {slide, 'emqx_ds_store_batch_time'}
+    {slide, ?DS_STORE_BATCH_TIME},
+    {counter, ?DS_LTS_SEEK_COUNTER},
+    {counter, ?DS_LTS_NEXT_COUNTER},
+    {counter, ?DS_LTS_COLLISION_COUNTER}
 ]).
 
 -define(FETCH_METRICS, [
-    {slide, 'emqx_ds_builtin_next_time'}
+    {slide, ?DS_BUILTIN_NEXT_TIME}
 ]).
 
 -define(DB_METRICS, ?STORAGE_LAYER_METRICS ++ ?FETCH_METRICS).
 
 -define(EGRESS_METRICS, [
-    {counter, 'emqx_ds_egress_batches'},
-    {counter, 'emqx_ds_egress_batches_retry'},
-    {counter, 'emqx_ds_egress_batches_failed'},
-    {counter, 'emqx_ds_egress_messages'},
-    {counter, 'emqx_ds_egress_bytes'},
-    {slide, 'emqx_ds_egress_flush_time'}
+    {counter, ?DS_EGRESS_BATCHES},
+    {counter, ?DS_EGRESS_BATCHES_RETRY},
+    {counter, ?DS_EGRESS_BATCHES_FAILED},
+    {counter, ?DS_EGRESS_MESSAGES},
+    {counter, ?DS_EGRESS_BYTES},
+    {slide, ?DS_EGRESS_FLUSH_TIME}
 ]).
 
 -define(SHARD_METRICS, ?EGRESS_METRICS).
@@ -99,45 +108,57 @@ init_for_shard(ShardId) ->
 %% @doc Increase the number of successfully flushed batches
 -spec inc_egress_batches(shard_metrics_id()) -> ok.
 inc_egress_batches(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, 'emqx_ds_egress_batches').
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BATCHES).
 
 %% @doc Increase the number of time the egress worker had to retry
 %% flushing the batch
 -spec inc_egress_batches_retry(shard_metrics_id()) -> ok.
 inc_egress_batches_retry(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, 'emqx_ds_egress_batches_retry').
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BATCHES_RETRY).
 
 %% @doc Increase the number of time the egress worker encountered an
 %% unrecoverable error while trying to flush the batch
 -spec inc_egress_batches_failed(shard_metrics_id()) -> ok.
 inc_egress_batches_failed(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, 'emqx_ds_egress_batches_failed').
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BATCHES_FAILED).
 
 %% @doc Increase the number of messages successfully saved to the shard
 -spec inc_egress_messages(shard_metrics_id(), non_neg_integer()) -> ok.
 inc_egress_messages(Id, NMessages) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, 'emqx_ds_egress_messages', NMessages).
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_MESSAGES, NMessages).
 
 %% @doc Increase the number of messages successfully saved to the shard
 -spec inc_egress_bytes(shard_metrics_id(), non_neg_integer()) -> ok.
 inc_egress_bytes(Id, NMessages) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, 'emqx_ds_egress_bytes', NMessages).
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BYTES, NMessages).
 
 %% @doc Add a sample of elapsed time spent flushing the egress to the
 %% Raft log (in microseconds)
 -spec observe_egress_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
 observe_egress_flush_time(Id, FlushTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, 'emqx_ds_egress_flush_time', FlushTime).
+    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_EGRESS_FLUSH_TIME, FlushTime).
 
 -spec observe_store_batch_time(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 observe_store_batch_time({DB, _}, StoreTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, DB, 'emqx_ds_store_batch_time', StoreTime).
+    catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_STORE_BATCH_TIME, StoreTime).
 
 %% @doc Add a sample of elapsed time spent waiting for a batch
 %% `emqx_ds_replication_layer:next'
 -spec observe_next_time(emqx_ds:db(), non_neg_integer()) -> ok.
 observe_next_time(DB, NextTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, DB, 'emqx_ds_builtin_next_time', NextTime).
+    catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_BUILTIN_NEXT_TIME, NextTime).
+
+-spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+inc_lts_seek_counter({DB, _}, Inc) ->
+    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_LTS_SEEK_COUNTER, Inc).
+
+-spec inc_lts_next_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+inc_lts_next_counter({DB, _}, Inc) ->
+    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_LTS_NEXT_COUNTER, Inc).
+
+-spec inc_lts_collision_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+inc_lts_collision_counter({DB, _}, Inc) ->
+    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_LTS_COLLISION_COUNTER, Inc).
 
 prometheus_meta() ->
     lists:map(
