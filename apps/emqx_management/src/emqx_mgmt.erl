@@ -715,15 +715,20 @@ call_conn(ConnMod, Pid, Req) ->
         exit:{{shutdown, _OOMInfo}, _Location} ->
             {error, shutdown};
         exit:timeout ->
-            ?SLOG(
-                warning,
-                #{
-                    msg => "call_client_connection_process_timeout",
-                    request => Req,
-                    pid => Pid,
-                    module => ConnMod,
-                    stacktrace => erlang:process_info(Pid, current_stacktrace)
-                }
-            ),
+            LogData = #{
+                msg => "call_client_connection_process_timeout",
+                request => Req,
+                pid => Pid,
+                module => ConnMod
+            },
+            LogData1 =
+                case node(Pid) =:= node() of
+                    true ->
+                        LogData#{stacktrace => erlang:process_info(Pid, current_stacktrace)};
+                    false ->
+                        LogData
+                end,
+
+            ?SLOG(warning, LogData1),
             {error, timeout}
     end.
