@@ -128,7 +128,8 @@
             emqx_gateway_ocpp,
             emqx_gateway_jt808,
             emqx_bridge_syskeeper,
-            emqx_bridge_confluent
+            emqx_bridge_confluent,
+            emqx_cluster_link
         ],
     %% must always be of type `load'
     ce_business_apps =>

@@ -1,0 +1,24 @@
+%% -*- mode: erlang -*-
+{application, emqx_cluster_link, [
+    {description, "EMQX Cluster Linking"},
+    % strict semver, bump manually!
+    {vsn, "0.1.0"},
+    {modules, []},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        emqtt,
+        ecpool,
+        emqx,
+        emqx_resource
+    ]},
+    {mod, {emqx_cluster_link_app, []}},
+    {env, []},
+    {licenses, ["Business Source License 1.1"]},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx"}
+    ]}
+]}.

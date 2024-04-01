@@ -91,11 +91,12 @@
     deinit_schema/0
 ]).
 
--export_type([dest/0]).
+-export_type([dest/0, external_dest/0]).
 -export_type([schemavsn/0]).
 
 -type group() :: binary().
--type dest() :: node() | {group(), node()}.
+-type external_dest() :: {external, term()}.
+-type dest() :: node() | {group(), node()} | external_dest().
 -type schemavsn() :: v1 | v2.
 
 %% Operation :: {add, ...} | {delete, ...}.
@@ -107,7 +108,14 @@
     unused = [] :: nil()
 }).
 
--define(node_patterns(Node), [Node, {'_', Node}]).
+-define(dest_patterns(NodeOrExtDest),
+    case is_atom(NodeOrExtDest) of
+        %% node
+        true -> [NodeOrExtDest, {'_', NodeOrExtDest}];
+        %% external destination
+        false -> [NodeOrExtDest]
+    end
+).
 
 -define(UNSUPPORTED, unsupported).
 
@@ -306,14 +314,14 @@ print_routes(Topic) ->
         match_routes(Topic)
     ).
 
--spec cleanup_routes(node()) -> ok.
-cleanup_routes(Node) ->
-    cleanup_routes(get_schema_vsn(), Node).
+-spec cleanup_routes(node() | external_dest()) -> ok.
+cleanup_routes(NodeOrExtDest) ->
+    cleanup_routes(get_schema_vsn(), NodeOrExtDest).
 
-cleanup_routes(v2, Node) ->
-    cleanup_routes_v2(Node);
-cleanup_routes(v1, Node) ->
-    cleanup_routes_v1(Node).
+cleanup_routes(v2, NodeOrExtDest) ->
+    cleanup_routes_v2(NodeOrExtDest);
+cleanup_routes(v1, NodeOrExtDest) ->
+    cleanup_routes_v1(NodeOrExtDest).
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
@@ -430,19 +438,19 @@ has_route_v1(Topic, Dest) ->
 has_route_tab_entry(Topic, Dest) ->
     [] =/= ets:match(?ROUTE_TAB, #route{topic = Topic, dest = Dest}).
 
-cleanup_routes_v1(Node) ->
+cleanup_routes_v1(NodeOrExtDest) ->
     ?with_fallback(
         lists:foreach(
             fun(Pattern) ->
                 throw_unsupported(mria:match_delete(?ROUTE_TAB, make_route_rec_pat(Pattern)))
             end,
-            ?node_patterns(Node)
+            ?dest_patterns(NodeOrExtDest)
         ),
-        cleanup_routes_v1_fallback(Node)
+        cleanup_routes_v1_fallback(NodeOrExtDest)
     ).
 
-cleanup_routes_v1_fallback(Node) ->
-    Patterns = [make_route_rec_pat(P) || P <- ?node_patterns(Node)],
+cleanup_routes_v1_fallback(NodeOrExtDest) ->
+    Patterns = [make_route_rec_pat(P) || P <- ?dest_patterns(NodeOrExtDest)],
     mria:transaction(?ROUTE_SHARD, fun() ->
         [
             mnesia:delete_object(?ROUTE_TAB, Route, write)
@@ -525,7 +533,7 @@ has_route_v2(Topic, Dest) ->
             has_route_tab_entry(Topic, Dest)
     end.
 
-cleanup_routes_v2(Node) ->
+cleanup_routes_v2(NodeOrExtDest) ->
     ?with_fallback(
         lists:foreach(
             fun(Pattern) ->
@@ -537,18 +545,18 @@ cleanup_routes_v2(Node) ->
                 ),
                 throw_unsupported(mria:match_delete(?ROUTE_TAB, make_route_rec_pat(Pattern)))
             end,
-            ?node_patterns(Node)
+            ?dest_patterns(NodeOrExtDest)
         ),
-        cleanup_routes_v2_fallback(Node)
+        cleanup_routes_v2_fallback(NodeOrExtDest)
     ).
 
-cleanup_routes_v2_fallback(Node) ->
+cleanup_routes_v2_fallback(NodeOrExtDest) ->
     %% NOTE
     %% No point in transaction here because all the operations on filters table are dirty.
     ok = ets:foldl(
         fun(#routeidx{entry = K}, ok) ->
             case get_dest_node(emqx_topic_index:get_id(K)) of
-                Node ->
+                NodeOrExtDest ->
                     mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
                 _ ->
                     ok
@@ -560,7 +568,7 @@ cleanup_routes_v2_fallback(Node) ->
     ok = ets:foldl(
         fun(#route{dest = Dest} = Route, ok) ->
             case get_dest_node(Dest) of
-                Node ->
+                NodeOrExtDest ->
                     mria:dirty_delete_object(?ROUTE_TAB, Route);
                 _ ->
                     ok
@@ -570,6 +578,8 @@ cleanup_routes_v2_fallback(Node) ->
         ?ROUTE_TAB
     ).
 
+get_dest_node({external, _} = ExtDest) ->
+    ExtDest;
 get_dest_node({_, Node}) ->
     Node;
 get_dest_node(Node) ->

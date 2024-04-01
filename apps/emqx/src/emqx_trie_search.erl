@@ -99,7 +99,7 @@
 -module(emqx_trie_search).
 
 -export([make_key/2, make_pat/2, filter/1]).
--export([match/2, matches/3, get_id/1, get_topic/1]).
+-export([match/2, matches/3, get_id/1, get_topic/1, matches_filter/3]).
 -export_type([key/1, word/0, words/0, nextf/0, opts/0]).
 
 -define(END, '$end_of_table').
@@ -183,9 +183,20 @@ match(Topic, NextF) ->
 matches(Topic, NextF, Opts) ->
     search(Topic, NextF, Opts).
 
+%% @doc Match given topic filter against the index and return _all_ matches.
+-spec matches_filter(emqx_types:topic(), nextf(), opts()) -> [key(_)].
+matches_filter(TopicFilter, NextF, Opts) ->
+    search(TopicFilter, NextF, [topic_filter | Opts]).
+
 %% @doc Entrypoint of the search for a given topic.
 search(Topic, NextF, Opts) ->
-    Words = topic_words(Topic),
+    %% A private opt
+    IsFilter = proplists:get_bool(topic_filter, Opts),
+    Words =
+        case IsFilter of
+            true -> filter_words(Topic);
+            false -> topic_words(Topic)
+        end,
     Base = base_init(Words),
     ORetFirst = proplists:get_bool(return_first, Opts),
     OUnique = proplists:get_bool(unique, Opts),
@@ -200,8 +211,10 @@ search(Topic, NextF, Opts) ->
         end,
     Matches =
         case search_new(Words, Base, NextF, Acc0) of
-            {Cursor, Acc} ->
+            {Cursor, Acc} when not IsFilter ->
                 match_topics(Topic, Cursor, NextF, Acc);
+            {_Cursor, Acc} ->
+                Acc;
             Acc ->
                 Acc
         end,
@@ -275,6 +288,17 @@ compare(['#'], _Words, _) ->
     % Closest possible next entries that we must not miss:
     % * a/+/+/d/# (same topic but a different ID)
     match_full;
+%% Filter search %%
+compare(_Filter, ['#'], _) ->
+    match_full;
+compare([_ | TF], ['+' | TW], Pos) ->
+    case compare(TF, TW, Pos + 1) of
+        lower ->
+            lower;
+        Other ->
+            Other
+    end;
+%% Filter search end %%
 compare(['+' | TF], [HW | TW], Pos) ->
     case compare(TF, TW, Pos + 1) of
         lower ->

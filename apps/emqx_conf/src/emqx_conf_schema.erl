@@ -70,10 +70,17 @@
     emqx_otel_schema,
     emqx_mgmt_api_key_schema
 ]).
--define(INJECTING_CONFIGS, [
+
+-define(DEFAULT_INJECTING_CONFIGS, [
     {emqx_authn_schema, ?AUTHN_PROVIDER_SCHEMA_MODS},
     {emqx_authz_schema, ?AUTHZ_SOURCE_SCHEMA_MODS}
 ]).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+-define(INJECTING_CONFIGS, [emqx_cluster_link_schema | ?DEFAULT_INJECTING_CONFIGS]).
+-else.
+-define(INJECTING_CONFIGS, ?DEFAULT_INJECTING_CONFIGS).
+-endif.
 
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
@@ -247,7 +254,7 @@ fields("cluster") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ];
+    ] ++ emqx_schema_hooks:injection_point(cluster);
 fields(cluster_static) ->
     [
         {"seeds",

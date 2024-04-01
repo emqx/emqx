@@ -267,6 +267,7 @@
     [
         {node(), topic(), deliver_result()}
         | {share, topic(), deliver_result()}
+        | {emqx_router:external_dest(), topic(), deliver_result()}
         | persisted
     ]
     | disconnect.
