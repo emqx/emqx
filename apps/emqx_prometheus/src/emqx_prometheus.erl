@@ -212,13 +212,29 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, cert_metric_meta(), ?MG(cert_data, RawData)),
     ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
-    ok = add_collect_family(
-        Callback, emqx_ds_builtin_metrics:prometheus_meta(), ?MG(ds_data, RawData)
-    ),
+    ok = maybe_add_ds_collect_family(Callback, RawData),
     ok = maybe_license_add_collect_family(Callback, RawData),
     ok;
 collect_mf(_Registry, _Callback) ->
     ok.
+
+maybe_add_ds_collect_family(Callback, RawData) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            add_collect_family(
+                Callback, emqx_ds_builtin_metrics:prometheus_meta(), ?MG(ds_data, RawData)
+            );
+        false ->
+            ok
+    end.
+
+maybe_collect_ds_data(Mode) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            #{ds_data => emqx_ds_builtin_metrics:prometheus_collect(Mode)};
+        false ->
+            #{}
+    end.
 
 %% @private
 collect(<<"json">>) ->
@@ -254,7 +270,7 @@ add_collect_family(Name, Data, Callback, Type) ->
 
 %% behaviour
 fetch_from_local_node(Mode) ->
-    {node(), #{
+    {node(), (maybe_collect_ds_data(Mode))#{
         stats_data => stats_data(Mode),
         vm_data => vm_data(Mode),
         cluster_data => cluster_data(Mode),
@@ -267,7 +283,6 @@ fetch_from_local_node(Mode) ->
         emqx_olp_data => emqx_metric_data(olp_metric_meta(), Mode),
         emqx_acl_data => emqx_metric_data(acl_metric_meta(), Mode),
         emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode),
-        ds_data => emqx_ds_builtin_metrics:prometheus_collect(Mode),
         mria_data => mria_data(Mode)
     }}.
 
