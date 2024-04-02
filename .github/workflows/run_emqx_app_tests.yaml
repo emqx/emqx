@@ -35,6 +35,7 @@ jobs:
         shell: bash
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      skip: ${{ steps.matrix.outputs.skip }}
     steps:
     - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
       with:
@@ -49,12 +50,16 @@ jobs:
         changed_files="$(git diff --name-only ${BEFORE_REF} ${AFTER_REF} apps/emqx)"
         if [ "$changed_files" = '' ]; then
           echo "nothing changed in apps/emqx, ignored."
-          echo "matrix=[]" | tee -a $GITHUB_OUTPUT
+          echo 'matrix=[]' | tee -a $GITHUB_OUTPUT
+          echo 'skip=true' | tee -a $GITHUB_OUTPUT
           exit 0
+        else
+          echo 'skip=false' | tee -a $GITHUB_OUTPUT
+          echo 'matrix=[{"type": "eunit_proper_and_static"},{"type": "1_3"},{"type": "2_3"},{"type": "3_3"}]' | tee -a $GITHUB_OUTPUT
         fi
-        echo 'matrix=[{"type": "eunit_proper_and_static"},{"type": "1_3"},{"type": "2_3"},{"type": "3_3"}]' | tee -a $GITHUB_OUTPUT
 
   run_emqx_app_tests:
+    if: needs.prepare_matrix.outputs.skip != 'true'
     needs:
       - prepare_matrix
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
