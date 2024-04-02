@@ -49,6 +49,7 @@
     assign_db_sites/2,
     replica_set_transitions/2,
     update_replica_set/3,
+    db_sites/1,
     replica_set/2,
     target_set/2
 ]).
@@ -242,6 +243,17 @@ assign_db_sites(DB, Sites) ->
         {aborted, Reason} ->
             {error, Reason}
     end.
+
+-spec db_sites(emqx_ds:db()) -> [site()].
+db_sites(DB) ->
+    Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
+    lists:foldl(
+        fun(#?SHARD_TAB{replica_set = RS}, Acc) ->
+            ordsets:union(ordsets:from_list(RS), Acc)
+        end,
+        ordsets:new(),
+        Recs
+    ).
 
 -spec replica_set_transitions(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     [transition()] | undefined.
