@@ -233,7 +233,11 @@ drop_db(DB) ->
     _ = emqx_ds_proto_v4:drop_db(list_nodes(), DB),
     emqx_ds_replication_layer_meta:drop_db(DB).
 
--spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
+-spec store_batch(
+    emqx_ds:db(),
+    [emqx_types:message() | {emqx_ds:time(), emqx_types:message()}, ...],
+    emqx_ds:message_store_opts()
+) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
     try
@@ -274,7 +278,14 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
-            Streams = ra_get_delete_streams(DB, Shard, TopicFilter, StartTime),
+            Streams =
+                try
+                    ra_get_delete_streams(DB, Shard, TopicFilter, StartTime)
+                catch
+                    error:{erpc, _} ->
+                        %% TODO: log?
+                        []
+                end,
             lists:map(
                 fun(StorageLayerStream) ->
                     ?delete_stream(Shard, StorageLayerStream)
@@ -715,7 +726,7 @@ apply(
 assign_timestamps(Latest, Messages) ->
     assign_timestamps(Latest, Messages, []).
 
-assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
+assign_timestamps(Latest, [MessageIn = #message{} | Rest], Acc) ->
     case emqx_message:timestamp(MessageIn, microsecond) of
         TimestampUs when TimestampUs > Latest ->
             Message = assign_timestamp(TimestampUs, MessageIn),
@@ -724,6 +735,9 @@ assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
             Message = assign_timestamp(Latest + 1, MessageIn),
             assign_timestamps(Latest + 1, Rest, [Message | Acc])
     end;
+assign_timestamps(Latest0, [{TimestampIn, #message{}} = TsMessageIn | Rest], Acc) ->
+    Latest = max(Latest0, TimestampIn),
+    assign_timestamps(Latest, Rest, [TsMessageIn | Acc]);
 assign_timestamps(Latest, [], Acc) ->
     {Latest, Acc}.
 

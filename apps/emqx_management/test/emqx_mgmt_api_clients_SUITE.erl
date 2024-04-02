@@ -94,6 +94,7 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_TC, Config) ->
+    ct:timetrap({seconds, 20}),
     ok = snabbkaffe:start_trace(),
     Config.
 
@@ -109,9 +110,13 @@ end_per_testcase(TC, _Config) when
         ?LINE,
         fun() -> [] =:= emqx_cm:lookup_channels(local, ClientId) end,
         5000
-    );
+    ),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
 end_per_testcase(_TC, _Config) ->
-    ok = snabbkaffe:stop().
+    ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 t_clients(_) ->
     process_flag(trap_exit, true),
@@ -277,11 +282,8 @@ t_persistent_sessions1(Config) ->
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
             assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
             %% 4) Client disconnects.
-            ok = emqtt:stop(C2),
-            %% 5) Session is GC'ed, client is removed from list.
-            ?tp(notice, "gc", #{}),
-            %% simulate GC
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+            ok = stop_and_destroy(C2),
+            %% 5) Session is destroyed, client is removed from list.
             ?retry(
                 100,
                 20,
@@ -316,7 +318,7 @@ t_persistent_sessions2(Config) ->
             %% 2) Client connects to the same node and takes over, listed only once.
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
             assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
-            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0}),
+            stop_and_destroy(C2),
             ?retry(
                 100,
                 20,
@@ -360,7 +362,8 @@ t_persistent_sessions3(Config) ->
                     list_request(APIPort, "node=" ++ atom_to_list(N1))
                 )
             ),
-            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0})
+            stop_and_destroy(C2),
+            ok
         end,
         []
     ),
@@ -400,7 +403,8 @@ t_persistent_sessions4(Config) ->
                     list_request(APIPort, "node=" ++ atom_to_list(N1))
                 )
             ),
-            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0})
+            stop_and_destroy(C2),
+            ok
         end,
         []
     ),
@@ -479,8 +483,8 @@ t_persistent_sessions5(Config) ->
                     }}},
                 list_request(APIPort, "limit=2&page=1")
             ),
-            %% Disconnect persistent sessions
-            lists:foreach(fun emqtt:stop/1, [C1, C2]),
+            %% Disconnect persistent sessions but keep them
+            lists:foreach(fun stop_and_commit/1, [C1, C2]),
 
             P3 =
                 ?retry(200, 10, begin
@@ -1535,3 +1539,18 @@ connect_client(Opts) ->
     ]),
     {ok, _} = emqtt:connect(C),
     C.
+
+stop_and_destroy(Client) ->
+    ok = emqtt:disconnect(Client, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0}),
+    ok.
+
+%% To avoid a race condition where we try to delete the session while it's terminating and
+%% committing.  This shouldn't happen realistically, because we have a safe grace period
+%% before attempting to GC a session.
+stop_and_commit(Client) ->
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqtt:stop(Client),
+            #{?snk_kind := persistent_session_ds_terminate}
+        ),
+    ok.

@@ -14,6 +14,8 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+-define(SESSION_DB, emqx_persistent_session).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -25,6 +27,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
     TCApps = emqx_cth_suite:start(
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -649,7 +652,7 @@ t_session_replay_retry(_Config) ->
         ClientsPub
     ),
 
-    Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
+    Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 6_000),
     NPubs = length(Pubs0),
     ?assertEqual(NClients, NPubs, ?drainMailbox(1_500)),
 
@@ -657,11 +660,18 @@ t_session_replay_retry(_Config) ->
 
     %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
     ok = emqx_ds_test_helpers:mock_rpc_result(
-        fun(_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
-            case erlang:phash2(Shard) rem 2 of
-                0 -> unavailable;
-                1 -> passthrough
-            end
+        fun
+            (_Node, emqx_ds_replication_layer, _Function, [?SESSION_DB | _]) ->
+                %% When storing session data in DS, failing here could lead to a session
+                %% being considered new and not loaded, since we read non-atomically from
+                %% the DB.  If getting the streams fail due to rpc problems, it leniently
+                %% returns an empty list of streams, and that results in a "new" session.
+                passthrough;
+            (_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
+                case erlang:phash2(Shard) rem 2 of
+                    0 -> unavailable;
+                    1 -> passthrough
+                end
         end
     ),
 

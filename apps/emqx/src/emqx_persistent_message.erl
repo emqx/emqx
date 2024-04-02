@@ -56,7 +56,7 @@ init() ->
         Backend = storage_backend(),
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, Backend),
         ok = emqx_persistent_session_ds_router:init_tables(),
-        ok = emqx_persistent_session_ds:create_tables(),
+        ok = initialize_session_ds_state(),
         ok
     end).
 
@@ -71,6 +71,15 @@ is_persistence_enabled(Zone) ->
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->
     storage_backend([durable_storage, messages]).
+
+-ifdef(STORE_STATE_IN_DS).
+initialize_session_ds_state() ->
+    ok = emqx_persistent_session_ds_state:open_db(storage_backend([durable_storage, sessions])).
+-else.
+initialize_session_ds_state() ->
+    ok = emqx_persistent_session_ds_state:create_tables().
+%% -ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %% Dev-only option: force all messages to go through
 %% `emqx_persistent_session_ds':

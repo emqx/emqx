@@ -41,6 +41,7 @@
 -export_type([]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -49,8 +50,16 @@
 -define(via(DB, Shard), {via, gproc, {n, l, {?MODULE, DB, Shard}}}).
 -define(flush, flush).
 
--record(enqueue_req, {message :: emqx_types:message(), sync :: boolean()}).
--record(enqueue_atomic_req, {batch :: [emqx_types:message()], sync :: boolean()}).
+-type message() :: emqx_types:message().
+
+-record(enqueue_req, {
+    message :: message() | {emqx_ds:time(), message()},
+    sync :: boolean()
+}).
+-record(enqueue_atomic_req, {
+    batch :: [message() | {emqx_ds:time(), message()}],
+    sync :: boolean()
+}).
 
 %%================================================================================
 %% API functions
@@ -68,7 +77,7 @@ store_batch(DB, Messages, Opts) ->
         false ->
             lists:foreach(
                 fun(Message) ->
-                    Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
+                    Shard = shard_of_message(DB, Message),
                     gen_server:call(
                         ?via(DB, Shard),
                         #enqueue_req{
@@ -94,7 +103,7 @@ store_batch(DB, Messages, Opts) ->
                 end,
                 maps:groups_from_list(
                     fun(Message) ->
-                        emqx_ds_replication_layer:shard_of_message(DB, Message, clientid)
+                        shard_of_message(DB, Message)
                     end,
                     Messages
                 )
@@ -110,7 +119,7 @@ store_batch(DB, Messages, Opts) ->
     shard :: emqx_ds_replication_layer:shard_id(),
     n = 0 :: non_neg_integer(),
     tref :: reference(),
-    batch = [] :: [emqx_types:message()],
+    batch = [] :: [emqx_types:message() | {emqx_ds:time(), emqx_types:message()}],
     pending_replies = [] :: [gen_server:from()]
 }).
 
@@ -126,7 +135,9 @@ init([DB, Shard]) ->
 
 handle_call(#enqueue_req{message = Msg, sync = Sync}, From, S) ->
     do_enqueue(From, Sync, Msg, S);
-handle_call(#enqueue_atomic_req{batch = Batch, sync = Sync}, From, S) ->
+handle_call(
+    #enqueue_atomic_req{batch = Batch, sync = Sync}, From, S
+) ->
     Len = length(Batch),
     do_enqueue(From, Sync, {atomic, Len, Batch}, S);
 handle_call(_Call, _From, S) ->
@@ -228,3 +239,8 @@ do_enqueue(From, Sync, MsgOrBatch, S0 = #s{n = N, batch = Batch, pending_replies
 start_timer() ->
     Interval = application:get_env(emqx_durable_storage, egress_flush_interval, 100),
     erlang:send_after(Interval, self(), ?flush).
+
+shard_of_message(DB, #message{} = Message) ->
+    emqx_ds_replication_layer:shard_of_message(DB, Message, clientid);
+shard_of_message(DB, {_Ts, #message{} = Message}) ->
+    shard_of_message(DB, Message).

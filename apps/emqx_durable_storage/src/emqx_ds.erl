@@ -299,11 +299,15 @@ drop_db(DB) ->
             Module:drop_db(DB)
     end.
 
--spec store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
+-spec store_batch(
+    db(), [emqx_types:message() | {time(), emqx_types:message()}], message_store_opts()
+) ->
+    store_batch_result().
 store_batch(DB, Msgs, Opts) ->
     ?module(DB):store_batch(DB, Msgs, Opts).
 
--spec store_batch(db(), [emqx_types:message()]) -> store_batch_result().
+-spec store_batch(db(), [emqx_types:message() | {time(), emqx_types:message()}]) ->
+    store_batch_result().
 store_batch(DB, Msgs) ->
     store_batch(DB, Msgs, #{}).
 
