@@ -21,7 +21,16 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_db/2, start_shard/1, start_egress/1, stop_shard/1, ensure_shard/1, ensure_egress/1]).
+-export([
+    start_db/2,
+    start_shard/1,
+    start_egress/1,
+    stop_shard/1,
+    terminate_storage/1,
+    restart_storage/1,
+    ensure_shard/1,
+    ensure_egress/1
+]).
 -export([which_shards/1]).
 
 %% behaviour callbacks:
@@ -64,11 +73,21 @@ start_shard({DB, Shard}) ->
 start_egress({DB, Shard}) ->
     supervisor:start_child(?via(#?egress_sup{db = DB}), egress_spec(DB, Shard)).
 
--spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok | {error, _}.
+-spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok.
 stop_shard(Shard = {DB, _}) ->
     Sup = ?via(#?shards_sup{db = DB}),
     ok = supervisor:terminate_child(Sup, Shard),
     ok = supervisor:delete_child(Sup, Shard).
+
+-spec terminate_storage(emqx_ds_storage_layer:shard_id()) -> ok | {error, _Reason}.
+terminate_storage({DB, Shard}) ->
+    Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
+    supervisor:terminate_child(Sup, {Shard, storage}).
+
+-spec restart_storage(emqx_ds_storage_layer:shard_id()) -> {ok, _Child} | {error, _Reason}.
+restart_storage({DB, Shard}) ->
+    Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
+    supervisor:restart_child(Sup, {Shard, storage}).
 
 -spec ensure_shard(emqx_ds_storage_layer:shard_id()) ->
     ok | {error, _Reason}.

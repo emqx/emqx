@@ -98,8 +98,8 @@ t_03_smoke_iterate(_Config) ->
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-    {ok, Iter, Batch} = iterate(DB, Iter0, 1),
-    ?assertEqual(Msgs, [Msg || {_Key, Msg} <- Batch], {Iter0, Iter}).
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
@@ -125,8 +125,8 @@ t_04_restart(_Config) ->
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
     ok = emqx_ds:open_db(DB, opts()),
     %% The old iterator should be still operational:
-    {ok, Iter, Batch} = iterate(DB, Iter0, 1),
-    ?assertEqual(Msgs, [Msg || {_Key, Msg} <- Batch], {Iter0, Iter}).
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
 %% Check that we can create iterators directly from DS keys.
 t_05_update_iterator(_Config) ->
@@ -148,9 +148,8 @@ t_05_update_iterator(_Config) ->
     Res1 = emqx_ds:update_iterator(DB, OldIter, Key0),
     ?assertMatch({ok, _Iter1}, Res1),
     {ok, Iter1} = Res1,
-    {ok, FinalIter, Batch} = iterate(DB, Iter1, 1),
-    AllMsgs = [Msg0 | [Msg || {_Key, Msg} <- Batch]],
-    ?assertEqual(Msgs, AllMsgs, #{from_key => Iter1, final_iter => FinalIter}),
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
+    ?assertEqual(Msgs, [Msg0 | Batch], #{from_key => Iter1, final_iter => Iter}),
     ok.
 
 t_06_update_config(_Config) ->
@@ -190,9 +189,9 @@ t_06_update_config(_Config) ->
         ),
 
     Checker = fun({StartTime, Msgs0}, Acc) ->
-        Msgs = Msgs0 ++ Acc,
-        Batch = fetch_all(DB, TopicFilter, StartTime),
-        ?assertEqual(Msgs, Batch, {StartTime}),
+        Msgs = Acc ++ Msgs0,
+        Batch = emqx_ds_test_helpers:consume(DB, TopicFilter, StartTime),
+        ?assertEqual(Msgs, Batch, StartTime),
         Msgs
     end,
     lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
@@ -234,9 +233,9 @@ t_07_add_generation(_Config) ->
         ),
 
     Checker = fun({StartTime, Msgs0}, Acc) ->
-        Msgs = Msgs0 ++ Acc,
-        Batch = fetch_all(DB, TopicFilter, StartTime),
-        ?assertEqual(Msgs, Batch, {StartTime}),
+        Msgs = Acc ++ Msgs0,
+        Batch = emqx_ds_test_helpers:consume(DB, TopicFilter, StartTime),
+        ?assertEqual(Msgs, Batch, StartTime),
         Msgs
     end,
     lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
@@ -398,9 +397,8 @@ t_smoke_delete_next(_Config) ->
 
             TopicFilterHash = ['#'],
             [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilterHash, StartTime),
-            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilterHash, StartTime),
-            {ok, _Iter, Batch} = iterate(DB, Iter0, 1),
-            ?assertEqual([Msg1, Msg3], [Msg || {_Key, Msg} <- Batch]),
+            Batch = emqx_ds_test_helpers:consume_stream(DB, Stream, TopicFilterHash, StartTime),
+            ?assertEqual([Msg1, Msg3], Batch),
 
             ok = emqx_ds:add_generation(DB),
 
@@ -444,9 +442,9 @@ t_drop_generation_with_never_used_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch(
-        {error, unrecoverable, generation_not_found, []},
-        iterate(DB, Iter0, 1)
+    ?assertError(
+        {error, unrecoverable, generation_not_found},
+        emqx_ds_test_helpers:consume_iter(DB, Iter0)
     ),
 
     %% New iterator for the new stream will only see the later messages.
@@ -454,9 +452,9 @@ t_drop_generation_with_never_used_iterator(_Config) ->
     ?assertNotEqual(Stream0, Stream1),
     {ok, Iter1} = emqx_ds:make_iterator(DB, Stream1, TopicFilter, StartTime),
 
-    {ok, Iter, Batch} = iterate(DB, Iter1, 1),
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
     ?assertNotEqual(end_of_stream, Iter),
-    ?assertEqual(Msgs1, [Msg || {_Key, Msg} <- Batch]),
+    ?assertEqual(Msgs1, Batch),
 
     ok.
 
@@ -496,9 +494,9 @@ t_drop_generation_with_used_once_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch(
-        {error, unrecoverable, generation_not_found, []},
-        iterate(DB, Iter1, 1)
+    ?assertError(
+        {error, unrecoverable, generation_not_found},
+        emqx_ds_test_helpers:consume_iter(DB, Iter1)
     ).
 
 t_drop_generation_update_iterator(_Config) ->
@@ -702,25 +700,6 @@ update_data_set() ->
         ]
     ].
 
-fetch_all(DB, TopicFilter, StartTime) ->
-    Streams0 = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-    Streams = lists:sort(
-        fun({{_, A}, _}, {{_, B}, _}) ->
-            A < B
-        end,
-        Streams0
-    ),
-    lists:foldl(
-        fun({_, Stream}, Acc) ->
-            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-            {ok, _, Msgs0} = iterate(DB, Iter0, StartTime),
-            Msgs = lists:map(fun({_, Msg}) -> Msg end, Msgs0),
-            Acc ++ Msgs
-        end,
-        [],
-        Streams
-    ).
-
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
@@ -732,21 +711,6 @@ message(Topic, Payload, PublishedAt) ->
         timestamp = PublishedAt,
         id = emqx_guid:gen()
     }.
-
-iterate(DB, It, BatchSize) ->
-    iterate(DB, It, BatchSize, []).
-
-iterate(DB, It0, BatchSize, Acc) ->
-    case emqx_ds:next(DB, It0, BatchSize) of
-        {ok, It, []} ->
-            {ok, It, Acc};
-        {ok, It, Msgs} ->
-            iterate(DB, It, BatchSize, Acc ++ Msgs);
-        {ok, end_of_stream} ->
-            {ok, end_of_stream, Acc};
-        {error, Class, Reason} ->
-            {error, Class, Reason, Acc}
-    end.
 
 delete(DB, It, Selector, BatchSize) ->
     delete(DB, It, Selector, BatchSize, 0).

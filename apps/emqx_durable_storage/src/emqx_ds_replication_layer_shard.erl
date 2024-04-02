@@ -147,19 +147,21 @@ start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
             Bootstrap = false;
         {error, name_not_registered} ->
             Bootstrap = true,
+            Machine = {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
+            LogOpts = maps:with(
+                [
+                    snapshot_interval,
+                    resend_window
+                ],
+                ReplicationOpts
+            ),
             ok = ra:start_server(DB, #{
                 id => LocalServer,
                 uid => <<ClusterName/binary, "_", Site/binary>>,
                 cluster_name => ClusterName,
                 initial_members => Servers,
-                machine => {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
-                log_init_args => maps:with(
-                    [
-                        snapshot_interval,
-                        resend_window
-                    ],
-                    ReplicationOpts
-                )
+                machine => Machine,
+                log_init_args => LogOpts
             })
     end,
     case Servers of
