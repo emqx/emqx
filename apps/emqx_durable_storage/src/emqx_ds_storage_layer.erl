@@ -21,6 +21,7 @@
 -export([
     open_shard/2,
     drop_shard/1,
+    shard_info/2,
     store_batch/3,
     get_streams/3,
     get_delete_streams/3,
@@ -435,6 +436,14 @@ list_generations_with_lifetimes(ShardId) ->
 -spec drop_generation(shard_id(), gen_id()) -> ok.
 drop_generation(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
+
+-spec shard_info(shard_id(), status) -> running | down.
+shard_info(ShardId, status) ->
+    try get_schema_runtime(ShardId) of
+        #{} -> running
+    catch
+        error:badarg -> down
+    end.
 
 %%================================================================================
 %% gen_server for the shard

@@ -208,16 +208,24 @@ ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
             ?SLOG(debug, #{
                 msg => new_stream, key => Key, stream => Stream
             }),
-            {ok, Iterator} = emqx_ds:make_iterator(
-                ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
-            ),
-            NewStreamState = #srs{
-                rank_x = RankX,
-                rank_y = RankY,
-                it_begin = Iterator,
-                it_end = Iterator
-            },
-            emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
+            case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
+                {ok, Iterator} ->
+                    NewStreamState = #srs{
+                        rank_x = RankX,
+                        rank_y = RankY,
+                        it_begin = Iterator,
+                        it_end = Iterator
+                    },
+                    emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
+                {error, recoverable, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_initialize_stream_iterator",
+                        stream => Stream,
+                        class => recoverable,
+                        reason => Reason
+                    }),
+                    S
+            end;
         #srs{} ->
             S
     end.
