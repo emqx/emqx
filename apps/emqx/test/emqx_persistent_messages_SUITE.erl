@@ -476,7 +476,7 @@ t_replication_options(_Config) ->
                 resend_window := 60
             }
         },
-        emqx_ds_replication_layer_meta:get_options(?PERSISTENT_MESSAGE_DB)
+        emqx_ds_replication_layer_meta:db_config(?PERSISTENT_MESSAGE_DB)
     ),
     ?assertMatch(
         #{

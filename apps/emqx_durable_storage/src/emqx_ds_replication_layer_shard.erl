@@ -44,7 +44,7 @@ start_link(DB, Shard, Opts) ->
     gen_server:start_link(?MODULE, {DB, Shard, Opts}, []).
 
 shard_servers(DB, Shard) ->
-    {ok, ReplicaSet} = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
+    ReplicaSet = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
     [
         {server_name(DB, Shard, Site), emqx_ds_replication_layer_meta:node(Site)}
      || Site <- ReplicaSet
