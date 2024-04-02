@@ -221,7 +221,6 @@ do_flush(
             emqx_ds_builtin_metrics:inc_egress_batches(Metrics),
             emqx_ds_builtin_metrics:inc_egress_messages(Metrics, S#s.n),
             emqx_ds_builtin_metrics:inc_egress_bytes(Metrics, S#s.n_bytes),
-            lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Replies),
             ?tp(
                 emqx_ds_replication_layer_egress_flush,
                 #{db => DB, shard => Shard, batch => Messages}

@@ -64,10 +64,11 @@ consume(DB, TopicFilter) ->
 
 consume(DB, TopicFilter, StartTime) ->
     lists:flatmap(
-      fun({_Stream, Msgs}) ->
-              Msgs
-      end,
-      consume_per_stream(DB, TopicFilter, StartTime)).
+        fun({_Stream, Msgs}) ->
+            Msgs
+        end,
+        consume_per_stream(DB, TopicFilter, StartTime)
+    ).
 
 consume_per_stream(DB, TopicFilter, StartTime) ->
     Streams = emqx_ds:get_streams(DB, TopicFilter, StartTime),
