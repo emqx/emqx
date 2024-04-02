@@ -69,9 +69,14 @@ apply_rule_discard_result(Rule, Columns, Envs) ->
     ok.
 
 apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
-    ?TRACE("APPLY_RULE", "rule_activated", #{
-        ruleid => RuleID, input => Columns, environment => Envs
-    }),
+    set_process_trace_metadata(RuleID, Columns),
+    trace_rule_sql(
+        "rule_activated",
+        #{
+            input => Columns, environment => Envs
+        },
+        debug
+    ),
     ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'matched'),
     clear_rule_payload(),
     try
@@ -80,47 +85,79 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
         %% ignore the errors if select or match failed
         _:Reason = {select_and_transform_error, Error} ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
-            ?SLOG(warning, #{
-                msg => "SELECT_clause_exception",
-                rule_id => RuleID,
-                reason => Error
-            }),
+            trace_rule_sql(
+                "SELECT_clause_exception",
+                #{
+                    reason => Error
+                },
+                warning
+            ),
             {error, Reason};
         _:Reason = {match_conditions_error, Error} ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
-            ?SLOG(warning, #{
-                msg => "WHERE_clause_exception",
-                rule_id => RuleID,
-                reason => Error
-            }),
+            trace_rule_sql(
+                "WHERE_clause_exception",
+                #{
+                    reason => Error
+                },
+                warning
+            ),
             {error, Reason};
         _:Reason = {select_and_collect_error, Error} ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
-            ?SLOG(warning, #{
-                msg => "FOREACH_clause_exception",
-                rule_id => RuleID,
-                reason => Error
-            }),
+            trace_rule_sql(
+                "FOREACH_clause_exception",
+                #{
+                    reason => Error
+                },
+                warning
+            ),
             {error, Reason};
         _:Reason = {match_incase_error, Error} ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
-            ?SLOG(warning, #{
-                msg => "INCASE_clause_exception",
-                rule_id => RuleID,
-                reason => Error
-            }),
+            trace_rule_sql(
+                "INCASE_clause_exception",
+                #{
+                    reason => Error
+                },
+                warning
+            ),
             {error, Reason};
         Class:Error:StkTrace ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
-            ?SLOG(error, #{
-                msg => "apply_rule_failed",
-                rule_id => RuleID,
-                exception => Class,
-                reason => Error,
-                stacktrace => StkTrace
-            }),
+            trace_rule_sql(
+                "apply_rule_failed",
+                #{
+                    exception => Class,
+                    reason => Error,
+                    stacktrace => StkTrace
+                },
+                warning
+            ),
             {error, {Error, StkTrace}}
+    after
+        reset_process_trace_metadata(Columns)
     end.
+
+set_process_trace_metadata(RuleID, #{clientid := ClientID}) ->
+    logger:update_process_metadata(#{
+        rule_id => RuleID,
+        clientid => ClientID
+    });
+set_process_trace_metadata(RuleID, _) ->
+    logger:update_process_metadata(#{
+        rule_id => RuleID
+    }).
+
+reset_process_trace_metadata(#{clientid := _ClientID}) ->
+    Meta = logger:get_process_metadata(),
+    Meta1 = maps:remove(clientid, Meta),
+    Meta2 = maps:remove(rule_id, Meta1),
+    logger:set_process_metadata(Meta2);
+reset_process_trace_metadata(_) ->
+    Meta = logger:get_process_metadata(),
+    Meta1 = maps:remove(rule_id, Meta),
+    logger:set_process_metadata(Meta1).
 
 do_apply_rule(
     #{
@@ -139,13 +176,18 @@ do_apply_rule(
         {ok, ColumnsAndSelected, FinalCollection} ->
             case FinalCollection of
                 [] ->
+                    trace_rule_sql("FOREACH_yielded_no_result"),
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result');
                 _ ->
+                    trace_rule_sql(
+                        "FOREACH_yielded_result", #{result => FinalCollection}, debug
+                    ),
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
             end,
             NewEnvs = maps:merge(ColumnsAndSelected, Envs),
             {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- FinalCollection]};
         false ->
+            trace_rule_sql("FOREACH_yielded_no_result_no_match"),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
             {error, nomatch}
     end;
@@ -162,9 +204,11 @@ do_apply_rule(
 ) ->
     case evaluate_select(Fields, Columns, Conditions) of
         {ok, Selected} ->
+            trace_rule_sql("SELECT_yielded_result", #{result => Selected}, debug),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed'),
             {ok, handle_action_list(RuleId, Actions, Selected, maps:merge(Columns, Envs))};
         false ->
+            trace_rule_sql("SELECT_yielded_no_result_no_match"),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
             {error, nomatch}
     end.
@@ -348,37 +392,42 @@ handle_action_list(RuleId, Actions, Selected, Envs) ->
 
 handle_action(RuleId, ActId, Selected, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
+    trace_action(ActId, "activating_action"),
     try
-        do_handle_action(RuleId, ActId, Selected, Envs)
+        Result = do_handle_action(RuleId, ActId, Selected, Envs),
+        trace_action(ActId, "action_activated", #{result => Result}),
+        Result
     catch
         throw:out_of_service ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             ok = emqx_metrics_worker:inc(
                 rule_metrics, RuleId, 'actions.failed.out_of_service'
             ),
-            ?SLOG(warning, #{msg => "out_of_service", action => ActId});
+            trace_action(ActId, "out_of_service", #{}, warning);
         Err:Reason:ST ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown'),
-            ?SLOG(error, #{
-                msg => "action_failed",
-                action => ActId,
-                exception => Err,
-                reason => Reason,
-                stacktrace => ST
-            })
+            trace_action(
+                ActId,
+                "action_failed",
+                #{
+                    exception => Err,
+                    reason => Reason,
+                    stacktrace => ST
+                },
+                error
+            )
     end.
 
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found; R == unhealthy_target).
-do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Envs) ->
-    ?TRACE(
-        "BRIDGE",
-        "bridge_action",
-        #{bridge_id => emqx_bridge_resource:bridge_id(BridgeType, BridgeName)}
-    ),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId], #{reply_dropped => true}},
+do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
+    trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
+    TraceCtx = do_handle_action_get_trace_context(Action),
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [TraceCtx], #{reply_dropped => true}},
     case
-        emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{reply_to => ReplyTo})
+        emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{
+            reply_to => ReplyTo, trace_ctx => maps:remove(action_id, TraceCtx)
+        })
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
             throw(out_of_service);
@@ -388,23 +437,20 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Env
             Result
     end;
 do_handle_action(
-    RuleId,
-    {bridge_v2, BridgeType, BridgeName},
+    _RuleId,
+    {bridge_v2, BridgeType, BridgeName} = Action,
     Selected,
     _Envs
 ) ->
-    ?TRACE(
-        "BRIDGE",
-        "bridge_action",
-        #{bridge_id => {bridge_v2, BridgeType, BridgeName}}
-    ),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId], #{reply_dropped => true}},
+    trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
+    TraceCtx = do_handle_action_get_trace_context(Action),
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [TraceCtx], #{reply_dropped => true}},
     case
         emqx_bridge_v2:send_message(
             BridgeType,
             BridgeName,
             Selected,
-            #{reply_to => ReplyTo}
+            #{reply_to => ReplyTo, trace_ctx => maps:remove(action_id, TraceCtx)}
         )
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
@@ -414,12 +460,42 @@ do_handle_action(
         Result ->
             Result
     end;
-do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
+do_handle_action(_RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
+    trace_action(Action, "call_action_function"),
     %% the function can also throw 'out_of_service'
     Args = maps:get(args, Action, []),
     Result = Mod:Func(Selected, Envs, Args),
-    inc_action_metrics(RuleId, Result),
+    TraceCtx = do_handle_action_get_trace_context(Action),
+    inc_action_metrics(TraceCtx, Result),
+    trace_action(Action, "call_action_function_result", #{result => Result}, debug),
     Result.
+
+do_handle_action_get_trace_context(Action) ->
+    case logger:get_process_metadata() of
+        #{
+            rule_id := RuleID,
+            clientid := ClientID
+        } ->
+            #{
+                rule_id => RuleID,
+                clientid => ClientID,
+                action_id => Action
+            };
+        #{
+            rule_id := RuleID
+        } ->
+            #{
+                rule_id => RuleID,
+                action_id => Action
+            }
+    end.
+
+action_info({bridge, BridgeType, BridgeName, _ResId}) ->
+    #{type => BridgeType, name => BridgeName};
+action_info({bridge_v2, BridgeType, BridgeName}) ->
+    #{type => BridgeType, name => BridgeName};
+action_info(FuncInfoMap) ->
+    FuncInfoMap.
 
 eval({Op, _} = Exp, Context) when is_list(Context) andalso (Op == path orelse Op == var) ->
     case Context of
@@ -599,21 +675,31 @@ nested_put(Alias, Val, Columns0) ->
     Columns = ensure_decoded_payload(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
-inc_action_metrics(RuleId, Result) ->
-    _ = do_inc_action_metrics(RuleId, Result),
+inc_action_metrics(TraceCtx, Result) ->
+    _ = do_inc_action_metrics(TraceCtx, Result),
     Result.
 
-do_inc_action_metrics(RuleId, {error, {recoverable_error, _}}) ->
+do_inc_action_metrics(
+    #{rule_id := RuleId, action_id := ActId} = TraceContext,
+    {error, {recoverable_error, _}}
+) ->
+    trace_action(ActId, "out_of_service", TraceContext),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-do_inc_action_metrics(RuleId, {error, {unrecoverable_error, _}}) ->
+do_inc_action_metrics(
+    #{rule_id := RuleId, action_id := ActId} = TraceContext,
+    {error, {unrecoverable_error, _} = Reason}
+) ->
+    trace_action(ActId, "action_failed", maps:merge(#{reason => Reason}, TraceContext)),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
-do_inc_action_metrics(RuleId, R) ->
+do_inc_action_metrics(#{rule_id := RuleId, action_id := ActId} = TraceContext, R) ->
     case is_ok_result(R) of
         false ->
+            trace_action(ActId, "action_failed", maps:merge(#{reason => R}, TraceContext)),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
         true ->
+            trace_action(ActId, "action_success", maps:merge(#{result => R}, TraceContext)),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
     end.
 
@@ -661,3 +747,39 @@ parse_function_name(Module, Name) when is_binary(Name) ->
     end;
 parse_function_name(_Module, Name) when is_atom(Name) ->
     Name.
+
+trace_action(ActId, Message) ->
+    trace_action_bridge("ACTION", ActId, Message).
+
+trace_action(ActId, Message, Extra) ->
+    trace_action_bridge("ACTION", ActId, Message, Extra, debug).
+
+trace_action(ActId, Message, Extra, Level) ->
+    trace_action_bridge("ACTION", ActId, Message, Extra, Level).
+
+trace_action_bridge(Tag, ActId, Message) ->
+    trace_action_bridge(Tag, ActId, Message, #{}, debug).
+
+trace_action_bridge(Tag, ActId, Message, Extra, Level) ->
+    ?TRACE(
+        Level,
+        Tag,
+        Message,
+        maps:merge(
+            #{
+                action_info => action_info(ActId)
+            },
+            Extra
+        )
+    ).
+
+trace_rule_sql(Message) ->
+    trace_rule_sql(Message, #{}, debug).
+
+trace_rule_sql(Message, Extra, Level) ->
+    ?TRACE(
+        Level,
+        "RULE_SQL_EXEC",
+        Message,
+        Extra
+    ).

@@ -135,14 +135,22 @@ running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
 -spec filter_ruleid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
-filter_ruleid(#{meta := Meta = #{ruleid := RuleId}} = Log, {MatchId, _Name}) ->
-    filter_ret(RuleId =:= MatchId andalso is_trace(Meta), Log);
+filter_ruleid(#{meta := Meta = #{rule_id := RuleId}} = Log, {MatchId, _Name}) ->
+    RuleIDs = maps:get(rule_ids, Meta, #{}),
+    IsMatch = (RuleId =:= MatchId) orelse maps:get(MatchId, RuleIDs, false),
+    filter_ret(IsMatch andalso is_trace(Meta), Log);
+filter_ruleid(#{meta := Meta = #{rule_ids := RuleIDs}} = Log, {MatchId, _Name}) ->
+    filter_ret(maps:get(MatchId, RuleIDs, false) andalso is_trace(Meta), Log);
 filter_ruleid(_Log, _ExpectId) ->
     stop.
 
 -spec filter_clientid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_clientid(#{meta := Meta = #{clientid := ClientId}} = Log, {MatchId, _Name}) ->
-    filter_ret(ClientId =:= MatchId andalso is_trace(Meta), Log);
+    ClientIDs = maps:get(client_ids, Meta, #{}),
+    IsMatch = (ClientId =:= MatchId) orelse maps:get(MatchId, ClientIDs, false),
+    filter_ret(IsMatch andalso is_trace(Meta), Log);
+filter_clientid(#{meta := Meta = #{client_ids := ClientIDs}} = Log, {MatchId, _Name}) ->
+    filter_ret(maps:get(MatchId, ClientIDs, false) andalso is_trace(Meta), Log);
 filter_clientid(_Log, _ExpectId) ->
     stop.
 

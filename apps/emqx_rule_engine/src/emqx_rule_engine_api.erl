@@ -37,6 +37,7 @@
     '/rule_test'/2,
     '/rules'/2,
     '/rules/:id'/2,
+    '/rules/:id/test'/2,
     '/rules/:id/metrics'/2,
     '/rules/:id/metrics/reset'/2
 ]).
@@ -145,6 +146,7 @@ paths() ->
         "/rule_test",
         "/rules",
         "/rules/:id",
+        "/rules/:id/test",
         "/rules/:id/metrics",
         "/rules/:id/metrics/reset"
     ].
@@ -160,6 +162,9 @@ rule_creation_schema() ->
 
 rule_test_schema() ->
     ref(emqx_rule_api_schema, "rule_test").
+
+rule_apply_test_schema() ->
+    ref(emqx_rule_api_schema, "rule_apply_test").
 
 rule_info_schema() ->
     ref(emqx_rule_api_schema, "rule_info").
@@ -255,6 +260,21 @@ schema("/rules/:id") ->
             responses => #{
                 404 => error_schema('NOT_FOUND', "Rule not found"),
                 204 => <<"Delete rule successfully">>
+            }
+        }
+    };
+schema("/rules/:id/test") ->
+    #{
+        'operationId' => '/rules/:id/test',
+        post => #{
+            tags => [<<"rules">>],
+            description => ?DESC("api8"),
+            summary => <<"Apply a rule with the given message and environment">>,
+            'requestBody' => rule_apply_test_schema(),
+            responses => #{
+                400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
+                412 => error_schema('NOT_MATCH', "SQL Not Match"),
+                200 => <<"Rule Applied">>
             }
         }
     };
@@ -389,6 +409,24 @@ param_path_id() ->
                 {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
             {error, Reason} ->
                 {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
+        end
+    ).
+
+'/rules/:id/test'(post, #{body := Params, bindings := #{id := RuleId}}) ->
+    ?CHECK_PARAMS(
+        Params,
+        rule_apply_test,
+        begin
+            case emqx_rule_sqltester:apply_rule(RuleId, CheckedParams) of
+                {ok, Result} ->
+                    {200, Result};
+                {error, {parse_error, Reason}} ->
+                    {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
+                {error, nomatch} ->
+                    {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
+                {error, Reason} ->
+                    {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
+            end
         end
     ).
 

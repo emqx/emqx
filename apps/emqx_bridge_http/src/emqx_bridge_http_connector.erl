@@ -661,13 +661,22 @@ process_request_and_action(Request, ActionState, Msg) ->
     ),
     BodyTemplate = maps:get(body, ActionState),
     Body = render_request_body(BodyTemplate, RenderTmplFunc, Msg),
-    #{
+    RenderResult = #{
         method => Method,
         path => Path,
         body => Body,
         headers => Headers,
         request_timeout => maps:get(request_timeout, ActionState)
-    }.
+    },
+    ?TRACE(
+        "QUERY_RENDER",
+        "http_connector_successfully_rendered_request",
+        #{
+            request => Request,
+            render_result => RenderResult
+        }
+    ),
+    RenderResult.
 
 merge_proplist(Proplist1, Proplist2) ->
     lists:foldl(
