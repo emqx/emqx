@@ -1030,7 +1030,26 @@ bridge_v2_type_to_connector_type(Type) ->
 
 import_config(RawConf) ->
     %% actions structure
-    emqx_bridge:import_config(RawConf, <<"actions">>, ?ROOT_KEY_ACTIONS, config_key_path()).
+    ActionRes = emqx_bridge:import_config(
+        RawConf, <<"actions">>, ?ROOT_KEY_ACTIONS, config_key_path()
+    ),
+    SourceRes = emqx_bridge:import_config(
+        RawConf, <<"sources">>, ?ROOT_KEY_SOURCES, config_key_path_sources()
+    ),
+    combine_import_results([ActionRes, SourceRes]).
+
+combine_import_results(Results0) ->
+    Results = lists:foldr(
+        fun
+            ({ok, OkRes}, {OkAcc, ErrAcc}) ->
+                {[OkRes | OkAcc], ErrAcc};
+            ({error, ErrRes}, {OkAcc, ErrAcc}) ->
+                {OkAcc, [ErrRes | ErrAcc]}
+        end,
+        {[], []},
+        Results0
+    ),
+    {results, Results}.
 
 %%====================================================================
 %% Config Update Handler API
