@@ -157,6 +157,7 @@ suite() -> [{timetrap, {seconds, 60}}].
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(TCName, Config) ->
+    emqx_common_test_helpers:clear_screen(),
     Apps = [
         {emqx_durable_storage, #{
             before_start => fun snabbkaffe:fix_ct_logging/0,

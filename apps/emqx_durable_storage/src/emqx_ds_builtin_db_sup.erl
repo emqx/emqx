@@ -151,7 +151,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Opts = emqx_ds_replication_layer_meta:get_options(DB),
     Children = [
         shard_storage_spec(DB, Shard, Opts),
-        shard_replication_spec(DB, Shard, Opts)
+        shard_replication_spec(DB, Shard, Opts),
+        snapshot_manager_spec(DB, Shard)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -225,6 +226,14 @@ shard_replication_spec(DB, Shard, Opts) ->
         id => {Shard, replication},
         start => {emqx_ds_replication_layer_shard, start_link, [DB, Shard, Opts]},
         restart => transient,
+        type => worker
+    }.
+
+snapshot_manager_spec(DB, Shard) ->
+    #{
+        id => {Shard, snapshot_manager},
+        start => {emqx_ds_snapshot_manager, start_link, [DB, Shard]},
+        restart => permanent,
         type => worker
     }.
 

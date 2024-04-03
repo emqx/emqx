@@ -49,7 +49,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([db_dir/1]).
+-export([db_dir/1, checkpoints_dir/1]).
 
 -export_type([
     gen_id/0,
@@ -556,6 +556,10 @@ terminate(_Reason, #s{db = DB, shard_id = ShardId}) ->
 %% Internal exports
 %%================================================================================
 
+-spec checkpoints_dir(shard_id()) -> file:filename().
+checkpoints_dir({DB, ShardId}) ->
+    filename:join([emqx_ds:base_dir(), DB, checkpoints, binary_to_list(ShardId)]).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -771,8 +775,8 @@ db_dir({DB, ShardId}) ->
     filename:join([emqx_ds:base_dir(), DB, binary_to_list(ShardId)]).
 
 -spec checkpoint_dir(shard_id(), _Name :: file:name()) -> file:filename().
-checkpoint_dir({DB, ShardId}, Name) ->
-    filename:join([emqx_ds:base_dir(), DB, checkpoints, binary_to_list(ShardId), Name]).
+checkpoint_dir(ShardId, Name) ->
+    filename:join([checkpoints_dir(ShardId), Name]).
 
 -spec update_last_until(Schema, emqx_ds:time()) ->
     Schema | {error, exists | overlaps_existing_generations}

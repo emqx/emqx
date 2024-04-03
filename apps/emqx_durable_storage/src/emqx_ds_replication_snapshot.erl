@@ -35,26 +35,8 @@
     read_meta/1
 ]).
 
-%% Read state.
--record(rs, {
-    phase :: machine_state | storage_snapshot,
-    started_at :: _Time :: integer(),
-    state :: emqx_ds_replication_layer:ra_state() | undefined,
-    reader :: emqx_ds_storage_snapshot:reader() | undefined
-}).
-
-%% Write state.
--record(ws, {
-    phase :: machine_state | storage_snapshot,
-    started_at :: _Time :: integer(),
-    dir :: file:filename(),
-    meta :: ra_snapshot:meta(),
-    state :: emqx_ds_replication_layer:ra_state() | undefined,
-    writer :: emqx_ds_storage_snapshot:writer() | undefined
-}).
-
--type rs() :: #rs{}.
--type ws() :: #ws{}.
+-type rs() :: emqx_ds_snapshot_manager:ext_rs().
+-type ws() :: emqx_ds_snapshot_manager:ext_ws().
 
 -type ra_state() :: emqx_ds_replication_layer:ra_state().
 
@@ -94,55 +76,13 @@ write(Dir, Meta, MachineState) ->
 
 -spec begin_read(_SnapshotDir :: file:filename(), _Context :: #{}) ->
     {ok, ra_snapshot:meta(), rs()} | {error, _Reason :: term()}.
-begin_read(Dir, _Context) ->
-    RS = #rs{
-        phase = machine_state,
-        started_at = erlang:monotonic_time(millisecond)
-    },
-    case ra_log_snapshot:recover(Dir) of
-        {ok, Meta, MachineState} ->
-            start_snapshot_reader(Meta, RS#rs{state = MachineState});
-        Error ->
-            Error
-    end.
-
-start_snapshot_reader(Meta, RS) ->
-    ShardId = shard_id(RS),
-    logger:info(#{
-        msg => "dsrepl_snapshot_read_started",
-        shard => ShardId
-    }),
-    {ok, SnapReader} = emqx_ds_storage_layer:take_snapshot(ShardId),
-    {ok, Meta, RS#rs{reader = SnapReader}}.
+begin_read(Dir, Context) ->
+    emqx_ds_snapshot_manager:begin_read(Dir, Context).
 
 -spec read_chunk(rs(), _Size :: non_neg_integer(), _SnapshotDir :: file:filename()) ->
     {ok, binary(), {next, rs()} | last} | {error, _Reason :: term()}.
-read_chunk(RS = #rs{phase = machine_state, state = MachineState}, _Size, _Dir) ->
-    Chunk = term_to_binary(MachineState),
-    {ok, Chunk, {next, RS#rs{phase = storage_snapshot}}};
-read_chunk(RS = #rs{phase = storage_snapshot, reader = SnapReader0}, Size, _Dir) ->
-    case emqx_ds_storage_snapshot:read_chunk(SnapReader0, Size) of
-        {next, Chunk, SnapReader} ->
-            {ok, Chunk, {next, RS#rs{reader = SnapReader}}};
-        {last, Chunk, SnapReader} ->
-            %% TODO: idempotence?
-            ?tp(dsrepl_snapshot_read_complete, #{reader => SnapReader}),
-            _ = complete_read(RS#rs{reader = SnapReader}),
-            {ok, Chunk, last};
-        {error, Reason} ->
-            ?tp(dsrepl_snapshot_read_error, #{reason => Reason, reader => SnapReader0}),
-            _ = emqx_ds_storage_snapshot:release_reader(SnapReader0),
-            error(Reason)
-    end.
-
-complete_read(RS = #rs{reader = SnapReader, started_at = StartedAt}) ->
-    _ = emqx_ds_storage_snapshot:release_reader(SnapReader),
-    logger:info(#{
-        msg => "dsrepl_snapshot_read_complete",
-        shard => shard_id(RS),
-        duration_ms => erlang:monotonic_time(millisecond) - StartedAt,
-        read_bytes => emqx_ds_storage_snapshot:reader_info(bytes_read, SnapReader)
-    }).
+read_chunk(RS, Size, Dir) ->
+    emqx_ds_snapshot_manager:read_chunk(RS, Size, Dir).
 
 %% Accepting a snapshot.
 %%
@@ -165,69 +105,16 @@ complete_read(RS = #rs{reader = SnapReader, started_at = StartedAt}) ->
 -spec begin_accept(_SnapshotDir :: file:filename(), ra_snapshot:meta()) ->
     {ok, ws()}.
 begin_accept(Dir, Meta) ->
-    WS = #ws{
-        phase = machine_state,
-        started_at = erlang:monotonic_time(millisecond),
-        dir = Dir,
-        meta = Meta
-    },
-    {ok, WS}.
+    emqx_ds_snapshot_manager:begin_accept(Dir, Meta).
 
 -spec accept_chunk(binary(), ws()) ->
     {ok, ws()} | {error, _Reason :: term()}.
-accept_chunk(Chunk, WS = #ws{phase = machine_state}) ->
-    MachineState = binary_to_term(Chunk),
-    start_snapshot_writer(WS#ws{state = MachineState});
-accept_chunk(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0}) ->
-    %% TODO: idempotence?
-    case emqx_ds_storage_snapshot:write_chunk(SnapWriter0, Chunk) of
-        {next, SnapWriter} ->
-            {ok, WS#ws{writer = SnapWriter}};
-        {error, Reason} ->
-            ?tp(dsrepl_snapshot_write_error, #{reason => Reason, writer => SnapWriter0}),
-            _ = emqx_ds_storage_snapshot:abort_writer(SnapWriter0),
-            error(Reason)
-    end.
+accept_chunk(Chunk, WS) ->
+    emqx_ds_snapshot_manager:accept_chunk(Chunk, WS).
 
-start_snapshot_writer(WS) ->
-    ShardId = shard_id(WS),
-    logger:info(#{
-        msg => "dsrepl_snapshot_write_started",
-        shard => ShardId
-    }),
-    _ = emqx_ds_builtin_db_sup:terminate_storage(ShardId),
-    {ok, SnapWriter} = emqx_ds_storage_layer:accept_snapshot(ShardId),
-    {ok, WS#ws{phase = storage_snapshot, writer = SnapWriter}}.
-
--spec complete_accept(ws()) -> ok | {error, ra_snapshot:file_err()}.
-complete_accept(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0}) ->
-    %% TODO: idempotence?
-    case emqx_ds_storage_snapshot:write_chunk(SnapWriter0, Chunk) of
-        {last, SnapWriter} ->
-            ?tp(dsrepl_snapshot_write_complete, #{writer => SnapWriter}),
-            _ = emqx_ds_storage_snapshot:release_writer(SnapWriter),
-            Result = complete_accept(WS#ws{writer = SnapWriter}),
-            ?tp(dsrepl_snapshot_accepted, #{shard => shard_id(WS)}),
-            Result;
-        {error, Reason} ->
-            ?tp(dsrepl_snapshot_write_error, #{reason => Reason, writer => SnapWriter0}),
-            _ = emqx_ds_storage_snapshot:abort_writer(SnapWriter0),
-            error(Reason)
-    end.
-
-complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
-    ShardId = shard_id(WS),
-    logger:info(#{
-        msg => "dsrepl_snapshot_read_complete",
-        shard => ShardId,
-        duration_ms => erlang:monotonic_time(millisecond) - StartedAt,
-        bytes_written => emqx_ds_storage_snapshot:writer_info(bytes_written, SnapWriter)
-    }),
-    {ok, _} = emqx_ds_builtin_db_sup:restart_storage(ShardId),
-    write_machine_snapshot(WS).
-
-write_machine_snapshot(#ws{dir = Dir, meta = Meta, state = MachineState}) ->
-    write(Dir, Meta, MachineState).
+-spec complete_accept(binary(), ws()) -> ok | {error, ra_snapshot:file_err()}.
+complete_accept(Chunk, WS) ->
+    emqx_ds_snapshot_manager:complete_accept(Chunk, WS).
 
 %% Restoring machine state from a snapshot.
 %% This is equivalent to restoring from a log snapshot.
@@ -247,10 +134,3 @@ validate(Dir) ->
     {ok, ra_snapshot:meta()} | {error, _Reason}.
 read_meta(Dir) ->
     ra_log_snapshot:read_meta(Dir).
-
-shard_id(#rs{state = MachineState}) ->
-    shard_id(MachineState);
-shard_id(#ws{state = MachineState}) ->
-    shard_id(MachineState);
-shard_id(MachineState) ->
-    maps:get(db_shard, MachineState).
