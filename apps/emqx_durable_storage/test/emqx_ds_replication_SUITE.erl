@@ -21,7 +21,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(DB, testdb).
 
@@ -40,6 +40,73 @@ opts() ->
     }.
 
 t_replication_transfers_snapshots(Config) ->
+    [Node, NodeOffline | _] = ?config(nodes, Config),
+
+    #{sub_ref := SRef, messages := Messages} = prepare_snapshot_scenario(Config),
+
+    %% Trigger storage operation and wait the replica to be restored.
+    _ = add_generation(Node, ?DB),
+    ?assertMatch(
+        {ok, _},
+        snabbkaffe:receive_events(SRef)
+    ),
+
+    %% Wait until any pending replication activities are finished (e.g. Raft log entries).
+    ok = timer:sleep(3_000),
+
+    %% Check that the DB has been restored.
+    Shard = hd(shards(NodeOffline, ?DB)),
+    MessagesOffline = lists:keysort(
+        #message.timestamp,
+        consume(NodeOffline, ?DB, Shard, ['#'], 0)
+    ),
+    ?assertEqual(
+        sample(40, Messages),
+        sample(40, MessagesOffline)
+    ),
+    ?assertEqual(
+        Messages,
+        MessagesOffline
+    ).
+
+%% Verify that, when the reader caller process dies unexpectedly, reader and writer
+%% resources are cleaned up in leader and follower nodes, respectively.
+t_handle_reader_down(Config) ->
+    [Node | _] = ?config(nodes, Config),
+    ?check_trace(
+        #{timetrap => 55_000},
+        begin
+            #{sub_ref := SRef} = prepare_snapshot_scenario(Config),
+
+            %% This will crash the process that `ra' spawned, triggering cleanups.  Allow
+            %% for the chunks containing the machine state and caller reader process
+            %% reference to be sent before that.
+            ?inject_crash(
+                #{?snk_kind := dsrepl_read_chunk_next},
+                wait_crash_recover(2, 1)
+            ),
+
+            %% Trigger storage operation and wait the replica to be (eventually) restored.
+            ?tp(notice, "about to trigger snapshot", #{}),
+            _ = add_generation(Node, ?DB),
+            ?assertMatch(
+                {ok, _},
+                snabbkaffe:receive_events(SRef)
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% Crash triggered a cleanup in the leader node
+            ?assertMatch([_ | _], ?of_kind(dsrepl_reader_down, Trace)),
+            %% Crash triggered a cleanup in the follower node
+            ?assertMatch([_ | _], ?of_kind(dsrepl_remote_reader_down, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+prepare_snapshot_scenario(Config) ->
     NMsgs = 4000,
     Nodes = [Node, NodeOffline | _] = ?config(nodes, Config),
     _Specs = [_, SpecOffline | _] = ?config(specs, Config),
@@ -73,31 +140,14 @@ t_replication_transfers_snapshots(Config) ->
         ok,
         erpc:call(NodeOffline, emqx_ds, open_db, [?DB, opts()])
     ),
+    #{sub_ref => SRef, messages => Messages}.
 
-    %% Trigger storage operation and wait the replica to be restored.
-    _ = add_generation(Node, ?DB),
-    ?assertMatch(
-        {ok, _},
-        snabbkaffe:receive_events(SRef)
-    ),
-
-    %% Wait until any pending replication activities are finished (e.g. Raft log entries).
-    ok = timer:sleep(3_000),
-
-    %% Check that the DB has been restored.
-    Shard = hd(shards(NodeOffline, ?DB)),
-    MessagesOffline = lists:keysort(
-        #message.timestamp,
-        consume(NodeOffline, ?DB, Shard, ['#'], 0)
-    ),
-    ?assertEqual(
-        sample(40, Messages),
-        sample(40, MessagesOffline)
-    ),
-    ?assertEqual(
-        Messages,
-        MessagesOffline
-    ).
+%% snabbkaffe_nemeses fault scenario: let `N' occurrences happen, then crash for `M'
+%% events.
+wait_crash_recover(N, M) ->
+    fun(X) ->
+        N < X andalso X =< N + M
+    end.
 
 shards(Node, DB) ->
     erpc:call(Node, emqx_ds_replication_layer_meta, shards, [DB]).

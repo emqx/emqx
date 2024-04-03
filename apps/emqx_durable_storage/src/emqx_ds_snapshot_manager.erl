@@ -32,6 +32,7 @@
 %% `gen_server' API
 -export([
     init/1,
+    terminate/2,
 
     handle_call/3,
     handle_cast/2,
@@ -57,19 +58,21 @@
 
 %% Read state.
 -record(rs, {
-    phase :: machine_state | storage_snapshot,
+    phase :: machine_state | reader_caller_proc | storage_snapshot,
     started_at :: _Time :: integer(),
     state :: ra_state() | undefined,
+    reader_caller_proc :: {pid(), reference()} | undefined,
     reader :: emqx_ds_storage_snapshot:reader() | undefined
 }).
 
 %% Write state.
 -record(ws, {
-    phase :: machine_state | storage_snapshot,
+    phase :: machine_state | reader_caller_proc | storage_snapshot,
     started_at :: _Time :: integer(),
     dir :: file:filename(),
     meta :: ra_snapshot:meta(),
     state :: ra_state() | undefined,
+    reader_caller_proc :: {pid(), reference()} | undefined,
     writer :: emqx_ds_storage_snapshot:writer() | undefined
 }).
 
@@ -80,7 +83,7 @@
 -type ext_ws() :: #{phase := machine_state, ws := ws()} | #{shard_id := shard_id()}.
 
 %% call/cast/info events
--record(start_reader, {rs :: rs()}).
+-record(start_reader, {rs :: rs(), caller :: pid()}).
 -record(read_chunk, {size :: non_neg_integer()}).
 -record(begin_accept, {ws :: ws()}).
 -record(accept_chunk, {chunk :: binary()}).
@@ -107,7 +110,7 @@ begin_read(Dir, _Context) ->
         {ok, Meta, MachineState} ->
             ShardId = shard_id(MachineState),
             RS1 = RS0#rs{state = MachineState},
-            ok = gen_server:call(?via(ShardId), #start_reader{rs = RS1}, infinity),
+            ok = gen_server:call(?via(ShardId), #start_reader{rs = RS1, caller = self()}, infinity),
             ReadState = #{shard_id => ShardId},
             {ok, Meta, ReadState};
         Error ->
@@ -119,6 +122,7 @@ begin_read(Dir, _Context) ->
 read_chunk(#{shard_id := ShardId} = ExtRS, Size, _Dir) ->
     case gen_server:call(?via(ShardId), #read_chunk{size = Size}, infinity) of
         {ok, Chunk, next} ->
+            ?tp(dsrepl_read_chunk_next, #{}),
             {ok, Chunk, {next, ExtRS}};
         {ok, Chunk, last} ->
             {ok, Chunk, last};
@@ -170,6 +174,7 @@ complete_accept(Chunk, _ExtWS = #{shard_id := ShardId}) ->
 %%------------------------------------------------------------------------------
 
 init(#{db := DB, shard_id := ShardId}) ->
+    process_flag(trap_exit, true),
     logger:set_process_metadata(#{
         db => DB,
         shard_id => ShardId,
@@ -178,16 +183,21 @@ init(#{db := DB, shard_id := ShardId}) ->
     clear_all_checkpoints(DB, ShardId),
     {ok, init_state()}.
 
+terminate(_Reason, State0) ->
+    State1 = cleanup_writer(State0),
+    _ = cleanup_reader(State1),
+    ok.
+
 %% Reader
-handle_call(#start_reader{rs = RS0}, _From, State0) ->
-    State = handle_start_reader(RS0, State0),
+handle_call(#start_reader{rs = RS0, caller = Caller}, _From, State0) ->
+    State = handle_start_reader(RS0, Caller, State0),
     {reply, ok, State};
 handle_call(#read_chunk{size = Size}, _From, State0) ->
     {Reply, State} = handle_read_chunk(State0, Size),
     {reply, Reply, State};
 %% Writer
 handle_call(#begin_accept{ws = WS}, _From, State0) ->
-    State = State0#{ws := start_snapshot_writer(WS)},
+    State = State0#{ws := WS#ws{phase = reader_caller_proc}},
     {reply, ok, State};
 handle_call(#accept_chunk{chunk = Chunk}, _From, State0) ->
     {Reply, State} = handle_accept_chunk(Chunk, State0),
@@ -201,6 +211,16 @@ handle_call(_Call, _From, State) ->
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
+handle_info(
+    {'DOWN', MRef, process, Pid, _}, #{rs := #rs{reader_caller_proc = {Pid, MRef}}} = State0
+) ->
+    State = handle_reader_down(State0),
+    {noreply, State};
+handle_info(
+    {'DOWN', MRef, process, Pid, _}, #{ws := #ws{reader_caller_proc = {Pid, MRef}}} = State0
+) ->
+    State = handle_remote_reader_down(State0),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -233,21 +253,30 @@ clear_all_checkpoints(DB, ShardId) ->
 
 %% Reader (leader state)
 
--spec handle_start_reader(rs(), state()) -> state().
-handle_start_reader(RS0, State0) ->
+-spec handle_start_reader(rs(), pid(), state()) -> state().
+handle_start_reader(RS0, Caller, State0) ->
     ShardId = shard_id(RS0),
     logger:info(#{
         msg => "dsrepl_snapshot_read_started",
         shard => ShardId
     }),
     {ok, SnapReader} = emqx_ds_storage_layer:take_snapshot(ShardId),
-    RS = RS0#rs{reader = SnapReader},
+    MRef = monitor(process, Caller),
+    RS = RS0#rs{reader = SnapReader, reader_caller_proc = {Caller, MRef}},
     State0#{rs := RS}.
 
 -spec handle_read_chunk(state(), _Size :: non_neg_integer()) ->
     {{ok, binary(), next | last} | {error, _Reason :: term()}, state()}.
 handle_read_chunk(#{rs := RS0 = #rs{phase = machine_state, state = MachineState}} = State0, _Size) ->
     Chunk = term_to_binary(MachineState),
+    RS = RS0#rs{phase = reader_caller_proc},
+    State = State0#{rs := RS},
+    Reply = {ok, Chunk, next},
+    {Reply, State};
+handle_read_chunk(
+    #{rs := RS0 = #rs{phase = reader_caller_proc, reader_caller_proc = {Pid, _}}} = State0, _Size
+) ->
+    Chunk = term_to_binary(Pid),
     RS = RS0#rs{phase = storage_snapshot},
     State = State0#{rs := RS},
     Reply = {ok, Chunk, next},
@@ -276,8 +305,11 @@ handle_read_chunk(
             {Reply, State}
     end.
 
-complete_read(RS = #rs{reader = SnapReader, started_at = StartedAt}) ->
+complete_read(
+    RS = #rs{reader = SnapReader, started_at = StartedAt, reader_caller_proc = {_Pid, MRef}}
+) ->
     _ = emqx_ds_storage_snapshot:release_reader(SnapReader),
+    demonitor(MRef, [flush]),
     logger:info(#{
         msg => "dsrepl_snapshot_read_complete",
         shard => shard_id(RS),
@@ -285,10 +317,30 @@ complete_read(RS = #rs{reader = SnapReader, started_at = StartedAt}) ->
         read_bytes => emqx_ds_storage_snapshot:reader_info(bytes_read, SnapReader)
     }).
 
+-spec handle_reader_down(state()) -> state().
+handle_reader_down(State0) ->
+    logger:notice(#{msg => "Reader process down"}),
+    ?tp(dsrepl_reader_down, #{}),
+    cleanup_reader(State0).
+
+cleanup_reader(#{rs := #rs{reader = SnapReader, reader_caller_proc = {_Pid, MRef}}} = State0) ->
+    _ = emqx_ds_storage_snapshot:release_reader(SnapReader),
+    demonitor(MRef, [flush]),
+    State0#{rs := undefined};
+cleanup_reader(State) ->
+    State.
+
 %% Writer (follower state)
 
 -spec handle_accept_chunk(binary(), state()) ->
     {ok | {error, _Reason :: term()}, state()}.
+handle_accept_chunk(Chunk, #{ws := WS0 = #ws{phase = reader_caller_proc}} = State0) ->
+    ReaderPid = binary_to_term(Chunk),
+    MRef = monitor(process, ReaderPid),
+    WS = start_snapshot_writer(WS0#ws{reader_caller_proc = {ReaderPid, MRef}}),
+    State = State0#{ws := WS},
+    Reply = ok,
+    {Reply, State};
 handle_accept_chunk(
     Chunk, #{ws := WS0 = #ws{phase = storage_snapshot, writer = SnapWriter0}} = State0
 ) ->
@@ -327,6 +379,8 @@ handle_complete_accept(
             _ = emqx_ds_storage_snapshot:release_writer(SnapWriter),
             Result = do_complete_accept(WS0#ws{writer = SnapWriter}),
             ?tp(dsrepl_snapshot_accepted, #{shard => shard_id(WS0)}),
+            #ws{reader_caller_proc = {_Pid, MRef}} = WS0,
+            demonitor(MRef, [flush]),
             State = State0#{ws := undefined},
             {Result, State};
         {error, Reason} ->
@@ -350,6 +404,19 @@ do_complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
 
 write_machine_snapshot(#ws{dir = Dir, meta = Meta, state = MachineState}) ->
     emqx_ds_replication_snapshot:write(Dir, Meta, MachineState).
+
+-spec handle_remote_reader_down(state()) -> state().
+handle_remote_reader_down(State0) ->
+    logger:notice(#{msg => "Remote reader process down"}),
+    ?tp(dsrepl_remote_reader_down, #{}),
+    cleanup_writer(State0).
+
+cleanup_writer(#{ws := #ws{writer = SnapWriter, reader_caller_proc = {_Pid, MRef}}} = State0) ->
+    _ = emqx_ds_storage_snapshot:abort_writer(SnapWriter),
+    demonitor(MRef, [flush]),
+    State0#{ws := undefined};
+cleanup_writer(State) ->
+    State.
 
 %%
 

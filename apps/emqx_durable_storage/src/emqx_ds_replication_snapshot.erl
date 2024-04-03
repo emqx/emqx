@@ -67,12 +67,6 @@ write(Dir, Meta, MachineState) ->
 %% 1. The snapshot is completely read and sent.
 %% 2. Remote server fails to accept a chunk, either due to network failure (most
 %%    likely) or a logic error (very unlikely).
-%%
-%% TODO
-%% In the latter case the process terminates without the chance to clean up the
-%% snapshot reader resource, which will cause the snapshot to linger indefinitely.
-%% For better control over resources, observability, and niceties like flow
-%% control and backpressure we need to move this into a dedicated process tree.
 
 -spec begin_read(_SnapshotDir :: file:filename(), _Context :: #{}) ->
     {ok, ra_snapshot:meta(), rs()} | {error, _Reason :: term()}.
@@ -96,11 +90,6 @@ read_chunk(RS, Size, Dir) ->
 %% 1. The snapshot is completely accepted, and the machine state is recovered.
 %% 2. The process times out waiting for the next chunk.
 %% 3. The process encounters a logic error (very unlikely).
-%%
-%% TODO
-%% In the latter cases, the snapshot writer will not have a chance to clean up.
-%% For better control over resources, observability, and niceties like flow
-%% control and backpressure we need to move this into a dedicated process tree.
 
 -spec begin_accept(_SnapshotDir :: file:filename(), ra_snapshot:meta()) ->
     {ok, ws()}.
