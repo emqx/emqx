@@ -264,10 +264,10 @@ properties() ->
                 "messages.qos0.received\fmessages.qos1.received and messages.qos2.received"
             >>
         ),
-        m(
-            'messages.retained',
-            <<"Number of retained messages">>
-        ),
+        %% m(
+        %%     'messages.retained',
+        %%     <<"Number of retained messages">>
+        %% ),
         m(
             'messages.sent',
             <<
