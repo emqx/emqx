@@ -103,6 +103,11 @@ store_batch(DB, Messages, Opts) ->
     db :: emqx_ds:db(),
     shard :: emqx_ds_replication_layer:shard_id(),
     metrics_id :: emqx_ds_builtin_metrics:shard_metrics_id(),
+    n_retries = 0 :: non_neg_integer(),
+    %% FIXME: Currently max_retries is always 0, because replication
+    %% layer doesn't guarantee idempotency. Retrying would create
+    %% duplicate messages.
+    max_retries = 0 :: non_neg_integer(),
     n = 0 :: non_neg_integer(),
     n_bytes = 0 :: non_neg_integer(),
     tref :: undefined | reference(),
@@ -216,7 +221,15 @@ flush(S) ->
 do_flush(S0 = #s{n = 0}) ->
     S0;
 do_flush(
-    S = #s{queue = Q, pending_replies = Replies, db = DB, shard = Shard, metrics_id = Metrics}
+    S = #s{
+        queue = Q,
+        pending_replies = Replies,
+        db = DB,
+        shard = Shard,
+        metrics_id = Metrics,
+        n_retries = Retries,
+        max_retries = MaxRetries
+    }
 ) ->
     Messages = queue:to_list(Q),
     T0 = erlang:monotonic_time(microsecond),
@@ -240,7 +253,7 @@ do_flush(
                 queue = queue:new(),
                 pending_replies = []
             };
-        {error, recoverable, Reason} ->
+        {timeout, ServerId} when Retries < MaxRetries ->
             %% Note: this is a hot loop, so we report error messages
             %% with `debug' level to avoid wiping the logs. Instead,
             %% error the detection must rely on the metrics. Debug
@@ -248,8 +261,8 @@ do_flush(
             %% via logger domain.
             ?tp(
                 debug,
-                emqx_ds_replication_layer_egress_flush_failed,
-                #{db => DB, shard => Shard, reason => Reason, recoverable => true}
+                emqx_ds_replication_layer_egress_flush_retry,
+                #{db => DB, shard => Shard, reason => timeout, server_id => ServerId}
             ),
             %% Retry sending the batch:
             emqx_ds_builtin_metrics:inc_egress_batches_retry(Metrics),
@@ -257,21 +270,30 @@ do_flush(
             %% We block the gen_server until the next retry.
             BlockTime = ?COOLDOWN_MIN + rand:uniform(?COOLDOWN_MAX - ?COOLDOWN_MIN),
             timer:sleep(BlockTime),
-            S;
-        Err = {error, unrecoverable, Reason} ->
+            S#s{n_retries = Retries + 1};
+        Err ->
             ?tp(
                 debug,
                 emqx_ds_replication_layer_egress_flush_failed,
-                #{db => DB, shard => Shard, reason => Reason, recoverable => false}
+                #{db => DB, shard => Shard, error => Err}
             ),
             emqx_ds_builtin_metrics:inc_egress_batches_failed(Metrics),
-            lists:foreach(fun(From) -> gen_server:reply(From, Err) end, Replies),
+            Reply =
+                case Err of
+                    {error, _, _} -> Err;
+                    {timeout, ServerId} -> {error, recoverable, {timeout, ServerId}};
+                    _ -> {error, unrecoverable, Err}
+                end,
+            lists:foreach(
+                fun(From) -> gen_server:reply(From, Reply) end, Replies
+            ),
             erlang:garbage_collect(),
             S#s{
                 n = 0,
                 n_bytes = 0,
                 queue = queue:new(),
-                pending_replies = []
+                pending_replies = [],
+                n_retries = 0
             }
     end.
 

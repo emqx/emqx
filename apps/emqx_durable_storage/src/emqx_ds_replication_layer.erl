@@ -551,6 +551,8 @@ list_nodes() ->
     end
 ).
 
+-spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()]) ->
+    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err} | _Err.
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,

@@ -684,7 +684,7 @@ t_store_batch_fail(_Config) ->
     ?check_trace(
         #{timetrap => 15_000},
         try
-            meck:new(emqx_ds_replication_layer, [passthrough, no_history]),
+            meck:new(emqx_ds_storage_layer, [passthrough, no_history]),
             DB = ?FUNCTION_NAME,
             ?assertMatch(ok, emqx_ds:open_db(DB, (opts())#{n_shards => 2})),
             %% Success:
@@ -694,7 +694,7 @@ t_store_batch_fail(_Config) ->
             ],
             ?assertMatch(ok, emqx_ds:store_batch(DB, Batch1, #{sync => true})),
             %% Inject unrecoverable error:
-            meck:expect(emqx_ds_replication_layer, ra_store_batch, fun(_DB, _Shard, _Messages) ->
+            meck:expect(emqx_ds_storage_layer, store_batch, fun(_DB, _Shard, _Messages) ->
                 {error, unrecoverable, mock}
             end),
             Batch2 = [
@@ -704,35 +704,32 @@ t_store_batch_fail(_Config) ->
             ?assertMatch(
                 {error, unrecoverable, mock}, emqx_ds:store_batch(DB, Batch2, #{sync => true})
             ),
-            %% Inject a recoverable error:
+            meck:unload(emqx_ds_storage_layer),
+            %% Inject a recoveralbe error:
+            meck:new(ra, [passthrough, no_history]),
+            meck:expect(ra, process_command, fun(Servers, Shard, Command) ->
+                ?tp(ra_command, #{servers => Servers, shard => Shard, command => Command}),
+                {timeout, mock}
+            end),
             Batch3 = [
                 message(<<"C1">>, <<"foo/bar">>, <<"5">>, 2),
                 message(<<"C2">>, <<"foo/bar">>, <<"6">>, 2),
                 message(<<"C1">>, <<"foo/bar">>, <<"7">>, 3),
                 message(<<"C2">>, <<"foo/bar">>, <<"8">>, 3)
             ],
-            meck:expect(emqx_ds_replication_layer, ra_store_batch, fun(DB, Shard, Messages) ->
-                try
-                    ?tp(store_batch, #{messages => Messages}),
-                    meck:passthrough([DB, Shard, Messages])
-                catch
-                    _:_ ->
-                        {error, recoverable, mock}
-                end
-            end),
-            ?inject_crash(#{?snk_kind := store_batch}, snabbkaffe_nemesis:recover_after(3)),
+            %% Note: due to idempotency issues the number of retries
+            %% is currently set to 0:
+            ?assertMatch(
+                {error, recoverable, {timeout, mock}},
+                emqx_ds:store_batch(DB, Batch3, #{sync => true})
+            ),
+            meck:unload(ra),
             ?assertMatch(ok, emqx_ds:store_batch(DB, Batch3, #{sync => true})),
             lists:sort(emqx_ds_test_helpers:consume_per_stream(DB, ['#'], 1))
         after
             meck:unload()
         end,
         [
-            {"number of successfull flushes after retry", fun(Trace) ->
-                ?assertMatch([_, _], ?of_kind(store_batch, Trace))
-            end},
-            {"number of retries", fun(Trace) ->
-                ?assertMatch([_, _, _], ?of_kind(snabbkaffe_crash, Trace))
-            end},
             {"message ordering", fun(StoredMessages, _Trace) ->
                 [{_, Stream1}, {_, Stream2}] = StoredMessages,
                 ?assertMatch(
