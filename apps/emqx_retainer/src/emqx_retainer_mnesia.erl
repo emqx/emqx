@@ -17,6 +17,7 @@
 -module(emqx_retainer_mnesia).
 
 -behaviour(emqx_retainer).
+-behaviour(emqx_db_backup).
 
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -54,6 +55,8 @@
 -export([populate_index_meta/0]).
 -export([reindex/3]).
 
+-export([backup_tables/0]).
+
 -record(retained_message, {topic, msg, expiry_time}).
 -record(retained_index, {key, expiry_time}).
 -record(retained_index_meta, {key, read_indices, write_indices, reindexing, extra}).
@@ -72,6 +75,12 @@
 
 topics() ->
     [emqx_topic:join(I) || I <- mnesia:dirty_all_keys(?TAB_MESSAGE)].
+
+%%--------------------------------------------------------------------
+%% Data backup
+%%--------------------------------------------------------------------
+backup_tables() ->
+    [?TAB_MESSAGE].
 
 %%--------------------------------------------------------------------
 %% emqx_retainer callbacks

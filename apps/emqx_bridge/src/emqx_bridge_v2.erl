@@ -1036,9 +1036,9 @@ import_config(RawConf) ->
     SourceRes = emqx_bridge:import_config(
         RawConf, <<"sources">>, ?ROOT_KEY_SOURCES, config_key_path_sources()
     ),
-    combine_import_results([ActionRes, SourceRes]).
+    group_import_results([ActionRes, SourceRes]).
 
-combine_import_results(Results0) ->
+group_import_results(Results0) ->
     Results = lists:foldr(
         fun
             ({ok, OkRes}, {OkAcc, ErrAcc}) ->
