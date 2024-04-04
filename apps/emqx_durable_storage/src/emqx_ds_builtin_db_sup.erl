@@ -31,7 +31,7 @@
     ensure_shard/1,
     ensure_egress/1
 ]).
--export([which_shards/1]).
+-export([which_dbs/0, which_shards/1]).
 
 %% behaviour callbacks:
 -export([init/1]).
@@ -104,6 +104,13 @@ ensure_egress(Shard) ->
 which_shards(DB) ->
     supervisor:which_children(?via(#?shards_sup{db = DB})).
 
+%% @doc Return the list of builtin DS databases that are currently
+%% active on the node.
+-spec which_dbs() -> [emqx_ds:db()].
+which_dbs() ->
+    Key = {n, l, #?db_sup{_ = '_', db = '$1'}},
+    gproc:select({local, names}, [{{Key, '_', '_'}, [], ['$1']}]).
+
 %%================================================================================
 %% behaviour callbacks
 %%================================================================================
@@ -111,6 +118,7 @@ which_shards(DB) ->
 init({#?db_sup{db = DB}, DefaultOpts}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
+    emqx_ds_builtin_metrics:init_for_db(DB),
     Opts = emqx_ds_replication_layer_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
     Children = [

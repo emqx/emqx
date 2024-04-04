@@ -329,7 +329,11 @@ next(DB, Iter0, BatchSize) ->
     %%
     %% This kind of trickery should be probably done here in the
     %% replication layer. Or, perhaps, in the logic layer.
-    case ra_next(DB, Shard, StorageIter0, BatchSize) of
+    T0 = erlang:monotonic_time(microsecond),
+    Result = ra_next(DB, Shard, StorageIter0, BatchSize),
+    T1 = erlang:monotonic_time(microsecond),
+    emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
+    case Result of
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, Batch};
@@ -547,6 +551,8 @@ list_nodes() ->
     end
 ).
 
+-spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()]) ->
+    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err} | _Err.
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,

@@ -67,7 +67,8 @@
     %, sent_bytes
     validation_succeeded,
     validation_failed,
-    dropped
+    dropped,
+    persisted
 ]).
 
 -define(GAUGE_SAMPLER_LIST, [
@@ -87,7 +88,8 @@
     sent => sent_msg_rate,
     validation_succeeded => validation_succeeded_rate,
     validation_failed => validation_failed_rate,
-    dropped => dropped_msg_rate
+    dropped => dropped_msg_rate,
+    persisted => persisted_rate
 }).
 
 -define(CURRENT_SAMPLE_NON_RATE,
