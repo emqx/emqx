@@ -164,6 +164,14 @@ fields(limit) ->
     ]),
     Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
+fields(cursor) ->
+    Desc = <<"Opaque value representing the current iteration state.">>,
+    Meta = #{default => none, in => query, desc => Desc},
+    [{cursor, hoconsc:mk(hoconsc:union([none, binary()]), Meta)}];
+fields(cursor_response) ->
+    Desc = <<"Opaque value representing the current iteration state.">>,
+    Meta = #{desc => Desc, required => false},
+    [{cursor, hoconsc:mk(binary(), Meta)}];
 fields(count) ->
     Desc = <<
         "Total number of records matching the query.<br/>"
@@ -197,6 +205,8 @@ fields(start) ->
     [{start, hoconsc:mk(hoconsc:union([none, binary()]), Meta)}];
 fields(meta) ->
     fields(page) ++ fields(limit) ++ fields(count) ++ fields(hasnext);
+fields(meta_with_cursor) ->
+    fields(count) ++ fields(hasnext) ++ fields(cursor_response);
 fields(continuation_meta) ->
     fields(start) ++ fields(position).
 
