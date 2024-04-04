@@ -357,7 +357,7 @@ db_replica(delete, #{bindings := #{ds := DB, site := Site}}) ->
 -spec update_db_sites(emqx_ds:db(), [emqx_ds_replication_layer_meta:site()], rest | cli) ->
     ok | {error, binary()}.
 update_db_sites(DB, Sites, Via) when is_list(Sites) ->
-    UnknownSites = Sites -- emqx_ds_replication_layer_meta:sites(),
+    UnknownSites = lists:usort(Sites) -- emqx_ds_replication_layer_meta:sites(),
     case {UnknownSites, Sites} of
         {[], [_ | _]} ->
             ?SLOG(warning, #{
