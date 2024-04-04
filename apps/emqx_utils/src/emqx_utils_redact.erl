@@ -65,8 +65,11 @@ redact(Term, Checker) ->
 redact_headers(Term) ->
     do_redact_headers(Term).
 
-do_redact(L, Checker) when is_list(L) ->
-    lists:map(fun(E) -> do_redact(E, Checker) end, L);
+do_redact([], _Checker) ->
+    [];
+do_redact([X | Xs], Checker) ->
+    %% Note: we could be dealing with an improper list
+    [do_redact(X, Checker) | do_redact(Xs, Checker)];
 do_redact(M, Checker) when is_map(M) ->
     maps:map(
         fun(K, V) ->
@@ -251,6 +254,14 @@ redact2_test_() ->
 
     Keys = [secret, passcode],
     [{case_name(atom, Key), fun() -> Case(Key, Checker) end} || Key <- Keys].
+
+redact_improper_list_test_() ->
+    %% improper lists: check that we don't crash
+    %% may arise when we redact process states with pending `gen' requests
+    [
+        ?_assertEqual([alias | foo], redact([alias | foo])),
+        ?_assertEqual([1, 2 | foo], redact([1, 2 | foo]))
+    ].
 
 deobfuscate_test() ->
     NewConf0 = #{foo => <<"bar0">>, password => <<"123456">>},
