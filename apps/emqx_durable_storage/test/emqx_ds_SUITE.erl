@@ -53,7 +53,7 @@ t_00_smoke_open_drop(_Config) ->
     lists:foreach(
         fun(Shard) ->
             ?assertEqual(
-                {ok, [Site]}, emqx_ds_replication_layer_meta:replica_set(DB, Shard)
+                [Site], emqx_ds_replication_layer_meta:replica_set(DB, Shard)
             )
         end,
         Shards

@@ -16,7 +16,7 @@
 
 -module(emqx_ds_replication_shard_allocator).
 
--export([start_link/2]).
+-export([start_link/1]).
 
 -export([n_shards/1]).
 -export([shard_meta/2]).
@@ -35,8 +35,8 @@
 
 %%
 
-start_link(DB, Opts) ->
-    gen_server:start_link(?MODULE, {DB, Opts}, []).
+start_link(DB) ->
+    gen_server:start_link(?MODULE, DB, []).
 
 n_shards(DB) ->
     Meta = persistent_term:get(?db_meta(DB)),
@@ -49,22 +49,11 @@ shard_meta(DB, Shard) ->
 
 -define(ALLOCATE_RETRY_TIMEOUT, 1_000).
 
-init({DB, Opts}) ->
+init(DB) ->
     _ = erlang:process_flag(trap_exit, true),
     _ = logger:set_process_metadata(#{db => DB, domain => [ds, db, shard_allocator]}),
-    State = #{db => DB, opts => Opts, status => allocating},
-    case allocate_shards(State) of
-        {ok, NState} ->
-            {ok, NState};
-        {error, Data} ->
-            _ = logger:notice(
-                Data#{
-                    msg => "Shard allocation still in progress",
-                    retry_in => ?ALLOCATE_RETRY_TIMEOUT
-                }
-            ),
-            {ok, State, ?ALLOCATE_RETRY_TIMEOUT}
-    end.
+    State = #{db => DB, status => allocating},
+    handle_allocate_shards(State, ok).
 
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
@@ -73,18 +62,7 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info(timeout, State) ->
-    case allocate_shards(State) of
-        {ok, NState} ->
-            {noreply, NState};
-        {error, Data} ->
-            _ = logger:notice(
-                Data#{
-                    msg => "Shard allocation still in progress",
-                    retry_in => ?ALLOCATE_RETRY_TIMEOUT
-                }
-            ),
-            {noreply, State, ?ALLOCATE_RETRY_TIMEOUT}
-    end;
+    handle_allocate_shards(State, noreply);
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -96,8 +74,24 @@ terminate(_Reason, #{}) ->
 
 %%
 
-allocate_shards(State = #{db := DB, opts := Opts}) ->
-    case emqx_ds_replication_layer_meta:allocate_shards(DB, Opts) of
+handle_allocate_shards(State, Ret) ->
+    case allocate_shards(State) of
+        {ok, NState} ->
+            {Ret, NState};
+        {error, Data} ->
+            _ = logger:notice(
+                Data#{
+                    msg => "Shard allocation still in progress",
+                    retry_in => ?ALLOCATE_RETRY_TIMEOUT
+                }
+            ),
+            {Ret, State, ?ALLOCATE_RETRY_TIMEOUT}
+    end.
+
+%%
+
+allocate_shards(State = #{db := DB}) ->
+    case emqx_ds_replication_layer_meta:allocate_shards(DB) of
         {ok, Shards} ->
             logger:notice(#{msg => "Shards allocated", shards => Shards}),
             ok = start_shards(DB, emqx_ds_replication_layer_meta:my_shards(DB)),

@@ -189,8 +189,7 @@ add_generation(DB) ->
 
 -spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
-    ok = emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts),
-    Opts = emqx_ds_replication_layer_meta:get_options(DB),
+    Opts = #{} = emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts),
     foreach_shard(
         DB,
         fun(Shard) -> ok = ra_update_config(DB, Shard, Opts) end

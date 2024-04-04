@@ -124,7 +124,7 @@ init({#?db_sup{db = DB}, DefaultOpts}) ->
     Children = [
         sup_spec(#?shards_sup{db = DB}, []),
         sup_spec(#?egress_sup{db = DB}, []),
-        shard_allocator_spec(DB, Opts)
+        shard_allocator_spec(DB)
     ],
     SupFlags = #{
         strategy => one_for_all,
@@ -156,7 +156,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         intensity => 10,
         period => 100
     },
-    Opts = emqx_ds_replication_layer_meta:get_options(DB),
+    Opts = emqx_ds_replication_layer_meta:db_config(DB),
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_replication_spec(DB, Shard, Opts)
@@ -236,10 +236,10 @@ shard_replication_spec(DB, Shard, Opts) ->
         type => worker
     }.
 
-shard_allocator_spec(DB, Opts) ->
+shard_allocator_spec(DB) ->
     #{
         id => shard_allocator,
-        start => {emqx_ds_replication_shard_allocator, start_link, [DB, Opts]},
+        start => {emqx_ds_replication_shard_allocator, start_link, [DB]},
         restart => permanent,
         type => worker
     }.
