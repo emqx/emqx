@@ -29,7 +29,9 @@
 -export([
     shards/1,
     my_shards/1,
+    shard_info/2,
     allocate_shards/1,
+    replica_set/2,
     sites/0,
     node/1,
     this_site/0,
@@ -52,7 +54,6 @@
     replica_set_transitions/2,
     update_replica_set/3,
     db_sites/1,
-    replica_set/2,
     target_set/2
 ]).
 
@@ -187,6 +188,25 @@ start_link() ->
 shards(DB) ->
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
     [Shard || #?SHARD_TAB{shard = {_, Shard}} <- Recs].
+
+-spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+    #{replica_set := #{site() => #{status => up | joining}}}
+    | undefined.
+shard_info(DB, Shard) ->
+    case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
+        [] ->
+            undefined;
+        [#?SHARD_TAB{replica_set = Replicas}] ->
+            ReplicaSet = maps:from_list([
+                begin
+                    %% TODO:
+                    ReplInfo = #{status => up},
+                    {I, ReplInfo}
+                end
+             || I <- Replicas
+            ]),
+            #{replica_set => ReplicaSet}
+    end.
 
 -spec my_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 my_shards(DB) ->
