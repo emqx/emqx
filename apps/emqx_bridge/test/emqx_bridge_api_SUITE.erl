@@ -859,6 +859,12 @@ do_start_stop_bridges(Type, Config) ->
         } ->
             ok;
         #{
+            <<"node_status">> := [_, _ | _],
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"connack_timeout">>
+        } ->
+            ok;
+        #{
             <<"node_status">> := [_],
             <<"status">> := <<"connecting">>
         } ->
