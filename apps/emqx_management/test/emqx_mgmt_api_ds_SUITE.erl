@@ -144,7 +144,7 @@ t_put_replicas(_) ->
     Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas"]),
     %% Error cases:
     ?assertMatch(
-        {ok, 400, #{<<"message">> := <<"Unknown sites: [\"invalid_site\"]">>}},
+        {ok, 400, #{<<"message">> := <<"Unknown sites: invalid_site">>}},
         parse_error(request_api_with_body(put, Path, [<<"invalid_site">>]))
     ),
     %% Success case:
@@ -170,7 +170,7 @@ t_leave(_) ->
     ThisSite = emqx_ds_replication_layer_meta:this_site(),
     Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas", ThisSite]),
     ?assertMatch(
-        {ok, "OK"},
+        {error, {_, 400, _}},
         request_api(delete, Path)
     ).
 
