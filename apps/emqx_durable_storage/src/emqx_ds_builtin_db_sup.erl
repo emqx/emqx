@@ -74,7 +74,7 @@ start_egress({DB, Shard}) ->
     supervisor:start_child(?via(#?egress_sup{db = DB}), egress_spec(DB, Shard)).
 
 -spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok.
-stop_shard(Shard = {DB, _}) ->
+stop_shard({DB, Shard}) ->
     Sup = ?via(#?shards_sup{db = DB}),
     ok = supervisor:terminate_child(Sup, Shard),
     ok = supervisor:delete_child(Sup, Shard).
@@ -212,7 +212,7 @@ sup_spec(Id, Options) ->
 
 shard_spec(DB, Shard) ->
     #{
-        id => {shard, Shard},
+        id => Shard,
         start => {?MODULE, start_link_sup, [#?shard_sup{db = DB, shard = Shard}, []]},
         shutdown => infinity,
         restart => permanent,
