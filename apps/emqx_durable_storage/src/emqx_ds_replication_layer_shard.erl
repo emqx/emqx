@@ -21,6 +21,7 @@
 %% Static server configuration
 -export([
     shard_servers/2,
+    shard_server/3,
     local_server/2
 ]).
 
@@ -28,6 +29,14 @@
 -export([
     servers/3,
     server/3
+]).
+
+%% Membership
+-export([
+    add_local_server/2,
+    drop_local_server/2,
+    remove_server/3,
+    server_info/2
 ]).
 
 -behaviour(gen_server).
@@ -38,21 +47,31 @@
     terminate/2
 ]).
 
+-type server() :: ra:server_id().
+
+-define(MEMBERSHIP_CHANGE_TIMEOUT, 30_000).
+
 %%
 
 start_link(DB, Shard, Opts) ->
     gen_server:start_link(?MODULE, {DB, Shard, Opts}, []).
 
+-spec shard_servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> [server()].
 shard_servers(DB, Shard) ->
     ReplicaSet = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
-    [
-        {server_name(DB, Shard, Site), emqx_ds_replication_layer_meta:node(Site)}
-     || Site <- ReplicaSet
-    ].
+    [shard_server(DB, Shard, Site) || Site <- ReplicaSet].
 
+-spec shard_server(
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_replication_layer_meta:site()
+) -> server().
+shard_server(DB, Shard, Site) ->
+    {server_name(DB, Shard, Site), emqx_ds_replication_layer_meta:node(Site)}.
+
+-spec local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> server().
 local_server(DB, Shard) ->
-    Site = emqx_ds_replication_layer_meta:this_site(),
-    {server_name(DB, Shard, Site), node()}.
+    {server_name(DB, Shard, local_site()), node()}.
 
 cluster_name(DB, Shard) ->
     iolist_to_binary(io_lib:format("~s_~s", [DB, Shard])).
@@ -60,6 +79,14 @@ cluster_name(DB, Shard) ->
 server_name(DB, Shard, Site) ->
     DBBin = atom_to_binary(DB),
     binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
+
+server_uid(_DB, Shard) ->
+    %% NOTE
+    %% Each new "instance" of a server should have a unique identifier. Otherwise,
+    %% if some server migrates to another node during rebalancing, and then comes
+    %% back, `ra` will be very confused by it having the same UID as before.
+    Ts = integer_to_binary(erlang:system_time(microsecond)),
+    <<Shard/binary, "_", Ts/binary>>.
 
 %%
 
@@ -118,11 +145,100 @@ get_local_server(DB, Shard) ->
 get_shard_servers(DB, Shard) ->
     maps:get(servers, emqx_ds_replication_shard_allocator:shard_meta(DB, Shard)).
 
+local_site() ->
+    emqx_ds_replication_layer_meta:this_site().
+
+%%
+
+add_local_server(DB, Shard) ->
+    %% NOTE
+    %% Adding local server as "promotable" member to the cluster, which means
+    %% that it will affect quorum until it is promoted to a voter, which in
+    %% turn happens when the server has caught up sufficiently with the log.
+    %% We also rely on this "membership" to understand when the server's
+    %% readiness.
+    ShardServers = shard_servers(DB, Shard),
+    LocalServer = local_server(DB, Shard),
+    ServerRecord = #{
+        id => LocalServer,
+        membership => promotable,
+        uid => server_uid(DB, Shard)
+    },
+    case ra:add_member(ShardServers, ServerRecord, ?MEMBERSHIP_CHANGE_TIMEOUT) of
+        {ok, _, _Leader} ->
+            ok;
+        {error, already_member} ->
+            ok;
+        {error, Reason} ->
+            {error, recoverable, Reason}
+    end.
+
+drop_local_server(DB, Shard) ->
+    LocalServer = local_server(DB, Shard),
+    case remove_server(DB, Shard, LocalServer) of
+        ok ->
+            ra:force_delete_server(DB, LocalServer);
+        {error, _, _Reason} = Error ->
+            Error
+    end.
+
+remove_server(DB, Shard, Server) ->
+    ShardServers = shard_servers(DB, Shard),
+    case ra:remove_member(ShardServers, Server, ?MEMBERSHIP_CHANGE_TIMEOUT) of
+        {ok, _, _Leader} ->
+            ok;
+        {error, not_member} ->
+            ok;
+        {error, Reason} ->
+            {error, recoverable, Reason}
+    end.
+
+server_info(readiness, Server) ->
+    %% NOTE
+    %% Server is ready if it's either the leader or a follower with voter "membership"
+    %% status (meaning it was promoted after catching up with the log).
+    case current_leader(Server) of
+        Server ->
+            ready;
+        Leader when Leader /= unknown ->
+            member_info(readiness, Server, Leader);
+        unknown ->
+            unknown
+    end;
+server_info(leader, Server) ->
+    current_leader(Server).
+
+member_info(readiness, Server, Leader) ->
+    case ra:member_overview(Leader) of
+        {ok, #{cluster := Cluster}, _} ->
+            member_readiness(maps:get(Server, Cluster));
+        _Error ->
+            unknown
+    end.
+
+current_leader(Server) ->
+    case ra:members(Server) of
+        {ok, _Servers, Leader} ->
+            Leader;
+        _Error ->
+            unknown
+    end.
+
+member_readiness(#{status := Status, voter_status := #{membership := Membership}}) ->
+    case Status of
+        normal when Membership =:= voter ->
+            ready;
+        _Other ->
+            {unready, Status, Membership}
+    end;
+member_readiness(#{}) ->
+    unknown.
+
 %%
 
 init({DB, Shard, Opts}) ->
     _ = process_flag(trap_exit, true),
-    _Meta = start_shard(DB, Shard, Opts),
+    ok = start_shard(DB, Shard, Opts),
     {ok, {DB, Shard}}.
 
 handle_call(_Call, _From, State) ->
@@ -138,7 +254,6 @@ terminate(_Reason, {DB, Shard}) ->
 %%
 
 start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
-    Site = emqx_ds_replication_layer_meta:this_site(),
     ClusterName = cluster_name(DB, Shard),
     LocalServer = local_server(DB, Shard),
     Servers = shard_servers(DB, Shard),
@@ -157,7 +272,7 @@ start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
             ),
             ok = ra:start_server(DB, #{
                 id => LocalServer,
-                uid => <<ClusterName/binary, "_", Site/binary>>,
+                uid => server_uid(DB, Shard),
                 cluster_name => ClusterName,
                 initial_members => Servers,
                 machine => Machine,
@@ -188,12 +303,7 @@ start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
             end;
         _ ->
             ok
-    end,
-    #{
-        cluster_name => ClusterName,
-        servers => Servers,
-        local_server => LocalServer
-    }.
+    end.
 
 %%
 
