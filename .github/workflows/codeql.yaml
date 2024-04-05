@@ -24,8 +24,8 @@ jobs:
       matrix:
         branch:
           - master
-          - release-55
           - release-56
+          - release-57
         language:
           - cpp
           - python
