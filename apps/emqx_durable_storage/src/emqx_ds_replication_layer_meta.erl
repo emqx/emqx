@@ -72,7 +72,7 @@
     n_shards/1
 ]).
 
--export_type([site/0]).
+-export_type([site/0, update_cluster_result/0]).
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -117,6 +117,12 @@
 
 %% Membership transition of shard's replica set:
 -type transition() :: {add | del, site()}.
+
+-type update_cluster_result() ::
+    ok
+    | {error, {nonexistent_db, emqx_ds:db()}}
+    | {error, {nonexistent_sites, [site()]}}
+    | {error, _}.
 
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
@@ -243,20 +249,17 @@ drop_db(DB) ->
 %%===============================================================================
 
 %% @doc Join a site to the set of sites the DB is replicated across.
--spec join_db_site(emqx_ds:db(), site()) ->
-    ok | {error, nonexistent_db | nonexistent_sites}.
+-spec join_db_site(emqx_ds:db(), site()) -> update_cluster_result().
 join_db_site(DB, Site) ->
     transaction(fun ?MODULE:modify_db_sites_trans/2, [DB, [{add, Site}]]).
 
 %% @doc Make a site leave the set of sites the DB is replicated across.
--spec leave_db_site(emqx_ds:db(), site()) ->
-    ok | {error, nonexistent_db | nonexistent_sites}.
+-spec leave_db_site(emqx_ds:db(), site()) -> update_cluster_result().
 leave_db_site(DB, Site) ->
     transaction(fun ?MODULE:modify_db_sites_trans/2, [DB, [{del, Site}]]).
 
 %% @doc Assign a set of sites to the DB for replication.
--spec assign_db_sites(emqx_ds:db(), [site()]) ->
-    ok | {error, nonexistent_db | nonexistent_sites}.
+-spec assign_db_sites(emqx_ds:db(), [site()]) -> update_cluster_result().
 assign_db_sites(DB, Sites) ->
     transaction(fun ?MODULE:assign_db_sites_trans/2, [DB, Sites]).
 
