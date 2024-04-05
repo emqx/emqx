@@ -3141,6 +3141,55 @@ t_non_blocking_resource_health_check(_Config) ->
     ),
     ok.
 
+t_non_blocking_channel_health_check(_Config) ->
+    ?check_trace(
+        begin
+            {ok, _} =
+                create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource, health_check_error => {delay, 500}},
+                    #{health_check_interval => 100}
+                ),
+            ChanId = <<"chan">>,
+            ok =
+                emqx_resource_manager:add_channel(
+                    ?ID,
+                    ChanId,
+                    #{health_check_delay => 500}
+                ),
+
+            %% concurrently attempt to health check the resource; should do it only once
+            %% for all callers
+            NumCallers = 20,
+            Expected = lists:duplicate(
+                NumCallers,
+                #{error => undefined, status => connected}
+            ),
+            ?assertEqual(
+                Expected,
+                emqx_utils:pmap(
+                    fun(_) -> emqx_resource_manager:channel_health_check(?ID, ChanId) end,
+                    lists:seq(1, NumCallers)
+                )
+            ),
+
+            NumCallers
+        end,
+        [
+            log_consistency_prop(),
+            fun(NumCallers, Trace) ->
+                %% shouldn't have one health check per caller
+                SubTrace = ?of_kind(connector_demo_channel_health_check_delay, Trace),
+                ?assertMatch([_ | _], SubTrace),
+                ?assert(length(SubTrace) < (NumCallers div 2), #{trace => Trace}),
+                ok
+            end
+        ]
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
