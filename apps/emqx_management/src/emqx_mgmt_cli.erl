@@ -810,9 +810,50 @@ ds(CMD) ->
 
 do_ds(["info"]) ->
     emqx_ds_replication_layer_meta:print_status();
+do_ds(["set_replicas", DBStr | SitesStr]) ->
+    case emqx_utils:safe_to_existing_atom(DBStr) of
+        {ok, DB} ->
+            Sites = lists:map(fun list_to_binary/1, SitesStr),
+            case emqx_mgmt_api_ds:update_db_sites(DB, Sites, cli) of
+                ok ->
+                    emqx_ctl:print("ok~n");
+                {error, Description} ->
+                    emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
+            end;
+        {error, _} ->
+            emqx_ctl:print("Unknown durable storage")
+    end;
+do_ds(["join", DBStr, Site]) ->
+    case emqx_utils:safe_to_existing_atom(DBStr) of
+        {ok, DB} ->
+            case emqx_mgmt_api_ds:join(DB, list_to_binary(Site), cli) of
+                ok ->
+                    emqx_ctl:print("ok~n");
+                {error, Description} ->
+                    emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
+            end;
+        {error, _} ->
+            emqx_ctl:print("Unknown durable storage~n")
+    end;
+do_ds(["leave", DBStr, Site]) ->
+    case emqx_utils:safe_to_existing_atom(DBStr) of
+        {ok, DB} ->
+            case emqx_mgmt_api_ds:leave(DB, list_to_binary(Site), cli) of
+                ok ->
+                    emqx_ctl:print("ok~n");
+                {error, Description} ->
+                    emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
+            end;
+        {error, _} ->
+            emqx_ctl:print("Unknown durable storage~n")
+    end;
 do_ds(_) ->
     emqx_ctl:usage([
-        {"ds info", "Show overview of the embedded durable storage state"}
+        {"ds info", "Show overview of the embedded durable storage state"},
+        {"ds set_replicas <storage> <site1> <site2> ...",
+            "Change the replica set of the durable storage"},
+        {"ds join <storage> <site>", "Add site to the replica set of the storage"},
+        {"ds leave <storage> <site>", "Remove site from the replica set of the storage"}
     ]).
 
 %%--------------------------------------------------------------------

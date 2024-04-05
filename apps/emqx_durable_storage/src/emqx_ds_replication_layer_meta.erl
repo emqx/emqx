@@ -29,7 +29,9 @@
 -export([
     shards/1,
     my_shards/1,
+    shard_info/2,
     allocate_shards/1,
+    replica_set/2,
     sites/0,
     node/1,
     this_site/0,
@@ -52,7 +54,6 @@
     replica_set_transitions/2,
     update_replica_set/3,
     db_sites/1,
-    replica_set/2,
     target_set/2
 ]).
 
@@ -72,7 +73,7 @@
     n_shards/1
 ]).
 
--export_type([site/0]).
+-export_type([site/0, update_cluster_result/0]).
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -117,6 +118,12 @@
 
 %% Membership transition of shard's replica set:
 -type transition() :: {add | del, site()}.
+
+-type update_cluster_result() ::
+    ok
+    | {error, {nonexistent_db, emqx_ds:db()}}
+    | {error, {nonexistent_sites, [site()]}}
+    | {error, _}.
 
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
@@ -182,6 +189,25 @@ shards(DB) ->
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
     [Shard || #?SHARD_TAB{shard = {_, Shard}} <- Recs].
 
+-spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+    #{replica_set := #{site() => #{status => up | joining}}}
+    | undefined.
+shard_info(DB, Shard) ->
+    case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
+        [] ->
+            undefined;
+        [#?SHARD_TAB{replica_set = Replicas}] ->
+            ReplicaSet = maps:from_list([
+                begin
+                    %% TODO:
+                    ReplInfo = #{status => up},
+                    {I, ReplInfo}
+                end
+             || I <- Replicas
+            ]),
+            #{replica_set => ReplicaSet}
+    end.
+
 -spec my_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 my_shards(DB) ->
     Site = this_site(),
@@ -243,20 +269,17 @@ drop_db(DB) ->
 %%===============================================================================
 
 %% @doc Join a site to the set of sites the DB is replicated across.
--spec join_db_site(emqx_ds:db(), site()) ->
-    ok | {error, nonexistent_db | nonexistent_sites}.
+-spec join_db_site(emqx_ds:db(), site()) -> update_cluster_result().
 join_db_site(DB, Site) ->
     transaction(fun ?MODULE:modify_db_sites_trans/2, [DB, [{add, Site}]]).
 
 %% @doc Make a site leave the set of sites the DB is replicated across.
--spec leave_db_site(emqx_ds:db(), site()) ->
-    ok | {error, nonexistent_db | nonexistent_sites}.
+-spec leave_db_site(emqx_ds:db(), site()) -> update_cluster_result().
 leave_db_site(DB, Site) ->
     transaction(fun ?MODULE:modify_db_sites_trans/2, [DB, [{del, Site}]]).
 
 %% @doc Assign a set of sites to the DB for replication.
--spec assign_db_sites(emqx_ds:db(), [site()]) ->
-    ok | {error, nonexistent_db | nonexistent_sites}.
+-spec assign_db_sites(emqx_ds:db(), [site()]) -> update_cluster_result().
 assign_db_sites(DB, Sites) ->
     transaction(fun ?MODULE:assign_db_sites_trans/2, [DB, Sites]).
 
