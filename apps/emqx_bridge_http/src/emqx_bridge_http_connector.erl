@@ -371,6 +371,29 @@ on_query(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
+    case NRequest of
+        {Path, Headers} ->
+            emqx_trace:rendered_action_template(
+                InstId,
+                #{
+                    path => Path,
+                    method => Method,
+                    headers => Headers,
+                    timeout => Timeout
+                }
+            );
+        {Path, Headers, Body} ->
+            emqx_trace:rendered_action_template(
+                InstId,
+                #{
+                    path => Path,
+                    method => Method,
+                    headers => Headers,
+                    timeout => Timeout,
+                    body => Body
+                }
+            )
+    end,
     Worker = resolve_pool_worker(State, KeyOrNum),
     Result0 = ehttpc:request(
         Worker,
@@ -480,6 +503,29 @@ on_query_async(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
+    case NRequest of
+        {Path, Headers} ->
+            emqx_trace:rendered_action_template(
+                InstId,
+                #{
+                    path => Path,
+                    method => Method,
+                    headers => Headers,
+                    timeout => Timeout
+                }
+            );
+        {Path, Headers, Body} ->
+            emqx_trace:rendered_action_template(
+                InstId,
+                #{
+                    path => Path,
+                    method => Method,
+                    headers => Headers,
+                    timeout => Timeout,
+                    body => Body
+                }
+            )
+    end,
     MaxAttempts = maps:get(max_attempts, State, 3),
     Context = #{
         attempt => 1,
@@ -661,22 +707,13 @@ process_request_and_action(Request, ActionState, Msg) ->
     ),
     BodyTemplate = maps:get(body, ActionState),
     Body = render_request_body(BodyTemplate, RenderTmplFunc, Msg),
-    RenderResult = #{
+    #{
         method => Method,
         path => Path,
         body => Body,
         headers => Headers,
         request_timeout => maps:get(request_timeout, ActionState)
-    },
-    ?TRACE(
-        "QUERY_RENDER",
-        "http_connector_successfully_rendered_request",
-        #{
-            request => Request,
-            render_result => RenderResult
-        }
-    ),
-    RenderResult.
+    }.
 
 merge_proplist(Proplist1, Proplist2) ->
     lists:foldl(

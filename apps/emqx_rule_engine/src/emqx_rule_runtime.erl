@@ -471,7 +471,9 @@ do_handle_action(_RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) 
     Result.
 
 do_handle_action_get_trace_context(Action) ->
-    case logger:get_process_metadata() of
+    Metadata = logger:get_process_metadata(),
+    StopAfterRender = maps:get(stop_action_after_render, Metadata, false),
+    case Metadata of
         #{
             rule_id := RuleID,
             clientid := ClientID
@@ -479,14 +481,16 @@ do_handle_action_get_trace_context(Action) ->
             #{
                 rule_id => RuleID,
                 clientid => ClientID,
-                action_id => Action
+                action_id => Action,
+                stop_action_after_render => StopAfterRender
             };
         #{
             rule_id := RuleID
         } ->
             #{
                 rule_id => RuleID,
-                action_id => Action
+                action_id => Action,
+                stop_action_after_render => StopAfterRender
             }
     end.
 

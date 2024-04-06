@@ -67,7 +67,7 @@ do_apply_matched_rule(Rule, Context, Env, StopAfterRender) ->
     ApplyRuleRes.
 
 update_process_trace_metadata(true = _StopAfterRender) ->
-    logger:update_process_trace_metadata(#{
+    logger:update_process_metadata(#{
         stop_action_after_render => true
     });
 update_process_trace_metadata(false = _StopAfterRender) ->
