@@ -18,6 +18,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -85,6 +86,28 @@ t_empty_export_import(_Config) ->
     %% idempotent update assert
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)),
     ?assertEqual(ExpRawConf, emqx:get_raw_config([])).
+
+t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
+    FNameEmqx44 = "emqx-export-4.4.24-retainer-mqttsub.tar.gz",
+    BackupFile = filename:join(?config(data_dir, Config), FNameEmqx44),
+    Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(BackupFile)),
+    RawConfAfterImport = emqx:get_raw_config([]),
+    %% verify that MQTT sources are imported
+    ?assertMatch(
+        #{<<"sources">> := #{<<"mqtt">> := Sources}} when map_size(Sources) > 0,
+        RawConfAfterImport
+    ),
+    %% verify that retainer messages are imported
+    ?assertMatch(
+        {ok, [#message{payload = <<"test-payload">>}]},
+        emqx_retainer:read_message(<<"test-retained-message/1">>)
+    ),
+    %% Export and import again
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)),
+    ?assertEqual(RawConfAfterImport, emqx:get_raw_config([])),
+    ok.
 
 t_cluster_hocon_export_import(Config) ->
     RawConfBeforeImport = emqx:get_raw_config([]),
