@@ -139,6 +139,11 @@ local_site() ->
 
 %%
 
+%% @doc Add a local server to the shard cluster.
+%% It's recommended to have the local server running before calling this function.
+%% This function is idempotent.
+-spec add_local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+    ok | emqx_ds:error(_Reason).
 add_local_server(DB, Shard) ->
     %% NOTE
     %% Adding local server as "promotable" member to the cluster, which means
@@ -170,6 +175,11 @@ add_local_server(DB, Shard) ->
             {error, recoverable, Reason}
     end.
 
+%% @doc Remove a local server from the shard cluster and clean up on-disk data.
+%% It's required to have the local server running before calling this function.
+%% This function is idempotent.
+-spec drop_local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+    ok | emqx_ds:error(_Reason).
 drop_local_server(DB, Shard) ->
     LocalServer = local_server(DB, Shard),
     case remove_server(DB, Shard, LocalServer) of
@@ -179,6 +189,12 @@ drop_local_server(DB, Shard) ->
             Error
     end.
 
+%% @doc Remove a (remote) server from the shard cluster.
+%% The server might not be running when calling this function, e.g. the node
+%% might be offline. Because of this, on-disk data will not be cleaned up.
+%% This function is idempotent.
+-spec remove_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), server()) ->
+    ok | emqx_ds:error(_Reason).
 remove_server(DB, Shard, Server) ->
     ShardServers = shard_servers(DB, Shard),
     case ra:remove_member(ShardServers, Server, ?MEMBERSHIP_CHANGE_TIMEOUT) of
@@ -190,6 +206,10 @@ remove_server(DB, Shard, Server) ->
             {error, recoverable, Reason}
     end.
 
+-spec server_info
+    (readiness, server()) -> ready | {unready, _Status, _Membership} | unknown;
+    (leader, server()) -> server() | unknown;
+    (uid, server()) -> _UID :: binary() | unknown.
 server_info(readiness, Server) ->
     %% NOTE
     %% Server is ready if it's either the leader or a follower with voter "membership"
