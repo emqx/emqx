@@ -1662,6 +1662,9 @@ fields("trace") ->
             })}
     ];
 fields("session_persistence") ->
+    %% Note: this configuration is part of the zone config. Changes in
+    %% the default values here must be reflected in
+    %% `emqx_config_SUITE:zone_global_defaults/0' function.
     [
         {"enable",
             sc(
@@ -1683,7 +1686,7 @@ fields("session_persistence") ->
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"100ms">>,
+                    default => <<"65ms">>,
                     desc => ?DESC(session_ds_idle_poll_interval)
                 }
             )},
@@ -1699,7 +1702,7 @@ fields("session_persistence") ->
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"5000ms">>,
+                    default => <<"500ms">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
