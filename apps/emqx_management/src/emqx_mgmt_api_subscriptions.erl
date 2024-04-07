@@ -86,7 +86,8 @@ fields(subscription) ->
         {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>, example => 0})},
         {nl, hoconsc:mk(integer(), #{desc => <<"No Local">>, example => 0})},
         {rap, hoconsc:mk(integer(), #{desc => <<"Retain as Published">>, example => 0})},
-        {rh, hoconsc:mk(integer(), #{desc => <<"Retain Handling">>, example => 0})}
+        {rh, hoconsc:mk(integer(), #{desc => <<"Retain Handling">>, example => 0})},
+        {durable, hoconsc:mk(boolean(), #{desc => <<"Durable subscription">>, example => false})}
     ].
 
 parameters() ->
@@ -140,6 +141,14 @@ parameters() ->
                 in => query,
                 required => false,
                 desc => <<"Shared subscription group name">>
+            })
+        },
+        {
+            durable,
+            hoconsc:mk(boolean(), #{
+                in => query,
+                required => false,
+                desc => <<"Filter subscriptions by durability">>
             })
         }
     ].
