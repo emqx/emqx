@@ -98,13 +98,11 @@ get_servers_leader_preferred(DB, Shard) ->
             Servers = ra_leaderboard:lookup_members(ClusterName),
             [Leader | lists:delete(Leader, Servers)];
         undefined ->
-            %% TODO: Dynamic membership.
             get_shard_servers(DB, Shard)
     end.
 
 get_server_local_preferred(DB, Shard) ->
-    %% NOTE: Contact random replica that is not a known leader.
-    %% TODO: Replica may be down, so we may need to retry.
+    %% NOTE: Contact either local server or a random replica.
     ClusterName = get_cluster_name(DB, Shard),
     case ra_leaderboard:lookup_members(ClusterName) of
         Servers when is_list(Servers) ->
@@ -113,15 +111,14 @@ get_server_local_preferred(DB, Shard) ->
             %% TODO
             %% Leader is unkonwn if there are no servers of this group on the
             %% local node. We want to pick a replica in that case as well.
-            %% TODO: Dynamic membership.
             pick_random(get_shard_servers(DB, Shard))
     end.
 
 pick_local(Servers) ->
-    case lists:dropwhile(fun({_Name, Node}) -> Node =/= node() end, Servers) of
-        [Local | _] ->
+    case lists:keyfind(node(), 2, Servers) of
+        Local when is_tuple(Local) ->
             Local;
-        [] ->
+        false ->
             pick_random(Servers)
     end.
 
@@ -215,6 +212,7 @@ member_info(readiness, Server, Leader) ->
     member_readiness(maps:get(Server, Cluster, #{})).
 
 current_leader(Server) ->
+    %% NOTE: This call will block until the leader is known, or until the timeout.
     case ra:members(Server) of
         {ok, _Servers, Leader} ->
             Leader;
