@@ -45,13 +45,8 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("enable"), default => true})},
         {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
-        {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})},
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{required => true, desc => ?DESC(emqx_resource_schema, "creation_opts")}
-            )}
-    ];
+        {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})}
+    ] ++ emqx_resource_schema:fields("resource_opts");
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         fields("connection_fields") ++
@@ -67,22 +62,6 @@ fields("connection_fields") ->
                 #{required => true, desc => ?DESC("mongodb_parameters")}
             )}
     ] ++ emqx_mongodb:fields(mongodb);
-fields("creation_opts") ->
-    %% so far, mongodb connector does not support batching
-    %% but we cannot delete this field due to compatibility reasons
-    %% so we'll keep this field, but hide it in the docs.
-    emqx_resource_schema:create_opts([
-        {batch_size, #{
-            importance => ?IMPORTANCE_HIDDEN,
-            converter => fun(_, _) -> 1 end,
-            desc => ?DESC("batch_size")
-        }},
-        {batch_time, #{
-            importance => ?IMPORTANCE_HIDDEN,
-            converter => fun(_, _) -> 0 end,
-            desc => ?DESC("batch_size")
-        }}
-    ]);
 fields(action) ->
     {mongodb,
         mk(
@@ -104,20 +83,7 @@ fields(action_parameters) ->
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields(action_resource_opts) ->
-    emqx_bridge_v2_schema:action_resource_opts_fields([
-        {batch_size, #{
-            importance => ?IMPORTANCE_HIDDEN,
-            converter => fun(_, _) -> 1 end,
-            desc => ?DESC("batch_size")
-        }},
-        {batch_time, #{
-            importance => ?IMPORTANCE_HIDDEN,
-            converter => fun(_, _) -> 0 end,
-            desc => ?DESC("batch_size")
-        }}
-    ]);
-fields(resource_opts) ->
-    fields("creation_opts");
+    emqx_bridge_v2_schema:action_resource_opts_fields();
 fields(mongodb_rs) ->
     emqx_mongodb:fields(rs) ++ fields("config");
 fields(mongodb_sharded) ->
