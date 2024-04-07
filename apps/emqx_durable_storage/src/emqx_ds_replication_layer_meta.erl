@@ -79,7 +79,12 @@
     n_shards/1
 ]).
 
--export_type([site/0, update_cluster_result/0]).
+-export_type([
+    site/0,
+    transition/0,
+    subscription_event/0,
+    update_cluster_result/0
+]).
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -133,6 +138,10 @@
 
 %% Subject of the subscription:
 -type subject() :: emqx_ds:db().
+
+%% Event for the subscription:
+-type subscription_event() ::
+    {changed, {shard, emqx_ds:db(), emqx_ds_replication_layer:shard_id()}}.
 
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
