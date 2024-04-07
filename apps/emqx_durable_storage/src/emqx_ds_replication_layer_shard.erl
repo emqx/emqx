@@ -80,14 +80,6 @@ server_name(DB, Shard, Site) ->
     DBBin = atom_to_binary(DB),
     binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
 
-server_uid(_DB, Shard) ->
-    %% NOTE
-    %% Each new "instance" of a server should have a unique identifier. Otherwise,
-    %% if some server migrates to another node during rebalancing, and then comes
-    %% back, `ra` will be very confused by it having the same UID as before.
-    Ts = integer_to_binary(erlang:system_time(microsecond)),
-    <<Shard/binary, "_", Ts/binary>>.
-
 %%
 
 servers(DB, Shard, _Order = leader_preferred) ->
@@ -159,11 +151,19 @@ add_local_server(DB, Shard) ->
     %% readiness.
     ShardServers = shard_servers(DB, Shard),
     LocalServer = local_server(DB, Shard),
-    ServerRecord = #{
-        id => LocalServer,
-        membership => promotable,
-        uid => server_uid(DB, Shard)
-    },
+    case server_info(uid, LocalServer) of
+        UID when is_binary(UID) ->
+            ServerRecord = #{
+                id => LocalServer,
+                membership => promotable,
+                uid => UID
+            };
+        unknown ->
+            ServerRecord = #{
+                id => LocalServer,
+                membership => voter
+            }
+    end,
     case ra:add_member(ShardServers, ServerRecord, ?MEMBERSHIP_CHANGE_TIMEOUT) of
         {ok, _, _Leader} ->
             ok;
@@ -206,15 +206,13 @@ server_info(readiness, Server) ->
             unknown
     end;
 server_info(leader, Server) ->
-    current_leader(Server).
+    current_leader(Server);
+server_info(uid, Server) ->
+    maps:get(uid, ra_overview(Server), unknown).
 
 member_info(readiness, Server, Leader) ->
-    case ra:member_overview(Leader) of
-        {ok, #{cluster := Cluster}, _} ->
-            member_readiness(maps:get(Server, Cluster));
-        _Error ->
-            unknown
-    end.
+    Cluster = maps:get(cluster, ra_overview(Leader), #{}),
+    member_readiness(maps:get(Server, Cluster, #{})).
 
 current_leader(Server) ->
     case ra:members(Server) of
@@ -233,6 +231,14 @@ member_readiness(#{status := Status, voter_status := #{membership := Membership}
     end;
 member_readiness(#{}) ->
     unknown.
+
+ra_overview(Server) ->
+    case ra:member_overview(Server) of
+        {ok, Overview, _Leader} ->
+            Overview;
+        _Error ->
+            #{}
+    end.
 
 %%
 
@@ -304,6 +310,16 @@ start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
         _ ->
             ok
     end.
+
+server_uid(_DB, Shard) ->
+    %% NOTE
+    %% Each new "instance" of a server should have a unique identifier. Otherwise,
+    %% if some server migrates to another node during rebalancing, and then comes
+    %% back, `ra` will be very confused by it having the same UID as before.
+    %% Keeping the shard ID as a prefix to make it easier to identify the server
+    %% in the filesystem / logs / etc.
+    Ts = integer_to_binary(erlang:system_time(microsecond)),
+    <<Shard/binary, "_", Ts/binary>>.
 
 %%
 
