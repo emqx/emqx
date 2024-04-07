@@ -101,6 +101,10 @@ matrix() {
                 entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
+            apps/emqx_management)
+                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
+                ;;
             apps/*)
                 if [[ -f "${app}/BSL.txt" ]]; then
                     profile='emqx-enterprise'
