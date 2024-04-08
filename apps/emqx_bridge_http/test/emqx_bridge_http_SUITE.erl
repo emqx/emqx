@@ -421,7 +421,7 @@ t_send_get_trace_messages(Config) ->
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"SELECT_yielded_result">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_activated">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"successfully_rendered_request">>])),
+            ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_template_rendered">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"QUERY_ASYNC">>]))
         end
     ),
