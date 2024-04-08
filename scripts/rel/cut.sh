@@ -253,6 +253,23 @@ check_bpapi() {
     esac
 }
 
+check_dashboard_version() {
+    local json_worker_json="apps/emqx_dashboard/priv/www/json.worker.js"
+    local editor_worker_json="apps/emqx_dashboard/priv/www/editor.worker.js"
+    # shellcheck disable=SC2155
+    local major_version=$(echo "$TAG" | cut -d. -f1)
+    # shellcheck disable=SC2155
+    local minor_version=$(echo "$TAG" | cut -d. -f2)
+    if ! grep -q "$major_version.$minor_version" "$json_worker_json"; then
+        logerr "Dashboard version is incorrect. Check package.json in emqx/emqx-dashboard5."
+        exit 1
+    fi
+    if ! grep -q "$major_version.$minor_version" "$editor_worker_json"; then
+        logerr "Dashboard version is incorrect. Check package.json in emqx/emqx-dashboard5."
+        exit 1
+    fi
+}
+
 case "$TAG" in
     *rc*)
         true
@@ -266,9 +283,11 @@ case "$TAG" in
     e*)
         check_bpapi
         check_changelog
+        check_dashboard_version
         ;;
     v*)
         check_changelog
+        check_dashboard_version
         ;;
 esac
 
