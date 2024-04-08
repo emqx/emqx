@@ -290,6 +290,7 @@ do_rm_unresponsive(DB, Shard, Site) ->
 
 trans_delay(DB, Shard, Trans, Delay, NextHandler) ->
     ok = delay(Delay),
+    %% NOTE: Proceed only if the transition we are going to handle is still desired.
     case next_transitions(DB, Shard) of
         [Trans | _] ->
             apply_handler(NextHandler, DB, Shard, Trans);
@@ -338,11 +339,6 @@ handle_transition_exit(Shard, Trans, normal, State = #{db := DB}) ->
 handle_transition_exit(_Shard, _Trans, {shutdown, skipped}, State) ->
     State;
 handle_transition_exit(Shard, Trans, Reason, State) ->
-    %% NOTE
-    %% In case of `{add, Site}` transition failure, we have no choice but to retry:
-    %% no other node can perform the transition and make progress towards the desired
-    %% state. For simplicity, we retry any crashed transition handler after a fixed
-    %% delay.
     logger:warning(#{
         msg => "Shard membership transition failed",
         shard => Shard,
@@ -350,9 +346,18 @@ handle_transition_exit(Shard, Trans, Reason, State) ->
         reason => Reason,
         retry_in => ?CRASH_RETRY_DELAY
     }),
-    {Track, Handler} = transition_handler(Shard, Trans, State),
-    RetryHandler = {fun trans_delay/5, [?CRASH_RETRY_DELAY, Handler]},
-    ensure_transition_handler(Track, Shard, Trans, RetryHandler, State).
+    %% NOTE
+    %% In case of `{add, Site}` transition failure, we have no choice but to retry:
+    %% no other node can perform the transition and make progress towards the desired
+    %% state.
+    case Trans of
+        {add, _ThisSite} ->
+            {Track, Handler} = transition_handler(Shard, Trans, State),
+            RetryHandler = {fun trans_delay/5, [?CRASH_RETRY_DELAY, Handler]},
+            ensure_transition_handler(Track, Shard, Trans, RetryHandler, State);
+        _Another ->
+            State
+    end.
 
 %%
 
