@@ -52,7 +52,8 @@
     find/3,
     join_to_string/1,
     join_to_string/2,
-    unescape/1
+    unescape/1,
+    nth/2
 ]).
 
 -define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
@@ -222,6 +223,20 @@ unescape(Bin) when is_binary(Bin) ->
             Out;
         Error ->
             throw({invalid_unicode_character, Error})
+    end.
+
+nth(N, List) when (is_list(N) orelse is_binary(N)) andalso is_list(List) ->
+    try binary_to_integer(iolist_to_binary(N)) of
+        N1 ->
+            nth(N1, List)
+    catch
+        _:_ ->
+            throw(#{reason => invalid_argument, func => nth, index => N})
+    end;
+nth(N, List) when is_integer(N) andalso is_list(List) ->
+    case length(List) of
+        L when L < N -> <<>>;
+        _ -> lists:nth(N, List)
     end.
 
 unescape_string(Input) -> unescape_string(Input, []).

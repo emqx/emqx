@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -22,7 +22,12 @@
 %% or used to choose the first non-empty value from a list of variables.
 -module(emqx_variform).
 
--export([inject_allowed_modules/1]).
+-export([
+    inject_allowed_module/1,
+    inject_allowed_modules/1,
+    erase_allowed_module/1,
+    erase_allowed_modules/1
+]).
 -export([render/2, render/3]).
 
 %% @doc Render a variform expression with bindings.
@@ -48,6 +53,8 @@
 render(Expression, Bindings) ->
     render(Expression, Bindings, #{}).
 
+render(Expression, Bindings, Opts) when is_binary(Expression) ->
+    render(unicode:characters_to_list(Expression), Bindings, Opts);
 render(Expression, Bindings, Opts) ->
     case emqx_variform_scan:string(Expression) of
         {ok, Tokens, _Line} ->
@@ -66,7 +73,7 @@ render(Expression, Bindings, Opts) ->
 
 eval_as_string(Expr, Bindings, _Opts) ->
     try
-        {ok, iolist_to_binary(eval(Expr, Bindings))}
+        {ok, str(eval(Expr, Bindings))}
     catch
         throw:Reason ->
             {error, Reason};
@@ -97,7 +104,7 @@ call(emqx_variform_str, concat, Args) ->
 call(emqx_variform_str, coalesce, Args) ->
     str(emqx_variform_str:coalesce(Args));
 call(Mod, Fun, Args) ->
-    str(erlang:apply(Mod, Fun, Args)).
+    erlang:apply(Mod, Fun, Args).
 
 resolve_func_name(FuncNameStr) ->
     case string:tokens(FuncNameStr, ".") of
@@ -107,7 +114,10 @@ resolve_func_name(FuncNameStr) ->
                     list_to_existing_atom(Mod0)
                 catch
                     error:badarg ->
-                        throw(#{unknown_module => Mod0})
+                        throw(#{
+                            reason => unknown_variform_module,
+                            module => Mod0
+                        })
                 end,
             ok = assert_module_allowed(Mod),
             Fun =
@@ -115,7 +125,10 @@ resolve_func_name(FuncNameStr) ->
                     list_to_existing_atom(Fun0)
                 catch
                     error:badarg ->
-                        throw(#{unknown_function => Fun0})
+                        throw(#{
+                            reason => unknown_variform_function,
+                            function => Fun0
+                        })
                 end,
             {Mod, Fun};
         [Fun] ->
@@ -125,11 +138,13 @@ resolve_func_name(FuncNameStr) ->
                 catch
                     error:badarg ->
                         throw(#{
-                            reason => "unknown_variform_function",
+                            reason => unknown_variform_function,
                             function => Fun
                         })
                 end,
-            {emqx_variform_str, FuncName}
+            {emqx_variform_str, FuncName};
+        _ ->
+            throw(#{reason => invalid_function_reference, function => FuncNameStr})
     end.
 
 resolve_var_value(VarName, Bindings) ->
@@ -145,13 +160,14 @@ assert_func_exported(emqx_variform_str, concat, _Arity) ->
 assert_func_exported(emqx_variform_str, coalesce, _Arity) ->
     ok;
 assert_func_exported(Mod, Fun, Arity) ->
+    %% ensure beam loaded
     _ = Mod:module_info(md5),
     case erlang:function_exported(Mod, Fun, Arity) of
         true ->
             ok;
         false ->
             throw(#{
-                reason => "unknown_variform_function",
+                reason => unknown_variform_function,
                 module => Mod,
                 function => Fun,
                 arity => Arity
@@ -167,14 +183,25 @@ assert_module_allowed(Mod) ->
             ok;
         false ->
             throw(#{
-                reason => "unallowed_veriform_module",
+                reason => unallowed_veriform_module,
                 module => Mod
             })
     end.
 
-inject_allowed_modules(Modules) ->
+inject_allowed_module(Module) when is_atom(Module) ->
+    inject_allowed_modules([Module]).
+
+inject_allowed_modules(Modules) when is_list(Modules) ->
     Allowed0 = get_allowed_modules(),
     Allowed = lists:usort(Allowed0 ++ Modules),
+    persistent_term:put({emqx_variform, allowed_modules}, Allowed).
+
+erase_allowed_module(Module) when is_atom(Module) ->
+    erase_allowed_modules([Module]).
+
+erase_allowed_modules(Modules) when is_list(Modules) ->
+    Allowed0 = get_allowed_modules(),
+    Allowed = Allowed0 -- Modules,
     persistent_term:put({emqx_variform, allowed_modules}, Allowed).
 
 get_allowed_modules() ->
