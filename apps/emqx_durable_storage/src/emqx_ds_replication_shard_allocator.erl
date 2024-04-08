@@ -50,7 +50,7 @@
 -undef(TRANS_RETRY_TIMEOUT).
 -undef(REMOVE_REPLICA_DELAY).
 -define(TRANS_RETRY_TIMEOUT, 1_000).
--define(REMOVE_REPLICA_DELAY, {4_000, 2_000}).
+-define(REMOVE_REPLICA_DELAY, {3_000, 2_000}).
 -endif.
 
 %%
@@ -213,7 +213,7 @@ transition_handler(Shard, Trans, _State = #{db := DB}) ->
                     %% Putting this transition handler on separate "track" so that it
                     %% won't block any changes with higher priority (e.g. managing
                     %% local replicas).
-                    {_Track = unresp, Handler};
+                    {{unresp, Shard}, Handler};
                 false ->
                     undefined
             end;
