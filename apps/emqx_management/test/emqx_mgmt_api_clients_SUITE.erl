@@ -1673,7 +1673,7 @@ t_list_clients_v2(Config) ->
             %% Verify that a malicious cursor that could generate an atom on the node is
             %% rejected
             EvilAtomBin0 = <<131, 100, 0, 5, "some_atom_that_doesnt_exist_on_the_remote_node">>,
-            EvilAtomBin = base64:encode(EvilAtomBin0, #{mode => urlsafe, padding => false}),
+            EvilAtomBin = emqx_base62:encode(EvilAtomBin0),
 
             ?assertMatch(
                 {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
