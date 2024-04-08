@@ -47,6 +47,9 @@ jobs:
           echo "_EMQX_DOCKER_IMAGE_TAG=$_EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
       - name: dashboard tests
         working-directory: ./scripts/ui-tests
+        env:
+          EMQX_VERSION: ${{ inputs.version-emqx }}
+          EMQX_ENTERPRISE_VERSION: ${{ inputs.version-emqx-enterprise }}
         run: |
           set -eu
           docker compose up --abort-on-container-exit --exit-code-from selenium
