@@ -481,15 +481,19 @@ modify_db_sites_trans(DB, Modifications) ->
     case Sites of
         Sites0 ->
             ok;
-        _Chagned ->
+        _Changed ->
             assign_db_sites_trans(DB, Sites)
     end.
 
 update_replica_set_trans(DB, Shard, Trans) ->
     case mnesia:read(?SHARD_TAB, {DB, Shard}, write) of
         [Record = #?SHARD_TAB{replica_set = ReplicaSet0, target_set = TargetSet0}] ->
+            %% NOTE
+            %% It's possible to complete a transition that's no longer planned. We
+            %% should anticipate that we may stray _away_ from the target set.
+            TargetSet1 = emqx_maybe:define(TargetSet0, ReplicaSet0),
             ReplicaSet = apply_transition(Trans, ReplicaSet0),
-            case lists:usort(TargetSet0) of
+            case lists:usort(TargetSet1) of
                 ReplicaSet ->
                     TargetSet = undefined;
                 TS ->
