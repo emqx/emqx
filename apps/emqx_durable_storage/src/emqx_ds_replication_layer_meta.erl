@@ -134,6 +134,7 @@
     ok
     | {error, {nonexistent_db, emqx_ds:db()}}
     | {error, {nonexistent_sites, [site()]}}
+    | {error, {too_few_sites, [site()]}}
     | {error, _}.
 
 %% Subject of the subscription:
@@ -452,6 +453,8 @@ allocate_shards_trans(DB) ->
 assign_db_sites_trans(DB, Sites) ->
     Opts = db_config_trans(DB),
     case [S || S <- Sites, mnesia:read(?NODE_TAB, S, read) == []] of
+        [] when length(Sites) == 0 ->
+            mnesia:abort({too_few_sites, Sites});
         [] ->
             ok;
         NonexistentSites ->

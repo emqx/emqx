@@ -323,6 +323,10 @@ handle_exit(Pid, Reason, State0 = #{db := DB, transitions := Ts}) ->
             State = State0#{transitions := maps:remove(Track, Ts)},
             handle_transition_exit(Shard, Trans, Reason, State);
         [] ->
+            %% NOTE
+            %% Actually, it's sort of expected to have a portion of exit signals here,
+            %% because of `mria:with_middleman/3`. But it's impossible to tell them apart
+            %% from other singals.
             logger:warning(#{msg => "Unexpected exit signal", pid => Pid, reason => Reason}),
             State0
     end.
