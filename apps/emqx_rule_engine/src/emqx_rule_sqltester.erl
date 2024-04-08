@@ -29,7 +29,7 @@ apply_rule(
     #{
         context := Context,
         environment := Env,
-        stop_action_after_template_render := StopAfterRender
+        stop_action_after_template_rendering := StopAfterRender
     }
 ) ->
     {ok, Rule} = emqx_rule_engine:get_rule(RuleId),

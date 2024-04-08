@@ -66,6 +66,18 @@ test_context.desc:
 test_context.label:
 """Event Conetxt"""
 
+test_rule_environment.desc:
+"""The environment that will be passed to the rule when it is applied. A default environment will be used if no environment is given."""
+
+test_rule_environment.label:
+"""Event Environment"""
+
+stop_action_after_template_render.desc:
+"""Set this to true if the action should be stopped after its template has been rendered."""
+
+stop_action_after_template_render.label:
+"""Stop Action After Template Rendering"""
+
 node_node.desc:
 """The node name"""
 

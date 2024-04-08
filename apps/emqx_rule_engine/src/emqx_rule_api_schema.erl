@@ -117,7 +117,7 @@ fields("rule_apply_test") ->
                     default => #{}
                 }
             )},
-        {"stop_action_after_template_render",
+        {"stop_action_after_template_rendering",
             sc(
                 typerefl:boolean(),
                 #{

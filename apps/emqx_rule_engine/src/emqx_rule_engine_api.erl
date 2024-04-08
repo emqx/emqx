@@ -268,8 +268,8 @@ schema("/rules/:id/test") ->
         'operationId' => '/rules/:id/test',
         post => #{
             tags => [<<"rules">>],
-            description => ?DESC("api8"),
-            summary => <<"Apply a rule with the given message and environment">>,
+            description => ?DESC("api11"),
+            summary => <<"Apply a rule for testing">>,
             'requestBody' => rule_apply_test_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),

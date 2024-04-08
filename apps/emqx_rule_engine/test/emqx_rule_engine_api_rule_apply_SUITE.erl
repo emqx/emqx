@@ -30,9 +30,6 @@ all() ->
 
 init_per_suite(Config) ->
     application:load(emqx_conf),
-    % ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, ?CONF_DEFAULT),
-    % ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx, emqx_rule_engine, emqx_bridge, emqx_bridge_http]),
-
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -125,7 +122,7 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
     Params = #{
         % body => #{
         <<"context">> => Context,
-        <<"stop_action_after_template_render">> => StopAfterRender
+        <<"stop_action_after_template_rendering">> => StopAfterRender
         % }
     },
     emqx_trace:check(),
