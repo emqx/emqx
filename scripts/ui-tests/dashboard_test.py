@@ -1,3 +1,4 @@
+import os
 import time
 import unittest
 import pytest
@@ -73,3 +74,25 @@ def test_log(driver, login, dashboard_url):
     label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Time Offset')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
 
+def test_docs_link(driver, login, dashboard_url):
+    dest_url = urljoin(dashboard_url, "/#/dashboard/overview")
+    driver.get(dest_url)
+    ensure_current_url(driver, dest_url)
+    xpath_link_help = "//div[@id='app']//div[@class='nav-header']//a[contains(@class, 'link-help')]"
+    link_help = driver.find_element(By.XPATH, xpath_link_help)
+    driver.execute_script("arguments[0].click();", link_help)
+
+    emqx_name = os.getenv("EMQX_NAME")
+    emqx_community_version = os.getenv("EMQX_COMMUNITY_VERSION")
+    emqx_enterprise_version = os.getenv("EMQX_ENTERPRISE_VERSION")
+    if emqx_name == 'emqx-enterprise':
+        emqx_version = f"v{emqx_enterprise_version}"
+        docs_base_url = "https://docs.emqx.com/en/enterprise"
+    else:
+        emqx_version = f"v{emqx_community_version}"
+        docs_base_url = "https://www.emqx.io/docs/en"
+    
+    emqx_version = ".".join(emqx_version.split(".")[:2])
+    docs_url = f"{docs_base_url}/{emqx_version}"
+    xpath = f"//div[@id='app']//div[@class='nav-header']//a[@href[starts-with(.,'{docs_url}')]]"
+    assert driver.find_element(By.XPATH, xpath)
