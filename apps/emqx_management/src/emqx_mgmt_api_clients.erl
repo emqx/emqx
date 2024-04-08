@@ -1088,7 +1088,7 @@ next_ds_cursor(Iter) ->
     }.
 
 parse_cursor(CursorBin, Nodes) ->
-    try base64:decode(CursorBin, #{mode => urlsafe, padding => false}) of
+    try emqx_base62:decode(CursorBin) of
         Bin ->
             parse_cursor1(Bin, Nodes)
     catch
@@ -1133,11 +1133,11 @@ serialize_cursor(#{type := ?CURSOR_TYPE_ETS, node_idx := NodeIdx, cont := Cont})
         #{?CURSOR_ETS_NODE_IDX => NodeIdx, ?CURSOR_ETS_CONT => Cont}
     ],
     Bin = term_to_binary(Cursor0, [{compressed, 9}]),
-    base64:encode(Bin, #{mode => urlsafe, padding => false});
+    emqx_base62:encode(Bin);
 serialize_cursor(#{type := ?CURSOR_TYPE_DS, iterator := Iter}) ->
     Cursor0 = [?CURSOR_VSN1, ?CURSOR_TYPE_DS, Iter],
     Bin = term_to_binary(Cursor0, [{compressed, 9}]),
-    base64:encode(Bin, #{mode => urlsafe, padding => false}).
+    emqx_base62:encode(Bin).
 
 %% An adapter function so we can reutilize all the logic in `emqx_mgmt_api' for
 %% selecting/fuzzy filters, and also reutilize its BPAPI for selecting rows.
