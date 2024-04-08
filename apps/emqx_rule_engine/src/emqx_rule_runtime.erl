@@ -420,7 +420,7 @@ handle_action(RuleId, ActId, Selected, Envs) ->
     end.
 
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found; R == unhealthy_target).
-do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
+do_handle_action(_RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
     trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
     TraceCtx = do_handle_action_get_trace_context(Action),
     ReplyTo = {fun ?MODULE:inc_action_metrics/2, [TraceCtx], #{reply_dropped => true}},
