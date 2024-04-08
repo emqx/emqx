@@ -224,6 +224,7 @@ reset() -> gen_server:call(?MODULE, reset).
 status() ->
     transaction(fun ?MODULE:trans_status/0, []).
 
+%% DO NOT delete this on_leave_clean/0, It's use when rpc before v560.
 on_leave_clean() ->
     on_leave_clean(node()).
 
@@ -367,7 +368,7 @@ handle_call({fast_forward_to_commit, ToTnxId}, _From, State) ->
     NodeId = do_fast_forward_to_commit(ToTnxId, State),
     {reply, NodeId, State, catch_up(State)};
 handle_call(on_leave, _From, State) ->
-    {atomic, ok} = transaction(fun ?MODULE:on_leave_clean/0, []),
+    {atomic, ok} = transaction(fun ?MODULE:on_leave_clean/1, [node()]),
     {reply, ok, State#{is_leaving := true}};
 handle_call(_, _From, State) ->
     {reply, ok, State, catch_up(State)}.
