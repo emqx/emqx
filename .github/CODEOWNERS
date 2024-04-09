@@ -1,18 +1,29 @@
 ## Default
 * @emqx/emqx-review-board
 
+# emqx-review-board members
+## HJianBo
+## id
+## ieQu1
+## qzhuyan
+## savonarola
+## terry-xiaoyu
+## thalesmg
+## zhongwencool
+## zmstone
+
 ## apps
 /apps/emqx/                @emqx/emqx-review-board @lafirest
-/apps/emqx_connector/      @emqx/emqx-review-board
-/apps/emqx_auth/           @emqx/emqx-review-board @JimMoen @savonarola
+/apps/emqx_auth/           @emqx/emqx-review-board @JimMoen
 /apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
 /apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen @lafirest
 /apps/emqx_dashboard_rbac/ @emqx/emqx-review-board @lafirest
 /apps/emqx_dashboard_sso/  @emqx/emqx-review-board @JimMoen @lafirest
-/apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen @HJianBo
-/apps/emqx_ft/             @emqx/emqx-review-board @savonarola @keynslug
+/apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen
+/apps/emqx_ft/             @emqx/emqx-review-board @keynslug
 /apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
-/apps/emqx_management/     @emqx/emqx-review-board @lafirest @sstrigler
+/apps/emqx_management/     @emqx/emqx-review-board @lafirest
+/apps/emqx_opentelemetry   @emqx/emqx-review-board @SergeTupchiy
 /apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen
 /apps/emqx_prometheus/     @emqx/emqx-review-board @JimMoen
 /apps/emqx_psk/            @emqx/emqx-review-board @lafirest
@@ -20,7 +31,7 @@
 /apps/emqx_rule_engine/    @emqx/emqx-review-board @kjellwinblad
 /apps/emqx_slow_subs/      @emqx/emqx-review-board @lafirest
 /apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_durable_storage/ @emqx/emqx-review-board @ieQu1 @keynslug
+/apps/emqx_durable_storage/ @emqx/emqx-review-board @keynslug
 
 ## CI
 /deploy/  @emqx/emqx-review-board @Rory-Z
