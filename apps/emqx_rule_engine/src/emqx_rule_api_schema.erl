@@ -123,7 +123,7 @@ fields("rule_apply_test") ->
                 #{
                     desc =>
                         ?DESC("stop_action_after_template_render"),
-                    default => false
+                    default => true
                 }
             )}
     ];

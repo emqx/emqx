@@ -73,7 +73,7 @@ test_rule_environment.label:
 """Event Environment"""
 
 stop_action_after_template_render.desc:
-"""Set this to true if the action should be stopped after its template has been rendered."""
+"""Set this to true if the action should be stopped after its template has been rendered (default is true)."""
 
 stop_action_after_template_render.label:
 """Stop Action After Template Rendering"""
