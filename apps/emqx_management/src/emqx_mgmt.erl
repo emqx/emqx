@@ -221,7 +221,9 @@ vm_stats('cpu') ->
     case emqx_vm:cpu_util([CpuUtilArg]) of
         %% return 0.0 when `emqx_cpu_sup_worker` is not started
         {all, Use, Idle, _} ->
-            [{cpu_use, Use}, {cpu_idle, Idle}];
+            NUse = floor(Use * 100) / 100,
+            NIdle = ceil(Idle * 100) / 100,
+            [{cpu_use, NUse}, {cpu_idle, NIdle}];
         _ ->
             [{cpu_use, 0}, {cpu_idle, 0}]
     end;
