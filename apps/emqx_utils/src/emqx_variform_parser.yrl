@@ -36,3 +36,8 @@ arg -> expr : '$1'.
 arg -> array : '$1'.
 arg -> number : {num, element(3, '$1')}.
 arg -> string : {str, element(3, '$1')}.
+
+Erlang code.
+
+%% mute xref warning
+-export([return_error/2]).
