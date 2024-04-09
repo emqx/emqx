@@ -225,7 +225,10 @@ format_response_meta(Meta, _Query, #{hasnext := HasNext}) ->
     Meta#{hasnext => HasNext}.
 
 format(#route{topic = Topic, dest = {Group, Node}}) ->
-    #{topic => ?SHARE(Group, Topic), node => Node};
+    #{
+        topic => emqx_topic:maybe_format_share(emqx_topic:make_shared_record(Group, Topic)),
+        node => Node
+    };
 format(#route{topic = Topic, dest = Node}) when is_atom(Node) ->
     #{topic => Topic, node => Node};
 format(#route{topic = Topic, dest = SessionId}) when is_binary(SessionId) ->
