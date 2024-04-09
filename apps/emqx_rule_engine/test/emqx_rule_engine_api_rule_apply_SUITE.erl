@@ -30,15 +30,20 @@ all() ->
 
 init_per_suite(Config) ->
     application:load(emqx_conf),
+    AppsToStart = [
+        emqx,
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge,
+        emqx_bridge_http,
+        emqx_rule_engine
+    ],
+    %% I don't know why we need to stop the apps and then start them but if we
+    %% don't do this and other suites run before this suite the test cases will
+    %% fail as it seems like the connector silently refuses to start.
+    ok = emqx_cth_suite:stop(AppsToStart),
     Apps = emqx_cth_suite:start(
-        [
-            emqx,
-            emqx_conf,
-            emqx_connector,
-            emqx_bridge_http,
-            emqx_bridge,
-            emqx_rule_engine
-        ],
+        AppsToStart,
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     emqx_mgmt_api_test_util:init_suite(),
