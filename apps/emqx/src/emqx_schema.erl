@@ -3552,9 +3552,9 @@ mqtt_general() ->
             )},
         {"client_attrs_init",
             sc(
-                hoconsc:union([disabled, ref("client_attrs_init")]),
+                hoconsc:union([hoconsc:array(ref("client_attrs_init")), ref("client_attrs_init")]),
                 #{
-                    default => disabled,
+                    default => [],
                     desc => ?DESC("client_attrs_init")
                 }
             )}

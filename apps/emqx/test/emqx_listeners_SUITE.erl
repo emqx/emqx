@@ -170,7 +170,7 @@ t_client_attr_as_mountpoint(_Config) ->
         ?assertMatch([_], emqx_router:match_routes(MatchTopic)),
         emqtt:stop(Client)
     end),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], disabled),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     ok.
 
 t_current_conns_tcp(_Config) ->

@@ -572,7 +572,7 @@ t_alias_prefix(_Config) ->
     ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, SubTopicNotAllowed)),
     unlink(C),
     emqtt:stop(C),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], disalbed),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     ok.
 
 %% client is allowed by ACL to publish to its LWT topic, is connected,
