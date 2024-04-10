@@ -1575,7 +1575,8 @@ client_attrs_init {
   label: "Client Attributes Initialization"
   desc: """~
     Specify how to initialize client attributes.
-    One initial client attribute can be initialized as `client_attrs.NAME`,
+    This config accepts one initialization rule, or a list of rules.
+    Client attributes can be initialized as `client_attrs.NAME`,
     where `NAME` is the name of the attribute specified in the config `extract_as`.
     The initialized client attribute will be stored in the `client_attrs` property with the specified name,
     and can be used as a placeholder in a template for authentication and authorization.

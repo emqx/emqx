@@ -269,8 +269,7 @@ init(
         },
         Zone
     ),
-    AttrExtractionConfig = get_mqtt_conf(Zone, client_attrs_init),
-    ClientInfo = initialize_client_attrs_from_cert(AttrExtractionConfig, ClientInfo0, Peercert),
+    ClientInfo = initialize_client_attrs_from_cert(ClientInfo0, Peercert),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{
         conninfo = NConnInfo,
@@ -1575,7 +1574,7 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
             %% attr init should happen after clientid and username assign
-            fun maybe_set_client_initial_attr/2
+            fun maybe_set_client_initial_attrs/2
         ],
         ConnPkt,
         ClientInfo
@@ -1587,7 +1586,17 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
 
-initialize_client_attrs_from_cert(
+initialize_client_attrs_from_cert(#{zone := Zone} = ClientInfo, Peercert) ->
+    Inits = get_client_attrs_init_config(Zone),
+    lists:foldl(
+        fun(Init, Acc) ->
+            do_initialize_client_attrs_from_cert(Init, Acc, Peercert)
+        end,
+        ClientInfo,
+        Inits
+    ).
+
+do_initialize_client_attrs_from_cert(
     #{
         extract_from := From,
         extract_regexp := Regexp,
@@ -1596,21 +1605,24 @@ initialize_client_attrs_from_cert(
     ClientInfo,
     Peercert
 ) when From =:= cn orelse From =:= dn ->
-    case extract_client_attr_from_cert(From, Regexp, Peercert) of
-        {ok, Value} ->
-            ?SLOG(
-                debug,
-                #{
-                    msg => "client_attr_init_from_cert",
-                    extracted_as => AttrName,
-                    extracted_value => Value
-                }
-            ),
-            ClientInfo#{client_attrs => #{AttrName => Value}};
-        _ ->
-            ClientInfo#{client_attrs => #{}}
-    end;
-initialize_client_attrs_from_cert(_, ClientInfo, _Peercert) ->
+    Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
+    Attrs =
+        case extract_client_attr_from_cert(From, Regexp, Peercert) of
+            {ok, Value} ->
+                ?SLOG(
+                    debug,
+                    #{
+                        msg => "client_attr_init_from_cert",
+                        extracted_as => AttrName,
+                        extracted_value => Value
+                    }
+                ),
+                Attrs0#{AttrName => Value};
+            _ ->
+                Attrs0
+        end,
+    ClientInfo#{client_attrs => Attrs};
+do_initialize_client_attrs_from_cert(_, ClientInfo, _Peercert) ->
     ClientInfo.
 
 extract_client_attr_from_cert(cn, Regexp, Peercert) ->
@@ -1668,27 +1680,51 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
 maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
 
-maybe_set_client_initial_attr(ConnPkt, #{zone := Zone} = ClientInfo0) ->
-    Config = get_mqtt_conf(Zone, client_attrs_init),
-    ClientInfo = initialize_client_attrs_from_user_property(Config, ConnPkt, ClientInfo0),
-    Attrs = maps:get(client_attrs, ClientInfo, #{}),
-    case extract_attr_from_clientinfo(Config, ClientInfo) of
-        {ok, Value} ->
-            #{extract_as := Name} = Config,
-            ?SLOG(
-                debug,
-                #{
-                    msg => "client_attr_init_from_clientinfo",
-                    extracted_as => Name,
-                    extracted_value => Value
-                }
-            ),
-            {ok, ClientInfo#{client_attrs => Attrs#{Name => Value}}};
-        _ ->
-            {ok, ClientInfo}
+get_client_attrs_init_config(Zone) ->
+    case get_mqtt_conf(Zone, client_attrs_init, []) of
+        L when is_list(L) -> L;
+        M when is_map(M) -> [M]
     end.
 
-initialize_client_attrs_from_user_property(
+maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo0) ->
+    Inits = get_client_attrs_init_config(Zone),
+    ClientInfo = initialize_client_attrs_from_user_property(Inits, ConnPkt, ClientInfo0),
+    {ok, initialize_client_attrs_from_clientinfo(Inits, ClientInfo)}.
+
+initialize_client_attrs_from_clientinfo(Inits, ClientInfo) ->
+    lists:foldl(
+        fun(Init, Acc) ->
+            Attrs = maps:get(client_attrs, ClientInfo, #{}),
+            case extract_attr_from_clientinfo(Init, ClientInfo) of
+                {ok, Value} ->
+                    #{extract_as := Name} = Init,
+                    ?SLOG(
+                        debug,
+                        #{
+                            msg => "client_attr_init_from_clientinfo",
+                            extracted_as => Name,
+                            extracted_value => Value
+                        }
+                    ),
+                    Acc#{client_attrs => Attrs#{Name => Value}};
+                _ ->
+                    Acc
+            end
+        end,
+        ClientInfo,
+        Inits
+    ).
+
+initialize_client_attrs_from_user_property(Inits, ConnPkt, ClientInfo) ->
+    lists:foldl(
+        fun(Init, Acc) ->
+            do_initialize_client_attrs_from_user_property(Init, ConnPkt, Acc)
+        end,
+        ClientInfo,
+        Inits
+    ).
+
+do_initialize_client_attrs_from_user_property(
     #{
         extract_from := user_property,
         extract_as := PropertyKey
@@ -1696,21 +1732,24 @@ initialize_client_attrs_from_user_property(
     ConnPkt,
     ClientInfo
 ) ->
-    case extract_client_attr_from_user_property(ConnPkt, PropertyKey) of
-        {ok, Value} ->
-            ?SLOG(
-                debug,
-                #{
-                    msg => "client_attr_init_from_user_property",
-                    extracted_as => PropertyKey,
-                    extracted_value => Value
-                }
-            ),
-            ClientInfo#{client_attrs => #{PropertyKey => Value}};
-        _ ->
-            ClientInfo
-    end;
-initialize_client_attrs_from_user_property(_, _ConnInfo, ClientInfo) ->
+    Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
+    Attrs =
+        case extract_client_attr_from_user_property(ConnPkt, PropertyKey) of
+            {ok, Value} ->
+                ?SLOG(
+                    debug,
+                    #{
+                        msg => "client_attr_init_from_user_property",
+                        extracted_as => PropertyKey,
+                        extracted_value => Value
+                    }
+                ),
+                Attrs0#{PropertyKey => Value};
+            _ ->
+                Attrs0
+        end,
+    ClientInfo#{client_attrs => Attrs};
+do_initialize_client_attrs_from_user_property(_, _ConnPkt, ClientInfo) ->
     ClientInfo.
 
 extract_client_attr_from_user_property(
