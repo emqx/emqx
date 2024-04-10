@@ -526,6 +526,7 @@ replace_var(Val, _Data) ->
 
 convert_bool(B) when is_boolean(B) -> B;
 convert_bool(null) -> null;
+convert_bool(undefined) -> null;
 convert_bool(1) -> true;
 convert_bool(0) -> false;
 convert_bool(<<"1">>) -> true;
