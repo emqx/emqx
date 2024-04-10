@@ -22,6 +22,7 @@
 -include("types.hrl").
 -include("logger.hrl").
 -include("emqx_hooks.hrl").
+-include("emqx_mqtt.hrl").
 
 -export([
     start_link/0,
@@ -279,7 +280,7 @@ on_client_subscribed(
         clientid => ClientId,
         username => Username,
         protocol => Protocol,
-        topic => Topic,
+        topic => emqx_topic:maybe_format_share(Topic),
         subopts => SubOpts,
         ts => erlang:system_time(millisecond)
     },
@@ -298,7 +299,7 @@ on_client_unsubscribed(
         clientid => ClientId,
         username => Username,
         protocol => Protocol,
-        topic => Topic,
+        topic => emqx_topic:maybe_format_share(Topic),
         ts => erlang:system_time(millisecond)
     },
     publish(unsubscribed, Payload).
