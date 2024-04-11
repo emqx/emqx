@@ -28,7 +28,6 @@ apply_rule(
     RuleId,
     #{
         context := Context,
-        environment := Env,
         stop_action_after_template_rendering := StopAfterRender
     }
 ) ->
@@ -39,30 +38,32 @@ apply_rule(
         true ->
             %% test if the topic matches the topic filters in the rule
             case emqx_topic:match_any(InTopic, EventTopics) of
-                true -> do_apply_matched_rule(Rule, Context, Env, StopAfterRender);
-                false -> {error, nomatch}
+                true ->
+                    do_apply_matched_rule(
+                        Rule,
+                        Context,
+                        StopAfterRender
+                    );
+                false ->
+                    {error, nomatch}
             end;
         false ->
             case lists:member(InTopic, EventTopics) of
                 true ->
                     %% the rule is for both publish and events, test it directly
-                    do_apply_matched_rule(Rule, Context, Env, StopAfterRender);
+                    do_apply_matched_rule(Rule, Context, StopAfterRender);
                 false ->
                     {error, nomatch}
             end
     end.
 
-do_apply_matched_rule(Rule, Context, Env, StopAfterRender) ->
+do_apply_matched_rule(Rule, Context, StopAfterRender) ->
     update_process_trace_metadata(StopAfterRender),
-    Env1 =
-        case Env of
-            M when map_size(M) =:= 0 ->
-                %% Use the default environment if no environment is provided
-                default_apply_rule_environment();
-            _ ->
-                Env
-        end,
-    ApplyRuleRes = emqx_rule_runtime:apply_rule(Rule, Context, Env1),
+    ApplyRuleRes = emqx_rule_runtime:apply_rule(
+        Rule,
+        Context,
+        apply_rule_environment()
+    ),
     reset_trace_process_metadata(StopAfterRender),
     ApplyRuleRes.
 
@@ -80,16 +81,11 @@ reset_trace_process_metadata(true = _StopAfterRender) ->
 reset_trace_process_metadata(false = _StopAfterRender) ->
     ok.
 
-default_apply_rule_environment() ->
-    #{
-        headers => #{
-            protocol => mqtt,
-            username => undefined,
-            peerhost => {127, 0, 0, 1},
-            proto_ver => 5,
-            properties => #{}
-        }
-    }.
+%% At the time of writing the environment passed to the apply rule function is
+%% not used at all for normal actions. When it is used for custom functions it
+%% is first merged with the context so there does not seem to be any need to
+%% set this to anything else then the empty map.
+apply_rule_environment() -> #{}.
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
 test(#{sql := Sql, context := Context}) ->

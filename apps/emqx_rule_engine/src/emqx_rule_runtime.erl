@@ -420,13 +420,13 @@ handle_action(RuleId, ActId, Selected, Envs) ->
     end.
 
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found; R == unhealthy_target).
-do_handle_action(_RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
+do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
     trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
-    TraceCtx = do_handle_action_get_trace_context(Action),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [TraceCtx], #{reply_dropped => true}},
+    {TraceCtx, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [IncCtx], #{reply_dropped => true}},
     case
         emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{
-            reply_to => ReplyTo, trace_ctx => maps:remove(action_id, TraceCtx)
+            reply_to => ReplyTo, trace_ctx => TraceCtx
         })
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
@@ -437,20 +437,20 @@ do_handle_action(_RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Sele
             Result
     end;
 do_handle_action(
-    _RuleId,
+    RuleId,
     {bridge_v2, BridgeType, BridgeName} = Action,
     Selected,
     _Envs
 ) ->
     trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
-    TraceCtx = do_handle_action_get_trace_context(Action),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [TraceCtx], #{reply_dropped => true}},
+    {TraceCtx, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [IncCtx], #{reply_dropped => true}},
     case
         emqx_bridge_v2:send_message(
             BridgeType,
             BridgeName,
             Selected,
-            #{reply_to => ReplyTo, trace_ctx => maps:remove(action_id, TraceCtx)}
+            #{reply_to => ReplyTo, trace_ctx => TraceCtx}
         )
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
@@ -460,17 +460,31 @@ do_handle_action(
         Result ->
             Result
     end;
-do_handle_action(_RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
+do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
     trace_action(Action, "call_action_function"),
     %% the function can also throw 'out_of_service'
     Args = maps:get(args, Action, []),
     Result = Mod:Func(Selected, Envs, Args),
-    TraceCtx = do_handle_action_get_trace_context(Action),
-    inc_action_metrics(TraceCtx, Result),
+    {_, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
+    inc_action_metrics(IncCtx, Result),
     trace_action(Action, "call_action_function_result", #{result => Result}, debug),
     Result.
 
-do_handle_action_get_trace_context(Action) ->
+do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
+    case emqx_trace:list() of
+        [] ->
+            %% As a performance/memory optimization, we don't create any trace
+            %% context if there are no trace patterns.
+            {undefined, #{
+                rule_id => RuleID,
+                action_id => Action
+            }};
+        _List ->
+            Ctx = do_handle_action_get_trace_inc_metrics_context_unconditionally(Action),
+            {maps:remove(action_id, Ctx), Ctx}
+    end.
+
+do_handle_action_get_trace_inc_metrics_context_unconditionally(Action) ->
     Metadata = logger:get_process_metadata(),
     StopAfterRender = maps:get(stop_action_after_render, Metadata, false),
     case Metadata of

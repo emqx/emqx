@@ -371,29 +371,7 @@ on_query(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    case NRequest of
-        {Path, Headers} ->
-            emqx_trace:rendered_action_template(
-                InstId,
-                #{
-                    path => Path,
-                    method => Method,
-                    headers => Headers,
-                    timeout => Timeout
-                }
-            );
-        {Path, Headers, Body} ->
-            emqx_trace:rendered_action_template(
-                InstId,
-                #{
-                    path => Path,
-                    method => Method,
-                    headers => Headers,
-                    timeout => Timeout,
-                    body => Body
-                }
-            )
-    end,
+    trace_rendered_action_template(InstId, Method, NRequest, Timeout),
     Worker = resolve_pool_worker(State, KeyOrNum),
     Result0 = ehttpc:request(
         Worker,
@@ -503,29 +481,7 @@ on_query_async(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    case NRequest of
-        {Path, Headers} ->
-            emqx_trace:rendered_action_template(
-                InstId,
-                #{
-                    path => Path,
-                    method => Method,
-                    headers => Headers,
-                    timeout => Timeout
-                }
-            );
-        {Path, Headers, Body} ->
-            emqx_trace:rendered_action_template(
-                InstId,
-                #{
-                    path => Path,
-                    method => Method,
-                    headers => Headers,
-                    timeout => Timeout,
-                    body => Body
-                }
-            )
-    end,
+    trace_rendered_action_template(InstId, Method, NRequest, Timeout),
     MaxAttempts = maps:get(max_attempts, State, 3),
     Context = #{
         attempt => 1,
@@ -544,6 +500,31 @@ on_query_async(
         {fun ?MODULE:reply_delegator/3, [Context, ReplyFunAndArgs]}
     ),
     {ok, Worker}.
+
+trace_rendered_action_template(InstId, Method, NRequest, Timeout) ->
+    case NRequest of
+        {Path, Headers} ->
+            emqx_trace:rendered_action_template(
+                InstId,
+                #{
+                    path => Path,
+                    method => Method,
+                    headers => Headers,
+                    timeout => Timeout
+                }
+            );
+        {Path, Headers, Body} ->
+            emqx_trace:rendered_action_template(
+                InstId,
+                #{
+                    path => Path,
+                    method => Method,
+                    headers => emqx_utils_redact:redact_headers(Headers),
+                    timeout => Timeout,
+                    body => Body
+                }
+            )
+    end.
 
 resolve_pool_worker(State, undefined) ->
     resolve_pool_worker(State, self());

@@ -158,13 +158,13 @@ init_per_suite(Config) ->
     emqx_rule_funcs_demo:module_info(),
     application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps(
-        [emqx, emqx_conf, emqx_rule_engine, emqx_auth, emqx_bridge],
+        [emqx_conf, emqx_rule_engine, emqx_auth, emqx_bridge],
         fun set_special_configs/1
     ),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx, emqx_conf, emqx_rule_engine, emqx_auth, emqx_bridge]),
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine, emqx_auth, emqx_bridge]),
     ok.
 
 set_special_configs(emqx_auth) ->

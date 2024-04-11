@@ -88,16 +88,18 @@ unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
 rendered_action_template(ActionID, RenderResult) ->
-    Msg = io_lib:format("action_template_rendered(~s)", [ActionID]),
+    Msg = lists:flatten(io_lib:format("action_template_rendered(~ts)", [ActionID])),
     TraceResult = ?TRACE("QUERY_RENDER", Msg, RenderResult),
     case logger:get_process_metadata() of
         #{stop_action_after_render := true} ->
             %% We throw an unrecoverable error to stop action before the
             %% resource is called/modified
-            StopMsg = io_lib:format(
-                "action_stopped_after_render(~s): "
-                "Action stopped after template render due to test setting.",
-                [ActionID]
+            StopMsg = lists:flatten(
+                io_lib:format(
+                    "action_stopped_after_render(~ts): "
+                    "Action stopped after template render due to test setting.",
+                    [ActionID]
+                )
             ),
             MsgBin = iolist_to_binary(StopMsg),
             error({unrecoverable_error, MsgBin});

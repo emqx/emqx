@@ -108,15 +108,6 @@ fields("rule_test") ->
 fields("rule_apply_test") ->
     [
         rule_input_message_context(),
-        {"environment",
-            sc(
-                typerefl:map(),
-                #{
-                    desc =>
-                        ?DESC("test_rule_environment"),
-                    default => #{}
-                }
-            )},
         {"stop_action_after_template_rendering",
             sc(
                 typerefl:boolean(),
