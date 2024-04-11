@@ -547,7 +547,7 @@ dialyzer(Config) ->
     AppsToExclude = AppNames -- KnownApps,
 
     Extra =
-        [system_monitor, tools, covertool] ++
+        [tools, covertool] ++
             [jq || is_jq_supported()] ++
             [quicer || is_quicer_supported()],
     NewDialyzerConfig =

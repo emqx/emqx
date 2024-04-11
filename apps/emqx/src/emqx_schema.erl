@@ -1409,11 +1409,10 @@ fields("sysmon") ->
                 ref("sysmon_os"),
                 #{}
             )},
+        %% Obsolete config:
         {"top",
             sc(
                 ref("sysmon_top"),
-                %% Userful monitoring solution when benchmarking,
-                %% but hardly common enough for regular users.
                 #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ];
@@ -1536,6 +1535,7 @@ fields("sysmon_os") ->
             )}
     ];
 fields("sysmon_top") ->
+    %% Obsolete config; left for backward compatibility
     [
         {"num_items",
             sc(
