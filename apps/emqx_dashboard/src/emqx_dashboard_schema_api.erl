@@ -30,6 +30,9 @@
 
 -export([get_schema/2]).
 
+%% for test
+-export([bridge_schema_json/0]).
+
 -define(TAGS, [<<"dashboard">>]).
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
