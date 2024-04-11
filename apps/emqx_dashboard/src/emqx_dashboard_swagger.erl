@@ -81,7 +81,7 @@
     ])
 ).
 
--define(SPECIAL_LANG_MSGID, <<"$msgid">>).
+-define(NO_I18N, undefined).
 
 -define(MAX_ROW_LIMIT, 10000).
 -define(DEFAULT_ROW, 100).
@@ -267,7 +267,7 @@ gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
         SchemaMod,
         #{
             schema_converter => Converter,
-            i18n_lang => ?SPECIAL_LANG_MSGID
+            i18n_lang => ?NO_I18N
         }
     ),
     ApiSpec = lists:foldl(
@@ -672,10 +672,10 @@ trans_description(Spec, Hocon, Options) ->
             ?DESC(_, _) = Struct -> get_i18n(<<"desc">>, Struct, undefined, Options);
             Text -> to_bin(Text)
         end,
-    case Desc of
-        undefined ->
+    case Desc =:= undefined of
+        true ->
             Spec;
-        Desc ->
+        false ->
             Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
@@ -683,8 +683,8 @@ trans_description(Spec, Hocon, Options) ->
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),
     case Lang of
-        ?SPECIAL_LANG_MSGID ->
-            make_msgid(Namespace, Id, Tag);
+        ?NO_I18N ->
+            undefined;
         _ ->
             get_i18n_text(Lang, Namespace, Id, Tag, Default)
     end.
@@ -697,14 +697,6 @@ get_i18n_text(Lang, Namespace, Id, Tag, Default) ->
             Text
     end.
 
-%% Format：$msgid:Namespace.Id.Tag
-%% e.g. $msgid:emqx_schema.key.desc
-%%      $msgid:emqx_schema.key.label
-%% if needed, the consumer of this schema JSON can use this msgid to
-%% resolve the text in the i18n database.
-make_msgid(Namespace, Id, Tag) ->
-    iolist_to_binary(["$msgid:", to_bin(Namespace), ".", to_bin(Id), ".", Tag]).
-
 %% So far i18n_lang in options is only used at build time.
 %% At runtime, it's still the global config which controls the language.
 get_lang(#{i18n_lang := Lang}) -> Lang;
@@ -716,7 +708,12 @@ trans_label(Spec, Hocon, Default, Options) ->
             ?DESC(_, _) = Struct -> get_i18n(<<"label">>, Struct, Default, Options);
             _ -> Default
         end,
-    Spec#{label => Label}.
+    case Label =:= undefined of
+        true ->
+            Spec;
+        false ->
+            Spec#{label => Label}
+    end.
 
 desc_struct(Hocon) ->
     R =
