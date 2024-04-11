@@ -83,8 +83,10 @@ eval_as_string(Expr, Bindings, _Opts) ->
 
 eval({str, Str}, _Bindings) ->
     str(Str);
-eval({num, Num}, _Bindings) ->
-    str(Num);
+eval({integer, Num}, _Bindings) ->
+    Num;
+eval({float, Num}, _Bindings) ->
+    Num;
 eval({array, Args}, Bindings) ->
     eval(Args, Bindings);
 eval({call, FuncNameStr, Args}, Bindings) ->
@@ -150,7 +152,7 @@ resolve_func_name(FuncNameStr) ->
 resolve_var_value(VarName, Bindings) ->
     case emqx_template:lookup_var(split(VarName), Bindings) of
         {ok, Value} ->
-            str(Value);
+            Value;
         {error, _Reason} ->
             <<>>
     end.

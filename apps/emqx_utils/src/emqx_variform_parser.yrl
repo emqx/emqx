@@ -7,7 +7,8 @@ Nonterminals
 
 Terminals
     identifier
-    number
+    integer
+    float
     string
     '(' ')'
     ',' '[' ']'.
@@ -34,7 +35,8 @@ args -> args ',' arg : '$1' ++ ['$3'].
 %% Arguments can be expressions, arrays, numbers, or strings
 arg -> expr : '$1'.
 arg -> array : '$1'.
-arg -> number : {num, element(3, '$1')}.
+arg -> integer: {integer, element(3, '$1')}.
+arg -> float: {float, element(3, '$1')}.
 arg -> string : {str, element(3, '$1')}.
 
 Erlang code.

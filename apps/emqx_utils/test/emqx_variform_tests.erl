@@ -39,10 +39,43 @@ redner_test_() ->
         {"out of range nth index", fun() ->
             ?assertEqual({ok, <<>>}, render("nth(2, tokens(var, ','))", #{var => <<"a">>}))
         end},
+        {"string for nth index", fun() ->
+            ?assertEqual({ok, <<"a">>}, render("nth('1', tokens(var, ','))", #{var => <<"a">>}))
+        end},
         {"not a index number for nth", fun() ->
             ?assertMatch(
                 {error, #{reason := invalid_argument, func := nth, index := <<"notnum">>}},
                 render("nth('notnum', tokens(var, ','))", #{var => <<"a">>})
+            )
+        end},
+        {"substr", fun() ->
+            ?assertMatch(
+                {ok, <<"b">>},
+                render("substr(var,1)", #{var => <<"ab">>})
+            )
+        end},
+        {"result in integer", fun() ->
+            ?assertMatch(
+                {ok, <<"2">>},
+                render("strlen(var)", #{var => <<"ab">>})
+            )
+        end},
+        {"result in float", fun() ->
+            ?assertMatch(
+                {ok, <<"2.2">>},
+                render("var", #{var => 2.2})
+            )
+        end},
+        {"concat a number", fun() ->
+            ?assertMatch(
+                {ok, <<"2.2">>},
+                render("concat(strlen(var),'.2')", #{var => <<"xy">>})
+            )
+        end},
+        {"var is an array", fun() ->
+            ?assertMatch(
+                {ok, <<"y">>},
+                render("nth(2,var)", #{var => [<<"x">>, <<"y">>]})
             )
         end}
     ].

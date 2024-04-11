@@ -3,7 +3,8 @@ Definitions.
 IDENTIFIER  = [a-zA-Z][a-zA-Z0-9_.]*
 SQ_STRING   = \'[^\']*\'
 DQ_STRING   = \"[^\"]*\"
-NUMBER      = [+-]?(\\d+\\.\\d+|[0-9]+)
+INTEGER     = [+-]?[0-9]+
+FLOAT       = [+-]?\\d+\\.\\d+
 LPAREN      = \(
 RPAREN      = \)
 LBRACKET    = \[
@@ -12,12 +13,12 @@ COMMA       = ,
 WHITESPACE  = [\s\t\n]+
 
 Rules.
-%% Match function names, variable names (with ${}), strings, numbers, and structural characters
 {WHITESPACE} : skip_token.
 {IDENTIFIER} : {token, {identifier, TokenLine, TokenChars}}.
 {SQ_STRING}  : {token, {string, TokenLine, unquote(TokenChars, $')}}.
 {DQ_STRING}  : {token, {string, TokenLine, unquote(TokenChars, $")}}.
-{NUMBER}     : {token, {number, TokenLine, TokenChars}}.
+{INTEGER}    : {token, {integer, TokenLine, list_to_integer(TokenChars)}}.
+{FLOAT}      : {token, {float, TokenLine, list_to_float(TokenChars)}}.
 {LPAREN}     : {token, {'(', TokenLine}}.
 {RPAREN}     : {token, {')', TokenLine}}.
 {LBRACKET}   : {token, {'[', TokenLine}}.
