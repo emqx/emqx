@@ -507,21 +507,24 @@ trace(["list"]) ->
             )
     end;
 trace(["stop", Operation, Filter0]) ->
-    case trace_type(Operation, Filter0) of
-        {ok, Type, Filter} -> trace_off(Type, Filter);
+    case trace_type(Operation, Filter0, plain) of
+        {ok, Type, Filter, _} -> trace_off(Type, Filter);
         error -> trace([])
     end;
 trace(["start", Operation, ClientId, LogFile]) ->
     trace(["start", Operation, ClientId, LogFile, "all"]);
 trace(["start", Operation, Filter0, LogFile, Level]) ->
-    case trace_type(Operation, Filter0) of
-        {ok, Type, Filter} ->
+    trace(["start", Operation, Filter0, LogFile, Level, plain]);
+trace(["start", Operation, Filter0, LogFile, Level, Formatter0]) ->
+    case trace_type(Operation, Filter0, Formatter0) of
+        {ok, Type, Filter, Formatter} ->
             trace_on(
                 name(Filter0),
                 Type,
                 Filter,
                 list_to_existing_atom(Level),
-                LogFile
+                LogFile,
+                Formatter
             );
         error ->
             trace([])
@@ -529,19 +532,22 @@ trace(["start", Operation, Filter0, LogFile, Level]) ->
 trace(_) ->
     emqx_ctl:usage([
         {"trace list", "List all traces started on local node"},
-        {"trace start client <ClientId> <File> [<Level>]", "Traces for a client on local node"},
+        {"trace start client <ClientId> <File> [<Level>] [<Formatter>]",
+            "Traces for a client on local node (Formatter=plain|json)"},
         {"trace stop  client <ClientId>", "Stop tracing for a client on local node"},
-        {"trace start topic  <Topic>    <File> [<Level>] ", "Traces for a topic on local node"},
+        {"trace start topic  <Topic>    <File> [<Level>] [<Formatter>]",
+            "Traces for a topic on local node (Formatter=plain|json)"},
         {"trace stop  topic  <Topic> ", "Stop tracing for a topic on local node"},
-        {"trace start ip_address  <IP>    <File> [<Level>] ",
-            "Traces for a client ip on local node"},
+        {"trace start ip_address  <IP>    <File> [<Level>] [<Formatter>]",
+            "Traces for a client ip on local node (Formatter=plain|json)"},
         {"trace stop  ip_address  <IP> ", "Stop tracing for a client ip on local node"},
-        {"trace start ruleid  <RuleID>    <File> [<Level>] ", "Traces for a rule ID on local node"},
+        {"trace start ruleid  <RuleID>    <File> [<Level>] [<Formatter>]",
+         "Traces for a rule ID on local node (Formatter=plain|json)"},
         {"trace stop  ruleid  <RuleID> ", "Stop tracing for a rule ID on local node"}
     ]).
 
-trace_on(Name, Type, Filter, Level, LogFile) ->
-    case emqx_trace_handler:install(Name, Type, Filter, Level, LogFile) of
+trace_on(Name, Type, Filter, Level, LogFile, Formatter) ->
+    case emqx_trace_handler:install(Name, Type, Filter, Level, LogFile, Formatter) of
         ok ->
             emqx_trace:check(),
             emqx_ctl:print("trace ~s ~s successfully~n", [Filter, Name]);
@@ -592,28 +598,33 @@ traces(["delete", Name]) ->
     trace_cluster_del(Name);
 traces(["start", Name, Operation, Filter]) ->
     traces(["start", Name, Operation, Filter, ?DEFAULT_TRACE_DURATION]);
-traces(["start", Name, Operation, Filter0, DurationS]) ->
-    case trace_type(Operation, Filter0) of
-        {ok, Type, Filter} -> trace_cluster_on(Name, Type, Filter, DurationS);
+traces(["start", Name, Operation, Filter, DurationS]) ->
+    traces(["start", Name, Operation, Filter, DurationS, plain]);
+traces(["start", Name, Operation, Filter0, DurationS, Formatter0]) ->
+    case trace_type(Operation, Filter0, Formatter0) of
+        {ok, Type, Filter, Formatter} -> trace_cluster_on(Name, Type, Filter, DurationS, Formatter);
         error -> traces([])
     end;
 traces(_) ->
     emqx_ctl:usage([
         {"traces list", "List all cluster traces started"},
-        {"traces start <Name> client <ClientId> [<Duration>]", "Traces for a client in cluster"},
-        {"traces start <Name> topic <Topic> [<Duration>]", "Traces for a topic in cluster"},
-        {"traces start <Name> ip_address <IPAddr> [<Duration>]",
+        {"traces start <Name> client <ClientId> [<Duration>] [<Formatter>]",
+            "Traces for a client in cluster (Formatter=plain|json)"},
+        {"traces start <Name> topic <Topic> [<Duration>] [<Formatter>]",
+            "Traces for a topic in cluster (Formatter=plain|json)"},
+        {"traces start <Name> ruleid <RuleID> [<Duration>] [<Formatter>]",
+         "Traces for a rule ID in cluster (Formatter=plain|json)"},
+        {"traces start <Name> ip_address <IPAddr> [<Duration>] [<Formatter>]",
             "Traces for a client IP in cluster\n"
             "Trace will start immediately on all nodes, including the core and replicant,\n"
             "and will end after <Duration> seconds. The default value for <Duration> is "
             ?DEFAULT_TRACE_DURATION
-            " seconds."},
-        {"traces start <Name> ruleid <RuleID> [<Duration>]", "Traces for a rule ID in cluster"},
+            " seconds. (Formatter=plain|json)"},
         {"traces stop <Name>", "Stop trace in cluster"},
         {"traces delete <Name>", "Delete trace in cluster"}
     ]).
 
-trace_cluster_on(Name, Type, Filter, DurationS0) ->
+trace_cluster_on(Name, Type, Filter, DurationS0, Formatter) ->
     Now = emqx_trace:now_second(),
     DurationS = list_to_integer(DurationS0),
     Trace = #{
@@ -621,7 +632,8 @@ trace_cluster_on(Name, Type, Filter, DurationS0) ->
         type => Type,
         Type => bin(Filter),
         start_at => Now,
-        end_at => Now + DurationS
+        end_at => Now + DurationS,
+        formatter => Formatter
     },
     case emqx_trace:create(Trace) of
         {ok, _} ->
@@ -645,10 +657,12 @@ trace_cluster_off(Name) ->
         {error, Error} -> emqx_ctl:print("[error] Stop cluster_trace ~s: ~p~n", [Name, Error])
     end.
 
-trace_type("client", ClientId) -> {ok, clientid, bin(ClientId)};
-trace_type("topic", Topic) -> {ok, topic, bin(Topic)};
-trace_type("ip_address", IP) -> {ok, ip_address, IP};
-trace_type(_, _) -> error.
+trace_type(Op, Match, "plain") -> trace_type(Op, Match, plain);
+trace_type(Op, Match, "json") -> trace_type(Op, Match, json);
+trace_type("client", ClientId, Formatter) -> {ok, clientid, bin(ClientId), Formatter};
+trace_type("topic", Topic, Formatter) -> {ok, topic, bin(Topic), Formatter};
+trace_type("ip_address", IP, Formatter) -> {ok, ip_address, IP, Formatter};
+trace_type(_, _, _) -> error.
 
 %%--------------------------------------------------------------------
 %% @doc Listeners Command

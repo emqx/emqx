@@ -27,6 +27,7 @@
     install/3,
     install/4,
     install/5,
+    install/6,
     uninstall/1,
     uninstall/2
 ]).
@@ -70,16 +71,28 @@
     Type :: clientid | topic | ip_address,
     Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
     Level :: logger:level() | all,
-    LogFilePath :: string()
+    LogFilePath :: string(),
+    Formatter :: plain | json
 ) -> ok | {error, term()}.
-install(Name, Type, Filter, Level, LogFile) ->
+install(Name, Type, Filter, Level, LogFile, Formatter) ->
     Who = #{
         type => Type,
         filter => ensure_bin(Filter),
         name => ensure_bin(Name),
-        payload_encode => payload_encode()
+        payload_encode => payload_encode(),
+        formatter => Formatter
     },
     install(Who, Level, LogFile).
+
+-spec install(
+    Name :: binary() | list(),
+    Type :: clientid | topic | ip_address,
+    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
+    Level :: logger:level() | all,
+    LogFilePath :: string()
+) -> ok | {error, term()}.
+install(Name, Type, Filter, Level, LogFile) ->
+    install(Name, Type, Filter, Level, LogFile, plain).
 
 -spec install(
     Type :: clientid | topic | ip_address,

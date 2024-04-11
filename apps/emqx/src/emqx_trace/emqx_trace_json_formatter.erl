@@ -65,7 +65,7 @@ format_key_value_pairs([{Key, Value} | Rest], PEncode, Acc) ->
 
 format_key(Term) ->
     %% Keys must be strings
-    String = emqx_logger_textfmt:try_format_unicode(Term),
+    String = try_format_unicode(Term),
     escape(String).
 
 format_value(Map, PEncode) when is_map(Map) ->
@@ -79,8 +79,15 @@ format_value(true, _PEncode) ->
 format_value(false, _PEncode) ->
     "false";
 format_value(V, _PEncode) ->
-    String = emqx_logger_textfmt:try_format_unicode(V),
+    String = try_format_unicode(V),
     ["\"", escape(String), "\""].
+
+try_format_unicode(undefined) ->
+    %% emqx_logger_textfmt:try_format_unicode converts the atom undefined to
+    %% the atom undefined
+    "undefined";
+try_format_unicode(V) ->
+    emqx_logger_textfmt:try_format_unicode(V).
 
 escape(IOList) ->
     Bin = iolist_to_binary(IOList),
