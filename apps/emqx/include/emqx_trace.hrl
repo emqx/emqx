@@ -32,7 +32,8 @@
     payload_encode = text :: hex | text | hidden | '_',
     extra = #{} :: map() | '_',
     start_at :: integer() | undefined | '_',
-    end_at :: integer() | undefined | '_'
+    end_at :: integer() | undefined | '_',
+    formatter = plain :: plain | json
 }).
 
 -define(SHARD, ?COMMON_SHARD).

@@ -183,6 +183,13 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
 filters(#{type := ruleid, filter := Filter, name := Name}) ->
     [{ruleid, {fun ?MODULE:filter_ruleid/2, {ensure_bin(Filter), Name}}}].
 
+formatter(#{type := _Type, payload_encode := PayloadEncode, formatter := json}) ->
+    {emqx_trace_json_formatter, #{
+        single_line => true,
+        max_size => unlimited,
+        depth => unlimited,
+        payload_encode => PayloadEncode
+    }};
 formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.

@@ -314,6 +314,15 @@ fields(trace) ->
                     example => [#{<<"node">> => <<"emqx@127.0.0.1">>, <<"size">> => 1024}],
                     required => false
                 }
+            )},
+        {formatter,
+            hoconsc:mk(
+                hoconsc:union([plain, json]),
+                #{
+                    description => ?DESC(trace_log_formatter),
+                    example => plain,
+                    required => false
+                }
             )}
     ];
 fields(name) ->

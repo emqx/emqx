@@ -183,8 +183,10 @@ create(Trace) ->
     case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
         true ->
             case to_trace(Trace) of
-                {ok, TraceRec} -> insert_new_trace(TraceRec);
-                {error, Reason} -> {error, Reason}
+                {ok, TraceRec} ->
+                    insert_new_trace(TraceRec);
+                {error, Reason} ->
+                    {error, Reason}
             end;
         false ->
             {error,
@@ -392,9 +394,16 @@ start_trace(Trace) ->
         type = Type,
         filter = Filter,
         start_at = Start,
-        payload_encode = PayloadEncode
+        payload_encode = PayloadEncode,
+        formatter = Formatter
     } = Trace,
-    Who = #{name => Name, type => Type, filter => Filter, payload_encode => PayloadEncode},
+    Who = #{
+        name => Name,
+        type => Type,
+        filter => Filter,
+        payload_encode => PayloadEncode,
+        formatter => Formatter
+    },
     emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
 
 stop_trace(Finished, Started) ->
@@ -559,6 +568,8 @@ to_trace(#{end_at := EndAt} = Trace, Rec) ->
         {ok, _Sec} ->
             {error, "end_at time has already passed"}
     end;
+to_trace(#{formatter := Formatter} = Trace, Rec) ->
+    to_trace(maps:remove(formatter, Trace), Rec#?TRACE{formatter = Formatter});
 to_trace(_, Rec) ->
     {ok, Rec}.
 
