@@ -46,7 +46,8 @@
     name := binary(),
     type := clientid | topic | ip_address,
     filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
-    payload_encode := text | hidden | hex
+    payload_encode := text | hidden | hex,
+    formatter => json | plain
 }.
 
 -define(CONFIG(_LogFile_), #{
