@@ -397,11 +397,18 @@ test_cert_extraction_as_alias(Which) ->
     %% extract the first two chars
     Re = <<"^(..).*$">>,
     ClientId = iolist_to_binary(["ClientIdFor_", atom_to_list(Which)]),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
-        extract_from => Which,
-        extract_regexp => Re,
-        extract_as => <<"alias">>
-    }),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            extract_from => Which,
+            extract_regexp => Re,
+            extract_as => <<"alias">>
+        },
+        #{
+            extract_from => Which,
+            extract_regexp => Re,
+            extract_as => <<"alias2">>
+        }
+    ]),
     SslConf = emqx_common_test_helpers:client_mtls('tlsv1.2'),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId}, {port, 8883}, {ssl, true}, {ssl_opts, SslConf}
@@ -409,7 +416,7 @@ test_cert_extraction_as_alias(Which) ->
     {ok, _} = emqtt:connect(Client),
     %% assert only two chars are extracted
     ?assertMatch(
-        #{clientinfo := #{client_attrs := #{<<"alias">> := <<_, _>>}}},
+        #{clientinfo := #{client_attrs := #{<<"alias">> := <<_, _>>, <<"alias2">> := <<_, _>>}}},
         emqx_cm:get_chan_info(ClientId)
     ),
     emqtt:disconnect(Client).
