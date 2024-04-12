@@ -357,7 +357,7 @@ kafka_consumer_hocon() ->
 
 %% assert compatibility
 bridge_schema_json_test() ->
-    JSON = iolist_to_binary(emqx_conf:bridge_schema_json()),
+    JSON = iolist_to_binary(emqx_dashboard_schema_api:bridge_schema_json()),
     Map = emqx_utils_json:decode(JSON),
     Path = [<<"components">>, <<"schemas">>, <<"bridge_kafka.post_producer">>, <<"properties">>],
     ?assertMatch(#{<<"kafka">> := _}, emqx_utils_maps:deep_get(Path, Map)).

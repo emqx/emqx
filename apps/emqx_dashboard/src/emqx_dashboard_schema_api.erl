@@ -30,8 +30,19 @@
 
 -export([get_schema/2]).
 
+%% for test
+-export([bridge_schema_json/0]).
+
 -define(TAGS, [<<"dashboard">>]).
 -define(BAD_REQUEST, 'BAD_REQUEST').
+
+-define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
+-define(TO_COMPONENTS_SCHEMA(_M_, _F_),
+    iolist_to_binary([
+        <<"#/components/schemas/">>,
+        ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)
+    ])
+).
 
 %%--------------------------------------------------------------------
 %% minirest API and schema
@@ -77,13 +88,21 @@ get_schema(get, _) ->
     {400, ?BAD_REQUEST, <<"unknown">>}.
 
 gen_schema(hotconf) ->
-    emqx_conf:hotconf_schema_json();
+    hotconf_schema_json();
 gen_schema(bridges) ->
-    emqx_conf:bridge_schema_json();
+    bridge_schema_json();
 gen_schema(actions) ->
     actions_schema_json();
 gen_schema(connectors) ->
     connectors_schema_json().
+
+hotconf_schema_json() ->
+    SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
+    gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo).
+
+bridge_schema_json() ->
+    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
+    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
 
 actions_schema_json() ->
     SchemaInfo = #{title => <<"EMQX Data Actions API Schema">>, version => <<"0.1.0">>},
@@ -98,5 +117,46 @@ gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
     emqx_dashboard_swagger:gen_api_schema_json_iodata(
         SchemaMod,
         SchemaInfo,
-        fun emqx_conf:hocon_schema_to_spec/2
+        fun hocon_schema_to_spec/2
     ).
+
+hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(Module, StructName)}, [{Module, StructName}]};
+hocon_schema_to_spec(?REF(StructName), LocalModule) ->
+    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)}, [{LocalModule, StructName}]};
+hocon_schema_to_spec(Type, LocalModule) when ?IS_TYPEREFL(Type) ->
+    {typename_to_spec(typerefl:name(Type), LocalModule), []};
+hocon_schema_to_spec(?ARRAY(Item), LocalModule) ->
+    {Schema, Refs} = hocon_schema_to_spec(Item, LocalModule),
+    {#{type => array, items => Schema}, Refs};
+hocon_schema_to_spec(?ENUM(Items), _LocalModule) ->
+    {#{type => enum, symbols => Items}, []};
+hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->
+    {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
+    {
+        #{
+            <<"type">> => object,
+            <<"properties">> => #{<<"$", (to_bin(Name))/binary>> => Schema}
+        },
+        SubRefs
+    };
+hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
+    {OneOf, Refs} = lists:foldl(
+        fun(Type, {Acc, RefsAcc}) ->
+            {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
+            {[Schema | Acc], SubRefs ++ RefsAcc}
+        end,
+        {[], []},
+        hoconsc:union_members(Types)
+    ),
+    {#{<<"oneOf">> => OneOf}, Refs};
+hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
+    {#{type => enum, symbols => [Atom]}, []}.
+
+typename_to_spec(TypeStr, Module) ->
+    emqx_conf_schema_types:readable_dashboard(Module, TypeStr).
+
+to_bin(List) when is_list(List) -> iolist_to_binary(List);
+to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
+to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+to_bin(X) -> X.
