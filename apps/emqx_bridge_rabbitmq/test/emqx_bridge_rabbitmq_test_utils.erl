@@ -52,7 +52,7 @@ init_per_group(_Group, Config) ->
 common_init_per_group(Opts) ->
     emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
     ok = emqx_common_test_helpers:start_apps([
-        emqx_conf, emqx_bridge, emqx_bridge_rabbitmq, emqx_rule_engine
+        emqx_conf, emqx_bridge, emqx_bridge_rabbitmq, emqx_rule_engine, emqx_modules
     ]),
     ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
     {ok, _} = application:ensure_all_started(emqx_connector),
@@ -116,7 +116,9 @@ end_per_group(_Group, Config) ->
     } = get_channel_connection(Config),
     amqp_channel:call(Channel, #'queue.purge'{queue = rabbit_mq_queue()}),
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_bridge_rabbitmq, emqx_rule_engine]),
+    ok = emqx_common_test_helpers:stop_apps([
+        emqx_conf, emqx_bridge_rabbitmq, emqx_rule_engine, emqx_modules
+    ]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
     _ = application:stop(emqx_connector),
     _ = application:stop(emqx_bridge),
