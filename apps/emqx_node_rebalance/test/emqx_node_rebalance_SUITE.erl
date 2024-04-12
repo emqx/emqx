@@ -48,7 +48,7 @@ init_per_testcase(Case, Config) ->
     ClusterNodes = start_cluster(
         Config,
         NodeNames,
-        [emqx, emqx_eviction_agent, emqx_node_rebalance]
+        [emqx, emqx_node_rebalance]
     ),
     ok = snabbkaffe:start_trace(),
     [{cluster_nodes, ClusterNodes} | Config].

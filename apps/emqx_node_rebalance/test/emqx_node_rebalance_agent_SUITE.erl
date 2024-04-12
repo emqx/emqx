@@ -38,7 +38,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_eviction_agent, emqx_node_rebalance], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_node_rebalance], #{
         work_dir => ?config(priv_dir, Config)
     }),
     [{apps, Apps} | Config].
@@ -60,7 +60,7 @@ init_per_testcase(Case, Config) ->
             ClusterNodes = emqx_cth_cluster:start(
                 [
                     {case_specific_node_name(?MODULE, Case), #{
-                        apps => [emqx, emqx_eviction_agent, emqx_node_rebalance]
+                        apps => [emqx, emqx_node_rebalance]
                     }}
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Case, Config)}

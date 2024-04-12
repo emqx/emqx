@@ -70,7 +70,7 @@ init_per_testcase(Case, Config) ->
                     case_specific_node_name(?MODULE, Case, '_recipient')
                 ]
         end,
-    ClusterNodes = start_cluster(Config, NodeNames, [emqx, emqx_eviction_agent, emqx_node_rebalance]),
+    ClusterNodes = start_cluster(Config, NodeNames, [emqx, emqx_node_rebalance]),
     ok = snabbkaffe:start_trace(),
     [{cluster_nodes, ClusterNodes} | Config].
 

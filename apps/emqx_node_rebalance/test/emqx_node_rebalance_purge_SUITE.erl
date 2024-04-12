@@ -117,7 +117,6 @@ app_specs() ->
             config =>
                 #{delayed => #{enable => true}}
         }},
-        emqx_eviction_agent,
         emqx_node_rebalance
     ].
 
