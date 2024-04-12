@@ -338,6 +338,13 @@ print_session(ClientId) ->
 -spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
 subscribe(
+    #share{},
+    _SubOpts,
+    _Session
+) ->
+    %% TODO: Shared subscriptions are not supported yet:
+    {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
+subscribe(
     TopicFilter,
     SubOpts,
     Session = #{id := ID, s := S0}
@@ -421,6 +428,9 @@ do_unsubscribe(SessionId, TopicFilter, Subscription = #{id := SubId}, S0) ->
 
 -spec get_subscription(topic_filter(), session()) ->
     emqx_types:subopts() | undefined.
+get_subscription(#share{}, _) ->
+    %% TODO: shared subscriptions are not supported yet:
+    undefined;
 get_subscription(TopicFilter, #{s := S}) ->
     case emqx_persistent_session_ds_subs:lookup(TopicFilter, S) of
         _Subscription = #{props := SubOpts} ->
