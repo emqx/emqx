@@ -101,7 +101,7 @@ rendered_action_template(ActionID, RenderResult) ->
                     [ActionID]
                 )
             ),
-            MsgBin = iolist_to_binary(StopMsg),
+            MsgBin = unicode:characters_to_binary(StopMsg),
             error({unrecoverable_error, MsgBin});
         _ ->
             ok
