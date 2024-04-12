@@ -471,23 +471,35 @@ do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) -
     Result.
 
 do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
-    case emqx_trace:list() of
-        [] ->
+    case {emqx_trace:list(), logger:get_process_metadata()} of
+        {[], #{stop_action_after_render := true}} ->
+            %% Even if there is no trace we still need to pass
+            %% stop_action_after_render in the trace meta data so that the
+            %% action will be stopped.
+            {
+                #{
+                    stop_action_after_render => true
+                },
+                #{
+                    rule_id => RuleID,
+                    action_id => Action
+                }
+            };
+        {[], _} ->
             %% As a performance/memory optimization, we don't create any trace
             %% context if there are no trace patterns.
             {undefined, #{
                 rule_id => RuleID,
                 action_id => Action
             }};
-        _List ->
-            Ctx = do_handle_action_get_trace_inc_metrics_context_unconditionally(Action),
+        {_List, TraceMeta} ->
+            Ctx = do_handle_action_get_trace_inc_metrics_context_unconditionally(Action, TraceMeta),
             {maps:remove(action_id, Ctx), Ctx}
     end.
 
-do_handle_action_get_trace_inc_metrics_context_unconditionally(Action) ->
-    Metadata = logger:get_process_metadata(),
-    StopAfterRender = maps:get(stop_action_after_render, Metadata, false),
-    case Metadata of
+do_handle_action_get_trace_inc_metrics_context_unconditionally(Action, TraceMeta) ->
+    StopAfterRender = maps:get(stop_action_after_render, TraceMeta, false),
+    case TraceMeta of
         #{
             rule_id := RuleID,
             clientid := ClientID
