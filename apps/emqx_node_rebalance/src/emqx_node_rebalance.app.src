@@ -1,6 +1,6 @@
 {application, emqx_node_rebalance, [
     {description, "EMQX Node Rebalance"},
-    {vsn, "5.0.7"},
+    {vsn, "5.0.8"},
     {registered, [
         emqx_node_rebalance_sup,
         emqx_node_rebalance,
@@ -10,7 +10,10 @@
     ]},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        emqx,
+        emqx_ctl,
+        emqx_eviction_agent
     ]},
     {mod, {emqx_node_rebalance_app, []}},
     {env, []},
