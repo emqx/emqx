@@ -33,78 +33,45 @@ format(
     LogMap,
     #{payload_encode := PEncode}
 ) ->
+    %% We just make some basic transformations on the input LogMap and then do
+    %% an external call to create the JSON text
     Time = emqx_utils_calendar:now_to_rfc3339(microsecond),
     LogMap1 = LogMap#{time => Time},
-    [format_log_map(LogMap1, PEncode), "\n"].
+    LogMap2 = prepare_log_map(LogMap1, PEncode),
+    [emqx_logger_jsonfmt:best_effort_json(LogMap2, [force_utf8]), "\n"].
 
 %%%-----------------------------------------------------------------
 %%% Helper Functions
 %%%-----------------------------------------------------------------
 
-format_log_map(Map, PEncode) ->
-    KeyValuePairs = format_key_value_pairs(maps:to_list(Map), PEncode, []),
-    ["{", KeyValuePairs, "}"].
+prepare_log_map(LogMap, PEncode) when is_map(LogMap) ->
+    NewKeyValuePairs = [prepare_key_value(K, V, PEncode) || {K, V} <- maps:to_list(LogMap)],
+    maps:from_list(NewKeyValuePairs);
+prepare_log_map(Term, _PEncode) ->
+    Term.
 
-format_key_value_pairs([], _PEncode, Acc) ->
-    lists:join(",", Acc);
-format_key_value_pairs([{payload, Value} | Rest], PEncode, Acc) ->
-    FormattedPayload = format_payload(Value, PEncode),
-    FormattedPayloadEscaped = escape(FormattedPayload),
-    Pair = ["\"payload\": \"", FormattedPayloadEscaped, "\""],
-    format_key_value_pairs(Rest, PEncode, [Pair | Acc]);
-format_key_value_pairs([{packet, Value} | Rest], PEncode, Acc) ->
-    Formatted = format_packet(Value, PEncode),
-    FormattedEscaped = escape(Formatted),
-    Pair = ["\"packet\": \"", FormattedEscaped, "\""],
-    format_key_value_pairs(Rest, PEncode, [Pair | Acc]);
-format_key_value_pairs([{Key, Value} | Rest], PEncode, Acc) ->
-    FormattedKey = format_key(Key),
-    FormattedValue = format_value(Value, PEncode),
-    Pair = ["\"", FormattedKey, "\":", FormattedValue],
-    format_key_value_pairs(Rest, PEncode, [Pair | Acc]).
-
-format_key(Term) ->
-    %% Keys must be strings
-    String = try_format_unicode(Term),
-    escape(String).
-
-format_value(Map, PEncode) when is_map(Map) ->
-    format_log_map(Map, PEncode);
-format_value(V, _PEncode) when is_integer(V) ->
-    integer_to_list(V);
-format_value(V, _PEncode) when is_float(V) ->
-    float_to_list(V, [{decimals, 2}]);
-format_value(true, _PEncode) ->
-    "true";
-format_value(false, _PEncode) ->
-    "false";
-format_value(V, _PEncode) ->
-    String = try_format_unicode(V),
-    ["\"", escape(String), "\""].
-
-try_format_unicode(undefined) ->
-    %% emqx_logger_textfmt:try_format_unicode converts the atom undefined to
-    %% the atom undefined
-    "undefined";
-try_format_unicode(V) ->
-    emqx_logger_textfmt:try_format_unicode(V).
-
-escape(IOList) ->
-    Bin = iolist_to_binary(IOList),
-    List = binary_to_list(Bin),
-    escape_list(List).
-
-escape_list([]) ->
-    [];
-escape_list([$\n | Rest]) ->
-    %% 92 is backslash
-    [92, $n | escape_list(Rest)];
-escape_list([$" | Rest]) ->
-    [92, $" | escape_list(Rest)];
-escape_list([92 | Rest]) ->
-    [92, 92 | escape_list(Rest)];
-escape_list([X | Rest]) ->
-    [X | escape_list(Rest)].
+prepare_key_value(payload = K, V, PEncode) ->
+    NewV =
+        try
+            format_payload(V, PEncode)
+        catch
+            _:_:_ ->
+                V
+        end,
+    {K, NewV};
+prepare_key_value(packet = K, V, PEncode) ->
+    NewV =
+        try
+            format_packet(V, PEncode)
+        catch
+            _:_:_ ->
+                V
+        end,
+    {K, NewV};
+prepare_key_value(K, V, PEncode) when is_map(V) ->
+    {K, prepare_log_map(V, PEncode)};
+prepare_key_value(K, V, _PEncode) ->
+    {K, V}.
 
 format_packet(undefined, _) -> "";
 format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).

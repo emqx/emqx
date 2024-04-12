@@ -199,9 +199,6 @@ filters(#{type := ruleid, filter := Filter, name := Name}) ->
 
 formatter(#{type := _Type, payload_encode := PayloadEncode, formatter := json}) ->
     {emqx_trace_json_formatter, #{
-        single_line => true,
-        max_size => unlimited,
-        depth => unlimited,
         payload_encode => PayloadEncode
     }};
 formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
