@@ -661,7 +661,7 @@ trans_desc(Init, Hocon, Func, Name, Options) ->
             Spec1 = trans_label(Spec0, Hocon, Name, Options),
             case Spec1 of
                 #{description := _} -> Spec1;
-                _ -> Spec1#{description => <<Name/binary, " Description">>}
+                _ -> Spec1
             end
     end.
 
