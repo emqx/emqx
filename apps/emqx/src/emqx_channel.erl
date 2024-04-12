@@ -251,7 +251,7 @@ init(
             MP -> MP
         end,
     ListenerId = emqx_listeners:listener_id(Type, Listener),
-    ClientInfo0 = set_peercert_infos(
+    ClientInfo = set_peercert_infos(
         Peercert,
         #{
             zone => Zone,
@@ -269,7 +269,6 @@ init(
         },
         Zone
     ),
-    ClientInfo = initialize_client_attrs_from_cert(ClientInfo0, Peercert),
     {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
     #channel{
         conninfo = NConnInfo,
@@ -1586,60 +1585,6 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
 
-initialize_client_attrs_from_cert(#{zone := Zone} = ClientInfo, Peercert) ->
-    Inits = get_client_attrs_init_config(Zone),
-    lists:foldl(
-        fun(Init, Acc) ->
-            do_initialize_client_attrs_from_cert(Init, Acc, Peercert)
-        end,
-        ClientInfo,
-        Inits
-    ).
-
-do_initialize_client_attrs_from_cert(
-    #{
-        extract_from := From,
-        extract_regexp := Regexp,
-        extract_as := AttrName
-    },
-    ClientInfo,
-    Peercert
-) when From =:= cn orelse From =:= dn ->
-    Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
-    Attrs =
-        case extract_client_attr_from_cert(From, Regexp, Peercert) of
-            {ok, Value} ->
-                ?SLOG(
-                    debug,
-                    #{
-                        msg => "client_attr_init_from_cert",
-                        extracted_as => AttrName,
-                        extracted_value => Value
-                    }
-                ),
-                Attrs0#{AttrName => Value};
-            _ ->
-                Attrs0
-        end,
-    ClientInfo#{client_attrs => Attrs};
-do_initialize_client_attrs_from_cert(_, ClientInfo, _Peercert) ->
-    ClientInfo.
-
-extract_client_attr_from_cert(cn, Regexp, Peercert) ->
-    CN = esockd_peercert:common_name(Peercert),
-    re_extract(CN, Regexp);
-extract_client_attr_from_cert(dn, Regexp, Peercert) ->
-    DN = esockd_peercert:subject(Peercert),
-    re_extract(DN, Regexp).
-
-re_extract(Str, Regexp) when is_binary(Str) ->
-    case re:run(Str, Regexp, [{capture, all_but_first, list}]) of
-        {match, [_ | _] = List} -> {ok, iolist_to_binary(List)};
-        _ -> nomatch
-    end;
-re_extract(_NotStr, _Regexp) ->
-    ignored.
-
 set_username(
     #mqtt_packet_connect{username = Username},
     ClientInfo = #{username := undefined}
@@ -1681,33 +1626,36 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
 
 get_client_attrs_init_config(Zone) ->
-    case get_mqtt_conf(Zone, client_attrs_init, []) of
-        L when is_list(L) -> L;
-        M when is_map(M) -> [M]
-    end.
+    get_mqtt_conf(Zone, client_attrs_init, []).
 
-maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo0) ->
+maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
     Inits = get_client_attrs_init_config(Zone),
-    ClientInfo = initialize_client_attrs_from_user_property(Inits, ConnPkt, ClientInfo0),
-    {ok, initialize_client_attrs_from_clientinfo(Inits, ClientInfo)}.
+    UserProperty = get_user_property_as_map(ConnPkt),
+    {ok, initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty})}.
 
-initialize_client_attrs_from_clientinfo(Inits, ClientInfo) ->
+initialize_client_attrs(Inits, ClientInfo) ->
     lists:foldl(
-        fun(Init, Acc) ->
+        fun(#{expression := Variform, set_as_attr := Name}, Acc) ->
             Attrs = maps:get(client_attrs, ClientInfo, #{}),
-            case extract_attr_from_clientinfo(Init, ClientInfo) of
+            case emqx_variform:render(Variform, ClientInfo) of
                 {ok, Value} ->
-                    #{extract_as := Name} = Init,
                     ?SLOG(
                         debug,
                         #{
-                            msg => "client_attr_init_from_clientinfo",
-                            extracted_as => Name,
-                            extracted_value => Value
+                            msg => "client_attr_initialized",
+                            set_as_attr => Name,
+                            attr_value => Value
                         }
                     ),
                     Acc#{client_attrs => Attrs#{Name => Value}};
-                _ ->
+                {error, Reason} ->
+                    ?SLOG(
+                        warning,
+                        #{
+                            msg => "client_attr_initialization_failed",
+                            reason => Reason
+                        }
+                    ),
                     Acc
             end
         end,
@@ -1715,67 +1663,12 @@ initialize_client_attrs_from_clientinfo(Inits, ClientInfo) ->
         Inits
     ).
 
-initialize_client_attrs_from_user_property(Inits, ConnPkt, ClientInfo) ->
-    lists:foldl(
-        fun(Init, Acc) ->
-            do_initialize_client_attrs_from_user_property(Init, ConnPkt, Acc)
-        end,
-        ClientInfo,
-        Inits
-    ).
-
-do_initialize_client_attrs_from_user_property(
-    #{
-        extract_from := user_property,
-        extract_as := PropertyKey
-    },
-    ConnPkt,
-    ClientInfo
-) ->
-    Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
-    Attrs =
-        case extract_client_attr_from_user_property(ConnPkt, PropertyKey) of
-            {ok, Value} ->
-                ?SLOG(
-                    debug,
-                    #{
-                        msg => "client_attr_init_from_user_property",
-                        extracted_as => PropertyKey,
-                        extracted_value => Value
-                    }
-                ),
-                Attrs0#{PropertyKey => Value};
-            _ ->
-                Attrs0
-        end,
-    ClientInfo#{client_attrs => Attrs};
-do_initialize_client_attrs_from_user_property(_, _ConnPkt, ClientInfo) ->
-    ClientInfo.
-
-extract_client_attr_from_user_property(
-    #mqtt_packet_connect{properties = #{'User-Property' := UserProperty}}, PropertyKey
-) ->
-    case lists:keyfind(PropertyKey, 1, UserProperty) of
-        {_, Value} ->
-            {ok, Value};
-        _ ->
-            not_found
-    end;
-extract_client_attr_from_user_property(_ConnPkt, _PropertyKey) ->
-    ignored.
-
-extract_attr_from_clientinfo(#{extract_from := clientid, extract_regexp := Regexp}, #{
-    clientid := ClientId
-}) ->
-    re_extract(ClientId, Regexp);
-extract_attr_from_clientinfo(#{extract_from := username, extract_regexp := Regexp}, #{
-    username := Username
-}) when
-    Username =/= undefined
+get_user_property_as_map(#mqtt_packet_connect{properties = #{'User-Property' := UserProperty}}) when
+    is_list(UserProperty)
 ->
-    re_extract(Username, Regexp);
-extract_attr_from_clientinfo(_Config, _CLientInfo) ->
-    ignored.
+    maps:from_list(UserProperty);
+get_user_property_as_map(_) ->
+    #{}.
 
 fix_mountpoint(#{mountpoint := undefined} = ClientInfo) ->
     ClientInfo;

@@ -27,14 +27,16 @@ redner_test_() ->
     [
         {"direct var reference", fun() -> ?assertEqual({ok, <<"1">>}, render("a", #{a => 1})) end},
         {"concat strings", fun() ->
-            ?assertEqual({ok, <<"a,b">>}, render("concat('a',',','b')", #{}))
+            ?assertEqual({ok, <<"a,b">>}, render("concat(['a',',','b'])", #{}))
         end},
-        {"concat empty string", fun() -> ?assertEqual({ok, <<"">>}, render("concat('')", #{})) end},
+        {"concat empty string", fun() ->
+            ?assertEqual({ok, <<"">>}, render("concat([''])", #{}))
+        end},
         {"tokens 1st", fun() ->
             ?assertEqual({ok, <<"a">>}, render("nth(1,tokens(var, ','))", #{var => <<"a,b">>}))
         end},
-        {"unknown var as empty str", fun() ->
-            ?assertEqual({ok, <<>>}, render("var", #{}))
+        {"unknown var return error", fun() ->
+            ?assertMatch({error, #{reason := var_unbound}}, render("var", #{}))
         end},
         {"out of range nth index", fun() ->
             ?assertEqual({ok, <<>>}, render("nth(2, tokens(var, ','))", #{var => <<"a">>}))
@@ -97,7 +99,7 @@ unknown_func_test_() ->
         {"unknown function in a known module", fun() ->
             ?assertMatch(
                 {error, #{reason := unknown_variform_function}},
-                render("emqx_variform_str.nonexistingatom__(a)", #{})
+                render("emqx_variform_bif.nonexistingatom__(a)", #{})
             )
         end},
         {"invalid func reference", fun() ->
@@ -133,19 +135,39 @@ inject_allowed_module_test() ->
 
 coalesce_test_() ->
     [
-        {"coalesce first", fun() ->
-            ?assertEqual({ok, <<"a">>}, render("coalesce('a','b')", #{}))
+        {"first", fun() ->
+            ?assertEqual({ok, <<"a">>}, render("coalesce(['a','b'])", #{}))
         end},
-        {"coalesce second", fun() ->
-            ?assertEqual({ok, <<"b">>}, render("coalesce('', 'b')", #{}))
+        {"second", fun() ->
+            ?assertEqual({ok, <<"b">>}, render("coalesce(['', 'b'])", #{}))
         end},
-        {"coalesce first var", fun() ->
-            ?assertEqual({ok, <<"a">>}, render("coalesce(a,b)", #{a => <<"a">>, b => <<"b">>}))
+        {"first var", fun() ->
+            ?assertEqual({ok, <<"a">>}, render("coalesce([a,b])", #{a => <<"a">>, b => <<"b">>}))
         end},
-        {"coalesce second var", fun() ->
-            ?assertEqual({ok, <<"b">>}, render("coalesce(a,b)", #{b => <<"b">>}))
+        {"second var", fun() ->
+            ?assertEqual({ok, <<"b">>}, render("coalesce([a,b])", #{b => <<"b">>}))
         end},
-        {"coalesce empty", fun() -> ?assertEqual({ok, <<>>}, render("coalesce(a,b)", #{})) end}
+        {"empty", fun() -> ?assertEqual({ok, <<>>}, render("coalesce([a,b])", #{})) end},
+        {"arg from other func", fun() ->
+            ?assertEqual({ok, <<"b">>}, render("coalesce(tokens(a,','))", #{a => <<",,b,c">>}))
+        end},
+        {"var unbound", fun() -> ?assertEqual({ok, <<>>}, render("coalesce(a)", #{})) end},
+        {"var unbound in call", fun() ->
+            ?assertEqual({ok, <<>>}, render("coalesce(concat(a))", #{}))
+        end},
+        {"var unbound in calls", fun() ->
+            ?assertEqual({ok, <<"c">>}, render("coalesce([any_to_str(a),any_to_str(b),'c'])", #{}))
+        end},
+        {"badarg", fun() ->
+            ?assertMatch(
+                {error, #{reason := coalesce_badarg}}, render("coalesce(a,b)", #{a => 1, b => 2})
+            )
+        end},
+        {"badarg from return", fun() ->
+            ?assertMatch(
+                {error, #{reason := coalesce_badarg}}, render("coalesce(any_to_str(a))", #{a => 1})
+            )
+        end}
     ].
 
 syntax_error_test_() ->

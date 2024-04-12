@@ -28,14 +28,35 @@
     erase_allowed_module/1,
     erase_allowed_modules/1
 ]).
+
 -export([render/2, render/3]).
+-export([compile/1, decompile/1]).
+
+-export_type([compiled/0]).
+
+-type compiled() :: #{expr := string(), form := term()}.
+-define(BIF_MOD, emqx_variform_bif).
+-define(IS_ALLOWED_MOD(M),
+    (M =:= ?BIF_MOD orelse
+        M =:= lists orelse
+        M =:= maps)
+).
+
+-define(COALESCE_BADARG,
+    throw(#{
+        reason => coalesce_badarg,
+        explain =>
+            "must be an array, or a call to a function which returns an array, "
+            "for example: coalesce([a,b,c]) or coalesce(tokens(var,','))"
+    })
+).
 
 %% @doc Render a variform expression with bindings.
 %% A variform expression is a template string which supports variable substitution
 %% and function calls.
 %%
 %% The function calls are in the form of `module.function(arg1, arg2, ...)` where `module`
-%% is optional, and if not provided, the function is assumed to be in the `emqx_variform_str` module.
+%% is optional, and if not provided, the function is assumed to be in the `emqx_variform_bif` module.
 %% Both module and function must be existing atoms, and only whitelisted functions are allowed.
 %%
 %% A function arg can be a constant string or a number.
@@ -49,18 +70,54 @@
 %%
 %% For unresolved variables, empty string (but not "undefined") is used.
 %% In case of runtime exeption, an error is returned.
+%% In case of unbound variable is referenced, error is returned.
 -spec render(string(), map()) -> {ok, binary()} | {error, term()}.
 render(Expression, Bindings) ->
     render(Expression, Bindings, #{}).
 
-render(Expression, Bindings, Opts) when is_binary(Expression) ->
-    render(unicode:characters_to_list(Expression), Bindings, Opts);
+render(#{form := Form}, Bindings, Opts) ->
+    eval_as_string(Form, Bindings, Opts);
 render(Expression, Bindings, Opts) ->
+    case compile(Expression) of
+        {ok, Compiled} ->
+            render(Compiled, Bindings, Opts);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+eval_as_string(Expr, Bindings, _Opts) ->
+    try
+        {ok, return_str(eval(Expr, Bindings, #{}))}
+    catch
+        throw:Reason ->
+            {error, Reason};
+        C:E:S ->
+            {error, #{exception => C, reason => E, stack_trace => S}}
+    end.
+
+%% Force the expression to return binary string.
+return_str(Str) when is_binary(Str) -> Str;
+return_str(Num) when is_integer(Num) -> integer_to_binary(Num);
+return_str(Num) when is_float(Num) -> float_to_binary(Num, [{decimals, 10}, compact]);
+return_str(Other) ->
+    throw(#{
+        reason => bad_return,
+        expected => string,
+        got => Other
+    }).
+
+%% @doc Compile varifom expression.
+-spec compile(string() | binary() | compiled()) -> {ok, compiled()} | {error, any()}.
+compile(#{form := _} = Compiled) ->
+    {ok, Compiled};
+compile(Expression) when is_binary(Expression) ->
+    compile(unicode:characters_to_list(Expression));
+compile(Expression) ->
     case emqx_variform_scan:string(Expression) of
         {ok, Tokens, _Line} ->
             case emqx_variform_parser:parse(Tokens) of
-                {ok, Expr} ->
-                    eval_as_string(Expr, Bindings, Opts);
+                {ok, Form} ->
+                    {ok, #{expr => Expression, form => Form}};
                 {error, {_, emqx_variform_parser, Msg}} ->
                     %% syntax error
                     {error, lists:flatten(Msg)};
@@ -71,40 +128,59 @@ render(Expression, Bindings, Opts) ->
             {error, Reason}
     end.
 
-eval_as_string(Expr, Bindings, _Opts) ->
-    try
-        {ok, str(eval(Expr, Bindings))}
-    catch
-        throw:Reason ->
-            {error, Reason};
-        C:E:S ->
-            {error, #{exception => C, reason => E, stack_trace => S}}
-    end.
+decompile(#{expr := Expression}) ->
+    Expression;
+decompile(Expression) ->
+    Expression.
 
-eval({str, Str}, _Bindings) ->
-    str(Str);
-eval({integer, Num}, _Bindings) ->
+eval({str, Str}, _Bindings, _Opts) ->
+    unicode:characters_to_binary(Str);
+eval({integer, Num}, _Bindings, _Opts) ->
     Num;
-eval({float, Num}, _Bindings) ->
+eval({float, Num}, _Bindings, _Opts) ->
     Num;
-eval({array, Args}, Bindings) ->
-    eval(Args, Bindings);
-eval({call, FuncNameStr, Args}, Bindings) ->
+eval({array, Args}, Bindings, Opts) ->
+    eval_loop(Args, Bindings, Opts);
+eval({call, FuncNameStr, Args}, Bindings, Opts) ->
     {Mod, Fun} = resolve_func_name(FuncNameStr),
     ok = assert_func_exported(Mod, Fun, length(Args)),
-    call(Mod, Fun, eval(Args, Bindings));
-eval({var, VarName}, Bindings) ->
-    resolve_var_value(VarName, Bindings);
-eval([Arg | Args], Bindings) ->
-    [eval(Arg, Bindings) | eval(Args, Bindings)];
-eval([], _Bindings) ->
-    [].
+    case {Mod, Fun} of
+        {?BIF_MOD, coalesce} ->
+            eval_coalesce(Args, Bindings, Opts);
+        _ ->
+            call(Mod, Fun, eval_loop(Args, Bindings, Opts))
+    end;
+eval({var, VarName}, Bindings, Opts) ->
+    resolve_var_value(VarName, Bindings, Opts).
+
+eval_loop([], _, _) -> [];
+eval_loop([H | T], Bindings, Opts) -> [eval(H, Bindings, Opts) | eval_loop(T, Bindings, Opts)].
+
+%% coalesce treats var_unbound exception as empty string ''
+eval_coalesce([{array, Args}], Bindings, Opts) ->
+    NewArgs = [lists:map(fun(Arg) -> try_eval(Arg, Bindings, Opts) end, Args)],
+    call(?BIF_MOD, coalesce, NewArgs);
+eval_coalesce([Arg], Bindings, Opts) ->
+    case try_eval(Arg, Bindings, Opts) of
+        List when is_list(List) ->
+            call(?BIF_MOD, coalesce, List);
+        <<>> ->
+            <<>>;
+        _ ->
+            ?COALESCE_BADARG
+    end;
+eval_coalesce(_Args, _Bindings, _Opts) ->
+    ?COALESCE_BADARG.
+
+try_eval(Arg, Bindings, Opts) ->
+    try
+        eval(Arg, Bindings, Opts)
+    catch
+        throw:#{reason := var_unbound} ->
+            <<>>
+    end.
 
 %% Some functions accept arbitrary number of arguments but implemented as /1.
-call(emqx_variform_str, concat, Args) ->
-    str(emqx_variform_str:concat(Args));
-call(emqx_variform_str, coalesce, Args) ->
-    str(emqx_variform_str:coalesce(Args));
 call(Mod, Fun, Args) ->
     erlang:apply(Mod, Fun, Args).
 
@@ -144,23 +220,23 @@ resolve_func_name(FuncNameStr) ->
                             function => Fun
                         })
                 end,
-            {emqx_variform_str, FuncName};
+            {?BIF_MOD, FuncName};
         _ ->
             throw(#{reason => invalid_function_reference, function => FuncNameStr})
     end.
 
-resolve_var_value(VarName, Bindings) ->
+%% _Opts can be extended in the future. For example, unbound var as 'undfeined'
+resolve_var_value(VarName, Bindings, _Opts) ->
     case emqx_template:lookup_var(split(VarName), Bindings) of
         {ok, Value} ->
             Value;
         {error, _Reason} ->
-            <<>>
+            throw(#{
+                var_name => VarName,
+                reason => var_unbound
+            })
     end.
 
-assert_func_exported(emqx_variform_str, concat, _Arity) ->
-    ok;
-assert_func_exported(emqx_variform_str, coalesce, _Arity) ->
-    ok;
 assert_func_exported(Mod, Fun, Arity) ->
     ok = try_load(Mod),
     case erlang:function_exported(Mod, Fun, Arity) of
@@ -187,7 +263,7 @@ try_load(Mod) ->
             ok
     end.
 
-assert_module_allowed(emqx_variform_str) ->
+assert_module_allowed(Mod) when ?IS_ALLOWED_MOD(Mod) ->
     ok;
 assert_module_allowed(Mod) ->
     Allowed = get_allowed_modules(),
@@ -219,9 +295,6 @@ erase_allowed_modules(Modules) when is_list(Modules) ->
 
 get_allowed_modules() ->
     persistent_term:get({emqx_variform, allowed_modules}, []).
-
-str(Value) ->
-    emqx_utils_conv:bin(Value).
 
 split(VarName) ->
     lists:map(fun erlang:iolist_to_binary/1, string:tokens(VarName, ".")).

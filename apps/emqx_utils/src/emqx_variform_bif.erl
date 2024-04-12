@@ -14,13 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% Predefined functions string templating
--module(emqx_variform_str).
+%% Predefined functions for variform expressions.
+-module(emqx_variform_bif).
 
 %% String Funcs
 -export([
-    coalesce/1,
-    coalesce/2,
     lower/1,
     ltrim/1,
     ltrim/2,
@@ -47,14 +45,21 @@
     replace/4,
     regex_match/2,
     regex_replace/3,
+    regex_extract/2,
     ascii/1,
     find/2,
     find/3,
     join_to_string/1,
     join_to_string/2,
     unescape/1,
-    nth/2
+    any_to_str/1
 ]).
+
+%% Array functions
+-export([nth/2]).
+
+%% Control functions
+-export([coalesce/1, coalesce/2]).
 
 -define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
 
@@ -143,8 +148,10 @@ tokens(S, Separators, <<"nocrlf">>) ->
 concat(S1, S2) ->
     concat([S1, S2]).
 
+%% @doc Concatenate a list of strings.
+%% NOTE: it converts non-string elements to Erlang term literals for backward compatibility
 concat(List) ->
-    unicode:characters_to_binary(lists:map(fun str/1, List), unicode).
+    unicode:characters_to_binary(lists:map(fun any_to_str/1, List), unicode).
 
 sprintf_s(Format, Args) when is_list(Args) ->
     erlang:iolist_to_binary(io_lib:format(binary_to_list(Format), Args)).
@@ -190,6 +197,22 @@ regex_match(Str, RE) ->
 regex_replace(SrcStr, RE, RepStr) ->
     re:replace(SrcStr, RE, RepStr, [global, {return, binary}]).
 
+%% @doc Searches the string Str for patterns specified by Regexp.
+%% If matches are found, it returns a list of all captured groups from these matches.
+%% If no matches are found or there are no groups captured, it returns an empty list.
+%% This function can be used to extract parts of a string based on a regular expression,
+%% excluding the complete match itself.
+%% Examples:
+%%  ("Number: 12345", "(\\d+)") -> [<<"12345">>]
+%%  ("Hello, world!", "(\\w+)") -> [<<"Hello">>, <<"world">>]
+%%  ("No numbers here!", "(\\d+)") -> []
+%%  ("Date: 2021-05-20", "(\\d{4})-(\\d{2})-(\\d{2})") -> [<<"2021">>, <<"05">>, <<"20">>]
+regex_extract(Str, Regexp) ->
+    case re:run(Str, Regexp, [{capture, all_but_first, list}]) of
+        {match, [_ | _] = L} -> lists:map(fun erlang:iolist_to_binary/1, L);
+        _ -> []
+    end.
+
 ascii(Char) when is_binary(Char) ->
     [FirstC | _] = binary_to_list(Char),
     FirstC.
@@ -212,7 +235,7 @@ join_to_string(List) when is_list(List) ->
     join_to_string(<<", ">>, List).
 
 join_to_string(Sep, List) when is_list(List), is_binary(Sep) ->
-    iolist_to_binary(lists:join(Sep, [str(Item) || Item <- List])).
+    iolist_to_binary(lists:join(Sep, [any_to_str(Item) || Item <- List])).
 
 unescape(Bin) when is_binary(Bin) ->
     UnicodeList = unicode:characters_to_list(Bin, utf8),
@@ -364,5 +387,5 @@ is_hex_digit(_) -> false.
 %% Data Type Conversion Funcs
 %%------------------------------------------------------------------------------
 
-str(Data) ->
+any_to_str(Data) ->
     emqx_utils_conv:bin(Data).

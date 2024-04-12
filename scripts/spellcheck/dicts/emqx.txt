@@ -259,6 +259,7 @@ uplink
 url
 utc
 util
+variform
 ver
 vm
 vsn
