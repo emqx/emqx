@@ -34,10 +34,17 @@
 -export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
 -export([get_peername/1, set_peername/2]).
 -export([new_id/1]).
--export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3]).
+-export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
 -export([get_subscriptions/1, put_subscription/4, del_subscription/3]).
+-export([
+    get_awaiting_rel/2,
+    put_awaiting_rel/3,
+    del_awaiting_rel/2,
+    fold_awaiting_rel/3,
+    n_awaiting_rel/1
+]).
 
 -export([make_session_iterator/0, session_iterator_next/2]).
 
@@ -117,7 +124,8 @@
     subscriptions := subscriptions(),
     seqnos := pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
     streams := pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
-    ranks := pmap(term(), integer())
+    ranks := pmap(term(), integer()),
+    awaiting_rel := pmap(emqx_types:packet_id(), _Timestamp :: integer())
 }.
 
 -define(session_tab, emqx_ds_session_tab).
@@ -125,7 +133,8 @@
 -define(stream_tab, emqx_ds_session_streams).
 -define(seqno_tab, emqx_ds_session_seqnos).
 -define(rank_tab, emqx_ds_session_ranks).
--define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
+-define(awaiting_rel_tab, emqx_ds_session_awaiting_rel).
+-define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab, ?awaiting_rel_tab]).
 
 %% Enable this flag if you suspect some code breaks the sequence:
 -ifndef(CHECK_SEQNO).
@@ -167,6 +176,7 @@ open(SessionId) ->
                     streams => pmap_open(?stream_tab, SessionId),
                     seqnos => pmap_open(?seqno_tab, SessionId),
                     ranks => pmap_open(?rank_tab, SessionId),
+                    awaiting_rel => pmap_open(?awaiting_rel_tab, SessionId),
                     ?unset_dirty
                 },
                 {ok, Rec};
@@ -190,7 +200,8 @@ format(#{
     subscriptions := SubsGBT,
     streams := Streams,
     seqnos := Seqnos,
-    ranks := Ranks
+    ranks := Ranks,
+    awaiting_rel := AwaitingRel
 }) ->
     Subs = emqx_topic_gbt:fold(
         fun(Key, Sub, Acc) ->
@@ -204,7 +215,8 @@ format(#{
         subscriptions => Subs,
         streams => pmap_format(Streams),
         seqnos => pmap_format(Seqnos),
-        ranks => pmap_format(Ranks)
+        ranks => pmap_format(Ranks),
+        awaiting_rel => pmap_format(AwaitingRel)
     }.
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
@@ -229,7 +241,8 @@ commit(
         metadata := Metadata,
         streams := Streams,
         seqnos := SeqNos,
-        ranks := Ranks
+        ranks := Ranks,
+        awaiting_rel := AwaitingRel
     }
 ) ->
     check_sequence(Rec),
@@ -239,6 +252,7 @@ commit(
             streams => pmap_commit(SessionId, Streams),
             seqnos => pmap_commit(SessionId, SeqNos),
             ranks => pmap_commit(SessionId, Ranks),
+            awaiting_rel => pmap_commit(SessionId, AwaitingRel),
             ?unset_dirty
         }
     end).
@@ -254,6 +268,7 @@ create_new(SessionId) ->
             streams => pmap_open(?stream_tab, SessionId),
             seqnos => pmap_open(?seqno_tab, SessionId),
             ranks => pmap_open(?rank_tab, SessionId),
+            awaiting_rel => pmap_open(?awaiting_rel_tab, SessionId),
             ?set_dirty
         }
     end).
@@ -382,6 +397,10 @@ del_stream(Key, Rec) ->
 fold_streams(Fun, Acc, Rec) ->
     gen_fold(streams, Fun, Acc, Rec).
 
+-spec n_streams(t()) -> non_neg_integer().
+n_streams(Rec) ->
+    gen_size(streams, Rec).
+
 %%
 
 -spec get_seqno(seqno_type(), t()) -> emqx_persistent_session_ds:seqno() | undefined.
@@ -411,6 +430,30 @@ del_rank(Key, Rec) ->
 -spec fold_ranks(fun(), Acc, t()) -> Acc.
 fold_ranks(Fun, Acc, Rec) ->
     gen_fold(ranks, Fun, Acc, Rec).
+
+%%
+
+-spec get_awaiting_rel(emqx_types:packet_id(), t()) -> integer() | undefined.
+get_awaiting_rel(Key, Rec) ->
+    gen_get(awaiting_rel, Key, Rec).
+
+-spec put_awaiting_rel(emqx_types:packet_id(), _Timestamp :: integer(), t()) -> t().
+put_awaiting_rel(Key, Val, Rec) ->
+    gen_put(awaiting_rel, Key, Val, Rec).
+
+-spec del_awaiting_rel(emqx_types:packet_id(), t()) -> t().
+del_awaiting_rel(Key, Rec) ->
+    gen_del(awaiting_rel, Key, Rec).
+
+-spec fold_awaiting_rel(fun(), Acc, t()) -> Acc.
+fold_awaiting_rel(Fun, Acc, Rec) ->
+    gen_fold(awaiting_rel, Fun, Acc, Rec).
+
+-spec n_awaiting_rel(t()) -> non_neg_integer().
+n_awaiting_rel(Rec) ->
+    gen_size(awaiting_rel, Rec).
+
+%%
 
 -spec make_session_iterator() -> session_iterator().
 make_session_iterator() ->
@@ -474,6 +517,10 @@ gen_del(Field, Key, Rec) ->
         fun(PMap) -> pmap_del(Key, PMap) end,
         Rec#{?set_dirty}
     ).
+
+gen_size(Field, Rec) ->
+    check_sequence(Rec),
+    pmap_size(maps:get(Field, Rec)).
 
 %%
 
@@ -546,6 +593,10 @@ pmap_commit(
 -spec pmap_format(pmap(_K, _V)) -> map().
 pmap_format(#pmap{cache = Cache}) ->
     Cache.
+
+-spec pmap_size(pmap(_K, _V)) -> non_neg_integer().
+pmap_size(#pmap{cache = Cache}) ->
+    maps:size(Cache).
 
 %% Functions dealing with set tables:
 

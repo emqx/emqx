@@ -24,7 +24,15 @@
 -module(emqx_persistent_session_ds_subs).
 
 %% API:
--export([on_subscribe/3, on_unsubscribe/3, gc/1, lookup/2, to_map/1, fold/3, fold_all/3]).
+-export([
+    on_subscribe/3,
+    on_unsubscribe/3,
+    gc/1,
+    lookup/2,
+    to_map/1,
+    fold/3,
+    fold_all/3
+]).
 
 -export_type([]).
 

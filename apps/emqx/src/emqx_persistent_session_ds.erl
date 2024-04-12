@@ -184,7 +184,9 @@
     seqno_q2_dup,
     seqno_q2_rec,
     seqno_q2_next,
-    n_streams
+    n_streams,
+    awaiting_rel_cnt,
+    awaiting_rel_max
 ]).
 
 %%
@@ -206,7 +208,8 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     ok = emqx_cm:takeover_kick(ClientID),
     case session_open(ClientID, ClientInfo, ConnInfo, MaybeWillMsg) of
         Session0 = #{} ->
-            Session = Session0#{props => Conf},
+            Session1 = Session0#{props => Conf},
+            Session = do_expire(ClientInfo, Session1),
             {true, ensure_timers(Session), []};
         false ->
             false
@@ -262,21 +265,21 @@ info(inflight_max, #{inflight := Inflight}) ->
     emqx_persistent_session_ds_inflight:receive_maximum(Inflight);
 info(retry_interval, #{props := Conf}) ->
     maps:get(retry_interval, Conf);
-% info(mqueue, #sessmem{mqueue = MQueue}) ->
-%     MQueue;
 info(mqueue_len, #{inflight := Inflight}) ->
     emqx_persistent_session_ds_inflight:n_buffered(all, Inflight);
-% info(mqueue_max, #sessmem{mqueue = MQueue}) ->
-%     emqx_mqueue:max_len(MQueue);
 info(mqueue_dropped, _Session) ->
     0;
 %% info(next_pkt_id, #{s := S}) ->
 %%     {PacketId, _} = emqx_persistent_message_ds_replayer:next_packet_id(S),
 %%     PacketId;
-% info(awaiting_rel, #sessmem{awaiting_rel = AwaitingRel}) ->
-%     AwaitingRel;
-%% info(awaiting_rel_cnt, #{s := S}) ->
-%%     seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
+info(awaiting_rel, #{s := S}) ->
+    emqx_persistent_session_ds_state:fold_awaiting_rel(fun maps:put/3, #{}, S);
+info(awaiting_rel_max, #{props := Conf}) ->
+    maps:get(max_awaiting_rel, Conf);
+info(awaiting_rel_cnt, #{s := S}) ->
+    emqx_persistent_session_ds_state:n_awaiting_rel(S);
+info(await_rel_timeout, #{props := Conf}) ->
+    maps:get(await_rel_timeout, Conf);
 info(seqno_q1_comm, #{s := S}) ->
     emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S);
 info(seqno_q1_dup, #{s := S}) ->
@@ -292,17 +295,7 @@ info(seqno_q2_rec, #{s := S}) ->
 info(seqno_q2_next, #{s := S}) ->
     emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S);
 info(n_streams, #{s := S}) ->
-    emqx_persistent_session_ds_state:fold_streams(
-        fun(_, _, Acc) -> Acc + 1 end,
-        0,
-        S
-    );
-info(awaiting_rel_max, #{props := Conf}) ->
-    maps:get(max_awaiting_rel, Conf);
-info(await_rel_timeout, #{props := _Conf}) ->
-    %% TODO: currently this setting is ignored:
-    %% maps:get(await_rel_timeout, Conf).
-    0;
+    emqx_persistent_session_ds_state:n_streams(S);
 info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= inflight_msgs ->
     {error, not_implemented}.
 
@@ -446,10 +439,71 @@ get_subscription(TopicFilter, #{s := S}) ->
 -spec publish(emqx_types:packet_id(), emqx_types:message(), session()) ->
     {ok, emqx_types:publish_result(), session()}
     | {error, emqx_types:reason_code()}.
+publish(
+    PacketId,
+    Msg = #message{qos = ?QOS_2, timestamp = Ts},
+    Session = #{s := S0}
+) ->
+    case is_awaiting_full(Session) of
+        false ->
+            case emqx_persistent_session_ds_state:get_awaiting_rel(PacketId, S0) of
+                undefined ->
+                    Results = emqx_broker:publish(Msg),
+                    S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, Ts, S0),
+                    {ok, Results, Session#{s => S}};
+                _Ts ->
+                    {error, ?RC_PACKET_IDENTIFIER_IN_USE}
+            end;
+        true ->
+            {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}
+    end;
 publish(_PacketId, Msg, Session) ->
-    %% TODO: QoS2
     Result = emqx_broker:publish(Msg),
     {ok, Result, Session}.
+
+is_awaiting_full(#{s := S, props := Props}) ->
+    emqx_persistent_session_ds_state:n_awaiting_rel(S) >=
+        maps:get(max_awaiting_rel, Props, infinity).
+
+-spec expire(emqx_types:clientinfo(), session()) ->
+    {ok, [], timeout(), session()} | {ok, [], session()}.
+expire(ClientInfo, Session0 = #{props := Props}) ->
+    Session = #{s := S} = do_expire(ClientInfo, Session0),
+    case emqx_persistent_session_ds_state:n_awaiting_rel(S) of
+        0 ->
+            {ok, [], Session};
+        _ ->
+            AwaitRelTimeout = maps:get(await_rel_timeout, Props),
+            {ok, [], AwaitRelTimeout, Session}
+    end.
+
+do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
+    %% 1. Find expired packet IDs:
+    Now = erlang:system_time(millisecond),
+    AwaitRelTimeout = maps:get(await_rel_timeout, Props),
+    ExpiredPacketIds =
+        emqx_persistent_session_ds_state:fold_awaiting_rel(
+            fun(PacketId, Ts, Acc) ->
+                Age = Now - Ts,
+                case Age > AwaitRelTimeout of
+                    true ->
+                        [PacketId | Acc];
+                    false ->
+                        Acc
+                end
+            end,
+            [],
+            S0
+        ),
+    %% 2. Perform side effects:
+    _ = emqx_session_events:handle_event(ClientInfo, {expired_rel, length(ExpiredPacketIds)}),
+    %% 3. Update state:
+    S = lists:foldl(
+        fun emqx_persistent_session_ds_state:del_awaiting_rel/2,
+        S0,
+        ExpiredPacketIds
+    ),
+    Session#{s => S}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK
@@ -487,9 +541,14 @@ pubrec(PacketId, Session0) ->
 
 -spec pubrel(emqx_types:packet_id(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
-pubrel(_PacketId, Session = #{}) ->
-    % TODO: stub
-    {ok, Session}.
+pubrel(PacketId, Session = #{s := S0}) ->
+    case emqx_persistent_session_ds_state:get_awaiting_rel(PacketId, S0) of
+        undefined ->
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND};
+        _TS ->
+            S = emqx_persistent_session_ds_state:del_awaiting_rel(PacketId, S0),
+            {ok, Session#{s => S}}
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBCOMP
@@ -562,6 +621,8 @@ handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session = #{s := 
     S = emqx_persistent_session_ds_state:commit(S0),
     From ! Ref,
     {ok, [], Session#{s => S}};
+handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
+    expire(ClientInfo, Session);
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.
