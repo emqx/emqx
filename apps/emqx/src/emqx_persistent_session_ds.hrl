@@ -65,7 +65,9 @@
     last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
     %% This stream belongs to an unsubscribed topic-filter, and is
     %% marked for deletion:
-    unsubscribed = false :: boolean()
+    unsubscribed = false :: boolean(),
+    %% Reference to the subscription state:
+    sub_state_id :: emqx_persistent_session_ds_subs:subscription_state_id()
 }).
 
 %% Session metadata keys:

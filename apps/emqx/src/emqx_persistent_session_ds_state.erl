@@ -37,7 +37,19 @@
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
--export([get_subscriptions/1, put_subscription/4, del_subscription/3]).
+-export([
+    get_subscription_state/2,
+    fold_subscription_states/3,
+    put_subscription_state/3,
+    del_subscription_state/2
+]).
+-export([
+    get_subscription/2,
+    fold_subscriptions/3,
+    n_subscriptions/1,
+    put_subscription/3,
+    del_subscription/2
+]).
 -export([
     get_awaiting_rel/2,
     put_awaiting_rel/3,
@@ -51,7 +63,6 @@
 -export_type([
     t/0,
     metadata/0,
-    subscriptions/0,
     seqno_type/0,
     stream_key/0,
     rank_key/0,
@@ -68,8 +79,6 @@
 %%================================================================================
 
 -type message() :: emqx_types:message().
-
--type subscriptions() :: emqx_topic_gbt:t(_SubId, emqx_persistent_session_ds:subscription()).
 
 -opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
 
@@ -121,7 +130,13 @@
     id := emqx_persistent_session_ds:id(),
     dirty := boolean(),
     metadata := metadata(),
-    subscriptions := subscriptions(),
+    subscriptions := pmap(
+        emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds_subs:subscription()
+    ),
+    subscription_states := pmap(
+        emqx_persistent_session_ds_subs:subscription_state_id(),
+        emqx_persistent_session_ds_subs:subscription_state()
+    ),
     seqnos := pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
     streams := pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
     ranks := pmap(term(), integer()),
@@ -130,11 +145,20 @@
 
 -define(session_tab, emqx_ds_session_tab).
 -define(subscription_tab, emqx_ds_session_subscriptions).
+-define(subscription_states_tab, emqx_ds_session_subscription_states).
 -define(stream_tab, emqx_ds_session_streams).
 -define(seqno_tab, emqx_ds_session_seqnos).
 -define(rank_tab, emqx_ds_session_ranks).
 -define(awaiting_rel_tab, emqx_ds_session_awaiting_rel).
--define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab, ?awaiting_rel_tab]).
+
+-define(pmaps, [
+    {subscriptions, ?subscription_tab},
+    {subscription_states, ?subscription_states_tab},
+    {streams, ?stream_tab},
+    {seqnos, ?seqno_tab},
+    {ranks, ?rank_tab},
+    {awaiting_rel, ?awaiting_rel_tab}
+]).
 
 %% Enable this flag if you suspect some code breaks the sequence:
 -ifndef(CHECK_SEQNO).
@@ -161,24 +185,25 @@ create_tables() ->
             {attributes, record_info(fields, kv)}
         ]
     ),
-    [create_kv_pmap_table(Table) || Table <- ?pmap_tables],
-    mria:wait_for_tables([?session_tab | ?pmap_tables]).
+    {_, PmapTables} = lists:unzip(?pmaps),
+    [create_kv_pmap_table(Table) || Table <- PmapTables],
+    mria:wait_for_tables([?session_tab | PmapTables]).
 
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | undefined.
 open(SessionId) ->
     ro_transaction(fun() ->
         case kv_restore(?session_tab, SessionId) of
             [Metadata] ->
-                Rec = #{
-                    id => SessionId,
-                    metadata => Metadata,
-                    subscriptions => read_subscriptions(SessionId),
-                    streams => pmap_open(?stream_tab, SessionId),
-                    seqnos => pmap_open(?seqno_tab, SessionId),
-                    ranks => pmap_open(?rank_tab, SessionId),
-                    awaiting_rel => pmap_open(?awaiting_rel_tab, SessionId),
-                    ?unset_dirty
-                },
+                Rec = update_pmaps(
+                    fun(_Pmap, Table) ->
+                        pmap_open(Table, SessionId)
+                    end,
+                    #{
+                        id => SessionId,
+                        metadata => Metadata,
+                        ?unset_dirty
+                    }
+                ),
                 {ok, Rec};
             [] ->
                 undefined
@@ -195,29 +220,13 @@ print_session(SessionId) ->
     end.
 
 -spec format(t()) -> map().
-format(#{
-    metadata := Metadata,
-    subscriptions := SubsGBT,
-    streams := Streams,
-    seqnos := Seqnos,
-    ranks := Ranks,
-    awaiting_rel := AwaitingRel
-}) ->
-    Subs = emqx_topic_gbt:fold(
-        fun(Key, Sub, Acc) ->
-            maps:put(emqx_topic_gbt:get_topic(Key), Sub, Acc)
+format(Rec) ->
+    update_pmaps(
+        fun(Pmap, _Table) ->
+            pmap_format(Pmap)
         end,
-        #{},
-        SubsGBT
-    ),
-    #{
-        metadata => Metadata,
-        subscriptions => Subs,
-        streams => pmap_format(Streams),
-        seqnos => pmap_format(Seqnos),
-        ranks => pmap_format(Ranks),
-        awaiting_rel => pmap_format(AwaitingRel)
-    }.
+        maps:without([id, dirty], Rec)
+    ).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
 list_sessions() ->
@@ -227,7 +236,7 @@ list_sessions() ->
 delete(Id) ->
     transaction(
         fun() ->
-            [kv_pmap_delete(Table, Id) || Table <- ?pmap_tables],
+            [kv_pmap_delete(Table, Id) || {_, Table} <- ?pmaps],
             mnesia:delete(?session_tab, Id, write)
         end
     ).
@@ -238,39 +247,34 @@ commit(Rec = #{dirty := false}) ->
 commit(
     Rec = #{
         id := SessionId,
-        metadata := Metadata,
-        streams := Streams,
-        seqnos := SeqNos,
-        ranks := Ranks,
-        awaiting_rel := AwaitingRel
+        metadata := Metadata
     }
 ) ->
     check_sequence(Rec),
     transaction(fun() ->
         kv_persist(?session_tab, SessionId, Metadata),
-        Rec#{
-            streams => pmap_commit(SessionId, Streams),
-            seqnos => pmap_commit(SessionId, SeqNos),
-            ranks => pmap_commit(SessionId, Ranks),
-            awaiting_rel => pmap_commit(SessionId, AwaitingRel),
-            ?unset_dirty
-        }
+        update_pmaps(
+            fun(Pmap, _Table) ->
+                pmap_commit(SessionId, Pmap)
+            end,
+            Rec#{?unset_dirty}
+        )
     end).
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
 create_new(SessionId) ->
     transaction(fun() ->
         delete(SessionId),
-        #{
-            id => SessionId,
-            metadata => #{},
-            subscriptions => emqx_topic_gbt:new(),
-            streams => pmap_open(?stream_tab, SessionId),
-            seqnos => pmap_open(?seqno_tab, SessionId),
-            ranks => pmap_open(?rank_tab, SessionId),
-            awaiting_rel => pmap_open(?awaiting_rel_tab, SessionId),
-            ?set_dirty
-        }
+        update_pmaps(
+            fun(_Pmap, Table) ->
+                pmap_open(Table, SessionId)
+            end,
+            #{
+                id => SessionId,
+                metadata => #{},
+                ?set_dirty
+            }
+        )
     end).
 
 %%
@@ -351,30 +355,53 @@ new_id(Rec) ->
 
 %%
 
--spec get_subscriptions(t()) -> subscriptions().
-get_subscriptions(#{subscriptions := Subs}) ->
-    Subs.
+-spec get_subscription(emqx_persistent_session_ds:topic_filter(), t()) ->
+    emqx_persistent_session_ds_subs:subscription() | undefined.
+get_subscription(TopicFilter, Rec) ->
+    gen_get(subscriptions, TopicFilter, Rec).
+
+-spec fold_subscriptions(fun(), Acc, t()) -> Acc.
+fold_subscriptions(Fun, Acc, Rec) ->
+    gen_fold(subscriptions, Fun, Acc, Rec).
+
+-spec n_subscriptions(t()) -> non_neg_integer().
+n_subscriptions(Rec) ->
+    gen_size(subscriptions, Rec).
 
 -spec put_subscription(
     emqx_persistent_session_ds:topic_filter(),
-    _SubId,
-    emqx_persistent_session_ds:subscription(),
+    emqx_persistent_session_ds_subs:subscription(),
     t()
 ) -> t().
-put_subscription(TopicFilter, SubId, Subscription, Rec = #{id := Id, subscriptions := Subs0}) ->
-    %% Note: currently changes to the subscriptions are persisted immediately.
-    Key = {TopicFilter, SubId},
-    transaction(fun() -> kv_pmap_persist(?subscription_tab, Id, Key, Subscription) end),
-    Subs = emqx_topic_gbt:insert(TopicFilter, SubId, Subscription, Subs0),
-    Rec#{subscriptions => Subs}.
+put_subscription(TopicFilter, Subscription, Rec) ->
+    gen_put(subscriptions, TopicFilter, Subscription, Rec).
 
--spec del_subscription(emqx_persistent_session_ds:topic_filter(), _SubId, t()) -> t().
-del_subscription(TopicFilter, SubId, Rec = #{id := Id, subscriptions := Subs0}) ->
-    %% Note: currently the subscriptions are persisted immediately.
-    Key = {TopicFilter, SubId},
-    transaction(fun() -> kv_pmap_delete(?subscription_tab, Id, Key) end),
-    Subs = emqx_topic_gbt:delete(TopicFilter, SubId, Subs0),
-    Rec#{subscriptions => Subs}.
+-spec del_subscription(emqx_persistent_session_ds:topic_filter(), t()) -> t().
+del_subscription(TopicFilter, Rec) ->
+    gen_del(subscriptions, TopicFilter, Rec).
+
+%%
+
+-spec get_subscription_state(emqx_persistent_session_ds_subs:subscription_state_id(), t()) ->
+    emqx_persistent_session_ds_subs:subscription_state() | undefined.
+get_subscription_state(SStateId, Rec) ->
+    gen_get(subscription_states, SStateId, Rec).
+
+-spec fold_subscription_states(fun(), Acc, t()) -> Acc.
+fold_subscription_states(Fun, Acc, Rec) ->
+    gen_fold(subscription_states, Fun, Acc, Rec).
+
+-spec put_subscription_state(
+    emqx_persistent_session_ds_subs:subscription_state_id(),
+    emqx_persistent_session_ds_subs:subscription_state(),
+    t()
+) -> t().
+put_subscription_state(SStateId, SState, Rec) ->
+    gen_put(subscription_states, SStateId, SState, Rec).
+
+-spec del_subscription_state(emqx_persistent_session_ds_subs:subscription_state_id(), t()) -> t().
+del_subscription_state(SStateId, Rec) ->
+    gen_del(subscription_states, SStateId, Rec).
 
 %%
 
@@ -522,16 +549,16 @@ gen_size(Field, Rec) ->
     check_sequence(Rec),
     pmap_size(maps:get(Field, Rec)).
 
-%%
-
-read_subscriptions(SessionId) ->
-    Records = kv_pmap_restore(?subscription_tab, SessionId),
+-spec update_pmaps(fun((pmap(_K, _V) | undefined, atom()) -> term()), map()) -> map().
+update_pmaps(Fun, Map) ->
     lists:foldl(
-        fun({{TopicFilter, SubId}, Subscription}, Acc) ->
-            emqx_topic_gbt:insert(TopicFilter, SubId, Subscription, Acc)
+        fun({MapKey, Table}, Acc) ->
+            OldVal = maps:get(MapKey, Map, undefined),
+            Val = Fun(OldVal, Table),
+            maps:put(MapKey, Val, Acc)
         end,
-        emqx_topic_gbt:new(),
-        Records
+        Map,
+        ?pmaps
     ).
 
 %%
