@@ -509,7 +509,7 @@ trace_rendered_action_template(InstId, Method, NRequest, Timeout) ->
                 #{
                     path => Path,
                     method => Method,
-                    headers => Headers,
+                    headers => emqx_utils_redact:redact_headers(Headers),
                     timeout => Timeout
                 }
             );
