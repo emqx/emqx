@@ -394,7 +394,8 @@ unsubscribe(
         undefined ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED};
         Subscription = #{subopts := SubOpts} ->
-            S = do_unsubscribe(ID, TopicFilter, Subscription, S0),
+            S1 = do_unsubscribe(ID, TopicFilter, Subscription, S0),
+            S = emqx_persistent_session_ds_state:commit(S1),
             {ok, Session#{s => S}, SubOpts}
     end.
 
