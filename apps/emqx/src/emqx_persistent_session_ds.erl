@@ -367,10 +367,10 @@ subscribe(
 subscribe(
     TopicFilter,
     SubOpts,
-    Session = #{id := ID, s := S0, props := #{upgrade_qos := UpgradeQoS}}
+    Session = #{id := ID}
 ) ->
     {UpdateRouter, S1} = emqx_persistent_session_ds_subs:on_subscribe(
-        TopicFilter, UpgradeQoS, SubOpts, S0
+        TopicFilter, SubOpts, Session
     ),
     case UpdateRouter of
         true ->
@@ -379,9 +379,8 @@ subscribe(
             ok
     end,
     S = emqx_persistent_session_ds_state:commit(S1),
-    ?tp(persistent_session_ds_subscription_added, #{
-        topic_filter => TopicFilter, is_new => UpdateRouter
-    }),
+    UpdateRouter andalso
+        ?tp(persistent_session_ds_subscription_added, #{topic_filter => TopicFilter, session => ID}),
     {ok, Session#{s => S}}.
 
 -spec unsubscribe(topic_filter(), session()) ->
