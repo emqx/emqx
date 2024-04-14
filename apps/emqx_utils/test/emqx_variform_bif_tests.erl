@@ -57,3 +57,18 @@ regex_extract_test_() ->
 
 regex_extract(Str, RegEx) ->
     emqx_variform_bif:regex_extract(Str, RegEx).
+
+rand_str_test() ->
+    ?assertEqual(3, size(emqx_variform_bif:rand_str(3))),
+    ?assertThrow(#{reason := badarg}, size(emqx_variform_bif:rand_str(0))).
+
+rand_int_test() ->
+    N = emqx_variform_bif:rand_int(10),
+    ?assert(N =< 10 andalso N >= 1),
+    ?assertThrow(#{reason := badarg}, emqx_variform_bif:rand_int(0)),
+    ?assertThrow(#{reason := badarg}, emqx_variform_bif:rand_int(-1)).
+
+base64_encode_decode_test() ->
+    RandBytes = crypto:strong_rand_bytes(100),
+    Encoded = emqx_variform_bif:base64_encode(RandBytes),
+    ?assertEqual(RandBytes, emqx_variform_bif:base64_decode(Encoded)).

@@ -182,3 +182,39 @@ syntax_error_test_() ->
 
 render(Expression, Bindings) ->
     emqx_variform:render(Expression, Bindings).
+
+hash_pick_test() ->
+    lists:foreach(
+        fun(_) ->
+            {ok, Res} = render("nth(hash_to_range(rand_str(10),1,5),[1,2,3,4,5])", #{}),
+            ?assert(Res >= <<"1">> andalso Res =< <<"5">>)
+        end,
+        lists:seq(1, 100)
+    ).
+
+map_to_range_pick_test() ->
+    lists:foreach(
+        fun(_) ->
+            {ok, Res} = render("nth(map_to_range(rand_str(10),1,5),[1,2,3,4,5])", #{}),
+            ?assert(Res >= <<"1">> andalso Res =< <<"5">>)
+        end,
+        lists:seq(1, 100)
+    ).
+
+-define(ASSERT_BADARG(FUNC, ARGS),
+    ?_assertEqual(
+        {error, #{reason => badarg, function => FUNC}},
+        render(atom_to_list(FUNC) ++ ARGS, #{})
+    )
+).
+
+to_range_badarg_test_() ->
+    [
+        ?ASSERT_BADARG(hash_to_range, "(1,1,2)"),
+        ?ASSERT_BADARG(hash_to_range, "('',1,2)"),
+        ?ASSERT_BADARG(hash_to_range, "('a','1',2)"),
+        ?ASSERT_BADARG(hash_to_range, "('a',2,1)"),
+        ?ASSERT_BADARG(map_to_range, "('',1,2)"),
+        ?ASSERT_BADARG(map_to_range, "('a','1',2)"),
+        ?ASSERT_BADARG(map_to_range, "('a',2,1)")
+    ].
