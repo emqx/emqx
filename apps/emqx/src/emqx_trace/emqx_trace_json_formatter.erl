@@ -44,11 +44,9 @@ format(
 %%% Helper Functions
 %%%-----------------------------------------------------------------
 
-prepare_log_map(LogMap, PEncode) when is_map(LogMap) ->
+prepare_log_map(LogMap, PEncode) ->
     NewKeyValuePairs = [prepare_key_value(K, V, PEncode) || {K, V} <- maps:to_list(LogMap)],
-    maps:from_list(NewKeyValuePairs);
-prepare_log_map(Term, _PEncode) ->
-    Term.
+    maps:from_list(NewKeyValuePairs).
 
 prepare_key_value(payload = K, V, PEncode) ->
     NewV =
