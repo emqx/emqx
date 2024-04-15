@@ -9,3 +9,4 @@ accounts:
     defaultGroupPerm: PUB|SUB
     topicPerms:
       - TopicTest=PUB|SUB
+      - Topic2=PUB|SUB

@@ -202,7 +202,7 @@ on_stop(InstanceId, _State) ->
             ({_, client_id, ClientId}) ->
                 destory_producers_map(ClientId),
                 ok = rocketmq:stop_and_delete_supervised_client(ClientId);
-            ({_, _Topic, Producer}) ->
+            ({_, _ProducerGroup, Producer}) ->
                 _ = rocketmq:stop_and_delete_supervised_producers(Producer)
         end,
         emqx_resource:get_allocated_resources_list(InstanceId)
@@ -258,7 +258,7 @@ do_query(
     Data = apply_template(Query, Templates),
 
     Result = safe_do_produce(
-        InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, RequestTimeout
+        ChannelId, InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, RequestTimeout
     ),
     case Result of
         {error, Reason} ->
@@ -284,9 +284,11 @@ do_query(
 get_channel_id({ChannelId, _}) -> ChannelId;
 get_channel_id([{ChannelId, _} | _]) -> ChannelId.
 
-safe_do_produce(InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, RequestTimeout) ->
+safe_do_produce(
+    ChannelId, InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, RequestTimeout
+) ->
     try
-        Producers = get_producers(InstanceId, ClientId, TopicKey, ProducerOpts),
+        Producers = get_producers(ChannelId, InstanceId, ClientId, TopicKey, ProducerOpts),
         produce(InstanceId, QueryFunc, Producers, Data, RequestTimeout)
     catch
         _Type:Reason ->
@@ -391,16 +393,21 @@ destory_producers_map(ClientId) ->
             ets:delete(Tid)
     end.
 
-get_producers(InstanceId, ClientId, Topic, ProducerOpts) ->
-    case ets:lookup(ClientId, Topic) of
+get_producers(ChannelId, InstanceId, ClientId, Topic, ProducerOpts) ->
+    %% The topic need to be included in the name since we can have multiple
+    %% topics per channel due to templating.
+    ProducerGroup = iolist_to_binary([ChannelId, "_", Topic]),
+    case ets:lookup(ClientId, ProducerGroup) of
         [{_, Producers}] ->
             Producers;
         _ ->
-            ProducerGroup = iolist_to_binary([atom_to_list(ClientId), "_", Topic]),
+            %% TODO: the name needs to be an atom but this may cause atom leak so we
+            %% should figure out a way to avoid this
+            ProducerOpts2 = ProducerOpts#{name => binary_to_atom(ProducerGroup)},
             {ok, Producers} = rocketmq:ensure_supervised_producers(
-                ClientId, ProducerGroup, Topic, ProducerOpts
+                ClientId, ProducerGroup, Topic, ProducerOpts2
             ),
-            ok = emqx_resource:allocate_resource(InstanceId, Topic, Producers),
-            ets:insert(ClientId, {Topic, Producers}),
+            ok = emqx_resource:allocate_resource(InstanceId, ProducerGroup, Producers),
+            ets:insert(ClientId, {ProducerGroup, Producers}),
             Producers
     end.
