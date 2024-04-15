@@ -773,22 +773,41 @@ validate_cluster_hocon(RawConf) ->
 do_import_conf(RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(RawConf))),
     maybe_print_conf_errors(GenConfErrs, Opts),
-    Errors =
-        lists:foldl(
-            fun(Module, ErrorsAcc) ->
-                case Module:import_config(RawConf) of
-                    {ok, #{changed := Changed}} ->
-                        maybe_print_changed(Changed, Opts),
-                        ErrorsAcc;
-                    {error, #{root_key := RootKey, reason := Reason}} ->
-                        ErrorsAcc#{[RootKey] => Reason}
-                end
-            end,
-            GenConfErrs,
-            sort_importer_modules(find_behaviours(emqx_config_backup))
-        ),
+    Modules = sort_importer_modules(find_behaviours(emqx_config_backup)),
+    Errors = lists:foldl(print_ok_results_collect_errors(RawConf, Opts), GenConfErrs, Modules),
     maybe_print_conf_errors(Errors, Opts),
     Errors.
+
+print_ok_results_collect_errors(RawConf, Opts) ->
+    fun(Module, Errors) ->
+        case Module:import_config(RawConf) of
+            {results, {OkResults, ErrResults}} ->
+                print_ok_results(OkResults, Opts),
+                collect_errors(ErrResults, Errors);
+            {ok, OkResult} ->
+                print_ok_results([OkResult], Opts),
+                Errors;
+            {error, ErrResult} ->
+                collect_errors([ErrResult], Errors)
+        end
+    end.
+
+print_ok_results(Results, Opts) ->
+    lists:foreach(
+        fun(#{changed := Changed}) ->
+            maybe_print_changed(Changed, Opts)
+        end,
+        Results
+    ).
+
+collect_errors(Results, Errors) ->
+    lists:foldr(
+        fun(#{root_key := RootKey, reason := Reason}, Acc) ->
+            Acc#{[RootKey] => Reason}
+        end,
+        Errors,
+        Results
+    ).
 
 sort_importer_modules(Modules) ->
     lists:sort(

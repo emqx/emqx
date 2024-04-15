@@ -1559,6 +1559,8 @@ list_client_msgs(MsgType, ClientID, QString) ->
                         code => 'NOT_IMPLEMENTED',
                         message => <<"API not implemented for persistent sessions">>
                     }};
+                {error, Reason} ->
+                    ?INTERNAL_ERROR(Reason);
                 {Msgs, Meta = #{}} when is_list(Msgs) ->
                     format_msgs_resp(MsgType, Msgs, Meta, QString)
             end
