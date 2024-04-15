@@ -864,6 +864,53 @@ t_any_num_as_float(Config) ->
     TimeReturned = pad_zero(TimeReturned0),
     ?assertEqual(TsStr, TimeReturned).
 
+t_tag_set_use_literal_value(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    Const = erlang:system_time(nanosecond),
+    ConstBin = integer_to_binary(Const),
+    TsStr = iolist_to_binary(
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+    ),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(
+            Config,
+            #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid},tag_key1=100,tag_key2=123.4,tag_key3=66i,tag_key4=${payload.float_dp}",
+                        " ",
+                        "field_key1=100.1,field_key2=100i,field_key3=${payload.float_dp},bar=5i",
+                        " ", ConstBin/binary>>
+            }
+        )
+    ),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = #{
+        %% with decimal point
+        float_dp => 123.4
+    },
+    SentData = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"payload">> => Payload,
+        <<"timestamp">> => erlang:system_time(millisecond)
+    },
+    case QueryMode of
+        sync ->
+            ?assertMatch({ok, 204, _}, send_message(Config, SentData)),
+            ok;
+        async ->
+            ?assertMatch(ok, send_message(Config, SentData))
+    end,
+    %% sleep is still need even in sync mode, or we would get an empty result sometimes
+    ct:sleep(1500),
+    PersistedData = query_by_clientid(ClientId, Config),
+    Expected = #{field_key1 => <<"100.1">>, field_key2 => <<"100">>, field_key3 => <<"123.4">>},
+    assert_persisted_data(ClientId, Expected, PersistedData),
+    TimeReturned0 = maps:get(<<"_time">>, maps:get(<<"field_key1">>, PersistedData)),
+    TimeReturned = pad_zero(TimeReturned0),
+    ?assertEqual(TsStr, TimeReturned).
+
 t_bad_timestamp(Config) ->
     InfluxDBType = ?config(influxdb_type, Config),
     InfluxDBName = ?config(influxdb_name, Config),
