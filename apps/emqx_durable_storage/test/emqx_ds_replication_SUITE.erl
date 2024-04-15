@@ -435,8 +435,8 @@ t_rebalance_offline_restarts(Config) ->
         erpc:multicall(Nodes, emqx_ds, open_db, [?DB, Opts])
     ),
     ?retry(
-        500,
-        10,
+        1000,
+        5,
         ?assertEqual([8 || _ <- Nodes], [n_shards_online(N, ?DB) || N <- Nodes])
     ),
 

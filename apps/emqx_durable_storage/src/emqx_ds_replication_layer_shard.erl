@@ -341,29 +341,21 @@ start_shard(DB, Shard, #{replication_options := ReplicationOpts}) ->
                 log_init_args => LogOpts
             })
     end,
-    case Servers of
-        [LocalServer | _] ->
-            %% TODO
-            %% Not super robust, but we probably don't expect nodes to be down
-            %% when we bring up a fresh consensus group. Triggering election
-            %% is not really required otherwise.
-            %% TODO
-            %% Ensure that doing that on node restart does not disrupt consensus.
-            %% Edit: looks like it doesn't, this could actually be quite useful
-            %% to "steal" leadership from nodes that have too much leader load.
-            %% TODO
-            %% It doesn't really work that way. There's `ra:transfer_leadership/2`
-            %% for that.
-            try
-                ra:trigger_election(LocalServer, _Timeout = 1_000)
-            catch
-                %% TODO
-                %% Tolerating exceptions because server might be occupied with log
-                %% replay for a while.
-                exit:{timeout, _} when not Bootstrap ->
-                    ok
-            end;
-        _ ->
+    %% NOTE
+    %% Triggering election is necessary when a new consensus group is being brought up.
+    %% TODO
+    %% It's probably a good idea to rebalance leaders across the cluster from time to
+    %% time. There's `ra:transfer_leadership/2` for that.
+    try Bootstrap andalso ra:trigger_election(LocalServer, _Timeout = 1_000) of
+        false ->
+            ok;
+        ok ->
+            ok
+    catch
+        %% TODO
+        %% Tolerating exceptions because server might be occupied with log replay for
+        %% a while.
+        exit:{timeout, _} when not Bootstrap ->
             ok
     end.
 
