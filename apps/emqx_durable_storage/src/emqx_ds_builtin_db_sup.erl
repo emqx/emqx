@@ -232,6 +232,7 @@ shard_replication_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, replication},
         start => {emqx_ds_replication_layer_shard, start_link, [DB, Shard, Opts]},
+        shutdown => 10_000,
         restart => permanent,
         type => worker
     }.
