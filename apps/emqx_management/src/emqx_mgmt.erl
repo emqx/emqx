@@ -713,5 +713,24 @@ call_conn(ConnMod, Pid, Req) ->
         exit:R when R =:= shutdown; R =:= normal ->
             {error, shutdown};
         exit:{R, _} when R =:= shutdown; R =:= noproc ->
-            {error, shutdown}
+            {error, shutdown};
+        exit:{{shutdown, _OOMInfo}, _Location} ->
+            {error, shutdown};
+        exit:timeout ->
+            LogData = #{
+                msg => "call_client_connection_process_timeout",
+                request => Req,
+                pid => Pid,
+                module => ConnMod
+            },
+            LogData1 =
+                case node(Pid) =:= node() of
+                    true ->
+                        LogData#{stacktrace => erlang:process_info(Pid, current_stacktrace)};
+                    false ->
+                        LogData
+                end,
+
+            ?SLOG(warning, LogData1),
+            {error, timeout}
     end.

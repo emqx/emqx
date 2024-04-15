@@ -144,7 +144,13 @@ t_open_ports_check(Config) ->
     ?assertEqual(ok, erpc:call(Core2, emqx_machine, open_ports_check, [])),
     ?assertEqual(ok, erpc:call(Replicant, emqx_machine, open_ports_check, [])),
 
+    true = erlang:monitor_node(Core2, true),
     ok = emqx_cth_cluster:stop_node(Core2),
+    receive
+        {nodedown, Core2} -> ok
+    after 10000 ->
+        ct:fail("nodedown message not received after 10 seconds.")
+    end,
 
     ?assertEqual(ok, erpc:call(Replicant, emqx_machine, open_ports_check, [])),
     ?retry(200, 20, begin

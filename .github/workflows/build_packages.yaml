@@ -151,7 +151,23 @@ jobs:
       with:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
-    - name: build emqx packages
+    - name: build tgz
+      env:
+        PROFILE: ${{ matrix.profile }}
+        ARCH: ${{ matrix.arch }}
+        OS: ${{ matrix.os }}
+        IS_ELIXIR: ${{ matrix.with_elixir }}
+        BUILDER: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+        BUILDER_SYSTEM: force_docker
+      run: |
+        ./scripts/buildx.sh \
+          --profile $PROFILE \
+          --arch $ARCH \
+          --builder $BUILDER \
+          --elixir $IS_ELIXIR \
+          --pkgtype tgz
+    - name: build pkg
+      if: matrix.with_elixir == 'no'
       env:
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
