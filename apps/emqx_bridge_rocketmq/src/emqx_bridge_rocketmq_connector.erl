@@ -139,13 +139,14 @@ on_add_channel(
     ChannelId,
     ChannelConfig
 ) ->
-    {ok, ChannelState} = create_channel_state(ChannelConfig, ACLInfo),
+    {ok, ChannelState} = create_channel_state(ChannelId, ChannelConfig, ACLInfo),
     NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
     %% Update state
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
 
 create_channel_state(
+    ChannelId,
     #{parameters := Conf} = _ChannelConfig,
     ACLInfo
 ) ->
@@ -154,7 +155,7 @@ create_channel_state(
         sync_timeout := SyncTimeout
     } = Conf,
     TopicTks = emqx_placeholder:preproc_tmpl(Topic),
-    ProducerOpts = make_producer_opts(Conf, ACLInfo),
+    ProducerOpts = make_producer_opts(ChannelId, Conf, ACLInfo),
     Templates = parse_template(Conf),
     State = #{
         topic => Topic,
@@ -349,6 +350,7 @@ is_sensitive_key(_) ->
     false.
 
 make_producer_opts(
+    ChannelId,
     #{
         send_buffer := SendBuff,
         refresh_interval := RefreshInterval
@@ -356,6 +358,9 @@ make_producer_opts(
     ACLInfo
 ) ->
     #{
+        %% TODO: the name needs to be an atom but this may cause atom leak so we
+        %% should figure out a way to avoid this
+        name => binary_to_atom(ChannelId),
         tcp_opts => [{sndbuf, SendBuff}],
         ref_topic_route_interval => RefreshInterval,
         acl_info => emqx_secret:wrap(ACLInfo)
