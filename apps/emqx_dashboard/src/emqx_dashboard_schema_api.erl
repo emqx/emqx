@@ -44,6 +44,8 @@
     ])
 ).
 
+-define(SCHEMA_VERSION, <<"0.2.0">>).
+
 %%--------------------------------------------------------------------
 %% minirest API and schema
 %%--------------------------------------------------------------------
@@ -97,20 +99,31 @@ gen_schema(connectors) ->
     connectors_schema_json().
 
 hotconf_schema_json() ->
-    SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
+    SchemaInfo = #{
+        title => <<"EMQX Hot Conf Schema">>,
+        version => ?SCHEMA_VERSION
+    },
     gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo).
 
 bridge_schema_json() ->
-    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
+    SchemaInfo = #{
+        title => <<"EMQX Data Bridge Schema">>,
+        version => ?SCHEMA_VERSION
+    },
     gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
 
 actions_schema_json() ->
-    SchemaInfo = #{title => <<"EMQX Data Actions API Schema">>, version => <<"0.1.0">>},
-    %% Note: this will be moved to `emqx_actions' application in the future.
+    SchemaInfo = #{
+        title => <<"EMQX Data Actions and Sources Schema">>,
+        version => ?SCHEMA_VERSION
+    },
     gen_api_schema_json_iodata(emqx_bridge_v2_api, SchemaInfo).
 
 connectors_schema_json() ->
-    SchemaInfo = #{title => <<"EMQX Connectors Schema">>, version => <<"0.1.0">>},
+    SchemaInfo = #{
+        title => <<"EMQX Connectors Schema">>,
+        version => ?SCHEMA_VERSION
+    },
     gen_api_schema_json_iodata(emqx_connector_api, SchemaInfo).
 
 gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
