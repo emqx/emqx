@@ -151,6 +151,9 @@ coalesce_test_() ->
         {"arg from other func", fun() ->
             ?assertEqual({ok, <<"b">>}, render("coalesce(tokens(a,','))", #{a => <<",,b,c">>}))
         end},
+        {"arg from other func, but no result", fun() ->
+            ?assertEqual({ok, <<"">>}, render("coalesce(tokens(a,','))", #{a => <<",,,">>}))
+        end},
         {"var unbound", fun() -> ?assertEqual({ok, <<>>}, render("coalesce(a)", #{})) end},
         {"var unbound in call", fun() ->
             ?assertEqual({ok, <<>>}, render("coalesce(concat(a))", #{}))
@@ -158,16 +161,68 @@ coalesce_test_() ->
         {"var unbound in calls", fun() ->
             ?assertEqual({ok, <<"c">>}, render("coalesce([any_to_str(a),any_to_str(b),'c'])", #{}))
         end},
-        {"badarg", fun() ->
-            ?assertMatch(
-                {error, #{reason := coalesce_badarg}}, render("coalesce(a,b)", #{a => 1, b => 2})
+        {"coalesce n-args", fun() ->
+            ?assertEqual(
+                {ok, <<"2">>}, render("coalesce(a,b)", #{a => <<"">>, b => 2})
             )
         end},
-        {"badarg from return", fun() ->
+        {"coalesce 1-arg", fun() ->
             ?assertMatch(
                 {error, #{reason := coalesce_badarg}}, render("coalesce(any_to_str(a))", #{a => 1})
             )
         end}
+    ].
+
+compare_string_test_() ->
+    [
+        %% Testing str_eq/2
+        ?_assertEqual({ok, <<"true">>}, render("str_eq('a', 'a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_eq('a', 'b')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("str_eq('', '')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_eq('a', '')", #{})),
+
+        %% Testing str_lt/2
+        ?_assertEqual({ok, <<"true">>}, render("str_lt('a', 'b')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_lt('b', 'a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_lt('a', 'a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_lt('', '')", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("str_gt('b', 'a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_gt('a', 'b')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_gt('a', 'a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_gt('', '')", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("str_lte('a', 'b')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("str_lte('a', 'a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_lte('b', 'a')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("str_lte('', '')", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("str_gte('b', 'a')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("str_gte('a', 'a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_gte('a', 'b')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("str_gte('', '')", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("str_gt(9, 10)", #{}))
+    ].
+
+compare_numbers_test_() ->
+    [
+        ?_assertEqual({ok, <<"true">>}, render("num_eq(1, 1)", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("num_eq(2, 1)", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("num_lt(1, 2)", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("num_lt(2, 2)", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("num_gt(2, 1)", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("num_gt(1, 1)", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("num_lte(1, 1)", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("num_lte(1, 2)", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("num_lte(2, 1)", #{})),
+
+        ?_assertEqual({ok, <<"true">>}, render("num_gte(2, -1)", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("num_gte(2, 2)", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("num_gte(-1, 2)", #{}))
     ].
 
 syntax_error_test_() ->
@@ -217,4 +272,17 @@ to_range_badarg_test_() ->
         ?ASSERT_BADARG(map_to_range, "('',1,2)"),
         ?ASSERT_BADARG(map_to_range, "('a','1',2)"),
         ?ASSERT_BADARG(map_to_range, "('a',2,1)")
+    ].
+
+iif_test_() ->
+    %% if clientid has to words separated by a -, take the suffix, and append with `/#`
+    Expr1 = "iif(nth(2,tokens(clientid,'-')),concat([nth(2,tokens(clientid,'-')),'/#']),'')",
+    [
+        ?_assertEqual({ok, <<"yes-A">>}, render("iif(a,'yes-A','no-A')", #{a => <<"x">>})),
+        ?_assertEqual({ok, <<"no-A">>}, render("iif(a,'yes-A','no-A')", #{})),
+        ?_assertEqual({ok, <<"2">>}, render("iif(str_eq(a,1),2,3)", #{a => 1})),
+        ?_assertEqual({ok, <<"3">>}, render("iif(str_eq(a,1),2,3)", #{a => <<"not-1">>})),
+        ?_assertEqual({ok, <<"3">>}, render("iif(str_eq(a,1),2,3)", #{})),
+        ?_assertEqual({ok, <<"">>}, render(Expr1, #{clientid => <<"a">>})),
+        ?_assertEqual({ok, <<"suffix/#">>}, render(Expr1, #{clientid => <<"a-suffix">>}))
     ].
