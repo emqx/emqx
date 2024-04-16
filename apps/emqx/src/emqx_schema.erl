@@ -1734,19 +1734,37 @@ fields(durable_storage) ->
     emqx_ds_schema:schema();
 fields("client_attrs_init") ->
     [
-        {extract_from,
+        {expression,
             sc(
-                hoconsc:enum([clientid, username, cn, dn, user_property]),
-                #{desc => ?DESC("client_attrs_init_extract_from")}
+                typerefl:alias("string", any()),
+                #{
+                    desc => ?DESC("client_attrs_init_expression"),
+                    converter => fun compile_variform/2
+                }
             )},
-        {extract_regexp, sc(binary(), #{desc => ?DESC("client_attrs_init_extract_regexp")})},
-        {extract_as,
+        {set_as_attr,
             sc(binary(), #{
-                default => <<"alias">>,
-                desc => ?DESC("client_attrs_init_extract_as"),
+                desc => ?DESC("client_attrs_init_set_as_attr"),
                 validator => fun restricted_string/1
             })}
     ].
+
+compile_variform(undefined, _Opts) ->
+    undefined;
+compile_variform(Expression, #{make_serializable := true}) ->
+    case is_binary(Expression) of
+        true ->
+            Expression;
+        false ->
+            emqx_variform:decompile(Expression)
+    end;
+compile_variform(Expression, _Opts) ->
+    case emqx_variform:compile(Expression) of
+        {ok, Compiled} ->
+            Compiled;
+        {error, Reason} ->
+            throw(#{expression => Expression, reason => Reason})
+    end.
 
 restricted_string(Str) ->
     case emqx_utils:is_restricted_str(Str) of
@@ -3552,9 +3570,9 @@ mqtt_general() ->
             )},
         {"client_attrs_init",
             sc(
-                hoconsc:union([disabled, ref("client_attrs_init")]),
+                hoconsc:array(ref("client_attrs_init")),
                 #{
-                    default => disabled,
+                    default => [],
                     desc => ?DESC("client_attrs_init")
                 }
             )}

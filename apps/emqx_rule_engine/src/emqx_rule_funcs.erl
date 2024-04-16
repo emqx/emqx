@@ -202,7 +202,8 @@
 -export([
     md5/1,
     sha/1,
-    sha256/1
+    sha256/1,
+    hash/2
 ]).
 
 %% zip Funcs
@@ -710,24 +711,11 @@ map(Map = #{}) ->
 map(Data) ->
     error(badarg, [Data]).
 
-bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_utils:bin_to_hexstr(Bin, upper);
-%% If Bin is a bitstring which is not divisible by 8, we pad it and then do the
-%% conversion
-bin2hexstr(Bin) when is_bitstring(Bin), (8 - (bit_size(Bin) rem 8)) >= 4 ->
-    PadSize = 8 - (bit_size(Bin) rem 8),
-    Padding = <<0:PadSize>>,
-    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
-    <<_FirstByte:8, HexStr/binary>> = emqx_utils:bin_to_hexstr(BinToConvert, upper),
-    HexStr;
-bin2hexstr(Bin) when is_bitstring(Bin) ->
-    PadSize = 8 - (bit_size(Bin) rem 8),
-    Padding = <<0:PadSize>>,
-    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
-    emqx_utils:bin_to_hexstr(BinToConvert, upper).
+bin2hexstr(Bin) ->
+    emqx_variform_bif:bin2hexstr(Bin).
 
-hexstr2bin(Str) when is_binary(Str) ->
-    emqx_utils:hexstr_to_bin(Str).
+hexstr2bin(Str) ->
+    emqx_variform_bif:hexstr2bin(Str).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
@@ -771,66 +759,66 @@ is_array(_) -> false.
 %% String Funcs
 %%------------------------------------------------------------------------------
 
-coalesce(List) -> emqx_variform_str:coalesce(List).
+coalesce(List) -> emqx_variform_bif:coalesce(List).
 
-coalesce(A, B) -> emqx_variform_str:coalesce(A, B).
+coalesce(A, B) -> emqx_variform_bif:coalesce(A, B).
 
-lower(S) -> emqx_variform_str:lower(S).
+lower(S) -> emqx_variform_bif:lower(S).
 
-ltrim(S) -> emqx_variform_str:ltrim(S).
+ltrim(S) -> emqx_variform_bif:ltrim(S).
 
-reverse(S) -> emqx_variform_str:reverse(S).
+reverse(S) -> emqx_variform_bif:reverse(S).
 
-rtrim(S) -> emqx_variform_str:rtrim(S).
+rtrim(S) -> emqx_variform_bif:rtrim(S).
 
-strlen(S) -> emqx_variform_str:strlen(S).
+strlen(S) -> emqx_variform_bif:strlen(S).
 
-substr(S, Start) -> emqx_variform_str:substr(S, Start).
+substr(S, Start) -> emqx_variform_bif:substr(S, Start).
 
-substr(S, Start, Length) -> emqx_variform_str:substr(S, Start, Length).
+substr(S, Start, Length) -> emqx_variform_bif:substr(S, Start, Length).
 
-trim(S) -> emqx_variform_str:trim(S).
+trim(S) -> emqx_variform_bif:trim(S).
 
-upper(S) -> emqx_variform_str:upper(S).
+upper(S) -> emqx_variform_bif:upper(S).
 
-split(S, P) -> emqx_variform_str:split(S, P).
+split(S, P) -> emqx_variform_bif:split(S, P).
 
-split(S, P, Position) -> emqx_variform_str:split(S, P, Position).
+split(S, P, Position) -> emqx_variform_bif:split(S, P, Position).
 
-tokens(S, Separators) -> emqx_variform_str:tokens(S, Separators).
+tokens(S, Separators) -> emqx_variform_bif:tokens(S, Separators).
 
-tokens(S, Separators, NoCRLF) -> emqx_variform_str:tokens(S, Separators, NoCRLF).
+tokens(S, Separators, NoCRLF) -> emqx_variform_bif:tokens(S, Separators, NoCRLF).
 
-concat(S1, S2) -> emqx_variform_str:concat(S1, S2).
+concat(S1, S2) -> emqx_variform_bif:concat(S1, S2).
 
-concat(List) -> emqx_variform_str:concat(List).
+concat(List) -> emqx_variform_bif:concat(List).
 
-sprintf_s(Format, Args) -> emqx_variform_str:sprintf_s(Format, Args).
+sprintf_s(Format, Args) -> emqx_variform_bif:sprintf_s(Format, Args).
 
-pad(S, Len) -> emqx_variform_str:pad(S, Len).
+pad(S, Len) -> emqx_variform_bif:pad(S, Len).
 
-pad(S, Len, Position) -> emqx_variform_str:pad(S, Len, Position).
+pad(S, Len, Position) -> emqx_variform_bif:pad(S, Len, Position).
 
-pad(S, Len, Position, Char) -> emqx_variform_str:pad(S, Len, Position, Char).
+pad(S, Len, Position, Char) -> emqx_variform_bif:pad(S, Len, Position, Char).
 
-replace(SrcStr, Pattern, RepStr) -> emqx_variform_str:replace(SrcStr, Pattern, RepStr).
+replace(SrcStr, Pattern, RepStr) -> emqx_variform_bif:replace(SrcStr, Pattern, RepStr).
 
 replace(SrcStr, Pattern, RepStr, Position) ->
-    emqx_variform_str:replace(SrcStr, Pattern, RepStr, Position).
+    emqx_variform_bif:replace(SrcStr, Pattern, RepStr, Position).
 
-regex_match(Str, RE) -> emqx_variform_str:regex_match(Str, RE).
+regex_match(Str, RE) -> emqx_variform_bif:regex_match(Str, RE).
 
-regex_replace(SrcStr, RE, RepStr) -> emqx_variform_str:regex_replace(SrcStr, RE, RepStr).
+regex_replace(SrcStr, RE, RepStr) -> emqx_variform_bif:regex_replace(SrcStr, RE, RepStr).
 
-ascii(Char) -> emqx_variform_str:ascii(Char).
+ascii(Char) -> emqx_variform_bif:ascii(Char).
 
-find(S, P) -> emqx_variform_str:find(S, P).
+find(S, P) -> emqx_variform_bif:find(S, P).
 
-find(S, P, Position) -> emqx_variform_str:find(S, P, Position).
+find(S, P, Position) -> emqx_variform_bif:find(S, P, Position).
 
-join_to_string(Str) -> emqx_variform_str:join_to_string(Str).
+join_to_string(Str) -> emqx_variform_bif:join_to_string(Str).
 
-join_to_string(Sep, List) -> emqx_variform_str:join_to_string(Sep, List).
+join_to_string(Sep, List) -> emqx_variform_bif:join_to_string(Sep, List).
 
 join_to_sql_values_string(List) ->
     QuotedList =
@@ -878,7 +866,7 @@ jq(FilterProgram, JSONBin) ->
         ])
     ).
 
-unescape(Str) -> emqx_variform_str:unescape(Str).
+unescape(Str) -> emqx_variform_bif:unescape(Str).
 
 %%------------------------------------------------------------------------------
 %% Array Funcs
@@ -1001,7 +989,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    emqx_utils:bin_to_hexstr(crypto:hash(Type, Data), lower).
+    emqx_variform_bif:hash(Type, Data).
 
 %%------------------------------------------------------------------------------
 %% gzip Funcs

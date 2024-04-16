@@ -150,11 +150,13 @@ t_client_attr_as_mountpoint(_Config) ->
         <<"limiter">> => #{},
         <<"mountpoint">> => <<"groups/${client_attrs.ns}/">>
     },
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
-        extract_from => clientid,
-        extract_regexp => <<"^(.+)-.+$">>,
-        extract_as => <<"ns">>
-    }),
+    {ok, Compiled} = emqx_variform:compile("nth(1,tokens(clientid,'-'))"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"ns">>
+        }
+    ]),
     emqx_logger:set_log_level(debug),
     with_listener(tcp, attr_as_moutpoint, ListenerConf, fun() ->
         {ok, Client} = emqtt:start_link(#{
@@ -170,7 +172,7 @@ t_client_attr_as_mountpoint(_Config) ->
         ?assertMatch([_], emqx_router:match_routes(MatchTopic)),
         emqtt:stop(Client)
     end),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], disabled),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     ok.
 
 t_current_conns_tcp(_Config) ->

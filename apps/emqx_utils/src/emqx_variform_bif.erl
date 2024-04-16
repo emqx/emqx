@@ -14,13 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% Predefined functions string templating
--module(emqx_variform_str).
+%% Predefined functions for variform expressions.
+-module(emqx_variform_bif).
 
 %% String Funcs
 -export([
-    coalesce/1,
-    coalesce/2,
     lower/1,
     ltrim/1,
     ltrim/2,
@@ -47,14 +45,36 @@
     replace/4,
     regex_match/2,
     regex_replace/3,
+    regex_extract/2,
     ascii/1,
     find/2,
     find/3,
     join_to_string/1,
     join_to_string/2,
     unescape/1,
-    nth/2
+    any_to_str/1
 ]).
+
+%% Array functions
+-export([nth/2]).
+
+%% Control functions
+-export([coalesce/1, coalesce/2]).
+
+%% Random functions
+-export([rand_str/1, rand_int/1]).
+
+%% Schema-less encod/decode
+-export([
+    bin2hexstr/1,
+    hexstr2bin/1,
+    int2hexstr/1,
+    base64_encode/1,
+    base64_decode/1
+]).
+
+%% Hash functions
+-export([hash/2, hash_to_range/3, map_to_range/3]).
 
 -define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
 
@@ -143,8 +163,10 @@ tokens(S, Separators, <<"nocrlf">>) ->
 concat(S1, S2) ->
     concat([S1, S2]).
 
+%% @doc Concatenate a list of strings.
+%% NOTE: it converts non-string elements to Erlang term literals for backward compatibility
 concat(List) ->
-    unicode:characters_to_binary(lists:map(fun str/1, List), unicode).
+    unicode:characters_to_binary(lists:map(fun any_to_str/1, List), unicode).
 
 sprintf_s(Format, Args) when is_list(Args) ->
     erlang:iolist_to_binary(io_lib:format(binary_to_list(Format), Args)).
@@ -190,6 +212,22 @@ regex_match(Str, RE) ->
 regex_replace(SrcStr, RE, RepStr) ->
     re:replace(SrcStr, RE, RepStr, [global, {return, binary}]).
 
+%% @doc Searches the string Str for patterns specified by Regexp.
+%% If matches are found, it returns a list of all captured groups from these matches.
+%% If no matches are found or there are no groups captured, it returns an empty list.
+%% This function can be used to extract parts of a string based on a regular expression,
+%% excluding the complete match itself.
+%% Examples:
+%%  ("Number: 12345", "(\\d+)") -> [<<"12345">>]
+%%  ("Hello, world!", "(\\w+)") -> [<<"Hello">>, <<"world">>]
+%%  ("No numbers here!", "(\\d+)") -> []
+%%  ("Date: 2021-05-20", "(\\d{4})-(\\d{2})-(\\d{2})") -> [<<"2021">>, <<"05">>, <<"20">>]
+regex_extract(Str, Regexp) ->
+    case re:run(Str, Regexp, [{capture, all_but_first, list}]) of
+        {match, [_ | _] = L} -> lists:map(fun erlang:iolist_to_binary/1, L);
+        _ -> []
+    end.
+
 ascii(Char) when is_binary(Char) ->
     [FirstC | _] = binary_to_list(Char),
     FirstC.
@@ -212,7 +250,7 @@ join_to_string(List) when is_list(List) ->
     join_to_string(<<", ">>, List).
 
 join_to_string(Sep, List) when is_list(List), is_binary(Sep) ->
-    iolist_to_binary(lists:join(Sep, [str(Item) || Item <- List])).
+    iolist_to_binary(lists:join(Sep, [any_to_str(Item) || Item <- List])).
 
 unescape(Bin) when is_binary(Bin) ->
     UnicodeList = unicode:characters_to_list(Bin, utf8),
@@ -364,5 +402,124 @@ is_hex_digit(_) -> false.
 %% Data Type Conversion Funcs
 %%------------------------------------------------------------------------------
 
-str(Data) ->
+any_to_str(Data) ->
     emqx_utils_conv:bin(Data).
+
+%%------------------------------------------------------------------------------
+%% Random functions
+%%------------------------------------------------------------------------------
+
+%% @doc Make a random string with urlsafe-base64 charset.
+rand_str(Length) when is_integer(Length) andalso Length > 0 ->
+    RawBytes = erlang:ceil((Length * 3) / 4),
+    RandomData = rand:bytes(RawBytes),
+    urlsafe(binary:part(base64_encode(RandomData), 0, Length));
+rand_str(_) ->
+    throw(#{reason => badarg, function => ?FUNCTION_NAME}).
+
+%% @doc Make a random integer in the range `[1, N]`.
+rand_int(N) when is_integer(N) andalso N >= 1 ->
+    rand:uniform(N);
+rand_int(N) ->
+    throw(#{reason => badarg, function => ?FUNCTION_NAME, expected => "positive integer", got => N}).
+
+%% TODO: call base64:encode(Bin, #{mode => urlsafe, padding => false})
+%% when oldest OTP to support is 26 or newer.
+urlsafe(Str0) ->
+    Str = replace(Str0, <<"+">>, <<"-">>),
+    replace(Str, <<"/">>, <<"_">>).
+
+%%------------------------------------------------------------------------------
+%% Data encoding
+%%------------------------------------------------------------------------------
+
+%% @doc Encode an integer to hex string. e.g. 15 as 'f'
+int2hexstr(Int) ->
+    erlang:integer_to_binary(Int, 16).
+
+%% @doc Encode bytes in hex string format.
+bin2hexstr(Bin) when is_binary(Bin) ->
+    emqx_utils:bin_to_hexstr(Bin, upper);
+%% If Bin is a bitstring which is not divisible by 8, we pad it and then do the
+%% conversion
+bin2hexstr(Bin) when is_bitstring(Bin), (8 - (bit_size(Bin) rem 8)) >= 4 ->
+    PadSize = 8 - (bit_size(Bin) rem 8),
+    Padding = <<0:PadSize>>,
+    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
+    <<_FirstByte:8, HexStr/binary>> = emqx_utils:bin_to_hexstr(BinToConvert, upper),
+    HexStr;
+bin2hexstr(Bin) when is_bitstring(Bin) ->
+    PadSize = 8 - (bit_size(Bin) rem 8),
+    Padding = <<0:PadSize>>,
+    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
+    emqx_utils:bin_to_hexstr(BinToConvert, upper).
+
+%% @doc Decode hex string into its original bytes.
+hexstr2bin(Str) when is_binary(Str) ->
+    emqx_utils:hexstr_to_bin(Str).
+
+%% @doc Encode any bytes to base64.
+base64_encode(Bin) ->
+    base64:encode(Bin).
+
+%% @doc Decode base64 encoded string.
+base64_decode(Bin) ->
+    base64:decode(Bin).
+
+%%------------------------------------------------------------------------------
+%% Hash functions
+%%------------------------------------------------------------------------------
+
+%% @doc Hash with all available algorithm provided by crypto module.
+%% Return hex format string.
+%% - md4 | md5
+%% - sha (sha1)
+%% - sha224 | sha256 | sha384 | sha512
+%% - sha3_224 | sha3_256 | sha3_384 | sha3_512
+%% - shake128 | shake256
+%% - blake2b | blake2s
+hash(<<"sha1">>, Bin) ->
+    hash(sha, Bin);
+hash(Algorithm, Bin) when is_binary(Algorithm) ->
+    Type =
+        try
+            binary_to_existing_atom(Algorithm)
+        catch
+            _:_ ->
+                throw(#{
+                    reason => unknown_hash_algorithm,
+                    algorithm => Algorithm
+                })
+        end,
+    hash(Type, Bin);
+hash(Type, Bin) when is_atom(Type) ->
+    %% lower is for backward compatibility
+    emqx_utils:bin_to_hexstr(crypto:hash(Type, Bin), lower).
+
+%% @doc Hash binary data to an integer within a specified range [Min, Max]
+hash_to_range(Bin, Min, Max) when
+    is_binary(Bin) andalso
+        size(Bin) > 0 andalso
+        is_integer(Min) andalso
+        is_integer(Max) andalso
+        Min =< Max
+->
+    Hash = hash(sha256, Bin),
+    HashNum = binary_to_integer(Hash, 16),
+    map_to_range(HashNum, Min, Max);
+hash_to_range(_, _, _) ->
+    throw(#{reason => badarg, function => ?FUNCTION_NAME}).
+
+map_to_range(Bin, Min, Max) when is_binary(Bin) andalso size(Bin) > 0 ->
+    HashNum = binary:decode_unsigned(Bin),
+    map_to_range(HashNum, Min, Max);
+map_to_range(Int, Min, Max) when
+    is_integer(Int) andalso
+        is_integer(Min) andalso
+        is_integer(Max) andalso
+        Min =< Max
+->
+    Range = Max - Min + 1,
+    Min + (Int rem Range);
+map_to_range(_, _, _) ->
+    throw(#{reason => badarg, function => ?FUNCTION_NAME}).

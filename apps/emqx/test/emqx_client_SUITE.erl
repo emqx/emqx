@@ -395,13 +395,14 @@ t_certdn_as_alias(_) ->
 
 test_cert_extraction_as_alias(Which) ->
     %% extract the first two chars
-    Re = <<"^(..).*$">>,
     ClientId = iolist_to_binary(["ClientIdFor_", atom_to_list(Which)]),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
-        extract_from => Which,
-        extract_regexp => Re,
-        extract_as => <<"alias">>
-    }),
+    {ok, Compiled} = emqx_variform:compile("substr(" ++ atom_to_list(Which) ++ ",0,2)"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"alias">>
+        }
+    ]),
     SslConf = emqx_common_test_helpers:client_mtls('tlsv1.2'),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId}, {port, 8883}, {ssl, true}, {ssl_opts, SslConf}
@@ -416,10 +417,13 @@ test_cert_extraction_as_alias(Which) ->
 
 t_client_attr_from_user_property(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
-        extract_from => user_property,
-        extract_as => <<"group">>
-    }),
+    {ok, Compiled} = emqx_variform:compile("user_property.group"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"group">>
+        }
+    ]),
     SslConf = emqx_common_test_helpers:client_mtls('tlsv1.3'),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId},
