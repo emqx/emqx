@@ -652,19 +652,6 @@ trans_required(Spec, true, _) -> Spec#{required => true};
 trans_required(Spec, _, path) -> Spec#{required => true};
 trans_required(Spec, _, _) -> Spec.
 
-trans_desc(Init, Hocon, Func, Name, Options) ->
-    Spec0 = trans_description(Init, Hocon, Options),
-    case Func =:= fun hocon_schema_to_spec/2 of
-        true ->
-            Spec0;
-        false ->
-            Spec1 = trans_label(Spec0, Hocon, Name, Options),
-            case Spec1 of
-                #{description := _} -> Spec1;
-                _ -> Spec1
-            end
-    end.
-
 trans_description(Spec, Hocon, Options) ->
     Desc =
         case desc_struct(Hocon) of
@@ -701,19 +688,6 @@ get_i18n_text(Lang, Namespace, Id, Tag, Default) ->
 %% At runtime, it's still the global config which controls the language.
 get_lang(#{i18n_lang := Lang}) -> Lang;
 get_lang(_) -> emqx:get_config([dashboard, i18n_lang]).
-
-trans_label(Spec, Hocon, Default, Options) ->
-    Label =
-        case desc_struct(Hocon) of
-            ?DESC(_, _) = Struct -> get_i18n(<<"label">>, Struct, Default, Options);
-            _ -> Default
-        end,
-    case Label =:= undefined of
-        true ->
-            Spec;
-        false ->
-            Spec#{label => Label}
-    end.
 
 desc_struct(Hocon) ->
     R =
@@ -772,7 +746,7 @@ response(Status, #{content := _} = Content, {Acc, RefsAcc, Module, Options}) ->
 response(Status, ?REF(StructName), {Acc, RefsAcc, Module, Options}) ->
     response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module, Options});
 response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module, Options}) ->
-    SchemaToSpec = schema_converter(Options),
+    SchemaToSpec = get_schema_converter(Options),
     {Spec, Refs} = SchemaToSpec(RRef, Module),
     Content = content(Spec),
     {
@@ -910,7 +884,7 @@ parse_object(PropList = [_ | _], Module, Options) when is_list(PropList) ->
 parse_object(Other, Module, Options) ->
     erlang:throw(
         {error, #{
-            msg => <<"Object only supports not empty proplists">>,
+            msg => <<"Object only supports non-empty fields list">>,
             args => Other,
             module => Module,
             options => Options
@@ -950,10 +924,10 @@ parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs
         true ->
             HoconType = hocon_schema:field_schema(Hocon, type),
             Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
-            SchemaToSpec = schema_converter(Options),
+            SchemaToSpec = get_schema_converter(Options),
             Init = maps:remove(
                 summary,
-                trans_desc(Init0, Hocon, SchemaToSpec, NameBin, Options)
+                trans_description(Init0, Hocon, Options)
             ),
             {Prop, Refs1} = SchemaToSpec(HoconType, Module),
             NewRequiredAcc =
@@ -1002,7 +976,7 @@ to_ref(Mod, StructName, Acc, RefsAcc) ->
     Ref = #{<<"$ref">> => ?TO_COMPONENTS_PARAM(Mod, StructName)},
     {[Ref | Acc], [{Mod, StructName, parameter} | RefsAcc]}.
 
-schema_converter(Options) ->
+get_schema_converter(Options) ->
     maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).
 
 hocon_error_msg(Reason) ->
