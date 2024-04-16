@@ -33,6 +33,11 @@
     fold/3
 ]).
 
+%% Management API:
+-export([
+    cold_get_subscription/2
+]).
+
 -export_type([subscription_state_id/0, subscription/0, subscription_state/0]).
 
 -include("emqx_persistent_session_ds.hrl").
@@ -205,6 +210,23 @@ to_map(S) ->
     Acc.
 fold(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(Fun, Acc, S).
+
+-spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
+    emqx_persistent_session_ds:subscription() | undefined.
+cold_get_subscription(SessionId, Topic) ->
+    case emqx_persistent_session_ds_state:cold_get_subscription(SessionId, Topic) of
+        [Sub = #{current_state := SStateId}] ->
+            case
+                emqx_persistent_session_ds_state:cold_get_subscription_state(SessionId, SStateId)
+            of
+                [#{subopts := Subopts}] ->
+                    Sub#{subopts => Subopts};
+                _ ->
+                    undefined
+            end;
+        _ ->
+            undefined
+    end.
 
 %%================================================================================
 %% Internal functions

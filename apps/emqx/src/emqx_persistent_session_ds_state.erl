@@ -22,6 +22,9 @@
 %% It is responsible for saving, caching, and restoring session state.
 %% It is completely devoid of business logic. Not even the default
 %% values should be set in this module.
+%%
+%% Session process MUST NOT use `cold_*' functions! They are reserved
+%% for use in the management APIs.
 -module(emqx_persistent_session_ds_state).
 
 -export([create_tables/0]).
@@ -40,12 +43,14 @@
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
 -export([
     get_subscription_state/2,
+    cold_get_subscription_state/2,
     fold_subscription_states/3,
     put_subscription_state/3,
     del_subscription_state/2
 ]).
 -export([
     get_subscription/2,
+    cold_get_subscription/2,
     fold_subscriptions/3,
     n_subscriptions/1,
     put_subscription/3,
@@ -383,6 +388,11 @@ new_id(Rec) ->
 get_subscription(TopicFilter, Rec) ->
     gen_get(?subscriptions, TopicFilter, Rec).
 
+-spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
+    [emqx_persistent_session_ds_subs:subscription()].
+cold_get_subscription(SessionId, Topic) ->
+    kv_pmap_read(?subscription_tab, SessionId, Topic).
+
 -spec fold_subscriptions(fun(), Acc, t()) -> Acc.
 fold_subscriptions(Fun, Acc, Rec) ->
     gen_fold(?subscriptions, Fun, Acc, Rec).
@@ -409,6 +419,13 @@ del_subscription(TopicFilter, Rec) ->
     emqx_persistent_session_ds_subs:subscription_state() | undefined.
 get_subscription_state(SStateId, Rec) ->
     gen_get(?subscription_states, SStateId, Rec).
+
+-spec cold_get_subscription_state(
+    emqx_persistent_session_ds:id(), emqx_persistent_session_ds_subs:subscription_state_id()
+) ->
+    [emqx_persistent_session_ds_subs:subscription_state()].
+cold_get_subscription_state(SessionId, SStateId) ->
+    kv_pmap_read(?subscription_states_tab, SessionId, SStateId).
 
 -spec fold_subscription_states(fun(), Acc, t()) -> Acc.
 fold_subscription_states(Fun, Acc, Rec) ->
@@ -674,6 +691,14 @@ kv_pmap_persist(Tab, SessionId, Key, Val0) ->
     %% Write data to mnesia:
     Val = encoder(encode, Tab, Val0),
     mnesia:write(Tab, #kv{k = {SessionId, Key}, v = Val}, write).
+
+kv_pmap_read(Table, SessionId, Key) ->
+    lists:map(
+        fun(#kv{v = Val}) ->
+            encoder(decode, Table, Val)
+        end,
+        mnesia:dirty_read(Table, {SessionId, Key})
+    ).
 
 kv_pmap_restore(Table, SessionId) ->
     MS = [{#kv{k = {SessionId, '$1'}, v = '$2'}, [], [{{'$1', '$2'}}]}],

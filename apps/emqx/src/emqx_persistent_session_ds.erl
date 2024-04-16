@@ -75,7 +75,8 @@
 
 %% Managment APIs:
 -export([
-    list_client_subscriptions/1
+    list_client_subscriptions/1,
+    get_client_subscription/2
 ]).
 
 %% session table operations
@@ -735,6 +736,11 @@ list_client_subscriptions(ClientId) ->
         false ->
             {error, not_found}
     end.
+
+-spec get_client_subscription(emqx_types:clientid(), emqx_types:topic()) ->
+    subscription() | undefined.
+get_client_subscription(ClientId, Topic) ->
+    emqx_persistent_session_ds_subs:cold_get_subscription(ClientId, Topic).
 
 %%--------------------------------------------------------------------
 %% Session tables operations
