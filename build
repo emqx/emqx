@@ -493,7 +493,7 @@ make_docker() {
     if [ "${DOCKER_PUSH:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--push)
     fi
-    if [ "${DOCKER_LOAD:-false}" = true ]; then
+    if [ "${DOCKER_LOAD:-true}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--load)
     fi
     if [ -d "${REBAR_GIT_CACHE_DIR:-}" ]; then
