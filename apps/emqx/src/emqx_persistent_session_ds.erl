@@ -767,7 +767,12 @@ sync(ClientId) ->
 %% the broker.
 -spec session_open(id(), emqx_types:clientinfo(), emqx_types:conninfo(), emqx_maybe:t(message())) ->
     session() | false.
-session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
+session_open(
+    SessionId,
+    ClientInfo,
+    NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer},
+    MaybeWillMsg
+) ->
     NowMS = now_ms(),
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
@@ -787,7 +792,8 @@ session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
                     ),
                     S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
                     S5 = set_clientinfo(ClientInfo, S4),
-                    S = emqx_persistent_session_ds_state:commit(S5),
+                    S6 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S5),
+                    S = emqx_persistent_session_ds_state:commit(S6),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
@@ -810,7 +816,9 @@ session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
     emqx_session:conf()
 ) ->
     session().
-session_ensure_new(Id, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+session_ensure_new(
+    Id, ClientInfo, ConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}, MaybeWillMsg, Conf
+) ->
     ?tp(debug, persistent_session_ds_ensure_new, #{id => Id}),
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
@@ -834,7 +842,8 @@ session_ensure_new(Id, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     ),
     S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
     S6 = set_clientinfo(ClientInfo, S5),
-    S = emqx_persistent_session_ds_state:commit(S6),
+    S7 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S6),
+    S = emqx_persistent_session_ds_state:commit(S7),
     #{
         id => Id,
         props => Conf,

@@ -1747,6 +1747,7 @@ format_channel_info(undefined, {ClientId, PSInfo0 = #{}}, _Opts) ->
 
 format_persistent_session_info(ClientId, PSInfo0) ->
     Metadata = maps:get(metadata, PSInfo0, #{}),
+    {ProtoName, ProtoVer} = maps:get(protocol, Metadata),
     PSInfo1 = maps:with([created_at, expiry_interval], Metadata),
     CreatedAt = maps:get(created_at, PSInfo1),
     case Metadata of
@@ -1765,7 +1766,9 @@ format_persistent_session_info(ClientId, PSInfo0) ->
         is_persistent => true,
         port => Port,
         heap_size => 0,
-        mqueue_len => 0
+        mqueue_len => 0,
+        proto_name => ProtoName,
+        proto_ver => ProtoVer
     },
     PSInfo = lists:foldl(
         fun result_format_time_fun/2,

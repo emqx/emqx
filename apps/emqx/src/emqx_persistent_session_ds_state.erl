@@ -33,6 +33,7 @@
 -export([get_clientinfo/1, set_clientinfo/2]).
 -export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
 -export([get_peername/1, set_peername/2]).
+-export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
@@ -66,7 +67,8 @@
     seqno_type/0,
     stream_key/0,
     rank_key/0,
-    session_iterator/0
+    session_iterator/0,
+    protocol/0
 ]).
 
 -include("emqx_mqtt.hrl").
@@ -108,13 +110,16 @@
         dirty :: #{K => dirty | del}
     }.
 
+-type protocol() :: {binary(), emqx_types:proto_ver()}.
+
 -type metadata() ::
     #{
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
         ?expiry_interval => non_neg_integer(),
         ?last_id => integer(),
-        ?peername => emqx_types:peername()
+        ?peername => emqx_types:peername(),
+        ?protocol => protocol()
     }.
 
 -type seqno_type() ::
@@ -320,6 +325,14 @@ get_peername(Rec) ->
 -spec set_peername(emqx_types:peername(), t()) -> t().
 set_peername(Val, Rec) ->
     set_meta(?peername, Val, Rec).
+
+-spec get_protocol(t()) -> protocol() | undefined.
+get_protocol(Rec) ->
+    get_meta(?protocol, Rec).
+
+-spec set_protocol(protocol(), t()) -> t().
+set_protocol(Val, Rec) ->
+    set_meta(?protocol, Val, Rec).
 
 -spec get_clientinfo(t()) -> emqx_maybe:t(emqx_types:clientinfo()).
 get_clientinfo(Rec) ->

@@ -74,10 +74,12 @@
 -define(created_at, created_at).
 -define(last_alive_at, last_alive_at).
 -define(expiry_interval, expiry_interval).
-%% Unique integer used to create unique identities
+%% Unique integer used to create unique identities:
 -define(last_id, last_id).
+%% Connection info (relevent for the dashboard):
 -define(peername, peername).
 -define(will_message, will_message).
 -define(clientinfo, clientinfo).
+-define(protocol, protocol).
 
 -endif.

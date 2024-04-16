@@ -184,7 +184,7 @@ list_all_pubranges(Node) ->
 
 session_open(Node, ClientId) ->
     ClientInfo = #{},
-    ConnInfo = #{peername => {undefined, undefined}},
+    ConnInfo = #{peername => {undefined, undefined}, proto_name => <<"MQTT">>, proto_ver => 5},
     WillMsg = undefined,
     erpc:call(
         Node,
