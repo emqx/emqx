@@ -77,7 +77,7 @@ fields(s3_upload_parameters) ->
         [
             {content,
                 hoconsc:mk(
-                    string(),
+                    emqx_schema:template(),
                     #{
                         required => false,
                         default => <<"${.}">>,

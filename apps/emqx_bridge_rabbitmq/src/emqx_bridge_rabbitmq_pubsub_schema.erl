@@ -99,7 +99,7 @@ fields(action_parameters) ->
             )},
         {payload_template,
             hoconsc:mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     default => <<"">>,
                     desc => ?DESC(?CONNECTOR_SCHEMA, "payload_template")

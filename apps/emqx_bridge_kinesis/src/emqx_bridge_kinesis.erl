@@ -150,7 +150,7 @@ fields(producer) ->
     [
         {payload_template,
             sc(
-                binary(),
+                emqx_schema:template(),
                 #{
                     default => <<"${.}">>,
                     desc => ?DESC("payload_template")

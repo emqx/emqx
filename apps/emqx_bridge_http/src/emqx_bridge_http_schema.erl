@@ -287,7 +287,7 @@ method_field() ->
 body_field() ->
     {body,
         mk(
-            binary(),
+            emqx_schema:template(),
             #{
                 default => undefined,
                 desc => ?DESC("config_body")

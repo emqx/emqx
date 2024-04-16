@@ -74,7 +74,7 @@ fields(s3_upload) ->
     [
         {bucket,
             mk(
-                string(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("bucket"),
                     required => true
@@ -82,7 +82,7 @@ fields(s3_upload) ->
             )},
         {key,
             mk(
-                string(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("key"),
                     required => true

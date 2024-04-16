@@ -167,13 +167,13 @@ fields(action_parameters) ->
             })},
 
         {partition_key,
-            mk(binary(), #{
-                required => false, desc => ?DESC(emqx_bridge_hstreamdb_connector, "partition_key")
+            mk(emqx_schema:template(), #{
+                required => false,
+                desc => ?DESC(emqx_bridge_hstreamdb_connector, "partition_key")
             })},
 
         {grpc_flush_timeout, fun grpc_flush_timeout/1},
-        {record_template,
-            mk(binary(), #{default => <<"${payload}">>, desc => ?DESC("record_template")})},
+        {record_template, record_template_schema()},
         {aggregation_pool_size,
             mk(pos_integer(), #{
                 default => ?DEFAULT_AGG_POOL_SIZE, desc => ?DESC("aggregation_pool_size")
@@ -222,6 +222,12 @@ fields("put") ->
     hstream_bridge_common_fields() ++
         connector_fields().
 
+record_template_schema() ->
+    mk(emqx_schema:template(), #{
+        default => <<"${payload}">>,
+        desc => ?DESC("record_template")
+    }).
+
 grpc_timeout(type) -> emqx_schema:timeout_duration_ms();
 grpc_timeout(desc) -> ?DESC(emqx_bridge_hstreamdb_connector, "grpc_timeout");
 grpc_timeout(default) -> ?DEFAULT_GRPC_TIMEOUT_RAW;
@@ -239,8 +245,7 @@ hstream_bridge_common_fields() ->
         [
             {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
             {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
-            {record_template,
-                mk(binary(), #{default => <<"${payload}">>, desc => ?DESC("record_template")})}
+            {record_template, record_template_schema()}
         ] ++
         emqx_resource_schema:fields("resource_opts").
 

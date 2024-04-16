@@ -181,7 +181,7 @@ fields("post", Type) ->
 cql_field() ->
     {cql,
         mk(
-            binary(),
+            emqx_schema:template(),
             #{desc => ?DESC("cql_template"), default => ?DEFAULT_CQL, format => <<"sql">>}
         )}.
 

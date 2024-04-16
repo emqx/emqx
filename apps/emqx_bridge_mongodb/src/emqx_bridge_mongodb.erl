@@ -44,8 +44,10 @@ roots() -> [].
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("enable"), default => true})},
-        {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
-        {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})},
+        {collection,
+            mk(emqx_schema:template(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
+        {payload_template,
+            mk(emqx_schema:template(), #{required => false, desc => ?DESC("payload_template")})},
         {resource_opts,
             mk(
                 ref(?MODULE, "creation_opts"),

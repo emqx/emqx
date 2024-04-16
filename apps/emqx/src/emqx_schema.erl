@@ -61,6 +61,7 @@
 }.
 -type url() :: binary().
 -type json_binary() :: binary().
+-type template() :: binary().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -78,6 +79,7 @@
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 -typerefl_from_string({url/0, emqx_schema, to_url}).
 -typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
+-typerefl_from_string({template/0, emqx_schema, to_template}).
 
 -type parsed_server() :: #{
     hostname := string(),
@@ -120,7 +122,8 @@
     to_erl_cipher_suite/1,
     to_comma_separated_atoms/1,
     to_url/1,
-    to_json_binary/1
+    to_json_binary/1,
+    to_template/1
 ]).
 
 -export([
@@ -160,7 +163,8 @@
     comma_separated_atoms/0,
     url/0,
     json_binary/0,
-    port_number/0
+    port_number/0,
+    template/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -2593,6 +2597,9 @@ to_json_binary(Str) ->
         Error ->
             Error
     end.
+
+to_template(Str) ->
+    {ok, iolist_to_binary(Str)}.
 
 %% @doc support the following format:
 %%  - 127.0.0.1:1883

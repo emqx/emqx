@@ -122,7 +122,7 @@ fields(producer) ->
             )},
         {ordering_key_template,
             sc(
-                binary(),
+                emqx_schema:template(),
                 #{
                     default => <<>>,
                     desc => ?DESC("ordering_key_template")
@@ -130,7 +130,7 @@ fields(producer) ->
             )},
         {payload_template,
             sc(
-                binary(),
+                emqx_schema:template(),
                 #{
                     default => <<>>,
                     desc => ?DESC("payload_template")
@@ -201,8 +201,11 @@ fields(consumer_topic_mapping) ->
         {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
         {payload_template,
             mk(
-                string(),
-                #{default => <<"${.}">>, desc => ?DESC(consumer_mqtt_payload)}
+                emqx_schema:template(),
+                #{
+                    default => <<"${.}">>,
+                    desc => ?DESC(consumer_mqtt_payload)
+                }
             )}
     ];
 fields("consumer_resource_opts") ->
@@ -221,14 +224,18 @@ fields("consumer_resource_opts") ->
 fields(key_value_pair) ->
     [
         {key,
-            mk(binary(), #{
+            mk(emqx_schema:template(), #{
                 required => true,
                 validator => [
                     emqx_resource_validator:not_empty("Key templates must not be empty")
                 ],
                 desc => ?DESC(kv_pair_key)
             })},
-        {value, mk(binary(), #{required => true, desc => ?DESC(kv_pair_value)})}
+        {value,
+            mk(emqx_schema:template(), #{
+                required => true,
+                desc => ?DESC(kv_pair_value)
+            })}
     ];
 fields("get_producer") ->
     emqx_bridge_schema:status_fields() ++ fields("post_producer");

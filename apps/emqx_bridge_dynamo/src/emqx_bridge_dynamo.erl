@@ -160,13 +160,7 @@ fields(dynamo_action) ->
     );
 fields(action_parameters) ->
     Parameters =
-        [
-            {template,
-                mk(
-                    binary(),
-                    #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
-                )}
-        ] ++ emqx_bridge_dynamo_connector:fields(config),
+        [{template, template_field_schema()}] ++ emqx_bridge_dynamo_connector:fields(config),
     lists:foldl(
         fun(Key, Acc) ->
             proplists:delete(Key, Acc)
@@ -199,11 +193,7 @@ fields(connector_resource_opts) ->
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {template,
-            mk(
-                binary(),
-                #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
-            )},
+        {template, template_field_schema()},
         {local_topic,
             mk(
                 binary(),
@@ -229,6 +219,15 @@ fields("put") ->
     fields("config");
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post").
+
+template_field_schema() ->
+    mk(
+        emqx_schema:template(),
+        #{
+            desc => ?DESC("template"),
+            default => ?DEFAULT_TEMPLATE
+        }
+    ).
 
 desc("config") ->
     ?DESC("desc_config");
