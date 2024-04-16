@@ -74,7 +74,7 @@ defmodule EMQXUmbrella.MixProject do
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
       {:hocon, github: "emqx/hocon", tag: "0.42.1", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
-      {:esasl, github: "emqx/esasl", tag: "0.2.0"},
+      {:esasl, github: "emqx/esasl", tag: "0.2.1"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.11", override: true},
