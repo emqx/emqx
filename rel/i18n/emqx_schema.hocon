@@ -1587,9 +1587,9 @@ client_attrs_init_expression {
   label: "Client Attribute Extraction Regular Expression"
   desc: """~
     A one line expression to evaluate a set of predefined string functions (like in the rule engine SQL statements).
-    The expression accepts direct variable reference, or one function call with nested calls for its arguments,
-    but it does not provide variable binding or user-defined functions and pre-bound variables.
-    For example, to extract the prefix of client ID delimited by a dot: `nth(1, tokens(clientid, '.'))`.
+    The expression can be a function call with nested calls as its arguments, or direct variable reference.
+    So far, it does not provide user-defined variable binding (like `var a=1`) or user-defined functions.
+    As an example, to extract the prefix of client ID delimited by a dot: `nth(1, tokens(clientid, '.'))`.
 
     The variables pre-bound variables are:
     - `cn`: Client's TLS certificate common name.
