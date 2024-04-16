@@ -1768,7 +1768,8 @@ format_persistent_session_info(ClientId, PSInfo0) ->
         heap_size => 0,
         mqueue_len => 0,
         proto_name => ProtoName,
-        proto_ver => ProtoVer
+        proto_ver => ProtoVer,
+        subscriptions_cnt => maps:size(maps:get(subscriptions, PSInfo0, #{}))
     },
     PSInfo = lists:foldl(
         fun result_format_time_fun/2,
