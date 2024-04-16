@@ -176,7 +176,8 @@ format(WhichNode, {{Topic, _Subscriber}, SubOpts}) ->
         #{
             topic => emqx_topic:maybe_format_share(Topic),
             clientid => maps:get(subid, SubOpts, null),
-            node => WhichNode
+            node => WhichNode,
+            durable => false
         },
         maps:with([qos, nl, rap, rh], SubOpts)
     ).
@@ -196,7 +197,22 @@ check_match_topic(#{<<"match_topic">> := MatchTopic}) ->
 check_match_topic(_) ->
     ok.
 
-do_subscriptions_query(QString) ->
+do_subscriptions_query(QString0) ->
+    {IsDurable, QString} = maps:take(
+        <<"durable">>, maps:merge(#{<<"durable">> => undefined}, QString0)
+    ),
+    case emqx_persistent_message:is_persistence_enabled() andalso IsDurable of
+        false ->
+            do_subscriptions_query_mem(QString);
+        true ->
+            do_subscriptions_query_persistent(QString);
+        undefined ->
+            merge_queries(
+                QString, fun do_subscriptions_query_mem/1, fun do_subscriptions_query_persistent/1
+            )
+    end.
+
+do_subscriptions_query_mem(QString) ->
     Args = [?SUBOPTION, QString, ?SUBS_QSCHEMA, fun ?MODULE:qs2ms/2, fun ?MODULE:format/2],
     case maps:get(<<"node">>, QString, undefined) of
         undefined ->
@@ -210,8 +226,196 @@ do_subscriptions_query(QString) ->
             end
     end.
 
+do_subscriptions_query_persistent(#{<<"page">> := Page, <<"limit">> := Limit} = QString) ->
+    Count = emqx_persistent_session_ds_router:stats(n_routes),
+    %% TODO: filtering by client ID can be implemented more efficiently:
+    FilterTopic = maps:get(<<"topic">>, QString, '_'),
+    Stream0 = emqx_persistent_session_ds_router:stream(FilterTopic),
+    SubPred = fun(Sub) ->
+        compare_optional(<<"topic">>, QString, topic, Sub) andalso
+            compare_optional(<<"clientid">>, QString, clientid, Sub) andalso
+            compare_optional(<<"qos">>, QString, qos, Sub) andalso
+            compare_match_topic_optional(<<"match_topic">>, QString, topic, Sub)
+    end,
+    NDropped = (Page - 1) * Limit,
+    {_, Stream} = consume_n_matching(
+        fun persistent_route_to_subscription/1, SubPred, NDropped, Stream0
+    ),
+    {Subscriptions, Stream1} = consume_n_matching(
+        fun persistent_route_to_subscription/1, SubPred, Limit, Stream
+    ),
+    HasNext = Stream1 =/= [],
+    Meta =
+        case maps:is_key(<<"match_topic">>, QString) orelse maps:is_key(<<"qos">>, QString) of
+            true ->
+                %% Fuzzy searches shouldn't return count:
+                #{
+                    limit => Limit,
+                    page => Page,
+                    hasnext => HasNext
+                };
+            false ->
+                #{
+                    count => Count,
+                    limit => Limit,
+                    page => Page,
+                    hasnext => HasNext
+                }
+        end,
+
+    #{
+        meta => Meta,
+        data => Subscriptions
+    }.
+
+compare_optional(QField, Query, SField, Subscription) ->
+    case Query of
+        #{QField := Expected} ->
+            maps:get(SField, Subscription) =:= Expected;
+        _ ->
+            true
+    end.
+
+compare_match_topic_optional(QField, Query, SField, Subscription) ->
+    case Query of
+        #{QField := TopicFilter} ->
+            Topic = maps:get(SField, Subscription),
+            emqx_topic:match(Topic, TopicFilter);
+        _ ->
+            true
+    end.
+
+%% @doc Drop elements from the stream until encountered N elements
+%% matching the predicate function.
+-spec consume_n_matching(
+    fun((T) -> Q),
+    fun((Q) -> boolean()),
+    non_neg_integer(),
+    emqx_utils_stream:stream(T)
+) -> {[Q], emqx_utils_stream:stream(T) | empty}.
+consume_n_matching(Map, Pred, N, S) ->
+    consume_n_matching(Map, Pred, N, S, []).
+
+consume_n_matching(_Map, _Pred, _N, [], Acc) ->
+    {lists:reverse(Acc), []};
+consume_n_matching(_Map, _Pred, 0, S, Acc) ->
+    {lists:reverse(Acc), S};
+consume_n_matching(Map, Pred, N, S0, Acc) ->
+    case emqx_utils_stream:next(S0) of
+        [] ->
+            consume_n_matching(Map, Pred, N, [], Acc);
+        [Elem | S] ->
+            Mapped = Map(Elem),
+            case Pred(Mapped) of
+                true -> consume_n_matching(Map, Pred, N - 1, S, [Mapped | Acc]);
+                false -> consume_n_matching(Map, Pred, N, S, Acc)
+            end
+    end.
+
+persistent_route_to_subscription(#route{topic = Topic, dest = SessionId}) ->
+    case emqx_persistent_session_ds:get_client_subscription(SessionId, Topic) of
+        #{subopts := SubOpts} ->
+            #{qos := Qos, nl := Nl, rh := Rh, rap := Rap} = SubOpts,
+            #{
+                topic => Topic,
+                clientid => SessionId,
+                node => all,
+
+                qos => Qos,
+                nl => Nl,
+                rh => Rh,
+                rap => Rap,
+                durable => true
+            };
+        undefined ->
+            #{
+                topic => Topic,
+                clientid => SessionId,
+                node => all,
+                durable => true
+            }
+    end.
+
+%% @private This function merges paginated results from two sources.
+%%
+%% Note: this implementation is far from ideal: `count' for the
+%% queries may be missing, it may be larger than the actual number of
+%% elements. This may lead to empty pages that can confuse the user.
+%%
+%% Not much can be done to mitigate that, though: since the count may
+%% be incorrect, we cannot run simple math to determine when one
+%% stream begins and another ends: it requires actual iteration.
+%%
+%% Ideally, the dashboard must be split between durable and mem
+%% subscriptions, and this function should be removed for good.
+merge_queries(QString0, Q1, Q2) ->
+    #{<<"limit">> := Limit, <<"page">> := Page} = QString0,
+    C1 = resp_count(QString0, Q1),
+    C2 = resp_count(QString0, Q2),
+    Meta =
+        case is_number(C1) andalso is_number(C2) of
+            true ->
+                #{
+                    count => C1 + C2,
+                    limit => Limit,
+                    page => Page
+                };
+            false ->
+                #{
+                    limit => Limit,
+                    page => Page
+                }
+        end,
+    case {C1, C2} of
+        {_, 0} ->
+            %% The second query is empty. Just return the result of Q1 as usual:
+            Q1(QString0);
+        {0, _} ->
+            %% The first query is empty. Just return the result of Q2 as usual:
+            Q2(QString0);
+        _ when is_number(C1) ->
+            %% Both queries are potentially non-empty, but we at least
+            %% have the page number for the first query. We try to
+            %% stich the pages together and thus respect the limit
+            %% (except for the page where the results switch from Q1
+            %% to Q2).
+
+            %% Page where data from the second query is estimated to
+            %% begin:
+            Q2Page = ceil(C1 / Limit),
+            case Page =< Q2Page of
+                true ->
+                    #{data := Data, meta := #{hasnext := HN}} = Q1(QString0),
+                    #{
+                        data => Data,
+                        meta => Meta#{hasnext => HN orelse C2 > 0}
+                    };
+                false ->
+                    QString = QString0#{<<"page">> => Page - Q2Page},
+                    #{data := Data, meta := #{hasnext := HN}} = Q2(QString),
+                    #{data => Data, meta => Meta#{hasnext => HN}}
+            end;
+        _ ->
+            %% We don't know how many items is there in the first
+            %% query, and the second query is not empty (this includes
+            %% the case where `C2' is `undefined'). Best we can do is
+            %% to interleave the queries. This may produce less
+            %% results per page than `Limit'.
+            QString = QString0#{<<"limit">> => ceil(Limit / 2)},
+            #{data := D1, meta := #{hasnext := HN1}} = Q1(QString),
+            #{data := D2, meta := #{hasnext := HN2}} = Q2(QString),
+            #{
+                meta => Meta#{hasnext => HN1 or HN2},
+                data => D1 ++ D2
+            }
+    end.
+
+resp_count(Query, QFun) ->
+    #{meta := Meta} = QFun(Query#{<<"limit">> => 1, <<"page">> => 1}),
+    maps:get(count, Meta, undefined).
+
 %%--------------------------------------------------------------------
-%% QueryString to MatchSpec
+%% QueryString to MatchSpec (mem sessions)
 %%--------------------------------------------------------------------
 
 -spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().

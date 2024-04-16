@@ -36,17 +36,72 @@
 -define(TOPIC_SORT, #{?TOPIC1 => 1, ?TOPIC2 => 2}).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, mem},
+        {group, persistent}
+    ].
+
+groups() ->
+    CommonTCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {mem, CommonTCs},
+        %% Shared subscriptions are currently not supported:
+        {persistent, CommonTCs -- [t_list_with_shared_sub, t_subscription_api]}
+    ].
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite(),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx,
+                "session_persistence {\n"
+                "    enable = true\n"
+                "    renew_streams_interval = 10ms\n"
+                "}"},
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)).
+
+init_per_group(persistent, Config) ->
+    ClientConfig = #{
+        username => ?USERNAME,
+        clientid => ?CLIENTID,
+        proto_ver => v5,
+        clean_start => true,
+        properties => #{'Session-Expiry-Interval' => 300}
+    },
+    [{client_config, ClientConfig}, {durable, true} | Config];
+init_per_group(mem, Config) ->
+    ClientConfig = #{
+        username => ?USERNAME, clientid => ?CLIENTID, proto_ver => v5, clean_start => true
+    },
+    [{client_config, ClientConfig}, {durable, false} | Config].
+
+end_per_group(_, Config) ->
     Config.
 
-end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite().
+init_per_testcase(_TC, Config) ->
+    case ?config(client_config, Config) of
+        ClientConfig when is_map(ClientConfig) ->
+            {ok, Client} = emqtt:start_link(ClientConfig),
+            {ok, _} = emqtt:connect(Client),
+            [{client, Client} | Config];
+        _ ->
+            Config
+    end.
+
+end_per_testcase(_TC, Config) ->
+    Client = proplists:get_value(client, Config),
+    emqtt:disconnect(Client).
 
 t_subscription_api(Config) ->
     Client = proplists:get_value(client, Config),
+    Durable = atom_to_list(?config(durable, Config)),
     {ok, _, _} = emqtt:subscribe(
         Client, [
             {?TOPIC1, [{rh, ?TOPIC1RH}, {rap, ?TOPIC1RAP}, {nl, ?TOPIC1NL}, {qos, ?TOPIC1QOS}]}
@@ -54,12 +109,13 @@ t_subscription_api(Config) ->
     ),
     {ok, _, _} = emqtt:subscribe(Client, ?TOPIC2),
     Path = emqx_mgmt_api_test_util:api_path(["subscriptions"]),
+    timer:sleep(100),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path),
     Data = emqx_utils_json:decode(Response, [return_maps]),
     Meta = maps:get(<<"meta">>, Data),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
     ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
-    ?assertEqual(2, maps:get(<<"count">>, Meta)),
+    ?assertEqual(2, maps:get(<<"count">>, Meta), Data),
     Subscriptions = maps:get(<<"data">>, Data),
     ?assertEqual(length(Subscriptions), 2),
     Sort =
@@ -90,7 +146,8 @@ t_subscription_api(Config) ->
         {"node", atom_to_list(node())},
         {"qos", "0"},
         {"share_group", "test_group"},
-        {"match_topic", "t/#"}
+        {"match_topic", "t/#"},
+        {"durable", Durable}
     ],
     Headers = emqx_mgmt_api_test_util:auth_header_(),
 
@@ -103,6 +160,7 @@ t_subscription_api(Config) ->
 
 t_subscription_fuzzy_search(Config) ->
     Client = proplists:get_value(client, Config),
+    Durable = atom_to_list(?config(durable, Config)),
     Topics = [
         <<"t/foo">>,
         <<"t/foo/bar">>,
@@ -116,7 +174,8 @@ t_subscription_fuzzy_search(Config) ->
     MatchQs = [
         {"clientid", ?CLIENTID},
         {"node", atom_to_list(node())},
-        {"match_topic", "t/#"}
+        {"match_topic", "t/#"},
+        {"durable", Durable}
     ],
 
     MatchData1 = #{<<"meta">> := MatchMeta1} = request_json(get, MatchQs, Headers),
@@ -130,12 +189,13 @@ t_subscription_fuzzy_search(Config) ->
     LimitMatchQuery = [
         {"clientid", ?CLIENTID},
         {"match_topic", "+/+/+"},
-        {"limit", "3"}
+        {"limit", "3"},
+        {"durable", Durable}
     ],
 
     MatchData2 = #{<<"meta">> := MatchMeta2} = request_json(get, LimitMatchQuery, Headers),
     ?assertEqual(#{<<"page">> => 1, <<"limit">> => 3, <<"hasnext">> => true}, MatchMeta2),
-    ?assertEqual(3, length(maps:get(<<"data">>, MatchData2))),
+    ?assertEqual(3, length(maps:get(<<"data">>, MatchData2)), MatchData2),
 
     MatchData2P2 =
         #{<<"meta">> := MatchMeta2P2} =
@@ -176,8 +236,8 @@ t_list_with_shared_sub(_Config) ->
 
     ok.
 
-t_list_with_invalid_match_topic(_Config) ->
-    Client = proplists:get_value(client, _Config),
+t_list_with_invalid_match_topic(Config) ->
+    Client = proplists:get_value(client, Config),
     RealTopic = <<"t/+">>,
     Topic = <<"$share/g1/", RealTopic/binary>>,
 
@@ -212,12 +272,3 @@ request_json(Method, Query, Headers) when is_list(Query) ->
 
 path() ->
     emqx_mgmt_api_test_util:api_path(["subscriptions"]).
-
-init_per_testcase(_TC, Config) ->
-    {ok, Client} = emqtt:start_link(#{username => ?USERNAME, clientid => ?CLIENTID, proto_ver => v5}),
-    {ok, _} = emqtt:connect(Client),
-    [{client, Client} | Config].
-
-end_per_testcase(_TC, Config) ->
-    Client = proplists:get_value(client, Config),
-    emqtt:disconnect(Client).
