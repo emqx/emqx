@@ -1763,7 +1763,9 @@ format_persistent_session_info(ClientId, PSInfo0) ->
         connected_at => CreatedAt,
         ip_address => IpAddress,
         is_persistent => true,
-        port => Port
+        port => Port,
+        heap_size => 0,
+        mqueue_len => 0
     },
     PSInfo = lists:foldl(
         fun result_format_time_fun/2,

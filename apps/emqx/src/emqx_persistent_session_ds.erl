@@ -786,7 +786,7 @@ session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
                         maps:get(peername, NewConnInfo), S2
                     ),
                     S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
-                    S5 = emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S4),
+                    S5 = set_clientinfo(ClientInfo, S4),
                     S = emqx_persistent_session_ds_state:commit(S5),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
@@ -833,7 +833,7 @@ session_ensure_new(Id, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         ]
     ),
     S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
-    S6 = emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S5),
+    S6 = set_clientinfo(ClientInfo, S5),
     S = emqx_persistent_session_ds_state:commit(S6),
     #{
         id => Id,
@@ -863,6 +863,11 @@ session_drop(ID, Reason) ->
 
 now_ms() ->
     erlang:system_time(millisecond).
+
+set_clientinfo(ClientInfo0, S) ->
+    %% Remove unnecessary fields from the clientinfo:
+    ClientInfo = maps:without([cn, dn, auth_result], ClientInfo0),
+    emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S).
 
 %%--------------------------------------------------------------------
 %% RPC targets (v1)
