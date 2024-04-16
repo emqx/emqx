@@ -10,6 +10,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(emqx_config_handler).
+-behaviour(emqx_config_backup).
 
 -export([
     pre_config_update/3,
@@ -25,6 +26,8 @@
     update_key/1,
     update_setting/1
 ]).
+
+-export([import_config/1]).
 
 -define(CONF_KEY_PATH, [license]).
 
@@ -58,20 +61,19 @@ unload() ->
 -spec update_key(binary() | string()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_key(Value) when is_binary(Value); is_list(Value) ->
-    Result = emqx_conf:update(
-        ?CONF_KEY_PATH,
-        {key, Value},
-        #{rawconf_with_defaults => true, override_to => cluster}
-    ),
+    Result = exec_config_update({key, Value}),
     handle_config_update_result(Result).
 
 update_setting(Setting) when is_map(Setting) ->
-    Result = emqx_conf:update(
-        ?CONF_KEY_PATH,
-        {setting, Setting},
-        #{rawconf_with_defaults => true, override_to => cluster}
-    ),
+    Result = exec_config_update({setting, Setting}),
     handle_config_update_result(Result).
+
+exec_config_update(Param) ->
+    emqx_conf:update(
+        ?CONF_KEY_PATH,
+        Param,
+        #{rawconf_with_defaults => true, override_to => cluster}
+    ).
 
 %%------------------------------------------------------------------------------
 %% emqx_hooks
@@ -104,6 +106,17 @@ check(_ConnInfo, AckProps) ->
                 #{tag => "LICENSE"}
             ),
             {stop, {error, ?RC_QUOTA_EXCEEDED}}
+    end.
+
+import_config(#{<<"license">> := Config}) ->
+    OldConf = emqx:get_config(?CONF_KEY_PATH),
+    case exec_config_update(Config) of
+        {ok, #{config := NewConf}} ->
+            Changed = maps:get(changed, emqx_utils_maps:diff_maps(NewConf, OldConf)),
+            Changed1 = lists:map(fun(Key) -> [license, Key] end, maps:keys(Changed)),
+            {ok, #{root_key => license, changed => Changed1}};
+        Error ->
+            {error, #{root_key => license, reason => Error}}
     end.
 
 %%------------------------------------------------------------------------------
