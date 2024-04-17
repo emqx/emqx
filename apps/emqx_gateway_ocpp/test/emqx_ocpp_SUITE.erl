@@ -16,6 +16,7 @@
 
 -module(emqx_ocpp_SUITE).
 
+-include("emqx_ocpp.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -145,3 +146,86 @@ t_enable_disable_gw_ocpp(_Config) ->
     AssertEnabled(false),
     ?assertEqual({204, #{}}, request(put, "/gateways/ocpp/enable/true", <<>>)),
     AssertEnabled(true).
+
+t_adjust_keepalive_timer(_Config) ->
+    {ok, ClientPid} = connect("127.0.0.1", 33033, <<"client1">>),
+    UniqueId = <<"3335862321">>,
+    BootNotification = #{
+        id => UniqueId,
+        type => ?OCPP_MSG_TYPE_ID_CALL,
+        action => <<"BootNotification">>,
+        payload => #{
+            <<"chargePointVendor">> => <<"vendor1">>,
+            <<"chargePointModel">> => <<"model1">>
+        }
+    },
+    ok = send_msg(ClientPid, BootNotification),
+    %% check the default keepalive timer
+    timer:sleep(1000),
+    ?assertMatch(
+        #{conninfo := #{keepalive := 60}}, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)
+    ),
+    %% publish the BootNotification.ack
+    AckPayload = emqx_utils_json:encode(#{
+        <<"MessageTypeId">> => ?OCPP_MSG_TYPE_ID_CALLRESULT,
+        <<"UniqueId">> => UniqueId,
+        <<"Payload">> => #{
+            <<"currentTime">> => "2023-06-21T14:20:39+00:00",
+            <<"interval">> => 300,
+            <<"status">> => <<"Accepted">>
+        }
+    }),
+    _ = emqx:publish(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
+    {ok, _Resp} = receive_msg(ClientPid),
+    %% assert: check the keepalive timer is adjusted
+    ?assertMatch(
+        #{conninfo := #{keepalive := 300}}, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% ocpp simple client
+
+connect(Host, Port, ClientId) ->
+    Timeout = 5000,
+    ConnOpts = #{connect_timeout => 5000},
+    case gun:open(Host, Port, ConnOpts) of
+        {ok, ConnPid} ->
+            {ok, _} = gun:await_up(ConnPid, Timeout),
+            case upgrade(ConnPid, ClientId, Timeout) of
+                {ok, _Headers} -> {ok, ConnPid};
+                Error -> Error
+            end;
+        Error ->
+            Error
+    end.
+
+upgrade(ConnPid, ClientId, Timeout) ->
+    Path = binary_to_list(<<"/ocpp/", ClientId/binary>>),
+    WsHeaders = [{<<"cache-control">>, <<"no-cache">>}],
+    StreamRef = gun:ws_upgrade(ConnPid, Path, WsHeaders, #{protocols => [{<<"ocpp1.6">>, gun_ws_h}]}),
+    receive
+        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], Headers} ->
+            {ok, Headers};
+        {gun_response, ConnPid, _, _, Status, Headers} ->
+            {error, {ws_upgrade_failed, Status, Headers}};
+        {gun_error, ConnPid, StreamRef, Reason} ->
+            {error, {ws_upgrade_failed, Reason}}
+    after Timeout ->
+        {error, timeout}
+    end.
+
+send_msg(ConnPid, Frame) when is_map(Frame) ->
+    Opts = emqx_ocpp_frame:serialize_opts(),
+    Msg = emqx_ocpp_frame:serialize_pkt(Frame, Opts),
+    gun:ws_send(ConnPid, {text, Msg}).
+
+receive_msg(ConnPid) ->
+    receive
+        {gun_ws, ConnPid, _Ref, {_Type, Msg}} ->
+            ParseState = emqx_ocpp_frame:initial_parse_state(#{}),
+            {ok, Frame, _Rest, _NewParseStaet} = emqx_ocpp_frame:parse(Msg, ParseState),
+            {ok, Frame}
+    after 5000 ->
+        {error, timeout}
+    end.
