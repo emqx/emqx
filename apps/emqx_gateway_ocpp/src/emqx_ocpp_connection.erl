@@ -237,7 +237,6 @@ do_init(Req, Opts, WsOpts) ->
         )
     of
         {error, Reason, _State} ->
-            1 = Reason,
             {ok, cowboy_req:reply(400, #{}, to_bin(Reason), Req), WsOpts};
         {ok, [Resp, Opts, WsOpts], NState} ->
             {cowboy_websocket, Resp, [Req, Opts, NState], WsOpts}
