@@ -105,7 +105,7 @@ schema("/plugins/install") ->
                 }
             },
             responses => #{
-                200 => <<"OK">>,
+                204 => <<"Install plugin successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
                     ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO']
                 )
@@ -117,7 +117,7 @@ schema("/plugins/:name") ->
         'operationId' => plugin,
         get => #{
             summary => <<"Get a plugin description">>,
-            description => "Describs plugin according to its `release.json` and `README.md`.",
+            description => "Describe a plugin according to its `release.json` and `README.md`.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -152,7 +152,7 @@ schema("/plugins/:name/:action") ->
                 {action, hoconsc:mk(hoconsc:enum([start, stop]), #{desc => "Action", in => path})}
             ],
             responses => #{
-                200 => <<"OK">>,
+                204 => <<"Trigger action successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         }
@@ -161,13 +161,13 @@ schema("/plugins/:name/move") ->
     #{
         'operationId' => update_boot_order,
         post => #{
-            summary => <<"Move plugin within plugin hiearchy">>,
+            summary => <<"Move plugin within plugin hierarchy">>,
             description => "Setting the boot order of plugins.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => move_request_body(),
             responses => #{
-                200 => <<"OK">>,
+                204 => <<"Boot order changed successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>)
             }
         }
@@ -382,7 +382,7 @@ do_install_package(FileName, Bin) ->
     {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v2:install_package(Nodes, FileName, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] ->
-            {200};
+            {204};
         Filtered ->
             %% crash if we have unexpected errors or results
             [] = lists:filter(
@@ -425,7 +425,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
         Position ->
             case emqx_plugins:ensure_enabled(Name, Position, _ConfLocation = global) of
                 ok ->
-                    {200};
+                    {204};
                 {error, Reason} ->
                     {400, #{
                         code => 'MOVE_FAILED',

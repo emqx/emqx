@@ -271,7 +271,7 @@ install_plugin(FilePath) ->
             Token
         )
     of
-        {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, <<>>}} -> ok;
+        {ok, {{"HTTP/1.1", 204, "No Content"}, _Headers, <<>>}} -> ok;
         Error -> Error
     end.
 
@@ -288,7 +288,7 @@ install_plugin(Config, FilePath) ->
             Auth
         )
     of
-        {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, <<>>}} -> ok;
+        {ok, {{"HTTP/1.1", 204, "No Content"}, _Headers, <<>>}} -> ok;
         Error -> Error
     end.
 
