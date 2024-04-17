@@ -93,6 +93,7 @@ on_batch_query(
     #{parameters := #{values := #{send_to_pid := PidBin}}} = maps:get(ChannelId, Channels),
     Pid = binary_to_term(emqx_utils:hexstr_to_bin(PidBin)),
     Pid ! Msg,
+    emqx_trace:rendered_action_template(ChannelId, #{nothing_to_render => ok}),
     ok.
 
 on_get_status(_InstId, _State) ->

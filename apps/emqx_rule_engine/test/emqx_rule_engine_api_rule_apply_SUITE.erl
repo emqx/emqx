@@ -143,7 +143,9 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
                 begin
                     Bin = read_rule_trace_file(TraceName, TraceType, Now),
                     io:format("THELOG2:~n~s", [Bin]),
-                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_failed">>]))
+                    ?assertNotEqual(
+                        nomatch, binary:match(Bin, [<<"action_stopped_after_template_rendering">>])
+                    )
                 end
             );
         false ->
@@ -231,7 +233,7 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
     ParmsStopAfterRender = apply_rule_parms(true, Name),
     ParmsNoStopAfterRender = apply_rule_parms(false, Name),
     %% Check that batching is working
-    Count = 400,
+    Count = 200,
     CountMsgFun =
         fun
             CountMsgFunRec(0 = _CurCount, GotBatchWithAtLeastTwo) ->
@@ -285,7 +287,10 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
         _NAttempts0 = 20,
         begin
             Bin = read_rule_trace_file(Name, ruleid, Now),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>]))
+            ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>])),
+            ?assertNotEqual(
+                nomatch, binary:match(Bin, [<<"action_stopped_after_template_rendering">>])
+            )
         end
     ),
     ok.
@@ -364,5 +369,4 @@ read_rule_trace_file(TraceName, TraceType, From) ->
     emqx_trace:check(),
     ok = emqx_trace_handler_SUITE:filesync(TraceName, TraceType),
     {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, From)),
-    io_lib:format("MYTRACE:~n~s", [Bin]),
     Bin.

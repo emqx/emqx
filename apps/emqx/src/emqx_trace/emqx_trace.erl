@@ -96,13 +96,12 @@ rendered_action_template(ActionID, RenderResult) ->
             %% resource is called/modified
             StopMsg = lists:flatten(
                 io_lib:format(
-                    "action_stopped_after_render(~ts): "
-                    "Action stopped after template render due to test setting.",
+                    "Action ~ts stopped after template rendering due to test setting.",
                     [ActionID]
                 )
             ),
             MsgBin = unicode:characters_to_binary(StopMsg),
-            error({unrecoverable_error, MsgBin});
+            error({unrecoverable_error, {action_stopped_after_template_rendering, MsgBin}});
         _ ->
             ok
     end,

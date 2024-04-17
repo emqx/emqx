@@ -711,25 +711,40 @@ inc_action_metrics(TraceCtx, Result) ->
 
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
+    {error, {unrecoverable_error, {action_stopped_after_template_rendering, Explanation}} = _Reason}
+) ->
+    TraceContext1 = maps:remove(action_id, TraceContext),
+    trace_action(
+        ActId,
+        "action_stopped_after_template_rendering",
+        maps:merge(#{reason => Explanation}, TraceContext1)
+    ),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+do_inc_action_metrics(
+    #{rule_id := RuleId, action_id := ActId} = TraceContext,
     {error, {recoverable_error, _}}
 ) ->
-    trace_action(ActId, "out_of_service", TraceContext),
+    TraceContext1 = maps:remove(action_id, TraceContext),
+    trace_action(ActId, "out_of_service", TraceContext1),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
     {error, {unrecoverable_error, _} = Reason}
 ) ->
-    trace_action(ActId, "action_failed", maps:merge(#{reason => Reason}, TraceContext)),
+    TraceContext1 = maps:remove(action_id, TraceContext),
+    trace_action(ActId, "action_failed", maps:merge(#{reason => Reason}, TraceContext1)),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(#{rule_id := RuleId, action_id := ActId} = TraceContext, R) ->
+    TraceContext1 = maps:remove(action_id, TraceContext),
     case is_ok_result(R) of
         false ->
-            trace_action(ActId, "action_failed", maps:merge(#{reason => R}, TraceContext)),
+            trace_action(ActId, "action_failed", maps:merge(#{reason => R}, TraceContext1)),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
         true ->
-            trace_action(ActId, "action_success", maps:merge(#{result => R}, TraceContext)),
+            trace_action(ActId, "action_success", maps:merge(#{result => R}, TraceContext1)),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
     end.
 
