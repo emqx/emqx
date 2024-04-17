@@ -583,7 +583,11 @@ flush(Data0) ->
             {keep_state, Data1};
         {_, false} ->
             ?tp(buffer_worker_flush_before_pop, #{}),
-            {Q1, QAckRef, Batch} = replayq:pop(Q0, #{count_limit => BatchSize}),
+            PopOpts = #{
+                count_limit => BatchSize,
+                stop_before => {fun stop_before_mixed_stop_after_render/2, initial_state}
+            },
+            {Q1, QAckRef, Batch} = replayq:pop(Q0, PopOpts),
             Data2 = Data1#{queue := Q1},
             ?tp(buffer_worker_flush_before_sieve_expired, #{}),
             Now = now_(),
@@ -618,6 +622,73 @@ flush(Data0) ->
                     })
             end
     end.
+
+stop_before_mixed_stop_after_render(
+    ?QUERY(
+        _,
+        _,
+        _,
+        _,
+        #{stop_action_after_render := true} = _TraceCtx
+    ),
+    initial_state
+) ->
+    stop_action_after_render;
+stop_before_mixed_stop_after_render(
+    ?QUERY(
+        _,
+        _,
+        _,
+        _,
+        _TraceCtx
+    ),
+    initial_state
+) ->
+    no_stop_action_after_render;
+stop_before_mixed_stop_after_render(
+    ?QUERY(
+        _,
+        _,
+        _,
+        _,
+        #{stop_action_after_render := true} = _TraceCtx
+    ),
+    no_stop_action_after_render
+) ->
+    true;
+stop_before_mixed_stop_after_render(
+    ?QUERY(
+        _,
+        _,
+        _,
+        _,
+        #{stop_action_after_render := true} = _TraceCtx
+    ),
+    stop_action_after_render
+) ->
+    stop_action_after_render;
+stop_before_mixed_stop_after_render(
+    ?QUERY(
+        _,
+        _,
+        _,
+        _,
+        _TraceCtx
+    ),
+    stop_action_after_render
+) ->
+    true;
+stop_before_mixed_stop_after_render(
+    ?QUERY(
+        _,
+        _,
+        _,
+        _,
+        _TraceCtx
+    ),
+    State
+) ->
+    State.
 
 -spec do_flush(data(), #{
     is_batch := boolean(),
@@ -1119,25 +1190,13 @@ set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
     %% Get the rule ids from requests
     RuleIDs = lists:foldl(fun collect_rule_id/2, #{}, Requests),
     ClientIDs = lists:foldl(fun collect_client_id/2, #{}, Requests),
-    StopAfterRender = lists:foldl(fun collect_stop_after_render/2, no_info, Requests),
     StopAfterRenderVal =
-        case StopAfterRender of
-            only_true ->
-                logger:update_process_metadata(#{stop_action_after_render => false}),
+        case Requests of
+            %% We know that the batch is not mixed since we prevent this by
+            %% using a stop_after function in the replayq:pop call
+            [?QUERY(_, _, _, _, #{stop_action_after_render := true}) | _] ->
                 true;
-            only_false ->
-                false;
-            mixed ->
-                ?TRACE(
-                    warning,
-                    "ACTION",
-                    "mixed_stop_action_after_render_batch "
-                    "(A batch will be sent to connector where some but "
-                    "not all requests has stop_action_after_render set. "
-                    "The batch will get assigned "
-                    "stop_action_after_render = false)",
-                    #{rule_ids => RuleIDs, client_ids => ClientIDs}
-                ),
+            [?QUERY(_, _, _, _, _TraceCTX) | _] ->
                 false
         end,
     logger:update_process_metadata(#{
@@ -1157,21 +1216,6 @@ collect_client_id(?QUERY(_, _, _, _, #{clientid := ClientId}), Acc) ->
     Acc#{ClientId => true};
 collect_client_id(?QUERY(_, _, _, _, _), Acc) ->
     Acc.
-
-collect_stop_after_render(?QUERY(_, _, _, _, #{stop_action_after_render := true}), no_info) ->
-    only_true;
-collect_stop_after_render(?QUERY(_, _, _, _, #{stop_action_after_render := true}), only_true) ->
-    only_true;
-collect_stop_after_render(?QUERY(_, _, _, _, #{stop_action_after_render := true}), only_false) ->
-    mixed;
-collect_stop_after_render(?QUERY(_, _, _, _, _), no_info) ->
-    only_false;
-collect_stop_after_render(?QUERY(_, _, _, _, _), only_true) ->
-    mixed;
-collect_stop_after_render(?QUERY(_, _, _, _, _), only_false) ->
-    only_false;
-collect_stop_after_render(?QUERY(_, _, _, _, _), mixed) ->
-    mixed.
 
 unset_rule_id_trace_meta_data() ->
     logger:update_process_metadata(#{
