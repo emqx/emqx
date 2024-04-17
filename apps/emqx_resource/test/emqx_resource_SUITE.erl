@@ -3346,7 +3346,6 @@ wait_n_events(NEvents, Timeout, EventName) ->
     end.
 
 assert_sync_retry_fail_then_succeed_inflight(Trace) ->
-    ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
             #{?snk_kind := buffer_worker_flush_nack, ref := _Ref},
@@ -3366,7 +3365,6 @@ assert_sync_retry_fail_then_succeed_inflight(Trace) ->
     ok.
 
 assert_async_retry_fail_then_succeed_inflight(Trace) ->
-    ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
             #{?snk_kind := handle_async_reply, action := nack},

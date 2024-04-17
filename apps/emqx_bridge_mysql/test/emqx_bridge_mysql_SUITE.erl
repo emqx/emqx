@@ -517,7 +517,6 @@ t_write_failure(Config) ->
             ok
         end,
         fun(Trace0) ->
-            ct:pal("trace: ~p", [Trace0]),
             Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
             ?assertMatch([#{result := {error, _}} | _], Trace),
             [#{result := {error, Error}} | _] = Trace,

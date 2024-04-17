@@ -252,7 +252,6 @@ t_session_subscription_idempotency(Config) ->
             ok
         end,
         fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
             Session = session_open(Node1, ClientId),
             ?assertMatch(
                 #{SubTopicFilter := #{}},
@@ -326,7 +325,6 @@ t_session_unsubscription_idempotency(Config) ->
             ok
         end,
         fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
             Session = session_open(Node1, ClientId),
             ?assertEqual(
                 #{},
@@ -415,10 +413,7 @@ do_t_session_discard(Params) ->
 
             ok
         end,
-        fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
-            ok
-        end
+        []
     ),
     ok.
 
