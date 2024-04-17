@@ -76,6 +76,12 @@ readable("template()") ->
         dashboard => #{type => string, is_template => true},
         docgen => #{type => "String", desc => ?DESC(template)}
     };
+readable("template_str()") ->
+    #{
+        swagger => #{type => string},
+        dashboard => #{type => string, is_template => true},
+        docgen => #{type => "String", desc => ?DESC(template)}
+    };
 readable("binary()") ->
     #{
         swagger => #{type => string},

@@ -103,7 +103,7 @@ put_object(Client, Key, Value) ->
 
 -spec put_object(client(), key(), upload_options(), iodata()) -> ok_or_error(term()).
 put_object(
-    #{bucket := Bucket0, headers := BaseHeaders, aws_config := AwsConfig = #aws_config{}},
+    #{bucket := Bucket, headers := BaseHeaders, aws_config := AwsConfig = #aws_config{}},
     Key,
     UploadOpts,
     Content
@@ -111,7 +111,6 @@ put_object(
     ECKey = erlcloud_key(Key),
     ECOpts = erlcloud_upload_options(UploadOpts),
     Headers = join_headers(BaseHeaders, maps:get(headers, UploadOpts, undefined)),
-    Bucket = to_list_string(Bucket0),
     try erlcloud_s3:put_object(Bucket, ECKey, Content, ECOpts, Headers, AwsConfig) of
         Props when is_list(Props) ->
             ok
