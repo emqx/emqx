@@ -293,6 +293,12 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
             )
         end
     ),
+    %% Cleanup
+    ok = emqx_trace:delete(Name),
+    ok = emqx_rule_engine:delete_rule(RuleID),
+    ok = emqx_bridge_v2:remove(rule_engine_test, ?FUNCTION_NAME),
+    ok = emqx_connector:remove(rule_engine_test, ?FUNCTION_NAME),
+    [_, _] = meck:unload(),
     ok.
 
 apply_rule_parms(StopAfterRender, Name) ->
