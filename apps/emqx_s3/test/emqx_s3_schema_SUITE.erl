@@ -20,7 +20,7 @@ all() ->
 t_minimal_config(_Config) ->
     ?assertMatch(
         #{
-            bucket := "bucket",
+            bucket := <<"bucket">>,
             host := "s3.us-east-1.endpoint.com",
             port := 443,
             min_part_size := 5242880,
@@ -45,7 +45,7 @@ t_full_config(_Config) ->
         #{
             access_key_id := "access_key_id",
             acl := public_read,
-            bucket := "bucket",
+            bucket := <<"bucket">>,
             host := "s3.us-east-1.endpoint.com",
             min_part_size := 10485760,
             port := 443,

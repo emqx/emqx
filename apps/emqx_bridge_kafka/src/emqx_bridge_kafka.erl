@@ -756,8 +756,8 @@ producer_strategy_key_validator(
     producer_strategy_key_validator(emqx_utils_maps:binary_key_map(Conf));
 producer_strategy_key_validator(#{
     <<"partition_strategy">> := key_dispatch,
-    <<"message">> := #{<<"key">> := ""}
-}) ->
+    <<"message">> := #{<<"key">> := Key}
+}) when Key =:= "" orelse Key =:= <<>> ->
     {error, "Message key cannot be empty when `key_dispatch` strategy is used"};
 producer_strategy_key_validator(_) ->
     ok.
