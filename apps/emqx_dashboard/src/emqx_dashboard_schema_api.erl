@@ -100,28 +100,28 @@ gen_schema(connectors) ->
 
 hotconf_schema_json() ->
     SchemaInfo = #{
-        title => <<"EMQX Hot Conf Schema">>,
+        title => <<"Hot Conf Schema">>,
         version => ?SCHEMA_VERSION
     },
     gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo).
 
 bridge_schema_json() ->
     SchemaInfo = #{
-        title => <<"EMQX Data Bridge Schema">>,
+        title => <<"Data Bridge Schema">>,
         version => ?SCHEMA_VERSION
     },
     gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
 
 actions_schema_json() ->
     SchemaInfo = #{
-        title => <<"EMQX Data Actions and Sources Schema">>,
+        title => <<"Actions and Sources Schema">>,
         version => ?SCHEMA_VERSION
     },
     gen_api_schema_json_iodata(emqx_bridge_v2_api, SchemaInfo).
 
 connectors_schema_json() ->
     SchemaInfo = #{
-        title => <<"EMQX Connectors Schema">>,
+        title => <<"Connectors Schema">>,
         version => ?SCHEMA_VERSION
     },
     gen_api_schema_json_iodata(emqx_connector_api, SchemaInfo).
