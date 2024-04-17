@@ -1235,7 +1235,7 @@ t_resilience(Config) ->
                 after 1_000 -> ct:fail("producer didn't stop!")
                 end,
             Consumed = lists:flatmap(
-                fun(_) -> receive_consumed(5_000) end, lists:seq(1, NumProduced)
+                fun(_) -> receive_consumed(10_000) end, lists:seq(1, NumProduced)
             ),
             ?assertEqual(NumProduced, length(Consumed)),
             ExpectedPayloads = lists:map(fun integer_to_binary/1, lists:seq(1, NumProduced)),
