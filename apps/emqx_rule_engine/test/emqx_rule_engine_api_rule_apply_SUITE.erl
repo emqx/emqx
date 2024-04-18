@@ -36,7 +36,8 @@ init_per_suite(Config) ->
         emqx_connector,
         emqx_bridge,
         emqx_bridge_http,
-        emqx_rule_engine
+        emqx_rule_engine,
+        emqx_modules
     ],
     %% I don't know why we need to stop the apps and then start them but if we
     %% don't do this and other suites run before this suite the test cases will
