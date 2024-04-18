@@ -33,7 +33,7 @@
     extra = #{} :: map() | '_',
     start_at :: integer() | undefined | '_',
     end_at :: integer() | undefined | '_',
-    formatter = plain :: plain | json | '_'
+    formatter = text :: text | json | '_'
 }).
 
 -define(SHARD, ?COMMON_SHARD).

@@ -116,7 +116,7 @@ current_trace_offset.label:
 """Offset from the current trace position."""
 
 trace_log_formatter.desc:
-"""The formatter that will be used to format the trace log entries. Set this to plain to format the log entries as plain text (default). Set it to json to format each log entry as a JSON object."""
+"""The formatter that will be used to format the trace log entries. Set this to text to format the log entries as plain text (default). Set it to json to format each log entry as a JSON object."""
 trace_log_formatter.label:
 """Trace Log Entry Formatter"""
 

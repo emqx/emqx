@@ -97,7 +97,7 @@ t_base_create_delete(_Config) ->
             end_at => Now + 30 * 60,
             payload_encode => text,
             extra => #{},
-            formatter => plain
+            formatter => text
         }
     ],
     ?assertEqual(ExpectFormat, emqx_trace:format([TraceRec])),

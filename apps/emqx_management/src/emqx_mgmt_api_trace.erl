@@ -317,10 +317,10 @@ fields(trace) ->
             )},
         {formatter,
             hoconsc:mk(
-                hoconsc:union([plain, json]),
+                hoconsc:union([text, json]),
                 #{
                     description => ?DESC(trace_log_formatter),
-                    example => plain,
+                    example => text,
                     required => false
                 }
             )}

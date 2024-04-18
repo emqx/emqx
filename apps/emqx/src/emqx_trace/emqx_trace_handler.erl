@@ -48,7 +48,7 @@
     type := clientid | topic | ip_address,
     filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
     payload_encode := text | hidden | hex,
-    formatter => json | plain
+    formatter => json | text
 }.
 
 -define(CONFIG(_LogFile_), #{
@@ -72,7 +72,7 @@
     Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
     Level :: logger:level() | all,
     LogFilePath :: string(),
-    Formatter :: plain | json
+    Formatter :: text | json
 ) -> ok | {error, term()}.
 install(Name, Type, Filter, Level, LogFile, Formatter) ->
     Who = #{
@@ -92,7 +92,7 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
     LogFilePath :: string()
 ) -> ok | {error, term()}.
 install(Name, Type, Filter, Level, LogFile) ->
-    install(Name, Type, Filter, Level, LogFile, plain).
+    install(Name, Type, Filter, Level, LogFile, text).
 
 -spec install(
     Type :: clientid | topic | ip_address,
