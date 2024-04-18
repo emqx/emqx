@@ -114,7 +114,7 @@ fields("parameters_opts") ->
     [
         {path,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("config_path"),
                     required => false
