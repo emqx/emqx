@@ -762,9 +762,9 @@ examples_listener() ->
                                     <<"tlsv1.1">>,
                                     <<"tlsv1">>
                                 ],
-                                cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
-                                certfile => <<"/etc/emqx/certs/cert.pem">>,
-                                keyfile => <<"/etc/emqx/certs/key.pem">>,
+                                cacertfile => <<"etc/certs/cacert.pem">>,
+                                certfile => <<"etc/certs/cert.pem">>,
+                                keyfile => <<"etc/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -808,9 +808,9 @@ examples_listener() ->
                         dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
-                                certfile => <<"/etc/emqx/certs/cert.pem">>,
-                                keyfile => <<"/etc/emqx/certs/key.pem">>,
+                                cacertfile => <<"etc/certs/cacert.pem">>,
+                                certfile => <<"etc/certs/cert.pem">>,
+                                keyfile => <<"etc/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -835,9 +835,9 @@ examples_listener() ->
                         dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
-                                certfile => <<"/etc/emqx/certs/cert.pem">>,
-                                keyfile => <<"/etc/emqx/certs/key.pem">>,
+                                cacertfile => <<"etc/certs/cacert.pem">>,
+                                certfile => <<"etc/certs/cert.pem">>,
+                                keyfile => <<"etc/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 user_lookup_fun => <<"emqx_tls_psk:lookup">>,
                                 ciphers =>
@@ -867,6 +867,96 @@ examples_listener() ->
                                 password_hash_algorithm =>
                                     #{name => <<"sha256">>},
                                 user_id_type => <<"username">>
+                            }
+                    }
+            },
+        ws_listener =>
+            #{
+                summary => <<"A simple WebSocket listener example">>,
+                value =>
+                    #{
+                        name => <<"ws-def">>,
+                        type => <<"ws">>,
+                        bind => <<"33043">>,
+                        acceptors => 16,
+                        max_connections => 1024000,
+                        max_conn_rate => 1000,
+                        websocket =>
+                            #{
+                                path => <<"/ocpp">>,
+                                fail_if_no_subprotocol => true,
+                                supported_subprotocols => <<"ocpp1.6">>,
+                                check_origin_enable => false,
+                                check_origins =>
+                                    <<"http://localhost:18083, http://127.0.0.1:18083">>,
+                                compress => false,
+                                piggyback => <<"single">>
+                            },
+                        tcp_options =>
+                            #{
+                                active_n => 100,
+                                backlog => 1024,
+                                send_timeout => <<"15s">>,
+                                send_timeout_close => true,
+                                recbuf => <<"10KB">>,
+                                sndbuf => <<"10KB">>,
+                                buffer => <<"10KB">>,
+                                high_watermark => <<"1MB">>,
+                                nodelay => false,
+                                reuseaddr => true,
+                                keepalive => "none"
+                            }
+                    }
+            },
+        wss_listener =>
+            #{
+                summary => <<"A simple WebSocket/TLS listener example">>,
+                value =>
+                    #{
+                        name => <<"ws-ssl-def">>,
+                        type => <<"wss">>,
+                        bind => <<"33053">>,
+                        acceptors => 16,
+                        max_connections => 1024000,
+                        max_conn_rate => 1000,
+                        websocket =>
+                            #{
+                                path => <<"/ocpp">>,
+                                fail_if_no_subprotocol => true,
+                                supported_subprotocols => <<"ocpp1.6">>,
+                                check_origin_enable => false,
+                                check_origins =>
+                                    <<"http://localhost:18083, http://127.0.0.1:18083">>,
+                                compress => false,
+                                piggyback => <<"single">>
+                            },
+                        ssl_options =>
+                            #{
+                                versions => [
+                                    <<"tlsv1.3">>,
+                                    <<"tlsv1.2">>,
+                                    <<"tlsv1.1">>,
+                                    <<"tlsv1">>
+                                ],
+                                cacertfile => <<"etc/certs/cacert.pem">>,
+                                certfile => <<"etc/certs/cert.pem">>,
+                                keyfile => <<"etc/certs/key.pem">>,
+                                verify => <<"verify_none">>,
+                                fail_if_no_peer_cert => false
+                            },
+                        tcp_options =>
+                            #{
+                                active_n => 100,
+                                backlog => 1024,
+                                send_timeout => <<"15s">>,
+                                send_timeout_close => true,
+                                recbuf => <<"10KB">>,
+                                sndbuf => <<"10KB">>,
+                                buffer => <<"10KB">>,
+                                high_watermark => <<"1MB">>,
+                                nodelay => false,
+                                reuseaddr => true,
+                                keepalive => "none"
                             }
                     }
             }
