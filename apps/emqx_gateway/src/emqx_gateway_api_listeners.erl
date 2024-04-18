@@ -247,9 +247,10 @@ page_params(Qs) ->
 get_cluster_listeners_info(GwName) ->
     Listeners = emqx_gateway_conf:listeners(GwName),
     ListenOns = lists:map(
-        fun(#{id := Id} = Conf) ->
+        fun(#{id := Id, type := Type0} = Conf) ->
+            Type = binary_to_existing_atom(Type0),
             ListenOn = emqx_gateway_conf:get_bind(Conf),
-            {Id, ListenOn}
+            {Type, Id, ListenOn}
         end,
         Listeners
     ),
@@ -293,17 +294,11 @@ listeners_cluster_status(Listeners) ->
 do_listeners_cluster_status(Listeners) ->
     Node = node(),
     lists:foldl(
-        fun({Id, ListenOn}, Acc) ->
-            BinId = erlang:atom_to_binary(Id),
-            {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(BinId),
-            {Running, Curr} =
-                try esockd:get_current_connections({Id, ListenOn}) of
-                    Int -> {true, Int}
-                catch
-                    %% not started
-                    error:not_found ->
-                        {false, 0}
-                end,
+        fun({Type, Id, ListenOn}, Acc) ->
+            {Running, Curr} = current_listener_status(Type, Id, ListenOn),
+            {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(
+                erlang:atom_to_binary(Id)
+            ),
             Acc#{
                 Id => #{
                     node => Node,
@@ -318,6 +313,24 @@ do_listeners_cluster_status(Listeners) ->
         #{},
         Listeners
     ).
+
+current_listener_status(Type, Id, _ListenOn) when Type =:= ws; Type =:= wss ->
+    Info = ranch:info(Id),
+    Conns = proplists:get_value(all_connections, Info, 0),
+    Running =
+        case proplists:get_value(status, Info) of
+            running -> true;
+            _ -> false
+        end,
+    {Running, Conns};
+current_listener_status(_Type, Id, ListenOn) ->
+    try esockd:get_current_connections({Id, ListenOn}) of
+        Int -> {true, Int}
+    catch
+        %% not started
+        error:not_found ->
+            {false, 0}
+    end.
 
 ensure_integer_or_infinity(infinity) ->
     infinity;

@@ -181,7 +181,54 @@ t_adjust_keepalive_timer(_Config) ->
     ?assertMatch(
         #{conninfo := #{keepalive := 300}}, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)
     ),
+    %% close conns
+    close(ClientPid),
+    timer:sleep(1000),
+    %% assert:
+    ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)),
     ok.
+
+t_listeners_status(_Config) ->
+    {200, [Listener]} = request(get, "/gateways/ocpp/listeners"),
+    ?assertMatch(
+        #{
+            status := #{running := true, current_connections := 0}
+        },
+        Listener
+    ),
+    %% add a connection
+    {ok, ClientPid} = connect("127.0.0.1", 33033, <<"client1">>),
+    UniqueId = <<"3335862321">>,
+    BootNotification = #{
+        id => UniqueId,
+        type => ?OCPP_MSG_TYPE_ID_CALL,
+        action => <<"BootNotification">>,
+        payload => #{
+            <<"chargePointVendor">> => <<"vendor1">>,
+            <<"chargePointModel">> => <<"model1">>
+        }
+    },
+    ok = send_msg(ClientPid, BootNotification),
+    timer:sleep(1000),
+    %% assert: the current_connections is 1
+    {200, [Listener1]} = request(get, "/gateways/ocpp/listeners"),
+    ?assertMatch(
+        #{
+            status := #{running := true, current_connections := 1}
+        },
+        Listener1
+    ),
+    %% close conns
+    close(ClientPid),
+    timer:sleep(1000),
+    %% assert: the current_connections is 0
+    {200, [Listener2]} = request(get, "/gateways/ocpp/listeners"),
+    ?assertMatch(
+        #{
+            status := #{running := true, current_connections := 0}
+        },
+        Listener2
+    ).
 
 %%--------------------------------------------------------------------
 %% ocpp simple client
@@ -229,3 +276,6 @@ receive_msg(ConnPid) ->
     after 5000 ->
         {error, timeout}
     end.
+
+close(ConnPid) ->
+    gun:shutdown(ConnPid).
