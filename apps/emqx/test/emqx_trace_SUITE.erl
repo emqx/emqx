@@ -512,4 +512,13 @@ build_old_trace_data() ->
 
 reload() ->
     catch ok = gen_server:stop(emqx_trace),
-    {ok, _Pid} = emqx_trace:start_link().
+    case emqx_trace:start_link() of
+        {ok, _Pid} = Res ->
+            Res;
+        NotOKRes ->
+            ct:pal(
+                "emqx_trace:start_link() gave result: ~p\n"
+                "(perhaps it is already started)",
+                [NotOKRes]
+            )
+    end.
