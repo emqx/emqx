@@ -172,8 +172,6 @@ create_trace(TraceName, TraceType, TraceValue) ->
         start_at => Start,
         end_at => End
     },
-    emqx_trace_SUITE:reload(),
-    ok = emqx_trace:clear(),
     {ok, _} = emqx_trace:create(Trace).
 
 t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
