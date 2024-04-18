@@ -368,51 +368,30 @@ subscribe(
 subscribe(
     TopicFilter,
     SubOpts,
-    Session = #{id := ID}
+    Session
 ) ->
-    {UpdateRouter, S1} = emqx_persistent_session_ds_subs:on_subscribe(
-        TopicFilter, SubOpts, Session
-    ),
-    case UpdateRouter of
-        true ->
-            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, ID);
-        false ->
-            ok
-    end,
-    S = emqx_persistent_session_ds_state:commit(S1),
-    UpdateRouter andalso
-        ?tp(persistent_session_ds_subscription_added, #{topic_filter => TopicFilter, session => ID}),
-    {ok, Session#{s => S}}.
+    case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session) of
+        {ok, S1} ->
+            S = emqx_persistent_session_ds_state:commit(S1),
+            {ok, Session#{s => S}};
+        Error = {error, _} ->
+            Error
+    end.
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
     TopicFilter,
-    Session = #{id := ID, s := S0}
+    Session = #{id := SessionId, s := S0}
 ) ->
-    case emqx_persistent_session_ds_subs:lookup(TopicFilter, S0) of
-        undefined ->
-            {error, ?RC_NO_SUBSCRIPTION_EXISTED};
-        Subscription = #{subopts := SubOpts} ->
-            S1 = do_unsubscribe(ID, TopicFilter, Subscription, S0),
-            S = emqx_persistent_session_ds_state:commit(S1),
-            {ok, Session#{s => S}, SubOpts}
+    case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
+        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
+            S2 = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, S1),
+            S = emqx_persistent_session_ds_state:commit(S2),
+            {ok, Session#{s => S}, SubOpts};
+        Error = {error, _} ->
+            Error
     end.
-
--spec do_unsubscribe(id(), topic_filter(), subscription(), emqx_persistent_session_ds_state:t()) ->
-    emqx_persistent_session_ds_state:t().
-do_unsubscribe(SessionId, TopicFilter, #{id := SubId}, S0) ->
-    S1 = emqx_persistent_session_ds_subs:on_unsubscribe(TopicFilter, S0),
-    ?tp(persistent_session_ds_subscription_delete, #{
-        session_id => SessionId, topic_filter => TopicFilter
-    }),
-    S = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, S1),
-    ?tp_span(
-        persistent_session_ds_subscription_route_delete,
-        #{session_id => SessionId, topic_filter => TopicFilter},
-        ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId)
-    ),
-    S.
 
 -spec get_subscription(topic_filter(), session()) ->
     emqx_types:subopts() | undefined.
@@ -860,18 +839,12 @@ session_ensure_new(
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
 -spec session_drop(id(), _Reason) -> ok.
-session_drop(ID, Reason) ->
-    case emqx_persistent_session_ds_state:open(ID) of
+session_drop(SessionId, Reason) ->
+    case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
-            ?tp(debug, drop_persistent_session, #{client_id => ID, reason => Reason}),
-            _S = emqx_persistent_session_ds_subs:fold(
-                fun(TopicFilter, Subscription, S) ->
-                    do_unsubscribe(ID, TopicFilter, Subscription, S)
-                end,
-                S0,
-                S0
-            ),
-            emqx_persistent_session_ds_state:delete(ID);
+            ?tp(debug, drop_persistent_session, #{client_id => SessionId, reason => Reason}),
+            emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
+            emqx_persistent_session_ds_state:delete(SessionId);
         undefined ->
             ok
     end.
