@@ -263,6 +263,12 @@ t_http_test_json_formatter(_Config) ->
         topic => Topic,
         rule_ids => maps:from_keys([<<"a">>, <<"b">>, <<"c">>], true)
     }),
+    %% action_id should be rendered as action_info
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        action_id =>
+            <<"action:http:emqx_bridge_http_test_lib:connector:http:emqx_bridge_http_test_lib">>
+    }),
     ok = emqx_trace_handler_SUITE:filesync(Name, topic),
     {ok, _Detail2} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     {ok, Bin} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
@@ -319,6 +325,14 @@ t_http_test_json_formatter(_Config) ->
             #{
                 <<"meta">> := #{
                     <<"rule_ids">> := [<<"a">>, <<"b">>, <<"c">>]
+                }
+            },
+            #{
+                <<"meta">> := #{
+                    <<"action_info">> := #{
+                        <<"type">> := <<"http">>,
+                        <<"name">> := <<"emqx_bridge_http_test_lib">>
+                    }
                 }
             }
             | _

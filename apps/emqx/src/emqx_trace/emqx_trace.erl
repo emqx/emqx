@@ -88,8 +88,14 @@ unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
 rendered_action_template(ActionID, RenderResult) ->
-    Msg = lists:flatten(io_lib:format("action_template_rendered(~ts)", [ActionID])),
-    TraceResult = ?TRACE("QUERY_RENDER", Msg, RenderResult),
+    TraceResult = ?TRACE(
+        "QUERY_RENDER",
+        "action_template_rendered",
+        #{
+            result => RenderResult,
+            action_id => ActionID
+        }
+    ),
     case logger:get_process_metadata() of
         #{stop_action_after_render := true} ->
             %% We throw an unrecoverable error to stop action before the

@@ -170,7 +170,8 @@ create_trace(TraceName, TraceType, TraceValue) ->
         type => TraceType,
         TraceType => TraceValue,
         start_at => Start,
-        end_at => End
+        end_at => End,
+        formatter => json
     },
     {ok, _} = emqx_trace:create(Trace).
 

@@ -84,6 +84,13 @@ prepare_key_value(client_ids = K, V, _PEncode) ->
                 V
         end,
     {K, NewV};
+prepare_key_value(action_id = K, V, _PEncode) ->
+    try
+        {action_info, format_action_info(V)}
+    catch
+        _:_ ->
+            {K, V}
+    end;
 prepare_key_value(K, V, PEncode) when is_map(V) ->
     {K, prepare_log_map(V, PEncode)};
 prepare_key_value(K, V, _PEncode) ->
@@ -114,3 +121,10 @@ format_map_set_to_list(Map) ->
      || {K, V} <- maps:to_list(Map)
     ],
     lists:sort(Items).
+
+format_action_info(V) ->
+    [<<"action">>, Type, Name | _] = binary:split(V, <<":">>, [global]),
+    #{
+        type => Type,
+        name => Name
+    }.
