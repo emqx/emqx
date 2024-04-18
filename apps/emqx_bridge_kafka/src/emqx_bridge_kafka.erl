@@ -389,7 +389,7 @@ fields(producer_kafka_opts) ->
             )},
         {kafka_headers,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => false,
                     validator => fun kafka_header_validator/1,
@@ -462,12 +462,12 @@ fields(producer_kafka_ext_headers) ->
     [
         {kafka_ext_header_key,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{required => true, desc => ?DESC(producer_kafka_ext_header_key)}
             )},
         {kafka_ext_header_value,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     validator => fun kafka_ext_header_value_validator/1,
