@@ -154,7 +154,16 @@ do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
         {error, Reason} ->
             erlang:throw(Reason)
     end;
-do_update({setting, Setting}, Conf) ->
+do_update({setting, Setting0}, Conf) ->
+    #{<<"key">> := Key} = Conf,
+    %% only allow updating dynamic_max_connections when it's BUSINESS_CRITICAL
+    Setting =
+        case emqx_license_parser:is_business_critical(Key) of
+            true ->
+                Setting0;
+            false ->
+                maps:without([<<"dynamic_max_connections">>], Setting0)
+        end,
     maps:merge(Conf, Setting);
 do_update(NewConf, _PrevConf) ->
     #{<<"key">> := NewKey} = NewConf,

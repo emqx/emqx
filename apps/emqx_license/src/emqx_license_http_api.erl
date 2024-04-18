@@ -147,7 +147,7 @@ error_msg(Code, Msg) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
 
 '/license/setting'(get, _Params) ->
-    {200, maps:remove(<<"key">>, emqx_config:get_raw([license]))};
+    {200, get_setting()};
 '/license/setting'(put, #{body := Setting}) ->
     case emqx_license:update_setting(Setting) of
         {error, Error} ->
@@ -170,3 +170,14 @@ fields(key_license) ->
 
 setting() ->
     lists:keydelete(key, 1, emqx_license_schema:fields(key_license)).
+
+%% Drop dynamic_max_connections unless it's a BUSINESS_CRITICAL license.
+get_setting() ->
+    #{<<"key">> := Key} = Raw = emqx_config:get_raw([license]),
+    Result = maps:remove(<<"key">>, Raw),
+    case emqx_license_parser:is_business_critical(Key) of
+        true ->
+            Result;
+        false ->
+            maps:remove(<<"dynamic_max_connections">>, Result)
+    end.

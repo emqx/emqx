@@ -28,6 +28,7 @@
     ?SMALL_CUSTOMER
     | ?MEDIUM_CUSTOMER
     | ?LARGE_CUSTOMER
+    | ?BUSINESS_CRITICAL_CUSTOMER
     | ?EVALUATION_CUSTOMER.
 
 -type license_type() :: ?OFFICIAL | ?TRIAL.
@@ -40,6 +41,8 @@
     %% the source of the license, e.g. "file://path/to/license/file" or "******" for license key
     source := binary()
 }.
+
+-type raw_license() :: string() | binary() | default.
 
 -export_type([
     license_data/0,
@@ -56,7 +59,8 @@
     customer_type/1,
     license_type/1,
     expiry_date/1,
-    max_connections/1
+    max_connections/1,
+    is_business_critical/1
 ]).
 
 %% for testing purpose
@@ -94,7 +98,7 @@ default() -> emqx_license_schema:default_license().
 %% @doc Parse license key.
 %% If the license key is prefixed with "file://path/to/license/file",
 %% then the license key is read from the file.
--spec parse(default | string() | binary()) -> {ok, license()} | {error, map()}.
+-spec parse(raw_license()) -> {ok, license()} | {error, map()}.
 parse(Content) ->
     parse(to_bin(Content), ?MODULE:pubkey()).
 
@@ -145,6 +149,13 @@ expiry_date(#{module := Module, data := LicenseData}) ->
 -spec max_connections(license()) -> non_neg_integer().
 max_connections(#{module := Module, data := LicenseData}) ->
     Module:max_connections(LicenseData).
+
+-spec is_business_critical(license() | raw_license()) -> boolean().
+is_business_critical(#{module := Module, data := LicenseData}) ->
+    Module:customer_type(LicenseData) =:= ?BUSINESS_CRITICAL_CUSTOMER;
+is_business_critical(Key) when is_binary(Key) ->
+    {ok, License} = parse(Key),
+    is_business_critical(License).
 
 %%--------------------------------------------------------------------
 %% Private functions
