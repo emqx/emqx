@@ -57,7 +57,11 @@
     allowEmptyValue,
     deprecated,
     minimum,
-    maximum
+    maximum,
+    %% is_template is a type property,
+    %% but some exceptions are made for them to be field property
+    %% for example, HTTP headers (which is a map type)
+    is_template
 ]).
 
 -define(INIT_SCHEMA, #{

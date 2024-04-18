@@ -130,7 +130,8 @@ fields("request") ->
             })},
         {path, hoconsc:mk(emqx_schema:template(), #{required => false, desc => ?DESC("path")})},
         {body, hoconsc:mk(emqx_schema:template(), #{required => false, desc => ?DESC("body")})},
-        {headers, hoconsc:mk(map(), #{required => false, desc => ?DESC("headers")})},
+        {headers,
+            hoconsc:mk(map(), #{required => false, desc => ?DESC("headers"), is_template => true})},
         {max_retries,
             sc(
                 non_neg_integer(),

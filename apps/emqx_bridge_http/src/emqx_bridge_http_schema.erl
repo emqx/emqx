@@ -270,7 +270,8 @@ headers_field() ->
                     <<"content-type">> => <<"application/json">>,
                     <<"keep-alive">> => <<"timeout=5">>
                 },
-                desc => ?DESC("config_headers")
+                desc => ?DESC("config_headers"),
+                is_template => true
             }
         )}.
 
