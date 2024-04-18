@@ -1125,12 +1125,13 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
         {ok, _Group, #{status := ?status_connecting, error := unhealthy_target}} ->
             {error, {unrecoverable_error, unhealthy_target}};
         {ok, _Group, Resource} ->
-            set_rule_id_trace_meta_data(Query),
-            QueryResult = do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource),
-            %% do_call_query does not throw an exception as the call to the
-            %% resource is wrapped in a try catch expression so we will always
-            %% unset the trace meta data
-            unset_rule_id_trace_meta_data(),
+            QueryResult =
+                try
+                    set_rule_id_trace_meta_data(Query),
+                    do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource)
+                after
+                    unset_rule_id_trace_meta_data()
+                end,
             QueryResult;
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
