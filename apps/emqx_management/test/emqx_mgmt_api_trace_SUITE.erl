@@ -122,6 +122,56 @@ t_http_test(_Config) ->
     unload(),
     ok.
 
+t_http_test_rule_trace(_Config) ->
+    emqx_trace:clear(),
+    load(),
+    %% create
+    Name = atom_to_binary(?FUNCTION_NAME),
+    Trace = [
+        {<<"name">>, Name},
+        {<<"type">>, <<"ruleid">>},
+        {<<"ruleid">>, Name}
+    ],
+
+    {ok, Create} = request_api(post, api_path("trace"), Trace),
+    ?assertMatch(#{<<"name">> := Name}, json(Create)),
+
+    {ok, List} = request_api(get, api_path("trace")),
+    [Data] = json(List),
+    ?assertEqual(Name, maps:get(<<"name">>, Data)),
+
+    %% update
+    {ok, Update} = request_api(put, api_path(iolist_to_binary(["trace/", Name, "/stop"])), #{}),
+    ?assertEqual(
+        #{
+            <<"enable">> => false,
+            <<"name">> => Name
+        },
+        json(Update)
+    ),
+    {ok, List1} = request_api(get, api_path("trace")),
+    [Data1] = json(List1),
+    Node = atom_to_binary(node()),
+    ?assertMatch(
+        #{
+            <<"status">> := <<"stopped">>,
+            <<"name">> := Name,
+            <<"log_size">> := #{Node := _},
+            <<"start_at">> := _,
+            <<"end_at">> := _,
+            <<"type">> := <<"ruleid">>,
+            <<"ruleid">> := Name
+        },
+        Data1
+    ),
+
+    %% delete
+    {ok, Delete} = request_api(delete, api_path(["trace/", Name])),
+    ?assertEqual(<<>>, Delete),
+
+    unload(),
+    ok.
+
 t_create_failed(_Config) ->
     load(),
     Trace = [{<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}],
@@ -252,13 +302,16 @@ t_log_file(_Config) ->
     ok.
 
 create_trace(Name, ClientId, Start) ->
+    create_trace(Name, clientid, ClientId, Start).
+
+create_trace(Name, Type, TypeValue, Start) ->
     ?check_trace(
         #{timetrap => 900},
         begin
             {ok, _} = emqx_trace:create([
                 {<<"name">>, Name},
-                {<<"type">>, clientid},
-                {<<"clientid">>, ClientId},
+                {<<"type">>, Type},
+                {atom_to_binary(Type), TypeValue},
                 {<<"start_at">>, Start}
             ]),
             ?block_until(#{?snk_kind := update_trace_done})
@@ -267,6 +320,16 @@ create_trace(Name, ClientId, Start) ->
             ?assertMatch([#{}], ?of_kind(update_trace_done, Trace))
         end
     ).
+
+create_rule_trace(RuleId) ->
+    Now = erlang:system_time(second),
+    emqx_mgmt_api_trace_SUITE:create_trace(atom_to_binary(?FUNCTION_NAME), ruleid, RuleId, Now - 2).
+
+t_create_rule_trace(_Config) ->
+    load(),
+    create_rule_trace(atom_to_binary(?FUNCTION_NAME)),
+    unload(),
+    ok.
 
 t_stream_log(_Config) ->
     emqx_trace:clear(),

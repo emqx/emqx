@@ -66,6 +66,12 @@ test_context.desc:
 test_context.label:
 """Event Conetxt"""
 
+stop_action_after_template_render.desc:
+"""Set this to true if the action should be stopped after its template has been rendered (default is true)."""
+
+stop_action_after_template_render.label:
+"""Stop Action After Template Rendering"""
+
 node_node.desc:
 """The node name"""
 

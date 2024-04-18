@@ -535,7 +535,9 @@ trace(_) ->
         {"trace stop  topic  <Topic> ", "Stop tracing for a topic on local node"},
         {"trace start ip_address  <IP>    <File> [<Level>] ",
             "Traces for a client ip on local node"},
-        {"trace stop  ip_address  <IP> ", "Stop tracing for a client ip on local node"}
+        {"trace stop  ip_address  <IP> ", "Stop tracing for a client ip on local node"},
+        {"trace start ruleid  <RuleID>    <File> [<Level>] ", "Traces for a rule ID on local node"},
+        {"trace stop  ruleid  <RuleID> ", "Stop tracing for a rule ID on local node"}
     ]).
 
 trace_on(Name, Type, Filter, Level, LogFile) ->
@@ -606,6 +608,7 @@ traces(_) ->
             "and will end after <Duration> seconds. The default value for <Duration> is "
             ?DEFAULT_TRACE_DURATION
             " seconds."},
+        {"traces start <Name> ruleid <RuleID> [<Duration>]", "Traces for a rule ID in cluster"},
         {"traces stop <Name>", "Stop trace in cluster"},
         {"traces delete <Name>", "Delete trace in cluster"}
     ]).

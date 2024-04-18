@@ -64,8 +64,10 @@
 
 -define(COLLECT_REQ_LIMIT, 1000).
 -define(SEND_REQ(FROM, REQUEST), {'$send_req', FROM, REQUEST}).
--define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT), {query, FROM, REQUEST, SENT, EXPIRE_AT}).
--define(SIMPLE_QUERY(FROM, REQUEST), ?QUERY(FROM, REQUEST, false, infinity)).
+-define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT, TRACE_CTX),
+    {query, FROM, REQUEST, SENT, EXPIRE_AT, TRACE_CTX}
+).
+-define(SIMPLE_QUERY(FROM, REQUEST, TRACE_CTX), ?QUERY(FROM, REQUEST, false, infinity, TRACE_CTX)).
 -define(REPLY(FROM, SENT, RESULT), {reply, FROM, SENT, RESULT}).
 -define(INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, AsyncWorkerMRef),
     {Ref, BatchOrQuery, IsRetriable, AsyncWorkerMRef}
@@ -77,7 +79,10 @@
 -type id() :: binary().
 -type index() :: pos_integer().
 -type expire_at() :: infinity | integer().
--type queue_query() :: ?QUERY(reply_fun(), request(), HasBeenSent :: boolean(), expire_at()).
+-type trace_context() :: map() | undefined.
+-type queue_query() :: ?QUERY(
+    reply_fun(), request(), HasBeenSent :: boolean(), expire_at(), TraceCtx :: trace_context()
+).
 -type request() :: term().
 -type request_from() :: undefined | gen_statem:from().
 -type timeout_ms() :: emqx_schema:timeout_duration_ms().
@@ -154,7 +159,10 @@ simple_sync_query(Id, Request, QueryOpts0) ->
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_request_ref(),
     ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
-    Result = call_query(force_sync, Id, Index, Ref, ?SIMPLE_QUERY(ReplyTo, Request), QueryOpts),
+    TraceCtx = maps:get(trace_ctx, QueryOpts0, undefined),
+    Result = call_query(
+        force_sync, Id, Index, Ref, ?SIMPLE_QUERY(ReplyTo, Request, TraceCtx), QueryOpts
+    ),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
@@ -167,8 +175,9 @@ simple_async_query(Id, Request, QueryOpts0) ->
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_request_ref(),
     ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
+    TraceCtx = maps:get(trace_ctx, QueryOpts0, undefined),
     Result = call_query(
-        async_if_possible, Id, Index, Ref, ?SIMPLE_QUERY(ReplyTo, Request), QueryOpts
+        async_if_possible, Id, Index, Ref, ?SIMPLE_QUERY(ReplyTo, Request, TraceCtx), QueryOpts
     ),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
@@ -439,10 +448,10 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     Result = call_query(force_sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
     {ShouldAck, PostFn, DeltaCounters} =
         case QueryOrBatch of
-            ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt) ->
+            ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, _TraceCtx) ->
                 Reply = ?REPLY(ReplyTo, HasBeenSent, Result),
                 reply_caller_defer_metrics(Id, Reply, QueryOpts);
-            [?QUERY(_, _, _, _) | _] = Batch ->
+            [?QUERY(_, _, _, _, _) | _] = Batch ->
                 batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts)
         end,
     Data1 = aggregate_counters(Data0, DeltaCounters),
@@ -501,11 +510,13 @@ collect_and_enqueue_query_requests(Request0, Data0) ->
                     ReplyFun = maps:get(async_reply_fun, Opts, undefined),
                     HasBeenSent = false,
                     ExpireAt = maps:get(expire_at, Opts),
-                    ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt);
+                    TraceCtx = maps:get(trace_ctx, Opts, undefined),
+                    ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt, TraceCtx);
                 (?SEND_REQ(ReplyTo, {query, Req, Opts})) ->
                     HasBeenSent = false,
                     ExpireAt = maps:get(expire_at, Opts),
-                    ?QUERY(ReplyTo, Req, HasBeenSent, ExpireAt)
+                    TraceCtx = maps:get(trace_ctx, Opts, undefined),
+                    ?QUERY(ReplyTo, Req, HasBeenSent, ExpireAt, TraceCtx)
             end,
             Requests
         ),
@@ -515,7 +526,7 @@ collect_and_enqueue_query_requests(Request0, Data0) ->
 
 reply_overflown([]) ->
     ok;
-reply_overflown([?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt) | More]) ->
+reply_overflown([?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt, _TraceCtx) | More]) ->
     do_reply_caller(ReplyTo, {error, buffer_overflow}),
     reply_overflown(More).
 
@@ -572,7 +583,11 @@ flush(Data0) ->
             {keep_state, Data1};
         {_, false} ->
             ?tp(buffer_worker_flush_before_pop, #{}),
-            {Q1, QAckRef, Batch} = replayq:pop(Q0, #{count_limit => BatchSize}),
+            PopOpts = #{
+                count_limit => BatchSize,
+                stop_before => {fun stop_batching/2, initial_state}
+            },
+            {Q1, QAckRef, Batch} = replayq:pop(Q0, PopOpts),
             Data2 = Data1#{queue := Q1},
             ?tp(buffer_worker_flush_before_sieve_expired, #{}),
             Now = now_(),
@@ -608,6 +623,23 @@ flush(Data0) ->
             end
     end.
 
+stop_batching(Query, initial_state) ->
+    get_stop_flag(Query);
+stop_batching(Query, PrevStopFlag) ->
+    case get_stop_flag(Query) =:= PrevStopFlag of
+        true ->
+            PrevStopFlag;
+        false ->
+            %% We stop beceause we don't want a batch with mixed values for the
+            %% stop_action_after_render option
+            true
+    end.
+
+get_stop_flag(?QUERY(_, _, _, _, #{stop_action_after_render := true})) ->
+    stop_action_after_render;
+get_stop_flag(_) ->
+    no_stop_action_after_render.
+
 -spec do_flush(data(), #{
     is_batch := boolean(),
     batch := [queue_query()],
@@ -630,7 +662,7 @@ do_flush(
         inflight_tid := InflightTID
     } = Data0,
     %% unwrap when not batching (i.e., batch size == 1)
-    [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt) = Request] = Batch,
+    [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, _TraceCtx) = Request] = Batch,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(async_if_possible, Id, Index, Ref, Request, QueryOpts),
     Reply = ?REPLY(ReplyTo, HasBeenSent, Result),
@@ -824,14 +856,14 @@ batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
 
 expand_batch_reply(BatchResults, Batch) when is_list(BatchResults) ->
     lists:map(
-        fun({?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT), Result}) ->
+        fun({?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT, _TraceCtx), Result}) ->
             ?REPLY(FROM, SENT, Result)
         end,
         lists:zip(Batch, BatchResults)
     );
 expand_batch_reply(BatchResult, Batch) ->
     lists:map(
-        fun(?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT)) ->
+        fun(?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT, _TraceCtx)) ->
             ?REPLY(FROM, SENT, BatchResult)
         end,
         Batch
@@ -880,7 +912,7 @@ reply_dropped(_ReplyTo, _Result) ->
 -spec batch_reply_dropped([queue_query()], {error, late_reply | request_expired}) -> ok.
 batch_reply_dropped(Batch, Result) ->
     lists:foreach(
-        fun(?QUERY(ReplyTo, _CoreReq, _HasBeenSent, _ExpireAt)) ->
+        fun(?QUERY(ReplyTo, _CoreReq, _HasBeenSent, _ExpireAt, _TraceCtx)) ->
             reply_dropped(ReplyTo, Result)
         end,
         Batch
@@ -1093,10 +1125,52 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
         {ok, _Group, #{status := ?status_connecting, error := unhealthy_target}} ->
             {error, {unrecoverable_error, unhealthy_target}};
         {ok, _Group, Resource} ->
-            do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource);
+            set_rule_id_trace_meta_data(Query),
+            QueryResult = do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource),
+            %% do_call_query does not throw an exception as the call to the
+            %% resource is wrapped in a try catch expression so we will always
+            %% unset the trace meta data
+            unset_rule_id_trace_meta_data(),
+            QueryResult;
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
     end.
+
+set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
+    %% Get the rule ids from requests
+    RuleIDs = lists:foldl(fun collect_rule_id/2, #{}, Requests),
+    ClientIDs = lists:foldl(fun collect_client_id/2, #{}, Requests),
+    StopAfterRenderVal =
+        case Requests of
+            %% We know that the batch is not mixed since we prevent this by
+            %% using a stop_after function in the replayq:pop call
+            [?QUERY(_, _, _, _, #{stop_action_after_render := true}) | _] ->
+                true;
+            [?QUERY(_, _, _, _, _TraceCTX) | _] ->
+                false
+        end,
+    logger:update_process_metadata(#{
+        rule_ids => RuleIDs, client_ids => ClientIDs, stop_action_after_render => StopAfterRenderVal
+    }),
+    ok;
+set_rule_id_trace_meta_data(Request) ->
+    set_rule_id_trace_meta_data([Request]),
+    ok.
+
+collect_rule_id(?QUERY(_, _, _, _, #{rule_id := RuleId}), Acc) ->
+    Acc#{RuleId => true};
+collect_rule_id(?QUERY(_, _, _, _, _), Acc) ->
+    Acc.
+
+collect_client_id(?QUERY(_, _, _, _, #{clientid := ClientId}), Acc) ->
+    Acc#{ClientId => true};
+collect_client_id(?QUERY(_, _, _, _, _), Acc) ->
+    Acc.
+
+unset_rule_id_trace_meta_data() ->
+    logger:update_process_metadata(#{
+        rule_ids => #{}, client_ids => #{}, stop_action_after_render => false
+    }).
 
 %% action:kafka_producer:myproducer1:connector:kafka_producer:mykakfaclient1
 extract_connector_id(Id) when is_binary(Id) ->
@@ -1208,7 +1282,15 @@ do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
 ).
 
 apply_query_fun(
-    sync, Mod, Id, _Index, _Ref, ?QUERY(_, Request, _, _) = _Query, ResSt, Channels, QueryOpts
+    sync,
+    Mod,
+    Id,
+    _Index,
+    _Ref,
+    ?QUERY(_, Request, _, _, _TraceCtx) = _Query,
+    ResSt,
+    Channels,
+    QueryOpts
 ) ->
     ?tp(call_query, #{id => Id, mod => Mod, query => _Query, res_st => ResSt, call_mode => sync}),
     maybe_reply_to(
@@ -1227,7 +1309,15 @@ apply_query_fun(
         QueryOpts
     );
 apply_query_fun(
-    async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, ResSt, Channels, QueryOpts
+    async,
+    Mod,
+    Id,
+    Index,
+    Ref,
+    ?QUERY(_, Request, _, _, _TraceCtx) = Query,
+    ResSt,
+    Channels,
+    QueryOpts
 ) ->
     ?tp(call_query_async, #{
         id => Id, mod => Mod, query => Query, res_st => ResSt, call_mode => async
@@ -1268,7 +1358,7 @@ apply_query_fun(
     Id,
     _Index,
     _Ref,
-    [?QUERY(_, FirstRequest, _, _) | _] = Batch,
+    [?QUERY(_, FirstRequest, _, _, _) | _] = Batch,
     ResSt,
     Channels,
     QueryOpts
@@ -1276,7 +1366,9 @@ apply_query_fun(
     ?tp(call_batch_query, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => sync
     }),
-    Requests = lists:map(fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch),
+    Requests = lists:map(
+        fun(?QUERY(_ReplyTo, Request, _, _ExpireAt, _TraceCtx)) -> Request end, Batch
+    ),
     maybe_reply_to(
         ?APPLY_RESOURCE(
             call_batch_query,
@@ -1298,7 +1390,7 @@ apply_query_fun(
     Id,
     Index,
     Ref,
-    [?QUERY(_, FirstRequest, _, _) | _] = Batch,
+    [?QUERY(_, FirstRequest, _, _, _) | _] = Batch,
     ResSt,
     Channels,
     QueryOpts
@@ -1321,7 +1413,7 @@ apply_query_fun(
                 min_batch => minimize(Batch)
             },
             Requests = lists:map(
-                fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch
+                fun(?QUERY(_ReplyTo, Request, _, _ExpireAt, _TraceCtx)) -> Request end, Batch
             ),
             IsRetriable = false,
             AsyncWorkerMRef = undefined,
@@ -1367,7 +1459,7 @@ handle_async_reply1(
         inflight_tid := InflightTID,
         resource_id := Id,
         buffer_worker := BufferWorkerPid,
-        min_query := ?QUERY(ReplyTo, _, _, ExpireAt) = _Query
+        min_query := ?QUERY(ReplyTo, _, _, ExpireAt, _TraceCtx) = _Query
     } = ReplyContext,
     Result
 ) ->
@@ -1399,7 +1491,7 @@ do_handle_async_reply(
         request_ref := Ref,
         buffer_worker := BufferWorkerPid,
         inflight_tid := InflightTID,
-        min_query := ?QUERY(ReplyTo, _, Sent, _ExpireAt) = _Query
+        min_query := ?QUERY(ReplyTo, _, Sent, _ExpireAt, _TraceCtx) = _Query
     },
     Result
 ) ->
@@ -1486,13 +1578,13 @@ handle_async_batch_reply2([Inflight], ReplyContext, Results0, Now) ->
     %% So we just take the original flag from the ReplyContext batch
     %% and put it back to the batch found in inflight table
     %% which must have already been set to `false`
-    [?QUERY(_ReplyTo, _, HasBeenSent, _ExpireAt) | _] = Batch,
+    [?QUERY(_ReplyTo, _, HasBeenSent, _ExpireAt, _TraceCtx) | _] = Batch,
     {RealNotExpired0, RealExpired, Results} =
         sieve_expired_requests_with_results(RealBatch, Now, Results0),
     RealNotExpired =
         lists:map(
-            fun(?QUERY(ReplyTo, CoreReq, _HasBeenSent, ExpireAt)) ->
-                ?QUERY(ReplyTo, CoreReq, HasBeenSent, ExpireAt)
+            fun(?QUERY(ReplyTo, CoreReq, _HasBeenSent, ExpireAt, TraceCtx)) ->
+                ?QUERY(ReplyTo, CoreReq, HasBeenSent, ExpireAt, TraceCtx)
             end,
             RealNotExpired0
         ),
@@ -1678,7 +1770,10 @@ inflight_get_first_retriable(InflightTID, Now) ->
     case ets:select(InflightTID, MatchSpec, _Limit = 1) of
         '$end_of_table' ->
             none;
-        {[{Ref, Query = ?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt)}], _Continuation} ->
+        {
+            [{Ref, Query = ?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt, _TraceCtx)}],
+            _Continuation
+        } ->
             case is_expired(ExpireAt, Now) of
                 true ->
                     {expired, Ref, [Query]};
@@ -1714,7 +1809,7 @@ inflight_append(undefined, _InflightItem) ->
     ok;
 inflight_append(
     InflightTID,
-    ?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _, _) | _] = Batch0, IsRetriable, AsyncWorkerMRef)
+    ?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _, _, _) | _] = Batch0, IsRetriable, AsyncWorkerMRef)
 ) ->
     Batch = mark_as_sent(Batch0),
     InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
@@ -1726,7 +1821,10 @@ inflight_append(
 inflight_append(
     InflightTID,
     ?INFLIGHT_ITEM(
-        Ref, ?QUERY(_ReplyTo, _Req, _HasBeenSent, _ExpireAt) = Query0, IsRetriable, AsyncWorkerMRef
+        Ref,
+        ?QUERY(_ReplyTo, _Req, _HasBeenSent, _ExpireAt, _TraceCtx) = Query0,
+        IsRetriable,
+        AsyncWorkerMRef
     )
 ) ->
     Query = mark_as_sent(Query0),
@@ -1790,9 +1888,13 @@ ack_inflight(undefined, _Ref, _BufferWorkerPid) ->
 ack_inflight(InflightTID, Ref, BufferWorkerPid) ->
     {Count, Removed} =
         case ets:take(InflightTID, Ref) of
-            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _, _), _IsRetriable, _AsyncWorkerMRef)] ->
+            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _, _, _), _IsRetriable, _AsyncWorkerMRef)] ->
                 {1, true};
-            [?INFLIGHT_ITEM(Ref, [?QUERY(_, _, _, _) | _] = Batch, _IsRetriable, _AsyncWorkerMRef)] ->
+            [
+                ?INFLIGHT_ITEM(
+                    Ref, [?QUERY(_, _, _, _, _) | _] = Batch, _IsRetriable, _AsyncWorkerMRef
+                )
+            ] ->
                 {length(Batch), true};
             [] ->
                 {0, false}
@@ -1942,9 +2044,9 @@ do_collect_requests(Acc, Count, Limit) ->
 
 mark_as_sent(Batch) when is_list(Batch) ->
     lists:map(fun mark_as_sent/1, Batch);
-mark_as_sent(?QUERY(ReplyTo, Req, _HasBeenSent, ExpireAt)) ->
+mark_as_sent(?QUERY(ReplyTo, Req, _HasBeenSent, ExpireAt, TraceCtx)) ->
     HasBeenSent = true,
-    ?QUERY(ReplyTo, Req, HasBeenSent, ExpireAt).
+    ?QUERY(ReplyTo, Req, HasBeenSent, ExpireAt, TraceCtx).
 
 is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
     true;
@@ -1967,7 +2069,7 @@ is_async_return(_) ->
 
 sieve_expired_requests(Batch, Now) ->
     lists:partition(
-        fun(?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt)) ->
+        fun(?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt, _TraceCtx)) ->
             not is_expired(ExpireAt, Now)
         end,
         Batch
@@ -1978,7 +2080,7 @@ sieve_expired_requests_with_results(Batch, Now, Results) when is_list(Results) -
     {RevNotExpiredBatch, RevNotExpiredResults, ExpiredBatch} =
         lists:foldl(
             fun(
-                {?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt) = Query, Result},
+                {?QUERY(_ReplyTo, _CoreReq, _HasBeenSent, ExpireAt, _TraceCtx) = Query, Result},
                 {NotExpAcc, ResAcc, ExpAcc}
             ) ->
                 case not is_expired(ExpireAt, Now) of
@@ -2026,15 +2128,16 @@ ensure_expire_at(#{timeout := TimeoutMS} = Opts) ->
     Opts#{expire_at => ExpireAt}.
 
 %% no need to keep the request for async reply handler
-minimize(?QUERY(_, _, _, _) = Q) ->
+minimize(?QUERY(_, _, _, _, _) = Q) ->
     do_minimize(Q);
 minimize(L) when is_list(L) ->
     lists:map(fun do_minimize/1, L).
 
 -ifdef(TEST).
-do_minimize(?QUERY(_ReplyTo, _Req, _Sent, _ExpireAt) = Query) -> Query.
+do_minimize(?QUERY(_ReplyTo, _Req, _Sent, _ExpireAt, _TraceCtx) = Query) -> Query.
 -else.
-do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt)) -> ?QUERY(ReplyTo, [], Sent, ExpireAt).
+do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt, TraceCtx)) ->
+    ?QUERY(ReplyTo, [], Sent, ExpireAt, TraceCtx).
 -endif.
 
 %% To avoid message loss due to misconfigurations, we adjust

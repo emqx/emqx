@@ -41,6 +41,9 @@
 ]).
 -export([clean_cache/0]).
 
+%% For tests
+-export([hard_coded_test_action_info_modules/0]).
+
 -callback bridge_v1_type_name() ->
     atom()
     | {
@@ -128,8 +131,13 @@ hard_coded_action_info_modules_common() ->
         emqx_bridge_mqtt_pubsub_action_info
     ].
 
+%% This exists so that it can be mocked for test cases
+hard_coded_test_action_info_modules() -> [].
+
 hard_coded_action_info_modules() ->
-    hard_coded_action_info_modules_common() ++ hard_coded_action_info_modules_ee().
+    hard_coded_action_info_modules_common() ++
+        hard_coded_action_info_modules_ee() ++
+        ?MODULE:hard_coded_test_action_info_modules().
 
 %% ====================================================================
 %% API

@@ -90,4 +90,10 @@ api9.desc:
 api9.label:
 """Get configuration"""
 
+api11.desc:
+"""Apply a rule with the given message and environment"""
+
+api11.label:
+"""Apply Rule"""
+
 }

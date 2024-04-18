@@ -20,8 +20,72 @@
     test/1,
     get_selected_data/3,
     %% Some SQL functions return different results in the test environment
-    is_test_runtime_env/0
+    is_test_runtime_env/0,
+    apply_rule/2
 ]).
+
+apply_rule(
+    RuleId,
+    #{
+        context := Context,
+        stop_action_after_template_rendering := StopAfterRender
+    }
+) ->
+    {ok, Rule} = emqx_rule_engine:get_rule(RuleId),
+    InTopic = get_in_topic(Context),
+    EventTopics = maps:get(from, Rule, []),
+    case lists:all(fun is_publish_topic/1, EventTopics) of
+        true ->
+            %% test if the topic matches the topic filters in the rule
+            case emqx_topic:match_any(InTopic, EventTopics) of
+                true ->
+                    do_apply_matched_rule(
+                        Rule,
+                        Context,
+                        StopAfterRender
+                    );
+                false ->
+                    {error, nomatch}
+            end;
+        false ->
+            case lists:member(InTopic, EventTopics) of
+                true ->
+                    %% the rule is for both publish and events, test it directly
+                    do_apply_matched_rule(Rule, Context, StopAfterRender);
+                false ->
+                    {error, nomatch}
+            end
+    end.
+
+do_apply_matched_rule(Rule, Context, StopAfterRender) ->
+    update_process_trace_metadata(StopAfterRender),
+    ApplyRuleRes = emqx_rule_runtime:apply_rule(
+        Rule,
+        Context,
+        apply_rule_environment()
+    ),
+    reset_trace_process_metadata(StopAfterRender),
+    ApplyRuleRes.
+
+update_process_trace_metadata(true = _StopAfterRender) ->
+    logger:update_process_metadata(#{
+        stop_action_after_render => true
+    });
+update_process_trace_metadata(false = _StopAfterRender) ->
+    ok.
+
+reset_trace_process_metadata(true = _StopAfterRender) ->
+    Meta = logger:get_process_metadata(),
+    NewMeta = maps:remove(stop_action_after_render, Meta),
+    logger:set_process_metadata(NewMeta);
+reset_trace_process_metadata(false = _StopAfterRender) ->
+    ok.
+
+%% At the time of writing the environment passed to the apply rule function is
+%% not used at all for normal actions. When it is used for custom functions it
+%% is first merged with the context so there does not seem to be any need to
+%% set this to anything else then the empty map.
+apply_rule_environment() -> #{}.
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
 test(#{sql := Sql, context := Context}) ->

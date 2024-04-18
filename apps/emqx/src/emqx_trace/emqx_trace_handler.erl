@@ -33,6 +33,7 @@
 
 %% For logger handler filters callbacks
 -export([
+    filter_ruleid/2,
     filter_clientid/2,
     filter_topic/2,
     filter_ip_address/2
@@ -133,9 +134,23 @@ uninstall(HandlerId) ->
 running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
+-spec filter_ruleid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
+filter_ruleid(#{meta := Meta = #{rule_id := RuleId}} = Log, {MatchId, _Name}) ->
+    RuleIDs = maps:get(rule_ids, Meta, #{}),
+    IsMatch = (RuleId =:= MatchId) orelse maps:get(MatchId, RuleIDs, false),
+    filter_ret(IsMatch andalso is_trace(Meta), Log);
+filter_ruleid(#{meta := Meta = #{rule_ids := RuleIDs}} = Log, {MatchId, _Name}) ->
+    filter_ret(maps:get(MatchId, RuleIDs, false) andalso is_trace(Meta), Log);
+filter_ruleid(_Log, _ExpectId) ->
+    stop.
+
 -spec filter_clientid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_clientid(#{meta := Meta = #{clientid := ClientId}} = Log, {MatchId, _Name}) ->
-    filter_ret(ClientId =:= MatchId andalso is_trace(Meta), Log);
+    ClientIDs = maps:get(client_ids, Meta, #{}),
+    IsMatch = (ClientId =:= MatchId) orelse maps:get(MatchId, ClientIDs, false),
+    filter_ret(IsMatch andalso is_trace(Meta), Log);
+filter_clientid(#{meta := Meta = #{client_ids := ClientIDs}} = Log, {MatchId, _Name}) ->
+    filter_ret(maps:get(MatchId, ClientIDs, false) andalso is_trace(Meta), Log);
 filter_clientid(_Log, _ExpectId) ->
     stop.
 
@@ -164,7 +179,9 @@ filters(#{type := clientid, filter := Filter, name := Name}) ->
 filters(#{type := topic, filter := Filter, name := Name}) ->
     [{topic, {fun ?MODULE:filter_topic/2, {ensure_bin(Filter), Name}}}];
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
-    [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}].
+    [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}];
+filters(#{type := ruleid, filter := Filter, name := Name}) ->
+    [{ruleid, {fun ?MODULE:filter_ruleid/2, {ensure_bin(Filter), Name}}}].
 
 formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
     {emqx_trace_formatter, #{
@@ -184,7 +201,8 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
         [{Type, {FilterFun, {Filter, Name}}}] when
             Type =:= topic orelse
                 Type =:= clientid orelse
-                Type =:= ip_address
+                Type =:= ip_address orelse
+                Type =:= ruleid
         ->
             [Init#{type => Type, filter => Filter, name => Name, filter_fun => FilterFun} | Acc];
         _ ->

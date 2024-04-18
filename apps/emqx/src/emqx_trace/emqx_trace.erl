@@ -28,7 +28,8 @@
     subscribe/3,
     unsubscribe/2,
     log/3,
-    log/4
+    log/4,
+    rendered_action_template/2
 ]).
 
 -export([
@@ -66,6 +67,9 @@
 -export_type([ip_address/0]).
 -type ip_address() :: string().
 
+-export_type([ruleid/0]).
+-type ruleid() :: binary().
+
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
@@ -82,6 +86,26 @@ unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) ->
     ignore;
 unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
+
+rendered_action_template(ActionID, RenderResult) ->
+    Msg = lists:flatten(io_lib:format("action_template_rendered(~ts)", [ActionID])),
+    TraceResult = ?TRACE("QUERY_RENDER", Msg, RenderResult),
+    case logger:get_process_metadata() of
+        #{stop_action_after_render := true} ->
+            %% We throw an unrecoverable error to stop action before the
+            %% resource is called/modified
+            StopMsg = lists:flatten(
+                io_lib:format(
+                    "Action ~ts stopped after template rendering due to test setting.",
+                    [ActionID]
+                )
+            ),
+            MsgBin = unicode:characters_to_binary(StopMsg),
+            error({unrecoverable_error, {action_stopped_after_template_rendering, MsgBin}});
+        _ ->
+            ok
+    end,
+    TraceResult.
 
 log(List, Msg, Meta) ->
     log(debug, List, Msg, Meta).
@@ -517,6 +541,9 @@ to_trace(#{type := ip_address, ip_address := Filter} = Trace, Rec) ->
         Error ->
             Error
     end;
+to_trace(#{type := ruleid, ruleid := Filter} = Trace, Rec) ->
+    Trace0 = maps:without([type, ruleid], Trace),
+    to_trace(Trace0, Rec#?TRACE{type = ruleid, filter = Filter});
 to_trace(#{type := Type}, _Rec) ->
     {error, io_lib:format("required ~s field", [Type])};
 to_trace(#{payload_encode := PayloadEncode} = Trace, Rec) ->
