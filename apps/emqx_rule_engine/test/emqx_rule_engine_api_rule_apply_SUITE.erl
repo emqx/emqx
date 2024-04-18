@@ -128,9 +128,8 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
             Bin = read_rule_trace_file(TraceName, TraceType, Now),
             io:format("THELOG:~n~s", [Bin]),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"rule_activated">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"SELECT_yielded_result">>])),
+            ?assertNotEqual(nomatch, binary:match(Bin, [<<"SQL_yielded_result">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_activated">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_template_rendered">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"QUERY_ASYNC">>]))
         end

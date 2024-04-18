@@ -132,7 +132,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
                     reason => Error,
                     stacktrace => StkTrace
                 },
-                warning
+                error
             ),
             {error, {Error, StkTrace}}
     after
@@ -176,18 +176,18 @@ do_apply_rule(
         {ok, ColumnsAndSelected, FinalCollection} ->
             case FinalCollection of
                 [] ->
-                    trace_rule_sql("FOREACH_yielded_no_result"),
+                    trace_rule_sql("SQL_yielded_no_result"),
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result');
                 _ ->
                     trace_rule_sql(
-                        "FOREACH_yielded_result", #{result => FinalCollection}, debug
+                        "SQL_yielded_result", #{result => FinalCollection}, debug
                     ),
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
             end,
             NewEnvs = maps:merge(ColumnsAndSelected, Envs),
             {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- FinalCollection]};
         false ->
-            trace_rule_sql("FOREACH_yielded_no_result_no_match"),
+            trace_rule_sql("SQL_yielded_no_result"),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
             {error, nomatch}
     end;
@@ -204,11 +204,11 @@ do_apply_rule(
 ) ->
     case evaluate_select(Fields, Columns, Conditions) of
         {ok, Selected} ->
-            trace_rule_sql("SELECT_yielded_result", #{result => Selected}, debug),
+            trace_rule_sql("SQL_yielded_result", #{result => Selected}, debug),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed'),
             {ok, handle_action_list(RuleId, Actions, Selected, maps:merge(Columns, Envs))};
         false ->
-            trace_rule_sql("SELECT_yielded_no_result_no_match"),
+            trace_rule_sql("SQL_yielded_no_result"),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
             {error, nomatch}
     end.
@@ -392,10 +392,8 @@ handle_action_list(RuleId, Actions, Selected, Envs) ->
 
 handle_action(RuleId, ActId, Selected, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
-    trace_action(ActId, "activating_action"),
     try
         Result = do_handle_action(RuleId, ActId, Selected, Envs),
-        trace_action(ActId, "action_activated", #{result => Result}),
         Result
     catch
         throw:out_of_service ->
@@ -467,7 +465,6 @@ do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) -
     Result = Mod:Func(Selected, Envs, Args),
     {_, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
     inc_action_metrics(IncCtx, Result),
-    trace_action(Action, "call_action_function_result", #{result => Result}, debug),
     Result.
 
 do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
