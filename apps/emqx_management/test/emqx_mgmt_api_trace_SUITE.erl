@@ -254,6 +254,15 @@ t_http_test_json_formatter(_Config) ->
             {<<"key2">>, <<"value2">>}
         ]
     }),
+    %% We do special formatting for client_ids and rule_ids
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        client_ids => maps:from_keys([<<"a">>, <<"b">>, <<"c">>], true)
+    }),
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        rule_ids => maps:from_keys([<<"a">>, <<"b">>, <<"c">>], true)
+    }),
     ok = emqx_trace_handler_SUITE:filesync(Name, topic),
     {ok, _Detail2} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     {ok, Bin} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
@@ -300,6 +309,16 @@ t_http_test_json_formatter(_Config) ->
                         <<"key">> := <<"value">>,
                         <<"key2">> := <<"value2">>
                     }
+                }
+            },
+            #{
+                <<"meta">> := #{
+                    <<"client_ids">> := [<<"a">>, <<"b">>, <<"c">>]
+                }
+            },
+            #{
+                <<"meta">> := #{
+                    <<"rule_ids">> := [<<"a">>, <<"b">>, <<"c">>]
                 }
             }
             | _

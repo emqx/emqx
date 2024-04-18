@@ -53,7 +53,7 @@ prepare_key_value(payload = K, V, PEncode) ->
         try
             format_payload(V, PEncode)
         catch
-            _:_:_ ->
+            _:_ ->
                 V
         end,
     {K, NewV};
@@ -62,7 +62,25 @@ prepare_key_value(packet = K, V, PEncode) ->
         try
             format_packet(V, PEncode)
         catch
-            _:_:_ ->
+            _:_ ->
+                V
+        end,
+    {K, NewV};
+prepare_key_value(rule_ids = K, V, _PEncode) ->
+    NewV =
+        try
+            format_map_set_to_list(V)
+        catch
+            _:_ ->
+                V
+        end,
+    {K, NewV};
+prepare_key_value(client_ids = K, V, _PEncode) ->
+    NewV =
+        try
+            format_map_set_to_list(V)
+        catch
+            _:_ ->
                 V
         end,
     {K, NewV};
@@ -83,3 +101,16 @@ format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
 format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) -> binary:encode_hex(Payload);
 format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
     emqx_packet:format_truncated_payload(Part, byte_size(Payload), Type).
+
+format_map_set_to_list(Map) ->
+    Items = [
+        begin
+            %% Assert that it is really a map set
+            true = V,
+            %% Assert that the keys have the expected type
+            true = is_binary(K),
+            K
+        end
+     || {K, V} <- maps:to_list(Map)
+    ],
+    lists:sort(Items).
