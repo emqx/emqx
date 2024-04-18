@@ -18,8 +18,8 @@ table.desc:
 table.label:
 """Table """
 
-region.label:
-"""Region of the AWS Dynamo"""
+region.desc:
+"""Region of AWS Dynamo"""
 
 url.desc:
 """The url of DynamoDB endpoint."""

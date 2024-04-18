@@ -136,7 +136,7 @@ create_channel_state(
     Keys = maps:with([hash_key, range_key], Conf),
     Keys1 = maps:fold(
         fun(K, V, Acc) ->
-            Acc#{K := erlang:binary_to_atom(V)}
+            Acc#{K := erlang:binary_to_existing_atom(V)}
         end,
         Keys,
         Keys
