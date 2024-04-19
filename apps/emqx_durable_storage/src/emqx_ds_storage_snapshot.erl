@@ -267,7 +267,9 @@ new_writer_file(#writer{dirpath = DirPath}, RelPath) ->
 
 write_chunk_file(WFile0 = #wfile{fd = IoDev, pos = Pos, abspath = AbsPath}, Pos, More, Chunk) ->
     ChunkSize = byte_size(Chunk),
-    case file:write(IoDev, Chunk) of
+    case (ChunkSize > 0) andalso file:write(IoDev, Chunk) of
+        false ->
+            WFile0;
         ok ->
             WFile1 = WFile0#wfile{pos = Pos + ChunkSize},
             case More of
