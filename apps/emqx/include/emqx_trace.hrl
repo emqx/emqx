@@ -30,10 +30,9 @@
         | '_',
     enable = true :: boolean() | '_',
     payload_encode = text :: hex | text | hidden | '_',
-    extra = #{} :: map() | '_',
+    extra = #{formatter => text} :: #{formatter => text | json} | '_',
     start_at :: integer() | undefined | '_',
-    end_at :: integer() | undefined | '_',
-    formatter = text :: text | json | '_'
+    end_at :: integer() | undefined | '_'
 }).
 
 -define(SHARD, ?COMMON_SHARD).

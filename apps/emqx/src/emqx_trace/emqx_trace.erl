@@ -254,7 +254,10 @@ format(Traces) ->
     lists:map(
         fun(Trace0 = #?TRACE{}) ->
             [_ | Values] = tuple_to_list(Trace0),
-            maps:from_list(lists:zip(Fields, Values))
+            Map0 = maps:from_list(lists:zip(Fields, Values)),
+            Extra = maps:get(extra, Map0, #{}),
+            Formatter = maps:get(formatter, Extra, text),
+            Map0#{formatter => Formatter}
         end,
         Traces
     ).
@@ -401,8 +404,9 @@ start_trace(Trace) ->
         filter = Filter,
         start_at = Start,
         payload_encode = PayloadEncode,
-        formatter = Formatter
+        extra = Extra
     } = Trace,
+    Formatter = maps:get(formatter, Extra, text),
     Who = #{
         name => Name,
         type => Type,
@@ -575,7 +579,11 @@ to_trace(#{end_at := EndAt} = Trace, Rec) ->
             {error, "end_at time has already passed"}
     end;
 to_trace(#{formatter := Formatter} = Trace, Rec) ->
-    to_trace(maps:remove(formatter, Trace), Rec#?TRACE{formatter = Formatter});
+    Extra = Rec#?TRACE.extra,
+    to_trace(
+        maps:remove(formatter, Trace),
+        Rec#?TRACE{extra = Extra#{formatter => Formatter}}
+    );
 to_trace(_, Rec) ->
     {ok, Rec}.
 
