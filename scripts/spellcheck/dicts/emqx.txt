@@ -306,3 +306,4 @@ elasticsearch
 ElasticSearch
 doc_as_upsert
 upsert
+aliyun
