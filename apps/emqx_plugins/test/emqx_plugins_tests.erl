@@ -57,7 +57,7 @@ read_plugin_test() ->
                 ok = write_file(InfoFile, FakeInfo),
                 ?assertMatch(
                     {error, #{error := "bad_rel_apps"}},
-                    emqx_plugins:read_plugin(NameVsn, #{})
+                    emqx_plugins:read_plugin_info(NameVsn, #{})
                 )
             after
                 emqx_plugins:purge(NameVsn)
@@ -109,7 +109,7 @@ purge_test() ->
     with_rand_install_dir(
         fun(_Dir) ->
             File = emqx_plugins:info_file("a-1"),
-            Dir = emqx_plugins:dir("a-1"),
+            Dir = emqx_plugins:plugin_dir("a-1"),
             ok = filelib:ensure_dir(File),
             ?assertMatch({ok, _}, file:read_file_info(Dir)),
             ?assertEqual(ok, emqx_plugins:purge("a-1")),

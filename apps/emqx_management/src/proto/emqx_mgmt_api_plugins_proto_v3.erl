@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_api_plugins_proto_v2).
+-module(emqx_mgmt_api_plugins_proto_v3).
 
 -behaviour(emqx_bpapi).
 
@@ -23,14 +23,14 @@
     install_package/3,
     describe_package/2,
     delete_package/1,
-    ensure_action/2
-    %% plugin_config/2
+    ensure_action/2,
+    update_plugin_config/4
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "5.1.0".
+    "5.7.0".
 
 -spec get_plugins([node()]) -> emqx_rpc:multicall_result().
 get_plugins(Nodes) ->
@@ -51,3 +51,15 @@ delete_package(Name) ->
 -spec ensure_action(binary() | string(), 'restart' | 'start' | 'stop') -> ok | {error, any()}.
 ensure_action(Name, Action) ->
     emqx_cluster_rpc:multicall(emqx_mgmt_api_plugins, ensure_action, [Name, Action], all, 10000).
+
+-spec update_plugin_config(
+    [node()],
+    binary() | string(),
+    binary(),
+    map()
+) ->
+    emqx_rpc:multicall_result().
+update_plugin_config(Nodes, Name, RawAvro, PluginConfig) ->
+    rpc:multicall(
+        Nodes, emqx_mgmt_api_plugins, do_update_plugin_config, [Name, RawAvro, PluginConfig], 10000
+    ).

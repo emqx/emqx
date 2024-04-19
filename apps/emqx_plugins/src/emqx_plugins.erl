@@ -17,13 +17,21 @@
 -module(emqx_plugins).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/logger.hrl").
 -include("emqx_plugins.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-export([
+    describe/1,
+    plugin_avsc/1,
+    plugin_i18n/1,
+    plugin_avro/1,
+    parse_name_vsn/1
+]).
+
+%% Package operations
 -export([
     ensure_installed/1,
     ensure_uninstalled/1,
@@ -35,21 +43,26 @@
     delete_package/1
 ]).
 
+%% Plugin runtime management
 -export([
     ensure_started/0,
     ensure_started/1,
     ensure_stopped/0,
     ensure_stopped/1,
+    get_plugin_config/1,
+    get_plugin_config/2,
+    put_plugin_config/3,
     restart/1,
-    list/0,
-    describe/1,
-    parse_name_vsn/1
+    list/0
 ]).
 
+%% Package utils
 -export([
+    decode_plugin_avro_config/2,
     get_config/2,
     put_config/2,
-    get_tar/1
+    get_tar/1,
+    install_dir/0
 ]).
 
 %% `emqx_config_handler' API
@@ -57,21 +70,26 @@
     post_config_update/5
 ]).
 
-%% internal
+%% Internal export
 -export([do_ensure_started/1]).
--export([
-    install_dir/0
-]).
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
+%% Defines
+-define(PLUGIN_PERSIS_CONFIG_KEY(NameVsn), {?MODULE, NameVsn}).
+
+%% Types
 %% "my_plugin-0.1.0"
 -type name_vsn() :: binary() | string().
 %% the parse result of the JSON info file
 -type plugin() :: map().
+-type schema_json() :: map().
+-type i18n_json() :: map().
+-type avro_binary() :: binary().
+-type plugin_config() :: map().
 -type position() :: no_move | front | rear | {before, name_vsn()} | {behind, name_vsn()}.
 
 %%--------------------------------------------------------------------
@@ -80,12 +98,36 @@
 
 %% @doc Describe a plugin.
 -spec describe(name_vsn()) -> {ok, plugin()} | {error, any()}.
-describe(NameVsn) -> read_plugin(NameVsn, #{fill_readme => true}).
+describe(NameVsn) ->
+    read_plugin_info(NameVsn, #{fill_readme => true}).
+
+-spec plugin_avsc(name_vsn()) -> {ok, schema_json()} | {error, any()}.
+plugin_avsc(NameVsn) ->
+    read_plugin_avsc(NameVsn).
+
+-spec plugin_i18n(name_vsn()) -> {ok, i18n_json()} | {error, any()}.
+plugin_i18n(NameVsn) ->
+    read_plugin_i18n(NameVsn).
+
+-spec plugin_avro(name_vsn()) -> {ok, avro_binary()} | {error, any()}.
+plugin_avro(NameVsn) ->
+    read_plugin_avro(NameVsn).
+
+parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
+    parse_name_vsn(binary_to_list(NameVsn));
+parse_name_vsn(NameVsn) when is_list(NameVsn) ->
+    case lists:splitwith(fun(X) -> X =/= $- end, NameVsn) of
+        {AppName, [$- | Vsn]} -> {ok, list_to_atom(AppName), Vsn};
+        _ -> {error, "bad_name_vsn"}
+    end.
+
+%%--------------------------------------------------------------------
+%% Package operations
 
 %% @doc Install a .tar.gz package placed in install_dir.
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
-    case read_plugin(NameVsn, #{}) of
+    case read_plugin_info(NameVsn, #{}) of
         {ok, _} ->
             ok;
         {error, _} ->
@@ -93,32 +135,182 @@ ensure_installed(NameVsn) ->
             do_ensure_installed(NameVsn)
     end.
 
-do_ensure_installed(NameVsn) ->
-    TarGz = pkg_file(NameVsn),
-    case erl_tar:extract(TarGz, [compressed, memory]) of
-        {ok, TarContent} ->
-            ok = write_tar_file_content(install_dir(), TarContent),
-            case read_plugin(NameVsn, #{}) of
-                {ok, _} ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
-                    ok = delete_tar_file_content(install_dir(), TarContent),
-                    {error, Reason}
-            end;
-        {error, {_, enoent}} ->
+%% @doc Ensure files and directories for the given plugin are being deleted.
+%% If a plugin is running, or enabled, an error is returned.
+-spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
+ensure_uninstalled(NameVsn) ->
+    case read_plugin_info(NameVsn, #{}) of
+        {ok, #{running_status := RunningSt}} when RunningSt =/= stopped ->
             {error, #{
-                reason => "failed_to_extract_plugin_package",
-                path => TarGz,
-                return => not_found
+                error_msg => "bad_plugin_running_status",
+                hint => "stop_the_plugin_first"
             }};
-        {error, Reason} ->
+        {ok, #{config_status := enabled}} ->
             {error, #{
-                reason => "bad_plugin_package",
-                path => TarGz,
-                return => Reason
-            }}
+                error_msg => "bad_plugin_config_status",
+                hint => "disable_the_plugin_first"
+            }};
+        _ ->
+            purge(NameVsn),
+            ensure_delete(NameVsn)
     end.
+
+%% @doc Ensure a plugin is enabled to the end of the plugins list.
+-spec ensure_enabled(name_vsn()) -> ok | {error, any()}.
+ensure_enabled(NameVsn) ->
+    ensure_enabled(NameVsn, no_move).
+
+%% @doc Ensure a plugin is enabled at the given position of the plugin list.
+-spec ensure_enabled(name_vsn(), position()) -> ok | {error, any()}.
+ensure_enabled(NameVsn, Position) ->
+    ensure_state(NameVsn, Position, _Enabled = true, _ConfLocation = local).
+
+-spec ensure_enabled(name_vsn(), position(), local | global) -> ok | {error, any()}.
+ensure_enabled(NameVsn, Position, ConfLocation) when
+    ConfLocation =:= local; ConfLocation =:= global
+->
+    ensure_state(NameVsn, Position, _Enabled = true, ConfLocation).
+
+%% @doc Ensure a plugin is disabled.
+-spec ensure_disabled(name_vsn()) -> ok | {error, any()}.
+ensure_disabled(NameVsn) ->
+    ensure_state(NameVsn, no_move, false, _ConfLocation = local).
+
+%% @doc Delete extracted dir
+%% In case one lib is shared by multiple plugins.
+%% it might be the case that purging one plugin's install dir
+%% will cause deletion of loaded beams.
+%% It should not be a problem, because shared lib should
+%% reside in all the plugin install dirs.
+-spec purge(name_vsn()) -> ok.
+purge(NameVsn) ->
+    _ = maybe_purge_plugin_config(NameVsn),
+    purge_plugin(NameVsn).
+
+%% @doc Delete the package file.
+-spec delete_package(name_vsn()) -> ok.
+delete_package(NameVsn) ->
+    File = pkg_file(NameVsn),
+    _ = emqx_plugins_serde:delete_schema(NameVsn),
+    case file:delete(File) of
+        ok ->
+            ?SLOG(info, #{msg => "purged_plugin_dir", path => File}),
+            ok;
+        {error, enoent} ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_delete_package_file",
+                path => File,
+                reason => Reason
+            }),
+            {error, Reason}
+    end.
+
+%%--------------------------------------------------------------------
+%% Plugin runtime management
+
+%% @doc Start all configured plugins are started.
+-spec ensure_started() -> ok.
+ensure_started() ->
+    ok = for_plugins(fun ?MODULE:do_ensure_started/1).
+
+%% @doc Start a plugin from Management API or CLI.
+%% the input is a <name>-<vsn> string.
+-spec ensure_started(name_vsn()) -> ok | {error, term()}.
+ensure_started(NameVsn) ->
+    case do_ensure_started(NameVsn) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(alert, Reason#{msg => "failed_to_start_plugin"}),
+            {error, Reason}
+    end.
+
+%% @doc Stop all plugins before broker stops.
+-spec ensure_stopped() -> ok.
+ensure_stopped() ->
+    for_plugins(fun ?MODULE:ensure_stopped/1).
+
+%% @doc Stop a plugin from Management API or CLI.
+-spec ensure_stopped(name_vsn()) -> ok | {error, term()}.
+ensure_stopped(NameVsn) ->
+    tryit(
+        "stop_plugin",
+        fun() ->
+            Plugin = do_read_plugin(NameVsn),
+            ensure_apps_stopped(Plugin)
+        end
+    ).
+
+-spec get_plugin_config(name_vsn()) ->
+    {ok, plugin_config()} | {error, term()}.
+get_plugin_config(NameVsn) ->
+    get_plugin_config(NameVsn, #{format => ?CONFIG_FORMAT_MAP}).
+
+-spec get_plugin_config(name_vsn(), Options :: map()) ->
+    {ok, avro_binary() | plugin_config()}
+    | {error, term()}.
+get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
+    case read_plugin_avro(NameVsn) of
+        {ok, _AvroBin} = Res -> Res;
+        {error, _Reason} = Err -> Err
+    end;
+get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}) ->
+    persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), #{}).
+
+%% @doc Update plugin's config.
+%% RPC call from Management API or CLI.
+%% the avro binary and plugin config ALWAYS be valid before calling this function.
+put_plugin_config(NameVsn, RawAvro, PluginConfig) ->
+    ok = write_avro_bin(NameVsn, RawAvro),
+    ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), PluginConfig),
+    ok.
+
+%% @doc Stop and then start the plugin.
+restart(NameVsn) ->
+    case ensure_stopped(NameVsn) of
+        ok -> ensure_started(NameVsn);
+        {error, Reason} -> {error, Reason}
+    end.
+
+%% @doc List all installed plugins.
+%% Including the ones that are installed, but not enabled in config.
+-spec list() -> [plugin()].
+list() ->
+    Pattern = filename:join([install_dir(), "*", "release.json"]),
+    All = lists:filtermap(
+        fun(JsonFilePath) ->
+            [_, NameVsn | _] = lists:reverse(filename:split(JsonFilePath)),
+            case read_plugin_info(NameVsn, #{}) of
+                {ok, Info} ->
+                    {true, Info};
+                {error, Reason} ->
+                    ?SLOG(warning, Reason),
+                    false
+            end
+        end,
+        filelib:wildcard(Pattern)
+    ),
+    do_list(configured(), All).
+
+%%--------------------------------------------------------------------
+%% Package utils
+
+-spec decode_plugin_avro_config(name_vsn(), binary()) -> {ok, map()} | {error, any()}.
+decode_plugin_avro_config(NameVsn, RawAvro) ->
+    case emqx_plugins_serde:decode(NameVsn, RawAvro) of
+        {ok, Config} -> {ok, Config};
+        {error, ReasonMap} -> {error, ReasonMap}
+    end.
+
+get_config(Key, Default) when is_atom(Key) ->
+    get_config([Key], Default);
+get_config(Path, Default) ->
+    emqx_conf:get([?CONF_ROOT | Path], Default).
+
+put_config(Key, Value) ->
+    do_put_config(Key, Value, _ConfLocation = local).
 
 -spec get_tar(name_vsn()) -> {ok, binary()} | {error, any}.
 get_tar(NameVsn) ->
@@ -135,10 +327,14 @@ get_tar(NameVsn) ->
             end
     end.
 
+%%--------------------------------------------------------------------
+%% Internal
+%%--------------------------------------------------------------------
+
 maybe_create_tar(NameVsn, TarGzName, InstallDir) when is_binary(InstallDir) ->
     maybe_create_tar(NameVsn, TarGzName, binary_to_list(InstallDir));
 maybe_create_tar(NameVsn, TarGzName, InstallDir) ->
-    case filelib:wildcard(filename:join(dir(NameVsn), "**")) of
+    case filelib:wildcard(filename:join(plugin_dir(NameVsn), "**")) of
         [_ | _] = PluginFiles ->
             InstallDir1 = string:trim(InstallDir, trailing, "/") ++ "/",
             PluginFiles1 = [{string:prefix(F, InstallDir1), F} || F <- PluginFiles],
@@ -207,24 +403,32 @@ top_dir_test_() ->
     ].
 -endif.
 
-%% @doc Ensure files and directories for the given plugin are being deleted.
-%% If a plugin is running, or enabled, an error is returned.
--spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
-ensure_uninstalled(NameVsn) ->
-    case read_plugin(NameVsn, #{}) of
-        {ok, #{running_status := RunningSt}} when RunningSt =/= stopped ->
+do_ensure_installed(NameVsn) ->
+    TarGz = pkg_file(NameVsn),
+    case erl_tar:extract(TarGz, [compressed, memory]) of
+        {ok, TarContent} ->
+            ok = write_tar_file_content(install_dir(), TarContent),
+            case read_plugin_info(NameVsn, #{}) of
+                {ok, _} ->
+                    ok = maybe_post_op_after_install(NameVsn),
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
+                    ok = delete_tar_file_content(install_dir(), TarContent),
+                    {error, Reason}
+            end;
+        {error, {_, enoent}} ->
             {error, #{
-                reason => "bad_plugin_running_status",
-                hint => "stop_the_plugin_first"
+                error_msg => "failed_to_extract_plugin_package",
+                path => TarGz,
+                reason => not_found
             }};
-        {ok, #{config_status := enabled}} ->
+        {error, Reason} ->
             {error, #{
-                reason => "bad_plugin_config_status",
-                hint => "disable_the_plugin_first"
-            }};
-        _ ->
-            purge(NameVsn),
-            ensure_delete(NameVsn)
+                error_msg => "bad_plugin_package",
+                path => TarGz,
+                reason => Reason
+            }}
     end.
 
 ensure_delete(NameVsn0) ->
@@ -233,37 +437,19 @@ ensure_delete(NameVsn0) ->
     put_configured(lists:filter(fun(#{name_vsn := N1}) -> bin(N1) =/= NameVsn end, List)),
     ok.
 
-%% @doc Ensure a plugin is enabled to the end of the plugins list.
--spec ensure_enabled(name_vsn()) -> ok | {error, any()}.
-ensure_enabled(NameVsn) ->
-    ensure_enabled(NameVsn, no_move).
-
-%% @doc Ensure a plugin is enabled at the given position of the plugin list.
--spec ensure_enabled(name_vsn(), position()) -> ok | {error, any()}.
-ensure_enabled(NameVsn, Position) ->
-    ensure_state(NameVsn, Position, _Enabled = true, _ConfLocation = local).
-
--spec ensure_enabled(name_vsn(), position(), local | global) -> ok | {error, any()}.
-ensure_enabled(NameVsn, Position, ConfLocation) when
-    ConfLocation =:= local; ConfLocation =:= global
-->
-    ensure_state(NameVsn, Position, _Enabled = true, ConfLocation).
-
-%% @doc Ensure a plugin is disabled.
--spec ensure_disabled(name_vsn()) -> ok | {error, any()}.
-ensure_disabled(NameVsn) ->
-    ensure_state(NameVsn, no_move, false, _ConfLocation = local).
-
 ensure_state(NameVsn, Position, State, ConfLocation) when is_binary(NameVsn) ->
     ensure_state(binary_to_list(NameVsn), Position, State, ConfLocation);
 ensure_state(NameVsn, Position, State, ConfLocation) ->
-    case read_plugin(NameVsn, #{}) of
+    case read_plugin_info(NameVsn, #{}) of
         {ok, _} ->
             Item = #{
                 name_vsn => NameVsn,
                 enable => State
             },
-            tryit("ensure_state", fun() -> ensure_configured(Item, Position, ConfLocation) end);
+            tryit(
+                "ensure_state",
+                fun() -> ensure_configured(Item, Position, ConfLocation) end
+            );
         {error, Reason} ->
             {error, Reason}
     end.
@@ -295,7 +481,7 @@ add_new_configured(Configured, {Action, NameVsn}, Item) ->
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     Rear =:= [] andalso
         throw(#{
-            error => "position_anchor_plugin_not_configured",
+            error_msg => "position_anchor_plugin_not_configured",
             hint => "maybe_install_and_configure",
             name_vsn => NameVsn
         }),
@@ -307,37 +493,21 @@ add_new_configured(Configured, {Action, NameVsn}, Item) ->
             Front ++ [Anchor, Item | Rear0]
     end.
 
-%% @doc Delete the package file.
--spec delete_package(name_vsn()) -> ok.
-delete_package(NameVsn) ->
-    File = pkg_file(NameVsn),
-    case file:delete(File) of
-        ok ->
-            ?SLOG(info, #{msg => "purged_plugin_dir", path => File}),
-            ok;
-        {error, enoent} ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_delete_package_file",
-                path => File,
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
+maybe_purge_plugin_config(NameVsn) ->
+    _ = persistent_term:erase(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn)),
+    ok.
 
-%% @doc Delete extracted dir
-%% In case one lib is shared by multiple plugins.
-%% it might be the case that purging one plugin's install dir
-%% will cause deletion of loaded beams.
-%% It should not be a problem, because shared lib should
-%% reside in all the plugin install dirs.
--spec purge(name_vsn()) -> ok.
-purge(NameVsn) ->
-    Dir = dir(NameVsn),
+purge_plugin(NameVsn) ->
+    Dir = plugin_dir(NameVsn),
+    purge_plugin_dir(Dir).
+
+purge_plugin_dir(Dir) ->
     case file:del_dir_r(Dir) of
         ok ->
-            ?SLOG(info, #{msg => "purged_plugin_dir", dir => Dir});
+            ?SLOG(info, #{
+                msg => "purged_plugin_dir",
+                dir => Dir
+            });
         {error, enoent} ->
             ok;
         {error, Reason} ->
@@ -349,72 +519,10 @@ purge(NameVsn) ->
             {error, Reason}
     end.
 
-%% @doc Start all configured plugins are started.
--spec ensure_started() -> ok.
-ensure_started() ->
-    ok = for_plugins(fun ?MODULE:do_ensure_started/1).
-
-%% @doc Start a plugin from Management API or CLI.
-%% the input is a <name>-<vsn> string.
--spec ensure_started(name_vsn()) -> ok | {error, term()}.
-ensure_started(NameVsn) ->
-    case do_ensure_started(NameVsn) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(alert, #{
-                msg => "failed_to_start_plugin",
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
-
-%% @doc Stop all plugins before broker stops.
--spec ensure_stopped() -> ok.
-ensure_stopped() ->
-    for_plugins(fun ?MODULE:ensure_stopped/1).
-
-%% @doc Stop a plugin from Management API or CLI.
--spec ensure_stopped(name_vsn()) -> ok | {error, term()}.
-ensure_stopped(NameVsn) ->
-    tryit(
-        "stop_plugin",
-        fun() ->
-            Plugin = do_read_plugin(NameVsn),
-            ensure_apps_stopped(Plugin)
-        end
-    ).
-
-%% @doc Stop and then start the plugin.
-restart(NameVsn) ->
-    case ensure_stopped(NameVsn) of
-        ok -> ensure_started(NameVsn);
-        {error, Reason} -> {error, Reason}
-    end.
-
-%% @doc List all installed plugins.
-%% Including the ones that are installed, but not enabled in config.
--spec list() -> [plugin()].
-list() ->
-    Pattern = filename:join([install_dir(), "*", "release.json"]),
-    All = lists:filtermap(
-        fun(JsonFile) ->
-            case read_plugin({file, JsonFile}, #{}) of
-                {ok, Info} ->
-                    {true, Info};
-                {error, Reason} ->
-                    ?SLOG(warning, Reason),
-                    false
-            end
-        end,
-        filelib:wildcard(Pattern)
-    ),
-    list(configured(), All).
-
 %% Make sure configured ones are ordered in front.
-list([], All) ->
+do_list([], All) ->
     All;
-list([#{name_vsn := NameVsn} | Rest], All) ->
+do_list([#{name_vsn := NameVsn} | Rest], All) ->
     SplitF = fun(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
         bin([Name, "-", Vsn]) =/= bin(NameVsn)
     end,
@@ -424,9 +532,9 @@ list([#{name_vsn := NameVsn} | Rest], All) ->
                 msg => "configured_plugin_not_installed",
                 name_vsn => NameVsn
             }),
-            list(Rest, All);
+            do_list(Rest, All);
         {Front, [I | Rear]} ->
-            [I | list(Rest, Front ++ Rear)]
+            [I | do_list(Rest, Front ++ Rear)]
     end.
 
 do_ensure_started(NameVsn) ->
@@ -439,12 +547,15 @@ do_ensure_started(NameVsn) ->
                     ok = load_code_start_apps(NameVsn, Plugin);
                 {error, plugin_not_found} ->
                     ?SLOG(error, #{
-                        msg => "plugin_not_found",
+                        error_msg => "plugin_not_found",
                         name_vsn => NameVsn
-                    })
+                    }),
+                    ok
             end
         end
     ).
+
+%%--------------------------------------------------------------------
 
 %% try the function, catch 'throw' exceptions as normal 'error' return
 %% other exceptions with stacktrace logged.
@@ -452,10 +563,10 @@ tryit(WhichOp, F) ->
     try
         F()
     catch
-        throw:Reason ->
+        throw:ReasonMap ->
             %% thrown exceptions are known errors
             %% translate to a return value without stacktrace
-            {error, Reason};
+            {error, ReasonMap};
         error:Reason:Stacktrace ->
             %% unexpected errors, log stacktrace
             ?SLOG(warning, #{
@@ -469,33 +580,44 @@ tryit(WhichOp, F) ->
 
 %% read plugin info from the JSON file
 %% returns {ok, Info} or {error, Reason}
-read_plugin(NameVsn, Options) ->
+read_plugin_info(NameVsn, Options) ->
     tryit(
-        "read_plugin_info",
-        fun() -> {ok, do_read_plugin(NameVsn, Options)} end
+        atom_to_list(?FUNCTION_NAME),
+        fun() -> {ok, do_read_plugin2(NameVsn, Options)} end
     ).
 
-do_read_plugin(Plugin) -> do_read_plugin(Plugin, #{}).
+do_read_plugin(NameVsn) ->
+    do_read_plugin2(NameVsn, #{}).
 
-do_read_plugin({file, InfoFile}, Options) ->
-    [_, NameVsn | _] = lists:reverse(filename:split(InfoFile)),
-    case hocon:load(InfoFile, #{format => richmap}) of
-        {ok, RichMap} ->
-            Info0 = check_plugin(hocon_maps:ensure_plain(RichMap), NameVsn, InfoFile),
-            Info1 = plugins_readme(NameVsn, Options, Info0),
-            plugin_status(NameVsn, Info1);
-        {error, Reason} ->
-            throw(#{
-                error => "bad_info_file",
-                path => InfoFile,
-                return => Reason
-            })
-    end;
-do_read_plugin(NameVsn, Options) ->
-    do_read_plugin({file, info_file(NameVsn)}, Options).
+do_read_plugin2(NameVsn, Option) ->
+    do_read_plugin3(NameVsn, info_file(NameVsn), Option).
+
+do_read_plugin3(NameVsn, InfoFilePath, Options) ->
+    {ok, PlainMap} = (read_file_fun(InfoFilePath, "bad_info_file"))(),
+    Info0 = check_plugin(PlainMap, NameVsn, InfoFilePath),
+    Info1 = plugins_readme(NameVsn, Options, Info0),
+    plugin_status(NameVsn, Info1).
+
+read_plugin_avsc(NameVsn) ->
+    tryit(
+        atom_to_list(?FUNCTION_NAME),
+        read_file_fun(schema_file(NameVsn), "bad_avsc_file")
+    ).
+
+read_plugin_i18n(NameVsn) ->
+    tryit(
+        atom_to_list(?FUNCTION_NAME),
+        read_file_fun(i18n_file(NameVsn), "bad_i18n_file")
+    ).
+
+read_plugin_avro(NameVsn) ->
+    tryit(
+        atom_to_list(?FUNCTION_NAME),
+        read_file_fun(schema_file(NameVsn), "bad_avro_file")
+    ).
 
 ensure_exists_and_installed(NameVsn) ->
-    case filelib:is_dir(dir(NameVsn)) of
+    case filelib:is_dir(plugin_dir(NameVsn)) of
         true ->
             ok;
         false ->
@@ -581,10 +703,6 @@ plugin_status(NameVsn, Info) ->
         config_status => ConfSt
     }.
 
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
-
 check_plugin(
     #{
         <<"name">> := Name,
@@ -593,7 +711,7 @@ check_plugin(
         <<"description">> := _
     } = Info,
     NameVsn,
-    File
+    FilePath
 ) ->
     case bin(NameVsn) =:= bin([Name, "-", Vsn]) of
         true ->
@@ -605,7 +723,7 @@ check_plugin(
             catch
                 _:_ ->
                     throw(#{
-                        error => "bad_rel_apps",
+                        error_msg => "bad_rel_apps",
                         rel_apps => Apps,
                         hint => "A non-empty string list of app_name-app_vsn format"
                     })
@@ -613,16 +731,16 @@ check_plugin(
             Info;
         false ->
             throw(#{
-                error => "name_vsn_mismatch",
+                error_msg => "name_vsn_mismatch",
                 name_vsn => NameVsn,
-                path => File,
+                path => FilePath,
                 name => Name,
                 rel_vsn => Vsn
             })
     end;
 check_plugin(_What, NameVsn, File) ->
     throw(#{
-        error => "bad_info_file_content",
+        error_msg => "bad_info_file_content",
         mandatory_fields => [rel_vsn, name, rel_apps, description],
         name_vsn => NameVsn,
         path => File
@@ -678,7 +796,7 @@ do_load_plugin_app(AppName, Ebin) ->
                     ok;
                 {error, Reason} ->
                     throw(#{
-                        error => "failed_to_load_plugin_beam",
+                        error_msg => "failed_to_load_plugin_beam",
                         path => BeamFile,
                         reason => Reason
                     })
@@ -693,7 +811,7 @@ do_load_plugin_app(AppName, Ebin) ->
             ok;
         {error, Reason} ->
             throw(#{
-                error => "failed_to_load_plugin_app",
+                error_msg => "failed_to_load_plugin_app",
                 name => AppName,
                 reason => Reason
             })
@@ -710,7 +828,7 @@ start_app(App) ->
             ok;
         {error, {ErrApp, Reason}} ->
             throw(#{
-                error => "failed_to_start_plugin_app",
+                error_msg => "failed_to_start_plugin_app",
                 app => App,
                 err_app => ErrApp,
                 reason => Reason
@@ -775,7 +893,7 @@ stop_app(App) ->
             ?SLOG(debug, #{msg => "plugin_not_started", app => App}),
             ok = unload_moudle_and_app(App);
         {error, Reason} ->
-            throw(#{error => "failed_to_stop_app", app => App, reason => Reason})
+            throw(#{error_msg => "failed_to_stop_app", app => App, reason => Reason})
     end.
 
 unload_moudle_and_app(App) ->
@@ -802,93 +920,21 @@ is_needed_by(AppToStop, RunningApp) ->
         undefined -> false
     end.
 
-put_config(Key, Value) ->
-    put_config(Key, Value, _ConfLocation = local).
-
-put_config(Key, Value, ConfLocation) when is_atom(Key) ->
-    put_config([Key], Value, ConfLocation);
-put_config(Path, Values, _ConfLocation = local) when is_list(Path) ->
+do_put_config(Key, Value, ConfLocation) when is_atom(Key) ->
+    do_put_config([Key], Value, ConfLocation);
+do_put_config(Path, Values, _ConfLocation = local) when is_list(Path) ->
     Opts = #{rawconf_with_defaults => true, override_to => cluster},
     %% Already in cluster_rpc, don't use emqx_conf:update, dead calls
     case emqx:update_config([?CONF_ROOT | Path], bin_key(Values), Opts) of
         {ok, _} -> ok;
         Error -> Error
     end;
-put_config(Path, Values, _ConfLocation = global) when is_list(Path) ->
+do_put_config(Path, Values, _ConfLocation = global) when is_list(Path) ->
     Opts = #{rawconf_with_defaults => true, override_to => cluster},
     case emqx_conf:update([?CONF_ROOT | Path], bin_key(Values), Opts) of
         {ok, _} -> ok;
         Error -> Error
     end.
-
-bin_key(Map) when is_map(Map) ->
-    maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
-bin_key(List = [#{} | _]) ->
-    lists:map(fun(M) -> bin_key(M) end, List);
-bin_key(Term) ->
-    Term.
-
-get_config(Key, Default) when is_atom(Key) ->
-    get_config([Key], Default);
-get_config(Path, Default) ->
-    emqx_conf:get([?CONF_ROOT | Path], Default).
-
-install_dir() -> get_config(install_dir, "").
-
-put_configured(Configured) ->
-    put_configured(Configured, _ConfLocation = local).
-
-put_configured(Configured, ConfLocation) ->
-    ok = put_config(states, bin_key(Configured), ConfLocation).
-
-configured() ->
-    get_config(states, []).
-
-for_plugins(ActionFun) ->
-    case lists:flatmap(fun(I) -> for_plugin(I, ActionFun) end, configured()) of
-        [] -> ok;
-        Errors -> erlang:error(#{function => ActionFun, errors => Errors})
-    end.
-
-for_plugin(#{name_vsn := NameVsn, enable := true}, Fun) ->
-    case Fun(NameVsn) of
-        ok -> [];
-        {error, Reason} -> [{NameVsn, Reason}]
-    end;
-for_plugin(#{name_vsn := NameVsn, enable := false}, _Fun) ->
-    ?SLOG(debug, #{
-        msg => "plugin_disabled",
-        name_vsn => NameVsn
-    }),
-    [].
-
-parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
-    parse_name_vsn(binary_to_list(NameVsn));
-parse_name_vsn(NameVsn) when is_list(NameVsn) ->
-    case lists:splitwith(fun(X) -> X =/= $- end, NameVsn) of
-        {AppName, [$- | Vsn]} -> {ok, list_to_atom(AppName), Vsn};
-        _ -> {error, "bad_name_vsn"}
-    end.
-
-pkg_file(NameVsn) ->
-    filename:join([install_dir(), bin([NameVsn, ".tar.gz"])]).
-
-dir(NameVsn) ->
-    filename:join([install_dir(), NameVsn]).
-
-info_file(NameVsn) ->
-    filename:join([dir(NameVsn), "release.json"]).
-
-readme_file(NameVsn) ->
-    filename:join([dir(NameVsn), "README.md"]).
-
-running_apps() ->
-    lists:map(
-        fun({N, _, V}) ->
-            {N, V}
-        end,
-        application:which_applications(infinity)
-    ).
 
 %%--------------------------------------------------------------------
 %% `emqx_config_handler' API
@@ -913,3 +959,120 @@ enable_disable_plugin(NameVsn, {#{enable := false}, #{enable := true}}) ->
     ok;
 enable_disable_plugin(_NameVsn, _Diff) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+install_dir() ->
+    get_config(install_dir, "").
+
+put_configured(Configured) ->
+    put_configured(Configured, _ConfLocation = local).
+
+put_configured(Configured, ConfLocation) ->
+    ok = do_put_config(states, bin_key(Configured), ConfLocation).
+
+configured() ->
+    get_config(states, []).
+
+for_plugins(ActionFun) ->
+    case lists:flatmap(fun(I) -> for_plugin(I, ActionFun) end, configured()) of
+        [] -> ok;
+        Errors -> erlang:error(#{function => ActionFun, errors => Errors})
+    end.
+
+for_plugin(#{name_vsn := NameVsn, enable := true}, Fun) ->
+    case Fun(NameVsn) of
+        ok -> [];
+        {error, Reason} -> [{NameVsn, Reason}]
+    end;
+for_plugin(#{name_vsn := NameVsn, enable := false}, _Fun) ->
+    ?SLOG(debug, #{
+        msg => "plugin_disabled",
+        name_vsn => NameVsn
+    }),
+    [].
+
+maybe_post_op_after_install(NameVsn) ->
+    _ = maybe_load_config_schema(NameVsn),
+    _ = maybe_create_config_dir(NameVsn),
+    ok.
+
+maybe_load_config_schema(NameVsn) ->
+    case read_plugin_avsc(NameVsn) of
+        {ok, Avsc} ->
+            case emqx_plugins_serde:add_schema(NameVsn, Avsc) of
+                ok -> ok;
+                {error, already_exists} -> ok;
+                {error, Reason} -> {error, Reason}
+            end;
+        {error, Reason} ->
+            ?SLOG(warning, Reason)
+    end.
+
+maybe_create_config_dir(NameVsn) ->
+    case filelib:ensure_path(plugin_config_dir(NameVsn)) of
+        ok -> ok;
+        {error, Reason} -> ?SLOG(warning, Reason)
+    end.
+
+write_avro_bin(NameVsn, AvroBin) ->
+    ok = file:write_file(avro_config_file(NameVsn), AvroBin).
+
+read_file_fun(Path, ErrMsg) ->
+    fun() ->
+        case hocon:load(Path, #{format => richmap}) of
+            {ok, RichMap} ->
+                {ok, hocon_maps:ensure_plain(RichMap)};
+            {error, Reason} ->
+                ErrMeta = #{error_msg => ErrMsg, reason => Reason},
+                ?SLOG(warning, ErrMeta),
+                throw(ErrMeta)
+        end
+    end.
+
+%% Directorys
+plugin_dir(NameVsn) ->
+    filename:join([install_dir(), NameVsn]).
+
+plugin_config_dir(NameVsn) ->
+    filename:join([plugin_dir(NameVsn), "data", "configs"]).
+
+%% Files
+pkg_file(NameVsn) ->
+    filename:join([install_dir(), bin([NameVsn, ".tar.gz"])]).
+
+info_file(NameVsn) ->
+    filename:join([plugin_dir(NameVsn), "release.json"]).
+
+schema_file(NameVsn) ->
+    filename:join([plugin_dir(NameVsn), "config_schema.avsc"]).
+
+avro_config_file(NameVsn) ->
+    filename:join([plugin_config_dir(NameVsn), "config.avro"]).
+
+i18n_file(NameVsn) ->
+    filename:join([plugin_dir(NameVsn), "i18n.json"]).
+
+readme_file(NameVsn) ->
+    filename:join([plugin_dir(NameVsn), "README.md"]).
+
+running_apps() ->
+    lists:map(
+        fun({N, _, V}) ->
+            {N, V}
+        end,
+        application:which_applications(infinity)
+    ).
+
+bin_key(Map) when is_map(Map) ->
+    maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
+bin_key(List = [#{} | _]) ->
+    lists:map(fun(M) -> bin_key(M) end, List);
+bin_key(Term) ->
+    Term.
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
+bin(B) when is_binary(B) -> B.

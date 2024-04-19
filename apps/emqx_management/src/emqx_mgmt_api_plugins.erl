@@ -19,7 +19,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
-%%-include_lib("emqx_plugins/include/emqx_plugins.hrl").
+-include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
 -export([
     api_spec/0,
@@ -34,6 +34,8 @@
     upload_install/2,
     plugin/2,
     update_plugin/2,
+    plugin_config/2,
+    plugin_schema/2,
     update_boot_order/2
 ]).
 
@@ -43,7 +45,8 @@
     install_package/2,
     delete_package/1,
     describe_package/1,
-    ensure_action/2
+    ensure_action/2,
+    do_update_plugin_config/3
 ]).
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
@@ -52,7 +55,11 @@
 %% app_name must be a snake_case (no '-' allowed).
 -define(VSN_WILDCARD, "-*.tar.gz").
 
-namespace() -> "plugins".
+-define(CONTENT_PLUGIN, plugin).
+-define(CONTENT_CONFIG, config).
+
+namespace() ->
+    "plugins".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -64,6 +71,8 @@ paths() ->
         "/plugins/:name",
         "/plugins/install",
         "/plugins/:name/:action",
+        "/plugins/:name/config",
+        "/plugins/:name/schema",
         "/plugins/:name/move"
     ].
 
@@ -97,10 +106,10 @@ schema("/plugins/install") ->
                         schema => #{
                             type => object,
                             properties => #{
-                                plugin => #{type => string, format => binary}
+                                ?CONTENT_PLUGIN => #{type => string, format => binary}
                             }
                         },
-                        encoding => #{plugin => #{'contentType' => 'application/gzip'}}
+                        encoding => #{?CONTENT_PLUGIN => #{'contentType' => 'application/gzip'}}
                     }
                 }
             },
@@ -154,6 +163,70 @@ schema("/plugins/:name/:action") ->
             responses => #{
                 204 => <<"Trigger action successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+            }
+        }
+    };
+schema("/plugins/:name/config") ->
+    #{
+        'operationId' => plugin_config,
+        get => #{
+            summary =>
+                <<"Get plugin config">>,
+            description =>
+                "Get plugin config by avro encoded binary config. Schema defined by user's schema.avsc file.<br/>",
+            tags => ?TAGS,
+            parameters => [hoconsc:ref(name)],
+            responses => #{
+                %% binary avro encoded config
+                200 => hoconsc:mk(binary()),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+            }
+        },
+        put => #{
+            summary =>
+                <<"Update plugin config">>,
+            description =>
+                "Update plugin config by avro encoded binary config. Schema defined by user's schema.avsc file.<br/>",
+            tags => ?TAGS,
+            parameters => [hoconsc:ref(name)],
+            'requestBody' => #{
+                content => #{
+                    'multipart/form-data' => #{
+                        schema => #{
+                            type => object,
+                            properties => #{
+                                ?CONTENT_CONFIG => #{type => string, format => binary}
+                            }
+                        },
+                        encoding => #{?CONTENT_CONFIG => #{'contentType' => 'application/gzip'}}
+                    }
+                }
+            },
+            responses => #{
+                204 => <<"Config updated successfully">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['UNEXPECTED_ERROR'], <<"Update plugin config failed">>
+                ),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+            }
+        }
+    };
+schema("/plugins/:name/schema") ->
+    #{
+        'operationId' => plugin_schema,
+        get => #{
+            summary => <<"Get installed plugin's avro schema">>,
+            description =>
+                "Get plugin's config avro schema.",
+            tags => ?TAGS,
+            parameters => [hoconsc:ref(name)],
+            responses => #{
+                %% avro schema and i18n json object
+                200 => hoconsc:mk(binary()),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND', 'FILE_NOT_EXISTED'],
+                    <<"Plugin Not Found or Plugin not given a schema file">>
+                )
             }
         }
     };
@@ -338,7 +411,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
     case emqx_plugins:describe(NameVsn) of
-        {error, #{error := "bad_info_file", return := {enoent, _}}} ->
+        {error, #{error_msg := "bad_info_file", reason := {enoent, _}}} ->
             case emqx_plugins:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
                     AppDir = filename:join(emqx_plugins:install_dir(), AppName),
@@ -394,7 +467,7 @@ do_install_package(FileName, Bin) ->
             ),
             Reason =
                 case hd(Filtered) of
-                    {error, #{error := Reason0}} -> Reason0;
+                    {error, #{error_msg := Reason0}} -> Reason0;
                     {error, #{reason := Reason0}} -> Reason0
                 end,
             {400, #{
@@ -418,6 +491,42 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
     Res = emqx_mgmt_api_plugins_proto_v2:ensure_action(Name, Action),
     return(204, Res).
 
+plugin_config(get, #{bindings := #{name := Name}}) ->
+    case emqx_plugins:get_plugin_config(Name, #{format => ?CONFIG_FORMAT_AVRO}) of
+        {ok, AvroBin} ->
+            {200, #{<<"content-type">> => <<"application/octet-stream">>}, AvroBin};
+        {error, _} ->
+            {400, #{
+                code => 'BAD_CONFIG',
+                message => <<"Failed to get plugin config">>
+            }}
+    end;
+plugin_config(put, #{bindings := #{name := Name}, body := #{<<"config">> := RawAvro}}) ->
+    case emqx_plugins:decode_plugin_avro_config(Name, RawAvro) of
+        {ok, Config} ->
+            Nodes = emqx:running_nodes(),
+            _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
+                Nodes, Name, RawAvro, Config
+            ),
+            {204};
+        {error, Reason} ->
+            {400, #{
+                code => 'BAD_CONFIG',
+                message => readable_error_msg(Reason)
+            }}
+    end.
+
+plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
+    case emqx_plugins:describe(NameVsn) of
+        {ok, _Plugin} ->
+            {200, format_plugin_schema_with_i18n(NameVsn)};
+        _ ->
+            {404, #{
+                code => 'NOT_FOUND',
+                message => <<"Plugin Not Found">>
+            }}
+    end.
+
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
     case parse_position(Body, Name) of
         {error, Reason} ->
@@ -429,7 +538,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
                 {error, Reason} ->
                     {400, #{
                         code => 'MOVE_FAILED',
-                        message => iolist_to_binary(io_lib:format("~p", [Reason]))
+                        message => readable_error_msg(Reason)
                     }}
             end
     end.
@@ -443,7 +552,7 @@ install_package(FileName, Bin) ->
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
     case emqx_plugins:ensure_installed(PackageName) of
-        {error, #{return := not_found}} = NotFound ->
+        {error, #{reason := not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
             ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
@@ -454,9 +563,9 @@ install_package(FileName, Bin) ->
     end.
 
 %% For RPC plugin get
-describe_package(Name) ->
+describe_package(NameVsn) ->
     Node = node(),
-    case emqx_plugins:describe(Name) of
+    case emqx_plugins:describe(NameVsn) of
         {ok, Plugin} -> {Node, [Plugin]};
         _ -> {Node, []}
     end.
@@ -487,12 +596,25 @@ ensure_action(Name, restart) ->
     _ = emqx_plugins:restart(Name),
     ok.
 
+%% for RPC plugin avro encoded config update
+do_update_plugin_config(Name, Avro, PluginConfig) ->
+    emqx_plugins:put_plugin_config(Name, Avro, PluginConfig).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
 return(Code, ok) ->
     {Code};
-return(_, {error, #{error := "bad_info_file", return := {enoent, _} = Reason}}) ->
-    {404, #{code => 'NOT_FOUND', message => iolist_to_binary(io_lib:format("~p", [Reason]))}};
+return(_, {error, #{error_msg := "bad_info_file", reason := {enoent, _} = Reason}}) ->
+    {404, #{code => 'NOT_FOUND', message => readable_error_msg(Reason)}};
+return(_, {error, #{error_msg := "bad_avro_config_file", reason := {enoent, _} = Reason}}) ->
+    {404, #{code => 'NOT_FOUND', message => readable_error_msg(Reason)}};
 return(_, {error, Reason}) ->
-    {400, #{code => 'PARAM_ERROR', message => iolist_to_binary(io_lib:format("~p", [Reason]))}}.
+    {400, #{code => 'PARAM_ERROR', message => readable_error_msg(Reason)}}.
+
+readable_error_msg(Msg) ->
+    emqx_utils:readable_error_msg(Msg).
 
 parse_position(#{<<"position">> := <<"front">>}, _) ->
     front;
@@ -562,6 +684,18 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
             Plugins
         ),
     aggregate_status(List, NewAcc).
+
+format_plugin_schema_with_i18n(NameVsn) ->
+    #{
+        avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
+        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
+    }.
+
+try_read_file(Fun) ->
+    case Fun() of
+        {ok, Bin} -> Bin;
+        _ -> null
+    end.
 
 % running_status: running loaded, stopped
 %% config_status: not_configured disable enable
