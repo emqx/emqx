@@ -96,7 +96,6 @@ t_base_create_delete(_Config) ->
             start_at => Now,
             end_at => Now + 30 * 60,
             payload_encode => text,
-            extra => #{},
             formatter => text
         }
     ],

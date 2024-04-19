@@ -255,11 +255,10 @@ format(Traces) ->
         fun(Trace0 = #?TRACE{}) ->
             [_ | Values] = tuple_to_list(Trace0),
             Map0 = maps:from_list(lists:zip(Fields, Values)),
-            Extra0 = maps:get(extra, Map0, #{}),
-            Formatter = maps:get(formatter, Extra0, text),
+            Extra = maps:get(extra, Map0, #{}),
+            Formatter = maps:get(formatter, Extra, text),
             Map1 = Map0#{formatter => Formatter},
-            Extra1 = maps:remove(formatter, Extra0),
-            maps:put(extra, Extra1, Map1)
+            maps:remove(extra, Map1)
         end,
         Traces
     ).
