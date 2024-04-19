@@ -373,9 +373,9 @@ t_sync_query_aggregated(Config) ->
     Payload = [
         make_iotdb_payload(DeviceId, "temp", "INT32", "36", MS - 7000),
         make_iotdb_payload(DeviceId, "temp", "INT32", 37, MS - 6000),
-        make_iotdb_payload(DeviceId, "temp", "INT32", 38.7, MS - 5000),
-        make_iotdb_payload(DeviceId, "temp", "INT32", "39", integer_to_binary(MS - 4000)),
-        make_iotdb_payload(DeviceId, "temp", "INT32", "34", MS - 3000),
+        make_iotdb_payload(DeviceId, "temp", "INT64", 38.7, MS - 5000),
+        make_iotdb_payload(DeviceId, "temp", "INT64", "39", integer_to_binary(MS - 4000)),
+        make_iotdb_payload(DeviceId, "temp", "INT64", "34", MS - 3000),
         make_iotdb_payload(DeviceId, "temp", "INT32", 33.7, MS - 2000),
         make_iotdb_payload(DeviceId, "temp", "INT32", 32, MS - 1000),
         %% [FIXME] neither nanoseconds nor microseconds don't seem to be supported by IoTDB
@@ -417,48 +417,48 @@ t_sync_query_aggregated(Config) ->
         #{<<"values">> := [[87.3, 87.3, 87.0, 87.3, 87.3, 87.0]]},
         emqx_utils_json:decode(ResultWeight)
     ),
+    %% [FIXME] https://github.com/apache/iotdb/issues/12375
+    %% null don't seem to be supported by IoTDB insertTablet when 1.3.0
     case ?config(iotdb_version, Config) of
         ?VSN_1_3_X ->
-            ct:pal("waiting:~p ~p ~n, [DeviceId]", [DeviceId, MS + 1000]),
-            timer:sleep(3600 * 1000 * 1000);
+            skip;
         _ ->
-            ok
-    end,
-    %% check rest ts = MS + 1000
-    CheckTime = integer_to_binary(MS + 1000),
-    QueryRest = <<"select * from ", DeviceId/binary, " where time = ", CheckTime/binary>>,
-    {ok, {{_, 200, _}, _, ResultRest}} = iotdb_query(Config, QueryRest),
-    #{<<"values">> := Values, <<"expressions">> := Expressions} = emqx_utils_json:decode(
-        ResultRest
-    ),
-    Results = maps:from_list(lists:zipwith(fun(K, [V]) -> {K, V} end, Expressions, Values)),
-    Exp = #{
-        exp(DeviceId, "charged") => true,
-        exp(DeviceId, "floated") => true,
-        exp(DeviceId, "started") => true,
-        exp(DeviceId, "stoked") => true,
-        exp(DeviceId, "enriched") => true,
-        exp(DeviceId, "gutted") => true,
-        exp(DeviceId, "drained") => false,
-        exp(DeviceId, "toasted") => false,
-        exp(DeviceId, "uncharted") => false,
-        exp(DeviceId, "dazzled") => false,
-        exp(DeviceId, "unplugged") => false,
-        exp(DeviceId, "unraveled") => false,
-        exp(DeviceId, "undecided") => null,
-        exp(DeviceId, "foo") => <<"bar">>,
-        exp(DeviceId, "temp") => null,
-        exp(DeviceId, "weight") => null
-    },
-    ?assertEqual(Exp, Results),
+            %% check rest ts = MS + 1000
+            CheckTime = integer_to_binary(MS + 1000),
+            QueryRest = <<"select * from ", DeviceId/binary, " where time = ", CheckTime/binary>>,
+            {ok, {{_, 200, _}, _, ResultRest}} = iotdb_query(Config, QueryRest),
+            #{<<"values">> := Values, <<"expressions">> := Expressions} = emqx_utils_json:decode(
+                ResultRest
+            ),
+            Results = maps:from_list(lists:zipwith(fun(K, [V]) -> {K, V} end, Expressions, Values)),
+            Exp = #{
+                exp(DeviceId, "charged") => true,
+                exp(DeviceId, "floated") => true,
+                exp(DeviceId, "started") => true,
+                exp(DeviceId, "stoked") => true,
+                exp(DeviceId, "enriched") => true,
+                exp(DeviceId, "gutted") => true,
+                exp(DeviceId, "drained") => false,
+                exp(DeviceId, "toasted") => false,
+                exp(DeviceId, "uncharted") => false,
+                exp(DeviceId, "dazzled") => false,
+                exp(DeviceId, "unplugged") => false,
+                exp(DeviceId, "unraveled") => false,
+                exp(DeviceId, "undecided") => null,
+                exp(DeviceId, "foo") => <<"bar">>,
+                exp(DeviceId, "temp") => null,
+                exp(DeviceId, "weight") => null
+            },
+            ?assertEqual(Exp, Results),
 
-    %% check temp
-    QueryTemp = <<"select temp from ", DeviceId/binary, " where time > ", Time/binary>>,
-    {ok, {{_, 200, _}, _, ResultTemp}} = iotdb_query(Config, QueryTemp),
-    ?assertMatch(
-        #{<<"values">> := [[36, 37, 38, 39, 34, 33, 32, 41]]},
-        emqx_utils_json:decode(ResultTemp)
-    ),
+            %% check temp
+            QueryTemp = <<"select temp from ", DeviceId/binary, " where time > ", Time/binary>>,
+            {ok, {{_, 200, _}, _, ResultTemp}} = iotdb_query(Config, QueryTemp),
+            ?assertMatch(
+                #{<<"values">> := [[36, 37, 38, 39, 34, 33, 32, 41]]},
+                emqx_utils_json:decode(ResultTemp)
+            )
+    end,
     ok.
 
 exp(Dev, M0) ->

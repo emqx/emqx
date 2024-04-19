@@ -66,12 +66,7 @@ fields(action_config) ->
         ]
     );
 fields(action_resource_opts) ->
-    lists:filter(
-        fun({K, _V}) ->
-            not lists:member(K, unsupported_opts())
-        end,
-        emqx_bridge_v2_schema:action_resource_opts_fields()
-    );
+    emqx_bridge_v2_schema:action_resource_opts_fields();
 fields(action_parameters) ->
     [
         {is_aligned,
@@ -150,7 +145,7 @@ fields("get_bridge_v2") ->
 fields("config") ->
     basic_config() ++ request_config();
 fields("creation_opts") ->
-    proplists_without(unsupported_opts(), emqx_resource_schema:fields("creation_opts"));
+    emqx_resource_schema:fields("creation_opts");
 fields(auth_basic) ->
     [
         {username, mk(binary(), #{required => true, desc => ?DESC("config_auth_basic_username")})},
@@ -266,12 +261,6 @@ resource_creation_opts() ->
                     desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
                 }
             )}
-    ].
-
-unsupported_opts() ->
-    [
-        batch_size,
-        batch_time
     ].
 
 %%-------------------------------------------------------------------------------------------------
