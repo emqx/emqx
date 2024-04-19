@@ -9,7 +9,8 @@
     {applications, [
         kernel,
         stdlib,
-        emqx_ctl
+        emqx_ctl,
+        emqx
     ]},
     {mod, {emqx_eviction_agent_app, []}},
     {env, []},

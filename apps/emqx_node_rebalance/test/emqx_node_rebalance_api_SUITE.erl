@@ -29,7 +29,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_eviction_agent, emqx_node_rebalance], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_node_rebalance], #{
         work_dir => ?config(priv_dir, Config)
     }),
     [{apps, Apps} | Config].
@@ -548,7 +548,6 @@ app_specs() ->
                         #{enable => true}
                 }
         }},
-        emqx_eviction_agent,
         emqx_node_rebalance
     ].
 

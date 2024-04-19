@@ -423,7 +423,7 @@ param_node() ->
 
 fields(rebalance_start) ->
     [
-        {"wait_health_check",
+        {wait_health_check,
             mk(
                 emqx_schema:timeout_duration_s(),
                 #{
@@ -431,7 +431,7 @@ fields(rebalance_start) ->
                     required => false
                 }
             )},
-        {"conn_evict_rate",
+        {conn_evict_rate,
             mk(
                 pos_integer(),
                 #{
@@ -439,7 +439,7 @@ fields(rebalance_start) ->
                     required => false
                 }
             )},
-        {"sess_evict_rate",
+        {sess_evict_rate,
             mk(
                 pos_integer(),
                 #{
@@ -447,7 +447,7 @@ fields(rebalance_start) ->
                     required => false
                 }
             )},
-        {"abs_conn_threshold",
+        {abs_conn_threshold,
             mk(
                 pos_integer(),
                 #{
@@ -455,7 +455,7 @@ fields(rebalance_start) ->
                     required => false
                 }
             )},
-        {"rel_conn_threshold",
+        {rel_conn_threshold,
             mk(
                 number(),
                 #{
@@ -464,7 +464,7 @@ fields(rebalance_start) ->
                     validator => [fun(Value) -> Value > 1.0 end]
                 }
             )},
-        {"abs_sess_threshold",
+        {abs_sess_threshold,
             mk(
                 pos_integer(),
                 #{
@@ -472,7 +472,7 @@ fields(rebalance_start) ->
                     required => false
                 }
             )},
-        {"rel_sess_threshold",
+        {rel_sess_threshold,
             mk(
                 number(),
                 #{
@@ -481,7 +481,7 @@ fields(rebalance_start) ->
                     validator => [fun(Value) -> Value > 1.0 end]
                 }
             )},
-        {"wait_takeover",
+        {wait_takeover,
             mk(
                 emqx_schema:timeout_duration_s(),
                 #{
@@ -489,7 +489,7 @@ fields(rebalance_start) ->
                     required => false
                 }
             )},
-        {"nodes",
+        {nodes,
             mk(
                 list(binary()),
                 #{
@@ -501,7 +501,7 @@ fields(rebalance_start) ->
     ];
 fields(rebalance_evacuation_start) ->
     [
-        {"wait_health_check",
+        {wait_health_check,
             mk(
                 emqx_schema:timeout_duration_s(),
                 #{
@@ -509,7 +509,7 @@ fields(rebalance_evacuation_start) ->
                     required => false
                 }
             )},
-        {"conn_evict_rate",
+        {conn_evict_rate,
             mk(
                 pos_integer(),
                 #{
@@ -517,7 +517,7 @@ fields(rebalance_evacuation_start) ->
                     required => false
                 }
             )},
-        {"sess_evict_rate",
+        {sess_evict_rate,
             mk(
                 pos_integer(),
                 #{
@@ -525,7 +525,7 @@ fields(rebalance_evacuation_start) ->
                     required => false
                 }
             )},
-        {"redirect_to",
+        {redirect_to,
             mk(
                 binary(),
                 #{
@@ -533,7 +533,7 @@ fields(rebalance_evacuation_start) ->
                     required => false
                 }
             )},
-        {"wait_takeover",
+        {wait_takeover,
             mk(
                 emqx_schema:timeout_duration_s(),
                 #{
@@ -541,7 +541,7 @@ fields(rebalance_evacuation_start) ->
                     required => false
                 }
             )},
-        {"migrate_to",
+        {migrate_to,
             mk(
                 nonempty_list(binary()),
                 #{
@@ -552,7 +552,7 @@ fields(rebalance_evacuation_start) ->
     ];
 fields(purge_start) ->
     [
-        {"purge_rate",
+        {purge_rate,
             mk(
                 pos_integer(),
                 #{
@@ -563,7 +563,7 @@ fields(purge_start) ->
     ];
 fields(local_status_disabled) ->
     [
-        {"status",
+        {status,
             mk(
                 disabled,
                 #{
@@ -574,7 +574,7 @@ fields(local_status_disabled) ->
     ];
 fields(local_status_enabled) ->
     [
-        {"status",
+        {status,
             mk(
                 enabled,
                 #{
@@ -582,7 +582,7 @@ fields(local_status_enabled) ->
                     required => true
                 }
             )},
-        {"process",
+        {process,
             mk(
                 hoconsc:enum([rebalance, evacuation]),
                 #{
@@ -590,7 +590,7 @@ fields(local_status_enabled) ->
                     required => true
                 }
             )},
-        {"state",
+        {state,
             mk(
                 atom(),
                 #{
@@ -598,7 +598,7 @@ fields(local_status_enabled) ->
                     required => true
                 }
             )},
-        {"coordinator_node",
+        {coordinator_node,
             mk(
                 binary(),
                 #{
@@ -606,7 +606,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"connection_eviction_rate",
+        {connection_eviction_rate,
             mk(
                 pos_integer(),
                 #{
@@ -614,7 +614,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"session_eviction_rate",
+        {session_eviction_rate,
             mk(
                 pos_integer(),
                 #{
@@ -622,7 +622,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"connection_goal",
+        {connection_goal,
             mk(
                 non_neg_integer(),
                 #{
@@ -630,7 +630,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"session_goal",
+        {session_goal,
             mk(
                 non_neg_integer(),
                 #{
@@ -638,7 +638,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"disconnected_session_goal",
+        {disconnected_session_goal,
             mk(
                 non_neg_integer(),
                 #{
@@ -646,7 +646,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"session_recipients",
+        {session_recipients,
             mk(
                 list(binary()),
                 #{
@@ -654,7 +654,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"recipients",
+        {recipients,
             mk(
                 list(binary()),
                 #{
@@ -662,7 +662,7 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
-        {"stats",
+        {stats,
             mk(
                 ref(status_stats),
                 #{
@@ -673,7 +673,7 @@ fields(local_status_enabled) ->
     ];
 fields(status_stats) ->
     [
-        {"initial_connected",
+        {initial_connected,
             mk(
                 non_neg_integer(),
                 #{
@@ -681,7 +681,7 @@ fields(status_stats) ->
                     required => true
                 }
             )},
-        {"current_connected",
+        {current_connected,
             mk(
                 non_neg_integer(),
                 #{
@@ -689,7 +689,7 @@ fields(status_stats) ->
                     required => true
                 }
             )},
-        {"initial_sessions",
+        {initial_sessions,
             mk(
                 non_neg_integer(),
                 #{
@@ -697,7 +697,7 @@ fields(status_stats) ->
                     required => true
                 }
             )},
-        {"current_sessions",
+        {current_sessions,
             mk(
                 non_neg_integer(),
                 #{
@@ -705,7 +705,7 @@ fields(status_stats) ->
                     required => true
                 }
             )},
-        {"current_disconnected_sessions",
+        {current_disconnected_sessions,
             mk(
                 non_neg_integer(),
                 #{
@@ -716,11 +716,11 @@ fields(status_stats) ->
     ];
 fields(global_coordinator_status) ->
     without(
-        ["status", "process", "session_goal", "session_recipients", "stats"],
+        [status, process, session_goal, session_recipients, stats],
         fields(local_status_enabled)
     ) ++
         [
-            {"donors",
+            {donors,
                 mk(
                     list(binary()),
                     #{
@@ -728,7 +728,7 @@ fields(global_coordinator_status) ->
                         required => false
                     }
                 )},
-            {"donor_conn_avg",
+            {donor_conn_avg,
                 mk(
                     non_neg_integer(),
                     #{
@@ -736,7 +736,7 @@ fields(global_coordinator_status) ->
                         required => false
                     }
                 )},
-            {"donor_sess_avg",
+            {donor_sess_avg,
                 mk(
                     non_neg_integer(),
                     #{
@@ -744,7 +744,7 @@ fields(global_coordinator_status) ->
                         required => false
                     }
                 )},
-            {"node",
+            {node,
                 mk(
                     binary(),
                     #{
@@ -754,9 +754,9 @@ fields(global_coordinator_status) ->
                 )}
         ];
 fields(global_evacuation_status) ->
-    without(["status", "process"], fields(local_status_enabled)) ++
+    without([status, process], fields(local_status_enabled)) ++
         [
-            {"node",
+            {node,
                 mk(
                     binary(),
                     #{
@@ -768,19 +768,19 @@ fields(global_evacuation_status) ->
 fields(global_purge_status) ->
     without(
         [
-            "status",
-            "process",
-            "connection_eviction_rate",
-            "session_eviction_rate",
-            "connection_goal",
-            "disconnected_session_goal",
-            "session_recipients",
-            "recipients"
+            status,
+            process,
+            connection_eviction_rate,
+            session_eviction_rate,
+            connection_goal,
+            disconnected_session_goal,
+            session_recipients,
+            recipients
         ],
         fields(local_status_enabled)
     ) ++
         [
-            {"purge_rate",
+            {purge_rate,
                 mk(
                     pos_integer(),
                     #{
@@ -788,7 +788,7 @@ fields(global_purge_status) ->
                         required => false
                     }
                 )},
-            {"node",
+            {node,
                 mk(
                     binary(),
                     #{
@@ -799,7 +799,7 @@ fields(global_purge_status) ->
         ];
 fields(global_status) ->
     [
-        {"evacuations",
+        {evacuations,
             mk(
                 hoconsc:array(ref(global_evacuation_status)),
                 #{
@@ -807,7 +807,7 @@ fields(global_status) ->
                     required => false
                 }
             )},
-        {"purges",
+        {purges,
             mk(
                 hoconsc:array(ref(global_purge_status)),
                 #{
@@ -815,7 +815,7 @@ fields(global_status) ->
                     required => false
                 }
             )},
-        {"rebalances",
+        {rebalances,
             mk(
                 hoconsc:array(ref(global_coordinator_status)),
                 #{

@@ -332,7 +332,9 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_s3,
             :emqx_opentelemetry,
             :emqx_durable_storage,
-            :rabbit_common
+            :rabbit_common,
+            :emqx_eviction_agent,
+            :emqx_node_rebalance
           ],
           steps: steps,
           strip_beams: false
