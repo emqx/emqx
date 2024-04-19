@@ -69,9 +69,10 @@ t_initialize(_Config) ->
         emqx_access_control:authenticate(?CLIENTINFO)
     ),
 
+    Self = self(),
     ?assertWaitEvent(
         ok = emqx_authn_test_lib:register_fake_providers([{password_based, built_in_database}]),
-        #{?snk_kind := authn_chains_initialization_done},
+        #{?snk_kind := authn_chains_initialization_done, from := {Self, _}},
         100
     ),
 

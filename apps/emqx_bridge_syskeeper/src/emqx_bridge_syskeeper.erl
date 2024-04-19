@@ -112,7 +112,7 @@ fields("parameters") ->
     [
         {target_topic,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{desc => ?DESC("target_topic"), default => <<"${topic}">>}
             )},
         {target_qos,
@@ -122,7 +122,7 @@ fields("parameters") ->
             )},
         {template,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{desc => ?DESC("template"), default => <<"${payload}">>}
             )}
     ];

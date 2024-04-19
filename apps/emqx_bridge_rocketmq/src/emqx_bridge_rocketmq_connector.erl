@@ -47,7 +47,7 @@ fields(config) ->
         {servers, servers()},
         {topic,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{default => <<"TopicTest">>, desc => ?DESC(topic)}
             )},
         {access_key,

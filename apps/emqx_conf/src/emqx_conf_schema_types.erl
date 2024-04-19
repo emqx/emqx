@@ -33,8 +33,19 @@ readable(Module, TypeStr) when is_list(TypeStr) ->
         %% Module is ignored so far as all types are distinguished by their names
         readable(TypeStr)
     catch
-        throw:unknown_type ->
-            fail(#{reason => unknown_type, type => TypeStr, module => Module})
+        throw:Reason ->
+            throw(#{
+                reason => Reason,
+                type => TypeStr,
+                module => Module
+            });
+        error:Reason:Stacktrace ->
+            throw(#{
+                reason => Reason,
+                stacktrace => Stacktrace,
+                type => TypeStr,
+                module => Module
+            })
     end.
 
 readable_swagger(Module, TypeStr) ->
@@ -49,21 +60,27 @@ readable_docgen(Module, TypeStr) ->
 get_readable(Module, TypeStr, Flavor) ->
     Map = readable(Module, TypeStr),
     case maps:get(Flavor, Map, undefined) of
-        undefined -> fail(#{reason => unknown_type, module => Module, type => TypeStr});
+        undefined -> throw(#{reason => unknown_type, module => Module, type => TypeStr});
         Value -> Value
     end.
-
-%% Fail the build or test. Production code should never get here.
--spec fail(_) -> no_return().
-fail(Reason) ->
-    io:format(standard_error, "ERROR: ~p~n", [Reason]),
-    error(Reason).
 
 readable("boolean()") ->
     #{
         swagger => #{type => boolean},
         dashboard => #{type => boolean},
         docgen => #{type => "Boolean"}
+    };
+readable("template()") ->
+    #{
+        swagger => #{type => string},
+        dashboard => #{type => string, is_template => true},
+        docgen => #{type => "String", desc => ?DESC(template)}
+    };
+readable("template_str()") ->
+    #{
+        swagger => #{type => string},
+        dashboard => #{type => string, is_template => true},
+        docgen => #{type => "String", desc => ?DESC(template)}
     };
 readable("binary()") ->
     #{

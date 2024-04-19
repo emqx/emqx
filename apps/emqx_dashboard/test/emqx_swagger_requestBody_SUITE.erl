@@ -359,7 +359,7 @@ t_bad_ref(_Config) ->
     Refs = [{?MODULE, bad_ref}],
     Fields = fields(bad_ref),
     ?assertThrow(
-        {error, #{msg := <<"Object only supports not empty proplists">>, args := Fields}},
+        {error, #{msg := <<"Object only supports non-empty fields list">>, args := Fields}},
         validate(Path, Spec, Refs)
     ),
     ok.

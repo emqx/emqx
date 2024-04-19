@@ -162,8 +162,11 @@ fields(action_parameters) ->
         [
             {template,
                 mk(
-                    binary(),
-                    #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
+                    emqx_schema:template(),
+                    #{
+                        desc => ?DESC("template"),
+                        default => ?DEFAULT_TEMPLATE
+                    }
                 )}
         ] ++ emqx_bridge_rocketmq_connector:fields(config),
     lists:foldl(
@@ -205,7 +208,7 @@ fields("config") ->
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {template,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
             )},
         {local_topic,
@@ -214,8 +217,7 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), required => false}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_bridge_rocketmq_connector:fields(config) --
-            emqx_connector_schema_lib:prepare_statement_fields());
+        emqx_bridge_rocketmq_connector:fields(config);
 fields("post") ->
     [type_field(), name_field() | fields("config")];
 fields("put") ->

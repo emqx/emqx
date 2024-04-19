@@ -84,7 +84,7 @@ fields(action_parameters) ->
             )},
         {device_id,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("config_device_id")
                 }
@@ -114,7 +114,7 @@ fields(action_parameters_data) ->
             )},
         {measurement,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_measurement")
@@ -122,7 +122,9 @@ fields(action_parameters_data) ->
             )},
         {data_type,
             mk(
-                hoconsc:union([enum([text, boolean, int32, int64, float, double]), binary()]),
+                hoconsc:union([
+                    enum([text, boolean, int32, int64, float, double]), emqx_schema:template()
+                ]),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_data_type")
@@ -130,7 +132,7 @@ fields(action_parameters_data) ->
             )},
         {value,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_value")

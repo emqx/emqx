@@ -184,8 +184,12 @@ fields("post", Type) ->
 sql_field() ->
     {sql,
         mk(
-            binary(),
-            #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+            emqx_schema:template(),
+            #{
+                desc => ?DESC("sql_template"),
+                default => ?DEFAULT_SQL,
+                format => <<"sql">>
+            }
         )}.
 
 batch_value_separator_field() ->

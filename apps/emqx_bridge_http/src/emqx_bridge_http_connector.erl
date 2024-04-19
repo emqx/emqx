@@ -128,9 +128,10 @@ fields("request") ->
                 desc => ?DESC("method"),
                 validator => fun ?MODULE:validate_method/1
             })},
-        {path, hoconsc:mk(binary(), #{required => false, desc => ?DESC("path")})},
-        {body, hoconsc:mk(binary(), #{required => false, desc => ?DESC("body")})},
-        {headers, hoconsc:mk(map(), #{required => false, desc => ?DESC("headers")})},
+        {path, hoconsc:mk(emqx_schema:template(), #{required => false, desc => ?DESC("path")})},
+        {body, hoconsc:mk(emqx_schema:template(), #{required => false, desc => ?DESC("body")})},
+        {headers,
+            hoconsc:mk(map(), #{required => false, desc => ?DESC("headers"), is_template => true})},
         {max_retries,
             sc(
                 non_neg_integer(),

@@ -304,12 +304,22 @@ gen_flat_doc(RootNames, #{full_name := FullName, fields := Fields} = S, DescReso
         false ->
             ok
     end,
-    #{
-        text => short_name(FullName),
-        hash => format_hash(FullName),
-        doc => maps:get(desc, S, <<"">>),
-        fields => format_fields(Fields, DescResolver)
-    }.
+    try
+        #{
+            text => short_name(FullName),
+            hash => format_hash(FullName),
+            doc => maps:get(desc, S, <<"">>),
+            fields => format_fields(Fields, DescResolver)
+        }
+    catch
+        throw:Reason ->
+            io:format(
+                standard_error,
+                "failed_to_build_doc for ~s:~n~p~n",
+                [FullName, Reason]
+            ),
+            error(failed_to_build_doc)
+    end.
 
 format_fields(Fields, DescResolver) ->
     [format_field(F, DescResolver) || F <- Fields].

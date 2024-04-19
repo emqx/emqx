@@ -146,7 +146,7 @@ fields(action_parameters_data) ->
     [
         {timestamp,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("config_parameters_timestamp"),
                     required => false
@@ -154,7 +154,7 @@ fields(action_parameters_data) ->
             )},
         {metric,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_metric")
@@ -162,7 +162,7 @@ fields(action_parameters_data) ->
             )},
         {tags,
             mk(
-                hoconsc:union([map(), binary()]),
+                hoconsc:union([map(), emqx_schema:template()]),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_tags"),
@@ -188,7 +188,7 @@ fields(action_parameters_data) ->
             )},
         {value,
             mk(
-                hoconsc:union([integer(), float(), binary()]),
+                hoconsc:union([integer(), float(), emqx_schema:template()]),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_value")

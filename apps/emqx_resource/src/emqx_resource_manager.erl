@@ -1058,7 +1058,8 @@ channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
         get_config_for_channels(Data0, ChannelsNotAdded),
     Data1 = add_channels_in_list(ChannelsNotAddedWithConfigs, Data0),
     %% Now that we have done the adding, we can get the status of all channels
-    trigger_health_check_for_added_channels(Data1);
+    Data2 = trigger_health_check_for_added_channels(Data1),
+    update_state(Data2, Data0);
 channels_health_check(?status_connecting = _ConnectorStatus, Data0) ->
     %% Whenever the resource is connecting:
     %% 1. Change the status of all added channels to connecting

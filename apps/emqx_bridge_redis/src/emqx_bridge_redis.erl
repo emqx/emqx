@@ -211,7 +211,7 @@ desc(_) ->
     undefined.
 
 command_template(type) ->
-    list(binary());
+    hoconsc:array(emqx_schema:template());
 command_template(required) ->
     true;
 command_template(validator) ->

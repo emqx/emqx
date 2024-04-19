@@ -61,7 +61,7 @@ fields(action_parameters) ->
     [
         {sql,
             hoconsc:mk(
-                binary(),
+                emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => default_sql(), format => <<"sql">>}
             )}
     ];

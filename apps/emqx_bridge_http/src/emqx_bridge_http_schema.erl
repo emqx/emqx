@@ -114,7 +114,7 @@ fields("parameters_opts") ->
     [
         {path,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("config_path"),
                     required => false
@@ -270,7 +270,8 @@ headers_field() ->
                     <<"content-type">> => <<"application/json">>,
                     <<"keep-alive">> => <<"timeout=5">>
                 },
-                desc => ?DESC("config_headers")
+                desc => ?DESC("config_headers"),
+                is_template => true
             }
         )}.
 
@@ -287,7 +288,7 @@ method_field() ->
 body_field() ->
     {body,
         mk(
-            binary(),
+            emqx_schema:template(),
             #{
                 default => undefined,
                 desc => ?DESC("config_body")
