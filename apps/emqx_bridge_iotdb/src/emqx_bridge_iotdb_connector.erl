@@ -94,7 +94,7 @@ connector_example_values() ->
         name => <<"iotdb_connector">>,
         type => iotdb,
         enable => true,
-        iotdb_version => ?VSN_1_1_X,
+        iotdb_version => ?VSN_1_3_X,
         authentication => #{
             <<"username">> => <<"root">>,
             <<"password">> => <<"******">>
@@ -133,10 +133,10 @@ fields("connection_fields") ->
             )},
         {iotdb_version,
             mk(
-                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
+                hoconsc:enum([?VSN_1_3_X, ?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
                 #{
                     desc => ?DESC(emqx_bridge_iotdb, "config_iotdb_version"),
-                    default => ?VSN_1_1_X
+                    default => ?VSN_1_3_X
                 }
             )},
         {authentication,
@@ -342,6 +342,7 @@ on_add_channel(
             Path =
                 case Version of
                     ?VSN_1_1_X -> InsertTabletPathV2;
+                    ?VSN_1_3_X -> InsertTabletPathV2;
                     _ -> InsertTabletPathV1
                 end,
 
@@ -442,14 +443,14 @@ maybe_preproc_tmpl(Value) when is_binary(Value) ->
 maybe_preproc_tmpl(Value) ->
     Value.
 
-proc_data(PreProcessedData, Msg) ->
+proc_data(PreProcessedData, Msg, IoTDBVsn) ->
     NowNS = erlang:system_time(nanosecond),
     Nows = #{
         now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
         now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
         now_ns => NowNS
     },
-    proc_data(PreProcessedData, Msg, Nows, []).
+    proc_data(PreProcessedData, Msg, Nows, IoTDBVsn, []).
 
 proc_data(
     [
@@ -463,15 +464,16 @@ proc_data(
     ],
     Msg,
     Nows,
+    IotDbVsn,
     Acc
 ) ->
     DataType = list_to_binary(
         string:uppercase(binary_to_list(emqx_placeholder:proc_tmpl(DataType0, Msg)))
     ),
     try
-        proc_data(T, Msg, Nows, [
+        proc_data(T, Msg, Nows, IotDbVsn, [
             #{
-                timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
+                timestamp => iot_timestamp(IotDbVsn, TimestampTkn, Msg, Nows),
                 measurement => emqx_placeholder:proc_tmpl(Measurement, Msg),
                 data_type => DataType,
                 value => proc_value(DataType, ValueTkn, Msg)
@@ -485,23 +487,28 @@ proc_data(
             ?SLOG(debug, #{exception => Error, reason => Reason, stacktrace => Stacktrace}),
             {error, invalid_data}
     end;
-proc_data([], _Msg, _Nows, Acc) ->
+proc_data([], _Msg, _Nows, _IotDbVsn, Acc) ->
     {ok, lists:reverse(Acc)}.
 
-iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
+iot_timestamp(_IotDbVsn, Timestamp, _, _) when is_integer(Timestamp) ->
     Timestamp;
-iot_timestamp(TimestampTkn, Msg, Nows) ->
-    iot_timestamp(emqx_placeholder:proc_tmpl(TimestampTkn, Msg), Nows).
+iot_timestamp(IotDbVsn, TimestampTkn, Msg, Nows) ->
+    iot_timestamp(IotDbVsn, emqx_placeholder:proc_tmpl(TimestampTkn, Msg), Nows).
 
-iot_timestamp(<<"now_us">>, #{now_us := NowUs}) ->
+%% > v1.3.0 don't allow write nanoseconds nor microseconds
+iot_timestamp(?VSN_1_3_X, <<"now_us">>, #{now_ms := NowMs}) ->
+    NowMs;
+iot_timestamp(?VSN_1_3_X, <<"now_ns">>, #{now_ms := NowMs}) ->
+    NowMs;
+iot_timestamp(_IotDbVsn, <<"now_us">>, #{now_us := NowUs}) ->
     NowUs;
-iot_timestamp(<<"now_ns">>, #{now_ns := NowNs}) ->
+iot_timestamp(_IotDbVsn, <<"now_ns">>, #{now_ns := NowNs}) ->
     NowNs;
-iot_timestamp(Timestamp, #{now_ms := NowMs}) when
+iot_timestamp(_IotDbVsn, Timestamp, #{now_ms := NowMs}) when
     Timestamp =:= <<"now">>; Timestamp =:= <<"now_ms">>; Timestamp =:= <<>>
 ->
     NowMs;
-iot_timestamp(Timestamp, _) when is_binary(Timestamp) ->
+iot_timestamp(_IotDbVsn, Timestamp, _) when is_binary(Timestamp) ->
     binary_to_integer(Timestamp).
 
 proc_value(<<"TEXT">>, ValueTkn, Msg) ->
@@ -633,18 +640,24 @@ insert_value(1, Data, [Value | Values]) ->
 insert_value(Index, Data, [Value | Values]) ->
     [[null | Value] | insert_value(Index - 1, Data, Values)].
 
+iotdb_field_key(is_aligned, ?VSN_1_3_X) ->
+    <<"is_aligned">>;
 iotdb_field_key(is_aligned, ?VSN_1_1_X) ->
     <<"is_aligned">>;
 iotdb_field_key(is_aligned, ?VSN_1_0_X) ->
     <<"is_aligned">>;
 iotdb_field_key(is_aligned, ?VSN_0_13_X) ->
     <<"isAligned">>;
+iotdb_field_key(device_id, ?VSN_1_3_X) ->
+    <<"device">>;
 iotdb_field_key(device_id, ?VSN_1_1_X) ->
     <<"device">>;
 iotdb_field_key(device_id, ?VSN_1_0_X) ->
     <<"device">>;
 iotdb_field_key(device_id, ?VSN_0_13_X) ->
     <<"deviceId">>;
+iotdb_field_key(data_types, ?VSN_1_3_X) ->
+    <<"data_types">>;
 iotdb_field_key(data_types, ?VSN_1_1_X) ->
     <<"data_types">>;
 iotdb_field_key(data_types, ?VSN_1_0_X) ->
@@ -725,7 +738,7 @@ render_channel_message(#{is_aligned := IsAligned} = Channel, IoTDBVsn, Message) 
                 [] ->
                     {error, invalid_template};
                 DataTemplate ->
-                    case proc_data(DataTemplate, Message) of
+                    case proc_data(DataTemplate, Message, IoTDBVsn) of
                         {ok, DataList} ->
                             make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn);
                         Error ->

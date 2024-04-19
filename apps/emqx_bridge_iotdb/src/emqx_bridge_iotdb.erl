@@ -220,10 +220,10 @@ basic_config() ->
             )},
         {iotdb_version,
             mk(
-                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
+                hoconsc:enum([?VSN_1_3_X, ?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
                 #{
                     desc => ?DESC("config_iotdb_version"),
-                    default => ?VSN_1_1_X
+                    default => ?VSN_1_3_X
                 }
             )}
     ] ++ resource_creation_opts() ++
