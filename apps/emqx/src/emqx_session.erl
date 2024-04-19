@@ -429,6 +429,11 @@ enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
         end,
     enrich_message(ClientInfo, Msg, SubOpts, UpgradeQoS).
 
+%% Caution: updating this function _may_ break consistency of replay
+%% for persistent sessions. Persistent sessions expect it to return
+%% the same result during replay. If it changes the behavior between
+%% releases, sessions restored from the cold storage may end up
+%% replaying messages with different QoS, etc.
 enrich_message(
     ClientInfo = #{clientid := ClientId},
     Msg = #message{from = ClientId},

@@ -13,7 +13,7 @@ This makes the storage disk requirements very predictable: only the number of _p
 
 DS _backend_ is a callback module that implements `emqx_ds` behavior.
 
-EMQX repository contains the "builtin" backend, implemented in `emqx_ds_replication_layer` module, that uses RocksDB as the main storage.
+EMQX repository contains the "builtin" backend, implemented in `emqx_ds_replication_layer` module, that uses Raft algorithm for data replication, and RocksDB as the main storage.
 
 Note that builtin backend introduces the concept of **site** to alleviate the problem of changing node names.
 Site IDs are persistent, and they are randomly generated at the first startup of the node.
@@ -95,10 +95,10 @@ Consumption of messages is done in several stages:
 
 # Limitation
 
-- Builtin backend currently doesn't replicate data across different sites
 - There is no local cache of messages, which may result in transferring the same data multiple times
 
 # Documentation links
+
 TBD
 
 # Usage

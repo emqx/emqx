@@ -22,6 +22,9 @@
 %% It is responsible for saving, caching, and restoring session state.
 %% It is completely devoid of business logic. Not even the default
 %% values should be set in this module.
+%%
+%% Session process MUST NOT use `cold_*' functions! They are reserved
+%% for use in the management APIs.
 -module(emqx_persistent_session_ds_state).
 
 -export([create_tables/0]).
@@ -33,22 +36,44 @@
 -export([get_clientinfo/1, set_clientinfo/2]).
 -export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
 -export([get_peername/1, set_peername/2]).
+-export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
--export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3]).
+-export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
--export([get_subscriptions/1, put_subscription/4, del_subscription/3]).
+-export([
+    get_subscription_state/2,
+    cold_get_subscription_state/2,
+    fold_subscription_states/3,
+    put_subscription_state/3,
+    del_subscription_state/2
+]).
+-export([
+    get_subscription/2,
+    cold_get_subscription/2,
+    fold_subscriptions/3,
+    n_subscriptions/1,
+    put_subscription/3,
+    del_subscription/2
+]).
+-export([
+    get_awaiting_rel/2,
+    put_awaiting_rel/3,
+    del_awaiting_rel/2,
+    fold_awaiting_rel/3,
+    n_awaiting_rel/1
+]).
 
 -export([make_session_iterator/0, session_iterator_next/2]).
 
 -export_type([
     t/0,
     metadata/0,
-    subscriptions/0,
     seqno_type/0,
     stream_key/0,
     rank_key/0,
-    session_iterator/0
+    session_iterator/0,
+    protocol/0
 ]).
 
 -include("emqx_mqtt.hrl").
@@ -61,8 +86,6 @@
 %%================================================================================
 
 -type message() :: emqx_types:message().
-
--type subscriptions() :: emqx_topic_gbt:t(_SubId, emqx_persistent_session_ds:subscription()).
 
 -opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
 
@@ -92,13 +115,16 @@
         dirty :: #{K => dirty | del}
     }.
 
+-type protocol() :: {binary(), emqx_types:proto_ver()}.
+
 -type metadata() ::
     #{
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
         ?expiry_interval => non_neg_integer(),
         ?last_id => integer(),
-        ?peername => emqx_types:peername()
+        ?peername => emqx_types:peername(),
+        ?protocol => protocol()
     }.
 
 -type seqno_type() ::
@@ -110,22 +136,49 @@
     | ?rec
     | ?committed(?QOS_2).
 
+-define(id, id).
+-define(dirty, dirty).
+-define(metadata, metadata).
+-define(subscriptions, subscriptions).
+-define(subscription_states, subscription_states).
+-define(seqnos, seqnos).
+-define(streams, streams).
+-define(ranks, ranks).
+-define(awaiting_rel, awaiting_rel).
+
 -opaque t() :: #{
-    id := emqx_persistent_session_ds:id(),
-    dirty := boolean(),
-    metadata := metadata(),
-    subscriptions := subscriptions(),
-    seqnos := pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
-    streams := pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
-    ranks := pmap(term(), integer())
+    ?id := emqx_persistent_session_ds:id(),
+    ?dirty := boolean(),
+    ?metadata := metadata(),
+    ?subscriptions := pmap(
+        emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds_subs:subscription()
+    ),
+    ?subscription_states := pmap(
+        emqx_persistent_session_ds_subs:subscription_state_id(),
+        emqx_persistent_session_ds_subs:subscription_state()
+    ),
+    ?seqnos := pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
+    ?streams := pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
+    ?ranks := pmap(term(), integer()),
+    ?awaiting_rel := pmap(emqx_types:packet_id(), _Timestamp :: integer())
 }.
 
 -define(session_tab, emqx_ds_session_tab).
 -define(subscription_tab, emqx_ds_session_subscriptions).
+-define(subscription_states_tab, emqx_ds_session_subscription_states).
 -define(stream_tab, emqx_ds_session_streams).
 -define(seqno_tab, emqx_ds_session_seqnos).
 -define(rank_tab, emqx_ds_session_ranks).
--define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
+-define(awaiting_rel_tab, emqx_ds_session_awaiting_rel).
+
+-define(pmaps, [
+    {?subscriptions, ?subscription_tab},
+    {?subscription_states, ?subscription_states_tab},
+    {?streams, ?stream_tab},
+    {?seqnos, ?seqno_tab},
+    {?ranks, ?rank_tab},
+    {?awaiting_rel, ?awaiting_rel_tab}
+]).
 
 %% Enable this flag if you suspect some code breaks the sequence:
 -ifndef(CHECK_SEQNO).
@@ -152,23 +205,25 @@ create_tables() ->
             {attributes, record_info(fields, kv)}
         ]
     ),
-    [create_kv_pmap_table(Table) || Table <- ?pmap_tables],
-    mria:wait_for_tables([?session_tab | ?pmap_tables]).
+    {_, PmapTables} = lists:unzip(?pmaps),
+    [create_kv_pmap_table(Table) || Table <- PmapTables],
+    mria:wait_for_tables([?session_tab | PmapTables]).
 
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | undefined.
 open(SessionId) ->
     ro_transaction(fun() ->
         case kv_restore(?session_tab, SessionId) of
             [Metadata] ->
-                Rec = #{
-                    id => SessionId,
-                    metadata => Metadata,
-                    subscriptions => read_subscriptions(SessionId),
-                    streams => pmap_open(?stream_tab, SessionId),
-                    seqnos => pmap_open(?seqno_tab, SessionId),
-                    ranks => pmap_open(?rank_tab, SessionId),
-                    ?unset_dirty
-                },
+                Rec = update_pmaps(
+                    fun(_Pmap, Table) ->
+                        pmap_open(Table, SessionId)
+                    end,
+                    #{
+                        id => SessionId,
+                        metadata => Metadata,
+                        ?unset_dirty
+                    }
+                ),
                 {ok, Rec};
             [] ->
                 undefined
@@ -185,27 +240,13 @@ print_session(SessionId) ->
     end.
 
 -spec format(t()) -> map().
-format(#{
-    metadata := Metadata,
-    subscriptions := SubsGBT,
-    streams := Streams,
-    seqnos := Seqnos,
-    ranks := Ranks
-}) ->
-    Subs = emqx_topic_gbt:fold(
-        fun(Key, Sub, Acc) ->
-            maps:put(emqx_topic_gbt:get_topic(Key), Sub, Acc)
+format(Rec) ->
+    update_pmaps(
+        fun(Pmap, _Table) ->
+            pmap_format(Pmap)
         end,
-        #{},
-        SubsGBT
-    ),
-    #{
-        metadata => Metadata,
-        subscriptions => Subs,
-        streams => pmap_format(Streams),
-        seqnos => pmap_format(Seqnos),
-        ranks => pmap_format(Ranks)
-    }.
+        maps:without([id, dirty], Rec)
+    ).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
 list_sessions() ->
@@ -215,7 +256,7 @@ list_sessions() ->
 delete(Id) ->
     transaction(
         fun() ->
-            [kv_pmap_delete(Table, Id) || Table <- ?pmap_tables],
+            [kv_pmap_delete(Table, Id) || {_, Table} <- ?pmaps],
             mnesia:delete(?session_tab, Id, write)
         end
     ).
@@ -226,36 +267,34 @@ commit(Rec = #{dirty := false}) ->
 commit(
     Rec = #{
         id := SessionId,
-        metadata := Metadata,
-        streams := Streams,
-        seqnos := SeqNos,
-        ranks := Ranks
+        metadata := Metadata
     }
 ) ->
     check_sequence(Rec),
     transaction(fun() ->
         kv_persist(?session_tab, SessionId, Metadata),
-        Rec#{
-            streams => pmap_commit(SessionId, Streams),
-            seqnos => pmap_commit(SessionId, SeqNos),
-            ranks => pmap_commit(SessionId, Ranks),
-            ?unset_dirty
-        }
+        update_pmaps(
+            fun(Pmap, _Table) ->
+                pmap_commit(SessionId, Pmap)
+            end,
+            Rec#{?unset_dirty}
+        )
     end).
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
 create_new(SessionId) ->
     transaction(fun() ->
         delete(SessionId),
-        #{
-            id => SessionId,
-            metadata => #{},
-            subscriptions => emqx_topic_gbt:new(),
-            streams => pmap_open(?stream_tab, SessionId),
-            seqnos => pmap_open(?seqno_tab, SessionId),
-            ranks => pmap_open(?rank_tab, SessionId),
-            ?set_dirty
-        }
+        update_pmaps(
+            fun(_Pmap, Table) ->
+                pmap_open(Table, SessionId)
+            end,
+            #{
+                id => SessionId,
+                metadata => #{},
+                ?set_dirty
+            }
+        )
     end).
 
 %%
@@ -291,6 +330,14 @@ get_peername(Rec) ->
 -spec set_peername(emqx_types:peername(), t()) -> t().
 set_peername(Val, Rec) ->
     set_meta(?peername, Val, Rec).
+
+-spec get_protocol(t()) -> protocol() | undefined.
+get_protocol(Rec) ->
+    get_meta(?protocol, Rec).
+
+-spec set_protocol(protocol(), t()) -> t().
+set_protocol(Val, Rec) ->
+    set_meta(?protocol, Val, Rec).
 
 -spec get_clientinfo(t()) -> emqx_maybe:t(emqx_types:clientinfo()).
 get_clientinfo(Rec) ->
@@ -336,30 +383,65 @@ new_id(Rec) ->
 
 %%
 
--spec get_subscriptions(t()) -> subscriptions().
-get_subscriptions(#{subscriptions := Subs}) ->
-    Subs.
+-spec get_subscription(emqx_persistent_session_ds:topic_filter(), t()) ->
+    emqx_persistent_session_ds_subs:subscription() | undefined.
+get_subscription(TopicFilter, Rec) ->
+    gen_get(?subscriptions, TopicFilter, Rec).
+
+-spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
+    [emqx_persistent_session_ds_subs:subscription()].
+cold_get_subscription(SessionId, Topic) ->
+    kv_pmap_read(?subscription_tab, SessionId, Topic).
+
+-spec fold_subscriptions(fun(), Acc, t()) -> Acc.
+fold_subscriptions(Fun, Acc, Rec) ->
+    gen_fold(?subscriptions, Fun, Acc, Rec).
+
+-spec n_subscriptions(t()) -> non_neg_integer().
+n_subscriptions(Rec) ->
+    gen_size(?subscriptions, Rec).
 
 -spec put_subscription(
     emqx_persistent_session_ds:topic_filter(),
-    _SubId,
-    emqx_persistent_session_ds:subscription(),
+    emqx_persistent_session_ds_subs:subscription(),
     t()
 ) -> t().
-put_subscription(TopicFilter, SubId, Subscription, Rec = #{id := Id, subscriptions := Subs0}) ->
-    %% Note: currently changes to the subscriptions are persisted immediately.
-    Key = {TopicFilter, SubId},
-    transaction(fun() -> kv_pmap_persist(?subscription_tab, Id, Key, Subscription) end),
-    Subs = emqx_topic_gbt:insert(TopicFilter, SubId, Subscription, Subs0),
-    Rec#{subscriptions => Subs}.
+put_subscription(TopicFilter, Subscription, Rec) ->
+    gen_put(?subscriptions, TopicFilter, Subscription, Rec).
 
--spec del_subscription(emqx_persistent_session_ds:topic_filter(), _SubId, t()) -> t().
-del_subscription(TopicFilter, SubId, Rec = #{id := Id, subscriptions := Subs0}) ->
-    %% Note: currently the subscriptions are persisted immediately.
-    Key = {TopicFilter, SubId},
-    transaction(fun() -> kv_pmap_delete(?subscription_tab, Id, Key) end),
-    Subs = emqx_topic_gbt:delete(TopicFilter, SubId, Subs0),
-    Rec#{subscriptions => Subs}.
+-spec del_subscription(emqx_persistent_session_ds:topic_filter(), t()) -> t().
+del_subscription(TopicFilter, Rec) ->
+    gen_del(?subscriptions, TopicFilter, Rec).
+
+%%
+
+-spec get_subscription_state(emqx_persistent_session_ds_subs:subscription_state_id(), t()) ->
+    emqx_persistent_session_ds_subs:subscription_state() | undefined.
+get_subscription_state(SStateId, Rec) ->
+    gen_get(?subscription_states, SStateId, Rec).
+
+-spec cold_get_subscription_state(
+    emqx_persistent_session_ds:id(), emqx_persistent_session_ds_subs:subscription_state_id()
+) ->
+    [emqx_persistent_session_ds_subs:subscription_state()].
+cold_get_subscription_state(SessionId, SStateId) ->
+    kv_pmap_read(?subscription_states_tab, SessionId, SStateId).
+
+-spec fold_subscription_states(fun(), Acc, t()) -> Acc.
+fold_subscription_states(Fun, Acc, Rec) ->
+    gen_fold(?subscription_states, Fun, Acc, Rec).
+
+-spec put_subscription_state(
+    emqx_persistent_session_ds_subs:subscription_state_id(),
+    emqx_persistent_session_ds_subs:subscription_state(),
+    t()
+) -> t().
+put_subscription_state(SStateId, SState, Rec) ->
+    gen_put(?subscription_states, SStateId, SState, Rec).
+
+-spec del_subscription_state(emqx_persistent_session_ds_subs:subscription_state_id(), t()) -> t().
+del_subscription_state(SStateId, Rec) ->
+    gen_del(?subscription_states, SStateId, Rec).
 
 %%
 
@@ -368,29 +450,33 @@ del_subscription(TopicFilter, SubId, Rec = #{id := Id, subscriptions := Subs0}) 
 -spec get_stream(stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
 get_stream(Key, Rec) ->
-    gen_get(streams, Key, Rec).
+    gen_get(?streams, Key, Rec).
 
 -spec put_stream(stream_key(), emqx_persistent_session_ds:stream_state(), t()) -> t().
 put_stream(Key, Val, Rec) ->
-    gen_put(streams, Key, Val, Rec).
+    gen_put(?streams, Key, Val, Rec).
 
 -spec del_stream(stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
-    gen_del(streams, Key, Rec).
+    gen_del(?streams, Key, Rec).
 
 -spec fold_streams(fun(), Acc, t()) -> Acc.
 fold_streams(Fun, Acc, Rec) ->
-    gen_fold(streams, Fun, Acc, Rec).
+    gen_fold(?streams, Fun, Acc, Rec).
+
+-spec n_streams(t()) -> non_neg_integer().
+n_streams(Rec) ->
+    gen_size(?streams, Rec).
 
 %%
 
 -spec get_seqno(seqno_type(), t()) -> emqx_persistent_session_ds:seqno() | undefined.
 get_seqno(Key, Rec) ->
-    gen_get(seqnos, Key, Rec).
+    gen_get(?seqnos, Key, Rec).
 
 -spec put_seqno(seqno_type(), emqx_persistent_session_ds:seqno(), t()) -> t().
 put_seqno(Key, Val, Rec) ->
-    gen_put(seqnos, Key, Val, Rec).
+    gen_put(?seqnos, Key, Val, Rec).
 
 %%
 
@@ -398,19 +484,43 @@ put_seqno(Key, Val, Rec) ->
 
 -spec get_rank(rank_key(), t()) -> integer() | undefined.
 get_rank(Key, Rec) ->
-    gen_get(ranks, Key, Rec).
+    gen_get(?ranks, Key, Rec).
 
 -spec put_rank(rank_key(), integer(), t()) -> t().
 put_rank(Key, Val, Rec) ->
-    gen_put(ranks, Key, Val, Rec).
+    gen_put(?ranks, Key, Val, Rec).
 
 -spec del_rank(rank_key(), t()) -> t().
 del_rank(Key, Rec) ->
-    gen_del(ranks, Key, Rec).
+    gen_del(?ranks, Key, Rec).
 
 -spec fold_ranks(fun(), Acc, t()) -> Acc.
 fold_ranks(Fun, Acc, Rec) ->
-    gen_fold(ranks, Fun, Acc, Rec).
+    gen_fold(?ranks, Fun, Acc, Rec).
+
+%%
+
+-spec get_awaiting_rel(emqx_types:packet_id(), t()) -> integer() | undefined.
+get_awaiting_rel(Key, Rec) ->
+    gen_get(?awaiting_rel, Key, Rec).
+
+-spec put_awaiting_rel(emqx_types:packet_id(), _Timestamp :: integer(), t()) -> t().
+put_awaiting_rel(Key, Val, Rec) ->
+    gen_put(?awaiting_rel, Key, Val, Rec).
+
+-spec del_awaiting_rel(emqx_types:packet_id(), t()) -> t().
+del_awaiting_rel(Key, Rec) ->
+    gen_del(?awaiting_rel, Key, Rec).
+
+-spec fold_awaiting_rel(fun(), Acc, t()) -> Acc.
+fold_awaiting_rel(Fun, Acc, Rec) ->
+    gen_fold(?awaiting_rel, Fun, Acc, Rec).
+
+-spec n_awaiting_rel(t()) -> non_neg_integer().
+n_awaiting_rel(Rec) ->
+    gen_size(?awaiting_rel, Rec).
+
+%%
 
 -spec make_session_iterator() -> session_iterator().
 make_session_iterator() ->
@@ -475,16 +585,20 @@ gen_del(Field, Key, Rec) ->
         Rec#{?set_dirty}
     ).
 
-%%
+gen_size(Field, Rec) ->
+    check_sequence(Rec),
+    pmap_size(maps:get(Field, Rec)).
 
-read_subscriptions(SessionId) ->
-    Records = kv_pmap_restore(?subscription_tab, SessionId),
+-spec update_pmaps(fun((pmap(_K, _V) | undefined, atom()) -> term()), map()) -> map().
+update_pmaps(Fun, Map) ->
     lists:foldl(
-        fun({{TopicFilter, SubId}, Subscription}, Acc) ->
-            emqx_topic_gbt:insert(TopicFilter, SubId, Subscription, Acc)
+        fun({MapKey, Table}, Acc) ->
+            OldVal = maps:get(MapKey, Map, undefined),
+            Val = Fun(OldVal, Table),
+            maps:put(MapKey, Val, Acc)
         end,
-        emqx_topic_gbt:new(),
-        Records
+        Map,
+        ?pmaps
     ).
 
 %%
@@ -547,6 +661,10 @@ pmap_commit(
 pmap_format(#pmap{cache = Cache}) ->
     Cache.
 
+-spec pmap_size(pmap(_K, _V)) -> non_neg_integer().
+pmap_size(#pmap{cache = Cache}) ->
+    maps:size(Cache).
+
 %% Functions dealing with set tables:
 
 kv_persist(Tab, SessionId, Val0) ->
@@ -573,6 +691,14 @@ kv_pmap_persist(Tab, SessionId, Key, Val0) ->
     %% Write data to mnesia:
     Val = encoder(encode, Tab, Val0),
     mnesia:write(Tab, #kv{k = {SessionId, Key}, v = Val}, write).
+
+kv_pmap_read(Table, SessionId, Key) ->
+    lists:map(
+        fun(#kv{v = Val}) ->
+            encoder(decode, Table, Val)
+        end,
+        mnesia:dirty_read(Table, {SessionId, Key})
+    ).
 
 kv_pmap_restore(Table, SessionId) ->
     MS = [{#kv{k = {SessionId, '$1'}, v = '$2'}, [], [{{'$1', '$2'}}]}],

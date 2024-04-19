@@ -75,7 +75,8 @@
 
 %% Managment APIs:
 -export([
-    list_client_subscriptions/1
+    list_client_subscriptions/1,
+    get_client_subscription/2
 ]).
 
 %% session table operations
@@ -116,15 +117,42 @@
 %% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
 %% an atom, in theory (?).
 -type id() :: binary().
--type topic_filter() :: emqx_types:topic().
+-type topic_filter() :: emqx_types:topic() | #share{}.
+
+%% Subscription and subscription states:
+%%
+%% Persistent sessions cannot simply update or delete subscriptions,
+%% since subscription parameters must be exactly the same during
+%% replay.
+%%
+%% To solve this problem, we store subscriptions in a twofold manner:
+%%
+%% - `subscription' is an object that holds up-to-date information
+%% about the client's subscription and a reference to the latest
+%% subscription state id
+%%
+%% - `subscription_state' is an immutable object that holds
+%% information about the subcription parameters at a certain point of
+%% time
+%%
+%% New subscription states are created whenever the client subscribes
+%% to a topics, or updates an existing subscription.
+%%
+%% Stream replay states contain references to the subscription states.
+%%
+%% Outdated subscription states are discarded when they are not
+%% referenced by either subscription or stream replay state objects.
 
 -type subscription_id() :: integer().
 
+%% This type is a result of merging
+%% `emqx_persistent_session_ds_subs:subscription()' with its current
+%% state.
 -type subscription() :: #{
     id := subscription_id(),
     start_time := emqx_ds:time(),
-    props := map(),
-    deleted := boolean()
+    current_state := emqx_persistent_session_ds_subs:subscription_state_id(),
+    subopts := map()
 }.
 
 -define(TIMER_PULL, timer_pull).
@@ -184,7 +212,9 @@
     seqno_q2_dup,
     seqno_q2_rec,
     seqno_q2_next,
-    n_streams
+    n_streams,
+    awaiting_rel_cnt,
+    awaiting_rel_max
 ]).
 
 %%
@@ -206,7 +236,8 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     ok = emqx_cm:takeover_kick(ClientID),
     case session_open(ClientID, ClientInfo, ConnInfo, MaybeWillMsg) of
         Session0 = #{} ->
-            Session = Session0#{props => Conf},
+            Session1 = Session0#{props => Conf},
+            Session = do_expire(ClientInfo, Session1),
             {true, ensure_timers(Session), []};
         false ->
             false
@@ -249,7 +280,7 @@ info(is_persistent, #{}) ->
 info(subscriptions, #{s := S}) ->
     emqx_persistent_session_ds_subs:to_map(S);
 info(subscriptions_cnt, #{s := S}) ->
-    emqx_topic_gbt:size(emqx_persistent_session_ds_state:get_subscriptions(S));
+    emqx_persistent_session_ds_state:n_subscriptions(S);
 info(subscriptions_max, #{props := Conf}) ->
     maps:get(max_subscriptions, Conf);
 info(upgrade_qos, #{props := Conf}) ->
@@ -262,21 +293,21 @@ info(inflight_max, #{inflight := Inflight}) ->
     emqx_persistent_session_ds_inflight:receive_maximum(Inflight);
 info(retry_interval, #{props := Conf}) ->
     maps:get(retry_interval, Conf);
-% info(mqueue, #sessmem{mqueue = MQueue}) ->
-%     MQueue;
 info(mqueue_len, #{inflight := Inflight}) ->
     emqx_persistent_session_ds_inflight:n_buffered(all, Inflight);
-% info(mqueue_max, #sessmem{mqueue = MQueue}) ->
-%     emqx_mqueue:max_len(MQueue);
 info(mqueue_dropped, _Session) ->
     0;
 %% info(next_pkt_id, #{s := S}) ->
 %%     {PacketId, _} = emqx_persistent_message_ds_replayer:next_packet_id(S),
 %%     PacketId;
-% info(awaiting_rel, #sessmem{awaiting_rel = AwaitingRel}) ->
-%     AwaitingRel;
-%% info(awaiting_rel_cnt, #{s := S}) ->
-%%     seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
+info(awaiting_rel, #{s := S}) ->
+    emqx_persistent_session_ds_state:fold_awaiting_rel(fun maps:put/3, #{}, S);
+info(awaiting_rel_max, #{props := Conf}) ->
+    maps:get(max_awaiting_rel, Conf);
+info(awaiting_rel_cnt, #{s := S}) ->
+    emqx_persistent_session_ds_state:n_awaiting_rel(S);
+info(await_rel_timeout, #{props := Conf}) ->
+    maps:get(await_rel_timeout, Conf);
 info(seqno_q1_comm, #{s := S}) ->
     emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S);
 info(seqno_q1_dup, #{s := S}) ->
@@ -292,17 +323,7 @@ info(seqno_q2_rec, #{s := S}) ->
 info(seqno_q2_next, #{s := S}) ->
     emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S);
 info(n_streams, #{s := S}) ->
-    emqx_persistent_session_ds_state:fold_streams(
-        fun(_, _, Acc) -> Acc + 1 end,
-        0,
-        S
-    );
-info(awaiting_rel_max, #{props := Conf}) ->
-    maps:get(max_awaiting_rel, Conf);
-info(await_rel_timeout, #{props := _Conf}) ->
-    %% TODO: currently this setting is ignored:
-    %% maps:get(await_rel_timeout, Conf).
-    0;
+    emqx_persistent_session_ds_state:n_streams(S);
 info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= inflight_msgs ->
     {error, not_implemented}.
 
@@ -338,92 +359,48 @@ print_session(ClientId) ->
 -spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
 subscribe(
+    #share{},
+    _SubOpts,
+    _Session
+) ->
+    %% TODO: Shared subscriptions are not supported yet:
+    {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
+subscribe(
     TopicFilter,
     SubOpts,
-    Session = #{id := ID, s := S0}
+    Session
 ) ->
-    case emqx_persistent_session_ds_subs:lookup(TopicFilter, S0) of
-        undefined ->
-            %% TODO: max subscriptions
-
-            %% N.B.: we chose to update the router before adding the
-            %% subscription to the session/iterator table. The
-            %% reasoning for this is as follows:
-            %%
-            %% Messages matching this topic filter should start to be
-            %% persisted as soon as possible to avoid missing
-            %% messages. If this is the first such persistent session
-            %% subscription, it's important to do so early on.
-            %%
-            %% This could, in turn, lead to some inconsistency: if
-            %% such a route gets created but the session/iterator data
-            %% fails to be updated accordingly, we have a dangling
-            %% route. To remove such dangling routes, we may have a
-            %% periodic GC process that removes routes that do not
-            %% have a matching persistent subscription. Also, route
-            %% operations use dirty mnesia operations, which
-            %% inherently have room for inconsistencies.
-            %%
-            %% In practice, we use the iterator reference table as a
-            %% source of truth, since it is guarded by a transaction
-            %% context: we consider a subscription operation to be
-            %% successful if it ended up changing this table. Both
-            %% router and iterator information can be reconstructed
-            %% from this table, if needed.
-            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, ID),
-            {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
-            Subscription = #{
-                start_time => now_ms(),
-                props => SubOpts,
-                id => SubId,
-                deleted => false
-            },
-            IsNew = true;
-        Subscription0 = #{} ->
-            Subscription = Subscription0#{props => SubOpts},
-            IsNew = false,
-            S1 = S0
-    end,
-    S = emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, Subscription, S1),
-    ?tp(persistent_session_ds_subscription_added, #{
-        topic_filter => TopicFilter, sub => Subscription, is_new => IsNew
-    }),
-    {ok, Session#{s => S}}.
+    case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session) of
+        {ok, S1} ->
+            S = emqx_persistent_session_ds_state:commit(S1),
+            {ok, Session#{s => S}};
+        Error = {error, _} ->
+            Error
+    end.
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
     TopicFilter,
-    Session = #{id := ID, s := S0}
+    Session = #{id := SessionId, s := S0}
 ) ->
-    case emqx_persistent_session_ds_subs:lookup(TopicFilter, S0) of
-        undefined ->
-            {error, ?RC_NO_SUBSCRIPTION_EXISTED};
-        Subscription = #{props := SubOpts} ->
-            S = do_unsubscribe(ID, TopicFilter, Subscription, S0),
-            {ok, Session#{s => S}, SubOpts}
+    case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
+        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
+            S2 = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, S1),
+            S = emqx_persistent_session_ds_state:commit(S2),
+            {ok, Session#{s => S}, SubOpts};
+        Error = {error, _} ->
+            Error
     end.
-
--spec do_unsubscribe(id(), topic_filter(), subscription(), emqx_persistent_session_ds_state:t()) ->
-    emqx_persistent_session_ds_state:t().
-do_unsubscribe(SessionId, TopicFilter, Subscription = #{id := SubId}, S0) ->
-    S1 = emqx_persistent_session_ds_subs:on_unsubscribe(TopicFilter, Subscription, S0),
-    ?tp(persistent_session_ds_subscription_delete, #{
-        session_id => SessionId, topic_filter => TopicFilter
-    }),
-    S = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, S1),
-    ?tp_span(
-        persistent_session_ds_subscription_route_delete,
-        #{session_id => SessionId, topic_filter => TopicFilter},
-        ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId)
-    ),
-    S.
 
 -spec get_subscription(topic_filter(), session()) ->
     emqx_types:subopts() | undefined.
+get_subscription(#share{}, _) ->
+    %% TODO: shared subscriptions are not supported yet:
+    undefined;
 get_subscription(TopicFilter, #{s := S}) ->
     case emqx_persistent_session_ds_subs:lookup(TopicFilter, S) of
-        _Subscription = #{props := SubOpts} ->
+        #{subopts := SubOpts} ->
             SubOpts;
         undefined ->
             undefined
@@ -436,10 +413,71 @@ get_subscription(TopicFilter, #{s := S}) ->
 -spec publish(emqx_types:packet_id(), emqx_types:message(), session()) ->
     {ok, emqx_types:publish_result(), session()}
     | {error, emqx_types:reason_code()}.
+publish(
+    PacketId,
+    Msg = #message{qos = ?QOS_2, timestamp = Ts},
+    Session = #{s := S0}
+) ->
+    case is_awaiting_full(Session) of
+        false ->
+            case emqx_persistent_session_ds_state:get_awaiting_rel(PacketId, S0) of
+                undefined ->
+                    Results = emqx_broker:publish(Msg),
+                    S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, Ts, S0),
+                    {ok, Results, Session#{s => S}};
+                _Ts ->
+                    {error, ?RC_PACKET_IDENTIFIER_IN_USE}
+            end;
+        true ->
+            {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}
+    end;
 publish(_PacketId, Msg, Session) ->
-    %% TODO: QoS2
     Result = emqx_broker:publish(Msg),
     {ok, Result, Session}.
+
+is_awaiting_full(#{s := S, props := Props}) ->
+    emqx_persistent_session_ds_state:n_awaiting_rel(S) >=
+        maps:get(max_awaiting_rel, Props, infinity).
+
+-spec expire(emqx_types:clientinfo(), session()) ->
+    {ok, [], timeout(), session()} | {ok, [], session()}.
+expire(ClientInfo, Session0 = #{props := Props}) ->
+    Session = #{s := S} = do_expire(ClientInfo, Session0),
+    case emqx_persistent_session_ds_state:n_awaiting_rel(S) of
+        0 ->
+            {ok, [], Session};
+        _ ->
+            AwaitRelTimeout = maps:get(await_rel_timeout, Props),
+            {ok, [], AwaitRelTimeout, Session}
+    end.
+
+do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
+    %% 1. Find expired packet IDs:
+    Now = erlang:system_time(millisecond),
+    AwaitRelTimeout = maps:get(await_rel_timeout, Props),
+    ExpiredPacketIds =
+        emqx_persistent_session_ds_state:fold_awaiting_rel(
+            fun(PacketId, Ts, Acc) ->
+                Age = Now - Ts,
+                case Age > AwaitRelTimeout of
+                    true ->
+                        [PacketId | Acc];
+                    false ->
+                        Acc
+                end
+            end,
+            [],
+            S0
+        ),
+    %% 2. Perform side effects:
+    _ = emqx_session_events:handle_event(ClientInfo, {expired_rel, length(ExpiredPacketIds)}),
+    %% 3. Update state:
+    S = lists:foldl(
+        fun emqx_persistent_session_ds_state:del_awaiting_rel/2,
+        S0,
+        ExpiredPacketIds
+    ),
+    Session#{s => S}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK
@@ -477,9 +515,14 @@ pubrec(PacketId, Session0) ->
 
 -spec pubrel(emqx_types:packet_id(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
-pubrel(_PacketId, Session = #{}) ->
-    % TODO: stub
-    {ok, Session}.
+pubrel(PacketId, Session = #{s := S0}) ->
+    case emqx_persistent_session_ds_state:get_awaiting_rel(PacketId, S0) of
+        undefined ->
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND};
+        _TS ->
+            S = emqx_persistent_session_ds_state:del_awaiting_rel(PacketId, S0),
+            {ok, Session#{s => S}}
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBCOMP
@@ -552,6 +595,8 @@ handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session = #{s := 
     S = emqx_persistent_session_ds_state:commit(S0),
     From ! Ref,
     {ok, [], Session#{s => S}};
+handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
+    expire(ClientInfo, Session);
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.
@@ -645,7 +690,7 @@ list_client_subscriptions(ClientId) ->
             %% TODO: this is not the most optimal implementation, since it
             %% should be possible to avoid reading extra data (streams, etc.)
             case print_session(ClientId) of
-                Sess = #{s := #{subscriptions := Subs}} ->
+                Sess = #{s := #{subscriptions := Subs, subscription_states := SStates}} ->
                     Node =
                         case Sess of
                             #{'_alive' := {true, Pid}} ->
@@ -655,8 +700,9 @@ list_client_subscriptions(ClientId) ->
                         end,
                     SubList =
                         maps:fold(
-                            fun(Topic, #{props := SubProps}, Acc) ->
-                                Elem = {Topic, SubProps},
+                            fun(Topic, #{current_state := CS}, Acc) ->
+                                #{subopts := SubOpts} = maps:get(CS, SStates),
+                                Elem = {Topic, SubOpts},
                                 [Elem | Acc]
                             end,
                             [],
@@ -669,6 +715,11 @@ list_client_subscriptions(ClientId) ->
         false ->
             {error, not_found}
     end.
+
+-spec get_client_subscription(emqx_types:clientid(), emqx_types:topic()) ->
+    subscription() | undefined.
+get_client_subscription(ClientId, Topic) ->
+    emqx_persistent_session_ds_subs:cold_get_subscription(ClientId, Topic).
 
 %%--------------------------------------------------------------------
 %% Session tables operations
@@ -701,7 +752,12 @@ sync(ClientId) ->
 %% the broker.
 -spec session_open(id(), emqx_types:clientinfo(), emqx_types:conninfo(), emqx_maybe:t(message())) ->
     session() | false.
-session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
+session_open(
+    SessionId,
+    ClientInfo,
+    NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer},
+    MaybeWillMsg
+) ->
     NowMS = now_ms(),
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
@@ -720,8 +776,9 @@ session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
                         maps:get(peername, NewConnInfo), S2
                     ),
                     S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
-                    S5 = emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S4),
-                    S = emqx_persistent_session_ds_state:commit(S5),
+                    S5 = set_clientinfo(ClientInfo, S4),
+                    S6 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S5),
+                    S = emqx_persistent_session_ds_state:commit(S6),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
@@ -744,7 +801,9 @@ session_open(SessionId, ClientInfo, NewConnInfo, MaybeWillMsg) ->
     emqx_session:conf()
 ) ->
     session().
-session_ensure_new(Id, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+session_ensure_new(
+    Id, ClientInfo, ConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}, MaybeWillMsg, Conf
+) ->
     ?tp(debug, persistent_session_ds_ensure_new, #{id => Id}),
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
@@ -767,8 +826,9 @@ session_ensure_new(Id, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         ]
     ),
     S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
-    S6 = emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S5),
-    S = emqx_persistent_session_ds_state:commit(S6),
+    S6 = set_clientinfo(ClientInfo, S5),
+    S7 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S6),
+    S = emqx_persistent_session_ds_state:commit(S7),
     #{
         id => Id,
         props => Conf,
@@ -779,24 +839,23 @@ session_ensure_new(Id, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
 -spec session_drop(id(), _Reason) -> ok.
-session_drop(ID, Reason) ->
-    case emqx_persistent_session_ds_state:open(ID) of
+session_drop(SessionId, Reason) ->
+    case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
-            ?tp(debug, drop_persistent_session, #{client_id => ID, reason => Reason}),
-            _S = emqx_persistent_session_ds_subs:fold(
-                fun(TopicFilter, Subscription, S) ->
-                    do_unsubscribe(ID, TopicFilter, Subscription, S)
-                end,
-                S0,
-                S0
-            ),
-            emqx_persistent_session_ds_state:delete(ID);
+            ?tp(debug, drop_persistent_session, #{client_id => SessionId, reason => Reason}),
+            emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
+            emqx_persistent_session_ds_state:delete(SessionId);
         undefined ->
             ok
     end.
 
 now_ms() ->
     erlang:system_time(millisecond).
+
+set_clientinfo(ClientInfo0, S) ->
+    %% Remove unnecessary fields from the clientinfo:
+    ClientInfo = maps:without([cn, dn, auth_result], ClientInfo0),
+    emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S).
 
 %%--------------------------------------------------------------------
 %% RPC targets (v1)
@@ -874,22 +933,31 @@ new_batch({StreamKey, Srs0}, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
             Session0
     end.
 
-enqueue_batch(IsReplay, BatchSize, Srs0, Session = #{inflight := Inflight0}, ClientInfo) ->
+enqueue_batch(IsReplay, BatchSize, Srs0, Session = #{inflight := Inflight0, s := S}, ClientInfo) ->
     #srs{
         it_begin = ItBegin0,
         it_end = ItEnd0,
         first_seqno_qos1 = FirstSeqnoQos1,
-        first_seqno_qos2 = FirstSeqnoQos2
+        first_seqno_qos2 = FirstSeqnoQos2,
+        sub_state_id = SubStateId
     } = Srs0,
     ItBegin =
         case IsReplay of
             true -> ItBegin0;
             false -> ItEnd0
         end,
+    SubState = #{} = emqx_persistent_session_ds_state:get_subscription_state(SubStateId, S),
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize) of
         {ok, ItEnd, Messages} ->
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
-                IsReplay, Session, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2, Messages, Inflight0
+                IsReplay,
+                Session,
+                SubState,
+                ClientInfo,
+                FirstSeqnoQos1,
+                FirstSeqnoQos2,
+                Messages,
+                Inflight0
             ),
             Srs = Srs0#srs{
                 it_begin = ItBegin,
@@ -913,27 +981,29 @@ enqueue_batch(IsReplay, BatchSize, Srs0, Session = #{inflight := Inflight0}, Cli
 %% key_of_iter(#{3 := #{3 := #{5 := K}}}) ->
 %%     K.
 
-process_batch(_IsReplay, _Session, _ClientInfo, LastSeqNoQos1, LastSeqNoQos2, [], Inflight) ->
+process_batch(
+    _IsReplay, _Session, _SubState, _ClientInfo, LastSeqNoQos1, LastSeqNoQos2, [], Inflight
+) ->
     {Inflight, LastSeqNoQos1, LastSeqNoQos2};
 process_batch(
-    IsReplay, Session, ClientInfo, FirstSeqNoQos1, FirstSeqNoQos2, [KV | Messages], Inflight0
+    IsReplay,
+    Session,
+    SubState,
+    ClientInfo,
+    FirstSeqNoQos1,
+    FirstSeqNoQos2,
+    [KV | Messages],
+    Inflight0
 ) ->
-    #{s := S, props := #{upgrade_qos := UpgradeQoS}} = Session,
-    {_DsMsgKey, Msg0 = #message{topic = Topic}} = KV,
+    #{s := S} = Session,
+    #{upgrade_qos := UpgradeQoS, subopts := SubOpts} = SubState,
+    {_DsMsgKey, Msg0} = KV,
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     Dup1 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_1), S),
     Dup2 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S),
     Rec = emqx_persistent_session_ds_state:get_seqno(?rec, S),
-    Subs = emqx_persistent_session_ds_state:get_subscriptions(S),
-    Msgs = [
-        Msg
-     || SubMatch <- emqx_topic_gbt:matches(Topic, Subs, []),
-        Msg <- begin
-            #{props := SubOpts} = emqx_topic_gbt:get_record(SubMatch, Subs),
-            emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS)
-        end
-    ],
+    Msgs = emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS),
     {Inflight, LastSeqNoQos1, LastSeqNoQos2} = lists:foldl(
         fun(Msg = #message{qos = Qos}, {Acc, SeqNoQos10, SeqNoQos20}) ->
             case Qos of
@@ -989,14 +1059,16 @@ process_batch(
         Msgs
     ),
     process_batch(
-        IsReplay, Session, ClientInfo, LastSeqNoQos1, LastSeqNoQos2, Messages, Inflight
+        IsReplay, Session, SubState, ClientInfo, LastSeqNoQos1, LastSeqNoQos2, Messages, Inflight
     ).
 
 %%--------------------------------------------------------------------
 %% Transient messages
 %%--------------------------------------------------------------------
 
-enqueue_transient(ClientInfo, Msg0, Session = #{s := S, props := #{upgrade_qos := UpgradeQoS}}) ->
+enqueue_transient(
+    _ClientInfo, Msg = #message{qos = Qos}, Session = #{inflight := Inflight0, s := S0}
+) ->
     %% TODO: Such messages won't be retransmitted, should the session
     %% reconnect before transient messages are acked.
     %%
@@ -1006,18 +1078,6 @@ enqueue_transient(ClientInfo, Msg0, Session = #{s := S, props := #{upgrade_qos :
     %% queued messages. Since streams in this DB are exclusive to the
     %% session, messages from the queue can be dropped as soon as they
     %% are acked.
-    Subs = emqx_persistent_session_ds_state:get_subscriptions(S),
-    Msgs = [
-        Msg
-     || SubMatch <- emqx_topic_gbt:matches(Msg0#message.topic, Subs, []),
-        Msg <- begin
-            #{props := SubOpts} = emqx_topic_gbt:get_record(SubMatch, Subs),
-            emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS)
-        end
-    ],
-    lists:foldl(fun do_enqueue_transient/2, Session, Msgs).
-
-do_enqueue_transient(Msg = #message{qos = Qos}, Session = #{inflight := Inflight0, s := S0}) ->
     case Qos of
         ?QOS_0 ->
             S = S0,

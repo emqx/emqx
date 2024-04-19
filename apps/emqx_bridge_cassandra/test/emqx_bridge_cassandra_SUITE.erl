@@ -581,7 +581,6 @@ t_write_failure(Config) ->
                 )
         end),
         fun(Trace0) ->
-            ct:pal("trace: ~p", [Trace0]),
             Trace = ?of_kind(
                 [buffer_worker_flush_nack, buffer_worker_retry_inflight_failed], Trace0
             ),

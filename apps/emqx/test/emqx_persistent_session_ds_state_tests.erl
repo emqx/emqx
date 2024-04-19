@@ -74,9 +74,6 @@ session_id() ->
 topic() ->
     oneof([<<"foo">>, <<"bar">>, <<"foo/#">>, <<"//+/#">>]).
 
-subid() ->
-    oneof([[]]).
-
 subscription() ->
     oneof([#{}]).
 
@@ -129,18 +126,25 @@ put_req() ->
             {Track, Seqno},
             {seqno_track(), seqno()},
             {#s.seqno, put_seqno, Track, Seqno}
+        ),
+        ?LET(
+            {Topic, Subscription},
+            {topic(), subscription()},
+            {#s.subs, put_subscription, Topic, Subscription}
         )
     ]).
 
 get_req() ->
     oneof([
         {#s.streams, get_stream, stream_id()},
-        {#s.seqno, get_seqno, seqno_track()}
+        {#s.seqno, get_seqno, seqno_track()},
+        {#s.subs, get_subscription, topic()}
     ]).
 
 del_req() ->
     oneof([
-        {#s.streams, del_stream, stream_id()}
+        {#s.streams, del_stream, stream_id()},
+        {#s.subs, del_subscription, topic()}
     ]).
 
 command(S) ->
@@ -153,13 +157,6 @@ command(S) ->
                 {2, {call, ?MODULE, reopen, [session_id(S)]}},
                 {2, {call, ?MODULE, commit, [session_id(S)]}},
 
-                %% Subscriptions:
-                {3,
-                    {call, ?MODULE, put_subscription, [
-                        session_id(S), topic(), subid(), subscription()
-                    ]}},
-                {3, {call, ?MODULE, del_subscription, [session_id(S), topic(), subid()]}},
-
                 %% Metadata:
                 {3, {call, ?MODULE, put_metadata, [session_id(S), put_metadata()]}},
                 {3, {call, ?MODULE, get_metadata, [session_id(S), get_metadata()]}},
@@ -170,7 +167,6 @@ command(S) ->
                 {3, {call, ?MODULE, gen_del, [session_id(S), del_req()]}},
 
                 %% Getters:
-                {4, {call, ?MODULE, get_subscriptions, [session_id(S)]}},
                 {1, {call, ?MODULE, iterate_sessions, [batch_size()]}}
             ]);
         false ->
@@ -207,19 +203,6 @@ postcondition(S, {call, ?MODULE, gen_get, [SessionId, {Idx, Fun, Key}]}, Result)
         #{session_id => SessionId, key => Key, 'fun' => Fun}
     ),
     true;
-postcondition(S, {call, ?MODULE, get_subscriptions, [SessionId]}, Result) ->
-    #{SessionId := #s{subs = Subs}} = S,
-    ?assertEqual(maps:size(Subs), emqx_topic_gbt:size(Result)),
-    maps:foreach(
-        fun({TopicFilter, Id}, Expected) ->
-            ?assertEqual(
-                Expected,
-                emqx_topic_gbt:lookup(TopicFilter, Id, Result, default)
-            )
-        end,
-        Subs
-    ),
-    true;
 postcondition(_, _, _) ->
     true.
 
@@ -227,22 +210,6 @@ next_state(S, _V, {call, ?MODULE, create_new, [SessionId]}) ->
     S#{SessionId => #s{}};
 next_state(S, _V, {call, ?MODULE, delete, [SessionId]}) ->
     maps:remove(SessionId, S);
-next_state(S, _V, {call, ?MODULE, put_subscription, [SessionId, TopicFilter, SubId, Subscription]}) ->
-    Key = {TopicFilter, SubId},
-    update(
-        SessionId,
-        #s.subs,
-        fun(Subs) -> Subs#{Key => Subscription} end,
-        S
-    );
-next_state(S, _V, {call, ?MODULE, del_subscription, [SessionId, TopicFilter, SubId]}) ->
-    Key = {TopicFilter, SubId},
-    update(
-        SessionId,
-        #s.subs,
-        fun(Subs) -> maps:remove(Key, Subs) end,
-        S
-    );
 next_state(S, _V, {call, ?MODULE, put_metadata, [SessionId, {Key, _Fun, Val}]}) ->
     update(
         SessionId,
@@ -295,19 +262,6 @@ reopen(SessionId) ->
     _ = emqx_persistent_session_ds_state:commit(get_state(SessionId)),
     {ok, S} = emqx_persistent_session_ds_state:open(SessionId),
     put_state(SessionId, S).
-
-put_subscription(SessionId, TopicFilter, SubId, Subscription) ->
-    S = emqx_persistent_session_ds_state:put_subscription(
-        TopicFilter, SubId, Subscription, get_state(SessionId)
-    ),
-    put_state(SessionId, S).
-
-del_subscription(SessionId, TopicFilter, SubId) ->
-    S = emqx_persistent_session_ds_state:del_subscription(TopicFilter, SubId, get_state(SessionId)),
-    put_state(SessionId, S).
-
-get_subscriptions(SessionId) ->
-    emqx_persistent_session_ds_state:get_subscriptions(get_state(SessionId)).
 
 put_metadata(SessionId, {_MetaKey, Fun, Value}) ->
     S = apply(emqx_persistent_session_ds_state, Fun, [Value, get_state(SessionId)]),

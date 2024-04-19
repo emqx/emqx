@@ -65,17 +65,21 @@
     last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
     %% This stream belongs to an unsubscribed topic-filter, and is
     %% marked for deletion:
-    unsubscribed = false :: boolean()
+    unsubscribed = false :: boolean(),
+    %% Reference to the subscription state:
+    sub_state_id :: emqx_persistent_session_ds_subs:subscription_state_id()
 }).
 
 %% Session metadata keys:
 -define(created_at, created_at).
 -define(last_alive_at, last_alive_at).
 -define(expiry_interval, expiry_interval).
-%% Unique integer used to create unique identities
+%% Unique integer used to create unique identities:
 -define(last_id, last_id).
+%% Connection info (relevent for the dashboard):
 -define(peername, peername).
 -define(will_message, will_message).
 -define(clientinfo, clientinfo).
+-define(protocol, protocol).
 
 -endif.

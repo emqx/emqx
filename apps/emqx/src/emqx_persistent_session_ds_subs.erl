@@ -24,13 +24,55 @@
 -module(emqx_persistent_session_ds_subs).
 
 %% API:
--export([on_subscribe/3, on_unsubscribe/3, gc/1, lookup/2, to_map/1, fold/3, fold_all/3]).
+-export([
+    on_subscribe/3,
+    on_unsubscribe/3,
+    on_session_drop/2,
+    gc/1,
+    lookup/2,
+    to_map/1,
+    fold/3
+]).
 
--export_type([]).
+%% Management API:
+-export([
+    cold_get_subscription/2
+]).
+
+-export_type([subscription_state_id/0, subscription/0, subscription_state/0]).
+
+-include("emqx_persistent_session_ds.hrl").
+-include("emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type subscription() :: #{
+    %% Session-unique identifier of the subscription. Other objects
+    %% can use it as a compact reference:
+    id := emqx_persistent_session_ds:subscription_id(),
+    %% Reference to the current subscription state:
+    current_state := subscription_state_id(),
+    %% Time when the subscription was added:
+    start_time := emqx_ds:time()
+}.
+
+-type subscription_state_id() :: integer().
+
+-type subscription_state() :: #{
+    parent_subscription := emqx_persistent_session_ds:subscription_id(),
+    upgrade_qos := boolean(),
+    %% SubOpts:
+    subopts := #{
+        nl => _,
+        qos => _,
+        rap => _,
+        subid => _,
+        _ => _
+    }
+}.
 
 %%================================================================================
 %% API functions
@@ -39,39 +81,129 @@
 %% @doc Process a new subscription
 -spec on_subscribe(
     emqx_persistent_session_ds:topic_filter(),
-    emqx_persistent_session_ds:subscription(),
-    emqx_persistent_session_ds_state:t()
+    emqx_types:subopts(),
+    emqx_persistent_session_ds:session()
 ) ->
-    emqx_persistent_session_ds_state:t().
-on_subscribe(TopicFilter, Subscription, S) ->
-    emqx_persistent_session_ds_state:put_subscription(TopicFilter, [], Subscription, S).
+    {ok, emqx_persistent_session_ds_state:t()} | {error, ?RC_QUOTA_EXCEEDED}.
+on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) ->
+    #{upgrade_qos := UpgradeQoS, max_subscriptions := MaxSubscriptions} = Props,
+    case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
+        undefined ->
+            %% This is a new subscription:
+            case emqx_persistent_session_ds_state:n_subscriptions(S0) < MaxSubscriptions of
+                true ->
+                    ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, SessionId),
+                    {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
+                    {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
+                    SState = #{
+                        parent_subscription => SubId, upgrade_qos => UpgradeQoS, subopts => SubOpts
+                    },
+                    S3 = emqx_persistent_session_ds_state:put_subscription_state(
+                        SStateId, SState, S2
+                    ),
+                    Subscription = #{
+                        id => SubId,
+                        current_state => SStateId,
+                        start_time => now_ms()
+                    },
+                    S = emqx_persistent_session_ds_state:put_subscription(
+                        TopicFilter, Subscription, S3
+                    ),
+                    ?tp(persistent_session_ds_subscription_added, #{
+                        topic_filter => TopicFilter, session => SessionId
+                    }),
+                    {ok, S};
+                false ->
+                    {error, ?RC_QUOTA_EXCEEDED}
+            end;
+        Sub0 = #{current_state := SStateId0, id := SubId} ->
+            SState = #{parent_subscription => SubId, upgrade_qos => UpgradeQoS, subopts => SubOpts},
+            case emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0) of
+                SState ->
+                    %% Client resubscribed with the same parameters:
+                    {ok, S0};
+                _ ->
+                    %% Subsription parameters changed:
+                    {SStateId, S1} = emqx_persistent_session_ds_state:new_id(S0),
+                    S2 = emqx_persistent_session_ds_state:put_subscription_state(
+                        SStateId, SState, S1
+                    ),
+                    Sub = Sub0#{current_state => SStateId},
+                    S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Sub, S2),
+                    {ok, S}
+            end
+    end.
 
 %% @doc Process UNSUBSCRIBE
 -spec on_unsubscribe(
+    emqx_persistent_session_ds:id(),
     emqx_persistent_session_ds:topic_filter(),
-    emqx_persistent_session_ds:subscription(),
     emqx_persistent_session_ds_state:t()
 ) ->
-    emqx_persistent_session_ds_state:t().
-on_unsubscribe(TopicFilter, Subscription0, S0) ->
-    %% Note: we cannot delete the subscription immediately, since its
-    %% metadata can be used during replay (see `process_batch'). We
-    %% instead mark it as deleted, and let `subscription_gc' function
-    %% dispatch it later:
-    Subscription = Subscription0#{deleted => true},
-    emqx_persistent_session_ds_state:put_subscription(TopicFilter, [], Subscription, S0).
+    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds:subscription()}
+    | {error, ?RC_NO_SUBSCRIPTION_EXISTED}.
+on_unsubscribe(SessionId, TopicFilter, S0) ->
+    case lookup(TopicFilter, S0) of
+        undefined ->
+            {error, ?RC_NO_SUBSCRIPTION_EXISTED};
+        Subscription ->
+            ?tp(persistent_session_ds_subscription_delete, #{
+                session_id => SessionId, topic_filter => TopicFilter
+            }),
+            ?tp_span(
+                persistent_session_ds_subscription_route_delete,
+                #{session_id => SessionId, topic_filter => TopicFilter},
+                ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId)
+            ),
+            {ok, emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0), Subscription}
+    end.
 
-%% @doc Remove subscriptions that have been marked for deletion, and
-%% that don't have any unacked messages:
+-spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) -> ok.
+on_session_drop(SessionId, S0) ->
+    fold(
+        fun(TopicFilter, _Subscription, S) ->
+            case on_unsubscribe(SessionId, TopicFilter, S) of
+                {ok, S1, _} -> S1;
+                _ -> S
+            end
+        end,
+        S0,
+        S0
+    ).
+
+%% @doc Remove subscription states that don't have a parent, and that
+%% don't have any unacked messages:
 -spec gc(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
 gc(S0) ->
-    fold_all(
-        fun(TopicFilter, #{id := SubId, deleted := Deleted}, Acc) ->
-            case Deleted andalso has_no_unacked_streams(SubId, S0) of
-                true ->
-                    emqx_persistent_session_ds_state:del_subscription(TopicFilter, [], Acc);
+    %% Create a set of subscription states IDs referenced either by a
+    %% subscription or a stream replay state:
+    AliveSet0 = emqx_persistent_session_ds_state:fold_subscriptions(
+        fun(_TopicFilter, #{current_state := SStateId}, Acc) ->
+            Acc#{SStateId => true}
+        end,
+        #{},
+        S0
+    ),
+    AliveSet = emqx_persistent_session_ds_state:fold_streams(
+        fun(_StreamId, SRS = #srs{sub_state_id = SStateId}, Acc) ->
+            case emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S0) of
                 false ->
+                    Acc#{SStateId => true};
+                true ->
                     Acc
+            end
+        end,
+        AliveSet0,
+        S0
+    ),
+    %% Delete dangling subscription states:
+    emqx_persistent_session_ds_state:fold_subscription_states(
+        fun(SStateId, _, S) ->
+            case maps:is_key(SStateId, AliveSet) of
+                true ->
+                    S;
+                false ->
+                    emqx_persistent_session_ds_state:del_subscription_state(SStateId, S)
             end
         end,
         S0,
@@ -82,12 +214,16 @@ gc(S0) ->
 -spec lookup(emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds_state:t()) ->
     emqx_persistent_session_ds:subscription() | undefined.
 lookup(TopicFilter, S) ->
-    Subs = emqx_persistent_session_ds_state:get_subscriptions(S),
-    case emqx_topic_gbt:lookup(TopicFilter, [], Subs, undefined) of
-        #{deleted := true} ->
-            undefined;
-        Sub ->
-            Sub
+    case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S) of
+        Sub = #{current_state := SStateId} ->
+            case emqx_persistent_session_ds_state:get_subscription_state(SStateId, S) of
+                #{subopts := SubOpts} ->
+                    Sub#{subopts => SubOpts};
+                undefined ->
+                    undefined
+            end;
+        undefined ->
+            undefined
     end.
 
 %% @doc Convert active subscriptions to a map, for information
@@ -95,7 +231,7 @@ lookup(TopicFilter, S) ->
 -spec to_map(emqx_persistent_session_ds_state:t()) -> map().
 to_map(S) ->
     fold(
-        fun(TopicFilter, #{props := Props}, Acc) -> Acc#{TopicFilter => Props} end,
+        fun(TopicFilter, _, Acc) -> Acc#{TopicFilter => lookup(TopicFilter, S)} end,
         #{},
         S
     ).
@@ -107,48 +243,29 @@ to_map(S) ->
     emqx_persistent_session_ds_state:t()
 ) ->
     Acc.
-fold(Fun, AccIn, S) ->
-    fold_all(
-        fun(TopicFilter, Sub = #{deleted := Deleted}, Acc) ->
-            case Deleted of
-                true -> Acc;
-                false -> Fun(TopicFilter, Sub, Acc)
-            end
-        end,
-        AccIn,
-        S
-    ).
+fold(Fun, Acc, S) ->
+    emqx_persistent_session_ds_state:fold_subscriptions(Fun, Acc, S).
 
-%% @doc Fold over all subscriptions, including inactive ones:
--spec fold_all(
-    fun((emqx_types:topic(), emqx_persistent_session_ds:subscription(), Acc) -> Acc),
-    Acc,
-    emqx_persistent_session_ds_state:t()
-) ->
-    Acc.
-fold_all(Fun, AccIn, S) ->
-    Subs = emqx_persistent_session_ds_state:get_subscriptions(S),
-    emqx_topic_gbt:fold(
-        fun(Key, Sub, Acc) -> Fun(emqx_topic_gbt:get_topic(Key), Sub, Acc) end,
-        AccIn,
-        Subs
-    ).
+-spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
+    emqx_persistent_session_ds:subscription() | undefined.
+cold_get_subscription(SessionId, Topic) ->
+    case emqx_persistent_session_ds_state:cold_get_subscription(SessionId, Topic) of
+        [Sub = #{current_state := SStateId}] ->
+            case
+                emqx_persistent_session_ds_state:cold_get_subscription_state(SessionId, SStateId)
+            of
+                [#{subopts := Subopts}] ->
+                    Sub#{subopts => Subopts};
+                _ ->
+                    undefined
+            end;
+        _ ->
+            undefined
+    end.
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
--spec has_no_unacked_streams(
-    emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds_state:t()
-) -> boolean().
-has_no_unacked_streams(SubId, S) ->
-    emqx_persistent_session_ds_state:fold_streams(
-        fun
-            ({SID, _Stream}, Srs, Acc) when SID =:= SubId ->
-                emqx_persistent_session_ds_stream_scheduler:is_fully_acked(Srs, S) andalso Acc;
-            (_StreamKey, _Srs, Acc) ->
-                Acc
-        end,
-        true,
-        S
-    ).
+now_ms() ->
+    erlang:system_time(millisecond).
