@@ -12,17 +12,12 @@ connection_low_watermark_field.desc:
 connection_low_watermark_field.label:
 """Connection low watermark"""
 
-connection_high_watermark_field_deprecated.desc:
-"""deprecated use /license/setting instead"""
-
-connection_high_watermark_field_deprecated.label:
-"""deprecated use /license/setting instead"""
-
-connection_low_watermark_field_deprecated.desc:
-"""deprecated use /license/setting instead"""
-
-connection_low_watermark_field_deprecated.label:
-"""deprecated use /license/setting instead"""
+dynamic_max_connections {
+    label: "Dynamic Connections Limit"
+    desc: """~
+        Only applicable for "Business Critical" license type. This config sets the current allocation of license for the current cluster.
+        This value cannot exceed the connections limit assigned in the license key."""
+}
 
 key_field.desc:
 """This configuration parameter is designated for the license key and supports below input formats:
@@ -43,7 +38,7 @@ license_root.desc:
 """Defines the EMQX Enterprise license.
 
 EMQX Enterprise is initially provided with a default trial license.
-This license, issued in December 2023, is valid for a period of 5 years.
+This license, issued in April 2024, is valid for a period of 5 years.
 It supports up to 25 concurrent connections, catering to early-stage development and testing needs.
 
 For deploying EMQX Enterprise in a production environment, a different license is required. You can apply for a production license by visiting https://www.emqx.com/apply-licenses/emqx?version=5"""

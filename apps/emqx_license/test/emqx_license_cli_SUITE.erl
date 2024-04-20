@@ -65,6 +65,7 @@ t_conf_update(_Config) ->
         #{
             connection_high_watermark => 0.5,
             connection_low_watermark => 0.45,
+            dynamic_max_connections => 25,
             key => LicenseKey
         },
         emqx:get_config([license])
