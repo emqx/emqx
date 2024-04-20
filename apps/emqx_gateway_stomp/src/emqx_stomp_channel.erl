@@ -1039,7 +1039,7 @@ handle_deliver(
                         {<<"subscription">>, Id},
                         {<<"message-id">>, next_msgid()},
                         {<<"destination">>, emqx_message:topic(NMessage)},
-                        {<<"content-type">>, <<"text/plain">>}
+                        {<<"content-type">>, content_type_from_mqtt_message(NMessage)}
                     ],
                     Headers1 =
                         case Ack of
@@ -1079,6 +1079,13 @@ handle_deliver(
         Delivers
     ),
     {ok, [{outgoing, lists:reverse(Frames0)}], Channel}.
+
+content_type_from_mqtt_message(Message) ->
+    Properties = emqx_message:get_header(properties, Message, #{}),
+    case maps:get('Content-Type', Properties, undefined) of
+        undefined -> <<"text/plain">>;
+        ContentType -> ContentType
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
