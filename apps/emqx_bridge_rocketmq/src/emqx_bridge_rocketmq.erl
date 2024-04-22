@@ -163,10 +163,12 @@ fields(action_parameters) ->
             {template,
                 mk(
                     emqx_schema:template(),
-                    #{
-                        desc => ?DESC("template"),
-                        default => ?DEFAULT_TEMPLATE
-                    }
+                    #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
+                )},
+            {strategy,
+                mk(
+                    hoconsc:union([roundrobin, binary()]),
+                    #{desc => ?DESC("strategy"), default => roundrobin}
                 )}
         ] ++ emqx_bridge_rocketmq_connector:fields(config),
     lists:foldl(
@@ -176,6 +178,7 @@ fields(action_parameters) ->
         Parameters,
         [
             servers,
+            namespace,
             pool_size,
             auto_reconnect,
             access_key,
@@ -215,6 +218,11 @@ fields("config") ->
             mk(
                 binary(),
                 #{desc => ?DESC("local_topic"), required => false}
+            )},
+        {strategy,
+            mk(
+                hoconsc:union([roundrobin, binary()]),
+                #{desc => ?DESC("strategy"), default => roundrobin}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
         emqx_bridge_rocketmq_connector:fields(config);
