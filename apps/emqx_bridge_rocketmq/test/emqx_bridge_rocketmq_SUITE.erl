@@ -263,6 +263,60 @@ t_setup_via_http_api_and_publish(Config) ->
     ),
     ok.
 
+t_setup_two_actions_via_http_api_and_publish(Config) ->
+    BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    RocketMQConf = ?GET_CONFIG(rocketmq_config, Config),
+    RocketMQConf2 = RocketMQConf#{
+        <<"name">> => Name,
+        <<"type">> => BridgeType
+    },
+    ?assertMatch(
+        {ok, _},
+        create_bridge_http(RocketMQConf2)
+    ),
+    {ok, #{raw_config := ActionConf}} = emqx_bridge_v2:lookup(actions, BridgeType, Name),
+    Topic2 = <<"Topic2">>,
+    ActionConf2 = emqx_utils_maps:deep_force_put(
+        [<<"parameters">>, <<"topic">>], ActionConf, Topic2
+    ),
+    Action2Name = atom_to_binary(?FUNCTION_NAME),
+    {ok, _} = emqx_bridge_v2:create(BridgeType, Action2Name, ActionConf2),
+    SentData = #{payload => ?PAYLOAD},
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertEqual(ok, send_message(Config, SentData)),
+                #{?snk_kind := rocketmq_connector_query_return},
+                10_000
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(rocketmq_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            ok
+        end
+    ),
+    Config2 = proplists:delete(rocketmq_name, Config),
+    Config3 = [{rocketmq_name, Action2Name} | Config2],
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertEqual(ok, send_message(Config3, SentData)),
+                #{?snk_kind := rocketmq_connector_query_return},
+                10_000
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(rocketmq_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            ok
+        end
+    ),
+    ok.
+
 t_get_status(Config) ->
     ?assertMatch(
         {ok, _},
