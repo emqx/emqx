@@ -316,7 +316,7 @@ on_query(InstId, {send_message, Msg}, State) ->
             ClientId = maps:get(clientid, Msg, undefined),
             on_query(
                 InstId,
-                {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
+                {undefined, ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
                 State
             )
     end;
@@ -346,19 +346,19 @@ on_query(
             ClientId = clientid(Msg),
             on_query(
                 InstId,
-                {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
+                {ActionId, ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
                 State
             )
     end;
 on_query(InstId, {Method, Request}, State) ->
     %% TODO: Get retry from State
-    on_query(InstId, {undefined, Method, Request, 5000, _Retry = 2}, State);
+    on_query(InstId, {undefined, undefined, Method, Request, 5000, _Retry = 2}, State);
 on_query(InstId, {Method, Request, Timeout}, State) ->
     %% TODO: Get retry from State
-    on_query(InstId, {undefined, Method, Request, Timeout, _Retry = 2}, State);
+    on_query(InstId, {undefined, undefined, Method, Request, Timeout, _Retry = 2}, State);
 on_query(
     InstId,
-    {KeyOrNum, Method, Request, Timeout, Retry},
+    {ActionId, KeyOrNum, Method, Request, Timeout, Retry},
     #{base_path := BasePath} = State
 ) ->
     ?TRACE(
@@ -368,11 +368,12 @@ on_query(
             request => redact_request(Request),
             note => ?READACT_REQUEST_NOTE,
             connector => InstId,
+            action_id => ActionId,
             state => redact(State)
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(InstId, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Method, NRequest, Timeout),
     Worker = resolve_pool_worker(State, KeyOrNum),
     Result0 = ehttpc:request(
         Worker,
@@ -429,7 +430,7 @@ on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
             ClientId = maps:get(clientid, Msg, undefined),
             on_query_async(
                 InstId,
-                {ClientId, Method, {Path, Headers, Body}, Timeout},
+                {undefined, ClientId, Method, {Path, Headers, Body}, Timeout},
                 ReplyFunAndArgs,
                 State
             )
@@ -459,14 +460,14 @@ on_query_async(
             ClientId = clientid(Msg),
             on_query_async(
                 InstId,
-                {ClientId, Method, {Path, Headers, Body}, Timeout},
+                {ActionId, ClientId, Method, {Path, Headers, Body}, Timeout},
                 ReplyFunAndArgs,
                 State
             )
     end;
 on_query_async(
     InstId,
-    {KeyOrNum, Method, Request, Timeout},
+    {ActionId, KeyOrNum, Method, Request, Timeout},
     ReplyFunAndArgs,
     #{base_path := BasePath} = State
 ) ->
@@ -482,7 +483,7 @@ on_query_async(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(InstId, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Method, NRequest, Timeout),
     MaxAttempts = maps:get(max_attempts, State, 3),
     Context = #{
         attempt => 1,
@@ -502,11 +503,11 @@ on_query_async(
     ),
     {ok, Worker}.
 
-trace_rendered_action_template(InstId, Method, NRequest, Timeout) ->
+trace_rendered_action_template(ActionId, Method, NRequest, Timeout) ->
     case NRequest of
         {Path, Headers} ->
             emqx_trace:rendered_action_template(
-                InstId,
+                ActionId,
                 #{
                     path => Path,
                     method => Method,
@@ -516,7 +517,7 @@ trace_rendered_action_template(InstId, Method, NRequest, Timeout) ->
             );
         {Path, Headers, Body} ->
             emqx_trace:rendered_action_template(
-                InstId,
+                ActionId,
                 #{
                     path => Path,
                     method => Method,

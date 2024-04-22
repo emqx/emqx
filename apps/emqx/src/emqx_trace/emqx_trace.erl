@@ -88,8 +88,14 @@ unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
 rendered_action_template(ActionID, RenderResult) ->
-    Msg = lists:flatten(io_lib:format("action_template_rendered(~ts)", [ActionID])),
-    TraceResult = ?TRACE("QUERY_RENDER", Msg, RenderResult),
+    TraceResult = ?TRACE(
+        "QUERY_RENDER",
+        "action_template_rendered",
+        #{
+            result => RenderResult,
+            action_id => ActionID
+        }
+    ),
     case logger:get_process_metadata() of
         #{stop_action_after_render := true} ->
             %% We throw an unrecoverable error to stop action before the
@@ -183,8 +189,10 @@ create(Trace) ->
     case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
         true ->
             case to_trace(Trace) of
-                {ok, TraceRec} -> insert_new_trace(TraceRec);
-                {error, Reason} -> {error, Reason}
+                {ok, TraceRec} ->
+                    insert_new_trace(TraceRec);
+                {error, Reason} ->
+                    {error, Reason}
             end;
         false ->
             {error,
@@ -246,7 +254,11 @@ format(Traces) ->
     lists:map(
         fun(Trace0 = #?TRACE{}) ->
             [_ | Values] = tuple_to_list(Trace0),
-            maps:from_list(lists:zip(Fields, Values))
+            Map0 = maps:from_list(lists:zip(Fields, Values)),
+            Extra = maps:get(extra, Map0, #{}),
+            Formatter = maps:get(formatter, Extra, text),
+            Map1 = Map0#{formatter => Formatter},
+            maps:remove(extra, Map1)
         end,
         Traces
     ).
@@ -392,9 +404,17 @@ start_trace(Trace) ->
         type = Type,
         filter = Filter,
         start_at = Start,
-        payload_encode = PayloadEncode
+        payload_encode = PayloadEncode,
+        extra = Extra
     } = Trace,
-    Who = #{name => Name, type => Type, filter => Filter, payload_encode => PayloadEncode},
+    Formatter = maps:get(formatter, Extra, text),
+    Who = #{
+        name => Name,
+        type => Type,
+        filter => Filter,
+        payload_encode => PayloadEncode,
+        formatter => Formatter
+    },
     emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
 
 stop_trace(Finished, Started) ->
@@ -559,6 +579,12 @@ to_trace(#{end_at := EndAt} = Trace, Rec) ->
         {ok, _Sec} ->
             {error, "end_at time has already passed"}
     end;
+to_trace(#{formatter := Formatter} = Trace, Rec) ->
+    Extra = Rec#?TRACE.extra,
+    to_trace(
+        maps:remove(formatter, Trace),
+        Rec#?TRACE{extra = Extra#{formatter => Formatter}}
+    );
 to_trace(_, Rec) ->
     {ok, Rec}.
 

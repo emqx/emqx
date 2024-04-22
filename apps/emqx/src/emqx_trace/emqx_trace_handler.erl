@@ -27,6 +27,7 @@
     install/3,
     install/4,
     install/5,
+    install/6,
     uninstall/1,
     uninstall/2
 ]).
@@ -46,7 +47,8 @@
     name := binary(),
     type := clientid | topic | ip_address,
     filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
-    payload_encode := text | hidden | hex
+    payload_encode := text | hidden | hex,
+    formatter => json | text
 }.
 
 -define(CONFIG(_LogFile_), #{
@@ -69,16 +71,28 @@
     Type :: clientid | topic | ip_address,
     Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
     Level :: logger:level() | all,
-    LogFilePath :: string()
+    LogFilePath :: string(),
+    Formatter :: text | json
 ) -> ok | {error, term()}.
-install(Name, Type, Filter, Level, LogFile) ->
+install(Name, Type, Filter, Level, LogFile, Formatter) ->
     Who = #{
         type => Type,
         filter => ensure_bin(Filter),
         name => ensure_bin(Name),
-        payload_encode => payload_encode()
+        payload_encode => payload_encode(),
+        formatter => Formatter
     },
     install(Who, Level, LogFile).
+
+-spec install(
+    Name :: binary() | list(),
+    Type :: clientid | topic | ip_address,
+    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
+    Level :: logger:level() | all,
+    LogFilePath :: string()
+) -> ok | {error, term()}.
+install(Name, Type, Filter, Level, LogFile) ->
+    install(Name, Type, Filter, Level, LogFile, text).
 
 -spec install(
     Type :: clientid | topic | ip_address,
@@ -183,6 +197,10 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
 filters(#{type := ruleid, filter := Filter, name := Name}) ->
     [{ruleid, {fun ?MODULE:filter_ruleid/2, {ensure_bin(Filter), Name}}}].
 
+formatter(#{type := _Type, payload_encode := PayloadEncode, formatter := json}) ->
+    {emqx_trace_json_formatter, #{
+        payload_encode => PayloadEncode
+    }};
 formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.

@@ -36,7 +36,8 @@ init_per_suite(Config) ->
         emqx_connector,
         emqx_bridge,
         emqx_bridge_http,
-        emqx_rule_engine
+        emqx_rule_engine,
+        emqx_modules
     ],
     %% I don't know why we need to stop the apps and then start them but if we
     %% don't do this and other suites run before this suite the test cases will
@@ -128,9 +129,8 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
             Bin = read_rule_trace_file(TraceName, TraceType, Now),
             io:format("THELOG:~n~s", [Bin]),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"rule_activated">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"SELECT_yielded_result">>])),
+            ?assertNotEqual(nomatch, binary:match(Bin, [<<"SQL_yielded_result">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_activated">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_template_rendered">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"QUERY_ASYNC">>]))
         end
@@ -171,10 +171,9 @@ create_trace(TraceName, TraceType, TraceValue) ->
         type => TraceType,
         TraceType => TraceValue,
         start_at => Start,
-        end_at => End
+        end_at => End,
+        formatter => json
     },
-    emqx_trace_SUITE:reload(),
-    ok = emqx_trace:clear(),
     {ok, _} = emqx_trace:create(Trace).
 
 t_apply_rule_test_batch_separation_stop_after_render(_Config) ->

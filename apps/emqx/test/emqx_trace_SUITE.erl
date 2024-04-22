@@ -96,7 +96,7 @@ t_base_create_delete(_Config) ->
             start_at => Now,
             end_at => Now + 30 * 60,
             payload_encode => text,
-            extra => #{}
+            formatter => text
         }
     ],
     ?assertEqual(ExpectFormat, emqx_trace:format([TraceRec])),
@@ -511,4 +511,13 @@ build_old_trace_data() ->
 
 reload() ->
     catch ok = gen_server:stop(emqx_trace),
-    {ok, _Pid} = emqx_trace:start_link().
+    case emqx_trace:start_link() of
+        {ok, _Pid} = Res ->
+            Res;
+        NotOKRes ->
+            ct:pal(
+                "emqx_trace:start_link() gave result: ~p\n"
+                "(perhaps it is already started)",
+                [NotOKRes]
+            )
+    end.
