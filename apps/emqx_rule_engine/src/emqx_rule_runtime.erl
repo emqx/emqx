@@ -139,25 +139,35 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
         reset_process_trace_metadata(Columns)
     end.
 
-set_process_trace_metadata(RuleID, #{clientid := ClientID}) ->
+set_process_trace_metadata(RuleID, #{clientid := ClientID} = Columns) ->
+    logger:update_process_metadata(#{
+        clientid => ClientID
+    }),
+    set_process_trace_metadata(RuleID, maps:remove(clientid, Columns));
+set_process_trace_metadata(RuleID, Columns) ->
+    EventTimestamp =
+        case Columns of
+            #{timestamp := Timestamp} ->
+                Timestamp;
+            _ ->
+                erlang:system_time(millisecond)
+        end,
     logger:update_process_metadata(#{
         rule_id => RuleID,
-        clientid => ClientID
-    });
-set_process_trace_metadata(RuleID, _) ->
-    logger:update_process_metadata(#{
-        rule_id => RuleID
+        rule_trigger_time => EventTimestamp
     }).
 
 reset_process_trace_metadata(#{clientid := _ClientID}) ->
     Meta = logger:get_process_metadata(),
     Meta1 = maps:remove(clientid, Meta),
     Meta2 = maps:remove(rule_id, Meta1),
-    logger:set_process_metadata(Meta2);
+    Meta3 = maps:remove(rule_trigger_time, Meta2),
+    logger:set_process_metadata(Meta3);
 reset_process_trace_metadata(_) ->
     Meta = logger:get_process_metadata(),
     Meta1 = maps:remove(rule_id, Meta),
-    logger:set_process_metadata(Meta1).
+    Meta2 = maps:remove(rule_trigger_time, Meta1),
+    logger:set_process_metadata(Meta2).
 
 do_apply_rule(
     #{
@@ -499,21 +509,25 @@ do_handle_action_get_trace_inc_metrics_context_unconditionally(Action, TraceMeta
     case TraceMeta of
         #{
             rule_id := RuleID,
-            clientid := ClientID
+            clientid := ClientID,
+            rule_trigger_time := Timestamp
         } ->
             #{
                 rule_id => RuleID,
                 clientid => ClientID,
                 action_id => Action,
-                stop_action_after_render => StopAfterRender
+                stop_action_after_render => StopAfterRender,
+                rule_trigger_time => Timestamp
             };
         #{
-            rule_id := RuleID
+            rule_id := RuleID,
+            rule_trigger_time := Timestamp
         } ->
             #{
                 rule_id => RuleID,
                 action_id => Action,
-                stop_action_after_render => StopAfterRender
+                stop_action_after_render => StopAfterRender,
+                rule_trigger_time => Timestamp
             }
     end.
 

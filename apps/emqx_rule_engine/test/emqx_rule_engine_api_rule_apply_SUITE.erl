@@ -159,6 +159,20 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
                 end
             )
     end,
+    %% Check that rule_trigger_time meta field is present in all log entries
+    Log0 = read_rule_trace_file(TraceName, TraceType, Now),
+    Log1 = binary:split(Log0, <<"\n">>, [global, trim]),
+    Log2 = lists:join(<<",\n">>, Log1),
+    Log3 = iolist_to_binary(["[", Log2, "]"]),
+    {ok, LogEntries} = emqx_utils_json:safe_decode(Log3, [return_maps]),
+    [#{<<"meta">> := #{<<"rule_trigger_time">> := RuleTriggerTime}} | _] = LogEntries,
+    [
+        ?assert(
+            (maps:get(<<"rule_trigger_time">>, Meta, no_time) =:= RuleTriggerTime) orelse
+                (lists:member(RuleTriggerTime, maps:get(<<"rule_trigger_times">>, Meta, [])))
+        )
+     || #{<<"meta">> := Meta} <- LogEntries
+    ],
     emqx_trace:delete(TraceName),
     ok.
 
