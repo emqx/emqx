@@ -527,20 +527,19 @@ apply_frame(Frames, Channel) when is_list(Frames) ->
     {Outgoings, NChannel} = lists:foldl(fun do_apply_frame/2, {[], Channel}, Frames),
     {lists:reverse(Outgoings), NChannel};
 apply_frame(Frames, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_frame_list", frames => Frames, channel => Channel}),
+    ?SLOG(error, #{msg => "unexpected_frame_list", frames => Frames}),
     Channel.
 
-do_apply_frame(?IS_BootNotification_RESP(Payload), {Outgoings, Channel}) ->
-    case maps:get(<<"status">>, Payload) of
+do_apply_frame(?IS_BootNotification_RESP(Status, Interval), {Outgoings, Channel}) ->
+    case Status of
         <<"Accepted">> ->
-            Intv = maps:get(<<"interval">>, Payload),
-            ?SLOG(info, #{msg => "adjust_heartbeat_timer", new_interval_s => Intv}),
-            {[{event, updated} | Outgoings], reset_keepalive(Intv, Channel)};
+            ?SLOG(info, #{msg => "adjust_heartbeat_timer", new_interval_s => Interval}),
+            {[{event, updated} | Outgoings], reset_keepalive(Interval, Channel)};
         _ ->
             {Outgoings, Channel}
     end;
-do_apply_frame(Frame, Acc = {_Outgoings, Channel}) ->
-    ?SLOG(error, #{msg => "unexpected_frame", frame => Frame, channel => Channel}),
+do_apply_frame(Frame, Acc = {_Outgoings, _Channel}) ->
+    ?SLOG(info, #{msg => "skip_to_apply_frame", frame => Frame}),
     Acc.
 
 %%--------------------------------------------------------------------
@@ -762,19 +761,15 @@ payload2frame(#{
         action => Action,
         payload => Payload
     };
-payload2frame(
-    MqttPayload =
-        #{
-            <<"MessageTypeId">> := ?OCPP_MSG_TYPE_ID_CALLRESULT,
-            <<"UniqueId">> := Id,
-            <<"Payload">> := Payload
-        }
-) ->
-    Action = maps:get(<<"Action">>, MqttPayload, undefined),
+payload2frame(#{
+    <<"MessageTypeId">> := ?OCPP_MSG_TYPE_ID_CALLRESULT,
+    <<"UniqueId">> := Id,
+    <<"Payload">> := Payload
+}) ->
     #{
         type => ?OCPP_MSG_TYPE_ID_CALLRESULT,
         id => Id,
-        action => Action,
+        action => undefined,
         payload => Payload
     };
 payload2frame(#{

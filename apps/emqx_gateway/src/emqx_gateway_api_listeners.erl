@@ -247,9 +247,10 @@ page_params(Qs) ->
 get_cluster_listeners_info(GwName) ->
     Listeners = emqx_gateway_conf:listeners(GwName),
     ListenOns = lists:map(
-        fun(#{id := Id} = Conf) ->
+        fun(#{id := Id, type := Type0} = Conf) ->
+            Type = binary_to_existing_atom(Type0),
             ListenOn = emqx_gateway_conf:get_bind(Conf),
-            {Id, ListenOn}
+            {Type, Id, ListenOn}
         end,
         Listeners
     ),
@@ -293,17 +294,11 @@ listeners_cluster_status(Listeners) ->
 do_listeners_cluster_status(Listeners) ->
     Node = node(),
     lists:foldl(
-        fun({Id, ListenOn}, Acc) ->
-            BinId = erlang:atom_to_binary(Id),
-            {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(BinId),
-            {Running, Curr} =
-                try esockd:get_current_connections({Id, ListenOn}) of
-                    Int -> {true, Int}
-                catch
-                    %% not started
-                    error:not_found ->
-                        {false, 0}
-                end,
+        fun({Type, Id, ListenOn}, Acc) ->
+            {Running, Curr} = current_listener_status(Type, Id, ListenOn),
+            {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(
+                erlang:atom_to_binary(Id)
+            ),
             Acc#{
                 Id => #{
                     node => Node,
@@ -318,6 +313,24 @@ do_listeners_cluster_status(Listeners) ->
         #{},
         Listeners
     ).
+
+current_listener_status(Type, Id, _ListenOn) when Type =:= ws; Type =:= wss ->
+    Info = ranch:info(Id),
+    Conns = proplists:get_value(all_connections, Info, 0),
+    Running =
+        case proplists:get_value(status, Info) of
+            running -> true;
+            _ -> false
+        end,
+    {Running, Conns};
+current_listener_status(_Type, Id, ListenOn) ->
+    try esockd:get_current_connections({Id, ListenOn}) of
+        Int -> {true, Int}
+    catch
+        %% not started
+        error:not_found ->
+            {false, 0}
+    end.
 
 ensure_integer_or_infinity(infinity) ->
     infinity;
@@ -762,9 +775,9 @@ examples_listener() ->
                                     <<"tlsv1.1">>,
                                     <<"tlsv1">>
                                 ],
-                                cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
-                                certfile => <<"/etc/emqx/certs/cert.pem">>,
-                                keyfile => <<"/etc/emqx/certs/key.pem">>,
+                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
+                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
+                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -808,9 +821,9 @@ examples_listener() ->
                         dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
-                                certfile => <<"/etc/emqx/certs/cert.pem">>,
-                                keyfile => <<"/etc/emqx/certs/key.pem">>,
+                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
+                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
+                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -835,9 +848,9 @@ examples_listener() ->
                         dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"/etc/emqx/certs/cacert.pem">>,
-                                certfile => <<"/etc/emqx/certs/cert.pem">>,
-                                keyfile => <<"/etc/emqx/certs/key.pem">>,
+                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
+                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
+                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 user_lookup_fun => <<"emqx_tls_psk:lookup">>,
                                 ciphers =>
@@ -867,6 +880,96 @@ examples_listener() ->
                                 password_hash_algorithm =>
                                     #{name => <<"sha256">>},
                                 user_id_type => <<"username">>
+                            }
+                    }
+            },
+        ws_listener =>
+            #{
+                summary => <<"A simple WebSocket listener example">>,
+                value =>
+                    #{
+                        name => <<"ws-def">>,
+                        type => <<"ws">>,
+                        bind => <<"33043">>,
+                        acceptors => 16,
+                        max_connections => 1024000,
+                        max_conn_rate => 1000,
+                        websocket =>
+                            #{
+                                path => <<"/ocpp">>,
+                                fail_if_no_subprotocol => true,
+                                supported_subprotocols => <<"ocpp1.6">>,
+                                check_origin_enable => false,
+                                check_origins =>
+                                    <<"http://localhost:18083, http://127.0.0.1:18083">>,
+                                compress => false,
+                                piggyback => <<"single">>
+                            },
+                        tcp_options =>
+                            #{
+                                active_n => 100,
+                                backlog => 1024,
+                                send_timeout => <<"15s">>,
+                                send_timeout_close => true,
+                                recbuf => <<"10KB">>,
+                                sndbuf => <<"10KB">>,
+                                buffer => <<"10KB">>,
+                                high_watermark => <<"1MB">>,
+                                nodelay => false,
+                                reuseaddr => true,
+                                keepalive => "none"
+                            }
+                    }
+            },
+        wss_listener =>
+            #{
+                summary => <<"A simple WebSocket/TLS listener example">>,
+                value =>
+                    #{
+                        name => <<"ws-ssl-def">>,
+                        type => <<"wss">>,
+                        bind => <<"33053">>,
+                        acceptors => 16,
+                        max_connections => 1024000,
+                        max_conn_rate => 1000,
+                        websocket =>
+                            #{
+                                path => <<"/ocpp">>,
+                                fail_if_no_subprotocol => true,
+                                supported_subprotocols => <<"ocpp1.6">>,
+                                check_origin_enable => false,
+                                check_origins =>
+                                    <<"http://localhost:18083, http://127.0.0.1:18083">>,
+                                compress => false,
+                                piggyback => <<"single">>
+                            },
+                        ssl_options =>
+                            #{
+                                versions => [
+                                    <<"tlsv1.3">>,
+                                    <<"tlsv1.2">>,
+                                    <<"tlsv1.1">>,
+                                    <<"tlsv1">>
+                                ],
+                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
+                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
+                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
+                                verify => <<"verify_none">>,
+                                fail_if_no_peer_cert => false
+                            },
+                        tcp_options =>
+                            #{
+                                active_n => 100,
+                                backlog => 1024,
+                                send_timeout => <<"15s">>,
+                                send_timeout_close => true,
+                                recbuf => <<"10KB">>,
+                                sndbuf => <<"10KB">>,
+                                buffer => <<"10KB">>,
+                                high_watermark => <<"1MB">>,
+                                nodelay => false,
+                                reuseaddr => true,
+                                keepalive => "none"
                             }
                     }
             }
