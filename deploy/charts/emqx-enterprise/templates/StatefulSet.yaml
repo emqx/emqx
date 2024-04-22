@@ -184,5 +184,20 @@ spec:
             matchLabels:
               app.kubernetes.io/name: {{ include "emqx.name" $ }}
               app.kubernetes.io/instance: {{ $.Release.Name }}
+        {{- if .minDomains }}
+          minDomains: {{ .minDomains }}
+        {{- end }}
+        {{- if .matchLabelKeys }}
+          matchLabelKeys:
+            {{- range .matchLabelKeys }}
+            - {{ . }}
+            {{- end }}
+        {{- end }}
+        {{- if .nodeAffinityPolicy }}
+          nodeAffinityPolicy: {{ .nodeAffinityPolicy }}
+        {{- end }}
+        {{- if .nodeTaintsPolicy }}
+          nodeTaintsPolicy: {{ .nodeTaintsPolicy }}
+        {{- end }}
         {{- end }}
     {{- end }}
