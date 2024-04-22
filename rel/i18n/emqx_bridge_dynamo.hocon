@@ -60,4 +60,9 @@ config_connector.desc:
 config_connector.label:
 """DynamoDB Connector Configuration"""
 
+hash_key.desc:
+"""DynamoDB Hash Key"""
+
+range_key.desc:
+"""DynamoDB Range Key"""
 }
