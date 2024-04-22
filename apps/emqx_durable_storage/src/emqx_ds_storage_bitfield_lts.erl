@@ -240,7 +240,8 @@ post_creation_actions(
     s()
 ) ->
     ok.
-drop(_Shard, DBHandle, GenId, CFRefs, #s{}) ->
+drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie}) ->
+    emqx_ds_lts:destroy(Trie),
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
     ok = rocksdb:drop_column_family(DBHandle, DataCF),

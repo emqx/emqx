@@ -19,6 +19,7 @@
 %% API:
 -export([
     trie_create/1, trie_create/0,
+    destroy/1,
     trie_restore/2,
     trie_copy_learned_paths/2,
     topic_key/3,
@@ -115,6 +116,12 @@ trie_create(UserOpts) ->
 -spec trie_create() -> trie().
 trie_create() ->
     trie_create(#{}).
+
+-spec destroy(trie()) -> ok.
+destroy(#trie{trie = Trie, stats = Stats}) ->
+    catch ets:delete(Trie),
+    catch ets:delete(Stats),
+    ok.
 
 %% @doc Restore trie from a dump
 -spec trie_restore(options(), [{_Key, _Val}]) -> trie().
