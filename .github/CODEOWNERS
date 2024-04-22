@@ -5,6 +5,7 @@
 ## HJianBo
 ## id
 ## ieQu1
+## keynslug
 ## qzhuyan
 ## savonarola
 ## terry-xiaoyu
@@ -20,7 +21,6 @@
 /apps/emqx_dashboard_rbac/ @emqx/emqx-review-board @lafirest
 /apps/emqx_dashboard_sso/  @emqx/emqx-review-board @JimMoen @lafirest
 /apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_ft/             @emqx/emqx-review-board @keynslug
 /apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
 /apps/emqx_management/     @emqx/emqx-review-board @lafirest
 /apps/emqx_opentelemetry   @emqx/emqx-review-board @SergeTupchiy
