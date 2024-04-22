@@ -45,6 +45,7 @@ roots() ->
 fields(config) ->
     [
         {url, mk(binary(), #{required => true, desc => ?DESC("url")})},
+        {region, mk(binary(), #{required => true, desc => ?DESC("region")})},
         {table, mk(binary(), #{required => true, desc => ?DESC("table")})},
         {aws_access_key_id,
             mk(
@@ -102,6 +103,12 @@ on_start(
         pool_name => InstanceId,
         installed_channels => #{}
     },
+    case Config of
+        #{region := Region} ->
+            application:set_env(erlcloud, aws_region, to_str(Region));
+        _ ->
+            ok
+    end,
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
@@ -126,12 +133,20 @@ on_add_channel(
 create_channel_state(
     #{parameters := Conf} = _ChannelConfig
 ) ->
-    #{
-        table := Table
-    } = Conf,
+    Keys = maps:with([hash_key, range_key], Conf),
+    Keys1 = maps:fold(
+        fun(K, V, Acc) ->
+            Acc#{K := erlang:binary_to_existing_atom(V)}
+        end,
+        Keys,
+        Keys
+    ),
+
+    Base = maps:without([template, hash_key, range_key], Conf),
+    Base1 = maps:merge(Base, Keys1),
+
     Templates = parse_template_from_conf(Conf),
-    State = #{
-        table => Table,
+    State = Base1#{
         templates => Templates
     },
     {ok, State}.
@@ -232,11 +247,16 @@ do_query(
         templates := Templates
     } = ChannelState,
     Result =
-        ecpool:pick_and_do(
-            PoolName,
-            {emqx_bridge_dynamo_connector_client, query, [Table, QueryTuple, Templates]},
-            no_handover
-        ),
+        case ensuare_dynamo_keys(Query, ChannelState) of
+            true ->
+                ecpool:pick_and_do(
+                    PoolName,
+                    {emqx_bridge_dynamo_connector_client, query, [Table, QueryTuple, Templates]},
+                    no_handover
+                );
+            _ ->
+                {error, missing_filter_or_range_key}
+        end,
 
     case Result of
         {error, Reason} ->
@@ -287,6 +307,25 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
     );
 get_query_tuple([InsertQuery | _]) ->
     get_query_tuple(InsertQuery).
+
+ensuare_dynamo_keys({_, Data} = Query, State) when is_map(Data) ->
+    ensuare_dynamo_keys([Query], State);
+ensuare_dynamo_keys([{_, Data} | _] = Queries, State) when is_map(Data) ->
+    Keys = maps:to_list(maps:with([hash_key, range_key], State)),
+    lists:all(
+        fun({_, Query}) ->
+            lists:all(
+                fun({_, Key}) ->
+                    maps:is_key(Key, Query)
+                end,
+                Keys
+            )
+        end,
+        Queries
+    );
+%% this is not a insert query
+ensuare_dynamo_keys(_Query, _State) ->
+    true.
 
 connect(Opts) ->
     Config = proplists:get_value(config, Opts),

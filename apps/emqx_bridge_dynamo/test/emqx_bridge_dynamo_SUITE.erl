@@ -16,6 +16,7 @@
 -define(TABLE_BIN, to_bin(?TABLE)).
 -define(ACCESS_KEY_ID, "root").
 -define(SECRET_ACCESS_KEY, "public").
+-define(REGION, "us-west-2").
 -define(HOST, "dynamo").
 -define(PORT, 8000).
 -define(SCHEMA, "http://").
@@ -177,7 +178,9 @@ dynamo_config(BridgeType, Config) ->
             "bridges.~s.~s {"
             "\n   enable = true"
             "\n   url = \"http://~s:~p\""
+            "\n   region = ~p"
             "\n   table = ~p"
+            "\n   hash_key =\"clientid\""
             "\n   aws_access_key_id = ~p"
             "\n   aws_secret_access_key = ~p"
             "\n   resource_opts = {"
@@ -191,6 +194,7 @@ dynamo_config(BridgeType, Config) ->
                 Name,
                 Host,
                 Port,
+                ?REGION,
                 ?TABLE,
                 ?ACCESS_KEY_ID,
                 %% NOTE: using file-based secrets with HOCON configs
@@ -210,7 +214,8 @@ action_config(Config) ->
         <<"enable">> => true,
         <<"parameters">> =>
             #{
-                <<"table">> => ?TABLE
+                <<"table">> => ?TABLE,
+                <<"hash_key">> => <<"clientid">>
             },
         <<"resource_opts">> =>
             #{
@@ -234,6 +239,7 @@ connector_config(Config) ->
         <<"url">> => URL,
         <<"aws_access_key_id">> => ?ACCESS_KEY_ID,
         <<"aws_secret_access_key">> => AccessKey,
+        <<"region">> => ?REGION,
         <<"enable">> => true,
         <<"pool_size">> => 8,
         <<"resource_opts">> =>
@@ -355,7 +361,7 @@ t_setup_via_config_and_publish(Config) ->
         create_bridge(Config)
     ),
     MsgId = emqx_utils:gen_id(),
-    SentData = #{id => MsgId, payload => ?PAYLOAD},
+    SentData = #{clientid => <<"clientid">>, id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
             ?wait_async_action(
@@ -421,7 +427,7 @@ t_setup_via_http_api_and_publish(Config) ->
         create_bridge_http(PgsqlConfig)
     ),
     MsgId = emqx_utils:gen_id(),
-    SentData = #{id => MsgId, payload => ?PAYLOAD},
+    SentData = #{clientid => <<"clientid">>, id => MsgId, payload => ?PAYLOAD},
     ?check_trace(
         begin
             ?wait_async_action(
@@ -486,7 +492,7 @@ t_write_failure(Config) ->
             #{?snk_kind := resource_connected_enter},
             20_000
         ),
-    SentData = #{id => emqx_utils:gen_id(), payload => ?PAYLOAD},
+    SentData = #{clientid => <<"clientid">>, id => emqx_utils:gen_id(), payload => ?PAYLOAD},
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ?assertMatch(
             {error, {resource_error, #{reason := timeout}}}, send_message(Config, SentData)
@@ -517,8 +523,17 @@ t_missing_data(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
+    Result = send_message(Config, #{clientid => <<"clientid">>}),
+    ?assertMatch({error, {<<"ValidationException">>, <<>>}}, Result),
+    ok.
+
+t_missing_hash_key(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
     Result = send_message(Config, #{}),
-    ?assertMatch({error, {unrecoverable_error, {invalid_request, _}}}, Result),
+    ?assertMatch({error, missing_filter_or_range_key}, Result),
     ok.
 
 t_bad_parameter(Config) ->
@@ -543,7 +558,9 @@ t_action_create_via_http(Config) ->
     emqx_bridge_v2_testlib:t_create_via_http(Config).
 
 t_action_sync_query(Config) ->
-    MakeMessageFun = fun() -> #{id => <<"the_message_id">>, payload => ?PAYLOAD} end,
+    MakeMessageFun = fun() ->
+        #{clientid => <<"clientid">>, id => <<"the_message_id">>, payload => ?PAYLOAD}
+    end,
     IsSuccessCheck = fun(Result) -> ?assertEqual({ok, []}, Result) end,
     TracePoint = dynamo_connector_query_return,
     emqx_bridge_v2_testlib:t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint).

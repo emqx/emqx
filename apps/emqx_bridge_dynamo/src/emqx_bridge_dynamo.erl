@@ -87,6 +87,7 @@ connector_values() ->
         <<"url">> => <<"http://127.0.0.1:8000">>,
         <<"aws_access_key_id">> => <<"root">>,
         <<"aws_secret_access_key">> => <<"******">>,
+        <<"region">> => <<"us-west-2">>,
         <<"pool_size">> => 8,
         <<"resource_opts">> =>
             #{
@@ -113,7 +114,8 @@ action_values() ->
         <<"parameters">> =>
             #{
                 <<"table">> => <<"mqtt_msg">>,
-                <<"template">> => ?DEFAULT_TEMPLATE
+                <<"template">> => ?DEFAULT_TEMPLATE,
+                <<"hash_key">> => <<"clientid">>
             }
     }.
 
@@ -160,7 +162,19 @@ fields(dynamo_action) ->
     );
 fields(action_parameters) ->
     Parameters =
-        [{template, template_field_schema()}] ++ emqx_bridge_dynamo_connector:fields(config),
+        [
+            {template, template_field_schema()},
+            {hash_key,
+                mk(
+                    binary(),
+                    #{desc => ?DESC("hash_key"), required => true}
+                )},
+            {range_key,
+                mk(
+                    binary(),
+                    #{desc => ?DESC("range_key"), required => false}
+                )}
+        ] ++ emqx_bridge_dynamo_connector:fields(config),
     lists:foldl(
         fun(Key, Acc) ->
             proplists:delete(Key, Acc)
@@ -168,6 +182,7 @@ fields(action_parameters) ->
         Parameters,
         [
             url,
+            region,
             aws_access_key_id,
             aws_secret_access_key,
             pool_size,
@@ -198,6 +213,16 @@ fields("config") ->
             mk(
                 binary(),
                 #{desc => ?DESC("local_topic"), default => undefined}
+            )},
+        {hash_key,
+            mk(
+                binary(),
+                #{desc => ?DESC("hash_key"), required => true}
+            )},
+        {range_key,
+            mk(
+                binary(),
+                #{desc => ?DESC("range_key"), required => false}
             )},
         {resource_opts,
             mk(
