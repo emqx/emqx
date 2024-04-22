@@ -705,7 +705,7 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ),
     receive
         {result, Result} -> IsSuccessCheck(Result)
-    after 5_000 ->
+    after 8_000 ->
         throw(timeout)
     end,
     ok.

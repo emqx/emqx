@@ -1024,7 +1024,29 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
 handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent) when is_pid(Pid) ->
     {ack, fun() -> ok end, #{}};
 handle_query_async_result_pure(_Id, ok, _HasBeenSent) ->
-    {ack, fun() -> ok end, #{}}.
+    {ack, fun() -> ok end, #{}};
+handle_query_async_result_pure(Id, Results, HasBeenSent) when is_list(Results) ->
+    All = fun(L) ->
+        case L of
+            {ok, Pid} -> is_pid(Pid);
+            _ -> false
+        end
+    end,
+    case lists:all(All, Results) of
+        true ->
+            {ack, fun() -> ok end, #{}};
+        false ->
+            PostFn = fun() ->
+                ?SLOG(error, #{
+                    id => Id,
+                    msg => "async_batch_send_error",
+                    reason => Results,
+                    has_been_sent => HasBeenSent
+                }),
+                ok
+            end,
+            {nack, PostFn, #{}}
+    end.
 
 -spec aggregate_counters(data(), counters()) -> data().
 aggregate_counters(Data = #{counters := OldCounters}, DeltaCounters) ->

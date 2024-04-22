@@ -1,24 +1,53 @@
 version: '3.9'
 
 services:
-  iotdb:
-    container_name: iotdb
-    hostname: iotdb
-    image: apache/iotdb:1.1.0-standalone
+  iotdb_1_3_0:
+    container_name: iotdb130
+    hostname: iotdb130
+    image: apache/iotdb:1.3.0-standalone
     restart: always
     environment:
       - enable_rest_service=true
-      - cn_internal_address=iotdb
+      - cn_internal_address=iotdb130
       - cn_internal_port=10710
       - cn_consensus_port=10720
-      - cn_target_config_node_list=iotdb:10710
-      - dn_rpc_address=iotdb
-      - dn_internal_address=iotdb
+      - cn_seed_config_node=iotdb130:10710
+      - dn_rpc_address=iotdb130
+      - dn_internal_address=iotdb130
       - dn_rpc_port=6667
       - dn_mpp_data_exchange_port=10740
       - dn_schema_region_consensus_port=10750
       - dn_data_region_consensus_port=10760
-      - dn_target_config_node_list=iotdb:10710
+      - dn_seed_config_node=iotdb130:10710
+    # volumes:
+    #     - ./data:/iotdb/data
+    #     - ./logs:/iotdb/logs
+    expose:
+      - "18080"
+    # IoTDB's REST interface, uncomment for local testing
+    # ports:
+    #     - "18080:18080"
+    networks:
+      - emqx_bridge
+
+  iotdb_1_1_0:
+    container_name: iotdb110
+    hostname: iotdb110
+    image: apache/iotdb:1.1.0-standalone
+    restart: always
+    environment:
+      - enable_rest_service=true
+      - cn_internal_address=iotdb110
+      - cn_internal_port=10710
+      - cn_consensus_port=10720
+      - cn_target_config_node_list=iotdb110:10710
+      - dn_rpc_address=iotdb110
+      - dn_internal_address=iotdb110
+      - dn_rpc_port=6667
+      - dn_mpp_data_exchange_port=10740
+      - dn_schema_region_consensus_port=10750
+      - dn_data_region_consensus_port=10760
+      - dn_target_config_node_list=iotdb110:10710
     # volumes:
     #     - ./data:/iotdb/data
     #     - ./logs:/iotdb/logs
