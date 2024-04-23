@@ -653,6 +653,12 @@ handle_in(
                 ]
         end,
     {ok, Outgoings, Channel};
+handle_in(
+    <<$\n>>,
+    Channel = #channel{heartbeat = Heartbeat}
+) ->
+    NewHeartbeat = emqx_stomp_heartbeat:reset(incoming, 0, Heartbeat),
+    {ok, Channel#channel{heartbeat = NewHeartbeat}};
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
     shutdown(Reason, Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = _ConnState}) ->
@@ -1116,19 +1122,9 @@ handle_timeout(
     {keepalive_send, NewVal},
     Channel = #channel{heartbeat = HrtBt}
 ) ->
-    case emqx_stomp_heartbeat:check(outgoing, NewVal, HrtBt) of
-        {error, timeout} ->
-            NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
-            NChannel = Channel#channel{heartbeat = NHrtBt},
-            {ok, {outgoing, emqx_stomp_frame:make(?CMD_HEARTBEAT)},
-                reset_timer(outgoing_timer, NChannel)};
-        {ok, NHrtBt} ->
-            {ok,
-                reset_timer(
-                    outgoing_timer,
-                    Channel#channel{heartbeat = NHrtBt}
-                )}
-    end;
+    NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
+    NChannel = Channel#channel{heartbeat = NHrtBt},
+    {ok, {outgoing, emqx_stomp_frame:make(?CMD_HEARTBEAT)}, reset_timer(outgoing_timer, NChannel)};
 handle_timeout(_TRef, clean_trans, Channel = #channel{transaction = Trans}) ->
     Now = erlang:system_time(millisecond),
     NTrans = maps:filter(

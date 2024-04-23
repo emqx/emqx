@@ -346,7 +346,9 @@ serialize_pkt(
 serialize_pkt(header, {Name, Val}) when is_integer(Val) ->
     [escape(Name), ?COLON, integer_to_list(Val), ?LF];
 serialize_pkt(header, {Name, Val}) ->
-    [escape(Name), ?COLON, escape(Val), ?LF].
+    [escape(Name), ?COLON, escape(Val), ?LF];
+serialize_pkt(<<$\n>>, _SerializeOpts) ->
+    <<$\n>>.
 
 escape(Bin) when is_binary(Bin) ->
     <<<<(escape(Ch))/binary>> || <<Ch>> <= Bin>>;
