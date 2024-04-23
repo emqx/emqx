@@ -363,6 +363,7 @@ shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy) ->
         end,
     integer_to_binary(Hash).
 
+-spec foreach_shard(emqx_ds:db(), fun((shard_id()) -> _)) -> ok.
 foreach_shard(DB, Fun) ->
     lists:foreach(Fun, list_shards(DB)).
 
