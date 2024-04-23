@@ -31,8 +31,8 @@
     make_iterator/4,
     make_delete_iterator/4,
     update_iterator/3,
-    next/3,
-    delete_next/4,
+    next/4,
+    delete_next/5,
 
     %% Generations
     update_config/3,
@@ -223,8 +223,13 @@
 ) ->
     emqx_ds:make_delete_iterator_result(_Iterator).
 
--callback next(shard_id(), _Data, Iter, pos_integer()) ->
+-callback next(shard_id(), _Data, Iter, pos_integer(), emqx_ds:time()) ->
     {ok, Iter, [emqx_types:message()]} | {error, _}.
+
+-callback delete_next(
+    shard_id(), _Data, DeleteIterator, emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
+) ->
+    {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()}.
 
 -callback post_creation_actions(post_creation_context()) -> _Data.
 
@@ -377,13 +382,13 @@ update_iterator(
             {error, unrecoverable, generation_not_found}
     end.
 
--spec next(shard_id(), iterator(), pos_integer()) ->
+-spec next(shard_id(), iterator(), pos_integer(), emqx_ds:time()) ->
     emqx_ds:next_result(iterator()).
-next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize) ->
+next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize, Now) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             Current = generation_current(Shard),
-            case Mod:next(Shard, GenData, GenIter0, BatchSize) of
+            case Mod:next(Shard, GenData, GenIter0, BatchSize, Now) of
                 {ok, _GenIter, []} when GenId < Current ->
                     %% This is a past generation. Storage layer won't write
                     %% any more messages here. The iterator reached the end:
@@ -399,18 +404,21 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             {error, unrecoverable, generation_not_found}
     end.
 
--spec delete_next(shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
+-spec delete_next(
+    shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
+) ->
     emqx_ds:delete_next_result(delete_iterator()).
 delete_next(
     Shard,
     Iter = #{?tag := ?DELETE_IT, ?generation := GenId, ?enc := GenIter0},
     Selector,
-    BatchSize
+    BatchSize,
+    Now
 ) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             Current = generation_current(Shard),
-            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize) of
+            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize, Now) of
                 {ok, _GenIter, _Deleted = 0, _IteratedOver = 0} when GenId < Current ->
                     %% This is a past generation. Storage layer won't write
                     %% any more messages here. The iterator reached the end:

@@ -491,7 +491,7 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
     ShardId = {DB, Shard},
     ?IF_STORAGE_RUNNING(
         ShardId,
-        emqx_ds_storage_layer:next(ShardId, Iter, BatchSize)
+        emqx_ds_storage_layer:next(ShardId, Iter, BatchSize, emqx_ds:timestamp_us())
     ).
 
 -spec do_delete_next_v4(
@@ -503,7 +503,9 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
 ) ->
     emqx_ds:delete_next_result(emqx_ds_storage_layer:delete_iterator()).
 do_delete_next_v4(DB, Shard, Iter, Selector, BatchSize) ->
-    emqx_ds_storage_layer:delete_next({DB, Shard}, Iter, Selector, BatchSize).
+    emqx_ds_storage_layer:delete_next(
+        {DB, Shard}, Iter, Selector, BatchSize, emqx_ds:timestamp_us()
+    ).
 
 -spec do_add_generation_v2(emqx_ds:db()) -> no_return().
 do_add_generation_v2(_DB) ->

@@ -34,8 +34,8 @@
     make_iterator/5,
     make_delete_iterator/5,
     update_iterator/4,
-    next/4,
-    delete_next/5,
+    next/5,
+    delete_next/6,
     post_creation_actions/1
 ]).
 
@@ -354,8 +354,9 @@ update_iterator(
 next(
     Shard,
     Schema = #s{ts_offset = TSOffset, ts_bits = TSBits},
-    It = #{?topic_filter := TF, ?storage_key := Stream},
-    BatchSize
+    It = #{?storage_key := Stream},
+    BatchSize,
+    Now
 ) ->
     init_counters(),
     %% Compute safe cutoff time. It's the point in time where the last
@@ -370,7 +371,6 @@ next(
     SafeCutoffTime =
         case IsWildcard of
             true ->
-                Now = emqx_ds:timestamp_us(),
                 (Now bsr TSOffset) bsl TSOffset;
             false ->
                 %% Iterators scanning streams without varying topic
@@ -415,12 +415,11 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         rocksdb:iterator_close(ITHandle)
     end.
 
-delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize) ->
+delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize, Now) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
     %% the current time to compute it.
     init_counters(),
-    Now = emqx_message:timestamp_now(),
     SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
     try
         delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize)

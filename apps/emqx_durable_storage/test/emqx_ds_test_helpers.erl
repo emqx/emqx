@@ -85,8 +85,14 @@ consume_stream(DB, Stream, TopicFilter, StartTime) ->
 consume_iter(DB, It) ->
     consume_iter(DB, It, #{}).
 
-consume_iter(DB, It, Opts) ->
-    consume_iter_with(fun emqx_ds:next/3, [DB], It, Opts).
+consume_iter(DB, It0, Opts) ->
+    consume_iter_with(
+        fun(It, BatchSize) ->
+            emqx_ds:next(DB, It, BatchSize)
+        end,
+        It0,
+        Opts
+    ).
 
 storage_consume(ShardId, TopicFilter) ->
     storage_consume(ShardId, TopicFilter, 0).
@@ -108,16 +114,22 @@ storage_consume_stream(ShardId, Stream, TopicFilter, StartTime) ->
 storage_consume_iter(ShardId, It) ->
     storage_consume_iter(ShardId, It, #{}).
 
-storage_consume_iter(ShardId, It, Opts) ->
-    consume_iter_with(fun emqx_ds_storage_layer:next/3, [ShardId], It, Opts).
+storage_consume_iter(ShardId, It0, Opts) ->
+    consume_iter_with(
+        fun(It, BatchSize) ->
+            emqx_ds_storage_layer:next(ShardId, It, BatchSize, emqx_ds:timestamp_us())
+        end,
+        It0,
+        Opts
+    ).
 
-consume_iter_with(NextFun, Args, It0, Opts) ->
+consume_iter_with(NextFun, It0, Opts) ->
     BatchSize = maps:get(batch_size, Opts, 5),
-    case erlang:apply(NextFun, Args ++ [It0, BatchSize]) of
+    case NextFun(It0, BatchSize) of
         {ok, It, _Msgs = []} ->
             {ok, It, []};
         {ok, It1, Batch} ->
-            {ok, It, Msgs} = consume_iter_with(NextFun, Args, It1, Opts),
+            {ok, It, Msgs} = consume_iter_with(NextFun, It1, Opts),
             {ok, It, [Msg || {_DSKey, Msg} <- Batch] ++ Msgs};
         {ok, Eos = end_of_stream} ->
             {ok, Eos, []};

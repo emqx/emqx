@@ -37,8 +37,8 @@
     make_iterator/5,
     make_delete_iterator/5,
     update_iterator/4,
-    next/4,
-    delete_next/5
+    next/5,
+    delete_next/6
 ]).
 
 %% internal exports:
@@ -154,7 +154,7 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
         last_seen_message_key = DSKey
     }}.
 
-next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
+next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize, _Now) ->
     #it{topic_filter = TopicFilter, start_time = StartTime, last_seen_message_key = Key0} = It0,
     {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
     Action =
@@ -170,7 +170,7 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     It = It0#it{last_seen_message_key = Key},
     {ok, It, lists:reverse(Messages)}.
 
-delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize) ->
+delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now) ->
     #delete_it{
         topic_filter = TopicFilter,
         start_time = StartTime,
