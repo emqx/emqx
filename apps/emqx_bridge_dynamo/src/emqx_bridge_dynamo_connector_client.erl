@@ -10,7 +10,7 @@
 -export([
     start_link/1,
     is_connected/2,
-    query/4
+    query/5
 ]).
 
 %% gen_server callbacks
@@ -40,8 +40,8 @@ is_connected(Pid, Timeout) ->
             {false, Error}
     end.
 
-query(Pid, Table, Query, Templates) ->
-    gen_server:call(Pid, {query, Table, Query, Templates}, infinity).
+query(Pid, Table, Query, Templates, TraceRenderedFunc) ->
+    gen_server:call(Pid, {query, Table, Query, Templates, TraceRenderedFunc}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -77,14 +77,14 @@ handle_call(is_connected, _From, State) ->
                 {false, Error}
         end,
     {reply, IsConnected, State};
-handle_call({query, Table, Query, Templates}, _From, State) ->
-    Result = do_query(Table, Query, Templates),
+handle_call({query, Table, Query, Templates, TraceRenderedFunc}, _From, State) ->
+    Result = do_query(Table, Query, Templates, TraceRenderedFunc),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({query, Table, Query, Templates, {ReplyFun, [Context]}}, State) ->
-    Result = do_query(Table, Query, Templates),
+    Result = do_query(Table, Query, Templates, {fun(_, _) -> ok end, none}),
     ReplyFun(Context, Result),
     {noreply, State};
 handle_cast(_Request, State) ->
@@ -102,11 +102,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-do_query(Table, Query0, Templates) ->
+do_query(Table, Query0, Templates, {TraceRenderedFun, TraceRenderedCTX}) ->
     try
         Query = apply_template(Query0, Templates),
+        TraceRenderedFun(#{table => Table, query => Query}, TraceRenderedCTX),
         execute(Query, Table)
     catch
+        error:{unrecoverable_error, Reason} ->
+            {error, {unrecoverable_error, Reason}};
         _Type:Reason ->
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.

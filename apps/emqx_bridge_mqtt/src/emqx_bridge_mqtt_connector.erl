@@ -309,7 +309,11 @@ with_egress_client(ActionID, ResourceId, Fun, Args) ->
     ).
 
 trace_render_result(RenderResult, #{trace_ctx := LogMetaData, action_id := ActionID}) ->
-    OldMetaData = logger:get_process_metadata(),
+    OldMetaData =
+        case logger:get_process_metadata() of
+            undefined -> #{};
+            M -> M
+        end,
     try
         logger:set_process_metadata(LogMetaData),
         emqx_trace:rendered_action_template(

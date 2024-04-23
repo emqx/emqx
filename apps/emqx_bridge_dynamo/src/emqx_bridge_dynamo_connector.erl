@@ -246,12 +246,17 @@ do_query(
         table := Table,
         templates := Templates
     } = ChannelState,
+    LogMetaData = logger:get_process_metadata(),
+    TraceRenderedFuncContext = #{trace_ctx => LogMetaData, action_id => ChannelId},
+    TraceRenderedFunc = {fun trace_render_result/2, TraceRenderedFuncContext},
     Result =
         case ensuare_dynamo_keys(Query, ChannelState) of
             true ->
                 ecpool:pick_and_do(
                     PoolName,
-                    {emqx_bridge_dynamo_connector_client, query, [Table, QueryTuple, Templates]},
+                    {emqx_bridge_dynamo_connector_client, query, [
+                        Table, QueryTuple, Templates, TraceRenderedFunc
+                    ]},
                     no_handover
                 );
             _ ->
@@ -259,6 +264,8 @@ do_query(
         end,
 
     case Result of
+        {error, {unrecoverable_error, {action_stopped_after_template_rendering, _}}} = Error ->
+            Error;
         {error, Reason} ->
             ?tp(
                 dynamo_connector_query_return,
@@ -289,6 +296,22 @@ do_query(
                 }
             ),
             Result
+    end.
+
+trace_render_result(RenderResult, #{trace_ctx := LogMetaData, action_id := ActionID}) ->
+    OldMetaData =
+        case logger:get_process_metadata() of
+            undefined -> #{};
+            M -> M
+        end,
+    try
+        logger:set_process_metadata(LogMetaData),
+        emqx_trace:rendered_action_template(
+            ActionID,
+            RenderResult
+        )
+    after
+        logger:set_process_metadata(OldMetaData)
     end.
 
 get_channel_id([{ChannelId, _Req} | _]) ->
