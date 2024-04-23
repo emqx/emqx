@@ -986,7 +986,10 @@ mqtt_shared_subscription_strategy.desc:
  - `round_robin`: Messages from a single publisher are dispatched to subscribers in turn;
  - `round_robin_per_group`: All messages are dispatched to subscribers in turn;
  - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
- - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends;
+ - `sticky`: Continuously dispatch messages to the initially selected subscriber until the publisher or the subscriber disconnects.
+   The initial subscriber is randomly selected;
+ - `sticky_clientid`: Same as sticky but the initial pick is made by the hash_clientid strategy;
+ - `sticky_prioritize_leastload`: Same as sticky but the initial pick is weighted random with priority given to subscriber(s) estimated to have the least load;
  - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
  - `hash_topic`: Hash the publishing topic to select a subscriber."""
 

@@ -1317,6 +1317,8 @@ fields("shared_subscription_group") ->
                     round_robin,
                     round_robin_per_group,
                     sticky,
+                    sticky_clientid,
+                    sticky_prioritize_leastload,
                     local,
                     hash_topic,
                     hash_clientid
@@ -3482,6 +3484,8 @@ mqtt_general() ->
                     round_robin,
                     round_robin_per_group,
                     sticky,
+                    sticky_clientid,
+                    sticky_prioritize_leastload,
                     local,
                     hash_topic,
                     hash_clientid

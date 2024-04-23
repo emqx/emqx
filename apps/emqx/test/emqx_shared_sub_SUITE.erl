@@ -387,6 +387,14 @@ t_hash_clientid(Config) when is_list(Config) ->
     ok = ensure_config(hash_clientid, false),
     test_two_messages(hash_clientid).
 
+t_sticky_clientid(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_clientid),
+    test_two_messages(sticky_clientid).
+
+t_sticky_prioritize_leastload(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_prioritize_leastload),
+    test_two_messages(sticky_prioritize_leastload).
+
 t_hash_topic(Config) when is_list(Config) ->
     ok = ensure_config(hash_topic, false),
     ClientId1 = <<"ClientId1">>,
@@ -431,9 +439,20 @@ t_hash_topic(Config) when is_list(Config) ->
     emqtt:stop(ConnPid2),
     ok.
 
-%% if the original subscriber dies, change to another one alive
 t_not_so_sticky(Config) when is_list(Config) ->
     ok = ensure_config(sticky),
+    do_not_so_sticky().
+
+t_not_so_sticky_clientid(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_clientid),
+    do_not_so_sticky().
+
+t_not_so_sticky_prioritize_leastload(Config) when is_list(Config) ->
+    ok = ensure_config(sticky_prioritize_leastload),
+    do_not_so_sticky().
+
+%% if the original subscriber dies, change to another one alive
+do_not_so_sticky() ->
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
     {ok, C1} = emqtt:start_link([{clientid, ClientId1}]),
@@ -486,6 +505,7 @@ test_two_messages(Strategy, Group) ->
 
     case Strategy of
         sticky -> ?assertEqual(UsedSubPid1, UsedSubPid2);
+        sticky_clientid -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         round_robin -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
         round_robin_per_group -> ?assertNotEqual(UsedSubPid1, UsedSubPid2);
         hash_clientid -> ?assertEqual(UsedSubPid1, UsedSubPid2);
