@@ -16,6 +16,7 @@
 
 -module(emqx_ds_replication_layer_shard).
 
+%% API:
 -export([start_link/3]).
 
 %% Static server configuration

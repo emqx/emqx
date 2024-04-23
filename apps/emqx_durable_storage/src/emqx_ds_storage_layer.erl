@@ -42,7 +42,10 @@
 
     %% Snapshotting
     take_snapshot/1,
-    accept_snapshot/1
+    accept_snapshot/1,
+
+    %% Custom events
+    handle_event/3
 ]).
 
 %% gen_server
@@ -79,7 +82,6 @@
 
 %% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
 %% records over the wire.
-
 %% tags:
 -define(STREAM, 1).
 -define(IT, 2).
@@ -201,6 +203,7 @@
 -callback open(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
     _Data.
 
+%% Delete the schema and data
 -callback drop(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _RuntimeData) ->
     ok | {error, _Reason}.
 
@@ -231,9 +234,11 @@
 ) ->
     {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()}.
 
+-callback handle_event(shard_id(), _Data, emqx_ds:time(), CustomEvent | tick) -> [CustomEvent].
+
 -callback post_creation_actions(post_creation_context()) -> _Data.
 
--optional_callbacks([post_creation_actions/1]).
+-optional_callbacks([post_creation_actions/1, handle_event/4]).
 
 %%================================================================================
 %% API for the replication layer
@@ -856,6 +861,24 @@ handle_take_snapshot(#s{db = DB, shard_id = ShardId}) ->
 handle_accept_snapshot(ShardId) ->
     Dir = db_dir(ShardId),
     emqx_ds_storage_snapshot:new_writer(Dir).
+
+%% FIXME: currently this interface is a hack to handle safe cutoff
+%% timestamp in LTS. It has many shortcomings (can lead to infinite
+%% loops if the CBM is not careful; events from one generation may be
+%% sent to the next one, etc.) and the API is not well thought out in
+%% general.
+%%
+%% The mechanism of storage layer events should be refined later.
+-spec handle_event(shard_id(), emqx_ds:time(), CustomEvent | tick) -> [CustomEvent].
+handle_event(Shard, Time, Event) ->
+    #{module := Mod, data := GenData} = generation_at(Shard, Time),
+    ?tp(emqx_ds_storage_layer_event, #{mod => Mod, time => Time, event => Event}),
+    case erlang:function_exported(Mod, handle_event, 4) of
+        true ->
+            Mod:handle_event(Shard, GenData, Time, Event);
+        false ->
+            []
+    end.
 
 %%--------------------------------------------------------------------------------
 %% Schema access

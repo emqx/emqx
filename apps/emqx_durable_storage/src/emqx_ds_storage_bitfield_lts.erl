@@ -36,7 +36,9 @@
     update_iterator/4,
     next/5,
     delete_next/6,
-    post_creation_actions/1
+    post_creation_actions/1,
+
+    handle_event/4
 ]).
 
 %% internal exports:
@@ -90,7 +92,8 @@
     trie :: emqx_ds_lts:trie(),
     keymappers :: array:array(emqx_ds_bitmask_keymapper:keymapper()),
     ts_bits :: non_neg_integer(),
-    ts_offset :: non_neg_integer()
+    ts_offset :: non_neg_integer(),
+    gvars :: ets:table()
 }).
 
 -type s() :: #s{}.
@@ -141,6 +144,10 @@
 -define(DIM_TS, 2).
 
 -define(DS_LTS_COUNTERS, [?DS_LTS_SEEK_COUNTER, ?DS_LTS_NEXT_COUNTER, ?DS_LTS_COLLISION_COUNTER]).
+
+%% GVar used for idle detection:
+-define(IDLE_DETECT, idle_detect).
+-define(EPOCH(S, TS), (TS bsl S#s.ts_bits)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -215,7 +222,8 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         trie = Trie,
         keymappers = KeymapperCache,
         ts_offset = TSOffsetBits,
-        ts_bits = TSBits
+        ts_bits = TSBits,
+        gvars = ets:new(?MODULE, [public, set, {read_concurrency, true}])
     }.
 
 -spec post_creation_actions(emqx_ds_storage_layer:post_creation_context()) ->
@@ -240,8 +248,9 @@ post_creation_actions(
     s()
 ) ->
     ok.
-drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie}) ->
+drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
     emqx_ds_lts:destroy(Trie),
+    catch ets:delete(GVars),
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
     ok = rocksdb:drop_column_family(DBHandle, DataCF),
@@ -255,18 +264,21 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie}) ->
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
+store_batch(_ShardId, S = #s{db = DB, data = Data, gvars = Gvars}, Messages, _Options) ->
     {ok, Batch} = rocksdb:batch(),
-    lists:foreach(
-        fun({Timestamp, Msg}) ->
+    MaxTs = lists:foldl(
+        fun({Timestamp, Msg}, Acc) ->
             {Key, _} = make_key(S, Timestamp, Msg),
             Val = serialize(Msg),
-            rocksdb:put(DB, Data, Key, Val, [])
+            ok = rocksdb:put(DB, Data, Key, Val, []),
+            max(Acc, Timestamp)
         end,
+        0,
         Messages
     ),
     Result = rocksdb:write_batch(DB, Batch, []),
     rocksdb:release_batch(Batch),
+    ets:insert(Gvars, {?IDLE_DETECT, false, MaxTs}),
     %% NOTE
     %% Strictly speaking, `{error, incomplete}` is a valid result but should be impossible to
     %% observe until there's `{no_slowdown, true}` in write options.
@@ -468,6 +480,20 @@ delete_next_until(
     after
         rocksdb:iterator_close(ITHandle)
     end.
+
+handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
+    %% Cause replication layer to bump timestamp when idle
+    case ets:lookup(Gvars, ?IDLE_DETECT) of
+        [{?IDLE_DETECT, false, LastWrittenTs}] when
+            ?EPOCH(State, LastWrittenTs) > ?EPOCH(State, Time)
+        ->
+            ets:insert(Gvars, {?IDLE_DETECT, true, LastWrittenTs}),
+            [emqx_ds_storage_bitfield_lts_dummy_event];
+        _ ->
+            []
+    end;
+handle_event(_ShardId, _Data, _Time, _Event) ->
+    [].
 
 %%================================================================================
 %% Internal functions

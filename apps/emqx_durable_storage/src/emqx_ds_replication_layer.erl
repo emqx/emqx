@@ -36,7 +36,8 @@
     update_iterator/3,
     next/3,
     delete_next/4,
-    shard_of_message/3
+    shard_of_message/3,
+    current_timestamp/2
 ]).
 
 %% internal exports:
@@ -65,6 +66,7 @@
 -export([
     init/1,
     apply/3,
+    tick/2,
 
     snapshot_module/0
 ]).
@@ -160,6 +162,8 @@
 }.
 
 -type timestamp_us() :: non_neg_integer().
+
+-define(gv_timestamp(SHARD), {gv_timestamp, SHARD}).
 
 %%================================================================================
 %% API functions
@@ -367,6 +371,12 @@ shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy) ->
 foreach_shard(DB, Fun) ->
     lists:foreach(Fun, list_shards(DB)).
 
+%% @doc Messages have been replicated up to this timestamp on the
+%% local server
+-spec current_timestamp(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> emqx_ds:time().
+current_timestamp(DB, Shard) ->
+    emqx_ds_builtin_sup:get_gvar(DB, ?gv_timestamp(Shard), 0).
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
@@ -491,7 +501,9 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
     ShardId = {DB, Shard},
     ?IF_STORAGE_RUNNING(
         ShardId,
-        emqx_ds_storage_layer:next(ShardId, Iter, BatchSize, emqx_ds:timestamp_us())
+        emqx_ds_storage_layer:next(
+            ShardId, Iter, BatchSize, emqx_ds_replication_layer:current_timestamp(DB, Shard)
+        )
     ).
 
 -spec do_delete_next_v4(
@@ -504,7 +516,11 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
     emqx_ds:delete_next_result(emqx_ds_storage_layer:delete_iterator()).
 do_delete_next_v4(DB, Shard, Iter, Selector, BatchSize) ->
     emqx_ds_storage_layer:delete_next(
-        {DB, Shard}, Iter, Selector, BatchSize, emqx_ds:timestamp_us()
+        {DB, Shard},
+        Iter,
+        Selector,
+        BatchSize,
+        emqx_ds_replication_layer:current_timestamp(DB, Shard)
     ).
 
 -spec do_add_generation_v2(emqx_ds:db()) -> no_return().
@@ -675,7 +691,7 @@ apply(
         ?tag := ?BATCH,
         ?batch_messages := MessagesIn
     },
-    #{db_shard := DBShard, latest := Latest0} = State
+    #{db_shard := DBShard = {DB, Shard}, latest := Latest0} = State
 ) ->
     %% NOTE
     %% Unique timestamp tracking real time closely.
@@ -686,6 +702,7 @@ apply(
     NState = State#{latest := Latest},
     %% TODO: Need to measure effects of changing frequency of `release_cursor`.
     Effect = {release_cursor, RaftIdx, NState},
+    emqx_ds_builtin_sup:set_gvar(DB, ?gv_timestamp(Shard), Latest),
     {NState, Result, Effect};
 apply(
     _RaftMeta,
@@ -711,7 +728,20 @@ apply(
     #{db_shard := DBShard} = State
 ) ->
     Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
-    {State, Result}.
+    {State, Result};
+apply(
+    _RaftMeta,
+    #{?tag := storage_event, ?payload := CustomEvent},
+    #{db_shard := DBShard, latest := Latest0} = State
+) ->
+    {Timestamp, Latest} = ensure_monotonic_timestamp(emqx_ds:timestamp_us(), Latest0),
+    Effects = handle_custom_event(DBShard, Timestamp, CustomEvent),
+    {State#{latest := Latest}, ok, Effects}.
+
+-spec tick(integer(), ra_state()) -> ra_machine:effects().
+tick(TimeMs, #{db_shard := DBShard, latest := Latest}) ->
+    {Timestamp, _} = assign_timestamp(timestamp_to_timeus(TimeMs), Latest),
+    handle_custom_event(DBShard, Timestamp, tick).
 
 assign_timestamps(Latest, Messages) ->
     assign_timestamps(Latest, Messages, []).
@@ -744,3 +774,13 @@ timeus_to_timestamp(TimestampUs) ->
 
 snapshot_module() ->
     emqx_ds_replication_snapshot.
+
+handle_custom_event(DBShard, Latest, Event) ->
+    try
+        Events = emqx_ds_storage_layer:handle_event(DBShard, Latest, Event),
+        [{append, #{?tag => storage_event, ?payload => I}} || I <- Events]
+    catch
+        EC:Err:Stacktrace ->
+            logger:error(#{EC => Err, stacktrace => Stacktrace, msg => "ds_storage_layer_tick"}),
+            []
+    end.

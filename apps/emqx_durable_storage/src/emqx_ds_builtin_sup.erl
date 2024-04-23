@@ -77,7 +77,8 @@ stop_db(DB) ->
 %% @doc Set a DB-global variable. Please don't abuse this API.
 -spec set_gvar(emqx_ds:db(), _Key, _Val) -> ok.
 set_gvar(DB, Key, Val) ->
-    ets:insert(?gvar_tab, #gvar{k = {DB, Key}, v = Val}).
+    ets:insert(?gvar_tab, #gvar{k = {DB, Key}, v = Val}),
+    ok.
 
 -spec get_gvar(emqx_ds:db(), _Key, Val) -> Val.
 get_gvar(DB, Key, Default) ->
@@ -123,7 +124,7 @@ init(?top) ->
         type => supervisor,
         shutdown => infinity
     },
-    ets:new(?gvar_tab, [named_table, set, public, {keypos, #gvar.k}, {read_concurrency, true}]),
+    _ = ets:new(?gvar_tab, [named_table, set, public, {keypos, #gvar.k}, {read_concurrency, true}]),
     %%
     SupFlags = #{
         strategy => one_for_all,
