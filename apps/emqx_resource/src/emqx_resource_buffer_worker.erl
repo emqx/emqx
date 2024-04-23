@@ -1163,6 +1163,7 @@ set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
     %% Get the rule ids from requests
     RuleIDs = lists:foldl(fun collect_rule_id/2, #{}, Requests),
     ClientIDs = lists:foldl(fun collect_client_id/2, #{}, Requests),
+    RuleTriggerTimes = lists:foldl(fun collect_rule_trigger_times/2, [], Requests),
     StopAfterRenderVal =
         case Requests of
             %% We know that the batch is not mixed since we prevent this by
@@ -1173,7 +1174,10 @@ set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
                 false
         end,
     logger:update_process_metadata(#{
-        rule_ids => RuleIDs, client_ids => ClientIDs, stop_action_after_render => StopAfterRenderVal
+        rule_ids => RuleIDs,
+        client_ids => ClientIDs,
+        rule_trigger_times => RuleTriggerTimes,
+        stop_action_after_render => StopAfterRenderVal
     }),
     ok;
 set_rule_id_trace_meta_data(Request) ->
@@ -1190,9 +1194,17 @@ collect_client_id(?QUERY(_, _, _, _, #{clientid := ClientId}), Acc) ->
 collect_client_id(?QUERY(_, _, _, _, _), Acc) ->
     Acc.
 
+collect_rule_trigger_times(?QUERY(_, _, _, _, #{rule_trigger_time := Time}), Acc) ->
+    [Time | Acc];
+collect_rule_trigger_times(?QUERY(_, _, _, _, _), Acc) ->
+    Acc.
+
 unset_rule_id_trace_meta_data() ->
     logger:update_process_metadata(#{
-        rule_ids => #{}, client_ids => #{}, stop_action_after_render => false
+        rule_ids => #{},
+        client_ids => #{},
+        stop_action_after_render => false,
+        rule_trigger_times => []
     }).
 
 %% action:kafka_producer:myproducer1:connector:kafka_producer:mykakfaclient1
