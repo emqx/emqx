@@ -64,6 +64,10 @@ Messages are organized in the following hierarchy:
 
    The consumer of the messages can replay the stream using an _iterator_.
 
+## Saving messages to the durable storage
+
+`emqx_ds` provides `store_batch/3` function that saves a list of MQTT messages to the durable storage.
+
 ## Message replay
 
 All the API functions in EMQX DS are batch-oriented.
@@ -120,9 +124,24 @@ The following application environment variables are available:
 
 - `emqx_durable_storage.egress_flush_interval`: period at which the batches of messages are committed to the durable storage.
 
+Runtime settings for the durable storages can be modified via CLI as well as the REST API.
+The following CLI commands are available:
+
+- `emqx ctl ds info` — get a quick overview of the durable storage state
+- `emqx ctl ds set_replicas <DS> <Site1> <Site2> ...` — update the list of replicas for a durable storage.
+- `emqx ctl ds join <DS> <Site>` — add a replica of durable storage on the site
+- `emqx ctl ds leave <DS> <Site>` — remove a replica of a durable storage from the site
+
 # HTTP APIs
 
-None
+The following REST APIs are available for managing the builtin durable storages:
+
+- `/ds/sites` — list known sites.
+- `/ds/sites/:site` — get information about the site (its status, current EMQX node name managing the site, etc.)
+- `/ds/storages` — list durable storages
+- `/ds/storages/:ds` — get information about the durable storage and its shards
+- `/ds/storages/:ds/replicas` — list or update sites that contain replicas of a durable storage
+- `/ds/storages/:ds/replicas/:site` — add or remove replica of the durable storage on the site
 
 # Other
 TBD
