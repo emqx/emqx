@@ -104,10 +104,12 @@ on_query(
     #{channels := Channels, connector_state := ConnectorState}
 ) when is_binary(Channel) ->
     ChannelConfig = maps:get(Channel, Channels),
+    MergedState0 = maps:merge(ConnectorState, ChannelConfig),
+    MergedState1 = MergedState0#{channel_id => Channel},
     Result = emqx_mysql:on_query(
         InstanceId,
         Request,
-        maps:merge(ConnectorState, ChannelConfig)
+        MergedState1
     ),
     ?tp(mysql_connector_on_query_return, #{instance_id => InstanceId, result => Result}),
     Result;
@@ -121,10 +123,12 @@ on_batch_query(
 ) when is_binary(element(1, Req)) ->
     Channel = element(1, Req),
     ChannelConfig = maps:get(Channel, Channels),
+    MergedState0 = maps:merge(ConnectorState, ChannelConfig),
+    MergedState1 = MergedState0#{channel_id => Channel},
     Result = emqx_mysql:on_batch_query(
         InstanceId,
         BatchRequest,
-        maps:merge(ConnectorState, ChannelConfig)
+        MergedState1
     ),
     ?tp(mysql_connector_on_batch_query_return, #{instance_id => InstanceId, result => Result}),
     Result;
