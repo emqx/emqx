@@ -264,7 +264,7 @@ on_query(
     ),
     Channels = maps:get(installed_channels, State),
     ChannelConfig = maps:get(ChannelId, Channels),
-    handle_send_result(with_egress_client(PoolName, send, [Msg, ChannelConfig]));
+    handle_send_result(with_egress_client(ChannelId, PoolName, send, [Msg, ChannelConfig]));
 on_query(ResourceId, {_ChannelId, Msg}, #{}) ->
     ?SLOG(error, #{
         msg => "forwarding_unavailable",
@@ -283,7 +283,7 @@ on_query_async(
     Callback = {fun on_async_result/2, [CallbackIn]},
     Channels = maps:get(installed_channels, State),
     ChannelConfig = maps:get(ChannelId, Channels),
-    Result = with_egress_client(PoolName, send_async, [Msg, Callback, ChannelConfig]),
+    Result = with_egress_client(ChannelId, PoolName, send_async, [Msg, Callback, ChannelConfig]),
     case Result of
         ok ->
             ok;
@@ -300,8 +300,25 @@ on_query_async(ResourceId, {_ChannelId, Msg}, _Callback, #{}) ->
         reason => "Egress is not configured"
     }).
 
-with_egress_client(ResourceId, Fun, Args) ->
-    ecpool:pick_and_do(ResourceId, {emqx_bridge_mqtt_egress, Fun, Args}, no_handover).
+with_egress_client(ActionID, ResourceId, Fun, Args) ->
+    LogMetaData = logger:get_process_metadata(),
+    TraceRenderedFuncContext = #{trace_ctx => LogMetaData, action_id => ActionID},
+    TraceRenderedFunc = {fun trace_render_result/2, TraceRenderedFuncContext},
+    ecpool:pick_and_do(
+        ResourceId, {emqx_bridge_mqtt_egress, Fun, [TraceRenderedFunc | Args]}, no_handover
+    ).
+
+trace_render_result(RenderResult, #{trace_ctx := LogMetaData, action_id := ActionID}) ->
+    OldMetaData = logger:get_process_metadata(),
+    try
+        logger:set_process_metadata(LogMetaData),
+        emqx_trace:rendered_action_template(
+            ActionID,
+            RenderResult
+        )
+    after
+        logger:set_process_metadata(OldMetaData)
+    end.
 
 on_async_result(Callback, Result) ->
     apply_callback_function(Callback, handle_send_result(Result)).
@@ -322,7 +339,9 @@ handle_send_result({ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}}) ->
 handle_send_result({ok, Reply}) ->
     {error, classify_reply(Reply)};
 handle_send_result({error, Reason}) ->
-    {error, classify_error(Reason)}.
+    {error, classify_error(Reason)};
+handle_send_result({unrecoverable_error, Reason}) ->
+    {error, {unrecoverable_error, Reason}}.
 
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
