@@ -141,21 +141,23 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
 
 set_process_trace_metadata(RuleID, #{clientid := ClientID} = Columns) ->
     logger:update_process_metadata(#{
-        clientid => ClientID
-    }),
-    set_process_trace_metadata(RuleID, maps:remove(clientid, Columns));
+        clientid => ClientID,
+        rule_id => RuleID,
+        rule_trigger_time => rule_trigger_time(Columns)
+    });
 set_process_trace_metadata(RuleID, Columns) ->
-    EventTimestamp =
-        case Columns of
-            #{timestamp := Timestamp} ->
-                Timestamp;
-            _ ->
-                erlang:system_time(millisecond)
-        end,
     logger:update_process_metadata(#{
         rule_id => RuleID,
-        rule_trigger_time => EventTimestamp
+        rule_trigger_time => rule_trigger_time(Columns)
     }).
+
+rule_trigger_time(Columns) ->
+    case Columns of
+        #{timestamp := Timestamp} ->
+            Timestamp;
+        _ ->
+            erlang:system_time(millisecond)
+    end.
 
 reset_process_trace_metadata(#{clientid := _ClientID}) ->
     Meta = logger:get_process_metadata(),
