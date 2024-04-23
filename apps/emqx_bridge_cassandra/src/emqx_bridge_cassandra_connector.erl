@@ -223,6 +223,11 @@ do_single_query(InstId, Request, Async, #{pool_name := PoolName} = State) ->
         }
     ),
     {PreparedKeyOrCQL1, Data} = proc_cql_params(Type, PreparedKeyOrCQL, Params, State),
+    emqx_trace:rendered_action_template(PreparedKeyOrCQL, #{
+        type => Type,
+        key_or_cql => PreparedKeyOrCQL1,
+        data => Data
+    }),
     Res = exec_cql_query(InstId, PoolName, Type, Async, PreparedKeyOrCQL1, Data),
     handle_result(Res).
 
@@ -261,6 +266,14 @@ do_batch_query(InstId, Requests, Async, #{pool_name := PoolName} = State) ->
             state => State
         }
     ),
+    ChannelID =
+        case Requests of
+            [{CID, _} | _] -> CID;
+            _ -> none
+        end,
+    emqx_trace:rendered_action_template(ChannelID, #{
+        cqls => CQLs
+    }),
     Res = exec_cql_batch_query(InstId, PoolName, Async, CQLs),
     handle_result(Res).
 

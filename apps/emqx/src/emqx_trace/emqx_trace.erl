@@ -87,7 +87,7 @@ unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) ->
 unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
-rendered_action_template(ActionID, RenderResult) when is_binary(ActionID) ->
+rendered_action_template(<<"action:", _/binary>> = ActionID, RenderResult) ->
     TraceResult = ?TRACE(
         "QUERY_RENDER",
         "action_template_rendered",
