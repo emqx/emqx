@@ -266,13 +266,16 @@ conn_opts(#{authentication := none}) ->
     #{};
 conn_opts(#{authentication := #{username := Username, password := Password}}) ->
     #{
-        %% TODO: teach `pulsar` to accept 0-arity closures as passwords.
         auth_data => iolist_to_binary([Username, <<":">>, emqx_secret:unwrap(Password)]),
+        auth_method_name => <<"basic">>
+    };
+conn_opts(#{authentication := #{token := BasicToken}}) ->
+    #{
+        auth_data => emqx_secret:unwrap(BasicToken),
         auth_method_name => <<"basic">>
     };
 conn_opts(#{authentication := #{jwt := JWT}}) ->
     #{
-        %% TODO: teach `pulsar` to accept 0-arity closures as passwords.
         auth_data => emqx_secret:unwrap(JWT),
         auth_method_name => <<"token">>
     }.

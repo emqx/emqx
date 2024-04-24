@@ -165,12 +165,20 @@ fields(auth_basic) ->
                 desc => ?DESC("auth_basic_password")
             })}
     ];
-fields(auth_token) ->
+fields(auth_basic_token) ->
+    [
+        {token,
+            emqx_schema_secret:mk(#{
+                required => true,
+                desc => ?DESC("auth_basic_token")
+            })}
+    ];
+fields(auth_jwt_token) ->
     [
         {jwt,
             emqx_schema_secret:mk(#{
                 required => true,
-                desc => ?DESC("auth_token_jwt")
+                desc => ?DESC("auth_jwt_token")
             })}
     ];
 fields("get_" ++ Type) ->
@@ -267,7 +275,8 @@ name_field() ->
 struct_names() ->
     [
         auth_basic,
-        auth_token,
+        auth_basic_token,
+        auth_jwt_token,
         producer_buffer
     ].
 
@@ -278,7 +287,7 @@ override_default(OriginalFn, NewDefault) ->
     end.
 
 auth_union_member_selector(all_union_members) ->
-    [none, ref(auth_basic), ref(auth_token)];
+    [none, ref(auth_basic), ref(auth_basic_token), ref(auth_jwt_token)];
 auth_union_member_selector({value, V0}) ->
     V =
         case is_map(V0) of
@@ -288,14 +297,16 @@ auth_union_member_selector({value, V0}) ->
     case V of
         #{<<"password">> := _} ->
             [ref(auth_basic)];
+        #{<<"token">> := _} ->
+            [ref(auth_basic_token)];
         #{<<"jwt">> := _} ->
-            [ref(auth_token)];
+            [ref(auth_jwt_token)];
         <<"none">> ->
             [none];
         none ->
             [none];
         _ ->
-            Expected = "none | basic | token",
+            Expected = "none | username + password | basic-token | jwt",
             throw(#{
                 field_name => authentication,
                 expected => Expected

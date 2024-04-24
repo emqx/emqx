@@ -11,9 +11,9 @@ connector_resource_opts.label:
 """Resource Options"""
 
 auth_basic.desc:
- """Parameters for basic authentication. The authentication string `username:password` format."""
+ """Parameters for basic authentication. The authentication string will be constructed as `username:password`."""
 auth_basic.label:
-"""Basic auth parameters"""
+"""Basic Authentication With username password"""
 
 auth_basic_password.desc:
 """Basic authentication password. The `password` part of the `username:password` authentication string."""
@@ -25,15 +25,15 @@ auth_basic_username.desc:
 auth_basic_username.label:
 """Username"""
 
-auth_token.desc:
-"""Parameters for token authentication."""
-auth_token.label:
-"""Token auth params"""
+auth_jwt_token.desc:
+"""The token for jwt-authentication."""
+auth_jwt_token.label:
+"""JWT Authentication"""
 
-auth_token_jwt.desc:
-"""JWT authentication token."""
-auth_token_jwt.label:
-"""JWT"""
+auth_basic_token.desc:
+"""The `base64` format token for basic-authentication."""
+auth_basic_token.label:
+"""Basic Authentication Token"""
 
 authentication.desc:
 """Authentication configs."""
