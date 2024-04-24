@@ -49,7 +49,7 @@ read_plugin_test() ->
     with_rand_install_dir(
         fun(_Dir) ->
             NameVsn = "bar-5",
-            InfoFile = emqx_plugins:info_file(NameVsn),
+            InfoFile = emqx_plugins:info_file_path(NameVsn),
             FakeInfo =
                 "name=bar, rel_vsn=\"5\", rel_apps=[justname_no_vsn],"
                 "description=\"desc bar\"",
@@ -90,7 +90,7 @@ delete_package_test() ->
     meck_emqx(),
     with_rand_install_dir(
         fun(_Dir) ->
-            File = emqx_plugins:pkg_file("a-1"),
+            File = emqx_plugins:pkg_file_path("a-1"),
             ok = write_file(File, "a"),
             ok = emqx_plugins:delete_package("a-1"),
             %% delete again should be ok
@@ -108,7 +108,7 @@ purge_test() ->
     meck_emqx(),
     with_rand_install_dir(
         fun(_Dir) ->
-            File = emqx_plugins:info_file("a-1"),
+            File = emqx_plugins:info_file_path("a-1"),
             Dir = emqx_plugins:plugin_dir("a-1"),
             ok = filelib:ensure_dir(File),
             ?assertMatch({ok, _}, file:read_file_info(Dir)),

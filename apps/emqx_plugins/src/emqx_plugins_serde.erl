@@ -79,7 +79,7 @@ add_schema(Name, Avsc) ->
     end.
 
 get_schema(NameVsn) ->
-    Path = emqx_plugins:schema_file(NameVsn),
+    Path = emqx_plugins:avsc_file_path(NameVsn),
     case read_avsc_file(Path) of
         {ok, Avsc} ->
             {ok, Avsc};
@@ -129,7 +129,7 @@ handle_continue({build_serdes, SchemasMap}, State) ->
     _ = build_serdes(SchemasMap),
     {noreply, State}.
 
-handle_call({build_serdes, {NameVsn, Avsc}}, _From, State) ->
+handle_call({build_serdes, NameVsn, Avsc}, _From, State) ->
     BuildRes = do_build_serde(NameVsn, Avsc),
     {reply, BuildRes, State};
 handle_call(_Call, _From, State) ->

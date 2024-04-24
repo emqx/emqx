@@ -81,7 +81,9 @@
 %% Defines
 -define(PLUGIN_PERSIS_CONFIG_KEY(NameVsn), {?MODULE, NameVsn}).
 
-%% Types
+-define(RAW_BIN, binary).
+-define(JSON_MAP, json_map).
+
 %% "my_plugin-0.1.0"
 -type name_vsn() :: binary() | string().
 %% the parse result of the JSON info file
@@ -590,30 +592,36 @@ do_read_plugin(NameVsn) ->
     do_read_plugin2(NameVsn, #{}).
 
 do_read_plugin2(NameVsn, Option) ->
-    do_read_plugin3(NameVsn, info_file(NameVsn), Option).
+    do_read_plugin3(NameVsn, info_file_path(NameVsn), Option).
 
 do_read_plugin3(NameVsn, InfoFilePath, Options) ->
-    {ok, PlainMap} = (read_file_fun(InfoFilePath, "bad_info_file"))(),
+    {ok, PlainMap} = (read_file_fun(InfoFilePath, "bad_info_file", #{read_mode => ?JSON_MAP}))(),
     Info0 = check_plugin(PlainMap, NameVsn, InfoFilePath),
     Info1 = plugins_readme(NameVsn, Options, Info0),
     plugin_status(NameVsn, Info1).
 
 read_plugin_avsc(NameVsn) ->
+    read_plugin_avsc(NameVsn, #{read_mode => ?JSON_MAP}).
+read_plugin_avsc(NameVsn, Options) ->
     tryit(
         atom_to_list(?FUNCTION_NAME),
-        read_file_fun(schema_file(NameVsn), "bad_avsc_file")
+        read_file_fun(avsc_file_path(NameVsn), "bad_avsc_file", Options)
     ).
 
 read_plugin_i18n(NameVsn) ->
+    read_plugin_i18n(NameVsn, #{read_mode => ?JSON_MAP}).
+read_plugin_i18n(NameVsn, Options) ->
     tryit(
         atom_to_list(?FUNCTION_NAME),
-        read_file_fun(i18n_file(NameVsn), "bad_i18n_file")
+        read_file_fun(i18n_file_path(NameVsn), "bad_i18n_file", Options)
     ).
 
 read_plugin_avro(NameVsn) ->
+    read_plugin_avro(NameVsn, #{read_mode => ?RAW_BIN}).
+read_plugin_avro(NameVsn, Options) ->
     tryit(
         atom_to_list(?FUNCTION_NAME),
-        read_file_fun(schema_file(NameVsn), "bad_avro_file")
+        read_file_fun(avro_config_file(NameVsn), "bad_avro_file", Options)
     ).
 
 ensure_exists_and_installed(NameVsn) ->
@@ -1000,15 +1008,22 @@ maybe_post_op_after_install(NameVsn) ->
     ok.
 
 maybe_load_config_schema(NameVsn) ->
-    case read_plugin_avsc(NameVsn) of
-        {ok, Avsc} ->
-            case emqx_plugins_serde:add_schema(NameVsn, Avsc) of
+    filelib:is_regular(avsc_file_path(NameVsn)) andalso
+        do_load_config_schema(NameVsn).
+
+do_load_config_schema(NameVsn) ->
+    case read_plugin_avsc(NameVsn, #{read_mode => ?RAW_BIN}) of
+        {ok, AvscBin} ->
+            case emqx_plugins_serde:add_schema(NameVsn, AvscBin) of
                 ok -> ok;
                 {error, already_exists} -> ok;
-                {error, Reason} -> {error, Reason}
+                {error, _Reason} -> ok
             end;
         {error, Reason} ->
-            ?SLOG(warning, Reason)
+            ?SLOG(warning, #{
+                msg => "failed_to_read_plugin_avsc", reason => Reason, name_vsn => NameVsn
+            }),
+            ok
     end.
 
 maybe_create_config_dir(NameVsn) ->
@@ -1020,14 +1035,23 @@ maybe_create_config_dir(NameVsn) ->
 write_avro_bin(NameVsn, AvroBin) ->
     ok = file:write_file(avro_config_file(NameVsn), AvroBin).
 
-read_file_fun(Path, ErrMsg) ->
+read_file_fun(Path, ErrMsg, #{read_mode := ?RAW_BIN}) ->
+    fun() ->
+        case file:read_file(Path) of
+            {ok, Bin} ->
+                {ok, Bin};
+            {error, Reason} ->
+                ErrMeta = #{error_msg => ErrMsg, reason => Reason},
+                throw(ErrMeta)
+        end
+    end;
+read_file_fun(Path, ErrMsg, #{read_mode := ?JSON_MAP}) ->
     fun() ->
         case hocon:load(Path, #{format => richmap}) of
             {ok, RichMap} ->
                 {ok, hocon_maps:ensure_plain(RichMap)};
             {error, Reason} ->
                 ErrMeta = #{error_msg => ErrMsg, reason => Reason},
-                ?SLOG(warning, ErrMeta),
                 throw(ErrMeta)
         end
     end.
@@ -1043,16 +1067,16 @@ plugin_config_dir(NameVsn) ->
 pkg_file(NameVsn) ->
     filename:join([install_dir(), bin([NameVsn, ".tar.gz"])]).
 
-info_file(NameVsn) ->
+info_file_path(NameVsn) ->
     filename:join([plugin_dir(NameVsn), "release.json"]).
 
-schema_file(NameVsn) ->
+avsc_file_path(NameVsn) ->
     filename:join([plugin_dir(NameVsn), "config_schema.avsc"]).
 
 avro_config_file(NameVsn) ->
     filename:join([plugin_config_dir(NameVsn), "config.avro"]).
 
-i18n_file(NameVsn) ->
+i18n_file_path(NameVsn) ->
     filename:join([plugin_dir(NameVsn), "i18n.json"]).
 
 readme_file(NameVsn) ->
