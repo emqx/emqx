@@ -62,16 +62,17 @@ lookup_serde(SchemaName) ->
 add_schema(Name, Avsc) ->
     case lookup_serde(Name) of
         {ok, _Serde} ->
-            ?SLOG(warning, #{msg => "plugin_avsc_schema_already_exists", name_vsn => Name}),
+            ?SLOG(warning, #{msg => "plugin_schema_already_exists", plugin => Name}),
             {error, already_exists};
         {error, not_found} ->
             case gen_server:call(?MODULE, {build_serdes, to_bin(Name), Avsc}) of
                 ok ->
-                    ?SLOG(debug, #{msg => "plugin_avsc_schema_added", name_vsn => Name}),
+                    ?SLOG(debug, #{msg => "plugin_schema_added", plugin => Name}),
                     ok;
                 {error, Reason} = E ->
                     ?SLOG(error, #{
-                        msg => "plugin_avsc_schema_added_failed",
+                        msg => "plugin_schema_add_failed",
+                        plugin => Name,
                         reason => emqx_utils:readable_error_msg(Reason)
                     }),
                     E
