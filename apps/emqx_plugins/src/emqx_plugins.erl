@@ -193,7 +193,7 @@ purge(NameVsn) ->
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
 delete_package(NameVsn) ->
-    File = pkg_file(NameVsn),
+    File = pkg_file_path(NameVsn),
     _ = emqx_plugins_serde:delete_schema(NameVsn),
     case file:delete(File) of
         ok ->
@@ -317,7 +317,7 @@ put_config(Key, Value) ->
 
 -spec get_tar(name_vsn()) -> {ok, binary()} | {error, any}.
 get_tar(NameVsn) ->
-    TarGz = pkg_file(NameVsn),
+    TarGz = pkg_file_path(NameVsn),
     case file:read_file(TarGz) of
         {ok, Content} ->
             {ok, Content};
@@ -407,7 +407,7 @@ top_dir_test_() ->
 -endif.
 
 do_ensure_installed(NameVsn) ->
-    TarGz = pkg_file(NameVsn),
+    TarGz = pkg_file_path(NameVsn),
     case erl_tar:extract(TarGz, [compressed, memory]) of
         {ok, TarContent} ->
             ok = write_tar_file_content(install_dir(), TarContent),
@@ -633,7 +633,7 @@ ensure_exists_and_installed(NameVsn) ->
             %% Do we have the package, but it's not extracted yet?
             case get_tar(NameVsn) of
                 {ok, TarContent} ->
-                    ok = file:write_file(pkg_file(NameVsn), TarContent),
+                    ok = file:write_file(pkg_file_path(NameVsn), TarContent),
                     ok = do_ensure_installed(NameVsn);
                 _ ->
                     %% If not, try to get it from the cluster.
@@ -645,7 +645,7 @@ do_get_from_cluster(NameVsn) ->
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
     case get_from_any_node(Nodes, NameVsn, []) of
         {ok, TarContent} ->
-            ok = file:write_file(pkg_file(NameVsn), TarContent),
+            ok = file:write_file(pkg_file_path(NameVsn), TarContent),
             ok = do_ensure_installed(NameVsn);
         {error, NodeErrors} when Nodes =/= [] ->
             ?SLOG(error, #{
@@ -1073,7 +1073,7 @@ plugin_config_dir(NameVsn) ->
     filename:join([plugin_dir(NameVsn), "data", "configs"]).
 
 %% Files
-pkg_file(NameVsn) ->
+pkg_file_path(NameVsn) ->
     filename:join([install_dir(), bin([NameVsn, ".tar.gz"])]).
 
 info_file_path(NameVsn) ->
