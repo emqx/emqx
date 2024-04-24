@@ -130,7 +130,7 @@ on_query(InstId, {Channel, Message}, #{channels := ChannelConf}) ->
                 influxdb_connector_send_query,
                 #{points => Points, batch => false, mode => sync}
             ),
-            do_query(InstId, Client, Points);
+            do_query(InstId, Channel, Client, Points);
         {error, ErrorPoints} ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -152,7 +152,7 @@ on_batch_query(InstId, BatchData, #{channels := ChannelConf}) ->
                 influxdb_connector_send_query,
                 #{points => Points, batch => true, mode => sync}
             ),
-            do_query(InstId, Client, Points);
+            do_query(InstId, Channel, Client, Points);
         {error, Reason} ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -175,7 +175,7 @@ on_query_async(
                 influxdb_connector_send_query,
                 #{points => Points, batch => false, mode => async}
             ),
-            do_async_query(InstId, Client, Points, {ReplyFun, Args});
+            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
         {error, ErrorPoints} = Err ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -200,7 +200,7 @@ on_batch_query_async(
                 influxdb_connector_send_query,
                 #{points => Points, batch => true, mode => async}
             ),
-            do_async_query(InstId, Client, Points, {ReplyFun, Args});
+            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
         {error, Reason} ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -496,7 +496,8 @@ is_auth_key(_) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
-do_query(InstId, Client, Points) ->
+do_query(InstId, Channel, Client, Points) ->
+    emqx_trace:rendered_action_template(Channel, #{points => Points, is_async => false}),
     case influxdb:write(Client, Points) of
         ok ->
             ?SLOG(debug, #{
@@ -527,12 +528,13 @@ do_query(InstId, Client, Points) ->
             end
     end.
 
-do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
+do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
     ?SLOG(info, #{
         msg => "influxdb_write_point_async",
         connector => InstId,
         points => Points
     }),
+    emqx_trace:rendered_action_template(Channel, #{points => Points, is_async => true}),
     WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
     {ok, _WorkerPid} = influxdb:write_async(Client, Points, WrappedReplyFunAndArgs).
 
