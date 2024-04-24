@@ -210,7 +210,7 @@ on_query(
     }),
     Type = query,
     {NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrSQL, Params, State),
-    Res = on_sql_query(InstId, PoolName, Type, ?SYNC_QUERY_MODE, NameOrSQL2, Data),
+    Res = on_sql_query(InstId, TypeOrKey, PoolName, Type, ?SYNC_QUERY_MODE, NameOrSQL2, Data),
     handle_result(Res).
 
 on_batch_query(
@@ -244,7 +244,9 @@ on_batch_query(
                     Datas2 = [emqx_placeholder:proc_sql(TokenList, Data) || Data <- Datas],
                     St = maps:get(BinKey, Sts),
                     case
-                        on_sql_query(InstId, PoolName, execute_batch, ?SYNC_QUERY_MODE, St, Datas2)
+                        on_sql_query(
+                            InstId, BinKey, PoolName, execute_batch, ?SYNC_QUERY_MODE, St, Datas2
+                        )
                     of
                         {ok, Results} ->
                             handle_batch_result(Results, 0);
@@ -281,7 +283,13 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{
             end
     end.
 
-on_sql_query(InstId, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
+on_sql_query(InstId, ChannelID, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
+    emqx_trace:rendered_action_template(ChannelID, #{
+        type => Type,
+        apply_mode => ApplyMode,
+        name_or_sql => NameOrSQL,
+        data => Data
+    }),
     case ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, ApplyMode) of
         {error, Reason} = Result ->
             ?tp(
