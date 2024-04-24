@@ -13,15 +13,15 @@ connector_resource_opts.label:
 auth_basic.desc:
  """Parameters for basic authentication."""
 auth_basic.label:
-"""Basic auth params"""
+"""Basic auth parameters"""
 
 auth_basic_password.desc:
-"""Basic authentication password."""
+"""Basic authentication password. The `password` part of the `username:password` authentication string."""
 auth_basic_password.label:
 """Password"""
 
 auth_basic_username.desc:
-"""Basic authentication username."""
+"""Basic authentication username. The `username` part of the `username:password` authentication string."""
 auth_basic_username.label:
 """Username"""
 
