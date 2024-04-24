@@ -22,7 +22,7 @@
 %% API
 -export([
     start_link/0,
-    get_serde/1,
+    lookup_serde/1,
     add_schema/2,
     get_schema/1,
     delete_schema/1
@@ -49,8 +49,8 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec get_serde(schema_name()) -> {ok, plugin_schema_serde()} | {error, not_found}.
-get_serde(SchemaName) ->
+-spec lookup_serde(schema_name()) -> {ok, plugin_schema_serde()} | {error, not_found}.
+lookup_serde(SchemaName) ->
     case ets:lookup(?PLUGIN_SERDE_TAB, to_bin(SchemaName)) of
         [] ->
             {error, not_found};
@@ -60,7 +60,7 @@ get_serde(SchemaName) ->
 
 -spec add_schema(schema_name(), avsc()) -> ok | {error, term()}.
 add_schema(Name, Avsc) ->
-    case get_serde(Name) of
+    case lookup_serde(Name) of
         {ok, _Serde} ->
             ?SLOG(warning, #{msg => "plugin_avsc_schema_already_exists", name_vsn => Name}),
             {error, already_exists};
@@ -90,7 +90,7 @@ get_schema(NameVsn) ->
 
 -spec delete_schema(schema_name()) -> ok | {error, term()}.
 delete_schema(NameVsn) ->
-    case get_serde(NameVsn) of
+    case lookup_serde(NameVsn) of
         {ok, _Serde} ->
             async_delete_serdes([NameVsn]),
             ok;
@@ -201,7 +201,7 @@ make_serde(NameVsn, Avsc) ->
 ensure_serde_absent(Name) when not is_binary(Name) ->
     ensure_serde_absent(to_bin(Name));
 ensure_serde_absent(Name) ->
-    case get_serde(Name) of
+    case lookup_serde(Name) of
         {ok, _Serde} ->
             _ = ets:delete(?PLUGIN_SERDE_TAB, Name),
             ok;
@@ -238,7 +238,7 @@ with_serde(WhichOp, Fun) ->
 
 eval_serde_fun(Op, ErrMsg, SerdeName, Args) ->
     fun() ->
-        case get_serde(SerdeName) of
+        case lookup_serde(SerdeName) of
             {ok, Serde} ->
                 eval_serde(Op, Serde, Args);
             {error, not_found} ->
