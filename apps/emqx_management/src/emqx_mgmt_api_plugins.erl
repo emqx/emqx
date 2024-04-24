@@ -519,7 +519,7 @@ plugin_config(put, #{bindings := #{name := Name}, body := #{<<"config">> := RawA
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _Plugin} ->
-            {200, format_plugin_schema_with_i18n(NameVsn)};
+            {200, format_plugin_avsc_and_i18n(NameVsn)};
         _ ->
             {404, #{
                 code => 'NOT_FOUND',
@@ -685,7 +685,7 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
         ),
     aggregate_status(List, NewAcc).
 
-format_plugin_schema_with_i18n(NameVsn) ->
+format_plugin_avsc_and_i18n(NameVsn) ->
     #{
         avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
         i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
@@ -693,7 +693,7 @@ format_plugin_schema_with_i18n(NameVsn) ->
 
 try_read_file(Fun) ->
     case Fun() of
-        {ok, Bin} -> Bin;
+        {ok, Json} -> Json;
         _ -> null
     end.
 

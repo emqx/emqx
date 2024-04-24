@@ -62,7 +62,8 @@
     get_config/2,
     put_config/2,
     get_tar/1,
-    install_dir/0
+    install_dir/0,
+    avsc_file_path/1
 ]).
 
 %% `emqx_config_handler' API
@@ -1027,9 +1028,17 @@ do_load_config_schema(NameVsn) ->
     end.
 
 maybe_create_config_dir(NameVsn) ->
-    case filelib:ensure_path(plugin_config_dir(NameVsn)) of
-        ok -> ok;
-        {error, Reason} -> ?SLOG(warning, Reason)
+    ConfigDir = plugin_config_dir(NameVsn),
+    case filelib:ensure_path(ConfigDir) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_create_plugin_config_dir",
+                dir => ConfigDir,
+                reason => Reason
+            }),
+            {error, {mkdir_failed, ConfigDir, Reason}}
     end.
 
 write_avro_bin(NameVsn, AvroBin) ->

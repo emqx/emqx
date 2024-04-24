@@ -24,7 +24,6 @@
     describe_package/2,
     delete_package/1,
     ensure_action/2
-    %% plugin_config/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
