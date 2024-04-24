@@ -65,7 +65,7 @@ add_schema(Name, Avsc) ->
             ?SLOG(warning, #{msg => "plugin_schema_already_exists", plugin => Name}),
             {error, already_exists};
         {error, not_found} ->
-            case gen_server:call(?MODULE, {build_serdes, to_bin(Name), Avsc}) of
+            case gen_server:call(?MODULE, {build_serdes, to_bin(Name), Avsc}, infinity) of
                 ok ->
                     ?SLOG(debug, #{msg => "plugin_schema_added", plugin => Name}),
                     ok;
