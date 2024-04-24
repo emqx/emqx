@@ -284,6 +284,13 @@ do_send_requests_sync(ConnectorState, Requests, InstanceId) ->
     Method = post,
     ReqOpts = #{request_ttl => RequestTTL},
     Request = {prepared_request, {Method, Path, Body}, ReqOpts},
+    emqx_trace:rendered_action_template(MessageTag, #{
+        method => Method,
+        path => Path,
+        body => Body,
+        options => ReqOpts,
+        is_async => false
+    }),
     Result = emqx_bridge_gcp_pubsub_client:query_sync(Request, Client),
     QueryMode = sync,
     handle_result(Result, Request, QueryMode, InstanceId).
@@ -312,6 +319,13 @@ do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs0) ->
     ReqOpts = #{request_ttl => RequestTTL},
     Request = {prepared_request, {Method, Path, Body}, ReqOpts},
     ReplyFunAndArgs = {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs0]},
+    emqx_trace:rendered_action_template(MessageTag, #{
+        method => Method,
+        path => Path,
+        body => Body,
+        options => ReqOpts,
+        is_async => true
+    }),
     emqx_bridge_gcp_pubsub_client:query_async(
         Request, ReplyFunAndArgs, Client
     ).
