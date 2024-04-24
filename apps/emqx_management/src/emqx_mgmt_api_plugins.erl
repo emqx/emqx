@@ -170,10 +170,9 @@ schema("/plugins/:name/config") ->
     #{
         'operationId' => plugin_config,
         get => #{
-            summary =>
-                <<"Get plugin config">>,
+            summary => <<"Get plugin config">>,
             description =>
-                "Get plugin config by avro encoded binary config. Schema defined by user's schema.avsc file.<br/>",
+                "Get plugin config. Config schema is defined by user's schema.avsc file.<br/>",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -186,7 +185,7 @@ schema("/plugins/:name/config") ->
             summary =>
                 <<"Update plugin config">>,
             description =>
-                "Update plugin config by avro encoded binary config. Schema defined by user's schema.avsc file.<br/>",
+                "Update plugin config. Config schema defined by user's schema.avsc file.<br/>",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => #{
@@ -215,9 +214,8 @@ schema("/plugins/:name/schema") ->
     #{
         'operationId' => plugin_schema,
         get => #{
-            summary => <<"Get installed plugin's avro schema">>,
-            description =>
-                "Get plugin's config avro schema.",
+            summary => <<"Get installed plugin's AVRO schema">>,
+            description => "Get plugin's config AVRO schema.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
