@@ -168,13 +168,14 @@ init_channel_state(#{parameters := Parameters}) ->
 on_query(InstId, {Tag, Data}, #{client_config := Config, channels := Channels}) ->
     case maps:get(Tag, Channels, undefined) of
         ChannelState = #{} ->
-            run_simple_upload(InstId, Data, ChannelState, Config);
+            run_simple_upload(InstId, Tag, Data, ChannelState, Config);
         undefined ->
             {error, {unrecoverable_error, {invalid_message_tag, Tag}}}
     end.
 
 run_simple_upload(
     InstId,
+    ChannelID,
     Data,
     #{
         bucket := BucketTemplate,
@@ -188,6 +189,11 @@ run_simple_upload(
     Client = emqx_s3_client:create(Bucket, Config),
     Key = render_key(KeyTemplate, Data),
     Content = render_content(ContentTemplate, Data),
+    emqx_trace:rendered_action_template(ChannelID, #{
+        bucket => Bucket,
+        key => Key,
+        content => Content
+    }),
     case emqx_s3_client:put_object(Client, Key, UploadOpts, Content) of
         ok ->
             ?tp(s3_bridge_connector_upload_ok, #{
