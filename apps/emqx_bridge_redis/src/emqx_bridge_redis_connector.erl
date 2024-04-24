@@ -107,7 +107,7 @@ on_query(InstId, {cmd, Cmd}, #{conn_st := RedisConnSt}) ->
     Result;
 on_query(
     InstId,
-    {_MessageTag, _Data} = Msg,
+    {MessageTag, _Data} = Msg,
     #{channels := Channels, conn_st := RedisConnSt}
 ) ->
     case try_render_message([Msg], Channels) of
@@ -115,6 +115,10 @@ on_query(
             ?tp(
                 redis_bridge_connector_cmd,
                 #{cmd => Cmd, batch => false, mode => sync}
+            ),
+            emqx_trace:rendered_action_template(
+                MessageTag,
+                #{command => Cmd, batch => false, mode => sync}
             ),
             Result = query(InstId, {cmd, Cmd}, RedisConnSt),
             ?tp(
@@ -134,6 +138,11 @@ on_batch_query(
             ?tp(
                 redis_bridge_connector_send,
                 #{batch_data => BatchData, batch => true, mode => sync}
+            ),
+            [{ChannelID, _} | _] = BatchData,
+            emqx_trace:rendered_action_template(
+                ChannelID,
+                #{commands => Cmds, batch => ture, mode => sync}
             ),
             Result = query(InstId, {cmds, Cmds}, RedisConnSt),
             ?tp(
