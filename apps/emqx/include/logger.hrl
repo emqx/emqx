@@ -44,11 +44,20 @@
 ).
 
 -define(SLOG_THROTTLE(Level, Data, Meta),
-    case emqx_log_throttler:allow(maps:get(msg, Data)) of
+    case logger:allow(Level, ?MODULE) of
         true ->
-            ?SLOG(Level, Data, Meta);
+            (fun(#{msg := __Msg} = __Data) ->
+                case emqx_log_throttler:allow(__Msg) of
+                    true ->
+                        logger:log(Level, __Data, Meta);
+                    false ->
+                        ?_DO_TRACE(Level, __Msg, maps:merge(__Data, Meta))
+                end
+            end)(
+                Data
+            );
         false ->
-            ?_DO_TRACE(Level, maps:get(msg, Data), maps:merge(Data, Meta))
+            ok
     end
 ).
 
