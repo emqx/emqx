@@ -18,6 +18,7 @@
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource_errors.hrl").
 
 -export([
@@ -724,7 +725,7 @@ inc_action_metrics(TraceCtx, Result) ->
 
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
-    {error, {unrecoverable_error, {action_stopped_after_template_rendering, Explanation}} = _Reason}
+    {error, ?EMQX_TRACE_STOP_ACTION(Explanation) = _Reason}
 ) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
     trace_action(

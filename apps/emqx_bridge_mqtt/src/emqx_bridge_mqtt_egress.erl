@@ -29,9 +29,6 @@
 -type message() :: emqx_types:message() | map().
 -type callback() :: {function(), [_Arg]} | {module(), atom(), [_Arg]}.
 -type remote_message() :: #mqtt_msg{}.
--type trace_rendered_func() :: {
-    fun((RenderResult :: any(), CTX :: map()) -> any()), TraceCTX :: map()
-}.
 
 -type egress() :: #{
     local => #{
@@ -45,37 +42,40 @@
 config(#{remote := RC = #{}} = Conf) ->
     Conf#{remote => emqx_bridge_mqtt_msg:parse(RC)}.
 
--spec send(pid(), trace_rendered_func(), message(), egress()) -> ok.
-send(Pid, TraceRenderedFunc, MsgIn, Egress) ->
+-spec send(pid(), emqx_trace:rendered_action_template_ctx(), message(), egress()) ->
+    ok | {error, {unrecoverable_error, term()}}.
+send(Pid, TraceRenderedCTX, MsgIn, Egress) ->
     try
-        emqtt:publish(Pid, export_msg(MsgIn, Egress, TraceRenderedFunc))
+        emqtt:publish(Pid, export_msg(MsgIn, Egress, TraceRenderedCTX))
     catch
         error:{unrecoverable_error, Reason} ->
-            {unrecoverable_error, Reason}
+            {error, {unrecoverable_error, Reason}}
     end.
 
--spec send_async(pid(), trace_rendered_func(), message(), callback(), egress()) ->
-    ok | {ok, pid()}.
-send_async(Pid, TraceRenderedFunc, MsgIn, Callback, Egress) ->
+-spec send_async(pid(), emqx_trace:rendered_action_template_ctx(), message(), callback(), egress()) ->
+    {ok, pid()} | {error, {unrecoverable_error, term()}}.
+send_async(Pid, TraceRenderedCTX, MsgIn, Callback, Egress) ->
     try
         ok = emqtt:publish_async(
-            Pid, export_msg(MsgIn, Egress, TraceRenderedFunc), _Timeout = infinity, Callback
+            Pid, export_msg(MsgIn, Egress, TraceRenderedCTX), _Timeout = infinity, Callback
         ),
         {ok, Pid}
     catch
         error:{unrecoverable_error, Reason} ->
-            {unrecoverable_error, Reason}
+            {error, {unrecoverable_error, Reason}}
     end.
 
-export_msg(Msg, #{remote := Remote}, TraceRenderedFunc) ->
-    to_remote_msg(Msg, Remote, TraceRenderedFunc).
+export_msg(Msg, #{remote := Remote}, TraceRenderedCTX) ->
+    to_remote_msg(Msg, Remote, TraceRenderedCTX).
 
--spec to_remote_msg(message(), emqx_bridge_mqtt_msg:msgvars(), trace_rendered_func()) ->
+-spec to_remote_msg(
+    message(), emqx_bridge_mqtt_msg:msgvars(), emqx_trace:rendered_action_template_ctx()
+) ->
     remote_message().
-to_remote_msg(#message{flags = Flags} = Msg, Vars, TraceRenderedFunc) ->
+to_remote_msg(#message{flags = Flags} = Msg, Vars, TraceRenderedCTX) ->
     {EventMsg, _} = emqx_rule_events:eventmsg_publish(Msg),
-    to_remote_msg(EventMsg#{retain => maps:get(retain, Flags, false)}, Vars, TraceRenderedFunc);
-to_remote_msg(Msg = #{}, Remote, {TraceRenderedFun, TraceRenderedCTX}) ->
+    to_remote_msg(EventMsg#{retain => maps:get(retain, Flags, false)}, Vars, TraceRenderedCTX);
+to_remote_msg(Msg = #{}, Remote, TraceRenderedCTX) ->
     #{
         topic := Topic,
         payload := Payload,
@@ -83,16 +83,13 @@ to_remote_msg(Msg = #{}, Remote, {TraceRenderedFun, TraceRenderedCTX}) ->
         retain := Retain
     } = emqx_bridge_mqtt_msg:render(Msg, Remote),
     PubProps = maps:get(pub_props, Msg, #{}),
-    TraceRenderedFun(
-        #{
-            qos => QoS,
-            retain => Retain,
-            topic => Topic,
-            props => PubProps,
-            payload => Payload
-        },
-        TraceRenderedCTX
-    ),
+    emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
+        qos => QoS,
+        retain => Retain,
+        topic => Topic,
+        props => PubProps,
+        payload => Payload
+    }),
     #mqtt_msg{
         qos = QoS,
         retain = Retain,

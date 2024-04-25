@@ -38,4 +38,10 @@
 -define(SHARD, ?COMMON_SHARD).
 -define(MAX_SIZE, 30).
 
+-define(EMQX_TRACE_STOP_ACTION(REASON),
+    {unrecoverable_error, {action_stopped_after_template_rendering, REASON}}
+).
+
+-define(EMQX_TRACE_STOP_ACTION_MATCH, ?EMQX_TRACE_STOP_ACTION(_)).
+
 -endif.

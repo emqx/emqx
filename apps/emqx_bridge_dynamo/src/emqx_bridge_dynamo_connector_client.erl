@@ -40,8 +40,8 @@ is_connected(Pid, Timeout) ->
             {false, Error}
     end.
 
-query(Pid, Table, Query, Templates, TraceRenderedFunc) ->
-    gen_server:call(Pid, {query, Table, Query, Templates, TraceRenderedFunc}, infinity).
+query(Pid, Table, Query, Templates, TraceRenderedCTX) ->
+    gen_server:call(Pid, {query, Table, Query, Templates, TraceRenderedCTX}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -77,8 +77,8 @@ handle_call(is_connected, _From, State) ->
                 {false, Error}
         end,
     {reply, IsConnected, State};
-handle_call({query, Table, Query, Templates, TraceRenderedFunc}, _From, State) ->
-    Result = do_query(Table, Query, Templates, TraceRenderedFunc),
+handle_call({query, Table, Query, Templates, TraceRenderedCTX}, _From, State) ->
+    Result = do_query(Table, Query, Templates, TraceRenderedCTX),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -102,10 +102,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-do_query(Table, Query0, Templates, {TraceRenderedFun, TraceRenderedCTX}) ->
+do_query(Table, Query0, Templates, TraceRenderedCTX) ->
     try
         Query = apply_template(Query0, Templates),
-        TraceRenderedFun(#{table => Table, query => Query}, TraceRenderedCTX),
+        emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
+            table => Table,
+            query => {fun trace_format_query/1, Query}
+        }),
         execute(Query, Table)
     catch
         error:{unrecoverable_error, Reason} ->
@@ -113,6 +116,14 @@ do_query(Table, Query0, Templates, {TraceRenderedFun, TraceRenderedCTX}) ->
         _Type:Reason ->
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
+
+trace_format_query({Type, Data}) ->
+    #{type => Type, data => Data};
+trace_format_query([_ | _] = Batch) ->
+    BatchData = [trace_format_query(Q) || Q <- Batch],
+    #{type => batch, data => BatchData};
+trace_format_query(Query) ->
+    Query.
 
 %% some simple query commands for authn/authz or test
 execute({insert_item, Msg}, Table) ->

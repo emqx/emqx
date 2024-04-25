@@ -29,7 +29,9 @@
     unsubscribe/2,
     log/3,
     log/4,
-    rendered_action_template/2
+    rendered_action_template/2,
+    make_rendered_action_template_trace_context/1,
+    rendered_action_template_with_ctx/2
 ]).
 
 -export([
@@ -70,6 +72,12 @@
 -export_type([ruleid/0]).
 -type ruleid() :: binary().
 
+-export_type([rendered_action_template_ctx/0]).
+-opaque rendered_action_template_ctx() :: #{
+    trace_ctx := map(),
+    action_id := any()
+}.
+
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
@@ -107,14 +115,55 @@ rendered_action_template(<<"action:", _/binary>> = ActionID, RenderResult) ->
                 )
             ),
             MsgBin = unicode:characters_to_binary(StopMsg),
-            error({unrecoverable_error, {action_stopped_after_template_rendering, MsgBin}});
+            error(?EMQX_TRACE_STOP_ACTION(MsgBin));
         _ ->
             ok
     end,
     TraceResult;
 rendered_action_template(_ActionID, _RenderResult) ->
-    %% We do nothing if we don't get a valid Action ID
+    %% We do nothing if we don't get a valid Action ID. This can happen when
+    %% called from connectors that are used for actions as well as authz and
+    %% authn.
     ok.
+
+%% The following two functions are used for connectors that don't do the
+%% rendering in the main process (the one that called on_*query). In this case
+%% we need to pass the trace context to the sub process that do the rendering
+%% so that the result of the rendering can be traced correctly. It is also
+%% important to  ensure that the error that can be thrown from
+%% rendered_action_template_with_ctx is handled in the appropriate way in the
+%% sub process.
+-spec make_rendered_action_template_trace_context(any()) -> rendered_action_template_ctx().
+make_rendered_action_template_trace_context(ActionID) ->
+    MetaData =
+        case logger:get_process_metadata() of
+            undefined -> #{};
+            M -> M
+        end,
+    #{trace_ctx => MetaData, action_id => ActionID}.
+
+-spec rendered_action_template_with_ctx(rendered_action_template_ctx(), Result :: term()) -> term().
+rendered_action_template_with_ctx(
+    #{
+        trace_ctx := LogMetaData,
+        action_id := ActionID
+    },
+    RenderResult
+) ->
+    OldMetaData =
+        case logger:get_process_metadata() of
+            undefined -> #{};
+            M -> M
+        end,
+    try
+        logger:set_process_metadata(LogMetaData),
+        emqx_trace:rendered_action_template(
+            ActionID,
+            RenderResult
+        )
+    after
+        logger:set_process_metadata(OldMetaData)
+    end.
 
 log(List, Msg, Meta) ->
     log(debug, List, Msg, Meta).

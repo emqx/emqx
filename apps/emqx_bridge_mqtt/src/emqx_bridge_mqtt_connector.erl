@@ -301,28 +301,10 @@ on_query_async(ResourceId, {_ChannelId, Msg}, _Callback, #{}) ->
     }).
 
 with_egress_client(ActionID, ResourceId, Fun, Args) ->
-    LogMetaData = logger:get_process_metadata(),
-    TraceRenderedFuncContext = #{trace_ctx => LogMetaData, action_id => ActionID},
-    TraceRenderedFunc = {fun trace_render_result/2, TraceRenderedFuncContext},
+    TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ActionID),
     ecpool:pick_and_do(
-        ResourceId, {emqx_bridge_mqtt_egress, Fun, [TraceRenderedFunc | Args]}, no_handover
+        ResourceId, {emqx_bridge_mqtt_egress, Fun, [TraceRenderedCTX | Args]}, no_handover
     ).
-
-trace_render_result(RenderResult, #{trace_ctx := LogMetaData, action_id := ActionID}) ->
-    OldMetaData =
-        case logger:get_process_metadata() of
-            undefined -> #{};
-            M -> M
-        end,
-    try
-        logger:set_process_metadata(LogMetaData),
-        emqx_trace:rendered_action_template(
-            ActionID,
-            RenderResult
-        )
-    after
-        logger:set_process_metadata(OldMetaData)
-    end.
 
 on_async_result(Callback, Result) ->
     apply_callback_function(Callback, handle_send_result(Result)).
@@ -343,9 +325,7 @@ handle_send_result({ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}}) ->
 handle_send_result({ok, Reply}) ->
     {error, classify_reply(Reply)};
 handle_send_result({error, Reason}) ->
-    {error, classify_error(Reason)};
-handle_send_result({unrecoverable_error, Reason}) ->
-    {error, {unrecoverable_error, Reason}}.
+    {error, classify_error(Reason)}.
 
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
@@ -360,6 +340,8 @@ classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error(shutdown = Reason) ->
     {recoverable_error, Reason};
+classify_error({unrecoverable_error, _Reason} = Error) ->
+    Error;
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 

@@ -9,6 +9,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -214,12 +215,10 @@ on_query(ResourceID, {ChannelId, Data} = MsgReq, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         {ok, #{param := ProcParam, rabbitmq := RabbitMQ}} ->
-            LogMetaData = logger:get_process_metadata(),
-            TraceRenderedFuncContext = #{trace_ctx => LogMetaData, action_id => ChannelId},
-            TraceRenderedFunc = {fun trace_render_result/2, TraceRenderedFuncContext},
+            TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ChannelId),
             Res = ecpool:pick_and_do(
                 ResourceID,
-                {?MODULE, publish_messages, [RabbitMQ, ProcParam, [MsgReq], TraceRenderedFunc]},
+                {?MODULE, publish_messages, [RabbitMQ, ProcParam, [MsgReq], TraceRenderedCTX]},
                 no_handover
             ),
             handle_result(Res);
@@ -237,33 +236,15 @@ on_batch_query(ResourceID, [{ChannelId, _Data} | _] = Batch, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         {ok, #{param := ProcParam, rabbitmq := RabbitMQ}} ->
-            LogMetaData = logger:get_process_metadata(),
-            TraceRenderedFuncContext = #{trace_ctx => LogMetaData, action_id => ChannelId},
-            TraceRenderedFunc = {fun trace_render_result/2, TraceRenderedFuncContext},
+            TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ChannelId),
             Res = ecpool:pick_and_do(
                 ResourceID,
-                {?MODULE, publish_messages, [RabbitMQ, ProcParam, Batch, TraceRenderedFunc]},
+                {?MODULE, publish_messages, [RabbitMQ, ProcParam, Batch, TraceRenderedCTX]},
                 no_handover
             ),
             handle_result(Res);
         error ->
             {error, {unrecoverable_error, {invalid_message_tag, ChannelId}}}
-    end.
-
-trace_render_result(RenderResult, #{trace_ctx := LogMetaData, action_id := ActionID}) ->
-    OldMetaData =
-        case logger:get_process_metadata() of
-            undefined -> #{};
-            M -> M
-        end,
-    try
-        logger:set_process_metadata(LogMetaData),
-        emqx_trace:rendered_action_template(
-            ActionID,
-            RenderResult
-        )
-    after
-        logger:set_process_metadata(OldMetaData)
     end.
 
 publish_messages(
@@ -278,7 +259,7 @@ publish_messages(
         publish_confirmation_timeout := PublishConfirmationTimeout
     },
     Messages,
-    TraceRenderedFunc
+    TraceRenderedCTX
 ) ->
     try
         publish_messages(
@@ -291,10 +272,10 @@ publish_messages(
             Messages,
             WaitForPublishConfirmations,
             PublishConfirmationTimeout,
-            TraceRenderedFunc
+            TraceRenderedCTX
         )
     catch
-        error:{unrecoverable_error, {action_stopped_after_template_rendering, _}} = Reason ->
+        error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
             {error, Reason};
         %% if send a message to a non-existent exchange, RabbitMQ client will crash
         %% {shutdown,{server_initiated_close,404,<<"NOT_FOUND - no exchange 'xyz' in vhost '/'">>}
@@ -314,7 +295,7 @@ publish_messages(
     Messages,
     WaitForPublishConfirmations,
     PublishConfirmationTimeout,
-    {TraceRenderedFun, TraceRenderedFuncCTX}
+    TraceRenderedCTX
 ) ->
     case maps:find(Conn, RabbitMQ) of
         {ok, Channel} ->
@@ -330,20 +311,17 @@ publish_messages(
                 format_data(PayloadTmpl, M)
              || {_, M} <- Messages
             ],
-            TraceRenderedFun(
-                #{
-                    messages => FormattedMsgs,
-                    properties => #{
-                        headers => [],
-                        delivery_mode => DeliveryMode
-                    },
-                    method => #{
-                        exchange => Exchange,
-                        routing_key => RoutingKey
-                    }
+            emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
+                messages => FormattedMsgs,
+                properties => #{
+                    headers => [],
+                    delivery_mode => DeliveryMode
                 },
-                TraceRenderedFuncCTX
-            ),
+                method => #{
+                    exchange => Exchange,
+                    routing_key => RoutingKey
+                }
+            }),
             lists:foreach(
                 fun(Msg) ->
                     amqp_channel:cast(

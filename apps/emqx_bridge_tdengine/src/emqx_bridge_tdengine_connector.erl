@@ -10,6 +10,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -200,12 +201,10 @@ on_batch_query(
 ) ->
     case maps:find(ChannelId, Channels) of
         {ok, #{batch := Tokens, opts := Opts}} ->
-            LogMetaData = logger:get_process_metadata(),
-            TraceRenderedFuncContext = #{trace_ctx => LogMetaData, action_id => ChannelId},
-            TraceRenderedFunc = {fun trace_render_result/2, TraceRenderedFuncContext},
+            TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ChannelId),
             do_query_job(
                 InstanceId,
-                {?MODULE, do_batch_insert, [Tokens, BatchReq, Opts, TraceRenderedFunc]},
+                {?MODULE, do_batch_insert, [Tokens, BatchReq, Opts, TraceRenderedCTX]},
                 State
             );
         _ ->
@@ -215,22 +214,6 @@ on_batch_query(InstanceId, BatchReq, State) ->
     LogMeta = #{connector => InstanceId, request => BatchReq, state => State},
     ?SLOG(error, LogMeta#{msg => "invalid_request"}),
     {error, {unrecoverable_error, invalid_request}}.
-
-trace_render_result(RenderResult, #{trace_ctx := LogMetaData, action_id := ActionID}) ->
-    OldMetaData =
-        case logger:get_process_metadata() of
-            undefined -> #{};
-            M -> M
-        end,
-    try
-        logger:set_process_metadata(LogMetaData),
-        emqx_trace:rendered_action_template(
-            ActionID,
-            RenderResult
-        )
-    after
-        logger:set_process_metadata(OldMetaData)
-    end.
 
 on_get_status(_InstanceId, #{pool_name := PoolName} = State) ->
     case
@@ -358,13 +341,16 @@ do_query_job(InstanceId, Job, #{pool_name := PoolName} = State) ->
 execute(Conn, Query, Opts) ->
     tdengine:insert(Conn, Query, Opts).
 
-do_batch_insert(Conn, Tokens, BatchReqs, Opts, {TraceRenderedFun, TraceRenderedFunCTX}) ->
+do_batch_insert(Conn, Tokens, BatchReqs, Opts, TraceRenderedCTX) ->
     SQL = aggregate_query(Tokens, BatchReqs, <<"INSERT INTO">>),
     try
-        TraceRenderedFun(#{query => SQL}, TraceRenderedFunCTX),
+        emqx_trace:rendered_action_template_with_ctx(
+            TraceRenderedCTX,
+            #{query => SQL}
+        ),
         execute(Conn, SQL, Opts)
     catch
-        error:{unrecoverable_error, {action_stopped_after_template_rendering, _}} = Reason ->
+        error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
             {error, Reason}
     end.
 
