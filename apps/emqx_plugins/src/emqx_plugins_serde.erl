@@ -102,14 +102,14 @@ delete_schema(NameVsn) ->
 -spec decode(schema_name(), encoded_data()) -> {ok, decoded_data()} | {error, any()}.
 decode(SerdeName, RawData) ->
     with_serde(
-        "decode_avro_binary",
+        "decode_avro_json",
         eval_serde_fun(?FUNCTION_NAME, "bad_avro_binary", SerdeName, [RawData])
     ).
 
 -spec encode(schema_name(), decoded_data()) -> {ok, encoded_data()} | {error, any()}.
 encode(SerdeName, Data) ->
     with_serde(
-        "encode_avro_data",
+        "encode_avro_json",
         eval_serde_fun(?FUNCTION_NAME, "bad_avro_data", SerdeName, [Data])
     ).
 
@@ -252,10 +252,10 @@ eval_serde_fun(Op, ErrMsg, SerdeName, Args) ->
     end.
 
 eval_serde(decode, #plugin_schema_serde{name = Name, eval_context = Store}, [Data]) ->
-    Opts = avro:make_decoder_options([{map_type, map}, {record_type, map}]),
-    {ok, avro_binary_decoder:decode(Data, Name, Store, Opts)};
+    Opts = avro:make_decoder_options([{map_type, map}, {record_type, map}, {encoding, avro_json}]),
+    {ok, avro_json_decoder:decode_value(Data, Name, Store, Opts)};
 eval_serde(encode, #plugin_schema_serde{name = Name, eval_context = Store}, [Data]) ->
-    {ok, avro_binary_encoder:encode(Store, Name, Data)};
+    {ok, avro_json_encoder:encode(Store, Name, Data)};
 eval_serde(_, _, _) ->
     throw(#{error_msg => "unexpected_plugin_avro_op"}).
 

@@ -176,7 +176,7 @@ schema("/plugins/:name/config") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
-                %% binary avro encoded config
+                %% avro data, json encoded
                 200 => hoconsc:mk(binary()),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
@@ -190,14 +190,10 @@ schema("/plugins/:name/config") ->
             parameters => [hoconsc:ref(name)],
             'requestBody' => #{
                 content => #{
-                    'multipart/form-data' => #{
+                    'application/json' => #{
                         schema => #{
-                            type => object,
-                            properties => #{
-                                ?CONTENT_CONFIG => #{type => string, format => binary}
-                            }
-                        },
-                        encoding => #{?CONTENT_CONFIG => #{'contentType' => 'application/gzip'}}
+                            type => object
+                        }
                     }
                 }
             },
@@ -499,12 +495,14 @@ plugin_config(get, #{bindings := #{name := Name}}) ->
                 message => <<"Failed to get plugin config">>
             }}
     end;
-plugin_config(put, #{bindings := #{name := Name}, body := #{<<"config">> := RawAvro}}) ->
-    case emqx_plugins:decode_plugin_avro_config(Name, RawAvro) of
-        {ok, Config} ->
+plugin_config(put, #{bindings := #{name := Name}, body := AvroJsonMap}) ->
+    AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
+    case emqx_plugins:decode_plugin_avro_config(Name, AvroJsonBin) of
+        {ok, AvroValueConfig} ->
             Nodes = emqx:running_nodes(),
+            %% cluster call with config in map (binary key-value)
             _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                Nodes, Name, RawAvro, Config
+                Nodes, Name, AvroJsonMap, AvroValueConfig
             ),
             {204};
         {error, Reason} ->
@@ -595,8 +593,9 @@ ensure_action(Name, restart) ->
     ok.
 
 %% for RPC plugin avro encoded config update
-do_update_plugin_config(Name, Avro, PluginConfig) ->
-    emqx_plugins:put_plugin_config(Name, Avro, PluginConfig).
+do_update_plugin_config(Name, AvroJsonMap, PluginConfigMap) ->
+    %% TOOD: maybe use `PluginConfigMap` to validate config
+    emqx_plugins:put_plugin_config(Name, AvroJsonMap, PluginConfigMap).
 
 %%--------------------------------------------------------------------
 %% Helper functions

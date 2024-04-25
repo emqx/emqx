@@ -51,7 +51,7 @@
     ensure_stopped/1,
     get_plugin_config/1,
     get_plugin_config/2,
-    put_plugin_config/3,
+    put_plugin_config/4,
     restart/1,
     list/0
 ]).
@@ -256,7 +256,7 @@ get_plugin_config(NameVsn) ->
     | {error, term()}.
 get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
     case read_plugin_avro(NameVsn) of
-        {ok, _AvroBin} = Res -> Res;
+        {ok, _AvroJson} = Res -> Res;
         {error, _Reason} = Err -> Err
     end;
 get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}) ->
@@ -265,9 +265,10 @@ get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}) ->
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
 %% the avro binary and plugin config ALWAYS be valid before calling this function.
-put_plugin_config(NameVsn, RawAvro, PluginConfig) ->
-    ok = write_avro_bin(NameVsn, RawAvro),
-    ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), PluginConfig),
+put_plugin_config(NameVsn, AvroJsonMap, DecodedPluginConfig) ->
+    AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
+    ok = write_avro_bin(NameVsn, AvroJsonBin),
+    ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), AvroJsonMap),
     ok.
 
 %% @doc Stop and then start the plugin.
@@ -300,9 +301,11 @@ list() ->
 %%--------------------------------------------------------------------
 %% Package utils
 
--spec decode_plugin_avro_config(name_vsn(), binary()) -> {ok, map()} | {error, any()}.
-decode_plugin_avro_config(NameVsn, RawAvro) ->
-    case emqx_plugins_serde:decode(NameVsn, RawAvro) of
+-spec decode_plugin_avro_config(name_vsn(), map() | binary()) -> {ok, map()} | {error, any()}.
+decode_plugin_avro_config(NameVsn, AvroJsonMap) when is_map(AvroJsonMap) ->
+    decode_plugin_avro_config(NameVsn, emqx_utils_json:encode(AvroJsonMap));
+decode_plugin_avro_config(NameVsn, AvroJsonBin) ->
+    case emqx_plugins_serde:decode(NameVsn, AvroJsonBin) of
         {ok, Config} -> {ok, Config};
         {error, ReasonMap} -> {error, ReasonMap}
     end.
