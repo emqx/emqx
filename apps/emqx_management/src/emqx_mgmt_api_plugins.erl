@@ -601,7 +601,7 @@ ensure_action(Name, restart) ->
 
 %% for RPC plugin avro encoded config update
 do_update_plugin_config(Name, AvroJsonMap, PluginConfigMap) ->
-    %% TOOD: maybe use `PluginConfigMap` to validate config
+    %% TODO: maybe use `PluginConfigMap` to validate config
     emqx_plugins:put_plugin_config(Name, AvroJsonMap, PluginConfigMap).
 
 %%--------------------------------------------------------------------
