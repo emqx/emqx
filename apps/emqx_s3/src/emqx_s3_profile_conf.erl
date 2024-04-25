@@ -53,7 +53,7 @@
     emqx_s3_client:bucket(),
     emqx_s3_client:config(),
     emqx_s3_client:upload_options(),
-    emqx_s3_uploader:config()
+    emqx_s3_upload:config()
 }.
 
 -define(DEFAULT_CALL_TIMEOUT, 5000).
