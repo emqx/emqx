@@ -413,6 +413,9 @@ do_query(
     %% only insert sql statement for single query and batch query
     case apply_template(QueryTuple, Templates) of
         {?ACTION_SEND_MESSAGE, SQL} ->
+            emqx_trace:rendered_action_template(ChannelId, #{
+                sql => SQL
+            }),
             Result = ecpool:pick_and_do(
                 PoolName,
                 {?MODULE, worker_do_insert, [SQL, State]},

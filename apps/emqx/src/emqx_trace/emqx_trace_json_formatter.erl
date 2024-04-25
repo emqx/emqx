@@ -48,6 +48,21 @@ prepare_log_map(LogMap, PEncode) ->
     NewKeyValuePairs = [prepare_key_value(K, V, PEncode) || {K, V} <- maps:to_list(LogMap)],
     maps:from_list(NewKeyValuePairs).
 
+prepare_key_value(K, {Formatter, V}, PEncode) when is_function(Formatter, 1) ->
+    %% A cusom formatter is provided with the value
+    try
+        NewV = Formatter(V),
+        prepare_key_value(K, NewV, PEncode)
+    catch
+        _:_ ->
+            {K, V}
+    end;
+prepare_key_value(K, {ok, Status, Headers, Body}, PEncode) when
+    is_integer(Status), is_list(Headers), is_binary(Body)
+->
+    %% This is unlikely anything else then info about a HTTP request so we make
+    %% it more structured
+    prepare_key_value(K, #{status => Status, headers => Headers, body => Body}, PEncode);
 prepare_key_value(payload = K, V, PEncode) ->
     NewV =
         try

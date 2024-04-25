@@ -9,6 +9,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -246,12 +247,16 @@ do_query(
         table := Table,
         templates := Templates
     } = ChannelState,
+    TraceRenderedCTX =
+        emqx_trace:make_rendered_action_template_trace_context(ChannelId),
     Result =
         case ensuare_dynamo_keys(Query, ChannelState) of
             true ->
                 ecpool:pick_and_do(
                     PoolName,
-                    {emqx_bridge_dynamo_connector_client, query, [Table, QueryTuple, Templates]},
+                    {emqx_bridge_dynamo_connector_client, query, [
+                        Table, QueryTuple, Templates, TraceRenderedCTX
+                    ]},
                     no_handover
                 );
             _ ->
@@ -259,6 +264,8 @@ do_query(
         end,
 
     case Result of
+        {error, ?EMQX_TRACE_STOP_ACTION(_)} = Error ->
+            Error;
         {error, Reason} ->
             ?tp(
                 dynamo_connector_query_return,

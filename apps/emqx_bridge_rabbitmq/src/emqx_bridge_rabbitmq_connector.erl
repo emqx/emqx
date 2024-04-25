@@ -9,6 +9,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -41,7 +42,7 @@
 -export([connect/1]).
 
 %% Internal callbacks
--export([publish_messages/4]).
+-export([publish_messages/5]).
 
 namespace() -> "rabbitmq".
 
@@ -214,9 +215,10 @@ on_query(ResourceID, {ChannelId, Data} = MsgReq, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         {ok, #{param := ProcParam, rabbitmq := RabbitMQ}} ->
+            TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ChannelId),
             Res = ecpool:pick_and_do(
                 ResourceID,
-                {?MODULE, publish_messages, [RabbitMQ, ProcParam, [MsgReq]]},
+                {?MODULE, publish_messages, [RabbitMQ, ProcParam, [MsgReq], TraceRenderedCTX]},
                 no_handover
             ),
             handle_result(Res);
@@ -234,9 +236,10 @@ on_batch_query(ResourceID, [{ChannelId, _Data} | _] = Batch, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         {ok, #{param := ProcParam, rabbitmq := RabbitMQ}} ->
+            TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ChannelId),
             Res = ecpool:pick_and_do(
                 ResourceID,
-                {?MODULE, publish_messages, [RabbitMQ, ProcParam, Batch]},
+                {?MODULE, publish_messages, [RabbitMQ, ProcParam, Batch, TraceRenderedCTX]},
                 no_handover
             ),
             handle_result(Res);
@@ -255,7 +258,8 @@ publish_messages(
         wait_for_publish_confirmations := WaitForPublishConfirmations,
         publish_confirmation_timeout := PublishConfirmationTimeout
     },
-    Messages
+    Messages,
+    TraceRenderedCTX
 ) ->
     try
         publish_messages(
@@ -267,15 +271,18 @@ publish_messages(
             PayloadTmpl,
             Messages,
             WaitForPublishConfirmations,
-            PublishConfirmationTimeout
+            PublishConfirmationTimeout,
+            TraceRenderedCTX
         )
     catch
+        error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
+            {error, Reason};
         %% if send a message to a non-existent exchange, RabbitMQ client will crash
         %% {shutdown,{server_initiated_close,404,<<"NOT_FOUND - no exchange 'xyz' in vhost '/'">>}
         %% so we catch and return {recoverable_error, Reason} to increase metrics
         _Type:Reason ->
             Msg = iolist_to_binary(io_lib:format("RabbitMQ: publish_failed: ~p", [Reason])),
-            erlang:error({recoverable_error, Msg})
+            {error, {recoverable_error, Msg}}
     end.
 
 publish_messages(
@@ -287,7 +294,8 @@ publish_messages(
     PayloadTmpl,
     Messages,
     WaitForPublishConfirmations,
-    PublishConfirmationTimeout
+    PublishConfirmationTimeout,
+    TraceRenderedCTX
 ) ->
     case maps:find(Conn, RabbitMQ) of
         {ok, Channel} ->
@@ -299,18 +307,33 @@ publish_messages(
                 exchange = Exchange,
                 routing_key = RoutingKey
             },
+            FormattedMsgs = [
+                format_data(PayloadTmpl, M)
+             || {_, M} <- Messages
+            ],
+            emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
+                messages => FormattedMsgs,
+                properties => #{
+                    headers => [],
+                    delivery_mode => DeliveryMode
+                },
+                method => #{
+                    exchange => Exchange,
+                    routing_key => RoutingKey
+                }
+            }),
             lists:foreach(
-                fun({_, MsgRaw}) ->
+                fun(Msg) ->
                     amqp_channel:cast(
                         Channel,
                         Method,
                         #amqp_msg{
-                            payload = format_data(PayloadTmpl, MsgRaw),
+                            payload = Msg,
                             props = MessageProperties
                         }
                     )
                 end,
-                Messages
+                FormattedMsgs
             ),
             case WaitForPublishConfirmations of
                 true ->

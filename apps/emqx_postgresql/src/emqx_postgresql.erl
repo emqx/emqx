@@ -304,7 +304,7 @@ on_query(
     }),
     Type = pgsql_query_type(TypeOrKey),
     {NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrSQL, Params, State),
-    Res = on_sql_query(InstId, PoolName, Type, NameOrSQL2, Data),
+    Res = on_sql_query(TypeOrKey, InstId, PoolName, Type, NameOrSQL2, Data),
     ?tp(postgres_bridge_connector_on_query_return, #{instance_id => InstId, result => Res}),
     handle_result(Res).
 
@@ -337,7 +337,7 @@ on_batch_query(
         {_Statement, RowTemplate} ->
             PrepStatement = get_prepared_statement(BinKey, State),
             Rows = [render_prepare_sql_row(RowTemplate, Data) || {_Key, Data} <- BatchReq],
-            case on_sql_query(InstId, PoolName, execute_batch, PrepStatement, Rows) of
+            case on_sql_query(Key, InstId, PoolName, execute_batch, PrepStatement, Rows) of
                 {error, _Error} = Result ->
                     handle_result(Result);
                 {_Column, Results} ->
@@ -386,7 +386,15 @@ get_prepared_statement(Key, #{prepares := PrepStatements}) ->
     BinKey = to_bin(Key),
     maps:get(BinKey, PrepStatements).
 
-on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
+on_sql_query(Key, InstId, PoolName, Type, NameOrSQL, Data) ->
+    emqx_trace:rendered_action_template(
+        Key,
+        #{
+            statement_type => Type,
+            statement_or_name => NameOrSQL,
+            data => Data
+        }
+    ),
     try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover) of
         {error, Reason} ->
             ?tp(
