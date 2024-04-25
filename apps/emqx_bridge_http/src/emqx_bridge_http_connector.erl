@@ -512,7 +512,7 @@ trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout) ->
                     host => Host,
                     path => Path,
                     method => Method,
-                    headers => emqx_utils_redact:redact_headers(Headers),
+                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
                     timeout => Timeout
                 }
             );
@@ -523,7 +523,7 @@ trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout) ->
                     host => Host,
                     path => Path,
                     method => Method,
-                    headers => emqx_utils_redact:redact_headers(Headers),
+                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
                     timeout => Timeout,
                     body => {fun log_format_body/1, Body}
                 }
