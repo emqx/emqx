@@ -59,11 +59,11 @@ ensure_action(Name, Action) ->
     map()
 ) ->
     emqx_rpc:multicall_result().
-update_plugin_config(Nodes, Name, AvroJsonMap, PluginConfig) ->
+update_plugin_config(Nodes, NameVsn, AvroJsonMap, PluginConfig) ->
     rpc:multicall(
         Nodes,
         emqx_mgmt_api_plugins,
         do_update_plugin_config,
-        [Name, AvroJsonMap, PluginConfig],
+        [NameVsn, AvroJsonMap, PluginConfig],
         10000
     ).

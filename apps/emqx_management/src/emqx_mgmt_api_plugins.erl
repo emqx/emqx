@@ -200,7 +200,7 @@ schema("/plugins/:name/config") ->
             responses => #{
                 204 => <<"Config updated successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['UNEXPECTED_ERROR'], <<"Update plugin config failed">>
+                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], <<"Update plugin config failed">>
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
@@ -485,31 +485,41 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
     Res = emqx_mgmt_api_plugins_proto_v2:ensure_action(Name, Action),
     return(204, Res).
 
-plugin_config(get, #{bindings := #{name := Name}}) ->
-    case emqx_plugins:get_plugin_config(Name, #{format => ?CONFIG_FORMAT_MAP}) of
-        {ok, AvroJson} ->
-            {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
-        {error, _} ->
-            {400, #{
-                code => 'BAD_CONFIG',
-                message => <<"Failed to get plugin config">>
-            }}
+plugin_config(get, #{bindings := #{name := NameVsn}}) ->
+    case emqx_plugins:describe(NameVsn) of
+        {ok, _} ->
+            case emqx_plugins:get_plugin_config(NameVsn, #{format => ?CONFIG_FORMAT_MAP}) of
+                {ok, AvroJson} ->
+                    {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
+                {error, _} ->
+                    {400, #{
+                        code => 'BAD_CONFIG',
+                        message => <<"Failed to get plugin config">>
+                    }}
+            end;
+        _ ->
+            {404, plugin_not_found_msg()}
     end;
-plugin_config(put, #{bindings := #{name := Name}, body := AvroJsonMap}) ->
-    AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
-    case emqx_plugins:decode_plugin_avro_config(Name, AvroJsonBin) of
-        {ok, AvroValueConfig} ->
-            Nodes = emqx:running_nodes(),
-            %% cluster call with config in map (binary key-value)
-            _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                Nodes, Name, AvroJsonMap, AvroValueConfig
-            ),
-            {204};
-        {error, Reason} ->
-            {400, #{
-                code => 'BAD_CONFIG',
-                message => readable_error_msg(Reason)
-            }}
+plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
+    case emqx_plugins:describe(NameVsn) of
+        {ok, _} ->
+            AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
+            case emqx_plugins:decode_plugin_avro_config(NameVsn, AvroJsonBin) of
+                {ok, AvroValueConfig} ->
+                    Nodes = emqx:running_nodes(),
+                    %% cluster call with config in map (binary key-value)
+                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
+                        Nodes, NameVsn, AvroJsonMap, AvroValueConfig
+                    ),
+                    {204};
+                {error, Reason} ->
+                    {400, #{
+                        code => 'BAD_CONFIG',
+                        message => readable_error_msg(Reason)
+                    }}
+            end;
+        _ ->
+            {404, plugin_not_found_msg()}
     end.
 
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
@@ -517,10 +527,7 @@ plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
         {ok, _Plugin} ->
             {200, format_plugin_avsc_and_i18n(NameVsn)};
         _ ->
-            {404, #{
-                code => 'NOT_FOUND',
-                message => <<"Plugin Not Found">>
-            }}
+            {404, plugin_not_found_msg()}
     end.
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
@@ -609,6 +616,12 @@ return(_, {error, #{error_msg := "bad_avro_config_file", reason := {enoent, _} =
     {404, #{code => 'NOT_FOUND', message => readable_error_msg(Reason)}};
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => readable_error_msg(Reason)}}.
+
+plugin_not_found_msg() ->
+    #{
+        code => 'NOT_FOUND',
+        message => <<"Plugin Not Found">>
+    }.
 
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
