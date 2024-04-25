@@ -28,8 +28,6 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
-    ok = emqx_ft_async_reply:create_tables(),
-
     SupFlags = #{
         strategy => one_for_one,
         intensity => 100,
@@ -54,5 +52,14 @@ init([]) ->
         modules => [emqx_ft_storage_fs_reader_sup]
     },
 
-    ChildSpecs = [AssemblerSup, FileReaderSup],
+    ResponderSup = #{
+        id => emqx_ft_responder_sup,
+        start => {emqx_ft_responder_sup, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [emqx_ft_responder_sup]
+    },
+
+    ChildSpecs = [ResponderSup, AssemblerSup, FileReaderSup],
     {ok, {SupFlags, ChildSpecs}}.
