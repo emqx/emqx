@@ -26,6 +26,7 @@
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
+    parse_str/2,
     parse_sql/2,
     render_deep/2,
     render_str/2,
@@ -113,28 +114,31 @@ check_password_from_selected_map(Algorithm, Selected, Password) ->
 
 parse_deep(Template) ->
     Result = emqx_template:parse_deep(Template),
-    handle_disallowed_placeholders(Result, {deep, Template}).
+    handle_disallowed_placeholders(Result, ?ALLOWED_VARS, {deep, Template}).
+
+parse_str(Template, AllowedVars) ->
+    Result = emqx_template:parse(Template),
+    handle_disallowed_placeholders(Result, AllowedVars, {string, Template}).
 
 parse_str(Template) ->
-    Result = emqx_template:parse(Template),
-    handle_disallowed_placeholders(Result, {string, Template}).
+    parse_str(Template, ?ALLOWED_VARS).
 
 parse_sql(Template, ReplaceWith) ->
     {Statement, Result} = emqx_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
-    {Statement, handle_disallowed_placeholders(Result, {string, Template})}.
+    {Statement, handle_disallowed_placeholders(Result, ?ALLOWED_VARS, {string, Template})}.
 
-handle_disallowed_placeholders(Template, Source) ->
-    case emqx_template:validate(?ALLOWED_VARS, Template) of
+handle_disallowed_placeholders(Template, AllowedVars, Source) ->
+    case emqx_template:validate(AllowedVars, Template) of
         ok ->
             Template;
         {error, Disallowed} ->
             ?tp(warning, "authn_template_invalid", #{
                 template => Source,
                 reason => Disallowed,
-                allowed => #{placeholders => ?ALLOWED_VARS},
+                allowed => #{placeholders => AllowedVars},
                 notice =>
                     "Disallowed placeholders will be rendered as is."
                     " However, consider using `${$}` escaping for literal `$` where"

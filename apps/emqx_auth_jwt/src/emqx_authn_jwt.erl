@@ -18,6 +18,7 @@
 
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -export([
     create/2,
@@ -26,8 +27,9 @@
     destroy/1
 ]).
 
--export([
-    handle_placeholder/1
+-define(ALLOWED_VARS, [
+    ?VAR_CLIENTID,
+    ?VAR_USERNAME
 ]).
 
 %%------------------------------------------------------------------------------
@@ -83,7 +85,7 @@ authenticate(
 ) ->
     JWT = maps:get(From, Credential),
     JWKs = [JWK],
-    VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
+    VerifyClaims = render_expected(VerifyClaims0, Credential),
     verify(JWT, JWKs, VerifyClaims, AclClaimName);
 authenticate(
     Credential,
@@ -103,7 +105,7 @@ authenticate(
             ignore;
         {ok, JWKs} ->
             JWT = maps:get(From, Credential),
-            VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
+            VerifyClaims = render_expected(VerifyClaims0, Credential),
             verify(JWT, JWKs, VerifyClaims, AclClaimName)
     end.
 
@@ -203,16 +205,11 @@ may_decode_secret(true, Secret) ->
             {error, {invalid_parameter, secret}}
     end.
 
-replace_placeholder(L, Variables) ->
-    replace_placeholder(L, Variables, []).
-
-replace_placeholder([], _Variables, Acc) ->
-    Acc;
-replace_placeholder([{Name, {placeholder, PL}} | More], Variables, Acc) ->
-    Value = maps:get(PL, Variables),
-    replace_placeholder(More, Variables, [{Name, Value} | Acc]);
-replace_placeholder([{Name, Value} | More], Variables, Acc) ->
-    replace_placeholder(More, Variables, [{Name, Value} | Acc]).
+render_expected([], _Variables) ->
+    [];
+render_expected([{Name, ExpectedTemplate} | More], Variables) ->
+    Expected = emqx_authn_utils:render_str(ExpectedTemplate, Variables),
+    [{Name, Expected} | render_expected(More, Variables)].
 
 verify(undefined, _, _, _) ->
     ignore;
@@ -348,23 +345,8 @@ handle_verify_claims(VerifyClaims) ->
 handle_verify_claims([], Acc) ->
     Acc;
 handle_verify_claims([{Name, Expected0} | More], Acc) ->
-    Expected = handle_placeholder(Expected0),
-    handle_verify_claims(More, [{Name, Expected} | Acc]).
-
-handle_placeholder(Placeholder0) ->
-    case re:run(Placeholder0, "^\\$\\{[a-z0-9\\-]+\\}$", [{capture, all}]) of
-        {match, [{Offset, Length}]} ->
-            Placeholder1 = binary:part(Placeholder0, Offset + 2, Length - 3),
-            Placeholder2 = validate_placeholder(Placeholder1),
-            {placeholder, Placeholder2};
-        nomatch ->
-            Placeholder0
-    end.
-
-validate_placeholder(<<"clientid">>) ->
-    clientid;
-validate_placeholder(<<"username">>) ->
-    username.
+    Expected1 = emqx_authn_utils:parse_str(Expected0, ?ALLOWED_VARS),
+    handle_verify_claims(More, [{Name, Expected1} | Acc]).
 
 binary_to_number(Bin) ->
     case string:to_integer(Bin) of
@@ -377,7 +359,7 @@ binary_to_number(Bin) ->
             end
     end.
 
-%% Pars rules which can be in two different formats:
+%% Parse rules which can be in two different formats:
 %% 1. #{<<"pub">> => [<<"a/b">>, <<"c/d">>], <<"sub">> => [...], <<"all">> => [...]}
 %% 2. [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"a/b">>}, ...]
 parse_rules(Rules) when is_map(Rules) ->
