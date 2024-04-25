@@ -836,9 +836,16 @@ transform_result(Result) ->
             Result;
         {ok, _TooManyRequests = StatusCode = 429, Headers} ->
             {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
+        {ok, _ServiceUnavailable = StatusCode = 503, Headers} ->
+            {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, StatusCode, Headers} ->
             {error, {unrecoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, _TooManyRequests = StatusCode = 429, Headers, Body} ->
+            {error,
+                {recoverable_error, #{
+                    status_code => StatusCode, headers => Headers, body => Body
+                }}};
+        {ok, _ServiceUnavailable = StatusCode = 503, Headers, Body} ->
             {error,
                 {recoverable_error, #{
                     status_code => StatusCode, headers => Headers, body => Body
