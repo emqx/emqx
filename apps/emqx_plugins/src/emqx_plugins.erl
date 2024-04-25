@@ -51,7 +51,7 @@
     ensure_stopped/1,
     get_plugin_config/1,
     get_plugin_config/2,
-    put_plugin_config/4,
+    put_plugin_config/3,
     restart/1,
     list/0
 ]).
@@ -249,7 +249,7 @@ ensure_stopped(NameVsn) ->
 -spec get_plugin_config(name_vsn()) ->
     {ok, plugin_config()} | {error, term()}.
 get_plugin_config(NameVsn) ->
-    get_plugin_config(NameVsn, #{format => ?CONFIG_FORMAT_MAP}).
+    get_plugin_config(bin(NameVsn), #{format => ?CONFIG_FORMAT_MAP}).
 
 -spec get_plugin_config(name_vsn(), Options :: map()) ->
     {ok, avro_binary() | plugin_config()}
@@ -260,12 +260,12 @@ get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
         {error, _Reason} = Err -> Err
     end;
 get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}) ->
-    persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), #{}).
+    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), #{})}.
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
 %% the avro binary and plugin config ALWAYS be valid before calling this function.
-put_plugin_config(NameVsn, AvroJsonMap, DecodedPluginConfig) ->
+put_plugin_config(NameVsn, AvroJsonMap, _DecodedPluginConfig) ->
     AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
     ok = write_avro_bin(NameVsn, AvroJsonBin),
     ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), AvroJsonMap),
