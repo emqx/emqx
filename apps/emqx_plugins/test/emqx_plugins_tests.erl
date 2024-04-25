@@ -16,6 +16,7 @@
 
 -module(emqx_plugins_tests).
 
+-include("emqx_plugins.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -compile(nowarn_export_all).
@@ -28,20 +29,20 @@ ensure_configured_test_todo() ->
     after
         emqx_plugins:put_configured([])
     end,
-    meck:unload(emqx).
+    unmeck_emqx().
 
 test_ensure_configured() ->
     ok = emqx_plugins:put_configured([]),
     P1 = #{name_vsn => "p-1", enable => true},
     P2 = #{name_vsn => "p-2", enable => true},
     P3 = #{name_vsn => "p-3", enable => false},
-    emqx_plugins:ensure_configured(P1, front),
-    emqx_plugins:ensure_configured(P2, {before, <<"p-1">>}),
-    emqx_plugins:ensure_configured(P3, {before, <<"p-1">>}),
+    emqx_plugins:ensure_configured(P1, front, local),
+    emqx_plugins:ensure_configured(P2, {before, <<"p-1">>}, local),
+    emqx_plugins:ensure_configured(P3, {before, <<"p-1">>}, local),
     ?assertEqual([P2, P3, P1], emqx_plugins:configured()),
     ?assertThrow(
         #{error := "position_anchor_plugin_not_configured"},
-        emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>})
+        emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>}, local)
     ).
 
 read_plugin_test() ->
@@ -64,7 +65,7 @@ read_plugin_test() ->
             end
         end
     ),
-    meck:unload(emqx).
+    unmeck_emqx().
 
 with_rand_install_dir(F) ->
     N = rand:uniform(10000000),
@@ -100,7 +101,7 @@ delete_package_test() ->
             ?assertMatch({error, _}, emqx_plugins:delete_package("a-1"))
         end
     ),
-    meck:unload(emqx).
+    unmeck_emqx().
 
 %% purge plugin's install dir should mostly work and return ok
 %% but it may fail in case the dir is read-only
@@ -120,10 +121,11 @@ purge_test() ->
             ?assertEqual(ok, emqx_plugins:purge("a-1"))
         end
     ),
-    meck:unload(emqx).
+    unmeck_emqx().
 
 meck_emqx() ->
     meck:new(emqx, [unstick, passthrough]),
+    meck:new(emqx_plugins_serde),
     meck:expect(
         emqx,
         update_config,
@@ -131,4 +133,14 @@ meck_emqx() ->
             emqx_config:put(Path, Values)
         end
     ),
+    meck:expect(
+        emqx_plugins_serde,
+        delete_schema,
+        fun(_NameVsn) -> ok end
+    ),
+    ok.
+
+unmeck_emqx() ->
+    meck:unload(emqx),
+    meck:unload(emqx_plugins_serde),
     ok.
