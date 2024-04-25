@@ -1012,22 +1012,15 @@ maybe_post_op_after_install(NameVsn) ->
     ok.
 
 maybe_load_config_schema(NameVsn) ->
-    filelib:is_regular(avsc_file_path(NameVsn)) andalso
-        do_load_config_schema(NameVsn).
+    AvscPath = avsc_file_path(NameVsn),
+    filelib:is_regular(AvscPath) andalso
+        do_load_config_schema(NameVsn, AvscPath).
 
-do_load_config_schema(NameVsn) ->
-    case read_plugin_avsc(NameVsn, #{read_mode => ?RAW_BIN}) of
-        {ok, AvscBin} ->
-            case emqx_plugins_serde:add_schema(NameVsn, AvscBin) of
-                ok -> ok;
-                {error, already_exists} -> ok;
-                {error, _Reason} -> ok
-            end;
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_read_plugin_avsc", reason => Reason, name_vsn => NameVsn
-            }),
-            ok
+do_load_config_schema(NameVsn, AvscPath) ->
+    case emqx_plugins_serde:add_schema(NameVsn, AvscPath) of
+        ok -> ok;
+        {error, already_exists} -> ok;
+        {error, _Reason} -> ok
     end.
 
 maybe_create_config_dir(NameVsn) ->
