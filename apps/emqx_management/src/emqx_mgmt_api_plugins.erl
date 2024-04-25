@@ -486,9 +486,9 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
     return(204, Res).
 
 plugin_config(get, #{bindings := #{name := Name}}) ->
-    case emqx_plugins:get_plugin_config(Name, #{format => ?CONFIG_FORMAT_AVRO}) of
-        {ok, AvroBin} ->
-            {200, #{<<"content-type">> => <<"application/octet-stream">>}, AvroBin};
+    case emqx_plugins:get_plugin_config(Name, #{format => ?CONFIG_FORMAT_MAP}) of
+        {ok, AvroJson} ->
+            {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
         {error, _} ->
             {400, #{
                 code => 'BAD_CONFIG',
