@@ -1638,6 +1638,15 @@ initialize_client_attrs(Inits, ClientInfo) ->
         fun(#{expression := Variform, set_as_attr := Name}, Acc) ->
             Attrs = maps:get(client_attrs, ClientInfo, #{}),
             case emqx_variform:render(Variform, ClientInfo) of
+                {ok, <<>>} ->
+                    ?SLOG(
+                        debug,
+                        #{
+                            msg => "client_attr_rednered_to_empty_string",
+                            set_as_attr => Name
+                        }
+                    ),
+                    Acc;
                 {ok, Value} ->
                     ?SLOG(
                         debug,

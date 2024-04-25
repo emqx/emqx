@@ -351,8 +351,9 @@ match_who(_, _) ->
 match_topics(_ClientInfo, _Topic, []) ->
     false;
 match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
-    TopicFilter = bin(emqx_template:render_strict(PatternFilter, ClientInfo)),
-    match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter)) orelse
+    TopicFilter = render_topic(PatternFilter, ClientInfo),
+    (is_binary(TopicFilter) andalso
+        match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter))) orelse
         match_topics(ClientInfo, Topic, Filters);
 match_topics(ClientInfo, Topic, [TopicFilter | Filters]) ->
     match_topic(emqx_topic:words(Topic), TopicFilter) orelse
@@ -362,3 +363,16 @@ match_topic(Topic, {'eq', TopicFilter}) ->
     Topic =:= TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqx_topic:match(Topic, TopicFilter).
+
+render_topic(Topic, ClientInfo) ->
+    try
+        bin(emqx_template:render_strict(Topic, ClientInfo))
+    catch
+        error:Reason ->
+            ?SLOG(debug, #{
+                msg => "failed_to_render_topic_template",
+                template => Topic,
+                reason => Reason
+            }),
+            error
+    end.
