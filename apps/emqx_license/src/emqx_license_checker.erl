@@ -33,7 +33,9 @@
     expiry_epoch/0,
     purge/0,
     limits/0,
-    print_warnings/1
+    print_warnings/1,
+    get_max_connections/1,
+    get_dynamic_max_connections/0
 ]).
 
 %% gen_server callbacks
@@ -46,21 +48,23 @@
 
 -define(LICENSE_TAB, emqx_license).
 
+-type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED}.
+-type license() :: emqx_license_parser:license().
+-type fetcher() :: fun(() -> {ok, license()} | {error, term()}).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
--type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED}.
-
--spec start_link(emqx_license_parser:license()) -> {ok, pid()}.
+-spec start_link(fetcher()) -> {ok, pid()}.
 start_link(LicenseFetcher) ->
     start_link(LicenseFetcher, ?CHECK_INTERVAL).
 
--spec start_link(emqx_license_parser:license(), timeout()) -> {ok, pid()}.
+-spec start_link(fetcher(), timeout()) -> {ok, pid()}.
 start_link(LicenseFetcher, CheckInterval) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [LicenseFetcher, CheckInterval], []).
 
--spec update(emqx_license_parser:license()) -> map().
+-spec update(license()) -> map().
 update(License) ->
     gen_server:call(?MODULE, {update, License}, infinity).
 
@@ -210,8 +214,7 @@ check_license(License) ->
     DaysLeft = days_left(License),
     IsOverdue = is_overdue(License, DaysLeft),
     NeedRestriction = IsOverdue,
-    MaxConn = emqx_license_parser:max_connections(License),
-    Limits = limits(License, NeedRestriction),
+    #{max_connections := MaxConn} = Limits = limits(License, NeedRestriction),
     true = apply_limits(Limits),
     #{
         warn_evaluation => warn_evaluation(License, NeedRestriction, MaxConn),
@@ -223,8 +226,34 @@ warn_evaluation(License, false, MaxConn) ->
 warn_evaluation(_License, _NeedRestrict, _Limits) ->
     false.
 
-limits(License, false) -> #{max_connections => emqx_license_parser:max_connections(License)};
-limits(_License, true) -> #{max_connections => ?ERR_EXPIRED}.
+limits(License, false) ->
+    #{
+        max_connections => get_max_connections(License)
+    };
+limits(_License, true) ->
+    #{
+        max_connections => ?ERR_EXPIRED
+    }.
+
+%% @doc Return the max_connections limit defined in license.
+%% For business-critical type, it returns the dynamic value set in config.
+-spec get_max_connections(license()) -> non_neg_integer().
+get_max_connections(License) ->
+    Max = emqx_license_parser:max_connections(License),
+    Dyn =
+        case emqx_license_parser:customer_type(License) of
+            ?BUSINESS_CRITICAL_CUSTOMER ->
+                min(get_dynamic_max_connections(), Max);
+            _ ->
+                Max
+        end,
+    min(Max, Dyn).
+
+%% @doc Get the dynamic max_connections limit set in config.
+%% It's only meaningful for business-critical license.
+-spec get_dynamic_max_connections() -> non_neg_integer().
+get_dynamic_max_connections() ->
+    emqx_conf:get([license, dynamic_max_connections]).
 
 days_left(License) ->
     DateEnd = emqx_license_parser:expiry_date(License),

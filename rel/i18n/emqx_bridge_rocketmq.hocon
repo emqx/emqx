@@ -59,4 +59,7 @@ config_connector.desc:
 config_connector.label:
 """RocketMQ Client Configuration"""
 
+strategy.desc:
+"""Producer key dispatch strategy, the default is `roundrobin`, also supports placeholders, such as: `clientid`, `messageid`, `username`."""
+
 }

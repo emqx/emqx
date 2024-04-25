@@ -21,6 +21,8 @@
     on_get_status/2,
     on_query/3,
     on_query_async/4,
+    on_batch_query/3,
+    on_batch_query_async/4,
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
@@ -94,7 +96,7 @@ connector_example_values() ->
         name => <<"iotdb_connector">>,
         type => iotdb,
         enable => true,
-        iotdb_version => ?VSN_1_1_X,
+        iotdb_version => ?VSN_1_3_X,
         authentication => #{
             <<"username">> => <<"root">>,
             <<"password">> => <<"******">>
@@ -133,10 +135,10 @@ fields("connection_fields") ->
             )},
         {iotdb_version,
             mk(
-                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
+                hoconsc:enum([?VSN_1_3_X, ?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
                 #{
                     desc => ?DESC(emqx_bridge_iotdb, "config_iotdb_version"),
-                    default => ?VSN_1_1_X
+                    default => ?VSN_1_3_X
                 }
             )},
         {authentication,
@@ -280,8 +282,8 @@ on_query(
         state => emqx_utils:redact(State)
     }),
 
-    case try_render_message(Req, IoTDBVsn, Channels) of
-        {ok, IoTDBPayload} ->
+    case try_render_messages([Req], IoTDBVsn, Channels) of
+        {ok, [IoTDBPayload]} ->
             handle_response(
                 emqx_bridge_http_connector:on_query(
                     InstanceId, {ChannelId, IoTDBPayload}, State
@@ -306,8 +308,8 @@ on_query_async(
         send_message => Req,
         state => emqx_utils:redact(State)
     }),
-    case try_render_message(Req, IoTDBVsn, Channels) of
-        {ok, IoTDBPayload} ->
+    case try_render_messages([Req], IoTDBVsn, Channels) of
+        {ok, [IoTDBPayload]} ->
             ReplyFunAndArgs =
                 {
                     fun(Result) ->
@@ -318,6 +320,71 @@ on_query_async(
                 },
             emqx_bridge_http_connector:on_query_async(
                 InstanceId, {ChannelId, IoTDBPayload}, ReplyFunAndArgs, State
+            );
+        Error ->
+            Error
+    end.
+
+on_batch_query_async(
+    InstId,
+    Requests,
+    Callback,
+    #{iotdb_version := IoTDBVsn, channels := Channels} = State
+) ->
+    ?tp(iotdb_bridge_on_batch_query_async, #{instance_id => InstId}),
+    [{ChannelId, _Message} | _] = Requests,
+    ?SLOG(debug, #{
+        msg => "iotdb_bridge_on_query_batch_async_called",
+        instance_id => InstId,
+        send_message => Requests,
+        state => emqx_utils:redact(State)
+    }),
+    case try_render_messages(Requests, IoTDBVsn, Channels) of
+        {ok, IoTDBPayloads} ->
+            ReplyFunAndArgs =
+                {
+                    fun(Result) ->
+                        Response = handle_response(Result),
+                        emqx_resource:apply_reply_fun(Callback, Response)
+                    end,
+                    []
+                },
+            lists:map(
+                fun(IoTDBPayload) ->
+                    emqx_bridge_http_connector:on_query_async(
+                        InstId, {ChannelId, IoTDBPayload}, ReplyFunAndArgs, State
+                    )
+                end,
+                IoTDBPayloads
+            );
+        Error ->
+            Error
+    end.
+
+on_batch_query(
+    InstId,
+    [{ChannelId, _Message}] = Requests,
+    #{iotdb_version := IoTDBVsn, channels := Channels} = State
+) ->
+    ?tp(iotdb_bridge_on_batch_query, #{instance_id => InstId}),
+    ?SLOG(debug, #{
+        msg => "iotdb_bridge_on_batch_query_called",
+        instance_id => InstId,
+        send_message => Requests,
+        state => emqx_utils:redact(State)
+    }),
+
+    case try_render_messages(Requests, IoTDBVsn, Channels) of
+        {ok, IoTDBPayloads} ->
+            lists:map(
+                fun(IoTDBPayload) ->
+                    handle_response(
+                        emqx_bridge_http_connector:on_query(
+                            InstId, {ChannelId, IoTDBPayload}, State
+                        )
+                    )
+                end,
+                IoTDBPayloads
             );
         Error ->
             Error
@@ -342,6 +409,7 @@ on_add_channel(
             Path =
                 case Version of
                     ?VSN_1_1_X -> InsertTabletPathV2;
+                    ?VSN_1_3_X -> InsertTabletPathV2;
                     _ -> InsertTabletPathV1
                 end,
 
@@ -442,14 +510,14 @@ maybe_preproc_tmpl(Value) when is_binary(Value) ->
 maybe_preproc_tmpl(Value) ->
     Value.
 
-proc_data(PreProcessedData, Msg) ->
+proc_data(PreProcessedData, Msg, IoTDBVsn) ->
     NowNS = erlang:system_time(nanosecond),
     Nows = #{
         now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
         now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
         now_ns => NowNS
     },
-    proc_data(PreProcessedData, Msg, Nows, []).
+    proc_data(PreProcessedData, Msg, Nows, IoTDBVsn, []).
 
 proc_data(
     [
@@ -463,15 +531,16 @@ proc_data(
     ],
     Msg,
     Nows,
+    IotDbVsn,
     Acc
 ) ->
     DataType = list_to_binary(
         string:uppercase(binary_to_list(emqx_placeholder:proc_tmpl(DataType0, Msg)))
     ),
     try
-        proc_data(T, Msg, Nows, [
+        proc_data(T, Msg, Nows, IotDbVsn, [
             #{
-                timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
+                timestamp => iot_timestamp(IotDbVsn, TimestampTkn, Msg, Nows),
                 measurement => emqx_placeholder:proc_tmpl(Measurement, Msg),
                 data_type => DataType,
                 value => proc_value(DataType, ValueTkn, Msg)
@@ -485,23 +554,28 @@ proc_data(
             ?SLOG(debug, #{exception => Error, reason => Reason, stacktrace => Stacktrace}),
             {error, invalid_data}
     end;
-proc_data([], _Msg, _Nows, Acc) ->
+proc_data([], _Msg, _Nows, _IotDbVsn, Acc) ->
     {ok, lists:reverse(Acc)}.
 
-iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
+iot_timestamp(_IotDbVsn, Timestamp, _, _) when is_integer(Timestamp) ->
     Timestamp;
-iot_timestamp(TimestampTkn, Msg, Nows) ->
-    iot_timestamp(emqx_placeholder:proc_tmpl(TimestampTkn, Msg), Nows).
+iot_timestamp(IotDbVsn, TimestampTkn, Msg, Nows) ->
+    iot_timestamp(IotDbVsn, emqx_placeholder:proc_tmpl(TimestampTkn, Msg), Nows).
 
-iot_timestamp(<<"now_us">>, #{now_us := NowUs}) ->
+%% > v1.3.0 don't allow write nanoseconds nor microseconds
+iot_timestamp(?VSN_1_3_X, <<"now_us">>, #{now_ms := NowMs}) ->
+    NowMs;
+iot_timestamp(?VSN_1_3_X, <<"now_ns">>, #{now_ms := NowMs}) ->
+    NowMs;
+iot_timestamp(_IotDbVsn, <<"now_us">>, #{now_us := NowUs}) ->
     NowUs;
-iot_timestamp(<<"now_ns">>, #{now_ns := NowNs}) ->
+iot_timestamp(_IotDbVsn, <<"now_ns">>, #{now_ns := NowNs}) ->
     NowNs;
-iot_timestamp(Timestamp, #{now_ms := NowMs}) when
+iot_timestamp(_IotDbVsn, Timestamp, #{now_ms := NowMs}) when
     Timestamp =:= <<"now">>; Timestamp =:= <<"now_ms">>; Timestamp =:= <<>>
 ->
     NowMs;
-iot_timestamp(Timestamp, _) when is_binary(Timestamp) ->
+iot_timestamp(_IotDbVsn, Timestamp, _) when is_binary(Timestamp) ->
     binary_to_integer(Timestamp).
 
 proc_value(<<"TEXT">>, ValueTkn, Msg) ->
@@ -526,6 +600,7 @@ replace_var(Val, _Data) ->
 
 convert_bool(B) when is_boolean(B) -> B;
 convert_bool(null) -> null;
+convert_bool(undefined) -> null;
 convert_bool(1) -> true;
 convert_bool(0) -> false;
 convert_bool(<<"1">>) -> true;
@@ -568,11 +643,10 @@ convert_float(undefined) ->
 make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn) ->
     InitAcc = #{timestamps => [], measurements => [], dtypes => [], values => []},
     Rows = replace_dtypes(aggregate_rows(DataList, InitAcc), IoTDBVsn),
-    {ok,
-        maps:merge(Rows, #{
-            iotdb_field_key(is_aligned, IoTDBVsn) => IsAligned,
-            iotdb_field_key(device_id, IoTDBVsn) => DeviceId
-        })}.
+    maps:merge(Rows, #{
+        iotdb_field_key(is_aligned, IoTDBVsn) => IsAligned,
+        iotdb_field_key(device_id, IoTDBVsn) => DeviceId
+    }).
 
 replace_dtypes(Rows0, IoTDBVsn) ->
     {Types, Rows} = maps:take(dtypes, Rows0),
@@ -632,18 +706,24 @@ insert_value(1, Data, [Value | Values]) ->
 insert_value(Index, Data, [Value | Values]) ->
     [[null | Value] | insert_value(Index - 1, Data, Values)].
 
+iotdb_field_key(is_aligned, ?VSN_1_3_X) ->
+    <<"is_aligned">>;
 iotdb_field_key(is_aligned, ?VSN_1_1_X) ->
     <<"is_aligned">>;
 iotdb_field_key(is_aligned, ?VSN_1_0_X) ->
     <<"is_aligned">>;
 iotdb_field_key(is_aligned, ?VSN_0_13_X) ->
     <<"isAligned">>;
+iotdb_field_key(device_id, ?VSN_1_3_X) ->
+    <<"device">>;
 iotdb_field_key(device_id, ?VSN_1_1_X) ->
     <<"device">>;
 iotdb_field_key(device_id, ?VSN_1_0_X) ->
     <<"device">>;
 iotdb_field_key(device_id, ?VSN_0_13_X) ->
     <<"deviceId">>;
+iotdb_field_key(data_types, ?VSN_1_3_X) ->
+    <<"data_types">>;
 iotdb_field_key(data_types, ?VSN_1_1_X) ->
     <<"data_types">>;
 iotdb_field_key(data_types, ?VSN_1_0_X) ->
@@ -706,12 +786,35 @@ preproc_data_template(DataList) ->
         DataList
     ).
 
-try_render_message({ChannelId, Msg}, IoTDBVsn, Channels) ->
+try_render_messages([{ChannelId, _} | _] = Msgs, IoTDBVsn, Channels) ->
     case maps:find(ChannelId, Channels) of
         {ok, Channel} ->
-            render_channel_message(Channel, IoTDBVsn, Msg);
+            case do_render_message(Msgs, Channel, IoTDBVsn, #{}) of
+                RenderMsgs when is_map(RenderMsgs) ->
+                    {ok,
+                        lists:map(
+                            fun({{DeviceId, IsAligned}, DataList}) ->
+                                make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn)
+                            end,
+                            maps:to_list(RenderMsgs)
+                        )};
+                Error ->
+                    Error
+            end;
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
+    end.
+
+do_render_message([], _Channel, _IoTDBVsn, Acc) ->
+    Acc;
+do_render_message([{_, Msg} | Msgs], Channel, IoTDBVsn, Acc) ->
+    case render_channel_message(Channel, IoTDBVsn, Msg) of
+        {ok, NewDataList, DeviceId, IsAligned} ->
+            Fun = fun(V) -> NewDataList ++ V end,
+            Acc1 = maps:update_with({DeviceId, IsAligned}, Fun, NewDataList, Acc),
+            do_render_message(Msgs, Channel, IoTDBVsn, Acc1);
+        Error ->
+            Error
     end.
 
 render_channel_message(#{is_aligned := IsAligned} = Channel, IoTDBVsn, Message) ->
@@ -724,9 +827,9 @@ render_channel_message(#{is_aligned := IsAligned} = Channel, IoTDBVsn, Message) 
                 [] ->
                     {error, invalid_template};
                 DataTemplate ->
-                    case proc_data(DataTemplate, Message) of
+                    case proc_data(DataTemplate, Message, IoTDBVsn) of
                         {ok, DataList} ->
-                            make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn);
+                            {ok, DataList, DeviceId, IsAligned};
                         Error ->
                             Error
                     end

@@ -42,7 +42,7 @@
 %% api
 
 write_syntax_type() ->
-    typerefl:alias("string", write_syntax()).
+    typerefl:alias("template", write_syntax()).
 
 %% Examples
 conn_bridge_examples(Method) ->

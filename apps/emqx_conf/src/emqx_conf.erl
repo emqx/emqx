@@ -31,13 +31,6 @@
 -export([dump_schema/2, reformat_schema_dump/2]).
 -export([schema_module/0]).
 
-%% TODO: move to emqx_dashboard when we stop building api schema at build time
--export([
-    hotconf_schema_json/0,
-    bridge_schema_json/0,
-    hocon_schema_to_spec/2
-]).
-
 %% for rpc
 -export([get_node_and_config/1]).
 
@@ -311,12 +304,22 @@ gen_flat_doc(RootNames, #{full_name := FullName, fields := Fields} = S, DescReso
         false ->
             ok
     end,
-    #{
-        text => short_name(FullName),
-        hash => format_hash(FullName),
-        doc => maps:get(desc, S, <<"">>),
-        fields => format_fields(Fields, DescResolver)
-    }.
+    try
+        #{
+            text => short_name(FullName),
+            hash => format_hash(FullName),
+            doc => maps:get(desc, S, <<"">>),
+            fields => format_fields(Fields, DescResolver)
+        }
+    catch
+        throw:Reason ->
+            io:format(
+                standard_error,
+                "failed_to_build_doc for ~s:~n~p~n",
+                [FullName, Reason]
+            ),
+            error(failed_to_build_doc)
+    end.
 
 format_fields(Fields, DescResolver) ->
     [format_field(F, DescResolver) || F <- Fields].
@@ -456,17 +459,6 @@ warn_bad_namespace(Namespace) ->
             ok
     end.
 
-%% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
-hotconf_schema_json() ->
-    SchemaInfo = #{title => <<"EMQX Hot Conf API Schema">>, version => <<"0.1.0">>},
-    gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo).
-
-%% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
-bridge_schema_json() ->
-    Version = <<"0.1.0">>,
-    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => Version},
-    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
-
 %% @doc return the root schema module.
 -spec schema_module() -> module().
 schema_module() ->
@@ -505,57 +497,6 @@ make_desc_resolver(Lang) ->
         (Desc) ->
             unicode:characters_to_binary(Desc)
     end.
-
-gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
-    emqx_dashboard_swagger:gen_api_schema_json_iodata(
-        SchemaMod,
-        SchemaInfo,
-        fun ?MODULE:hocon_schema_to_spec/2
-    ).
-
--define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
--define(TO_COMPONENTS_SCHEMA(_M_, _F_),
-    iolist_to_binary([
-        <<"#/components/schemas/">>,
-        ?TO_REF(emqx_dashboard_swagger:namespace(_M_), _F_)
-    ])
-).
-
-hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
-    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(Module, StructName)}, [{Module, StructName}]};
-hocon_schema_to_spec(?REF(StructName), LocalModule) ->
-    {#{<<"$ref">> => ?TO_COMPONENTS_SCHEMA(LocalModule, StructName)}, [{LocalModule, StructName}]};
-hocon_schema_to_spec(Type, LocalModule) when ?IS_TYPEREFL(Type) ->
-    {typename_to_spec(typerefl:name(Type), LocalModule), []};
-hocon_schema_to_spec(?ARRAY(Item), LocalModule) ->
-    {Schema, Refs} = hocon_schema_to_spec(Item, LocalModule),
-    {#{type => array, items => Schema}, Refs};
-hocon_schema_to_spec(?ENUM(Items), _LocalModule) ->
-    {#{type => enum, symbols => Items}, []};
-hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->
-    {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
-    {
-        #{
-            <<"type">> => object,
-            <<"properties">> => #{<<"$", (to_bin(Name))/binary>> => Schema}
-        },
-        SubRefs
-    };
-hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
-    {OneOf, Refs} = lists:foldl(
-        fun(Type, {Acc, RefsAcc}) ->
-            {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),
-            {[Schema | Acc], SubRefs ++ RefsAcc}
-        end,
-        {[], []},
-        hoconsc:union_members(Types)
-    ),
-    {#{<<"oneOf">> => OneOf}, Refs};
-hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
-    {#{type => enum, symbols => [Atom]}, []}.
-
-typename_to_spec(TypeStr, Module) ->
-    emqx_conf_schema_types:readable_dashboard(Module, TypeStr).
 
 join_format(Snippets) ->
     case [S || S <- Snippets, S =/= undefined] of

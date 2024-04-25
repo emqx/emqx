@@ -135,7 +135,7 @@ overwrite() ->
 index() ->
     {index,
         ?HOCON(
-            binary(),
+            emqx_schema:template(),
             #{
                 required => true,
                 example => <<"${payload.index}">>,
@@ -146,7 +146,7 @@ index() ->
 id(Required) ->
     {id,
         ?HOCON(
-            binary(),
+            emqx_schema:template(),
             #{
                 required => Required,
                 example => <<"${payload.id}">>,
@@ -157,7 +157,7 @@ id(Required) ->
 doc() ->
     {doc,
         ?HOCON(
-            binary(),
+            emqx_schema:template(),
             #{
                 required => false,
                 example => <<"${payload.doc}">>,
@@ -187,7 +187,7 @@ doc_as_upsert() ->
 routing() ->
     {routing,
         ?HOCON(
-            binary(),
+            emqx_schema:template(),
             #{
                 required => false,
                 example => <<"${payload.routing}">>,

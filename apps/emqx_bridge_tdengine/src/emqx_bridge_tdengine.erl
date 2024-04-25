@@ -83,7 +83,7 @@ fields("config") ->
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {sql,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("sql_template"),
                     default => ?DEFAULT_SQL,
@@ -125,7 +125,7 @@ fields(action_parameters) ->
         {database, fun emqx_connector_schema_lib:database/1},
         {sql,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("sql_template"),
                     default => ?DEFAULT_SQL,

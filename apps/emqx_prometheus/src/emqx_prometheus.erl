@@ -37,6 +37,7 @@
 -include_lib("public_key/include/public_key.hrl").
 -include_lib("prometheus/include/prometheus_model.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_metrics.hrl").
 
 -import(
     prometheus_model_helpers,
@@ -212,10 +213,29 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, cert_metric_meta(), ?MG(cert_data, RawData)),
     ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
+    ok = maybe_add_ds_collect_family(Callback, RawData),
     ok = maybe_license_add_collect_family(Callback, RawData),
     ok;
 collect_mf(_Registry, _Callback) ->
     ok.
+
+maybe_add_ds_collect_family(Callback, RawData) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            add_collect_family(
+                Callback, emqx_ds_builtin_metrics:prometheus_meta(), ?MG(ds_data, RawData)
+            );
+        false ->
+            ok
+    end.
+
+maybe_collect_ds_data(Mode) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            #{ds_data => emqx_ds_builtin_metrics:prometheus_collect(Mode)};
+        false ->
+            #{}
+    end.
 
 %% @private
 collect(<<"json">>) ->
@@ -251,7 +271,7 @@ add_collect_family(Name, Data, Callback, Type) ->
 
 %% behaviour
 fetch_from_local_node(Mode) ->
-    {node(), #{
+    {node(), (maybe_collect_ds_data(Mode))#{
         stats_data => stats_data(Mode),
         vm_data => vm_data(Mode),
         cluster_data => cluster_data(Mode),
@@ -480,7 +500,19 @@ emqx_collect(K = emqx_mria_lag, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_mria_bootstrap_time, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_mria_bootstrap_num_keys, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = emqx_mria_message_queue_len, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = emqx_mria_replayq_len, D) -> gauge_metrics(?MG(K, D, [])).
+emqx_collect(K = emqx_mria_replayq_len, D) -> gauge_metrics(?MG(K, D, []));
+%% DS
+emqx_collect(K = ?DS_EGRESS_BATCHES, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_BATCHES_RETRY, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_BATCHES_FAILED, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_MESSAGES, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_BYTES, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_EGRESS_FLUSH_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_STORE_BATCH_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_BUILTIN_NEXT_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_LTS_SEEK_COUNTER, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_LTS_NEXT_COUNTER, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_LTS_COLLISION_COUNTER, D) -> counter_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators

@@ -31,6 +31,9 @@
 
 -export([clean_cache/0]).
 
+%% For tests
+-export([hard_coded_test_connector_info_modules/0]).
+
 %% The type name for the conncector
 -callback type_name() -> atom().
 
@@ -117,8 +120,13 @@ hard_coded_connector_info_modules_common() ->
         emqx_bridge_mqtt_pubsub_connector_info
     ].
 
+%% This exists so that it can be mocked for test cases
+hard_coded_test_connector_info_modules() -> [].
+
 hard_coded_connector_info_modules() ->
-    hard_coded_connector_info_modules_common() ++ hard_coded_connector_info_modules_ee().
+    hard_coded_connector_info_modules_common() ++
+        hard_coded_connector_info_modules_ee() ++
+        ?MODULE:hard_coded_test_connector_info_modules().
 
 %% --------------------------------------------------------------------
 %% Atom macros to avoid typos

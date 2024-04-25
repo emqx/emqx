@@ -189,7 +189,7 @@ t_nest_object(_Config) ->
 t_empty(_Config) ->
     ?assertThrow(
         {error, #{
-            msg := <<"Object only supports not empty proplists">>,
+            msg := <<"Object only supports non-empty fields list">>,
             args := [],
             module := ?MODULE
         }},
@@ -273,7 +273,7 @@ t_bad_ref(_Config) ->
     ?assertThrow(
         {error, #{
             module := ?MODULE,
-            msg := <<"Object only supports not empty proplists">>
+            msg := <<"Object only supports non-empty fields list">>
         }},
         validate(Path, Object, ExpectRefs)
     ),

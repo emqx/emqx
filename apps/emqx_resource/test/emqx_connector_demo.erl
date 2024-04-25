@@ -18,6 +18,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -behaviour(emqx_resource).
 
@@ -30,7 +31,12 @@
     on_query_async/4,
     on_batch_query/3,
     on_batch_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
 
 -export([counter_loop/0, set_callback_mode/1]).
@@ -39,6 +45,7 @@
 -export([roots/0]).
 
 -define(CM_KEY, {?MODULE, callback_mode}).
+-define(PT_CHAN_KEY(CONN_RES_ID), {?MODULE, chans, CONN_RES_ID}).
 
 roots() ->
     [
@@ -70,12 +77,14 @@ on_start(InstId, #{name := Name} = Opts) ->
     {ok, Opts#{
         id => InstId,
         stop_error => StopError,
+        channels => #{},
         pid => spawn_counter_process(Name, Register)
     }}.
 
 on_stop(_InstId, #{stop_error := true}) ->
     {error, stop_error};
-on_stop(_InstId, #{pid := Pid}) ->
+on_stop(InstId, #{pid := Pid}) ->
+    persistent_term:erase(?PT_CHAN_KEY(InstId)),
     stop_counter_process(Pid).
 
 on_query(_InstId, get_state, State) ->
@@ -276,15 +285,47 @@ batch_individual_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
 
 on_get_status(_InstId, #{health_check_error := true}) ->
     ?tp(connector_demo_health_check_error, #{}),
-    disconnected;
+    ?status_disconnected;
 on_get_status(_InstId, State = #{health_check_error := {msg, Message}}) ->
     ?tp(connector_demo_health_check_error, #{}),
-    {disconnected, State, Message};
+    {?status_disconnected, State, Message};
+on_get_status(_InstId, #{pid := Pid, health_check_error := {delay, Delay}}) ->
+    ?tp(connector_demo_health_check_delay, #{}),
+    timer:sleep(Delay),
+    case is_process_alive(Pid) of
+        true -> ?status_connected;
+        false -> ?status_disconnected
+    end;
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
     case is_process_alive(Pid) of
-        true -> connected;
-        false -> disconnected
+        true -> ?status_connected;
+        false -> ?status_disconnected
+    end.
+
+on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
+    ConnSt = emqx_utils_maps:deep_put([channels, ChanId], ConnSt0, ChanCfg),
+    do_add_channel(ConnResId, ChanId, ChanCfg),
+    {ok, ConnSt}.
+
+on_remove_channel(ConnResId, ConnSt0, ChanId) ->
+    ConnSt = emqx_utils_maps:deep_remove([channels, ChanId], ConnSt0),
+    do_remove_channel(ConnResId, ChanId),
+    {ok, ConnSt}.
+
+on_get_channels(ConnResId) ->
+    persistent_term:get(?PT_CHAN_KEY(ConnResId), []).
+
+on_get_channel_status(_ConnResId, ChanId, #{channels := Chans}) ->
+    case Chans of
+        #{ChanId := #{health_check_delay := Delay}} ->
+            ?tp(connector_demo_channel_health_check_delay, #{}),
+            timer:sleep(Delay),
+            ?status_connected;
+        #{ChanId := _ChanCfg} ->
+            ?status_connected;
+        #{} ->
+            ?status_disconnected
     end.
 
 spawn_counter_process(Name, Register) ->
@@ -447,3 +488,11 @@ make_random_reply(N) ->
         3 ->
             {error, {unrecoverable_error, N}}
     end.
+
+do_add_channel(ConnResId, ChanId, ChanCfg) ->
+    Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
+    persistent_term:put(?PT_CHAN_KEY(ConnResId), [{ChanId, ChanCfg} | Chans]).
+
+do_remove_channel(ConnResId, ChanId) ->
+    Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
+    persistent_term:put(?PT_CHAN_KEY(ConnResId), proplists:delete(ChanId, Chans)).

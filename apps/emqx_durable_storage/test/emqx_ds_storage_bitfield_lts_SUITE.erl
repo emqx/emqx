@@ -261,8 +261,7 @@ t_atomic_store_batch(_Config) ->
                     sync => true
                 })
             ),
-
-            ok
+            timer:sleep(1000)
         end,
         fun(Trace) ->
             %% Must contain exactly one flush with all messages.
@@ -293,19 +292,18 @@ t_non_atomic_store_batch(_Config) ->
                     sync => true
                 })
             ),
-
-            ok
+            Msgs
         end,
-        fun(Trace) ->
-            %% Should contain one flush per message.
-            ?assertMatch(
-                [#{batch := [_]}, #{batch := [_]}, #{batch := [_]}],
-                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+        fun(ExpectedMsgs, Trace) ->
+            ProcessedMsgs = lists:append(
+                ?projection(batch, ?of_kind(emqx_ds_replication_layer_egress_flush, Trace))
             ),
-            ok
+            ?assertEqual(
+                ExpectedMsgs,
+                ProcessedMsgs
+            )
         end
-    ),
-    ok.
+    ).
 
 check(Shard, TopicFilter, StartTime, ExpectedMessages) ->
     ExpectedFiltered = lists:filter(

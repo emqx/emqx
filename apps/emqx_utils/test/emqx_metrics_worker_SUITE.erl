@@ -31,18 +31,17 @@ suite() ->
 -define(NAME, ?MODULE).
 
 init_per_suite(Config) ->
-    {ok, _} = emqx_metrics_worker:start_link(?NAME),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_metrics_worker:stop(?NAME).
+    ok.
 
 init_per_testcase(_, Config) ->
-    ok = emqx_metrics_worker:stop(?NAME),
     {ok, _} = emqx_metrics_worker:start_link(?NAME),
     Config.
 
 end_per_testcase(_, _Config) ->
+    ok = emqx_metrics_worker:stop(?NAME),
     ok.
 
 t_get_metrics(_) ->

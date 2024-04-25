@@ -1004,9 +1004,9 @@ t_different_groups_same_topic(Config) when is_list(Config) ->
     GroupB = <<"bb">>,
     Topic = <<"t/1">>,
 
-    SharedTopicGroupA = ?SHARE(GroupA, Topic),
+    SharedTopicGroupA = format_share(GroupA, Topic),
     ?UPDATE_SUB_QOS(C, SharedTopicGroupA, ?QOS_2),
-    SharedTopicGroupB = ?SHARE(GroupB, Topic),
+    SharedTopicGroupB = format_share(GroupB, Topic),
     ?UPDATE_SUB_QOS(C, SharedTopicGroupB, ?QOS_2),
 
     ?retry(
@@ -1050,11 +1050,11 @@ t_different_groups_update_subopts(Config) when is_list(Config) ->
     Topic = <<"t/1">>,
     GroupA = <<"aa">>,
     GroupB = <<"bb">>,
-    SharedTopicGroupA = ?SHARE(GroupA, Topic),
-    SharedTopicGroupB = ?SHARE(GroupB, Topic),
+    SharedTopicGroupA = format_share(GroupA, Topic),
+    SharedTopicGroupB = format_share(GroupB, Topic),
 
     Fun = fun(Group, QoS) ->
-        ?UPDATE_SUB_QOS(C, ?SHARE(Group, Topic), QoS),
+        ?UPDATE_SUB_QOS(C, format_share(Group, Topic), QoS),
         ?assertMatch(
             #{qos := QoS},
             emqx_broker:get_subopts(ClientId, emqx_topic:make_shared_record(Group, Topic))
@@ -1152,6 +1152,9 @@ t_queue_subscription(Config) when is_list(Config) ->
 %%--------------------------------------------------------------------
 %% help functions
 %%--------------------------------------------------------------------
+
+format_share(Group, Topic) ->
+    emqx_topic:maybe_format_share(emqx_topic:make_shared_record(Group, Topic)).
 
 kill_process(Pid) ->
     kill_process(Pid, fun(_) -> erlang:exit(Pid, kill) end).

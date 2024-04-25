@@ -52,12 +52,20 @@ end_per_testcase(_, _Config) ->
 
 init_per_suite(Config) ->
     code:ensure_loaded(?TEST_RESOURCE),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    {ok, _} = application:ensure_all_started(emqx_resource),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_resource
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_resource, emqx_conf]).
+end_per_suite(Config) ->
+    Apps = proplists:get_value(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -115,10 +123,7 @@ t_create_remove(_) ->
 
             ?assertNot(is_process_alive(Pid))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_create_remove_local(_) ->
@@ -174,10 +179,7 @@ t_create_remove_local(_) ->
 
             ?assertNot(is_process_alive(Pid))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_do_not_start_after_created(_) ->
@@ -219,10 +221,7 @@ t_do_not_start_after_created(_) ->
 
             ?assertNot(is_process_alive(Pid2))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_query(_) ->
@@ -278,10 +277,9 @@ t_batch_query_counter(_) ->
         fun(Result, Trace) ->
             ?assertMatch({ok, 0}, Result),
             QueryTrace = ?of_kind(call_batch_query, Trace),
-            ?assertMatch([#{batch := [{query, _, get_counter, _, _}]}], QueryTrace)
+            ?assertMatch([#{batch := [{query, _, get_counter, _, _, _}]}], QueryTrace)
         end
     ),
-
     NMsgs = 1_000,
     ?check_trace(
         ?TRACE_OPTS,
@@ -341,7 +339,7 @@ t_query_counter_async_query(_) ->
         fun(Trace) ->
             %% the callback_mode of 'emqx_connector_demo' is 'always_sync'.
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _, _}} | _], QueryTrace)
         end
     ),
     %% simple query ignores the query_mode and batching settings in the resource_worker
@@ -352,7 +350,7 @@ t_query_counter_async_query(_) ->
             ?assertMatch({ok, 1000}, Result),
             %% the callback_mode if 'emqx_connector_demo' is 'always_sync'.
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
+            ?assertMatch([#{query := {query, _, get_counter, _, _, _}}], QueryTrace)
         end
     ),
     #{counters := C} = emqx_resource:get_metrics(?ID),
@@ -398,7 +396,7 @@ t_query_counter_async_callback(_) ->
         end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _, _}} | _], QueryTrace)
         end
     ),
 
@@ -409,7 +407,7 @@ t_query_counter_async_callback(_) ->
         fun(Result, Trace) ->
             ?assertMatch({ok, 1000}, Result),
             QueryTrace = ?of_kind(call_query, Trace),
-            ?assertMatch([#{query := {query, _, get_counter, _, _}}], QueryTrace)
+            ?assertMatch([#{query := {query, _, get_counter, _, _, _}}], QueryTrace)
         end
     ),
     #{counters := C} = emqx_resource:get_metrics(?ID),
@@ -481,7 +479,7 @@ t_query_counter_async_inflight(_) ->
             ),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _, _}} | _], QueryTrace)
         end
     ),
     tap_metrics(?LINE),
@@ -538,7 +536,7 @@ t_query_counter_async_inflight(_) ->
         end,
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, _}, _, _}} | _], QueryTrace),
+            ?assertMatch([#{query := {query, _, {inc_counter, _}, _, _, _}} | _], QueryTrace),
             ?assertEqual(WindowSize + Num + 1, ets:info(Tab0, size), #{tab => ets:tab2list(Tab0)}),
             tap_metrics(?LINE),
             ok
@@ -558,7 +556,7 @@ t_query_counter_async_inflight(_) ->
             ),
         fun(Trace) ->
             QueryTrace = ?of_kind(call_query_async, Trace),
-            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _}} | _], QueryTrace)
+            ?assertMatch([#{query := {query, _, {inc_counter, 1}, _, _, _}} | _], QueryTrace)
         end
     ),
 
@@ -670,8 +668,8 @@ t_query_counter_async_inflight_batch(_) ->
              || Event = #{
                     ?snk_kind := call_batch_query_async,
                     batch := [
-                        {query, _, {inc_counter, 1}, _, _},
-                        {query, _, {inc_counter, 1}, _, _}
+                        {query, _, {inc_counter, 1}, _, _, _},
+                        {query, _, {inc_counter, 1}, _, _, _}
                     ]
                 } <-
                     Trace
@@ -755,7 +753,7 @@ t_query_counter_async_inflight_batch(_) ->
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query_async, Trace),
             ?assertMatch(
-                [#{batch := [{query, _, {inc_counter, _}, _, _} | _]} | _],
+                [#{batch := [{query, _, {inc_counter, _}, _, _, _} | _]} | _],
                 QueryTrace
             )
         end
@@ -780,7 +778,7 @@ t_query_counter_async_inflight_batch(_) ->
         fun(Trace) ->
             QueryTrace = ?of_kind(call_batch_query_async, Trace),
             ?assertMatch(
-                [#{batch := [{query, _, {inc_counter, _}, _, _} | _]} | _],
+                [#{batch := [{query, _, {inc_counter, _}, _, _, _} | _]} | _],
                 QueryTrace
             )
         end
@@ -855,14 +853,12 @@ t_healthy_timeout(_) ->
             ),
             ?assertEqual(ok, emqx_resource:remove_local(?ID))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_healthy(_) ->
     ?check_trace(
+        #{timetrap => 10_000},
         begin
             ?assertMatch(
                 {ok, _},
@@ -873,10 +869,13 @@ t_healthy(_) ->
                     #{name => test_resource}
                 )
             ),
+            ct:pal("getting state"),
             {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
             timer:sleep(300),
+            ct:pal("setting state as `connecting`"),
             emqx_resource:set_resource_status_connecting(?ID),
 
+            ct:pal("health check"),
             ?assertEqual({ok, connected}, emqx_resource:health_check(?ID)),
             ?assertMatch(
                 [#{status := connected}],
@@ -894,10 +893,7 @@ t_healthy(_) ->
 
             ?assertEqual(ok, emqx_resource:remove_local(?ID))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_unhealthy_target(_) ->
@@ -1005,11 +1001,7 @@ t_stop_start(_) ->
             ?assertEqual(ok, emqx_resource:stop(?ID)),
             ?assertEqual(0, emqx_resource_metrics:inflight_get(?ID))
         end,
-
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_stop_start_local(_) ->
@@ -1064,10 +1056,7 @@ t_stop_start_local(_) ->
 
             ?assert(is_process_alive(Pid1))
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_list_filter(_) ->
@@ -1269,10 +1258,7 @@ t_health_check_disconnected(_) ->
                 emqx_resource:health_check(?ID)
             )
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-            ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
-        end
+        [log_consistency_prop()]
     ).
 
 t_unblock_only_required_buffer_workers(_) ->
@@ -2064,7 +2050,7 @@ do_t_expiration_before_sending(QueryMode) ->
         end,
         fun(Trace) ->
             ?assertMatch(
-                [#{batch := [{query, _, {inc_counter, 99}, _, _}]}],
+                [#{batch := [{query, _, {inc_counter, 99}, _, _, _}]}],
                 ?of_kind(buffer_worker_flush_all_expired, Trace)
             ),
             Metrics = tap_metrics(?LINE),
@@ -2180,7 +2166,7 @@ do_t_expiration_before_sending_partial_batch(QueryMode) ->
                         #{
                             ?snk_kind := handle_async_reply,
                             action := ack,
-                            batch_or_query := [{query, _, {inc_counter, 99}, _, _}]
+                            batch_or_query := [{query, _, {inc_counter, 99}, _, _, _}]
                         },
                         10 * TimeoutMS
                     );
@@ -2202,8 +2188,8 @@ do_t_expiration_before_sending_partial_batch(QueryMode) ->
             ?assertMatch(
                 [
                     #{
-                        expired := [{query, _, {inc_counter, 199}, _, _}],
-                        not_expired := [{query, _, {inc_counter, 99}, _, _}]
+                        expired := [{query, _, {inc_counter, 199}, _, _, _}],
+                        not_expired := [{query, _, {inc_counter, 99}, _, _, _}]
                     }
                 ],
                 ?of_kind(buffer_worker_flush_potentially_partial, Trace)
@@ -2316,7 +2302,7 @@ do_t_expiration_async_after_reply(IsBatch) ->
                 #{?snk_kind := delay},
                 #{
                     ?snk_kind := handle_async_reply_enter,
-                    batch_or_query := [{query, _, {inc_counter, 199}, _, _} | _]
+                    batch_or_query := [{query, _, {inc_counter, 199}, _, _, _} | _]
                 }
             ),
 
@@ -2359,8 +2345,8 @@ do_t_expiration_async_after_reply(IsBatch) ->
                         [
                             #{
                                 expired := [
-                                    {query, _, {inc_counter, 199}, _, _},
-                                    {query, _, {inc_counter, 299}, _, _}
+                                    {query, _, {inc_counter, 199}, _, _, _},
+                                    {query, _, {inc_counter, 299}, _, _, _}
                                 ]
                             }
                         ],
@@ -2378,8 +2364,8 @@ do_t_expiration_async_after_reply(IsBatch) ->
                 single ->
                     ?assertMatch(
                         [
-                            #{expired := [{query, _, {inc_counter, 199}, _, _}]},
-                            #{expired := [{query, _, {inc_counter, 299}, _, _}]}
+                            #{expired := [{query, _, {inc_counter, 199}, _, _, _}]},
+                            #{expired := [{query, _, {inc_counter, 299}, _, _, _}]}
                         ],
                         ?of_kind(handle_async_reply_expired, Trace)
                     )
@@ -2430,7 +2416,7 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
                 #{?snk_kind := delay},
                 #{
                     ?snk_kind := handle_async_reply_enter,
-                    batch_or_query := [{query, _, {inc_counter, 199}, _, _} | _]
+                    batch_or_query := [{query, _, {inc_counter, 199}, _, _, _} | _]
                 }
             ),
 
@@ -2464,8 +2450,8 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
                 [
                     #{
                         expired := [
-                            {query, _, {inc_counter, 199}, _, _},
-                            {query, _, {inc_counter, 299}, _, _}
+                            {query, _, {inc_counter, 199}, _, _, _},
+                            {query, _, {inc_counter, 299}, _, _, _}
                         ]
                     }
                 ],
@@ -2591,7 +2577,7 @@ do_t_expiration_retry() ->
         end,
         fun(Trace) ->
             ?assertMatch(
-                [#{expired := [{query, _, {inc_counter, 1}, _, _}]}],
+                [#{expired := [{query, _, {inc_counter, 1}, _, _, _}]}],
                 ?of_kind(buffer_worker_retry_expired, Trace)
             ),
             Metrics = tap_metrics(?LINE),
@@ -2668,8 +2654,8 @@ t_expiration_retry_batch_multiple_times(_Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [
-                    #{expired := [{query, _, {inc_counter, 1}, _, _}]},
-                    #{expired := [{query, _, {inc_counter, 2}, _, _}]}
+                    #{expired := [{query, _, {inc_counter, 1}, _, _, _}]},
+                    #{expired := [{query, _, {inc_counter, 2}, _, _, _}]}
                 ],
                 ?of_kind(buffer_worker_retry_expired, Trace)
             ),
@@ -3116,6 +3102,93 @@ t_telemetry_handler_crash(_Config) ->
     ),
     ok.
 
+t_non_blocking_resource_health_check(_Config) ->
+    ?check_trace(
+        begin
+            {ok, _} =
+                create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource, health_check_error => {delay, 1_000}},
+                    #{health_check_interval => 100}
+                ),
+            %% concurrently attempt to health check the resource; should do it only once
+            %% for all callers
+            NumCallers = 20,
+            Expected = lists:duplicate(NumCallers, {ok, connected}),
+            ?assertEqual(
+                Expected,
+                emqx_utils:pmap(
+                    fun(_) -> emqx_resource:health_check(?ID) end,
+                    lists:seq(1, NumCallers)
+                )
+            ),
+
+            NumCallers
+        end,
+        [
+            log_consistency_prop(),
+            fun(NumCallers, Trace) ->
+                %% shouldn't have one health check per caller
+                SubTrace = ?of_kind(connector_demo_health_check_delay, Trace),
+                ?assertMatch([_ | _], SubTrace),
+                ?assert(length(SubTrace) < (NumCallers div 2), #{trace => Trace}),
+                ok
+            end
+        ]
+    ),
+    ok.
+
+t_non_blocking_channel_health_check(_Config) ->
+    ?check_trace(
+        begin
+            {ok, _} =
+                create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{name => test_resource, health_check_error => {delay, 500}},
+                    #{health_check_interval => 100}
+                ),
+            ChanId = <<"chan">>,
+            ok =
+                emqx_resource_manager:add_channel(
+                    ?ID,
+                    ChanId,
+                    #{health_check_delay => 500}
+                ),
+
+            %% concurrently attempt to health check the resource; should do it only once
+            %% for all callers
+            NumCallers = 20,
+            Expected = lists:duplicate(
+                NumCallers,
+                #{error => undefined, status => connected}
+            ),
+            ?assertEqual(
+                Expected,
+                emqx_utils:pmap(
+                    fun(_) -> emqx_resource_manager:channel_health_check(?ID, ChanId) end,
+                    lists:seq(1, NumCallers)
+                )
+            ),
+
+            NumCallers
+        end,
+        [
+            log_consistency_prop(),
+            fun(NumCallers, Trace) ->
+                %% shouldn't have one health check per caller
+                SubTrace = ?of_kind(connector_demo_channel_health_check_delay, Trace),
+                ?assertMatch([_ | _], SubTrace),
+                ?assert(length(SubTrace) < (NumCallers div 2), #{trace => Trace}),
+                ok
+            end
+        ]
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -3272,7 +3345,6 @@ wait_n_events(NEvents, Timeout, EventName) ->
     end.
 
 assert_sync_retry_fail_then_succeed_inflight(Trace) ->
-    ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
             #{?snk_kind := buffer_worker_flush_nack, ref := _Ref},
@@ -3292,7 +3364,6 @@ assert_sync_retry_fail_then_succeed_inflight(Trace) ->
     ok.
 
 assert_async_retry_fail_then_succeed_inflight(Trace) ->
-    ct:pal("  ~p", [Trace]),
     ?assert(
         ?strict_causality(
             #{?snk_kind := handle_async_reply, action := nack},
@@ -3373,3 +3444,10 @@ create(Id, Group, Type, Config) ->
 
 create(Id, Group, Type, Config, Opts) ->
     emqx_resource:create_local(Id, Group, Type, Config, Opts).
+
+log_consistency_prop() ->
+    {"check state and cache consistency", fun ?MODULE:log_consistency_prop/1}.
+log_consistency_prop(Trace) ->
+    ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
+    ?assertEqual([], ?of_kind("inconsistent_cache", Trace)),
+    ok.

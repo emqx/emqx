@@ -43,7 +43,6 @@
 -export([
     %% RPC Targets:
     do_drop_db_v1/1,
-    do_store_batch_v1/4,
     do_get_streams_v1/4,
     do_get_streams_v2/4,
     do_make_iterator_v2/5,
@@ -53,11 +52,11 @@
     do_get_delete_streams_v4/4,
     do_make_delete_iterator_v4/5,
     do_delete_next_v4/5,
-    %% Unused:
-    do_drop_generation_v3/3,
     %% Obsolete:
+    do_store_batch_v1/4,
     do_make_iterator_v1/5,
     do_add_generation_v2/1,
+    do_drop_generation_v3/3,
 
     %% Egress API:
     ra_store_batch/3
@@ -65,7 +64,9 @@
 
 -export([
     init/1,
-    apply/3
+    apply/3,
+
+    snapshot_module/0
 ]).
 
 -export_type([
@@ -78,6 +79,10 @@
     delete_iterator/0,
     message_id/0,
     batch/0
+]).
+
+-export_type([
+    ra_state/0
 ]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -133,12 +138,28 @@
 
 -type message_id() :: emqx_ds:message_id().
 
+%% TODO: this type is obsolete and is kept only for compatibility with
+%% BPAPIs. Remove it when emqx_ds_proto_v4 is gone (EMQX 5.6)
 -type batch() :: #{
     ?tag := ?BATCH,
     ?batch_messages := [emqx_types:message()]
 }.
 
 -type generation_rank() :: {shard_id(), term()}.
+
+%% Core state of the replication, i.e. the state of ra machine.
+-type ra_state() :: #{
+    db_shard := {emqx_ds:db(), shard_id()},
+    latest := timestamp_us()
+}.
+
+%% Command. Each command is an entry in the replication log.
+-type ra_command() :: #{
+    ?tag := ?BATCH | add_generation | update_config | drop_generation,
+    _ => _
+}.
+
+-type timestamp_us() :: non_neg_integer().
 
 %%================================================================================
 %% API functions
@@ -168,8 +189,7 @@ add_generation(DB) ->
 
 -spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
-    ok = emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts),
-    Opts = emqx_ds_replication_layer_meta:get_options(DB),
+    Opts = #{} = emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts),
     foreach_shard(
         DB,
         fun(Shard) -> ok = ra_update_config(DB, Shard, Opts) end
@@ -181,12 +201,19 @@ list_generations_with_lifetimes(DB) ->
     Shards = list_shards(DB),
     lists:foldl(
         fun(Shard, GensAcc) ->
+            case ra_list_generations_with_lifetimes(DB, Shard) of
+                Gens = #{} ->
+                    ok;
+                {error, _Class, _Reason} ->
+                    %% TODO: log error
+                    Gens = #{}
+            end,
             maps:fold(
                 fun(GenId, Data, AccInner) ->
                     AccInner#{{Shard, GenId} => Data}
                 end,
                 GensAcc,
-                ra_list_generations_with_lifetimes(DB, Shard)
+                Gens
             )
         end,
         #{},
@@ -221,14 +248,13 @@ get_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
-            Streams =
-                try
-                    ra_get_streams(DB, Shard, TopicFilter, StartTime)
-                catch
-                    error:{erpc, _} ->
-                        %% TODO: log?
-                        []
-                end,
+            case ra_get_streams(DB, Shard, TopicFilter, StartTime) of
+                Streams when is_list(Streams) ->
+                    ok;
+                {error, _Class, _Reason} ->
+                    %% TODO: log error
+                    Streams = []
+            end,
             lists:map(
                 fun({RankY, StorageLayerStream}) ->
                     RankX = Shard,
@@ -262,14 +288,11 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?stream_v2(Shard, StorageStream) = Stream,
-    try ra_make_iterator(DB, Shard, StorageStream, TopicFilter, StartTime) of
+    case ra_make_iterator(DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Error = {error, _, _} ->
             Error
-    catch
-        error:RPCError = {erpc, _} ->
-            {error, recoverable, RPCError}
     end.
 
 -spec make_delete_iterator(emqx_ds:db(), delete_stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -279,22 +302,19 @@ make_delete_iterator(DB, Stream, TopicFilter, StartTime) ->
     case ra_make_delete_iterator(DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?DELETE_IT, ?shard => Shard, ?enc => Iter}};
-        Err = {error, _} ->
-            Err
+        Error = {error, _, _} ->
+            Error
     end.
 
 -spec update_iterator(emqx_ds:db(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(DB, OldIter, DSKey) ->
     #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
-    try ra_update_iterator(DB, Shard, StorageIter, DSKey) of
+    case ra_update_iterator(DB, Shard, StorageIter, DSKey) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Error = {error, _, _} ->
             Error
-    catch
-        error:RPCError = {erpc, _} ->
-            {error, recoverable, RPCError}
     end.
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
@@ -308,16 +328,16 @@ next(DB, Iter0, BatchSize) ->
     %%
     %% This kind of trickery should be probably done here in the
     %% replication layer. Or, perhaps, in the logic layer.
-    case ra_next(DB, Shard, StorageIter0, BatchSize) of
+    T0 = erlang:monotonic_time(microsecond),
+    Result = ra_next(DB, Shard, StorageIter0, BatchSize),
+    T1 = erlang:monotonic_time(microsecond),
+    emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
+    case Result of
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, Batch};
-        Ok = {ok, _} ->
-            Ok;
-        Error = {error, _, _} ->
-            Error;
-        RPCError = {badrpc, _} ->
-            {error, recoverable, RPCError}
+        Other ->
+            Other
     end.
 
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
@@ -354,6 +374,19 @@ foreach_shard(DB, Fun) ->
 %% Internal exports (RPC targets)
 %%================================================================================
 
+%% NOTE
+%% Target node may still be in the process of starting up when RPCs arrive, it's
+%% good to have them handled gracefully.
+%% TODO
+%% There's a possibility of race condition: storage may shut down right after we
+%% ask for its status.
+-define(IF_STORAGE_RUNNING(SHARDID, EXPR),
+    case emqx_ds_storage_layer:shard_info(SHARDID, status) of
+        running -> EXPR;
+        down -> {error, recoverable, storage_down}
+    end
+).
+
 -spec do_drop_db_v1(emqx_ds:db()) -> ok | {error, _}.
 do_drop_db_v1(DB) ->
     MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
@@ -371,10 +404,9 @@ do_drop_db_v1(DB) ->
     batch(),
     emqx_ds:message_store_opts()
 ) ->
-    emqx_ds:store_batch_result().
-do_store_batch_v1(DB, Shard, #{?tag := ?BATCH, ?batch_messages := Messages}, Options) ->
-    Batch = [{emqx_message:timestamp(Message), Message} || Message <- Messages],
-    emqx_ds_storage_layer:store_batch({DB, Shard}, Batch, Options).
+    no_return().
+do_store_batch_v1(_DB, _Shard, _Batch, _Options) ->
+    error(obsolete_api).
 
 %% Remove me in EMQX 5.6
 -dialyzer({nowarn_function, do_get_streams_v1/4}).
@@ -386,11 +418,18 @@ do_get_streams_v1(_DB, _Shard, _TopicFilter, _StartTime) ->
     error(obsolete_api).
 
 -spec do_get_streams_v2(
-    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
 ) ->
-    [{integer(), emqx_ds_storage_layer:stream()}].
+    [{integer(), emqx_ds_storage_layer:stream()}] | emqx_ds:error(storage_down).
 do_get_streams_v2(DB, Shard, TopicFilter, StartTime) ->
-    emqx_ds_storage_layer:get_streams({DB, Shard}, TopicFilter, StartTime).
+    ShardId = {DB, Shard},
+    ?IF_STORAGE_RUNNING(
+        ShardId,
+        emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime)
+    ).
 
 -dialyzer({nowarn_function, do_make_iterator_v1/5}).
 -spec do_make_iterator_v1(
@@ -413,7 +452,11 @@ do_make_iterator_v1(_DB, _Shard, _Stream, _TopicFilter, _StartTime) ->
 ) ->
     emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
 do_make_iterator_v2(DB, Shard, Stream, TopicFilter, StartTime) ->
-    emqx_ds_storage_layer:make_iterator({DB, Shard}, Stream, TopicFilter, StartTime).
+    ShardId = {DB, Shard},
+    ?IF_STORAGE_RUNNING(
+        ShardId,
+        emqx_ds_storage_layer:make_iterator(ShardId, Stream, TopicFilter, StartTime)
+    ).
 
 -spec do_make_delete_iterator_v4(
     emqx_ds:db(),
@@ -434,9 +477,7 @@ do_make_delete_iterator_v4(DB, Shard, Stream, TopicFilter, StartTime) ->
 ) ->
     emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
 do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
-    emqx_ds_storage_layer:update_iterator(
-        {DB, Shard}, OldIter, DSKey
-    ).
+    emqx_ds_storage_layer:update_iterator({DB, Shard}, OldIter, DSKey).
 
 -spec do_next_v1(
     emqx_ds:db(),
@@ -446,7 +487,11 @@ do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
 ) ->
     emqx_ds:next_result(emqx_ds_storage_layer:iterator()).
 do_next_v1(DB, Shard, Iter, BatchSize) ->
-    emqx_ds_storage_layer:next({DB, Shard}, Iter, BatchSize).
+    ShardId = {DB, Shard},
+    ?IF_STORAGE_RUNNING(
+        ShardId,
+        emqx_ds_storage_layer:next(ShardId, Iter, BatchSize)
+    ).
 
 -spec do_delete_next_v4(
     emqx_ds:db(),
@@ -464,14 +509,19 @@ do_add_generation_v2(_DB) ->
     error(obsolete_api).
 
 -spec do_list_generations_with_lifetimes_v3(emqx_ds:db(), shard_id()) ->
-    #{emqx_ds:ds_specific_generation_rank() => emqx_ds:generation_info()}.
-do_list_generations_with_lifetimes_v3(DB, ShardId) ->
-    emqx_ds_storage_layer:list_generations_with_lifetimes({DB, ShardId}).
+    #{emqx_ds:ds_specific_generation_rank() => emqx_ds:generation_info()}
+    | emqx_ds:error(storage_down).
+do_list_generations_with_lifetimes_v3(DB, Shard) ->
+    ShardId = {DB, Shard},
+    ?IF_STORAGE_RUNNING(
+        ShardId,
+        emqx_ds_storage_layer:list_generations_with_lifetimes(ShardId)
+    ).
 
 -spec do_drop_generation_v3(emqx_ds:db(), shard_id(), emqx_ds_storage_layer:gen_id()) ->
-    ok | {error, _}.
-do_drop_generation_v3(DB, ShardId, GenId) ->
-    emqx_ds_storage_layer:drop_generation({DB, ShardId}, GenId).
+    no_return().
+do_drop_generation_v3(_DB, _ShardId, _GenId) ->
+    error(obsolete_api).
 
 -spec do_get_delete_streams_v4(
     emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
@@ -491,6 +541,17 @@ list_nodes() ->
 %% Too large for normal operation, need better backpressure mechanism.
 -define(RA_TIMEOUT, 60 * 1000).
 
+-define(SAFERPC(EXPR),
+    try
+        EXPR
+    catch
+        error:RPCError = {erpc, _} ->
+            {error, recoverable, RPCError}
+    end
+).
+
+-spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()]) ->
+    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err} | _Err.
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,
@@ -544,28 +605,34 @@ ra_drop_generation(DB, Shard, GenId) ->
 ra_get_streams(DB, Shard, TopicFilter, Time) ->
     {_, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     TimestampUs = timestamp_to_timeus(Time),
-    emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, TimestampUs).
+    ?SAFERPC(emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, TimestampUs)).
 
 ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time).
+    ?SAFERPC(emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time)).
 
 ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
     {_, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    TimestampUs = timestamp_to_timeus(StartTime),
-    emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, TimestampUs).
+    TimeUs = timestamp_to_timeus(StartTime),
+    ?SAFERPC(emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs)).
 
 ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
+    TimeUs = timestamp_to_timeus(StartTime),
+    ?SAFERPC(emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs)).
 
 ra_update_iterator(DB, Shard, Iter, DSKey) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey).
+    ?SAFERPC(emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey)).
 
 ra_next(DB, Shard, Iter, BatchSize) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize).
+    case emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize) of
+        RPCError = {badrpc, _} ->
+            {error, recoverable, RPCError};
+        Other ->
+            Other
+    end.
 
 ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
@@ -573,25 +640,32 @@ ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
 
 ra_list_generations_with_lifetimes(DB, Shard) ->
     {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    Gens = emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard),
-    maps:map(
-        fun(_GenId, Data = #{since := Since, until := Until}) ->
-            Data#{
-                since := timeus_to_timestamp(Since),
-                until := emqx_maybe:apply(fun timeus_to_timestamp/1, Until)
-            }
-        end,
-        Gens
-    ).
+    case ?SAFERPC(emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard)) of
+        Gens = #{} ->
+            maps:map(
+                fun(_GenId, Data = #{since := Since, until := Until}) ->
+                    Data#{
+                        since := timeus_to_timestamp(Since),
+                        until := emqx_maybe:apply(fun timeus_to_timestamp/1, Until)
+                    }
+                end,
+                Gens
+            );
+        Error ->
+            Error
+    end.
 
 ra_drop_shard(DB, Shard) ->
     ra:delete_cluster(emqx_ds_replication_layer_shard:shard_servers(DB, Shard), ?RA_TIMEOUT).
 
 %%
 
+-spec init(_Args :: map()) -> ra_state().
 init(#{db := DB, shard := Shard}) ->
     #{db_shard => {DB, Shard}, latest => 0}.
 
+-spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
+    {ra_state(), _Reply, _Effects}.
 apply(
     #{index := RaftIdx},
     #{
@@ -671,3 +745,6 @@ timestamp_to_timeus(TimestampMs) ->
 
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
+
+snapshot_module() ->
+    emqx_ds_replication_snapshot.

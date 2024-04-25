@@ -51,12 +51,12 @@ fields(action_parameters) ->
 fields(producer_pulsar_message) ->
     [
         {key,
-            ?HOCON(string(), #{
+            ?HOCON(emqx_schema:template(), #{
                 default => <<"${.clientid}">>,
                 desc => ?DESC("producer_key_template")
             })},
         {value,
-            ?HOCON(string(), #{
+            ?HOCON(emqx_schema:template(), #{
                 default => <<"${.}">>,
                 desc => ?DESC("producer_value_template")
             })}

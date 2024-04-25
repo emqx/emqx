@@ -86,10 +86,9 @@
 -define(IS_ERROR(F), F = #{type := ?OCPP_MSG_TYPE_ID_CALLERROR}).
 -define(IS_ERROR(F, Id), F = #{type := ?OCPP_MSG_TYPE_ID_CALLERROR, id := Id}).
 
--define(IS_BootNotification_RESP(Payload), #{
+-define(IS_BootNotification_RESP(Status, Interval), #{
     type := ?OCPP_MSG_TYPE_ID_CALLRESULT,
-    action := ?OCPP_ACT_BootNotification,
-    payload := Payload
+    payload := #{<<"status">> := Status, <<"interval">> := Interval}
 }).
 
 -define(ERR_FRAME(Id, Code, Desc), #{

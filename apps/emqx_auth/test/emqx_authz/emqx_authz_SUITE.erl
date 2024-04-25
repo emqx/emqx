@@ -557,12 +557,14 @@ t_publish_last_will_testament_denied_topic(_Config) ->
 
 t_alias_prefix(_Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE_CLIENT_ATTR]),
-    ExtractSuffix = <<"^.*-(.*)$">>,
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], #{
-        extract_from => clientid,
-        extract_regexp => ExtractSuffix,
-        extract_as => <<"alias">>
-    }),
+    %% '^.*-(.*)$': extract the suffix after the last '-'
+    {ok, Compiled} = emqx_variform:compile("concat(regex_extract(clientid,'^.*-(.*)$'))"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"alias">>
+        }
+    ]),
     ClientId = <<"org1-name2">>,
     SubTopic = <<"name2/#">>,
     SubTopicNotAllowed = <<"name3/#">>,
@@ -572,7 +574,7 @@ t_alias_prefix(_Config) ->
     ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, SubTopicNotAllowed)),
     unlink(C),
     emqtt:stop(C),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], disalbed),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     ok.
 
 %% client is allowed by ACL to publish to its LWT topic, is connected,

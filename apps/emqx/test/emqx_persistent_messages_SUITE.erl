@@ -476,7 +476,7 @@ t_replication_options(_Config) ->
                 resend_window := 60
             }
         },
-        emqx_ds_replication_layer_meta:get_options(?PERSISTENT_MESSAGE_DB)
+        emqx_ds_replication_layer_meta:db_config(?PERSISTENT_MESSAGE_DB)
     ),
     ?assertMatch(
         #{
@@ -584,6 +584,8 @@ message(Topic, Payload, PublishedAt) ->
         id = emqx_guid:gen()
     }.
 
+on_message_dropped(#message{flags = #{sys := true}}, _Context, _Res, _TestPid) ->
+    ok;
 on_message_dropped(Msg, Context, Res, TestPid) ->
     ErrCtx = #{msg => Msg, ctx => Context, res => Res},
     ct:pal("this hook should not be called.\n  ~p", [ErrCtx]),

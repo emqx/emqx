@@ -15,7 +15,7 @@
     [emqtt_connect_many/2, stop_many/1, case_specific_node_name/3]
 ).
 
--define(START_APPS, [emqx, emqx_eviction_agent, emqx_node_rebalance]).
+-define(START_APPS, [emqx, emqx_node_rebalance]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

@@ -82,8 +82,10 @@ main() {
     ## The json status feature was added after hotconf and bridges schema API
     if [ "$JSON_STATUS" != 'NOT_JSON' ]; then
         check_swagger_json
-        check_schema_json hotconf "EMQX Hot Conf API Schema"
-        check_schema_json bridges "EMQX Data Bridge API Schema"
+        check_schema_json hotconf "Hot Conf Schema"
+        check_schema_json bridges "Data Bridge Schema"
+        check_schema_json actions "Actions and Sources Schema"
+        check_schema_json connectors "Connectors Schema"
     fi
 }
 

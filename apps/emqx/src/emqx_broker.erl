@@ -253,8 +253,12 @@ persist_publish(Msg) ->
     case emqx_persistent_message:persist(Msg) of
         ok ->
             [persisted];
-        {_SkipOrError, _Reason} ->
-            % TODO: log errors?
+        {skipped, _} ->
+            [];
+        {error, Recoverable, Reason} ->
+            ?SLOG(debug, #{
+                msg => "failed_to_persist_message", is_recoverable => Recoverable, reason => Reason
+            }),
             []
     end.
 

@@ -1929,7 +1929,6 @@ t_bad_attributes(Config) ->
             ok
         end,
         fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
             ?assertMatch(
                 [
                     #{placeholder := [<<"payload">>, <<"ok">>], value := #{}},

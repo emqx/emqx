@@ -1575,47 +1575,37 @@ client_attrs_init {
   label: "Client Attributes Initialization"
   desc: """~
     Specify how to initialize client attributes.
-    One initial client attribute can be initialized as `client_attrs.NAME`,
-    where `NAME` is the name of the attribute specified in the config `extract_as`.
+    Each client attribute can be initialized as `client_attrs.{NAME}`,
+    where `{NAME}` is the name of the attribute specified in the config field `set_as_attr`.
     The initialized client attribute will be stored in the `client_attrs` property with the specified name,
     and can be used as a placeholder in a template for authentication and authorization.
-    For example, use `${client_attrs.alias}` to render an HTTP POST body when `extract_as = alias`,
+    For example, use `${client_attrs.alias}` to render an HTTP POST body when `set_as_attr = alias`,
     or render listener config `moutpoint = devices/${client_attrs.alias}/` to initialize a per-client topic namespace."""
 }
 
-client_attrs_init_extract_from {
-  label: "Client Property to Extract Attribute"
-  desc: """~
-    Specify from which client property the client attribute should be extracted.
-
-    Supported values:
-    - `clientid`: Extract from the client ID.
-    - `username`: Extract from the username.
-    - `cn`: Extract from the Common Name (CN) field of the client certificate.
-    - `dn`: Extract from the Distinguished Name (DN) field of the client certificate.
-    - `user_property`: Extract from the user property sent in the MQTT v5 `CONNECT` packet.
-      In this case, `extract_regexp` is not applicable, and `extract_as` should be the user property key.
-
-    NOTE: this extraction happens **after** `clientid` or `username` is initialized
-    from `peer_cert_as_clientid` or `peer_cert_as_username` config."""
-}
-
-client_attrs_init_extract_regexp {
+client_attrs_init_expression {
   label: "Client Attribute Extraction Regular Expression"
   desc: """~
-    The regular expression to extract a client attribute from the client property specified by `client_attrs_init.extract_from` config.
-    The expression should match the entire client property value, and capturing groups are concatenated to make the client attribute.
-    For example if the client attribute is the first part of the client ID delimited by a dash, the regular expression would be `^(.+?)-.*$`.
-    Note that failure to match the regular expression will result in the client attribute being absent but not an empty string.
-    Note also that currently only printable ASCII characters are allowed as input for the regular expression extraction."""
+    A one line expression to evaluate a set of predefined string functions (like in the rule engine SQL statements).
+    The expression can be a function call with nested calls as its arguments, or direct variable reference.
+    So far, it does not provide user-defined variable binding (like `var a=1`) or user-defined functions.
+    As an example, to extract the prefix of client ID delimited by a dot: `nth(1, tokens(clientid, '.'))`.
+
+    The variables pre-bound variables are:
+    - `cn`: Client's TLS certificate common name.
+    - `dn`: Client's TLS certificate distinguished name (the subject).
+    - `clientid`: MQTT Client ID.
+    - `username`: MQTT Client's username.
+    - `user_property.{NAME}`: User properties in the CONNECT packet.
+
+    You can read more about variform expressions in EMQX docs."""
 }
 
-client_attrs_init_extract_as {
+client_attrs_init_set_as_attr {
   label: "Name The Extracted Attribute"
   desc: """~
-    The name of the client attribute extracted from the client property specified by `client_attrs_init.extract_from` config.
-    The extracted attribute will be stored in the `client_attrs` property with this name.
-    In case `extract_from = user_property`, this should be the key of the user property."""
+    The name of the client attribute extracted from the client data.
+    The extracted attribute will be stored in the `client_attrs` property with this name."""
 }
 
 }

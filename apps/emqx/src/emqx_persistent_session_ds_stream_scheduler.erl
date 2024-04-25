@@ -126,9 +126,10 @@ find_new_streams(S) ->
 renew_streams(S0) ->
     S1 = remove_unsubscribed_streams(S0),
     S2 = remove_fully_replayed_streams(S1),
+    S3 = update_stream_subscription_state_ids(S2),
     emqx_persistent_session_ds_subs:fold(
         fun
-            (Key, #{start_time := StartTime, id := SubId, deleted := false}, Acc) ->
+            (Key, #{start_time := StartTime, id := SubId, current_state := SStateId}, Acc) ->
                 TopicFilter = emqx_topic:words(Key),
                 Streams = select_streams(
                     SubId,
@@ -137,7 +138,7 @@ renew_streams(S0) ->
                 ),
                 lists:foldl(
                     fun(I, Acc1) ->
-                        ensure_iterator(TopicFilter, StartTime, SubId, I, Acc1)
+                        ensure_iterator(TopicFilter, StartTime, SubId, SStateId, I, Acc1)
                     end,
                     Acc,
                     Streams
@@ -145,8 +146,8 @@ renew_streams(S0) ->
             (_Key, _DeletedSubscription, Acc) ->
                 Acc
         end,
-        S2,
-        S2
+        S3,
+        S3
     ).
 
 -spec on_unsubscribe(
@@ -201,23 +202,32 @@ is_fully_acked(Srs, S) ->
 %% Internal functions
 %%================================================================================
 
-ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
+ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream}, S) ->
     Key = {SubId, Stream},
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
             ?SLOG(debug, #{
                 msg => new_stream, key => Key, stream => Stream
             }),
-            {ok, Iterator} = emqx_ds:make_iterator(
-                ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
-            ),
-            NewStreamState = #srs{
-                rank_x = RankX,
-                rank_y = RankY,
-                it_begin = Iterator,
-                it_end = Iterator
-            },
-            emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
+            case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
+                {ok, Iterator} ->
+                    NewStreamState = #srs{
+                        rank_x = RankX,
+                        rank_y = RankY,
+                        it_begin = Iterator,
+                        it_end = Iterator,
+                        sub_state_id = SStateId
+                    },
+                    emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
+                {error, recoverable, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_initialize_stream_iterator",
+                        stream => Stream,
+                        class => recoverable,
+                        reason => Reason
+                    }),
+                    S
+            end;
         #srs{} ->
             S
     end.
@@ -340,6 +350,38 @@ remove_fully_replayed_streams(S0) ->
         end,
         S1,
         S1
+    ).
+
+%% @doc Update subscription state IDs for all streams that don't have unacked messages
+-spec update_stream_subscription_state_ids(emqx_persistent_session_ds_state:t()) ->
+    emqx_persistent_session_ds_state:t().
+update_stream_subscription_state_ids(S0) ->
+    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
+    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
+    %% Find the latest state IDs for each subscription:
+    LastSStateIds = emqx_persistent_session_ds_state:fold_subscriptions(
+        fun(_, #{id := SubId, current_state := SStateId}, Acc) ->
+            Acc#{SubId => SStateId}
+        end,
+        #{},
+        S0
+    ),
+    %% Update subscription state IDs for fully acked streams:
+    emqx_persistent_session_ds_state:fold_streams(
+        fun
+            (_, #srs{unsubscribed = true}, S) ->
+                S;
+            (Key = {SubId, _Stream}, SRS0, S) ->
+                case is_fully_acked(CommQos1, CommQos2, SRS0) of
+                    true ->
+                        SRS = SRS0#srs{sub_state_id = maps:get(SubId, LastSStateIds)},
+                        emqx_persistent_session_ds_state:put_stream(Key, SRS, S);
+                    false ->
+                        S
+                end
+        end,
+        S0,
+        S0
     ).
 
 %% @doc Compare the streams by the order in which they were replayed.

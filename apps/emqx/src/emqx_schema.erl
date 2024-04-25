@@ -61,6 +61,8 @@
 }.
 -type url() :: binary().
 -type json_binary() :: binary().
+-type template() :: binary().
+-type template_str() :: string().
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -78,6 +80,8 @@
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
 -typerefl_from_string({url/0, emqx_schema, to_url}).
 -typerefl_from_string({json_binary/0, emqx_schema, to_json_binary}).
+-typerefl_from_string({template/0, emqx_schema, to_template}).
+-typerefl_from_string({template_str/0, emqx_schema, to_template_str}).
 
 -type parsed_server() :: #{
     hostname := string(),
@@ -120,7 +124,9 @@
     to_erl_cipher_suite/1,
     to_comma_separated_atoms/1,
     to_url/1,
-    to_json_binary/1
+    to_json_binary/1,
+    to_template/1,
+    to_template_str/1
 ]).
 
 -export([
@@ -160,7 +166,9 @@
     comma_separated_atoms/0,
     url/0,
     json_binary/0,
-    port_number/0
+    port_number/0,
+    template/0,
+    template_str/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -1734,19 +1742,37 @@ fields(durable_storage) ->
     emqx_ds_schema:schema();
 fields("client_attrs_init") ->
     [
-        {extract_from,
+        {expression,
             sc(
-                hoconsc:enum([clientid, username, cn, dn, user_property]),
-                #{desc => ?DESC("client_attrs_init_extract_from")}
+                typerefl:alias("string", any()),
+                #{
+                    desc => ?DESC("client_attrs_init_expression"),
+                    converter => fun compile_variform/2
+                }
             )},
-        {extract_regexp, sc(binary(), #{desc => ?DESC("client_attrs_init_extract_regexp")})},
-        {extract_as,
+        {set_as_attr,
             sc(binary(), #{
-                default => <<"alias">>,
-                desc => ?DESC("client_attrs_init_extract_as"),
+                desc => ?DESC("client_attrs_init_set_as_attr"),
                 validator => fun restricted_string/1
             })}
     ].
+
+compile_variform(undefined, _Opts) ->
+    undefined;
+compile_variform(Expression, #{make_serializable := true}) ->
+    case is_binary(Expression) of
+        true ->
+            Expression;
+        false ->
+            emqx_variform:decompile(Expression)
+    end;
+compile_variform(Expression, _Opts) ->
+    case emqx_variform:compile(Expression) of
+        {ok, Compiled} ->
+            Compiled;
+        {error, Reason} ->
+            throw(#{expression => Expression, reason => Reason})
+    end.
 
 restricted_string(Str) ->
     case emqx_utils:is_restricted_str(Str) of
@@ -2575,6 +2601,12 @@ to_json_binary(Str) ->
         Error ->
             Error
     end.
+
+to_template(Str) ->
+    {ok, iolist_to_binary(Str)}.
+
+to_template_str(Str) ->
+    {ok, unicode:characters_to_list(Str, utf8)}.
 
 %% @doc support the following format:
 %%  - 127.0.0.1:1883
@@ -3552,9 +3584,9 @@ mqtt_general() ->
             )},
         {"client_attrs_init",
             sc(
-                hoconsc:union([disabled, ref("client_attrs_init")]),
+                hoconsc:array(ref("client_attrs_init")),
                 #{
-                    default => disabled,
+                    default => [],
                     desc => ?DESC("client_attrs_init")
                 }
             )}

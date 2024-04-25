@@ -389,7 +389,7 @@ fields(producer_kafka_opts) ->
             )},
         {kafka_headers,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => false,
                     validator => fun kafka_header_validator/1,
@@ -462,12 +462,12 @@ fields(producer_kafka_ext_headers) ->
     [
         {kafka_ext_header_key,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{required => true, desc => ?DESC(producer_kafka_ext_header_key)}
             )},
         {kafka_ext_header_value,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     validator => fun kafka_ext_header_value_validator/1,
@@ -477,11 +477,20 @@ fields(producer_kafka_ext_headers) ->
     ];
 fields(kafka_message) ->
     [
-        {key, mk(string(), #{default => <<"${.clientid}">>, desc => ?DESC(kafka_message_key)})},
-        {value, mk(string(), #{default => <<"${.}">>, desc => ?DESC(kafka_message_value)})},
+        {key,
+            mk(emqx_schema:template(), #{
+                default => <<"${.clientid}">>,
+                desc => ?DESC(kafka_message_key)
+            })},
+        {value,
+            mk(emqx_schema:template(), #{
+                default => <<"${.}">>,
+                desc => ?DESC(kafka_message_value)
+            })},
         {timestamp,
-            mk(string(), #{
-                default => <<"${.timestamp}">>, desc => ?DESC(kafka_message_timestamp)
+            mk(emqx_schema:template(), #{
+                default => <<"${.timestamp}">>,
+                desc => ?DESC(kafka_message_timestamp)
             })}
     ];
 fields(producer_buffer) ->
@@ -536,8 +545,11 @@ fields(consumer_topic_mapping) ->
         {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
         {payload_template,
             mk(
-                string(),
-                #{default => <<"${.}">>, desc => ?DESC(consumer_mqtt_payload)}
+                emqx_schema:template(),
+                #{
+                    default => <<"${.}">>,
+                    desc => ?DESC(consumer_mqtt_payload)
+                }
             )}
     ];
 fields(consumer_kafka_opts) ->
@@ -744,8 +756,8 @@ producer_strategy_key_validator(
     producer_strategy_key_validator(emqx_utils_maps:binary_key_map(Conf));
 producer_strategy_key_validator(#{
     <<"partition_strategy">> := key_dispatch,
-    <<"message">> := #{<<"key">> := ""}
-}) ->
+    <<"message">> := #{<<"key">> := Key}
+}) when Key =:= "" orelse Key =:= <<>> ->
     {error, "Message key cannot be empty when `key_dispatch` strategy is used"};
 producer_strategy_key_validator(_) ->
     ok.

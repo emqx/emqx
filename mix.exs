@@ -53,14 +53,14 @@ defmodule EMQXUmbrella.MixProject do
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
-      {:esockd, github: "emqx/esockd", tag: "5.11.1", override: true},
+      {:esockd, github: "emqx/esockd", tag: "5.11.2", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-2", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.19.1", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.19.3", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.4.0", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.7", override: true},
-      {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
+      {:replayq, github: "emqx/replayq", tag: "0.3.8", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       # maybe forbid to fetch quicer
       {:emqtt,
@@ -74,7 +74,7 @@ defmodule EMQXUmbrella.MixProject do
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
       {:hocon, github: "emqx/hocon", tag: "0.42.1", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
-      {:esasl, github: "emqx/esasl", tag: "0.2.0"},
+      {:esasl, github: "emqx/esasl", tag: "0.2.1"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.11", override: true},
@@ -213,7 +213,8 @@ defmodule EMQXUmbrella.MixProject do
       {:crc32cer, "0.1.8", override: true},
       {:supervisor3, "1.1.12", override: true},
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
-      {:greptimedb, github: "GreptimeTeam/greptimedb-client-erl", tag: "v0.1.7", override: true},
+      {:greptimedb,
+       github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.1.8", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions
       {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
@@ -331,7 +332,9 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_s3,
             :emqx_opentelemetry,
             :emqx_durable_storage,
-            :rabbit_common
+            :rabbit_common,
+            :emqx_eviction_agent,
+            :emqx_node_rebalance
           ],
           steps: steps,
           strip_beams: false

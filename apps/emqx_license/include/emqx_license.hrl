@@ -31,6 +31,7 @@
 -define(SMALL_CUSTOMER, 0).
 -define(MEDIUM_CUSTOMER, 1).
 -define(LARGE_CUSTOMER, 2).
+-define(BUSINESS_CRITICAL_CUSTOMER, 3).
 -define(EVALUATION_CUSTOMER, 10).
 
 -define(EXPIRED_DAY, -90).

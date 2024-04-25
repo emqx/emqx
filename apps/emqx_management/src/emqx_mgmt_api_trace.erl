@@ -222,7 +222,7 @@ fields(trace) ->
             )},
         {type,
             hoconsc:mk(
-                hoconsc:enum([clientid, topic, ip_address]),
+                hoconsc:enum([clientid, topic, ip_address, ruleid]),
                 #{
                     description => ?DESC(filter_type),
                     required => true,
@@ -255,6 +255,15 @@ fields(trace) ->
                     description => ?DESC(client_ip_addess),
                     required => false,
                     example => <<"127.0.0.1">>
+                }
+            )},
+        {ruleid,
+            hoconsc:mk(
+                binary(),
+                #{
+                    description => ?DESC(ruleid_field),
+                    required => false,
+                    example => <<"my_rule">>
                 }
             )},
         {status,
@@ -303,6 +312,15 @@ fields(trace) ->
                 #{
                     description => ?DESC(trace_log_size),
                     example => [#{<<"node">> => <<"emqx@127.0.0.1">>, <<"size">> => 1024}],
+                    required => false
+                }
+            )},
+        {formatter,
+            hoconsc:mk(
+                hoconsc:union([text, json]),
+                #{
+                    description => ?DESC(trace_log_formatter),
+                    example => text,
                     required => false
                 }
             )}

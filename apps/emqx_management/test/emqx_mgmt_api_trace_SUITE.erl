@@ -23,6 +23,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("stdlib/include/zip.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -120,6 +121,233 @@ t_http_test(_Config) ->
     ?assertEqual(<<>>, Clear),
 
     unload(),
+    ok.
+
+t_http_test_rule_trace(_Config) ->
+    emqx_trace:clear(),
+    load(),
+    %% create
+    Name = atom_to_binary(?FUNCTION_NAME),
+    Trace = [
+        {<<"name">>, Name},
+        {<<"type">>, <<"ruleid">>},
+        {<<"ruleid">>, Name}
+    ],
+
+    {ok, Create} = request_api(post, api_path("trace"), Trace),
+    ?assertMatch(#{<<"name">> := Name}, json(Create)),
+
+    {ok, List} = request_api(get, api_path("trace")),
+    [Data] = json(List),
+    ?assertEqual(Name, maps:get(<<"name">>, Data)),
+
+    %% update
+    {ok, Update} = request_api(put, api_path(iolist_to_binary(["trace/", Name, "/stop"])), #{}),
+    ?assertEqual(
+        #{
+            <<"enable">> => false,
+            <<"name">> => Name
+        },
+        json(Update)
+    ),
+    {ok, List1} = request_api(get, api_path("trace")),
+    [Data1] = json(List1),
+    Node = atom_to_binary(node()),
+    ?assertMatch(
+        #{
+            <<"status">> := <<"stopped">>,
+            <<"name">> := Name,
+            <<"log_size">> := #{Node := _},
+            <<"start_at">> := _,
+            <<"end_at">> := _,
+            <<"type">> := <<"ruleid">>,
+            <<"ruleid">> := Name
+        },
+        Data1
+    ),
+
+    %% delete
+    {ok, Delete} = request_api(delete, api_path(["trace/", Name])),
+    ?assertEqual(<<>>, Delete),
+
+    emqx_trace:clear(),
+    unload(),
+    ok.
+
+t_http_test_json_formatter(_Config) ->
+    emqx_trace:clear(),
+    load(),
+
+    Name = <<"testname">>,
+    Topic = <<"/x/y/z">>,
+    Trace = [
+        {<<"name">>, Name},
+        {<<"type">>, <<"topic">>},
+        {<<"topic">>, Topic},
+        {<<"formatter">>, <<"json">>}
+    ],
+
+    {ok, Create} = request_api(post, api_path("trace"), Trace),
+    ?assertMatch(#{<<"name">> := Name}, json(Create)),
+
+    {ok, List} = request_api(get, api_path("trace")),
+    [Data] = json(List),
+    ?assertEqual(<<"json">>, maps:get(<<"formatter">>, Data)),
+
+    {ok, List1} = request_api(get, api_path("trace")),
+    [Data1] = json(List1),
+    ?assertMatch(
+        #{
+            <<"formatter">> := <<"json">>
+        },
+        Data1
+    ),
+
+    %% Check that the log is empty
+    ok = emqx_trace_handler_SUITE:filesync(Name, topic),
+    {ok, _Detail} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
+    %% Trace is empty which results in a not found error
+    {error, _} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
+
+    %% Start a client and send a message to get info to the log
+    ClientId = <<"my_client_id">>,
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    %% Normal message
+    emqtt:publish(Client, Topic, #{}, <<"log_this_message">>, [{qos, 2}]),
+    %% Escape line breaks
+    emqtt:publish(Client, Topic, #{}, <<"\nlog\nthis\nmessage">>, [{qos, 2}]),
+    %% Escape escape character
+    emqtt:publish(Client, Topic, #{}, <<"\\\nlog\n_\\n_this\nmessage\\">>, [{qos, 2}]),
+    %% Escape end of string
+    emqtt:publish(Client, Topic, #{}, <<"\"log_this_message\"">>, [{qos, 2}]),
+
+    %% Manually create some trace messages to test the JSON formatter
+
+    %% String key and value
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, "str" => "str"}),
+    %% Log Erlang term
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, term => {notjson}}),
+    %% Log Erlang term key
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, {'notjson'} => term}),
+    %% Log Integer
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, integer => 42}),
+    %% Log Float
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, float => 1.2}),
+    %% Log Integer Key
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, 42 => integer}),
+    %% Log Float Key
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, 1.2 => float}),
+    %% Log Map Key
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, #{} => value}),
+    %% Empty submap
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, sub => #{}}),
+    %% Non-empty submap
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, sub => #{key => value}}),
+    %% Bolean values
+    ?TRACE("CUSTOM", "my_log_msg", #{topic => Topic, true => true, false => false}),
+    %% Key value list
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        list => [
+            {<<"key">>, <<"value">>},
+            {<<"key2">>, <<"value2">>}
+        ]
+    }),
+    %% We do special formatting for client_ids and rule_ids
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        client_ids => maps:from_keys([<<"a">>, <<"b">>, <<"c">>], true)
+    }),
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        rule_ids => maps:from_keys([<<"a">>, <<"b">>, <<"c">>], true)
+    }),
+    %% action_id should be rendered as action_info
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        action_id =>
+            <<"action:http:emqx_bridge_http_test_lib:connector:http:emqx_bridge_http_test_lib">>
+    }),
+    ok = emqx_trace_handler_SUITE:filesync(Name, topic),
+    {ok, _Detail2} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
+    {ok, Bin} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
+    {ok, [
+        _Comment,
+        #zip_file{
+            name = _ZipName,
+            info = #file_info{size = Size, type = regular, access = read_write}
+        }
+    ]} = zip:table(Bin),
+    ?assert(Size > 0),
+    {ok, [{_, LogContent}]} = zip:unzip(Bin, [memory]),
+    LogEntriesTrailing = string:split(LogContent, "\n", all),
+    LogEntries = lists:droplast(LogEntriesTrailing),
+    DecodedLogEntries = [
+        begin
+            ct:pal("LOG ENTRY\n~s\n", [JSONEntry]),
+            emqx_utils_json:decode(JSONEntry)
+        end
+     || JSONEntry <- LogEntries
+    ],
+    ?assertMatch(
+        [
+            #{<<"meta">> := #{<<"payload">> := <<"log_this_message">>}},
+            #{<<"meta">> := #{<<"payload">> := <<"\nlog\nthis\nmessage">>}},
+            #{
+                <<"meta">> := #{<<"payload">> := <<"\\\nlog\n_\\n_this\nmessage\\">>}
+            },
+            #{<<"meta">> := #{<<"payload">> := <<"\"log_this_message\"">>}},
+            #{<<"meta">> := #{<<"str">> := <<"str">>}},
+            #{<<"meta">> := #{<<"term">> := <<"{notjson}">>}},
+            #{<<"meta">> := <<_/binary>>},
+            #{<<"meta">> := #{<<"integer">> := 42}},
+            #{<<"meta">> := #{<<"float">> := 1.2}},
+            #{<<"meta">> := <<_/binary>>},
+            #{<<"meta">> := <<_/binary>>},
+            #{<<"meta">> := <<_/binary>>},
+            #{<<"meta">> := #{<<"sub">> := #{}}},
+            #{<<"meta">> := #{<<"sub">> := #{<<"key">> := <<"value">>}}},
+            #{<<"meta">> := #{<<"true">> := <<"true">>, <<"false">> := <<"false">>}},
+            #{
+                <<"meta">> := #{
+                    <<"list">> := #{
+                        <<"key">> := <<"value">>,
+                        <<"key2">> := <<"value2">>
+                    }
+                }
+            },
+            #{
+                <<"meta">> := #{
+                    <<"client_ids">> := [<<"a">>, <<"b">>, <<"c">>]
+                }
+            },
+            #{
+                <<"meta">> := #{
+                    <<"rule_ids">> := [<<"a">>, <<"b">>, <<"c">>]
+                }
+            },
+            #{
+                <<"meta">> := #{
+                    <<"action_info">> := #{
+                        <<"type">> := <<"http">>,
+                        <<"name">> := <<"emqx_bridge_http_test_lib">>
+                    }
+                }
+            }
+            | _
+        ],
+        DecodedLogEntries
+    ),
+    {ok, Delete} = request_api(delete, api_path("trace/" ++ binary_to_list(Name))),
+    ?assertEqual(<<>>, Delete),
+
+    {ok, List2} = request_api(get, api_path("trace")),
+    ?assertEqual([], json(List2)),
+
+    ok = emqtt:disconnect(Client),
+    unload(),
+    emqx_trace:clear(),
     ok.
 
 t_create_failed(_Config) ->
@@ -252,13 +480,16 @@ t_log_file(_Config) ->
     ok.
 
 create_trace(Name, ClientId, Start) ->
+    create_trace(Name, clientid, ClientId, Start).
+
+create_trace(Name, Type, TypeValue, Start) ->
     ?check_trace(
         #{timetrap => 900},
         begin
             {ok, _} = emqx_trace:create([
                 {<<"name">>, Name},
-                {<<"type">>, clientid},
-                {<<"clientid">>, ClientId},
+                {<<"type">>, Type},
+                {atom_to_binary(Type), TypeValue},
                 {<<"start_at">>, Start}
             ]),
             ?block_until(#{?snk_kind := update_trace_done})
@@ -267,6 +498,16 @@ create_trace(Name, ClientId, Start) ->
             ?assertMatch([#{}], ?of_kind(update_trace_done, Trace))
         end
     ).
+
+create_rule_trace(RuleId) ->
+    Now = erlang:system_time(second),
+    emqx_mgmt_api_trace_SUITE:create_trace(atom_to_binary(?FUNCTION_NAME), ruleid, RuleId, Now - 2).
+
+t_create_rule_trace(_Config) ->
+    load(),
+    create_rule_trace(atom_to_binary(?FUNCTION_NAME)),
+    unload(),
+    ok.
 
 t_stream_log(_Config) ->
     emqx_trace:clear(),

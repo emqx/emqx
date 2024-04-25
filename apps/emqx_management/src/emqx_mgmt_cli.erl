@@ -108,6 +108,7 @@ cluster(["join", SNode]) ->
             emqx_ctl:print("Failed to join the cluster: ~0p~n", [Error])
     end;
 cluster(["leave"]) ->
+    _ = maybe_disable_autocluster(),
     case mria:leave() of
         ok ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
@@ -139,12 +140,15 @@ cluster(["status"]) ->
 cluster(["status", "--json"]) ->
     Info = sort_map_list_fields(cluster_info()),
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Info)]);
+cluster(["discovery", "enable"]) ->
+    enable_autocluster();
 cluster(_) ->
     emqx_ctl:usage([
         {"cluster join <Node>", "Join the cluster"},
         {"cluster leave", "Leave the cluster"},
         {"cluster force-leave <Node>", "Force the node leave from cluster"},
-        {"cluster status [--json]", "Cluster status"}
+        {"cluster status [--json]", "Cluster status"},
+        {"cluster discovery enable", "Enable and run automatic cluster discovery (if configured)"}
     ]).
 
 %% sort lists for deterministic output
@@ -161,6 +165,25 @@ sort_map_list_field(Field, Map) ->
     case maps:get(Field, Map) of
         [_ | _] = L -> Map#{Field := lists:sort(L)};
         _ -> Map
+    end.
+
+enable_autocluster() ->
+    ok = ekka:enable_autocluster(),
+    _ = ekka:autocluster(emqx),
+    emqx_ctl:print("Automatic cluster discovery enabled.~n").
+
+maybe_disable_autocluster() ->
+    case ekka:autocluster_enabled() of
+        true ->
+            ok = ekka:disable_autocluster(),
+            emqx_ctl:print(
+                "Automatic cluster discovery is disabled on this node: ~p to avoid"
+                " re-joining the same cluster again, if the node is not stopped soon."
+                " To enable it run: 'emqx ctl cluster discovery enable' or restart the node.~n",
+                [node()]
+            );
+        false ->
+            ok
     end.
 
 %%--------------------------------------------------------------------
@@ -484,21 +507,24 @@ trace(["list"]) ->
             )
     end;
 trace(["stop", Operation, Filter0]) ->
-    case trace_type(Operation, Filter0) of
-        {ok, Type, Filter} -> trace_off(Type, Filter);
+    case trace_type(Operation, Filter0, text) of
+        {ok, Type, Filter, _} -> trace_off(Type, Filter);
         error -> trace([])
     end;
 trace(["start", Operation, ClientId, LogFile]) ->
     trace(["start", Operation, ClientId, LogFile, "all"]);
 trace(["start", Operation, Filter0, LogFile, Level]) ->
-    case trace_type(Operation, Filter0) of
-        {ok, Type, Filter} ->
+    trace(["start", Operation, Filter0, LogFile, Level, text]);
+trace(["start", Operation, Filter0, LogFile, Level, Formatter0]) ->
+    case trace_type(Operation, Filter0, Formatter0) of
+        {ok, Type, Filter, Formatter} ->
             trace_on(
                 name(Filter0),
                 Type,
                 Filter,
                 list_to_existing_atom(Level),
-                LogFile
+                LogFile,
+                Formatter
             );
         error ->
             trace([])
@@ -506,17 +532,22 @@ trace(["start", Operation, Filter0, LogFile, Level]) ->
 trace(_) ->
     emqx_ctl:usage([
         {"trace list", "List all traces started on local node"},
-        {"trace start client <ClientId> <File> [<Level>]", "Traces for a client on local node"},
+        {"trace start client <ClientId> <File> [<Level>] [<Formatter>]",
+            "Traces for a client on local node (Formatter=text|json)"},
         {"trace stop  client <ClientId>", "Stop tracing for a client on local node"},
-        {"trace start topic  <Topic>    <File> [<Level>] ", "Traces for a topic on local node"},
+        {"trace start topic  <Topic>    <File> [<Level>] [<Formatter>]",
+            "Traces for a topic on local node (Formatter=text|json)"},
         {"trace stop  topic  <Topic> ", "Stop tracing for a topic on local node"},
-        {"trace start ip_address  <IP>    <File> [<Level>] ",
-            "Traces for a client ip on local node"},
-        {"trace stop  ip_address  <IP> ", "Stop tracing for a client ip on local node"}
+        {"trace start ip_address  <IP>    <File> [<Level>] [<Formatter>]",
+            "Traces for a client ip on local node (Formatter=text|json)"},
+        {"trace stop  ip_address  <IP> ", "Stop tracing for a client ip on local node"},
+        {"trace start ruleid  <RuleID>    <File> [<Level>] [<Formatter>]",
+            "Traces for a rule ID on local node (Formatter=text|json)"},
+        {"trace stop  ruleid  <RuleID> ", "Stop tracing for a rule ID on local node"}
     ]).
 
-trace_on(Name, Type, Filter, Level, LogFile) ->
-    case emqx_trace_handler:install(Name, Type, Filter, Level, LogFile) of
+trace_on(Name, Type, Filter, Level, LogFile, Formatter) ->
+    case emqx_trace_handler:install(Name, Type, Filter, Level, LogFile, Formatter) of
         ok ->
             emqx_trace:check(),
             emqx_ctl:print("trace ~s ~s successfully~n", [Filter, Name]);
@@ -567,27 +598,33 @@ traces(["delete", Name]) ->
     trace_cluster_del(Name);
 traces(["start", Name, Operation, Filter]) ->
     traces(["start", Name, Operation, Filter, ?DEFAULT_TRACE_DURATION]);
-traces(["start", Name, Operation, Filter0, DurationS]) ->
-    case trace_type(Operation, Filter0) of
-        {ok, Type, Filter} -> trace_cluster_on(Name, Type, Filter, DurationS);
+traces(["start", Name, Operation, Filter, DurationS]) ->
+    traces(["start", Name, Operation, Filter, DurationS, text]);
+traces(["start", Name, Operation, Filter0, DurationS, Formatter0]) ->
+    case trace_type(Operation, Filter0, Formatter0) of
+        {ok, Type, Filter, Formatter} -> trace_cluster_on(Name, Type, Filter, DurationS, Formatter);
         error -> traces([])
     end;
 traces(_) ->
     emqx_ctl:usage([
         {"traces list", "List all cluster traces started"},
-        {"traces start <Name> client <ClientId> [<Duration>]", "Traces for a client in cluster"},
-        {"traces start <Name> topic <Topic> [<Duration>]", "Traces for a topic in cluster"},
-        {"traces start <Name> ip_address <IPAddr> [<Duration>]",
+        {"traces start <Name> client <ClientId> [<Duration>] [<Formatter>]",
+            "Traces for a client in cluster (Formatter=text|json)"},
+        {"traces start <Name> topic <Topic> [<Duration>] [<Formatter>]",
+            "Traces for a topic in cluster (Formatter=text|json)"},
+        {"traces start <Name> ruleid <RuleID> [<Duration>] [<Formatter>]",
+            "Traces for a rule ID in cluster (Formatter=text|json)"},
+        {"traces start <Name> ip_address <IPAddr> [<Duration>] [<Formatter>]",
             "Traces for a client IP in cluster\n"
             "Trace will start immediately on all nodes, including the core and replicant,\n"
             "and will end after <Duration> seconds. The default value for <Duration> is "
             ?DEFAULT_TRACE_DURATION
-            " seconds."},
+            " seconds. (Formatter=text|json)"},
         {"traces stop <Name>", "Stop trace in cluster"},
         {"traces delete <Name>", "Delete trace in cluster"}
     ]).
 
-trace_cluster_on(Name, Type, Filter, DurationS0) ->
+trace_cluster_on(Name, Type, Filter, DurationS0, Formatter) ->
     Now = emqx_trace:now_second(),
     DurationS = list_to_integer(DurationS0),
     Trace = #{
@@ -595,7 +632,8 @@ trace_cluster_on(Name, Type, Filter, DurationS0) ->
         type => Type,
         Type => bin(Filter),
         start_at => Now,
-        end_at => Now + DurationS
+        end_at => Now + DurationS,
+        formatter => Formatter
     },
     case emqx_trace:create(Trace) of
         {ok, _} ->
@@ -619,10 +657,12 @@ trace_cluster_off(Name) ->
         {error, Error} -> emqx_ctl:print("[error] Stop cluster_trace ~s: ~p~n", [Name, Error])
     end.
 
-trace_type("client", ClientId) -> {ok, clientid, bin(ClientId)};
-trace_type("topic", Topic) -> {ok, topic, bin(Topic)};
-trace_type("ip_address", IP) -> {ok, ip_address, IP};
-trace_type(_, _) -> error.
+trace_type(Op, Match, "text") -> trace_type(Op, Match, text);
+trace_type(Op, Match, "json") -> trace_type(Op, Match, json);
+trace_type("client", ClientId, Formatter) -> {ok, clientid, bin(ClientId), Formatter};
+trace_type("topic", Topic, Formatter) -> {ok, topic, bin(Topic), Formatter};
+trace_type("ip_address", IP, Formatter) -> {ok, ip_address, IP, Formatter};
+trace_type(_, _, _) -> error.
 
 %%--------------------------------------------------------------------
 %% @doc Listeners Command
@@ -810,9 +850,50 @@ ds(CMD) ->
 
 do_ds(["info"]) ->
     emqx_ds_replication_layer_meta:print_status();
+do_ds(["set_replicas", DBStr | SitesStr]) ->
+    case emqx_utils:safe_to_existing_atom(DBStr) of
+        {ok, DB} ->
+            Sites = lists:map(fun list_to_binary/1, SitesStr),
+            case emqx_mgmt_api_ds:update_db_sites(DB, Sites, cli) of
+                ok ->
+                    emqx_ctl:print("ok~n");
+                {error, Description} ->
+                    emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
+            end;
+        {error, _} ->
+            emqx_ctl:print("Unknown durable storage")
+    end;
+do_ds(["join", DBStr, Site]) ->
+    case emqx_utils:safe_to_existing_atom(DBStr) of
+        {ok, DB} ->
+            case emqx_mgmt_api_ds:join(DB, list_to_binary(Site), cli) of
+                ok ->
+                    emqx_ctl:print("ok~n");
+                {error, Description} ->
+                    emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
+            end;
+        {error, _} ->
+            emqx_ctl:print("Unknown durable storage~n")
+    end;
+do_ds(["leave", DBStr, Site]) ->
+    case emqx_utils:safe_to_existing_atom(DBStr) of
+        {ok, DB} ->
+            case emqx_mgmt_api_ds:leave(DB, list_to_binary(Site), cli) of
+                ok ->
+                    emqx_ctl:print("ok~n");
+                {error, Description} ->
+                    emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
+            end;
+        {error, _} ->
+            emqx_ctl:print("Unknown durable storage~n")
+    end;
 do_ds(_) ->
     emqx_ctl:usage([
-        {"ds info", "Show overview of the embedded durable storage state"}
+        {"ds info", "Show overview of the embedded durable storage state"},
+        {"ds set_replicas <storage> <site1> <site2> ...",
+            "Change the replica set of the durable storage"},
+        {"ds join <storage> <site>", "Add site to the replica set of the storage"},
+        {"ds leave <storage> <site>", "Remove site from the replica set of the storage"}
     ]).
 
 %%--------------------------------------------------------------------

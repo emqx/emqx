@@ -117,7 +117,7 @@ fields("config") ->
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {sql,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
         {local_topic,

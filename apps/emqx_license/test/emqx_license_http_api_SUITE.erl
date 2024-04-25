@@ -19,17 +19,16 @@ all() ->
 
 init_per_suite(Config) ->
     emqx_license_test_lib:mock_parser(),
+    Setting = emqx_license_schema:default_setting(),
+    Key = emqx_license_test_lib:make_license(#{max_connections => "100"}),
+    LicenseConf = maps:merge(#{key => Key}, Setting),
     Apps = emqx_cth_suite:start(
         [
             emqx,
             emqx_conf,
             {emqx_license, #{
                 config => #{
-                    license => #{
-                        key => emqx_license_test_lib:make_license(#{max_connections => "100"}),
-                        connection_low_watermark => <<"75%">>,
-                        connection_high_watermark => <<"80%">>
-                    }
+                    license => LicenseConf
                 }
             }},
             {emqx_dashboard,
@@ -50,7 +49,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    {ok, _} = reset_license(),
+    ok = reset_license(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -70,7 +69,11 @@ default_license() ->
     emqx_license_test_lib:make_license(#{max_connections => "100"}).
 
 reset_license() ->
-    emqx_license:update_key(default_license()).
+    {ok, _} = emqx_license:update_key(default_license()),
+    Setting = emqx_license_schema:default_setting(),
+    Req = maps:from_list([{atom_to_binary(K), V} || {K, V} <- maps:to_list(Setting)]),
+    {ok, _} = emqx_license:update_setting(Req),
+    ok.
 
 assert_untouched_license() ->
     ?assertMatch(
@@ -224,6 +227,26 @@ t_license_setting(_Config) ->
     ),
     ok.
 
+t_license_setting_bc(_Config) ->
+    %% Create a BC license
+    Key = emqx_license_test_lib:make_license(#{customer_type => "3"}),
+    Res = request(post, uri(["license"]), #{key => Key}),
+    ?assertMatch({ok, 200, _}, Res),
+    %% get
+    GetRes = request(get, uri(["license", "setting"]), []),
+    validate_setting(GetRes, <<"75%">>, <<"80%">>, 25),
+    %% update
+    Low = <<"50%">>,
+    High = <<"55%">>,
+    UpdateRes = request(put, uri(["license", "setting"]), #{
+        <<"connection_low_watermark">> => Low,
+        <<"connection_high_watermark">> => High,
+        <<"dynamic_max_connections">> => 26
+    }),
+    validate_setting(UpdateRes, Low, High, 26),
+    ?assertEqual(26, emqx_config:get([license, dynamic_max_connections])),
+    ok.
+
 validate_setting(Res, ExpectLow, ExpectHigh) ->
     ?assertMatch({ok, 200, _}, Res),
     {ok, 200, Payload} = Res,
@@ -234,3 +257,13 @@ validate_setting(Res, ExpectLow, ExpectHigh) ->
         },
         emqx_utils_json:decode(Payload, [return_maps])
     ).
+
+validate_setting(Res, ExpectLow, ExpectHigh, DynMax) ->
+    ?assertMatch({ok, 200, _}, Res),
+    {ok, 200, Payload} = Res,
+    #{
+        <<"connection_low_watermark">> := ExpectLow,
+        <<"connection_high_watermark">> := ExpectHigh,
+        <<"dynamic_max_connections">> := DynMax
+    } =
+        emqx_utils_json:decode(Payload, [return_maps]).

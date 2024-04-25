@@ -9,4 +9,7 @@ emqx_conf_schema_types {
     secret.desc:
     """A string holding some sensitive information, such as a password. When secret starts with <code>file://</code>, the rest of the string is interpreted as a path to a file containing the secret itself: whole content of the file except any trailing whitespace characters is considered a secret value. Note: when clustered, all EMQX nodes should have the same file present before using <code>file://</code> secrets."""
 
+    template.desc: """~
+        A string for `${.path.to.var}` style value interpolation,
+        where the leading dot is optional, and `${.}` represents all values as an object."""
 }

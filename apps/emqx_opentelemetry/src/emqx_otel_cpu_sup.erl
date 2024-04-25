@@ -119,7 +119,9 @@ code_change(_OldVsn, State, _Extra) ->
 refresh(#{interval := Interval} = State) ->
     NState =
         case cpu_sup:util([]) of
-            {all, U, I, _} ->
+            {all, Use, Idle, _} ->
+                U = floor(Use * 100) / 100,
+                I = ceil(Idle * 100) / 100,
                 State#{'cpu.use' => U, 'cpu.idle' => I};
             _ ->
                 State#{'cpu.use' => 0, 'cpu.idle' => 0}

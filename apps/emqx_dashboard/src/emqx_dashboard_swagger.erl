@@ -57,7 +57,11 @@
     allowEmptyValue,
     deprecated,
     minimum,
-    maximum
+    maximum,
+    %% is_template is a type property,
+    %% but some exceptions are made for them to be field property
+    %% for example, HTTP headers (which is a map type)
+    is_template
 ]).
 
 -define(INIT_SCHEMA, #{
@@ -81,7 +85,7 @@
     ])
 ).
 
--define(SPECIAL_LANG_MSGID, <<"$msgid">>).
+-define(NO_I18N, undefined).
 
 -define(MAX_ROW_LIMIT, 10000).
 -define(DEFAULT_ROW, 100).
@@ -164,6 +168,14 @@ fields(limit) ->
     ]),
     Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
+fields(cursor) ->
+    Desc = <<"Opaque value representing the current iteration state.">>,
+    Meta = #{default => none, in => query, desc => Desc},
+    [{cursor, hoconsc:mk(hoconsc:union([none, binary()]), Meta)}];
+fields(cursor_response) ->
+    Desc = <<"Opaque value representing the current iteration state.">>,
+    Meta = #{desc => Desc, required => false},
+    [{cursor, hoconsc:mk(binary(), Meta)}];
 fields(count) ->
     Desc = <<
         "Total number of records matching the query.<br/>"
@@ -197,6 +209,8 @@ fields(start) ->
     [{start, hoconsc:mk(hoconsc:union([none, binary()]), Meta)}];
 fields(meta) ->
     fields(page) ++ fields(limit) ++ fields(count) ++ fields(hasnext);
+fields(meta_with_cursor) ->
+    fields(count) ++ fields(hasnext) ++ fields(cursor_response);
 fields(continuation_meta) ->
     fields(start) ++ fields(position).
 
@@ -257,7 +271,7 @@ gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
         SchemaMod,
         #{
             schema_converter => Converter,
-            i18n_lang => ?SPECIAL_LANG_MSGID
+            i18n_lang => ?NO_I18N
         }
     ),
     ApiSpec = lists:foldl(
@@ -642,19 +656,6 @@ trans_required(Spec, true, _) -> Spec#{required => true};
 trans_required(Spec, _, path) -> Spec#{required => true};
 trans_required(Spec, _, _) -> Spec.
 
-trans_desc(Init, Hocon, Func, Name, Options) ->
-    Spec0 = trans_description(Init, Hocon, Options),
-    case Func =:= fun hocon_schema_to_spec/2 of
-        true ->
-            Spec0;
-        false ->
-            Spec1 = trans_label(Spec0, Hocon, Name, Options),
-            case Spec1 of
-                #{description := _} -> Spec1;
-                _ -> Spec1#{description => <<Name/binary, " Description">>}
-            end
-    end.
-
 trans_description(Spec, Hocon, Options) ->
     Desc =
         case desc_struct(Hocon) of
@@ -662,10 +663,10 @@ trans_description(Spec, Hocon, Options) ->
             ?DESC(_, _) = Struct -> get_i18n(<<"desc">>, Struct, undefined, Options);
             Text -> to_bin(Text)
         end,
-    case Desc of
-        undefined ->
+    case Desc =:= undefined of
+        true ->
             Spec;
-        Desc ->
+        false ->
             Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
@@ -673,8 +674,8 @@ trans_description(Spec, Hocon, Options) ->
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),
     case Lang of
-        ?SPECIAL_LANG_MSGID ->
-            make_msgid(Namespace, Id, Tag);
+        ?NO_I18N ->
+            undefined;
         _ ->
             get_i18n_text(Lang, Namespace, Id, Tag, Default)
     end.
@@ -687,26 +688,10 @@ get_i18n_text(Lang, Namespace, Id, Tag, Default) ->
             Text
     end.
 
-%% Format：$msgid:Namespace.Id.Tag
-%% e.g. $msgid:emqx_schema.key.desc
-%%      $msgid:emqx_schema.key.label
-%% if needed, the consumer of this schema JSON can use this msgid to
-%% resolve the text in the i18n database.
-make_msgid(Namespace, Id, Tag) ->
-    iolist_to_binary(["$msgid:", to_bin(Namespace), ".", to_bin(Id), ".", Tag]).
-
 %% So far i18n_lang in options is only used at build time.
 %% At runtime, it's still the global config which controls the language.
 get_lang(#{i18n_lang := Lang}) -> Lang;
 get_lang(_) -> emqx:get_config([dashboard, i18n_lang]).
-
-trans_label(Spec, Hocon, Default, Options) ->
-    Label =
-        case desc_struct(Hocon) of
-            ?DESC(_, _) = Struct -> get_i18n(<<"label">>, Struct, Default, Options);
-            _ -> Default
-        end,
-    Spec#{label => Label}.
 
 desc_struct(Hocon) ->
     R =
@@ -765,7 +750,7 @@ response(Status, #{content := _} = Content, {Acc, RefsAcc, Module, Options}) ->
 response(Status, ?REF(StructName), {Acc, RefsAcc, Module, Options}) ->
     response(Status, ?R_REF(Module, StructName), {Acc, RefsAcc, Module, Options});
 response(Status, ?R_REF(_Mod, _Name) = RRef, {Acc, RefsAcc, Module, Options}) ->
-    SchemaToSpec = schema_converter(Options),
+    SchemaToSpec = get_schema_converter(Options),
     {Spec, Refs} = SchemaToSpec(RRef, Module),
     Content = content(Spec),
     {
@@ -903,7 +888,7 @@ parse_object(PropList = [_ | _], Module, Options) when is_list(PropList) ->
 parse_object(Other, Module, Options) ->
     erlang:throw(
         {error, #{
-            msg => <<"Object only supports not empty proplists">>,
+            msg => <<"Object only supports non-empty fields list">>,
             args => Other,
             module => Module,
             options => Options
@@ -943,10 +928,10 @@ parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs
         true ->
             HoconType = hocon_schema:field_schema(Hocon, type),
             Init0 = init_prop([default | ?DEFAULT_FIELDS], #{}, Hocon),
-            SchemaToSpec = schema_converter(Options),
+            SchemaToSpec = get_schema_converter(Options),
             Init = maps:remove(
                 summary,
-                trans_desc(Init0, Hocon, SchemaToSpec, NameBin, Options)
+                trans_description(Init0, Hocon, Options)
             ),
             {Prop, Refs1} = SchemaToSpec(HoconType, Module),
             NewRequiredAcc =
@@ -995,7 +980,7 @@ to_ref(Mod, StructName, Acc, RefsAcc) ->
     Ref = #{<<"$ref">> => ?TO_COMPONENTS_PARAM(Mod, StructName)},
     {[Ref | Acc], [{Mod, StructName, parameter} | RefsAcc]}.
 
-schema_converter(Options) ->
+get_schema_converter(Options) ->
     maps:get(schema_converter, Options, fun hocon_schema_to_spec/2).
 
 hocon_error_msg(Reason) ->

@@ -132,6 +132,8 @@
 
 %% String Funcs
 -export([
+    coalesce/1,
+    coalesce/2,
     lower/1,
     ltrim/1,
     reverse/1,
@@ -143,6 +145,7 @@
     upper/1,
     split/2,
     split/3,
+    concat/1,
     concat/2,
     tokens/2,
     tokens/3,
@@ -199,7 +202,8 @@
 -export([
     md5/1,
     sha/1,
-    sha256/1
+    sha256/1,
+    hash/2
 ]).
 
 %% zip Funcs
@@ -707,24 +711,11 @@ map(Map = #{}) ->
 map(Data) ->
     error(badarg, [Data]).
 
-bin2hexstr(Bin) when is_binary(Bin) ->
-    emqx_utils:bin_to_hexstr(Bin, upper);
-%% If Bin is a bitstring which is not divisible by 8, we pad it and then do the
-%% conversion
-bin2hexstr(Bin) when is_bitstring(Bin), (8 - (bit_size(Bin) rem 8)) >= 4 ->
-    PadSize = 8 - (bit_size(Bin) rem 8),
-    Padding = <<0:PadSize>>,
-    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
-    <<_FirstByte:8, HexStr/binary>> = emqx_utils:bin_to_hexstr(BinToConvert, upper),
-    HexStr;
-bin2hexstr(Bin) when is_bitstring(Bin) ->
-    PadSize = 8 - (bit_size(Bin) rem 8),
-    Padding = <<0:PadSize>>,
-    BinToConvert = <<Padding/bitstring, Bin/bitstring>>,
-    emqx_utils:bin_to_hexstr(BinToConvert, upper).
+bin2hexstr(Bin) ->
+    emqx_variform_bif:bin2hexstr(Bin).
 
-hexstr2bin(Str) when is_binary(Str) ->
-    emqx_utils:hexstr_to_bin(Str).
+hexstr2bin(Str) ->
+    emqx_variform_bif:hexstr2bin(Str).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
@@ -768,130 +759,67 @@ is_array(_) -> false.
 %% String Funcs
 %%------------------------------------------------------------------------------
 
-lower(S) when is_binary(S) ->
-    string:lowercase(S).
+coalesce(List) -> emqx_variform_bif:coalesce(List).
 
-ltrim(S) when is_binary(S) ->
-    string:trim(S, leading).
+coalesce(A, B) -> emqx_variform_bif:coalesce(A, B).
 
-reverse(S) when is_binary(S) ->
-    iolist_to_binary(string:reverse(S)).
+lower(S) -> emqx_variform_bif:lower(S).
 
-rtrim(S) when is_binary(S) ->
-    string:trim(S, trailing).
+ltrim(S) -> emqx_variform_bif:ltrim(S).
 
-strlen(S) when is_binary(S) ->
-    string:length(S).
+reverse(S) -> emqx_variform_bif:reverse(S).
 
-substr(S, Start) when is_binary(S), is_integer(Start) ->
-    string:slice(S, Start).
+rtrim(S) -> emqx_variform_bif:rtrim(S).
 
-substr(S, Start, Length) when
-    is_binary(S),
-    is_integer(Start),
-    is_integer(Length)
-->
-    string:slice(S, Start, Length).
+strlen(S) -> emqx_variform_bif:strlen(S).
 
-trim(S) when is_binary(S) ->
-    string:trim(S).
+substr(S, Start) -> emqx_variform_bif:substr(S, Start).
 
-upper(S) when is_binary(S) ->
-    string:uppercase(S).
+substr(S, Start, Length) -> emqx_variform_bif:substr(S, Start, Length).
 
-split(S, P) when is_binary(S), is_binary(P) ->
-    [R || R <- string:split(S, P, all), R =/= <<>> andalso R =/= ""].
+trim(S) -> emqx_variform_bif:trim(S).
 
-split(S, P, <<"notrim">>) ->
-    string:split(S, P, all);
-split(S, P, <<"leading_notrim">>) ->
-    string:split(S, P, leading);
-split(S, P, <<"leading">>) when is_binary(S), is_binary(P) ->
-    [R || R <- string:split(S, P, leading), R =/= <<>> andalso R =/= ""];
-split(S, P, <<"trailing_notrim">>) ->
-    string:split(S, P, trailing);
-split(S, P, <<"trailing">>) when is_binary(S), is_binary(P) ->
-    [R || R <- string:split(S, P, trailing), R =/= <<>> andalso R =/= ""].
+upper(S) -> emqx_variform_bif:upper(S).
 
-tokens(S, Separators) ->
-    [list_to_binary(R) || R <- string:lexemes(binary_to_list(S), binary_to_list(Separators))].
+split(S, P) -> emqx_variform_bif:split(S, P).
 
-tokens(S, Separators, <<"nocrlf">>) ->
-    [
-        list_to_binary(R)
-     || R <- string:lexemes(binary_to_list(S), binary_to_list(Separators) ++ [$\r, $\n, [$\r, $\n]])
-    ].
+split(S, P, Position) -> emqx_variform_bif:split(S, P, Position).
 
-%% implicit convert args to strings, and then do concatenation
-concat(S1, S2) ->
-    unicode:characters_to_binary([str(S1), str(S2)], unicode).
+tokens(S, Separators) -> emqx_variform_bif:tokens(S, Separators).
 
-sprintf_s(Format, Args) when is_list(Args) ->
-    erlang:iolist_to_binary(io_lib:format(binary_to_list(Format), Args)).
+tokens(S, Separators, NoCRLF) -> emqx_variform_bif:tokens(S, Separators, NoCRLF).
 
-pad(S, Len) when is_binary(S), is_integer(Len) ->
-    iolist_to_binary(string:pad(S, Len, trailing)).
+concat(S1, S2) -> emqx_variform_bif:concat(S1, S2).
 
-pad(S, Len, <<"trailing">>) when is_binary(S), is_integer(Len) ->
-    iolist_to_binary(string:pad(S, Len, trailing));
-pad(S, Len, <<"both">>) when is_binary(S), is_integer(Len) ->
-    iolist_to_binary(string:pad(S, Len, both));
-pad(S, Len, <<"leading">>) when is_binary(S), is_integer(Len) ->
-    iolist_to_binary(string:pad(S, Len, leading)).
+concat(List) -> emqx_variform_bif:concat(List).
 
-pad(S, Len, <<"trailing">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
-    Chars = unicode:characters_to_list(Char, utf8),
-    iolist_to_binary(string:pad(S, Len, trailing, Chars));
-pad(S, Len, <<"both">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
-    Chars = unicode:characters_to_list(Char, utf8),
-    iolist_to_binary(string:pad(S, Len, both, Chars));
-pad(S, Len, <<"leading">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
-    Chars = unicode:characters_to_list(Char, utf8),
-    iolist_to_binary(string:pad(S, Len, leading, Chars)).
+sprintf_s(Format, Args) -> emqx_variform_bif:sprintf_s(Format, Args).
 
-replace(SrcStr, P, RepStr) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
-    iolist_to_binary(string:replace(SrcStr, P, RepStr, all)).
+pad(S, Len) -> emqx_variform_bif:pad(S, Len).
 
-replace(SrcStr, P, RepStr, <<"all">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
-    iolist_to_binary(string:replace(SrcStr, P, RepStr, all));
-replace(SrcStr, P, RepStr, <<"trailing">>) when
-    is_binary(SrcStr), is_binary(P), is_binary(RepStr)
-->
-    iolist_to_binary(string:replace(SrcStr, P, RepStr, trailing));
-replace(SrcStr, P, RepStr, <<"leading">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
-    iolist_to_binary(string:replace(SrcStr, P, RepStr, leading)).
+pad(S, Len, Position) -> emqx_variform_bif:pad(S, Len, Position).
 
-regex_match(Str, RE) ->
-    case re:run(Str, RE, [global, {capture, none}]) of
-        match -> true;
-        nomatch -> false
-    end.
+pad(S, Len, Position, Char) -> emqx_variform_bif:pad(S, Len, Position, Char).
 
-regex_replace(SrcStr, RE, RepStr) ->
-    re:replace(SrcStr, RE, RepStr, [global, {return, binary}]).
+replace(SrcStr, Pattern, RepStr) -> emqx_variform_bif:replace(SrcStr, Pattern, RepStr).
 
-ascii(Char) when is_binary(Char) ->
-    [FirstC | _] = binary_to_list(Char),
-    FirstC.
+replace(SrcStr, Pattern, RepStr, Position) ->
+    emqx_variform_bif:replace(SrcStr, Pattern, RepStr, Position).
 
-find(S, P) when is_binary(S), is_binary(P) ->
-    find_s(S, P, leading).
+regex_match(Str, RE) -> emqx_variform_bif:regex_match(Str, RE).
 
-find(S, P, <<"trailing">>) when is_binary(S), is_binary(P) ->
-    find_s(S, P, trailing);
-find(S, P, <<"leading">>) when is_binary(S), is_binary(P) ->
-    find_s(S, P, leading).
+regex_replace(SrcStr, RE, RepStr) -> emqx_variform_bif:regex_replace(SrcStr, RE, RepStr).
 
-find_s(S, P, Dir) ->
-    case string:find(S, P, Dir) of
-        nomatch -> <<"">>;
-        SubStr -> SubStr
-    end.
+ascii(Char) -> emqx_variform_bif:ascii(Char).
 
-join_to_string(List) when is_list(List) ->
-    join_to_string(<<", ">>, List).
-join_to_string(Sep, List) when is_list(List), is_binary(Sep) ->
-    iolist_to_binary(lists:join(Sep, [str(Item) || Item <- List])).
+find(S, P) -> emqx_variform_bif:find(S, P).
+
+find(S, P, Position) -> emqx_variform_bif:find(S, P, Position).
+
+join_to_string(Str) -> emqx_variform_bif:join_to_string(Str).
+
+join_to_string(Sep, List) -> emqx_variform_bif:join_to_string(Sep, List).
+
 join_to_sql_values_string(List) ->
     QuotedList =
         [
@@ -938,137 +866,7 @@ jq(FilterProgram, JSONBin) ->
         ])
     ).
 
-unescape(Bin) when is_binary(Bin) ->
-    UnicodeList = unicode:characters_to_list(Bin, utf8),
-    UnescapedUnicodeList = unescape_string(UnicodeList),
-    UnescapedUTF8Bin = unicode:characters_to_binary(UnescapedUnicodeList, utf32, utf8),
-    case UnescapedUTF8Bin of
-        Out when is_binary(Out) ->
-            Out;
-        Error ->
-            throw({invalid_unicode_character, Error})
-    end.
-
-unescape_string(Input) -> unescape_string(Input, []).
-
-unescape_string([], Acc) ->
-    lists:reverse(Acc);
-unescape_string([$\\, $\\ | Rest], Acc) ->
-    unescape_string(Rest, [$\\ | Acc]);
-unescape_string([$\\, $n | Rest], Acc) ->
-    unescape_string(Rest, [$\n | Acc]);
-unescape_string([$\\, $t | Rest], Acc) ->
-    unescape_string(Rest, [$\t | Acc]);
-unescape_string([$\\, $r | Rest], Acc) ->
-    unescape_string(Rest, [$\r | Acc]);
-unescape_string([$\\, $b | Rest], Acc) ->
-    unescape_string(Rest, [$\b | Acc]);
-unescape_string([$\\, $f | Rest], Acc) ->
-    unescape_string(Rest, [$\f | Acc]);
-unescape_string([$\\, $v | Rest], Acc) ->
-    unescape_string(Rest, [$\v | Acc]);
-unescape_string([$\\, $' | Rest], Acc) ->
-    unescape_string(Rest, [$\' | Acc]);
-unescape_string([$\\, $" | Rest], Acc) ->
-    unescape_string(Rest, [$\" | Acc]);
-unescape_string([$\\, $? | Rest], Acc) ->
-    unescape_string(Rest, [$\? | Acc]);
-unescape_string([$\\, $a | Rest], Acc) ->
-    unescape_string(Rest, [$\a | Acc]);
-%% Start of HEX escape code
-unescape_string([$\\, $x | [$0 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$1 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$2 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$3 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$4 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$5 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$6 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$7 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$8 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$9 | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$A | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$B | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$C | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$D | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$E | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$F | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$a | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$b | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$c | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$d | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$e | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-unescape_string([$\\, $x | [$f | _] = HexStringStart], Acc) ->
-    unescape_handle_hex_string(HexStringStart, Acc);
-%% We treat all other escape sequences as not valid input to leave room for
-%% extending the function to support more escape codes
-unescape_string([$\\, X | _Rest], _Acc) ->
-    erlang:throw({unrecognized_escape_sequence, list_to_binary([$\\, X])});
-unescape_string([First | Rest], Acc) ->
-    unescape_string(Rest, [First | Acc]).
-
-unescape_handle_hex_string(HexStringStart, Acc) ->
-    {RemainingString, Num} = parse_hex_string(HexStringStart),
-    unescape_string(RemainingString, [Num | Acc]).
-
-parse_hex_string(SeqStartingWithHexDigit) ->
-    parse_hex_string(SeqStartingWithHexDigit, []).
-
-parse_hex_string([], Acc) ->
-    ReversedAcc = lists:reverse(Acc),
-    {[], list_to_integer(ReversedAcc, 16)};
-parse_hex_string([First | Rest] = String, Acc) ->
-    case is_hex_digit(First) of
-        true ->
-            parse_hex_string(Rest, [First | Acc]);
-        false ->
-            ReversedAcc = lists:reverse(Acc),
-            {String, list_to_integer(ReversedAcc, 16)}
-    end.
-
-is_hex_digit($0) -> true;
-is_hex_digit($1) -> true;
-is_hex_digit($2) -> true;
-is_hex_digit($3) -> true;
-is_hex_digit($4) -> true;
-is_hex_digit($5) -> true;
-is_hex_digit($6) -> true;
-is_hex_digit($7) -> true;
-is_hex_digit($8) -> true;
-is_hex_digit($9) -> true;
-is_hex_digit($A) -> true;
-is_hex_digit($B) -> true;
-is_hex_digit($C) -> true;
-is_hex_digit($D) -> true;
-is_hex_digit($E) -> true;
-is_hex_digit($F) -> true;
-is_hex_digit($a) -> true;
-is_hex_digit($b) -> true;
-is_hex_digit($c) -> true;
-is_hex_digit($d) -> true;
-is_hex_digit($e) -> true;
-is_hex_digit($f) -> true;
-is_hex_digit(_) -> false.
+unescape(Str) -> emqx_variform_bif:unescape(Str).
 
 %%------------------------------------------------------------------------------
 %% Array Funcs
@@ -1094,6 +892,10 @@ last(List) when is_list(List) ->
 
 contains(Elm, List) when is_list(List) ->
     lists:member(Elm, List).
+
+%%------------------------------------------------------------------------------
+%% Map Funcs
+%%------------------------------------------------------------------------------
 
 map_new() ->
     #{}.
@@ -1187,7 +989,7 @@ sha256(S) when is_binary(S) ->
     hash(sha256, S).
 
 hash(Type, Data) ->
-    emqx_utils:bin_to_hexstr(crypto:hash(Type, Data), lower).
+    emqx_variform_bif:hash(Type, Data).
 
 %%------------------------------------------------------------------------------
 %% gzip Funcs

@@ -53,7 +53,7 @@ t_00_smoke_open_drop(_Config) ->
     lists:foreach(
         fun(Shard) ->
             ?assertEqual(
-                {ok, [Site]}, emqx_ds_replication_layer_meta:replica_set(DB, Shard)
+                [Site], emqx_ds_replication_layer_meta:replica_set(DB, Shard)
             )
         end,
         Shards
@@ -98,8 +98,8 @@ t_03_smoke_iterate(_Config) ->
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-    {ok, Iter, Batch} = iterate(DB, Iter0, 1),
-    ?assertEqual(Msgs, [Msg || {_Key, Msg} <- Batch], {Iter0, Iter}).
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
@@ -125,8 +125,8 @@ t_04_restart(_Config) ->
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
     ok = emqx_ds:open_db(DB, opts()),
     %% The old iterator should be still operational:
-    {ok, Iter, Batch} = iterate(DB, Iter0, 1),
-    ?assertEqual(Msgs, [Msg || {_Key, Msg} <- Batch], {Iter0, Iter}).
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
 %% Check that we can create iterators directly from DS keys.
 t_05_update_iterator(_Config) ->
@@ -148,9 +148,8 @@ t_05_update_iterator(_Config) ->
     Res1 = emqx_ds:update_iterator(DB, OldIter, Key0),
     ?assertMatch({ok, _Iter1}, Res1),
     {ok, Iter1} = Res1,
-    {ok, FinalIter, Batch} = iterate(DB, Iter1, 1),
-    AllMsgs = [Msg0 | [Msg || {_Key, Msg} <- Batch]],
-    ?assertEqual(Msgs, AllMsgs, #{from_key => Iter1, final_iter => FinalIter}),
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
+    ?assertEqual(Msgs, [Msg0 | Batch], #{from_key => Iter1, final_iter => Iter}),
     ok.
 
 t_06_update_config(_Config) ->
@@ -190,9 +189,9 @@ t_06_update_config(_Config) ->
         ),
 
     Checker = fun({StartTime, Msgs0}, Acc) ->
-        Msgs = Msgs0 ++ Acc,
-        Batch = fetch_all(DB, TopicFilter, StartTime),
-        ?assertEqual(Msgs, Batch, {StartTime}),
+        Msgs = Acc ++ Msgs0,
+        Batch = emqx_ds_test_helpers:consume(DB, TopicFilter, StartTime),
+        ?assertEqual(Msgs, Batch, StartTime),
         Msgs
     end,
     lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
@@ -234,9 +233,9 @@ t_07_add_generation(_Config) ->
         ),
 
     Checker = fun({StartTime, Msgs0}, Acc) ->
-        Msgs = Msgs0 ++ Acc,
-        Batch = fetch_all(DB, TopicFilter, StartTime),
-        ?assertEqual(Msgs, Batch, {StartTime}),
+        Msgs = Acc ++ Msgs0,
+        Batch = emqx_ds_test_helpers:consume(DB, TopicFilter, StartTime),
+        ?assertEqual(Msgs, Batch, StartTime),
         Msgs
     end,
     lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
@@ -323,17 +322,10 @@ t_09_atomic_store_batch(_Config) ->
                     sync => true
                 })
             ),
-
-            ok
+            {ok, Flush} = ?block_until(#{?snk_kind := emqx_ds_replication_layer_egress_flush}),
+            ?assertMatch(#{batch := [_, _, _]}, Flush)
         end,
-        fun(Trace) ->
-            %% Must contain exactly one flush with all messages.
-            ?assertMatch(
-                [#{batch := [_, _, _]}],
-                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
-            ),
-            ok
-        end
+        []
     ),
     ok.
 
@@ -356,14 +348,15 @@ t_10_non_atomic_store_batch(_Config) ->
                     sync => true
                 })
             ),
-
-            ok
+            timer:sleep(1000)
         end,
         fun(Trace) ->
             %% Should contain one flush per message.
+            Batches = ?projection(batch, ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)),
+            ?assertMatch([_], Batches),
             ?assertMatch(
-                [#{batch := [_]}, #{batch := [_]}, #{batch := [_]}],
-                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+                [_, _, _],
+                lists:append(Batches)
             ),
             ok
         end
@@ -398,9 +391,8 @@ t_smoke_delete_next(_Config) ->
 
             TopicFilterHash = ['#'],
             [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilterHash, StartTime),
-            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilterHash, StartTime),
-            {ok, _Iter, Batch} = iterate(DB, Iter0, 1),
-            ?assertEqual([Msg1, Msg3], [Msg || {_Key, Msg} <- Batch]),
+            Batch = emqx_ds_test_helpers:consume_stream(DB, Stream, TopicFilterHash, StartTime),
+            ?assertEqual([Msg1, Msg3], Batch),
 
             ok = emqx_ds:add_generation(DB),
 
@@ -444,9 +436,9 @@ t_drop_generation_with_never_used_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch(
-        {error, unrecoverable, generation_not_found, []},
-        iterate(DB, Iter0, 1)
+    ?assertError(
+        {error, unrecoverable, generation_not_found},
+        emqx_ds_test_helpers:consume_iter(DB, Iter0)
     ),
 
     %% New iterator for the new stream will only see the later messages.
@@ -454,9 +446,9 @@ t_drop_generation_with_never_used_iterator(_Config) ->
     ?assertNotEqual(Stream0, Stream1),
     {ok, Iter1} = emqx_ds:make_iterator(DB, Stream1, TopicFilter, StartTime),
 
-    {ok, Iter, Batch} = iterate(DB, Iter1, 1),
+    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
     ?assertNotEqual(end_of_stream, Iter),
-    ?assertEqual(Msgs1, [Msg || {_Key, Msg} <- Batch]),
+    ?assertEqual(Msgs1, Batch),
 
     ok.
 
@@ -496,9 +488,9 @@ t_drop_generation_with_used_once_iterator(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
-    ?assertMatch(
-        {error, unrecoverable, generation_not_found, []},
-        iterate(DB, Iter1, 1)
+    ?assertError(
+        {error, unrecoverable, generation_not_found},
+        emqx_ds_test_helpers:consume_iter(DB, Iter1)
     ).
 
 t_drop_generation_update_iterator(_Config) ->
@@ -683,9 +675,82 @@ t_error_mapping_replication_layer(_Config) ->
         length([error || {error, _, _} <- Results2]) > 0,
         Results2
     ),
-
-    snabbkaffe:stop(),
     meck:unload().
+
+%% This testcase verifies the behavior of `store_batch' operation
+%% when the underlying code experiences recoverable or unrecoverable
+%% problems.
+t_store_batch_fail(_Config) ->
+    ?check_trace(
+        #{timetrap => 15_000},
+        try
+            meck:new(emqx_ds_storage_layer, [passthrough, no_history]),
+            DB = ?FUNCTION_NAME,
+            ?assertMatch(ok, emqx_ds:open_db(DB, (opts())#{n_shards => 2})),
+            %% Success:
+            Batch1 = [
+                message(<<"C1">>, <<"foo/bar">>, <<"1">>, 1),
+                message(<<"C1">>, <<"foo/bar">>, <<"2">>, 1)
+            ],
+            ?assertMatch(ok, emqx_ds:store_batch(DB, Batch1, #{sync => true})),
+            %% Inject unrecoverable error:
+            meck:expect(emqx_ds_storage_layer, store_batch, fun(_DB, _Shard, _Messages) ->
+                {error, unrecoverable, mock}
+            end),
+            Batch2 = [
+                message(<<"C1">>, <<"foo/bar">>, <<"3">>, 1),
+                message(<<"C1">>, <<"foo/bar">>, <<"4">>, 1)
+            ],
+            ?assertMatch(
+                {error, unrecoverable, mock}, emqx_ds:store_batch(DB, Batch2, #{sync => true})
+            ),
+            meck:unload(emqx_ds_storage_layer),
+            %% Inject a recoveralbe error:
+            meck:new(ra, [passthrough, no_history]),
+            meck:expect(ra, process_command, fun(Servers, Shard, Command) ->
+                ?tp(ra_command, #{servers => Servers, shard => Shard, command => Command}),
+                {timeout, mock}
+            end),
+            Batch3 = [
+                message(<<"C1">>, <<"foo/bar">>, <<"5">>, 2),
+                message(<<"C2">>, <<"foo/bar">>, <<"6">>, 2),
+                message(<<"C1">>, <<"foo/bar">>, <<"7">>, 3),
+                message(<<"C2">>, <<"foo/bar">>, <<"8">>, 3)
+            ],
+            %% Note: due to idempotency issues the number of retries
+            %% is currently set to 0:
+            ?assertMatch(
+                {error, recoverable, {timeout, mock}},
+                emqx_ds:store_batch(DB, Batch3, #{sync => true})
+            ),
+            meck:unload(ra),
+            ?assertMatch(ok, emqx_ds:store_batch(DB, Batch3, #{sync => true})),
+            lists:sort(emqx_ds_test_helpers:consume_per_stream(DB, ['#'], 1))
+        after
+            meck:unload()
+        end,
+        [
+            {"message ordering", fun(StoredMessages, _Trace) ->
+                [{_, Stream1}, {_, Stream2}] = StoredMessages,
+                ?assertMatch(
+                    [
+                        #message{payload = <<"1">>},
+                        #message{payload = <<"2">>},
+                        #message{payload = <<"5">>},
+                        #message{payload = <<"7">>}
+                    ],
+                    Stream1
+                ),
+                ?assertMatch(
+                    [
+                        #message{payload = <<"6">>},
+                        #message{payload = <<"8">>}
+                    ],
+                    Stream2
+                )
+            end}
+        ]
+    ).
 
 update_data_set() ->
     [
@@ -702,25 +767,6 @@ update_data_set() ->
         ]
     ].
 
-fetch_all(DB, TopicFilter, StartTime) ->
-    Streams0 = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-    Streams = lists:sort(
-        fun({{_, A}, _}, {{_, B}, _}) ->
-            A < B
-        end,
-        Streams0
-    ),
-    lists:foldl(
-        fun({_, Stream}, Acc) ->
-            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-            {ok, _, Msgs0} = iterate(DB, Iter0, StartTime),
-            Msgs = lists:map(fun({_, Msg}) -> Msg end, Msgs0),
-            Acc ++ Msgs
-        end,
-        [],
-        Streams
-    ).
-
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
@@ -732,21 +778,6 @@ message(Topic, Payload, PublishedAt) ->
         timestamp = PublishedAt,
         id = emqx_guid:gen()
     }.
-
-iterate(DB, It, BatchSize) ->
-    iterate(DB, It, BatchSize, []).
-
-iterate(DB, It0, BatchSize, Acc) ->
-    case emqx_ds:next(DB, It0, BatchSize) of
-        {ok, It, []} ->
-            {ok, It, Acc};
-        {ok, It, Msgs} ->
-            iterate(DB, It, BatchSize, Acc ++ Msgs);
-        {ok, end_of_stream} ->
-            {ok, end_of_stream, Acc};
-        {error, Class, Reason} ->
-            {error, Class, Reason, Acc}
-    end.
 
 delete(DB, It, Selector, BatchSize) ->
     delete(DB, It, Selector, BatchSize, 0).
@@ -784,6 +815,7 @@ init_per_testcase(_TC, Config) ->
     Config.
 
 end_per_testcase(_TC, _Config) ->
+    snabbkaffe:stop(),
     ok = application:stop(emqx_durable_storage),
     mria:stop(),
     _ = mnesia:delete_schema([node()]),

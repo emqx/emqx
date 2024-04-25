@@ -825,22 +825,53 @@ do_start_stop_bridges(Type, Config) ->
     %% Connecting to this endpoint should always timeout
     BadServer = iolist_to_binary(io_lib:format("localhost:~B", [ListenPort])),
     BadName = <<"bad_", (atom_to_binary(Type))/binary>>,
+    CreateRes0 = request_json(
+        post,
+        uri(["bridges"]),
+        ?MQTT_BRIDGE(BadServer, BadName),
+        Config
+    ),
     ?assertMatch(
         {ok, 201, #{
             <<"type">> := ?BRIDGE_TYPE_MQTT,
             <<"name">> := BadName,
             <<"enable">> := true,
-            <<"server">> := BadServer,
-            <<"status">> := <<"connecting">>,
-            <<"node_status">> := [_ | _]
+            <<"server">> := BadServer
         }},
-        request_json(
-            post,
-            uri(["bridges"]),
-            ?MQTT_BRIDGE(BadServer, BadName),
-            Config
-        )
+        CreateRes0
     ),
+    {ok, 201, CreateRes1} = CreateRes0,
+    case CreateRes1 of
+        #{
+            <<"node_status">> := [
+                #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> := <<"connack_timeout">>
+                },
+                #{<<"status">> := <<"connecting">>}
+                | _
+            ],
+            %% `inconsistent': one node is `?status_disconnected' (because it has already
+            %% timed out), the other node is `?status_connecting' (started later and
+            %% haven't timed out yet)
+            <<"status">> := <<"inconsistent">>,
+            <<"status_reason">> := <<"connack_timeout">>
+        } ->
+            ok;
+        #{
+            <<"node_status">> := [_, _ | _],
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"connack_timeout">>
+        } ->
+            ok;
+        #{
+            <<"node_status">> := [_],
+            <<"status">> := <<"connecting">>
+        } ->
+            ok;
+        _ ->
+            error({unexpected_result, CreateRes1})
+    end,
     BadBridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_MQTT, BadName),
     ?assertMatch(
         %% request from product: return 400 on such errors

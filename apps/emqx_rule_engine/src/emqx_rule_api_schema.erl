@@ -26,7 +26,7 @@
 
 -export([namespace/0, roots/0, fields/1]).
 
--type tag() :: rule_creation | rule_test | rule_engine.
+-type tag() :: rule_creation | rule_test | rule_engine | rule_apply_test.
 
 -spec check_params(map(), tag()) -> {ok, map()} | {error, term()}.
 check_params(Params, Tag) ->
@@ -54,7 +54,8 @@ roots() ->
         {"rule_creation", sc(ref("rule_creation"), #{desc => ?DESC("root_rule_creation")})},
         {"rule_info", sc(ref("rule_info"), #{desc => ?DESC("root_rule_info")})},
         {"rule_events", sc(ref("rule_events"), #{desc => ?DESC("root_rule_events")})},
-        {"rule_test", sc(ref("rule_test"), #{desc => ?DESC("root_rule_test")})}
+        {"rule_test", sc(ref("rule_test"), #{desc => ?DESC("root_rule_test")})},
+        {"rule_apply_test", sc(ref("rule_apply_test"), #{desc => ?DESC("root_apply_rule_test")})}
     ].
 
 fields("rule_engine") ->
@@ -101,28 +102,21 @@ fields("rule_events") ->
     ];
 fields("rule_test") ->
     [
-        {"context",
-            sc(
-                hoconsc:union([
-                    ref("ctx_pub"),
-                    ref("ctx_sub"),
-                    ref("ctx_unsub"),
-                    ref("ctx_delivered"),
-                    ref("ctx_acked"),
-                    ref("ctx_dropped"),
-                    ref("ctx_connected"),
-                    ref("ctx_disconnected"),
-                    ref("ctx_connack"),
-                    ref("ctx_check_authz_complete"),
-                    ref("ctx_bridge_mqtt"),
-                    ref("ctx_delivery_dropped")
-                ]),
-                #{
-                    desc => ?DESC("test_context"),
-                    default => #{}
-                }
-            )},
+        rule_input_message_context(),
         {"sql", sc(binary(), #{desc => ?DESC("test_sql"), required => true})}
+    ];
+fields("rule_apply_test") ->
+    [
+        rule_input_message_context(),
+        {"stop_action_after_template_rendering",
+            sc(
+                typerefl:boolean(),
+                #{
+                    desc =>
+                        ?DESC("stop_action_after_template_render"),
+                    default => true
+                }
+            )}
     ];
 fields("metrics") ->
     [
@@ -314,6 +308,29 @@ fields("ctx_delivery_dropped") ->
         {"from_username", sc(binary(), #{desc => ?DESC("event_from_username")})}
         | msg_event_common_fields()
     ].
+
+rule_input_message_context() ->
+    {"context",
+        sc(
+            hoconsc:union([
+                ref("ctx_pub"),
+                ref("ctx_sub"),
+                ref("ctx_unsub"),
+                ref("ctx_delivered"),
+                ref("ctx_acked"),
+                ref("ctx_dropped"),
+                ref("ctx_connected"),
+                ref("ctx_disconnected"),
+                ref("ctx_connack"),
+                ref("ctx_check_authz_complete"),
+                ref("ctx_bridge_mqtt"),
+                ref("ctx_delivery_dropped")
+            ]),
+            #{
+                desc => ?DESC("test_context"),
+                default => #{}
+            }
+        )}.
 
 qos() ->
     {"qos", sc(emqx_schema:qos(), #{desc => ?DESC("event_qos")})}.

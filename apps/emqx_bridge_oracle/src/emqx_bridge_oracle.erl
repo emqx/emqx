@@ -158,7 +158,7 @@ fields(action_parameters) ->
     [
         {sql,
             hoconsc:mk(
-                binary(),
+                emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )}
     ];
@@ -177,7 +177,7 @@ fields("config") ->
             )},
         {sql,
             hoconsc:mk(
-                binary(),
+                emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
         {local_topic,

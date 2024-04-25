@@ -200,7 +200,7 @@ fields("ingress_local") ->
     [
         {topic,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     validator => fun emqx_schema:non_empty_string/1,
                     desc => ?DESC("ingress_local_topic"),
@@ -217,7 +217,7 @@ fields("ingress_local") ->
             )},
         {retain,
             mk(
-                hoconsc:union([boolean(), binary()]),
+                hoconsc:union([boolean(), emqx_schema:template()]),
                 #{
                     default => <<"${retain}">>,
                     desc => ?DESC("retain")
@@ -225,7 +225,7 @@ fields("ingress_local") ->
             )},
         {payload,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     default => undefined,
                     desc => ?DESC("payload")
@@ -268,7 +268,7 @@ fields("egress_remote") ->
     [
         {topic,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     validator => fun emqx_schema:non_empty_string/1,
@@ -286,7 +286,7 @@ fields("egress_remote") ->
             )},
         {retain,
             mk(
-                hoconsc:union([boolean(), binary()]),
+                hoconsc:union([boolean(), emqx_schema:template()]),
                 #{
                     required => false,
                     default => false,
@@ -295,7 +295,7 @@ fields("egress_remote") ->
             )},
         {payload,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     default => undefined,
                     desc => ?DESC("payload")
@@ -344,7 +344,7 @@ desc(_) ->
     undefined.
 
 qos() ->
-    hoconsc:union([emqx_schema:qos(), binary()]).
+    hoconsc:union([emqx_schema:qos(), emqx_schema:template()]).
 
 parse_server(Str) ->
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS),

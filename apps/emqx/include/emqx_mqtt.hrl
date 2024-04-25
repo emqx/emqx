@@ -673,7 +673,6 @@ end).
 
 -define(SHARE, "$share").
 -define(QUEUE, "$queue").
--define(SHARE(Group, Topic), emqx_topic:join([<<?SHARE>>, Group, Topic])).
 
 -define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
 

@@ -139,9 +139,15 @@
     "enabled": true
   },
   {
-    "name": "iotdb",
+    "name": "iotdb110",
     "listen": "0.0.0.0:18080",
-    "upstream": "iotdb:18080",
+    "upstream": "iotdb110:18080",
+    "enabled": true
+  },
+  {
+    "name": "iotdb130",
+    "listen": "0.0.0.0:28080",
+    "upstream": "iotdb130:18080",
     "enabled": true
   },
   {

@@ -450,7 +450,6 @@ connect(Options) ->
         options => emqx_utils:redact(Options)
     }),
     Name = proplists:get_value(name, Options),
-    WorkerId = proplists:get_value(ecpool_worker_id, Options),
     ClientOpts = proplists:get_value(client_opts, Options),
     case emqtt:start_link(mk_client_opts(Name, WorkerId, ClientOpts)) of
         {ok, Pid} ->

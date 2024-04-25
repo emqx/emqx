@@ -324,7 +324,7 @@ query_by_clientid(Topic, ClientId, Config) ->
         {"Content-Type", "application/x-www-form-urlencoded"}
     ],
     Body = <<"sql=select * from \"", Topic/binary, "\" where clientid='", ClientId/binary, "'">>,
-    {ok, 200, _Headers, RawBody0} =
+    {ok, StatusCode, _Headers, RawBody0} =
         ehttpc:request(
             EHttpcPoolName,
             post,
@@ -335,7 +335,6 @@ query_by_clientid(Topic, ClientId, Config) ->
 
     case emqx_utils_json:decode(RawBody0, [return_maps]) of
         #{
-            <<"code">> := 0,
             <<"output">> := [
                 #{
                     <<"records">> := #{
@@ -344,12 +343,12 @@ query_by_clientid(Topic, ClientId, Config) ->
                     }
                 }
             ]
-        } ->
+        } when StatusCode >= 200 andalso StatusCode =< 300 ->
             make_row(Schema, Rows);
         #{
             <<"code">> := Code,
             <<"error">> := Error
-        } ->
+        } when StatusCode > 300 ->
             GreptimedbName = ?config(greptimedb_name, Config),
             Type = greptimedb_type_bin(?config(greptimedb_type, Config)),
             BridgeId = emqx_bridge_resource:bridge_id(Type, GreptimedbName),
@@ -367,7 +366,9 @@ query_by_clientid(Topic, ClientId, Config) ->
                 _ ->
                     %% Table not found
                     #{}
-            end
+            end;
+        Error ->
+            {error, Error}
     end.
 
 make_row(null, _Rows) ->
@@ -905,69 +906,6 @@ t_start_exception(Config) ->
                 [#{error := {error, boom}}],
                 ?of_kind(greptimedb_connector_start_exception, Trace)
             ),
-            ok
-        end
-    ),
-    ok.
-
-t_write_failure(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    QueryMode = ?config(query_mode, Config),
-    {ok, _} = create_bridge(Config),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
-    Payload = #{
-        int_key => -123,
-        bool => true,
-        float_key => 24.5,
-        uint_key => 123
-    },
-    SentData = #{
-        <<"clientid">> => ClientId,
-        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-        <<"timestamp">> => erlang:system_time(millisecond),
-        <<"payload">> => Payload
-    },
-    ?check_trace(
-        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            case QueryMode of
-                sync ->
-                    ?wait_async_action(
-                        ?assertMatch(
-                            {error, {resource_error, #{reason := timeout}}},
-                            send_message(Config, SentData)
-                        ),
-                        #{?snk_kind := handle_async_reply, action := nack},
-                        1_000
-                    );
-                async ->
-                    ?wait_async_action(
-                        ?assertEqual(ok, send_message(Config, SentData)),
-                        #{?snk_kind := handle_async_reply},
-                        1_000
-                    )
-            end
-        end),
-        fun(Trace0) ->
-            case QueryMode of
-                sync ->
-                    Trace = ?of_kind(handle_async_reply, Trace0),
-                    ?assertMatch([_ | _], Trace),
-                    [#{result := Result} | _] = Trace,
-                    ?assert(
-                        not emqx_bridge_greptimedb_connector:is_unrecoverable_error(Result),
-                        #{got => Result}
-                    );
-                async ->
-                    Trace = ?of_kind(handle_async_reply, Trace0),
-                    ?assertMatch([_ | _], Trace),
-                    [#{result := Result} | _] = Trace,
-                    ?assert(
-                        not emqx_bridge_greptimedb_connector:is_unrecoverable_error(Result),
-                        #{got => Result}
-                    )
-            end,
             ok
         end
     ),

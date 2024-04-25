@@ -30,11 +30,11 @@ all() ->
 init_per_suite(Config) ->
     application:load(emqx_conf),
     ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, ?CONF_DEFAULT),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine]),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine, emqx_modules]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine]),
+    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine, emqx_modules]),
     ok.
 
 t_ctx_pub(_) ->

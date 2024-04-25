@@ -20,12 +20,17 @@
 
 -record(?TRACE, {
     name :: binary() | undefined | '_',
-    type :: clientid | topic | ip_address | undefined | '_',
+    type :: clientid | topic | ip_address | ruleid | undefined | '_',
     filter ::
-        emqx_types:topic() | emqx_types:clientid() | emqx_trace:ip_address() | undefined | '_',
+        emqx_types:topic()
+        | emqx_types:clientid()
+        | emqx_trace:ip_address()
+        | emqx_trace:ruleid()
+        | undefined
+        | '_',
     enable = true :: boolean() | '_',
     payload_encode = text :: hex | text | hidden | '_',
-    extra = #{} :: map() | '_',
+    extra = #{formatter => text} :: #{formatter => text | json} | '_',
     start_at :: integer() | undefined | '_',
     end_at :: integer() | undefined | '_'
 }).

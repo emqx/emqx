@@ -66,12 +66,7 @@ fields(action_config) ->
         ]
     );
 fields(action_resource_opts) ->
-    lists:filter(
-        fun({K, _V}) ->
-            not lists:member(K, unsupported_opts())
-        end,
-        emqx_bridge_v2_schema:action_resource_opts_fields()
-    );
+    emqx_bridge_v2_schema:action_resource_opts_fields();
 fields(action_parameters) ->
     [
         {is_aligned,
@@ -84,7 +79,7 @@ fields(action_parameters) ->
             )},
         {device_id,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("config_device_id")
                 }
@@ -114,7 +109,7 @@ fields(action_parameters_data) ->
             )},
         {measurement,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_measurement")
@@ -122,7 +117,9 @@ fields(action_parameters_data) ->
             )},
         {data_type,
             mk(
-                hoconsc:union([enum([text, boolean, int32, int64, float, double]), binary()]),
+                hoconsc:union([
+                    enum([text, boolean, int32, int64, float, double]), emqx_schema:template()
+                ]),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_data_type")
@@ -130,7 +127,7 @@ fields(action_parameters_data) ->
             )},
         {value,
             mk(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_value")
@@ -150,7 +147,7 @@ fields("get_bridge_v2") ->
 fields("config") ->
     basic_config() ++ request_config();
 fields("creation_opts") ->
-    proplists_without(unsupported_opts(), emqx_resource_schema:fields("creation_opts"));
+    emqx_resource_schema:fields("creation_opts");
 fields(auth_basic) ->
     [
         {username, mk(binary(), #{required => true, desc => ?DESC("config_auth_basic_username")})},
@@ -220,10 +217,10 @@ basic_config() ->
             )},
         {iotdb_version,
             mk(
-                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
+                hoconsc:enum([?VSN_1_3_X, ?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
                 #{
                     desc => ?DESC("config_iotdb_version"),
-                    default => ?VSN_1_1_X
+                    default => ?VSN_1_3_X
                 }
             )}
     ] ++ resource_creation_opts() ++
@@ -266,12 +263,6 @@ resource_creation_opts() ->
                     desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
                 }
             )}
-    ].
-
-unsupported_opts() ->
-    [
-        batch_size,
-        batch_time
     ].
 
 %%-------------------------------------------------------------------------------------------------

@@ -80,6 +80,11 @@ client_ip_addess.desc:
 client_ip_addess.label:
 """Client IP Address"""
 
+ruleid.desc:
+"""Specify the Rule ID if the trace type is 'ruleid'."""
+ruleid.label:
+"""Rule ID"""
+
 trace_status.desc:
 """trace status"""
 trace_status.label:
@@ -109,5 +114,10 @@ current_trace_offset.desc:
 """Offset from the current trace position."""
 current_trace_offset.label:
 """Offset from the current trace position."""
+
+trace_log_formatter.desc:
+"""The formatter that will be used to format the trace log entries. Set this to text to format the log entries as plain text (default). Set it to json to format each log entry as a JSON object."""
+trace_log_formatter.label:
+"""Trace Log Entry Formatter"""
 
 }

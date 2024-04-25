@@ -28,7 +28,8 @@
     subscribe/3,
     unsubscribe/2,
     log/3,
-    log/4
+    log/4,
+    rendered_action_template/2
 ]).
 
 -export([
@@ -66,6 +67,9 @@
 -export_type([ip_address/0]).
 -type ip_address() :: string().
 
+-export_type([ruleid/0]).
+-type ruleid() :: binary().
+
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
@@ -82,6 +86,32 @@ unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) ->
     ignore;
 unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
+
+rendered_action_template(ActionID, RenderResult) ->
+    TraceResult = ?TRACE(
+        "QUERY_RENDER",
+        "action_template_rendered",
+        #{
+            result => RenderResult,
+            action_id => ActionID
+        }
+    ),
+    case logger:get_process_metadata() of
+        #{stop_action_after_render := true} ->
+            %% We throw an unrecoverable error to stop action before the
+            %% resource is called/modified
+            StopMsg = lists:flatten(
+                io_lib:format(
+                    "Action ~ts stopped after template rendering due to test setting.",
+                    [ActionID]
+                )
+            ),
+            MsgBin = unicode:characters_to_binary(StopMsg),
+            error({unrecoverable_error, {action_stopped_after_template_rendering, MsgBin}});
+        _ ->
+            ok
+    end,
+    TraceResult.
 
 log(List, Msg, Meta) ->
     log(debug, List, Msg, Meta).
@@ -159,8 +189,10 @@ create(Trace) ->
     case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
         true ->
             case to_trace(Trace) of
-                {ok, TraceRec} -> insert_new_trace(TraceRec);
-                {error, Reason} -> {error, Reason}
+                {ok, TraceRec} ->
+                    insert_new_trace(TraceRec);
+                {error, Reason} ->
+                    {error, Reason}
             end;
         false ->
             {error,
@@ -222,7 +254,11 @@ format(Traces) ->
     lists:map(
         fun(Trace0 = #?TRACE{}) ->
             [_ | Values] = tuple_to_list(Trace0),
-            maps:from_list(lists:zip(Fields, Values))
+            Map0 = maps:from_list(lists:zip(Fields, Values)),
+            Extra = maps:get(extra, Map0, #{}),
+            Formatter = maps:get(formatter, Extra, text),
+            Map1 = Map0#{formatter => Formatter},
+            maps:remove(extra, Map1)
         end,
         Traces
     ).
@@ -368,9 +404,17 @@ start_trace(Trace) ->
         type = Type,
         filter = Filter,
         start_at = Start,
-        payload_encode = PayloadEncode
+        payload_encode = PayloadEncode,
+        extra = Extra
     } = Trace,
-    Who = #{name => Name, type => Type, filter => Filter, payload_encode => PayloadEncode},
+    Formatter = maps:get(formatter, Extra, text),
+    Who = #{
+        name => Name,
+        type => Type,
+        filter => Filter,
+        payload_encode => PayloadEncode,
+        formatter => Formatter
+    },
     emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
 
 stop_trace(Finished, Started) ->
@@ -517,6 +561,9 @@ to_trace(#{type := ip_address, ip_address := Filter} = Trace, Rec) ->
         Error ->
             Error
     end;
+to_trace(#{type := ruleid, ruleid := Filter} = Trace, Rec) ->
+    Trace0 = maps:without([type, ruleid], Trace),
+    to_trace(Trace0, Rec#?TRACE{type = ruleid, filter = Filter});
 to_trace(#{type := Type}, _Rec) ->
     {error, io_lib:format("required ~s field", [Type])};
 to_trace(#{payload_encode := PayloadEncode} = Trace, Rec) ->
@@ -532,6 +579,12 @@ to_trace(#{end_at := EndAt} = Trace, Rec) ->
         {ok, _Sec} ->
             {error, "end_at time has already passed"}
     end;
+to_trace(#{formatter := Formatter} = Trace, Rec) ->
+    Extra = Rec#?TRACE.extra,
+    to_trace(
+        maps:remove(formatter, Trace),
+        Rec#?TRACE{extra = Extra#{formatter => Formatter}}
+    );
 to_trace(_, Rec) ->
     {ok, Rec}.
 

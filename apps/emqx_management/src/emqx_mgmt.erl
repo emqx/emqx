@@ -221,7 +221,9 @@ vm_stats('cpu') ->
     case emqx_vm:cpu_util([CpuUtilArg]) of
         %% return 0.0 when `emqx_cpu_sup_worker` is not started
         {all, Use, Idle, _} ->
-            [{cpu_use, Use}, {cpu_idle, Idle}];
+            NUse = floor(Use * 100) / 100,
+            NIdle = ceil(Idle * 100) / 100,
+            [{cpu_use, NUse}, {cpu_idle, NIdle}];
         _ ->
             [{cpu_use, 0}, {cpu_idle, 0}]
     end;
@@ -711,5 +713,24 @@ call_conn(ConnMod, Pid, Req) ->
         exit:R when R =:= shutdown; R =:= normal ->
             {error, shutdown};
         exit:{R, _} when R =:= shutdown; R =:= noproc ->
-            {error, shutdown}
+            {error, shutdown};
+        exit:{{shutdown, _OOMInfo}, _Location} ->
+            {error, shutdown};
+        exit:timeout ->
+            LogData = #{
+                msg => "call_client_connection_process_timeout",
+                request => Req,
+                pid => Pid,
+                module => ConnMod
+            },
+            LogData1 =
+                case node(Pid) =:= node() of
+                    true ->
+                        LogData#{stacktrace => erlang:process_info(Pid, current_stacktrace)};
+                    false ->
+                        LogData
+                end,
+
+            ?SLOG(warning, LogData1),
+            {error, timeout}
     end.

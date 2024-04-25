@@ -1007,7 +1007,13 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, _ConfRootKey, BridgeType, Br
         {error, not_implemented} ->
             ?NOT_IMPLEMENTED;
         {error, timeout} ->
-            ?BAD_REQUEST(<<"Request timeout">>);
+            BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+            ?SLOG(warning, #{
+                msg => "bridge_bpapi_call_timeout",
+                bridge => BridgeId,
+                call => OperFunc
+            }),
+            ?SERVICE_UNAVAILABLE(<<"Request timeout">>);
         {error, {start_pool_failed, Name, Reason}} ->
             Msg = bin(
                 io_lib:format("Failed to start ~p pool for reason ~p", [Name, redact(Reason)])
@@ -1018,9 +1024,8 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, _ConfRootKey, BridgeType, Br
             ?SLOG(warning, #{
                 msg => "bridge_inconsistent_in_cluster_for_call_operation",
                 reason => not_found,
-                type => BridgeType,
-                name => BridgeName,
-                bridge => BridgeId
+                bridge => BridgeId,
+                call => OperFunc
             }),
             ?SERVICE_UNAVAILABLE(<<"Bridge not found on remote node: ", BridgeId/binary>>);
         {error, {node_not_found, Node}} ->

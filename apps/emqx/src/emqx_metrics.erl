@@ -222,7 +222,9 @@
         % Messages delivered
         {counter, 'messages.delivered'},
         % Messages acked
-        {counter, 'messages.acked'}
+        {counter, 'messages.acked'},
+        % Messages persistently stored
+        {counter, 'messages.persisted'}
     ]
 ).
 
@@ -718,4 +720,5 @@ reserved_idx('overload_protection.gc') -> 403;
 reserved_idx('overload_protection.new_conn') -> 404;
 reserved_idx('messages.validation_succeeded') -> 405;
 reserved_idx('messages.validation_failed') -> 406;
+reserved_idx('messages.persisted') -> 407;
 reserved_idx(_) -> undefined.

@@ -259,6 +259,7 @@ uplink
 url
 utc
 util
+variform
 ver
 vm
 vsn
@@ -305,3 +306,4 @@ elasticsearch
 ElasticSearch
 doc_as_upsert
 upsert
+aliyun
