@@ -230,7 +230,7 @@ t_import_users(_) ->
     ),
     %% import plain.json with hash method
     ?assertEqual(
-        {error, "hash_import_required_password_hash_field"},
+        {error, "hash_import_requires_password_hash_field"},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(hash, <<"user-credentials-plain.json">>),
             State
@@ -299,7 +299,7 @@ t_import_users_plain(_) ->
     ),
     %% import hash.json with plain method
     ?assertEqual(
-        {error, "plain_import_required_password_field"},
+        {error, "plain_import_requires_password_field"},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(plain, <<"user-credentials.json">>),
             State

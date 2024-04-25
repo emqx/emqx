@@ -528,9 +528,9 @@ find_password_hash(hash, User = #{<<"password_hash">> := PasswordHash}, _) ->
 find_password_hash(plain, #{<<"password">> := Password}, Algorithm) ->
     emqx_authn_password_hashing:hash(Algorithm, Password);
 find_password_hash(hash, _User, _) ->
-    error("hash_import_required_password_hash_field");
+    error("hash_import_requires_password_hash_field");
 find_password_hash(plain, _User, _Algorithm) ->
-    error("plain_import_required_password_field");
+    error("plain_import_requires_password_field");
 find_password_hash(_, _, _) ->
     error(bad_format).
 
