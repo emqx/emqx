@@ -25,6 +25,30 @@
 
 -include("emqx_authz.hrl").
 
+%% Raw rules have the following format:
+%%    [
+%%        #{
+%%            %% <<"allow">> | <"deny">>,
+%%            <<"permission">> => <<"allow">>,
+%%
+%%            %% <<"pub">> | <<"sub">> | <<"all">>
+%%            <<"action">> => <<"pub">>,
+%%
+%%            %% <<"a/$#">>, <<"eq a/b/+">>, ...
+%%            <<"topic">> => TopicFilter,
+%%
+%%            %% when 'topic' is not provided
+%%            <<"topics">> => [TopicFilter],
+%%
+%%            %%  0 | 1 | 2 | [0, 1, 2] | <<"0">> | <<"1">> | ...
+%%            <<"qos">> => 0,
+%%
+%%            %% true | false | all | 0 | 1 | <<"true">> | ...
+%%            %% only for pub action
+%%            <<"retain">> => true
+%%        },
+%%        ...
+%%    ],
 -type rule_raw() :: #{binary() => binary() | [binary()]}.
 
 %%--------------------------------------------------------------------
@@ -33,9 +57,9 @@
 
 -spec parse_rule(rule_raw()) ->
     {ok, {
-        emqx_authz_rule:permission(),
-        emqx_authz_rule:action_condition(),
-        emqx_authz_rule:topic_condition()
+        emqx_authz_rule:permission_resolution_precompile(),
+        emqx_authz_rule:action_precompile(),
+        emqx_authz_rule:topic_precompile()
     }}
     | {error, map()}.
 parse_rule(
@@ -65,9 +89,9 @@ parse_rule(RuleRaw) ->
     }}.
 
 -spec format_rule({
-    emqx_authz_rule:permission(),
-    emqx_authz_rule:action_condition(),
-    emqx_authz_rule:topic_condition()
+    emqx_authz_rule:permission_resolution_precompile(),
+    emqx_authz_rule:action_precompile(),
+    emqx_authz_rule:topic_precompile()
 }) -> map().
 format_rule({Permission, Action, Topics}) when is_list(Topics) ->
     maps:merge(

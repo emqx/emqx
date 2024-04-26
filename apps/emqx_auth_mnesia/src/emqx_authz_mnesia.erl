@@ -33,7 +33,9 @@
 -type who() :: username() | clientid() | all.
 
 -type rule() :: {
-    emqx_authz_rule:permission(), emqx_authz_rule:action_precompile(), emqx_types:topic()
+    emqx_authz_rule:permission_resolution_precompile(),
+    emqx_authz_rule:action_precompile(),
+    emqx_authz_rule:topic_precompile()
 }.
 -type rules() :: [rule()].
 
