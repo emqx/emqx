@@ -5,19 +5,4 @@ config_connector.label:
 config_connector.desc:
 """Configuration for a connector to S3 API compatible storage service."""
 
-s3_upload.label:
-"""S3 Simple Upload"""
-s3_upload.desc:
-"""Action to upload a single object to the S3 service."""
-
-s3_upload_parameters.label:
-"""S3 Upload action parameters"""
-s3_upload_parameters.desc:
-"""Set of parameters for the upload action. Action supports templates in S3 bucket name, object key and object content."""
-
-s3_object_content.label:
-"""S3 Object Content"""
-s3_object_content.desc:
-"""Content of the S3 object being uploaded. Supports templates."""
-
 }

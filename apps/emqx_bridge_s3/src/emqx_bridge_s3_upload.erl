@@ -80,12 +80,13 @@ fields(s3_action_resource_opts) ->
         emqx_bridge_v2_schema:action_resource_opts_fields()
     ).
 
-desc(?ACTION) ->
+desc(s3) ->
     ?DESC(s3_upload);
-desc(s3_upload) ->
-    ?DESC(s3_upload);
-desc(s3_upload_parameters) ->
-    ?DESC(s3_upload_parameters);
+desc(Name) when
+    Name == s3_upload;
+    Name == s3_upload_parameters
+->
+    ?DESC(Name);
 desc(s3_action_resource_opts) ->
     ?DESC(emqx_resource_schema, resource_opts);
 desc(_Name) ->

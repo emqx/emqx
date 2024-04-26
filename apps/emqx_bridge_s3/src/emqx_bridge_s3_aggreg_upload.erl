@@ -60,7 +60,7 @@ fields(?ACTION) ->
             ?R_REF(s3_aggregated_upload_parameters),
             #{
                 required => true,
-                desc => ?DESC(s3_aggregated_upload)
+                desc => ?DESC(s3_aggregated_upload_parameters)
             }
         ),
         #{
@@ -68,32 +68,36 @@ fields(?ACTION) ->
         }
     );
 fields(s3_aggregated_upload_parameters) ->
-    [
-        {container,
-            hoconsc:mk(
-                %% TODO: Support selectors once there are more than one container.
-                hoconsc:union(fun
-                    (all_union_members) -> [?REF(s3_container_csv)];
-                    ({value, _Valur}) -> [?REF(s3_container_csv)]
-                end),
-                #{
-                    required => true,
-                    default => #{<<"type">> => <<"csv">>},
-                    desc => ?DESC(s3_aggregated_container)
-                }
-            )},
-        {aggregation,
-            hoconsc:mk(
-                ?REF(s3_aggregation),
-                #{
-                    required => true,
-                    desc => ?DESC(s3_aggregation)
-                }
-            )}
-    ] ++
-        emqx_s3_schema:fields(s3_upload) ++
-        emqx_s3_schema:fields(s3_uploader);
-fields(s3_container_csv) ->
+    lists:append([
+        [
+            {container,
+                hoconsc:mk(
+                    %% TODO: Support selectors once there are more than one container.
+                    hoconsc:union(fun
+                        (all_union_members) -> [?REF(s3_aggregated_container_csv)];
+                        ({value, _Valur}) -> [?REF(s3_aggregated_container_csv)]
+                    end),
+                    #{
+                        required => true,
+                        default => #{<<"type">> => <<"csv">>},
+                        desc => ?DESC(s3_aggregated_container)
+                    }
+                )},
+            {aggregation,
+                hoconsc:mk(
+                    ?REF(s3_aggregation),
+                    #{
+                        required => true,
+                        desc => ?DESC(s3_aggregation)
+                    }
+                )}
+        ],
+        emqx_resource_schema:override(emqx_s3_schema:fields(s3_upload), [
+            {key, #{desc => ?DESC(s3_aggregated_upload_key)}}
+        ]),
+        emqx_s3_schema:fields(s3_uploader)
+    ]);
+fields(s3_aggregated_container_csv) ->
     [
         {type,
             hoconsc:mk(
@@ -142,10 +146,13 @@ fields(s3_aggreg_upload_resource_opts) ->
         {batch_time, #{default => ?DEFAULT_BATCH_TIME}}
     ]).
 
-desc(?ACTION) ->
-    ?DESC(s3_aggregated_upload);
-desc(s3_aggregated_upload_parameters) ->
-    ?DESC(s3_aggregated_upload_parameters);
+desc(Name) when
+    Name == s3_aggregated_upload;
+    Name == s3_aggregated_upload_parameters;
+    Name == s3_aggregation;
+    Name == s3_aggregated_container_csv
+->
+    ?DESC(Name);
 desc(s3_aggreg_upload_resource_opts) ->
     ?DESC(emqx_resource_schema, resource_opts);
 desc(_Name) ->
