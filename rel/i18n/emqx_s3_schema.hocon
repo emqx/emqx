@@ -18,6 +18,13 @@ key.desc:
 key.label:
 """Object Key"""
 
+upload_headers.label:
+"""S3 object HTTP headers"""
+
+upload_headers.desc:
+"""HTTP headers to include in the S3 object upload request.<br/>
+Useful to specify content type, content encoding, etc. of the S3 object."""
+
 host.desc:
 """The host of the S3 endpoint."""
 

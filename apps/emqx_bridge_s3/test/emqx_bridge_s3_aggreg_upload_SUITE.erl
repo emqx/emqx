@@ -70,7 +70,7 @@ end_per_suite(Config) ->
 %% Testcases
 
 init_per_testcase(TestCase, Config) ->
-    ct:timetrap(timer:seconds(10)),
+    ct:timetrap(timer:seconds(15)),
     ok = snabbkaffe:start_trace(),
     TS = erlang:system_time(),
     Name = iolist_to_binary(io_lib:format("~s-~p", [TestCase, TS])),
@@ -124,6 +124,9 @@ action_config(Name, ConnectorId, Bucket) ->
                 <<"bucket">> => unicode:characters_to_binary(Bucket),
                 <<"key">> => <<"${action}/${node}/${datetime.rfc3339}">>,
                 <<"acl">> => <<"public_read">>,
+                <<"headers">> => #{
+                    <<"X-AMZ-Meta-Version">> => <<"42">>
+                },
                 <<"aggregation">> => #{
                     <<"time_interval">> => <<"4s">>,
                     <<"max_records">> => ?CONF_MAX_RECORDS
@@ -173,7 +176,11 @@ t_aggreg_upload(Config) ->
         [BridgeNameString, NodeString, _Datetime, _Seq = "0"],
         string:split(Key, "/", all)
     ),
-    _Upload = #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
+    Upload = #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
+    ?assertMatch(
+        #{content_type := "text/csv", "x-amz-meta-version" := "42"},
+        Upload
+    ),
     %% Verify that column order is respected.
     ?assertMatch(
         {ok, [

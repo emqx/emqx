@@ -102,6 +102,14 @@ fields(s3_upload) ->
                     desc => ?DESC("acl"),
                     required => false
                 }
+            )},
+        {headers,
+            hoconsc:mk(
+                map(),
+                #{
+                    required => false,
+                    desc => ?DESC("upload_headers")
+                }
             )}
     ];
 fields(s3_uploader) ->

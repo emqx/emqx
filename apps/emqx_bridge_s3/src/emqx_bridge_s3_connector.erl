@@ -191,8 +191,7 @@ start_channel(State, #{
             max_records := MaxRecords
         },
         container := Container,
-        bucket := Bucket,
-        key := Key
+        bucket := Bucket
     }
 }) ->
     AggregOpts = #{
@@ -202,9 +201,9 @@ start_channel(State, #{
     },
     DeliveryOpts = #{
         bucket => Bucket,
-        key => emqx_bridge_s3_aggreg_upload:mk_key_template(Key),
+        key => emqx_bridge_s3_aggreg_upload:mk_key_template(Parameters),
         container => Container,
-        upload_options => upload_options(Parameters),
+        upload_options => emqx_bridge_s3_aggreg_upload:mk_upload_options(Parameters),
         client_config => maps:get(client_config, State),
         uploader_config => maps:with([min_part_size, max_part_size], Parameters)
     },

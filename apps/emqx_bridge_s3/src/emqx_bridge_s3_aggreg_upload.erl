@@ -23,7 +23,8 @@
 
 %% Interpreting options
 -export([
-    mk_key_template/1
+    mk_key_template/1,
+    mk_upload_options/1
 ]).
 
 %% emqx_bridge_v2_schema API
@@ -160,8 +161,8 @@ desc(_Name) ->
 
 %% Interpreting options
 
--spec mk_key_template(string()) -> emqx_template:str().
-mk_key_template(Key) ->
+-spec mk_key_template(_Parameters :: map()) -> emqx_template:str().
+mk_key_template(#{key := Key}) ->
     Template = emqx_template:parse(Key),
     {_, BindingErrors} = emqx_template:render(Template, #{}),
     {UsedBindings, _} = lists:unzip(BindingErrors),
@@ -187,6 +188,33 @@ mk_default_binding("datetime.") ->
     "${datetime.rfc3339utc}";
 mk_default_binding(Binding) ->
     "${" ++ Binding ++ "}".
+
+-spec mk_upload_options(_Parameters :: map()) -> emqx_s3_client:upload_options().
+mk_upload_options(Parameters) ->
+    Headers = mk_upload_headers(Parameters),
+    #{
+        headers => Headers,
+        acl => maps:get(acl, Parameters, undefined)
+    }.
+
+mk_upload_headers(Parameters = #{container := Container}) ->
+    Headers = normalize_headers(maps:get(headers, Parameters, #{})),
+    ContainerHeaders = mk_container_headers(Container),
+    maps:merge(ContainerHeaders, Headers).
+
+normalize_headers(Headers) ->
+    maps:fold(
+        fun(Header, Value, Acc) ->
+            maps:put(string:lowercase(emqx_utils_conv:str(Header)), Value, Acc)
+        end,
+        #{},
+        Headers
+    ).
+
+mk_container_headers(#{type := csv}) ->
+    #{"content-type" => "text/csv"};
+mk_container_headers(#{}) ->
+    #{}.
 
 %% Examples
 
