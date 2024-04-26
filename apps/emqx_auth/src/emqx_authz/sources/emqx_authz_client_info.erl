@@ -75,22 +75,35 @@ destroy(_Source) -> ok.
 %% v2: (rules are checked in sequence, passthrough when no match)
 %%
 %%    [{
-%%        Permission :: emqx_authz_rule:permission(),
+%%        Permission :: emqx_authz_rule:permission_resolution(),
 %%        Action :: emqx_authz_rule:action_condition(),
 %%        Topics :: emqx_authz_rule:topic_condition()
 %%     }]
 %%
-%%  which is compiled from raw rules like below by emqx_authz_rule_raw
+%%  which is compiled from raw rule maps like below by `emqx_authz_rule_raw`
 %%
 %%    [
 %%        #{
-%%            permission := allow | deny
-%%            action := pub | sub | all
-%%            topic => TopicFilter,
-%%            topics => [TopicFilter] %% when 'topic' is not provided
-%%            qos => 0 | 1 | 2 | [0, 1, 2]
-%%            retain => true | false | all %% only for pub action
-%%        }
+%%            %% <<"allow">> | <"deny">>,
+%%            <<"permission">> => <<"allow">>,
+%%
+%%            %% <<"pub">> | <<"sub">> | <<"all">>
+%%            <<"action">> => <<"pub">>,
+%%
+%%            %% <<"a/$#">>, <<"eq a/b/+">>, ...
+%%            <<"topic">> => TopicFilter,
+%%
+%%            %% when 'topic' is not provided
+%%            <<"topics">> => [TopicFilter],
+%%
+%%            %%  0 | 1 | 2 | [0, 1, 2] | <<"0">> | <<"1">> | ...
+%%            <<"qos">> => 0,
+%%
+%%            %% true | false | all | 0 | 1 | <<"true">> | ...
+%%            %% only for pub action
+%%            <<"retain">> => true
+%%        },
+%%        ...
 %%    ]
 %%
 authorize(#{acl := Acl} = Client, PubSub, Topic, _Source) ->

@@ -29,13 +29,15 @@
     compile/4
 ]).
 
--export_type([action/0, action_precompile/0]).
-
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include("emqx_authz.hrl").
 
--type permission() :: allow | deny.
+%%--------------------------------------------------------------------
+%% "condition" types describe compiled rules used internally for matching
+%%--------------------------------------------------------------------
+
+-type permission_resolution() :: allow | deny.
 
 -type who_condition() ::
     ipaddress()
@@ -61,7 +63,18 @@
 
 -type topic_condition() :: list(emqx_types:topic() | {eq, emqx_types:topic()}).
 
--type rule() :: {permission(), who_condition(), action_condition(), topic_condition()}.
+-type rule() :: {permission_resolution(), who_condition(), action_condition(), topic_condition()}.
+
+-export_type([
+    permission_resolution/0,
+    action_condition/0,
+    topic_condition/0
+]).
+
+%%--------------------------------------------------------------------
+%% `action()` type describes client's actions that are mached
+%% against the compiled "condition" rules
+%%--------------------------------------------------------------------
 
 -type qos() :: emqx_types:qos().
 -type retain() :: boolean().
@@ -69,32 +82,54 @@
     #{action_type := subscribe, qos := qos()}
     | #{action_type := publish, qos := qos(), retain := retain()}.
 
--export_type([
-    permission/0,
-    who_condition/0,
-    action_condition/0,
-    topic_condition/0
-]).
+-export_type([action/0, qos/0, retain/0]).
+
+%%--------------------------------------------------------------------
+%% "precompiled" types describe rule DSL that is used in "acl.conf" file
+%% to describe rules. Also, rules extracted from external sources
+%% like database, etc. are preprocessed into these types first
+%%--------------------------------------------------------------------
+
+-type permission_resolution_precompile() :: permission_resolution().
+
+-type who_precompile() :: who_condition().
+
+-type subscribe_option_precompile() :: {qos, qos() | [qos()]}.
+-type publish_option_precompile() :: {qos, qos() | [qos()]} | {retain, retain_condition()}.
 
 -type action_precompile() ::
     subscribe
+    | {subscribe, [subscribe_option_precompile()]}
     | publish
-    | {subscribe, list()}
-    | {publish, list()}
-    | all.
+    | {publish, [publish_option_precompile()]}
+    | all
+    | {all, [publish_option_precompile()]}.
 
--type topic_filter() :: emqx_types:topic().
+%% besides exact `topic_condition()` we also accept `<<"eq ...">>` and `"eq ..."`
+%% as precompiled topic conditions
+-type topic_precompile() :: topic_condition() | binary() | string().
 
--type rule_precompile() :: {permission(), who_condition(), action_precompile(), [topic_filter()]}.
+-type rule_precompile() :: {
+    permission_resolution_precompile(), who_condition(), action_precompile(), [topic_precompile()]
+}.
+
+-export_type([
+    permission_resolution_precompile/0,
+    action_precompile/0,
+    topic_precompile/0,
+    rule_precompile/0
+]).
 
 -define(IS_PERMISSION(Permission), (Permission =:= allow orelse Permission =:= deny)).
 -define(ALLOWED_VARS, [?VAR_USERNAME, ?VAR_CLIENTID, ?VAR_NS_CLIENT_ATTRS]).
 
--spec compile(permission(), who_condition(), action_precompile(), [topic_filter()]) -> rule().
+-spec compile(permission_resolution_precompile(), who_precompile(), action_precompile(), [
+    topic_precompile()
+]) -> rule().
 compile(Permission, Who, Action, TopicFilters) ->
     compile({Permission, Who, Action, TopicFilters}).
 
--spec compile({permission(), all} | rule_precompile()) -> rule().
+-spec compile({permission_resolution_precompile(), all} | rule_precompile()) -> rule().
 compile({Permission, all}) when
     ?IS_PERMISSION(Permission)
 ->
