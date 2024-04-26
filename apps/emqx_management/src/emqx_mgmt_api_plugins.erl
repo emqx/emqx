@@ -488,7 +488,7 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:get_plugin_config(NameVsn, #{format => ?CONFIG_FORMAT_MAP}) of
+            case emqx_plugins:get_plugin_config(NameVsn) of
                 {ok, AvroJson} ->
                     {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
                 {error, _} ->
@@ -503,8 +503,7 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
 plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
-            case emqx_plugins:decode_plugin_avro_config(NameVsn, AvroJsonBin) of
+            case emqx_plugins:decode_plugin_avro_config(NameVsn, AvroJsonMap) of
                 {ok, AvroValueConfig} ->
                     Nodes = emqx:running_nodes(),
                     %% cluster call with config in map (binary key-value)

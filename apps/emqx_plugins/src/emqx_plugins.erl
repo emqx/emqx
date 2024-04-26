@@ -28,7 +28,8 @@
     plugin_avsc/1,
     plugin_i18n/1,
     plugin_avro/1,
-    parse_name_vsn/1
+    parse_name_vsn/1,
+    make_name_vsn_string/2
 ]).
 
 %% Package operations
@@ -49,19 +50,22 @@
     ensure_started/1,
     ensure_stopped/0,
     ensure_stopped/1,
-    get_plugin_config/1,
-    get_plugin_config/2,
-    put_plugin_config/3,
     restart/1,
     list/0
+]).
+
+%% Plugin config APIs
+-export([
+    get_plugin_config/1,
+    get_plugin_config/2,
+    get_plugin_config/3,
+    get_plugin_config/4,
+    put_plugin_config/3
 ]).
 
 %% Package utils
 -export([
     decode_plugin_avro_config/2,
-    get_config/2,
-    put_config/2,
-    get_tar/1,
     install_dir/0,
     avsc_file_path/1
 ]).
@@ -73,6 +77,8 @@
 
 %% Internal export
 -export([do_ensure_started/1]).
+%% for test cases
+-export([put_config/2]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -123,6 +129,9 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
         {AppName, [$- | Vsn]} -> {ok, list_to_atom(AppName), Vsn};
         _ -> {error, "bad_name_vsn"}
     end.
+
+make_name_vsn_string(Name, Vsn) ->
+    binary_to_list(iolist_to_binary([Name, "-", Vsn])).
 
 %%--------------------------------------------------------------------
 %% Package operations
@@ -246,21 +255,30 @@ ensure_stopped(NameVsn) ->
         end
     ).
 
+get_plugin_config(Name, Vsn, Options, Default) ->
+    get_plugin_config(make_name_vsn_string(Name, Vsn), Options, Default).
+
 -spec get_plugin_config(name_vsn()) ->
-    {ok, plugin_config()} | {error, term()}.
+    {ok, plugin_config()}
+    | {error, term()}.
 get_plugin_config(NameVsn) ->
     get_plugin_config(bin(NameVsn), #{format => ?CONFIG_FORMAT_MAP}).
 
 -spec get_plugin_config(name_vsn(), Options :: map()) ->
     {ok, avro_binary() | plugin_config()}
     | {error, term()}.
+
 get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
+    %% no default value when get raw binary config
     case read_plugin_avro(NameVsn) of
         {ok, _AvroJson} = Res -> Res;
         {error, _Reason} = Err -> Err
     end;
-get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}) ->
-    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), #{})}.
+get_plugin_config(NameVsn, Options = #{format := ?CONFIG_FORMAT_MAP}) ->
+    get_plugin_config(NameVsn, Options, #{}).
+
+get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}, Default) ->
+    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), Default)}.
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
