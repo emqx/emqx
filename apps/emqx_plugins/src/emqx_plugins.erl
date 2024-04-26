@@ -1082,7 +1082,7 @@ avro_config_file(NameVsn) ->
     filename:join([plugin_config_dir(NameVsn), "config.avro"]).
 
 i18n_file_path(NameVsn) ->
-    filename:join([plugin_dir(NameVsn), "i18n.json"]).
+    filename:join([plugin_dir(NameVsn), "config_i18n.json"]).
 
 readme_file(NameVsn) ->
     filename:join([plugin_dir(NameVsn), "README.md"]).
