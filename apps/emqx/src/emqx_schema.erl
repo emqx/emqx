@@ -217,14 +217,7 @@ roots(high) ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {zones,
-            sc(
-                map(name, ref("zone")),
-                #{
-                    desc => ?DESC(zones),
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )}
+        {zones, zones_field_schema()}
     ] ++
         emqx_schema_hooks:injection_point(
             'roots.high',
@@ -1859,7 +1852,7 @@ base_listener(Bind) ->
                 #{
                     desc => ?DESC(base_listener_zone),
                     default => 'default',
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"limiter",
@@ -1882,6 +1875,22 @@ base_listener(Bind) ->
                 }
             )}
     ] ++ emqx_limiter_schema:short_paths_fields().
+
+%% @hidden Starting from 5.7, listenrs.{TYPE}.{NAME}.zone is no longer hidden
+%% However, the root key 'zones' is still hidden because the fields' schema
+%% just repeat other root field's schema, which makes the dumped schema doc
+%% unnecessarily bloated.
+%%
+%% zone schema is documented here since 5.7:
+%% https://docs.emqx.com/en/enterprise/latest/configuration/configuration.html
+zones_field_schema() ->
+    sc(
+        map(name, ref("zone")),
+        #{
+            desc => ?DESC(zones),
+            importance => ?IMPORTANCE_HIDDEN
+        }
+    ).
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";

@@ -1198,11 +1198,18 @@ fields_mqtt_quic_listener_max_ack_delay_ms.desc:
 fields_mqtt_quic_listener_max_ack_delay_ms.label:
 """Max ack delay ms"""
 
-base_listener_zone.desc:
-"""The configuration zone to which the listener belongs."""
+base_listener_zone.desc: """~
+    The configuration zone to which the listener belongs.
+    Clients connected to this listener will inherit zone-settings created under this zone name.
 
-base_listener_zone.label:
-"""Zone"""
+    A zone can override the configs under below root names:
+    - `mqtt`
+    - `force_shutdown`
+    - `force_gc`
+    - `flapping_detect`
+    - `session_persistence`"""
+
+base_listener_zone.label: "Zone"
 
 fields_mqtt_quic_listener_handshake_idle_timeout.desc:
 """How long a handshake can idle before it is discarded."""
