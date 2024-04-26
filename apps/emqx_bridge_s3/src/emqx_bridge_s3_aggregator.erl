@@ -393,6 +393,7 @@ handle_delivery_exit(Buffer, Error, St = #st{name = Name}) ->
         filename => Buffer#buffer.filename,
         reason => Error
     }),
+    %% TODO: Retries?
     enqueue_status_error(Error, St).
 
 enqueue_status_error({upload_failed, Error}, St = #st{errors = QErrors}) ->

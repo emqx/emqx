@@ -6,6 +6,7 @@
 
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("erlcloud/include/erlcloud_aws.hrl").
 
 -export([
@@ -133,7 +134,13 @@ start_multipart(
     Headers = join_headers(BaseHeaders, maps:get(headers, UploadOpts, undefined)),
     case erlcloud_s3:start_multipart(Bucket, ECKey, ECOpts, Headers, AwsConfig) of
         {ok, Props} ->
-            {ok, response_property('uploadId', Props)};
+            UploadId = response_property('uploadId', Props),
+            ?tp(s3_client_multipart_started, #{
+                bucket => Bucket,
+                key => Key,
+                upload_id => UploadId
+            }),
+            {ok, UploadId};
         {error, Reason} ->
             ?SLOG(debug, #{msg => "start_multipart_fail", key => Key, reason => Reason}),
             {error, Reason}
@@ -177,6 +184,11 @@ complete_multipart(
         )
     of
         ok ->
+            ?tp(s3_client_multipart_completed, #{
+                bucket => Bucket,
+                key => Key,
+                upload_id => UploadId
+            }),
             ok;
         {error, Reason} ->
             ?SLOG(debug, #{msg => "complete_multipart_fail", key => Key, reason => Reason}),
@@ -193,6 +205,11 @@ abort_multipart(
 ) ->
     case erlcloud_s3:abort_multipart(Bucket, erlcloud_key(Key), UploadId, [], Headers, AwsConfig) of
         ok ->
+            ?tp(s3_client_multipart_aborted, #{
+                bucket => Bucket,
+                key => Key,
+                upload_id => UploadId
+            }),
             ok;
         {error, Reason} ->
             ?SLOG(debug, #{msg => "abort_multipart_fail", key => Key, reason => Reason}),

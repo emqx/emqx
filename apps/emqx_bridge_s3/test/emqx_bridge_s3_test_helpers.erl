@@ -43,6 +43,12 @@ get_object(Bucket, Key) ->
     AwsConfig = emqx_s3_test_helpers:aws_config(tcp),
     maps:from_list(erlcloud_s3:get_object(Bucket, Key, AwsConfig)).
 
+list_pending_uploads(Bucket, Key) ->
+    AwsConfig = emqx_s3_test_helpers:aws_config(tcp),
+    {ok, Props} = erlcloud_s3:list_multipart_uploads(Bucket, [{prefix, Key}], [], AwsConfig),
+    Uploads = proplists:get_value(uploads, Props),
+    lists:map(fun maps:from_list/1, Uploads).
+
 %% File utilities
 
 truncate_at(Filename, Pos) ->

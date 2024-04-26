@@ -12,10 +12,20 @@
 -export([start_link/3]).
 
 %% Internal exports
--export([run_delivery/3]).
+-export([
+    init/4,
+    loop/3
+]).
 
 -behaviour(emqx_template).
 -export([lookup/2]).
+
+%% Sys
+-export([
+    system_continue/3,
+    system_terminate/4,
+    format_status/2
+]).
 
 -record(delivery, {
     name :: _Name,
@@ -25,19 +35,23 @@
     empty :: boolean()
 }).
 
+-type state() :: #delivery{}.
+
 %%
 
 start_link(Name, Buffer, Opts) ->
-    proc_lib:start_link(?MODULE, run_delivery, [Name, Buffer, Opts]).
+    proc_lib:start_link(?MODULE, init, [self(), Name, Buffer, Opts]).
 
 %%
 
-run_delivery(Name, Buffer, Opts) ->
+-spec init(pid(), _Name, buffer(), _Opts :: map()) -> no_return().
+init(Parent, Name, Buffer, Opts) ->
     ?tp(s3_aggreg_delivery_started, #{action => Name, buffer => Buffer}),
     Reader = open_buffer(Buffer),
     Delivery = init_delivery(Name, Reader, Buffer, Opts#{action => Name}),
+    _ = erlang:process_flag(trap_exit, true),
     ok = proc_lib:init_ack({ok, self()}),
-    loop_deliver(Delivery).
+    loop(Delivery, Parent, []).
 
 init_delivery(Name, Reader, Buffer, Opts = #{container := ContainerOpts}) ->
     #delivery{
@@ -48,53 +62,13 @@ init_delivery(Name, Reader, Buffer, Opts = #{container := ContainerOpts}) ->
         empty = true
     }.
 
-loop_deliver(Delivery = #delivery{reader = Reader0}) ->
-    case emqx_bridge_s3_aggreg_buffer:read(Reader0) of
-        {Records = [#{} | _], Reader} ->
-            loop_deliver_records(Records, Delivery#delivery{reader = Reader});
-        {[], Reader} ->
-            loop_deliver(Delivery#delivery{reader = Reader});
-        eof ->
-            complete_delivery(Delivery);
-        {Unexpected, _Reader} ->
-            exit({buffer_unexpected_record, Unexpected})
-    end.
-
-loop_deliver_records(Records, Delivery = #delivery{container = Container0, upload = Upload0}) ->
-    {Writes, Container} = emqx_bridge_s3_aggreg_csv:fill(Records, Container0),
-    {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
-    loop_deliver_upload(Delivery#delivery{
-        container = Container,
-        upload = Upload,
-        empty = false
-    }).
-
-loop_deliver_upload(Delivery = #delivery{upload = Upload0}) ->
-    case emqx_s3_upload:write(Upload0) of
-        {ok, Upload} ->
-            loop_deliver(Delivery#delivery{upload = Upload});
-        {cont, Upload} ->
-            loop_deliver_upload(Delivery#delivery{upload = Upload});
+open_buffer(#buffer{filename = Filename}) ->
+    case file:open(Filename, [read, binary, raw]) of
+        {ok, FD} ->
+            {_Meta, Reader} = emqx_bridge_s3_aggreg_buffer:new_reader(FD),
+            Reader;
         {error, Reason} ->
-            %% TODO: retries
-            _ = emqx_s3_upload:abort(Upload0),
-            exit({upload_failed, Reason})
-    end.
-
-complete_delivery(#delivery{name = Name, empty = true}) ->
-    ?tp(s3_aggreg_delivery_completed, #{action => Name, upload => empty}),
-    exit({shutdown, {skipped, empty}});
-complete_delivery(#delivery{name = Name, container = Container, upload = Upload0}) ->
-    Trailer = emqx_bridge_s3_aggreg_csv:close(Container),
-    {ok, Upload} = emqx_s3_upload:append(Trailer, Upload0),
-    case emqx_s3_upload:complete(Upload) of
-        {ok, Completed} ->
-            ?tp(s3_aggreg_delivery_completed, #{action => Name, upload => Completed}),
-            ok;
-        {error, Reason} ->
-            %% TODO: retries
-            _ = emqx_s3_upload:abort(Upload),
-            exit({upload_failed, Reason})
+            error({buffer_open_failed, Reason})
     end.
 
 mk_container(#{type := csv, column_order := OrderOpt}) ->
@@ -118,14 +92,90 @@ mk_upload(
 mk_object_key(Buffer, #{action := Name, key := Template}) ->
     emqx_template:render_strict(Template, {?MODULE, {Name, Buffer}}).
 
-open_buffer(#buffer{filename = Filename}) ->
-    case file:open(Filename, [read, binary, raw]) of
-        {ok, FD} ->
-            {_Meta, Reader} = emqx_bridge_s3_aggreg_buffer:new_reader(FD),
-            Reader;
-        {error, Reason} ->
-            error({buffer_open_failed, Reason})
+%%
+
+-spec loop(state(), pid(), [sys:debug_option()]) -> no_return().
+loop(Delivery, Parent, Debug) ->
+    %% NOTE: This function is mocked in tests.
+    receive
+        Msg -> handle_msg(Msg, Delivery, Parent, Debug)
+    after 0 ->
+        process_delivery(Delivery, Parent, Debug)
     end.
+
+process_delivery(Delivery0 = #delivery{reader = Reader0}, Parent, Debug) ->
+    case emqx_bridge_s3_aggreg_buffer:read(Reader0) of
+        {Records = [#{} | _], Reader} ->
+            Delivery1 = Delivery0#delivery{reader = Reader},
+            Delivery2 = process_append_records(Records, Delivery1),
+            Delivery = process_write(Delivery2),
+            loop(Delivery, Parent, Debug);
+        {[], Reader} ->
+            Delivery = Delivery0#delivery{reader = Reader},
+            loop(Delivery, Parent, Debug);
+        eof ->
+            process_complete(Delivery0);
+        {Unexpected, _Reader} ->
+            exit({buffer_unexpected_record, Unexpected})
+    end.
+
+process_append_records(Records, Delivery = #delivery{container = Container0, upload = Upload0}) ->
+    {Writes, Container} = emqx_bridge_s3_aggreg_csv:fill(Records, Container0),
+    {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
+    Delivery#delivery{
+        container = Container,
+        upload = Upload,
+        empty = false
+    }.
+
+process_write(Delivery = #delivery{upload = Upload0}) ->
+    case emqx_s3_upload:write(Upload0) of
+        {ok, Upload} ->
+            Delivery#delivery{upload = Upload};
+        {cont, Upload} ->
+            process_write(Delivery#delivery{upload = Upload});
+        {error, Reason} ->
+            _ = emqx_s3_upload:abort(Upload0),
+            exit({upload_failed, Reason})
+    end.
+
+process_complete(#delivery{name = Name, empty = true}) ->
+    ?tp(s3_aggreg_delivery_completed, #{action => Name, upload => empty}),
+    exit({shutdown, {skipped, empty}});
+process_complete(#delivery{name = Name, container = Container, upload = Upload0}) ->
+    Trailer = emqx_bridge_s3_aggreg_csv:close(Container),
+    {ok, Upload} = emqx_s3_upload:append(Trailer, Upload0),
+    case emqx_s3_upload:complete(Upload) of
+        {ok, Completed} ->
+            ?tp(s3_aggreg_delivery_completed, #{action => Name, upload => Completed}),
+            ok;
+        {error, Reason} ->
+            _ = emqx_s3_upload:abort(Upload),
+            exit({upload_failed, Reason})
+    end.
+
+%%
+
+handle_msg({system, From, Msg}, Delivery, Parent, Debug) ->
+    sys:handle_system_msg(Msg, From, Parent, ?MODULE, Debug, Delivery);
+handle_msg({'EXIT', Parent, Reason}, Delivery, Parent, Debug) ->
+    system_terminate(Reason, Parent, Debug, Delivery);
+handle_msg(_Msg, Delivery, Parent, Debug) ->
+    loop(Parent, Debug, Delivery).
+
+-spec system_continue(pid(), [sys:debug_option()], state()) -> no_return().
+system_continue(Parent, Debug, Delivery) ->
+    loop(Delivery, Parent, Debug).
+
+-spec system_terminate(_Reason, pid(), [sys:debug_option()], state()) -> _.
+system_terminate(_Reason, _Parent, _Debug, #delivery{upload = Upload}) ->
+    emqx_s3_upload:abort(Upload).
+
+-spec format_status(normal, Args :: [term()]) -> _StateFormatted.
+format_status(_Normal, [_PDict, _SysState, _Parent, _Debug, Delivery]) ->
+    Delivery#delivery{
+        upload = emqx_s3_upload:format(Delivery#delivery.upload)
+    }.
 
 %%
 

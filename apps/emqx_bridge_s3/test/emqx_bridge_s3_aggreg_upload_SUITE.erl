@@ -219,7 +219,6 @@ t_aggreg_upload_restart(Config) ->
     %% Check there's still only one upload.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     _Upload = #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
-    %% Verify that column order is respected.
     ?assertMatch(
         {ok, [
             _Header = [_ | _],
@@ -283,6 +282,42 @@ t_aggreg_upload_restart_corrupted(Config) ->
         lists:sublist(Messages1, NRows - BatchSize) ++ Messages2,
         [{ClientID, Topic, Payload} || [_TS, ClientID, Topic, Payload | _] <- Rows],
         CSV
+    ).
+
+t_aggreg_pending_upload_restart(Config) ->
+    %% NOTE
+    %% This test verifies that the bridge will finish uploading a buffer file after
+    %% a restart.
+    Bucket = ?config(s3_bucket, Config),
+    BridgeName = ?config(bridge_name, Config),
+    %% Create a bridge with the sample configuration.
+    ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    %% Send few large messages that will require multipart upload.
+    %% Ensure that they span multiple batch queries.
+    Payload = iolist_to_binary(lists:duplicate(128 * 1024, "PAYLOAD!")),
+    Messages = [{integer_to_binary(N), <<"a/b/c">>, Payload} || N <- lists:seq(1, 10)],
+    ok = send_messages_delayed(BridgeName, lists:map(fun mk_message_event/1, Messages), 10),
+    %% Wait until the multipart upload is started.
+    {ok, #{key := ObjectKey}} =
+        ?block_until(#{?snk_kind := s3_client_multipart_started, bucket := Bucket}),
+    %% Stop the bridge.
+    {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
+    %% Verify that pending uploads have been gracefully aborted.
+    %% NOTE: Minio does not support multipart upload listing w/o prefix.
+    ?assertEqual(
+        [],
+        emqx_bridge_s3_test_helpers:list_pending_uploads(Bucket, ObjectKey)
+    ),
+    %% Restart the bridge.
+    {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
+    %% Wait until the delivery is completed.
+    {ok, _} = ?block_until(#{?snk_kind := s3_aggreg_delivery_completed, action := BridgeName}),
+    %% Check that delivery contains all the messages.
+    _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
+    [_Header | Rows] = fetch_parse_csv(Bucket, Key),
+    ?assertEqual(
+        Messages,
+        [{CID, Topic, PL} || [_TS, CID, Topic, PL | _] <- Rows]
     ).
 
 t_aggreg_next_rotate(Config) ->
