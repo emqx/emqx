@@ -285,11 +285,12 @@ raw_mongo_auth_config() ->
         <<"filter">> => #{<<"username">> => <<"${username}">>},
         <<"password_hash_field">> => <<"password_hash">>,
         <<"salt_field">> => <<"salt">>,
-        <<"is_superuser_field">> => <<"is_superuser">>
+        <<"is_superuser_field">> => <<"is_superuser">>,
+        <<"use_legacy_protocol">> => <<"auto">>
     }.
 
 user_seeds() ->
-    [
+    PlainSeed =
         #{
             data => #{
                 username => <<"plain">>,
@@ -304,7 +305,10 @@ user_seeds() ->
             config_params => #{},
             result => {ok, #{is_superuser => true}}
         },
-
+    [
+        PlainSeed#{config_params => #{<<"use_legacy_protocol">> => <<"auto">>}},
+        PlainSeed#{config_params => #{<<"use_legacy_protocol">> => <<"true">>}},
+        PlainSeed#{config_params => #{<<"use_legacy_protocol">> => <<"false">>}},
         #{
             data => #{
                 username => <<"md5">>,
