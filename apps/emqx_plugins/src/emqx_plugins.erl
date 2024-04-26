@@ -75,6 +75,9 @@
     post_config_update/5
 ]).
 
+%% RPC call
+-export([get_tar/1]).
+
 %% Internal export
 -export([do_ensure_started/1]).
 %% for test cases
