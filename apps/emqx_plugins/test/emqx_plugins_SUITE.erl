@@ -626,9 +626,9 @@ group_t_copy_plugin_to_a_new_node({init, Config}) ->
             }
         ),
     [CopyFromNode] = emqx_cth_cluster:start([SpecCopyFrom#{join_to => undefined}]),
-    ok = rpc:call(CopyFromNode, emqx_plugins, put_config, [install_dir, FromInstallDir]),
+    ok = rpc:call(CopyFromNode, emqx_plugins, put_config_internal, [install_dir, FromInstallDir]),
     [CopyToNode] = emqx_cth_cluster:start([SpecCopyTo#{join_to => undefined}]),
-    ok = rpc:call(CopyToNode, emqx_plugins, put_config, [install_dir, ToInstallDir]),
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [install_dir, ToInstallDir]),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     ok = rpc:call(CopyFromNode, emqx_plugins, ensure_installed, [NameVsn]),
     ok = rpc:call(CopyFromNode, emqx_plugins, ensure_started, [NameVsn]),
@@ -658,7 +658,7 @@ group_t_copy_plugin_to_a_new_node(Config) ->
     CopyFromNode = proplists:get_value(copy_from_node, Config),
     CopyToNode = proplists:get_value(copy_to_node, Config),
     CopyToDir = proplists:get_value(to_install_dir, Config),
-    CopyFromPluginsState = rpc:call(CopyFromNode, emqx_plugins, get_config, [[states], []]),
+    CopyFromPluginsState = rpc:call(CopyFromNode, emqx_plugins, get_config_interal, [[states], []]),
     NameVsn = proplists:get_value(name_vsn, Config),
     PluginName = proplists:get_value(plugin_name, Config),
     PluginApp = list_to_atom(PluginName),
@@ -681,7 +681,7 @@ group_t_copy_plugin_to_a_new_node(Config) ->
     ),
     ok = rpc:call(CopyToNode, ekka, join, [CopyFromNode]),
     %% Mimic cluster-override conf copying
-    ok = rpc:call(CopyToNode, emqx_plugins, put_config, [[states], CopyFromPluginsState]),
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [[states], CopyFromPluginsState]),
     %% Plugin copying is triggered upon app restart on a new node.
     %% This is similar to emqx_conf, which copies cluster-override conf upon start,
     %% see: emqx_conf_app:init_conf/0
@@ -734,7 +734,7 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     %% successfully even if it's not extracted yet.  Simply starting
     %% the node would crash if not working properly.
     ct:pal("~p config:\n  ~p", [
-        CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config, [[], #{}])
+        CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config_interal, [[], #{}])
     ]),
     ct:pal("~p install_dir:\n  ~p", [
         CopyToNode, erpc:call(CopyToNode, file, list_dir, [ToInstallDir])

@@ -56,11 +56,11 @@
 
 %% Plugin config APIs
 -export([
-    get_plugin_config/1,
-    get_plugin_config/2,
-    get_plugin_config/3,
-    get_plugin_config/4,
-    put_plugin_config/3
+    get_config/1,
+    get_config/2,
+    get_config/3,
+    get_config/4,
+    put_config/3
 ]).
 
 %% Package utils
@@ -78,7 +78,7 @@
 %% Internal export
 -export([do_ensure_started/1]).
 %% for test cases
--export([put_config/2]).
+-export([put_config_internal/2]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -255,35 +255,34 @@ ensure_stopped(NameVsn) ->
         end
     ).
 
-get_plugin_config(Name, Vsn, Options, Default) ->
-    get_plugin_config(make_name_vsn_string(Name, Vsn), Options, Default).
+get_config(Name, Vsn, Options, Default) ->
+    get_config(make_name_vsn_string(Name, Vsn), Options, Default).
 
--spec get_plugin_config(name_vsn()) ->
+-spec get_config(name_vsn()) ->
     {ok, plugin_config()}
     | {error, term()}.
-get_plugin_config(NameVsn) ->
-    get_plugin_config(bin(NameVsn), #{format => ?CONFIG_FORMAT_MAP}).
+get_config(NameVsn) ->
+    get_config(bin(NameVsn), #{format => ?CONFIG_FORMAT_MAP}).
 
--spec get_plugin_config(name_vsn(), Options :: map()) ->
+-spec get_config(name_vsn(), Options :: map()) ->
     {ok, avro_binary() | plugin_config()}
     | {error, term()}.
-
-get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
+get_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
     %% no default value when get raw binary config
     case read_plugin_avro(NameVsn) of
         {ok, _AvroJson} = Res -> Res;
         {error, _Reason} = Err -> Err
     end;
-get_plugin_config(NameVsn, Options = #{format := ?CONFIG_FORMAT_MAP}) ->
-    get_plugin_config(NameVsn, Options, #{}).
+get_config(NameVsn, Options = #{format := ?CONFIG_FORMAT_MAP}) ->
+    get_config(NameVsn, Options, #{}).
 
-get_plugin_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}, Default) ->
+get_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}, Default) ->
     {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), Default)}.
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
-%% the avro binary and plugin config ALWAYS be valid before calling this function.
-put_plugin_config(NameVsn, AvroJsonMap, _DecodedPluginConfig) ->
+%% the avro Json Map and plugin config ALWAYS be valid before calling this function.
+put_config(NameVsn, AvroJsonMap, _DecodedPluginConfig) ->
     AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
     ok = write_avro_bin(NameVsn, AvroJsonBin),
     ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), AvroJsonMap),
@@ -328,13 +327,13 @@ decode_plugin_avro_config(NameVsn, AvroJsonBin) ->
         {error, ReasonMap} -> {error, ReasonMap}
     end.
 
-get_config(Key, Default) when is_atom(Key) ->
-    get_config([Key], Default);
-get_config(Path, Default) ->
+get_config_interal(Key, Default) when is_atom(Key) ->
+    get_config_interal([Key], Default);
+get_config_interal(Path, Default) ->
     emqx_conf:get([?CONF_ROOT | Path], Default).
 
-put_config(Key, Value) ->
-    do_put_config(Key, Value, _ConfLocation = local).
+put_config_internal(Key, Value) ->
+    do_put_config_internal(Key, Value, _ConfLocation = local).
 
 -spec get_tar(name_vsn()) -> {ok, binary()} | {error, any}.
 get_tar(NameVsn) ->
@@ -950,16 +949,16 @@ is_needed_by(AppToStop, RunningApp) ->
         undefined -> false
     end.
 
-do_put_config(Key, Value, ConfLocation) when is_atom(Key) ->
-    do_put_config([Key], Value, ConfLocation);
-do_put_config(Path, Values, _ConfLocation = local) when is_list(Path) ->
+do_put_config_internal(Key, Value, ConfLocation) when is_atom(Key) ->
+    do_put_config_internal([Key], Value, ConfLocation);
+do_put_config_internal(Path, Values, _ConfLocation = local) when is_list(Path) ->
     Opts = #{rawconf_with_defaults => true, override_to => cluster},
     %% Already in cluster_rpc, don't use emqx_conf:update, dead calls
     case emqx:update_config([?CONF_ROOT | Path], bin_key(Values), Opts) of
         {ok, _} -> ok;
         Error -> Error
     end;
-do_put_config(Path, Values, _ConfLocation = global) when is_list(Path) ->
+do_put_config_internal(Path, Values, _ConfLocation = global) when is_list(Path) ->
     Opts = #{rawconf_with_defaults => true, override_to => cluster},
     case emqx_conf:update([?CONF_ROOT | Path], bin_key(Values), Opts) of
         {ok, _} -> ok;
@@ -995,16 +994,16 @@ enable_disable_plugin(_NameVsn, _Diff) ->
 %%--------------------------------------------------------------------
 
 install_dir() ->
-    get_config(install_dir, "").
+    get_config_interal(install_dir, "").
 
 put_configured(Configured) ->
     put_configured(Configured, _ConfLocation = local).
 
 put_configured(Configured, ConfLocation) ->
-    ok = do_put_config(states, bin_key(Configured), ConfLocation).
+    ok = do_put_config_internal(states, bin_key(Configured), ConfLocation).
 
 configured() ->
-    get_config(states, []).
+    get_config_interal(states, []).
 
 for_plugins(ActionFun) ->
     case lists:flatmap(fun(I) -> for_plugin(I, ActionFun) end, configured()) of

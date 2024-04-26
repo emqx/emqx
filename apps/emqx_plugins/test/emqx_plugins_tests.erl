@@ -72,12 +72,12 @@ with_rand_install_dir(F) ->
     TmpDir = integer_to_list(N),
     OriginalInstallDir = emqx_plugins:install_dir(),
     ok = filelib:ensure_dir(filename:join([TmpDir, "foo"])),
-    ok = emqx_plugins:put_config(install_dir, TmpDir),
+    ok = emqx_plugins:put_config_internal(install_dir, TmpDir),
     try
         F(TmpDir)
     after
         file:del_dir_r(TmpDir),
-        ok = emqx_plugins:put_config(install_dir, OriginalInstallDir)
+        ok = emqx_plugins:put_config_internal(install_dir, OriginalInstallDir)
     end.
 
 write_file(Path, Content) ->

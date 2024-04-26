@@ -37,10 +37,10 @@ init_per_suite(Config) ->
     ok = filelib:ensure_dir(WorkDir),
     DemoShDir1 = string:replace(WorkDir, "emqx_mgmt_api_plugins", "emqx_plugins"),
     DemoShDir = lists:flatten(string:replace(DemoShDir1, "emqx_management", "emqx_plugins")),
-    OrigInstallDir = emqx_plugins:get_config(install_dir, undefined),
+    OrigInstallDir = emqx_plugins:get_config_interal(install_dir, undefined),
     ok = filelib:ensure_dir(DemoShDir),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_plugins]),
-    emqx_plugins:put_config(install_dir, DemoShDir),
+    emqx_plugins:put_config_internal(install_dir, DemoShDir),
     [{demo_sh_dir, DemoShDir}, {orig_install_dir, OrigInstallDir} | Config].
 
 end_per_suite(Config) ->
@@ -48,7 +48,7 @@ end_per_suite(Config) ->
     %% restore config
     case proplists:get_value(orig_install_dir, Config) of
         undefined -> ok;
-        OrigInstallDir -> emqx_plugins:put_config(install_dir, OrigInstallDir)
+        OrigInstallDir -> emqx_plugins:put_config_internal(install_dir, OrigInstallDir)
     end,
     emqx_mgmt_api_test_util:end_suite([emqx_plugins, emqx_conf]),
     ok.

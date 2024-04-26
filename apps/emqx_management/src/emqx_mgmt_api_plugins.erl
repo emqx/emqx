@@ -488,7 +488,7 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:get_plugin_config(NameVsn) of
+            case emqx_plugins:get_config(NameVsn) of
                 {ok, AvroJson} ->
                     {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
                 {error, _} ->
@@ -601,7 +601,7 @@ ensure_action(Name, restart) ->
 %% for RPC plugin avro encoded config update
 do_update_plugin_config(Name, AvroJsonMap, PluginConfigMap) ->
     %% TODO: maybe use `PluginConfigMap` to validate config
-    emqx_plugins:put_plugin_config(Name, AvroJsonMap, PluginConfigMap).
+    emqx_plugins:put_config(Name, AvroJsonMap, PluginConfigMap).
 
 %%--------------------------------------------------------------------
 %% Helper functions
