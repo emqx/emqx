@@ -1061,6 +1061,7 @@ clientinfo(InitProps) ->
             clientid => <<"clientid">>,
             username => <<"username">>,
             is_superuser => false,
+            auth_expire_at => undefined,
             is_bridge => false,
             mountpoint => undefined
         },

@@ -93,7 +93,8 @@
 -define(TIMER_TABLE, #{
     incoming_timer => keepalive,
     outgoing_timer => keepalive_send,
-    clean_trans_timer => clean_trans
+    clean_trans_timer => clean_trans,
+    connection_expire_timer => connection_expire
 }).
 
 -define(TRANS_TIMEOUT, 60000).
@@ -356,10 +357,18 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{
+    schedule_connection_expire(Channel#channel{
         conninfo = NConnInfo,
         conn_state = connected
-    }.
+    }).
+
+schedule_connection_expire(Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:connection_expire_interval(Ctx, ClientInfo) of
+        undefined ->
+            Channel;
+        Interval ->
+            ensure_timer(connection_expire_timer, Interval, Channel)
+    end.
 
 process_connect(
     Channel = #channel{
@@ -1137,7 +1146,10 @@ handle_timeout(_TRef, clean_trans, Channel = #channel{transaction = Trans}) ->
         end,
         Trans
     ),
-    {ok, ensure_clean_trans_timer(Channel#channel{transaction = NTrans})}.
+    {ok, ensure_clean_trans_timer(Channel#channel{transaction = NTrans})};
+handle_timeout(_TRef, connection_expire, Channel) ->
+    %% No session take over implemented, just shut down
+    shutdown(expired, Channel).
 
 %%--------------------------------------------------------------------
 %% Terminate

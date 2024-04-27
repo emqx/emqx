@@ -139,4 +139,10 @@ Authentication will verify that the value of claims in the JWT (taken from the P
 verify_claims.label:
 """Verify Claims"""
 
+disconnect_after_expire.desc:
+"""Disconnect the client after the token expires."""
+
+disconnect_after_expire.label:
+"""Disconnect After Expire"""
+
 }
