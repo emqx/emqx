@@ -336,13 +336,15 @@ t_configs_key(_Config) ->
     BadLog = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"erro1r">>),
     {error, Error} = update_configs_with_binary(iolist_to_binary(hocon_pp:do(BadLog, #{}))),
     ExpectError = #{
-        <<"log">> =>
-            #{
-                <<"kind">> => <<"validation_error">>,
-                <<"path">> => <<"log.console.level">>,
-                <<"reason">> => <<"unable_to_convert_to_enum_symbol">>,
-                <<"value">> => <<"erro1r">>
-            }
+        <<"errors">> => #{
+            <<"log">> =>
+                #{
+                    <<"kind">> => <<"validation_error">>,
+                    <<"path">> => <<"log.console.level">>,
+                    <<"reason">> => <<"unable_to_convert_to_enum_symbol">>,
+                    <<"value">> => <<"erro1r">>
+                }
+        }
     },
     ?assertEqual(ExpectError, emqx_utils_json:decode(Error, [return_maps])),
     ReadOnlyConf = #{
@@ -355,7 +357,7 @@ t_configs_key(_Config) ->
     },
     ReadOnlyBin = iolist_to_binary(hocon_pp:do(ReadOnlyConf, #{})),
     {error, ReadOnlyError} = update_configs_with_binary(ReadOnlyBin),
-    ?assertEqual(<<"Cannot update read-only key 'cluster'.">>, ReadOnlyError),
+    ?assertEqual(<<"{\"errors\":\"Cannot update read-only key 'cluster'.\"}">>, ReadOnlyError),
     ok.
 
 t_get_configs_in_different_accept(_Config) ->
@@ -487,6 +489,22 @@ t_create_webhook_v1_bridges_api(Config) ->
     ?assertEqual(#{<<"webhook">> => #{}}, emqx_conf:get_raw([<<"bridges">>])),
     ok.
 
+t_config_update_parse_error(_Config) ->
+    ?assertMatch(
+        {error, <<"{\"errors\":\"{parse_error,", _/binary>>},
+        update_configs_with_binary(<<"not an object">>)
+    ),
+    ?assertMatch(
+        {error, <<"{\"errors\":\"{parse_error,", _/binary>>},
+        update_configs_with_binary(<<"a = \"tlsv1\"\"\"3e-01">>)
+    ).
+
+t_config_update_unknown_root(_Config) ->
+    ?assertMatch(
+        {error, <<"{\"errors\":{\"a\":\"{root_key_not_found,", _/binary>>},
+        update_configs_with_binary(<<"a = \"tlsv1.3\"">>)
+    ).
+
 %% Helpers
 
 get_config(Name) ->
@@ -547,10 +565,10 @@ update_configs_with_binary(Bin) ->
             Code >= 200 andalso Code =< 299
         ->
             Body;
-        {ok, {{"HTTP/1.1", _Code, _}, _Headers, Body}} ->
+        {ok, {{"HTTP/1.1", 400, _}, _Headers, Body}} ->
             {error, Body};
         Error ->
-            Error
+            error({unexpected, Error})
     end.
 
 update_config(Name, Change) ->

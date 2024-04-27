@@ -366,11 +366,8 @@ configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
         ok ->
             {200};
         %% bad hocon format
-        {error, MsgList = [{_, _} | _]} ->
-            JsonFun = fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end,
-            JsonMap = emqx_utils_maps:jsonable_map(maps:from_list(MsgList), JsonFun),
-            {400, #{<<"content-type">> => <<"text/plain">>}, JsonMap};
-        {error, Msg} ->
+        {error, Errors} ->
+            Msg = emqx_logger_jsonfmt:best_effort_json_obj(#{errors => Errors}),
             {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
     end.
 
