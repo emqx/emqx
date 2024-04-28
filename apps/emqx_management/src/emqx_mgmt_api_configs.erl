@@ -147,7 +147,9 @@ schema("/configs") ->
                     hoconsc:mk(
                         hoconsc:enum([replace, merge]),
                         #{in => query, default => merge, required => false}
-                    )}
+                    )},
+                {ignore_readonly,
+                    hoconsc:mk(boolean(), #{in => query, default => false, required => false})}
             ],
             'requestBody' => #{
                 content =>
@@ -361,8 +363,13 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
         {ok, <<"text/plain">>} -> get_configs_v2(QueryStr);
         {error, _} = Error -> {400, #{code => 'INVALID_ACCEPT', message => ?ERR_MSG(Error)}}
     end;
-configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
-    case emqx_conf_cli:load_config(Conf, #{mode => Mode, log => none}) of
+configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode} = QS}, _Req) ->
+    IngnoreReadonly = maps:get(<<"ignore_readonly">>, QS, false),
+    case
+        emqx_conf_cli:load_config(Conf, #{
+            mode => Mode, log => none, ignore_readonly => IngnoreReadonly
+        })
+    of
         ok ->
             {200};
         %% bad hocon format

@@ -331,7 +331,7 @@ t_configs_key(_Config) ->
         Log
     ),
     Log1 = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"error">>),
-    ?assertEqual(<<>>, update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
+    ?assertEqual({ok, <<>>}, update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
     ?assertEqual(<<"error">>, read_conf([<<"log">>, <<"console">>, <<"level">>])),
     BadLog = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"erro1r">>),
     {error, Error} = update_configs_with_binary(iolist_to_binary(hocon_pp:do(BadLog, #{}))),
@@ -358,6 +358,7 @@ t_configs_key(_Config) ->
     ReadOnlyBin = iolist_to_binary(hocon_pp:do(ReadOnlyConf, #{})),
     {error, ReadOnlyError} = update_configs_with_binary(ReadOnlyBin),
     ?assertEqual(<<"{\"errors\":\"Cannot update read-only key 'cluster'.\"}">>, ReadOnlyError),
+    ?assertMatch({ok, <<>>}, update_configs_with_binary(ReadOnlyBin, _InogreReadonly = true)),
     ok.
 
 t_get_configs_in_different_accept(_Config) ->
@@ -407,7 +408,7 @@ t_create_webhook_v1_bridges_api(Config) ->
     WebHookFile = filename:join(?config(data_dir, Config), "webhook_v1.conf"),
     ?assertMatch({ok, _}, hocon:files([WebHookFile])),
     {ok, WebHookBin} = file:read_file(WebHookFile),
-    ?assertEqual(<<>>, update_configs_with_binary(WebHookBin)),
+    ?assertEqual({ok, <<>>}, update_configs_with_binary(WebHookBin)),
     Actions =
         #{
             <<"http">> =>
@@ -557,14 +558,25 @@ get_configs_with_binary(Key, Node) ->
     end.
 
 update_configs_with_binary(Bin) ->
-    Path = emqx_mgmt_api_test_util:api_path(["configs"]),
+    update_configs_with_binary(Bin, _InogreReadonly = undefined).
+
+update_configs_with_binary(Bin, IgnoreReadonly) ->
+    Path =
+        case IgnoreReadonly of
+            undefined ->
+                emqx_mgmt_api_test_util:api_path(["configs"]);
+            Boolean ->
+                emqx_mgmt_api_test_util:api_path([
+                    "configs?ignore_readonly=" ++ atom_to_list(Boolean)
+                ])
+        end,
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [{"accept", "text/plain"}, Auth],
     case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], [{body_format, binary}]) of
         {ok, {{"HTTP/1.1", Code, _}, _Headers, Body}} when
             Code >= 200 andalso Code =< 299
         ->
-            Body;
+            {ok, Body};
         {ok, {{"HTTP/1.1", 400, _}, _Headers, Body}} ->
             {error, Body};
         Error ->
