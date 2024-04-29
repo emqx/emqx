@@ -85,6 +85,9 @@ defmodule EMQXUmbrella.MixProject do
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
       # in conflict by erlavro and rocketmq
       {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true},
+      # defined too loosely by hackney; CI seems to be still fetching an outdated value
+      # TODO: remove after CI stabilizes
+      {:mimerl, "1.2.0", override: true},
       # dependencies of dependencies; we choose specific refs to match
       # what rebar3 chooses.
       # in conflict by gun and emqtt

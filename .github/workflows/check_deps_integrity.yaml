@@ -27,6 +27,11 @@ jobs:
           mix local.hex --force
           mix local.rebar --force
           mix deps.get
+      - name: debug mix deps tree
+        env:
+          MIX_ENV: emqx-enterprise
+          PROFILE: emqx-enterprise
+        run: mix deps.tree
       - run: ./scripts/check-elixir-deps-discrepancies.exs
         env:
           MIX_ENV: emqx-enterprise
