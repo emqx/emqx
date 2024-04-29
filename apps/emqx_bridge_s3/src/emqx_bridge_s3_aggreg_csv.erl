@@ -57,7 +57,7 @@ close(#csv{}) ->
 %%
 
 mk_columns(Record, #csv{order = ColumnOrder}) ->
-    Columns = lists:sort(maps:keys(Record)),
+    Columns = [emqx_utils_conv:bin(C) || C <- lists:sort(maps:keys(Record))],
     Unoredered = Columns -- ColumnOrder,
     ColumnOrder ++ Unoredered.
 
@@ -81,11 +81,11 @@ emit_row(#{}, [], #csv{delimiter = Delim}) ->
     [Delim].
 
 emit_cell(Column, Record, CSV) ->
-    case maps:get(Column, Record, undefined) of
-        undefined ->
-            _Empty = "";
-        Value ->
-            encode_cell(emqx_template:to_string(Value), CSV)
+    case emqx_template:lookup(Column, Record) of
+        {ok, Value} ->
+            encode_cell(emqx_template:to_string(Value), CSV);
+        {error, undefined} ->
+            _Empty = ""
     end.
 
 encode_cell(V, #csv{quoting_mp = MP}) ->
