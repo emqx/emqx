@@ -415,7 +415,7 @@ check_keys_is_not_readonly(Conf, Opts) ->
         [] ->
             {ok, Conf};
         BadKeys when IgnoreReadonly ->
-            ?SLOG(warning, #{msg => "readonly_root_keys_ignored", keys => BadKeys}),
+            ?SLOG(info, #{msg => "readonly_root_keys_ignored", keys => BadKeys}),
             {ok, maps:without(BadKeys, Conf)};
         BadKeys ->
             BadKeysStr = lists:join(<<",">>, BadKeys),
