@@ -675,7 +675,6 @@ event_info() ->
         event_info_message_deliver(),
         event_info_message_acked(),
         event_info_message_dropped(),
-        event_info_message_validation_failed(),
         event_info_client_connected(),
         event_info_client_disconnected(),
         event_info_client_connack(),
@@ -684,7 +683,27 @@ event_info() ->
         event_info_session_unsubscribed(),
         event_info_delivery_dropped(),
         event_info_bridge_mqtt()
+    ] ++ ee_event_info().
+
+-if(?EMQX_RELEASE_EDITION == ee).
+%% ELSE (?EMQX_RELEASE_EDITION == ee).
+event_info_message_validation_failed() ->
+    event_info_common(
+        'message.validation_failed',
+        {<<"message validation failed">>, <<"TODO"/utf8>>},
+        {<<"messages that do not pass configured validations">>, <<"TODO"/utf8>>},
+        <<"SELECT * FROM \"$events/message_validation_failed\" WHERE topic =~ 't/#'">>
+    ).
+ee_event_info() ->
+    [
+        event_info_message_validation_failed()
     ].
+-else.
+%% END (?EMQX_RELEASE_EDITION == ee).
+
+ee_event_info() ->
+    [].
+-endif.
 
 event_info_message_publish() ->
     event_info_common(
@@ -714,13 +733,6 @@ event_info_message_dropped() ->
         {<<"messages are discarded during routing, usually because there are no subscribers">>,
             <<"消息在转发的过程中被丢弃，一般是由于没有订阅者"/utf8>>},
         <<"SELECT * FROM \"$events/message_dropped\" WHERE topic =~ 't/#'">>
-    ).
-event_info_message_validation_failed() ->
-    event_info_common(
-        'message.validation_failed',
-        {<<"message validation failed">>, <<"TODO"/utf8>>},
-        {<<"messages that do not pass configured validations">>, <<"TODO"/utf8>>},
-        <<"SELECT * FROM \"$events/message_validation_failed\" WHERE topic =~ 't/#'">>
     ).
 event_info_delivery_dropped() ->
     event_info_common(
@@ -793,9 +805,6 @@ event_info_common(Event, {TitleEN, TitleZH}, {DescrEN, DescrZH}, SqlExam) ->
 test_columns('message.dropped') ->
     [{<<"reason">>, [<<"no_subscribers">>, <<"the reason of dropping">>]}] ++
         test_columns('message.publish');
-test_columns('message.validation_failed') ->
-    [{<<"validation">>, <<"myvalidation">>}] ++
-        test_columns('message.publish');
 test_columns('message.publish') ->
     [
         {<<"clientid">>, [<<"c_emqx">>, <<"the clientid of the sender">>]},
@@ -859,7 +868,21 @@ test_columns(<<"$bridges/mqtt", _/binary>>) ->
         {<<"topic">>, [<<"t/a">>, <<"the topic of the MQTT message">>]},
         {<<"qos">>, [1, <<"the QoS of the MQTT message">>]},
         {<<"payload">>, [<<"{\"msg\": \"hello\"}">>, <<"the payload of the MQTT message">>]}
-    ].
+    ];
+test_columns(Event) ->
+    ee_test_columns(Event).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+ee_test_columns('message.validation_failed') ->
+    [{<<"validation">>, <<"myvalidation">>}] ++
+        test_columns('message.publish').
+%% ELSE (?EMQX_RELEASE_EDITION == ee).
+-else.
+-spec ee_test_columns(_) -> no_return().
+ee_test_columns(Event) ->
+    error({unknown_event, Event}).
+%% END (?EMQX_RELEASE_EDITION == ee).
+-endif.
 
 columns_with_exam('message.publish') ->
     [
