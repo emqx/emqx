@@ -656,6 +656,11 @@ kafka_connector_config_fields() ->
                 default => none, desc => ?DESC("authentication")
             })},
         {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
+        {health_check_topic,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC(producer_health_check_topic)
+            })},
         {ssl, mk(ref(ssl_client_opts), #{})}
     ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
 

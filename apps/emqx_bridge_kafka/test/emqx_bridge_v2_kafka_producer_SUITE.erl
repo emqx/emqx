@@ -638,3 +638,43 @@ t_ancient_v1_config_migration_without_local_topic(Config) ->
         erpc:call(Node, fun emqx_bridge_v2:list/0)
     ),
     ok.
+
+t_connector_health_check_topic(_Config) ->
+    ?check_trace(
+        begin
+            %% We create a connector pointing to a broker that expects authentication, but
+            %% we don't provide it in the config.
+            %% Without a health check topic, we're unable to probe any topic leaders to
+            %% check the actual connection parameters, so the status is "connected".
+            Type = ?TYPE,
+            Name = ?FUNCTION_NAME,
+            PlainAuthBootstrapHost = <<"kafka-1.emqx.net:9093">>,
+            ConnectorConfig0 = connector_config(#{
+                <<"bootstrap_hosts">> => PlainAuthBootstrapHost
+            }),
+            ?assertMatch(
+                {ok, {{_, 201, _}, _, #{<<"status">> := <<"connected">>}}},
+                emqx_bridge_v2_testlib:create_connector_api([
+                    {connector_type, Type},
+                    {connector_name, Name},
+                    {connector_config, ConnectorConfig0}
+                ])
+            ),
+
+            %% By providing a health check topic, we should detect it's disconnected
+            %% without the need for an action.
+            ConnectorConfig1 = connector_config(#{
+                <<"bootstrap_hosts">> => PlainAuthBootstrapHost,
+                <<"health_check_topic">> =>
+                    emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition()
+            }),
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, #{<<"status">> := <<"disconnected">>}}},
+                emqx_bridge_v2_testlib:update_connector_api(Name, Type, ConnectorConfig1)
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.

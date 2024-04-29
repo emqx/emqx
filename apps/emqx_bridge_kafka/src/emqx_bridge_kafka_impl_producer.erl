@@ -89,10 +89,13 @@ on_start(InstId, Config) ->
     %% only when its producers start.
     case check_client_connectivity(ClientId) of
         ok ->
-            {ok, #{
+            HealthCheckTopic = maps:get(health_check_topic, Config, undefined),
+            ConnectorState = #{
                 client_id => ClientId,
+                health_check_topic => HealthCheckTopic,
                 installed_bridge_v2s => #{}
-            }};
+            },
+            {ok, ConnectorState};
         {error, {find_client, Reason}} ->
             %% Race condition?  Crash?  We just checked it with `ensure_client'...
             {error, Reason};
@@ -508,7 +511,7 @@ on_get_status(
     %% held in wolff producer's replayq.
     case check_client_connectivity(ClientId) of
         ok ->
-            ?status_connected;
+            maybe_check_health_check_topic(State);
         {error, {find_client, _Error}} ->
             ?status_connecting;
         {error, {connectivity, Error}} ->
@@ -571,6 +574,24 @@ check_client_connectivity(ClientId) ->
         {error, Reason} ->
             {error, {find_client, Reason}}
     end.
+
+maybe_check_health_check_topic(#{health_check_topic := Topic} = ConnectorState) when
+    is_binary(Topic)
+->
+    #{client_id := ClientId} = ConnectorState,
+    MaxPartitions = all_partitions,
+    try check_topic_and_leader_connections(ClientId, Topic, MaxPartitions) of
+        ok ->
+            ?status_connected
+    catch
+        throw:#{reason := {connection_down, _} = Reason} ->
+            {?status_disconnected, ConnectorState, Reason};
+        throw:#{reason := Reason} ->
+            {?status_connecting, ConnectorState, Reason}
+    end;
+maybe_check_health_check_topic(_) ->
+    %% Cannot infer further information.  Maybe upgraded from older version.
+    ?status_connected.
 
 check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic, MaxPartitions) when is_pid(ClientPid) ->
     Leaders =
