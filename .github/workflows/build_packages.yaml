@@ -63,7 +63,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.3-2'
+        default: '5.3-4'
 
 permissions:
   contents: read
