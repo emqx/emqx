@@ -268,9 +268,15 @@ common_ssl_opts_schema_cacerts.desc:
 common_ssl_opts_schema_cacerts.label:
 """Use System CA Certificates"""
 
-fields_ws_opts_mqtt_path.desc:
-"""WebSocket's MQTT protocol path. So the address of EMQX Broker's WebSocket is:
-<code>ws://{ip}:{port}/mqtt</code>"""
+fields_ws_opts_mqtt_path.desc: """~
+    WebSocket's MQTT protocol path. By default, the full URL for the WebSocket client to connect is:
+    `ws://{ip}:{port}/mqtt`.
+    Append `/[...]` to the end of the path to make EMQX accept any subpath.
+    For example, specifying `mqtt/[...]` would allow clients to connect at paths like
+    `mqtt/org1` or `mqtt/group2`, etc.
+
+    NOTE: An unmatched path will cause the client to be rejected immediately at the HTTP layer,
+    meaning it will not be traceable at the MQTT layer."""
 
 fields_ws_opts_mqtt_path.label:
 """WS MQTT Path"""
