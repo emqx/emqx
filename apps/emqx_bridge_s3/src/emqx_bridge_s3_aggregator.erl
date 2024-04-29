@@ -94,7 +94,7 @@ write_records(Name, Buffer = #buffer{fd = Writer}, Records) ->
         ok ->
             ?tp(s3_aggreg_records_written, #{action => Name, records => Records}),
             ok;
-        {error, Reason} when Reason == terminated orelse Reason == closed ->
+        {error, terminated} ->
             BufferNext = rotate_buffer(Name, Buffer),
             write_records(Name, BufferNext, Records);
         {error, _} = Error ->
