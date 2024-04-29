@@ -556,22 +556,22 @@ handle_event(
     {keep_state_and_data, {reply, From, {ok, Channels}}};
 handle_event(
     info,
-    {'DOWN', Ref, process, Pid, Res},
+    {'EXIT', Pid, Res},
     State0,
     Data0 = #data{hc_workers = #{resource := RHCWorkers}}
 ) when
-    is_map_key({Pid, Ref}, RHCWorkers)
+    is_map_key(Pid, RHCWorkers)
 ->
-    handle_resource_health_check_worker_down(State0, Data0, {Pid, Ref}, Res);
+    handle_resource_health_check_worker_down(State0, Data0, Pid, Res);
 handle_event(
     info,
-    {'DOWN', Ref, process, Pid, Res},
+    {'EXIT', Pid, Res},
     _State,
     Data0 = #data{hc_workers = #{channel := CHCWorkers}}
 ) when
-    is_map_key({Pid, Ref}, CHCWorkers)
+    is_map_key(Pid, CHCWorkers)
 ->
-    handle_channel_health_check_worker_down(Data0, {Pid, Ref}, Res);
+    handle_channel_health_check_worker_down(Data0, Pid, Res);
 % Ignore all other events
 handle_event(EventType, EventData, State, Data) ->
     ?SLOG(
@@ -802,14 +802,14 @@ terminate_health_check_workers(Data) ->
         hc_pending_callers = #{resource := RPending, channel := CPending}
     } = Data,
     maps:foreach(
-        fun({Pid, _Ref}, _) ->
+        fun(Pid, _) ->
             exit(Pid, kill)
         end,
         RHCWorkers
     ),
     maps:foreach(
         fun
-            ({Pid, _Ref}, _) when is_pid(Pid) ->
+            (Pid, _) when is_pid(Pid) ->
                 exit(Pid, kill);
             (_, _) ->
                 ok
@@ -947,14 +947,14 @@ start_resource_health_check(#data{hc_workers = #{resource := HCWorkers}}) when
     keep_state_and_data;
 start_resource_health_check(#data{} = Data0) ->
     #data{hc_workers = HCWorkers0 = #{resource := RHCWorkers0}} = Data0,
-    WorkerRef = {_Pid, _Ref} = spawn_resource_health_check_worker(Data0),
-    HCWorkers = HCWorkers0#{resource := RHCWorkers0#{WorkerRef => true}},
+    WorkerPid = spawn_resource_health_check_worker(Data0),
+    HCWorkers = HCWorkers0#{resource := RHCWorkers0#{WorkerPid => true}},
     Data = Data0#data{hc_workers = HCWorkers},
     {keep_state, Data}.
 
--spec spawn_resource_health_check_worker(data()) -> {pid(), reference()}.
+-spec spawn_resource_health_check_worker(data()) -> pid().
 spawn_resource_health_check_worker(#data{} = Data) ->
-    spawn_monitor(?MODULE, worker_resource_health_check, [Data]).
+    spawn_link(?MODULE, worker_resource_health_check, [Data]).
 
 %% separated so it can be spec'ed and placate dialyzer tantrums...
 -spec worker_resource_health_check(data()) -> no_return().
@@ -1242,13 +1242,13 @@ continue_channel_health_check_connected(ChannelId, OldStatus, Data0) ->
 -spec start_channel_health_check(data(), channel_id()) -> data().
 start_channel_health_check(#data{} = Data0, ChannelId) ->
     #data{hc_workers = HCWorkers0 = #{channel := CHCWorkers0}} = Data0,
-    WorkerRef = {_Pid, _Ref} = spawn_channel_health_check_worker(Data0, ChannelId),
-    HCWorkers = HCWorkers0#{channel := CHCWorkers0#{WorkerRef => ChannelId}},
+    WorkerPid = spawn_channel_health_check_worker(Data0, ChannelId),
+    HCWorkers = HCWorkers0#{channel := CHCWorkers0#{WorkerPid => ChannelId}},
     Data0#data{hc_workers = HCWorkers}.
 
--spec spawn_channel_health_check_worker(data(), channel_id()) -> {pid(), reference()}.
+-spec spawn_channel_health_check_worker(data(), channel_id()) -> pid().
 spawn_channel_health_check_worker(#data{} = Data, ChannelId) ->
-    spawn_monitor(?MODULE, worker_channel_health_check, [Data, ChannelId]).
+    spawn_link(?MODULE, worker_channel_health_check, [Data, ChannelId]).
 
 %% separated so it can be spec'ed and placate dialyzer tantrums...
 -spec worker_channel_health_check(data(), channel_id()) -> no_return().
