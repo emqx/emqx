@@ -26,7 +26,8 @@
     <<"publish_received_at">>,
     <<"clientid">>,
     <<"topic">>,
-    <<"payload">>
+    <<"payload">>,
+    <<"empty">>
     | T
 ]).
 
@@ -185,9 +186,9 @@ t_aggreg_upload(Config) ->
     ?assertMatch(
         {ok, [
             ?CONF_COLUMN_ORDER(_),
-            [TS, <<"C1">>, T1, P1 | _],
-            [TS, <<"C2">>, T2, P2 | _],
-            [TS, <<"C3">>, T3, P3 | _]
+            [TS, <<"C1">>, T1, P1, <<>> | _],
+            [TS, <<"C2">>, T2, P2, <<>> | _],
+            [TS, <<"C3">>, T3, P3, <<>> | _]
         ]},
         erl_csv:decode(Content)
     ).

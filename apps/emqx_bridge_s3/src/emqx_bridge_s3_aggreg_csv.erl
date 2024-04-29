@@ -58,9 +58,8 @@ close(#csv{}) ->
 
 mk_columns(Record, #csv{order = ColumnOrder}) ->
     Columns = lists:sort(maps:keys(Record)),
-    OrderedFirst = [CO || CO <- ColumnOrder, lists:member(CO, Columns)],
     Unoredered = Columns -- ColumnOrder,
-    OrderedFirst ++ Unoredered.
+    ColumnOrder ++ Unoredered.
 
 -spec emit_header([column()], container()) -> iodata().
 emit_header([C], #csv{delimiter = Delim}) ->
