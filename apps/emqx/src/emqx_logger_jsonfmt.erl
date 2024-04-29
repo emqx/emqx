@@ -32,7 +32,7 @@
 -export([format/2]).
 
 %% For CLI HTTP API outputs
--export([best_effort_json/1, best_effort_json/2]).
+-export([best_effort_json/1, best_effort_json/2, best_effort_json_obj/1]).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -65,9 +65,12 @@
 best_effort_json(Input) ->
     best_effort_json(Input, [pretty, force_utf8]).
 best_effort_json(Input, Opts) ->
-    Config = #{depth => unlimited, single_line => true, chars_limit => unlimited},
-    JsonReady = best_effort_json_obj(Input, Config),
+    JsonReady = best_effort_json_obj(Input),
     emqx_utils_json:encode(JsonReady, Opts).
+
+best_effort_json_obj(Input) ->
+    Config = #{depth => unlimited, single_line => true, chars_limit => unlimited},
+    best_effort_json_obj(Input, Config).
 
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
