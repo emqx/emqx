@@ -157,16 +157,23 @@ is_rocksdb_supported(_) ->
     not is_build_without("ROCKSDB").
 
 project_app_dirs() ->
-    project_app_dirs(get_edition_from_profile_env()).
+    #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
+    project_app_dirs(Edition, RelType).
 
-project_app_dirs(Edition) ->
+project_app_dirs(Edition, RelType) ->
     IsEnterprise = is_enterprise(Edition),
+    ExcludedApps = excluded_apps(RelType),
     UmbrellaApps = [
         Path
      || Path <- filelib:wildcard("apps/*"),
-        is_community_umbrella_app(Path) orelse IsEnterprise
+        not project_app_excluded(Path, ExcludedApps) andalso
+            (is_community_umbrella_app(Path) orelse IsEnterprise)
     ],
     UmbrellaApps.
+
+project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
+    App = list_to_atom(AppStr),
+    lists:member(App, ExcludedApps).
 
 plugins() ->
     [
@@ -196,9 +203,10 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
-    common_compile_opts(get_edition_from_profile_env(), undefined).
+    #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
+    common_compile_opts(Edition, RelType, undefined).
 
-common_compile_opts(Edition, Vsn) ->
+common_compile_opts(Edition, _RelType, Vsn) ->
     % always include debug_info
     [
         debug_info,
@@ -224,71 +232,72 @@ warn_profile_env() ->
 get_edition_from_profile_env() ->
     case os:getenv("PROFILE") of
         "emqx-enterprise" ++ _ ->
-            ee;
+            #{edition => ee, reltype => standard};
         "emqx" ++ _ ->
-            ce;
+            #{edition => ce, reltype => standard};
         false ->
-            ee;
+            #{edition => ee, reltype => standard};
         V ->
             io:format(standard_error, "ERROR: bad_PROFILE ~p~n", [V]),
             exit(bad_PROFILE)
     end.
 
-prod_compile_opts(Edition, Vsn) ->
+prod_compile_opts(Edition, RelType, Vsn) ->
     [
         compressed,
         deterministic,
         warnings_as_errors
-        | common_compile_opts(Edition, Vsn)
+        | common_compile_opts(Edition, RelType, Vsn)
     ].
 
 prod_overrides() ->
     [{add, [{erl_opts, [deterministic]}]}].
 
 profiles() ->
-    case get_edition_from_profile_env() of
+    #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
+    case Edition of
         ee ->
-            profiles_ee();
+            profiles_ee(RelType);
         ce ->
-            profiles_ce()
-    end ++ profiles_dev().
+            profiles_ce(RelType)
+    end ++ profiles_dev(RelType).
 
-profiles_ce() ->
+profiles_ce(RelType) ->
     Vsn = get_vsn(emqx),
     [
         {'emqx', [
-            {erl_opts, prod_compile_opts(ce, Vsn)},
-            {relx, relx(Vsn, cloud, bin, ce)},
+            {erl_opts, prod_compile_opts(ce, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, bin, ce)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)}
+            {project_app_dirs, project_app_dirs(ce, RelType)}
         ]},
         {'emqx-pkg', [
-            {erl_opts, prod_compile_opts(ce, Vsn)},
-            {relx, relx(Vsn, cloud, pkg, ce)},
+            {erl_opts, prod_compile_opts(ce, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, pkg, ce)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)}
+            {project_app_dirs, project_app_dirs(ce, RelType)}
         ]}
     ].
 
-profiles_ee() ->
+profiles_ee(RelType) ->
     Vsn = get_vsn('emqx-enterprise'),
     [
         {'emqx-enterprise', [
-            {erl_opts, prod_compile_opts(ee, Vsn)},
-            {relx, relx(Vsn, cloud, bin, ee)},
+            {erl_opts, prod_compile_opts(ee, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, bin, ee)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ee)}
+            {project_app_dirs, project_app_dirs(ee, RelType)}
         ]},
         {'emqx-enterprise-pkg', [
-            {erl_opts, prod_compile_opts(ee, Vsn)},
-            {relx, relx(Vsn, cloud, pkg, ee)},
+            {erl_opts, prod_compile_opts(ee, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, pkg, ee)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ee)}
+            {project_app_dirs, project_app_dirs(ee, RelType)}
         ]}
     ].
 
 %% EE has more files than CE, always test/check with EE options.
-profiles_dev() ->
+profiles_dev(_RelType) ->
     [
         {check, [
             {erl_opts, common_compile_opts()},
@@ -302,7 +311,7 @@ profiles_dev() ->
         ]}
     ].
 
-%% RelType: cloud (full size)
+%% RelType: standard
 %% PkgType: bin | pkg
 %% Edition: ce (opensource) | ee (enterprise)
 relx(Vsn, RelType, PkgType, Edition) ->
@@ -341,10 +350,10 @@ relform() ->
         Other -> Other
     end.
 
-emqx_description(cloud, ee) -> "EMQX Enterprise";
-emqx_description(cloud, ce) -> "EMQX".
+emqx_description(_, ee) -> "EMQX Enterprise";
+emqx_description(_, ce) -> "EMQX".
 
-overlay_vars(cloud, PkgType, Edition) ->
+overlay_vars(_RelType, PkgType, Edition) ->
     [
         {emqx_default_erlang_cookie, "emqxsecretcookie"}
     ] ++
@@ -411,15 +420,16 @@ relx_apps(ReleaseType, Edition) ->
             ce -> CEBusinessApps
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
+    ExcludedApps = excluded_apps(ReleaseType),
     Apps =
-        (SystemApps ++
+        ([App || App <- SystemApps, not lists:member(App, ExcludedApps)] ++
             %% EMQX starts the DB and the business applications:
-            [{App, load} || App <- DBApps] ++
+            [{App, load} || App <- DBApps, not lists:member(App, ExcludedApps)] ++
             [emqx_machine] ++
-            [{App, load} || App <- BusinessApps]),
-    lists:foldl(fun proplists:delete/2, Apps, excluded_apps(ReleaseType)).
+            [{App, load} || App <- BusinessApps, not lists:member(App, ExcludedApps)]),
+    Apps.
 
-excluded_apps(_ReleaseType) ->
+excluded_apps(_RelType) ->
     OptionalApps = [
         {quicer, is_quicer_supported()},
         {jq, is_jq_supported()},
@@ -489,7 +499,7 @@ emqx_etc_overlay(ReleaseType) ->
     emqx_etc_overlay_per_rel(ReleaseType) ++
         emqx_etc_overlay().
 
-emqx_etc_overlay_per_rel(cloud) ->
+emqx_etc_overlay_per_rel(_RelType) ->
     [{"{{base_dir}}/lib/emqx/etc/vm.args.cloud", "etc/vm.args"}].
 
 emqx_etc_overlay() ->
@@ -543,10 +553,11 @@ dialyzer(Config) ->
         end,
 
     AppNames = app_names(),
+    ExcludedApps = excluded_apps(standard),
 
     KnownApps = [Name || Name <- AppsToAnalyse, lists:member(Name, AppNames)],
 
-    AppsToExclude = AppNames -- KnownApps,
+    AppsToExclude = ExcludedApps -- KnownApps ++ AppNames,
 
     Extra =
         [system_monitor, tools, covertool] ++
