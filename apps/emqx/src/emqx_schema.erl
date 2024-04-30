@@ -1876,7 +1876,7 @@ base_listener(Bind) ->
             )}
     ] ++ emqx_limiter_schema:short_paths_fields().
 
-%% @hidden Starting from 5.7, listenrs.{TYPE}.{NAME}.zone is no longer hidden
+%% @hidden Starting from 5.7, listeners.{TYPE}.{NAME}.zone is no longer hidden
 %% However, the root key 'zones' is still hidden because the fields' schema
 %% just repeat other root field's schema, which makes the dumped schema doc
 %% unnecessarily bloated.
@@ -3721,7 +3721,7 @@ default_mem_check_interval() ->
 
 description_schema() ->
     sc(
-        string(),
+        binary(),
         #{
             default => <<"">>,
             desc => ?DESC(description),
