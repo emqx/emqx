@@ -61,9 +61,11 @@ t_jwt_expire(_Config) ->
 
     {ok, [#{provider := emqx_authn_jwt}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
 
+    Expire = erlang:system_time(second) + 3,
+
     Payload = #{
         <<"username">> => <<"myuser">>,
-        <<"exp">> => erlang:system_time(second) + 2
+        <<"exp">> => Expire
     },
     JWS = emqx_authn_jwt_SUITE:generate_jws('hmac-based', Payload, <<"secret">>),
 
@@ -71,7 +73,8 @@ t_jwt_expire(_Config) ->
     {ok, _} = emqtt:connect(C),
 
     receive
-        {disconnected, ?RC_NOT_AUTHORIZED, #{}} -> ok
+        {disconnected, ?RC_NOT_AUTHORIZED, #{}} ->
+            ?assert(erlang:system_time(second) >= Expire)
     after 5000 ->
         ct:fail("Client should be disconnected by timeout")
     end.

@@ -257,9 +257,12 @@ extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
             {error, bad_username_or_password}
     end.
 
-expire_at(false, _Extra) -> #{};
-expire_at(true, #{<<"exp">> := ExpireTime}) -> #{expire_at => ExpireTime};
-expire_at(true, #{}) -> #{}.
+expire_at(false, _Extra) ->
+    #{};
+expire_at(true, #{<<"exp">> := ExpireTime}) ->
+    #{expire_at => erlang:convert_time_unit(ExpireTime, second, millisecond)};
+expire_at(true, #{}) ->
+    #{}.
 
 acl(Claims, AclClaimName) ->
     case Claims of

@@ -142,6 +142,7 @@ end).
 -type state() :: #{atom() => term()}.
 -type extra() :: #{
     is_superuser := boolean(),
+    %% millisecond timestamp
     expire_at => pos_integer(),
     atom() => term()
 }.
