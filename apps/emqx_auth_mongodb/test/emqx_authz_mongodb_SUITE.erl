@@ -79,10 +79,10 @@ t_run_case(Config) ->
     run_case(Config, false),
     run_case(Config, auto).
 
-run_case(Config, UseLegazyProtocol) ->
+run_case(Config, UseLegacyProtocol) ->
     Case = ?config(test_case, Config),
     ok = setup_source_data(Case),
-    ok = setup_authz_source(Case#{use_legacy_protocol => UseLegazyProtocol}),
+    ok = setup_authz_source(Case#{use_legacy_protocol => UseLegacyProtocol}),
     ok = emqx_authz_test_lib:run_checks(Case).
 
 %%------------------------------------------------------------------------------
@@ -379,11 +379,11 @@ setup_source_data(#{records := Records}) ->
     {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, Records),
     ok.
 
-setup_authz_source(#{filter := Filter, use_legacy_protocol := UseLegazyProtocol}) ->
+setup_authz_source(#{filter := Filter, use_legacy_protocol := UseLegacyProtocol}) ->
     setup_config(
         #{
             <<"filter">> => Filter,
-            <<"use_legacy_protocol">> => UseLegazyProtocol
+            <<"use_legacy_protocol">> => UseLegacyProtocol
         }
     ).
 
