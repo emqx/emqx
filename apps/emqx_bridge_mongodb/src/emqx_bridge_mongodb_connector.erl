@@ -66,10 +66,15 @@ on_query(InstanceId, {Channel, Message0}, #{channels := Channels, connector_stat
         payload_template := PayloadTemplate,
         collection_template := CollectionTemplate
     } = ChannelState0 = maps:get(Channel, Channels),
+    Collection = emqx_placeholder:proc_tmpl(CollectionTemplate, Message0),
     ChannelState = ChannelState0#{
-        collection => emqx_placeholder:proc_tmpl(CollectionTemplate, Message0)
+        collection => Collection
     },
     Message = render_message(PayloadTemplate, Message0),
+    emqx_trace:rendered_action_template(Channel, #{
+        collection => Collection,
+        data => Message
+    }),
     Res = emqx_mongodb:on_query(
         InstanceId,
         {Channel, Message},

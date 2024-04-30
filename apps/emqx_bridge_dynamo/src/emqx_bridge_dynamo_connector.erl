@@ -9,6 +9,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -133,20 +134,10 @@ on_add_channel(
 create_channel_state(
     #{parameters := Conf} = _ChannelConfig
 ) ->
-    Keys = maps:with([hash_key, range_key], Conf),
-    Keys1 = maps:fold(
-        fun(K, V, Acc) ->
-            Acc#{K := erlang:binary_to_existing_atom(V)}
-        end,
-        Keys,
-        Keys
-    ),
-
-    Base = maps:without([template, hash_key, range_key], Conf),
-    Base1 = maps:merge(Base, Keys1),
+    Base = maps:without([template], Conf),
 
     Templates = parse_template_from_conf(Conf),
-    State = Base1#{
+    State = Base#{
         templates => Templates
     },
     {ok, State}.
@@ -246,12 +237,16 @@ do_query(
         table := Table,
         templates := Templates
     } = ChannelState,
+    TraceRenderedCTX =
+        emqx_trace:make_rendered_action_template_trace_context(ChannelId),
     Result =
         case ensuare_dynamo_keys(Query, ChannelState) of
             true ->
                 ecpool:pick_and_do(
                     PoolName,
-                    {emqx_bridge_dynamo_connector_client, query, [Table, QueryTuple, Templates]},
+                    {emqx_bridge_dynamo_connector_client, query, [
+                        Table, QueryTuple, Templates, TraceRenderedCTX
+                    ]},
                     no_handover
                 );
             _ ->
@@ -259,6 +254,8 @@ do_query(
         end,
 
     case Result of
+        {error, ?EMQX_TRACE_STOP_ACTION(_)} = Error ->
+            Error;
         {error, Reason} ->
             ?tp(
                 dynamo_connector_query_return,
@@ -311,12 +308,12 @@ get_query_tuple([InsertQuery | _]) ->
 ensuare_dynamo_keys({_, Data} = Query, State) when is_map(Data) ->
     ensuare_dynamo_keys([Query], State);
 ensuare_dynamo_keys([{_, Data} | _] = Queries, State) when is_map(Data) ->
-    Keys = maps:to_list(maps:with([hash_key, range_key], State)),
+    Keys = maps:values(maps:with([hash_key, range_key], State)),
     lists:all(
         fun({_, Query}) ->
             lists:all(
-                fun({_, Key}) ->
-                    maps:is_key(Key, Query)
+                fun(Key) ->
+                    is_dynamo_key_existing(Key, Query)
                 end,
                 Keys
             )
@@ -364,3 +361,17 @@ get_host_info(Server) ->
 
 redact(Data) ->
     emqx_utils:redact(Data, fun(Any) -> Any =:= aws_secret_access_key end).
+
+is_dynamo_key_existing(Bin, Query) when is_binary(Bin) ->
+    case maps:is_key(Bin, Query) of
+        true ->
+            true;
+        _ ->
+            try
+                Key = erlang:binary_to_existing_atom(Bin),
+                maps:is_key(Key, Query)
+            catch
+                _:_ ->
+                    false
+            end
+    end.

@@ -152,19 +152,24 @@ redact_v(_V) ->
     ?REDACT_VAL.
 
 deobfuscate(NewConf, OldConf) ->
+    deobfuscate(NewConf, OldConf, fun(_) -> false end).
+
+deobfuscate(NewConf, OldConf, IsSensitiveFun) ->
     maps:fold(
         fun(K, V, Acc) ->
             case maps:find(K, OldConf) of
                 error ->
-                    case is_redacted(K, V) of
+                    case is_redacted(K, V, IsSensitiveFun) of
                         %% don't put redacted value into new config
                         true -> Acc;
                         false -> Acc#{K => V}
                     end;
+                {ok, OldV} when is_map(V), is_map(OldV), ?IS_KEY_HEADERS(K) ->
+                    Acc#{K => deobfuscate(V, OldV, fun check_is_sensitive_header/1)};
                 {ok, OldV} when is_map(V), is_map(OldV) ->
-                    Acc#{K => deobfuscate(V, OldV)};
+                    Acc#{K => deobfuscate(V, OldV, IsSensitiveFun)};
                 {ok, OldV} ->
-                    case is_redacted(K, V) of
+                    case is_redacted(K, V, IsSensitiveFun) of
                         true ->
                             Acc#{K => OldV};
                         _ ->
@@ -280,6 +285,11 @@ deobfuscate_test() ->
     %% Don't have password before and should allow put non-redact-val into new config
     NewConf3 = #{foo => <<"bar3">>, password => <<"123456">>},
     ?assertEqual(NewConf3, deobfuscate(NewConf3, #{foo => <<"bar">>})),
+
+    HeaderConf1 = #{<<"headers">> => #{<<"Authorization">> => <<"Bearer token">>}},
+    HeaderConf1Obs = #{<<"headers">> => #{<<"Authorization">> => ?REDACT_VAL}},
+    ?assertEqual(HeaderConf1, deobfuscate(HeaderConf1Obs, HeaderConf1)),
+
     ok.
 
 redact_header_test_() ->

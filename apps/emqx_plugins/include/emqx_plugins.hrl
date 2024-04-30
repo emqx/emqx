@@ -19,4 +19,25 @@
 
 -define(CONF_ROOT, plugins).
 
+-define(PLUGIN_SERDE_TAB, emqx_plugins_schema_serde_tab).
+
+-define(CONFIG_FORMAT_AVRO, config_format_avro).
+-define(CONFIG_FORMAT_MAP, config_format_map).
+
+-type schema_name() :: binary().
+-type avsc() :: binary().
+
+-type encoded_data() :: iodata().
+-type decoded_data() :: map().
+
+-record(plugin_schema_serde, {
+    name :: schema_name(),
+    eval_context :: term(),
+    %% TODO: fields to mark schema import status
+    %% scheam_imported :: boolean(),
+    %% for future use
+    extra = []
+}).
+-type plugin_schema_serde() :: #plugin_schema_serde{}.
+
 -endif.

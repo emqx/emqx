@@ -346,7 +346,7 @@ t_enable_disable(Config) ->
     ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()),
     ?assertMatch(
         {error, #{
-            reason := "bad_plugin_config_status",
+            error_msg := "bad_plugin_config_status",
             hint := "disable_the_plugin_first"
         }},
         emqx_plugins:ensure_uninstalled(NameVsn)
@@ -374,15 +374,15 @@ t_bad_tar_gz(Config) ->
     ok = file:write_file(FakeTarTz, "a\n"),
     ?assertMatch(
         {error, #{
-            reason := "bad_plugin_package",
-            return := eof
+            error_msg := "bad_plugin_package",
+            reason := eof
         }},
         emqx_plugins:ensure_installed("fake-vsn")
     ),
     ?assertMatch(
         {error, #{
-            reason := "failed_to_extract_plugin_package",
-            return := not_found
+            error_msg := "failed_to_extract_plugin_package",
+            reason := not_found
         }},
         emqx_plugins:ensure_installed("nonexisting")
     ),
@@ -412,7 +412,7 @@ t_bad_tar_gz2(Config) ->
     ?assert(filelib:is_regular(TarGz)),
     %% failed to install, it also cleans up the bad content of .tar.gz file
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:dir(NameVsn))),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:plugin_dir(NameVsn))),
     %% but the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
     ok.
@@ -440,8 +440,8 @@ t_tar_vsn_content_mismatch(Config) ->
     %% failed to install, it also cleans up content of the bad .tar.gz file even
     %% if in other directory
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:dir(NameVsn))),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:dir("foo-0.2"))),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:plugin_dir(NameVsn))),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:plugin_dir("foo-0.2"))),
     %% the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
     ok.
@@ -455,15 +455,15 @@ t_bad_info_json(Config) ->
     ok = write_info_file(Config, NameVsn, "bad-syntax"),
     ?assertMatch(
         {error, #{
-            error := "bad_info_file",
-            return := {parse_error, _}
+            error_msg := "bad_info_file",
+            reason := {parse_error, _}
         }},
         emqx_plugins:describe(NameVsn)
     ),
     ok = write_info_file(Config, NameVsn, "{\"bad\": \"obj\"}"),
     ?assertMatch(
         {error, #{
-            error := "bad_info_file_content",
+            error_msg := "bad_info_file_content",
             mandatory_fields := _
         }},
         emqx_plugins:describe(NameVsn)
@@ -499,7 +499,7 @@ t_elixir_plugin(Config) ->
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
-    {ok, Info} = emqx_plugins:read_plugin(NameVsn, #{}),
+    {ok, Info} = emqx_plugins:read_plugin_info(NameVsn, #{}),
     ?assertEqual([Info], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
@@ -626,9 +626,9 @@ group_t_copy_plugin_to_a_new_node({init, Config}) ->
             }
         ),
     [CopyFromNode] = emqx_cth_cluster:start([SpecCopyFrom#{join_to => undefined}]),
-    ok = rpc:call(CopyFromNode, emqx_plugins, put_config, [install_dir, FromInstallDir]),
+    ok = rpc:call(CopyFromNode, emqx_plugins, put_config_internal, [install_dir, FromInstallDir]),
     [CopyToNode] = emqx_cth_cluster:start([SpecCopyTo#{join_to => undefined}]),
-    ok = rpc:call(CopyToNode, emqx_plugins, put_config, [install_dir, ToInstallDir]),
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [install_dir, ToInstallDir]),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     ok = rpc:call(CopyFromNode, emqx_plugins, ensure_installed, [NameVsn]),
     ok = rpc:call(CopyFromNode, emqx_plugins, ensure_started, [NameVsn]),
@@ -658,7 +658,7 @@ group_t_copy_plugin_to_a_new_node(Config) ->
     CopyFromNode = proplists:get_value(copy_from_node, Config),
     CopyToNode = proplists:get_value(copy_to_node, Config),
     CopyToDir = proplists:get_value(to_install_dir, Config),
-    CopyFromPluginsState = rpc:call(CopyFromNode, emqx_plugins, get_config, [[states], []]),
+    CopyFromPluginsState = rpc:call(CopyFromNode, emqx_plugins, get_config_interal, [[states], []]),
     NameVsn = proplists:get_value(name_vsn, Config),
     PluginName = proplists:get_value(plugin_name, Config),
     PluginApp = list_to_atom(PluginName),
@@ -681,7 +681,7 @@ group_t_copy_plugin_to_a_new_node(Config) ->
     ),
     ok = rpc:call(CopyToNode, ekka, join, [CopyFromNode]),
     %% Mimic cluster-override conf copying
-    ok = rpc:call(CopyToNode, emqx_plugins, put_config, [[states], CopyFromPluginsState]),
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [[states], CopyFromPluginsState]),
     %% Plugin copying is triggered upon app restart on a new node.
     %% This is similar to emqx_conf, which copies cluster-override conf upon start,
     %% see: emqx_conf_app:init_conf/0
@@ -734,7 +734,7 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     %% successfully even if it's not extracted yet.  Simply starting
     %% the node would crash if not working properly.
     ct:pal("~p config:\n  ~p", [
-        CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config, [[], #{}])
+        CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config_interal, [[], #{}])
     ]),
     ct:pal("~p install_dir:\n  ~p", [
         CopyToNode, erpc:call(CopyToNode, file, list_dir, [ToInstallDir])

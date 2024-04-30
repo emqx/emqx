@@ -42,14 +42,7 @@
         M =:= maps)
 ).
 
--define(COALESCE_BADARG,
-    throw(#{
-        reason => coalesce_badarg,
-        explain =>
-            "must be an array, or a call to a function which returns an array, "
-            "for example: coalesce([a,b,c]) or coalesce(tokens(var,','))"
-    })
-).
+-define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
 
 %% @doc Render a variform expression with bindings.
 %% A variform expression is a template string which supports variable substitution
@@ -99,6 +92,7 @@ eval_as_string(Expr, Bindings, _Opts) ->
 return_str(Str) when is_binary(Str) -> Str;
 return_str(Num) when is_integer(Num) -> integer_to_binary(Num);
 return_str(Num) when is_float(Num) -> float_to_binary(Num, [{decimals, 10}, compact]);
+return_str(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 return_str(Other) ->
     throw(#{
         reason => bad_return,
@@ -133,6 +127,10 @@ decompile(#{expr := Expression}) ->
 decompile(Expression) ->
     Expression.
 
+eval(Atom, _Bindings, _Opts) when is_atom(Atom) ->
+    %% There is no atom literals in variform,
+    %% but some bif functions such as regex_match may return an atom.
+    atom_to_binary(Atom, utf8);
 eval({str, Str}, _Bindings, _Opts) ->
     unicode:characters_to_binary(Str);
 eval({integer, Num}, _Bindings, _Opts) ->
@@ -145,6 +143,8 @@ eval({call, FuncNameStr, Args}, Bindings, Opts) ->
     {Mod, Fun} = resolve_func_name(FuncNameStr),
     ok = assert_func_exported(Mod, Fun, length(Args)),
     case {Mod, Fun} of
+        {?BIF_MOD, iif} ->
+            eval_iif(Args, Bindings, Opts);
         {?BIF_MOD, coalesce} ->
             eval_coalesce(Args, Bindings, Opts);
         _ ->
@@ -158,19 +158,41 @@ eval_loop([H | T], Bindings, Opts) -> [eval(H, Bindings, Opts) | eval_loop(T, Bi
 
 %% coalesce treats var_unbound exception as empty string ''
 eval_coalesce([{array, Args}], Bindings, Opts) ->
-    NewArgs = [lists:map(fun(Arg) -> try_eval(Arg, Bindings, Opts) end, Args)],
-    call(?BIF_MOD, coalesce, NewArgs);
+    %% The input arg is an array
+    eval_coalesce_loop(Args, Bindings, Opts);
 eval_coalesce([Arg], Bindings, Opts) ->
+    %% Arg is an expression (which is expected to return an array)
     case try_eval(Arg, Bindings, Opts) of
         List when is_list(List) ->
-            call(?BIF_MOD, coalesce, List);
+            case lists:dropwhile(fun(I) -> ?IS_EMPTY(I) end, List) of
+                [] ->
+                    <<>>;
+                [H | _] ->
+                    H
+            end;
         <<>> ->
             <<>>;
         _ ->
-            ?COALESCE_BADARG
+            throw(#{
+                reason => coalesce_badarg,
+                explain => "the arg expression did not yield an array"
+            })
     end;
-eval_coalesce(_Args, _Bindings, _Opts) ->
-    ?COALESCE_BADARG.
+eval_coalesce(Args, Bindings, Opts) ->
+    %% It also accepts arbitrary number of args
+    %% equivalent to [{array, Args}]
+    eval_coalesce_loop(Args, Bindings, Opts).
+
+eval_coalesce_loop([], _Bindings, _Opts) ->
+    <<>>;
+eval_coalesce_loop([Arg | Args], Bindings, Opts) ->
+    Result = try_eval(Arg, Bindings, Opts),
+    case ?IS_EMPTY(Result) of
+        true ->
+            eval_coalesce_loop(Args, Bindings, Opts);
+        false ->
+            Result
+    end.
 
 try_eval(Arg, Bindings, Opts) ->
     try
@@ -179,6 +201,21 @@ try_eval(Arg, Bindings, Opts) ->
         throw:#{reason := var_unbound} ->
             <<>>
     end.
+
+eval_iif([Cond, If, Else], Bindings, Opts) ->
+    CondVal = try_eval(Cond, Bindings, Opts),
+    case is_iif_condition_met(CondVal) of
+        true ->
+            eval(If, Bindings, Opts);
+        false ->
+            eval(Else, Bindings, Opts)
+    end.
+
+%% If iif condition expression yielded boolean, use the boolean value.
+%% otherwise it's met as long as it's not an empty string.
+is_iif_condition_met(true) -> true;
+is_iif_condition_met(false) -> false;
+is_iif_condition_met(V) -> not ?IS_EMPTY(V).
 
 %% Some functions accept arbitrary number of arguments but implemented as /1.
 call(Mod, Fun, Args) ->
@@ -237,6 +274,10 @@ resolve_var_value(VarName, Bindings, _Opts) ->
             })
     end.
 
+assert_func_exported(?BIF_MOD, coalesce, _Arity) ->
+    ok;
+assert_func_exported(?BIF_MOD, iif, _Arity) ->
+    ok;
 assert_func_exported(Mod, Fun, Arity) ->
     ok = try_load(Mod),
     case erlang:function_exported(Mod, Fun, Arity) of

@@ -18,6 +18,7 @@
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource_errors.hrl").
 
 -export([
@@ -141,21 +142,23 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
 
 set_process_trace_metadata(RuleID, #{clientid := ClientID} = Columns) ->
     logger:update_process_metadata(#{
-        clientid => ClientID
-    }),
-    set_process_trace_metadata(RuleID, maps:remove(clientid, Columns));
+        clientid => ClientID,
+        rule_id => RuleID,
+        rule_trigger_time => rule_trigger_time(Columns)
+    });
 set_process_trace_metadata(RuleID, Columns) ->
-    EventTimestamp =
-        case Columns of
-            #{timestamp := Timestamp} ->
-                Timestamp;
-            _ ->
-                erlang:system_time(millisecond)
-        end,
     logger:update_process_metadata(#{
         rule_id => RuleID,
-        rule_trigger_time => EventTimestamp
+        rule_trigger_time => rule_trigger_time(Columns)
     }).
+
+rule_trigger_time(Columns) ->
+    case Columns of
+        #{timestamp := Timestamp} ->
+            Timestamp;
+        _ ->
+            erlang:system_time(millisecond)
+    end.
 
 reset_process_trace_metadata(#{clientid := _ClientID}) ->
     Meta = logger:get_process_metadata(),
@@ -722,7 +725,7 @@ inc_action_metrics(TraceCtx, Result) ->
 
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
-    {error, {unrecoverable_error, {action_stopped_after_template_rendering, Explanation}} = _Reason}
+    {error, ?EMQX_TRACE_STOP_ACTION(Explanation) = _Reason}
 ) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
     trace_action(

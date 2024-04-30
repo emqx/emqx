@@ -264,7 +264,11 @@ do_query(
 
     TopicKey = get_topic_key(Query, TopicTks),
     Data = apply_template(Query, Templates, DispatchStrategy),
-
+    emqx_trace:rendered_action_template(ChannelId, #{
+        topic_key => TopicKey,
+        data => Data,
+        request_timeout => RequestTimeout
+    }),
     Result = safe_do_produce(
         ChannelId, InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, RequestTimeout
     ),

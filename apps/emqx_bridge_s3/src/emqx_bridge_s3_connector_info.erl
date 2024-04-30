@@ -20,7 +20,7 @@ type_name() ->
     s3.
 
 bridge_types() ->
-    [s3].
+    [s3, s3_aggregated_upload].
 
 resource_callback_module() ->
     emqx_bridge_s3_connector.

@@ -359,7 +359,7 @@ on_query(InstId, {Method, Request, Timeout}, State) ->
 on_query(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout, Retry},
-    #{base_path := BasePath} = State
+    #{base_path := BasePath, host := Host} = State
 ) ->
     ?TRACE(
         "QUERY",
@@ -373,7 +373,7 @@ on_query(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(ActionId, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
     Worker = resolve_pool_worker(State, KeyOrNum),
     Result0 = ehttpc:request(
         Worker,
@@ -469,7 +469,7 @@ on_query_async(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout},
     ReplyFunAndArgs,
-    #{base_path := BasePath} = State
+    #{base_path := BasePath, host := Host} = State
 ) ->
     Worker = resolve_pool_worker(State, KeyOrNum),
     ?TRACE(
@@ -483,7 +483,7 @@ on_query_async(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(ActionId, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
     MaxAttempts = maps:get(max_attempts, State, 3),
     Context = #{
         attempt => 1,
@@ -503,15 +503,16 @@ on_query_async(
     ),
     {ok, Worker}.
 
-trace_rendered_action_template(ActionId, Method, NRequest, Timeout) ->
+trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout) ->
     case NRequest of
         {Path, Headers} ->
             emqx_trace:rendered_action_template(
                 ActionId,
                 #{
+                    host => Host,
                     path => Path,
                     method => Method,
-                    headers => emqx_utils_redact:redact_headers(Headers),
+                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
                     timeout => Timeout
                 }
             );
@@ -519,14 +520,18 @@ trace_rendered_action_template(ActionId, Method, NRequest, Timeout) ->
             emqx_trace:rendered_action_template(
                 ActionId,
                 #{
+                    host => Host,
                     path => Path,
                     method => Method,
-                    headers => emqx_utils_redact:redact_headers(Headers),
+                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
                     timeout => Timeout,
-                    body => Body
+                    body => {fun log_format_body/1, Body}
                 }
             )
     end.
+
+log_format_body(Body) ->
+    unicode:characters_to_binary(Body).
 
 resolve_pool_worker(State, undefined) ->
     resolve_pool_worker(State, self());
@@ -831,9 +836,16 @@ transform_result(Result) ->
             Result;
         {ok, _TooManyRequests = StatusCode = 429, Headers} ->
             {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
+        {ok, _ServiceUnavailable = StatusCode = 503, Headers} ->
+            {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, StatusCode, Headers} ->
             {error, {unrecoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, _TooManyRequests = StatusCode = 429, Headers, Body} ->
+            {error,
+                {recoverable_error, #{
+                    status_code => StatusCode, headers => Headers, body => Body
+                }}};
+        {ok, _ServiceUnavailable = StatusCode = 503, Headers, Body} ->
             {error,
                 {recoverable_error, #{
                     status_code => StatusCode, headers => Headers, body => Body

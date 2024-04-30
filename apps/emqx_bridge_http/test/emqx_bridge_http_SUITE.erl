@@ -93,6 +93,14 @@ init_per_testcase(t_too_many_requests, Config) ->
     ),
     ok = emqx_bridge_http_connector_test_server:set_handler(too_many_requests_http_handler()),
     [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
+init_per_testcase(t_service_unavailable, Config) ->
+    HTTPPath = <<"/path">>,
+    ServerSSLOpts = false,
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
+        _Port = random, HTTPPath, ServerSSLOpts
+    ),
+    ok = emqx_bridge_http_connector_test_server:set_handler(service_unavailable_http_handler()),
+    [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
 init_per_testcase(t_rule_action_expired, Config) ->
     [
         {bridge_name, ?BRIDGE_NAME}
@@ -115,6 +123,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(TestCase, _Config) when
     TestCase =:= t_path_not_found;
     TestCase =:= t_too_many_requests;
+    TestCase =:= t_service_unavailable;
     TestCase =:= t_rule_action_expired;
     TestCase =:= t_bridge_probes_header_atoms;
     TestCase =:= t_send_async_connection_timeout;
@@ -260,6 +269,12 @@ not_found_http_handler() ->
     end.
 
 too_many_requests_http_handler() ->
+    fail_then_success_http_handler(429).
+
+service_unavailable_http_handler() ->
+    fail_then_success_http_handler(503).
+
+fail_then_success_http_handler(FailStatusCode) ->
     GetAndBump =
         fun() ->
             NCalled = persistent_term:get({?MODULE, times_called}, 0),
@@ -272,7 +287,7 @@ too_many_requests_http_handler() ->
         {ok, Body, Req} = cowboy_req:read_body(Req0),
         TestPid ! {http, cowboy_req:headers(Req), Body},
         Rep =
-            case N >= 2 of
+            case N >= 3 of
                 true ->
                     cowboy_req:reply(
                         200,
@@ -282,9 +297,13 @@ too_many_requests_http_handler() ->
                     );
                 false ->
                     cowboy_req:reply(
-                        429,
+                        FailStatusCode,
                         #{<<"content-type">> => <<"text/plain">>},
-                        <<"slow down, buddy">>,
+                        %% Body and no body to trigger different code paths
+                        case N of
+                            1 -> <<"slow down, buddy">>;
+                            _ -> <<>>
+                        end,
                         Req
                     )
             end,
@@ -570,6 +589,12 @@ t_path_not_found(Config) ->
     ok.
 
 t_too_many_requests(Config) ->
+    check_send_is_retried(Config).
+
+t_service_unavailable(Config) ->
+    check_send_is_retried(Config).
+
+check_send_is_retried(Config) ->
     ?check_trace(
         begin
             #{port := Port, path := Path} = ?config(http_server, Config),

@@ -242,7 +242,7 @@ load_config(Bin, Opts) when is_binary(Bin) ->
 load_config_from_raw(RawConf0, Opts) ->
     SchemaMod = emqx_conf:schema_module(),
     RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
-    case check_config(RawConf1) of
+    case check_config(RawConf1, Opts) of
         {ok, RawConf} ->
             %% It has been ensured that the connector is always the first configuration to be updated.
             %% However, when deleting the connector, we need to clean up the dependent actions/sources first;
@@ -395,24 +395,28 @@ suggest_msg(#{kind := validation_error, reason := unknown_fields}, Mode) ->
 suggest_msg(_, _) ->
     <<"">>.
 
-check_config(Conf) ->
-    case check_keys_is_not_readonly(Conf) of
-        ok ->
-            Conf1 = emqx_config:fill_defaults(Conf),
-            case check_config_schema(Conf1) of
-                ok -> {ok, Conf1};
+check_config(Conf0, Opts) ->
+    case check_keys_is_not_readonly(Conf0, Opts) of
+        {ok, Conf1} ->
+            Conf = emqx_config:fill_defaults(Conf1),
+            case check_config_schema(Conf) of
+                ok -> {ok, Conf};
                 {error, Reason} -> {error, Reason}
             end;
         Error ->
             Error
     end.
 
-check_keys_is_not_readonly(Conf) ->
+check_keys_is_not_readonly(Conf, Opts) ->
+    IgnoreReadonly = maps:get(ignore_readonly, Opts, false),
     Keys = maps:keys(Conf),
     ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
     case lists:filter(fun(K) -> lists:member(K, Keys) end, ReadOnlyKeys) of
         [] ->
-            ok;
+            {ok, Conf};
+        BadKeys when IgnoreReadonly ->
+            ?SLOG(info, #{msg => "readonly_root_keys_ignored", keys => BadKeys}),
+            {ok, maps:without(BadKeys, Conf)};
         BadKeys ->
             BadKeysStr = lists:join(<<",">>, BadKeys),
             {error, ?UPDATE_READONLY_KEYS_PROHIBITED, BadKeysStr}

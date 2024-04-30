@@ -5,7 +5,12 @@
 -ifndef(__EMQX_BRIDGE_S3_HRL__).
 -define(__EMQX_BRIDGE_S3_HRL__, true).
 
--define(ACTION, s3).
+%% Actions
+-define(ACTION_UPLOAD, s3).
+-define(BRIDGE_TYPE_UPLOAD, <<"s3">>).
+-define(ACTION_AGGREGATED_UPLOAD, s3_aggregated_upload).
+-define(BRIDGE_TYPE_AGGREGATED_UPLOAD, <<"s3_aggregated_upload">>).
+
 -define(CONNECTOR, s3).
 
 -endif.

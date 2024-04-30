@@ -72,7 +72,7 @@ dashboard_addr(desc) -> ?DESC(dashboard_addr);
 dashboard_addr(default) -> <<"https://127.0.0.1:18083">>;
 dashboard_addr(_) -> undefined.
 
-%% TOOD: support raw xml metadata in hocon (maybe?🤔)
+%% TODO: support raw xml metadata in hocon (maybe?🤔)
 idp_metadata_url(type) -> binary();
 idp_metadata_url(desc) -> ?DESC(idp_metadata_url);
 idp_metadata_url(default) -> <<"https://idp.example.com">>;

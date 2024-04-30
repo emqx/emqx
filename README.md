@@ -98,7 +98,7 @@ The `master` branch tracks the latest version 5. For version 4.4 checkout the `m
 
 EMQX 4.4 requires OTP 24.
 EMQX 5.0 ~ 5.3 can be built with OTP 24 or 25.
-EMQX 5.4 and newer can be built with OTP 24 or 25.
+EMQX 5.4 and newer can be built with OTP 25 or 26.
 
 ```bash
 git clone https://github.com/emqx/emqx.git

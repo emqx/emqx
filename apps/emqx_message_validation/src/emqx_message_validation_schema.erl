@@ -65,6 +65,7 @@ fields(validation) ->
                 #{
                     desc => ?DESC("topics"),
                     converter => fun ensure_array/2,
+                    validator => fun validate_unique_topics/1,
                     required => true
                 }
             )},
@@ -269,3 +270,23 @@ do_validate_unique_schema_checks(
     end;
 do_validate_unique_schema_checks([_Check | Rest], Seen, Duplicated) ->
     do_validate_unique_schema_checks(Rest, Seen, Duplicated).
+
+validate_unique_topics(Topics) ->
+    Grouped = maps:groups_from_list(
+        fun(T) -> T end,
+        Topics
+    ),
+    DuplicatedMap = maps:filter(
+        fun(_T, Ts) -> length(Ts) > 1 end,
+        Grouped
+    ),
+    case maps:keys(DuplicatedMap) of
+        [] ->
+            ok;
+        Duplicated ->
+            Msg = iolist_to_binary([
+                <<"duplicated topics: ">>,
+                lists:join(", ", Duplicated)
+            ]),
+            {error, Msg}
+    end.

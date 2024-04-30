@@ -422,6 +422,10 @@ t_client_attr_from_user_property(_Config) ->
         #{
             expression => Compiled,
             set_as_attr => <<"group">>
+        },
+        #{
+            expression => Compiled,
+            set_as_attr => <<"group2">>
         }
     ]),
     SslConf = emqx_common_test_helpers:client_mtls('tlsv1.3'),
@@ -436,7 +440,7 @@ t_client_attr_from_user_property(_Config) ->
     {ok, _} = emqtt:connect(Client),
     %% assert only two chars are extracted
     ?assertMatch(
-        #{clientinfo := #{client_attrs := #{<<"group">> := <<"g1">>}}},
+        #{clientinfo := #{client_attrs := #{<<"group">> := <<"g1">>, <<"group2">> := <<"g1">>}}},
         emqx_cm:get_chan_info(ClientId)
     ),
     emqtt:disconnect(Client).
