@@ -16,7 +16,7 @@ FROM builder_${SOURCE_TYPE} as builder
 
 ARG PROFILE=emqx
 ARG IS_ELIXIR=no
-ARG DEBUG=0
+ARG DEBUG
 
 ENV EMQX_RELUP=false
 ENV EMQX_REL_FORM='docker'
