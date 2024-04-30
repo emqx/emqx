@@ -232,6 +232,65 @@ check_test_() ->
 
 duplicated_check_test_() ->
     [
+        {"duplicated topics 1",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated topics: t/1">>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.topics"
+                    }
+                ]},
+                parse_and_check([
+                    validation(
+                        <<"foo">>,
+                        [schema_check(json, <<"a">>)],
+                        #{<<"topics">> => [<<"t/1">>, <<"t/1">>]}
+                    )
+                ])
+            )},
+        {"duplicated topics 2",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated topics: t/1">>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.topics"
+                    }
+                ]},
+                parse_and_check([
+                    validation(
+                        <<"foo">>,
+                        [schema_check(json, <<"a">>)],
+                        #{<<"topics">> => [<<"t/1">>, <<"t/#">>, <<"t/1">>]}
+                    )
+                ])
+            )},
+        {"duplicated topics 3",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"duplicated topics: t/1, t/2">>,
+                        kind := validation_error,
+                        path := "message_validation.validations.1.topics"
+                    }
+                ]},
+                parse_and_check([
+                    validation(
+                        <<"foo">>,
+                        [schema_check(json, <<"a">>)],
+                        #{
+                            <<"topics">> => [
+                                <<"t/1">>,
+                                <<"t/#">>,
+                                <<"t/1">>,
+                                <<"t/2">>,
+                                <<"t/2">>
+                            ]
+                        }
+                    )
+                ])
+            )},
         {"duplicated sql checks are not checked",
             ?_assertMatch(
                 [#{<<"checks">> := [_, _]}],
