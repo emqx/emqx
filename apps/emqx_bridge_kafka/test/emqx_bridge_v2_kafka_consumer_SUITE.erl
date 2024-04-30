@@ -351,3 +351,24 @@ t_bad_bootstrap_host(Config) ->
         )
     ),
     ok.
+
+t_custom_group_id(Config) ->
+    ?check_trace(
+        begin
+            #{<<"bootstrap_hosts">> := BootstrapHosts} = ?config(connector_config, Config),
+            CustomGroupId = <<"my_group_id">>,
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_bridge_api(
+                    Config,
+                    #{<<"parameters">> => #{<<"group_id">> => CustomGroupId}}
+                ),
+            [Endpoint] = emqx_bridge_kafka_impl:hosts(BootstrapHosts),
+            ?assertMatch(
+                {ok, [{_, CustomGroupId, _}]},
+                brod:list_groups(Endpoint, _ConnOpts = #{})
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.

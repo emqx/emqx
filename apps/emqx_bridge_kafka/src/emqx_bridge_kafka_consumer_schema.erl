@@ -84,6 +84,14 @@ fields(source_parameters) ->
                     required => true,
                     desc => ?DESC(emqx_bridge_kafka, consumer_kafka_topic)
                 }
+            )},
+        {group_id,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    desc => ?DESC(group_id)
+                }
             )}
         | Fields
     ];
