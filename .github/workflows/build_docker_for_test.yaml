@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     env:
       EMQX_NAME: ${{ matrix.profile }}
-      PKG_VSN: ${{ startsWith(matrix.profile, 'emqx-enterprise') && inputs.version-emqx-enterprise || inputs.version-emqx }}
+      PKG_VSN: ${{ matrix.profile == 'emqx-enterprise' && inputs.version-emqx-enterprise || inputs.version-emqx }}
       OTP_VSN: ${{ inputs.otp_vsn }}
       ELIXIR_VSN: ${{ inputs.elixir_vsn }}
 
