@@ -275,7 +275,7 @@ to_range_badarg_test_() ->
     ].
 
 iif_test_() ->
-    %% if clientid has to words separated by a -, take the suffix, and append with `/#`
+    %% if clientid has two words separated by a -, take the suffix, and append with `/#`
     Expr1 = "iif(nth(2,tokens(clientid,'-')),concat([nth(2,tokens(clientid,'-')),'/#']),'')",
     [
         ?_assertEqual({ok, <<"yes-A">>}, render("iif(a,'yes-A','no-A')", #{a => <<"x">>})),
