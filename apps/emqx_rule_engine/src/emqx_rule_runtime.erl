@@ -415,6 +415,15 @@ handle_action(RuleId, ActId, Selected, Envs) ->
                 rule_metrics, RuleId, 'actions.failed.out_of_service'
             ),
             trace_action(ActId, "out_of_service", #{}, warning);
+        error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
+            ?EMQX_TRACE_STOP_ACTION(Explanation) = Reason,
+            trace_action(
+                ActId,
+                "action_stopped_after_template_rendering",
+                #{reason => Explanation}
+            ),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
         Err:Reason:ST ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown'),
@@ -475,7 +484,18 @@ do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) -
     trace_action(Action, "call_action_function"),
     %% the function can also throw 'out_of_service'
     Args = maps:get(args, Action, []),
-    Result = Mod:Func(Selected, Envs, Args),
+    PrevProcessMetadata =
+        case logger:get_process_metadata() of
+            undefined -> #{};
+            D -> D
+        end,
+    Result =
+        try
+            logger:update_process_metadata(#{action_id => Action}),
+            Mod:Func(Selected, Envs, Args)
+        after
+            logger:set_process_metadata(PrevProcessMetadata)
+        end,
     {_, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
     inc_action_metrics(IncCtx, Result),
     Result.

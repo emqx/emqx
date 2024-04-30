@@ -320,7 +320,7 @@ run_simple_upload(
     emqx_trace:rendered_action_template(ChannelID, #{
         bucket => Bucket,
         key => Key,
-        content => Content
+        content => {fun unicode:characters_to_binary/1, Content}
     }),
     case emqx_s3_client:put_object(Client, Key, UploadOpts, Content) of
         ok ->

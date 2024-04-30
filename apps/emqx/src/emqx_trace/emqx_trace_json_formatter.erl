@@ -57,12 +57,46 @@ prepare_key_value(K, {Formatter, V}, PEncode) when is_function(Formatter, 1) ->
         _:_ ->
             {K, V}
     end;
-prepare_key_value(K, {ok, Status, Headers, Body}, PEncode) when
-    is_integer(Status), is_list(Headers), is_binary(Body)
+prepare_key_value(K, {ok, {Formatter, V}}, PEncode) when is_function(Formatter, 1) ->
+    %% Unwrap
+    prepare_key_value(K, {Formatter, V}, PEncode);
+prepare_key_value(host, {I1, I2, I3, I4}, _PEncode) when
+    is_integer(I1),
+    is_integer(I2),
+    is_integer(I3),
+    is_integer(I4)
 ->
-    %% This is unlikely anything else then info about a HTTP request so we make
-    %% it more structured
-    prepare_key_value(K, #{status => Status, headers => Headers, body => Body}, PEncode);
+    %% We assume this is an IP address
+    {host,
+        unicode:characters_to_binary([
+            integer_to_binary(I1),
+            <<".">>,
+            integer_to_binary(I2),
+            <<".">>,
+            integer_to_binary(I3),
+            <<".">>,
+            integer_to_binary(I4)
+        ])};
+prepare_key_value(K, {ok, StatusCode, Headers}, PEncode) when
+    is_integer(StatusCode), StatusCode >= 200, StatusCode < 300, is_list(Headers)
+->
+    prepare_key_value(K, {ok, StatusCode, Headers, <<"">>}, PEncode);
+prepare_key_value(K, {ok, StatusCode, Headers, Body}, PEncode) when
+    is_integer(StatusCode), StatusCode >= 200, StatusCode < 300, is_list(Headers)
+->
+    %% We assume this is that response of an HTTP request
+    prepare_key_value(
+        K,
+        #{
+            result => ok,
+            response => #{
+                status => StatusCode,
+                headers => Headers,
+                body => Body
+            }
+        },
+        PEncode
+    );
 prepare_key_value(payload = K, V, PEncode) ->
     NewV =
         try
@@ -137,6 +171,8 @@ format_map_set_to_list(Map) ->
     ],
     lists:sort(Items).
 
+format_action_info(#{mod := _Mod, func := _Func} = FuncCall) ->
+    FuncCall;
 format_action_info(V) ->
     [<<"action">>, Type, Name | _] = binary:split(V, <<":">>, [global]),
     #{

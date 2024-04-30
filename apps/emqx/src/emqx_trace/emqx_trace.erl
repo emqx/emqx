@@ -31,7 +31,8 @@
     log/4,
     rendered_action_template/2,
     make_rendered_action_template_trace_context/1,
-    rendered_action_template_with_ctx/2
+    rendered_action_template_with_ctx/2,
+    is_rule_trace_active/0
 ]).
 
 -export([
@@ -96,6 +97,16 @@ unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
 rendered_action_template(<<"action:", _/binary>> = ActionID, RenderResult) ->
+    do_rendered_action_template(ActionID, RenderResult);
+rendered_action_template(#{mod := _, func := _} = ActionID, RenderResult) ->
+    do_rendered_action_template(ActionID, RenderResult);
+rendered_action_template(_ActionID, _RenderResult) ->
+    %% We do nothing if we don't get a valid Action ID. This can happen when
+    %% called from connectors that are used for actions as well as authz and
+    %% authn.
+    ok.
+
+do_rendered_action_template(ActionID, RenderResult) ->
     TraceResult = ?TRACE(
         "QUERY_RENDER",
         "action_template_rendered",
@@ -108,23 +119,25 @@ rendered_action_template(<<"action:", _/binary>> = ActionID, RenderResult) ->
         #{stop_action_after_render := true} ->
             %% We throw an unrecoverable error to stop action before the
             %% resource is called/modified
-            StopMsg = lists:flatten(
+            ActionIDStr =
+                case ActionID of
+                    Bin when is_binary(Bin) ->
+                        Bin;
+                    Term ->
+                        ActionIDFormatted = io_lib:format("~tw", [Term]),
+                        unicode:characters_to_binary(ActionIDFormatted)
+                end,
+            StopMsg =
                 io_lib:format(
                     "Action ~ts stopped after template rendering due to test setting.",
-                    [ActionID]
-                )
-            ),
+                    [ActionIDStr]
+                ),
             MsgBin = unicode:characters_to_binary(StopMsg),
             error(?EMQX_TRACE_STOP_ACTION(MsgBin));
         _ ->
             ok
     end,
-    TraceResult;
-rendered_action_template(_ActionID, _RenderResult) ->
-    %% We do nothing if we don't get a valid Action ID. This can happen when
-    %% called from connectors that are used for actions as well as authz and
-    %% authn.
-    ok.
+    TraceResult.
 
 %% The following two functions are used for connectors that don't do the
 %% rendering in the main process (the one that called on_*query). In this case
@@ -163,6 +176,16 @@ rendered_action_template_with_ctx(
         )
     after
         logger:set_process_metadata(OldMetaData)
+    end.
+
+is_rule_trace_active() ->
+    case logger:get_process_metadata() of
+        #{rule_id := RID} when is_binary(RID) ->
+            true;
+        #{rule_ids := RIDs} when map_size(RIDs) > 0 ->
+            true;
+        _ ->
+            false
     end.
 
 log(List, Msg, Meta) ->

@@ -693,6 +693,11 @@ handle_result({error, Error}) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_result(Res) ->
+    maybe_trace_format_result(Res).
+
+trace_format_result({ok, Cnt}) when is_integer(Cnt) ->
+    #{result => ok, affected_rows => Cnt};
+trace_format_result(Res) ->
     Res.
 
 handle_batch_result([{ok, Count} | Rest], Acc) ->
@@ -701,7 +706,18 @@ handle_batch_result([{error, Error} | _Rest], _Acc) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_batch_result([], Acc) ->
-    {ok, Acc}.
+    maybe_trace_format_result({ok, Acc}).
+
+maybe_trace_format_result(Res) ->
+    %% If rule tracing is active, then we know that the connector is used by an
+    %% action and that the result is used for tracing only. This is why we can
+    %% add a function to lazily format the trace entry.
+    case emqx_trace:is_rule_trace_active() of
+        true ->
+            {ok, {fun trace_format_result/1, Res}};
+        false ->
+            Res
+    end.
 
 translate_to_log_context({error, Reason}) ->
     translate_to_log_context(Reason);

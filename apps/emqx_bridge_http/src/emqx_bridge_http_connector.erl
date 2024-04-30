@@ -232,6 +232,7 @@ on_start(
         port => Port,
         connect_timeout => ConnectTimeout,
         base_path => BasePath,
+        scheme => Scheme,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
     case start_pool(InstId, PoolOpts) of
@@ -359,7 +360,7 @@ on_query(InstId, {Method, Request, Timeout}, State) ->
 on_query(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout, Retry},
-    #{base_path := BasePath, host := Host} = State
+    #{base_path := BasePath, host := Host, scheme := Scheme, port := Port} = State
 ) ->
     ?TRACE(
         "QUERY",
@@ -373,7 +374,7 @@ on_query(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
     Worker = resolve_pool_worker(State, KeyOrNum),
     Result0 = ehttpc:request(
         Worker,
@@ -412,6 +413,24 @@ on_query(
         _Success ->
             Result
     end.
+
+maybe_trace_format_result(Res) ->
+    %% If rule tracing is active, then we know that the connector is used by an
+    %% action and that the result is used for tracing only. This is why we can
+    %% add a function to lazily format the trace entry.
+    case emqx_trace:is_rule_trace_active() of
+        true ->
+            {ok, {fun trace_format_result/1, Res}};
+        false ->
+            Res
+    end.
+
+trace_format_result({ok, Status, Headers, Body}) ->
+    #{status => Status, headers => Headers, body => Body};
+trace_format_result({ok, Status, Headers}) ->
+    #{status => Status, headers => Headers};
+trace_format_result(Result) ->
+    Result.
 
 %% BridgeV1 entrypoint
 on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
@@ -469,7 +488,7 @@ on_query_async(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout},
     ReplyFunAndArgs,
-    #{base_path := BasePath, host := Host} = State
+    #{base_path := BasePath, host := Host, port := Port, scheme := Scheme} = State
 ) ->
     Worker = resolve_pool_worker(State, KeyOrNum),
     ?TRACE(
@@ -483,7 +502,7 @@ on_query_async(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
     MaxAttempts = maps:get(max_attempts, State, 3),
     Context = #{
         attempt => 1,
@@ -492,7 +511,8 @@ on_query_async(
         key_or_num => KeyOrNum,
         method => Method,
         request => NRequest,
-        timeout => Timeout
+        timeout => Timeout,
+        trace_metadata => logger:get_process_metadata()
     },
     ok = ehttpc:request_async(
         Worker,
@@ -503,17 +523,19 @@ on_query_async(
     ),
     {ok, Worker}.
 
-trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout) ->
+trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout) ->
     case NRequest of
         {Path, Headers} ->
             emqx_trace:rendered_action_template(
                 ActionId,
                 #{
                     host => Host,
+                    port => Port,
                     path => Path,
                     method => Method,
                     headers => {fun emqx_utils_redact:redact_headers/1, Headers},
-                    timeout => Timeout
+                    timeout => Timeout,
+                    url => {fun render_url/1, {Scheme, Host, Port, Path}}
                 }
             );
         {Path, Headers, Body} ->
@@ -521,14 +543,32 @@ trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout) ->
                 ActionId,
                 #{
                     host => Host,
+                    port => Port,
                     path => Path,
                     method => Method,
                     headers => {fun emqx_utils_redact:redact_headers/1, Headers},
                     timeout => Timeout,
-                    body => {fun log_format_body/1, Body}
+                    body => {fun log_format_body/1, Body},
+                    url => {fun render_url/1, {Scheme, Host, Port, Path}}
                 }
             )
     end.
+
+render_url({Scheme, Host, Port, Path}) ->
+    SchemeStr =
+        case Scheme of
+            http ->
+                <<"http://">>;
+            https ->
+                <<"https://">>
+        end,
+    unicode:characters_to_binary([
+        SchemeStr,
+        Host,
+        <<":">>,
+        erlang:integer_to_binary(Port),
+        Path
+    ]).
 
 log_format_body(Body) ->
     unicode:characters_to_binary(Body).
@@ -807,9 +847,15 @@ to_bin(Str) when is_list(Str) ->
 to_bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
 
-reply_delegator(Context, ReplyFunAndArgs, Result0) ->
+reply_delegator(
+    #{trace_metadata := TraceMetadata} = Context,
+    ReplyFunAndArgs,
+    Result0
+) ->
     spawn(fun() ->
+        logger:set_process_metadata(TraceMetadata),
         Result = transform_result(Result0),
+        logger:unset_process_metadata(),
         maybe_retry(Result, Context, ReplyFunAndArgs)
     end).
 
@@ -831,9 +877,9 @@ transform_result(Result) ->
         {error, _Reason} ->
             Result;
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            Result;
+            maybe_trace_format_result(Result);
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            Result;
+            maybe_trace_format_result(Result);
         {ok, _TooManyRequests = StatusCode = 429, Headers} ->
             {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, _ServiceUnavailable = StatusCode = 503, Headers} ->
