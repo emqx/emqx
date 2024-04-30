@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -58,7 +58,8 @@ t_conn_fail_with_intermediate_ca_cert(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
-            {certfile, filename:join(DataDir, "client1.pem")}
+            {certfile, filename:join(DataDir, "client1.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -83,7 +84,8 @@ t_conn_fail_with_other_intermediate_ca_cert(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
-            {certfile, filename:join(DataDir, "client2.pem")}
+            {certfile, filename:join(DataDir, "client2.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -110,7 +112,8 @@ t_conn_success_with_server_client_composed_complete_chain(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
-            {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+            {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -136,7 +139,8 @@ t_conn_success_with_other_signed_client_composed_complete_chain(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
-            {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+            {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -161,7 +165,8 @@ t_conn_success_with_renewed_intermediate_root_bundle(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
-            {certfile, filename:join(DataDir, "client1.pem")}
+            {certfile, filename:join(DataDir, "client1.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -185,7 +190,8 @@ t_conn_success_with_client_complete_cert_chain(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
-            {certfile, filename:join(DataDir, "client2-complete-bundle.pem")}
+            {certfile, filename:join(DataDir, "client2-complete-bundle.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -237,7 +243,8 @@ t_conn_fail_without_root_cacert(Config) ->
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")},
             %% stick to tlsv1.2 for consistent error message
-            {versions, ['tlsv1.2']}
+            {versions, ['tlsv1.2']},
+            {cacertfile, filename:join(DataDir, "intermediate2.pem")}
         ],
         1000
     ),
