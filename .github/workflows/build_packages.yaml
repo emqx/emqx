@@ -76,9 +76,8 @@ jobs:
         profile:
           - ${{ inputs.profile }}
         os:
-          - macos-12
-          - macos-12-arm64
           - macos-13
+          - macos-14
         otp:
           - ${{ inputs.otp_vsn }}
     runs-on: ${{ matrix.os }}

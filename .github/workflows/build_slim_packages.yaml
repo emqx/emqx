@@ -111,7 +111,7 @@ jobs:
         otp:
         - ${{ inputs.otp_vsn }}
         os:
-        - macos-12-arm64
+        - macos-14
 
     runs-on: ${{ matrix.os }}
     env:
