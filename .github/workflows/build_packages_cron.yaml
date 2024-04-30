@@ -24,9 +24,8 @@ jobs:
       matrix:
         profile:
           - ['emqx', 'master', '5.3-4:1.15.7-26.2.1-2']
-          - ['emqx-enterprise', 'release-56', '5.3-4:1.15.7-26.2.1-2']
+          - ['emqx', 'release-57', '5.3-4:1.15.7-26.2.1-2']
         os:
-          - debian10
           - ubuntu22.04
           - amzn2023
 

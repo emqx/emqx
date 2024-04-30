@@ -24,7 +24,6 @@ jobs:
       matrix:
         branch:
           - master
-          - release-56
           - release-57
         language:
           - cpp
