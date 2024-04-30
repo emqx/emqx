@@ -58,9 +58,6 @@
 %% Array functions
 -export([nth/2]).
 
-%% Control functions
--export([coalesce/1, coalesce/2]).
-
 %% Random functions
 -export([rand_str/1, rand_int/1]).
 
@@ -76,25 +73,15 @@
 %% Hash functions
 -export([hash/2, hash_to_range/3, map_to_range/3]).
 
--define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
+%% String compare functions
+-export([str_comp/2, str_eq/2, str_lt/2, str_lte/2, str_gt/2, str_gte/2]).
+
+%% Number compare functions
+-export([num_comp/2, num_eq/2, num_lt/2, num_lte/2, num_gt/2, num_gte/2]).
 
 %%------------------------------------------------------------------------------
 %% String Funcs
 %%------------------------------------------------------------------------------
-
-%% @doc Return the first non-empty string
-coalesce(A, B) when ?IS_EMPTY(A) andalso ?IS_EMPTY(B) ->
-    <<>>;
-coalesce(A, B) when ?IS_EMPTY(A) ->
-    B;
-coalesce(A, _B) ->
-    A.
-
-%% @doc Return the first non-empty string
-coalesce([]) ->
-    <<>>;
-coalesce([H | T]) ->
-    coalesce(H, coalesce(T)).
 
 lower(S) when is_binary(S) ->
     string:lowercase(S).
@@ -523,3 +510,57 @@ map_to_range(Int, Min, Max) when
     Min + (Int rem Range);
 map_to_range(_, _, _) ->
     throw(#{reason => badarg, function => ?FUNCTION_NAME}).
+
+compare(A, A) -> eq;
+compare(A, B) when A < B -> lt;
+compare(_A, _B) -> gt.
+
+%% @doc Compare two strings, returns
+%% - 'eq' if they are the same.
+%% - 'lt' if arg-1 is ordered before arg-2
+%% - `gt` if arg-1 is ordered after arg-2
+str_comp(A0, B0) ->
+    A = any_to_str(A0),
+    B = any_to_str(B0),
+    compare(A, B).
+
+%% @doc Return 'true' if two strings are the same, otherwise 'false'.
+str_eq(A, B) -> eq =:= str_comp(A, B).
+
+%% @doc Return 'true' if arg-1 is ordered before arg-2, otherwise 'false'.
+str_lt(A, B) -> lt =:= str_comp(A, B).
+
+%% @doc Return 'true' if arg-1 is ordered after arg-2, otherwise 'false'.
+str_gt(A, B) -> gt =:= str_comp(A, B).
+
+%% @doc Return 'true' if arg-1 is not ordered after arg-2, otherwise 'false'.
+str_lte(A, B) ->
+    R = str_comp(A, B),
+    R =:= lt orelse R =:= eq.
+
+%% @doc Return 'true' if arg-1 is not ordered bfore arg-2, otherwise 'false'.
+str_gte(A, B) ->
+    R = str_comp(A, B),
+    R =:= gt orelse R =:= eq.
+
+num_comp(A, B) when is_number(A) andalso is_number(B) ->
+    compare(A, B).
+
+%% @doc Return 'true' if two numbers are the same, otherwise 'false'.
+num_eq(A, B) -> eq =:= num_comp(A, B).
+
+%% @doc Return 'true' if arg-1 is ordered before arg-2, otherwise 'false'.
+num_lt(A, B) -> lt =:= num_comp(A, B).
+
+%% @doc Return 'true' if arg-1 is ordered after arg-2, otherwise 'false'.
+num_gt(A, B) -> gt =:= num_comp(A, B).
+
+%% @doc Return 'true' if arg-1 is not ordered after arg-2, otherwise 'false'.
+num_lte(A, B) ->
+    R = num_comp(A, B),
+    R =:= lt orelse R =:= eq.
+
+%% @doc Return 'true' if arg-1 is not ordered bfore arg-2, otherwise 'false'.
+num_gte(A, B) ->
+    R = num_comp(A, B),
+    R =:= gt orelse R =:= eq.
