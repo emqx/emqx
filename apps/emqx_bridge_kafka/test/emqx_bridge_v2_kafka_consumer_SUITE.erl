@@ -363,10 +363,14 @@ t_custom_group_id(Config) ->
                     #{<<"parameters">> => #{<<"group_id">> => CustomGroupId}}
                 ),
             [Endpoint] = emqx_bridge_kafka_impl:hosts(BootstrapHosts),
-            ?assertMatch(
-                {ok, [{_, CustomGroupId, _}]},
-                brod:list_groups(Endpoint, _ConnOpts = #{})
-            ),
+            ?retry(100, 10, begin
+                {ok, Groups} = brod:list_groups(Endpoint, _ConnOpts = #{}),
+                ?assertMatch(
+                    [_],
+                    [Group || Group = {_, Id, _} <- Groups, Id == CustomGroupId],
+                    #{groups => Groups}
+                )
+            end),
             ok
         end,
         []
