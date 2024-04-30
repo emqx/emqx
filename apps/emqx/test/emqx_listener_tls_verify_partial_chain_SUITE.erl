@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -702,4 +702,7 @@ ssl_config_verify_partial_chain() ->
     ].
 
 client_default_tls_opts() ->
-    [{versions, ['tlsv1.2']}].
+    [
+        {versions, ['tlsv1.2']},
+        {verify, verify_none}
+    ].

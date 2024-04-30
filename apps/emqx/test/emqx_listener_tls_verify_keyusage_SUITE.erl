@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -77,7 +77,8 @@ t_conn_success_verify_peer_ext_key_usage_unset(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
-            {certfile, filename:join(DataDir, "client1.pem")}
+            {certfile, filename:join(DataDir, "client1.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -102,7 +103,8 @@ t_conn_success_verify_peer_ext_key_usage_undefined(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
-            {certfile, filename:join(DataDir, "client1.pem")}
+            {certfile, filename:join(DataDir, "client1.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -129,7 +131,8 @@ t_conn_success_verify_peer_ext_key_usage_matched_predefined(Config) ->
         Port,
         [
             {keyfile, client_key_file(DataDir, ?FUNCTION_NAME)},
-            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)}
+            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -157,7 +160,8 @@ t_conn_success_verify_peer_ext_key_usage_matched_raw_oid(Config) ->
         Port,
         [
             {keyfile, client_key_file(DataDir, ?FUNCTION_NAME)},
-            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)}
+            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -184,7 +188,8 @@ t_conn_success_verify_peer_ext_key_usage_matched_ordered_list(Config) ->
         Port,
         [
             {keyfile, client_key_file(DataDir, ?FUNCTION_NAME)},
-            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)}
+            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -210,7 +215,8 @@ t_conn_success_verify_peer_ext_key_usage_matched_unordered_list(Config) ->
         Port,
         [
             {keyfile, client_key_file(DataDir, ?FUNCTION_NAME)},
-            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)}
+            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -237,7 +243,8 @@ t_conn_fail_verify_peer_ext_key_usage_unmatched_raw_oid(Config) ->
         Port,
         [
             {keyfile, client_key_file(DataDir, ?FUNCTION_NAME)},
-            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)}
+            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -263,7 +270,8 @@ t_conn_fail_verify_peer_ext_key_usage_empty_str(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
-            {certfile, filename:join(DataDir, "client1.pem")}
+            {certfile, filename:join(DataDir, "client1.pem")},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -290,7 +298,8 @@ t_conn_fail_client_keyusage_unmatch(Config) ->
         Port,
         [
             {keyfile, client_key_file(DataDir, ?FUNCTION_NAME)},
-            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)}
+            {certfile, client_pem_file(DataDir, ?FUNCTION_NAME)},
+            {verify, verify_none}
         ],
         1000
     ),
@@ -317,7 +326,8 @@ t_conn_fail_client_keyusage_incomplete(Config) ->
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
-            {certfile, filename:join(DataDir, "client1.pem")}
+            {certfile, filename:join(DataDir, "client1.pem")},
+            {verify, verify_none}
         ],
         1000
     ),

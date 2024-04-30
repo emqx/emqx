@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ emqx_start_listener(Name, Type, Port, Opts) when is_list(Opts) ->
     emqx_start_listener(Name, Type, Port, maps:from_list(Opts));
 emqx_start_listener(Name, ssl, Port, #{ssl_options := SslOptions} = Opts0) ->
     Opts = Opts0#{
+        enable => true,
         bind => {{127, 0, 0, 1}, Port},
         mountpoint => <<>>,
         zone => default,
