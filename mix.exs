@@ -65,14 +65,14 @@ defmodule EMQXUmbrella.MixProject do
       # maybe forbid to fetch quicer
       {:emqtt,
        github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()},
-      {:rulesql, github: "emqx/rulesql", tag: "0.2.0"},
+      {:rulesql, github: "emqx/rulesql", tag: "0.2.1"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
       {:telemetry, "1.1.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.42.1", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.1"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -101,7 +101,8 @@ defmodule EMQXUmbrella.MixProject do
       {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
-      {:ra, "2.7.3", override: true}
+      {:ra, "2.7.3", override: true},
+      {:mimerl, "1.2.0", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ jq_dep() ++ quicer_dep()

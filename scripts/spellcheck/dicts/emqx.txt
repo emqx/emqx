@@ -234,6 +234,7 @@ src
 ssl
 statsd
 structs
+subpath
 subprotocol
 subprotocols
 superset

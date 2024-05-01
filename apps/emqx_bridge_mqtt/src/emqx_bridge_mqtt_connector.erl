@@ -264,7 +264,7 @@ on_query(
     ),
     Channels = maps:get(installed_channels, State),
     ChannelConfig = maps:get(ChannelId, Channels),
-    handle_send_result(with_egress_client(PoolName, send, [Msg, ChannelConfig]));
+    handle_send_result(with_egress_client(ChannelId, PoolName, send, [Msg, ChannelConfig]));
 on_query(ResourceId, {_ChannelId, Msg}, #{}) ->
     ?SLOG(error, #{
         msg => "forwarding_unavailable",
@@ -283,7 +283,7 @@ on_query_async(
     Callback = {fun on_async_result/2, [CallbackIn]},
     Channels = maps:get(installed_channels, State),
     ChannelConfig = maps:get(ChannelId, Channels),
-    Result = with_egress_client(PoolName, send_async, [Msg, Callback, ChannelConfig]),
+    Result = with_egress_client(ChannelId, PoolName, send_async, [Msg, Callback, ChannelConfig]),
     case Result of
         ok ->
             ok;
@@ -300,8 +300,11 @@ on_query_async(ResourceId, {_ChannelId, Msg}, _Callback, #{}) ->
         reason => "Egress is not configured"
     }).
 
-with_egress_client(ResourceId, Fun, Args) ->
-    ecpool:pick_and_do(ResourceId, {emqx_bridge_mqtt_egress, Fun, Args}, no_handover).
+with_egress_client(ActionID, ResourceId, Fun, Args) ->
+    TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ActionID),
+    ecpool:pick_and_do(
+        ResourceId, {emqx_bridge_mqtt_egress, Fun, [TraceRenderedCTX | Args]}, no_handover
+    ).
 
 on_async_result(Callback, Result) ->
     apply_callback_function(Callback, handle_send_result(Result)).
@@ -337,6 +340,8 @@ classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error(shutdown = Reason) ->
     {recoverable_error, Reason};
+classify_error({unrecoverable_error, _Reason} = Error) ->
+    Error;
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 

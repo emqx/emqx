@@ -173,6 +173,11 @@ source_hookpoint(Config) ->
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
     emqx_bridge_v2:source_hookpoint(BridgeId).
 
+action_hookpoint(Config) ->
+    #{kind := action, type := Type, name := Name} = get_common_values(Config),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    emqx_bridge_resource:bridge_hookpoint(BridgeId).
+
 add_source_hookpoint(Config) ->
     Hookpoint = source_hookpoint(Config),
     ok = emqx_hooks:add(Hookpoint, {?MODULE, source_hookpoint_callback, [self()]}, 1000),
@@ -376,6 +381,14 @@ start_connector_api(ConnectorName, ConnectorType) ->
     ct:pal("starting connector ~s (http)", [ConnectorId]),
     Res = request(post, Path, #{}),
     ct:pal("connector update (http) result:\n  ~p", [Res]),
+    Res.
+
+get_connector_api(ConnectorType, ConnectorName) ->
+    ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
+    Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
+    ct:pal("get connector ~s (http)", [ConnectorId]),
+    Res = request(get, Path, _Params = []),
+    ct:pal("get connector (http) result:\n  ~p", [Res]),
     Res.
 
 create_action_api(Config) ->

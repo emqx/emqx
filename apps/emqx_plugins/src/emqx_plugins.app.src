@@ -1,9 +1,9 @@
 %% -*- mode: erlang -*-
 {application, emqx_plugins, [
     {description, "EMQX Plugin Management"},
-    {vsn, "0.1.8"},
+    {vsn, "0.2.0"},
     {modules, []},
     {mod, {emqx_plugins_app, []}},
-    {applications, [kernel, stdlib, emqx]},
+    {applications, [kernel, stdlib, emqx, erlavro]},
     {env, []}
 ]}.

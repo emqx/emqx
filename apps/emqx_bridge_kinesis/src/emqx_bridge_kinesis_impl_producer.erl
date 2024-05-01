@@ -261,6 +261,11 @@ do_send_requests_sync(
         stream_name := StreamName
     } = maps:get(ChannelId, InstalledChannels),
     Records = render_records(Requests, Templates),
+    StructuredRecords = [
+        #{data => Data, partition_key => PartitionKey}
+     || {Data, PartitionKey} <- Records
+    ],
+    emqx_trace:rendered_action_template(ChannelId, StructuredRecords),
     Result = ecpool:pick_and_do(
         PoolName,
         {emqx_bridge_kinesis_connector_client, query, [Records, StreamName]},

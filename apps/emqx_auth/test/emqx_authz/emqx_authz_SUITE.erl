@@ -173,7 +173,16 @@ end_per_testcase(_TestCase, _Config) ->
 -define(SOURCE_FILE_CLIENT_ATTR,
     ?SOURCE_FILE(
         <<
-            "{allow,all,all,[\"${client_attrs.alias}/#\"]}.\n"
+            "{allow,all,all,[\"${client_attrs.alias}/#\",\"client_attrs_backup\"]}.\n"
+            "{deny, all}."
+        >>
+    )
+).
+
+-define(SOURCE_FILE_CLIENT_NO_SUCH_ATTR,
+    ?SOURCE_FILE(
+        <<
+            "{allow,all,all,[\"${client_attrs.nonexist}/#\",\"client_attrs_backup\"]}.\n"
             "{deny, all}."
         >>
     )
@@ -572,9 +581,39 @@ t_alias_prefix(_Config) ->
     ?assertMatch({ok, _}, emqtt:connect(C)),
     ?assertMatch({ok, _, [?RC_SUCCESS]}, emqtt:subscribe(C, SubTopic)),
     ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, SubTopicNotAllowed)),
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, <<"/#">>)),
     unlink(C),
     emqtt:stop(C),
+    NonMatching = <<"clientid_which_has_no_dash">>,
+    {ok, C2} = emqtt:start_link([{clientid, NonMatching}, {proto_ver, v5}]),
+    ?assertMatch({ok, _}, emqtt:connect(C2)),
+    ?assertMatch({ok, _, [?RC_SUCCESS]}, emqtt:subscribe(C2, <<"client_attrs_backup">>)),
+    %% assert '${client_attrs.alias}/#' is not rendered as '/#'
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C2, <<"/#">>)),
+    unlink(C2),
+    emqtt:stop(C2),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
+    ok.
+
+t_non_existing_attr(_Config) ->
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE_CLIENT_NO_SUCH_ATTR]),
+    %% '^.*-(.*)$': extract the suffix after the last '-'
+    {ok, Compiled} = emqx_variform:compile("concat(regex_extract(clientid,'^.*-(.*)$'))"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            %% this is intended to be different from 'nonexist'
+            set_as_attr => <<"existing">>
+        }
+    ]),
+    ClientId = <<"org1-name3">>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    ?assertMatch({ok, _}, emqtt:connect(C)),
+    ?assertMatch({ok, _, [?RC_SUCCESS]}, emqtt:subscribe(C, <<"client_attrs_backup">>)),
+    %% assert '${client_attrs.nonexist}/#' is not rendered as '/#'
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, <<"/#">>)),
+    unlink(C),
+    emqtt:stop(C),
     ok.
 
 %% client is allowed by ACL to publish to its LWT topic, is connected,

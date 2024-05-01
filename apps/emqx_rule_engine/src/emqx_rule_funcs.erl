@@ -132,8 +132,6 @@
 
 %% String Funcs
 -export([
-    coalesce/1,
-    coalesce/2,
     lower/1,
     ltrim/1,
     reverse/1,
@@ -758,10 +756,6 @@ is_array(_) -> false.
 %%------------------------------------------------------------------------------
 %% String Funcs
 %%------------------------------------------------------------------------------
-
-coalesce(List) -> emqx_variform_bif:coalesce(List).
-
-coalesce(A, B) -> emqx_variform_bif:coalesce(A, B).
 
 lower(S) -> emqx_variform_bif:lower(S).
 

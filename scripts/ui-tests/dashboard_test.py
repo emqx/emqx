@@ -9,6 +9,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common import utils
+from selenium.common.exceptions import NoSuchElementException
 
 @pytest.fixture
 def driver():
@@ -31,11 +32,13 @@ def dashboard_url(dashboard_host, dashboard_port):
 
 @pytest.fixture
 def login(driver, dashboard_url):
+    # admin is set in CI jobs, hence as default value
+    password = os.getenv("EMQX_DASHBOARD__DEFAULT_PASSWORD", "admin")
     driver.get(dashboard_url)
     assert "EMQX Dashboard" == driver.title
     assert f"{dashboard_url}/#/login?to=/dashboard/overview" == driver.current_url
     driver.find_element(By.XPATH, "//div[@class='login']//form[1]//input[@type='text']").send_keys("admin")
-    driver.find_element(By.XPATH, "//div[@class='login']//form[1]//input[@type='password']").send_keys("admin")
+    driver.find_element(By.XPATH, "//div[@class='login']//form[1]//input[@type='password']").send_keys(password)
     driver.find_element(By.XPATH, "//div[@class='login']//form[1]//button[1]").click()
     dest_url = urljoin(dashboard_url, "/#/dashboard/overview")
     driver.get(dest_url)
@@ -91,8 +94,12 @@ def test_docs_link(driver, login, dashboard_url):
     else:
         emqx_version = f"v{emqx_community_version}"
         docs_base_url = "https://www.emqx.io/docs/en"
-    
+
     emqx_version = ".".join(emqx_version.split(".")[:2])
     docs_url = f"{docs_base_url}/{emqx_version}"
     xpath = f"//div[@id='app']//div[@class='nav-header']//a[@href[starts-with(.,'{docs_url}')]]"
-    assert driver.find_element(By.XPATH, xpath)
+
+    try:
+        driver.find_element(By.XPATH, xpath)
+    except NoSuchElementException:
+        raise AssertionError(f"Cannot find the doc URL for {emqx_name} version {emqx_version}, please make sure the dashboard package is up to date.")

@@ -386,7 +386,7 @@ on_query(
     SimplifiedRequestType = query_type(RequestType),
     Templates = get_templates(RequestType, State),
     SQL = get_sql(SimplifiedRequestType, Templates, DataOrSQL),
-    ClickhouseResult = execute_sql_in_clickhouse_server(PoolName, SQL),
+    ClickhouseResult = execute_sql_in_clickhouse_server(RequestType, PoolName, SQL),
     transform_and_log_clickhouse_result(ClickhouseResult, ResourceID, SQL).
 
 get_templates(ChannId, State) ->
@@ -398,7 +398,7 @@ get_templates(ChannId, State) ->
     end.
 
 get_sql(channel_message, #{send_message_template := PreparedSQL}, Data) ->
-    emqx_placeholder:proc_tmpl(PreparedSQL, Data);
+    emqx_placeholder:proc_tmpl(PreparedSQL, Data, #{return => full_binary});
 get_sql(_, _, SQL) ->
     SQL.
 
@@ -425,7 +425,7 @@ on_batch_query(ResourceID, BatchReq, #{pool_name := PoolName} = State) ->
     %% Create batch insert SQL statement
     SQL = objects_to_sql(ObjectsToInsert, Templates),
     %% Do the actual query in the database
-    ResultFromClickhouse = execute_sql_in_clickhouse_server(PoolName, SQL),
+    ResultFromClickhouse = execute_sql_in_clickhouse_server(ChannId, PoolName, SQL),
     %% Transform the result to a better format
     transform_and_log_clickhouse_result(ResultFromClickhouse, ResourceID, SQL).
 
@@ -464,7 +464,8 @@ objects_to_sql(_, _) ->
 
 %% This function is used by on_query/3 and on_batch_query/3 to send a query to
 %% the database server and receive a result
-execute_sql_in_clickhouse_server(PoolName, SQL) ->
+execute_sql_in_clickhouse_server(Id, PoolName, SQL) ->
+    emqx_trace:rendered_action_template(Id, #{rendered_sql => SQL}),
     ecpool:pick_and_do(
         PoolName,
         {?MODULE, execute_sql_in_clickhouse_server_using_connection, [SQL]},

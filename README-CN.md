@@ -86,7 +86,7 @@ EMQX Cloud 文档：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cl
 
 `master` 分支是最新的 5 版本，`main-v4.4` 是 4.4 版本。
 
-EMQX 4.4 版本需要 OTP 24；5 版本则可以使用 OTP 24 和 25 构建。
+EMQX 4.4 版本需要 OTP 24；5 版本则可以使用 OTP 25 和 26 构建。
 
 ```bash
 git clone https://github.com/emqx/emqx.git

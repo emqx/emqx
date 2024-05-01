@@ -11,8 +11,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
--import(emqx_utils_conv, [bin/1]).
-
 %% See `emqx_bridge_s3.hrl`.
 -define(BRIDGE_TYPE, <<"s3">>).
 -define(CONNECTOR_TYPE, <<"s3">>).
@@ -79,67 +77,56 @@ end_per_testcase(_TestCase, _Config) ->
 
 connector_config(Name, _Config) ->
     BaseConf = emqx_s3_test_helpers:base_raw_config(tcp),
-    parse_and_check_config(<<"connectors">>, ?CONNECTOR_TYPE, Name, #{
-        <<"enable">> => true,
-        <<"description">> => <<"S3 Connector">>,
-        <<"host">> => emqx_utils_conv:bin(maps:get(<<"host">>, BaseConf)),
-        <<"port">> => maps:get(<<"port">>, BaseConf),
-        <<"access_key_id">> => maps:get(<<"access_key_id">>, BaseConf),
-        <<"secret_access_key">> => maps:get(<<"secret_access_key">>, BaseConf),
-        <<"transport_options">> => #{
-            <<"headers">> => #{
-                <<"content-type">> => <<?CONTENT_TYPE>>
+    emqx_bridge_s3_test_helpers:parse_and_check_config(
+        <<"connectors">>, ?CONNECTOR_TYPE, Name, #{
+            <<"enable">> => true,
+            <<"description">> => <<"S3 Connector">>,
+            <<"host">> => emqx_utils_conv:bin(maps:get(<<"host">>, BaseConf)),
+            <<"port">> => maps:get(<<"port">>, BaseConf),
+            <<"access_key_id">> => maps:get(<<"access_key_id">>, BaseConf),
+            <<"secret_access_key">> => maps:get(<<"secret_access_key">>, BaseConf),
+            <<"transport_options">> => #{
+                <<"headers">> => #{
+                    <<"content-type">> => <<?CONTENT_TYPE>>
+                },
+                <<"connect_timeout">> => <<"500ms">>,
+                <<"request_timeout">> => <<"1s">>,
+                <<"pool_size">> => 4,
+                <<"max_retries">> => 0,
+                <<"enable_pipelining">> => 1
             },
-            <<"connect_timeout">> => <<"500ms">>,
-            <<"request_timeout">> => <<"1s">>,
-            <<"pool_size">> => 4,
-            <<"max_retries">> => 0,
-            <<"enable_pipelining">> => 1
-        },
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"5s">>,
-            <<"start_timeout">> => <<"5s">>
+            <<"resource_opts">> => #{
+                <<"health_check_interval">> => <<"5s">>,
+                <<"start_timeout">> => <<"5s">>
+            }
         }
-    }).
+    ).
 
 action_config(Name, ConnectorId) ->
-    parse_and_check_config(<<"actions">>, ?BRIDGE_TYPE, Name, #{
-        <<"enable">> => true,
-        <<"connector">> => ConnectorId,
-        <<"parameters">> => #{
-            <<"bucket">> => <<"${clientid}">>,
-            <<"key">> => <<"${topic}">>,
-            <<"content">> => <<"${payload}">>,
-            <<"acl">> => <<"public_read">>
-        },
-        <<"resource_opts">> => #{
-            <<"buffer_mode">> => <<"memory_only">>,
-            <<"buffer_seg_bytes">> => <<"10MB">>,
-            <<"health_check_interval">> => <<"3s">>,
-            <<"inflight_window">> => 40,
-            <<"max_buffer_bytes">> => <<"256MB">>,
-            <<"metrics_flush_interval">> => <<"1s">>,
-            <<"query_mode">> => <<"sync">>,
-            <<"request_ttl">> => <<"60s">>,
-            <<"resume_interval">> => <<"3s">>,
-            <<"worker_pool_size">> => <<"4">>
+    emqx_bridge_s3_test_helpers:parse_and_check_config(
+        <<"actions">>, ?BRIDGE_TYPE, Name, #{
+            <<"enable">> => true,
+            <<"connector">> => ConnectorId,
+            <<"parameters">> => #{
+                <<"bucket">> => <<"${clientid}">>,
+                <<"key">> => <<"${topic}">>,
+                <<"content">> => <<"${payload}">>,
+                <<"acl">> => <<"public_read">>
+            },
+            <<"resource_opts">> => #{
+                <<"buffer_mode">> => <<"memory_only">>,
+                <<"buffer_seg_bytes">> => <<"10MB">>,
+                <<"health_check_interval">> => <<"3s">>,
+                <<"inflight_window">> => 40,
+                <<"max_buffer_bytes">> => <<"256MB">>,
+                <<"metrics_flush_interval">> => <<"1s">>,
+                <<"query_mode">> => <<"sync">>,
+                <<"request_ttl">> => <<"60s">>,
+                <<"resume_interval">> => <<"3s">>,
+                <<"worker_pool_size">> => <<"4">>
+            }
         }
-    }).
-
-parse_and_check_config(Root, Type, Name, ConfigIn) ->
-    Schema =
-        case Root of
-            <<"connectors">> -> emqx_connector_schema;
-            <<"actions">> -> emqx_bridge_v2_schema
-        end,
-    #{Root := #{Type := #{Name := Config}}} =
-        hocon_tconf:check_plain(
-            Schema,
-            #{Root => #{Type => #{Name => ConfigIn}}},
-            #{required => false, atom_key => false}
-        ),
-    ct:pal("parsed config: ~p", [Config]),
-    ConfigIn.
+    ).
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, s3_bridge_stopped).
@@ -190,7 +177,7 @@ t_sync_query(Config) ->
     ok = erlcloud_s3:create_bucket(Bucket, AwsConfig),
     ok = emqx_bridge_v2_testlib:t_sync_query(
         Config,
-        fun() -> mk_message(Bucket, Topic, Payload) end,
+        fun() -> emqx_bridge_s3_test_helpers:mk_message_event(Bucket, Topic, Payload) end,
         fun(Res) -> ?assertMatch(ok, Res) end,
         s3_bridge_connector_upload_ok
     ),
@@ -224,15 +211,10 @@ t_query_retry_recoverable(Config) ->
         heal_failure,
         [timeout, ?PROXY_NAME, ProxyHost, ProxyPort]
     ),
-    Message = mk_message(Bucket, Topic, Payload),
+    Message = emqx_bridge_s3_test_helpers:mk_message_event(Bucket, Topic, Payload),
     %% Verify that the message is sent eventually.
     ok = emqx_bridge_v2:send_message(?BRIDGE_TYPE, BridgeName, Message, #{}),
     ?assertMatch(
         #{content := Payload},
         maps:from_list(erlcloud_s3:get_object(Bucket, Topic, AwsConfig))
     ).
-
-mk_message(ClientId, Topic, Payload) ->
-    Message = emqx_message:make(bin(ClientId), bin(Topic), Payload),
-    {Event, _} = emqx_rule_events:eventmsg_publish(Message),
-    Event.

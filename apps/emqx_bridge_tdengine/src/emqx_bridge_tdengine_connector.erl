@@ -10,6 +10,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -32,7 +33,7 @@
 
 -export([connector_examples/1]).
 
--export([connect/1, do_get_status/1, execute/3, do_batch_insert/4]).
+-export([connect/1, do_get_status/1, execute/3, do_batch_insert/5]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -186,6 +187,7 @@ on_query(InstanceId, {ChannelId, Data}, #{channels := Channels} = State) ->
     case maps:find(ChannelId, Channels) of
         {ok, #{insert := Tokens, opts := Opts}} ->
             Query = emqx_placeholder:proc_tmpl(Tokens, Data),
+            emqx_trace:rendered_action_template(ChannelId, #{query => Query}),
             do_query_job(InstanceId, {?MODULE, execute, [Query, Opts]}, State);
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, InstanceId}}}
@@ -199,9 +201,10 @@ on_batch_query(
 ) ->
     case maps:find(ChannelId, Channels) of
         {ok, #{batch := Tokens, opts := Opts}} ->
+            TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ChannelId),
             do_query_job(
                 InstanceId,
-                {?MODULE, do_batch_insert, [Tokens, BatchReq, Opts]},
+                {?MODULE, do_batch_insert, [Tokens, BatchReq, Opts, TraceRenderedCTX]},
                 State
             );
         _ ->
@@ -338,9 +341,18 @@ do_query_job(InstanceId, Job, #{pool_name := PoolName} = State) ->
 execute(Conn, Query, Opts) ->
     tdengine:insert(Conn, Query, Opts).
 
-do_batch_insert(Conn, Tokens, BatchReqs, Opts) ->
+do_batch_insert(Conn, Tokens, BatchReqs, Opts, TraceRenderedCTX) ->
     SQL = aggregate_query(Tokens, BatchReqs, <<"INSERT INTO">>),
-    execute(Conn, SQL, Opts).
+    try
+        emqx_trace:rendered_action_template_with_ctx(
+            TraceRenderedCTX,
+            #{query => SQL}
+        ),
+        execute(Conn, SQL, Opts)
+    catch
+        error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
+            {error, Reason}
+    end.
 
 aggregate_query(BatchTks, BatchReqs, Acc) ->
     lists:foldl(

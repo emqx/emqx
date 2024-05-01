@@ -32,4 +32,14 @@ init([]) ->
             intensity => 100,
             period => 10
         },
-    {ok, {SupFlags, []}}.
+    ChildSpecs = [child_spec(emqx_plugins_serde)],
+    {ok, {SupFlags, ChildSpecs}}.
+
+child_spec(Mod) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => permanent,
+        shutdown => 5_000,
+        type => worker
+    }.

@@ -319,6 +319,9 @@ on_query(
             emqx_bridge_kafka_impl_producer_sync_query,
             #{headers_config => KafkaHeaders, instance_id => InstId}
         ),
+        emqx_trace:rendered_action_template(MessageTag, #{
+            message => KafkaMessage, send_type => sync
+        }),
         do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
     catch
         throw:{bad_kafka_header, _} = Error ->
@@ -376,6 +379,9 @@ on_query_async(
             emqx_bridge_kafka_impl_producer_async_query,
             #{headers_config => KafkaHeaders, instance_id => InstId}
         ),
+        emqx_trace:rendered_action_template(MessageTag, #{
+            message => KafkaMessage, send_type => async
+        }),
         do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
     catch
         error:{invalid_partition_count, _Count, _Partitioner} ->
