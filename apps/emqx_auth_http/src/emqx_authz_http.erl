@@ -29,8 +29,7 @@
     update/1,
     destroy/1,
     authorize/4,
-    merge_defaults/1,
-    parse_url/1
+    merge_defaults/1
 ]).
 
 -ifdef(TEST).
@@ -160,15 +159,14 @@ parse_config(
         request_timeout := ReqTimeout
     } = Conf
 ) ->
-    {BaseUrl0, Path, Query} = parse_url(RawUrl),
-    {ok, BaseUrl} = emqx_http_lib:uri_parse(BaseUrl0),
+    {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
     Conf#{
         method => Method,
-        base_url => BaseUrl,
+        request_base => RequestBase,
         headers => Headers,
         base_path_template => emqx_authz_utils:parse_str(Path, allowed_vars()),
         base_query_template => emqx_authz_utils:parse_deep(
-            cow_qs:parse_qs(to_bin(Query)),
+            cow_qs:parse_qs(Query),
             allowed_vars()
         ),
         body_template => emqx_authz_utils:parse_deep(
@@ -179,25 +177,6 @@ parse_config(
         %% pool_type default value `random`
         pool_type => random
     }.
-
-parse_url(Url) ->
-    case string:split(Url, "//", leading) of
-        [Scheme, UrlRem] ->
-            case string:split(UrlRem, "/", leading) of
-                [HostPort, Remaining] ->
-                    BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
-                    case string:split(Remaining, "?", leading) of
-                        [Path, QueryString] ->
-                            {BaseUrl, <<"/", Path/binary>>, QueryString};
-                        [Path] ->
-                            {BaseUrl, <<"/", Path/binary>>, <<>>}
-                    end;
-                [HostPort] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
-            end;
-        [Url] ->
-            throw({invalid_url, Url})
-    end.
 
 generate_request(
     Action,
@@ -271,10 +250,6 @@ to_list(B) when is_binary(B) ->
     binary_to_list(B);
 to_list(L) when is_list(L) ->
     L.
-
-to_bin(B) when is_binary(B) -> B;
-to_bin(L) when is_list(L) -> list_to_binary(L);
-to_bin(X) -> X.
 
 allowed_vars() ->
     allowed_vars(emqx_authz:feature_available(rich_actions)).

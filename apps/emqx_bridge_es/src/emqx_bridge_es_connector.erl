@@ -44,11 +44,10 @@
 
 -type config() ::
     #{
-        base_url := #{
+        request_base := #{
             scheme := http | https,
             host := iolist(),
-            port := inet:port_number(),
-            path := _
+            port := inet:port_number()
         },
         connect_timeout := pos_integer(),
         pool_type := random | hash,
@@ -59,7 +58,6 @@
 
 -type state() ::
     #{
-        base_path := _,
         connect_timeout := pos_integer(),
         pool_type := random | hash,
         channels := map(),

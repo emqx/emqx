@@ -281,17 +281,9 @@ parse_confs(
     } = Conf
 ) ->
     Url1 = bin(Url),
-    {BaseUrl, Path} = parse_url(Url1),
-    BaseUrl1 =
-        case emqx_http_lib:uri_parse(BaseUrl) of
-            {ok, BUrl} ->
-                BUrl;
-            {error, Reason} ->
-                Reason1 = emqx_utils:readable_error_msg(Reason),
-                invalid_data(<<"Invalid URL: ", Url1/binary, ", details: ", Reason1/binary>>)
-        end,
+    {RequestBase, Path} = parse_url(Url1),
     Conf#{
-        base_url => BaseUrl1,
+        request_base => RequestBase,
         request =>
             #{
                 path => Path,
@@ -324,16 +316,24 @@ connector_config(ConnectorType, Name, Config) ->
     end.
 
 parse_url(Url) ->
-    case string:split(Url, "//", leading) of
-        [Scheme, UrlRem] ->
-            case string:split(UrlRem, "/", leading) of
-                [HostPort, Path] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), Path};
-                [HostPort] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>}
-            end;
-        [Url] ->
-            invalid_data(<<"Missing scheme in URL: ", Url/binary>>)
+    Parsed = emqx_utils_uri:parse(Url),
+    case Parsed of
+        #{scheme := undefined} ->
+            invalid_data(<<"Missing scheme in URL: ", Url/binary>>);
+        #{authority := undefined} ->
+            invalid_data(<<"Missing host in URL: ", Url/binary>>);
+        #{authority := #{userinfo := Userinfo}} when Userinfo =/= undefined ->
+            invalid_data(<<"Userinfo is not supported in URL: ", Url/binary>>);
+        #{fragment := Fragment} when Fragment =/= undefined ->
+            invalid_data(<<"Fragments are not supported in URL: ", Url/binary>>);
+        _ ->
+            case emqx_utils_uri:request_base(Parsed) of
+                {ok, Base} ->
+                    {Base, emqx_maybe:define(emqx_utils_uri:path(Parsed), <<>>)};
+                {error, Reason0} ->
+                    Reason1 = emqx_utils:readable_error_msg(Reason0),
+                    invalid_data(<<"Invalid URL: ", Url/binary, ", details: ", Reason1/binary>>)
+            end
     end.
 
 -spec invalid_data(binary()) -> no_return().
