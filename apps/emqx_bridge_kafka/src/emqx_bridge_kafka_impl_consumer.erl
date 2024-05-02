@@ -26,7 +26,7 @@
 ]).
 
 -ifdef(TEST).
--export([consumer_group_id/1]).
+-export([consumer_group_id/2]).
 -endif.
 
 -include_lib("emqx/include/logger.hrl").
@@ -50,6 +50,7 @@
     parameters := source_parameters()
 }.
 -type source_parameters() :: #{
+    group_id => binary(),
     key_encoding_mode := encoding_mode(),
     max_batch_bytes := emqx_schema:bytesize(),
     max_rejoin_attempts := non_neg_integer(),
@@ -431,7 +432,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID) ->
     %% note: the group id should be the same for all nodes in the
     %% cluster, so that the load gets distributed between all
     %% consumers and we don't repeat messages in the same cluster.
-    GroupID = consumer_group_id(BridgeName),
+    GroupID = consumer_group_id(Params0, BridgeName),
     %% earliest or latest
     BeginOffset = OffsetResetPolicy0,
     OffsetResetPolicy =
@@ -623,8 +624,10 @@ log_when_error(Fun, Log) ->
             })
     end.
 
--spec consumer_group_id(atom() | binary()) -> binary().
-consumer_group_id(BridgeName0) ->
+-spec consumer_group_id(#{group_id => binary(), any() => term()}, atom() | binary()) -> binary().
+consumer_group_id(#{group_id := GroupId}, _BridgeName) when is_binary(GroupId) ->
+    GroupId;
+consumer_group_id(_ConsumerParams, BridgeName0) ->
     BridgeName = to_bin(BridgeName0),
     <<"emqx-kafka-consumer-", BridgeName/binary>>.
 

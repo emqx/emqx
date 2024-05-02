@@ -84,6 +84,17 @@ fields(source_parameters) ->
                     required => true,
                     desc => ?DESC(emqx_bridge_kafka, consumer_kafka_topic)
                 }
+            )},
+        {group_id,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    validator => [
+                        emqx_resource_validator:not_empty("Group id must not be empty")
+                    ],
+                    desc => ?DESC(group_id)
+                }
             )}
         | Fields
     ];

@@ -1542,7 +1542,7 @@ t_receive_after_recovery(Config) ->
                 _Interval = 500,
                 _NAttempts = 20,
                 begin
-                    GroupId = emqx_bridge_kafka_impl_consumer:consumer_group_id(KafkaNameA),
+                    GroupId = emqx_bridge_kafka_impl_consumer:consumer_group_id(#{}, KafkaNameA),
                     {ok, [#{partitions := Partitions}]} = brod:fetch_committed_offsets(
                         KafkaClientId, GroupId
                     ),
