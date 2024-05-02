@@ -15,7 +15,8 @@
     {applications, [
         kernel,
         stdlib,
-        jiffy
+        jiffy,
+        emqx_http_lib
     ]},
     {env, []},
     {licenses, ["Apache-2.0"]},

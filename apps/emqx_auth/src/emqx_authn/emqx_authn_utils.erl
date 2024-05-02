@@ -40,7 +40,6 @@
     make_resource_id/1,
     without_password/1,
     to_bool/1,
-    parse_url/1,
     convert_headers/1,
     convert_headers_no_content_type/1,
     default_headers/0,
@@ -289,25 +288,6 @@ to_bool(MaybeBinInt) when is_binary(MaybeBinInt) ->
 %% fallback to default
 to_bool(_) ->
     false.
-
-parse_url(Url) ->
-    case string:split(Url, "//", leading) of
-        [Scheme, UrlRem] ->
-            case string:split(UrlRem, "/", leading) of
-                [HostPort, Remaining] ->
-                    BaseUrl = iolist_to_binary([Scheme, "//", HostPort]),
-                    case string:split(Remaining, "?", leading) of
-                        [Path, QueryString] ->
-                            {BaseUrl, <<"/", Path/binary>>, QueryString};
-                        [Path] ->
-                            {BaseUrl, <<"/", Path/binary>>, <<>>}
-                    end;
-                [HostPort] ->
-                    {iolist_to_binary([Scheme, "//", HostPort]), <<>>, <<>>}
-            end;
-        [Url] ->
-            throw({invalid_url, Url})
-    end.
 
 convert_headers(Headers) ->
     transform_header_name(Headers).

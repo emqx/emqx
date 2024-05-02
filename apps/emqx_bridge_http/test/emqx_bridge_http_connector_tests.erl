@@ -32,11 +32,10 @@ wrap_auth_headers_test_() ->
         end,
         fun meck:unload/1, fun(_) ->
             Config = #{
-                base_url => #{
+                request_base => #{
                     scheme => http,
                     host => "localhost",
-                    port => 18083,
-                    path => "/status"
+                    port => 18083
                 },
                 connect_timeout => 1000,
                 pool_type => random,
