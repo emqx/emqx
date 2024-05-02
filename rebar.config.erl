@@ -553,11 +553,9 @@ dialyzer(Config) ->
         end,
 
     AppNames = app_names(),
-    ExcludedApps = excluded_apps(standard),
-
     KnownApps = [Name || Name <- AppsToAnalyse, lists:member(Name, AppNames)],
-
-    AppsToExclude = ExcludedApps -- KnownApps ++ AppNames,
+    ExcludedApps = excluded_apps(standard),
+    AppsToExclude = ExcludedApps ++ (AppNames -- KnownApps),
 
     Extra =
         [system_monitor, tools, covertool] ++
