@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-4:1.15.7-26.2.1-2-debian12
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-5:1.15.7-26.2.1-2-debian12
 ARG RUN_FROM=public.ecr.aws/debian/debian:12-slim
 ARG SOURCE_TYPE=src # tgz
 
@@ -16,7 +16,7 @@ FROM builder_${SOURCE_TYPE} as builder
 
 ARG PROFILE=emqx
 ARG IS_ELIXIR=no
-ARG DEBUG=0
+ARG DEBUG
 
 ENV EMQX_RELUP=false
 ENV EMQX_REL_FORM='docker'

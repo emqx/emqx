@@ -14,7 +14,7 @@ profile = Mix.env()
 # need to use this information because we might have compiled all
 # applications in the test profile, and thus filter what's in the
 # release lib directory.
-rel_apps = MixProject.applications(inputs.edition_type)
+rel_apps = MixProject.applications(inputs.release_type, inputs.edition_type)
 
 apps =
   rel_apps
