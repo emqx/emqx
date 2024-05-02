@@ -405,7 +405,14 @@ code_change(_, State, _Extra) ->
     {ok, State}.
 
 insert_new_trace(Trace) ->
-    transaction(fun emqx_trace_dl:insert_new_trace/1, [Trace]).
+    case transaction(fun emqx_trace_dl:insert_new_trace/1, [Trace]) of
+        {error, _} = Error ->
+            Error;
+        Res ->
+            %% We call this to ensure the trace is active when we return
+            check(),
+            Res
+    end.
 
 update_trace(Traces) ->
     Now = now_second(),

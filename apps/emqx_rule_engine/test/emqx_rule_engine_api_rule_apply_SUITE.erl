@@ -117,10 +117,7 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
         <<"context">> => Context,
         <<"stop_action_after_template_rendering">> => StopAfterRender
     },
-    emqx_trace:check(),
-    ok = emqx_trace_handler_SUITE:filesync(TraceName, TraceType),
     Now = erlang:system_time(second) - 10,
-    {ok, _} = file:read_file(emqx_trace:log_file(TraceName, Now)),
     ?assertMatch({ok, _}, call_apply_rule_api(RuleId, Params)),
     ?retry(
         _Interval0 = 200,
@@ -239,8 +236,6 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
         SQL
     ),
     create_trace(Name, ruleid, RuleID),
-    emqx_trace:check(),
-    ok = emqx_trace_handler_SUITE:filesync(Name, ruleid),
     Now = erlang:system_time(second) - 10,
     %% Stop
     ParmsStopAfterRender = apply_rule_parms(true, Name),
