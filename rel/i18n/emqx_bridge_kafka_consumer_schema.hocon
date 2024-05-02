@@ -16,8 +16,8 @@ emqx_bridge_kafka_consumer_schema {
   """Kafka Consumer Client Configuration"""
 
   group_id.desc:
-  """Custom group identifier to be used for this source.  If omitted, one based off the source name will be automatically generated."""
+  """Consumer group identifier to be used for this source.  If omitted, one based off the source name will be automatically generated."""
   group_id.label:
-  """Kafka Consumer Custom Group Id"""
+  """Custom Consumer Group Id"""
 
 }
