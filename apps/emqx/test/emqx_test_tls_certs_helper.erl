@@ -46,7 +46,7 @@ emqx_start_listener(Name, ssl, Port, #{ssl_options := SslOptions} = Opts0) ->
         zone => default,
         ssl_options => maps:from_list(SslOptions)
     },
-    ct:pal("start listsner with ~p ~p", [Name, Opts]),
+    ct:pal("start listener with ~p ~p", [Name, Opts]),
     emqx_listeners:start_listener(ssl, Name, Opts).
 
 %%-------------------------------------------------------------------------------
