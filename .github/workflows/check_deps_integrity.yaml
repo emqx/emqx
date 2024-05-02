@@ -14,32 +14,32 @@ jobs:
   check_deps_integrity:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
+    env:
+      MIX_ENV: ${{ matrix.profile }}
+      PROFILE: ${{ matrix.profile }}
+    strategy:
+      matrix:
+        profile:
+          - emqx-enterprise
     steps:
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make ensure-rebar3
       - run: ./scripts/check-deps-integrity.escript
       - name: Setup mix
-        env:
-          MIX_ENV: emqx-enterprise
-          PROFILE: emqx-enterprise
         run: |
           mix local.hex --force
           mix local.rebar --force
           mix deps.get
+      - name: print mix dependency tree
+        run: mix deps.tree
       - run: ./scripts/check-elixir-deps-discrepancies.exs
-        env:
-          MIX_ENV: emqx-enterprise
-          PROFILE: emqx-enterprise
       - run: ./scripts/check-elixir-applications.exs
-        env:
-          MIX_ENV: emqx-enterprise
-          PROFILE: emqx-enterprise
       - name: Upload produced lock files
         uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
         if: failure()
         with:
-          name: produced_lock_files
+          name: ${{ matrix.profile }}_produced_lock_files
           path: |
             mix.lock
             rebar.lock

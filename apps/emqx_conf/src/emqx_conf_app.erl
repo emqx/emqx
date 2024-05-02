@@ -81,11 +81,13 @@ get_override_config_file() ->
             end
     end.
 
+-define(DATA_DIRS, ["authz", "certs"]).
+
 sync_data_from_node() ->
     Dir = emqx:data_dir(),
-    TargetDirs = lists:filter(fun(Type) -> filelib:is_dir(filename:join(Dir, Type)) end, [
-        "authz", "certs"
-    ]),
+    TargetDirs = lists:filter(
+        fun(Type) -> filelib:is_dir(filename:join(Dir, Type)) end, ?DATA_DIRS
+    ),
     Name = "data.zip",
     case zip:zip(Name, TargetDirs, [memory, {cwd, Dir}]) of
         {ok, {Name, Bin}} -> {ok, Bin};
