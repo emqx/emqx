@@ -113,8 +113,9 @@ defmodule EMQXUmbrella.MixProject do
     set_emqx_app_system_env(apps, profile_info, version)
   end
 
-  defp umbrella_apps(profile_info) do
-    enterprise_apps = enterprise_umbrella_apps()
+  defp umbrella_apps(profile_info = %{release_type: release_type}) do
+    enterprise_apps = enterprise_umbrella_apps(release_type)
+    excluded_apps = excluded_apps(release_type)
 
     "apps/*"
     |> Path.wildcard()
@@ -140,10 +141,11 @@ defmodule EMQXUmbrella.MixProject do
           false
       end
     end)
+    |> Enum.reject(fn {app, _} -> app in excluded_apps end)
   end
 
-  defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
-    Enum.map(enterprise_umbrella_apps(), fn app_name ->
+  defp enterprise_apps(_profile_info = %{release_type: release_type, edition_type: :enterprise}) do
+    Enum.map(enterprise_umbrella_apps(release_type), fn app_name ->
       path = "apps/#{app_name}"
       {app_name, path: path, manager: :rebar3, override: true}
     end)
@@ -154,7 +156,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   # need to remove those when listing `/apps/`...
-  defp enterprise_umbrella_apps() do
+  defp enterprise_umbrella_apps(_release_type) do
     MapSet.new([
       :emqx_bridge_kafka,
       :emqx_bridge_confluent,
@@ -304,7 +306,7 @@ defmodule EMQXUmbrella.MixProject do
           end
 
         [
-          applications: applications(edition_type),
+          applications: applications(release_type, edition_type),
           skip_mode_validation_for: [
             :emqx_mix,
             :emqx_gateway,
@@ -344,7 +346,7 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
-  def applications(edition_type) do
+  def applications(release_type, edition_type) do
     {:ok,
      [
        %{
@@ -365,7 +367,7 @@ defmodule EMQXUmbrella.MixProject do
 
     business_apps = common_business_apps ++ edition_specific_apps
 
-    excluded_apps = excluded_apps()
+    excluded_apps = excluded_apps(release_type)
 
     system_apps =
       Enum.map(system_apps, fn app ->
@@ -380,7 +382,7 @@ defmodule EMQXUmbrella.MixProject do
     |> Keyword.reject(fn {app, _type} -> app in excluded_apps end)
   end
 
-  defp excluded_apps() do
+  defp excluded_apps(_release_type) do
     %{
       mnesia_rocksdb: enable_rocksdb?(),
       quicer: enable_quicer?(),
@@ -451,19 +453,19 @@ defmodule EMQXUmbrella.MixProject do
     } =
       case Mix.env() do
         :dev ->
-          {:cloud, :bin, :community}
+          {:standard, :bin, :community}
 
         :emqx ->
-          {:cloud, :bin, :community}
+          {:standard, :bin, :community}
 
         :"emqx-enterprise" ->
-          {:cloud, :bin, :enterprise}
+          {:standard, :bin, :enterprise}
 
         :"emqx-pkg" ->
-          {:cloud, :pkg, :community}
+          {:standard, :pkg, :community}
 
         :"emqx-enterprise-pkg" ->
-          {:cloud, :pkg, :enterprise}
+          {:standard, :pkg, :enterprise}
       end
 
     normalize_env!()
@@ -566,7 +568,7 @@ defmodule EMQXUmbrella.MixProject do
 
     vm_args_template_path =
       case release_type do
-        :cloud ->
+        _ ->
           "apps/emqx/etc/vm.args.cloud"
       end
 
@@ -780,10 +782,10 @@ defmodule EMQXUmbrella.MixProject do
 
   defp emqx_description(release_type, edition_type) do
     case {release_type, edition_type} do
-      {:cloud, :enterprise} ->
+      {_, :enterprise} ->
         "EMQX Enterprise"
 
-      {:cloud, :community} ->
+      {_, :community} ->
         "EMQX"
     end
   end
