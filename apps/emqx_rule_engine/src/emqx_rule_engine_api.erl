@@ -419,7 +419,7 @@ param_path_id() ->
         begin
             case emqx_rule_sqltester:apply_rule(RuleId, CheckedParams) of
                 {ok, Result} ->
-                    {200, Result};
+                    {200, emqx_logger_jsonfmt:best_effort_json_obj(Result)};
                 {error, {parse_error, Reason}} ->
                     {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
                 {error, nomatch} ->
