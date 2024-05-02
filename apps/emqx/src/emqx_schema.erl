@@ -2118,6 +2118,22 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_verify)
                 }
             )},
+        {"partial_chain",
+            sc(
+                hoconsc:enum([true, false, two_cacerts_from_cacertfile, cacert_from_cacertfile]),
+                #{
+                    default => Df(partial_chain, false),
+                    desc => ?DESC(common_ssl_opts_schema_partial_chain)
+                }
+            )},
+        {"verify_peer_ext_key_usage",
+            sc(
+                string(),
+                #{
+                    required => false,
+                    desc => ?DESC(common_ssl_opts_verify_peer_ext_key_usage)
+                }
+            )},
         {"reuse_sessions",
             sc(
                 boolean(),
