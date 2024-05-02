@@ -90,6 +90,9 @@ fields(source_parameters) ->
                 binary(),
                 #{
                     required => false,
+                    validator => [
+                        emqx_resource_validator:not_empty("Group id must not be empty")
+                    ],
                     desc => ?DESC(group_id)
                 }
             )}
