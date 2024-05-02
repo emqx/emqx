@@ -101,8 +101,7 @@ fields("https") ->
         enable(false),
         bind(18084),
         ssl_options()
-        | common_listener_fields() ++
-            hidden_server_ssl_options()
+        | common_listener_fields()
     ];
 fields("ssl_options") ->
     server_ssl_options().
@@ -118,30 +117,8 @@ ssl_options() ->
             }
         )}.
 
-hidden_server_ssl_options() ->
-    lists:map(
-        fun({K, V}) ->
-            {K, V#{
-                importance => ?IMPORTANCE_HIDDEN,
-                default => undefined,
-                required => false
-            }}
-        end,
-        server_ssl_options()
-    ).
-
 server_ssl_options() ->
-    Opts0 = emqx_schema:server_ssl_opts_schema(#{}, true),
-    exclude_fields(["fail_if_no_peer_cert"], Opts0).
-
-exclude_fields([], Fields) ->
-    Fields;
-exclude_fields([FieldName | Rest], Fields) ->
-    %% assert field exists
-    case lists:keytake(FieldName, 1, Fields) of
-        {value, _, New} -> exclude_fields(Rest, New);
-        false -> error({FieldName, Fields})
-    end.
+    emqx_schema:server_ssl_opts_schema(#{}, true).
 
 common_listener_fields() ->
     [
@@ -217,6 +194,7 @@ enable(Bool) ->
             #{
                 default => Bool,
                 required => false,
+                %% deprecated because we use port number =:= 0 to disable
                 deprecated => {since, "5.1.0"},
                 importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(listener_enable)
@@ -296,15 +274,19 @@ validate_sample_interval(Second) ->
             {error, Msg}
     end.
 
-https_converter(Conf = #{<<"ssl_options">> := _}, _Opts) ->
+https_converter(undefined, _Opts) ->
+    %% no https listener configured
+    undefined;
+https_converter(Conf, Opts) ->
+    convert_ssl_layout(Conf, Opts).
+
+convert_ssl_layout(Conf = #{<<"ssl_options">> := _}, _Opts) ->
     Conf;
-https_converter(Conf = #{}, _Opts) ->
+convert_ssl_layout(Conf = #{}, _Opts) ->
     Keys = lists:map(fun({K, _}) -> list_to_binary(K) end, server_ssl_options()),
     SslOpts = maps:with(Keys, Conf),
     Conf1 = maps:without(Keys, Conf),
-    Conf1#{<<"ssl_options">> => SslOpts};
-https_converter(Conf, _Opts) ->
-    Conf.
+    Conf1#{<<"ssl_options">> => SslOpts}.
 
 -if(?EMQX_RELEASE_EDITION == ee).
 sso_fields() ->
