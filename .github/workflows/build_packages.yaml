@@ -63,7 +63,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.3-4'
+        default: '5.3-5'
 
 permissions:
   contents: read
@@ -110,6 +110,7 @@ jobs:
         profile:
           - ${{ inputs.profile }}
         os:
+          - ubuntu24.04
           - ubuntu22.04
           - ubuntu20.04
           - ubuntu18.04
