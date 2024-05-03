@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_s3_aggreg_upload_sup).
+-module(emqx_connector_aggreg_upload_sup).
 
 -export([
     start_link/3,
@@ -33,7 +33,7 @@ start_delivery(Name, Buffer) ->
     supervisor:start_child(?SUPREF(Name), [Buffer]).
 
 start_delivery_proc(Name, DeliveryOpts, Buffer) ->
-    emqx_bridge_s3_aggreg_delivery:start_link(Name, Buffer, DeliveryOpts).
+    emqx_connector_aggreg_delivery:start_link(Name, Buffer, DeliveryOpts).
 
 %%
 
@@ -45,7 +45,7 @@ init({root, Name, AggregOpts, DeliveryOpts}) ->
     },
     AggregatorChildSpec = #{
         id => aggregator,
-        start => {emqx_bridge_s3_aggregator, start_link, [Name, AggregOpts]},
+        start => {emqx_connector_aggregator, start_link, [Name, AggregOpts]},
         type => worker,
         restart => permanent
     },

@@ -7,6 +7,7 @@
         stdlib,
         erlcloud,
         emqx_resource,
+        emqx_connector_aggregator,
         emqx_s3
     ]},
     {env, [
@@ -18,7 +19,6 @@
             emqx_bridge_s3_connector_info
         ]}
     ]},
-    {mod, {emqx_bridge_s3_app, []}},
     {modules, []},
     {links, []}
 ]}.

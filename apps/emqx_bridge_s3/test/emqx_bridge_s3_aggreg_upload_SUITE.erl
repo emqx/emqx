@@ -170,7 +170,7 @@ t_aggreg_upload(Config) ->
     ]),
     ok = send_messages(BridgeName, MessageEvents),
     %% Wait until the delivery is completed.
-    ?block_until(#{?snk_kind := s3_aggreg_delivery_completed, action := BridgeName}),
+    ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
     %% Check the uploaded objects.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     ?assertMatch(
@@ -217,7 +217,7 @@ t_aggreg_upload_rule(Config) ->
         emqx_message:make(?FUNCTION_NAME, T3 = <<"s3/empty">>, P3 = <<>>),
         emqx_message:make(?FUNCTION_NAME, <<"not/s3">>, <<"should not be here">>)
     ]),
-    ?block_until(#{?snk_kind := s3_aggreg_delivery_completed, action := BridgeName}),
+    ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
     %% Check the uploaded objects.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     _CSV = [Header | Rows] = fetch_parse_csv(Bucket, Key),
@@ -258,15 +258,15 @@ t_aggreg_upload_restart(Config) ->
         {<<"C3">>, T3 = <<"t/42">>, P3 = <<"">>}
     ]),
     ok = send_messages(BridgeName, MessageEvents),
-    {ok, _} = ?block_until(#{?snk_kind := s3_aggreg_records_written, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := BridgeName}),
     %% Restart the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
     {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
     %% Send some more messages.
     ok = send_messages(BridgeName, MessageEvents),
-    {ok, _} = ?block_until(#{?snk_kind := s3_aggreg_records_written, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := BridgeName}),
     %% Wait until the delivery is completed.
-    {ok, _} = ?block_until(#{?snk_kind := s3_aggreg_delivery_completed, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
     %% Check there's still only one upload.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     _Upload = #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
@@ -300,18 +300,18 @@ t_aggreg_upload_restart_corrupted(Config) ->
     %% Ensure that they span multiple batch queries.
     ok = send_messages_delayed(BridgeName, lists:map(fun mk_message_event/1, Messages1), 1),
     {ok, _} = ?block_until(
-        #{?snk_kind := s3_aggreg_records_written, action := BridgeName},
+        #{?snk_kind := connector_aggreg_records_written, action := BridgeName},
         infinity,
         0
     ),
     %% Find out the buffer file.
     {ok, #{filename := Filename}} = ?block_until(
-        #{?snk_kind := s3_aggreg_buffer_allocated, action := BridgeName}
+        #{?snk_kind := connector_aggreg_buffer_allocated, action := BridgeName}
     ),
     %% Stop the bridge, corrupt the buffer file, and restart the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
     BufferFileSize = filelib:file_size(Filename),
-    ok = emqx_bridge_s3_test_helpers:truncate_at(Filename, BufferFileSize div 2),
+    ok = emqx_connector_aggregator_test_helpers:truncate_at(Filename, BufferFileSize div 2),
     {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
     %% Send some more messages.
     Messages2 = [
@@ -320,7 +320,7 @@ t_aggreg_upload_restart_corrupted(Config) ->
     ],
     ok = send_messages_delayed(BridgeName, lists:map(fun mk_message_event/1, Messages2), 0),
     %% Wait until the delivery is completed.
-    {ok, _} = ?block_until(#{?snk_kind := s3_aggreg_delivery_completed, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
     %% Check that upload contains part of the first batch and all of the second batch.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     CSV = [_Header | Rows] = fetch_parse_csv(Bucket, Key),
@@ -362,7 +362,7 @@ t_aggreg_pending_upload_restart(Config) ->
     %% Restart the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
     %% Wait until the delivery is completed.
-    {ok, _} = ?block_until(#{?snk_kind := s3_aggreg_delivery_completed, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
     %% Check that delivery contains all the messages.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     [_Header | Rows] = fetch_parse_csv(Bucket, Key),
@@ -392,7 +392,9 @@ t_aggreg_next_rotate(Config) ->
     NSent = receive_sender_reports(Senders),
     %% Wait for the last delivery to complete.
     ok = timer:sleep(round(?CONF_TIME_INTERVAL * 0.5)),
-    ?block_until(#{?snk_kind := s3_aggreg_delivery_completed, action := BridgeName}, infinity, 0),
+    ?block_until(
+        #{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}, infinity, 0
+    ),
     %% There should be at least 2 time windows of aggregated records.
     Uploads = [K || #{key := K} <- emqx_bridge_s3_test_helpers:list_objects(Bucket)],
     DTs = [DT || K <- Uploads, [_Action, _Node, DT | _] <- [string:split(K, "/", all)]],

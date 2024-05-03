@@ -3,8 +3,8 @@
 %%--------------------------------------------------------------------
 
 -record(buffer, {
-    since :: emqx_bridge_s3_aggregator:timestamp(),
-    until :: emqx_bridge_s3_aggregator:timestamp(),
+    since :: emqx_connector_aggregator:timestamp(),
+    until :: emqx_connector_aggregator:timestamp(),
     seq :: non_neg_integer(),
     filename :: file:filename(),
     fd :: file:io_device() | undefined,

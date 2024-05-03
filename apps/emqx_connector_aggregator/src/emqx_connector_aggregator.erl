@@ -5,12 +5,12 @@
 %% This module manages buffers for aggregating records and offloads them
 %% to separate "delivery" processes when they are full or time interval
 %% is over.
--module(emqx_bridge_s3_aggregator).
+-module(emqx_connector_aggregator).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
--include("emqx_bridge_s3_aggregator.hrl").
+-include("emqx_connector_aggregator.hrl").
 
 -export([
     start_link/2,
@@ -90,9 +90,9 @@ write_records_limited(Name, Buffer = #buffer{max_records = MaxRecords}, Records)
     end.
 
 write_records(Name, Buffer = #buffer{fd = Writer}, Records) ->
-    case emqx_bridge_s3_aggreg_buffer:write(Records, Writer) of
+    case emqx_connector_aggreg_buffer:write(Records, Writer) of
         ok ->
-            ?tp(s3_aggreg_records_written, #{action => Name, records => Records}),
+            ?tp(connector_aggreg_records_written, #{action => Name, records => Records}),
             ok;
         {error, terminated} ->
             BufferNext = rotate_buffer(Name, Buffer),
@@ -250,9 +250,9 @@ compute_since(Timestamp, PrevSince, Interval) ->
 allocate_buffer(Since, Seq, St = #st{name = Name}) ->
     Buffer = #buffer{filename = Filename, cnt_records = Counter} = mk_buffer(Since, Seq, St),
     {ok, FD} = file:open(Filename, [write, binary]),
-    Writer = emqx_bridge_s3_aggreg_buffer:new_writer(FD, _Meta = []),
+    Writer = emqx_connector_aggreg_buffer:new_writer(FD, _Meta = []),
     _ = add_counter(Counter),
-    ?tp(s3_aggreg_buffer_allocated, #{action => Name, filename => Filename}),
+    ?tp(connector_aggreg_buffer_allocated, #{action => Name, filename => Filename}),
     Buffer#buffer{fd = Writer}.
 
 recover_buffer(Buffer = #buffer{filename = Filename, cnt_records = Counter}) ->
@@ -274,7 +274,7 @@ recover_buffer(Buffer = #buffer{filename = Filename, cnt_records = Counter}) ->
     end.
 
 recover_buffer_writer(FD, Filename) ->
-    try emqx_bridge_s3_aggreg_buffer:new_reader(FD) of
+    try emqx_connector_aggreg_buffer:new_reader(FD) of
         {_Meta, Reader} -> recover_buffer_writer(FD, Filename, Reader, 0)
     catch
         error:Reason ->
@@ -282,7 +282,7 @@ recover_buffer_writer(FD, Filename) ->
     end.
 
 recover_buffer_writer(FD, Filename, Reader0, NWritten) ->
-    try emqx_bridge_s3_aggreg_buffer:read(Reader0) of
+    try emqx_connector_aggreg_buffer:read(Reader0) of
         {Records, Reader} when is_list(Records) ->
             recover_buffer_writer(FD, Filename, Reader, NWritten + length(Records));
         {Unexpected, _Reader} ->
@@ -303,7 +303,7 @@ recover_buffer_writer(FD, Filename, Reader0, NWritten) ->
                     "Buffer is truncated or corrupted somewhere in the middle. "
                     "Corrupted records will be discarded."
             }),
-            Writer = emqx_bridge_s3_aggreg_buffer:takeover(Reader0),
+            Writer = emqx_connector_aggreg_buffer:takeover(Reader0),
             {ok, Writer, NWritten}
     end.
 
@@ -362,7 +362,7 @@ lookup_current_buffer(Name) ->
 %%
 
 enqueue_delivery(Buffer, St = #st{name = Name, deliveries = Ds}) ->
-    {ok, Pid} = emqx_bridge_s3_aggreg_upload_sup:start_delivery(Name, Buffer),
+    {ok, Pid} = emqx_connector_aggreg_upload_sup:start_delivery(Name, Buffer),
     MRef = erlang:monitor(process, Pid),
     St#st{deliveries = Ds#{MRef => Buffer}}.
 
