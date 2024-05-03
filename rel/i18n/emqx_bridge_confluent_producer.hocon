@@ -350,4 +350,9 @@ server_name_indication.desc:
 server_name_indication.label:
 """SNI"""
 
+producer_health_check_topic.desc:
+"""Topic name used exclusively for more accurate connector health checks."""
+producer_health_check_topic.label:
+"""Connector health check topic"""
+
 }

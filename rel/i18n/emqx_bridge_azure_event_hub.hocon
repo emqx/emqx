@@ -350,4 +350,9 @@ Setting this to a value which is greater than the total number of partitions in 
 partitions_limit.label:
 """Max Partitions"""
 
+producer_health_check_topic.desc:
+"""Topic name used exclusively for more accurate connector health checks."""
+producer_health_check_topic.label:
+"""Connector health check topic"""
+
 }
