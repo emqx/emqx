@@ -394,8 +394,8 @@ iolist_to_string(IOList) ->
 
 %% `emqx_connector_aggreg_delivery` APIs
 
--spec init_transfer_state(buffer(), map()) -> emqx_s3_upload:t().
-init_transfer_state(Buffer, Opts) ->
+-spec init_transfer_state(buffer_map(), map()) -> emqx_s3_upload:t().
+init_transfer_state(BufferMap, Opts) ->
     #{
         bucket := Bucket,
         upload_options := UploadOpts,
@@ -403,11 +403,11 @@ init_transfer_state(Buffer, Opts) ->
         uploader_config := UploaderConfig
     } = Opts,
     Client = emqx_s3_client:create(Bucket, Config),
-    Key = mk_object_key(Buffer, Opts),
+    Key = mk_object_key(BufferMap, Opts),
     emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig).
 
-mk_object_key(Buffer, #{action := Name, key := Template}) ->
-    emqx_template:render_strict(Template, {?MODULE, {Name, Buffer}}).
+mk_object_key(BufferMap, #{action := Name, key := Template}) ->
+    emqx_template:render_strict(Template, {?MODULE, {Name, BufferMap}}).
 
 process_append(Writes, Upload0) ->
     {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
@@ -441,22 +441,22 @@ process_terminate(Upload) ->
 
 %% `emqx_template` APIs
 
--spec lookup(emqx_template:accessor(), {_Name, buffer()}) ->
+-spec lookup(emqx_template:accessor(), {_Name, buffer_map()}) ->
     {ok, integer() | string()} | {error, undefined}.
 lookup([<<"action">>], {Name, _Buffer}) ->
     {ok, mk_fs_safe_string(Name)};
-lookup(Accessor, {_Name, Buffer = #buffer{}}) ->
+lookup(Accessor, {_Name, Buffer = #{}}) ->
     lookup_buffer_var(Accessor, Buffer);
 lookup(_Accessor, _Context) ->
     {error, undefined}.
 
-lookup_buffer_var([<<"datetime">>, Format], #buffer{since = Since}) ->
+lookup_buffer_var([<<"datetime">>, Format], #{since := Since}) ->
     {ok, format_timestamp(Since, Format)};
-lookup_buffer_var([<<"datetime_until">>, Format], #buffer{until = Until}) ->
+lookup_buffer_var([<<"datetime_until">>, Format], #{until := Until}) ->
     {ok, format_timestamp(Until, Format)};
-lookup_buffer_var([<<"sequence">>], #buffer{seq = Seq}) ->
+lookup_buffer_var([<<"sequence">>], #{seq := Seq}) ->
     {ok, Seq};
-lookup_buffer_var([<<"node">>], #buffer{}) ->
+lookup_buffer_var([<<"node">>], #{}) ->
     {ok, mk_fs_safe_string(atom_to_binary(erlang:node()))};
 lookup_buffer_var(_Binding, _Context) ->
     {error, undefined}.

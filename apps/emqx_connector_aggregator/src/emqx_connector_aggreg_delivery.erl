@@ -42,7 +42,7 @@
 
 -type transfer_state() :: term().
 
--callback init_transfer_state(buffer(), map()) -> transfer_state().
+-callback init_transfer_state(buffer_map(), map()) -> transfer_state().
 
 -callback process_append(iodata(), transfer_state()) -> transfer_state().
 
@@ -75,12 +75,13 @@ init_delivery(
         callback_module := Mod
     }
 ) ->
+    BufferMap = emqx_connector_aggregator:buffer_to_map(Buffer),
     #delivery{
         name = Name,
         callback_module = Mod,
         container = mk_container(ContainerOpts),
         reader = Reader,
-        transfer = Mod:init_transfer_state(Buffer, Opts),
+        transfer = Mod:init_transfer_state(BufferMap, Opts),
         empty = true
     }.
 

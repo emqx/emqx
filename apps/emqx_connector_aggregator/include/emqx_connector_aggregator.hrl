@@ -13,3 +13,11 @@
 }).
 
 -type buffer() :: #buffer{}.
+
+-type buffer_map() :: #{
+    since := emqx_connector_aggregator:timestamp(),
+    until := emqx_connector_aggregator:timestamp(),
+    seq := non_neg_integer(),
+    filename := file:filename(),
+    max_records := pos_integer() | undefined
+}.

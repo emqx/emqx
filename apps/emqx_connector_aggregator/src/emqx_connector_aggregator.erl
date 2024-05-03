@@ -16,7 +16,8 @@
     start_link/2,
     push_records/3,
     tick/2,
-    take_error/1
+    take_error/1,
+    buffer_to_map/1
 ]).
 
 -behaviour(gen_server).
@@ -71,6 +72,15 @@ tick(Name, Timestamp) ->
 
 take_error(Name) ->
     gen_server:call(?SRVREF(Name), take_error).
+
+buffer_to_map(#buffer{} = Buffer) ->
+    #{
+        since => Buffer#buffer.since,
+        until => Buffer#buffer.until,
+        seq => Buffer#buffer.seq,
+        filename => Buffer#buffer.filename,
+        max_records => Buffer#buffer.max_records
+    }.
 
 %%
 
