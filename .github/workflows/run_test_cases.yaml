@@ -213,13 +213,14 @@ jobs:
 
       - name: make cover
         env:
-          PROFILE: emqx-enterprise
+          PROFILE: ${{ matrix.profile }}
         run: make cover
 
       - name: send to coveralls
+        if: github.repository == 'emqx/emqx'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROFILE: emqx-enterprise
+          PROFILE: ${{ matrix.profile }}
         run: make coveralls
 
       - name: get coveralls logs
@@ -228,6 +229,7 @@ jobs:
 
   # do this in a separate job
   upload_coverdata:
+    if: github.repository == 'emqx/emqx'
     needs: make_cover
     runs-on: ubuntu-22.04
     steps:
