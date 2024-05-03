@@ -27,7 +27,7 @@
 
 -behaviour(emqx_connector_aggreg_delivery).
 -export([
-    init_upload_state/2,
+    init_transfer_state/2,
     process_append/2,
     process_write/1,
     process_complete/1,
@@ -394,8 +394,8 @@ iolist_to_string(IOList) ->
 
 %% `emqx_connector_aggreg_delivery` APIs
 
--spec init_upload_state(buffer(), map()) -> emqx_s3_upload:t().
-init_upload_state(Buffer, Opts) ->
+-spec init_transfer_state(buffer(), map()) -> emqx_s3_upload:t().
+init_transfer_state(Buffer, Opts) ->
     #{
         bucket := Bucket,
         upload_options := UploadOpts,
