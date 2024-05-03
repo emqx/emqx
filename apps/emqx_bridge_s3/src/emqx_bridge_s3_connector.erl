@@ -409,18 +409,19 @@ init_transfer_state(Buffer, Opts) ->
 mk_object_key(Buffer, #{action := Name, key := Template}) ->
     emqx_template:render_strict(Template, {?MODULE, {Name, Buffer}}).
 
-process_append(Writes, Upload) ->
-    emqx_s3_upload:append(Writes, Upload).
+process_append(Writes, Upload0) ->
+    {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
+    Upload.
 
 process_write(Upload0) ->
     case emqx_s3_upload:write(Upload0) of
         {ok, Upload} ->
-            Upload;
+            {ok, Upload};
         {cont, Upload} ->
             process_write(Upload);
         {error, Reason} ->
             _ = emqx_s3_upload:abort(Upload0),
-            exit({upload_failed, Reason})
+            {error, Reason}
     end.
 
 process_complete(Upload) ->
