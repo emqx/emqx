@@ -20,6 +20,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 
 -behaviour(emqx_resource).
 
@@ -35,7 +36,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([reply_delegator/3]).
@@ -232,6 +234,7 @@ on_start(
         port => Port,
         connect_timeout => ConnectTimeout,
         base_path => BasePath,
+        scheme => Scheme,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
     case start_pool(InstId, PoolOpts) of
@@ -359,7 +362,7 @@ on_query(InstId, {Method, Request, Timeout}, State) ->
 on_query(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout, Retry},
-    #{base_path := BasePath, host := Host} = State
+    #{base_path := BasePath, host := Host, scheme := Scheme, port := Port} = State
 ) ->
     ?TRACE(
         "QUERY",
@@ -373,7 +376,7 @@ on_query(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
     Worker = resolve_pool_worker(State, KeyOrNum),
     Result0 = ehttpc:request(
         Worker,
@@ -469,7 +472,7 @@ on_query_async(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout},
     ReplyFunAndArgs,
-    #{base_path := BasePath, host := Host} = State
+    #{base_path := BasePath, host := Host, port := Port, scheme := Scheme} = State
 ) ->
     Worker = resolve_pool_worker(State, KeyOrNum),
     ?TRACE(
@@ -483,7 +486,7 @@ on_query_async(
         }
     ),
     NRequest = formalize_request(Method, BasePath, Request),
-    trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
+    trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
     MaxAttempts = maps:get(max_attempts, State, 3),
     Context = #{
         attempt => 1,
@@ -492,7 +495,8 @@ on_query_async(
         key_or_num => KeyOrNum,
         method => Method,
         request => NRequest,
-        timeout => Timeout
+        timeout => Timeout,
+        trace_metadata => logger:get_process_metadata()
     },
     ok = ehttpc:request_async(
         Worker,
@@ -503,17 +507,25 @@ on_query_async(
     ),
     {ok, Worker}.
 
-trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout) ->
+trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout) ->
     case NRequest of
         {Path, Headers} ->
             emqx_trace:rendered_action_template(
                 ActionId,
                 #{
                     host => Host,
+                    port => Port,
                     path => Path,
                     method => Method,
-                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
-                    timeout => Timeout
+                    headers => #emqx_trace_format_func_data{
+                        function = fun emqx_utils_redact:redact_headers/1,
+                        data = Headers
+                    },
+                    timeout => Timeout,
+                    url => #emqx_trace_format_func_data{
+                        function = fun render_url/1,
+                        data = {Scheme, Host, Port, Path}
+                    }
                 }
             );
         {Path, Headers, Body} ->
@@ -521,14 +533,41 @@ trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout) ->
                 ActionId,
                 #{
                     host => Host,
+                    port => Port,
                     path => Path,
                     method => Method,
-                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
+                    headers => #emqx_trace_format_func_data{
+                        function = fun emqx_utils_redact:redact_headers/1,
+                        data = Headers
+                    },
                     timeout => Timeout,
-                    body => {fun log_format_body/1, Body}
+                    body => #emqx_trace_format_func_data{
+                        function = fun log_format_body/1,
+                        data = Body
+                    },
+                    url => #emqx_trace_format_func_data{
+                        function = fun render_url/1,
+                        data = {Scheme, Host, Port, Path}
+                    }
                 }
             )
     end.
+
+render_url({Scheme, Host, Port, Path}) ->
+    SchemeStr =
+        case Scheme of
+            http ->
+                <<"http://">>;
+            https ->
+                <<"https://">>
+        end,
+    unicode:characters_to_binary([
+        SchemeStr,
+        Host,
+        <<":">>,
+        erlang:integer_to_binary(Port),
+        Path
+    ]).
 
 log_format_body(Body) ->
     unicode:characters_to_binary(Body).
@@ -604,6 +643,26 @@ on_get_channel_status(
 ) ->
     %% XXX: Reuse the connector status
     on_get_status(InstId, State).
+
+on_format_query_result({ok, Status, Headers, Body}) ->
+    #{
+        result => ok,
+        response => #{
+            status => Status,
+            headers => Headers,
+            body => Body
+        }
+    };
+on_format_query_result({ok, Status, Headers}) ->
+    #{
+        result => ok,
+        response => #{
+            status => Status,
+            headers => Headers
+        }
+    };
+on_format_query_result(Result) ->
+    Result.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -807,9 +866,15 @@ to_bin(Str) when is_list(Str) ->
 to_bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
 
-reply_delegator(Context, ReplyFunAndArgs, Result0) ->
+reply_delegator(
+    #{trace_metadata := TraceMetadata} = Context,
+    ReplyFunAndArgs,
+    Result0
+) ->
     spawn(fun() ->
+        logger:set_process_metadata(TraceMetadata),
         Result = transform_result(Result0),
+        logger:unset_process_metadata(),
         maybe_retry(Result, Context, ReplyFunAndArgs)
     end).
 

@@ -7,6 +7,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include("emqx_bridge_s3.hrl").
 
 -behaviour(emqx_resource).
@@ -320,7 +321,10 @@ run_simple_upload(
     emqx_trace:rendered_action_template(ChannelID, #{
         bucket => Bucket,
         key => Key,
-        content => Content
+        content => #emqx_trace_format_func_data{
+            function = fun unicode:characters_to_binary/1,
+            data = Content
+        }
     }),
     case emqx_s3_client:put_object(Client, Key, UploadOpts, Content) of
         ok ->

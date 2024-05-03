@@ -290,54 +290,125 @@ t_http_test_json_formatter(_Config) ->
         end
      || JSONEntry <- LogEntries
     ],
+    ListIterFun =
+        fun
+            ListIterFunRec([]) ->
+                ok;
+            ListIterFunRec([Item | Rest]) ->
+                receive
+                    From ->
+                        From ! {list_iter_item, Item}
+                end,
+                ListIterFunRec(Rest)
+        end,
+    ListIter = spawn_link(fun() -> ListIterFun(DecodedLogEntries) end),
+    NextFun =
+        fun() ->
+            ListIter ! self(),
+            receive
+                {list_iter_item, Item} ->
+                    Item
+            end
+        end,
     ?assertMatch(
-        [
-            #{<<"meta">> := #{<<"payload">> := <<"log_this_message">>}},
-            #{<<"meta">> := #{<<"payload">> := <<"\nlog\nthis\nmessage">>}},
-            #{
-                <<"meta">> := #{<<"payload">> := <<"\\\nlog\n_\\n_this\nmessage\\">>}
-            },
-            #{<<"meta">> := #{<<"payload">> := <<"\"log_this_message\"">>}},
-            #{<<"meta">> := #{<<"str">> := <<"str">>}},
-            #{<<"meta">> := #{<<"term">> := <<"{notjson}">>}},
-            #{<<"meta">> := <<_/binary>>},
-            #{<<"meta">> := #{<<"integer">> := 42}},
-            #{<<"meta">> := #{<<"float">> := 1.2}},
-            #{<<"meta">> := <<_/binary>>},
-            #{<<"meta">> := <<_/binary>>},
-            #{<<"meta">> := <<_/binary>>},
-            #{<<"meta">> := #{<<"sub">> := #{}}},
-            #{<<"meta">> := #{<<"sub">> := #{<<"key">> := <<"value">>}}},
-            #{<<"meta">> := #{<<"true">> := <<"true">>, <<"false">> := <<"false">>}},
-            #{
-                <<"meta">> := #{
-                    <<"list">> := #{
-                        <<"key">> := <<"value">>,
-                        <<"key2">> := <<"value2">>
-                    }
-                }
-            },
-            #{
-                <<"meta">> := #{
-                    <<"client_ids">> := [<<"a">>, <<"b">>, <<"c">>]
-                }
-            },
-            #{
-                <<"meta">> := #{
-                    <<"rule_ids">> := [<<"a">>, <<"b">>, <<"c">>]
-                }
-            },
-            #{
-                <<"meta">> := #{
-                    <<"action_info">> := #{
-                        <<"type">> := <<"http">>,
-                        <<"name">> := <<"emqx_bridge_http_test_lib">>
-                    }
+        #{<<"meta">> := #{<<"payload">> := <<"log_this_message">>}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"payload">> := <<"\nlog\nthis\nmessage">>}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"meta">> := #{<<"payload">> := <<"\\\nlog\n_\\n_this\nmessage\\">>}
+        },
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"payload">> := <<"\"log_this_message\"">>}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"str">> := <<"str">>}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"term">> := <<"{notjson}">>}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := <<_/binary>>},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"integer">> := 42}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"float">> := 1.2}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := <<_/binary>>},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := <<_/binary>>},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := <<_/binary>>},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"sub">> := #{}}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"sub">> := #{<<"key">> := <<"value">>}}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{<<"meta">> := #{<<"true">> := true, <<"false">> := false}},
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"meta">> := #{
+                <<"list">> := #{
+                    <<"key">> := <<"value">>,
+                    <<"key2">> := <<"value2">>
                 }
             }
-            | _
-        ],
-        DecodedLogEntries
+        },
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"meta">> := #{
+                <<"client_ids">> := [<<"a">>, <<"b">>, <<"c">>]
+            }
+        },
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"meta">> := #{
+                <<"rule_ids">> := [<<"a">>, <<"b">>, <<"c">>]
+            }
+        },
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"meta">> := #{
+                <<"action_info">> := #{
+                    <<"type">> := <<"http">>,
+                    <<"name">> := <<"emqx_bridge_http_test_lib">>
+                }
+            }
+        },
+        NextFun()
     ),
     {ok, Delete} = request_api(delete, api_path("trace/" ++ binary_to_list(Name))),
     ?assertEqual(<<>>, Delete),
@@ -495,7 +566,7 @@ create_trace(Name, Type, TypeValue, Start) ->
             ?block_until(#{?snk_kind := update_trace_done})
         end,
         fun(Trace) ->
-            ?assertMatch([#{}], ?of_kind(update_trace_done, Trace))
+            ?assertMatch([#{} | _], ?of_kind(update_trace_done, Trace))
         end
     ).
 

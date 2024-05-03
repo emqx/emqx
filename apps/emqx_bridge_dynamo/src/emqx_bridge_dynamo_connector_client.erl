@@ -27,6 +27,8 @@
 -export([execute/2]).
 -endif.
 
+-include_lib("emqx/include/emqx_trace.hrl").
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -107,7 +109,10 @@ do_query(Table, Query0, Templates, TraceRenderedCTX) ->
         Query = apply_template(Query0, Templates),
         emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
             table => Table,
-            query => {fun trace_format_query/1, Query}
+            query => #emqx_trace_format_func_data{
+                function = fun trace_format_query/1,
+                data = Query
+            }
         }),
         execute(Query, Table)
     catch

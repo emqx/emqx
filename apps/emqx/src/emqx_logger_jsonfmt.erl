@@ -229,7 +229,7 @@ best_effort_json_obj(Map, Config) ->
             do_format_msg("~p", [Map], Config)
     end.
 
-json(A, _) when is_atom(A) -> atom_to_binary(A, utf8);
+json(A, _) when is_atom(A) -> A;
 json(I, _) when is_integer(I) -> I;
 json(F, _) when is_float(F) -> F;
 json(P, C) when is_pid(P) -> json(pid_to_list(P), C);

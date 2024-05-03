@@ -26,7 +26,24 @@
 -define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        emqx_common_test_helpers:all(?MODULE),
+        {group, republish},
+        {group, console_print}
+    ].
+
+groups() ->
+    [
+        {republish, [], basic_tests()},
+        {console_print, [], basic_tests()}
+    ].
+
+basic_tests() ->
+    [
+        t_basic_apply_rule_trace_ruleid,
+        t_basic_apply_rule_trace_clientid,
+        t_basic_apply_rule_trace_ruleid_stop_after_render
+    ].
 
 init_per_suite(Config) ->
     application:load(emqx_conf),
@@ -50,6 +67,12 @@ init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
     [{apps, Apps} | Config].
 
+init_per_group(GroupName, Config) ->
+    [{group_name, GroupName} | Config].
+
+end_per_group(_GroupName, Config) ->
+    Config.
+
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_mgmt_api_test_util:end_suite(),
@@ -67,28 +90,58 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 t_basic_apply_rule_trace_ruleid(Config) ->
-    basic_apply_rule_test_helper(Config, ruleid, false).
+    basic_apply_rule_test_helper(get_action(Config), ruleid, false).
 
 t_basic_apply_rule_trace_clientid(Config) ->
-    basic_apply_rule_test_helper(Config, clientid, false).
+    basic_apply_rule_test_helper(get_action(Config), clientid, false).
 
 t_basic_apply_rule_trace_ruleid_stop_after_render(Config) ->
-    basic_apply_rule_test_helper(Config, ruleid, true).
+    basic_apply_rule_test_helper(get_action(Config), ruleid, true).
 
-basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
+get_action(Config) ->
+    case ?config(group_name, Config) of
+        republish ->
+            republish_action();
+        console_print ->
+            console_print_action();
+        _ ->
+            make_http_bridge(Config)
+    end.
+
+make_http_bridge(Config) ->
     HTTPServerConfig = ?config(http_server, Config),
     emqx_bridge_http_test_lib:make_bridge(HTTPServerConfig),
     #{status := connected} = emqx_bridge_v2:health_check(
         http, emqx_bridge_http_test_lib:bridge_name()
     ),
+    BridgeName = ?config(bridge_name, Config),
+    emqx_bridge_resource:bridge_id(http, BridgeName).
+
+republish_action() ->
+    #{
+        <<"args">> =>
+            #{
+                <<"mqtt_properties">> => #{},
+                <<"payload">> => <<"MY PL">>,
+                <<"qos">> => 0,
+                <<"retain">> => false,
+                <<"topic">> => <<"rule_apply_test_SUITE">>,
+                <<"user_properties">> => <<>>
+            },
+        <<"function">> => <<"republish">>
+    }.
+
+console_print_action() ->
+    #{<<"function">> => <<"console">>}.
+
+basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
     %% Create Rule
     RuleTopic = iolist_to_binary([<<"my_rule_topic/">>, atom_to_binary(?FUNCTION_NAME)]),
     SQL = <<"SELECT payload.id as id FROM \"", RuleTopic/binary, "\"">>,
     {ok, #{<<"id">> := RuleId}} =
-        emqx_bridge_testlib:create_rule_and_action_http(
-            http,
+        emqx_bridge_testlib:create_rule_and_action(
+            Action,
             RuleTopic,
-            Config,
             #{sql => SQL}
         ),
     ClientId = <<"c_emqx">>,
@@ -117,10 +170,7 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
         <<"context">> => Context,
         <<"stop_action_after_template_rendering">> => StopAfterRender
     },
-    emqx_trace:check(),
-    ok = emqx_trace_handler_SUITE:filesync(TraceName, TraceType),
     Now = erlang:system_time(second) - 10,
-    {ok, _} = file:read_file(emqx_trace:log_file(TraceName, Now)),
     ?assertMatch({ok, _}, call_apply_rule_api(RuleId, Params)),
     ?retry(
         _Interval0 = 200,
@@ -130,9 +180,14 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
             io:format("THELOG:~n~s", [Bin]),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"rule_activated">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"SQL_yielded_result">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_template_rendered">>])),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"QUERY_ASYNC">>]))
+            case Action of
+                A when is_binary(A) ->
+                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
+                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"QUERY_ASYNC">>]));
+                _ ->
+                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"call_action_function">>]))
+            end,
+            ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_template_rendered">>]))
         end
     ),
     case StopAfterRender of
@@ -155,7 +210,8 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
                 begin
                     Bin = read_rule_trace_file(TraceName, TraceType, Now),
                     io:format("THELOG3:~n~s", [Bin]),
-                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>]))
+                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>])),
+                    do_final_log_check(Action, Bin)
                 end
             )
     end,
@@ -174,6 +230,51 @@ basic_apply_rule_test_helper(Config, TraceType, StopAfterRender) ->
      || #{<<"meta">> := Meta} <- LogEntries
     ],
     emqx_trace:delete(TraceName),
+    ok.
+
+do_final_log_check(Action, Bin0) when is_binary(Action) ->
+    %% The last line in the Bin should be the action_success entry
+    Bin1 = string:trim(Bin0),
+    LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
+    LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+    %% Check that lazy formatting of the action result works correctly
+    ?assertMatch(
+        #{
+            <<"level">> := <<"debug">>,
+            <<"meta">> :=
+                #{
+                    <<"action_info">> :=
+                        #{
+                            <<"name">> := <<"emqx_bridge_http_test_lib">>,
+                            <<"type">> := <<"http">>
+                        },
+                    <<"clientid">> := <<"c_emqx">>,
+                    <<"result">> :=
+                        #{
+                            <<"response">> :=
+                                #{
+                                    <<"body">> := <<"hello">>,
+                                    <<"headers">> :=
+                                        #{
+                                            <<"content-type">> := <<"text/plain">>,
+                                            <<"date">> := _,
+                                            <<"server">> := _
+                                        },
+                                    <<"status">> := 200
+                                },
+                            <<"result">> := <<"ok">>
+                        },
+                    <<"rule_id">> := _,
+                    <<"rule_trigger_time">> := _,
+                    <<"stop_action_after_render">> := false,
+                    <<"trace_tag">> := <<"ACTION">>
+                },
+            <<"msg">> := <<"action_success">>,
+            <<"time">> := _
+        },
+        LastEntryJSON
+    );
+do_final_log_check(_, _) ->
     ok.
 
 create_trace(TraceName, TraceType, TraceValue) ->
@@ -239,8 +340,6 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
         SQL
     ),
     create_trace(Name, ruleid, RuleID),
-    emqx_trace:check(),
-    ok = emqx_trace_handler_SUITE:filesync(Name, ruleid),
     Now = erlang:system_time(second) - 10,
     %% Stop
     ParmsStopAfterRender = apply_rule_parms(true, Name),

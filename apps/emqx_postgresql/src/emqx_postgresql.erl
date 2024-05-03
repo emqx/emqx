@@ -38,7 +38,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([connect/1]).
@@ -693,6 +694,11 @@ handle_result({error, Error}) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_result(Res) ->
+    Res.
+
+on_format_query_result({ok, Cnt}) when is_integer(Cnt) ->
+    #{result => ok, affected_rows => Cnt};
+on_format_query_result(Res) ->
     Res.
 
 handle_batch_result([{ok, Count} | Rest], Acc) ->
