@@ -76,6 +76,7 @@ authenticate(
     Credential,
     #{
         verify_claims := VerifyClaims0,
+        disconnect_after_expire := DisconnectAfterExpire,
         jwk := JWK,
         acl_claim_name := AclClaimName,
         from := From
@@ -84,11 +85,12 @@ authenticate(
     JWT = maps:get(From, Credential),
     JWKs = [JWK],
     VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
-    verify(JWT, JWKs, VerifyClaims, AclClaimName);
+    verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire);
 authenticate(
     Credential,
     #{
         verify_claims := VerifyClaims0,
+        disconnect_after_expire := DisconnectAfterExpire,
         jwk_resource := ResourceId,
         acl_claim_name := AclClaimName,
         from := From
@@ -104,7 +106,7 @@ authenticate(
         {ok, JWKs} ->
             JWT = maps:get(From, Credential),
             VerifyClaims = replace_placeholder(VerifyClaims0, Credential),
-            verify(JWT, JWKs, VerifyClaims, AclClaimName)
+            verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire)
     end.
 
 destroy(#{jwk_resource := ResourceId}) ->
@@ -123,6 +125,7 @@ create2(#{
     secret := Secret0,
     secret_base64_encoded := Base64Encoded,
     verify_claims := VerifyClaims,
+    disconnect_after_expire := DisconnectAfterExpire,
     acl_claim_name := AclClaimName,
     from := From
 }) ->
@@ -134,6 +137,7 @@ create2(#{
             {ok, #{
                 jwk => JWK,
                 verify_claims => VerifyClaims,
+                disconnect_after_expire => DisconnectAfterExpire,
                 acl_claim_name => AclClaimName,
                 from => From
             }}
@@ -143,6 +147,7 @@ create2(#{
     algorithm := 'public-key',
     public_key := PublicKey,
     verify_claims := VerifyClaims,
+    disconnect_after_expire := DisconnectAfterExpire,
     acl_claim_name := AclClaimName,
     from := From
 }) ->
@@ -150,6 +155,7 @@ create2(#{
     {ok, #{
         jwk => JWK,
         verify_claims => VerifyClaims,
+        disconnect_after_expire => DisconnectAfterExpire,
         acl_claim_name => AclClaimName,
         from => From
     }};
@@ -157,6 +163,7 @@ create2(
     #{
         use_jwks := true,
         verify_claims := VerifyClaims,
+        disconnect_after_expire := DisconnectAfterExpire,
         acl_claim_name := AclClaimName,
         from := From
     } = Config
@@ -171,6 +178,7 @@ create2(
     {ok, #{
         jwk_resource => ResourceId,
         verify_claims => VerifyClaims,
+        disconnect_after_expire => DisconnectAfterExpire,
         acl_claim_name => AclClaimName,
         from => From
     }}.
@@ -214,23 +222,12 @@ replace_placeholder([{Name, {placeholder, PL}} | More], Variables, Acc) ->
 replace_placeholder([{Name, Value} | More], Variables, Acc) ->
     replace_placeholder(More, Variables, [{Name, Value} | Acc]).
 
-verify(undefined, _, _, _) ->
+verify(undefined, _, _, _, _) ->
     ignore;
-verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
+verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
         {ok, Extra} ->
-            IsSuperuser = emqx_authn_utils:is_superuser(Extra),
-            Attrs = emqx_authn_utils:client_attrs(Extra),
-            try
-                ACL = acl(Extra, AclClaimName),
-                Result = maps:merge(IsSuperuser, maps:merge(ACL, Attrs)),
-                {ok, Result}
-            catch
-                throw:{bad_acl_rule, Reason} ->
-                    %% it's a invalid token, so ok to log
-                    ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{jwt => JWT}),
-                    {error, bad_username_or_password}
-            end;
+            extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire);
         {error, {missing_claim, Claim}} ->
             %% it's a invalid token, so it's ok to log
             ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => JWT, claim => Claim}),
@@ -244,6 +241,28 @@ verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
             ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => JWT, claims => Claims}),
             {error, bad_username_or_password}
     end.
+
+extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
+    IsSuperuser = emqx_authn_utils:is_superuser(Extra),
+    Attrs = emqx_authn_utils:client_attrs(Extra),
+    ExpireAt = expire_at(DisconnectAfterExpire, Extra),
+    try
+        ACL = acl(Extra, AclClaimName),
+        Result = merge_maps([ExpireAt, IsSuperuser, ACL, Attrs]),
+        {ok, Result}
+    catch
+        throw:{bad_acl_rule, Reason} ->
+            %% it's a invalid token, so ok to log
+            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{jwt => JWT}),
+            {error, bad_username_or_password}
+    end.
+
+expire_at(false, _Extra) ->
+    #{};
+expire_at(true, #{<<"exp">> := ExpireTime}) ->
+    #{expire_at => erlang:convert_time_unit(ExpireTime, second, millisecond)};
+expire_at(true, #{}) ->
+    #{}.
 
 acl(Claims, AclClaimName) ->
     case Claims of
@@ -397,3 +416,6 @@ parse_rule(Rule) ->
         {error, Reason} ->
             throw({bad_acl_rule, Reason})
     end.
+
+merge_maps([]) -> #{};
+merge_maps([Map | Maps]) -> maps:merge(Map, merge_maps(Maps)).

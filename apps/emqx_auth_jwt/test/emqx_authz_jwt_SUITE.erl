@@ -455,11 +455,12 @@ t_invalid_rule(_Config) ->
 authn_config() ->
     #{
         <<"mechanism">> => <<"jwt">>,
-        <<"use_jwks">> => <<"false">>,
+        <<"use_jwks">> => false,
         <<"algorithm">> => <<"hmac-based">>,
         <<"secret">> => ?SECRET,
-        <<"secret_base64_encoded">> => <<"false">>,
+        <<"secret_base64_encoded">> => false,
         <<"acl_claim_name">> => <<"acl">>,
+        <<"disconnect_after_expire">> => false,
         <<"verify_claims">> => #{
             <<"username">> => ?PH_USERNAME
         }

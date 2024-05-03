@@ -36,6 +36,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -record(coap_content, {content_format, payload = <<>>}).
 
@@ -66,6 +67,7 @@ groups() ->
     [
         {test_grp_0_register, [RepeatOpt], [
             case01_register,
+            case01_auth_expire,
             case01_register_additional_opts,
             %% TODO now we can't handle partial decode packet
             %% case01_register_incorrect_opts,
@@ -145,6 +147,7 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(TestCase, Config) ->
+    snabbkaffe:start_trace(),
     GatewayConfig =
         case TestCase of
             case09_auto_observe ->
@@ -171,6 +174,7 @@ end_per_testcase(_AllTestCase, Config) ->
     timer:sleep(300),
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
+    snabbkaffe:stop(),
     ok = application:stop(emqx_gateway).
 
 default_config() ->
@@ -279,6 +283,43 @@ case01_register(Config) ->
     MsgId3 = RspId3,
     timer:sleep(50),
     false = lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()).
+
+case01_auth_expire(Config) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 500}}
+        end
+    ),
+
+    %%----------------------------------------
+    %% REGISTER command
+    %%----------------------------------------
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:3",
+    MsgId = 12,
+
+    ?assertWaitEvent(
+        test_send_coap_request(
+            UdpSock,
+            post,
+            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+            #coap_content{
+                content_format = <<"text/plain">>,
+                payload = <<"</1>, </2>, </3>, </4>, </5>">>
+            },
+            [],
+            MsgId
+        ),
+        #{
+            ?snk_kind := conn_process_terminated,
+            clientid := <<"urn:oma:lwm2m:oma:3">>,
+            reason := {shutdown, expired}
+        },
+        5000
+    ).
 
 case01_register_additional_opts(Config) ->
     %%----------------------------------------

@@ -72,7 +72,8 @@
 
 -define(TIMER_TABLE, #{
     alive_timer => keepalive,
-    retry_timer => retry_delivery
+    retry_timer => retry_delivery,
+    connection_expire_timer => connection_expire
 }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
@@ -468,6 +469,13 @@ handle_timeout(
             {Outgoings2, NChannel} = dispatch_frame(Channel#channel{inflight = NInflight}),
             {ok, [{outgoing, Outgoings ++ Outgoings2}], reset_timer(retry_timer, NChannel)}
     end;
+handle_timeout(
+    _TRef,
+    connection_expire,
+    Channel
+) ->
+    NChannel = clean_timer(connection_expire_timer, Channel),
+    {ok, [{event, disconnected}, {close, expired}], NChannel};
 handle_timeout(_TRef, Msg, Channel) ->
     log(error, #{msg => "unexpected_timeout", content => Msg}, Channel),
     {ok, Channel}.
@@ -591,10 +599,18 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{
+    schedule_connection_expire(Channel#channel{
         conninfo = NConnInfo,
         conn_state = connected
-    }.
+    }).
+
+schedule_connection_expire(Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:connection_expire_interval(Ctx, ClientInfo) of
+        undefined ->
+            Channel;
+        Interval ->
+            ensure_timer(connection_expire_timer, Interval, Channel)
+    end.
 
 process_connect(
     Frame,

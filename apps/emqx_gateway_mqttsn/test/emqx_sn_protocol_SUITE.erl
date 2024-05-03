@@ -33,6 +33,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -141,6 +142,14 @@ end_per_suite(Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
+init_per_testcase(_TestCase, Config) ->
+    snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    snabbkaffe:stop(),
+    ok.
+
 restart_mqttsn_with_subs_resume_on() ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
@@ -205,6 +214,36 @@ t_connect(_) ->
     %% assert: mqttsn gateway will ack disconnect msg with DISCONNECT packet
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
+
+t_auth_expire(_) ->
+    SockName = {'mqttsn:udp:default', 1884},
+    ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
+
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 500}}
+        end
+    ),
+
+    ?assertWaitEvent(
+        begin
+            {ok, Socket} = gen_udp:open(0, [binary]),
+            send_connect_msg(Socket, <<"client_id_test1">>),
+            ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+            ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+            gen_udp:close(Socket)
+        end,
+        #{
+            ?snk_kind := conn_process_terminated,
+            clientid := <<"client_id_test1">>,
+            reason := {shutdown, expired}
+        },
+        5000
+    ).
 
 t_first_disconnect(_) ->
     SockName = {'mqttsn:udp:default', 1884},

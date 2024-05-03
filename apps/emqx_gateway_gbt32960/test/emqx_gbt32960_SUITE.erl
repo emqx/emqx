@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(BYTE, 8 / big - integer).
 -define(WORD, 16 / big - integer).
@@ -50,6 +51,14 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok.
+
+init_per_testcase(_, Config) ->
+    snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_, _Config) ->
+    snabbkaffe:stop(),
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -170,6 +179,28 @@ t_case01_login_channel_info(_Config) ->
     ),
 
     ok = gen_tcp:close(Socket).
+
+t_case01_auth_expire(_Config) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 500}}
+        end
+    ),
+
+    ?assertWaitEvent(
+        begin
+            {ok, _Socket} = login_first()
+        end,
+        #{
+            ?snk_kind := conn_process_terminated,
+            clientid := <<"1G1BL52P7TR115520">>,
+            reason := {shutdown, expired}
+        },
+        5000
+    ).
 
 t_case02_reportinfo_0x01(_Config) ->
     % send VEHICLE LOGIN

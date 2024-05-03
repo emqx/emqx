@@ -302,6 +302,9 @@ handle_timeout(_TRef, force_close, Channel = #channel{closed_reason = Reason}) -
     {shutdown, Reason, Channel};
 handle_timeout(_TRef, force_close_idle, Channel) ->
     {shutdown, idle_timeout, Channel};
+handle_timeout(_TRef, connection_expire, Channel) ->
+    NChannel = remove_timer_ref(connection_expire, Channel),
+    {ok, [{event, disconnected}, {close, expired}], NChannel};
 handle_timeout(_TRef, Msg, Channel) ->
     ?SLOG(warning, #{
         msg => "unexpected_timeout_signal",
@@ -666,10 +669,18 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{
+    schedule_connection_expire(Channel#channel{
         conninfo = NConnInfo,
         conn_state = connected
-    }.
+    }).
+
+schedule_connection_expire(Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:connection_expire_interval(Ctx, ClientInfo) of
+        undefined ->
+            Channel;
+        Interval ->
+            ensure_timer(connection_expire, Interval, Channel)
+    end.
 
 ensure_disconnected(
     Reason,

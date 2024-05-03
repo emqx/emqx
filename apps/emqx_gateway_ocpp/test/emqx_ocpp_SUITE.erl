@@ -19,6 +19,7 @@
 -include("emqx_ocpp.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -31,8 +32,6 @@
         request/3
     ]
 ).
-
--define(HEARTBEAT, <<$\n>>).
 
 %% erlfmt-ignore
 -define(CONF_DEFAULT, <<"
@@ -80,6 +79,14 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    snabbkaffe:stop(),
     ok.
 
 default_config() ->
@@ -187,6 +194,26 @@ t_adjust_keepalive_timer(_Config) ->
     %% assert:
     ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)),
     ok.
+
+t_auth_expire(_Config) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 500}}
+        end
+    ),
+
+    ?assertWaitEvent(
+        {ok, _ClientPid} = connect("127.0.0.1", 33033, <<"client1">>),
+        #{
+            ?snk_kind := conn_process_terminated,
+            clientid := <<"client1">>,
+            reason := {shutdown, expired}
+        },
+        5000
+    ).
 
 t_listeners_status(_Config) ->
     {200, [Listener]} = request(get, "/gateways/ocpp/listeners"),

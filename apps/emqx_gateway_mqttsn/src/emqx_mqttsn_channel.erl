@@ -364,10 +364,18 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{
+    schedule_connection_expire(Channel#channel{
         conninfo = NConnInfo,
         conn_state = connected
-    }.
+    }).
+
+schedule_connection_expire(Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:connection_expire_interval(Ctx, ClientInfo) of
+        undefined ->
+            Channel;
+        Interval ->
+            ensure_timer(connection_expire, Interval, Channel)
+    end.
 
 process_connect(
     Channel = #channel{
@@ -2122,6 +2130,9 @@ handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 handle_timeout(_TRef, expire_asleep, Channel) ->
     shutdown(asleep_timeout, Channel);
+handle_timeout(_TRef, connection_expire, Channel) ->
+    NChannel = clean_timer(connection_expire, Channel),
+    handle_out(disconnect, expired, NChannel);
 handle_timeout(_TRef, Msg, Channel) ->
     %% NOTE
     %% We do not expect `emqx_mqttsn_session` to set up any custom timers (i.e with

@@ -89,7 +89,8 @@
 -type replies() :: reply() | [reply()].
 
 -define(TIMER_TABLE, #{
-    alive_timer => keepalive
+    alive_timer => keepalive,
+    connection_expire_timer => connection_expire
 }).
 
 -define(INFO_KEYS, [
@@ -315,19 +316,12 @@ enrich_client(
         expiry_interval => 0,
         receive_maximum => 1
     },
-    NClientInfo = fix_mountpoint(
+    NClientInfo =
         ClientInfo#{
             clientid => ClientId,
             username => Username
-        }
-    ),
+        },
     {ok, Channel#channel{conninfo = NConnInfo, clientinfo = NClientInfo}}.
-
-fix_mountpoint(ClientInfo = #{mountpoint := undefined}) ->
-    ClientInfo;
-fix_mountpoint(ClientInfo = #{mountpoint := Mountpoint}) ->
-    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
-    ClientInfo#{mountpoint := Mountpoint1}.
 
 set_log_meta(#channel{
     clientinfo = #{clientid := ClientId},
@@ -350,15 +344,14 @@ check_banned(_UserInfo, #channel{clientinfo = ClientInfo}) ->
 
 auth_connect(
     #{password := Password},
-    #channel{clientinfo = ClientInfo} = Channel
+    #channel{ctx = Ctx, clientinfo = ClientInfo} = Channel
 ) ->
     #{
         clientid := ClientId,
         username := Username
     } = ClientInfo,
-    case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
-        {ok, AuthResult} ->
-            NClientInfo = maps:merge(ClientInfo, AuthResult),
+    case emqx_gateway_ctx:authenticate(Ctx, ClientInfo#{password => Password}) of
+        {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
             ?SLOG(warning, #{
@@ -659,6 +652,9 @@ handle_timeout(
         {error, timeout} ->
             handle_out(disconnect, keepalive_timeout, Channel)
     end;
+handle_timeout(_TRef, connection_expire, Channel) ->
+    %% No take over implemented, so just shutdown
+    shutdown(expired, Channel);
 handle_timeout(_TRef, Msg, Channel) ->
     ?SLOG(error, #{msg => "unexpected_timeout", timeout_msg => Msg}),
     {ok, Channel}.
@@ -796,10 +792,18 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{
+    schedule_connection_expire(Channel#channel{
         conninfo = NConnInfo,
         conn_state = connected
-    }.
+    }).
+
+schedule_connection_expire(Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:connection_expire_interval(Ctx, ClientInfo) of
+        undefined ->
+            Channel;
+        Interval ->
+            ensure_timer(connection_expire_timer, Interval, Channel)
+    end.
 
 ensure_disconnected(
     Reason,
