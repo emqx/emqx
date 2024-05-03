@@ -229,14 +229,7 @@ best_effort_json_obj(Map, Config) ->
             do_format_msg("~p", [Map], Config)
     end.
 
-json_value(true, _Config) ->
-    true;
-json_value(false, _Config) ->
-    false;
-json_value(V, Config) ->
-    json(V, Config).
-
-json(A, _) when is_atom(A) -> atom_to_binary(A, utf8);
+json(A, _) when is_atom(A) -> A;
 json(I, _) when is_integer(I) -> I;
 json(F, _) when is_float(F) -> F;
 json(P, C) when is_pid(P) -> json(pid_to_list(P), C);
@@ -324,7 +317,7 @@ json_kv(K0, V, Config) ->
     K = json_key(K0),
     case is_map(V) of
         true -> {K, best_effort_json_obj(V, Config)};
-        false -> {K, json_value(V, Config)}
+        false -> {K, json(V, Config)}
     end.
 
 json_key(A) when is_atom(A) -> json_key(atom_to_binary(A, utf8));

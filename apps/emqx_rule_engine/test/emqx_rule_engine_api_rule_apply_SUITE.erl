@@ -210,7 +210,8 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
                 begin
                     Bin = read_rule_trace_file(TraceName, TraceType, Now),
                     io:format("THELOG3:~n~s", [Bin]),
-                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>]))
+                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>])),
+                    do_final_log_check(Action, Bin)
                 end
             )
     end,
@@ -229,6 +230,51 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
      || #{<<"meta">> := Meta} <- LogEntries
     ],
     emqx_trace:delete(TraceName),
+    ok.
+
+do_final_log_check(Action, Bin0) when is_binary(Action) ->
+    %% The last line in the Bin should be the action_success entry
+    Bin1 = string:trim(Bin0),
+    LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
+    LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+    %% Check that lazy formatting of the action result works correctly
+    ?assertMatch(
+        #{
+            <<"level">> := <<"debug">>,
+            <<"meta">> :=
+                #{
+                    <<"action_info">> :=
+                        #{
+                            <<"name">> := <<"emqx_bridge_http_test_lib">>,
+                            <<"type">> := <<"http">>
+                        },
+                    <<"clientid">> := <<"c_emqx">>,
+                    <<"result">> :=
+                        #{
+                            <<"response">> :=
+                                #{
+                                    <<"body">> := <<"hello">>,
+                                    <<"headers">> :=
+                                        #{
+                                            <<"content-type">> := <<"text/plain">>,
+                                            <<"date">> := _,
+                                            <<"server">> := _
+                                        },
+                                    <<"status">> := 200
+                                },
+                            <<"result">> := <<"ok">>
+                        },
+                    <<"rule_id">> := _,
+                    <<"rule_trigger_time">> := _,
+                    <<"stop_action_after_render">> := false,
+                    <<"trace_tag">> := <<"ACTION">>
+                },
+            <<"msg">> := <<"action_success">>,
+            <<"time">> := _
+        },
+        LastEntryJSON
+    );
+do_final_log_check(_, _) ->
     ok.
 
 create_trace(TraceName, TraceType, TraceValue) ->

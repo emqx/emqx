@@ -20,7 +20,8 @@
     on_query/3,
     on_batch_query/3,
     on_get_status/2,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 %% -------------------------------------------------------------------------------------------------
@@ -125,26 +126,10 @@ on_query(
                 redis_bridge_connector_send_done,
                 #{instance_id => InstId, cmd => Cmd, batch => false, mode => sync, result => Result}
             ),
-            maybe_trace_format_result(Result);
+            Result;
         Error ->
             Error
     end.
-
-maybe_trace_format_result(Res) ->
-    %% If rule tracing is active, then we know that the connector is used by an
-    %% action and that the result is used for tracing only. This is why we can
-    %% add a function to lazily format the trace entry.
-    case emqx_trace:is_rule_trace_active() of
-        true ->
-            {ok, {fun trace_format_result/1, Res}};
-        false ->
-            Res
-    end.
-
-trace_format_result({ok, Msg}) ->
-    #{result => ok, message => Msg};
-trace_format_result(Res) ->
-    Res.
 
 on_batch_query(
     InstId, BatchData, _State = #{channels := Channels, conn_st := RedisConnSt}
@@ -172,10 +157,15 @@ on_batch_query(
                     result => Result
                 }
             ),
-            maybe_trace_format_result(Result);
+            Result;
         Error ->
             Error
     end.
+
+on_format_query_result({ok, Msg}) ->
+    #{result => ok, message => Msg};
+on_format_query_result(Res) ->
+    Res.
 
 %% -------------------------------------------------------------------------------------------------
 %% private helpers

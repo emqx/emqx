@@ -35,6 +35,11 @@
     end_at :: integer() | undefined | '_'
 }).
 
+-record(emqx_trace_format_func_data, {
+    function :: fun((any()) -> any()),
+    data :: any()
+}).
+
 -define(SHARD, ?COMMON_SHARD).
 -define(MAX_SIZE, 30).
 

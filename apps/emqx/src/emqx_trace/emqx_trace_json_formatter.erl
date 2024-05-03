@@ -16,6 +16,7 @@
 -module(emqx_trace_json_formatter).
 
 -include("emqx_mqtt.hrl").
+-include("emqx_trace.hrl").
 
 -export([format/2]).
 
@@ -30,15 +31,16 @@
     LogEvent :: logger:log_event(),
     Config :: config().
 format(
-    LogMap,
+    LogMap0,
     #{payload_encode := PEncode}
 ) ->
+    LogMap1 = emqx_trace_formatter:evaluate_lazy_values(LogMap0),
     %% We just make some basic transformations on the input LogMap and then do
     %% an external call to create the JSON text
     Time = emqx_utils_calendar:now_to_rfc3339(microsecond),
-    LogMap1 = LogMap#{time => Time},
-    LogMap2 = prepare_log_map(LogMap1, PEncode),
-    [emqx_logger_jsonfmt:best_effort_json(LogMap2, [force_utf8]), "\n"].
+    LogMap2 = LogMap1#{time => Time},
+    LogMap3 = prepare_log_map(LogMap2, PEncode),
+    [emqx_logger_jsonfmt:best_effort_json(LogMap3, [force_utf8]), "\n"].
 
 %%%-----------------------------------------------------------------
 %%% Helper Functions
@@ -48,55 +50,26 @@ prepare_log_map(LogMap, PEncode) ->
     NewKeyValuePairs = [prepare_key_value(K, V, PEncode) || {K, V} <- maps:to_list(LogMap)],
     maps:from_list(NewKeyValuePairs).
 
-prepare_key_value(K, {Formatter, V}, PEncode) when is_function(Formatter, 1) ->
-    %% A cusom formatter is provided with the value
-    try
-        NewV = Formatter(V),
-        prepare_key_value(K, NewV, PEncode)
-    catch
-        _:_ ->
-            {K, V}
-    end;
-prepare_key_value(K, {ok, {Formatter, V}}, PEncode) when is_function(Formatter, 1) ->
-    %% Unwrap
-    prepare_key_value(K, {Formatter, V}, PEncode);
-prepare_key_value(host, {I1, I2, I3, I4}, _PEncode) when
+prepare_key_value(host, {I1, I2, I3, I4} = IP, _PEncode) when
     is_integer(I1),
     is_integer(I2),
     is_integer(I3),
     is_integer(I4)
 ->
     %% We assume this is an IP address
-    {host,
-        unicode:characters_to_binary([
-            integer_to_binary(I1),
-            <<".">>,
-            integer_to_binary(I2),
-            <<".">>,
-            integer_to_binary(I3),
-            <<".">>,
-            integer_to_binary(I4)
-        ])};
-prepare_key_value(K, {ok, StatusCode, Headers}, PEncode) when
-    is_integer(StatusCode), StatusCode >= 200, StatusCode < 300, is_list(Headers)
+    {host, unicode:characters_to_binary(inet:ntoa(IP))};
+prepare_key_value(host, {I1, I2, I3, I4, I5, I6, I7, I8} = IP, _PEncode) when
+    is_integer(I1),
+    is_integer(I2),
+    is_integer(I3),
+    is_integer(I4),
+    is_integer(I5),
+    is_integer(I6),
+    is_integer(I7),
+    is_integer(I8)
 ->
-    prepare_key_value(K, {ok, StatusCode, Headers, <<"">>}, PEncode);
-prepare_key_value(K, {ok, StatusCode, Headers, Body}, PEncode) when
-    is_integer(StatusCode), StatusCode >= 200, StatusCode < 300, is_list(Headers)
-->
-    %% We assume this is that response of an HTTP request
-    prepare_key_value(
-        K,
-        #{
-            result => ok,
-            response => #{
-                status => StatusCode,
-                headers => Headers,
-                body => Body
-            }
-        },
-        PEncode
-    );
+    %% We assume this is an IP address
+    {host, unicode:characters_to_binary(inet:ntoa(IP))};
 prepare_key_value(payload = K, V, PEncode) ->
     NewV =
         try

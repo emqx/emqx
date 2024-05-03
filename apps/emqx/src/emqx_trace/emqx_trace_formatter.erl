@@ -15,9 +15,11 @@
 %%--------------------------------------------------------------------
 -module(emqx_trace_formatter).
 -include("emqx_mqtt.hrl").
+-include("emqx_trace.hrl").
 
 -export([format/2]).
 -export([format_meta_map/1]).
+-export([evaluate_lazy_values/1]).
 
 %% logger_formatter:config/0 is not exported.
 -type config() :: map().
@@ -28,18 +30,35 @@
     LogEvent :: logger:log_event(),
     Config :: config().
 format(
-    #{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg},
+    #{level := debug, meta := Meta0 = #{trace_tag := Tag}, msg := Msg},
     #{payload_encode := PEncode}
 ) ->
+    Meta1 = evaluate_lazy_values(Meta0),
     Time = emqx_utils_calendar:now_to_rfc3339(microsecond),
-    ClientId = to_iolist(maps:get(clientid, Meta, "")),
-    Peername = maps:get(peername, Meta, ""),
-    MetaBin = format_meta(Meta, PEncode),
+    ClientId = to_iolist(maps:get(clientid, Meta1, "")),
+    Peername = maps:get(peername, Meta1, ""),
+    MetaBin = format_meta(Meta1, PEncode),
     Msg1 = to_iolist(Msg),
     Tag1 = to_iolist(Tag),
     [Time, " [", Tag1, "] ", ClientId, "@", Peername, " msg: ", Msg1, ", ", MetaBin, "\n"];
 format(Event, Config) ->
-    emqx_logger_textfmt:format(Event, Config).
+    emqx_logger_textfmt:format(evaluate_lazy_values(Event), Config).
+
+evaluate_lazy_values(Map) when is_map(Map) ->
+    maps:map(fun evaluate_lazy_values_kv/2, Map);
+evaluate_lazy_values(V) ->
+    V.
+
+evaluate_lazy_values_kv(_K, #emqx_trace_format_func_data{function = Formatter, data = V}) ->
+    try
+        NewV = Formatter(V),
+        evaluate_lazy_values(NewV)
+    catch
+        _:_ ->
+            V
+    end;
+evaluate_lazy_values_kv(_K, V) ->
+    evaluate_lazy_values(V).
 
 format_meta_map(Meta) ->
     Encode = emqx_trace_handler:payload_encode(),

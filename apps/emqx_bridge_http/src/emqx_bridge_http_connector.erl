@@ -20,6 +20,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 
 -behaviour(emqx_resource).
 
@@ -35,7 +36,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([reply_delegator/3]).
@@ -414,24 +416,6 @@ on_query(
             Result
     end.
 
-maybe_trace_format_result(Res) ->
-    %% If rule tracing is active, then we know that the connector is used by an
-    %% action and that the result is used for tracing only. This is why we can
-    %% add a function to lazily format the trace entry.
-    case emqx_trace:is_rule_trace_active() of
-        true ->
-            {ok, {fun trace_format_result/1, Res}};
-        false ->
-            Res
-    end.
-
-trace_format_result({ok, Status, Headers, Body}) ->
-    #{status => Status, headers => Headers, body => Body};
-trace_format_result({ok, Status, Headers}) ->
-    #{status => Status, headers => Headers};
-trace_format_result(Result) ->
-    Result.
-
 %% BridgeV1 entrypoint
 on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
     case maps:get(request, State, undefined) of
@@ -533,9 +517,15 @@ trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, T
                     port => Port,
                     path => Path,
                     method => Method,
-                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
+                    headers => #emqx_trace_format_func_data{
+                        function = fun emqx_utils_redact:redact_headers/1,
+                        data = Headers
+                    },
                     timeout => Timeout,
-                    url => {fun render_url/1, {Scheme, Host, Port, Path}}
+                    url => #emqx_trace_format_func_data{
+                        function = fun render_url/1,
+                        data = {Scheme, Host, Port, Path}
+                    }
                 }
             );
         {Path, Headers, Body} ->
@@ -546,10 +536,19 @@ trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, T
                     port => Port,
                     path => Path,
                     method => Method,
-                    headers => {fun emqx_utils_redact:redact_headers/1, Headers},
+                    headers => #emqx_trace_format_func_data{
+                        function = fun emqx_utils_redact:redact_headers/1,
+                        data = Headers
+                    },
                     timeout => Timeout,
-                    body => {fun log_format_body/1, Body},
-                    url => {fun render_url/1, {Scheme, Host, Port, Path}}
+                    body => #emqx_trace_format_func_data{
+                        function = fun log_format_body/1,
+                        data = Body
+                    },
+                    url => #emqx_trace_format_func_data{
+                        function = fun render_url/1,
+                        data = {Scheme, Host, Port, Path}
+                    }
                 }
             )
     end.
@@ -644,6 +643,26 @@ on_get_channel_status(
 ) ->
     %% XXX: Reuse the connector status
     on_get_status(InstId, State).
+
+on_format_query_result({ok, Status, Headers, Body}) ->
+    #{
+        result => ok,
+        response => #{
+            status => Status,
+            headers => Headers,
+            body => Body
+        }
+    };
+on_format_query_result({ok, Status, Headers}) ->
+    #{
+        result => ok,
+        response => #{
+            status => Status,
+            headers => Headers
+        }
+    };
+on_format_query_result(Result) ->
+    Result.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -877,9 +896,9 @@ transform_result(Result) ->
         {error, _Reason} ->
             Result;
         {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            maybe_trace_format_result(Result);
+            Result;
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
-            maybe_trace_format_result(Result);
+            Result;
         {ok, _TooManyRequests = StatusCode = 429, Headers} ->
             {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, _ServiceUnavailable = StatusCode = 503, Headers} ->

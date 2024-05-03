@@ -38,7 +38,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([connect/1]).
@@ -693,11 +694,11 @@ handle_result({error, Error}) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_result(Res) ->
-    maybe_trace_format_result(Res).
+    Res.
 
-trace_format_result({ok, Cnt}) when is_integer(Cnt) ->
+on_format_query_result({ok, Cnt}) when is_integer(Cnt) ->
     #{result => ok, affected_rows => Cnt};
-trace_format_result(Res) ->
+on_format_query_result(Res) ->
     Res.
 
 handle_batch_result([{ok, Count} | Rest], Acc) ->
@@ -706,18 +707,7 @@ handle_batch_result([{error, Error} | _Rest], _Acc) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_batch_result([], Acc) ->
-    maybe_trace_format_result({ok, Acc}).
-
-maybe_trace_format_result(Res) ->
-    %% If rule tracing is active, then we know that the connector is used by an
-    %% action and that the result is used for tracing only. This is why we can
-    %% add a function to lazily format the trace entry.
-    case emqx_trace:is_rule_trace_active() of
-        true ->
-            {ok, {fun trace_format_result/1, Res}};
-        false ->
-            Res
-    end.
+    {ok, Acc}.
 
 translate_to_log_context({error, Reason}) ->
     translate_to_log_context(Reason);

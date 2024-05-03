@@ -767,20 +767,48 @@ do_inc_action_metrics(
     {error, {unrecoverable_error, _} = Reason}
 ) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
-    trace_action(ActId, "action_failed", maps:merge(#{reason => Reason}, TraceContext1)),
+    FormatterRes = #emqx_trace_format_func_data{
+        function = fun trace_formatted_result/1,
+        data = {ActId, Reason}
+    },
+    trace_action(ActId, "action_failed", maps:merge(#{reason => FormatterRes}, TraceContext1)),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(#{rule_id := RuleId, action_id := ActId} = TraceContext, R) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
+    FormatterRes = #emqx_trace_format_func_data{
+        function = fun trace_formatted_result/1,
+        data = {ActId, R}
+    },
     case is_ok_result(R) of
         false ->
-            trace_action(ActId, "action_failed", maps:merge(#{reason => R}, TraceContext1)),
+            trace_action(
+                ActId,
+                "action_failed",
+                maps:merge(#{reason => FormatterRes}, TraceContext1)
+            ),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
         true ->
-            trace_action(ActId, "action_success", maps:merge(#{result => R}, TraceContext1)),
+            trace_action(
+                ActId,
+                "action_success",
+                maps:merge(#{result => FormatterRes}, TraceContext1)
+            ),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
     end.
+
+trace_formatted_result({{bridge_v2, Type, _Name}, R}) ->
+    ConnectorType = emqx_action_info:action_type_to_connector_type(Type),
+    ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_resource:call_format_query_result(ResourceModule, R);
+trace_formatted_result({{bridge, BridgeType, _BridgeName, _ResId}, R}) ->
+    BridgeV2Type = emqx_action_info:bridge_v1_type_to_action_type(BridgeType),
+    ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeV2Type),
+    ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_resource:call_format_query_result(ResourceModule, R);
+trace_formatted_result({_, R}) ->
+    R.
 
 is_ok_result(ok) ->
     true;
