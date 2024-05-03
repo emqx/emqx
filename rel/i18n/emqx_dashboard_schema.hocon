@@ -28,10 +28,9 @@ cors.label:
 """CORS"""
 
 default_password.desc:
-"""The initial default password for dashboard 'admin' user.
-For safety, it should be changed as soon as possible.
-This value is not valid when you log in to Dashboard for the first time via the web
-and change to a complex password as prompted."""
+"""The password used to initialize a database record for `admin` user.
+NOTE: Changing the default password after it has been initialized (boot up for the fist time) has no effect.
+Once initialized, the default password `public` must be changed from dashboard or CLI as soon as possible."""
 
 default_password.label:
 """Default password"""

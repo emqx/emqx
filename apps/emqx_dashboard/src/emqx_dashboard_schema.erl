@@ -254,6 +254,10 @@ default_username(default) -> <<"admin">>;
 default_username(required) -> true;
 default_username(desc) -> ?DESC(default_username);
 default_username('readOnly') -> true;
+%% username is hidden but password is not,
+%% this is because we want to force changing 'admin' user's password.
+%% instead of suggesting to create a new user --- which could be
+%% more prone to leaving behind 'admin' user's password unchanged without detection.
 default_username(importance) -> ?IMPORTANCE_HIDDEN;
 default_username(_) -> undefined.
 
@@ -264,7 +268,7 @@ default_password('readOnly') -> true;
 default_password(sensitive) -> true;
 default_password(converter) -> fun emqx_schema:password_converter/2;
 default_password(desc) -> ?DESC(default_password);
-default_password(importance) -> ?IMPORTANCE_HIDDEN;
+default_password(importance) -> ?IMPORTANCE_LOW;
 default_password(_) -> undefined.
 
 cors(type) -> boolean();
