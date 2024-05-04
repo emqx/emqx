@@ -10,14 +10,32 @@ dashboard {
     cors = false
 
     listeners.https {
-
         ## Port or Address to listen on, 0 means disable
         bind = "0.0.0.0:18084" ## or just a port number, e.g. 18084
+
+        ssl_options {
+            ## PEM format certificates chain.
+            ## Server certificate as the first one,
+            ## followed by its immediate issuer certificate
+            ## then the issuer's issuer certificate, and so on.
+            ## Root CA certificate is optional.
+            ## The path prefix (only prefix) can be an environment variable.
+            certfile = "${EMQX_ETC_DIR}/certs/cert.pem"
+
+            ## PEM format private key
+            keyfile = "${EMQX_ETC_DIR}/certs/key.pem"
+
+            ## Optional. When need to verify client certificates, list trusted client's root CA certificates in this file
+            # cacertfile = "${EMQX_ETC_DIR}/certs/cacert.pem"
+
+            ## Optional. Force client to send their certificate chain during TLS handshake.
+            # fail_if_no_peer_cert = true
+        }
 
         ## Socket acceptor pool size for TCP protocols
         num_acceptors = 8
 
-        ## Maximum number of simultaneous connections
+        ## Maximum number of concurrent connections
         max_connections = 512
 
         ## Defines the maximum length that the queue of pending connections can grow to
@@ -32,51 +50,7 @@ dashboard {
         ## Disable IPv4-to-IPv6 mapping for the listener
         ipv6_v6only = false
 
-        ## Enable support for `HAProxy` header
+        ## Enable support for ProxyProtocol v2 header
         proxy_header = false
-
-        ## Trusted PEM format CA certificates bundle file
-        cacertfile = "data/certs/cacert.pem"
-
-        ## PEM format certificates chain file
-        certfile = "data/certs/cert.pem"
-
-        ## PEM format private key file
-        keyfile = "data/certs/key.pem"
-
-        ## Enable or disable peer verification
-        verify = verify_none  ## use verify_peer to enable
-
-        ## Enable TLS session reuse
-        reuse_sessions = true
-
-        ## Maximum number of non-self-issued intermediate certificates that can follow the peer certificate in a valid certification path
-        depth = 10
-
-        ## Which versions are to be supported
-        versions = [tlsv1.3, tlsv1.2]
-
-        ## TLS cipher suite names
-        ## Note: By default, all available suites are supported, you do not need to set this
-        ciphers = ["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]
-
-        ## Allows a client and a server to renegotiate the parameters of the SSL connection on the fly
-        secure_renegotiate = true
-
-        ## Log level for SSL communication
-        ## Type: emergency | alert | critical | error | warning | notice | info | debug | none | all
-        log_level = notice
-
-        ## Hibernate the SSL process after idling for amount of time reducing its memory footprint
-        hibernate_after = 5s
-
-        ## Forces the cipher to be set based on the server-specified order instead of the client-specified order
-        honor_cipher_order = true
-
-        ##  Setting this to false to disable client-initiated renegotiation
-        client_renegotiation = true
-
-        ## Maximum time duration allowed for the handshake to complete
-        handshake_timeout = 15s
     }
 }
