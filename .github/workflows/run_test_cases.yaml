@@ -20,9 +20,6 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: read
-
 env:
   IS_CI: "yes"
 
@@ -39,6 +36,9 @@ jobs:
       run:
         shell: bash
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
+
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
@@ -81,6 +81,9 @@ jobs:
     defaults:
       run:
         shell: bash
+
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
@@ -136,6 +139,9 @@ jobs:
     defaults:
       run:
         shell: bash
+
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
@@ -195,6 +201,10 @@ jobs:
       matrix:
         profile:
           - emqx-enterprise
+
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
         with:
@@ -232,11 +242,10 @@ jobs:
     if: github.repository == 'emqx/emqx'
     needs: make_cover
     runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
     steps:
-      - name: Coveralls Finished
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl -v -k https://coveralls.io/webhook \
-               --header "Content-Type: application/json" \
-               --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}" || true
+      - name: Coveralls finished
+        uses: coverallsapp/github-action@3dfc5567390f6fa9267c0ee9c251e4c8c3f18949 # v2.2.3
+        with:
+          parallel-finished: true
