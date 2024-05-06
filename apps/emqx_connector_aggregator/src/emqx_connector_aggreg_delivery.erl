@@ -91,7 +91,7 @@ open_buffer(#buffer{filename = Filename}) ->
             {_Meta, Reader} = emqx_connector_aggreg_buffer:new_reader(FD),
             Reader;
         {error, Reason} ->
-            error({buffer_open_failed, Reason})
+            error(#{reason => buffer_open_failed, file => Filename, posix => Reason})
     end.
 
 mk_container(#{type := csv, column_order := OrderOpt}) ->
