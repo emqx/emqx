@@ -79,7 +79,44 @@
     request_base/0
 ]).
 
-%%--------------------------------------------------------------------
+-on_load(init/0).
+
+%% https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
+%%
+%% > The following line is the regular expression for breaking-down a
+%% > well-formed URI reference into its components.
+%%
+%% > ^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?
+%%
+%% We skip capturing some unused parts of the regex.
+
+-define(URI_REGEX,
+    ("^(?:(?<scheme>[^:/?#]+):)?(?<authority>//[^/?#]*)?"
+    "(?<path>[^?#]*)(?<query>\\?[^#]*)?(?<fragment>#.*)?")
+).
+
+-define(URI_REGEX_PT_KEY, {?MODULE, uri_re}).
+
+-define(AUTHORITY_REGEX,
+    ("^(?<userinfo>.*@)?"
+    "(?:(?:\\[(?<host_ipv6>[a-z\\d\\.:]*)\\])|(?<host_regular>[^:]*?)|(?<host_loose>.*?))"
+    "(?<port>:\\d+)?$")
+).
+
+-define(AUTHORITY_REGEX_PT_KEY, {?MODULE, authority_re}).
+
+%%-------------------------------------------------------------------
+%% Internal API
+%%-------------------------------------------------------------------
+
+init() ->
+    {ok, UriRE} = re:compile(?URI_REGEX),
+    persistent_term:put(?URI_REGEX_PT_KEY, UriRE),
+
+    {ok, AuthorityRE} = re:compile(?AUTHORITY_REGEX, [caseless]),
+    persistent_term:put(?AUTHORITY_REGEX_PT_KEY, AuthorityRE).
+
+%%-------------------------------------------------------------------
 %% API
 %%-------------------------------------------------------------------
 
@@ -161,15 +198,8 @@ parse_query(<<$?, Query/binary>>) -> Query.
 parse_fragment(<<>>) -> undefined;
 parse_fragment(<<$#, Fragment/binary>>) -> Fragment.
 
--define(AUTHORITY_REGEX,
-    ("^(?<userinfo>.*@)?"
-    "(?:(?:\\[(?<host_ipv6>[a-z\\d\\.:]*)\\])|(?<host_regular>[^:]*?)|(?<host_loose>.*?))"
-    "(?<port>:\\d+)?$")
-).
-
 authority_regexp() ->
-    {ok, RE} = re:compile(?AUTHORITY_REGEX, [caseless]),
-    RE.
+    persistent_term:get(?AUTHORITY_REGEX_PT_KEY).
 
 parse_authority(<<>>) ->
     undefined;
@@ -200,23 +230,8 @@ parse_host(Host, <<>>, <<>>) -> {ipv6, Host}.
 parse_port(<<>>) -> undefined;
 parse_port(<<$:, Port/binary>>) -> binary_to_integer(Port).
 
-%% https://datatracker.ietf.org/doc/html/rfc3986#appendix-B
-%%
-%% > The following line is the regular expression for breaking-down a
-%% > well-formed URI reference into its components.
-%%
-%% > ^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?
-%%
-%% We skip capturing some unused parts of the regex.
-
--define(URI_REGEX,
-    ("^(?:(?<scheme>[^:/?#]+):)?(?<authority>//[^/?#]*)?"
-    "(?<path>[^?#]*)(?<query>\\?[^#]*)?(?<fragment>#.*)?")
-).
-
 uri_regexp() ->
-    {ok, RE} = re:compile(?URI_REGEX, [caseless]),
-    RE.
+    persistent_term:get(?URI_REGEX_PT_KEY).
 
 format_scheme(undefined) -> <<>>;
 format_scheme(Scheme) -> [Scheme, $:].
