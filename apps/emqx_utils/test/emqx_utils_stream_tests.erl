@@ -157,6 +157,14 @@ mqueue_test() ->
         emqx_utils_stream:consume(emqx_utils_stream:mqueue(400))
     ).
 
+interleave_test() ->
+    S1 = emqx_utils_stream:list([1, 2, 3]),
+    S2 = emqx_utils_stream:list([a, b, c, d]),
+    ?assertEqual(
+        [1, 2, a, b, 3, c, d],
+        emqx_utils_stream:consume(emqx_utils_stream:interleave([{2, S1}, {2, S2}]))
+    ).
+
 csv_test() ->
     Data1 = <<"h1,h2,h3\r\nvv1,vv2,vv3\r\nvv4,vv5,vv6">>,
     ?assertEqual(

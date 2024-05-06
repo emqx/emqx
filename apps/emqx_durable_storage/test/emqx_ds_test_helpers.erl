@@ -18,6 +18,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx_utils/include/emqx_message.hrl").
+
 %% RPC mocking
 
 mock_rpc() ->

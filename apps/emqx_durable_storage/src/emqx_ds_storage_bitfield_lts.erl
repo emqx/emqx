@@ -482,13 +482,17 @@ delete_next_until(
     end.
 
 handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
-    %% Cause replication layer to bump timestamp when idle
     case ets:lookup(Gvars, ?IDLE_DETECT) of
-        [{?IDLE_DETECT, false, LastWrittenTs}] when
-            ?EPOCH(State, LastWrittenTs) > ?EPOCH(State, Time)
-        ->
+        [{?IDLE_DETECT, Latch, LastWrittenTs}] ->
+            ok;
+        [] ->
+            Latch = false,
+            LastWrittenTs = 0
+    end,
+    case Latch of
+        false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) ->
             ets:insert(Gvars, {?IDLE_DETECT, true, LastWrittenTs}),
-            [emqx_ds_storage_bitfield_lts_dummy_event];
+            [dummy_event];
         _ ->
             []
     end;

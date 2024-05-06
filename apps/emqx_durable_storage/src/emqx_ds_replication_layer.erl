@@ -88,6 +88,7 @@
 ]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds_replication_layer.hrl").
 
 %%================================================================================
@@ -691,37 +692,39 @@ apply(
         ?tag := ?BATCH,
         ?batch_messages := MessagesIn
     },
-    #{db_shard := DBShard = {DB, Shard}, latest := Latest0} = State
+    #{db_shard := DBShard = {DB, Shard}, latest := Latest0} = State0
 ) ->
     %% NOTE
     %% Unique timestamp tracking real time closely.
     %% With microsecond granularity it should be nearly impossible for it to run
     %% too far ahead than the real time clock.
+    ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => MessagesIn, ts => Latest0}),
     {Latest, Messages} = assign_timestamps(Latest0, MessagesIn),
     Result = emqx_ds_storage_layer:store_batch(DBShard, Messages, #{}),
-    NState = State#{latest := Latest},
+    State = State0#{latest := Latest},
+    set_ts(DBShard, Latest),
     %% TODO: Need to measure effects of changing frequency of `release_cursor`.
-    Effect = {release_cursor, RaftIdx, NState},
-    emqx_ds_builtin_sup:set_gvar(DB, ?gv_timestamp(Shard), Latest),
-    {NState, Result, Effect};
+    Effect = {release_cursor, RaftIdx, State},
+    {State, Result, Effect};
 apply(
     _RaftMeta,
     #{?tag := add_generation, ?since := Since},
-    #{db_shard := DBShard, latest := Latest} = State
+    #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
-    {Timestamp, NLatest} = ensure_monotonic_timestamp(Since, Latest),
+    {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
-    NState = State#{latest := NLatest},
-    {NState, Result};
+    State = State0#{latest := Latest},
+    set_ts(DBShard, Latest),
+    {State, Result};
 apply(
     _RaftMeta,
     #{?tag := update_config, ?since := Since, ?config := Opts},
-    #{db_shard := DBShard, latest := Latest} = State
+    #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
-    {Timestamp, NLatest} = ensure_monotonic_timestamp(Since, Latest),
+    {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:update_config(DBShard, Timestamp, Opts),
-    NState = State#{latest := NLatest},
-    {NState, Result};
+    State = State0#{latest := Latest},
+    {State, Result};
 apply(
     _RaftMeta,
     #{?tag := drop_generation, ?generation := GenId},
@@ -730,17 +733,28 @@ apply(
     Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
     {State, Result};
 apply(
-    _RaftMeta,
+    #{index := RaftIdx},
     #{?tag := storage_event, ?payload := CustomEvent},
     #{db_shard := DBShard, latest := Latest0} = State
 ) ->
     {Timestamp, Latest} = ensure_monotonic_timestamp(emqx_ds:timestamp_us(), Latest0),
+    set_ts(DBShard, Latest),
+    ?tp(
+        debug,
+        emqx_ds_replication_layer_storage_event,
+        #{
+            shard => DBShard, ts => Timestamp, payload => CustomEvent
+        }
+    ),
     Effects = handle_custom_event(DBShard, Timestamp, CustomEvent),
     {State#{latest := Latest}, ok, Effects}.
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
-tick(TimeMs, #{db_shard := DBShard, latest := Latest}) ->
+tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
+    %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = assign_timestamp(timestamp_to_timeus(TimeMs), Latest),
+    ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, ts => Timestamp}),
+    set_ts(DBShard, Latest),
     handle_custom_event(DBShard, Timestamp, tick).
 
 assign_timestamps(Latest, Messages) ->
@@ -781,6 +795,11 @@ handle_custom_event(DBShard, Latest, Event) ->
         [{append, #{?tag => storage_event, ?payload => I}} || I <- Events]
     catch
         EC:Err:Stacktrace ->
-            logger:error(#{EC => Err, stacktrace => Stacktrace, msg => "ds_storage_layer_tick"}),
+            ?tp(error, ds_storage_custom_even_fail, #{
+                EC => Err, stacktrace => Stacktrace, event => Event
+            }),
             []
     end.
+
+set_ts({DB, Shard}, TS) ->
+    emqx_ds_builtin_sup:set_gvar(DB, ?gv_timestamp(Shard), TS).
