@@ -4,8 +4,7 @@
     {registered, []},
     {applications, [
         kernel,
-        stdlib,
-        emqx_resource
+        stdlib
     ]},
     {env, []},
     {mod, {emqx_connector_aggreg_app, []}},
