@@ -657,7 +657,8 @@ handle_in(
     ?PACKET(?CMD_HEARTBEAT),
     Channel = #channel{heartbeat = Heartbeat}
 ) ->
-    NewHeartbeat = emqx_stomp_heartbeat:reset(incoming, 0, Heartbeat),
+    NewVal = emqx_pd:get_counter(recv_pkt),
+    NewHeartbeat = emqx_stomp_heartbeat:reset(incoming, NewVal, Heartbeat),
     {ok, Channel#channel{heartbeat = NewHeartbeat}};
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
     shutdown(Reason, Channel);
