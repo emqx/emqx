@@ -706,12 +706,12 @@ For additional peer certificate validation, the value defined here must present 
 [rfc5280](https://www.rfc-editor.org/rfc/rfc5280#section-4.2.1.12).
 
 Allowed values are
-- "clientAuth"
-- "serverAuth"
-- "codeSigning"
-- "emailProtection"
-- "timeStamping"
-- "ocspSigning"
+- `clientAuth`
+- `serverAuth`
+- `codeSigning`
+- `emailProtection`
+- `timeStamping`
+- `ocspSigning`
 - raw OID, for example: "OID:1.3.6.1.5.5.7.3.2" means `id-pk 2` which is equivalent to `clientAuth`
 
 Comma-separated string is also supported for validating more than one key usages.
