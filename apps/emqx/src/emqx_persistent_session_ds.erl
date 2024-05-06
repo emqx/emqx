@@ -658,16 +658,17 @@ replay_batch(Srs0, Session0, ClientInfo) ->
 %%--------------------------------------------------------------------
 
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
-disconnect(Session = #{s := S0}, ConnInfo) ->
-    S1 = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
-    S2 =
+disconnect(Session = #{id := Id, s := S0}, ConnInfo) ->
+    S1 = maybe_set_offline_info(S0, Id),
+    S2 = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S1),
+    S3 =
         case ConnInfo of
             #{expiry_interval := EI} when is_number(EI) ->
-                emqx_persistent_session_ds_state:set_expiry_interval(EI, S1);
+                emqx_persistent_session_ds_state:set_expiry_interval(EI, S2);
             _ ->
-                S1
+                S2
         end,
-    S = emqx_persistent_session_ds_state:commit(S2),
+    S = emqx_persistent_session_ds_state:commit(S3),
     {shutdown, Session#{s => S}}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
@@ -1173,6 +1174,19 @@ try_get_live_session(ClientId) ->
             end;
         _ ->
             not_found
+    end.
+
+-spec maybe_set_offline_info(emqx_persistent_session_ds_state:t(), emqx_types:clientid()) ->
+    emqx_persistent_session_ds_state:t().
+maybe_set_offline_info(S, Id) ->
+    case emqx_cm:lookup_client({clientid, Id}) of
+        [{_Key, ChannelInfo, Stats}] ->
+            emqx_persistent_session_ds_state:set_offline_info(
+                #{chan_info => ChannelInfo, stats => Stats},
+                S
+            );
+        _ ->
+            S
     end.
 
 %%--------------------------------------------------------------------

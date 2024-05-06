@@ -1800,6 +1800,11 @@ maybe_json_decode(X) ->
         {error, _} -> X
     end.
 
+get_client_request(Port, ClientId) ->
+    Host = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["clients", ClientId]),
+    request(get, Path, []).
+
 list_request(Port) ->
     list_request(Port, _QueryParams = "").
 
@@ -1873,6 +1878,19 @@ assert_single_client(Opts) ->
     ?assertMatch(
         {ok, {{_, 200, _}, _, #{<<"connected">> := IsConnected}}},
         lookup_request(ClientId, APIPort)
+    ),
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"connected">> := IsConnected,
+                <<"is_persistent">> := true,
+                %% contains statistics from disconnect time
+                <<"recv_pkt">> := _,
+                %% contains channel info from disconnect time
+                <<"listener">> := _,
+                <<"clean_start">> := _
+            }}},
+        get_client_request(APIPort, ClientId)
     ),
     ok.
 
