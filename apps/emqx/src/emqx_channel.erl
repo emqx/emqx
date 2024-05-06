@@ -2636,10 +2636,15 @@ disconnect_and_shutdown(
 ->
     NChannel = ensure_disconnected(Reason, Channel),
     shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), NChannel);
-%% mqtt v3/v4 sessions, mqtt v5 other conn_state sessions
-disconnect_and_shutdown(Reason, Reply, Channel) ->
+%% mqtt v3/v4 connected sessions
+disconnect_and_shutdown(Reason, Reply, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= connected orelse ConnState =:= reauthenticating
+->
     NChannel = ensure_disconnected(Reason, Channel),
-    shutdown(Reason, Reply, NChannel).
+    shutdown(Reason, Reply, NChannel);
+%% other conn_state sessions
+disconnect_and_shutdown(Reason, Reply, Channel) ->
+    shutdown(Reason, Reply, Channel).
 
 -compile({inline, [sp/1, flag/1]}).
 sp(true) -> 1;
