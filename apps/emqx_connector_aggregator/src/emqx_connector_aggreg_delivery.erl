@@ -42,12 +42,19 @@
 
 -type transfer_state() :: term().
 
+%% @doc Initialize the transfer state, such as blob storage path, transfer options, client
+%% credentials, etc. .
 -callback init_transfer_state(buffer_map(), map()) -> transfer_state().
 
+%% @doc Append data to the transfer before sending.  Usually should not fail.
 -callback process_append(iodata(), transfer_state()) -> transfer_state().
 
+%% @doc Push appended transfer data to its destination (e.g.: upload a part of a
+%% multi-part upload).  May fail.
 -callback process_write(transfer_state()) -> {ok, transfer_state()} | {error, term()}.
 
+%% @doc Finalize the transfer and clean up any resources.  May return a term summarizing
+%% the transfer.
 -callback process_complete(transfer_state()) -> {ok, term()}.
 
 %%
