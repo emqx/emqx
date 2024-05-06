@@ -29,7 +29,8 @@
     on_query_async/4,
     on_batch_query/3,
     on_batch_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    on_format_query_result/1
 ]).
 
 %% callbacks of ecpool
@@ -458,6 +459,11 @@ handle_result({error, Error}) ->
     {error, {unrecoverable_error, Error}};
 handle_result(Res) ->
     Res.
+
+on_format_query_result({ok, Result}) ->
+    #{result => ok, info => Result};
+on_format_query_result(Result) ->
+    Result.
 
 %%--------------------------------------------------------------------
 %% utils

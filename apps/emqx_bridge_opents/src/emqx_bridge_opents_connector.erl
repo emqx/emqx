@@ -27,7 +27,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([connector_examples/1]).
@@ -174,6 +175,11 @@ on_batch_query(
         Error ->
             Error
     end.
+
+on_format_query_result({ok, StatusCode, BodyMap}) ->
+    #{result => ok, status_code => StatusCode, body => BodyMap};
+on_format_query_result(Result) ->
+    Result.
 
 on_get_status(_InstanceId, #{server := Server}) ->
     Result =

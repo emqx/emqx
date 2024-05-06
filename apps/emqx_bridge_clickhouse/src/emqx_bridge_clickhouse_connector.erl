@@ -38,7 +38,8 @@
     on_get_channels/1,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_format_query_result/1
 ]).
 
 %% callbacks for ecpool
@@ -518,6 +519,13 @@ transform_and_log_clickhouse_result(ClickhouseErrorResult, ResourceID, SQL) ->
             }),
             to_error_tuple(ClickhouseErrorResult)
     end.
+
+on_format_query_result(ok) ->
+    #{result => ok, message => <<"">>};
+on_format_query_result({ok, Message}) ->
+    #{result => ok, message => Message};
+on_format_query_result(Result) ->
+    Result.
 
 to_recoverable_error({error, Reason}) ->
     {error, {recoverable_error, Reason}};

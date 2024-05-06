@@ -27,7 +27,8 @@
     on_batch_query/3,
     on_query_async/4,
     on_batch_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    on_format_query_result/1
 ]).
 -export([reply_callback/2]).
 
@@ -208,6 +209,9 @@ on_batch_query_async(
             ),
             {error, {unrecoverable_error, Reason}}
     end.
+
+on_format_query_result(Result) ->
+    emqx_bridge_http_connector:on_format_query_result(Result).
 
 on_get_status(_InstId, #{client := Client}) ->
     case influxdb:is_alive(Client) andalso ok =:= influxdb:check_auth(Client) of

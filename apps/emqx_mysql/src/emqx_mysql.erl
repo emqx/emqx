@@ -30,7 +30,8 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_format_query_result/1
 ]).
 
 %% ecpool connect & reconnect
@@ -213,6 +214,13 @@ on_batch_query(
         state => State
     }),
     {error, {unrecoverable_error, invalid_request}}.
+
+on_format_query_result({ok, ColumnNames, Rows}) ->
+    #{result => ok, column_names => ColumnNames, rows => Rows};
+on_format_query_result({ok, DataList}) ->
+    #{result => ok, column_names_rows_list => DataList};
+on_format_query_result(Result) ->
+    Result.
 
 mysql_function(sql) ->
     query;
