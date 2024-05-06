@@ -116,10 +116,10 @@ process_delivery(Delivery0 = #delivery{reader = Reader0}, Parent, Debug) ->
             Delivery1 = Delivery0#delivery{reader = Reader},
             Delivery2 = process_append_records(Records, Delivery1),
             Delivery = process_write(Delivery2),
-            loop(Delivery, Parent, Debug);
+            ?MODULE:loop(Delivery, Parent, Debug);
         {[], Reader} ->
             Delivery = Delivery0#delivery{reader = Reader},
-            loop(Delivery, Parent, Debug);
+            ?MODULE:loop(Delivery, Parent, Debug);
         eof ->
             process_complete(Delivery0);
         {Unexpected, _Reader} ->
@@ -170,11 +170,11 @@ handle_msg({system, From, Msg}, Delivery, Parent, Debug) ->
 handle_msg({'EXIT', Parent, Reason}, Delivery, Parent, Debug) ->
     system_terminate(Reason, Parent, Debug, Delivery);
 handle_msg(_Msg, Delivery, Parent, Debug) ->
-    loop(Parent, Debug, Delivery).
+    ?MODULE:loop(Parent, Debug, Delivery).
 
 -spec system_continue(pid(), [sys:debug_option()], state()) -> no_return().
 system_continue(Parent, Debug, Delivery) ->
-    loop(Delivery, Parent, Debug).
+    ?MODULE:loop(Delivery, Parent, Debug).
 
 -spec system_terminate(_Reason, pid(), [sys:debug_option()], state()) -> _.
 system_terminate(_Reason, _Parent, _Debug, #delivery{callback_module = Mod, transfer = Transfer}) ->
