@@ -85,7 +85,7 @@ on_start(
         config => redact(Config)
     }),
 
-    {Schema, Server, DefaultPort} = get_host_info(to_str(Url)),
+    {Scheme, Server, DefaultPort} = get_host_info(to_str(Url)),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, #{
         default_port => DefaultPort
     }),
@@ -96,7 +96,7 @@ on_start(
             port => Port,
             aws_access_key_id => to_str(AccessKeyID),
             aws_secret_access_key => SecretAccessKey,
-            schema => Schema
+            scheme => Scheme
         }},
         {pool_size, PoolSize}
     ],

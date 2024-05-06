@@ -85,6 +85,16 @@ init_per_testcase(t_path_not_found, Config) ->
     ),
     ok = emqx_bridge_http_connector_test_server:set_handler(not_found_http_handler()),
     [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
+init_per_testcase(t_empty_path, Config) ->
+    HTTPPath = <<"/">>,
+    ServerSSLOpts = false,
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
+        _Port = random, HTTPPath, ServerSSLOpts
+    ),
+    ok = emqx_bridge_http_connector_test_server:set_handler(
+        emqx_bridge_http_test_lib:success_http_handler()
+    ),
+    [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
 init_per_testcase(t_too_many_requests, Config) ->
     HTTPPath = <<"/path">>,
     ServerSSLOpts = false,
@@ -122,6 +132,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(TestCase, _Config) when
     TestCase =:= t_path_not_found;
+    TestCase =:= t_empty_path;
     TestCase =:= t_too_many_requests;
     TestCase =:= t_service_unavailable;
     TestCase =:= t_rule_action_expired;
@@ -574,6 +585,45 @@ t_path_not_found(Config) ->
                             matched := 1,
                             failed := 1,
                             success := 0
+                        }
+                    },
+                    get_metrics(?BRIDGE_NAME)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(http_will_retry_async, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+t_empty_path(Config) ->
+    ?check_trace(
+        begin
+            #{port := Port, path := _Path} = ?config(http_server, Config),
+            MQTTTopic = <<"t/webhook">>,
+            BridgeConfig = emqx_bridge_http_test_lib:bridge_async_config(#{
+                type => ?BRIDGE_TYPE,
+                name => ?BRIDGE_NAME,
+                local_topic => MQTTTopic,
+                port => Port,
+                path => <<"">>
+            }),
+            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            Msg = emqx_message:make(MQTTTopic, <<"{}">>),
+            emqx:publish(Msg),
+            wait_http_request(),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 1,
+                            failed := 0,
+                            success := 1
                         }
                     },
                     get_metrics(?BRIDGE_NAME)

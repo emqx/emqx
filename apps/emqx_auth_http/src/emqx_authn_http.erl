@@ -134,21 +134,25 @@ parse_config(
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    {BaseUrl0, Path, Query} = emqx_authn_utils:parse_url(RawUrl),
-    {ok, BaseUrl} = emqx_http_lib:uri_parse(BaseUrl0),
+    {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
     State = #{
         method => Method,
         path => Path,
         headers => ensure_header_name_type(Headers),
         base_path_template => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
-            cow_qs:parse_qs(to_bin(Query))
+            cow_qs:parse_qs(Query)
         ),
         body_template => emqx_authn_utils:parse_deep(maps:get(body, Config, #{})),
         request_timeout => RequestTimeout,
         url => RawUrl
     },
-    {ok, Config#{base_url => BaseUrl, pool_type => random}, State}.
+    {ok,
+        Config#{
+            request_base => RequestBase,
+            pool_type => random
+        },
+        State}.
 
 generate_request(Credential, #{
     method := Method,
@@ -244,14 +248,14 @@ request_for_log(Credential, #{url := Url, method := Method} = State) ->
         {PathQuery, Headers} ->
             #{
                 method => Method,
-                base_url => Url,
+                url => Url,
                 path_query => PathQuery,
                 headers => Headers
             };
         {PathQuery, Headers, Body} ->
             #{
                 method => Method,
-                base_url => Url,
+                url => Url,
                 path_query => PathQuery,
                 headers => Headers,
                 body => Body
@@ -271,11 +275,6 @@ to_list(B) when is_binary(B) ->
     binary_to_list(B);
 to_list(L) when is_list(L) ->
     L.
-
-to_bin(B) when is_binary(B) ->
-    B;
-to_bin(L) when is_list(L) ->
-    list_to_binary(L).
 
 ensure_header_name_type(Headers) ->
     Fun = fun

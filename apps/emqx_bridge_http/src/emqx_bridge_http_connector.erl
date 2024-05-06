@@ -51,7 +51,7 @@
 %% for other http-like connectors.
 -export([redact_request/1]).
 
--export([validate_method/1, join_paths/2, formalize_request/3, transform_result/1]).
+-export([validate_method/1, join_paths/2, formalize_request/2, transform_result/1]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 -define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
@@ -187,11 +187,10 @@ callback_mode() -> async_if_possible.
 on_start(
     InstId,
     #{
-        base_url := #{
+        request_base := #{
             scheme := Scheme,
             host := Host,
-            port := Port,
-            path := BasePath
+            port := Port
         },
         connect_timeout := ConnectTimeout,
         pool_type := PoolType,
@@ -225,13 +224,13 @@ on_start(
         {transport_opts, NTransportOpts},
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
+
     State = #{
         pool_name => InstId,
         pool_type => PoolType,
         host => Host,
         port => Port,
         connect_timeout => ConnectTimeout,
-        base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
     case start_pool(InstId, PoolOpts) of
@@ -359,7 +358,7 @@ on_query(InstId, {Method, Request, Timeout}, State) ->
 on_query(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout, Retry},
-    #{base_path := BasePath, host := Host} = State
+    #{host := Host} = State
 ) ->
     ?TRACE(
         "QUERY",
@@ -372,7 +371,7 @@ on_query(
             state => redact(State)
         }
     ),
-    NRequest = formalize_request(Method, BasePath, Request),
+    NRequest = formalize_request(Method, Request),
     trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
     Worker = resolve_pool_worker(State, KeyOrNum),
     Result0 = ehttpc:request(
@@ -469,7 +468,7 @@ on_query_async(
     InstId,
     {ActionId, KeyOrNum, Method, Request, Timeout},
     ReplyFunAndArgs,
-    #{base_path := BasePath, host := Host} = State
+    #{host := Host} = State
 ) ->
     Worker = resolve_pool_worker(State, KeyOrNum),
     ?TRACE(
@@ -482,7 +481,7 @@ on_query_async(
             state => redact(State)
         }
     ),
-    NRequest = formalize_request(Method, BasePath, Request),
+    NRequest = formalize_request(Method, Request),
     trace_rendered_action_template(ActionId, Host, Method, NRequest, Timeout),
     MaxAttempts = maps:get(max_attempts, State, 3),
     Context = #{
@@ -764,6 +763,9 @@ make_method(M) when M == <<"POST">>; M == <<"post">> -> post;
 make_method(M) when M == <<"PUT">>; M == <<"put">> -> put;
 make_method(M) when M == <<"GET">>; M == <<"get">> -> get;
 make_method(M) when M == <<"DELETE">>; M == <<"delete">> -> delete.
+
+formalize_request(Method, Request) ->
+    formalize_request(Method, "/", Request).
 
 formalize_request(Method, BasePath, {Path, Headers, _Body}) when
     Method =:= get; Method =:= delete

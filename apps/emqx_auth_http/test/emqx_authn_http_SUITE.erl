@@ -111,7 +111,11 @@ t_create_invalid(_Config) ->
     InvalidConfigs =
         [
             AuthConfig#{<<"headers">> => []},
-            AuthConfig#{<<"method">> => <<"delete">>}
+            AuthConfig#{<<"method">> => <<"delete">>},
+            AuthConfig#{<<"url">> => <<"localhost">>},
+            AuthConfig#{<<"url">> => <<"http://foo.com/xxx#fragment">>},
+            AuthConfig#{<<"url">> => <<"http://${foo}.com/xxx">>},
+            AuthConfig#{<<"url">> => <<"//foo.com/xxx">>}
         ],
 
     lists:foreach(
