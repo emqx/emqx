@@ -20,6 +20,14 @@
     actor_gc/1
 ]).
 
+%% Internal API
+-export([
+    mnesia_actor_init/3,
+    mnesia_actor_heartbeat/3,
+    mnesia_clean_incarnation/1,
+    apply_actor_operation/5
+]).
+
 %% Strictly monotonically increasing integer.
 -type smint() :: integer().
 
@@ -127,8 +135,8 @@ match_to_route(M) ->
 
 -spec actor_init(actor(), incarnation(), env()) -> {ok, state()}.
 actor_init(Actor, Incarnation, Env = #{timestamp := Now}) ->
-    %% FIXME: Sane transactions.
-    case transaction(fun mnesia_actor_init/3, [Actor, Incarnation, Now]) of
+    %% TODO: Rolling upgrade safety?
+    case transaction(fun ?MODULE:mnesia_actor_init/3, [Actor, Incarnation, Now]) of
         {ok, State} ->
             {ok, State};
         {reincarnate, Rec} ->
@@ -173,16 +181,29 @@ actor_apply_operation(
     State = #state{actor = Actor, incarnation = Incarnation, lane = Lane},
     _Env
 ) ->
-    _ = assert_current_incarnation(Actor, Incarnation),
-    _ = apply_operation(emqx_topic_index:make_key(TopicFilter, ID), OpName, Lane),
+    Entry = emqx_topic_index:make_key(TopicFilter, ID),
+    case mria_config:whoami() of
+        Role when Role /= replicant ->
+            apply_actor_operation(Actor, Incarnation, Entry, OpName, Lane);
+        replicant ->
+            mria:async_dirty(
+                ?EXTROUTE_SHARD,
+                fun ?MODULE:apply_actor_operation/5,
+                [Actor, Incarnation, Entry, OpName, Lane]
+            )
+    end,
     State;
 actor_apply_operation(
     heartbeat,
     State = #state{actor = Actor, incarnation = Incarnation},
     _Env = #{timestamp := Now}
 ) ->
-    ok = transaction(fun mnesia_actor_heartbeat/3, [Actor, Incarnation, Now]),
+    ok = transaction(fun ?MODULE:mnesia_actor_heartbeat/3, [Actor, Incarnation, Now]),
     State.
+
+apply_actor_operation(Actor, Incarnation, Entry, OpName, Lane) ->
+    _ = assert_current_incarnation(Actor, Incarnation),
+    apply_operation(Entry, OpName, Lane).
 
 apply_operation(Entry, OpName, Lane) ->
     %% NOTE
@@ -259,7 +280,7 @@ mnesia_actor_heartbeat(Actor, Incarnation, TS) ->
     end.
 
 clean_incarnation(Rec) ->
-    transaction(fun mnesia_clean_incarnation/1, [Rec]).
+    transaction(fun ?MODULE:mnesia_clean_incarnation/1, [Rec]).
 
 mnesia_clean_incarnation(#actor{id = Actor, incarnation = Incarnation, lane = Lane}) ->
     case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of

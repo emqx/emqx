@@ -33,6 +33,12 @@ end_per_testcase(TC, Config) ->
 init_db() ->
     mria:wait_for_tables(emqx_cluster_link_extrouter:create_tables()).
 
+init_db_nodes(Nodes) ->
+    ok = lists:foreach(
+        fun(Node) -> ok = erpc:call(Node, ?MODULE, init_db, []) end,
+        Nodes
+    ).
+
 %%
 
 t_consistent_routing_view(_Config) ->
@@ -174,20 +180,15 @@ t_consistent_routing_view_concurrent_updates(_Config) ->
 
 t_consistent_routing_view_concurrent_cluster_updates('init', Config) ->
     Specs = [
-        {emqx_external_router1, #{role => core}},
-        {emqx_external_router2, #{role => core}},
-        {emqx_external_router3, #{role => core}}
+        {emqx_cluster_link_extrouter1, #{role => core}},
+        {emqx_cluster_link_extrouter2, #{role => core}},
+        {emqx_cluster_link_extrouter3, #{role => core}}
     ],
     Cluster = emqx_cth_cluster:start(
         Specs,
         #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
     ),
-    ok = lists:foreach(
-        fun(Node) ->
-            ok = erpc:call(Node, ?MODULE, init_db, [])
-        end,
-        Cluster
-    ),
+    ok = init_db_nodes(Cluster),
     [{cluster, Cluster} | Config];
 t_consistent_routing_view_concurrent_cluster_updates('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(cluster, Config)).
@@ -235,6 +236,24 @@ t_consistent_routing_view_concurrent_cluster_updates(Config) ->
         [<<"global/#">>, <<"t/client/+/+">>, <<"t/client/+/+">>],
         erpc:call(N1, ?MODULE, topics_sorted, [])
     ).
+
+t_consistent_routing_view_concurrent_cluster_replicant_updates('init', Config) ->
+    Specs = [
+        {emqx_cluster_link_extrouter_repl1, #{role => core}},
+        {emqx_cluster_link_extrouter_repl2, #{role => core}},
+        {emqx_cluster_link_extrouter_repl3, #{role => replicant}}
+    ],
+    Cluster = emqx_cth_cluster:start(
+        Specs,
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    ok = init_db_nodes(Cluster),
+    [{cluster, Cluster} | Config];
+t_consistent_routing_view_concurrent_cluster_replicant_updates('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(cluster, Config)).
+
+t_consistent_routing_view_concurrent_cluster_replicant_updates(Config) ->
+    t_consistent_routing_view_concurrent_cluster_updates(Config).
 
 run_remote_actor({Node, Run}) ->
     erlang:spawn_monitor(Node, ?MODULE, run_actor, [Run]).
