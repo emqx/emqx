@@ -8,6 +8,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
+-include_lib("emqx_connector_aggregator/include/emqx_connector_aggregator.hrl").
 -include("emqx_bridge_s3.hrl").
 
 -behaviour(emqx_resource).
@@ -23,6 +24,19 @@
     on_get_status/2,
     on_get_channel_status/3
 ]).
+
+-behaviour(emqx_connector_aggreg_delivery).
+-export([
+    init_transfer_state/2,
+    process_append/2,
+    process_write/1,
+    process_complete/1,
+    process_format_status/1,
+    process_terminate/1
+]).
+
+-behaviour(emqx_template).
+-export([lookup/2]).
 
 -type config() :: #{
     access_key_id => string(),
@@ -205,13 +219,14 @@ start_channel(State, #{
         key => emqx_bridge_s3_aggreg_upload:mk_key_template(Parameters),
         container => Container,
         upload_options => emqx_bridge_s3_aggreg_upload:mk_upload_options(Parameters),
+        callback_module => ?MODULE,
         client_config => maps:get(client_config, State),
         uploader_config => maps:with([min_part_size, max_part_size], Parameters)
     },
-    _ = emqx_bridge_s3_sup:delete_child({Type, Name}),
-    {ok, SupPid} = emqx_bridge_s3_sup:start_child(#{
+    _ = emqx_connector_aggreg_sup:delete_child({Type, Name}),
+    {ok, SupPid} = emqx_connector_aggreg_sup:start_child(#{
         id => {Type, Name},
-        start => {emqx_bridge_s3_aggreg_upload_sup, start_link, [Name, AggregOpts, DeliveryOpts]},
+        start => {emqx_connector_aggreg_upload_sup, start_link, [Name, AggregOpts, DeliveryOpts]},
         type => supervisor,
         restart => permanent
     }),
@@ -220,7 +235,7 @@ start_channel(State, #{
         name => Name,
         bucket => Bucket,
         supervisor => SupPid,
-        on_stop => fun() -> emqx_bridge_s3_sup:delete_child({Type, Name}) end
+        on_stop => fun() -> emqx_connector_aggreg_sup:delete_child({Type, Name}) end
     }.
 
 upload_options(Parameters) ->
@@ -242,7 +257,7 @@ channel_status(#{type := ?ACTION_UPLOAD}, _State) ->
 channel_status(#{type := ?ACTION_AGGREGATED_UPLOAD, name := Name, bucket := Bucket}, State) ->
     %% NOTE: This will effectively trigger uploads of buffers yet to be uploaded.
     Timestamp = erlang:system_time(second),
-    ok = emqx_bridge_s3_aggregator:tick(Name, Timestamp),
+    ok = emqx_connector_aggregator:tick(Name, Timestamp),
     ok = check_bucket_accessible(Bucket, State),
     ok = check_aggreg_upload_errors(Name),
     ?status_connected.
@@ -264,7 +279,7 @@ check_bucket_accessible(Bucket, #{client_config := Config}) ->
     end.
 
 check_aggreg_upload_errors(Name) ->
-    case emqx_bridge_s3_aggregator:take_error(Name) of
+    case emqx_connector_aggregator:take_error(Name) of
         [Error] ->
             %% TODO
             %% This approach means that, for example, 3 upload failures will cause
@@ -340,7 +355,7 @@ run_simple_upload(
 
 run_aggregated_upload(InstId, Records, #{name := Name}) ->
     Timestamp = erlang:system_time(second),
-    case emqx_bridge_s3_aggregator:push_records(Name, Timestamp, Records) of
+    case emqx_connector_aggregator:push_records(Name, Timestamp, Records) of
         ok ->
             ?tp(s3_bridge_aggreg_push_ok, #{instance_id => InstId, name => Name}),
             ok;
@@ -376,3 +391,84 @@ render_content(Template, Data) ->
 
 iolist_to_string(IOList) ->
     unicode:characters_to_list(IOList).
+
+%% `emqx_connector_aggreg_delivery` APIs
+
+-spec init_transfer_state(buffer_map(), map()) -> emqx_s3_upload:t().
+init_transfer_state(BufferMap, Opts) ->
+    #{
+        bucket := Bucket,
+        upload_options := UploadOpts,
+        client_config := Config,
+        uploader_config := UploaderConfig
+    } = Opts,
+    Client = emqx_s3_client:create(Bucket, Config),
+    Key = mk_object_key(BufferMap, Opts),
+    emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig).
+
+mk_object_key(BufferMap, #{action := Name, key := Template}) ->
+    emqx_template:render_strict(Template, {?MODULE, {Name, BufferMap}}).
+
+process_append(Writes, Upload0) ->
+    {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
+    Upload.
+
+process_write(Upload0) ->
+    case emqx_s3_upload:write(Upload0) of
+        {ok, Upload} ->
+            {ok, Upload};
+        {cont, Upload} ->
+            process_write(Upload);
+        {error, Reason} ->
+            _ = emqx_s3_upload:abort(Upload0),
+            {error, Reason}
+    end.
+
+process_complete(Upload) ->
+    case emqx_s3_upload:complete(Upload) of
+        {ok, Completed} ->
+            {ok, Completed};
+        {error, Reason} ->
+            _ = emqx_s3_upload:abort(Upload),
+            exit({upload_failed, Reason})
+    end.
+
+process_format_status(Upload) ->
+    emqx_s3_upload:format(Upload).
+
+process_terminate(Upload) ->
+    emqx_s3_upload:abort(Upload).
+
+%% `emqx_template` APIs
+
+-spec lookup(emqx_template:accessor(), {_Name, buffer_map()}) ->
+    {ok, integer() | string()} | {error, undefined}.
+lookup([<<"action">>], {Name, _Buffer}) ->
+    {ok, mk_fs_safe_string(Name)};
+lookup(Accessor, {_Name, Buffer = #{}}) ->
+    lookup_buffer_var(Accessor, Buffer);
+lookup(_Accessor, _Context) ->
+    {error, undefined}.
+
+lookup_buffer_var([<<"datetime">>, Format], #{since := Since}) ->
+    {ok, format_timestamp(Since, Format)};
+lookup_buffer_var([<<"datetime_until">>, Format], #{until := Until}) ->
+    {ok, format_timestamp(Until, Format)};
+lookup_buffer_var([<<"sequence">>], #{seq := Seq}) ->
+    {ok, Seq};
+lookup_buffer_var([<<"node">>], #{}) ->
+    {ok, mk_fs_safe_string(atom_to_binary(erlang:node()))};
+lookup_buffer_var(_Binding, _Context) ->
+    {error, undefined}.
+
+format_timestamp(Timestamp, <<"rfc3339utc">>) ->
+    String = calendar:system_time_to_rfc3339(Timestamp, [{unit, second}, {offset, "Z"}]),
+    mk_fs_safe_string(String);
+format_timestamp(Timestamp, <<"rfc3339">>) ->
+    String = calendar:system_time_to_rfc3339(Timestamp, [{unit, second}]),
+    mk_fs_safe_string(String);
+format_timestamp(Timestamp, <<"unix">>) ->
+    Timestamp.
+
+mk_fs_safe_string(String) ->
+    unicode:characters_to_binary(string:replace(String, ":", "_", all)).

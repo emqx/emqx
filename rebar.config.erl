@@ -76,6 +76,7 @@ is_cover_enabled() ->
 is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
+is_community_umbrella_app("apps/emqx_connector_aggregator") -> false;
 is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
 is_community_umbrella_app("apps/emqx_bridge_confluent") -> false;
 is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
