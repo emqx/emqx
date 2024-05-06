@@ -654,7 +654,7 @@ handle_in(
         end,
     {ok, Outgoings, Channel};
 handle_in(
-    <<$\n>>,
+    ?PACKET(?CMD_HEARTBEAT),
     Channel = #channel{heartbeat = Heartbeat}
 ) ->
     NewHeartbeat = emqx_stomp_heartbeat:reset(incoming, 0, Heartbeat),

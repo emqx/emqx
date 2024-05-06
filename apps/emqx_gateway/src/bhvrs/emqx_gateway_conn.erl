@@ -710,10 +710,7 @@ parse_incoming(
 ) ->
     try FrameMod:parse(Data, ParseState) of
         {more, NParseState} ->
-            if
-                Data == <<$\n>> -> {[Data], State#state{parse_state = NParseState}};
-                true -> {Packets, State#state{parse_state = NParseState}}
-            end;
+            {Packets, State#state{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet | Packets], NState)
