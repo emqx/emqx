@@ -311,7 +311,7 @@ user(delete, #{bindings := #{username := Username0}, headers := Headers} = Req) 
     end.
 
 is_self_auth(?SSO_USERNAME(_, _), _) ->
-    fasle;
+    false;
 is_self_auth(Username, #{<<"authorization">> := Token}) ->
     is_self_auth(Username, Token);
 is_self_auth(Username, #{<<"Authorization">> := Token}) ->
