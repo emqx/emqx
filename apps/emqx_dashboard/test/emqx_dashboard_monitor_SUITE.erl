@@ -20,11 +20,13 @@
 -compile(export_all).
 
 -import(emqx_dashboard_SUITE, [auth_header_/0]).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -include("emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(SERVER, "http://127.0.0.1:18083").
 -define(BASE_PATH, "/api/v5").
@@ -52,10 +54,47 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, common},
+        {group, persistent_sessions}
+    ].
+
+groups() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    PSTCs = persistent_session_testcases(),
+    [
+        {common, [], AllTCs -- PSTCs},
+        {persistent_sessions, [], PSTCs}
+    ].
+
+persistent_session_testcases() ->
+    [
+        t_persistent_session_stats
+    ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(persistent_sessions = Group, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            {emqx, "session_persistence {enable = true}"},
+            {emqx_retainer, ?BASE_RETAINER_CONF},
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard(
+                "dashboard.listeners.http { enable = true, bind = 18083 }\n"
+                "dashboard.sample_interval = 1s"
+            )
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    [{apps, Apps} | Config];
+init_per_group(common = Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -67,12 +106,12 @@ init_per_suite(Config) ->
                 "dashboard.sample_interval = 1s"
             )
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
     {ok, _} = emqx_common_test_http:create_default_app(),
     [{apps, Apps} | Config].
 
-end_per_suite(Config) ->
+end_per_group(_Group, Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
     ok.
@@ -84,6 +123,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -272,6 +312,51 @@ t_monitor_api_error(_) ->
         request(["monitor"], "latest=-1"),
     ok.
 
+%% Verifies that subscriptions from persistent sessions are correctly accounted for.
+t_persistent_session_stats(_Config) ->
+    %% pre-condition
+    true = emqx_persistent_message:is_persistence_enabled(),
+
+    NonPSClient = start_and_connect(#{
+        clientid => <<"non-ps">>,
+        expiry_interval => 0
+    }),
+    PSClient = start_and_connect(#{
+        clientid => <<"ps">>,
+        expiry_interval => 30
+    }),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"non/ps/topic/+">>, 2),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"non/ps/topic">>, 2),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"common/topic/+">>, 2),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"common/topic">>, 2),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient, <<"ps/topic/+">>, 2),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient, <<"ps/topic">>, 2),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient, <<"common/topic/+">>, 2),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient, <<"common/topic">>, 2),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
+    ?retry(1_000, 10, begin
+        ?assertMatch(
+            {ok, #{
+                %% N.B.: we currently don't perform any deduplication between persistent
+                %% and non-persistent routes, so we count `commont/topic' twice and get 8
+                %% instead of 6 here.
+                <<"topics">> := 8,
+                <<"subscriptions">> := 8
+            }},
+            request(["monitor_current"])
+        )
+    end),
+    %% Sanity checks
+    PSRouteCount = emqx_persistent_session_ds_router:stats(n_routes),
+    ?assert(PSRouteCount > 0, #{ps_route_count => PSRouteCount}),
+    PSSubCount = emqx_persistent_session_bookkeeper:get_subscription_count(),
+    ?assert(PSSubCount > 0, #{ps_sub_count => PSSubCount}),
+    ok.
+
 request(Path) ->
     request(Path, "").
 
@@ -340,3 +425,22 @@ waiting_emqx_stats_and_monitor_update(WaitKey) ->
     %% manually call monitor update
     _ = emqx_dashboard_monitor:current_rate_cluster(),
     ok.
+
+start_and_connect(Opts) ->
+    Defaults = #{clean_start => false, expiry_interval => 30},
+    #{
+        clientid := ClientId,
+        clean_start := CleanStart,
+        expiry_interval := EI
+    } = maps:merge(Defaults, Opts),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {clean_start, CleanStart},
+        {proto_ver, v5},
+        {properties, #{'Session-Expiry-Interval' => EI}}
+    ]),
+    on_exit(fun() ->
+        catch emqtt:disconnect(Client, ?RC_NORMAL_DISCONNECTION, #{'Session-Expiry-Interval' => 0})
+    end),
+    {ok, _} = emqtt:connect(Client),
+    Client.
