@@ -81,7 +81,7 @@ list() ->
 -spec reorder([validation_name()]) ->
     {ok, _} | {error, _}.
 reorder(Order) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {reorder, Order},
         #{override_to => cluster}
@@ -95,7 +95,7 @@ lookup(Name) ->
 -spec insert(validation()) ->
     {ok, _} | {error, _}.
 insert(Validation) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {append, Validation},
         #{override_to => cluster}
@@ -104,7 +104,7 @@ insert(Validation) ->
 -spec update(validation()) ->
     {ok, _} | {error, _}.
 update(Validation) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {update, Validation},
         #{override_to => cluster}
@@ -113,7 +113,7 @@ update(Validation) ->
 -spec delete(validation_name()) ->
     {ok, _} | {error, _}.
 delete(Name) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {delete, Name},
         #{override_to => cluster}
