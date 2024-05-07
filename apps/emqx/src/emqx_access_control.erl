@@ -56,21 +56,21 @@ authenticate(Credential) ->
     NotSuperUser = #{is_superuser => false},
     case pre_hook_authenticate(Credential) of
         ok ->
-            inc_authn_metrics(anonymous),
+            on_authentication_complete(Credential, NotSuperUser, anonymous),
             {ok, NotSuperUser};
         continue ->
             case run_hooks('client.authenticate', [Credential], ignore) of
                 ignore ->
-                    inc_authn_metrics(anonymous),
+                    on_authentication_complete(Credential, NotSuperUser, anonymous),
                     {ok, NotSuperUser};
                 ok ->
-                    inc_authn_metrics(ok),
+                    on_authentication_complete(Credential, NotSuperUser, ok),
                     {ok, NotSuperUser};
-                {ok, _AuthResult} = OkResult ->
-                    inc_authn_metrics(ok),
+                {ok, AuthResult} = OkResult ->
+                    on_authentication_complete(Credential, AuthResult, ok),
                     OkResult;
-                {ok, _AuthResult, _AuthData} = OkResult ->
-                    inc_authn_metrics(ok),
+                {ok, AuthResult, _AuthData} = OkResult ->
+                    on_authentication_complete(Credential, AuthResult, ok),
                     OkResult;
                 {error, _Reason} = Error ->
                     inc_authn_metrics(error),
@@ -240,3 +240,10 @@ inc_authn_metrics(ok) ->
 inc_authn_metrics(anonymous) ->
     emqx_metrics:inc('authentication.success.anonymous'),
     emqx_metrics:inc('authentication.success').
+
+on_authentication_complete(Credential, Result, Type) ->
+    emqx_hooks:run(
+        'client.check_authn_complete',
+        [Credential, Result#{is_anonymous => (Type =:= anonymous)}]
+    ),
+    inc_authn_metrics(Type).
