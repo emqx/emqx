@@ -1753,6 +1753,7 @@ format_persistent_session_info(
     }),
     Info0#{
         connected => false,
+        durable => true,
         is_persistent => true,
         subscriptions_cnt => maps:size(maps:get(subscriptions, PSInfo, #{}))
     };
@@ -1773,6 +1774,7 @@ format_persistent_session_info(ClientId, PSInfo0) ->
         clientid => ClientId,
         connected => false,
         connected_at => CreatedAt,
+        durable => true,
         ip_address => IpAddress,
         is_persistent => true,
         port => Port,

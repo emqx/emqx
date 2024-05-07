@@ -703,7 +703,7 @@ list_client_subscriptions(ClientId) ->
                         maps:fold(
                             fun(Topic, #{current_state := CS}, Acc) ->
                                 #{subopts := SubOpts} = maps:get(CS, SStates),
-                                Elem = {Topic, SubOpts},
+                                Elem = {Topic, SubOpts#{durable => true}},
                                 [Elem | Acc]
                             end,
                             [],
