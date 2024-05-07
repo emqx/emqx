@@ -272,6 +272,21 @@ t_rule_test_smoke(_Config) ->
                     <<"context">> =>
                         #{
                             <<"clientid">> => <<"c_emqx">>,
+                            <<"event_type">> => <<"client_check_authn_complete">>,
+                            <<"is_superuser">> => true,
+                            <<"is_anonymous">> => false,
+                            <<"username">> => <<"u_emqx">>
+                        },
+                    <<"sql">> => <<"SELECT\n  *\nFROM\n  \"t/#\"">>
+                }
+        },
+        #{
+            expected => #{code => 412},
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"clientid">> => <<"c_emqx">>,
                             <<"event_type">> => <<"session_subscribed">>,
                             <<"qos">> => 1,
                             <<"topic">> => <<"t/a">>,

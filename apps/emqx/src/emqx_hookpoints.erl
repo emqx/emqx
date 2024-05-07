@@ -44,6 +44,7 @@
     'client.disconnected',
     'client.authorize',
     'client.check_authz_complete',
+    'client.check_authn_complete',
     'client.authenticate',
     'client.subscribe',
     'client.unsubscribe',
