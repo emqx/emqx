@@ -117,7 +117,9 @@ import_config(#{<<"license">> := Config}) ->
             {ok, #{root_key => license, changed => Changed1}};
         Error ->
             {error, #{root_key => license, reason => Error}}
-    end.
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => license, changed => []}}.
 
 %%------------------------------------------------------------------------------
 %% emqx_config_handler callbacks
