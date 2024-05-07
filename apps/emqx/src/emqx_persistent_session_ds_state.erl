@@ -35,6 +35,7 @@
 -export([get_expiry_interval/1, set_expiry_interval/2]).
 -export([get_clientinfo/1, set_clientinfo/2]).
 -export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
+-export([set_offline_info/2]).
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
@@ -371,6 +372,10 @@ clear_will_message_now(SessionId) when is_binary(SessionId) ->
 -spec clear_will_message(t()) -> t().
 clear_will_message(Rec) ->
     set_will_message(undefined, Rec).
+
+-spec set_offline_info(_Info :: map(), t()) -> t().
+set_offline_info(Info, Rec) ->
+    set_meta(?offline_info, Info, Rec).
 
 -spec new_id(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
 new_id(Rec) ->
