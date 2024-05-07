@@ -49,6 +49,7 @@ persistent_session_testcases() ->
         t_persistent_sessions3,
         t_persistent_sessions4,
         t_persistent_sessions5,
+        t_persistent_sessions_subscriptions1,
         t_list_clients_v2
     ].
 client_msgs_testcases() ->
@@ -333,7 +334,7 @@ t_persistent_sessions2(Config) ->
             %% 2) Client connects to the same node and takes over, listed only once.
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
             assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
-            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0}),
+            disconnect_and_destroy_session(C2),
             ?retry(
                 100,
                 20,
@@ -377,7 +378,7 @@ t_persistent_sessions3(Config) ->
                     list_request(APIPort, "node=" ++ atom_to_list(N1))
                 )
             ),
-            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0})
+            disconnect_and_destroy_session(C2)
         end,
         []
     ),
@@ -417,7 +418,7 @@ t_persistent_sessions4(Config) ->
                     list_request(APIPort, "node=" ++ atom_to_list(N1))
                 )
             ),
-            ok = emqtt:disconnect(C2, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0})
+            disconnect_and_destroy_session(C2)
         end,
         []
     ),
@@ -546,6 +547,63 @@ t_persistent_sessions5(Config) ->
                 [ClientId1, ClientId2, ClientId3, ClientId4]
             ),
 
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Check that the output of `/clients/:clientid/subscriptions' has the expected keys.
+t_persistent_sessions_subscriptions1(Config) ->
+    [N1, _N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := []}}}, list_request(APIPort)),
+
+    ?check_trace(
+        begin
+            ClientId = <<"c1">>,
+            C1 = connect_client(#{port => Port1, clientid => ClientId}),
+            {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C1, <<"topic/1">>, 1),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, [
+                        #{
+                            <<"durable">> := true,
+                            <<"node">> := <<_/binary>>,
+                            <<"clientid">> := ClientId,
+                            <<"qos">> := 1,
+                            <<"rap">> := 0,
+                            <<"rh">> := 0,
+                            <<"nl">> := 0,
+                            <<"topic">> := <<"topic/1">>
+                        }
+                    ]}},
+                get_subscriptions_request(APIPort, ClientId)
+            ),
+
+            %% Just disconnect
+            ok = emqtt:disconnect(C1),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, [
+                        #{
+                            <<"durable">> := true,
+                            <<"node">> := null,
+                            <<"clientid">> := ClientId,
+                            <<"qos">> := 1,
+                            <<"rap">> := 0,
+                            <<"rh">> := 0,
+                            <<"nl">> := 0,
+                            <<"topic">> := <<"topic/1">>
+                        }
+                    ]}},
+                get_subscriptions_request(APIPort, ClientId)
+            ),
+
+            C2 = connect_client(#{port => Port1, clientid => ClientId}),
+            disconnect_and_destroy_session(C2),
             ok
         end,
         []
@@ -1800,6 +1858,11 @@ maybe_json_decode(X) ->
         {error, _} -> X
     end.
 
+get_subscriptions_request(APIPort, ClientId) ->
+    Host = "http://127.0.0.1:" ++ integer_to_list(APIPort),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["clients", ClientId, "subscriptions"]),
+    request(get, Path, []).
+
 get_client_request(Port, ClientId) ->
     Host = "http://127.0.0.1:" ++ integer_to_list(Port),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["clients", ClientId]),
@@ -1955,3 +2018,6 @@ do_traverse_in_reverse_v2(APIPort, QueryParams0, [Cursor | Rest], DirectOrderCli
     {ok, {{_, 200, _}, _, #{<<"data">> := Rows}}} = Res0,
     ClientIds = [ClientId || #{<<"clientid">> := ClientId} <- Rows],
     do_traverse_in_reverse_v2(APIPort, QueryParams0, Rest, DirectOrderClientIds, ClientIds ++ Acc).
+
+disconnect_and_destroy_session(Client) ->
+    ok = emqtt:disconnect(Client, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0}).
