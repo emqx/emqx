@@ -292,23 +292,7 @@ create_trace(TraceName, TraceType, TraceValue) ->
     {ok, _} = emqx_trace:create(Trace).
 
 t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
-    MeckOpts = [passthrough, no_link, no_history, non_strict],
-    catch meck:new(emqx_connector_info, MeckOpts),
-    meck:expect(
-        emqx_connector_info,
-        hard_coded_test_connector_info_modules,
-        0,
-        [emqx_rule_engine_test_connector_info]
-    ),
-    emqx_connector_info:clean_cache(),
-    catch meck:new(emqx_action_info, MeckOpts),
-    meck:expect(
-        emqx_action_info,
-        hard_coded_test_action_info_modules,
-        0,
-        [emqx_rule_engine_test_action_info]
-    ),
-    emqx_action_info:clean_cache(),
+    meck_in_test_connector(),
     {ok, _} = emqx_connector:create(rule_engine_test, ?FUNCTION_NAME, #{}),
     Name = atom_to_binary(?FUNCTION_NAME),
     ActionConf =
@@ -412,6 +396,155 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
     ok = emqx_connector:remove(rule_engine_test, ?FUNCTION_NAME),
     [_, _] = meck:unload(),
     ok.
+
+t_apply_rule_test_format_action_failed(_Config) ->
+    MeckOpts = [passthrough, no_link, no_history, non_strict],
+    catch meck:new(emqx_connector_info, MeckOpts),
+    meck:expect(
+        emqx_rule_engine_test_connector,
+        on_query,
+        3,
+        {error, {unrecoverable_error, <<"MY REASON">>}}
+    ),
+    CheckFun =
+        fun(Bin0) ->
+            ?assertNotEqual(nomatch, binary:match(Bin0, [<<"action_failed">>])),
+            %% The last line in the Bin should be the action_success entry
+            Bin1 = string:trim(Bin0),
+            LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
+            LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+            ?assertMatch(
+                #{
+                    <<"level">> := <<"debug">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"name">> := _,
+                            <<"type">> := <<"rule_engine_test">>
+                        },
+                        <<"client_ids">> := [],
+                        <<"clientid">> := _,
+                        <<"reason">> := <<"MY REASON">>,
+                        <<"rule_id">> := _,
+                        <<"rule_ids">> := [],
+                        <<"rule_trigger_time">> := _,
+                        <<"rule_trigger_times">> := [],
+                        <<"stop_action_after_render">> := false,
+                        <<"trace_tag">> := <<"ACTION">>
+                    },
+                    <<"msg">> := <<"action_failed">>,
+                    <<"time">> := _
+                },
+                LastEntryJSON
+            )
+        end,
+    do_apply_rule_test_format_action_failed_test(CheckFun).
+
+t_apply_rule_test_format_action_out_of_service(_Config) ->
+    MeckOpts = [passthrough, no_link, no_history, non_strict],
+    catch meck:new(emqx_connector_info, MeckOpts),
+    meck:expect(
+        emqx_rule_engine_test_connector,
+        on_query,
+        3,
+        {error, {recoverable_error, <<"MY RECOVERABLE REASON">>}}
+    ),
+    CheckFun =
+        fun(Bin0) ->
+            ?assertNotEqual(nomatch, binary:match(Bin0, [<<"action_failed">>])),
+            %% The last line in the Bin should be the action_success entry
+            Bin1 = string:trim(Bin0),
+            LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
+            LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+            ?assertMatch(
+                #{
+                    <<"level">> := <<"debug">>,
+                    <<"meta">> :=
+                        #{
+                            <<"action_info">> :=
+                                #{
+                                    <<"name">> := _,
+                                    <<"type">> := <<"rule_engine_test">>
+                                },
+                            <<"clientid">> := _,
+                            <<"reason">> := <<"request_expired">>,
+                            <<"rule_id">> := _,
+                            <<"rule_trigger_time">> := _,
+                            <<"stop_action_after_render">> := false,
+                            <<"trace_tag">> := <<"ACTION">>
+                        },
+                    <<"msg">> := <<"action_failed">>,
+                    <<"time">> := _
+                },
+                LastEntryJSON
+            )
+        end,
+    do_apply_rule_test_format_action_failed_test(CheckFun).
+
+do_apply_rule_test_format_action_failed_test(CheckLastTraceEntryFun) ->
+    meck_in_test_connector(),
+    {ok, _} = emqx_connector:create(rule_engine_test, ?FUNCTION_NAME, #{}),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ActionConf =
+        #{
+            <<"connector">> => Name,
+            <<"parameters">> => #{<<"values">> => #{}},
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 1,
+                <<"batch_time">> => 0,
+                <<"request_ttl">> => 200
+            }
+        },
+    {ok, _} = emqx_bridge_v2:create(
+        rule_engine_test,
+        ?FUNCTION_NAME,
+        ActionConf
+    ),
+    SQL = <<"SELECT payload.is_stop_after_render as stop_after_render FROM \"", Name/binary, "\"">>,
+    {ok, RuleID} = create_rule_with_action(
+        rule_engine_test,
+        ?FUNCTION_NAME,
+        SQL
+    ),
+    create_trace(Name, ruleid, RuleID),
+    Now = erlang:system_time(second) - 10,
+    %% Stop
+    ParmsNoStopAfterRender = apply_rule_parms(false, Name),
+    {ok, _} = call_apply_rule_api(RuleID, ParmsNoStopAfterRender),
+    %% Just check that the log file is created as expected
+    ?retry(
+        _Interval0 = 200,
+        _NAttempts0 = 100,
+        begin
+            Bin = read_rule_trace_file(Name, ruleid, Now),
+            CheckLastTraceEntryFun(Bin)
+        end
+    ),
+    %% Cleanup
+    ok = emqx_trace:delete(Name),
+    ok = emqx_rule_engine:delete_rule(RuleID),
+    ok = emqx_bridge_v2:remove(rule_engine_test, ?FUNCTION_NAME),
+    ok = emqx_connector:remove(rule_engine_test, ?FUNCTION_NAME),
+    [_, _, _] = meck:unload(),
+    ok.
+
+meck_in_test_connector() ->
+    MeckOpts = [passthrough, no_link, no_history, non_strict],
+    catch meck:new(emqx_connector_info, MeckOpts),
+    meck:expect(
+        emqx_connector_info,
+        hard_coded_test_connector_info_modules,
+        0,
+        [emqx_rule_engine_test_connector_info]
+    ),
+    emqx_connector_info:clean_cache(),
+    catch meck:new(emqx_action_info, MeckOpts),
+    meck:expect(
+        emqx_action_info,
+        hard_coded_test_action_info_modules,
+        0,
+        [emqx_rule_engine_test_action_info]
+    ),
+    emqx_action_info:clean_cache().
 
 apply_rule_parms(StopAfterRender, Name) ->
     Payload = #{<<"is_stop_after_render">> => StopAfterRender},
