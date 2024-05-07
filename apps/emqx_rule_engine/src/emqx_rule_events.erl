@@ -455,7 +455,8 @@ eventmsg_check_authn_complete(
     _ClientInfo = #{
         clientid := ClientId,
         username := Username,
-        peerhost := PeerHost
+        peerhost := PeerHost,
+        peerport := PeerPort
     },
     #{is_anonymous := IsAnonymous} = Result
 ) ->
@@ -465,7 +466,7 @@ eventmsg_check_authn_complete(
         #{
             clientid => ClientId,
             username => Username,
-            peerhost => ntoa(PeerHost),
+            peername => ntoa({PeerHost, PeerPort}),
             is_anonymous => IsAnonymous,
             is_superuser => IsSuperuser
         },
@@ -1077,7 +1078,7 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"event">>, 'client.check_authz_complete'},
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
-        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:56431">>},
         {<<"is_superuser">>, true},
         {<<"is_anonymous">>, false},
         {<<"timestamp">>, erlang:system_time(millisecond)},
