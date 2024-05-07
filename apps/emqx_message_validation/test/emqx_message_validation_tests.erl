@@ -195,7 +195,6 @@ invalid_names_test_() ->
             ?_assertThrow(
                 {_Schema, [
                     #{
-                        reason := <<"must conform to regex:", _/binary>>,
                         kind := validation_error,
                         path := "message_validation.validations.1.name"
                     }
@@ -209,7 +208,9 @@ invalid_names_test_() ->
             <<"name!">>,
             <<"some name">>,
             <<"nãme"/utf8>>,
-            <<"test_哈哈"/utf8>>
+            <<"test_哈哈"/utf8>>,
+            %% long name
+            binary:copy(<<"a">>, 256)
         ]
     ].
 
