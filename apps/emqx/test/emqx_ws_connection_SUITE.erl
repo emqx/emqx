@@ -540,7 +540,7 @@ t_parse_incoming_frame_error(_) ->
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
-    Serialize = emqx_frame:serialize_fun(#{version => 5, max_size => 16#FFFF}),
+    Serialize = emqx_frame:serialize_fun(#{version => 5, max_size => 16#FFFF, strict_mode => false}),
     {[{close, bad_qos}], _St} = ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})).
 % ?assertEqual(<<224,2,129,0>>, iolist_to_binary(IoData)).
 
