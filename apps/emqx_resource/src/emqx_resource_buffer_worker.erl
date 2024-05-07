@@ -68,7 +68,7 @@
     {query, FROM, REQUEST, SENT, EXPIRE_AT, TRACE_CTX}
 ).
 -define(SIMPLE_QUERY(FROM, REQUEST, TRACE_CTX), ?QUERY(FROM, REQUEST, false, infinity, TRACE_CTX)).
--define(REPLY(FROM, SENT, RESULT), {reply, FROM, SENT, RESULT}).
+-define(REPLY(FROM, SENT, RESULT, TRACE_CTX), {reply, FROM, SENT, RESULT, TRACE_CTX}).
 -define(INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, AsyncWorkerMRef),
     {Ref, BatchOrQuery, IsRetriable, AsyncWorkerMRef}
 ).
@@ -448,8 +448,8 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     Result = call_query(force_sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
     {ShouldAck, PostFn, DeltaCounters} =
         case QueryOrBatch of
-            ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, _TraceCtx) ->
-                Reply = ?REPLY(ReplyTo, HasBeenSent, Result),
+            ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, TraceCtx) ->
+                Reply = ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx),
                 reply_caller_defer_metrics(Id, Reply, QueryOpts);
             [?QUERY(_, _, _, _, _) | _] = Batch ->
                 batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts)
@@ -662,10 +662,10 @@ do_flush(
         inflight_tid := InflightTID
     } = Data0,
     %% unwrap when not batching (i.e., batch size == 1)
-    [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, _TraceCtx) = Request] = Batch,
+    [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, TraceCtx) = Request] = Batch,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(async_if_possible, Id, Index, Ref, Request, QueryOpts),
-    Reply = ?REPLY(ReplyTo, HasBeenSent, Result),
+    Reply = ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx),
     {ShouldAck, DeltaCounters} = reply_caller(Id, Reply, QueryOpts),
     Data1 = aggregate_counters(Data0, DeltaCounters),
     case ShouldAck of
@@ -856,15 +856,15 @@ batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
 
 expand_batch_reply(BatchResults, Batch) when is_list(BatchResults) ->
     lists:map(
-        fun({?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT, _TraceCtx), Result}) ->
-            ?REPLY(FROM, SENT, Result)
+        fun({?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT, TraceCtx), Result}) ->
+            ?REPLY(FROM, SENT, Result, TraceCtx)
         end,
         lists:zip(Batch, BatchResults)
     );
 expand_batch_reply(BatchResult, Batch) ->
     lists:map(
-        fun(?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT, _TraceCtx)) ->
-            ?REPLY(FROM, SENT, BatchResult)
+        fun(?QUERY(FROM, _REQUEST, SENT, _EXPIRE_AT, TraceCtx)) ->
+            ?REPLY(FROM, SENT, BatchResult, TraceCtx)
         end,
         Batch
     ).
@@ -876,12 +876,14 @@ reply_caller(Id, Reply, QueryOpts) ->
 
 %% Should only reply to the caller when the decision is final (not
 %% retriable).  See comment on `handle_query_result_pure'.
-reply_caller_defer_metrics(Id, ?REPLY(undefined, HasBeenSent, Result), _QueryOpts) ->
-    handle_query_result_pure(Id, Result, HasBeenSent);
-reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result), QueryOpts) ->
+reply_caller_defer_metrics(Id, ?REPLY(undefined, HasBeenSent, Result, TraceCtx), _QueryOpts) ->
+    handle_query_result_pure(Id, Result, HasBeenSent, TraceCtx);
+reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx), QueryOpts) ->
     IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
     IsUnrecoverableError = is_unrecoverable_error(Result),
-    {ShouldAck, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent),
+    {ShouldAck, PostFn, DeltaCounters} = handle_query_result_pure(
+        Id, Result, HasBeenSent, TraceCtx
+    ),
     case {ShouldAck, Result, IsUnrecoverableError, IsSimpleQuery} of
         {ack, {async_return, _}, true, _} ->
             ok = do_reply_caller(ReplyTo, Result);
@@ -921,7 +923,7 @@ batch_reply_dropped(Batch, Result) ->
 %% This is only called by `simple_{,a}sync_query', so we can bump the
 %% counters here.
 handle_query_result(Id, Result, HasBeenSent) ->
-    {ShouldBlock, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent),
+    {ShouldBlock, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent, #{}),
     PostFn(),
     bump_counters(Id, DeltaCounters),
     ShouldBlock.
@@ -932,37 +934,49 @@ handle_query_result(Id, Result, HasBeenSent) ->
 %%   * the result is a success (or at least a delayed result)
 %% We also retry even sync requests.  In that case, we shouldn't reply
 %% the caller until one of those final results above happen.
--spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean()) ->
+-spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean(), TraceCTX :: map()) ->
     {ack | nack, function(), counters()}.
-handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent) ->
+handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCTX) ->
     PostFn = fun() ->
-        ?SLOG(error, #{msg => "resource_exception", info => emqx_utils:redact(Msg)}),
+        ?TRACE(
+            error,
+            "ERROR",
+            "resource_exception",
+            (trace_ctx_map(TraceCTX))#{info => emqx_utils:redact(Msg)}
+        ),
         ok
     end,
     {nack, PostFn, #{}};
-handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasBeenSent) when
+handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasBeenSent, _TraceCTX) when
     NotWorking == not_connected; NotWorking == blocked
 ->
     {nack, fun() -> ok end, #{}};
-handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, TraceCTX) ->
     PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => "resource_not_found", info => Msg}),
+        ?TRACE(
+            error,
+            "ERROR",
+            "resource_not_found",
+            (trace_ctx_map(TraceCTX))#{id => Id, info => Msg}
+        ),
         ok
     end,
     {ack, PostFn, #{dropped_resource_not_found => 1}};
-handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent, TraceCTX) ->
     PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => "resource_stopped", info => Msg}),
+        ?TRACE(error, "ERROR", "resource_stopped", (trace_ctx_map(TraceCTX))#{id => Id, info => Msg}),
         ok
     end,
     {ack, PostFn, #{dropped_resource_stopped => 1}};
-handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent, TraceCTX) ->
     PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => "other_resource_error", reason => Reason}),
+        ?TRACE(error, "ERROR", "other_resource_error", (trace_ctx_map(TraceCTX))#{
+            id => Id, reason => Reason
+        }),
         ok
     end,
     {nack, PostFn, #{}};
-handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
+handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCTX) ->
     case is_unrecoverable_error(Error) of
         true ->
             PostFn =
@@ -979,14 +993,16 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
         false ->
             PostFn =
                 fun() ->
-                    ?SLOG(error, #{id => Id, msg => "send_error", reason => Reason}),
+                    ?TRACE(error, "ERROR", "send_error", (trace_ctx_map(TraceCTX))#{
+                        id => Id, reason => Reason
+                    }),
                     ok
                 end,
             {nack, PostFn, #{}}
     end;
-handle_query_result_pure(Id, {async_return, Result}, HasBeenSent) ->
-    handle_query_async_result_pure(Id, Result, HasBeenSent);
-handle_query_result_pure(_Id, Result, HasBeenSent) ->
+handle_query_result_pure(Id, {async_return, Result}, HasBeenSent, TraceCTX) ->
+    handle_query_async_result_pure(Id, Result, HasBeenSent, TraceCTX);
+handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCTX) ->
     PostFn = fun() ->
         assert_ok_result(Result),
         ok
@@ -998,9 +1014,9 @@ handle_query_result_pure(_Id, Result, HasBeenSent) ->
         end,
     {ack, PostFn, Counters}.
 
--spec handle_query_async_result_pure(id(), term(), HasBeenSent :: boolean()) ->
+-spec handle_query_async_result_pure(id(), term(), HasBeenSent :: boolean(), map()) ->
     {ack | nack, function(), counters()}.
-handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
+handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCTX) ->
     case is_unrecoverable_error(Error) of
         true ->
             PostFn =
@@ -1016,16 +1032,18 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
             {ack, PostFn, Counters};
         false ->
             PostFn = fun() ->
-                ?SLOG(error, #{id => Id, msg => "async_send_error", reason => Reason}),
+                ?TRACE(error, "ERROR", "async_send_error", (trace_ctx_map(TraceCTX))#{
+                    id => Id, reason => Reason
+                }),
                 ok
             end,
             {nack, PostFn, #{}}
     end;
-handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent) when is_pid(Pid) ->
+handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent, _TraceCTX) when is_pid(Pid) ->
     {ack, fun() -> ok end, #{}};
-handle_query_async_result_pure(_Id, ok, _HasBeenSent) ->
+handle_query_async_result_pure(_Id, ok, _HasBeenSent, _TraceCTX) ->
     {ack, fun() -> ok end, #{}};
-handle_query_async_result_pure(Id, Results, HasBeenSent) when is_list(Results) ->
+handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCTX) when is_list(Results) ->
     All = fun(L) ->
         case L of
             {ok, Pid} -> is_pid(Pid);
@@ -1037,16 +1055,25 @@ handle_query_async_result_pure(Id, Results, HasBeenSent) when is_list(Results) -
             {ack, fun() -> ok end, #{}};
         false ->
             PostFn = fun() ->
-                ?SLOG(error, #{
-                    id => Id,
-                    msg => "async_batch_send_error",
-                    reason => Results,
-                    has_been_sent => HasBeenSent
-                }),
+                ?TRACE(
+                    error,
+                    "ERROR",
+                    "async_batch_send_error",
+                    (trace_ctx_map(TraceCTX))#{
+                        id => Id,
+                        reason => Results,
+                        has_been_sent => HasBeenSent
+                    }
+                ),
                 ok
             end,
             {nack, PostFn, #{}}
     end.
+
+trace_ctx_map(undefined) ->
+    #{};
+trace_ctx_map(Map) ->
+    Map.
 
 -spec aggregate_counters(data(), counters()) -> data().
 aggregate_counters(Data = #{counters := OldCounters}, DeltaCounters) ->
@@ -1526,7 +1553,7 @@ do_handle_async_reply(
         request_ref := Ref,
         buffer_worker := BufferWorkerPid,
         inflight_tid := InflightTID,
-        min_query := ?QUERY(ReplyTo, _, Sent, _ExpireAt, _TraceCtx) = _Query
+        min_query := ?QUERY(ReplyTo, _, Sent, _ExpireAt, TraceCtx) = _Query
     },
     Result
 ) ->
@@ -1534,7 +1561,7 @@ do_handle_async_reply(
     %% but received no ACK, NOT the number of messages queued in the
     %% inflight window.
     {Action, PostFn, DeltaCounters} = reply_caller_defer_metrics(
-        Id, ?REPLY(ReplyTo, Sent, Result), QueryOpts
+        Id, ?REPLY(ReplyTo, Sent, Result, TraceCtx), QueryOpts
     ),
 
     ?tp(handle_async_reply, #{

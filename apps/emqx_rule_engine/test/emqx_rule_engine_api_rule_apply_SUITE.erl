@@ -399,7 +399,7 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
 
 t_apply_rule_test_format_action_failed(_Config) ->
     MeckOpts = [passthrough, no_link, no_history, non_strict],
-    catch meck:new(emqx_connector_info, MeckOpts),
+    catch meck:new(emqx_rule_engine_test_connector, MeckOpts),
     meck:expect(
         emqx_rule_engine_test_connector,
         on_query,
@@ -408,8 +408,8 @@ t_apply_rule_test_format_action_failed(_Config) ->
     ),
     CheckFun =
         fun(Bin0) ->
+            %% The last line in the Bin should be the action_failed entry
             ?assertNotEqual(nomatch, binary:match(Bin0, [<<"action_failed">>])),
-            %% The last line in the Bin should be the action_success entry
             Bin1 = string:trim(Bin0),
             LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
             LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
@@ -437,50 +437,141 @@ t_apply_rule_test_format_action_failed(_Config) ->
                 LastEntryJSON
             )
         end,
-    do_apply_rule_test_format_action_failed_test(CheckFun).
+    do_apply_rule_test_format_action_failed_test(1, CheckFun).
 
-t_apply_rule_test_format_action_out_of_service(_Config) ->
+t_apply_rule_test_format_action_out_of_service_query(_Config) ->
+    Reason = <<"MY_RECOVERABLE_REASON">>,
+    CheckFun = out_of_service_check_fun(<<"send_error">>, Reason),
+    meck_test_connector_recoverable_errors(Reason),
+    do_apply_rule_test_format_action_failed_test(1, CheckFun).
+
+t_apply_rule_test_format_action_out_of_service_batch_query(_Config) ->
+    Reason = <<"MY_RECOVERABLE_REASON">>,
+    CheckFun = out_of_service_check_fun(<<"send_error">>, Reason),
+    meck_test_connector_recoverable_errors(Reason),
+    do_apply_rule_test_format_action_failed_test(10, CheckFun).
+
+t_apply_rule_test_format_action_out_of_service_async_query(_Config) ->
+    Reason = <<"MY_RECOVERABLE_REASON">>,
+    CheckFun = out_of_service_check_fun(<<"async_send_error">>, Reason),
+    meck_test_connector_recoverable_errors(Reason),
+    meck:expect(
+        emqx_rule_engine_test_connector,
+        callback_mode,
+        0,
+        async_if_possible
+    ),
+    do_apply_rule_test_format_action_failed_test(1, CheckFun).
+
+t_apply_rule_test_format_action_out_of_service_async_batch_query(_Config) ->
+    Reason = <<"MY_RECOVERABLE_REASON">>,
+    CheckFun = out_of_service_check_fun(<<"async_send_error">>, Reason),
+    meck_test_connector_recoverable_errors(Reason),
+    meck:expect(
+        emqx_rule_engine_test_connector,
+        callback_mode,
+        0,
+        async_if_possible
+    ),
+    do_apply_rule_test_format_action_failed_test(10, CheckFun).
+
+out_of_service_check_fun(SendErrorMsg, Reason) ->
+    fun(Bin0) ->
+        %% The last line in the Bin should be the action_failed entry
+        ?assertNotEqual(nomatch, binary:match(Bin0, [<<"action_failed">>])),
+        io:format("LOG:\n~s", [Bin0]),
+        Bin1 = string:trim(Bin0),
+        LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
+        LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+        ?assertMatch(
+            #{
+                <<"level">> := <<"debug">>,
+                <<"meta">> :=
+                    #{
+                        <<"action_info">> :=
+                            #{
+                                <<"name">> := _,
+                                <<"type">> := <<"rule_engine_test">>
+                            },
+                        <<"clientid">> := _,
+                        <<"reason">> := <<"request_expired">>,
+                        <<"rule_id">> := _,
+                        <<"rule_trigger_time">> := _,
+                        <<"stop_action_after_render">> := false,
+                        <<"trace_tag">> := <<"ACTION">>
+                    },
+                <<"msg">> := <<"action_failed">>,
+                <<"time">> := _
+            },
+            LastEntryJSON
+        ),
+        %% We should have at least one entry containing Reason
+        [ReasonLine | _] = find_lines_with(Bin1, Reason),
+        ReasonEntryJSON = emqx_utils_json:decode(ReasonLine, [return_maps]),
+        ?assertMatch(
+            #{
+                <<"level">> := <<"debug">>,
+                <<"meta">> :=
+                    #{
+                        <<"client_ids">> := [],
+                        <<"clientid">> := _,
+                        <<"id">> := _,
+                        <<"reason">> :=
+                            #{
+                                <<"additional_info">> := _,
+                                <<"error_type">> := <<"recoverable_error">>,
+                                <<"msg">> := <<"MY_RECOVERABLE_REASON">>
+                            },
+                        <<"rule_id">> := _,
+                        <<"rule_ids">> := [],
+                        <<"rule_trigger_time">> := _,
+                        <<"rule_trigger_times">> := [],
+                        <<"stop_action_after_render">> := false,
+                        <<"trace_tag">> := <<"ERROR">>
+                    },
+                <<"msg">> := SendErrorMsg,
+                <<"time">> := _
+            },
+            ReasonEntryJSON
+        )
+    end.
+
+meck_test_connector_recoverable_errors(Reason) ->
     MeckOpts = [passthrough, no_link, no_history, non_strict],
-    catch meck:new(emqx_connector_info, MeckOpts),
+    catch meck:new(emqx_rule_engine_test_connector, MeckOpts),
     meck:expect(
         emqx_rule_engine_test_connector,
         on_query,
         3,
-        {error, {recoverable_error, <<"MY RECOVERABLE REASON">>}}
+        {error, {recoverable_error, Reason}}
     ),
-    CheckFun =
-        fun(Bin0) ->
-            ?assertNotEqual(nomatch, binary:match(Bin0, [<<"action_failed">>])),
-            %% The last line in the Bin should be the action_success entry
-            Bin1 = string:trim(Bin0),
-            LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
-            LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
-            ?assertMatch(
-                #{
-                    <<"level">> := <<"debug">>,
-                    <<"meta">> :=
-                        #{
-                            <<"action_info">> :=
-                                #{
-                                    <<"name">> := _,
-                                    <<"type">> := <<"rule_engine_test">>
-                                },
-                            <<"clientid">> := _,
-                            <<"reason">> := <<"request_expired">>,
-                            <<"rule_id">> := _,
-                            <<"rule_trigger_time">> := _,
-                            <<"stop_action_after_render">> := false,
-                            <<"trace_tag">> := <<"ACTION">>
-                        },
-                    <<"msg">> := <<"action_failed">>,
-                    <<"time">> := _
-                },
-                LastEntryJSON
-            )
-        end,
-    do_apply_rule_test_format_action_failed_test(CheckFun).
+    meck:expect(
+        emqx_rule_engine_test_connector,
+        on_batch_query,
+        3,
+        {error, {recoverable_error, Reason}}
+    ),
+    meck:expect(
+        emqx_rule_engine_test_connector,
+        on_query_async,
+        4,
+        {error, {recoverable_error, Reason}}
+    ),
+    meck:expect(
+        emqx_rule_engine_test_connector,
+        on_batch_query_async,
+        4,
+        {error, {recoverable_error, Reason}}
+    ).
 
-do_apply_rule_test_format_action_failed_test(CheckLastTraceEntryFun) ->
+find_lines_with(Data, InLineText) ->
+    % Split the binary data into lines
+    Lines = re:split(Data, "\n", [{return, binary}]),
+
+    % Use a list comprehension to filter lines containing 'Reason'
+    [Line || Line <- Lines, re:run(Line, InLineText, [multiline, {capture, none}]) =/= nomatch].
+
+do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) ->
     meck_in_test_connector(),
     {ok, _} = emqx_connector:create(rule_engine_test, ?FUNCTION_NAME, #{}),
     Name = atom_to_binary(?FUNCTION_NAME),
@@ -489,8 +580,8 @@ do_apply_rule_test_format_action_failed_test(CheckLastTraceEntryFun) ->
             <<"connector">> => Name,
             <<"parameters">> => #{<<"values">> => #{}},
             <<"resource_opts">> => #{
-                <<"batch_size">> => 1,
-                <<"batch_time">> => 0,
+                <<"batch_size">> => BatchSize,
+                <<"batch_time">> => 10,
                 <<"request_ttl">> => 200
             }
         },

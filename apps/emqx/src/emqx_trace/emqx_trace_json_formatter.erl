@@ -88,6 +88,21 @@ prepare_key_value(packet = K, V, PEncode) ->
                 V
         end,
     {K, NewV};
+prepare_key_value(K, {recoverable_error, Msg} = OrgV, PEncode) ->
+    try
+        prepare_key_value(
+            K,
+            #{
+                error_type => recoverable_error,
+                msg => Msg,
+                additional_info => <<"The operation may be retried.">>
+            },
+            PEncode
+        )
+    catch
+        _:_ ->
+            {K, OrgV}
+    end;
 prepare_key_value(rule_ids = K, V, _PEncode) ->
     NewV =
         try
