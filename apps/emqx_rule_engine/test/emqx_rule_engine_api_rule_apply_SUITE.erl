@@ -87,6 +87,7 @@ end_per_testcase(_TestCase, _Config) ->
     emqx_bridge_v2_testlib:delete_all_bridges(),
     emqx_bridge_v2_testlib:delete_all_connectors(),
     emqx_common_test_helpers:call_janitor(),
+    meck:unload(),
     ok.
 
 t_basic_apply_rule_trace_ruleid(Config) ->
@@ -229,7 +230,6 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
         )
      || #{<<"meta">> := Meta} <- LogEntries
     ],
-    emqx_trace:delete(TraceName),
     ok.
 
 do_final_log_check(Action, Bin0) when is_binary(Action) ->
@@ -289,7 +289,11 @@ create_trace(TraceName, TraceType, TraceValue) ->
         end_at => End,
         formatter => json
     },
-    {ok, _} = emqx_trace:create(Trace).
+    {ok, _} = CreateRes = emqx_trace:create(Trace),
+    emqx_common_test_helpers:on_exit(fun() ->
+        ok = emqx_trace:delete(TraceName)
+    end),
+    CreateRes.
 
 t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
     meck_in_test_connector(),
@@ -389,12 +393,6 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
             )
         end
     ),
-    %% Cleanup
-    ok = emqx_trace:delete(Name),
-    ok = emqx_rule_engine:delete_rule(RuleID),
-    ok = emqx_bridge_v2:remove(rule_engine_test, ?FUNCTION_NAME),
-    ok = emqx_connector:remove(rule_engine_test, ?FUNCTION_NAME),
-    [_, _] = meck:unload(),
     ok.
 
 t_apply_rule_test_format_action_failed(_Config) ->
@@ -610,12 +608,6 @@ do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) 
             CheckLastTraceEntryFun(Bin)
         end
     ),
-    %% Cleanup
-    ok = emqx_trace:delete(Name),
-    ok = emqx_rule_engine:delete_rule(RuleID),
-    ok = emqx_bridge_v2:remove(rule_engine_test, ?FUNCTION_NAME),
-    ok = emqx_connector:remove(rule_engine_test, ?FUNCTION_NAME),
-    [_, _, _] = meck:unload(),
     ok.
 
 meck_in_test_connector() ->
@@ -665,6 +657,9 @@ create_rule_with_action(ActionType, ActionName, SQL) ->
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
             #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            emqx_common_test_helpers:on_exit(fun() ->
+                emqx_rule_engine:delete_rule(RuleId)
+            end),
             {ok, RuleId};
         Error ->
             Error
