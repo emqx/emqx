@@ -69,10 +69,22 @@ remove_handler() ->
     ok.
 
 load() ->
-    lists:foreach(fun insert/1, emqx:get_config(?VALIDATIONS_CONF_PATH, [])).
+    Validations = emqx:get_config(?VALIDATIONS_CONF_PATH, []),
+    lists:foreach(
+        fun({Pos, Validation}) ->
+            ok = emqx_message_validation_registry:insert(Pos, Validation)
+        end,
+        lists:enumerate(Validations)
+    ).
 
 unload() ->
-    lists:foreach(fun delete/1, emqx:get_config(?VALIDATIONS_CONF_PATH, [])).
+    Validations = emqx:get_config(?VALIDATIONS_CONF_PATH, []),
+    lists:foreach(
+        fun(Validation) ->
+            ok = emqx_message_validation_registry:delete(Validation)
+        end,
+        Validations
+    ).
 
 -spec list() -> [validation()].
 list() ->
