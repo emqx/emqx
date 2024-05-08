@@ -26,6 +26,9 @@
 
     %% Data
     store_batch/3,
+    prepare_batch/3,
+    commit_batch/2,
+
     get_streams/3,
     get_delete_streams/3,
     make_iterator/4,
@@ -66,7 +69,8 @@
     shard_id/0,
     options/0,
     prototype/0,
-    post_creation_context/0
+    post_creation_context/0,
+    cooked_batch/0
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -86,6 +90,7 @@
 -define(STREAM, 1).
 -define(IT, 2).
 -define(DELETE_IT, 3).
+-define(COOKED_BATCH, 4).
 
 %% keys:
 -define(tag, 1).
@@ -128,6 +133,13 @@
 -opaque delete_iterator() ::
     #{
         ?tag := ?DELETE_IT,
+        ?generation := gen_id(),
+        ?enc := term()
+    }.
+
+-opaque cooked_batch() ::
+    #{
+        ?tag := ?COOKED_BATCH,
         ?generation := gen_id(),
         ?enc := term()
     }.
@@ -207,13 +219,19 @@
 -callback drop(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _RuntimeData) ->
     ok | {error, _Reason}.
 
--callback store_batch(
+-callback prepare_batch(
     shard_id(),
     _Data,
-    [{emqx_ds:time(), emqx_types:message()}],
+    [{emqx_ds:time(), emqx_types:message()}, ...],
     emqx_ds:message_store_opts()
 ) ->
-    emqx_ds:store_batch_result().
+    {ok, term()} | {error, _}.
+
+-callback commit_batch(
+    shard_id(),
+    _Data,
+    _CookedBatch
+) -> ok.
 
 -callback get_streams(shard_id(), _Data, emqx_ds:topic_filter(), emqx_ds:time()) ->
     [_Stream].
@@ -261,20 +279,54 @@ drop_shard(Shard) ->
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-store_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
-    %% NOTE
-    %% We assume that batches do not span generations. Callers should enforce this.
+store_batch(Shard, Messages, Options) ->
     ?tp(emqx_ds_storage_layer_store_batch, #{
         shard => Shard, messages => Messages, options => Options
     }),
-    #{module := Mod, data := GenData} = generation_at(Shard, Time),
+    case prepare_batch(Shard, Messages, Options) of
+        {ok, CookedBatch} ->
+            commit_batch(Shard, CookedBatch);
+        ignore ->
+            ok;
+        Error = {error, _} ->
+            Error
+    end.
+
+-spec prepare_batch(
+    shard_id(),
+    [{emqx_ds:time(), emqx_types:message()}],
+    emqx_ds:message_store_opts()
+) -> {ok, cooked_batch()} | ignore | {error, _}.
+prepare_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
+    %% NOTE
+    %% We assume that batches do not span generations. Callers should enforce this.
+    ?tp(emqx_ds_storage_layer_prepare_batch, #{
+        shard => Shard, messages => Messages, options => Options
+    }),
+    {GenId, #{module := Mod, data := GenData}} = generation_at(Shard, Time),
     T0 = erlang:monotonic_time(microsecond),
-    Result = Mod:store_batch(Shard, GenData, Messages, Options),
+    Result =
+        case Mod:prepare_batch(Shard, GenData, Messages, Options) of
+            {ok, CookedBatch} ->
+                {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
+            Error = {error, _} ->
+                Error
+        end,
     T1 = erlang:monotonic_time(microsecond),
+    %% TODO store->prepare
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result;
-store_batch(_Shard, [], _Options) ->
-    ok.
+prepare_batch(_Shard, [], _Options) ->
+    ignore.
+
+-spec commit_batch(shard_id(), cooked_batch()) -> ok.
+commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
+    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
+    T0 = erlang:monotonic_time(microsecond),
+    Result = Mod:commit_batch(Shard, GenData, CookedBatch),
+    T1 = erlang:monotonic_time(microsecond),
+    emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
+    Result.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -878,7 +930,7 @@ handle_accept_snapshot(ShardId) ->
 %% The mechanism of storage layer events should be refined later.
 -spec handle_event(shard_id(), emqx_ds:time(), CustomEvent | tick) -> [CustomEvent].
 handle_event(Shard, Time, Event) ->
-    #{module := Mod, data := GenData} = generation_at(Shard, Time),
+    {_GenId, #{module := Mod, data := GenData}} = generation_at(Shard, Time),
     ?tp(emqx_ds_storage_layer_event, #{mod => Mod, time => Time, event => Event}),
     case erlang:function_exported(Mod, handle_event, 4) of
         true ->
@@ -919,7 +971,7 @@ generations_since(Shard, Since) ->
         Schema
     ).
 
--spec generation_at(shard_id(), emqx_ds:time()) -> generation().
+-spec generation_at(shard_id(), emqx_ds:time()) -> {gen_id(), generation()}.
 generation_at(Shard, Time) ->
     Schema = #{current_generation := Current} = get_schema_runtime(Shard),
     generation_at(Time, Current, Schema).
@@ -930,7 +982,7 @@ generation_at(Time, GenId, Schema) ->
         #{since := Since} when Time < Since andalso GenId > 0 ->
             generation_at(Time, prev_generation_id(GenId), Schema);
         _ ->
-            Gen
+            {GenId, Gen}
     end.
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).

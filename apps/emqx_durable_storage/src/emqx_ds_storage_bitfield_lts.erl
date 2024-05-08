@@ -28,7 +28,8 @@
     create/4,
     open/5,
     drop/5,
-    store_batch/4,
+    prepare_batch/4,
+    commit_batch/3,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
@@ -68,6 +69,9 @@
 -define(start_time, 3).
 -define(storage_key, 4).
 -define(last_seen_key, 5).
+-define(cooked_payloads, 6).
+-define(cooked_lts_ops, 7).
+-define(cooked_ts, 8).
 
 -type options() ::
     #{
@@ -90,17 +94,27 @@
     db :: rocksdb:db_handle(),
     data :: rocksdb:cf_handle(),
     trie :: emqx_ds_lts:trie(),
+    trie_cf :: rocksdb:cf_handle(),
     keymappers :: array:array(emqx_ds_bitmask_keymapper:keymapper()),
     ts_bits :: non_neg_integer(),
     ts_offset :: non_neg_integer(),
     gvars :: ets:table()
 }).
 
+-define(lts_persist_ops, emqx_ds_storage_bitfield_lts_ops).
+
 -type s() :: #s{}.
 
 -type stream() :: emqx_ds_lts:msg_storage_key().
 
 -type delete_stream() :: emqx_ds_lts:msg_storage_key().
+
+-type cooked_batch() ::
+    #{
+        ?cooked_payloads := [{binary(), binary()}],
+        ?cooked_lts_ops := [{binary(), binary()}],
+        ?cooked_ts := integer()
+    }.
 
 -type iterator() ::
     #{
@@ -220,6 +234,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         db = DBHandle,
         data = DataCF,
         trie = Trie,
+        trie_cf = TrieCF,
         keymappers = KeymapperCache,
         ts_offset = TSOffsetBits,
         ts_bits = TSBits,
@@ -257,24 +272,65 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
     ok = rocksdb:drop_column_family(DBHandle, TrieCF),
     ok.
 
--spec store_batch(
+-spec prepare_batch(
     emqx_ds_storage_layer:shard_id(),
     s(),
     [{emqx_ds:time(), emqx_types:message()}],
     emqx_ds:message_store_opts()
 ) ->
-    emqx_ds:store_batch_result().
-store_batch(_ShardId, S = #s{db = DB, data = Data, gvars = Gvars}, Messages, _Options) ->
+    {ok, cooked_batch()}.
+prepare_batch(_ShardId, S, Messages, _Options) ->
+    _ = erase(?lts_persist_ops),
+    {Payloads, MaxTs} =
+        lists:mapfoldl(
+            fun({Timestamp, Msg}, Acc) ->
+                {Key, _} = make_key(S, Timestamp, Msg),
+                Payload = {Key, message_to_value_v1(Msg)},
+                {Payload, max(Acc, Timestamp)}
+            end,
+            0,
+            Messages
+        ),
+    {ok, #{
+        ?cooked_payloads => Payloads,
+        ?cooked_lts_ops => pop_lts_persist_ops(),
+        ?cooked_ts => MaxTs
+    }}.
+
+-spec commit_batch(
+    emqx_ds_storage_layer:shard_id(),
+    s(),
+    cooked_batch()
+) -> ok.
+commit_batch(
+    _ShardId,
+    _Data,
+    #{?cooked_payloads := [], ?cooked_lts_ops := LTS}
+) ->
+    %% Assert:
+    [] = LTS,
+    ok;
+commit_batch(
+    _ShardId,
+    #s{db = DB, data = DataCF, trie = Trie, trie_cf = TrieCF, gvars = Gvars},
+    #{?cooked_lts_ops := LtsOps, ?cooked_payloads := Payloads, ?cooked_ts := MaxTs}
+) ->
     {ok, Batch} = rocksdb:batch(),
-    MaxTs = lists:foldl(
-        fun({Timestamp, Msg}, Acc) ->
-            {Key, _} = make_key(S, Timestamp, Msg),
-            Val = serialize(Msg),
-            ok = rocksdb:put(DB, Data, Key, Val, []),
-            max(Acc, Timestamp)
+    %% Commit LTS trie to the storage:
+    lists:foreach(
+        fun({Key, Val}) ->
+            ok = rocksdb:batch_put(Batch, TrieCF, term_to_binary(Key), term_to_binary(Val))
         end,
-        0,
-        Messages
+        LtsOps
+    ),
+    %% Apply LTS ops to the memory cache:
+    _ = emqx_ds_lts:trie_update(Trie, LtsOps),
+    %% Commit payloads:
+    lists:foreach(
+        fun({Key, Val}) ->
+            ok = rocksdb:batch_put(Batch, DataCF, Key, term_to_binary(Val))
+        end,
+        Payloads
     ),
     Result = rocksdb:write_batch(DB, Batch, []),
     rocksdb:release_batch(Batch),
@@ -780,9 +836,6 @@ value_v1_to_message({Id, Qos, From, Flags, Headers, Topic, Payload, Timestamp, E
         extra = Extra
     }.
 
-serialize(Msg) ->
-    term_to_binary(message_to_value_v1(Msg)).
-
 deserialize(Blob) ->
     value_v1_to_message(binary_to_term(Blob)).
 
@@ -810,7 +863,8 @@ make_keymapper(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N) ->
 -spec restore_trie(pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()) -> emqx_ds_lts:trie().
 restore_trie(TopicIndexBytes, DB, CF) ->
     PersistCallback = fun(Key, Val) ->
-        rocksdb:put(DB, CF, term_to_binary(Key), term_to_binary(Val), [])
+        push_lts_persist_op(Key, Val),
+        ok
     end,
     {ok, IT} = rocksdb:iterator(DB, CF, []),
     try
@@ -858,7 +912,28 @@ data_cf(GenId) ->
 trie_cf(GenId) ->
     "emqx_ds_storage_bitfield_lts_trie" ++ integer_to_list(GenId).
 
+-spec push_lts_persist_op(_Key, _Val) -> ok.
+push_lts_persist_op(Key, Val) ->
+    case erlang:get(?lts_persist_ops) of
+        undefined ->
+            erlang:put(?lts_persist_ops, [{Key, Val}]);
+        L when is_list(L) ->
+            erlang:put(?lts_persist_ops, [{Key, Val} | L])
+    end.
+
+-spec pop_lts_persist_ops() -> [{_Key, _Val}].
+pop_lts_persist_ops() ->
+    case erlang:erase(?lts_persist_ops) of
+        undefined ->
+            [];
+        L when is_list(L) ->
+            L
+    end.
+
 -ifdef(TEST).
+
+serialize(Msg) ->
+    term_to_binary(message_to_value_v1(Msg)).
 
 serialize_deserialize_test() ->
     Msg = #message{

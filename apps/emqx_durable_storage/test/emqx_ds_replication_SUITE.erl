@@ -159,6 +159,7 @@ t_rebalance('end', Config) ->
 t_rebalance(Config) ->
     NMsgs = 50,
     NClients = 5,
+    NEvents = NMsgs * NClients,
     %% List of fake client IDs:
     Clients = [integer_to_binary(I) || I <- lists:seq(1, NClients)],
     %% List of streams that generate messages for each "client" in its own topic:

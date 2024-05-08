@@ -733,7 +733,7 @@ apply(
     Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
     {State, Result};
 apply(
-    #{index := RaftIdx},
+    _RaftMeta,
     #{?tag := storage_event, ?payload := CustomEvent},
     #{db_shard := DBShard, latest := Latest0} = State
 ) ->
@@ -754,7 +754,6 @@ tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
     %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = assign_timestamp(timestamp_to_timeus(TimeMs), Latest),
     ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, ts => Timestamp}),
-    set_ts(DBShard, Latest),
     handle_custom_event(DBShard, Timestamp, tick).
 
 assign_timestamps(Latest, Messages) ->
