@@ -252,11 +252,14 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
 create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
     BridgeName = ?config(bridge_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+    create_rule_and_action(BridgeId, RuleTopic, Opts).
+
+create_rule_and_action(Action, RuleTopic, Opts) ->
     SQL = maps:get(sql, Opts, <<"SELECT * FROM \"", RuleTopic/binary, "\"">>),
     Params = #{
         enable => true,
         sql => SQL,
-        actions => [BridgeId]
+        actions => [Action]
     },
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),

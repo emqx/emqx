@@ -20,7 +20,8 @@
     on_query/3,
     on_batch_query/3,
     on_get_status/2,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 %% -------------------------------------------------------------------------------------------------
@@ -160,6 +161,11 @@ on_batch_query(
         Error ->
             Error
     end.
+
+on_format_query_result({ok, Msg}) ->
+    #{result => ok, message => Msg};
+on_format_query_result(Res) ->
+    Res.
 
 %% -------------------------------------------------------------------------------------------------
 %% private helpers

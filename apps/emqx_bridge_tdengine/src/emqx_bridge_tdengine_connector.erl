@@ -28,7 +28,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([connector_examples/1]).
@@ -214,6 +215,11 @@ on_batch_query(InstanceId, BatchReq, State) ->
     LogMeta = #{connector => InstanceId, request => BatchReq, state => State},
     ?SLOG(error, LogMeta#{msg => "invalid_request"}),
     {error, {unrecoverable_error, invalid_request}}.
+
+on_format_query_result({ok, ResultMap}) ->
+    #{result => ok, info => ResultMap};
+on_format_query_result(Result) ->
+    Result.
 
 on_get_status(_InstanceId, #{pool_name := PoolName} = State) ->
     case

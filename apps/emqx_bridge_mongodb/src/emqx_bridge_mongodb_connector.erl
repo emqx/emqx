@@ -18,7 +18,8 @@
     on_get_status/2,
     on_query/3,
     on_start/2,
-    on_stop/2
+    on_stop/2,
+    on_format_query_result/1
 ]).
 
 %%========================================================================================
@@ -84,6 +85,11 @@ on_query(InstanceId, {Channel, Message0}, #{channels := Channels, connector_stat
     Res;
 on_query(InstanceId, Request, _State = #{connector_state := ConnectorState}) ->
     emqx_mongodb:on_query(InstanceId, Request, ConnectorState).
+
+on_format_query_result({{Result, Info}, Documents}) ->
+    #{result => Result, info => Info, documents => Documents};
+on_format_query_result(Result) ->
+    Result.
 
 on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
     NewState = State#{channels => maps:remove(ChannelId, Channels)},

@@ -21,6 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -81,6 +82,7 @@ groups() ->
         t_raw_publish,
         t_auth_deny,
         t_acl_deny,
+        t_auth_expire,
         t_hook_connected_disconnected,
         t_hook_session_subscribed_unsubscribed,
         t_hook_message_delivered
@@ -157,14 +159,17 @@ end_per_group(_, Cfg) ->
 init_per_testcase(TestCase, Cfg) when
     TestCase == t_enter_passive_mode
 ->
+    snabbkaffe:start_trace(),
     case proplists:get_value(listener_type, Cfg) of
         udp -> {skip, ignore};
         _ -> Cfg
     end;
 init_per_testcase(_TestCase, Cfg) ->
+    snabbkaffe:start_trace(),
     Cfg.
 
 end_per_testcase(_TestCase, _Cfg) ->
+    snabbkaffe:stop(),
     ok.
 
 listener_confs(Type) ->
@@ -290,6 +295,42 @@ t_auth_deny(Cfg) ->
         end,
     meck:unload([emqx_gateway_ctx]).
 
+t_auth_expire(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
+    Password = <<"123456">>,
+
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 500}}
+        end
+    ),
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    ?assertWaitEvent(
+        begin
+            send(Sock, ConnBin),
+            {ok, ConnAckBin} = recv(Sock, 5000)
+        end,
+        #{
+            ?snk_kind := conn_process_terminated,
+            clientid := <<"test_client_1">>,
+            reason := {shutdown, expired}
+        },
+        5000
+    ).
+
 t_acl_deny(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
@@ -332,7 +373,6 @@ t_acl_deny(Cfg) ->
     close(Sock).
 
 t_keepalive_timeout(Cfg) ->
-    ok = snabbkaffe:start_trace(),
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
@@ -383,8 +423,7 @@ t_keepalive_timeout(Cfg) ->
             ?assertEqual(1, length(?of_kind(conn_process_terminated, Trace))),
             %% socket port should be closed
             ?assertEqual({error, closed}, recv(Sock, 5000))
-    end,
-    snabbkaffe:stop().
+    end.
 
 t_hook_connected_disconnected(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),
@@ -513,7 +552,6 @@ t_hook_message_delivered(Cfg) ->
     emqx_hooks:del('message.delivered', {?MODULE, hook_fun5}).
 
 t_idle_timeout(Cfg) ->
-    ok = snabbkaffe:start_trace(),
     SockType = proplists:get_value(listener_type, Cfg),
     Sock = open(SockType),
 
@@ -551,8 +589,7 @@ t_idle_timeout(Cfg) ->
                 {ok, #{reason := {shutdown, idle_timeout}}},
                 ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
             )
-    end,
-    snabbkaffe:stop().
+    end.
 
 %%--------------------------------------------------------------------
 %% Utils

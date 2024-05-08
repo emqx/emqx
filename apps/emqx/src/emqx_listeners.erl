@@ -1036,8 +1036,8 @@ to_quicer_listener_opts(Opts) ->
     SSLOpts = maps:from_list(ssl_opts(Opts)),
     Opts1 = maps:filter(
         fun
-            (cacertfile, undefined) -> fasle;
-            (password, undefined) -> fasle;
+            (cacertfile, undefined) -> false;
+            (password, undefined) -> false;
             (_, _) -> true
         end,
         Opts

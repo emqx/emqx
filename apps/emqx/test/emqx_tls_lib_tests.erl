@@ -240,7 +240,7 @@ to_client_opts_test() ->
     Versions13Only = ['tlsv1.3'],
     Options = #{
         enable => true,
-        verify => "Verify",
+        verify => verify_none,
         server_name_indication => "SNI",
         ciphers => "Ciphers",
         depth => "depth",
@@ -249,9 +249,16 @@ to_client_opts_test() ->
         secure_renegotiate => "secure_renegotiate",
         reuse_sessions => "reuse_sessions"
     },
-    Expected1 = lists:usort(maps:keys(Options) -- [enable]),
+    Expected0 = lists:usort(maps:keys(Options) -- [enable]),
+    Expected1 = lists:sort(Expected0 ++ [customize_hostname_check]),
     ?assertEqual(
-        Expected1, lists:usort(proplists:get_keys(emqx_tls_lib:to_client_opts(tls, Options)))
+        Expected0, lists:usort(proplists:get_keys(emqx_tls_lib:to_client_opts(tls, Options)))
+    ),
+    ?assertEqual(
+        Expected1,
+        lists:usort(
+            proplists:get_keys(emqx_tls_lib:to_client_opts(tls, Options#{verify => verify_peer}))
+        )
     ),
     Expected2 =
         lists:usort(

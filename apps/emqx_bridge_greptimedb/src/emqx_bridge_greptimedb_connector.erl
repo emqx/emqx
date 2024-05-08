@@ -27,7 +27,8 @@
     on_batch_query/3,
     on_query_async/4,
     on_batch_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    on_format_query_result/1
 ]).
 -export([reply_callback/2]).
 
@@ -452,6 +453,11 @@ do_query(InstId, Channel, Client, Points) ->
                     {error, {recoverable_error, Reason}}
             end
     end.
+
+on_format_query_result({ok, {affected_rows, Rows}}) ->
+    #{result => ok, affected_rows => Rows};
+on_format_query_result(Result) ->
+    Result.
 
 do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
     ?SLOG(info, #{

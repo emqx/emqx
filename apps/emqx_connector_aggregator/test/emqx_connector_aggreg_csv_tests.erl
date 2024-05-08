@@ -2,12 +2,12 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_s3_aggreg_csv_tests).
+-module(emqx_connector_aggreg_csv_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
 encoding_test() ->
-    CSV = emqx_bridge_s3_aggreg_csv:new(#{}),
+    CSV = emqx_connector_aggreg_csv:new(#{}),
     ?assertEqual(
         "A,B,Ç\n"
         "1.2345,string,0.0\n"
@@ -28,7 +28,7 @@ encoding_test() ->
 
 column_order_test() ->
     Order = [<<"ID">>, <<"TS">>],
-    CSV = emqx_bridge_s3_aggreg_csv:new(#{column_order => Order}),
+    CSV = emqx_connector_aggreg_csv:new(#{column_order => Order}),
     ?assertEqual(
         "ID,TS,A,B,D\n"
         "1,2024-01-01,12.34,str,\"[]\"\n"
@@ -63,10 +63,10 @@ fill_close(CSV, LRecords) ->
     string(fill_close_(CSV, LRecords)).
 
 fill_close_(CSV0, [Records | LRest]) ->
-    {Writes, CSV} = emqx_bridge_s3_aggreg_csv:fill(Records, CSV0),
+    {Writes, CSV} = emqx_connector_aggreg_csv:fill(Records, CSV0),
     [Writes | fill_close_(CSV, LRest)];
 fill_close_(CSV, []) ->
-    [emqx_bridge_s3_aggreg_csv:close(CSV)].
+    [emqx_connector_aggreg_csv:close(CSV)].
 
 string(Writes) ->
     unicode:characters_to_list(Writes).

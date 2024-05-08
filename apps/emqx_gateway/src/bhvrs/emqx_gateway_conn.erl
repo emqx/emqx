@@ -518,7 +518,7 @@ handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
 handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
     handle_info({sock_error, Reason}, State);
 handle_msg({close, Reason}, State) ->
-    ?SLOG(debug, #{msg => "force_socket_close", reason => Reason}),
+    ?tp(debug, force_socket_close, #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 handle_msg(
     {event, connected},

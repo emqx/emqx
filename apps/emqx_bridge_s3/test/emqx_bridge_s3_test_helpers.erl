@@ -48,11 +48,3 @@ list_pending_uploads(Bucket, Key) ->
     {ok, Props} = erlcloud_s3:list_multipart_uploads(Bucket, [{prefix, Key}], [], AwsConfig),
     Uploads = proplists:get_value(uploads, Props),
     lists:map(fun maps:from_list/1, Uploads).
-
-%% File utilities
-
-truncate_at(Filename, Pos) ->
-    {ok, FD} = file:open(Filename, [read, write, binary]),
-    {ok, Pos} = file:position(FD, Pos),
-    ok = file:truncate(FD),
-    ok = file:close(FD).

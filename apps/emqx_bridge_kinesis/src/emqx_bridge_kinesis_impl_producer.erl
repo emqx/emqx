@@ -39,7 +39,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([
@@ -317,6 +318,11 @@ handle_result({error, Reason} = Error, Requests, InstanceId) ->
         reason => Reason
     }),
     Error.
+
+on_format_query_result({ok, Result}) ->
+    #{result => ok, info => Result};
+on_format_query_result(Result) ->
+    Result.
 
 parse_template(Config) ->
     #{payload_template := PayloadTemplate, partition_key := PartitionKeyTemplate} = Config,

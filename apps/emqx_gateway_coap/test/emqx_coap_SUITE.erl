@@ -29,6 +29,7 @@
 
 -include_lib("er_coap_client/include/coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -83,6 +84,17 @@ init_per_testcase(t_connection_with_authn_failed, Config) ->
         fun(_) -> {error, bad_username_or_password} end
     ),
     Config;
+init_per_testcase(t_connection_with_expire, Config) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 100}}
+        end
+    ),
+    snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(t_heartbeat, Config) ->
     NewHeartbeat = 800,
     OldConf = emqx:get_raw_config([gateway, coap]),
@@ -103,6 +115,10 @@ end_per_testcase(t_heartbeat, Config) ->
     OldConf = ?config(old_conf, Config),
     {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf),
     ok;
+end_per_testcase(t_connection_with_expire, Config) ->
+    snabbkaffe:stop(),
+    meck:unload(emqx_access_control),
+    Config;
 end_per_testcase(_, Config) ->
     ok = meck:unload(emqx_access_control),
     Config.
@@ -269,6 +285,26 @@ t_connection_with_authn_failed(_) ->
         emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
     ),
     ok.
+
+t_connection_with_expire(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock} = er_coap_udp_socket:start_link(),
+    {ok, Channel} = er_coap_udp_socket:get_channel(Sock, ChId),
+
+    URI = ?MQTT_PREFIX ++ "/connection?clientid=client1",
+
+    ?assertWaitEvent(
+        begin
+            Req = make_req(post),
+            {ok, created, _Data} = do_request(Channel, URI, Req)
+        end,
+        #{
+            ?snk_kind := conn_process_terminated,
+            clientid := <<"client1">>,
+            reason := {shutdown, expired}
+        },
+        5000
+    ).
 
 t_publish(_) ->
     %% can publish to a normal topic

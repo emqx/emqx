@@ -1745,6 +1745,18 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
 format_channel_info(undefined, {ClientId, PSInfo0 = #{}}, _Opts) ->
     format_persistent_session_info(ClientId, PSInfo0).
 
+format_persistent_session_info(
+    _ClientId, #{metadata := #{offline_info := #{chan_info := ChanInfo, stats := Stats}}} = PSInfo
+) ->
+    Info0 = format_channel_info(_Node = undefined, {_Key = undefined, ChanInfo, Stats}, #{
+        fields => all
+    }),
+    Info0#{
+        connected => false,
+        durable => true,
+        is_persistent => true,
+        subscriptions_cnt => maps:size(maps:get(subscriptions, PSInfo, #{}))
+    };
 format_persistent_session_info(ClientId, PSInfo0) ->
     Metadata = maps:get(metadata, PSInfo0, #{}),
     {ProtoName, ProtoVer} = maps:get(protocol, Metadata),
@@ -1762,6 +1774,7 @@ format_persistent_session_info(ClientId, PSInfo0) ->
         clientid => ClientId,
         connected => false,
         connected_at => CreatedAt,
+        durable => true,
         ip_address => IpAddress,
         is_persistent => true,
         port => Port,

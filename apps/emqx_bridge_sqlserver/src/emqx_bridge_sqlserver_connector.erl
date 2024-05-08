@@ -39,7 +39,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 %% callbacks for ecpool
@@ -319,6 +320,11 @@ on_batch_query(ResourceId, BatchRequests, State) ->
         #{requests => BatchRequests, connector => ResourceId, state => State}
     ),
     do_query(ResourceId, BatchRequests, ?SYNC_QUERY_MODE, State).
+
+on_format_query_result({ok, Rows}) ->
+    #{result => ok, rows => Rows};
+on_format_query_result(Result) ->
+    Result.
 
 on_get_status(_InstanceId, #{pool_name := PoolName} = _State) ->
     Health = emqx_resource_pool:health_check_workers(

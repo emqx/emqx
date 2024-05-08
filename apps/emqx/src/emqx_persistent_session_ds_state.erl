@@ -35,6 +35,7 @@
 -export([get_expiry_interval/1, set_expiry_interval/2]).
 -export([get_clientinfo/1, set_clientinfo/2]).
 -export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
+-export([set_offline_info/2]).
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
@@ -53,6 +54,7 @@
     cold_get_subscription/2,
     fold_subscriptions/3,
     n_subscriptions/1,
+    total_subscription_count/0,
     put_subscription/3,
     del_subscription/2
 ]).
@@ -372,6 +374,10 @@ clear_will_message_now(SessionId) when is_binary(SessionId) ->
 clear_will_message(Rec) ->
     set_will_message(undefined, Rec).
 
+-spec set_offline_info(_Info :: map(), t()) -> t().
+set_offline_info(Info, Rec) ->
+    set_meta(?offline_info, Info, Rec).
+
 -spec new_id(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
 new_id(Rec) ->
     LastId =
@@ -400,6 +406,12 @@ fold_subscriptions(Fun, Acc, Rec) ->
 -spec n_subscriptions(t()) -> non_neg_integer().
 n_subscriptions(Rec) ->
     gen_size(?subscriptions, Rec).
+
+-spec total_subscription_count() -> non_neg_integer().
+total_subscription_count() ->
+    mria:async_dirty(?DS_MRIA_SHARD, fun() ->
+        mnesia:foldl(fun(#kv{}, Acc) -> Acc + 1 end, 0, ?subscription_tab)
+    end).
 
 -spec put_subscription(
     emqx_persistent_session_ds:topic_filter(),

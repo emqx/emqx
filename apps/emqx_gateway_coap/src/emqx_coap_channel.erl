@@ -214,6 +214,8 @@ handle_timeout(_, {transport, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
 handle_timeout(_, disconnect, Channel) ->
     {shutdown, normal, Channel};
+handle_timeout(_, connection_expire, Channel) ->
+    {shutdown, expired, Channel};
 handle_timeout(_, _, Channel) ->
     {ok, Channel}.
 
@@ -595,6 +597,14 @@ process_connect(
             iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
     end.
 
+schedule_connection_expire(Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
+    case emqx_gateway_ctx:connection_expire_interval(Ctx, ClientInfo) of
+        undefined ->
+            Channel;
+        Interval ->
+            ensure_timer(connection_expire_timer, Interval, connection_expire, Channel)
+    end.
+
 run_hooks(Ctx, Name, Args) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run(Name, Args).
@@ -619,7 +629,7 @@ ensure_connected(
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, #{}]),
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{conninfo = NConnInfo, conn_state = connected}.
+    schedule_connection_expire(Channel#channel{conninfo = NConnInfo, conn_state = connected}).
 
 %%--------------------------------------------------------------------
 %% Ensure disconnected

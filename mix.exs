@@ -158,6 +158,7 @@ defmodule EMQXUmbrella.MixProject do
   # need to remove those when listing `/apps/`...
   defp enterprise_umbrella_apps(_release_type) do
     MapSet.new([
+      :emqx_connector_aggregator,
       :emqx_bridge_kafka,
       :emqx_bridge_confluent,
       :emqx_bridge_gcp_pubsub,

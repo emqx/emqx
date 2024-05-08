@@ -17,7 +17,7 @@
 %% ...
 %% ```
 %% ^ ETF = Erlang External Term Format (i.e. `erlang:term_to_binary/1`).
--module(emqx_bridge_s3_aggreg_buffer).
+-module(emqx_connector_aggreg_buffer).
 
 -export([
     new_writer/2,

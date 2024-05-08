@@ -127,6 +127,7 @@ common_fields() ->
             desc => ?DESC(acl_claim_name)
         }},
         {verify_claims, fun verify_claims/1},
+        {disconnect_after_expire, fun disconnect_after_expire/1},
         {from, fun from/1}
     ] ++ emqx_authn_schema:common_fields().
 
@@ -187,6 +188,11 @@ verify_claims(required) ->
     false;
 verify_claims(_) ->
     undefined.
+
+disconnect_after_expire(type) -> boolean();
+disconnect_after_expire(desc) -> ?DESC(?FUNCTION_NAME);
+disconnect_after_expire(default) -> true;
+disconnect_after_expire(_) -> undefined.
 
 do_check_verify_claims([]) ->
     true;

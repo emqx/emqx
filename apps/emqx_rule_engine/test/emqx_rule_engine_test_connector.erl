@@ -29,7 +29,9 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_query_async/4,
     on_batch_query/3,
+    on_batch_query_async/4,
     on_get_status/2,
     on_add_channel/4,
     on_remove_channel/3,
@@ -85,6 +87,14 @@ on_query(
 ) ->
     ok.
 
+on_query_async(
+    _InstId,
+    _Query,
+    _State,
+    _Callback
+) ->
+    ok.
+
 on_batch_query(
     _InstId,
     [{ChannelId, _Req} | _] = Msg,
@@ -94,6 +104,14 @@ on_batch_query(
     Pid = binary_to_term(emqx_utils:hexstr_to_bin(PidBin)),
     Pid ! Msg,
     emqx_trace:rendered_action_template(ChannelId, #{nothing_to_render => ok}),
+    ok.
+
+on_batch_query_async(
+    _InstId,
+    _Batch,
+    _State,
+    _Callback
+) ->
     ok.
 
 on_get_status(_InstId, _State) ->

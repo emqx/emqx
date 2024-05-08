@@ -18,6 +18,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -76,6 +77,14 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    snabbkaffe:stop(),
     ok.
 
 default_config() ->
@@ -140,6 +149,34 @@ t_connect(_) ->
         } = Frame
     end,
     with_connection(ProtocolError).
+
+t_auth_expire(_) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 500}}
+        end
+    ),
+
+    ConnectWithExpire = fun(Sock) ->
+        ?assertWaitEvent(
+            begin
+                ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"1000,2000">>),
+                {ok, Frame} = recv_a_frame(Sock),
+                ?assertMatch(<<"CONNECTED">>, Frame#stomp_frame.command)
+            end,
+            #{
+                ?snk_kind := conn_process_terminated,
+                clientid := _,
+                reason := {shutdown, expired}
+            },
+            5000
+        )
+    end,
+    with_connection(ConnectWithExpire),
+    meck:unload(emqx_access_control).
 
 t_heartbeat(_) ->
     %% Test heart beat
