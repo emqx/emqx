@@ -162,7 +162,7 @@ interleave_test() ->
     S2 = emqx_utils_stream:list([a, b, c, d]),
     ?assertEqual(
         [1, 2, a, b, 3, c, d],
-        emqx_utils_stream:consume(emqx_utils_stream:interleave([{2, S1}, {2, S2}]))
+        emqx_utils_stream:consume(emqx_utils_stream:interleave([{2, S1}, {2, S2}], true))
     ).
 
 csv_test() ->
