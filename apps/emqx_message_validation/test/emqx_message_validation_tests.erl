@@ -309,7 +309,7 @@ duplicated_check_test_() ->
                         schema_check(
                             protobuf,
                             <<"a">>,
-                            #{<<"message_name">> => <<"a">>}
+                            #{<<"message_type">> => <<"a">>}
                         )
                     ])
                 ])

@@ -259,8 +259,8 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
     #{name := Name} = Validation,
     ExtraArgs =
         case Check of
-            #{type := protobuf, message_name := MessageName} ->
-                [MessageName];
+            #{type := protobuf, message_type := MessageType} ->
+                [MessageType];
             _ ->
                 []
         end,

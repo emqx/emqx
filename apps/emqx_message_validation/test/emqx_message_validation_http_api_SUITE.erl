@@ -317,9 +317,9 @@ avro_create_serde(SerdeName) ->
     on_exit(fun() -> ok = emqx_schema_registry:delete_schema(SerdeName) end),
     ok.
 
-protobuf_valid_payloads(SerdeName, MessageName) ->
+protobuf_valid_payloads(SerdeName, MessageType) ->
     lists:map(
-        fun(Payload) -> emqx_schema_registry_serde:encode(SerdeName, Payload, [MessageName]) end,
+        fun(Payload) -> emqx_schema_registry_serde:encode(SerdeName, Payload, [MessageType]) end,
         [
             #{<<"name">> => <<"some name">>, <<"id">> => 10, <<"email">> => <<"emqx@emqx.io">>},
             #{<<"name">> => <<"some name">>, <<"id">> => 10}
@@ -1176,11 +1176,11 @@ t_schema_check_avro(_Config) ->
 
 t_schema_check_protobuf(_Config) ->
     SerdeName = <<"myserde">>,
-    MessageName = <<"Person">>,
+    MessageType = <<"Person">>,
     protobuf_create_serde(SerdeName),
 
     Name1 = <<"foo">>,
-    Check1 = schema_check(protobuf, SerdeName, #{<<"message_name">> => MessageName}),
+    Check1 = schema_check(protobuf, SerdeName, #{<<"message_type">> => MessageType}),
     Validation1 = validation(Name1, [Check1]),
     {201, _} = insert(Validation1),
 
@@ -1192,7 +1192,7 @@ t_schema_check_protobuf(_Config) ->
             ok = publish(C, <<"t/1">>, {raw, Payload}),
             ?assertReceive({publish, _})
         end,
-        protobuf_valid_payloads(SerdeName, MessageName)
+        protobuf_valid_payloads(SerdeName, MessageType)
     ),
     lists:foreach(
         fun(Payload) ->
@@ -1203,7 +1203,7 @@ t_schema_check_protobuf(_Config) ->
     ),
 
     %% Bad config: unknown message name
-    Check2 = schema_check(protobuf, SerdeName, #{<<"message_name">> => <<"idontexist">>}),
+    Check2 = schema_check(protobuf, SerdeName, #{<<"message_type">> => <<"idontexist">>}),
     Validation2 = validation(Name1, [Check2]),
     {200, _} = update(Validation2),
 
@@ -1212,7 +1212,7 @@ t_schema_check_protobuf(_Config) ->
             ok = publish(C, <<"t/1">>, {raw, Payload}),
             ?assertNotReceive({publish, _})
         end,
-        protobuf_valid_payloads(SerdeName, MessageName)
+        protobuf_valid_payloads(SerdeName, MessageType)
     ),
 
     ok.

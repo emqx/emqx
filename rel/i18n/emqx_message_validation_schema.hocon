@@ -30,9 +30,9 @@ emqx_message_validation_schema {
   check_protobuf_schema.label:
   """Schema name"""
 
-  check_protobuf_message_name.desc:
+  check_protobuf_message_type.desc:
   """Message name to use during check."""
-  check_protobuf_message_name.label:
+  check_protobuf_message_type.label:
   """Message name"""
 
   check_sql_type.desc:
