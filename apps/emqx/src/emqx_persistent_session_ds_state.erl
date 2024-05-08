@@ -54,6 +54,7 @@
     cold_get_subscription/2,
     fold_subscriptions/3,
     n_subscriptions/1,
+    total_subscription_count/0,
     put_subscription/3,
     del_subscription/2
 ]).
@@ -405,6 +406,12 @@ fold_subscriptions(Fun, Acc, Rec) ->
 -spec n_subscriptions(t()) -> non_neg_integer().
 n_subscriptions(Rec) ->
     gen_size(?subscriptions, Rec).
+
+-spec total_subscription_count() -> non_neg_integer().
+total_subscription_count() ->
+    mria:async_dirty(?DS_MRIA_SHARD, fun() ->
+        mnesia:foldl(fun(#kv{}, Acc) -> Acc + 1 end, 0, ?subscription_tab)
+    end).
 
 -spec put_subscription(
     emqx_persistent_session_ds:topic_filter(),

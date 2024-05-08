@@ -1713,6 +1713,14 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_session_gc_batch_size)
                 }
             )},
+        {"subscription_count_refresh_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"message_retention_period",
             sc(
                 timeout_duration(),

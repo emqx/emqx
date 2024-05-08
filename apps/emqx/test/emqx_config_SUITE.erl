@@ -475,6 +475,7 @@ zone_global_defaults() ->
                 message_retention_period => 86400000,
                 renew_streams_interval => 5000,
                 session_gc_batch_size => 100,
-                session_gc_interval => 600000
+                session_gc_interval => 600000,
+                subscription_count_refresh_interval => 5000
             }
     }.

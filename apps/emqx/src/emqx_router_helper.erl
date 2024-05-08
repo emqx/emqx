@@ -189,7 +189,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 stats_fun() ->
-    emqx_stats:setstat('topics.count', 'topics.max', emqx_router:stats(n_routes)).
+    PSRouteCount = persistent_route_count(),
+    NonPSRouteCount = emqx_router:stats(n_routes),
+    emqx_stats:setstat('topics.count', 'topics.max', PSRouteCount + NonPSRouteCount).
+
+persistent_route_count() ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            emqx_persistent_session_ds_router:stats(n_routes);
+        false ->
+            0
+    end.
 
 cleanup_routes(Node) ->
     emqx_router:cleanup_routes(Node).
