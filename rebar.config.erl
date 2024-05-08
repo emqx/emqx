@@ -190,7 +190,7 @@ plugins() ->
 test_plugins() ->
     [
         {rebar3_proper, "0.12.1"},
-        {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-1"}}}
+        {coveralls, {git, "https://github.com/id/coveralls-erl", {branch, "0508-sync-qzhuyan"}}}
     ].
 
 test_deps() ->
@@ -578,11 +578,11 @@ coveralls() ->
         {"true", Token} when is_list(Token) ->
             Cfgs = [
                 {coveralls_repo_token, Token},
-                {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
+                {coveralls_service_number, os:getenv("GITHUB_RUN_ID")},
                 {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
                 {coveralls_coverdata, "_build/test/cover/*.coverdata"},
                 {coveralls_parallel, true},
-                {coveralls_service_name, "github-action"}
+                {coveralls_service_name, "github"}
             ],
             case
                 os:getenv("GITHUB_EVENT_NAME") =:= "pull_request" andalso
