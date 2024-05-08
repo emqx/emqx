@@ -82,6 +82,8 @@ server_name(DB, Shard, Site) ->
 
 %%
 
+-spec servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), Order) -> [server(), ...] when
+    Order :: leader_preferred | undefined.
 servers(DB, Shard, _Order = leader_preferred) ->
     get_servers_leader_preferred(DB, Shard);
 servers(DB, Shard, _Order = undefined) ->
@@ -98,7 +100,7 @@ get_servers_leader_preferred(DB, Shard) ->
             Servers = ra_leaderboard:lookup_members(ClusterName),
             [Leader | lists:delete(Leader, Servers)];
         undefined ->
-            get_shard_servers(DB, Shard)
+            get_online_servers(DB, Shard)
     end.
 
 get_server_local_preferred(DB, Shard) ->
@@ -111,7 +113,7 @@ get_server_local_preferred(DB, Shard) ->
             %% TODO
             %% Leader is unkonwn if there are no servers of this group on the
             %% local node. We want to pick a replica in that case as well.
-            pick_random(get_shard_servers(DB, Shard))
+            pick_random(get_online_servers(DB, Shard))
     end.
 
 lookup_leader(DB, Shard) ->
@@ -120,6 +122,21 @@ lookup_leader(DB, Shard) ->
     %% no servers on the local node.
     ClusterName = get_cluster_name(DB, Shard),
     ra_leaderboard:lookup_leader(ClusterName).
+
+get_online_servers(DB, Shard) ->
+    filter_online(get_shard_servers(DB, Shard)).
+
+filter_online(Servers) ->
+    case lists:filter(fun is_server_online/1, Servers) of
+        [] ->
+            %% NOTE: Must return non-empty list.
+            Servers;
+        Online ->
+            Online
+    end.
+
+is_server_online({_Name, Node}) ->
+    Node == node() orelse lists:member(Node, nodes()).
 
 pick_local(Servers) ->
     case lists:keyfind(node(), 2, Servers) of
