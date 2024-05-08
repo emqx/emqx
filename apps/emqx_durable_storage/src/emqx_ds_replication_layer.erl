@@ -734,20 +734,20 @@ apply(
     {State, Result};
 apply(
     _RaftMeta,
-    #{?tag := storage_event, ?payload := CustomEvent},
+    #{?tag := storage_event, ?payload := CustomEvent, ?now := Now},
     #{db_shard := DBShard, latest := Latest0} = State
 ) ->
-    {Timestamp, Latest} = ensure_monotonic_timestamp(emqx_ds:timestamp_us(), Latest0),
+    Latest = max(Latest0, Now),
     set_ts(DBShard, Latest),
     ?tp(
         debug,
         emqx_ds_replication_layer_storage_event,
         #{
-            shard => DBShard, ts => Timestamp, payload => CustomEvent
+            shard => DBShard, payload => CustomEvent, latest => Latest
         }
     ),
-    Effects = handle_custom_event(DBShard, Timestamp, CustomEvent),
-    {State#{latest := Latest}, ok, Effects}.
+    Effects = handle_custom_event(DBShard, Latest, CustomEvent),
+    {State#{latest => Latest}, ok, Effects}.
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
@@ -791,7 +791,7 @@ snapshot_module() ->
 handle_custom_event(DBShard, Latest, Event) ->
     try
         Events = emqx_ds_storage_layer:handle_event(DBShard, Latest, Event),
-        [{append, #{?tag => storage_event, ?payload => I}} || I <- Events]
+        [{append, #{?tag => storage_event, ?payload => I, ?now => Latest}} || I <- Events]
     catch
         EC:Err:Stacktrace ->
             ?tp(error, ds_storage_custom_even_fail, #{

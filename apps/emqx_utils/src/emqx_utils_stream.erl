@@ -20,13 +20,14 @@
 -export([
     empty/0,
     list/1,
+    const/1,
     mqueue/1,
     map/2,
     transpose/1,
     chain/1,
     chain/2,
     repeat/1,
-    interleave/1,
+    interleave/2,
     limit_length/2
 ]).
 
@@ -71,6 +72,11 @@ list([]) ->
     empty();
 list([X | Rest]) ->
     fun() -> [X | list(Rest)] end.
+
+%% @doc Make a stream with a single element infinitely repeated
+-spec const(T) -> stream(T).
+const(T) ->
+    fun() -> [T | const(T)] end.
 
 %% @doc Make a stream out of process message queue.
 -spec mqueue(timeout()) -> stream(any()).
@@ -158,8 +164,8 @@ repeat(S) ->
 %% specifies size of the "batch" to be consumed from the stream at a
 %% time (stream is the second tuple element). If element of the list
 %% is a plain stream, then the batch size is assumed to be 1.
--spec interleave([stream(X) | {non_neg_integer(), stream(X)}]) -> stream(X).
-interleave(L0) ->
+-spec interleave([stream(X) | {non_neg_integer(), stream(X)}], boolean()) -> stream(X).
+interleave(L0, ContinueAtEmpty) ->
     L = lists:map(
         fun
             (Stream) when is_function(Stream) ->
@@ -170,7 +176,7 @@ interleave(L0) ->
         L0
     ),
     fun() ->
-        do_interleave(0, L, [])
+        do_interleave(ContinueAtEmpty, 0, L, [])
     end.
 
 %% @doc Truncate list to the given length
@@ -281,21 +287,23 @@ csv_read_line([Line | Lines]) ->
 csv_read_line([]) ->
     eof.
 
-do_interleave(_, [], []) ->
+do_interleave(_Cont, _, [], []) ->
     [];
-do_interleave(N, [{N, S} | Rest], Rev) ->
-    do_interleave(0, Rest, [{N, S} | Rev]);
-do_interleave(_, [], Rev) ->
-    do_interleave(0, lists:reverse(Rev), []);
-do_interleave(I, [{N, S} | Rest], Rev) when I < N ->
+do_interleave(Cont, N, [{N, S} | Rest], Rev) ->
+    do_interleave(Cont, 0, Rest, [{N, S} | Rev]);
+do_interleave(Cont, _, [], Rev) ->
+    do_interleave(Cont, 0, lists:reverse(Rev), []);
+do_interleave(Cont, I, [{N, S} | Rest], Rev) when I < N ->
     case next(S) of
+        [] when Cont ->
+            do_interleave(Cont, 0, Rest, Rev);
         [] ->
-            do_interleave(0, Rest, Rev);
+            [];
         [X | S1] ->
             [
                 X
                 | fun() ->
-                    do_interleave(I + 1, [{N, S1} | Rest], Rev)
+                    do_interleave(Cont, I + 1, [{N, S1} | Rest], Rev)
                 end
             ]
     end.

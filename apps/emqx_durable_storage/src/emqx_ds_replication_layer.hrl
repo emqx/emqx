@@ -43,5 +43,6 @@
 
 %% custom events
 -define(payload, 2).
+-define(now, 3).
 
 -endif.

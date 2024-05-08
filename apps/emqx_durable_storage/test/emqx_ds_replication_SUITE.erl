@@ -41,7 +41,7 @@ opts(Overrides) ->
         #{
             backend => builtin,
             %% storage => {emqx_ds_storage_reference, #{}},
-            storage => {emqx_ds_storage_bitfield_lts, #{epoch_bits => 1}},
+            storage => {emqx_ds_storage_bitfield_lts, #{epoch_bits => 10}},
             n_shards => 16,
             n_sites => 1,
             replication_factor => 3,
@@ -159,7 +159,6 @@ t_rebalance('end', Config) ->
 t_rebalance(Config) ->
     NMsgs = 50,
     NClients = 5,
-    NEvents = NMsgs * NClients,
     %% List of fake client IDs:
     Clients = [integer_to_binary(I) || I <- lists:seq(1, NClients)],
     %% List of streams that generate messages for each "client" in its own topic:
@@ -168,7 +167,16 @@ t_rebalance(Config) ->
      || ClientId <- Clients
     ],
     %% Interleaved list of events:
-    Stream = emqx_utils_stream:interleave([{2, Stream} || {_ClientId, Stream} <- TopicStreams]),
+    Stream0 = emqx_utils_stream:interleave(
+        [{2, Stream} || {_ClientId, Stream} <- TopicStreams], true
+    ),
+    Stream = emqx_utils_stream:interleave(
+        [
+            {50, Stream0},
+            emqx_utils_stream:const(add_generation)
+        ],
+        false
+    ),
     Nodes = [N1, N2, N3, N4] = ?config(nodes, Config),
     ?check_trace(
         #{timetrap => 30_000},
@@ -176,15 +184,22 @@ t_rebalance(Config) ->
             %% 0. Inject schedulings to make sure the messages are
             %% written to the storage before, during, and after
             %% rebalance:
-            ?force_ordering(#{?snk_kind := test_push_message, n := 10}, #{
-                ?snk_kind := test_start_rebalance
-            }),
-            ?force_ordering(#{?snk_kind := test_start_rebalance}, #{
-                ?snk_kind := test_push_message, n := 20
-            }),
-            ?force_ordering(#{?snk_kind := test_end_rebalance}, #{
-                ?snk_kind := test_push_message, n := 30
-            }),
+            ?force_ordering(
+                #{?snk_kind := test_push_message, n := 10},
+                #{?snk_kind := test_start_rebalance}
+            ),
+            ?force_ordering(
+                #{?snk_kind := test_start_rebalance1},
+                #{?snk_kind := test_push_message, n := 20}
+            ),
+            ?force_ordering(
+                #{?snk_kind := test_push_message, n := 30},
+                #{?snk_kind := test_start_rebalance2}
+            ),
+            ?force_ordering(
+                #{?snk_kind := test_end_rebalance},
+                #{?snk_kind := test_push_message, n := 40}
+            ),
             %% 1. Initialize DB on the first node.
             Opts = opts(#{n_shards => 16, n_sites => 1, replication_factor => 3}),
 
@@ -224,7 +239,7 @@ t_rebalance(Config) ->
             ),
 
             %% 3. Start rebalance in the meanwhile:
-            ?tp(test_start_rebalance, #{}),
+            ?tp(test_start_rebalance1, #{}),
             %% 3.1 Join the second site to the DB replication sites.
             ?assertEqual(ok, ?ON(N1, emqx_ds_replication_layer_meta:join_db_site(?DB, S2))),
             %% Should be no-op.
@@ -233,6 +248,7 @@ t_rebalance(Config) ->
 
             ?retry(1000, 10, ?assertEqual([], transitions(N1, ?DB))),
 
+            ?tp(test_start_rebalance2, #{}),
             %% Now join the rest of the sites.
             ?assertEqual(ok, ds_repl_meta(N2, assign_db_sites, [?DB, Sites])),
             ct:pal("Transitions (~p -> ~p): ~p~n", [[S1, S2], Sites, transitions(N1, ?DB)]),
@@ -619,7 +635,9 @@ without_extra(L) ->
 -type ds_stream() :: emqx_utils_stream:stream({emqx_ds:message_key(), emqx_types:message()}).
 
 %% Create a stream from the topic (wildcards are NOT supported for a
-%% good reason: order of messages is implementation-dependent!):
+%% good reason: order of messages is implementation-dependent!).
+%%
+%% Note: stream produces messages with keys
 -spec ds_topic_stream(binary(), binary(), node()) -> ds_stream().
 ds_topic_stream(ClientId, TopicBin, Node) ->
     Topic = emqx_topic:words(TopicBin),
@@ -638,7 +656,6 @@ ds_topic_stream(ClientId, TopicBin, Node) ->
      || {_RankY, S} <- lists:sort(DSStreams)
     ]).
 
-%% Note: produces messages with keys
 ds_topic_generation_stream(Node, Shard, Topic, Stream) ->
     {ok, Iterator} = ?ON(
         Node,
@@ -647,10 +664,19 @@ ds_topic_generation_stream(Node, Shard, Topic, Stream) ->
     do_ds_topic_generation_stream(Node, Shard, Iterator).
 
 do_ds_topic_generation_stream(Node, Shard, It0) ->
-    Now = 99999999999999999999,
     fun() ->
-        case ?ON(Node, emqx_ds_storage_layer:next(Shard, It0, 1, Now)) of
+        case
+            ?ON(
+                Node,
+                begin
+                    Now = emqx_ds_replication_layer:current_timestamp(?DB, Shard),
+                    emqx_ds_storage_layer:next(Shard, It0, 1, Now)
+                end
+            )
+        of
             {ok, It, []} ->
+                [];
+            {ok, end_of_stream} ->
                 [];
             {ok, It, [KeyMsg]} ->
                 [KeyMsg | do_ds_topic_generation_stream(Node, Shard, It)]
@@ -673,7 +699,11 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
                 )
             ),
             ?ON(Node, emqx_ds:store_batch(DB, [Msg], #{sync => true})),
-            apply_stream(DB, NodeStream, Stream, N + 1)
+            apply_stream(DB, NodeStream, Stream, N + 1);
+        [add_generation | Stream] ->
+            [Node | NodeStream] = emqx_utils_stream:next(NodeStream0),
+            %% add_generation(Node, DB),
+            apply_stream(DB, NodeStream, Stream, N)
     end.
 
 %% @doc Create an infinite list of messages from a given client:
@@ -724,7 +754,7 @@ verify_stream_effects(TestCase, Node, ClientId, ExpectedStream) ->
             snabbkaffe_diff:assert_lists_eq(
                 ExpectedStream,
                 ds_topic_stream(ClientId, client_topic(TestCase, ClientId), Node),
-                ?diff_opts#{comment => #{clientid => ClientId, node => Node}}
+                ?diff_opts
             ),
             ct:pal("Data for client ~p on ~p is consistent.", [ClientId, Node])
         end
