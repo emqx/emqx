@@ -94,6 +94,8 @@
 -define(RAW_BIN, binary).
 -define(JSON_MAP, json_map).
 
+-define(MAX_KEEP_BACKUP_CONFIGS, 10).
+
 %% "my_plugin-0.1.0"
 -type name_vsn() :: binary() | string().
 %% the parse result of the JSON info file
@@ -287,7 +289,7 @@ get_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}, Default) ->
 %% the avro Json Map and plugin config ALWAYS be valid before calling this function.
 put_config(NameVsn, AvroJsonMap, _DecodedPluginConfig) ->
     AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
-    ok = write_avro_bin(NameVsn, AvroJsonBin),
+    ok = backup_and_write_avro_bin(NameVsn, AvroJsonBin),
     ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), AvroJsonMap),
     ok.
 
@@ -1057,8 +1059,69 @@ maybe_create_config_dir(NameVsn) ->
             {error, {mkdir_failed, ConfigDir, Reason}}
     end.
 
-write_avro_bin(NameVsn, AvroBin) ->
-    ok = file:write_file(avro_config_file(NameVsn), AvroBin).
+%% @private Backup the current config to a file with a timestamp suffix and
+%% then save the new config to the config file.
+backup_and_write_avro_bin(NameVsn, AvroBin) ->
+    %% this may fail, but we don't care
+    %% e.g. read-only file system
+    Path = avro_config_file(NameVsn),
+    _ = filelib:ensure_dir(Path),
+    TmpFile = Path ++ ".tmp",
+    case file:write_file(TmpFile, AvroBin) of
+        ok ->
+            backup_and_replace(Path, TmpFile);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_save_conf_file",
+                hint =>
+                    "The updated cluster config is not saved on this node, please check the file system.",
+                filename => TmpFile,
+                reason => Reason
+            }),
+            %% e.g. read-only, it's not the end of the world
+            ok
+    end.
+
+backup_and_replace(Path, TmpPath) ->
+    Backup = Path ++ "." ++ now_time() ++ ".bak",
+    case file:rename(Path, Backup) of
+        ok ->
+            ok = file:rename(TmpPath, Path),
+            ok = prune_backup_files(Path);
+        {error, enoent} ->
+            %% not created yet
+            ok = file:rename(TmpPath, Path);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_backup_conf_file",
+                filename => Backup,
+                reason => Reason
+            }),
+            ok
+    end.
+
+prune_backup_files(Path) ->
+    Files0 = filelib:wildcard(Path ++ ".*"),
+    Re = "\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{3}\\.bak$",
+    Files = lists:filter(fun(F) -> re:run(F, Re) =/= nomatch end, Files0),
+    Sorted = lists:reverse(lists:sort(Files)),
+    {_Keeps, Deletes} = lists:split(min(?MAX_KEEP_BACKUP_CONFIGS, length(Sorted)), Sorted),
+    lists:foreach(
+        fun(F) ->
+            case file:delete(F) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_delete_backup_plugin_conf_file",
+                        filename => F,
+                        reason => Reason
+                    }),
+                    ok
+            end
+        end,
+        Deletes
+    ).
 
 read_file_fun(Path, ErrMsg, #{read_mode := ?RAW_BIN}) ->
     fun() ->
@@ -1082,30 +1145,38 @@ read_file_fun(Path, ErrMsg, #{read_mode := ?JSON_MAP}) ->
     end.
 
 %% Directorys
+-spec plugin_dir(name_vsn()) -> string().
 plugin_dir(NameVsn) ->
-    filename:join([install_dir(), NameVsn]).
+    wrap_list_path(filename:join([install_dir(), NameVsn])).
 
+-spec plugin_config_dir(name_vsn()) -> string().
 plugin_config_dir(NameVsn) ->
-    filename:join([plugin_dir(NameVsn), "data", "configs"]).
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "data", "configs"])).
 
 %% Files
+-spec pkg_file_path(name_vsn()) -> string().
 pkg_file_path(NameVsn) ->
-    filename:join([install_dir(), bin([NameVsn, ".tar.gz"])]).
+    wrap_list_path(filename:join([install_dir(), bin([NameVsn, ".tar.gz"])])).
 
+-spec info_file_path(name_vsn()) -> string().
 info_file_path(NameVsn) ->
-    filename:join([plugin_dir(NameVsn), "release.json"]).
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "release.json"])).
 
+-spec avsc_file_path(name_vsn()) -> string().
 avsc_file_path(NameVsn) ->
-    filename:join([plugin_dir(NameVsn), "config_schema.avsc"]).
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "config_schema.avsc"])).
 
+-spec avro_config_file(name_vsn()) -> string().
 avro_config_file(NameVsn) ->
-    filename:join([plugin_config_dir(NameVsn), "config.avro"]).
+    wrap_list_path(filename:join([plugin_config_dir(NameVsn), "config.avro"])).
 
+-spec i18n_file_path(name_vsn()) -> string().
 i18n_file_path(NameVsn) ->
-    filename:join([plugin_dir(NameVsn), "config_i18n.json"]).
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "config_i18n.json"])).
 
+-spec readme_file(name_vsn()) -> string().
 readme_file(NameVsn) ->
-    filename:join([plugin_dir(NameVsn), "README.md"]).
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "README.md"])).
 
 running_apps() ->
     lists:map(
@@ -1114,6 +1185,17 @@ running_apps() ->
         end,
         application:which_applications(infinity)
     ).
+
+%% @private This is the same human-readable timestamp format as
+%% hocon-cli generated app.<time>.config file name.
+now_time() ->
+    Ts = os:system_time(millisecond),
+    {{Y, M, D}, {HH, MM, SS}} = calendar:system_time_to_local_time(Ts, millisecond),
+    Res = io_lib:format(
+        "~0p.~2..0b.~2..0b.~2..0b.~2..0b.~2..0b.~3..0b",
+        [Y, M, D, HH, MM, SS, Ts rem 1000]
+    ),
+    lists:flatten(Res).
 
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
@@ -1125,3 +1207,6 @@ bin_key(Term) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+wrap_list_path(Path) ->
+    binary_to_list(iolist_to_binary(Path)).

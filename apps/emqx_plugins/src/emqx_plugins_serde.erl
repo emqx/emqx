@@ -58,7 +58,7 @@ lookup_serde(SchemaName) ->
             {ok, Serde}
     end.
 
--spec add_schema(schema_name(), avsc()) -> ok | {error, term()}.
+-spec add_schema(schema_name(), avsc_path()) -> ok | {error, term()}.
 add_schema(NameVsn, Path) ->
     case lookup_serde(NameVsn) of
         {ok, _Serde} ->
