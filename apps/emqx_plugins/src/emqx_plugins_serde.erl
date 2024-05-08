@@ -157,7 +157,7 @@ get_plugin_avscs() ->
     lists:foldl(
         fun(AvscPath, AccIn) ->
             [_, NameVsn | _] = lists:reverse(filename:split(AvscPath)),
-            [{NameVsn, AvscPath} | AccIn]
+            [{to_bin(NameVsn), AvscPath} | AccIn]
         end,
         _Acc0 = [],
         filelib:wildcard(Pattern)
@@ -186,6 +186,8 @@ do_build_serde({NameVsn, AvscPath}) ->
             {error, Error}
     end.
 
+make_serde(NameVsn, AvscPath) when not is_binary(NameVsn) ->
+    make_serde(to_bin(NameVsn), AvscPath);
 make_serde(NameVsn, AvscPath) ->
     {ok, AvscBin} = read_avsc_file(AvscPath),
     Store0 = avro_schema_store:new([map]),
