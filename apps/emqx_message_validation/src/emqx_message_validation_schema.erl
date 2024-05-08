@@ -121,8 +121,8 @@ fields(check_protobuf) ->
     [
         {type, mk(protobuf, #{default => protobuf, desc => ?DESC("check_protobuf_type")})},
         {schema, mk(binary(), #{required => true, desc => ?DESC("check_protobuf_schema")})},
-        {message_name,
-            mk(binary(), #{required => true, desc => ?DESC("check_protobuf_message_name")})}
+        {message_type,
+            mk(binary(), #{required => true, desc => ?DESC("check_protobuf_message_type")})}
     ];
 fields(check_avro) ->
     [
