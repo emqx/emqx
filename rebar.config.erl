@@ -582,7 +582,7 @@ coveralls() ->
                 {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
                 {coveralls_coverdata, "_build/test/cover/*.coverdata"},
                 {coveralls_parallel, true},
-                {coveralls_service_name, "github"}
+                {coveralls_service_name, "github-action"}
             ],
             case
                 os:getenv("GITHUB_EVENT_NAME") =:= "pull_request" andalso
