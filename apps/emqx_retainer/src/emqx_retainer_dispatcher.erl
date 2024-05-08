@@ -46,15 +46,26 @@
 -type limiter() :: emqx_htb_limiter:limiter().
 -type context() :: emqx_retainer:context().
 -type topic() :: emqx_types:topic().
--type cursor() :: emqx_retainer:cursor().
 
 -define(POOL, ?MODULE).
+
+%% For tests
+-export([
+    dispatch/3
+]).
+
+%% This module is `emqx_retainer` companion
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+
 dispatch(Context, Topic) ->
-    cast({?FUNCTION_NAME, Context, self(), Topic}).
+    dispatch(Context, Topic, self()).
+
+dispatch(Context, Topic, Pid) ->
+    cast({dispatch, Context, Pid, Topic}).
 
 %% reset the client's limiter after updated the limiter's config
 refresh_limiter() ->
@@ -156,7 +167,7 @@ handle_call(Req, _From, State) ->
     | {noreply, NewState :: term(), hibernate}
     | {stop, Reason :: term(), NewState :: term()}.
 handle_cast({dispatch, Context, Pid, Topic}, #{limiter := Limiter} = State) ->
-    {ok, Limiter2} = dispatch(Context, Pid, Topic, undefined, Limiter),
+    {ok, Limiter2} = dispatch(Context, Pid, Topic, Limiter),
     {noreply, State#{limiter := Limiter2}};
 handle_cast({refresh_limiter, Conf}, State) ->
     BucketCfg = emqx_utils_maps:deep_get([flow_control, batch_deliver_limiter], Conf, undefined),
@@ -234,86 +245,120 @@ format_status(_Opt, Status) ->
 cast(Msg) ->
     gen_server:cast(worker(), Msg).
 
--spec dispatch(context(), pid(), topic(), cursor(), limiter()) -> {ok, limiter()}.
-dispatch(Context, Pid, Topic, Cursor, Limiter) ->
+-spec dispatch(context(), pid(), topic(), limiter()) -> {ok, limiter()}.
+dispatch(Context, Pid, Topic, Limiter) ->
     Mod = emqx_retainer:backend_module(Context),
-    case Cursor =/= undefined orelse emqx_topic:wildcard(Topic) of
-        false ->
-            {ok, Result} = erlang:apply(Mod, read_message, [Context, Topic]),
-            deliver(Result, Context, Pid, Topic, undefined, Limiter);
+    State = emqx_retainer:backend_state(Context),
+    case emqx_topic:wildcard(Topic) of
         true ->
-            {ok, Result, NewCursor} = erlang:apply(Mod, match_messages, [Context, Topic, Cursor]),
-            deliver(Result, Context, Pid, Topic, NewCursor, Limiter)
+            {ok, Messages, Cursor} = Mod:match_messages(State, Topic, undefined),
+            dispatch_with_cursor(Context, Messages, Cursor, Pid, Topic, Limiter);
+        false ->
+            {ok, Messages} = Mod:read_message(State, Topic),
+            dispatch_at_once(Messages, Pid, Topic, Limiter)
     end.
 
--spec deliver(list(emqx_types:message()), context(), pid(), topic(), cursor(), limiter()) ->
-    {ok, limiter()}.
-deliver([], _Context, _Pid, _Topic, undefined, Limiter) ->
+dispatch_at_once(Messages, Pid, Topic, Limiter0) ->
+    case deliver(Messages, Pid, Topic, Limiter0) of
+        {ok, Limiter1} ->
+            {ok, Limiter1};
+        {drop, Limiter1} ->
+            {ok, Limiter1};
+        no_receiver ->
+            ?tp(debug, retainer_dispatcher_no_receiver, #{topic => Topic}),
+            {ok, Limiter0}
+    end.
+
+dispatch_with_cursor(Context, [], Cursor, _Pid, _Topic, Limiter) ->
+    ok = delete_cursor(Context, Cursor),
     {ok, Limiter};
-deliver([], Context, Pid, Topic, Cursor, Limiter) ->
-    dispatch(Context, Pid, Topic, Cursor, Limiter);
-deliver(Result, Context, Pid, Topic, Cursor, Limiter) ->
+dispatch_with_cursor(Context, Messages0, Cursor0, Pid, Topic, Limiter0) ->
+    case deliver(Messages0, Pid, Topic, Limiter0) of
+        {ok, Limiter1} ->
+            {ok, Messages1, Cursor1} = match_next(Context, Topic, Cursor0),
+            dispatch_with_cursor(Context, Messages1, Cursor1, Pid, Topic, Limiter1);
+        {drop, Limiter1} ->
+            ok = delete_cursor(Context, Cursor0),
+            {ok, Limiter1};
+        no_receiver ->
+            ?tp(debug, retainer_dispatcher_no_receiver, #{topic => Topic}),
+            ok = delete_cursor(Context, Cursor0),
+            {ok, Limiter0}
+    end.
+
+match_next(_Context, _Topic, undefined) ->
+    {ok, [], undefined};
+match_next(Context, Topic, Cursor) ->
+    Mod = emqx_retainer:backend_module(Context),
+    State = emqx_retainer:backend_state(Context),
+    Mod:match_messages(State, Topic, Cursor).
+
+delete_cursor(_Context, undefined) ->
+    ok;
+delete_cursor(Context, Cursor) ->
+    Mod = emqx_retainer:backend_module(Context),
+    State = emqx_retainer:backend_state(Context),
+    Mod:delete_cursor(State, Cursor).
+
+-spec deliver([emqx_types:message()], pid(), topic(), limiter()) ->
+    {ok, limiter()} | {drop, limiter()} | no_receiver.
+deliver(Messages, Pid, Topic, Limiter) ->
     case erlang:is_process_alive(Pid) of
         false ->
-            {ok, Limiter};
+            no_receiver;
         _ ->
-            DeliverNum = emqx_conf:get([retainer, flow_control, batch_deliver_number], undefined),
-            case DeliverNum of
+            BatchSize = emqx_conf:get([retainer, flow_control, batch_deliver_number], undefined),
+            case BatchSize of
                 0 ->
-                    do_deliver(Result, Pid, Topic),
+                    deliver_to_client(Messages, Pid, Topic),
                     {ok, Limiter};
                 _ ->
-                    case do_deliver(Result, DeliverNum, Pid, Topic, Limiter) of
-                        {ok, Limiter2} ->
-                            deliver([], Context, Pid, Topic, Cursor, Limiter2);
-                        {drop, Limiter2} ->
-                            {ok, Limiter2}
-                    end
+                    deliver_in_batches(Messages, BatchSize, Pid, Topic, Limiter)
             end
     end.
 
-do_deliver([], _DeliverNum, _Pid, _Topic, Limiter) ->
+deliver_in_batches([], _BatchSize, _Pid, _Topic, Limiter) ->
     {ok, Limiter};
-do_deliver(Msgs, DeliverNum, Pid, Topic, Limiter) ->
-    {Num, ToDelivers, Msgs2} = safe_split(DeliverNum, Msgs),
-    case emqx_htb_limiter:consume(Num, Limiter) of
-        {ok, Limiter2} ->
-            do_deliver(ToDelivers, Pid, Topic),
-            do_deliver(Msgs2, DeliverNum, Pid, Topic, Limiter2);
-        {drop, _} = Drop ->
+deliver_in_batches(Msgs, BatchSize, Pid, Topic, Limiter0) ->
+    {BatchActualSize, Batch, RestMsgs} = take(BatchSize, Msgs),
+    case emqx_htb_limiter:consume(BatchActualSize, Limiter0) of
+        {ok, Limiter1} ->
+            ok = deliver_to_client(Batch, Pid, Topic),
+            deliver_in_batches(RestMsgs, BatchSize, Pid, Topic, Limiter1);
+        {drop, _Limiter1} = Drop ->
             ?SLOG(debug, #{
                 msg => "retained_message_dropped",
                 reason => "reached_ratelimit",
-                dropped_count => length(ToDelivers)
+                dropped_count => BatchActualSize
             }),
             Drop
     end.
 
-do_deliver([Msg | T], Pid, Topic) ->
-    case emqx_banned:look_up({clientid, Msg#message.from}) of
-        [] ->
-            Pid ! {deliver, Topic, Msg},
-            ok;
-        _ ->
-            ?tp(
-                notice,
-                ignore_retained_message_deliver,
-                #{
-                    reason => "client is banned",
-                    clientid => Msg#message.from
-                }
-            )
-    end,
-    do_deliver(T, Pid, Topic);
-do_deliver([], _, _) ->
+deliver_to_client([Msg | T], Pid, Topic) ->
+    _ =
+        case emqx_banned:look_up({clientid, Msg#message.from}) of
+            [] ->
+                Pid ! {deliver, Topic, Msg};
+            _ ->
+                ?tp(
+                    notice,
+                    ignore_retained_message_deliver,
+                    #{
+                        reason => "client is banned",
+                        clientid => Msg#message.from
+                    }
+                )
+        end,
+    deliver_to_client(T, Pid, Topic);
+deliver_to_client([], _, _) ->
     ok.
 
-safe_split(N, List) ->
-    safe_split(N, List, 0, []).
+take(N, List) ->
+    take(N, List, 0, []).
 
-safe_split(0, List, Count, Acc) ->
+take(0, List, Count, Acc) ->
     {Count, lists:reverse(Acc), List};
-safe_split(_N, [], Count, Acc) ->
+take(_N, [], Count, Acc) ->
     {Count, lists:reverse(Acc), []};
-safe_split(N, [H | T], Count, Acc) ->
-    safe_split(N - 1, T, Count + 1, [H | Acc]).
+take(N, [H | T], Count, Acc) ->
+    take(N - 1, T, Count + 1, [H | Acc]).
