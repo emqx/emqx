@@ -757,14 +757,18 @@ do_inc_action_metrics(
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
-    {error, {recoverable_error, _}}
+    {error, {recoverable_error, _}} = Reason
 ) ->
+    FormatterRes = #emqx_trace_format_func_data{
+        function = fun trace_formatted_result/1,
+        data = {ActId, Reason}
+    },
     TraceContext1 = maps:remove(action_id, TraceContext),
-    trace_action(ActId, "out_of_service", TraceContext1),
+    trace_action(ActId, "out_of_service", TraceContext1#{reason => FormatterRes}),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
-    {error, {unrecoverable_error, _} = Reason}
+    {error, {unrecoverable_error, _}} = Reason
 ) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
     FormatterRes = #emqx_trace_format_func_data{
@@ -801,12 +805,12 @@ do_inc_action_metrics(#{rule_id := RuleId, action_id := ActId} = TraceContext, R
 trace_formatted_result({{bridge_v2, Type, _Name}, R}) ->
     ConnectorType = emqx_action_info:action_type_to_connector_type(Type),
     ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
-    emqx_resource:call_format_query_result(ResourceModule, R);
+    clean_up_error_tuple(emqx_resource:call_format_query_result(ResourceModule, R));
 trace_formatted_result({{bridge, BridgeType, _BridgeName, _ResId}, R}) ->
     BridgeV2Type = emqx_action_info:bridge_v1_type_to_action_type(BridgeType),
     ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeV2Type),
     ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
-    emqx_resource:call_format_query_result(ResourceModule, R);
+    clean_up_error_tuple(emqx_resource:call_format_query_result(ResourceModule, R));
 trace_formatted_result({_, R}) ->
     R.
 
@@ -818,6 +822,15 @@ is_ok_result(R) when is_tuple(R) ->
     ok == erlang:element(1, R);
 is_ok_result(_) ->
     false.
+
+clean_up_error_tuple({error, {unrecoverable_error, Reason}}) ->
+    Reason;
+clean_up_error_tuple({error, {recoverable_error, Reason}}) ->
+    Reason;
+clean_up_error_tuple({error, Reason}) ->
+    Reason;
+clean_up_error_tuple(Result) ->
+    Result.
 
 parse_module_name(Name) when is_binary(Name) ->
     case ?IS_VALID_SQL_FUNC_PROVIDER_MODULE_NAME(Name) of
