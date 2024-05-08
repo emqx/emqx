@@ -220,7 +220,7 @@ ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream
                     },
                     emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
                 {error, recoverable, Reason} ->
-                    ?SLOG(warning, #{
+                    ?SLOG(debug, #{
                         msg => "failed_to_initialize_stream_iterator",
                         stream => Stream,
                         class => recoverable,

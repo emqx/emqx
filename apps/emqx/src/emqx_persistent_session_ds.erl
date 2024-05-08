@@ -622,7 +622,7 @@ replay_streams(Session0 = #{replay := [{StreamKey, Srs0} | Rest]}, ClientInfo) -
             replay_streams(Session#{replay := Rest}, ClientInfo);
         {error, recoverable, Reason} ->
             RetryTimeout = ?TIMEOUT_RETRY_REPLAY,
-            ?SLOG(warning, #{
+            ?SLOG(debug, #{
                 msg => "failed_to_fetch_replay_batch",
                 stream => StreamKey,
                 reason => Reason,
@@ -925,7 +925,7 @@ new_batch({StreamKey, Srs0}, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
             Session#{s => S};
         {error, Class, Reason} ->
             %% TODO: Handle unrecoverable error.
-            ?SLOG(info, #{
+            ?SLOG(debug, #{
                 msg => "failed_to_fetch_batch",
                 stream => StreamKey,
                 reason => Reason,
