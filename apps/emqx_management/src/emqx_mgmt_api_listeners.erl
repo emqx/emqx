@@ -810,6 +810,7 @@ listener_id_status_example() ->
 
 tcp_schema_example() ->
     #{
+        type => tcp,
         acceptors => 16,
         access_rules => ["allow all"],
         bind => <<"0.0.0.0:1884">>,
@@ -820,6 +821,7 @@ tcp_schema_example() ->
         proxy_protocol => false,
         proxy_protocol_timeout => <<"3s">>,
         running => true,
+        zone => default,
         tcp_options => #{
             active_n => 100,
             backlog => 1024,
@@ -829,8 +831,7 @@ tcp_schema_example() ->
             reuseaddr => true,
             send_timeout => <<"15s">>,
             send_timeout_close => true
-        },
-        type => tcp
+        }
     }.
 
 create_listener(From, Body) ->
