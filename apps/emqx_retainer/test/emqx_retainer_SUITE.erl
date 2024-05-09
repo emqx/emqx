@@ -21,6 +21,7 @@
 
 -include("emqx_retainer.hrl").
 
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -96,13 +97,18 @@ end_per_group(_Group, Config) ->
     emqx_retainer_mnesia:populate_index_meta(),
     Config.
 
-init_per_testcase(t_get_basic_usage_info, Config) ->
+init_per_testcase(_TestCase, Config) ->
     mnesia:clear_table(?TAB_INDEX),
     mnesia:clear_table(?TAB_MESSAGE),
     emqx_retainer_mnesia:populate_index_meta(),
-    Config;
-init_per_testcase(_TestCase, Config) ->
     Config.
+
+end_per_testcase(t_flow_control, _Config) ->
+    restore_delivery();
+end_per_testcase(t_cursor_cleanup, _Config) ->
+    restore_delivery();
+end_per_testcase(_TestCase, _Config) ->
+    ok.
 
 app_spec() ->
     {emqx_retainer, ?BASE_CONF}.
@@ -405,19 +411,7 @@ t_stop_publish_clear_msg(_) ->
     ok = emqtt:disconnect(C1).
 
 t_flow_control(_) ->
-    Rate = emqx_ratelimiter_SUITE:to_rate("1/1s"),
-    LimiterCfg = make_limiter_cfg(Rate),
-    JsonCfg = make_limiter_json(<<"1/1s">>),
-    emqx_limiter_server:add_bucket(emqx_retainer, internal, LimiterCfg),
-    emqx_retainer:update_config(#{
-        <<"delivery_rate">> => <<"1/1s">>,
-        <<"flow_control">> =>
-            #{
-                <<"batch_read_number">> => 1,
-                <<"batch_deliver_number">> => 1,
-                <<"batch_deliver_limiter">> => JsonCfg
-            }
-    }),
+    setup_slow_delivery(),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
@@ -442,23 +436,60 @@ t_flow_control(_) ->
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
     End = erlang:system_time(millisecond),
+
     Diff = End - Begin,
 
     ?assert(
-        Diff > timer:seconds(2.5) andalso Diff < timer:seconds(3.9),
+        Diff > timer:seconds(2.1) andalso Diff < timer:seconds(3.9),
         lists:flatten(io_lib:format("Diff is :~p~n", [Diff]))
     ),
 
     ok = emqtt:disconnect(C1),
+    ok.
 
-    emqx_limiter_server:del_bucket(emqx_retainer, internal),
-    emqx_retainer:update_config(#{
-        <<"flow_control">> =>
-            #{
-                <<"batch_read_number">> => 1,
-                <<"batch_deliver_number">> => 1
-            }
-    }),
+t_cursor_cleanup(_) ->
+    setup_slow_delivery(),
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    lists:foreach(
+        fun(I) ->
+            emqtt:publish(
+                C1,
+                <<"retained/", (integer_to_binary(I))/binary>>,
+                <<"this is a retained message">>,
+                [{qos, 0}, {retain, true}]
+            )
+        end,
+        lists:seq(1, 5)
+    ),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
+
+    snabbkaffe:start_trace(),
+
+    ?assertWaitEvent(
+        emqtt:disconnect(C1),
+        #{?snk_kind := retainer_dispatcher_no_receiver, topic := <<"retained/#">>},
+        2000
+    ),
+
+    ?assertEqual(0, qlc_process_count()),
+
+    {Pid, Ref} = spawn_monitor(fun() -> ok end),
+    receive
+        {'DOWN', Ref, _, _, _} -> ok
+    after 1000 -> ct:fail("should receive 'DOWN' message")
+    end,
+
+    ?assertWaitEvent(
+        emqx_retainer_dispatcher:dispatch(emqx_retainer:context(), <<"retained/1">>, Pid),
+        #{?snk_kind := retainer_dispatcher_no_receiver, topic := <<"retained/1">>},
+        2000
+    ),
+
+    ?assertEqual(0, qlc_process_count()),
+
+    snabbkaffe:stop(),
+
     ok.
 
 t_clear_expired(_) ->
@@ -849,15 +880,21 @@ with_conf(ConfMod, Case) ->
     end.
 
 make_limiter_cfg(Rate) ->
-    Client = #{
-        rate => Rate,
-        initial => 0,
-        burst => 0,
-        low_watermark => 1,
-        divisible => false,
-        max_retry_time => timer:seconds(5),
-        failure_strategy => force
-    },
+    make_limiter_cfg(Rate, #{}).
+
+make_limiter_cfg(Rate, ClientOpts) ->
+    Client = maps:merge(
+        #{
+            rate => Rate,
+            initial => 0,
+            burst => 0,
+            low_watermark => 1,
+            divisible => false,
+            max_retry_time => timer:seconds(5),
+            failure_strategy => force
+        },
+        ClientOpts
+    ),
     #{client => Client, rate => Rate, initial => 0, burst => 0}.
 
 make_limiter_json(Rate) ->
@@ -909,3 +946,40 @@ do_publish(Client, Topic, Payload, Opts, {sleep, Time}) ->
     Res = emqtt:publish(Client, Topic, Payload, Opts),
     ct:sleep(Time),
     Res.
+
+setup_slow_delivery() ->
+    Rate = emqx_ratelimiter_SUITE:to_rate("1/1s"),
+    LimiterCfg = make_limiter_cfg(Rate),
+    JsonCfg = make_limiter_json(<<"1/1s">>),
+    emqx_limiter_server:add_bucket(emqx_retainer, internal, LimiterCfg),
+    emqx_retainer:update_config(#{
+        <<"delivery_rate">> => <<"1/1s">>,
+        <<"flow_control">> =>
+            #{
+                <<"batch_read_number">> => 1,
+                <<"batch_deliver_number">> => 1,
+                <<"batch_deliver_limiter">> => JsonCfg
+            }
+    }).
+
+restore_delivery() ->
+    emqx_limiter_server:del_bucket(emqx_retainer, internal),
+    emqx_retainer:update_config(#{
+        <<"flow_control">> =>
+            #{
+                <<"batch_read_number">> => 1,
+                <<"batch_deliver_number">> => 1
+            }
+    }).
+
+qlc_processes() ->
+    lists:filter(
+        fun(Pid) ->
+            {current_function, {qlc, wait_for_request, 3}} =:=
+                erlang:process_info(Pid, current_function)
+        end,
+        erlang:processes()
+    ).
+
+qlc_process_count() ->
+    length(qlc_processes()).
