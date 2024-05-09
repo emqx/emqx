@@ -87,6 +87,8 @@
     channels := #{channel_id() => channel_state()}
 }.
 
+-define(AGGREG_SUP, emqx_bridge_s3_sup).
+
 %%
 
 -spec callback_mode() -> callback_mode().
@@ -224,8 +226,8 @@ start_channel(State, #{
         client_config => maps:get(client_config, State),
         uploader_config => maps:with([min_part_size, max_part_size], Parameters)
     },
-    _ = emqx_connector_aggreg_sup:delete_child(AggregId),
-    {ok, SupPid} = emqx_connector_aggreg_sup:start_child(#{
+    _ = ?AGGREG_SUP:delete_child(AggregId),
+    {ok, SupPid} = ?AGGREG_SUP:start_child(#{
         id => AggregId,
         start =>
             {emqx_connector_aggreg_upload_sup, start_link, [AggregId, AggregOpts, DeliveryOpts]},
@@ -238,7 +240,7 @@ start_channel(State, #{
         aggreg_id => AggregId,
         bucket => Bucket,
         supervisor => SupPid,
-        on_stop => fun() -> emqx_connector_aggreg_sup:delete_child(AggregId) end
+        on_stop => fun() -> ?AGGREG_SUP:delete_child(AggregId) end
     }.
 
 upload_options(Parameters) ->
