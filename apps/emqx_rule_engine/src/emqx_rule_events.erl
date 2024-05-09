@@ -458,15 +458,22 @@ eventmsg_check_authn_complete(
         peerhost := PeerHost,
         peerport := PeerPort
     },
-    #{is_anonymous := IsAnonymous} = Result
+    Result
 ) ->
-    IsSuperuser = maps:get(is_superuser, Result, false),
+    #{
+        reason_code := Reason,
+        is_superuser := IsSuperuser,
+        is_anonymous := IsAnonymous
+    } = maps:merge(
+        #{is_anonymous => false, is_superuser => false}, Result
+    ),
     with_basic_columns(
         'client.check_authn_complete',
         #{
             clientid => ClientId,
             username => Username,
             peername => ntoa({PeerHost, PeerPort}),
+            reason_code => force_to_bin(Reason),
             is_anonymous => IsAnonymous,
             is_superuser => IsSuperuser
         },
@@ -901,6 +908,7 @@ test_columns('client.check_authn_complete') ->
     [
         {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
         {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
+        {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]},
         {<<"is_superuser">>, [true, <<"Whether this is a superuser">>]},
         {<<"is_anonymous">>, [false, <<"Whether this is a superuser">>]}
     ];
@@ -1079,6 +1087,7 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
         {<<"peername">>, <<"192.168.0.10:56431">>},
+        {<<"reason_code">>, <<"sucess">>},
         {<<"is_superuser">>, true},
         {<<"is_anonymous">>, false},
         {<<"timestamp">>, erlang:system_time(millisecond)},
@@ -1200,6 +1209,11 @@ reason(Reason) when is_atom(Reason) -> Reason;
 reason({shutdown, Reason}) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
+
+force_to_bin(Bin) when is_binary(Bin) ->
+    Bin;
+force_to_bin(Term) ->
+    emqx_utils_conv:bin(io_lib:format("~p", [Term])).
 
 ntoa(undefined) ->
     undefined;

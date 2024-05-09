@@ -72,15 +72,15 @@ authenticate(Credential) ->
                 {ok, AuthResult, _AuthData} = OkResult ->
                     on_authentication_complete(Credential, AuthResult, ok),
                     OkResult;
-                {error, _Reason} = Error ->
-                    inc_authn_metrics(error),
+                {error, Reason} = Error ->
+                    on_authentication_complete(Credential, Reason, error),
                     Error;
                 %% {continue, AuthCache} | {continue, AuthData, AuthCache}
                 Other ->
                     Other
             end;
-        {error, _Reason} = Error ->
-            inc_authn_metrics(error),
+        {error, Reason} = Error ->
+            on_authentication_complete(Credential, Reason, error),
             Error
     end.
 
@@ -241,9 +241,26 @@ inc_authn_metrics(anonymous) ->
     emqx_metrics:inc('authentication.success.anonymous'),
     emqx_metrics:inc('authentication.success').
 
+on_authentication_complete(Credential, Reason, error) ->
+    emqx_hooks:run(
+        'client.check_authn_complete',
+        [
+            Credential,
+            #{
+                reason_code => Reason
+            }
+        ]
+    ),
+    inc_authn_metrics(error);
 on_authentication_complete(Credential, Result, Type) ->
     emqx_hooks:run(
         'client.check_authn_complete',
-        [Credential, Result#{is_anonymous => (Type =:= anonymous)}]
+        [
+            Credential,
+            Result#{
+                reason_code => success,
+                is_anonymous => (Type =:= anonymous)
+            }
+        ]
     ),
     inc_authn_metrics(Type).
