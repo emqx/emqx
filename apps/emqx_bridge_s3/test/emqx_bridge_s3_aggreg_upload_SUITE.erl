@@ -158,6 +158,7 @@ t_on_get_status(Config) ->
 t_aggreg_upload(Config) ->
     Bucket = ?config(s3_bucket, Config),
     BridgeName = ?config(bridge_name, Config),
+    AggregId = aggreg_id(BridgeName),
     BridgeNameString = unicode:characters_to_list(BridgeName),
     NodeString = atom_to_list(node()),
     %% Create a bridge with the sample configuration.
@@ -170,7 +171,7 @@ t_aggreg_upload(Config) ->
     ]),
     ok = send_messages(BridgeName, MessageEvents),
     %% Wait until the delivery is completed.
-    ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
+    ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
     %% Check the uploaded objects.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     ?assertMatch(
@@ -196,6 +197,7 @@ t_aggreg_upload(Config) ->
 t_aggreg_upload_rule(Config) ->
     Bucket = ?config(s3_bucket, Config),
     BridgeName = ?config(bridge_name, Config),
+    AggregId = aggreg_id(BridgeName),
     ClientID = emqx_utils_conv:bin(?FUNCTION_NAME),
     %% Create a bridge with the sample configuration and a simple SQL rule.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
@@ -217,7 +219,7 @@ t_aggreg_upload_rule(Config) ->
         emqx_message:make(?FUNCTION_NAME, T3 = <<"s3/empty">>, P3 = <<>>),
         emqx_message:make(?FUNCTION_NAME, <<"not/s3">>, <<"should not be here">>)
     ]),
-    ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
+    ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
     %% Check the uploaded objects.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     _CSV = [Header | Rows] = fetch_parse_csv(Bucket, Key),
@@ -249,6 +251,7 @@ t_aggreg_upload_restart(Config) ->
     %% after a restart.
     Bucket = ?config(s3_bucket, Config),
     BridgeName = ?config(bridge_name, Config),
+    AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
     %% Send some sample messages that look like Rule SQL productions.
@@ -258,15 +261,15 @@ t_aggreg_upload_restart(Config) ->
         {<<"C3">>, T3 = <<"t/42">>, P3 = <<"">>}
     ]),
     ok = send_messages(BridgeName, MessageEvents),
-    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := AggregId}),
     %% Restart the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
     {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
     %% Send some more messages.
     ok = send_messages(BridgeName, MessageEvents),
-    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := AggregId}),
     %% Wait until the delivery is completed.
-    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
     %% Check there's still only one upload.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     _Upload = #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
@@ -289,6 +292,7 @@ t_aggreg_upload_restart_corrupted(Config) ->
     %% and does so while preserving uncompromised data.
     Bucket = ?config(s3_bucket, Config),
     BridgeName = ?config(bridge_name, Config),
+    AggregId = aggreg_id(BridgeName),
     BatchSize = ?CONF_MAX_RECORDS div 2,
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
@@ -300,13 +304,13 @@ t_aggreg_upload_restart_corrupted(Config) ->
     %% Ensure that they span multiple batch queries.
     ok = send_messages_delayed(BridgeName, lists:map(fun mk_message_event/1, Messages1), 1),
     {ok, _} = ?block_until(
-        #{?snk_kind := connector_aggreg_records_written, action := BridgeName},
+        #{?snk_kind := connector_aggreg_records_written, action := AggregId},
         infinity,
         0
     ),
     %% Find out the buffer file.
     {ok, #{filename := Filename}} = ?block_until(
-        #{?snk_kind := connector_aggreg_buffer_allocated, action := BridgeName}
+        #{?snk_kind := connector_aggreg_buffer_allocated, action := AggregId}
     ),
     %% Stop the bridge, corrupt the buffer file, and restart the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
@@ -320,7 +324,7 @@ t_aggreg_upload_restart_corrupted(Config) ->
     ],
     ok = send_messages_delayed(BridgeName, lists:map(fun mk_message_event/1, Messages2), 0),
     %% Wait until the delivery is completed.
-    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
     %% Check that upload contains part of the first batch and all of the second batch.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     CSV = [_Header | Rows] = fetch_parse_csv(Bucket, Key),
@@ -341,6 +345,7 @@ t_aggreg_pending_upload_restart(Config) ->
     %% a restart.
     Bucket = ?config(s3_bucket, Config),
     BridgeName = ?config(bridge_name, Config),
+    AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
     %% Send few large messages that will require multipart upload.
@@ -362,7 +367,7 @@ t_aggreg_pending_upload_restart(Config) ->
     %% Restart the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
     %% Wait until the delivery is completed.
-    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}),
+    {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
     %% Check that delivery contains all the messages.
     _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
     [_Header | Rows] = fetch_parse_csv(Bucket, Key),
@@ -377,6 +382,7 @@ t_aggreg_next_rotate(Config) ->
     %% and windowing work correctly under high rate, high concurrency conditions.
     Bucket = ?config(s3_bucket, Config),
     BridgeName = ?config(bridge_name, Config),
+    AggregId = aggreg_id(BridgeName),
     NSenders = 4,
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
@@ -393,7 +399,7 @@ t_aggreg_next_rotate(Config) ->
     %% Wait for the last delivery to complete.
     ok = timer:sleep(round(?CONF_TIME_INTERVAL * 0.5)),
     ?block_until(
-        #{?snk_kind := connector_aggreg_delivery_completed, action := BridgeName}, infinity, 0
+        #{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}, infinity, 0
     ),
     %% There should be at least 2 time windows of aggregated records.
     Uploads = [K || #{key := K} <- emqx_bridge_s3_test_helpers:list_objects(Bucket)],
@@ -465,3 +471,6 @@ fetch_parse_csv(Bucket, Key) ->
     #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
     {ok, CSV} = erl_csv:decode(Content),
     CSV.
+
+aggreg_id(BridgeName) ->
+    {?BRIDGE_TYPE, BridgeName}.

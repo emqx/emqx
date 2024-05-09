@@ -209,6 +209,7 @@ start_channel(State, #{
         bucket := Bucket
     }
 }) ->
+    AggregId = {Type, Name},
     AggregOpts = #{
         time_interval => TimeInterval,
         max_records => MaxRecords,
@@ -223,19 +224,21 @@ start_channel(State, #{
         client_config => maps:get(client_config, State),
         uploader_config => maps:with([min_part_size, max_part_size], Parameters)
     },
-    _ = emqx_connector_aggreg_sup:delete_child({Type, Name}),
+    _ = emqx_connector_aggreg_sup:delete_child(AggregId),
     {ok, SupPid} = emqx_connector_aggreg_sup:start_child(#{
-        id => {Type, Name},
-        start => {emqx_connector_aggreg_upload_sup, start_link, [Name, AggregOpts, DeliveryOpts]},
+        id => AggregId,
+        start =>
+            {emqx_connector_aggreg_upload_sup, start_link, [AggregId, AggregOpts, DeliveryOpts]},
         type => supervisor,
         restart => permanent
     }),
     #{
         type => ?ACTION_AGGREGATED_UPLOAD,
         name => Name,
+        aggreg_id => AggregId,
         bucket => Bucket,
         supervisor => SupPid,
-        on_stop => fun() -> emqx_connector_aggreg_sup:delete_child({Type, Name}) end
+        on_stop => fun() -> emqx_connector_aggreg_sup:delete_child(AggregId) end
     }.
 
 upload_options(Parameters) ->
@@ -254,12 +257,14 @@ channel_status(#{type := ?ACTION_UPLOAD}, _State) ->
     %% Since bucket name may be templated, we can't really provide any additional
     %% information regarding the channel health.
     ?status_connected;
-channel_status(#{type := ?ACTION_AGGREGATED_UPLOAD, name := Name, bucket := Bucket}, State) ->
+channel_status(
+    #{type := ?ACTION_AGGREGATED_UPLOAD, aggreg_id := AggregId, bucket := Bucket}, State
+) ->
     %% NOTE: This will effectively trigger uploads of buffers yet to be uploaded.
     Timestamp = erlang:system_time(second),
-    ok = emqx_connector_aggregator:tick(Name, Timestamp),
+    ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
     ok = check_bucket_accessible(Bucket, State),
-    ok = check_aggreg_upload_errors(Name),
+    ok = check_aggreg_upload_errors(AggregId),
     ?status_connected.
 
 check_bucket_accessible(Bucket, #{client_config := Config}) ->
@@ -278,8 +283,8 @@ check_bucket_accessible(Bucket, #{client_config := Config}) ->
             end
     end.
 
-check_aggreg_upload_errors(Name) ->
-    case emqx_connector_aggregator:take_error(Name) of
+check_aggreg_upload_errors(AggregId) ->
+    case emqx_connector_aggregator:take_error(AggregId) of
         [Error] ->
             %% TODO
             %% This approach means that, for example, 3 upload failures will cause
@@ -353,11 +358,11 @@ run_simple_upload(
             {error, map_error(Reason)}
     end.
 
-run_aggregated_upload(InstId, Records, #{name := Name}) ->
+run_aggregated_upload(InstId, Records, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
-    case emqx_connector_aggregator:push_records(Name, Timestamp, Records) of
+    case emqx_connector_aggregator:push_records(AggregId, Timestamp, Records) of
         ok ->
-            ?tp(s3_bridge_aggreg_push_ok, #{instance_id => InstId, name => Name}),
+            ?tp(s3_bridge_aggreg_push_ok, #{instance_id => InstId, name => AggregId}),
             ok;
         {error, Reason} ->
             {error, {unrecoverable_error, Reason}}
@@ -406,8 +411,8 @@ init_transfer_state(BufferMap, Opts) ->
     Key = mk_object_key(BufferMap, Opts),
     emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig).
 
-mk_object_key(BufferMap, #{action := Name, key := Template}) ->
-    emqx_template:render_strict(Template, {?MODULE, {Name, BufferMap}}).
+mk_object_key(BufferMap, #{action := AggregId, key := Template}) ->
+    emqx_template:render_strict(Template, {?MODULE, {AggregId, BufferMap}}).
 
 process_append(Writes, Upload0) ->
     {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
@@ -443,9 +448,9 @@ process_terminate(Upload) ->
 
 -spec lookup(emqx_template:accessor(), {_Name, buffer_map()}) ->
     {ok, integer() | string()} | {error, undefined}.
-lookup([<<"action">>], {Name, _Buffer}) ->
+lookup([<<"action">>], {_AggregId = {_Type, Name}, _Buffer}) ->
     {ok, mk_fs_safe_string(Name)};
-lookup(Accessor, {_Name, Buffer = #{}}) ->
+lookup(Accessor, {_AggregId, Buffer = #{}}) ->
     lookup_buffer_var(Accessor, Buffer);
 lookup(_Accessor, _Context) ->
     {error, undefined}.
