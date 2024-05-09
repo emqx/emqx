@@ -255,6 +255,8 @@ deliver([], Context, Pid, Topic, Cursor, Limiter) ->
 deliver(Result, Context, Pid, Topic, Cursor, Limiter) ->
     case erlang:is_process_alive(Pid) of
         false ->
+            ok = close_cursor(Cursor),
+            ?tp(debug, retainer_dispatcher_no_receiver, #{topic => Topic}),
             {ok, Limiter};
         _ ->
             DeliverNum = emqx_conf:get([retainer, flow_control, batch_deliver_number], undefined),
@@ -271,6 +273,11 @@ deliver(Result, Context, Pid, Topic, Cursor, Limiter) ->
                     end
             end
     end.
+
+close_cursor({{qlc_cursor, _} = Cursor, _}) ->
+    qlc:delete_cursor(Cursor);
+close_cursor(_Cursor) ->
+    ok.
 
 do_deliver([], _DeliverNum, _Pid, _Topic, Limiter) ->
     {ok, Limiter};
