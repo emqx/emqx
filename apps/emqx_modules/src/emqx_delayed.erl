@@ -461,10 +461,10 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
         [] ->
             ok;
         [#delayed_message{msg = Msg}] ->
-            case emqx_banned:look_up({clientid, Msg#message.from}) of
-                [] ->
+            case emqx_banned:check_clientid(Msg#message.from) of
+                false ->
                     emqx_pool:async_submit(fun emqx:publish/1, [Msg]);
-                _ ->
+                true ->
                     ?tp(
                         notice,
                         ignore_delayed_message_publish,

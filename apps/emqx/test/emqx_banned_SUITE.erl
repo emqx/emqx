@@ -112,6 +112,10 @@ t_check(_) ->
     ?assertNot(emqx_banned:check(ClientInfoValidFull)),
     ?assertNot(emqx_banned:check(ClientInfoValidEmpty)),
     ?assertNot(emqx_banned:check(ClientInfoValidOnlyClientId)),
+
+    ?assert(emqx_banned:check_clientid(<<"BannedClient">>)),
+    ?assert(emqx_banned:check_clientid(<<"BannedClientRE">>)),
+
     ok = emqx_banned:delete(emqx_banned:who(clientid, <<"BannedClient">>)),
     ok = emqx_banned:delete(emqx_banned:who(username, <<"BannedUser">>)),
     ok = emqx_banned:delete(emqx_banned:who(peerhost, {192, 168, 0, 1})),
@@ -127,6 +131,10 @@ t_check(_) ->
     ?assertNot(emqx_banned:check(ClientInfoBannedUsernameRE)),
     ?assertNot(emqx_banned:check(ClientInfoBannedAddrNet)),
     ?assertNot(emqx_banned:check(ClientInfoValidFull)),
+
+    ?assertNot(emqx_banned:check_clientid(<<"BannedClient">>)),
+    ?assertNot(emqx_banned:check_clientid(<<"BannedClientRE">>)),
+
     ?assertEqual(0, emqx_banned:info(size)).
 
 t_unused(_) ->

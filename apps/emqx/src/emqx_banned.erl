@@ -31,6 +31,7 @@
 
 -export([
     check/1,
+    check_clientid/1,
     create/1,
     look_up/1,
     delete/1,
@@ -113,6 +114,10 @@ check(ClientInfo) ->
         do_check({username, maps:get(username, ClientInfo, undefined)}) orelse
         do_check({peerhost, maps:get(peerhost, ClientInfo, undefined)}) orelse
         do_check_rules(ClientInfo).
+
+-spec check_clientid(emqx_types:clientid()) -> boolean().
+check_clientid(ClientId) ->
+    do_check({clientid, ClientId}) orelse do_check_rules(#{clientid => ClientId}).
 
 -spec format(emqx_types:banned()) -> map().
 format(#banned{

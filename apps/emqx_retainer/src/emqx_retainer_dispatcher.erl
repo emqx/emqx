@@ -336,10 +336,10 @@ deliver_in_batches(Msgs, BatchSize, Pid, Topic, Limiter0) ->
 
 deliver_to_client([Msg | T], Pid, Topic) ->
     _ =
-        case emqx_banned:look_up({clientid, Msg#message.from}) of
-            [] ->
+        case emqx_banned:check_clientid(Msg#message.from) of
+            false ->
                 Pid ! {deliver, Topic, Msg};
-            _ ->
+            true ->
                 ?tp(
                     notice,
                     ignore_retained_message_deliver,
