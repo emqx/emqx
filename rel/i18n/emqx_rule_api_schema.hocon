@@ -390,4 +390,7 @@ event_is_anonymous.desc:
 event_is_superuser.desc:
 """True if this is a super user."""
 
+event_ctx_authn_reason_code.desc:
+"""The reason code"""
+
 }

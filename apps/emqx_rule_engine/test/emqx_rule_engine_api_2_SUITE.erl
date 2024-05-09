@@ -273,6 +273,7 @@ t_rule_test_smoke(_Config) ->
                         #{
                             <<"clientid">> => <<"c_emqx">>,
                             <<"event_type">> => <<"client_check_authn_complete">>,
+                            <<"reason_code">> => <<"sucess">>,
                             <<"is_superuser">> => true,
                             <<"is_anonymous">> => false,
                             <<"username">> => <<"u_emqx">>

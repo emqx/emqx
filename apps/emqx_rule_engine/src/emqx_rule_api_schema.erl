@@ -289,9 +289,10 @@ fields("ctx_check_authn_complete") ->
         {"event", event_sc(Event)},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"username", sc(binary(), #{desc => ?DESC("event_username")})},
+        {"reason_code", sc(binary(), #{desc => ?DESC("event_ctx_authn_reason_code")})},
         {"peername", sc(binary(), #{desc => ?DESC("event_peername")})},
-        {"is_anonymous", sc(boolean(), #{desc => ?DESC("event_is_anonymous")})},
-        {"is_superuser", sc(boolean(), #{desc => ?DESC("event_is_superuser")})}
+        {"is_anonymous", sc(boolean(), #{desc => ?DESC("event_is_anonymous"), required => false})},
+        {"is_superuser", sc(boolean(), #{desc => ?DESC("event_is_superuser"), required => false})}
     ];
 fields("ctx_bridge_mqtt") ->
     Event = '$bridges/mqtt:*',

@@ -206,6 +206,7 @@ t_ctx_check_authn_complete(_) ->
         #{
             clientid => <<"c_emqx">>,
             event_type => client_check_authn_complete,
+            reason_code => <<"sucess">>,
             is_superuser => true,
             is_anonymous => false
         },
