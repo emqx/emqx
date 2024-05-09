@@ -236,6 +236,7 @@ init_per_testcase(t_events, Config) ->
         "\"$events/client_disconnected\", "
         "\"$events/client_connack\", "
         "\"$events/client_check_authz_complete\", "
+        "\"$events/client_check_authn_complete\", "
         "\"$events/session_subscribed\", "
         "\"$events/session_unsubscribed\", "
         "\"$events/message_acked\", "
@@ -1023,6 +1024,7 @@ client_connected(Client, Client2) ->
     {ok, _} = emqtt:connect(Client2),
     verify_event('client.connack'),
     verify_event('client.connected'),
+    verify_event('client.check_authn_complete'),
     ok.
 client_disconnected(Client, Client2) ->
     ok = emqtt:disconnect(Client, 0, #{'User-Property' => {<<"reason">>, <<"normal">>}}),
@@ -4135,7 +4137,18 @@ verify_event_fields('client.check_authz_complete', Fields) ->
         ])
     ),
     ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])).
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>]));
+verify_event_fields('client.check_authn_complete', Fields) ->
+    #{
+        clientid := ClientId,
+        username := Username,
+        is_anonymous := IsAnonymous,
+        is_superuser := IsSuperuser
+    } = Fields,
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(erlang:is_boolean(IsAnonymous)),
+    ?assert(erlang:is_boolean(IsSuperuser)).
 
 verify_peername(PeerName) ->
     case string:split(PeerName, ":") of

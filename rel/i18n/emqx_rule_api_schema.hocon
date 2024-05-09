@@ -384,4 +384,13 @@ event_ctx_disconnected_reason.desc:
 event_ctx_disconnected_reason.label:
 """Disconnect Reason"""
 
+event_is_anonymous.desc:
+"""True if this user is anonymous."""
+
+event_is_superuser.desc:
+"""True if this is a super user."""
+
+event_ctx_authn_reason_code.desc:
+"""The reason code"""
+
 }

@@ -195,6 +195,29 @@ t_ctx_check_authz_complete(_) ->
 
     do_test(SQL, Context, Expected).
 
+t_ctx_check_authn_complete(_) ->
+    SQL =
+        <<
+            "SELECT clientid, username, is_superuser, is_anonymous\n"
+            "FROM \"$events/client_check_authn_complete\""
+        >>,
+
+    Context =
+        #{
+            clientid => <<"c_emqx">>,
+            event_type => client_check_authn_complete,
+            reason_code => <<"sucess">>,
+            is_superuser => true,
+            is_anonymous => false
+        },
+    Expected = check_result(
+        [clientid, username, is_superuser, is_anonymous],
+        [],
+        Context
+    ),
+
+    do_test(SQL, Context, Expected).
+
 t_ctx_delivery_dropped(_) ->
     SQL =
         <<"SELECT from_clientid, from_username, reason, topic, qos FROM \"$events/delivery_dropped\"">>,
