@@ -302,7 +302,7 @@ websocket_init([Req, Opts]) ->
                 max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
             },
             ParseState = emqx_frame:initial_parse_state(FrameOpts),
-            Serialize = emqx_frame:serialize_opts(),
+            Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
             Channel = emqx_channel:init(ConnInfo, Opts),
             GcState = get_force_gc(Zone),
             StatsTimer = get_stats_enable(Zone),

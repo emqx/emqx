@@ -336,6 +336,17 @@ t_handle_incoming(_) ->
     ),
     ?assertMatch({ok, _Out, _NState}, emqx_connection:handle_incoming(frame_error, st())).
 
+t_handle_outing_non_utf8_topic(_) ->
+    Topic = <<"测试"/utf16>>,
+    Publish = ?PUBLISH_PACKET(0, Topic, 1),
+    StrictOff = #{version => 5, max_size => 16#FFFF, strict_mode => false},
+    StOff = st(#{serialize => StrictOff}),
+    OffResult = emqx_connection:handle_outgoing(Publish, StOff),
+    ?assertMatch(ok, OffResult),
+    StrictOn = #{version => 5, max_size => 16#FFFF, strict_mode => true},
+    StOn = st(#{serialize => StrictOn}),
+    ?assertError(frame_serialize_error, emqx_connection:handle_outgoing(Publish, StOn)).
+
 t_with_channel(_) ->
     State = st(),
     ok = meck:expect(emqx_channel, handle_in, fun(_, _) -> ok end),
