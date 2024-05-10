@@ -744,18 +744,18 @@ t_regex_replace(_) ->
     ?assertEqual(<<"a[cc]b[c]d">>, apply_func(regex_replace, [<<"accbcd">>, <<"c+">>, <<"[&]">>])).
 
 t_unescape(_) ->
-    ?assertEqual(<<"\n">>, emqx_rule_funcs:unescape(<<"\\n">>)),
-    ?assertEqual(<<"\t">>, emqx_rule_funcs:unescape(<<"\\t">>)),
-    ?assertEqual(<<"\r">>, emqx_rule_funcs:unescape(<<"\\r">>)),
-    ?assertEqual(<<"\b">>, emqx_rule_funcs:unescape(<<"\\b">>)),
-    ?assertEqual(<<"\f">>, emqx_rule_funcs:unescape(<<"\\f">>)),
-    ?assertEqual(<<"\v">>, emqx_rule_funcs:unescape(<<"\\v">>)),
-    ?assertEqual(<<"'">>, emqx_rule_funcs:unescape(<<"\\'">>)),
-    ?assertEqual(<<"\"">>, emqx_rule_funcs:unescape(<<"\\\"">>)),
-    ?assertEqual(<<"?">>, emqx_rule_funcs:unescape(<<"\\?">>)),
-    ?assertEqual(<<"\a">>, emqx_rule_funcs:unescape(<<"\\a">>)),
+    ?assertEqual(<<"\n">> = <<10>>, emqx_rule_funcs:unescape(<<"\\n">>)),
+    ?assertEqual(<<"\t">> = <<9>>, emqx_rule_funcs:unescape(<<"\\t">>)),
+    ?assertEqual(<<"\r">> = <<13>>, emqx_rule_funcs:unescape(<<"\\r">>)),
+    ?assertEqual(<<"\b">> = <<8>>, emqx_rule_funcs:unescape(<<"\\b">>)),
+    ?assertEqual(<<"\f">> = <<12>>, emqx_rule_funcs:unescape(<<"\\f">>)),
+    ?assertEqual(<<"\v">> = <<11>>, emqx_rule_funcs:unescape(<<"\\v">>)),
+    ?assertEqual(<<"'">> = <<39>>, emqx_rule_funcs:unescape(<<"\\'">>)),
+    ?assertEqual(<<"\"">> = <<34>>, emqx_rule_funcs:unescape(<<"\\\"">>)),
+    ?assertEqual(<<"?">> = <<63>>, emqx_rule_funcs:unescape(<<"\\?">>)),
+    ?assertEqual(<<7>>, emqx_rule_funcs:unescape(<<"\\a">>)),
     % Test escaping backslash itself
-    ?assertEqual(<<"\\">>, emqx_rule_funcs:unescape(<<"\\\\">>)),
+    ?assertEqual(<<"\\">> = <<92>>, emqx_rule_funcs:unescape(<<"\\\\">>)),
     % Test a string without any escape sequences
     ?assertEqual(<<"Hello, World!">>, emqx_rule_funcs:unescape(<<"Hello, World!">>)),
     % Test a string with escape sequences
