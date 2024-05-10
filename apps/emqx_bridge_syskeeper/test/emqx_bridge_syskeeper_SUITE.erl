@@ -347,7 +347,7 @@ t_get_status(Config) ->
         _Sleep = 500,
         _Attempts = 10,
         ?assertMatch(
-            #{status := connecting},
+            #{status := disconnected},
             emqx_bridge_v2:health_check(syskeeper_forwarder, ?SYSKEEPER_NAME)
         )
     ).
