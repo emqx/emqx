@@ -7,7 +7,6 @@
         stdlib
     ]},
     {env, []},
-    {mod, {emqx_connector_aggreg_app, []}},
     {modules, []},
     {links, []}
 ]}.
