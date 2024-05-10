@@ -1840,7 +1840,8 @@ is_invalid_rule(S) ->
                 ok;
             _ ->
                 %% should not crash
-                _ = esockd_cidr:parse(CIDR, true)
+                _ = esockd_cidr:parse(CIDR, true),
+                ok
         end,
         false
     catch
