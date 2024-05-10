@@ -124,7 +124,7 @@ format_raw_listeners({Type0, Conf}) ->
                 Bind = parse_bind(LConf0),
                 MaxConn = maps:get(<<"max_connections">>, LConf0, default_max_conn()),
                 Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
-                LConf1 = maps:without([<<"authentication">>, <<"zone">>], LConf0),
+                LConf1 = maps:without([<<"authentication">>], LConf0),
                 LConf2 = maps:put(<<"running">>, Running, LConf1),
                 CurrConn =
                     case Running of
@@ -526,6 +526,7 @@ pre_config_update([?ROOT_KEY, _Type, _Name], {update, _Request}, undefined) ->
 pre_config_update([?ROOT_KEY, Type, Name], {update, Request}, RawConf) ->
     RawConf1 = emqx_utils_maps:deep_merge(RawConf, Request),
     RawConf2 = ensure_override_limiter_conf(RawConf1, Request),
+    ok = assert_zone_exists(RawConf2),
     {ok, convert_certs(Type, Name, RawConf2)};
 pre_config_update([?ROOT_KEY, _Type, _Name], {action, _Action, Updated}, RawConf) ->
     {ok, emqx_utils_maps:deep_merge(RawConf, Updated)};
@@ -895,6 +896,11 @@ convert_certs(Type, Name, Conf) ->
 
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;
 filter_stacktrace(Reason) -> Reason.
+
+assert_zone_exists(#{<<"zone">> := Zone}) ->
+    emqx_config_zones:assert_zone_exists(Zone);
+assert_zone_exists(_) ->
+    ok.
 
 %% limiter config should override, not merge
 ensure_override_limiter_conf(Conf, #{<<"limiter">> := Limiter}) ->

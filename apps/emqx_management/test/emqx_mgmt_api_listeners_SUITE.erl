@@ -36,9 +36,12 @@ groups() ->
     MaxConnTests = [
         t_max_connection_default
     ],
+    ZoneTests = [
+        t_update_listener_zone
+    ],
     [
         {with_defaults_in_file, AllTests -- MaxConnTests},
-        {without_defaults_in_file, AllTests -- MaxConnTests},
+        {without_defaults_in_file, AllTests -- (MaxConnTests ++ ZoneTests)},
         {max_connections, MaxConnTests}
     ].
 
@@ -403,6 +406,21 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, Port
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(delete, NewPath, [], [])),
     ok.
 
+t_update_listener_zone({init, Config}) ->
+    %% fake a zone
+    Config;
+t_update_listener_zone({'end', _Config}) ->
+    ok;
+t_update_listener_zone(_Config) ->
+    ListenerId = <<"tcp:default">>,
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    Conf = request(get, Path, [], []),
+    %% update
+    AddConf1 = Conf#{<<"zone">> => <<"unknownzone">>},
+    AddConf2 = Conf#{<<"zone">> => <<"zone1">>},
+    ?assertMatch({error, {_, 400, _}}, request(put, Path, [], AddConf1)),
+    ?assertMatch(#{<<"zone">> := <<"zone1">>}, request(put, Path, [], AddConf2)).
+
 t_delete_nonexistent_listener(Config) when is_list(Config) ->
     NonExist = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:nonexistent"]),
     ?assertMatch(
@@ -518,5 +536,9 @@ cert_file(Name) ->
 default_listeners_hocon_text() ->
     Sc = #{roots => emqx_schema:listeners()},
     Listeners = hocon_tconf:make_serializable(Sc, #{}, #{}),
-    Config = #{<<"listeners">> => Listeners},
+    Zones = #{<<"zone1">> => #{<<"mqtt">> => #{<<"max_inflight">> => 2}}},
+    Config = #{
+        <<"listeners">> => Listeners,
+        <<"zones">> => Zones
+    },
     hocon_pp:do(Config, #{}).

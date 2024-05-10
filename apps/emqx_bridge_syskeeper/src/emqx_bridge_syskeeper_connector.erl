@@ -213,9 +213,9 @@ on_get_status(_InstanceId, #{pool_name := Pool, ack_timeout := AckTimeout}) ->
     ),
     status_result(Health).
 
-status_result(true) -> connected;
-status_result(false) -> connecting;
-status_result({error, _}) -> connecting.
+status_result(true) -> ?status_connected;
+status_result(false) -> ?status_disconnected;
+status_result({error, _}) -> ?status_disconnected.
 
 on_add_channel(
     _InstanceId,
@@ -251,7 +251,7 @@ on_get_channels(InstanceId) ->
 on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
     case maps:is_key(ChannelId, Channels) of
         true ->
-            connected;
+            ?status_connected;
         _ ->
             {error, not_exists}
     end.

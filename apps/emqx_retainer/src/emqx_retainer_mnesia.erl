@@ -35,6 +35,7 @@
     read_message/2,
     page_read/4,
     match_messages/3,
+    delete_cursor/2,
     clear_expired/1,
     clean/1,
     size/1
@@ -205,7 +206,7 @@ delete_message(_State, Topic) ->
 read_message(_State, Topic) ->
     {ok, read_messages(Topic)}.
 
-match_messages(_State, Topic, undefined) ->
+match_messages(State, Topic, undefined) ->
     Tokens = topic_to_tokens(Topic),
     Now = erlang:system_time(millisecond),
     QH = msg_table(search_table(Tokens, Now)),
@@ -214,7 +215,7 @@ match_messages(_State, Topic, undefined) ->
             {ok, qlc:eval(QH), undefined};
         BatchNum when is_integer(BatchNum) ->
             Cursor = qlc:cursor(QH),
-            match_messages(undefined, Topic, {Cursor, BatchNum})
+            match_messages(State, Topic, {Cursor, BatchNum})
     end;
 match_messages(_State, _Topic, {Cursor, BatchNum}) ->
     case qlc_next_answers(Cursor, BatchNum) of
@@ -223,6 +224,11 @@ match_messages(_State, _Topic, {Cursor, BatchNum}) ->
         {more, Rows} ->
             {ok, Rows, {Cursor, BatchNum}}
     end.
+
+delete_cursor(_State, {Cursor, _}) ->
+    qlc:delete_cursor(Cursor);
+delete_cursor(_State, undefined) ->
+    ok.
 
 page_read(_State, Topic, Page, Limit) ->
     Now = erlang:system_time(millisecond),
@@ -562,6 +568,7 @@ reindex(NewIndices, Force, StatusFun) when
 
             %% Fill index records in batches.
             QH = qlc:q([Topic || #retained_message{topic = Topic} <- ets:table(?TAB_MESSAGE)]),
+
             ok = reindex_batch(qlc:cursor(QH), 0, StatusFun),
 
             %% Enable read indices and unlock reindexing.

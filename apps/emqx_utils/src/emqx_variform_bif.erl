@@ -289,7 +289,8 @@ unescape_string([$\\, $" | Rest], Acc) ->
 unescape_string([$\\, $? | Rest], Acc) ->
     unescape_string(Rest, [$\? | Acc]);
 unescape_string([$\\, $a | Rest], Acc) ->
-    unescape_string(Rest, [$\a | Acc]);
+    %% Terminal bell
+    unescape_string(Rest, [7 | Acc]);
 %% Start of HEX escape code
 unescape_string([$\\, $x | [$0 | _] = HexStringStart], Acc) ->
     unescape_handle_hex_string(HexStringStart, Acc);

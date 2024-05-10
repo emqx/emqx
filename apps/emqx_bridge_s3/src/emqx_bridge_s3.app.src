@@ -19,6 +19,7 @@
             emqx_bridge_s3_connector_info
         ]}
     ]},
+    {mod, {emqx_bridge_s3_app, []}},
     {modules, []},
     {links, []}
 ]}.
