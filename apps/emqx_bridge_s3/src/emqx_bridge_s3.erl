@@ -44,11 +44,7 @@ fields(s3_connector_config) ->
     emqx_s3_schema:fields(s3_client) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, s3_connector_resource_opts);
 fields(s3_connector_resource_opts) ->
-    CommonOpts = emqx_connector_schema:common_resource_opts_subfields(),
-    lists:filter(
-        fun({N, _}) -> lists:member(N, CommonOpts) end,
-        emqx_connector_schema:resource_opts_fields()
-    ).
+    emqx_connector_schema:resource_opts_fields().
 
 desc("config_connector") ->
     ?DESC(config_connector);
