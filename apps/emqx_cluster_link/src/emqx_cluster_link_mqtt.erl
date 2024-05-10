@@ -45,6 +45,11 @@
 ]).
 
 -export([
+    publish_route_sync/4,
+    encode_field/2
+]).
+
+-export([
     forward/2
 ]).
 
@@ -79,8 +84,18 @@
 %% It's worth optimizing non-batch op payload size,
 %% thus it's encoded as a plain binary
 -define(TOPIC_WITH_OP(Op, Topic), <<Op/binary, "_", Topic/binary>>).
+
 -define(DECODE(Payload), erlang:binary_to_term(Payload, [safe])).
 -define(ENCODE(Payload), erlang:term_to_binary(Payload)).
+
+-define(F_OPERATION, '$op').
+-define(OP_ROUTE, <<"route">>).
+
+-define(F_ACTOR, 10).
+-define(F_INCARNATION, 11).
+-define(F_ROUTES, 12).
+
+-define(ROUTE_DELETE, 100).
 
 -define(PUB_TIMEOUT, 10_000).
 
@@ -388,6 +403,16 @@ publish_result(Caller, Ref, Result) ->
             Caller ! {pub_result, Ref, Err}
     end.
 
+publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
+    PubTopic = ?ROUTE_TOPIC,
+    Payload = #{
+        ?F_OPERATION => ?OP_ROUTE,
+        ?F_ACTOR => Actor,
+        ?F_INCARNATION => Incarnation,
+        ?F_ROUTES => Updates
+    },
+    emqtt:publish(ClientPid, PubTopic, ?ENCODE(Payload), ?QOS_1).
+
 %%--------------------------------------------------------------------
 %% Protocol
 %%--------------------------------------------------------------------
@@ -497,6 +522,11 @@ decode_proto_ver1(ProtoVer) ->
     [Major, Minor] = binary:split(ProtoVer, <<".">>),
     %% Let it fail (for now), we don't expect invalid data to pass through the linking protocol..
     {emqx_utils_conv:int(Major), emqx_utils_conv:int(Minor)}.
+
+encode_field(route, {add, Route = {_Topic, _ID}}) ->
+    Route;
+encode_field(route, {delete, {Topic, ID}}) ->
+    {?ROUTE_DELETE, Topic, ID}.
 
 %%--------------------------------------------------------------------
 %% emqx_external_broker

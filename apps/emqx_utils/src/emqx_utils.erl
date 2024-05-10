@@ -65,6 +65,7 @@
     flattermap/2,
     tcp_keepalive_opts/4,
     format/1,
+    format/2,
     format_mfal/2,
     call_first_defined/1,
     ntoa/1,
@@ -565,6 +566,9 @@ tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
 
 format(Term) ->
     iolist_to_binary(io_lib:format("~0p", [Term])).
+
+format(Fmt, Args) ->
+    iolist_to_binary(io_lib:format(Fmt, Args)).
 
 %% @doc Helper function for log formatters.
 -spec format_mfal(map(), map()) -> undefined | binary().

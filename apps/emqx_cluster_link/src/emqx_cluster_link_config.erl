@@ -11,6 +11,18 @@
 -define(LINKS_PATH, [cluster, links]).
 -define(CERTS_PATH(LinkName), filename:join(["cluster", "links", LinkName])).
 
+-define(MQTT_HOST_OPTS, #{default_port => 1883}).
+
+-export([
+    %% General
+    cluster/0,
+    links/0,
+    link/1,
+    topic_filters/1,
+    %% Connections
+    emqtt_options/1
+]).
+
 -export([
     add_handler/0,
     remove_handler/0
@@ -20,6 +32,53 @@
     pre_config_update/3,
     post_config_update/5
 ]).
+
+%%
+
+cluster() ->
+    atom_to_binary(emqx_config:get([cluster, name])).
+
+links() ->
+    emqx:get_config(?LINKS_PATH, []).
+
+link(Name) ->
+    case lists:dropwhile(fun(L) -> Name =/= upstream_name(L) end, links()) of
+        [LinkConf | _] -> LinkConf;
+        [] -> undefined
+    end.
+
+emqtt_options(LinkName) ->
+    emqx_maybe:apply(fun mk_emqtt_options/1, ?MODULE:link(LinkName)).
+
+topic_filters(LinkName) ->
+    maps:get(filters, ?MODULE:link(LinkName), []).
+
+%%
+
+mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = LinkConf) ->
+    ClientId = maps:get(client_id, LinkConf, cluster()),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?MQTT_HOST_OPTS),
+    Opts = #{
+        host => Host,
+        port => Port,
+        clientid => ClientId,
+        proto_ver => v5,
+        ssl => EnableSsl,
+        ssl_opts => maps:to_list(maps:remove(enable, Ssl))
+    },
+    with_password(with_user(Opts, LinkConf), LinkConf).
+
+with_user(Opts, #{username := U} = _LinkConf) ->
+    Opts#{username => U};
+with_user(Opts, _LinkConf) ->
+    Opts.
+
+with_password(Opts, #{password := P} = _LinkConf) ->
+    Opts#{password => emqx_secret:unwrap(P)};
+with_password(Opts, _LinkConf) ->
+    Opts.
+
+%%
 
 add_handler() ->
     ok = emqx_config_handler:add_handler(?LINKS_PATH, ?MODULE).
