@@ -84,7 +84,8 @@
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
-    dropped_msg_due_to_mqueue_is_full
+    dropped_msg_due_to_mqueue_is_full,
+    pause_time_due_to_rate_limit
 ]).
 
 %% Callback to upgrade config after loaded from config file but before validation.
