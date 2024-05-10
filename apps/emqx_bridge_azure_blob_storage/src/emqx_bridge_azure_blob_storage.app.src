@@ -1,0 +1,23 @@
+{application, emqx_bridge_azure_blob_storage, [
+    {description, "EMQX Enterprise Azure Blob Storage Bridge"},
+    {vsn, "0.1.0"},
+    {registered, [emqx_bridge_azure_blob_storage_sup]},
+    {applications, [
+        kernel,
+        stdlib,
+        erlazure,
+        emqx_resource,
+        emqx_connector_aggregator
+    ]},
+    {env, [
+        {emqx_action_info_modules, [
+            emqx_bridge_azure_blob_storage_action_info
+        ]},
+        {emqx_connector_info_modules, [
+            emqx_bridge_azure_blob_storage_connector_info
+        ]}
+    ]},
+    {mod, {emqx_bridge_azure_blob_storage_app, []}},
+    {modules, []},
+    {links, []}
+]}.

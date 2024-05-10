@@ -249,6 +249,9 @@ for dep in ${CT_DEPS}; do
 	elasticsearch)
 	    FILES+=( '.ci/docker-compose-file/docker-compose-elastic-search-tls.yaml' )
 	    ;;
+	azurite)
+	    FILES+=( '.ci/docker-compose-file/docker-compose-azurite.yaml' )
+	    ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

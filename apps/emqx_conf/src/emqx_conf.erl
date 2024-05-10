@@ -418,7 +418,7 @@ format_primitive_type_desc(TypeStr, DescResolver) ->
 get_primitive_typespec(TypeStr) ->
     emqx_conf_schema_types:readable_docgen(?MODULE, TypeStr).
 
-%% All types should have a namespace to avlid name clashing.
+%% All types should have a namespace to avoid name clashing.
 is_missing_namespace(ShortName, FullName, RootNames) ->
     case lists:member(ShortName, RootNames) of
         true ->

@@ -24,6 +24,8 @@
     format_status/2
 ]).
 
+-export_type([buffer_map/0]).
+
 -record(delivery, {
     id :: id(),
     callback_module :: module(),
