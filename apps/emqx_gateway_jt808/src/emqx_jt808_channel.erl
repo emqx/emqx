@@ -230,9 +230,14 @@ handle_in(Frame = ?MSG(MType), Channel = #channel{conn_state = ConnState}) when
 handle_in(Frame, Channel = #channel{conn_state = connected}) ->
     ?SLOG(debug, #{msg => "recv_frame", frame => Frame}),
     do_handle_in(Frame, Channel);
+handle_in(Frame = ?MSG(MType), Channel) when
+    MType =:= ?MC_DEREGISTER
+->
+    ?SLOG(debug, #{msg => "recv_frame", frame => Frame, info => "jt808_client_deregister"}),
+    do_handle_in(Frame, Channel#channel{conn_state = disconnected});
 handle_in(Frame, Channel) ->
     ?SLOG(error, #{msg => "unexpected_frame", frame => Frame}),
-    {stop, unexpected_frame, Channel}.
+    {shutdown, unexpected_frame, Channel}.
 
 %% @private
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->
@@ -316,7 +321,7 @@ do_handle_in(
             {ok, Channel#channel{inflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight)}}
     end;
 do_handle_in(?MSG(?MC_DEREGISTER), Channel) ->
-    {stop, normal, Channel};
+    {shutdown, normal, Channel};
 do_handle_in(Frame = #{}, Channel = #channel{up_topic = Topic, inflight = Inflight}) ->
     {MsgId, MsgSn} = msgidsn(Frame),
     _ = do_publish(Topic, Frame),
