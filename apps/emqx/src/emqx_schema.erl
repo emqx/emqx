@@ -1808,8 +1808,9 @@ access_rules_converter(AccessRules) ->
     DeepRules =
         lists:foldr(
             fun(Rule, Acc) ->
-                Rules = re:split(Rule, <<"\\s*,\\s*">>, [{return, binary}]),
-                [Rules | Acc]
+                Rules0 = re:split(Rule, <<"\\s*,\\s*">>, [{return, binary}]),
+                Rules1 = [string:trim(R) || R <- Rules0],
+                [Rules1 | Acc]
             end,
             [],
             AccessRules
