@@ -415,6 +415,15 @@ handle_action(RuleId, ActId, Selected, Envs) ->
                 rule_metrics, RuleId, 'actions.failed.out_of_service'
             ),
             trace_action(ActId, "out_of_service", #{}, warning);
+        error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
+            ?EMQX_TRACE_STOP_ACTION(Explanation) = Reason,
+            trace_action(
+                ActId,
+                "action_stopped_after_template_rendering",
+                #{reason => Explanation}
+            ),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
         Err:Reason:ST ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown'),
@@ -475,7 +484,18 @@ do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) -
     trace_action(Action, "call_action_function"),
     %% the function can also throw 'out_of_service'
     Args = maps:get(args, Action, []),
-    Result = Mod:Func(Selected, Envs, Args),
+    PrevProcessMetadata =
+        case logger:get_process_metadata() of
+            undefined -> #{};
+            D -> D
+        end,
+    Result =
+        try
+            logger:update_process_metadata(#{action_id => Action}),
+            Mod:Func(Selected, Envs, Args)
+        after
+            logger:set_process_metadata(PrevProcessMetadata)
+        end,
     {_, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
     inc_action_metrics(IncCtx, Result),
     Result.
@@ -737,30 +757,62 @@ do_inc_action_metrics(
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
-    {error, {recoverable_error, _}}
+    {error, {recoverable_error, _}} = Reason
 ) ->
+    FormatterRes = #emqx_trace_format_func_data{
+        function = fun trace_formatted_result/1,
+        data = {ActId, Reason}
+    },
     TraceContext1 = maps:remove(action_id, TraceContext),
-    trace_action(ActId, "out_of_service", TraceContext1),
+    trace_action(ActId, "out_of_service", TraceContext1#{reason => FormatterRes}),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
-    {error, {unrecoverable_error, _} = Reason}
+    {error, {unrecoverable_error, _}} = Reason
 ) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
-    trace_action(ActId, "action_failed", maps:merge(#{reason => Reason}, TraceContext1)),
+    FormatterRes = #emqx_trace_format_func_data{
+        function = fun trace_formatted_result/1,
+        data = {ActId, Reason}
+    },
+    trace_action(ActId, "action_failed", maps:merge(#{reason => FormatterRes}, TraceContext1)),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(#{rule_id := RuleId, action_id := ActId} = TraceContext, R) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
+    FormatterRes = #emqx_trace_format_func_data{
+        function = fun trace_formatted_result/1,
+        data = {ActId, R}
+    },
     case is_ok_result(R) of
         false ->
-            trace_action(ActId, "action_failed", maps:merge(#{reason => R}, TraceContext1)),
+            trace_action(
+                ActId,
+                "action_failed",
+                maps:merge(#{reason => FormatterRes}, TraceContext1)
+            ),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
         true ->
-            trace_action(ActId, "action_success", maps:merge(#{result => R}, TraceContext1)),
+            trace_action(
+                ActId,
+                "action_success",
+                maps:merge(#{result => FormatterRes}, TraceContext1)
+            ),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
     end.
+
+trace_formatted_result({{bridge_v2, Type, _Name}, R}) ->
+    ConnectorType = emqx_action_info:action_type_to_connector_type(Type),
+    ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
+    clean_up_error_tuple(emqx_resource:call_format_query_result(ResourceModule, R));
+trace_formatted_result({{bridge, BridgeType, _BridgeName, _ResId}, R}) ->
+    BridgeV2Type = emqx_action_info:bridge_v1_type_to_action_type(BridgeType),
+    ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeV2Type),
+    ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
+    clean_up_error_tuple(emqx_resource:call_format_query_result(ResourceModule, R));
+trace_formatted_result({_, R}) ->
+    R.
 
 is_ok_result(ok) ->
     true;
@@ -770,6 +822,15 @@ is_ok_result(R) when is_tuple(R) ->
     ok == erlang:element(1, R);
 is_ok_result(_) ->
     false.
+
+clean_up_error_tuple({error, {unrecoverable_error, Reason}}) ->
+    Reason;
+clean_up_error_tuple({error, {recoverable_error, Reason}}) ->
+    Reason;
+clean_up_error_tuple({error, Reason}) ->
+    Reason;
+clean_up_error_tuple(Result) ->
+    Result.
 
 parse_module_name(Name) when is_binary(Name) ->
     case ?IS_VALID_SQL_FUNC_PROVIDER_MODULE_NAME(Name) of

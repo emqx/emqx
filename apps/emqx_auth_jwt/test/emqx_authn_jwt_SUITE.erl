@@ -55,7 +55,8 @@ t_hmac_based(_) ->
         algorithm => 'hmac-based',
         secret => Secret,
         secret_base64_encoded => false,
-        verify_claims => [{<<"username">>, <<"${username}">>}]
+        verify_claims => [{<<"username">>, <<"${username}">>}],
+        disconnect_after_expire => false
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -179,7 +180,8 @@ t_public_key(_) ->
         use_jwks => false,
         algorithm => 'public-key',
         public_key => PublicKey,
-        verify_claims => []
+        verify_claims => [],
+        disconnect_after_expire => false
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -207,7 +209,8 @@ t_jwt_in_username(_) ->
         algorithm => 'hmac-based',
         secret => Secret,
         secret_base64_encoded => false,
-        verify_claims => []
+        verify_claims => [],
+        disconnect_after_expire => false
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -229,7 +232,8 @@ t_complex_template(_) ->
         algorithm => 'hmac-based',
         secret => Secret,
         secret_base64_encoded => false,
-        verify_claims => [{<<"id">>, <<"${username}-${clientid}">>}]
+        verify_claims => [{<<"id">>, <<"${username}-${clientid}">>}],
+        disconnect_after_expire => false
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -269,7 +273,7 @@ t_jwks_renewal(_Config) ->
         algorithm => 'public-key',
         ssl => #{enable => false},
         verify_claims => [],
-
+        disconnect_after_expire => false,
         use_jwks => true,
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
         refresh_interval => 1000,
@@ -366,7 +370,8 @@ t_verify_claims(_) ->
         algorithm => 'hmac-based',
         secret => Secret,
         secret_base64_encoded => false,
-        verify_claims => [{<<"foo">>, <<"bar">>}]
+        verify_claims => [{<<"foo">>, <<"bar">>}],
+        disconnect_after_expire => false
     },
     {ok, State0} = emqx_authn_jwt:create(?AUTHN_ID, Config0),
 
@@ -456,7 +461,8 @@ t_verify_claim_clientid(_) ->
         algorithm => 'hmac-based',
         secret => Secret,
         secret_base64_encoded => false,
-        verify_claims => [{<<"cl">>, <<"${clientid}">>}]
+        verify_claims => [{<<"cl">>, <<"${clientid}">>}],
+        disconnect_after_expire => false
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 

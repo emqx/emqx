@@ -26,7 +26,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([
@@ -387,6 +388,9 @@ on_batch_query(
         Error ->
             Error
     end.
+
+on_format_query_result(Result) ->
+    emqx_bridge_http_connector:on_format_query_result(Result).
 
 on_add_channel(
     InstanceId,

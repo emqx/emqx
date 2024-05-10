@@ -18,8 +18,6 @@
     api_schema/1
 ]).
 
--export([validate_name/1]).
-
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
@@ -55,7 +53,7 @@ fields(validation) ->
                 binary(),
                 #{
                     required => true,
-                    validator => fun validate_name/1,
+                    validator => fun emqx_resource:validate_name/1,
                     desc => ?DESC("name")
                 }
             )},
@@ -123,8 +121,8 @@ fields(check_protobuf) ->
     [
         {type, mk(protobuf, #{default => protobuf, desc => ?DESC("check_protobuf_type")})},
         {schema, mk(binary(), #{required => true, desc => ?DESC("check_protobuf_schema")})},
-        {message_name,
-            mk(binary(), #{required => true, desc => ?DESC("check_protobuf_message_name")})}
+        {message_type,
+            mk(binary(), #{required => true, desc => ?DESC("check_protobuf_message_type")})}
     ];
 fields(check_avro) ->
     [
@@ -199,16 +197,6 @@ ref(Name) -> hoconsc:ref(?MODULE, Name).
 ensure_array(undefined, _) -> undefined;
 ensure_array(L, _) when is_list(L) -> L;
 ensure_array(B, _) -> [B].
-
-validate_name(Name) ->
-    %% see `MAP_KEY_RE' in hocon_tconf
-    RE = <<"^[A-Za-z0-9]+[A-Za-z0-9-_]*$">>,
-    case re:run(Name, RE, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            {error, <<"must conform to regex: ", RE/binary>>}
-    end.
 
 validate_sql(SQL) ->
     case emqx_message_validation:parse_sql_check(SQL) of

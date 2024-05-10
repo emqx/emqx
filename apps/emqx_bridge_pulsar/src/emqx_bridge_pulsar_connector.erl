@@ -20,7 +20,8 @@
     on_get_status/2,
     on_get_channel_status/3,
     on_query/3,
-    on_query_async/4
+    on_query_async/4,
+    on_format_query_result/1
 ]).
 
 -type pulsar_client_id() :: atom().
@@ -233,6 +234,11 @@ on_query_async2(ChannelId, Producers, Message, MessageTmpl, AsyncReplyFn) ->
         is_async => true
     }),
     pulsar:send(Producers, [PulsarMessage], #{callback_fn => AsyncReplyFn}).
+
+on_format_query_result({ok, Info}) ->
+    #{result => ok, info => Info};
+on_format_query_result(Result) ->
+    Result.
 
 %%-------------------------------------------------------------------------------------
 %% Internal fns

@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_s3_sup).
+-module(emqx_connector_aggreg_sup).
 
 -export([
     start_link/0,

@@ -26,12 +26,22 @@
 
 apply_rule(
     RuleId,
+    Parameters
+) ->
+    case emqx_rule_engine:get_rule(RuleId) of
+        {ok, Rule} ->
+            do_apply_rule(Rule, Parameters);
+        not_found ->
+            {error, rule_not_found}
+    end.
+
+do_apply_rule(
+    Rule,
     #{
         context := Context,
         stop_action_after_template_rendering := StopAfterRender
     }
 ) ->
-    {ok, Rule} = emqx_rule_engine:get_rule(RuleId),
     InTopic = get_in_topic(Context),
     EventTopics = maps:get(from, Rule, []),
     case lists:all(fun is_publish_topic/1, EventTopics) of

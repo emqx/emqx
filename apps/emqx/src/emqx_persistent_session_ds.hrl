@@ -81,5 +81,6 @@
 -define(will_message, will_message).
 -define(clientinfo, clientinfo).
 -define(protocol, protocol).
+-define(offline_info, offline_info).
 
 -endif.

@@ -274,6 +274,7 @@ schema("/rules/:id/test") ->
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
                 412 => error_schema('NOT_MATCH', "SQL Not Match"),
+                404 => error_schema('RULE_NOT_FOUND', "The rule could not be found"),
                 200 => <<"Rule Applied">>
             }
         }
@@ -419,11 +420,13 @@ param_path_id() ->
         begin
             case emqx_rule_sqltester:apply_rule(RuleId, CheckedParams) of
                 {ok, Result} ->
-                    {200, Result};
+                    {200, emqx_logger_jsonfmt:best_effort_json_obj(Result)};
                 {error, {parse_error, Reason}} ->
                     {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
                 {error, nomatch} ->
                     {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
+                {error, rule_not_found} ->
+                    {404, #{code => 'RULE_NOT_FOUND', message => <<"The rule could not be found">>}};
                 {error, Reason} ->
                     {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
             end

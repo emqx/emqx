@@ -171,20 +171,31 @@ subscriptions(get, #{query_string := QString}) ->
             {200, Result}
     end.
 
-format(WhichNode, {{Topic, _Subscriber}, SubOpts}) ->
+format(WhichNode, {{Topic, Subscriber}, SubOpts}) ->
+    FallbackClientId =
+        case is_binary(Subscriber) of
+            true ->
+                Subscriber;
+            false ->
+                %% e.g.: could be a pid...
+                null
+        end,
     maps:merge(
         #{
             topic => emqx_topic:maybe_format_share(Topic),
-            clientid => maps:get(subid, SubOpts, null),
-            node => WhichNode,
+            clientid => maps:get(subid, SubOpts, FallbackClientId),
+            node => convert_null(WhichNode),
             durable => false
         },
-        maps:with([qos, nl, rap, rh], SubOpts)
+        maps:with([qos, nl, rap, rh, durable], SubOpts)
     ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+convert_null(undefined) -> null;
+convert_null(Val) -> Val.
 
 check_match_topic(#{<<"match_topic">> := MatchTopic}) ->
     try emqx_topic:parse(MatchTopic) of

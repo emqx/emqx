@@ -1075,7 +1075,7 @@ handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) -
     Packet = ?DISCONNECT_PACKET(ReasonCode, Props),
     {ok, [?REPLY_OUTGOING(Packet), ?REPLY_CLOSE(ReasonName)], Channel};
 handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
-    {ok, {close, ReasonName}, Channel};
+    {ok, ?REPLY_CLOSE(ReasonName), Channel};
 handle_out(auth, {ReasonCode, Properties}, Channel) ->
     {ok, ?AUTH_PACKET(ReasonCode, Properties), Channel};
 handle_out(Type, Data, Channel) ->
@@ -1405,6 +1405,16 @@ handle_timeout(
             {ok, Channel2};
         {_, Quota2} ->
             {ok, clean_timer(TimerName, Channel#channel{quota = Quota2})}
+    end;
+handle_timeout(
+    _TRef,
+    connection_expire,
+    #channel{conn_state = ConnState} = Channel0
+) ->
+    Channel1 = clean_timer(connection_expire, Channel0),
+    case ConnState of
+        disconnected -> {ok, Channel1};
+        _ -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel1)
     end;
 handle_timeout(TRef, Msg, Channel) ->
     case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
@@ -1810,18 +1820,23 @@ log_auth_failure(Reason) ->
 %% Merge authentication result into ClientInfo
 %% Authentication result may include:
 %% 1. `is_superuser': The superuser flag from various backends
-%% 2. `acl': ACL rules from JWT, HTTP auth backend
-%% 3. `client_attrs': Extra client attributes from JWT, HTTP auth backend
-%% 4. Maybe more non-standard fields used by hook callbacks
+%% 2. `expire_at`: Authentication validity deadline, the client will be disconnected after this time
+%% 3. `acl': ACL rules from JWT, HTTP auth backend
+%% 4. `client_attrs': Extra client attributes from JWT, HTTP auth backend
+%% 5. Maybe more non-standard fields used by hook callbacks
 merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult0, false),
-    AuthResult = maps:without([client_attrs], AuthResult0),
+    ExpireAt = maps:get(expire_at, AuthResult0, undefined),
+    AuthResult = maps:without([client_attrs, expire_at], AuthResult0),
     Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
     Attrs1 = maps:get(client_attrs, AuthResult0, #{}),
     Attrs = maps:merge(Attrs0, Attrs1),
     NewClientInfo = maps:merge(
         ClientInfo#{client_attrs => Attrs},
-        AuthResult#{is_superuser => IsSuperuser}
+        AuthResult#{
+            is_superuser => IsSuperuser,
+            auth_expire_at => ExpireAt
+        }
     ),
     fix_mountpoint(NewClientInfo).
 
@@ -2228,10 +2243,16 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
-    Channel#channel{
+    schedule_connection_expire(Channel#channel{
         conninfo = trim_conninfo(NConnInfo),
         conn_state = connected
-    }.
+    }).
+
+schedule_connection_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
+    Channel;
+schedule_connection_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
+    Interval = max(0, ExpireAt - erlang:system_time(millisecond)),
+    ensure_timer(connection_expire, Interval, Channel).
 
 trim_conninfo(ConnInfo) ->
     maps:without(
@@ -2615,10 +2636,15 @@ disconnect_and_shutdown(
 ->
     NChannel = ensure_disconnected(Reason, Channel),
     shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), NChannel);
-%% mqtt v3/v4 sessions, mqtt v5 other conn_state sessions
-disconnect_and_shutdown(Reason, Reply, Channel) ->
+%% mqtt v3/v4 connected sessions
+disconnect_and_shutdown(Reason, Reply, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= connected orelse ConnState =:= reauthenticating
+->
     NChannel = ensure_disconnected(Reason, Channel),
-    shutdown(Reason, Reply, NChannel).
+    shutdown(Reason, Reply, NChannel);
+%% other conn_state sessions
+disconnect_and_shutdown(Reason, Reply, Channel) ->
+    shutdown(Reason, Reply, Channel).
 
 -compile({inline, [sp/1, flag/1]}).
 sp(true) -> 1;

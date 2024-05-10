@@ -545,12 +545,18 @@ to_client_opts(Type, Opts) ->
                     {depth, Get(depth)},
                     {password, ensure_str(Get(password))},
                     {secure_renegotiate, Get(secure_renegotiate)}
-                ],
+                ] ++ hostname_check(Verify),
                 Versions
             );
         false ->
             []
     end.
+
+hostname_check(verify_none) ->
+    [];
+hostname_check(verify_peer) ->
+    %% allow wildcard certificates
+    [{customize_hostname_check, [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}].
 
 resolve_cert_path_for_read_strict(Path) ->
     case resolve_cert_path_for_read(Path) of

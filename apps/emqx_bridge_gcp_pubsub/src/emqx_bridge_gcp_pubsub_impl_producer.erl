@@ -53,7 +53,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    on_get_channel_status/3
+    on_get_channel_status/3,
+    on_format_query_result/1
 ]).
 
 -export([reply_delegator/2]).
@@ -487,6 +488,11 @@ handle_result({error, Reason} = Result, _Request, QueryMode, ResourceId) ->
     ),
     Result;
 handle_result({ok, _} = Result, _Request, _QueryMode, _ResourceId) ->
+    Result.
+
+on_format_query_result({ok, Info}) ->
+    #{result => ok, info => Info};
+on_format_query_result(Result) ->
     Result.
 
 reply_delegator(ReplyFunAndArgs, Response) ->

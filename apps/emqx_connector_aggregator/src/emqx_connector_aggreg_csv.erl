@@ -2,8 +2,8 @@
 %% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% CSV container implementation for `emqx_bridge_s3_aggregator`.
--module(emqx_bridge_s3_aggreg_csv).
+%% CSV container implementation for `emqx_connector_aggregator`.
+-module(emqx_connector_aggreg_csv).
 
 %% Container API
 -export([
@@ -33,7 +33,7 @@
     column_order => [column()]
 }.
 
--type record() :: emqx_bridge_s3_aggregator:record().
+-type record() :: emqx_connector_aggregator:record().
 -type column() :: binary().
 
 %%

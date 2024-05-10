@@ -104,6 +104,20 @@ pre_process_action_args(_, Args) ->
 %%--------------------------------------------------------------------
 -spec console(map(), map(), map()) -> any().
 console(Selected, #{metadata := #{rule_id := RuleId}} = Envs, _Args) ->
+    case logger:get_process_metadata() of
+        #{action_id := ActionID} ->
+            emqx_trace:rendered_action_template(
+                ActionID,
+                #{
+                    selected => Selected,
+                    environment => Envs
+                }
+            );
+        _ ->
+            %% We may not have an action ID in the metadata if this is called
+            %% from a test case or similar
+            ok
+    end,
     ?ULOG(
         "[rule action] ~ts~n"
         "\tAction Data: ~p~n"
@@ -149,15 +163,24 @@ republish(
     PubProps0 = render_pub_props(UserPropertiesTemplate, Selected, Env),
     MQTTProps = render_mqtt_properties(MQTTPropertiesTemplate, Selected, Env),
     PubProps = maps:merge(PubProps0, MQTTProps),
+    TraceInfo = #{
+        flags => Flags,
+        topic => Topic,
+        payload => Payload,
+        pub_props => PubProps
+    },
+    case logger:get_process_metadata() of
+        #{action_id := ActionID} ->
+            emqx_trace:rendered_action_template(ActionID, TraceInfo);
+        _ ->
+            %% We may not have an action ID in the metadata if this is called
+            %% from a test case or similar
+            ok
+    end,
     ?TRACE(
         "RULE",
         "republish_message",
-        #{
-            flags => Flags,
-            topic => Topic,
-            payload => Payload,
-            pub_props => PubProps
-        }
+        TraceInfo
     ),
     safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps).
 

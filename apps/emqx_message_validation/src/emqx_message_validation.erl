@@ -69,10 +69,22 @@ remove_handler() ->
     ok.
 
 load() ->
-    lists:foreach(fun insert/1, emqx:get_config(?VALIDATIONS_CONF_PATH, [])).
+    Validations = emqx:get_config(?VALIDATIONS_CONF_PATH, []),
+    lists:foreach(
+        fun({Pos, Validation}) ->
+            ok = emqx_message_validation_registry:insert(Pos, Validation)
+        end,
+        lists:enumerate(Validations)
+    ).
 
 unload() ->
-    lists:foreach(fun delete/1, emqx:get_config(?VALIDATIONS_CONF_PATH, [])).
+    Validations = emqx:get_config(?VALIDATIONS_CONF_PATH, []),
+    lists:foreach(
+        fun(Validation) ->
+            ok = emqx_message_validation_registry:delete(Validation)
+        end,
+        Validations
+    ).
 
 -spec list() -> [validation()].
 list() ->
@@ -81,7 +93,7 @@ list() ->
 -spec reorder([validation_name()]) ->
     {ok, _} | {error, _}.
 reorder(Order) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {reorder, Order},
         #{override_to => cluster}
@@ -95,7 +107,7 @@ lookup(Name) ->
 -spec insert(validation()) ->
     {ok, _} | {error, _}.
 insert(Validation) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {append, Validation},
         #{override_to => cluster}
@@ -104,7 +116,7 @@ insert(Validation) ->
 -spec update(validation()) ->
     {ok, _} | {error, _}.
 update(Validation) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {update, Validation},
         #{override_to => cluster}
@@ -113,7 +125,7 @@ update(Validation) ->
 -spec delete(validation_name()) ->
     {ok, _} | {error, _}.
 delete(Name) ->
-    emqx:update_config(
+    emqx_conf:update(
         ?VALIDATIONS_CONF_PATH,
         {delete, Name},
         #{override_to => cluster}
@@ -247,8 +259,8 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
     #{name := Name} = Validation,
     ExtraArgs =
         case Check of
-            #{type := protobuf, message_name := MessageName} ->
-                [MessageName];
+            #{type := protobuf, message_type := MessageType} ->
+                [MessageType];
             _ ->
                 []
         end,

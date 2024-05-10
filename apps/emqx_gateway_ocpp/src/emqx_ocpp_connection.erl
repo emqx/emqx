@@ -20,6 +20,7 @@
 -include("emqx_ocpp.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -logger_header("[OCPP/WS]").
 
@@ -513,7 +514,8 @@ websocket_close(Reason, State) ->
     handle_info({sock_closed, Reason}, State).
 
 terminate(Reason, _Req, #state{channel = Channel}) ->
-    ?SLOG(debug, #{msg => "terminated", reason => Reason}),
+    ClientId = emqx_ocpp_channel:info(clientid, Channel),
+    ?tp(debug, conn_process_terminated, #{reason => Reason, clientid => ClientId}),
     emqx_ocpp_channel:terminate(Reason, Channel);
 terminate(_Reason, _Req, _UnExpectedState) ->
     ok.

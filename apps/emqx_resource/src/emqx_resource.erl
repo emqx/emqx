@@ -86,7 +86,9 @@
     forget_allocated_resources/1,
     deallocate_resource/2,
     %% Get channel config from resource
-    call_get_channel_config/3
+    call_get_channel_config/3,
+    % Call the format query result function
+    call_format_query_result/2
 ]).
 
 %% Direct calls to the callback module
@@ -154,7 +156,8 @@
     on_add_channel/4,
     on_remove_channel/3,
     on_get_channels/1,
-    query_mode/1
+    query_mode/1,
+    on_format_query_result/1
 ]).
 
 %% when calling emqx_resource:start/1
@@ -229,6 +232,14 @@
 -callback on_get_channels(
     ResId :: term()
 ) -> [term()].
+
+%% When given the result of a on_*query call this function should return a
+%% version of the result that is suitable for JSON trace logging. This
+%% typically means converting Erlang tuples to maps with appropriate names for
+%% the values in the tuple.
+-callback on_format_query_result(
+    QueryResult :: term()
+) -> term().
 
 -define(SAFE_CALL(EXPR),
     (fun() ->
@@ -549,6 +560,14 @@ call_get_channel_config(ResId, ChannelId, Mod) ->
         false ->
             {error,
                 <<"on_get_channels callback function not available for resource id", ResId/binary>>}
+    end.
+
+call_format_query_result(Mod, Result) ->
+    case erlang:function_exported(Mod, on_format_query_result, 1) of
+        true ->
+            Mod:on_format_query_result(Result);
+        false ->
+            Result
     end.
 
 -spec call_stop(resource_id(), module(), resource_state()) -> term().
