@@ -115,6 +115,68 @@ t_update_conf(_Conf) ->
     ?assert(is_running('wss:default')),
     ok.
 
+t_update_conf_validate_access_rules(_Conf) ->
+    Raw = emqx:get_raw_config(?LISTENERS),
+    RawCorrectConf1 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"access_rules">>], Raw, ["allow all"]
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, RawCorrectConf1)),
+    RawCorrectConf2 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"access_rules">>], Raw, ["deny all"]
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, RawCorrectConf2)),
+    RawCorrectConf3 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"access_rules">>], Raw, ["allow 10.0.1.0/24"]
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, RawCorrectConf3)),
+    RawIncorrectConf1 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"access_rules">>], Raw, ["xxx all"]
+    ),
+    ?assertMatch(
+        {error, #{
+            reason := <<"invalid_rule(s): xxx all">>,
+            value := ["xxx all"],
+            path := "listeners.tcp.default.access_rules",
+            kind := validation_error,
+            matched_type := "emqx:mqtt_tcp_listener"
+        }},
+        emqx:update_config(?LISTENERS, RawIncorrectConf1)
+    ),
+    RawIncorrectConf2 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"access_rules">>], Raw, ["allow xxx"]
+    ),
+    ?assertMatch(
+        {error, #{
+            reason := <<"invalid_rule(s): allow xxx">>,
+            value := ["allow xxx"],
+            path := "listeners.tcp.default.access_rules",
+            kind := validation_error,
+            matched_type := "emqx:mqtt_tcp_listener"
+        }},
+        emqx:update_config(?LISTENERS, RawIncorrectConf2)
+    ),
+    ok.
+
+t_update_conf_access_rules_split(_Conf) ->
+    Raw = emqx:get_raw_config(?LISTENERS),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"access_rules">>],
+        Raw,
+        ["  allow all , deny all  , allow 10.0.1.0/24   "]
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw1)),
+    ?assertMatch(
+        #{
+            tcp := #{
+                default := #{
+                    access_rules := ["allow all", "deny all", "allow 10.0.1.0/24"]
+                }
+            }
+        },
+        emqx:get_config(?LISTENERS)
+    ),
+    ok.
+
 t_update_tcp_keepalive_conf(_Conf) ->
     Keepalive = <<"240,30,5">>,
     KeepaliveStr = binary_to_list(Keepalive),
