@@ -47,7 +47,7 @@ init([]) ->
         router_syncer_pool,
         hash,
         PoolSize,
-        {emqx_router_syncer, start_link, []}
+        {emqx_router_syncer, start_link_pooled, []}
     ]),
 
     %% Shared subscription
