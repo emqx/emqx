@@ -47,6 +47,7 @@
     retained_count/0,
     backend_module/0,
     backend_module/1,
+    backend_state/1,
     enabled/0
 ]).
 
@@ -103,6 +104,7 @@
 -callback page_read(backend_state(), emqx_maybe:t(topic()), non_neg_integer(), non_neg_integer()) ->
     {ok, has_next(), list(message())}.
 -callback match_messages(backend_state(), topic(), cursor()) -> {ok, list(message()), cursor()}.
+-callback delete_cursor(backend_state(), cursor()) -> ok.
 -callback clear_expired(backend_state()) -> ok.
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
@@ -339,7 +341,7 @@ count(Context) ->
 clear_expired(Context) ->
     Mod = backend_module(Context),
     BackendState = backend_state(Context),
-    Mod:clear_expired(BackendState).
+    ok = Mod:clear_expired(BackendState).
 
 -spec store_retained(context(), message()) -> ok.
 store_retained(Context, #message{topic = Topic, payload = Payload} = Msg) ->

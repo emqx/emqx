@@ -25,13 +25,15 @@
 ]).
 
 -record(delivery, {
-    name :: _Name,
+    id :: id(),
     callback_module :: module(),
     container :: emqx_connector_aggreg_csv:container(),
     reader :: emqx_connector_aggreg_buffer:reader(),
     transfer :: transfer_state(),
     empty :: boolean()
 }).
+
+-type id() :: term().
 
 -type state() :: #delivery{}.
 
@@ -59,22 +61,22 @@
 
 %%
 
-start_link(Name, Buffer, Opts) ->
-    proc_lib:start_link(?MODULE, init, [self(), Name, Buffer, Opts]).
+start_link(Id, Buffer, Opts) ->
+    proc_lib:start_link(?MODULE, init, [self(), Id, Buffer, Opts]).
 
 %%
 
--spec init(pid(), _Name, buffer(), init_opts()) -> no_return().
-init(Parent, Name, Buffer, Opts) ->
-    ?tp(connector_aggreg_delivery_started, #{action => Name, buffer => Buffer}),
+-spec init(pid(), id(), buffer(), init_opts()) -> no_return().
+init(Parent, Id, Buffer, Opts) ->
+    ?tp(connector_aggreg_delivery_started, #{action => Id, buffer => Buffer}),
     Reader = open_buffer(Buffer),
-    Delivery = init_delivery(Name, Reader, Buffer, Opts#{action => Name}),
+    Delivery = init_delivery(Id, Reader, Buffer, Opts#{action => Id}),
     _ = erlang:process_flag(trap_exit, true),
     ok = proc_lib:init_ack({ok, self()}),
     loop(Delivery, Parent, []).
 
 init_delivery(
-    Name,
+    Id,
     Reader,
     Buffer,
     Opts = #{
@@ -84,7 +86,7 @@ init_delivery(
 ) ->
     BufferMap = emqx_connector_aggregator:buffer_to_map(Buffer),
     #delivery{
-        name = Name,
+        id = Id,
         callback_module = Mod,
         container = mk_container(ContainerOpts),
         reader = Reader,
@@ -158,16 +160,16 @@ process_write(Delivery = #delivery{callback_module = Mod, transfer = Transfer0})
             error({transfer_failed, Reason})
     end.
 
-process_complete(#delivery{name = Name, empty = true}) ->
-    ?tp(connector_aggreg_delivery_completed, #{action => Name, transfer => empty}),
+process_complete(#delivery{id = Id, empty = true}) ->
+    ?tp(connector_aggreg_delivery_completed, #{action => Id, transfer => empty}),
     exit({shutdown, {skipped, empty}});
 process_complete(#delivery{
-    name = Name, callback_module = Mod, container = Container, transfer = Transfer0
+    id = Id, callback_module = Mod, container = Container, transfer = Transfer0
 }) ->
     Trailer = emqx_connector_aggreg_csv:close(Container),
     Transfer = Mod:process_append(Trailer, Transfer0),
     {ok, Completed} = Mod:process_complete(Transfer),
-    ?tp(connector_aggreg_delivery_completed, #{action => Name, transfer => Completed}),
+    ?tp(connector_aggreg_delivery_completed, #{action => Id, transfer => Completed}),
     ok.
 
 %%
