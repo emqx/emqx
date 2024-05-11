@@ -1022,10 +1022,7 @@ for_plugin(#{name_vsn := NameVsn, enable := true}, Fun) ->
         {error, Reason} -> [{NameVsn, Reason}]
     end;
 for_plugin(#{name_vsn := NameVsn, enable := false}, _Fun) ->
-    ?SLOG(debug, #{
-        msg => "plugin_disabled",
-        name_vsn => NameVsn
-    }),
+    ?SLOG(debug, #{msg => "plugin_disabled", name_vsn => NameVsn}),
     [].
 
 maybe_post_op_after_install(NameVsn) ->
@@ -1072,7 +1069,7 @@ backup_and_write_avro_bin(NameVsn, AvroBin) ->
             backup_and_replace(Path, TmpFile);
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "failed_to_save_conf_file",
+                msg => "failed_to_save_plugin_conf_file",
                 hint =>
                     "The updated cluster config is not saved on this node, please check the file system.",
                 filename => TmpFile,
@@ -1093,7 +1090,7 @@ backup_and_replace(Path, TmpPath) ->
             ok = file:rename(TmpPath, Path);
         {error, Reason} ->
             ?SLOG(warning, #{
-                msg => "failed_to_backup_conf_file",
+                msg => "failed_to_backup_plugin_conf_file",
                 filename => Backup,
                 reason => Reason
             }),
