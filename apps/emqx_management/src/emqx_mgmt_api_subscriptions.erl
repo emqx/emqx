@@ -443,13 +443,13 @@ maybe_fetch_from_second_query(Params) ->
     } = Params,
     NumRows1 = length(Data1),
     {Data, HN} =
-        case NumRows1 >= Limit of
+        case (NumRows1 >= Limit) orelse HN1 of
             true ->
                 {Data1, HN1 orelse C2 > 0};
             false ->
                 #{data := Data2, meta := #{hasnext := HN2}} =
                     Q2(QString0#{<<"limit">> := Limit - NumRows1}),
-                {Data1 ++ Data2, HN1 or HN2}
+                {Data1 ++ Data2, HN2}
         end,
     #{
         data => Data,
