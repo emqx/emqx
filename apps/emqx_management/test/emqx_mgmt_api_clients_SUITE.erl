@@ -581,13 +581,32 @@ t_persistent_sessions6(Config) ->
             %% Wait for session to be considered expired but not GC'ed
             ct:sleep(2_000),
             assert_single_client(O#{node => N1, clientid => ClientId, status => disconnected}),
+            N1Bin = atom_to_binary(N1),
             ?retry(
                 100,
                 20,
                 ?assertMatch(
-                    {ok, {{_, 200, _}, _, #{<<"data">> := [#{<<"is_expired">> := true}]}}},
+                    {ok,
+                        {{_, 200, _}, _, #{
+                            <<"data">> := [
+                                #{
+                                    <<"is_expired">> := true,
+                                    <<"node">> := N1Bin,
+                                    <<"disconnected_at">> := <<_/binary>>
+                                }
+                            ]
+                        }}},
                     list_request(APIPort)
                 )
+            ),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"is_expired">> := true,
+                        <<"node">> := N1Bin,
+                        <<"disconnected_at">> := <<_/binary>>
+                    }}},
+                get_client_request(APIPort, ClientId)
             ),
 
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
