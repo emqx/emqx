@@ -28,7 +28,8 @@
     parse_str/1,
     parse_str/2,
     parse_sql/2,
-    render_deep/2,
+    render_deep_for_json/2,
+    render_deep_for_url/2,
     render_str/2,
     render_urlencoded_str/2,
     render_sql_params/2,
@@ -166,13 +167,23 @@ prerender_disallowed_placeholders(Template) ->
     }),
     Result.
 
-render_deep(Template, Credential) ->
+render_deep_for_json(Template, Credential) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
     {Term, _Errors} = emqx_template:render(
         Template,
         mapping_credential(Credential),
-        #{var_trans => fun to_string/2}
+        #{var_trans => fun to_string_for_json/2}
+    ),
+    Term.
+
+render_deep_for_url(Template, Credential) ->
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {Term, _Errors} = emqx_template:render(
+        Template,
+        mapping_credential(Credential),
+        #{var_trans => fun to_string_for_urlencode/2}
     ),
     Term.
 
@@ -202,7 +213,7 @@ render_sql_params(ParamList, Credential) ->
     {Row, _Errors} = emqx_template:render(
         ParamList,
         mapping_credential(Credential),
-        #{var_trans => fun to_sql_valaue/2}
+        #{var_trans => fun to_sql_value/2}
     ),
     Row.
 
@@ -328,12 +339,43 @@ without_password(Credential, [Name | Rest]) ->
     end.
 
 to_urlencoded_string(Name, Value) ->
-    emqx_http_lib:uri_encode(to_string(Name, Value)).
+    <<"q=", EncodedValue/binary>> = uri_string:compose_query([{<<"q">>, to_string(Name, Value)}]),
+    EncodedValue.
 
 to_string(Name, Value) ->
     emqx_template:to_string(render_var(Name, Value)).
 
-to_sql_valaue(Name, Value) ->
+%% Any data may be urlencoded, so we allow non-unicode binaries here.
+
+to_string_for_urlencode(Name, Value) ->
+    to_string_for_urlencode(render_var(Name, Value)).
+
+to_string_for_urlencode(Value) when is_binary(Value) ->
+    Value;
+to_string_for_urlencode(Value) when is_list(Value) ->
+    unicode:characters_to_binary(Value);
+to_string_for_urlencode(Value) ->
+    emqx_template:to_string(Value).
+
+%% JSON strings are sequences of unicode characters, not bytes.
+%% So we force all rendered data to be unicode.
+
+to_string_for_json(Name, Value) ->
+    to_unicode_string(Name, render_var(Name, Value)).
+
+to_unicode_string(Name, Value) when is_list(Value) orelse is_binary(Value) ->
+    try unicode:characters_to_binary(Value) of
+        Encoded when is_binary(Encoded) ->
+            Encoded;
+        _ ->
+            error({encode_error, {non_unicode_data, Name}})
+    catch error:badarg ->
+        error({encode_error, {non_unicode_data, Name}})
+    end;
+to_unicode_string(_Name, Value) ->
+    emqx_template:to_string(Value).
+
+to_sql_value(Name, Value) ->
     emqx_utils_sql:to_sql_value(render_var(Name, Value)).
 
 render_var(_, undefined) ->
@@ -343,6 +385,8 @@ render_var(_, undefined) ->
     <<>>;
 render_var(?VAR_PEERHOST, Value) ->
     inet:ntoa(Value);
+render_var(?VAR_PASSWORD, Value) ->
+    iolist_to_binary(Value);
 render_var(_Name, Value) ->
     Value.
 

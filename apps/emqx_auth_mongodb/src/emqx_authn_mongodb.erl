@@ -68,7 +68,7 @@ authenticate(
         resource_id := ResourceId
     } = State
 ) ->
-    Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
+    Filter = emqx_authn_utils:render_deep_for_json(FilterTemplate, Credential),
     case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter, #{}}) of
         {ok, undefined} ->
             ignore;
