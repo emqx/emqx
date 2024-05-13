@@ -181,6 +181,13 @@ t_rebalance(Config) ->
                 %% Now join the rest of the sites:
                 {N2, assign_db_sites, Sites}
             ],
+            Stream1 = emqx_utils_stream:interleave(
+                [
+                    {50, Stream0},
+                    emqx_utils_stream:const(add_generation)
+                ],
+                false
+            ),
             Stream = emqx_utils_stream:interleave(
                 [
                     {50, Stream0},
