@@ -225,13 +225,13 @@
     [{emqx_ds:time(), emqx_types:message()}, ...],
     emqx_ds:message_store_opts()
 ) ->
-    {ok, term()} | {error, _}.
+    {ok, term()} | emqx_ds:error(_).
 
 -callback commit_batch(
     shard_id(),
     _Data,
     _CookedBatch
-) -> ok.
+) -> ok | emqx_ds:error(_).
 
 -callback get_streams(shard_id(), _Data, emqx_ds:topic_filter(), emqx_ds:time()) ->
     [_Stream].
@@ -288,7 +288,7 @@ store_batch(Shard, Messages, Options) ->
             commit_batch(Shard, CookedBatch);
         ignore ->
             ok;
-        Error = {error, _} ->
+        Error = {error, _, _} ->
             Error
     end.
 
@@ -296,7 +296,7 @@ store_batch(Shard, Messages, Options) ->
     shard_id(),
     [{emqx_ds:time(), emqx_types:message()}],
     emqx_ds:message_store_opts()
-) -> {ok, cooked_batch()} | ignore | {error, _}.
+) -> {ok, cooked_batch()} | ignore | emqx_ds:error(_).
 prepare_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
     %% NOTE
     %% We assume that batches do not span generations. Callers should enforce this.
@@ -309,7 +309,7 @@ prepare_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
         case Mod:prepare_batch(Shard, GenData, Messages, Options) of
             {ok, CookedBatch} ->
                 {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
-            Error = {error, _} ->
+            Error = {error, _, _} ->
                 Error
         end,
     T1 = erlang:monotonic_time(microsecond),
@@ -319,7 +319,7 @@ prepare_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
 prepare_batch(_Shard, [], _Options) ->
     ignore.
 
--spec commit_batch(shard_id(), cooked_batch()) -> ok.
+-spec commit_batch(shard_id(), cooked_batch()) -> emqx_ds:store_batch_result().
 commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
     T0 = erlang:monotonic_time(microsecond),

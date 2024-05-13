@@ -275,7 +275,7 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
 -spec prepare_batch(
     emqx_ds_storage_layer:shard_id(),
     s(),
-    [{emqx_ds:time(), emqx_types:message()}],
+    [{emqx_ds:time(), emqx_types:message()}, ...],
     emqx_ds:message_store_opts()
 ) ->
     {ok, cooked_batch()}.
@@ -301,7 +301,7 @@ prepare_batch(_ShardId, S, Messages, _Options) ->
     emqx_ds_storage_layer:shard_id(),
     s(),
     cooked_batch()
-) -> ok.
+) -> ok | emqx_ds:error(_).
 commit_batch(
     _ShardId,
     _Data,

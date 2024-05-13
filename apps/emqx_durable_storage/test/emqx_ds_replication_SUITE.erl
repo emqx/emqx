@@ -42,7 +42,7 @@ opts(Overrides) ->
             n_sites => 1,
             replication_factor => 3,
             replication_options => #{
-                wal_max_size_bytes => 64 * 1024,
+                wal_max_size_bytes => 64,
                 wal_max_batch_size => 1024,
                 snapshot_interval => 128
             }

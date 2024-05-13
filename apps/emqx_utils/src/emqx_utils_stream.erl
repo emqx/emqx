@@ -164,6 +164,10 @@ repeat(S) ->
 %% specifies size of the "batch" to be consumed from the stream at a
 %% time (stream is the second tuple element). If element of the list
 %% is a plain stream, then the batch size is assumed to be 1.
+%%
+%% If `ContinueAtEmpty' is `false', and one of the streams returns
+%% `[]', then the function will return `[]' as well. Otherwise, it
+%% will continue consuming data from the remaining streams.
 -spec interleave([stream(X) | {non_neg_integer(), stream(X)}], boolean()) -> stream(X).
 interleave(L0, ContinueAtEmpty) ->
     L = lists:map(

@@ -165,6 +165,14 @@ interleave_test() ->
         emqx_utils_stream:consume(emqx_utils_stream:interleave([{2, S1}, {2, S2}], true))
     ).
 
+interleave_stop_test() ->
+    S1 = emqx_utils_stream:const(1),
+    S2 = emqx_utils_stream:list([a, b, c, d]),
+    ?assertEqual(
+        [1, 1, a, b, 1, 1, c, d, 1, 1],
+        emqx_utils_stream:consume(emqx_utils_stream:interleave([{2, S1}, {2, S2}], false))
+    ).
+
 csv_test() ->
     Data1 = <<"h1,h2,h3\r\nvv1,vv2,vv3\r\nvv4,vv5,vv6">>,
     ?assertEqual(

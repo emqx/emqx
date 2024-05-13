@@ -87,11 +87,12 @@ topic_messages(TestCase, ClientId) ->
 
 topic_messages(TestCase, ClientId, N) ->
     fun() ->
+        NBin = integer_to_binary(N),
         Msg = #message{
             from = ClientId,
             topic = client_topic(TestCase, ClientId),
             timestamp = N * 100,
-            payload = integer_to_binary(N)
+            payload = <<NBin/binary, "                                                       ">>
         },
         [Msg | topic_messages(TestCase, ClientId, N + 1)]
     end.

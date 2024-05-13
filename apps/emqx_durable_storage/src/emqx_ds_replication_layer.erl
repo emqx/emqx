@@ -158,7 +158,7 @@
 
 %% Command. Each command is an entry in the replication log.
 -type ra_command() :: #{
-    ?tag := ?BATCH | add_generation | update_config | drop_generation,
+    ?tag := ?BATCH | add_generation | update_config | drop_generation | storage_event,
     _ => _
 }.
 
@@ -752,7 +752,7 @@ apply(
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
     %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
-    {Timestamp, _} = assign_timestamp(timestamp_to_timeus(TimeMs), Latest),
+    {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
     ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, ts => Timestamp}),
     handle_custom_event(DBShard, Timestamp, tick).
 
@@ -794,7 +794,7 @@ handle_custom_event(DBShard, Latest, Event) ->
         [{append, #{?tag => storage_event, ?payload => I, ?now => Latest}} || I <- Events]
     catch
         EC:Err:Stacktrace ->
-            ?tp(error, ds_storage_custom_even_fail, #{
+            ?tp(error, ds_storage_custom_event_fail, #{
                 EC => Err, stacktrace => Stacktrace, event => Event
             }),
             []
