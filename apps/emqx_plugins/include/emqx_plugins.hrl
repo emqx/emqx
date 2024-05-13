@@ -25,7 +25,7 @@
 -define(CONFIG_FORMAT_MAP, config_format_map).
 
 -type schema_name() :: binary().
--type avsc() :: binary().
+-type avsc_path() :: string().
 
 -type encoded_data() :: iodata().
 -type decoded_data() :: map().

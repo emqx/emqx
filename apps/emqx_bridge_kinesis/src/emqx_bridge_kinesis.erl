@@ -166,7 +166,7 @@ fields(producer) ->
             )},
         {partition_key,
             sc(
-                binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC("partition_key")

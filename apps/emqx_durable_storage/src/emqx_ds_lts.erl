@@ -19,7 +19,9 @@
 %% API:
 -export([
     trie_create/1, trie_create/0,
+    destroy/1,
     trie_restore/2,
+    trie_update/2,
     trie_copy_learned_paths/2,
     topic_key/3,
     match_topics/2,
@@ -116,10 +118,20 @@ trie_create(UserOpts) ->
 trie_create() ->
     trie_create(#{}).
 
+-spec destroy(trie()) -> ok.
+destroy(#trie{trie = Trie, stats = Stats}) ->
+    catch ets:delete(Trie),
+    catch ets:delete(Stats),
+    ok.
+
 %% @doc Restore trie from a dump
 -spec trie_restore(options(), [{_Key, _Val}]) -> trie().
 trie_restore(Options, Dump) ->
-    Trie = trie_create(Options),
+    trie_update(trie_create(Options), Dump).
+
+%% @doc Update a trie with a dump of operations (used for replication)
+-spec trie_update(trie(), [{_Key, _Val}]) -> trie().
+trie_update(Trie, Dump) ->
     lists:foreach(
         fun({{StateFrom, Token}, StateTo}) ->
             trie_insert(Trie, StateFrom, Token, StateTo)

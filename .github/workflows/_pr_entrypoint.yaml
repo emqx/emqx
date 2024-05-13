@@ -14,9 +14,6 @@ on:
 env:
   IS_CI: "yes"
 
-permissions:
-  contents: read
-
 jobs:
   sanity-checks:
     runs-on: ubuntu-22.04
@@ -31,6 +28,9 @@ jobs:
       builder_vsn: "5.3-5"
       otp_vsn: "26.2.1-2"
       elixir_vsn: "1.15.7"
+
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
@@ -126,6 +126,9 @@ jobs:
         profile:
           - emqx
           - emqx-enterprise
+
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2

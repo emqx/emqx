@@ -142,14 +142,14 @@ jobs:
 
       - name: Login to hub.docker.com
         uses: docker/login-action@e92390c5fb421da1463c202d546fed0ec5c39f20 # v3.1.0
-        if: inputs.publish || github.repository_owner != 'emqx'
+        if: inputs.publish && contains(matrix.profile[1], 'docker.io')
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Login to AWS ECR
         uses: docker/login-action@e92390c5fb421da1463c202d546fed0ec5c39f20 # v3.1.0
-        if: inputs.publish || github.repository_owner != 'emqx'
+        if: inputs.publish && contains(matrix.profile[1], 'public.ecr.aws')
         with:
           registry: public.ecr.aws
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}

@@ -13,8 +13,8 @@ permissions:
 
 jobs:
   stale:
-    if: github.repository_owner == 'emqx'
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    if: github.repository == 'emqx/emqx'
+    runs-on: ubuntu-22.04
     permissions:
       issues: write
       pull-requests: none

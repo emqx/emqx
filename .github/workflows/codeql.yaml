@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   analyze:
+    if: github.repository == 'emqx/emqx'
     name: Analyze
     runs-on: ubuntu-22.04
     timeout-minutes: 360

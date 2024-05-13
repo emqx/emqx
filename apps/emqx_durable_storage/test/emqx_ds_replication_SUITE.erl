@@ -21,9 +21,13 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(DB, testdb).
+
+-define(ON(NODE, BODY),
+    erpc:call(NODE, erlang, apply, [fun() -> BODY end, []])
+).
 
 opts() ->
     opts(#{}).
@@ -32,12 +36,13 @@ opts(Overrides) ->
     maps:merge(
         #{
             backend => builtin,
-            storage => {emqx_ds_storage_bitfield_lts, #{}},
+            %% storage => {emqx_ds_storage_reference, #{}},
+            storage => {emqx_ds_storage_bitfield_lts, #{epoch_bits => 10}},
             n_shards => 16,
             n_sites => 1,
             replication_factor => 3,
             replication_options => #{
-                wal_max_size_bytes => 64 * 1024,
+                wal_max_size_bytes => 64,
                 wal_max_batch_size => 1024,
                 snapshot_interval => 128
             }
@@ -67,64 +72,61 @@ t_replication_transfers_snapshots('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
 t_replication_transfers_snapshots(Config) ->
-    NMsgs = 4000,
+    NMsgs = 400,
+    NClients = 5,
+    {Stream, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
+        ?FUNCTION_NAME, NClients, NMsgs
+    ),
+
     Nodes = [Node, NodeOffline | _] = ?config(nodes, Config),
     _Specs = [_, SpecOffline | _] = ?config(specs, Config),
+    ?check_trace(
+        begin
+            %% Initialize DB on all nodes and wait for it to be online.
+            Opts = opts(#{n_shards => 1, n_sites => 3}),
+            ?assertEqual(
+                [{ok, ok} || _ <- Nodes],
+                erpc:multicall(Nodes, emqx_ds, open_db, [?DB, Opts])
+            ),
+            ?retry(
+                500,
+                10,
+                ?assertMatch([[_], [_], [_]], [shards_online(N, ?DB) || N <- Nodes])
+            ),
 
-    %% Initialize DB on all nodes and wait for it to be online.
-    Opts = opts(#{n_shards => 1, n_sites => 3}),
-    ?assertEqual(
-        [{ok, ok} || _ <- Nodes],
-        erpc:multicall(Nodes, emqx_ds, open_db, [?DB, Opts])
-    ),
-    ?retry(
-        500,
-        10,
-        ?assertMatch([[_], [_], [_]], [shards_online(N, ?DB) || N <- Nodes])
-    ),
+            %% Stop the DB on the "offline" node.
+            ok = emqx_cth_cluster:stop_node(NodeOffline),
 
-    %% Stop the DB on the "offline" node.
-    ok = emqx_cth_cluster:stop_node(NodeOffline),
+            %% Fill the storage with messages and few additional generations.
+            emqx_ds_test_helpers:apply_stream(?DB, Nodes -- [NodeOffline], Stream),
 
-    %% Fill the storage with messages and few additional generations.
-    Messages = fill_storage(Node, ?DB, NMsgs, #{p_addgen => 0.01}),
+            %% Restart the node.
+            [NodeOffline] = emqx_cth_cluster:restart(SpecOffline),
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{
+                    ?snk_kind := dsrepl_snapshot_accepted,
+                    ?snk_meta := #{node := NodeOffline}
+                })
+            ),
+            ?assertEqual(
+                ok,
+                erpc:call(NodeOffline, emqx_ds, open_db, [?DB, opts()])
+            ),
 
-    %% Restart the node.
-    [NodeOffline] = emqx_cth_cluster:restart(SpecOffline),
-    {ok, SRef} = snabbkaffe:subscribe(
-        ?match_event(#{
-            ?snk_kind := dsrepl_snapshot_accepted,
-            ?snk_meta := #{node := NodeOffline}
-        })
-    ),
-    ?assertEqual(
-        ok,
-        erpc:call(NodeOffline, emqx_ds, open_db, [?DB, opts()])
-    ),
+            %% Trigger storage operation and wait the replica to be restored.
+            _ = add_generation(Node, ?DB),
+            ?assertMatch(
+                {ok, _},
+                snabbkaffe:receive_events(SRef)
+            ),
 
-    %% Trigger storage operation and wait the replica to be restored.
-    _ = add_generation(Node, ?DB),
-    ?assertMatch(
-        {ok, _},
-        snabbkaffe:receive_events(SRef)
-    ),
+            %% Wait until any pending replication activities are finished (e.g. Raft log entries).
+            ok = timer:sleep(3_000),
 
-    %% Wait until any pending replication activities are finished (e.g. Raft log entries).
-    ok = timer:sleep(3_000),
-
-    %% Check that the DB has been restored.
-    Shard = hd(shards(NodeOffline, ?DB)),
-    MessagesOffline = lists:keysort(
-        #message.timestamp,
-        consume_shard(NodeOffline, ?DB, Shard, ['#'], 0)
-    ),
-    ?assertEqual(
-        sample(40, Messages),
-        sample(40, MessagesOffline)
-    ),
-    ?assertEqual(
-        Messages,
-        MessagesOffline
+            %% Check that the DB has been restored:
+            emqx_ds_test_helpers:verify_stream_effects(?DB, ?FUNCTION_NAME, Nodes, TopicStreams)
+        end,
+        []
     ).
 
 t_rebalance(init, Config) ->
@@ -142,112 +144,120 @@ t_rebalance(init, Config) ->
 t_rebalance('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
+%% This testcase verifies that the storage rebalancing works correctly:
+%% 1. Join/leave operations are applied successfully.
+%% 2. Message data survives the rebalancing.
+%% 3. Shard cluster membership converges to the target replica allocation.
+%% 4. Replication factor is respected.
 t_rebalance(Config) ->
-    %% This testcase verifies that the storage rebalancing works correctly:
-    %% 1. Join/leave operations are applied successfully.
-    %% 2. Message data survives the rebalancing.
-    %% 3. Shard cluster membership converges to the target replica allocation.
-    %% 4. Replication factor is respected.
-
-    NMsgs = 800,
+    NMsgs = 50,
     NClients = 5,
-    Nodes = [N1, N2, N3, N4] = ?config(nodes, Config),
-
-    %% Initialize DB on the first node.
-    Opts = opts(#{n_shards => 16, n_sites => 1, replication_factor => 3}),
-    ?assertEqual(ok, erpc:call(N1, emqx_ds, open_db, [?DB, Opts])),
-    ?assertMatch(
-        Shards when length(Shards) == 16,
-        shards_online(N1, ?DB)
+    {Stream0, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
+        ?FUNCTION_NAME, NClients, NMsgs
     ),
+    Nodes = [N1, N2 | _] = ?config(nodes, Config),
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% 1. Initialize DB on the first node.
+            Opts = opts(#{n_shards => 16, n_sites => 1, replication_factor => 3}),
+            ?assertEqual(ok, ?ON(N1, emqx_ds:open_db(?DB, Opts))),
+            ?assertMatch(Shards when length(Shards) == 16, shards_online(N1, ?DB)),
 
-    %% Open DB on the rest of the nodes.
-    ?assertEqual(
-        [{ok, ok} || _ <- [N2, N3, N4]],
-        erpc:multicall([N2, N3, N4], emqx_ds, open_db, [?DB, Opts])
-    ),
+            %% 1.1 Open DB on the rest of the nodes:
+            [
+                ?assertEqual(ok, ?ON(Node, emqx_ds:open_db(?DB, Opts)))
+             || Node <- Nodes
+            ],
 
-    Sites = [S1, S2 | _Rest] = [ds_repl_meta(N, this_site) || N <- Nodes],
-    ct:pal("Sites: ~p~n", [Sites]),
+            Sites = [S1, S2 | _] = [ds_repl_meta(N, this_site) || N <- Nodes],
+            ct:pal("Sites: ~p~n", [Sites]),
 
-    %% Only N1 should be responsible for all shards initially.
-    ?assertEqual(
-        [[S1] || _ <- Nodes],
-        [ds_repl_meta(N, db_sites, [?DB]) || N <- Nodes]
-    ),
+            Sequence = [
+                %% Join the second site to the DB replication sites:
+                {N1, join_db_site, S2},
+                %% Should be a no-op:
+                {N2, join_db_site, S2},
+                %% Now join the rest of the sites:
+                {N2, assign_db_sites, Sites}
+            ],
+            Stream1 = emqx_utils_stream:interleave(
+                [
+                    {50, Stream0},
+                    emqx_utils_stream:const(add_generation)
+                ],
+                false
+            ),
+            Stream = emqx_utils_stream:interleave(
+                [
+                    {50, Stream0},
+                    emqx_utils_stream:list(Sequence)
+                ],
+                true
+            ),
 
-    %% Fill the storage with messages and few additional generations.
-    %% This will force shards to trigger snapshot transfers during rebalance.
-    ClientMessages = emqx_utils:pmap(
-        fun(CID) ->
-            N = lists:nth(1 + (CID rem length(Nodes)), Nodes),
-            fill_storage(N, ?DB, NMsgs, #{client_id => integer_to_binary(CID)})
+            %% 1.2 Verify that all nodes have the same view of metadata storage:
+            [
+                ?defer_assert(
+                    ?assertEqual(
+                        [S1],
+                        ?ON(Node, emqx_ds_replication_layer_meta:db_sites(?DB)),
+                        #{
+                            msg => "Initially, only S1 should be responsible for all shards",
+                            node => Node
+                        }
+                    )
+                )
+             || Node <- Nodes
+            ],
+
+            %% 2. Start filling the storage:
+            emqx_ds_test_helpers:apply_stream(?DB, Nodes, Stream),
+            timer:sleep(5000),
+            emqx_ds_test_helpers:verify_stream_effects(?DB, ?FUNCTION_NAME, Nodes, TopicStreams),
+            [
+                ?defer_assert(
+                    ?assertEqual(
+                        16 * 3 div length(Nodes),
+                        n_shards_online(Node, ?DB),
+                        "Each node is now responsible for 3/4 of the shards"
+                    )
+                )
+             || Node <- Nodes
+            ],
+
+            %% Verify that the set of shard servers matches the target allocation.
+            Allocation = [ds_repl_meta(N, my_shards, [?DB]) || N <- Nodes],
+            ShardServers = [
+                shard_server_info(N, ?DB, Shard, Site, readiness)
+             || {N, Site, Shards} <- lists:zip3(Nodes, Sites, Allocation),
+                Shard <- Shards
+            ],
+            ?assert(
+                lists:all(fun({_Server, Status}) -> Status == ready end, ShardServers),
+                ShardServers
+            ),
+
+            %% Scale down the cluster by removing the first node.
+            ?assertEqual(ok, ds_repl_meta(N1, leave_db_site, [?DB, S1])),
+            ct:pal("Transitions (~p -> ~p): ~p~n", [
+                Sites, tl(Sites), emqx_ds_test_helpers:transitions(N1, ?DB)
+            ]),
+            ?retry(1000, 10, ?assertEqual([], emqx_ds_test_helpers:transitions(N2, ?DB))),
+
+            %% Verify that at the end each node is now responsible for each shard.
+            ?defer_assert(
+                ?assertEqual(
+                    [0, 16, 16, 16],
+                    [n_shards_online(N, ?DB) || N <- Nodes]
+                )
+            ),
+
+            %% Verify that the messages are once again preserved after the rebalance:
+            emqx_ds_test_helpers:verify_stream_effects(?DB, ?FUNCTION_NAME, Nodes, TopicStreams)
         end,
-        lists:seq(1, NClients),
-        infinity
-    ),
-    Messages1 = lists:sort(fun compare_message/2, lists:append(ClientMessages)),
-
-    %% Join the second site to the DB replication sites.
-    ?assertEqual(ok, ds_repl_meta(N1, join_db_site, [?DB, S2])),
-    %% Should be no-op.
-    ?assertEqual(ok, ds_repl_meta(N2, join_db_site, [?DB, S2])),
-    ct:pal("Transitions (~p -> ~p): ~p~n", [[S1], [S1, S2], transitions(N1, ?DB)]),
-
-    %% Fill in some more messages *during* the rebalance.
-    MessagesRB1 = fill_storage(N4, ?DB, NMsgs, #{client_id => <<"RB1">>}),
-
-    ?retry(1000, 10, ?assertEqual([], transitions(N1, ?DB))),
-
-    %% Now join the rest of the sites.
-    ?assertEqual(ok, ds_repl_meta(N2, assign_db_sites, [?DB, Sites])),
-    ct:pal("Transitions (~p -> ~p): ~p~n", [[S1, S2], Sites, transitions(N1, ?DB)]),
-
-    %% Fill in some more messages *during* the rebalance.
-    MessagesRB2 = fill_storage(N4, ?DB, NMsgs, #{client_id => <<"RB2">>}),
-
-    ?retry(1000, 10, ?assertEqual([], transitions(N2, ?DB))),
-
-    %% Verify that each node is now responsible for 3/4 of the shards.
-    ?assertEqual(
-        [(16 * 3) div length(Nodes) || _ <- Nodes],
-        [n_shards_online(N, ?DB) || N <- Nodes]
-    ),
-
-    %% Verify that the set of shard servers matches the target allocation.
-    Allocation = [ds_repl_meta(N, my_shards, [?DB]) || N <- Nodes],
-    ShardServers = [
-        shard_server_info(N, ?DB, Shard, Site, readiness)
-     || {N, Site, Shards} <- lists:zip3(Nodes, Sites, Allocation),
-        Shard <- Shards
-    ],
-    ?assert(
-        lists:all(fun({_Server, Status}) -> Status == ready end, ShardServers),
-        ShardServers
-    ),
-
-    %% Verify that the messages are preserved after the rebalance.
-    Messages = Messages1 ++ MessagesRB1 ++ MessagesRB2,
-    MessagesN4 = lists:sort(fun compare_message/2, consume(N4, ?DB, ['#'], 0)),
-    ?assertEqual(sample(20, Messages), sample(20, MessagesN4)),
-    ?assertEqual(Messages, MessagesN4),
-
-    %% Scale down the cluster by removing the first node.
-    ?assertEqual(ok, ds_repl_meta(N1, leave_db_site, [?DB, S1])),
-    ct:pal("Transitions (~p -> ~p): ~p~n", [Sites, tl(Sites), transitions(N1, ?DB)]),
-
-    ?retry(1000, 10, ?assertEqual([], transitions(N2, ?DB))),
-
-    %% Verify that each node is now responsible for each shard.
-    ?assertEqual(
-        [0, 16, 16, 16],
-        [n_shards_online(N, ?DB) || N <- Nodes]
-    ),
-
-    %% Verify that the messages are once again preserved after the rebalance.
-    MessagesN3 = lists:sort(fun compare_message/2, consume(N3, ?DB, ['#'], 0)),
-    ?assertEqual(sample(20, Messages), sample(20, MessagesN3)),
-    ?assertEqual(Messages, MessagesN3).
+        []
+    ).
 
 t_join_leave_errors(init, Config) ->
     Apps = [appspec(emqx_durable_storage)],
@@ -293,7 +303,7 @@ t_join_leave_errors(Config) ->
 
     %% Should be no-op.
     ?assertEqual(ok, ds_repl_meta(N1, join_db_site, [?DB, S1])),
-    ?assertEqual([], transitions(N1, ?DB)),
+    ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB)),
 
     %% Impossible to leave the last site.
     ?assertEqual(
@@ -304,12 +314,12 @@ t_join_leave_errors(Config) ->
     %% "Move" the DB to the other node.
     ?assertEqual(ok, ds_repl_meta(N1, join_db_site, [?DB, S2])),
     ?assertEqual(ok, ds_repl_meta(N2, leave_db_site, [?DB, S1])),
-    ?assertMatch([_ | _], transitions(N1, ?DB)),
-    ?retry(1000, 10, ?assertEqual([], transitions(N1, ?DB))),
+    ?assertMatch([_ | _], emqx_ds_test_helpers:transitions(N1, ?DB)),
+    ?retry(1000, 10, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
 
     %% Should be no-op.
     ?assertEqual(ok, ds_repl_meta(N2, leave_db_site, [?DB, S1])),
-    ?assertEqual([], transitions(N1, ?DB)).
+    ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB)).
 
 t_rebalance_chaotic_converges(init, Config) ->
     Apps = [appspec(emqx_durable_storage)],
@@ -333,78 +343,79 @@ t_rebalance_chaotic_converges(Config) ->
     NMsgs = 500,
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
 
-    %% Initialize DB on first two nodes.
-    Opts = opts(#{n_shards => 16, n_sites => 2, replication_factor => 3}),
-    ?assertEqual(
-        [{ok, ok}, {ok, ok}],
-        erpc:multicall([N1, N2], emqx_ds, open_db, [?DB, Opts])
+    NClients = 5,
+    {Stream0, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
+        ?FUNCTION_NAME, NClients, NMsgs
     ),
 
-    %% Open DB on the last node.
-    ?assertEqual(
-        ok,
-        erpc:call(N3, emqx_ds, open_db, [?DB, Opts])
-    ),
+    ?check_trace(
+        #{},
+        begin
+            %% Initialize DB on first two nodes.
+            Opts = opts(#{n_shards => 16, n_sites => 2, replication_factor => 3}),
 
-    %% Find out which sites there are.
-    Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
-    ct:pal("Sites: ~p~n", [Sites]),
+            ?assertEqual(
+                [{ok, ok}, {ok, ok}],
+                erpc:multicall([N1, N2], emqx_ds, open_db, [?DB, Opts])
+            ),
 
-    %% Initially, the DB is assigned to [S1, S2].
-    ?retry(500, 10, ?assertEqual([16, 16], [n_shards_online(N, ?DB) || N <- [N1, N2]])),
-    ?assertEqual(
-        lists:sort([S1, S2]),
-        ds_repl_meta(N1, db_sites, [?DB])
-    ),
+            %% Open DB on the last node.
+            ?assertEqual(
+                ok,
+                erpc:call(N3, emqx_ds, open_db, [?DB, Opts])
+            ),
 
-    %% Fill the storage with messages and few additional generations.
-    Messages0 = lists:append([
-        fill_storage(N1, ?DB, NMsgs, #{client_id => <<"C1">>}),
-        fill_storage(N2, ?DB, NMsgs, #{client_id => <<"C2">>}),
-        fill_storage(N3, ?DB, NMsgs, #{client_id => <<"C3">>})
-    ]),
+            %% Find out which sites there are.
+            Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
+            ct:pal("Sites: ~p~n", [Sites]),
 
-    %% Construct a chaotic transition sequence that changes assignment to [S2, S3].
-    Sequence = [
-        {N1, join_db_site, S3},
-        {N2, leave_db_site, S2},
-        {N3, leave_db_site, S1},
-        {N1, join_db_site, S2},
-        {N2, join_db_site, S1},
-        {N3, leave_db_site, S3},
-        {N1, leave_db_site, S1},
-        {N2, join_db_site, S3}
-    ],
+            Sequence = [
+                {N1, join_db_site, S3},
+                {N2, leave_db_site, S2},
+                {N3, leave_db_site, S1},
+                {N1, join_db_site, S2},
+                {N2, join_db_site, S1},
+                {N3, leave_db_site, S3},
+                {N1, leave_db_site, S1},
+                {N2, join_db_site, S3}
+            ],
 
-    %% Apply the sequence while also filling the storage with messages.
-    TransitionMessages = lists:map(
-        fun({N, Operation, Site}) ->
-            %% Apply the transition.
-            ?assertEqual(ok, ds_repl_meta(N, Operation, [?DB, Site])),
-            %% Give some time for at least one transition to complete.
-            Transitions = transitions(N, ?DB),
-            ct:pal("Transitions after ~p: ~p", [Operation, Transitions]),
-            ?retry(200, 10, ?assertNotEqual(Transitions, transitions(N, ?DB))),
-            %% Fill the storage with messages.
-            CID = integer_to_binary(erlang:system_time()),
-            fill_storage(N, ?DB, NMsgs, #{client_id => CID})
+            %% Interleaved list of events:
+            Stream = emqx_utils_stream:interleave(
+                [
+                    {50, Stream0},
+                    emqx_utils_stream:list(Sequence)
+                ],
+                true
+            ),
+
+            ?retry(500, 10, ?assertEqual([16, 16], [n_shards_online(N, ?DB) || N <- [N1, N2]])),
+            ?assertEqual(
+                lists:sort([S1, S2]),
+                ds_repl_meta(N1, db_sites, [?DB]),
+                "Initially, the DB is assigned to [S1, S2]"
+            ),
+
+            emqx_ds_test_helpers:apply_stream(?DB, Nodes, Stream),
+
+            %% Wait for the last transition to complete.
+            ?retry(500, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
+
+            ?defer_assert(
+                ?assertEqual(
+                    lists:sort([S2, S3]),
+                    ds_repl_meta(N1, db_sites, [?DB])
+                )
+            ),
+
+            %% Wait until the LTS timestamp is updated:
+            timer:sleep(5000),
+
+            %% Check that all messages are still there.
+            emqx_ds_test_helpers:verify_stream_effects(?DB, ?FUNCTION_NAME, Nodes, TopicStreams)
         end,
-        Sequence
-    ),
-
-    %% Wait for the last transition to complete.
-    ?retry(500, 20, ?assertEqual([], transitions(N1, ?DB))),
-
-    ?assertEqual(
-        lists:sort([S2, S3]),
-        ds_repl_meta(N1, db_sites, [?DB])
-    ),
-
-    %% Check that all messages are still there.
-    Messages = lists:append(TransitionMessages) ++ Messages0,
-    MessagesDB = lists:sort(fun compare_message/2, consume(N1, ?DB, ['#'], 0)),
-    ?assertEqual(sample(20, Messages), sample(20, MessagesDB)),
-    ?assertEqual(Messages, MessagesDB).
+        []
+    ).
 
 t_rebalance_offline_restarts(init, Config) ->
     Apps = [appspec(emqx_durable_storage)],
@@ -447,7 +458,7 @@ t_rebalance_offline_restarts(Config) ->
     %% Shut down N3 and then remove it from the DB.
     ok = emqx_cth_cluster:stop_node(N3),
     ?assertEqual(ok, ds_repl_meta(N1, leave_db_site, [?DB, S3])),
-    Transitions = transitions(N1, ?DB),
+    Transitions = emqx_ds_test_helpers:transitions(N1, ?DB),
     ct:pal("Transitions: ~p~n", [Transitions]),
 
     %% Wait until at least one transition completes.
@@ -462,7 +473,7 @@ t_rebalance_offline_restarts(Config) ->
     ),
 
     %% Target state should still be reached eventually.
-    ?retry(1000, 20, ?assertEqual([], transitions(N1, ?DB))),
+    ?retry(1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
     ?assertEqual(lists:sort([S1, S2]), ds_repl_meta(N1, db_sites, [?DB])).
 
 %%
@@ -478,14 +489,18 @@ ds_repl_meta(Node, Fun) ->
     ds_repl_meta(Node, Fun, []).
 
 ds_repl_meta(Node, Fun, Args) ->
-    erpc:call(Node, emqx_ds_replication_layer_meta, Fun, Args).
+    try
+        erpc:call(Node, emqx_ds_replication_layer_meta, Fun, Args)
+    catch
+        EC:Err:Stack ->
+            ct:pal("emqx_ds_replication_layer_meta:~p(~p) @~p failed:~n~p:~p~nStack: ~p", [
+                Fun, Args, Node, EC, Err, Stack
+            ]),
+            error(meta_op_failed)
+    end.
 
 ds_repl_shard(Node, Fun, Args) ->
     erpc:call(Node, emqx_ds_replication_layer_shard, Fun, Args).
-
-transitions(Node, DB) ->
-    Shards = shards(Node, DB),
-    [{S, T} || S <- Shards, T <- ds_repl_meta(Node, replica_set_transitions, [DB, S])].
 
 shards(Node, DB) ->
     erpc:call(Node, emqx_ds_replication_layer_meta, shards, [DB]).
@@ -495,25 +510,6 @@ shards_online(Node, DB) ->
 
 n_shards_online(Node, DB) ->
     length(shards_online(Node, DB)).
-
-fill_storage(Node, DB, NMsgs, Opts) ->
-    fill_storage(Node, DB, NMsgs, 0, Opts).
-
-fill_storage(Node, DB, NMsgs, I, Opts) when I < NMsgs ->
-    PAddGen = maps:get(p_addgen, Opts, 0.001),
-    R1 = push_message(Node, DB, I, Opts),
-    R2 = probably(PAddGen, fun() -> add_generation(Node, DB) end),
-    R1 ++ R2 ++ fill_storage(Node, DB, NMsgs, I + 1, Opts);
-fill_storage(_Node, _DB, NMsgs, NMsgs, _Opts) ->
-    [].
-
-push_message(Node, DB, I, Opts) ->
-    Topic = emqx_topic:join([<<"topic">>, <<"foo">>, integer_to_binary(I)]),
-    {Bytes, _} = rand:bytes_s(120, rand:seed_s(default, I)),
-    ClientId = maps:get(client_id, Opts, <<?MODULE_STRING>>),
-    Message = message(ClientId, Topic, Bytes, I * 100),
-    ok = erpc:call(Node, emqx_ds, store_batch, [DB, [Message], #{sync => true}]),
-    [Message].
 
 add_generation(Node, DB) ->
     ok = erpc:call(Node, emqx_ds, add_generation, [DB]),
@@ -545,9 +541,14 @@ probably(P, Fun) ->
 
 sample(N, List) ->
     L = length(List),
-    H = N div 2,
-    Filler = integer_to_list(L - N) ++ " more",
-    lists:sublist(List, H) ++ [Filler] ++ lists:sublist(List, L - H, L).
+    case L =< N of
+        true ->
+            L;
+        false ->
+            H = N div 2,
+            Filler = integer_to_list(L - N) ++ " more",
+            lists:sublist(List, H) ++ [Filler] ++ lists:sublist(List, L - H, L)
+    end.
 
 %%
 

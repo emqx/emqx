@@ -270,6 +270,7 @@ schema("/rules/:id/test") ->
             tags => [<<"rules">>],
             description => ?DESC("api11"),
             summary => <<"Apply a rule for testing">>,
+            parameters => param_path_id(),
             'requestBody' => rule_apply_test_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),

@@ -23,7 +23,7 @@
 -include_lib("stdlib/include/assert.hrl").
 
 opts() ->
-    #{storage => {emqx_ds_storage_bitfield_lts, #{}}}.
+    #{storage => {emqx_ds_storage_reference, #{}}}.
 
 %%
 
