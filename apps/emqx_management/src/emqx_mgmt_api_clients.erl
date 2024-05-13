@@ -135,7 +135,6 @@ schema("/clients_v2") ->
     #{
         'operationId' => list_clients_v2,
         get => #{
-            security => [],
             description => ?DESC(list_clients),
             tags => ?TAGS,
             parameters => fields(list_clients_v2_inputs),
