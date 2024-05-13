@@ -23,6 +23,8 @@
     const/1,
     mqueue/1,
     map/2,
+    filter/2,
+    foreach/2,
     transpose/1,
     chain/1,
     chain/2,
@@ -100,6 +102,33 @@ map(F, S) ->
             [] ->
                 []
         end
+    end.
+
+%% @doc Make a stream by filtering the underlying stream with a predicate function.
+filter(F, S) ->
+    FilterNext = fun FilterNext(St) ->
+        case emqx_utils_stream:next(St) of
+            [X | Rest] ->
+                case F(X) of
+                    true ->
+                        [X | filter(F, Rest)];
+                    false ->
+                        FilterNext(Rest)
+                end;
+            [] ->
+                []
+        end
+    end,
+    fun() -> FilterNext(S) end.
+
+%% @doc Consumes the stream and applies the given function to each element.
+foreach(F, S) ->
+    case emqx_utils_stream:next(S) of
+        [X | Rest] ->
+            F(X),
+            foreach(F, Rest);
+        [] ->
+            ok
     end.
 
 %% @doc Transpose a list of streams into a stream producing lists of their respective values.
@@ -243,7 +272,7 @@ consume(N, S, Acc) ->
 %% * `ets:match/1` / `ets:match/3`
 %% * `ets:match_object/1` / `ets:match_object/3`
 -spec ets(fun((Cont) -> select_result(Record, Cont))) -> stream(Record).
-ets(ContF) ->
+ets(ContF) when is_function(ContF) ->
     ets(undefined, ContF).
 
 ets(Cont, ContF) ->
