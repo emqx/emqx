@@ -16,6 +16,7 @@
 
 -module(emqx_ds_replication_layer_shard).
 
+%% API:
 -export([start_link/3]).
 
 %% Static server configuration
@@ -325,7 +326,8 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     ClusterName = cluster_name(DB, Shard),
     LocalServer = local_server(DB, Shard),
     Servers = shard_servers(DB, Shard),
-    case ra:restart_server(DB, LocalServer) of
+    MutableConfig = #{tick_timeout => 100},
+    case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
             Bootstrap = true,
             Machine = {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
@@ -336,7 +338,7 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
                 ],
                 ReplicationOpts
             ),
-            ok = ra:start_server(DB, #{
+            ok = ra:start_server(DB, MutableConfig#{
                 id => LocalServer,
                 uid => server_uid(DB, Shard),
                 cluster_name => ClusterName,

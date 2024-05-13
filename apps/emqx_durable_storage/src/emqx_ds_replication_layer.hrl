@@ -41,4 +41,8 @@
 %% drop_generation
 -define(generation, 2).
 
+%% custom events
+-define(payload, 2).
+-define(now, 3).
+
 -endif.

@@ -31,14 +31,15 @@
     create/4,
     open/5,
     drop/5,
-    store_batch/4,
+    prepare_batch/4,
+    commit_batch/3,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
     make_delete_iterator/5,
     update_iterator/4,
-    next/4,
-    delete_next/5
+    next/5,
+    delete_next/6
 ]).
 
 %% internal exports:
@@ -101,12 +102,14 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
     ok = rocksdb:drop_column_family(DBHandle, CFHandle),
     ok.
 
-store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options = #{atomic := true}) ->
+prepare_batch(_ShardId, _Data, Messages, _Options) ->
+    {ok, Messages}.
+
+commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages) ->
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(
-        fun(Msg) ->
-            Id = erlang:unique_integer([monotonic]),
-            Key = <<Id:64>>,
+        fun({TS, Msg}) ->
+            Key = <<TS:64>>,
             Val = term_to_binary(Msg),
             rocksdb:batch_put(Batch, CF, Key, Val)
         end,
@@ -114,16 +117,7 @@ store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options = #{atomic := tru
     ),
     Res = rocksdb:write_batch(DB, Batch, _WriteOptions = []),
     rocksdb:release_batch(Batch),
-    Res;
-store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options) ->
-    lists:foreach(
-        fun({Timestamp, Msg}) ->
-            Key = <<Timestamp:64>>,
-            Val = term_to_binary(Msg),
-            rocksdb:put(DB, CF, Key, Val, [])
-        end,
-        Messages
-    ).
+    Res.
 
 get_streams(_Shard, _Data, _TopicFilter, _StartTime) ->
     [#stream{}].
@@ -154,7 +148,7 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
         last_seen_message_key = DSKey
     }}.
 
-next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
+next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize, _Now) ->
     #it{topic_filter = TopicFilter, start_time = StartTime, last_seen_message_key = Key0} = It0,
     {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
     Action =
@@ -170,7 +164,7 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     It = It0#it{last_seen_message_key = Key},
     {ok, It, lists:reverse(Messages)}.
 
-delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize) ->
+delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now) ->
     #delete_it{
         topic_filter = TopicFilter,
         start_time = StartTime,

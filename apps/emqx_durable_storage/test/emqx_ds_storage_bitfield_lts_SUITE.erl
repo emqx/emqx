@@ -73,13 +73,15 @@ t_iterate(_Config) ->
         begin
             [{_Rank, Stream}] = emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), 0),
             {ok, It} = emqx_ds_storage_layer:make_iterator(?SHARD, Stream, parse_topic(Topic), 0),
-            {ok, NextIt, MessagesAndKeys} = emqx_ds_storage_layer:next(?SHARD, It, 100),
+            {ok, NextIt, MessagesAndKeys} = emqx_ds_storage_layer:next(
+                ?SHARD, It, 100, emqx_ds:timestamp_us()
+            ),
             Messages = [Msg || {_DSKey, Msg} <- MessagesAndKeys],
             ?assertEqual(
                 lists:map(fun integer_to_binary/1, Timestamps),
                 payloads(Messages)
             ),
-            {ok, _, []} = emqx_ds_storage_layer:next(?SHARD, NextIt, 100)
+            {ok, _, []} = emqx_ds_storage_layer:next(?SHARD, NextIt, 100, emqx_ds:timestamp_us())
         end
      || Topic <- Topics
     ],
@@ -370,7 +372,7 @@ dump_stream(Shard, Stream, TopicFilter, StartTime) ->
         F(It, 0) ->
             error({too_many_iterations, It});
         F(It, N) ->
-            case emqx_ds_storage_layer:next(Shard, It, BatchSize) of
+            case emqx_ds_storage_layer:next(Shard, It, BatchSize, emqx_ds:timestamp_us()) of
                 end_of_stream ->
                     [];
                 {ok, _NextIt, []} ->
@@ -542,7 +544,11 @@ delete(_Shard, [], _Selector) ->
 delete(Shard, Iterators, Selector) ->
     {NewIterators0, N} = lists:foldl(
         fun(Iterator0, {AccIterators, NAcc}) ->
-            case emqx_ds_storage_layer:delete_next(Shard, Iterator0, Selector, 10) of
+            case
+                emqx_ds_storage_layer:delete_next(
+                    Shard, Iterator0, Selector, 10, emqx_ds:timestamp_us()
+                )
+            of
                 {ok, end_of_stream} ->
                     {AccIterators, NAcc};
                 {ok, _Iterator1, 0} ->
@@ -573,7 +579,7 @@ replay(_Shard, []) ->
 replay(Shard, Iterators) ->
     {NewIterators0, Messages0} = lists:foldl(
         fun(Iterator0, {AccIterators, AccMessages}) ->
-            case emqx_ds_storage_layer:next(Shard, Iterator0, 10) of
+            case emqx_ds_storage_layer:next(Shard, Iterator0, 10, emqx_ds:timestamp_us()) of
                 {ok, end_of_stream} ->
                     {AccIterators, AccMessages};
                 {ok, _Iterator1, []} ->

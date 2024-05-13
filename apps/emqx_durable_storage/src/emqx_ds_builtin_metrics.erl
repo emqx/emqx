@@ -190,7 +190,7 @@ prometheus_per_db(NodeOrAggr) ->
 %%  ...
 %% '''
 %%
-%% If `NodeOrAggr' = `node' then node name is appended to the list of
+%% If `NodeOrAggr' = `aggr' then node name is appended to the list of
 %% labels.
 prometheus_per_db(NodeOrAggr, DB, Acc0) ->
     Labels = [
