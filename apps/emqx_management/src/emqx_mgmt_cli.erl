@@ -855,7 +855,7 @@ do_ds(["set_replicas", DBStr | SitesStr]) ->
         {ok, DB} ->
             Sites = lists:map(fun list_to_binary/1, SitesStr),
             case emqx_mgmt_api_ds:update_db_sites(DB, Sites, cli) of
-                ok ->
+                {ok, _} ->
                     emqx_ctl:print("ok~n");
                 {error, Description} ->
                     emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
@@ -867,7 +867,9 @@ do_ds(["join", DBStr, Site]) ->
     case emqx_utils:safe_to_existing_atom(DBStr) of
         {ok, DB} ->
             case emqx_mgmt_api_ds:join(DB, list_to_binary(Site), cli) of
-                ok ->
+                {ok, unchanged} ->
+                    emqx_ctl:print("unchanged~n");
+                {ok, _} ->
                     emqx_ctl:print("ok~n");
                 {error, Description} ->
                     emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
@@ -879,7 +881,9 @@ do_ds(["leave", DBStr, Site]) ->
     case emqx_utils:safe_to_existing_atom(DBStr) of
         {ok, DB} ->
             case emqx_mgmt_api_ds:leave(DB, list_to_binary(Site), cli) of
-                ok ->
+                {ok, unchanged} ->
+                    emqx_ctl:print("unchanged~n");
+                {ok, _} ->
                     emqx_ctl:print("ok~n");
                 {error, Description} ->
                     emqx_ctl:print("Unable to update replicas: ~s~n", [Description])

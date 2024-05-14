@@ -353,7 +353,7 @@ db_replica(delete, #{bindings := #{ds := DB, site := Site}}) ->
 -spec update_db_sites(emqx_ds:db(), [emqx_ds_replication_layer_meta:site()], rest | cli) ->
     {ok, [emqx_ds_replication_layer_meta:site()]} | {error, _}.
 update_db_sites(DB, Sites, Via) when is_list(Sites) ->
-    ?SLOG(notice, #{
+    ?SLOG(warning, #{
         msg => "durable_storage_rebalance_request", ds => DB, sites => Sites, via => Via
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:assign_db_sites(DB, Sites));
@@ -363,7 +363,7 @@ update_db_sites(_, _, _) ->
 -spec join(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) ->
     {ok, unchanged | [emqx_ds_replication_layer_meta:site()]} | {error, _}.
 join(DB, Site, Via) ->
-    ?SLOG(notice, #{
+    ?SLOG(warning, #{
         msg => "durable_storage_join_request", ds => DB, site => Site, via => Via
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:join_db_site(DB, Site)).
@@ -371,7 +371,7 @@ join(DB, Site, Via) ->
 -spec leave(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) ->
     {ok, unchanged | [emqx_ds_replication_layer_meta:site()]} | {error, _}.
 leave(DB, Site, Via) ->
-    ?SLOG(notice, #{
+    ?SLOG(warning, #{
         msg => "durable_storage_leave_request", ds => DB, site => Site, via => Via
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:leave_db_site(DB, Site)).
