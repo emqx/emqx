@@ -609,9 +609,8 @@ check_limiter(
             ?SLOG_THROTTLE(
                 warning,
                 #{
-                    msg => pause_time_due_to_rate_limit,
-                    needs => Needs,
-                    time_in_ms => Time
+                    msg => socket_receive_paused_by_rate_limit,
+                    paused_ms => Time
                 },
                 #{
                     tag => "RATE",
@@ -669,9 +668,8 @@ retry_limiter(#state{channel = Channel, limiter = Limiter} = State) ->
             ?SLOG_THROTTLE(
                 warning,
                 #{
-                    msg => pause_time_due_to_rate_limit,
-                    types => Types,
-                    time_in_ms => Time
+                    msg => socket_receive_paused_by_rate_limit,
+                    paused_ms => Time
                 },
                 #{
                     tag => "RATE",
