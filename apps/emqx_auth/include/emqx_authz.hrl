@@ -38,8 +38,6 @@
 -define(ROOT_KEY, [authorization]).
 -define(CONF_KEY_PATH, [authorization, sources]).
 
--define(RE_PLACEHOLDER, "\\$\\{[a-z0-9_]+\\}").
-
 %% has to be the same as the root field name defined in emqx_schema
 -define(CONF_NS, ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME).
 -define(CONF_NS_ATOM, ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_ATOM).

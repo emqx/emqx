@@ -156,12 +156,11 @@ parse_config(
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    ct:print("parse_config: ~p~n", [Config]),
     {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
     State = #{
         method => Method,
         path => Path,
-        headers => Headers,
+        headers => maps:to_list(Headers),
         base_path_template => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(Query)
@@ -180,48 +179,8 @@ parse_config(
         },
         State}.
 
-generate_request(Credential, #{
-    method := Method,
-    headers := Headers0,
-    base_path_template := BasePathTemplate,
-    base_query_template := BaseQueryTemplate,
-    body_template := BodyTemplate
-}) ->
-    Headers = maps:to_list(Headers0),
-    Path = emqx_authn_utils:render_urlencoded_str(BasePathTemplate, Credential),
-    Query = emqx_authn_utils:render_deep_for_url(BaseQueryTemplate, Credential),
-    case Method of
-        get ->
-            Body = emqx_authn_utils:render_deep_for_url(BodyTemplate, Credential),
-            NPathQuery = append_query(to_list(Path), to_list(Query) ++ maps:to_list(Body)),
-            {ok, {NPathQuery, Headers}};
-        post ->
-            ContentType = post_request_content_type(Headers),
-            try
-                Body = serialize_body(ContentType, BodyTemplate, Credential),
-                NPathQuery = append_query(to_list(Path), to_list(Query)),
-                {ok, {NPathQuery, Headers, Body}}
-            catch
-                error:{encode_error, _} = Reason ->
-                    {error, Reason}
-            end
-    end.
-
-append_query(Path, []) ->
-    Path;
-append_query(Path, Query) ->
-    ct:print("append_query: ~p~n", [Query]),
-    Path ++ "?" ++ qs(Query).
-
-qs(KVs) ->
-    uri_string:compose_query(KVs).
-
-serialize_body(<<"application/json">>, BodyTemplate, Credential) ->
-    Body = emqx_authn_utils:render_deep_for_json(BodyTemplate, Credential),
-    emqx_utils_json:encode(Body);
-serialize_body(<<"application/x-www-form-urlencoded">>, BodyTemplate, Credential) ->
-    Body = emqx_authn_utils:render_deep_for_url(BodyTemplate, Credential),
-    qs(maps:to_list(Body)).
+generate_request(Credential, State) ->
+    emqx_auth_utils:generate_request(State, Credential).
 
 handle_response(Headers, Body) ->
     ContentType = proplists:get_value(<<"content-type">>, Headers),
@@ -267,26 +226,31 @@ parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
 
-post_request_content_type(Headers) ->
-    proplists:get_value(<<"content-type">>, Headers, ?DEFAULT_CONTENT_TYPE).
-
 request_for_log(Credential, #{url := Url, method := Method} = State) ->
     SafeCredential = emqx_authn_utils:without_password(Credential),
     case generate_request(SafeCredential, State) of
-        {PathQuery, Headers} ->
+        {ok, {PathQuery, Headers}} ->
             #{
                 method => Method,
                 url => Url,
                 path_query => PathQuery,
                 headers => Headers
             };
-        {PathQuery, Headers, Body} ->
+        {ok, {PathQuery, Headers, Body}} ->
             #{
                 method => Method,
                 url => Url,
                 path_query => PathQuery,
                 headers => Headers,
                 body => Body
+            };
+        %% we can't get here actually because the real request was already generated
+        %% successfully, so generating it with hidden password won't fail either.
+        {error, Reason} ->
+            #{
+                method => Method,
+                url => Url,
+                error => Reason
             }
     end.
 
@@ -297,20 +261,5 @@ response_for_log({ok, StatusCode, Headers, Body}) ->
 response_for_log({error, Error}) ->
     #{error => Error}.
 
-to_list(A) when is_atom(A) ->
-    atom_to_list(A);
-to_list(B) when is_binary(B) ->
-    binary_to_list(B);
-to_list(L) when is_list(L) ->
-    L.
-
 ensure_binary_names(Headers) ->
-    Fun = fun
-        (Key, _Val, Acc) when is_binary(Key) ->
-            Acc;
-        (Key, Val, Acc) when is_atom(Key) ->
-            Acc2 = maps:remove(Key, Acc),
-            BinKey = erlang:atom_to_binary(Key),
-            Acc2#{BinKey => Val}
-    end,
-    maps:fold(Fun, Headers, Headers).
+    emqx_utils_maps:binary_key_map(Headers).

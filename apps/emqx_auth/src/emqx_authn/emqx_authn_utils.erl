@@ -16,8 +16,8 @@
 
 -module(emqx_authn_utils).
 
--include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authn.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
@@ -26,13 +26,7 @@
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
-    parse_str/2,
     parse_sql/2,
-    render_deep_for_json/2,
-    render_deep_for_url/2,
-    render_str/2,
-    render_urlencoded_str/2,
-    render_sql_params/2,
     is_superuser/1,
     client_attrs/1,
     bin/1,
@@ -45,18 +39,6 @@
     convert_headers_no_content_type/1,
     default_headers/0,
     default_headers_no_content_type/0
-]).
-
-%% VAR_NS_CLIENT_ATTRS is added here because it can be initialized before authn.
-%% NOTE: authn return may add more to (or even overwrite) client_attrs.
--define(ALLOWED_VARS, [
-    ?VAR_USERNAME,
-    ?VAR_CLIENTID,
-    ?VAR_PASSWORD,
-    ?VAR_PEERHOST,
-    ?VAR_CERT_SUBJECT,
-    ?VAR_CERT_CN_NAME,
-    ?VAR_NS_CLIENT_ATTRS
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{
@@ -89,6 +71,13 @@ start_resource_if_enabled({ok, _} = Result, ResourceId, #{enable := true}) ->
 start_resource_if_enabled(Result, _ResourceId, _Config) ->
     Result.
 
+parse_deep(Template) -> emqx_auth_utils:parse_deep(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).
+
+parse_str(Template) -> emqx_auth_utils:parse_str(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).
+
+parse_sql(Template, ReplaceWith) ->
+    emqx_auth_utils:parse_sql(Template, ReplaceWith, ?AUTHN_DEFAULT_ALLOWED_VARS).
+
 check_password_from_selected_map(_Algorithm, _Selected, undefined) ->
     {error, bad_username_or_password};
 check_password_from_selected_map(Algorithm, Selected, Password) ->
@@ -111,111 +100,6 @@ check_password_from_selected_map(Algorithm, Selected, Password) ->
                 false -> {error, bad_username_or_password}
             end
     end.
-
-parse_deep(Template) ->
-    Result = emqx_template:parse_deep(Template),
-    handle_disallowed_placeholders(Result, ?ALLOWED_VARS, {deep, Template}).
-
-parse_str(Template, AllowedVars) ->
-    Result = emqx_template:parse(Template),
-    handle_disallowed_placeholders(Result, AllowedVars, {string, Template}).
-
-parse_str(Template) ->
-    parse_str(Template, ?ALLOWED_VARS).
-
-parse_sql(Template, ReplaceWith) ->
-    {Statement, Result} = emqx_template_sql:parse_prepstmt(
-        Template,
-        #{parameters => ReplaceWith, strip_double_quote => true}
-    ),
-    {Statement, handle_disallowed_placeholders(Result, ?ALLOWED_VARS, {string, Template})}.
-
-handle_disallowed_placeholders(Template, AllowedVars, Source) ->
-    case emqx_template:validate(AllowedVars, Template) of
-        ok ->
-            Template;
-        {error, Disallowed} ->
-            ?tp(warning, "authn_template_invalid", #{
-                template => Source,
-                reason => Disallowed,
-                allowed => #{placeholders => AllowedVars},
-                notice =>
-                    "Disallowed placeholders will be rendered as is."
-                    " However, consider using `${$}` escaping for literal `$` where"
-                    " needed to avoid unexpected results."
-            }),
-            Result = prerender_disallowed_placeholders(Template),
-            case Source of
-                {string, _} ->
-                    emqx_template:parse(Result);
-                {deep, _} ->
-                    emqx_template:parse_deep(Result)
-            end
-    end.
-
-prerender_disallowed_placeholders(Template) ->
-    {Result, _} = emqx_template:render(Template, #{}, #{
-        var_trans => fun(Name, _) ->
-            % NOTE
-            % Rendering disallowed placeholders in escaped form, which will then
-            % parse as a literal string.
-            case lists:member(Name, ?ALLOWED_VARS) of
-                true -> "${" ++ Name ++ "}";
-                false -> "${$}{" ++ Name ++ "}"
-            end
-        end
-    }),
-    Result.
-
-render_deep_for_json(Template, Credential) ->
-    % NOTE
-    % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {Term, _Errors} = emqx_template:render(
-        Template,
-        mapping_credential(Credential),
-        #{var_trans => fun to_string_for_json/2}
-    ),
-    Term.
-
-render_deep_for_url(Template, Credential) ->
-    % NOTE
-    % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {Term, _Errors} = emqx_template:render(
-        Template,
-        mapping_credential(Credential),
-        #{var_trans => fun to_string_for_urlencode/2}
-    ),
-    Term.
-
-render_str(Template, Credential) ->
-    % NOTE
-    % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {String, _Errors} = emqx_template:render(
-        Template,
-        mapping_credential(Credential),
-        #{var_trans => fun to_string/2}
-    ),
-    unicode:characters_to_binary(String).
-
-render_urlencoded_str(Template, Credential) ->
-    % NOTE
-    % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {String, _Errors} = emqx_template:render(
-        Template,
-        mapping_credential(Credential),
-        #{var_trans => fun to_urlencoded_string/2}
-    ),
-    unicode:characters_to_binary(String).
-
-render_sql_params(ParamList, Credential) ->
-    % NOTE
-    % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {Row, _Errors} = emqx_template:render(
-        ParamList,
-        mapping_credential(Credential),
-        #{var_trans => fun to_sql_value/2}
-    ),
-    Row.
 
 is_superuser(#{<<"is_superuser">> := Value}) ->
     #{is_superuser => to_bool(Value)};
@@ -337,63 +221,6 @@ without_password(Credential, [Name | Rest]) ->
         false ->
             without_password(Credential, Rest)
     end.
-
-to_urlencoded_string(Name, Value) ->
-    <<"q=", EncodedValue/binary>> = uri_string:compose_query([{<<"q">>, to_string(Name, Value)}]),
-    EncodedValue.
-
-to_string(Name, Value) ->
-    emqx_template:to_string(render_var(Name, Value)).
-
-%% Any data may be urlencoded, so we allow non-unicode binaries here.
-
-to_string_for_urlencode(Name, Value) ->
-    to_string_for_urlencode(render_var(Name, Value)).
-
-to_string_for_urlencode(Value) when is_binary(Value) ->
-    Value;
-to_string_for_urlencode(Value) when is_list(Value) ->
-    unicode:characters_to_binary(Value);
-to_string_for_urlencode(Value) ->
-    emqx_template:to_string(Value).
-
-%% JSON strings are sequences of unicode characters, not bytes.
-%% So we force all rendered data to be unicode.
-
-to_string_for_json(Name, Value) ->
-    to_unicode_string(Name, render_var(Name, Value)).
-
-to_unicode_string(Name, Value) when is_list(Value) orelse is_binary(Value) ->
-    try unicode:characters_to_binary(Value) of
-        Encoded when is_binary(Encoded) ->
-            Encoded;
-        _ ->
-            error({encode_error, {non_unicode_data, Name}})
-    catch error:badarg ->
-        error({encode_error, {non_unicode_data, Name}})
-    end;
-to_unicode_string(_Name, Value) ->
-    emqx_template:to_string(Value).
-
-to_sql_value(Name, Value) ->
-    emqx_utils_sql:to_sql_value(render_var(Name, Value)).
-
-render_var(_, undefined) ->
-    % NOTE
-    % Any allowed but undefined binding will be replaced with empty string, even when
-    % rendering SQL values.
-    <<>>;
-render_var(?VAR_PEERHOST, Value) ->
-    inet:ntoa(Value);
-render_var(?VAR_PASSWORD, Value) ->
-    iolist_to_binary(Value);
-render_var(_Name, Value) ->
-    Value.
-
-mapping_credential(C = #{cn := CN, dn := DN}) ->
-    C#{cert_common_name => CN, cert_subject => DN};
-mapping_credential(C) ->
-    C.
 
 transform_header_name(Headers) ->
     maps:fold(

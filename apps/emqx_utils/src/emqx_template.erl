@@ -426,7 +426,6 @@ to_string(List) when is_list(List) ->
     end.
 
 character_segments_to_binary(StringSegments) ->
-    ct:print("characters_to_binary: ~p~n", [StringSegments]),
     iolist_to_binary(
         lists:map(
             fun

@@ -843,23 +843,43 @@ formalize_request(_Method, BasePath, {Path, Headers}) ->
 %%
 %% See also: `join_paths_test_/0`
 join_paths(Path1, Path2) ->
-    do_join_paths(lists:reverse(to_list(Path1)), to_list(Path2)).
+    [without_trailing_slash(Path1), $/, without_starting_slash(Path2)].
 
-%% "abc/" + "/cde"
-do_join_paths([$/ | Path1], [$/ | Path2]) ->
-    lists:reverse(Path1) ++ [$/ | Path2];
-%% "abc/" + "cde"
-do_join_paths([$/ | Path1], Path2) ->
-    lists:reverse(Path1) ++ [$/ | Path2];
-%% "abc" + "/cde"
-do_join_paths(Path1, [$/ | Path2]) ->
-    lists:reverse(Path1) ++ [$/ | Path2];
-%% "abc" + "cde"
-do_join_paths(Path1, Path2) ->
-    lists:reverse(Path1) ++ [$/ | Path2].
+without_starting_slash(Path) ->
+    case do_without_starting_slash(Path) of
+        empty -> <<>>;
+        Other -> Other
+    end.
 
-to_list(List) when is_list(List) -> List;
-to_list(Bin) when is_binary(Bin) -> binary_to_list(Bin).
+do_without_starting_slash([]) ->
+    empty;
+do_without_starting_slash(<<>>) ->
+    empty;
+do_without_starting_slash([$/ | Rest]) ->
+    Rest;
+do_without_starting_slash([C | _Rest] = Path) when is_integer(C) andalso C =/= $/ ->
+    Path;
+do_without_starting_slash(<<$/, Rest/binary>>) ->
+    Rest;
+do_without_starting_slash(<<C, _Rest/binary>> = Path) when is_integer(C) andalso C =/= $/ ->
+    Path;
+%% On actual lists the recursion should very quickly exhaust
+do_without_starting_slash([El | Rest]) ->
+    case do_without_starting_slash(El) of
+        empty -> do_without_starting_slash(Rest);
+        ElRest -> [ElRest | Rest]
+    end.
+
+without_trailing_slash(Path) ->
+    case iolist_to_binary(Path) of
+        <<>> ->
+            <<>>;
+        B ->
+            case binary:last(B) of
+                $/ -> binary_part(B, 0, byte_size(B) - 1);
+                _ -> B
+            end
+    end.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;
@@ -986,6 +1006,9 @@ clientid(Msg) -> maps:get(clientid, Msg, undefined).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
+iolists_equal(L1, L2) ->
+    iolist_to_binary(L1) =:= iolist_to_binary(L2).
+
 redact_test_() ->
     TestData = #{
         headers => [
@@ -999,19 +1022,57 @@ redact_test_() ->
 
 join_paths_test_() ->
     [
-        ?_assertEqual("abc/cde", join_paths("abc", "cde")),
-        ?_assertEqual("abc/cde", join_paths("abc", "/cde")),
-        ?_assertEqual("abc/cde", join_paths("abc/", "cde")),
-        ?_assertEqual("abc/cde", join_paths("abc/", "/cde")),
+        ?_assert(iolists_equal("abc/cde", join_paths("abc", "cde"))),
+        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc">>, <<"cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_paths([["a"], <<"b">>, <<"c">>], [
+                    [[[], <<>>], <<>>, <<"c">>], <<"d">>, <<"e">>
+                ])
+            )
+        ),
 
-        ?_assertEqual("/", join_paths("", "")),
-        ?_assertEqual("/cde", join_paths("", "cde")),
-        ?_assertEqual("/cde", join_paths("", "/cde")),
-        ?_assertEqual("/cde", join_paths("/", "cde")),
-        ?_assertEqual("/cde", join_paths("/", "/cde")),
+        ?_assert(iolists_equal("abc/cde", join_paths("abc", "/cde"))),
+        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc">>, <<"/cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_paths([["a"], <<"b">>, <<"c">>], [
+                    [<<>>, [[], <<>>], <<"/c">>], <<"d">>, <<"e">>
+                ])
+            )
+        ),
 
-        ?_assertEqual("//cde/", join_paths("/", "//cde/")),
-        ?_assertEqual("abc///cde/", join_paths("abc//", "//cde/"))
+        ?_assert(iolists_equal("abc/cde", join_paths("abc/", "cde"))),
+        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc/">>, <<"cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_paths([["a"], <<"b">>, <<"c">>, [<<"/">>]], [
+                    [[[], [], <<>>], <<>>, [], <<"c">>], <<"d">>, <<"e">>
+                ])
+            )
+        ),
+
+        ?_assert(iolists_equal("abc/cde", join_paths("abc/", "/cde"))),
+        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc/">>, <<"/cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_paths([["a"], <<"b">>, <<"c">>, [<<"/">>]], [
+                    [[[], <<>>], <<>>, [[$/]], <<"c">>], <<"d">>, <<"e">>
+                ])
+            )
+        ),
+
+        ?_assert(iolists_equal("/", join_paths("", ""))),
+        ?_assert(iolists_equal("/cde", join_paths("", "cde"))),
+        ?_assert(iolists_equal("/cde", join_paths("", "/cde"))),
+        ?_assert(iolists_equal("/cde", join_paths("/", "cde"))),
+        ?_assert(iolists_equal("/cde", join_paths("/", "/cde"))),
+        ?_assert(iolists_equal("//cde/", join_paths("/", "//cde/"))),
+        ?_assert(iolists_equal("abc///cde/", join_paths("abc//", "//cde/")))
     ].
 
 -endif.

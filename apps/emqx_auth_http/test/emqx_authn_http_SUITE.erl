@@ -140,6 +140,7 @@ t_create_invalid(_Config) ->
     ).
 
 t_authenticate(_Config) ->
+    ok = emqx_logger:set_primary_log_level(debug),
     ok = lists:foreach(
         fun(Sample) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
@@ -148,11 +149,13 @@ t_authenticate(_Config) ->
         samples()
     ).
 
-test_user_auth(#{
-    handler := Handler,
-    config_params := SpecificConfgParams,
-    result := Expect
-} = Sample) ->
+test_user_auth(
+    #{
+        handler := Handler,
+        config_params := SpecificConfgParams,
+        result := Expect
+    } = Sample
+) ->
     Credentials = maps:merge(?CREDENTIALS, maps:get(credentials, Sample, #{})),
     Result = perform_user_auth(SpecificConfgParams, Handler, Credentials),
     ?assertEqual(Expect, Result).
@@ -657,7 +660,6 @@ samples() ->
                     <<"username">> := <<"plain">>,
                     <<"password">> := <<"plain">>
                 } = emqx_utils_json:decode(RawBody, [return_maps]),
-                ct:print("headers: ~p", [cowboy_req:headers(Req0)]),
                 <<"application/json">> = cowboy_req:header(<<"content-type">>, Req0),
                 Req = cowboy_req:reply(
                     200,
