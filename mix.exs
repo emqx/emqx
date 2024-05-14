@@ -79,7 +79,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.11", override: true},
       # in conflict by emqx_connector and system_monitor
-      {:epgsql, github: "emqx/epgsql", tag: "4.7.1.1", override: true},
+      {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true},
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
@@ -189,7 +189,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_s3,
       :emqx_bridge_s3,
       :emqx_schema_registry,
-      :emqx_message_validation,
+      :emqx_schema_validation,
       :emqx_enterprise,
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,

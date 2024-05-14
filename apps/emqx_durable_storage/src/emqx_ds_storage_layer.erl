@@ -339,13 +339,6 @@ get_streams(Shard, TopicFilter, StartTime) ->
             case generation_get(Shard, GenId) of
                 #{module := Mod, data := GenData} ->
                     Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
-                    ?tp(get_streams_get_gen_topic, #{
-                        gen_id => GenId,
-                        topic => TopicFilter,
-                        start_time => StartTime,
-                        streams => Streams,
-                        gen_data => GenData
-                    }),
                     [
                         {GenId, ?stream_v2(GenId, InnerStream)}
                      || InnerStream <- Streams

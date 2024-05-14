@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation_registry).
+-module(emqx_schema_validation_registry).
 
 -behaviour(gen_server).
 
@@ -36,10 +36,10 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(VALIDATION_TOPIC_INDEX, emqx_message_validation_index).
--define(VALIDATION_TAB, emqx_message_validation_tab).
+-define(VALIDATION_TOPIC_INDEX, emqx_schema_validation_index).
+-define(VALIDATION_TAB, emqx_schema_validation_tab).
 
--define(METRIC_NAME, message_validation).
+-define(METRIC_NAME, schema_validation).
 -define(METRICS, [
     'matched',
     'succeeded',
@@ -106,7 +106,7 @@ matching_validations(Topic) ->
 
 -spec metrics_worker_spec() -> supervisor:child_spec().
 metrics_worker_spec() ->
-    emqx_metrics_worker:child_spec(message_validation_metrics, ?METRIC_NAME).
+    emqx_metrics_worker:child_spec(schema_validation_metrics, ?METRIC_NAME).
 
 -spec get_metrics(validation_name()) -> emqx_metrics_worker:metrics().
 get_metrics(Name) ->
@@ -243,7 +243,7 @@ transform_validation(Validation = #{checks := Checks}) ->
     Validation#{checks := lists:map(fun transform_check/1, Checks)}.
 
 transform_check(#{type := sql, sql := SQL}) ->
-    {ok, Check} = emqx_message_validation:parse_sql_check(SQL),
+    {ok, Check} = emqx_schema_validation:parse_sql_check(SQL),
     Check;
 transform_check(Check) ->
     Check.

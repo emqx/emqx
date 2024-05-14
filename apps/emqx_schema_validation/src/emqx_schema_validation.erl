@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation).
+-module(emqx_schema_validation).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -47,8 +47,8 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(TRACE_TAG, "MESSAGE_VALIDATION").
--define(CONF_ROOT, message_validation).
+-define(TRACE_TAG, "SCHEMA_VALIDATION").
+-define(CONF_ROOT, schema_validation).
 -define(VALIDATIONS_CONF_PATH, [?CONF_ROOT, validations]).
 
 -type validation_name() :: binary().
@@ -72,7 +72,7 @@ load() ->
     Validations = emqx:get_config(?VALIDATIONS_CONF_PATH, []),
     lists:foreach(
         fun({Pos, Validation}) ->
-            ok = emqx_message_validation_registry:insert(Pos, Validation)
+            ok = emqx_schema_validation_registry:insert(Pos, Validation)
         end,
         lists:enumerate(Validations)
     ).
@@ -81,7 +81,7 @@ unload() ->
     Validations = emqx:get_config(?VALIDATIONS_CONF_PATH, []),
     lists:foreach(
         fun(Validation) ->
-            ok = emqx_message_validation_registry:delete(Validation)
+            ok = emqx_schema_validation_registry:delete(Validation)
         end,
         Validations
     ).
@@ -146,7 +146,7 @@ unregister_hooks() ->
 -spec on_message_publish(emqx_types:message()) ->
     {ok, emqx_types:message()} | {stop, emqx_types:message()}.
 on_message_publish(Message = #message{topic = Topic, headers = Headers}) ->
-    case emqx_message_validation_registry:matching_validations(Topic) of
+    case emqx_schema_validation_registry:matching_validations(Topic) of
         [] ->
             ok;
         Validations ->
@@ -184,19 +184,19 @@ pre_config_update(?VALIDATIONS_CONF_PATH, {reorder, Order}, OldValidations) ->
 
 post_config_update(?VALIDATIONS_CONF_PATH, {append, #{<<"name">> := Name}}, New, _Old, _AppEnvs) ->
     {Pos, Validation} = fetch_with_index(New, Name),
-    ok = emqx_message_validation_registry:insert(Pos, Validation),
+    ok = emqx_schema_validation_registry:insert(Pos, Validation),
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {update, #{<<"name">> := Name}}, New, Old, _AppEnvs) ->
     {_Pos, OldValidation} = fetch_with_index(Old, Name),
     {Pos, NewValidation} = fetch_with_index(New, Name),
-    ok = emqx_message_validation_registry:update(OldValidation, Pos, NewValidation),
+    ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) ->
     {_Pos, Validation} = fetch_with_index(Old, Name),
-    ok = emqx_message_validation_registry:delete(Validation),
+    ok = emqx_schema_validation_registry:delete(Validation),
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, _Old, _AppEnvs) ->
-    ok = emqx_message_validation_registry:reindex_positions(New),
+    ok = emqx_schema_validation_registry:reindex_positions(New),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -395,26 +395,26 @@ run_validations(Validations, Message) ->
         emqx_rule_runtime:clear_rule_payload(),
         Fun = fun(Validation, Acc) ->
             #{name := Name} = Validation,
-            emqx_message_validation_registry:inc_matched(Name),
+            emqx_schema_validation_registry:inc_matched(Name),
             case run_validation(Validation, Message) of
                 ok ->
-                    emqx_message_validation_registry:inc_succeeded(Name),
+                    emqx_schema_validation_registry:inc_succeeded(Name),
                     {cont, Acc};
                 ignore ->
                     trace_failure(Validation, "validation_failed", #{
                         validation => Name,
                         action => ignore
                     }),
-                    emqx_message_validation_registry:inc_failed(Name),
-                    run_message_validation_failed_hook(Message, Validation),
+                    emqx_schema_validation_registry:inc_failed(Name),
+                    run_schema_validation_failed_hook(Message, Validation),
                     {cont, Acc};
                 FailureAction ->
                     trace_failure(Validation, "validation_failed", #{
                         validation => Name,
                         action => FailureAction
                     }),
-                    emqx_message_validation_registry:inc_failed(Name),
-                    run_message_validation_failed_hook(Message, Validation),
+                    emqx_schema_validation_registry:inc_failed(Name),
+                    run_schema_validation_failed_hook(Message, Validation),
                     {halt, FailureAction}
             end
         end,
@@ -457,17 +457,17 @@ trace_failure(#{log_failure := #{level := none}} = Validation, _Msg, _Meta) ->
         name := _Name,
         failure_action := _Action
     } = Validation,
-    ?tp(message_validation_failed, #{log_level => none, name => _Name, action => _Action}),
+    ?tp(schema_validation_failed, #{log_level => none, name => _Name, action => _Action}),
     ok;
 trace_failure(#{log_failure := #{level := Level}} = Validation, Msg, Meta) ->
     #{
         name := _Name,
         failure_action := _Action
     } = Validation,
-    ?tp(message_validation_failed, #{log_level => Level, name => _Name, action => _Action}),
+    ?tp(schema_validation_failed, #{log_level => Level, name => _Name, action => _Action}),
     ?TRACE(Level, ?TRACE_TAG, Msg, Meta).
 
-run_message_validation_failed_hook(Message, Validation) ->
+run_schema_validation_failed_hook(Message, Validation) ->
     #{name := Name} = Validation,
     ValidationContext = #{name => Name},
-    emqx_hooks:run('message.validation_failed', [Message, ValidationContext]).
+    emqx_hooks:run('schema.validation_failed', [Message, ValidationContext]).

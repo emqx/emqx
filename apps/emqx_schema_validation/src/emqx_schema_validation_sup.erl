@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation_sup).
+-module(emqx_schema_validation_sup).
 
 -behaviour(supervisor).
 
@@ -23,8 +23,8 @@ start_link() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    Registry = worker_spec(emqx_message_validation_registry),
-    Metrics = emqx_message_validation_registry:metrics_worker_spec(),
+    Registry = worker_spec(emqx_schema_validation_registry),
+    Metrics = emqx_schema_validation_registry:metrics_worker_spec(),
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,

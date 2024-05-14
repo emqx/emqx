@@ -269,6 +269,8 @@ t_http_test_json_formatter(_Config) ->
         action_id =>
             <<"action:http:emqx_bridge_http_test_lib:connector:http:emqx_bridge_http_test_lib">>
     }),
+    %% We should handle report style logging
+    ?SLOG(error, #{msg => "recursive_republish_detected"}, #{topic => Topic}),
     ok = emqx_trace_handler_SUITE:filesync(Name, topic),
     {ok, _Detail2} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     {ok, Bin} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
@@ -407,6 +409,19 @@ t_http_test_json_formatter(_Config) ->
                     <<"name">> := <<"emqx_bridge_http_test_lib">>
                 }
             }
+        },
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"level">> := <<"error">>,
+            <<"meta">> :=
+                #{
+                    <<"msg">> := <<"recursive_republish_detected">>,
+                    <<"topic">> := <<"/x/y/z">>
+                },
+            <<"msg">> := <<"recursive_republish_detected">>,
+            <<"time">> := _
         },
         NextFun()
     ),

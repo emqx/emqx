@@ -78,7 +78,6 @@ init_per_group(persistence_enabled = Group, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
-    emqx_logger:set_log_level(debug),
     [
         {apps, Apps},
         {persistence_enabled, true}
@@ -89,7 +88,6 @@ init_per_group(persistence_disabled = Group, Config) ->
         [{emqx, "session_persistence.enable = false"}],
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
-    emqx_logger:set_log_level(debug),
     [
         {apps, Apps},
         {persistence_enabled, false}
