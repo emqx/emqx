@@ -301,7 +301,11 @@ serialize_body(<<"application/json">>, BodyTemplate, ClientInfo) ->
     emqx_utils_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, BodyTemplate, ClientInfo) ->
     Body = emqx_auth_utils:render_deep_for_url(BodyTemplate, ClientInfo),
-    uri_string:compose_query(maps:to_list(Body)).
+    uri_string:compose_query(maps:to_list(Body));
+serialize_body(undefined, _BodyTemplate, _ClientInfo) ->
+    throw(missing_content_type_header);
+serialize_body(ContentType, _BodyTemplate, _ClientInfo) ->
+    throw({unknown_content_type_header_value, ContentType}).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
