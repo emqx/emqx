@@ -20,11 +20,15 @@
 -export([
     empty/0,
     list/1,
+    const/1,
     mqueue/1,
     map/2,
     transpose/1,
+    chain/1,
     chain/2,
-    repeat/1
+    repeat/1,
+    interleave/2,
+    limit_length/2
 ]).
 
 %% Evaluating
@@ -68,6 +72,11 @@ list([]) ->
     empty();
 list([X | Rest]) ->
     fun() -> [X | list(Rest)] end.
+
+%% @doc Make a stream with a single element infinitely repeated
+-spec const(T) -> stream(T).
+const(T) ->
+    fun() -> [T | const(T)] end.
 
 %% @doc Make a stream out of process message queue.
 -spec mqueue(timeout()) -> stream(any()).
@@ -118,6 +127,11 @@ transpose_tail(S, Tail) ->
         end
     end.
 
+%% @doc Make a stream by concatenating multiple streams.
+-spec chain([stream(X)]) -> stream(X).
+chain(L) ->
+    lists:foldl(fun chain/2, empty(), L).
+
 %% @doc Make a stream by chaining (concatenating) two streams.
 %% The second stream begins to produce values only after the first one is exhausted.
 -spec chain(stream(X), stream(Y)) -> stream(X | Y).
@@ -141,6 +155,45 @@ repeat(S) ->
                 [X | chain(SRest, repeat(S))];
             [] ->
                 []
+        end
+    end.
+
+%% @doc Interleave the elements of the streams.
+%%
+%% This function accepts a list of tuples where the first element
+%% specifies size of the "batch" to be consumed from the stream at a
+%% time (stream is the second tuple element). If element of the list
+%% is a plain stream, then the batch size is assumed to be 1.
+%%
+%% If `ContinueAtEmpty' is `false', and one of the streams returns
+%% `[]', then the function will return `[]' as well. Otherwise, it
+%% will continue consuming data from the remaining streams.
+-spec interleave([stream(X) | {non_neg_integer(), stream(X)}], boolean()) -> stream(X).
+interleave(L0, ContinueAtEmpty) ->
+    L = lists:map(
+        fun
+            (Stream) when is_function(Stream) ->
+                {1, Stream};
+            (A = {N, _}) when N >= 0 ->
+                A
+        end,
+        L0
+    ),
+    fun() ->
+        do_interleave(ContinueAtEmpty, 0, L, [])
+    end.
+
+%% @doc Truncate list to the given length
+-spec limit_length(non_neg_integer(), stream(X)) -> stream(X).
+limit_length(0, _) ->
+    fun() -> [] end;
+limit_length(N, S) when N >= 0 ->
+    fun() ->
+        case next(S) of
+            [] ->
+                [];
+            [X | S1] ->
+                [X | limit_length(N - 1, S1)]
         end
     end.
 
@@ -237,3 +290,24 @@ csv_read_line([Line | Lines]) ->
     {Fields, Lines};
 csv_read_line([]) ->
     eof.
+
+do_interleave(_Cont, _, [], []) ->
+    [];
+do_interleave(Cont, N, [{N, S} | Rest], Rev) ->
+    do_interleave(Cont, 0, Rest, [{N, S} | Rev]);
+do_interleave(Cont, _, [], Rev) ->
+    do_interleave(Cont, 0, lists:reverse(Rev), []);
+do_interleave(Cont, I, [{N, S} | Rest], Rev) when I < N ->
+    case next(S) of
+        [] when Cont ->
+            do_interleave(Cont, 0, Rest, Rev);
+        [] ->
+            [];
+        [X | S1] ->
+            [
+                X
+                | fun() ->
+                    do_interleave(Cont, I + 1, [{N, S1} | Rest], Rev)
+                end
+            ]
+    end.

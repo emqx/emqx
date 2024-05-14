@@ -50,6 +50,7 @@ topic.desc:
 topic.label:
 """RocketMQ Topic"""
 
+namespace.label: """Namespace / Instance ID"""
 namespace.desc:
 """The namespace field MUST be set if you are using the RocketMQ service in
 aliyun cloud and also the namespace is enabled,

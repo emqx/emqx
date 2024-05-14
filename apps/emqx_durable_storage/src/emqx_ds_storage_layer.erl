@@ -26,13 +26,16 @@
 
     %% Data
     store_batch/3,
+    prepare_batch/3,
+    commit_batch/2,
+
     get_streams/3,
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
     update_iterator/3,
-    next/3,
-    delete_next/4,
+    next/4,
+    delete_next/5,
 
     %% Generations
     update_config/3,
@@ -42,7 +45,10 @@
 
     %% Snapshotting
     take_snapshot/1,
-    accept_snapshot/1
+    accept_snapshot/1,
+
+    %% Custom events
+    handle_event/3
 ]).
 
 %% gen_server
@@ -63,7 +69,8 @@
     shard_id/0,
     options/0,
     prototype/0,
-    post_creation_context/0
+    post_creation_context/0,
+    cooked_batch/0
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -79,11 +86,11 @@
 
 %% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
 %% records over the wire.
-
 %% tags:
 -define(STREAM, 1).
 -define(IT, 2).
 -define(DELETE_IT, 3).
+-define(COOKED_BATCH, 4).
 
 %% keys:
 -define(tag, 1).
@@ -126,6 +133,13 @@
 -opaque delete_iterator() ::
     #{
         ?tag := ?DELETE_IT,
+        ?generation := gen_id(),
+        ?enc := term()
+    }.
+
+-opaque cooked_batch() ::
+    #{
+        ?tag := ?COOKED_BATCH,
         ?generation := gen_id(),
         ?enc := term()
     }.
@@ -201,16 +215,23 @@
 -callback open(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
     _Data.
 
+%% Delete the schema and data
 -callback drop(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _RuntimeData) ->
     ok | {error, _Reason}.
 
--callback store_batch(
+-callback prepare_batch(
     shard_id(),
     _Data,
-    [{emqx_ds:time(), emqx_types:message()}],
+    [{emqx_ds:time(), emqx_types:message()}, ...],
     emqx_ds:message_store_opts()
 ) ->
-    emqx_ds:store_batch_result().
+    {ok, term()} | emqx_ds:error(_).
+
+-callback commit_batch(
+    shard_id(),
+    _Data,
+    _CookedBatch
+) -> ok | emqx_ds:error(_).
 
 -callback get_streams(shard_id(), _Data, emqx_ds:topic_filter(), emqx_ds:time()) ->
     [_Stream].
@@ -223,12 +244,19 @@
 ) ->
     emqx_ds:make_delete_iterator_result(_Iterator).
 
--callback next(shard_id(), _Data, Iter, pos_integer()) ->
+-callback next(shard_id(), _Data, Iter, pos_integer(), emqx_ds:time()) ->
     {ok, Iter, [emqx_types:message()]} | {error, _}.
+
+-callback delete_next(
+    shard_id(), _Data, DeleteIterator, emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
+) ->
+    {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()}.
+
+-callback handle_event(shard_id(), _Data, emqx_ds:time(), CustomEvent | tick) -> [CustomEvent].
 
 -callback post_creation_actions(post_creation_context()) -> _Data.
 
--optional_callbacks([post_creation_actions/1]).
+-optional_callbacks([post_creation_actions/1, handle_event/4]).
 
 %%================================================================================
 %% API for the replication layer
@@ -251,20 +279,54 @@ drop_shard(Shard) ->
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-store_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
-    %% NOTE
-    %% We assume that batches do not span generations. Callers should enforce this.
+store_batch(Shard, Messages, Options) ->
     ?tp(emqx_ds_storage_layer_store_batch, #{
         shard => Shard, messages => Messages, options => Options
     }),
-    #{module := Mod, data := GenData} = generation_at(Shard, Time),
+    case prepare_batch(Shard, Messages, Options) of
+        {ok, CookedBatch} ->
+            commit_batch(Shard, CookedBatch);
+        ignore ->
+            ok;
+        Error = {error, _, _} ->
+            Error
+    end.
+
+-spec prepare_batch(
+    shard_id(),
+    [{emqx_ds:time(), emqx_types:message()}],
+    emqx_ds:message_store_opts()
+) -> {ok, cooked_batch()} | ignore | emqx_ds:error(_).
+prepare_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
+    %% NOTE
+    %% We assume that batches do not span generations. Callers should enforce this.
+    ?tp(emqx_ds_storage_layer_prepare_batch, #{
+        shard => Shard, messages => Messages, options => Options
+    }),
+    {GenId, #{module := Mod, data := GenData}} = generation_at(Shard, Time),
     T0 = erlang:monotonic_time(microsecond),
-    Result = Mod:store_batch(Shard, GenData, Messages, Options),
+    Result =
+        case Mod:prepare_batch(Shard, GenData, Messages, Options) of
+            {ok, CookedBatch} ->
+                {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
+            Error = {error, _, _} ->
+                Error
+        end,
     T1 = erlang:monotonic_time(microsecond),
+    %% TODO store->prepare
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result;
-store_batch(_Shard, [], _Options) ->
-    ok.
+prepare_batch(_Shard, [], _Options) ->
+    ignore.
+
+-spec commit_batch(shard_id(), cooked_batch()) -> emqx_ds:store_batch_result().
+commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
+    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
+    T0 = erlang:monotonic_time(microsecond),
+    Result = Mod:commit_batch(Shard, GenData, CookedBatch),
+    T1 = erlang:monotonic_time(microsecond),
+    emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
+    Result.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -277,6 +339,13 @@ get_streams(Shard, TopicFilter, StartTime) ->
             case generation_get(Shard, GenId) of
                 #{module := Mod, data := GenData} ->
                     Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
+                    ?tp(get_streams_get_gen_topic, #{
+                        gen_id => GenId,
+                        topic => TopicFilter,
+                        start_time => StartTime,
+                        streams => Streams,
+                        gen_data => GenData
+                    }),
                     [
                         {GenId, ?stream_v2(GenId, InnerStream)}
                      || InnerStream <- Streams
@@ -377,13 +446,13 @@ update_iterator(
             {error, unrecoverable, generation_not_found}
     end.
 
--spec next(shard_id(), iterator(), pos_integer()) ->
+-spec next(shard_id(), iterator(), pos_integer(), emqx_ds:time()) ->
     emqx_ds:next_result(iterator()).
-next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize) ->
+next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize, Now) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             Current = generation_current(Shard),
-            case Mod:next(Shard, GenData, GenIter0, BatchSize) of
+            case Mod:next(Shard, GenData, GenIter0, BatchSize, Now) of
                 {ok, _GenIter, []} when GenId < Current ->
                     %% This is a past generation. Storage layer won't write
                     %% any more messages here. The iterator reached the end:
@@ -399,18 +468,21 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             {error, unrecoverable, generation_not_found}
     end.
 
--spec delete_next(shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
+-spec delete_next(
+    shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
+) ->
     emqx_ds:delete_next_result(delete_iterator()).
 delete_next(
     Shard,
     Iter = #{?tag := ?DELETE_IT, ?generation := GenId, ?enc := GenIter0},
     Selector,
-    BatchSize
+    BatchSize,
+    Now
 ) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             Current = generation_current(Shard),
-            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize) of
+            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize, Now) of
                 {ok, _GenIter, _Deleted = 0, _IteratedOver = 0} when GenId < Current ->
                     %% This is a past generation. Storage layer won't write
                     %% any more messages here. The iterator reached the end:
@@ -849,6 +921,24 @@ handle_accept_snapshot(ShardId) ->
     Dir = db_dir(ShardId),
     emqx_ds_storage_snapshot:new_writer(Dir).
 
+%% FIXME: currently this interface is a hack to handle safe cutoff
+%% timestamp in LTS. It has many shortcomings (can lead to infinite
+%% loops if the CBM is not careful; events from one generation may be
+%% sent to the next one, etc.) and the API is not well thought out in
+%% general.
+%%
+%% The mechanism of storage layer events should be refined later.
+-spec handle_event(shard_id(), emqx_ds:time(), CustomEvent | tick) -> [CustomEvent].
+handle_event(Shard, Time, Event) ->
+    {_GenId, #{module := Mod, data := GenData}} = generation_at(Shard, Time),
+    ?tp(emqx_ds_storage_layer_event, #{mod => Mod, time => Time, event => Event}),
+    case erlang:function_exported(Mod, handle_event, 4) of
+        true ->
+            Mod:handle_event(Shard, GenData, Time, Event);
+        false ->
+            []
+    end.
+
 %%--------------------------------------------------------------------------------
 %% Schema access
 %%--------------------------------------------------------------------------------
@@ -881,7 +971,7 @@ generations_since(Shard, Since) ->
         Schema
     ).
 
--spec generation_at(shard_id(), emqx_ds:time()) -> generation().
+-spec generation_at(shard_id(), emqx_ds:time()) -> {gen_id(), generation()}.
 generation_at(Shard, Time) ->
     Schema = #{current_generation := Current} = get_schema_runtime(Shard),
     generation_at(Time, Current, Schema).
@@ -892,7 +982,7 @@ generation_at(Time, GenId, Schema) ->
         #{since := Since} when Time < Since andalso GenId > 0 ->
             generation_at(Time, prev_generation_id(GenId), Schema);
         _ ->
-            Gen
+            {GenId, Gen}
     end.
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).

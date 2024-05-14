@@ -28,15 +28,18 @@
     create/4,
     open/5,
     drop/5,
-    store_batch/4,
+    prepare_batch/4,
+    commit_batch/3,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
     make_delete_iterator/5,
     update_iterator/4,
-    next/4,
-    delete_next/5,
-    post_creation_actions/1
+    next/5,
+    delete_next/6,
+    post_creation_actions/1,
+
+    handle_event/4
 ]).
 
 %% internal exports:
@@ -66,6 +69,9 @@
 -define(start_time, 3).
 -define(storage_key, 4).
 -define(last_seen_key, 5).
+-define(cooked_payloads, 6).
+-define(cooked_lts_ops, 7).
+-define(cooked_ts, 8).
 
 -type options() ::
     #{
@@ -88,15 +94,27 @@
     db :: rocksdb:db_handle(),
     data :: rocksdb:cf_handle(),
     trie :: emqx_ds_lts:trie(),
+    trie_cf :: rocksdb:cf_handle(),
     keymappers :: array:array(emqx_ds_bitmask_keymapper:keymapper()),
-    ts_offset :: non_neg_integer()
+    ts_bits :: non_neg_integer(),
+    ts_offset :: non_neg_integer(),
+    gvars :: ets:table()
 }).
+
+-define(lts_persist_ops, emqx_ds_storage_bitfield_lts_ops).
 
 -type s() :: #s{}.
 
 -type stream() :: emqx_ds_lts:msg_storage_key().
 
 -type delete_stream() :: emqx_ds_lts:msg_storage_key().
+
+-type cooked_batch() ::
+    #{
+        ?cooked_payloads := [{binary(), binary()}],
+        ?cooked_lts_ops := [{binary(), binary()}],
+        ?cooked_ts := integer()
+    }.
 
 -type iterator() ::
     #{
@@ -140,6 +158,10 @@
 -define(DIM_TS, 2).
 
 -define(DS_LTS_COUNTERS, [?DS_LTS_SEEK_COUNTER, ?DS_LTS_NEXT_COUNTER, ?DS_LTS_COLLISION_COUNTER]).
+
+%% GVar used for idle detection:
+-define(IDLE_DETECT, idle_detect).
+-define(EPOCH(S, TS), (TS bsl S#s.ts_bits)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -212,8 +234,11 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         db = DBHandle,
         data = DataCF,
         trie = Trie,
+        trie_cf = TrieCF,
         keymappers = KeymapperCache,
-        ts_offset = TSOffsetBits
+        ts_offset = TSOffsetBits,
+        ts_bits = TSBits,
+        gvars = ets:new(?MODULE, [public, set, {read_concurrency, true}])
     }.
 
 -spec post_creation_actions(emqx_ds_storage_layer:post_creation_context()) ->
@@ -238,32 +263,78 @@ post_creation_actions(
     s()
 ) ->
     ok.
-drop(_Shard, DBHandle, GenId, CFRefs, #s{}) ->
+drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
+    emqx_ds_lts:destroy(Trie),
+    catch ets:delete(GVars),
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
     ok = rocksdb:drop_column_family(DBHandle, DataCF),
     ok = rocksdb:drop_column_family(DBHandle, TrieCF),
     ok.
 
--spec store_batch(
+-spec prepare_batch(
     emqx_ds_storage_layer:shard_id(),
     s(),
-    [{emqx_ds:time(), emqx_types:message()}],
+    [{emqx_ds:time(), emqx_types:message()}, ...],
     emqx_ds:message_store_opts()
 ) ->
-    emqx_ds:store_batch_result().
-store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
+    {ok, cooked_batch()}.
+prepare_batch(_ShardId, S, Messages, _Options) ->
+    _ = erase(?lts_persist_ops),
+    {Payloads, MaxTs} =
+        lists:mapfoldl(
+            fun({Timestamp, Msg}, Acc) ->
+                {Key, _} = make_key(S, Timestamp, Msg),
+                Payload = {Key, message_to_value_v1(Msg)},
+                {Payload, max(Acc, Timestamp)}
+            end,
+            0,
+            Messages
+        ),
+    {ok, #{
+        ?cooked_payloads => Payloads,
+        ?cooked_lts_ops => pop_lts_persist_ops(),
+        ?cooked_ts => MaxTs
+    }}.
+
+-spec commit_batch(
+    emqx_ds_storage_layer:shard_id(),
+    s(),
+    cooked_batch()
+) -> ok | emqx_ds:error(_).
+commit_batch(
+    _ShardId,
+    _Data,
+    #{?cooked_payloads := [], ?cooked_lts_ops := LTS}
+) ->
+    %% Assert:
+    [] = LTS,
+    ok;
+commit_batch(
+    _ShardId,
+    #s{db = DB, data = DataCF, trie = Trie, trie_cf = TrieCF, gvars = Gvars},
+    #{?cooked_lts_ops := LtsOps, ?cooked_payloads := Payloads, ?cooked_ts := MaxTs}
+) ->
     {ok, Batch} = rocksdb:batch(),
+    %% Commit LTS trie to the storage:
     lists:foreach(
-        fun({Timestamp, Msg}) ->
-            {Key, _} = make_key(S, Timestamp, Msg),
-            Val = serialize(Msg),
-            rocksdb:put(DB, Data, Key, Val, [])
+        fun({Key, Val}) ->
+            ok = rocksdb:batch_put(Batch, TrieCF, term_to_binary(Key), term_to_binary(Val))
         end,
-        Messages
+        LtsOps
+    ),
+    %% Apply LTS ops to the memory cache:
+    _ = emqx_ds_lts:trie_update(Trie, LtsOps),
+    %% Commit payloads:
+    lists:foreach(
+        fun({Key, Val}) ->
+            ok = rocksdb:batch_put(Batch, DataCF, Key, term_to_binary(Val))
+        end,
+        Payloads
     ),
     Result = rocksdb:write_batch(DB, Batch, []),
     rocksdb:release_batch(Batch),
+    ets:insert(Gvars, {?IDLE_DETECT, false, MaxTs}),
     %% NOTE
     %% Strictly speaking, `{error, incomplete}` is a valid result but should be impossible to
     %% observe until there's `{no_slowdown, true}` in write options.
@@ -348,13 +419,39 @@ update_iterator(
 ) ->
     {ok, OldIter#{?last_seen_key => DSKey}}.
 
-next(Shard, Schema = #s{ts_offset = TSOffset}, It, BatchSize) ->
-    %% Compute safe cutoff time.
-    %% It's the point in time where the last complete epoch ends, so we need to know
-    %% the current time to compute it.
+next(
+    Shard,
+    Schema = #s{ts_offset = TSOffset, ts_bits = TSBits},
+    It = #{?storage_key := Stream},
+    BatchSize,
+    Now
+) ->
     init_counters(),
-    Now = emqx_ds:timestamp_us(),
-    SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
+    %% Compute safe cutoff time. It's the point in time where the last
+    %% complete epoch ends, so we need to know the current time to
+    %% compute it. This is needed because new keys can be added before
+    %% the iterator.
+    IsWildcard =
+        case Stream of
+            {_StaticKey, []} -> false;
+            _ -> true
+        end,
+    SafeCutoffTime =
+        case IsWildcard of
+            true ->
+                (Now bsr TSOffset) bsl TSOffset;
+            false ->
+                %% Iterators scanning streams without varying topic
+                %% levels can operate on incomplete epochs, since new
+                %% matching keys for the single topic are added in
+                %% lexicographic order.
+                %%
+                %% Note: this DOES NOT apply to non-wildcard topic
+                %% filters operating on streams with varying parts:
+                %% iterator can jump to the next topic and then it
+                %% won't backtrack.
+                1 bsl TSBits - 1
+        end,
     try
         next_until(Schema, It, SafeCutoffTime, BatchSize)
     after
@@ -386,12 +483,11 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         rocksdb:iterator_close(ITHandle)
     end.
 
-delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize) ->
+delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize, Now) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
     %% the current time to compute it.
     init_counters(),
-    Now = emqx_message:timestamp_now(),
     SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
     try
         delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize)
@@ -440,6 +536,24 @@ delete_next_until(
     after
         rocksdb:iterator_close(ITHandle)
     end.
+
+handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
+    case ets:lookup(Gvars, ?IDLE_DETECT) of
+        [{?IDLE_DETECT, Latch, LastWrittenTs}] ->
+            ok;
+        [] ->
+            Latch = false,
+            LastWrittenTs = 0
+    end,
+    case Latch of
+        false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) ->
+            ets:insert(Gvars, {?IDLE_DETECT, true, LastWrittenTs}),
+            [dummy_event];
+        _ ->
+            []
+    end;
+handle_event(_ShardId, _Data, _Time, _Event) ->
+    [].
 
 %%================================================================================
 %% Internal functions
@@ -722,9 +836,6 @@ value_v1_to_message({Id, Qos, From, Flags, Headers, Topic, Payload, Timestamp, E
         extra = Extra
     }.
 
-serialize(Msg) ->
-    term_to_binary(message_to_value_v1(Msg)).
-
 deserialize(Blob) ->
     value_v1_to_message(binary_to_term(Blob)).
 
@@ -752,7 +863,8 @@ make_keymapper(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N) ->
 -spec restore_trie(pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()) -> emqx_ds_lts:trie().
 restore_trie(TopicIndexBytes, DB, CF) ->
     PersistCallback = fun(Key, Val) ->
-        rocksdb:put(DB, CF, term_to_binary(Key), term_to_binary(Val), [])
+        push_lts_persist_op(Key, Val),
+        ok
     end,
     {ok, IT} = rocksdb:iterator(DB, CF, []),
     try
@@ -800,7 +912,28 @@ data_cf(GenId) ->
 trie_cf(GenId) ->
     "emqx_ds_storage_bitfield_lts_trie" ++ integer_to_list(GenId).
 
+-spec push_lts_persist_op(_Key, _Val) -> ok.
+push_lts_persist_op(Key, Val) ->
+    case erlang:get(?lts_persist_ops) of
+        undefined ->
+            erlang:put(?lts_persist_ops, [{Key, Val}]);
+        L when is_list(L) ->
+            erlang:put(?lts_persist_ops, [{Key, Val} | L])
+    end.
+
+-spec pop_lts_persist_ops() -> [{_Key, _Val}].
+pop_lts_persist_ops() ->
+    case erlang:erase(?lts_persist_ops) of
+        undefined ->
+            [];
+        L when is_list(L) ->
+            L
+    end.
+
 -ifdef(TEST).
+
+serialize(Msg) ->
+    term_to_binary(message_to_value_v1(Msg)).
 
 serialize_deserialize_test() ->
     Msg = #message{

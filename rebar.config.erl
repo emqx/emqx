@@ -190,7 +190,7 @@ plugins() ->
 test_plugins() ->
     [
         {rebar3_proper, "0.12.1"},
-        {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-1"}}}
+        {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-2"}}}
     ].
 
 test_deps() ->

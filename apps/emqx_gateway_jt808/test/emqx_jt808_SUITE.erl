@@ -68,6 +68,22 @@ gateway.jt808 {
 }
 ">>).
 
+%% erlfmt-ignore
+-define(CONF_INVALID_AUTH_SERVER, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  proto {
+    auth {
+      allow_anonymous = false
+      registry = \"abc://abc\"
+      authentication = \"abc://abc\"
+    }
+  }
+}
+">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -77,6 +93,9 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(Case = t_case_invalid_auth_reg_server, Config) ->
+    Apps = boot_apps(Case, ?CONF_INVALID_AUTH_SERVER, Config),
+    [{suite_apps, Apps} | Config];
 init_per_testcase(Case = t_case02_anonymous_register_and_auth, Config) ->
     Apps = boot_apps(Case, ?CONF_ANONYMOUS, Config),
     [{suite_apps, Apps} | Config];
@@ -146,7 +165,7 @@ do_escape(<<C, Rest/binary>>, Acc) ->
 client_regi_procedure(Socket) ->
     client_regi_procedure(Socket, <<"123456">>).
 
-client_regi_procedure(Socket, ExpectedCode) ->
+client_regi_procedure(Socket, ExpectedAuthCode) ->
     %
     % send REGISTER
     %
@@ -170,7 +189,7 @@ client_regi_procedure(Socket, ExpectedCode) ->
     ok = gen_tcp:send(Socket, S1),
     {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
 
-    AckPacket = <<MsgSn:?WORD, 0, ExpectedCode/binary>>,
+    AckPacket = <<MsgSn:?WORD, 0, ExpectedAuthCode/binary>>,
     Size2 = size(AckPacket),
     MsgId2 = ?MS_REGISTER_ACK,
     MsgSn2 = 0,
@@ -181,7 +200,7 @@ client_regi_procedure(Socket, ExpectedCode) ->
     ?LOGT("S2=~p", [binary_to_hex_string(S2)]),
     ?LOGT("Packet=~p", [binary_to_hex_string(Packet)]),
     ?assertEqual(S2, Packet),
-    {ok, ExpectedCode}.
+    {ok, ExpectedAuthCode}.
 
 client_auth_procedure(Socket, AuthCode) ->
     ?LOGT("start auth procedure", []),
@@ -2682,6 +2701,52 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
     {error, timeout} = gen_tcp:recv(Socket, 0, 500),
 
     ok = gen_tcp:close(Socket).
+
+t_case_invalid_auth_reg_server(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    %
+    % send REGISTER
+    %
+    Manuf = <<"examp">>,
+    Model = <<"33333333333333333333">>,
+    DevId = <<"1234567">>,
+
+    Color = 3,
+    Plate = <<"ujvl239">>,
+    RegisterPacket =
+        <<58:?WORD, 59:?WORD, Manuf/binary, Model/binary, DevId/binary, Color, Plate/binary>>,
+    MsgId = ?MC_REGISTER,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 78,
+    Size = size(RegisterPacket),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S1 = gen_packet(Header, RegisterPacket),
+
+    %% Send REGISTER Packet
+    ok = gen_tcp:send(Socket, S1),
+    %% Receive REGISTER_ACK Packet
+    {ok, RecvPacket} = gen_tcp:recv(Socket, 0, 50_000),
+
+    %% No AuthCode when register failed
+    AuthCode = <<>>,
+
+    AckPacket = <<MsgSn:?WORD, 1, AuthCode/binary>>,
+    Size2 = size(AckPacket),
+    MsgId2 = ?MS_REGISTER_ACK,
+    MsgSn2 = 0,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet(Header2, AckPacket),
+
+    ?LOGT("S1=~p", [binary_to_hex_string(S1)]),
+    ?LOGT("S2=~p", [binary_to_hex_string(S2)]),
+    ?LOGT("Received REGISTER_ACK Packet=~p", [binary_to_hex_string(RecvPacket)]),
+
+    ?assertEqual(S2, RecvPacket),
+    ok.
 
 t_create_ALLOW_invalid_auth_config(_Config) ->
     test_invalid_config(create, true).

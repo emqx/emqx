@@ -230,9 +230,14 @@ handle_in(Frame = ?MSG(MType), Channel = #channel{conn_state = ConnState}) when
 handle_in(Frame, Channel = #channel{conn_state = connected}) ->
     ?SLOG(debug, #{msg => "recv_frame", frame => Frame}),
     do_handle_in(Frame, Channel);
+handle_in(Frame = ?MSG(MType), Channel) when
+    MType =:= ?MC_DEREGISTER
+->
+    ?SLOG(debug, #{msg => "recv_frame", frame => Frame, info => "jt808_client_deregister"}),
+    do_handle_in(Frame, Channel#channel{conn_state = disconnected});
 handle_in(Frame, Channel) ->
     ?SLOG(error, #{msg => "unexpected_frame", frame => Frame}),
-    {stop, unexpected_frame, Channel}.
+    {shutdown, unexpected_frame, Channel}.
 
 %% @private
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->
@@ -241,19 +246,24 @@ do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = I
     {ok, Channel#channel{inflight = NewInflight}};
 do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
-    case emqx_jt808_auth:register(Frame, Channel0#channel.auth) of
-        {ok, Authcode} ->
-            {ok, Conninfo} = enrich_conninfo(Frame, Channel0#channel{authcode = Authcode}),
-            {ok, Channel} = enrich_clientinfo(Frame, Conninfo),
-            handle_out({?MS_REGISTER_ACK, 0}, MsgSn, Channel);
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "register_failed", reason => Reason}),
-            ResCode =
-                case is_integer(Reason) of
-                    true -> Reason;
-                    false -> 1
-                end,
-            handle_out({?MS_REGISTER_ACK, ResCode}, MsgSn, Channel0)
+    case
+        emqx_utils:pipeline(
+            [
+                fun enrich_clientinfo/2,
+                fun enrich_conninfo/2,
+                fun set_log_meta/2
+            ],
+            Frame,
+            Channel0
+        )
+    of
+        {ok, _NFrame, Channel} ->
+            case register_(Frame, Channel) of
+                {ok, NChannel} ->
+                    handle_out({?MS_REGISTER_ACK, 0}, MsgSn, NChannel);
+                {error, ResCode} ->
+                    handle_out({?MS_REGISTER_ACK, ResCode}, MsgSn, Channel)
+            end
     end;
 do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
@@ -311,7 +321,7 @@ do_handle_in(
             {ok, Channel#channel{inflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight)}}
     end;
 do_handle_in(?MSG(?MC_DEREGISTER), Channel) ->
-    {stop, normal, Channel};
+    {shutdown, normal, Channel};
 do_handle_in(Frame = #{}, Channel = #channel{up_topic = Topic, inflight = Inflight}) ->
     {MsgId, MsgSn} = msgidsn(Frame),
     _ = do_publish(Topic, Frame),
@@ -858,6 +868,20 @@ is_driver_id_req_exist(#channel{inflight = Inflight}) ->
     % if there is a MS_REQ_DRIVER_ID (0x8702) command in re-tx queue
     Key = get_msg_ack(?MC_DRIVER_ID_REPORT, none),
     emqx_inflight:contain(Key, Inflight).
+
+register_(Frame, Channel0) ->
+    case emqx_jt808_auth:register(Frame, Channel0#channel.auth) of
+        {ok, Authcode} ->
+            {ok, Channel0#channel{authcode = Authcode}};
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "register_failed", reason => Reason}),
+            ResCode =
+                case is_integer(Reason) of
+                    true -> Reason;
+                    false -> 1
+                end,
+            {error, ResCode}
+    end.
 
 authenticate(_AuthFrame, #channel{authcode = anonymous}) ->
     true;

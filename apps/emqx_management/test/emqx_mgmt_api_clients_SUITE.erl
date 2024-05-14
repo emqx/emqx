@@ -49,6 +49,7 @@ persistent_session_testcases() ->
         t_persistent_sessions3,
         t_persistent_sessions4,
         t_persistent_sessions5,
+        t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2
     ].
@@ -546,6 +547,51 @@ t_persistent_sessions5(Config) ->
                 end,
                 [ClientId1, ClientId2, ClientId3, ClientId4]
             ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that expired durable sessions are returned with `is_expired => true'.
+t_persistent_sessions6(Config) ->
+    [N1, _N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := []}}}, list_request(APIPort)),
+
+    ?check_trace(
+        begin
+            O = #{api_port => APIPort},
+            ClientId = <<"c1">>,
+            C1 = connect_client(#{port => Port1, clientid => ClientId, expiry => 1}),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => connected}),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, #{<<"data">> := [#{<<"is_expired">> := false}]}}},
+                    list_request(APIPort)
+                )
+            ),
+
+            ok = emqtt:disconnect(C1),
+            %% Wait for session to be considered expired but not GC'ed
+            ct:sleep(2_000),
+            assert_single_client(O#{node => N1, clientid => ClientId, status => disconnected}),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, #{<<"data">> := [#{<<"is_expired">> := true}]}}},
+                    list_request(APIPort)
+                )
+            ),
+
+            C2 = connect_client(#{port => Port1, clientid => ClientId}),
+            disconnect_and_destroy_session(C2),
 
             ok
         end,

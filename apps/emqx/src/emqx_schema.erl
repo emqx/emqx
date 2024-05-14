@@ -1789,7 +1789,9 @@ mqtt_listener(Bind) ->
                     hoconsc:array(string()),
                     #{
                         desc => ?DESC(mqtt_listener_access_rules),
-                        default => [<<"allow all">>]
+                        default => [<<"allow all">>],
+                        converter => fun access_rules_converter/1,
+                        validator => fun access_rules_validator/1
                     }
                 )},
             {"proxy_protocol",
@@ -1809,6 +1811,50 @@ mqtt_listener(Bind) ->
                     }
                 )}
         ] ++ emqx_schema_hooks:injection_point('mqtt.listener').
+
+access_rules_converter(AccessRules) ->
+    DeepRules =
+        lists:foldr(
+            fun(Rule, Acc) ->
+                Rules0 = re:split(Rule, <<"\\s*,\\s*">>, [{return, binary}]),
+                Rules1 = [string:trim(R) || R <- Rules0],
+                [Rules1 | Acc]
+            end,
+            [],
+            AccessRules
+        ),
+    [unicode:characters_to_list(RuleBin) || RuleBin <- lists:flatten(DeepRules)].
+
+access_rules_validator(AccessRules) ->
+    InvalidRules = [Rule || Rule <- AccessRules, is_invalid_rule(Rule)],
+    case InvalidRules of
+        [] ->
+            ok;
+        _ ->
+            MsgStr = io_lib:format("invalid_rule(s): ~ts", [string:join(InvalidRules, ", ")]),
+            MsgBin = unicode:characters_to_binary(MsgStr),
+            {error, MsgBin}
+    end.
+
+is_invalid_rule(S) ->
+    try
+        [Action, CIDR] = string:tokens(S, " "),
+        case Action of
+            "allow" -> ok;
+            "deny" -> ok
+        end,
+        case CIDR of
+            "all" ->
+                ok;
+            _ ->
+                %% should not crash
+                _ = esockd_cidr:parse(CIDR, true),
+                ok
+        end,
+        false
+    catch
+        _:_ -> true
+    end.
 
 base_listener(Bind) ->
     [
