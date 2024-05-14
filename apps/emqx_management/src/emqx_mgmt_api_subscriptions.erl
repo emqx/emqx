@@ -310,7 +310,12 @@ consume_n_matching(Map, Pred, N, S) ->
 consume_n_matching(_Map, _Pred, _N, [], Acc) ->
     {lists:reverse(Acc), []};
 consume_n_matching(_Map, _Pred, 0, S, Acc) ->
-    {lists:reverse(Acc), S};
+    case emqx_utils_stream:next(S) of
+        [] ->
+            {lists:reverse(Acc), []};
+        _ ->
+            {lists:reverse(Acc), S}
+    end;
 consume_n_matching(Map, Pred, N, S0, Acc) ->
     case emqx_utils_stream:next(S0) of
         [] ->
@@ -396,11 +401,16 @@ merge_queries(QString0, Q1, Q2) ->
             Q2Page = ceil(C1 / Limit),
             case Page =< Q2Page of
                 true ->
-                    #{data := Data, meta := #{hasnext := HN}} = Q1(QString0),
-                    #{
-                        data => Data,
-                        meta => Meta#{hasnext => HN orelse C2 > 0}
-                    };
+                    #{data := Data1, meta := #{hasnext := HN1}} = Q1(QString0),
+                    maybe_fetch_from_second_query(#{
+                        rows1 => Data1,
+                        limit => Limit,
+                        hasnext1 => HN1,
+                        meta => Meta,
+                        count2 => C2,
+                        query2 => Q2,
+                        query_string => QString0
+                    });
                 false ->
                     QString = QString0#{<<"page">> => Page - Q2Page},
                     #{data := Data, meta := #{hasnext := HN}} = Q2(QString),
@@ -420,6 +430,31 @@ merge_queries(QString0, Q1, Q2) ->
                 data => D1 ++ D2
             }
     end.
+
+maybe_fetch_from_second_query(Params) ->
+    #{
+        rows1 := Data1,
+        limit := Limit,
+        hasnext1 := HN1,
+        meta := Meta,
+        count2 := C2,
+        query2 := Q2,
+        query_string := QString0
+    } = Params,
+    NumRows1 = length(Data1),
+    {Data, HN} =
+        case (NumRows1 >= Limit) orelse HN1 of
+            true ->
+                {Data1, HN1 orelse C2 > 0};
+            false ->
+                #{data := Data2, meta := #{hasnext := HN2}} =
+                    Q2(QString0#{<<"limit">> := Limit - NumRows1}),
+                {Data1 ++ Data2, HN2}
+        end,
+    #{
+        data => Data,
+        meta => Meta#{hasnext => HN}
+    }.
 
 resp_count(Query, QFun) ->
     #{meta := Meta} = QFun(Query#{<<"limit">> => 1, <<"page">> => 1}),

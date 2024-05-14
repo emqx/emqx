@@ -24,7 +24,6 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 
 all() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
