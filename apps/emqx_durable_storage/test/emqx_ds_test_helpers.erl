@@ -164,8 +164,8 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
         ->
             ?tp(notice, test_apply_operation, #{node => Node, operation => Operation, arg => Arg}),
             %% Apply the transition.
-            ?assertEqual(
-                ok,
+            ?assertMatch(
+                {ok, _},
                 ?ON(
                     Node,
                     emqx_ds_replication_layer_meta:Operation(DB, Arg)

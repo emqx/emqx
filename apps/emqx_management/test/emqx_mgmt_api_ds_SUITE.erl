@@ -174,6 +174,14 @@ t_leave(_) ->
         request_api(delete, Path)
     ).
 
+t_leave_notfound(_) ->
+    Site = "not_part_of_replica_set",
+    Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas", Site]),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        request_api(delete, Path)
+    ).
+
 parse_error({ok, Code, JSON}) ->
     {ok, Code, emqx_utils_json:decode(JSON)};
 parse_error(Err) ->
