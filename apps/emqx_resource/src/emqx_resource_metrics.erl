@@ -402,7 +402,7 @@ retried_failed_inc(ID, Val) ->
 retried_failed_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'retried.failed').
 
-%% @doc Count messages that were sucessfully sent after at least one retry
+%% @doc Count messages that were successfully sent after at least one retry
 retried_success_inc(ID) ->
     retried_success_inc(ID, 1).
 

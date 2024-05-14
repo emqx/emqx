@@ -165,7 +165,7 @@ t_ctx_connack(_) ->
             clean_start => true,
             clientid => <<"c_emqx">>,
             event_type => client_connack,
-            reason_code => <<"sucess">>,
+            reason_code => <<"success">>,
             username => <<"u_emqx">>
         },
     Expected = check_result([clientid, username, reason_code], [node], Context),

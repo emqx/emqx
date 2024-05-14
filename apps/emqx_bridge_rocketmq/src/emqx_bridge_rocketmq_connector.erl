@@ -347,7 +347,7 @@ parse_dispatch_strategy(#{strategy := Template}) ->
                         %% better distribute the load, effectively making it `random'
                         %% dispatch if the key is absent and we are using `key_dispatch'.
                         %% Otherwise, it'll be deterministic.
-                        emqx_guid:gen();
+                        emqx_guid:to_base62(emqx_guid:gen());
                     Key ->
                         Key
                 end

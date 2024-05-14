@@ -243,7 +243,7 @@ t_rule_test_smoke(_Config) ->
                         #{
                             <<"clientid">> => <<"c_emqx">>,
                             <<"event_type">> => <<"client_connack">>,
-                            <<"reason_code">> => <<"sucess">>,
+                            <<"reason_code">> => <<"success">>,
                             <<"username">> => <<"u_emqx">>
                         },
                     <<"sql">> => <<"SELECT\n  *\nFROM\n  \"t/#\"">>

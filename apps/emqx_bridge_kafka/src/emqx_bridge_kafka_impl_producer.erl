@@ -503,7 +503,7 @@ on_get_status(
 ) ->
     %% Note: we must avoid returning `?status_disconnected' here if the connector ever was
     %% connected.  If the connector ever connected, wolff producers might have been
-    %% sucessfully started, and returning `?status_disconnected' will make resource
+    %% successfully started, and returning `?status_disconnected' will make resource
     %% manager try to restart the producers / connector, thus potentially dropping data
     %% held in wolff producer's replayq.
     case check_client_connectivity(ClientId) of
