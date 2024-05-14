@@ -88,7 +88,7 @@
         [
             emqx_license,
             emqx_enterprise,
-            emqx_message_validation,
+            emqx_schema_validation,
             emqx_connector_aggregator,
             emqx_bridge_kafka,
             emqx_bridge_pulsar,

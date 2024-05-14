@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation_schema).
+-module(emqx_schema_validation_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -26,12 +26,12 @@
 %% `hocon_schema' API
 %%------------------------------------------------------------------------------
 
-namespace() -> message_validation.
+namespace() -> schema_validation.
 
 roots() ->
-    [{message_validation, mk(ref(message_validation), #{importance => ?IMPORTANCE_HIDDEN})}].
+    [{schema_validation, mk(ref(schema_validation), #{importance => ?IMPORTANCE_HIDDEN})}].
 
-fields(message_validation) ->
+fields(schema_validation) ->
     [
         {validations,
             mk(
@@ -199,7 +199,7 @@ ensure_array(L, _) when is_list(L) -> L;
 ensure_array(B, _) -> [B].
 
 validate_sql(SQL) ->
-    case emqx_message_validation:parse_sql_check(SQL) of
+    case emqx_schema_validation:parse_sql_check(SQL) of
         {ok, _Parsed} ->
             ok;
         Error = {error, _} ->

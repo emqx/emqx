@@ -49,7 +49,7 @@
     stats/2,
     auth/2,
     data_integration/2,
-    message_validation/2
+    schema_validation/2
 ]).
 
 -export([lookup_from_local_nodes/3]).
@@ -73,7 +73,7 @@ paths() ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 paths_ee() ->
-    ["/prometheus/message_validation"].
+    ["/prometheus/schema_validation"].
 %% ELSE if(?EMQX_RELEASE_EDITION == ee).
 -else.
 paths_ee() ->
@@ -139,12 +139,12 @@ schema("/prometheus/data_integration") ->
                     #{200 => prometheus_data_schema()}
             }
     };
-schema("/prometheus/message_validation") ->
+schema("/prometheus/schema_validation") ->
     #{
-        'operationId' => message_validation,
+        'operationId' => schema_validation,
         get =>
             #{
-                description => ?DESC(get_prom_message_validation),
+                description => ?DESC(get_prom_schema_validation),
                 tags => ?TAGS,
                 parameters => [ref(mode)],
                 security => security(),
@@ -223,8 +223,8 @@ auth(get, #{headers := Headers, query_string := Qs}) ->
 data_integration(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus_data_integration, collect_opts(Headers, Qs)).
 
-message_validation(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_message_validation, collect_opts(Headers, Qs)).
+schema_validation(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus_schema_validation, collect_opts(Headers, Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs

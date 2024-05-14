@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation_http_api_SUITE).
+-module(emqx_schema_validation_http_api_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -31,7 +31,7 @@ init_per_suite(Config) ->
                 emqx,
                 emqx_conf,
                 emqx_rule_engine,
-                emqx_message_validation,
+                emqx_schema_validation,
                 emqx_management,
                 emqx_mgmt_api_test_util:emqx_dashboard(),
                 emqx_schema_registry
@@ -66,9 +66,9 @@ end_per_testcase(_TestCase, _Config) ->
 clear_all_validations() ->
     lists:foreach(
         fun(#{name := Name}) ->
-            {ok, _} = emqx_message_validation:delete(Name)
+            {ok, _} = emqx_schema_validation:delete(Name)
         end,
-        emqx_message_validation:list()
+        emqx_schema_validation:list()
     ).
 
 reset_all_global_metrics() ->
@@ -146,7 +146,7 @@ schema_check(Type, SerdeName, Overrides) ->
         Overrides
     ).
 
-api_root() -> "message_validations".
+api_root() -> "schema_validations".
 
 simplify_result(Res) ->
     case Res of
@@ -358,7 +358,7 @@ assert_index_order(ExpectedOrder, Topic, Comment) ->
         ExpectedOrder,
         [
             N
-         || #{name := N} <- emqx_message_validation_registry:matching_validations(Topic)
+         || #{name := N} <- emqx_schema_validation_registry:matching_validations(Topic)
         ],
         Comment
     ).
@@ -366,7 +366,7 @@ assert_index_order(ExpectedOrder, Topic, Comment) ->
 create_failure_tracing_rule() ->
     Params = #{
         enable => true,
-        sql => <<"select * from \"$events/message_validation_failed\" ">>,
+        sql => <<"select * from \"$events/schema_validation_failed\" ">>,
         actions => [make_trace_fn_action()]
     },
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
@@ -689,7 +689,7 @@ t_log_failure_none(_Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([#{log_level := none}], ?of_kind(message_validation_failed, Trace)),
+            ?assertMatch([#{log_level := none}], ?of_kind(schema_validation_failed, Trace)),
             ok
         end
     ),
@@ -719,12 +719,12 @@ t_action_ignore(_Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([#{action := ignore}], ?of_kind(message_validation_failed, Trace)),
+            ?assertMatch([#{action := ignore}], ?of_kind(schema_validation_failed, Trace)),
             ok
         end
     ),
     ?assertMatch(
-        [{_, #{data := #{validation := Name1, event := 'message.validation_failed'}}}],
+        [{_, #{data := #{validation := Name1, event := 'schema.validation_failed'}}}],
         get_traced_failures_from_rule_engine()
     ),
     ok.
@@ -1093,8 +1093,8 @@ t_multiple_validations(_Config) ->
 
     ?assertMatch(
         [
-            {_, #{data := #{validation := Name1, event := 'message.validation_failed'}}},
-            {_, #{data := #{validation := Name2, event := 'message.validation_failed'}}}
+            {_, #{data := #{validation := Name1, event := 'schema.validation_failed'}}},
+            {_, #{data := #{validation := Name2, event := 'schema.validation_failed'}}}
         ],
         get_traced_failures_from_rule_engine()
     ),

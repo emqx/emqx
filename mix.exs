@@ -189,7 +189,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_s3,
       :emqx_bridge_s3,
       :emqx_schema_registry,
-      :emqx_message_validation,
+      :emqx_schema_validation,
       :emqx_enterprise,
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,

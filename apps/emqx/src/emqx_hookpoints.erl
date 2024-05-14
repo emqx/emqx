@@ -59,7 +59,7 @@
     'message.publish',
     'message.puback',
     'message.dropped',
-    'message.validation_failed',
+    'schema.validation_failed',
     'message.delivered',
     'message.acked',
     'delivery.dropped',
@@ -183,7 +183,7 @@ when
 -callback 'message.dropped'(emqx_types:message(), #{node => node()}, _Reason :: atom()) ->
     callback_result().
 
--callback 'message.validation_failed'(emqx_types:message(), #{node => node()}, _Ctx :: map()) ->
+-callback 'schema.validation_failed'(emqx_types:message(), #{node => node()}, _Ctx :: map()) ->
     callback_result().
 
 -callback 'message.delivered'(emqx_types:clientinfo(), Msg) -> fold_callback_result(Msg) when

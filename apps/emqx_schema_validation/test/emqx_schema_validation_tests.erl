@@ -1,22 +1,22 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation_tests).
+-module(emqx_schema_validation_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(VALIDATIONS_PATH, "message_validation.validations").
+-define(VALIDATIONS_PATH, "schema_validation.validations").
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
 parse_and_check(InnerConfigs) ->
-    RootBin = <<"message_validation">>,
+    RootBin = <<"schema_validation">>,
     InnerBin = <<"validations">>,
     RawConf = #{RootBin => #{InnerBin => InnerConfigs}},
     #{RootBin := #{InnerBin := Checked}} = hocon_tconf:check_plain(
-        emqx_message_validation_schema,
+        emqx_schema_validation_schema,
         RawConf,
         #{
             required => false,
@@ -65,9 +65,9 @@ schema_check(Type, SerdeName, Overrides) ->
     ).
 
 eval_sql(Message, SQL) ->
-    {ok, Check} = emqx_message_validation:parse_sql_check(SQL),
+    {ok, Check} = emqx_schema_validation:parse_sql_check(SQL),
     Validation = #{log_failure => #{level => warning}, name => <<"validation">>},
-    emqx_message_validation:evaluate_sql_check(Check, Validation, Message).
+    emqx_schema_validation:evaluate_sql_check(Check, Validation, Message).
 
 message() ->
     message(_Opts = #{}).
@@ -196,7 +196,7 @@ invalid_names_test_() ->
                 {_Schema, [
                     #{
                         kind := validation_error,
-                        path := "message_validation.validations.1.name"
+                        path := "schema_validation.validations.1.name"
                     }
                 ]},
                 parse_and_check([validation(InvalidName, [sql_check()])])
@@ -239,7 +239,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated topics: t/1">>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.topics"
+                        path := "schema_validation.validations.1.topics"
                     }
                 ]},
                 parse_and_check([
@@ -256,7 +256,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated topics: t/1">>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.topics"
+                        path := "schema_validation.validations.1.topics"
                     }
                 ]},
                 parse_and_check([
@@ -273,7 +273,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated topics: t/1, t/2">>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.topics"
+                        path := "schema_validation.validations.1.topics"
                     }
                 ]},
                 parse_and_check([
@@ -320,7 +320,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated schema checks: json:a">>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.checks"
+                        path := "schema_validation.validations.1.checks"
                     }
                 ]},
                 parse_and_check([
@@ -336,7 +336,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated schema checks: json:a">>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.checks"
+                        path := "schema_validation.validations.1.checks"
                     }
                 ]},
                 parse_and_check([
@@ -353,7 +353,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated schema checks: json:a">>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.checks"
+                        path := "schema_validation.validations.1.checks"
                     }
                 ]},
                 parse_and_check([
@@ -370,7 +370,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated schema checks: json:a">>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.checks"
+                        path := "schema_validation.validations.1.checks"
                     }
                 ]},
                 parse_and_check([
@@ -387,7 +387,7 @@ duplicated_check_test_() ->
                     #{
                         reason := <<"duplicated schema checks: ", _/binary>>,
                         kind := validation_error,
-                        path := "message_validation.validations.1.checks"
+                        path := "schema_validation.validations.1.checks"
                     }
                 ]},
                 parse_and_check([
