@@ -189,7 +189,9 @@ qs([{K, V} | More], Acc) ->
 serialize_body(<<"application/json">>, Body) ->
     emqx_utils_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    qs(maps:to_list(Body)).
+    qs(maps:to_list(Body));
+serialize_body(undefined, _) ->
+    throw("missing_content_type_header").
 
 handle_response(Headers, Body) ->
     ContentType = proplists:get_value(<<"content-type">>, Headers),
