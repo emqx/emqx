@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation_app).
+-module(emqx_schema_validation_app).
 
 -behaviour(application).
 
@@ -18,15 +18,15 @@
 
 -spec start(application:start_type(), term()) -> {ok, pid()}.
 start(_Type, _Args) ->
-    {ok, Sup} = emqx_message_validation_sup:start_link(),
-    ok = emqx_message_validation:add_handler(),
-    ok = emqx_message_validation:register_hooks(),
-    ok = emqx_message_validation:load(),
+    {ok, Sup} = emqx_schema_validation_sup:start_link(),
+    ok = emqx_schema_validation:add_handler(),
+    ok = emqx_schema_validation:register_hooks(),
+    ok = emqx_schema_validation:load(),
     {ok, Sup}.
 
 -spec stop(term()) -> ok.
 stop(_State) ->
-    ok = emqx_message_validation:unload(),
-    ok = emqx_message_validation:unregister_hooks(),
-    ok = emqx_message_validation:remove_handler(),
+    ok = emqx_schema_validation:unload(),
+    ok = emqx_schema_validation:unregister_hooks(),
+    ok = emqx_schema_validation:remove_handler(),
     ok.

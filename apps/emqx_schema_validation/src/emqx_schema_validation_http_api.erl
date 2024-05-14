@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_message_validation_http_api).
+-module(emqx_schema_validation_http_api).
 
 -behaviour(minirest_api).
 
@@ -21,43 +21,43 @@
 
 %% `minirest' handlers
 -export([
-    '/message_validations'/2,
-    '/message_validations/reorder'/2,
-    '/message_validations/validation/:name'/2,
-    '/message_validations/validation/:name/metrics'/2,
-    '/message_validations/validation/:name/metrics/reset'/2,
-    '/message_validations/validation/:name/enable/:enable'/2
+    '/schema_validations'/2,
+    '/schema_validations/reorder'/2,
+    '/schema_validations/validation/:name'/2,
+    '/schema_validations/validation/:name/metrics'/2,
+    '/schema_validations/validation/:name/metrics/reset'/2,
+    '/schema_validations/validation/:name/enable/:enable'/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
 %%-------------------------------------------------------------------------------------------------
 
--define(TAGS, [<<"Message Validation">>]).
--define(METRIC_NAME, message_validation).
+-define(TAGS, [<<"Schema Validation">>]).
+-define(METRIC_NAME, schema_validation).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
 %%-------------------------------------------------------------------------------------------------
 
-namespace() -> "message_validation_http_api".
+namespace() -> "schema_validation_http_api".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
-        "/message_validations",
-        "/message_validations/reorder",
-        "/message_validations/validation/:name",
-        "/message_validations/validation/:name/metrics",
-        "/message_validations/validation/:name/metrics/reset",
-        "/message_validations/validation/:name/enable/:enable"
+        "/schema_validations",
+        "/schema_validations/reorder",
+        "/schema_validations/validation/:name",
+        "/schema_validations/validation/:name/metrics",
+        "/schema_validations/validation/:name/metrics/reset",
+        "/schema_validations/validation/:name/enable/:enable"
     ].
 
-schema("/message_validations") ->
+schema("/schema_validations") ->
     #{
-        'operationId' => '/message_validations',
+        'operationId' => '/schema_validations',
         get => #{
             tags => ?TAGS,
             summary => <<"List validations">>,
@@ -67,7 +67,7 @@ schema("/message_validations") ->
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
                             array(
-                                emqx_message_validation_schema:api_schema(list)
+                                emqx_schema_validation_schema:api_schema(list)
                             ),
                             example_return_list()
                         )
@@ -78,14 +78,14 @@ schema("/message_validations") ->
             summary => <<"Append a new validation">>,
             description => ?DESC("append_validation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_message_validation_schema:api_schema(post),
+                emqx_schema_validation_schema:api_schema(post),
                 example_input_create()
             ),
             responses =>
                 #{
                     201 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            emqx_message_validation_schema:api_schema(post),
+                            emqx_schema_validation_schema:api_schema(post),
                             example_return_create()
                         ),
                     400 => error_schema('ALREADY_EXISTS', "Validation already exists")
@@ -96,14 +96,14 @@ schema("/message_validations") ->
             summary => <<"Update a validation">>,
             description => ?DESC("update_validation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_message_validation_schema:api_schema(put),
+                emqx_schema_validation_schema:api_schema(put),
                 example_input_update()
             ),
             responses =>
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            emqx_message_validation_schema:api_schema(put),
+                            emqx_schema_validation_schema:api_schema(put),
                             example_return_update()
                         ),
                     404 => error_schema('NOT_FOUND', "Validation not found"),
@@ -111,9 +111,9 @@ schema("/message_validations") ->
                 }
         }
     };
-schema("/message_validations/reorder") ->
+schema("/schema_validations/reorder") ->
     #{
-        'operationId' => '/message_validations/reorder',
+        'operationId' => '/schema_validations/reorder',
         post => #{
             tags => ?TAGS,
             summary => <<"Reorder all validations">>,
@@ -140,9 +140,9 @@ schema("/message_validations/reorder") ->
                 }
         }
     };
-schema("/message_validations/validation/:name") ->
+schema("/schema_validations/validation/:name") ->
     #{
-        'operationId' => '/message_validations/validation/:name',
+        'operationId' => '/schema_validations/validation/:name',
         get => #{
             tags => ?TAGS,
             summary => <<"Lookup a validation">>,
@@ -153,7 +153,7 @@ schema("/message_validations/validation/:name") ->
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
                             array(
-                                emqx_message_validation_schema:api_schema(lookup)
+                                emqx_schema_validation_schema:api_schema(lookup)
                             ),
                             example_return_lookup()
                         ),
@@ -172,9 +172,9 @@ schema("/message_validations/validation/:name") ->
                 }
         }
     };
-schema("/message_validations/validation/:name/metrics") ->
+schema("/schema_validations/validation/:name/metrics") ->
     #{
-        'operationId' => '/message_validations/validation/:name/metrics',
+        'operationId' => '/schema_validations/validation/:name/metrics',
         get => #{
             tags => ?TAGS,
             summary => <<"Get validation metrics">>,
@@ -191,9 +191,9 @@ schema("/message_validations/validation/:name/metrics") ->
                 }
         }
     };
-schema("/message_validations/validation/:name/metrics/reset") ->
+schema("/schema_validations/validation/:name/metrics/reset") ->
     #{
-        'operationId' => '/message_validations/validation/:name/metrics/reset',
+        'operationId' => '/schema_validations/validation/:name/metrics/reset',
         post => #{
             tags => ?TAGS,
             summary => <<"Reset validation metrics">>,
@@ -206,9 +206,9 @@ schema("/message_validations/validation/:name/metrics/reset") ->
                 }
         }
     };
-schema("/message_validations/validation/:name/enable/:enable") ->
+schema("/schema_validations/validation/:name/enable/:enable") ->
     #{
-        'operationId' => '/message_validations/validation/:name/enable/:enable',
+        'operationId' => '/schema_validations/validation/:name/enable/:enable',
         post => #{
             tags => ?TAGS,
             summary => <<"Enable or disable validation">>,
@@ -285,29 +285,29 @@ fields(node_metrics) ->
 %% `minirest' handlers
 %%-------------------------------------------------------------------------------------------------
 
-'/message_validations'(get, _Params) ->
-    ?OK(emqx_message_validation:list());
-'/message_validations'(post, #{body := Params = #{<<"name">> := Name}}) ->
+'/schema_validations'(get, _Params) ->
+    ?OK(emqx_schema_validation:list());
+'/schema_validations'(post, #{body := Params = #{<<"name">> := Name}}) ->
     with_validation(
         Name,
         return(?BAD_REQUEST('ALREADY_EXISTS', <<"Validation already exists">>)),
         fun() ->
-            case emqx_message_validation:insert(Params) of
+            case emqx_schema_validation:insert(Params) of
                 {ok, _} ->
-                    {ok, Res} = emqx_message_validation:lookup(Name),
+                    {ok, Res} = emqx_schema_validation:lookup(Name),
                     {201, Res};
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end
         end
     );
-'/message_validations'(put, #{body := Params = #{<<"name">> := Name}}) ->
+'/schema_validations'(put, #{body := Params = #{<<"name">> := Name}}) ->
     with_validation(
         Name,
         fun() ->
-            case emqx_message_validation:update(Params) of
+            case emqx_schema_validation:update(Params) of
                 {ok, _} ->
-                    {ok, Res} = emqx_message_validation:lookup(Name),
+                    {ok, Res} = emqx_schema_validation:lookup(Name),
                     {200, Res};
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
@@ -316,17 +316,17 @@ fields(node_metrics) ->
         not_found()
     ).
 
-'/message_validations/validation/:name'(get, #{bindings := #{name := Name}}) ->
+'/schema_validations/validation/:name'(get, #{bindings := #{name := Name}}) ->
     with_validation(
         Name,
         fun(Validation) -> ?OK(Validation) end,
         not_found()
     );
-'/message_validations/validation/:name'(delete, #{bindings := #{name := Name}}) ->
+'/schema_validations/validation/:name'(delete, #{bindings := #{name := Name}}) ->
     with_validation(
         Name,
         fun() ->
-            case emqx_message_validation:delete(Name) of
+            case emqx_schema_validation:delete(Name) of
                 {ok, _} ->
                     ?NO_CONTENT;
                 {error, Error} ->
@@ -336,10 +336,10 @@ fields(node_metrics) ->
         not_found()
     ).
 
-'/message_validations/reorder'(post, #{body := #{<<"order">> := Order}}) ->
+'/schema_validations/reorder'(post, #{body := #{<<"order">> := Order}}) ->
     do_reorder(Order).
 
-'/message_validations/validation/:name/enable/:enable'(post, #{
+'/schema_validations/validation/:name/enable/:enable'(post, #{
     bindings := #{name := Name, enable := Enable}
 }) ->
     with_validation(
@@ -348,7 +348,7 @@ fields(node_metrics) ->
         not_found()
     ).
 
-'/message_validations/validation/:name/metrics'(get, #{bindings := #{name := Name}}) ->
+'/schema_validations/validation/:name/metrics'(get, #{bindings := #{name := Name}}) ->
     with_validation(
         Name,
         fun() ->
@@ -371,7 +371,7 @@ fields(node_metrics) ->
         not_found()
     ).
 
-'/message_validations/validation/:name/metrics/reset'(post, #{bindings := #{name := Name}}) ->
+'/schema_validations/validation/:name/metrics/reset'(post, #{bindings := #{name := Name}}) ->
     with_validation(
         Name,
         fun() ->
@@ -516,7 +516,7 @@ error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(
     ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
 
 do_reorder(Order) ->
-    case emqx_message_validation:reorder(Order) of
+    case emqx_schema_validation:reorder(Order) of
         {ok, _} ->
             ?NO_CONTENT;
         {error,
@@ -538,7 +538,7 @@ do_reorder(Order) ->
 
 do_enable_disable(Validation, Enable) ->
     RawValidation = make_serializable(Validation),
-    case emqx_message_validation:update(RawValidation#{<<"enable">> => Enable}) of
+    case emqx_schema_validation:update(RawValidation#{<<"enable">> => Enable}) of
         {ok, _} ->
             ?NO_CONTENT;
         {error, Reason} ->
@@ -546,7 +546,7 @@ do_enable_disable(Validation, Enable) ->
     end.
 
 with_validation(Name, FoundFn, NotFoundFn) ->
-    case emqx_message_validation:lookup(Name) of
+    case emqx_schema_validation:lookup(Name) of
         {ok, Validation} ->
             {arity, Arity} = erlang:fun_info(FoundFn, arity),
             case Arity of
@@ -564,15 +564,15 @@ not_found() ->
     return(?NOT_FOUND(<<"Validation not found">>)).
 
 make_serializable(Validation) ->
-    Schema = emqx_message_validation_schema,
+    Schema = emqx_schema_validation_schema,
     RawConfig = #{
-        <<"message_validation">> => #{
+        <<"schema_validation">> => #{
             <<"validations">> =>
                 [emqx_utils_maps:binary_key_map(Validation)]
         }
     },
     #{
-        <<"message_validation">> := #{
+        <<"schema_validation">> := #{
             <<"validations">> :=
                 [Serialized]
         }

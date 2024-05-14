@@ -1,4 +1,4 @@
-emqx_message_validation_http_api {
+emqx_schema_validation_http_api {
 
   list_validations.desc:
   """List validations"""

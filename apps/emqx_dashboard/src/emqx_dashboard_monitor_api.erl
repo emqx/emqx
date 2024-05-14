@@ -189,9 +189,9 @@ swagger_desc(sent_bytes) ->
 swagger_desc(dropped) ->
     swagger_desc_format("Dropped messages ");
 swagger_desc(validation_succeeded) ->
-    swagger_desc_format("Message validations succeeded ");
+    swagger_desc_format("Schema validations succeeded ");
 swagger_desc(validation_failed) ->
-    swagger_desc_format("Message validations failed ");
+    swagger_desc_format("Schema validations failed ");
 swagger_desc(persisted) ->
     swagger_desc_format("Messages saved to the durable storage ");
 swagger_desc(subscriptions) ->
@@ -217,9 +217,9 @@ swagger_desc(sent_msg_rate) ->
 swagger_desc(dropped_msg_rate) ->
     swagger_desc_format("Dropped messages ", per);
 swagger_desc(validation_succeeded_rate) ->
-    swagger_desc_format("Message validations succeeded ", per);
+    swagger_desc_format("Schema validations succeeded ", per);
 swagger_desc(validation_failed_rate) ->
-    swagger_desc_format("Message validations failed ", per);
+    swagger_desc_format("Schema validations failed ", per);
 swagger_desc(persisted_rate) ->
     swagger_desc_format("Messages saved to the durable storage ", per);
 swagger_desc(retained_msg_count) ->
