@@ -239,7 +239,7 @@ t_rebalance(Config) ->
             ),
 
             %% Scale down the cluster by removing the first node.
-            ?assertEqual(ok, ds_repl_meta(N1, leave_db_site, [?DB, S1])),
+            ?assertMatch({ok, _}, ds_repl_meta(N1, leave_db_site, [?DB, S1])),
             ct:pal("Transitions (~p -> ~p): ~p~n", [
                 Sites, tl(Sites), emqx_ds_test_helpers:transitions(N1, ?DB)
             ]),
@@ -297,12 +297,12 @@ t_join_leave_errors(Config) ->
     ),
     %% NOTE: Leaving a non-existent site is not an error.
     ?assertEqual(
-        ok,
+        {ok, unchanged},
         ds_repl_meta(N1, leave_db_site, [?DB, <<"NO-MANS-SITE">>])
     ),
 
     %% Should be no-op.
-    ?assertEqual(ok, ds_repl_meta(N1, join_db_site, [?DB, S1])),
+    ?assertEqual({ok, unchanged}, ds_repl_meta(N1, join_db_site, [?DB, S1])),
     ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB)),
 
     %% Impossible to leave the last site.
@@ -312,13 +312,13 @@ t_join_leave_errors(Config) ->
     ),
 
     %% "Move" the DB to the other node.
-    ?assertEqual(ok, ds_repl_meta(N1, join_db_site, [?DB, S2])),
-    ?assertEqual(ok, ds_repl_meta(N2, leave_db_site, [?DB, S1])),
+    ?assertMatch({ok, _}, ds_repl_meta(N1, join_db_site, [?DB, S2])),
+    ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [?DB, S1])),
     ?assertMatch([_ | _], emqx_ds_test_helpers:transitions(N1, ?DB)),
     ?retry(1000, 10, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
 
     %% Should be no-op.
-    ?assertEqual(ok, ds_repl_meta(N2, leave_db_site, [?DB, S1])),
+    ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [?DB, S1])),
     ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB)).
 
 t_rebalance_chaotic_converges(init, Config) ->
@@ -457,7 +457,7 @@ t_rebalance_offline_restarts(Config) ->
 
     %% Shut down N3 and then remove it from the DB.
     ok = emqx_cth_cluster:stop_node(N3),
-    ?assertEqual(ok, ds_repl_meta(N1, leave_db_site, [?DB, S3])),
+    ?assertMatch({ok, _}, ds_repl_meta(N1, leave_db_site, [?DB, S3])),
     Transitions = emqx_ds_test_helpers:transitions(N1, ?DB),
     ct:pal("Transitions: ~p~n", [Transitions]),
 

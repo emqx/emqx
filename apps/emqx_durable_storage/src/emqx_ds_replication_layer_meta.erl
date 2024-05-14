@@ -131,7 +131,7 @@
 -type transition() :: {add | del, site()}.
 
 -type update_cluster_result() ::
-    ok
+    {ok, unchanged | [site()]}
     | {error, {nonexistent_db, emqx_ds:db()}}
     | {error, {nonexistent_sites, [site()]}}
     | {error, {too_few_sites, [site()]}}
@@ -449,7 +449,7 @@ allocate_shards_trans(DB) ->
         Allocation
     ).
 
--spec assign_db_sites_trans(emqx_ds:db(), [site()]) -> ok.
+-spec assign_db_sites_trans(emqx_ds:db(), [site()]) -> {ok, [site()]}.
 assign_db_sites_trans(DB, Sites) ->
     Opts = db_config_trans(DB),
     case [S || S <- Sites, mnesia:read(?NODE_TAB, S, read) == []] of
@@ -466,21 +466,22 @@ assign_db_sites_trans(DB, Sites) ->
     %% 2. Ensure that sites are responsible for roughly the same number of shards.
     Shards = mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write),
     Reallocation = compute_allocation(Shards, Sites, Opts),
-    lists:foreach(
+    ok = lists:foreach(
         fun({Record, ReplicaSet}) ->
             ok = mnesia:write(Record#?SHARD_TAB{target_set = ReplicaSet})
         end,
         Reallocation
-    ).
+    ),
+    {ok, Sites}.
 
--spec modify_db_sites_trans(emqx_ds:db(), [transition()]) -> ok.
+-spec modify_db_sites_trans(emqx_ds:db(), [transition()]) -> {ok, unchanged | [site()]}.
 modify_db_sites_trans(DB, Modifications) ->
     Shards = mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write),
     Sites0 = list_db_target_sites(Shards),
     Sites = lists:foldl(fun apply_transition/2, Sites0, Modifications),
     case Sites of
         Sites0 ->
-            ok;
+            {ok, unchanged};
         _Changed ->
             assign_db_sites_trans(DB, Sites)
     end.
