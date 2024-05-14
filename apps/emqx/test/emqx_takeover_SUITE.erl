@@ -884,26 +884,23 @@ t_kick_session(Config) ->
         {will_qos, 1}
     ],
     Commands =
-        %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
-        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]}] ++
-            [
-                {fun start_client/5, [
-                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-                ]}
-            ] ++
-            [
-                %% kick may fail (not found) without this delay
-                {
-                    fun(CTX) ->
-                        timer:sleep(100),
-                        CTX
-                    end,
-                    []
-                }
-            ] ++
+        lists:flatten([
+            %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
+            {fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]},
+            {fun start_client/5, [
+                <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
+            ]},
+            %% kick may fail (not found) without this delay
+            {
+                fun(CTX) ->
+                    timer:sleep(300),
+                    CTX
+                end,
+                []
+            },
             %% WHEN: client is kicked with kick_session
-            [{fun kick_client/2, [ClientId]}],
-
+            {fun kick_client/2, [ClientId]}
+        ]),
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
