@@ -58,13 +58,15 @@ maybe_format_msg(#{msg := Msg, meta := Meta} = LogMap, Config) ->
     catch
         C:R:S ->
             Meta#{
-                amsg => Msg,
                 msg => "emqx_logger_jsonfmt_format_error",
                 fmt_raw_input => Msg,
                 fmt_error => C,
                 fmt_reason => R,
                 fmt_stacktrace => S,
-                more => {Msg, Meta, Config}
+                more => #{
+                    original_log_entry => LogMap,
+                    config => Config
+                }
             }
     end.
 
