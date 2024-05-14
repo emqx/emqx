@@ -45,7 +45,7 @@
     on_session_unsubscribed/4,
     on_message_publish/2,
     on_message_dropped/4,
-    on_message_validation_failed/3,
+    on_schema_validation_failed/3,
     on_message_delivered/3,
     on_message_acked/3,
     on_delivery_dropped/4,
@@ -80,7 +80,7 @@ event_names() ->
         'message.delivered',
         'message.acked',
         'message.dropped',
-        'message.validation_failed',
+        'schema.validation_failed',
         'delivery.dropped'
     ].
 
@@ -96,7 +96,7 @@ event_topics_enum() ->
         '$events/message_delivered',
         '$events/message_acked',
         '$events/message_dropped',
-        '$events/message_validation_failed',
+        '$events/schema_validation_failed',
         '$events/delivery_dropped'
         % '$events/message_publish' % not possible to use in SELECT FROM
     ].
@@ -237,13 +237,13 @@ on_message_dropped(Message, _, Reason, Conf) ->
     end,
     {ok, Message}.
 
-on_message_validation_failed(Message, ValidationContext, Conf) ->
+on_schema_validation_failed(Message, ValidationContext, Conf) ->
     case ignore_sys_message(Message) of
         true ->
             ok;
         false ->
             apply_event(
-                'message.validation_failed',
+                'schema.validation_failed',
                 fun() -> eventmsg_validation_failed(Message, ValidationContext) end,
                 Conf
             )
@@ -550,7 +550,7 @@ eventmsg_validation_failed(
 ) ->
     #{name := ValidationName} = ValidationContext,
     with_basic_columns(
-        'message.validation_failed',
+        'schema.validation_failed',
         #{
             id => emqx_guid:to_hexstr(Id),
             validation => ValidationName,
@@ -730,16 +730,16 @@ event_info() ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 %% ELSE (?EMQX_RELEASE_EDITION == ee).
-event_info_message_validation_failed() ->
+event_info_schema_validation_failed() ->
     event_info_common(
-        'message.validation_failed',
-        {<<"message validation failed">>, <<"TODO"/utf8>>},
+        'schema.validation_failed',
+        {<<"schema validation failed">>, <<"TODO"/utf8>>},
         {<<"messages that do not pass configured validations">>, <<"TODO"/utf8>>},
-        <<"SELECT * FROM \"$events/message_validation_failed\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/schema_validation_failed\" WHERE topic =~ 't/#'">>
     ).
 ee_event_info() ->
     [
-        event_info_message_validation_failed()
+        event_info_schema_validation_failed()
     ].
 -else.
 %% END (?EMQX_RELEASE_EDITION == ee).
@@ -931,7 +931,7 @@ test_columns(Event) ->
     ee_test_columns(Event).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-ee_test_columns('message.validation_failed') ->
+ee_test_columns('schema.validation_failed') ->
     [{<<"validation">>, <<"myvalidation">>}] ++
         test_columns('message.publish').
 %% ELSE (?EMQX_RELEASE_EDITION == ee).
@@ -980,9 +980,9 @@ columns_with_exam('message.dropped') ->
         {<<"timestamp">>, erlang:system_time(millisecond)},
         {<<"node">>, node()}
     ];
-columns_with_exam('message.validation_failed') ->
+columns_with_exam('schema.validation_failed') ->
     [
-        {<<"event">>, 'message.validation_failed'},
+        {<<"event">>, 'schema.validation_failed'},
         {<<"validation">>, <<"my_validation">>},
         {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
         {<<"clientid">>, <<"c_emqx">>},
@@ -1200,7 +1200,7 @@ hook_fun('session.unsubscribed') -> fun ?MODULE:on_session_unsubscribed/4;
 hook_fun('message.delivered') -> fun ?MODULE:on_message_delivered/3;
 hook_fun('message.acked') -> fun ?MODULE:on_message_acked/3;
 hook_fun('message.dropped') -> fun ?MODULE:on_message_dropped/4;
-hook_fun('message.validation_failed') -> fun ?MODULE:on_message_validation_failed/3;
+hook_fun('schema.validation_failed') -> fun ?MODULE:on_schema_validation_failed/3;
 hook_fun('delivery.dropped') -> fun ?MODULE:on_delivery_dropped/4;
 hook_fun('message.publish') -> fun ?MODULE:on_message_publish/2;
 hook_fun(Event) -> error({invalid_event, Event}).
@@ -1231,7 +1231,7 @@ event_name(<<"$events/session_unsubscribed">>) -> 'session.unsubscribed';
 event_name(<<"$events/message_delivered">>) -> 'message.delivered';
 event_name(<<"$events/message_acked">>) -> 'message.acked';
 event_name(<<"$events/message_dropped">>) -> 'message.dropped';
-event_name(<<"$events/message_validation_failed">>) -> 'message.validation_failed';
+event_name(<<"$events/schema_validation_failed">>) -> 'schema.validation_failed';
 event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
@@ -1246,7 +1246,7 @@ event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
 event_topic('message.acked') -> <<"$events/message_acked">>;
 event_topic('message.dropped') -> <<"$events/message_dropped">>;
-event_topic('message.validation_failed') -> <<"$events/message_validation_failed">>;
+event_topic('schema.validation_failed') -> <<"$events/schema_validation_failed">>;
 event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
 event_topic('message.publish') -> <<"$events/message_publish">>.
 

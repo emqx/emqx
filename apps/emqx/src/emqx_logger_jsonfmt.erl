@@ -34,6 +34,9 @@
 %% For CLI HTTP API outputs
 -export([best_effort_json/1, best_effort_json/2, best_effort_json_obj/1]).
 
+%% For emqx_trace_json_formatter
+-export([format_msg/3]).
+
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").

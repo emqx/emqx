@@ -1,4 +1,4 @@
-emqx_message_validation_schema {
+emqx_schema_validation_schema {
 
   check_avro_type.desc:
   """Avro schema check"""

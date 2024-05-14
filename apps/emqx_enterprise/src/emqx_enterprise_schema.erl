@@ -15,7 +15,7 @@
 -define(EE_SCHEMA_MODULES, [
     emqx_license_schema,
     emqx_schema_registry_schema,
-    emqx_message_validation_schema,
+    emqx_schema_validation_schema,
     emqx_ft_schema
 ]).
 
@@ -196,6 +196,6 @@ audit_log_conf() ->
 
 tr_prometheus_collectors(Conf) ->
     [
-        {'/prometheus/message_validation', emqx_prometheus_message_validation}
+        {'/prometheus/schema_validation', emqx_prometheus_schema_validation}
         | emqx_conf_schema:tr_prometheus_collectors(Conf)
     ].
