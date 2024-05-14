@@ -1182,7 +1182,12 @@ maybe_set_offline_info(S, Id) ->
     case emqx_cm:lookup_client({clientid, Id}) of
         [{_Key, ChannelInfo, Stats}] ->
             emqx_persistent_session_ds_state:set_offline_info(
-                #{chan_info => ChannelInfo, stats => Stats},
+                #{
+                    chan_info => ChannelInfo,
+                    stats => Stats,
+                    disconnected_at => erlang:system_time(millisecond),
+                    last_connected_to => node()
+                },
                 S
             );
         _ ->
