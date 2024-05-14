@@ -229,6 +229,29 @@ monitor_metrics() ->
     ct:pal("monitor metrics result:\n  ~p", [Res]),
     simplify_result(Res).
 
+upload_backup(BackupFilePath) ->
+    Path = emqx_mgmt_api_test_util:api_path(["data", "files"]),
+    Res = emqx_mgmt_api_test_util:upload_request(
+        Path,
+        BackupFilePath,
+        "filename",
+        <<"application/octet-stream">>,
+        [],
+        emqx_mgmt_api_test_util:auth_header_()
+    ),
+    simplify_result(Res).
+
+export_backup() ->
+    Path = emqx_mgmt_api_test_util:api_path(["data", "export"]),
+    Res = request(post, Path, []),
+    simplify_result(Res).
+
+import_backup(BackupName) ->
+    Path = emqx_mgmt_api_test_util:api_path(["data", "import"]),
+    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    Res = request(post, Path, Body),
+    simplify_result(Res).
+
 connect(ClientId) ->
     connect(ClientId, _IsPersistent = false).
 
@@ -1214,5 +1237,66 @@ t_schema_check_protobuf(_Config) ->
         end,
         protobuf_valid_payloads(SerdeName, MessageType)
     ),
+
+    ok.
+
+%% Tests that restoring a backup config works.
+%%   * Existing validations (identified by `name') are left untouched.
+%%   * No validations are removed.
+%%   * New validations are appended to the existing list.
+%%   * Existing validations are not reordered.
+t_import_config_backup(_Config) ->
+    %% Setup backup file.
+
+    %% Will clash with existing validation; different order.
+    Name2 = <<"2">>,
+    Check2B = sql_check(<<"select 2 where false">>),
+    Validation2B = validation(Name2, [Check2B]),
+    {201, _} = insert(Validation2B),
+
+    %% Will clash with existing validation.
+    Name1 = <<"1">>,
+    Check1B = sql_check(<<"select 1 where false">>),
+    Validation1B = validation(Name1, [Check1B]),
+    {201, _} = insert(Validation1B),
+
+    %% New validation; should be appended
+    Name4 = <<"4">>,
+    Check4 = sql_check(<<"select 4 where true">>),
+    Validation4 = validation(Name4, [Check4]),
+    {201, _} = insert(Validation4),
+
+    {200, #{<<"filename">> := BackupName}} = export_backup(),
+
+    %% Clear this setup and pretend we have other data to begin with.
+    clear_all_validations(),
+    {200, []} = list(),
+
+    Check1A = sql_check(<<"select 1 where true">>),
+    Validation1A = validation(Name1, [Check1A]),
+    {201, _} = insert(Validation1A),
+
+    Check2A = sql_check(<<"select 2 where true">>),
+    Validation2A = validation(Name2, [Check2A]),
+    {201, _} = insert(Validation2A),
+
+    Name3 = <<"3">>,
+    Check3 = sql_check(<<"select 3 where true">>),
+    Validation3 = validation(Name3, [Check3]),
+    {201, _} = insert(Validation3),
+
+    {204, _} = import_backup(BackupName),
+
+    ExpectedValidations = [
+        V#{<<"topics">> := [T]}
+     || #{<<"topics">> := T} = V <- [
+            Validation1A,
+            Validation2A,
+            Validation3,
+            Validation4
+        ]
+    ],
+    ?assertMatch({200, ExpectedValidations}, list()),
+    ?assertIndexOrder([Name1, Name2, Name3, Name4], <<"t/a">>),
 
     ok.

@@ -35,6 +35,10 @@
 %% `emqx_config_handler' API
 -export([pre_config_update/3, post_config_update/5]).
 
+%% `emqx_config_backup' API
+-behaviour(emqx_config_backup).
+-export([import_config/1]).
+
 %% Internal exports
 -export([parse_sql_check/1]).
 
@@ -49,6 +53,7 @@
 
 -define(TRACE_TAG, "SCHEMA_VALIDATION").
 -define(CONF_ROOT, schema_validation).
+-define(CONF_ROOT_BIN, <<"schema_validation">>).
 -define(VALIDATIONS_CONF_PATH, [?CONF_ROOT, validations]).
 
 -type validation_name() :: binary().
@@ -198,6 +203,60 @@ post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) 
 post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, _Old, _AppEnvs) ->
     ok = emqx_schema_validation_registry:reindex_positions(New),
     ok.
+
+%%------------------------------------------------------------------------------
+%% `emqx_config_backup' API
+%%------------------------------------------------------------------------------
+
+import_config(#{?CONF_ROOT_BIN := RawConf0}) ->
+    OldRawValidations = emqx_config:get_raw([?CONF_ROOT_BIN, <<"validations">>], []),
+    {ImportedRawValidations, RawConf1} =
+        case maps:take(<<"validations">>, RawConf0) of
+            error ->
+                {[], RawConf0};
+            {V, R} ->
+                {V, R}
+        end,
+    %% If there's a matching validation, we don't overwrite it.  We don't remove any
+    %% validations, either.
+    #{added := NewRawValidations} = emqx_utils:diff_lists(
+        ImportedRawValidations,
+        OldRawValidations,
+        fun(#{<<"name">> := N}) -> N end
+    ),
+    OtherConfs = maps:to_list(RawConf1),
+    Result = emqx_utils:foldl_while(
+        fun
+            ({validation, RawValidation}, Acc) ->
+                case insert(RawValidation) of
+                    {ok, _} ->
+                        #{<<"name">> := N} = RawValidation,
+                        ChangedPath = [?CONF_ROOT, validations, '?', N],
+                        {cont, [ChangedPath | Acc]};
+                    {error, _} = Error ->
+                        {halt, Error}
+                end;
+            ({Key, RawConf}, Acc) ->
+                case emqx_conf:update([?CONF_ROOT_BIN, Key], RawConf, #{override_to => cluster}) of
+                    {ok, _} ->
+                        ChangedPath = [?CONF_ROOT, Key],
+                        {conf, [ChangedPath | Acc]};
+                    {error, _} = Error ->
+                        {halt, Error}
+                end
+        end,
+        [],
+        OtherConfs ++
+            [{validation, NewValidation} || NewValidation <- NewRawValidations]
+    ),
+    case Result of
+        {error, Reason} ->
+            {error, #{root_key => ?CONF_ROOT, reason => Reason}};
+        ChangedPaths ->
+            {ok, #{root_key => ?CONF_ROOT, changed => ChangedPaths}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => ?CONF_ROOT, changed => []}}.
 
 %%------------------------------------------------------------------------------
 %% Internal exports
