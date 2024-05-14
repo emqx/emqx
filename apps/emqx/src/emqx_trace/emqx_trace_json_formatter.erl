@@ -23,6 +23,8 @@
 %% logger_formatter:config/0 is not exported.
 -type config() :: map().
 
+-define(DEFAULT_FORMATTER, fun logger:format_otp_report/1).
+
 %%%-----------------------------------------------------------------
 %%% Callback Function
 %%%-----------------------------------------------------------------
@@ -31,9 +33,10 @@
     LogEvent :: logger:log_event(),
     Config :: config().
 format(
-    LogMap0,
-    #{payload_encode := PEncode}
+    LogMap,
+    #{payload_encode := PEncode} = Config
 ) ->
+    LogMap0 = maybe_format_msg(LogMap, Config),
     LogMap1 = emqx_trace_formatter:evaluate_lazy_values(LogMap0),
     %% We just make some basic transformations on the input LogMap and then do
     %% an external call to create the JSON text
@@ -45,6 +48,42 @@ format(
 %%%-----------------------------------------------------------------
 %%% Helper Functions
 %%%-----------------------------------------------------------------
+
+maybe_format_msg(#{msg := Msg, meta := Meta} = LogMap, Config) ->
+    try do_maybe_format_msg(Msg, Meta, Config) of
+        Map when is_map(Map) ->
+            LogMap#{meta => maps:merge(Meta, Map), msg => maps:get(msg, Map, "no_message")};
+        Bin when is_binary(Bin) ->
+            LogMap#{msg => Bin}
+    catch
+        C:R:S ->
+            Meta#{
+                msg => "emqx_logger_jsonfmt_format_error",
+                fmt_raw_input => Msg,
+                fmt_error => C,
+                fmt_reason => R,
+                fmt_stacktrace => S,
+                more => #{
+                    original_log_entry => LogMap,
+                    config => Config
+                }
+            }
+    end.
+
+do_maybe_format_msg(String, _Meta, _Config) when is_list(String); is_binary(String) ->
+    unicode:characters_to_binary(String);
+do_maybe_format_msg(undefined, _Meta, _Config) ->
+    #{};
+do_maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
+    case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
+        true ->
+            %% reporting a map without a customised format function
+            Report;
+        false ->
+            emqx_logger_jsonfmt:format_msg(Msg, Meta, Config)
+    end;
+do_maybe_format_msg(Msg, Meta, Config) ->
+    emqx_logger_jsonfmt:format_msg(Msg, Meta, Config).
 
 prepare_log_map(LogMap, PEncode) ->
     NewKeyValuePairs = [prepare_key_value(K, V, PEncode) || {K, V} <- maps:to_list(LogMap)],
