@@ -6,6 +6,19 @@ set -euo pipefail
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 PROJ_ROOT="$(pwd)"
 
+NUM_JOBS=10
+while getopts "j:" FLAG; do
+  case "$FLAG" in
+    j)
+      NUM_JOBS="${OPTARG}"
+      ;;
+    *)
+      echo "unknown flag: $FLAG"
+      ;;
+  esac
+done
+shift $((OPTIND-1))
+
 if [ -z "${1:-}" ]; then
     SCHEMA="${PROJ_ROOT}/_build/docgen/emqx/schema-en.json"
 else
@@ -29,7 +42,7 @@ set +e
 docker run --rm -i ${DOCKER_TERMINAL_OPT} --name spellcheck \
     -v "${PROJ_ROOT}"/scripts/spellcheck/dicts:/dicts \
     -v "$SCHEMA":/schema.json \
-    ghcr.io/emqx/emqx-schema-validate:0.5.1 -j 10 /schema.json
+    ghcr.io/emqx/emqx-schema-validate:0.5.1 -j "${NUM_JOBS}" /schema.json
 
 result="$?"
 
