@@ -110,7 +110,7 @@ persist(Msg) ->
     ).
 
 needs_persistence(Msg) ->
-    not (emqx_message:get_flag(dup, Msg) orelse emqx_message:is_sys(Msg)).
+    not emqx_message:get_flag(dup, Msg).
 
 -spec store_message(emqx_types:message()) -> emqx_ds:store_batch_result().
 store_message(Msg) ->
