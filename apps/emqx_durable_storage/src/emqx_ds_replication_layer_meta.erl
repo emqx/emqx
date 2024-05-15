@@ -171,31 +171,54 @@
 
 -spec print_status() -> ok.
 print_status() ->
-    io:format("THIS SITE:~n~s~n", [this_site()]),
+    io:format("THIS SITE:~n"),
+    try this_site() of
+        Site -> io:format("~s~n", [Site])
+    catch
+        error:badarg ->
+            io:format(
+                "(!) UNCLAIMED~n"
+                "(!) Likely this node's name is already known as another site in the cluster.~n"
+                "(!) Please resolve conflicts manually.~n"
+            )
+    end,
     io:format("~nSITES:~n", []),
-    Nodes = [node() | nodes()],
     lists:foreach(
         fun(#?NODE_TAB{site = Site, node = Node}) ->
             Status =
-                case lists:member(Node, Nodes) of
-                    true -> up;
-                    false -> down
+                case mria:cluster_status(Node) of
+                    running -> "    up";
+                    stopped -> "(x) down";
+                    false -> "(!) UNIDENTIFIED"
                 end,
-            io:format("~s    ~p    ~p~n", [Site, Node, Status])
+            io:format("~s    ~p    ~s~n", [Site, Node, Status])
         end,
         eval_qlc(mnesia:table(?NODE_TAB))
     ),
     io:format(
-        "~nSHARDS:~nId                             Replicas~n", []
+        "~nSHARDS:~n~s~s~n",
+        [string:pad("Id", 30), "Replicas"]
     ),
     lists:foreach(
         fun(#?SHARD_TAB{shard = {DB, Shard}, replica_set = RS}) ->
-            ShardStr = string:pad(io_lib:format("~p/~s", [DB, Shard]), 30),
-            ReplicasStr = string:pad(io_lib:format("~p", [RS]), 40),
-            io:format("~s ~s~n", [ShardStr, ReplicasStr])
+            ShardStr = io_lib:format("~p/~s", [DB, Shard]),
+            ReplicasStr = string:join([format_replica(R) || R <- RS], "  "),
+            io:format(
+                "~s~s~n",
+                [string:pad(ShardStr, 30), ReplicasStr]
+            )
         end,
         eval_qlc(mnesia:table(?SHARD_TAB))
     ).
+
+format_replica(Site) ->
+    Marker =
+        case mria:cluster_status(?MODULE:node(Site)) of
+            running -> "   ";
+            stopped -> "(x)";
+            false -> "(!)"
+        end,
+    io_lib:format("~s ~s", [Marker, Site]).
 
 -spec this_site() -> site().
 this_site() ->
