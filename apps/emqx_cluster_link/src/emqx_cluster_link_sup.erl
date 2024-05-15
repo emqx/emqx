@@ -22,13 +22,17 @@ init(LinksConf) ->
         intensity => 10,
         period => 5
     },
-    Children = [sup_spec(?COORD_SUP, ?COORD_SUP, LinksConf)],
+    %% Children = [sup_spec(?COORD_SUP, ?COORD_SUP, LinksConf)],
+    Children = [
+        sup_spec(Name, emqx_cluster_link_router_syncer, [Name])
+     || #{upstream := Name} <- LinksConf
+    ],
     {ok, {SupFlags, Children}}.
 
-sup_spec(Id, Mod, Conf) ->
+sup_spec(Id, Mod, Args) ->
     #{
         id => Id,
-        start => {Mod, start_link, [Conf]},
+        start => {Mod, start_link, Args},
         restart => permanent,
         shutdown => infinity,
         type => supervisor,

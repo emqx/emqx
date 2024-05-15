@@ -45,6 +45,7 @@
 ]).
 
 -export([
+    publish_actor_init_sync/3,
     publish_route_sync/4,
     encode_field/2
 ]).
@@ -58,7 +59,7 @@
 -define(CLIENTID(Base, Suffix), emqx_bridge_mqtt_lib:clientid_base([Base, Suffix])).
 
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
--define(MY_CLUSTER_NAME, atom_to_binary(emqx_config:get([cluster, name]))).
+-define(MY_CLUSTER_NAME, emqx_cluster_link_config:cluster()).
 
 -define(ROUTE_TOPIC, <<?ROUTE_TOPIC_PREFIX, (?MY_CLUSTER_NAME)/binary>>).
 -define(MSG_FWD_TOPIC, <<?MSG_TOPIC_PREFIX, (?MY_CLUSTER_NAME)/binary>>).
@@ -90,6 +91,7 @@
 
 -define(F_OPERATION, '$op').
 -define(OP_ROUTE, <<"route">>).
+-define(OP_ACTOR_INIT, <<"actor_init">>).
 
 -define(F_ACTOR, 10).
 -define(F_INCARNATION, 11).
@@ -403,6 +405,18 @@ publish_result(Caller, Ref, Result) ->
             Caller ! {pub_result, Ref, Err}
     end.
 
+%%% New leader-less Syncer/Actor implementation
+
+publish_actor_init_sync(ClientPid, Actor, Incarnation) ->
+    %% TODO: handshake (request / response) to make sure the link is established
+    PubTopic = ?ROUTE_TOPIC,
+    Payload = #{
+        ?F_OPERATION => ?OP_ACTOR_INIT,
+        ?F_ACTOR => Actor,
+        ?F_INCARNATION => Incarnation
+    },
+    emqtt:publish(ClientPid, PubTopic, ?ENCODE(Payload), ?QOS_1).
+
 publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
     PubTopic = ?ROUTE_TOPIC,
     Payload = #{
@@ -473,14 +487,28 @@ decode_ctrl_msg1(#{<<"op">> := ?UNLINK_OP}, _ClusterName) ->
 decode_route_op(Payload) ->
     decode_route_op1(?DECODE(Payload)).
 
-decode_route_op1(<<"add_", Topic/binary>>) ->
-    {add, Topic};
-decode_route_op1(<<"delete_", Topic/binary>>) ->
-    {delete, Topic};
-decode_route_op1(#{<<"op">> := ?BATCH_ROUTES_OP, <<"topics">> := Topics}) when is_list(Topics) ->
-    {add, Topics};
-decode_route_op1(#{<<"op">> := ?CLEANUP_ROUTES_OP}) ->
-    cleanup_routes;
+decode_route_op1(#{
+    ?F_OPERATION := ?OP_ACTOR_INIT,
+    ?F_ACTOR := Actor,
+    ?F_INCARNATION := Incr
+}) ->
+    {actor_init, #{actor => Actor, incarnation => Incr}};
+decode_route_op1(#{
+    ?F_OPERATION := ?OP_ROUTE,
+    ?F_ACTOR := Actor,
+    ?F_INCARNATION := Incr,
+    ?F_ROUTES := RouteOps
+}) ->
+    RouteOps1 = lists:map(fun(Op) -> decode_field(route, Op) end, RouteOps),
+    {route_updates, #{actor => Actor, incarnation => Incr}, RouteOps1};
+%%decode_route_op1(<<"add_", Topic/binary>>) ->
+%%    {add, Topic};
+%%decode_route_op1(<<"delete_", Topic/binary>>) ->
+%%    {delete, Topic};
+%%decode_route_op1(#{<<"op">> := ?BATCH_ROUTES_OP, <<"topics">> := Topics}) when is_list(Topics) ->
+%%    {add, Topics};
+%%decode_route_op1(#{<<"op">> := ?CLEANUP_ROUTES_OP}) ->
+%%    cleanup_routes;
 decode_route_op1(Payload) ->
     ?SLOG(warning, #{
         msg => "unexpected_cluster_link_route_op_payload",
@@ -527,6 +555,11 @@ encode_field(route, {add, Route = {_Topic, _ID}}) ->
     Route;
 encode_field(route, {delete, {Topic, ID}}) ->
     {?ROUTE_DELETE, Topic, ID}.
+
+decode_field(route, {?ROUTE_DELETE, Route = {_Topic, _ID}}) ->
+    {delete, Route};
+decode_field(route, Route = {_Topic, _ID}) ->
+    {add, Route}.
 
 %%--------------------------------------------------------------------
 %% emqx_external_broker

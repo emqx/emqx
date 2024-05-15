@@ -19,7 +19,8 @@
     process_syncer_batch/4
 ]).
 
--behaviour(supervisor).
+%% silence warning
+%% -behaviour(supervisor).
 -export([init/1]).
 
 -behaviour(gen_server).
@@ -99,7 +100,17 @@ ensure_actor_incarnation() ->
 
 start_link_client(TargetCluster) ->
     Options = emqx_cluster_link_config:emqtt_options(TargetCluster),
-    emqtt:start_link(refine_client_options(Options)).
+    case emqtt:start_link(refine_client_options(Options)) of
+        {ok, Pid} ->
+            case emqtt:connect(Pid) of
+                {ok, _Props} ->
+                    {ok, Pid};
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
 
 refine_client_options(Options = #{clientid := ClientID}) ->
     %% TODO: Reconnect should help, but it looks broken right now.
@@ -180,7 +191,7 @@ batch_get_opname(Op) ->
 init({sup, TargetCluster}) ->
     %% FIXME: Intensity.
     SupFlags = #{
-        strategy => all_for_one,
+        strategy => one_for_all,
         intensity => 10,
         period => 60
     },
@@ -239,7 +250,7 @@ init_actor(State = #st{}) ->
     {ok, State, {continue, connect}}.
 
 handle_continue(connect, State) ->
-    process_connect(State).
+    {noreply, process_connect(State)}.
 
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
@@ -248,9 +259,9 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info({'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
-    handle_client_down(Reason, St);
+    {noreply, handle_client_down(Reason, St)};
 handle_info({timeout, TRef, _Reconnect}, St = #st{reconnect_timer = TRef}) ->
-    process_connect(St#st{reconnect_timer = undefined});
+    {noreply, process_connect(St#st{reconnect_timer = undefined})};
 handle_info(_Info, St) ->
     %% TODO: log?
     {noreply, St}.
@@ -258,22 +269,25 @@ handle_info(_Info, St) ->
 terminate(_Reason, _State) ->
     ok.
 
-process_connect(St = #st{actor = TargetCluster}) ->
+process_connect(St = #st{target = TargetCluster, actor = Actor, incarnation = Incr}) ->
     case start_link_client(TargetCluster) of
         {ok, ClientPid} ->
             ok = start_syncer(TargetCluster),
             ok = announce_client(TargetCluster, ClientPid),
+            %% TODO: error handling, handshake
+
+            {ok, _} = emqx_cluster_link_mqtt:publish_actor_init_sync(ClientPid, Actor, Incr),
             process_bootstrap(St#st{client = ClientPid});
         {error, Reason} ->
             handle_connect_error(Reason, St)
     end.
 
-handle_connect_error(Reason, St) ->
+handle_connect_error(_Reason, St) ->
     %% TODO: logs
     TRef = erlang:start_timer(?RECONNECT_TIMEOUT, self(), reconnect),
     St#st{reconnect_timer = TRef}.
 
-handle_client_down(Reason, St = #st{target = TargetCluster}) ->
+handle_client_down(_Reason, St = #st{target = TargetCluster}) ->
     %% TODO: logs
     ok = close_syncer(TargetCluster),
     process_connect(St#st{client = undefined}).

@@ -11,6 +11,7 @@
 -define(BROKER_MOD, emqx_cluster_link).
 
 start(_StartType, _StartArgs) ->
+    ok = mria:wait_for_tables(emqx_cluster_link_extrouter:create_tables()),
     emqx_cluster_link_config:add_handler(),
     LinksConf = enabled_links(),
     _ =
@@ -31,7 +32,7 @@ prep_stop(State) ->
 stop(_State) ->
     _ = emqx_cluster_link:delete_hook(),
     _ = emqx_cluster_link:unregister_external_broker(),
-    _ = stop_msg_fwd_resources(emqx:get_config([cluster, links], [])),
+    _ = stop_msg_fwd_resources(emqx_cluster_link_config:links()),
     ok.
 
 %%--------------------------------------------------------------------
@@ -41,7 +42,7 @@ stop(_State) ->
 enabled_links() ->
     lists:filter(
         fun(#{enable := IsEnabled}) -> IsEnabled =:= true end,
-        emqx:get_config([cluster, links], [])
+        emqx_cluster_link_config:links()
     ).
 
 start_msg_fwd_resources(LinksConf) ->

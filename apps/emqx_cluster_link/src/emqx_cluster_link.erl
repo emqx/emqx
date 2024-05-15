@@ -62,15 +62,10 @@ should_route_to_external_dests(_Msg) ->
 on_message_publish(#message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
     _ =
         case emqx_cluster_link_mqtt:decode_route_op(Payload) of
-            {add, Topics} when is_list(Topics) ->
-                add_routes(Topics, ClusterName);
-            {add, Topic} ->
-                emqx_router_syncer:push(add, Topic, ?DEST(ClusterName), #{});
-            {delete, _} ->
-                %% Not implemented yet
-                ok;
-            cleanup_routes ->
-                cleanup_routes(ClusterName)
+            {actor_init, #{actor := Actor, incarnation := Incr}} ->
+                actor_init(ClusterName, Actor, Incr);
+            {route_updates, #{actor := Actor, incarnation := Incr}, RouteOps} ->
+                update_routes(ClusterName, Actor, Incr, RouteOps)
         end,
     {stop, []};
 on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
@@ -110,6 +105,19 @@ delete_hook() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+actor_init(ClusterName, Actor, Incarnation) ->
+    Env = #{timestamp => erlang:system_time(millisecond)},
+    {ok, _} = emqx_cluster_link_extrouter:actor_init(ClusterName, Actor, Incarnation, Env).
+
+update_routes(ClusterName, Actor, Incarnation, RouteOps) ->
+    ActorState = emqx_cluster_link_extrouter:actor_state(ClusterName, Actor, Incarnation),
+    lists:foreach(
+        fun(RouteOp) ->
+            emqx_cluster_link_extrouter:actor_apply_operation(RouteOp, ActorState)
+        end,
+        RouteOps
+    ).
+
 cleanup_routes(ClusterName) ->
     emqx_router:cleanup_routes(?DEST(ClusterName)).
 
@@ -142,11 +150,11 @@ on_init_ack(Res, ClusterName, Msg) ->
     #{'Correlation-Data' := ReqId} = emqx_message:get_header(properties, Msg),
     emqx_cluster_link_coordinator:on_link_ack(ClusterName, ReqId, Res).
 
-add_routes(Topics, ClusterName) ->
-    lists:foreach(
-        fun(T) -> emqx_router_syncer:push(add, T, ?DEST(ClusterName), #{}) end,
-        Topics
-    ).
+%% add_routes(Topics, ClusterName) ->
+%%     lists:foreach(
+%%         fun(T) -> emqx_router_syncer:push(add, T, ?DEST(ClusterName), #{}) end,
+%%         Topics
+%%     ).
 
 %% let it crash if extra is not a map,
 %% we don't expect the message to be forwarded from an older EMQX release,

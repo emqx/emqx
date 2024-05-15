@@ -15,14 +15,16 @@
 
 %% Actor API
 -export([
-    actor_init/3,
+    actor_init/4,
+    actor_state/3,
+    actor_apply_operation/2,
     actor_apply_operation/3,
     actor_gc/1
 ]).
 
 %% Internal API
 -export([
-    mnesia_actor_init/3,
+    mnesia_actor_init/4,
     mnesia_actor_heartbeat/3,
     mnesia_clean_incarnation/1,
     apply_actor_operation/5
@@ -30,6 +32,9 @@
 
 %% Strictly monotonically increasing integer.
 -type smint() :: integer().
+
+%% Remote cluster name
+-type cluster() :: binary().
 
 %% Actor.
 %% Identifies an independent route replication actor on the remote broker.
@@ -45,17 +50,18 @@
 %% Operation.
 %% RouteID should come in handy when two or more different routes on the actor side
 %% are "intersected" to the same topic filter that needs to be replicated here.
--type op() :: {add | del, _TopicFilter :: binary(), _RouteID} | heartbeat.
+-type op() :: {add | delete, {_TopicFilter :: binary(), _RouteID}} | heartbeat.
 
 %% Basically a bit offset.
 %% Each actor + incarnation pair occupies a separate lane in the multi-counter.
 %% Example:
 %% Actors | n1@ds n2@ds n3@ds
 %%  Lanes | 0     1     2
-%%    Op1 | n3@ds add client/42/# → MCounter += 1 bsl 2 = 4
-%%    Op2 | n2@ds add client/42/# → MCounter += 1 bsl 1 = 6
-%%    Op3 | n3@ds del client/42/# → MCounter -= 1 bsl 2 = 2
-%%    Op4 | n2@ds del client/42/# → MCounter -= 1 bsl 1 = 0 → route deleted
+%% ---------------------------
+%%    Op1 | n3@ds add    client/42/# → MCounter += 1 bsl 2 = 4
+%%    Op2 | n2@ds add    client/42/# → MCounter += 1 bsl 1 = 6
+%%    Op3 | n3@ds delete client/42/# → MCounter -= 1 bsl 2 = 2
+%%    Op4 | n2@ds delete client/42/# → MCounter -= 1 bsl 1 = 0 → route deleted
 -type lane() :: non_neg_integer().
 
 -define(DEFAULT_ACTOR_TTL_MS, 30_000).
@@ -64,13 +70,16 @@
 -define(EXTROUTE_TAB, emqx_external_router_route).
 -define(EXTROUTE_ACTOR_TAB, emqx_external_router_actor).
 
+-define(ACTOR_ID(Cluster, Actor), {Cluster, Actor}).
+-define(ROUTE_ID(Cluster, RouteID), {Cluster, RouteID}).
+
 -record(extroute, {
     entry :: emqx_topic_index:key(_RouteID),
     mcounter = 0 :: non_neg_integer()
 }).
 
 -record(actor, {
-    id :: actor(),
+    id :: {cluster(), actor()},
     incarnation :: incarnation(),
     lane :: lane(),
     until :: _Timestamp
@@ -102,7 +111,7 @@ create_tables() ->
             ]}
         ]}
     ]),
-    [?EXTROUTE_TAB].
+    [?EXTROUTE_ACTOR_TAB, ?EXTROUTE_TAB].
 
 %%
 
@@ -124,6 +133,7 @@ match_to_route(M) ->
 %%
 
 -record(state, {
+    cluster :: cluster(),
     actor :: actor(),
     incarnation :: incarnation(),
     lane :: lane() | undefined
@@ -133,19 +143,19 @@ match_to_route(M) ->
 
 -type env() :: #{timestamp := _Milliseconds}.
 
--spec actor_init(actor(), incarnation(), env()) -> {ok, state()}.
-actor_init(Actor, Incarnation, Env = #{timestamp := Now}) ->
+-spec actor_init(cluster(), actor(), incarnation(), env()) -> {ok, state()}.
+actor_init(Cluster, Actor, Incarnation, Env = #{timestamp := Now}) ->
     %% TODO: Rolling upgrade safety?
-    case transaction(fun ?MODULE:mnesia_actor_init/3, [Actor, Incarnation, Now]) of
+    case transaction(fun ?MODULE:mnesia_actor_init/4, [Cluster, Actor, Incarnation, Now]) of
         {ok, State} ->
             {ok, State};
         {reincarnate, Rec} ->
             %% TODO: Do this asynchronously.
             ok = clean_incarnation(Rec),
-            actor_init(Actor, Incarnation, Env)
+            actor_init(Cluster, Actor, Incarnation, Env)
     end.
 
-mnesia_actor_init(Actor, Incarnation, TS) ->
+mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
     %% NOTE
     %% We perform this heavy-weight transaction only in the case of a new route
     %% replication connection. The implicit assumption is that each replication
@@ -154,15 +164,15 @@ mnesia_actor_init(Actor, Incarnation, TS) ->
     %% ClientID. There's always a chance of having stray process severely lagging
     %% that applies some update out of the blue, but it seems impossible to prevent
     %% it completely w/o transactions.
-    State = #state{actor = Actor, incarnation = Incarnation},
+    State = #state{cluster = Cluster, actor = Actor, incarnation = Incarnation},
     case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of
         [#actor{incarnation = Incarnation, lane = Lane} = Rec] ->
             ok = mnesia:write(?EXTROUTE_ACTOR_TAB, Rec#actor{until = bump_actor_ttl(TS)}, write),
             {ok, State#state{lane = Lane}};
         [] ->
-            Lane = mnesia_assign_lane(),
+            Lane = mnesia_assign_lane(Cluster),
             Rec = #actor{
-                id = Actor,
+                id = ?ACTOR_ID(Cluster, Actor),
                 incarnation = Incarnation,
                 lane = Lane,
                 until = bump_actor_ttl(TS)
@@ -175,21 +185,32 @@ mnesia_actor_init(Actor, Incarnation, TS) ->
             mnesia:abort({outdated_incarnation_actor, Actor, Incarnation, Newer})
     end.
 
+-spec actor_state(cluster(), actor(), incarnation()) -> state().
+actor_state(Cluster, Actor, Incarnation) ->
+    ActorID = ?ACTOR_ID(Cluster, Actor),
+    [#actor{lane = Lane}] = mnesia:dirty_read(?EXTROUTE_ACTOR_TAB, ActorID),
+    #state{cluster = Cluster, actor = Actor, incarnation = Incarnation, lane = Lane}.
+
+-spec actor_apply_operation(op(), state()) -> state().
+actor_apply_operation(Op, State) ->
+    actor_apply_operation(Op, State, #{}).
+
 -spec actor_apply_operation(op(), state(), env()) -> state().
 actor_apply_operation(
-    {OpName, TopicFilter, ID},
-    State = #state{actor = Actor, incarnation = Incarnation, lane = Lane},
+    {OpName, {TopicFilter, ID}},
+    State = #state{cluster = Cluster, actor = Actor, incarnation = Incarnation, lane = Lane},
     _Env
 ) ->
-    Entry = emqx_topic_index:make_key(TopicFilter, ID),
+    ActorID = ?ACTOR_ID(Cluster, Actor),
+    Entry = emqx_topic_index:make_key(TopicFilter, ?ROUTE_ID(Cluster, ID)),
     case mria_config:whoami() of
         Role when Role /= replicant ->
-            apply_actor_operation(Actor, Incarnation, Entry, OpName, Lane);
+            apply_actor_operation(ActorID, Incarnation, Entry, OpName, Lane);
         replicant ->
             mria:async_dirty(
                 ?EXTROUTE_SHARD,
                 fun ?MODULE:apply_actor_operation/5,
-                [Actor, Incarnation, Entry, OpName, Lane]
+                [ActorID, Incarnation, Entry, OpName, Lane]
             )
     end,
     State;
@@ -201,8 +222,8 @@ actor_apply_operation(
     ok = transaction(fun ?MODULE:mnesia_actor_heartbeat/3, [Actor, Incarnation, Now]),
     State.
 
-apply_actor_operation(Actor, Incarnation, Entry, OpName, Lane) ->
-    _ = assert_current_incarnation(Actor, Incarnation),
+apply_actor_operation(ActorID, Incarnation, Entry, OpName, Lane) ->
+    _ = assert_current_incarnation(ActorID, Incarnation),
     apply_operation(Entry, OpName, Lane).
 
 apply_operation(Entry, OpName, Lane) ->
@@ -232,7 +253,7 @@ apply_operation(Entry, MCounter, OpName, Lane) ->
         Marker when OpName =:= add ->
             %% Already added.
             MCounter;
-        Marker when OpName =:= del ->
+        Marker when OpName =:= delete ->
             case mria:dirty_update_counter(?EXTROUTE_TAB, Entry, -Marker) of
                 0 ->
                     Record = #extroute{entry = Entry, mcounter = 0},
@@ -241,7 +262,7 @@ apply_operation(Entry, MCounter, OpName, Lane) ->
                 C ->
                     C
             end;
-        0 when OpName =:= del ->
+        0 when OpName =:= delete ->
             %% Already deleted.
             MCounter
     end.
@@ -257,17 +278,18 @@ actor_gc(#{timestamp := Now}) ->
             ok
     end.
 
-mnesia_assign_lane() ->
-    Assignment = mnesia:foldl(
-        fun(#actor{lane = Lane}, Acc) ->
-            Acc bor (1 bsl Lane)
-        end,
+mnesia_assign_lane(Cluster) ->
+    Assignment = lists:foldl(
+        fun(Lane, Acc) -> Acc bor (1 bsl Lane) end,
         0,
-        ?EXTROUTE_ACTOR_TAB,
-        write
+        select_cluster_lanes(Cluster)
     ),
     Lane = first_zero_bit(Assignment),
     Lane.
+
+select_cluster_lanes(Cluster) ->
+    MS = [{#actor{id = {Cluster, '_'}, lane = '$1', _ = '_'}, [], ['$1']}],
+    mnesia:select(?EXTROUTE_ACTOR_TAB, MS, write).
 
 mnesia_actor_heartbeat(Actor, Incarnation, TS) ->
     case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of
@@ -300,13 +322,13 @@ clean_lane(Lane) ->
         ?EXTROUTE_TAB
     ).
 
-assert_current_incarnation(Actor, Incarnation) ->
+assert_current_incarnation(ActorID, Incarnation) ->
     %% NOTE
     %% Ugly, but should not really happen anyway. This is a safety net for the case
     %% when this process tries to apply some outdated operation for whatever reason
     %% (e.g. heavy CPU starvation). Still, w/o transactions, it's just a best-effort
     %% attempt.
-    [#actor{incarnation = Incarnation}] = mnesia:dirty_read(?EXTROUTE_ACTOR_TAB, Actor),
+    [#actor{incarnation = Incarnation}] = mnesia:dirty_read(?EXTROUTE_ACTOR_TAB, ActorID),
     ok.
 
 %%
