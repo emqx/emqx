@@ -35,6 +35,7 @@
     sites/0,
     node/1,
     this_site/0,
+    forget_site/1,
     print_status/0
 ]).
 
@@ -75,7 +76,8 @@
     update_replica_set_trans/3,
     update_db_config_trans/2,
     drop_db_trans/1,
-    claim_site/2,
+    claim_site_trans/2,
+    forget_site_trans/1,
     n_shards/1
 ]).
 
@@ -151,6 +153,11 @@
 -define(NODE_PAT(),
     %% Equivalent of `#?NODE_TAB{_ = '_'}`:
     erlang:make_tuple(record_info(size, ?NODE_TAB), '_')
+).
+
+-define(NODE_PAT(NODE),
+    %% Equivalent of `#?NODE_TAB{node = NODE, _ = '_'}`:
+    erlang:make_tuple(record_info(size, ?NODE_TAB), '_', [{#?NODE_TAB.node, NODE}])
 ).
 
 -define(SHARD_PAT(SHARD),
@@ -254,6 +261,15 @@ node(Site) ->
             Node;
         [] ->
             undefined
+    end.
+
+-spec forget_site(site()) -> ok | {error, _}.
+forget_site(Site) ->
+    case mnesia:dirty_read(?NODE_TAB, Site) of
+        [] ->
+            {error, nonexistent_site};
+        [Record] ->
+            transaction(fun ?MODULE:forget_site_trans/1, [Record])
     end.
 
 %%===============================================================================
@@ -374,6 +390,7 @@ unsubscribe(Pid) ->
 init([]) ->
     process_flag(trap_exit, true),
     logger:set_process_metadata(#{domain => [ds, meta]}),
+    ok = ekka:monitor(membership),
     ensure_tables(),
     ensure_site(),
     S = #s{},
@@ -395,6 +412,9 @@ handle_info({mnesia_table_event, {write, #?SHARD_TAB{shard = {DB, Shard}}, _}}, 
     {noreply, S};
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, S) ->
     {noreply, handle_unsubscribe(Pid, S)};
+handle_info({membership, {node, leaving, Node}}, S) ->
+    forget_node(Node),
+    {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
@@ -464,7 +484,7 @@ assign_db_sites_trans(DB, Sites) ->
     %% Optimize reallocation. The goals are:
     %% 1. Minimize the number of membership transitions.
     %% 2. Ensure that sites are responsible for roughly the same number of shards.
-    Shards = mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write),
+    Shards = db_shards_trans(DB),
     Reallocation = compute_allocation(Shards, Sites, Opts),
     ok = lists:foreach(
         fun({Record, ReplicaSet}) ->
@@ -476,7 +496,7 @@ assign_db_sites_trans(DB, Sites) ->
 
 -spec modify_db_sites_trans(emqx_ds:db(), [transition()]) -> {ok, unchanged | [site()]}.
 modify_db_sites_trans(DB, Modifications) ->
-    Shards = mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write),
+    Shards = db_shards_trans(DB),
     Sites0 = list_db_target_sites(Shards),
     Sites = lists:foldl(fun apply_transition/2, Sites0, Modifications),
     case Sites of
@@ -532,15 +552,40 @@ db_config_trans(DB, LockType) ->
             mnesia:abort({nonexistent_db, DB})
     end.
 
+db_shards_trans(DB) ->
+    mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write).
+
 -spec drop_db_trans(emqx_ds:db()) -> ok.
 drop_db_trans(DB) ->
     mnesia:delete({?META_TAB, DB}),
     [mnesia:delete({?SHARD_TAB, Shard}) || Shard <- shards(DB)],
     ok.
 
--spec claim_site(site(), node()) -> ok.
-claim_site(Site, Node) ->
-    mnesia:write(#?NODE_TAB{site = Site, node = Node}).
+-spec claim_site_trans(site(), node()) -> ok.
+claim_site_trans(Site, Node) ->
+    case node_sites(Node) of
+        [] ->
+            mnesia:write(#?NODE_TAB{site = Site, node = Node});
+        [#?NODE_TAB{site = Site}] ->
+            ok;
+        Records ->
+            ExistingSites = [S || #?NODE_TAB{site = S} <- Records],
+            mnesia:abort({conflicting_node_site, ExistingSites})
+    end.
+
+-spec forget_site_trans(_Record :: tuple()) -> ok.
+forget_site_trans(Record = #?NODE_TAB{site = Site}) ->
+    DBs = mnesia:all_keys(?META_TAB),
+    SiteDBs = [DB || DB <- DBs, S <- list_db_target_sites(db_shards_trans(DB)), S == Site],
+    case SiteDBs of
+        [] ->
+            mnesia:delete_object(?NODE_TAB, Record, write);
+        [_ | _] ->
+            mnesia:abort({member_of_replica_sets, SiteDBs})
+    end.
+
+node_sites(Node) ->
+    mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT(Node)).
 
 %%================================================================================
 %% Internal functions
@@ -583,9 +628,22 @@ ensure_site() ->
             io:format(FD, "~p.", [Site]),
             file:close(FD)
     end,
-    {atomic, ok} = mria:transaction(?SHARD, fun ?MODULE:claim_site/2, [Site, node()]),
-    persistent_term:put(?emqx_ds_builtin_site, Site),
-    ok.
+    case transaction(fun ?MODULE:claim_site_trans/2, [Site, node()]) of
+        ok ->
+            persistent_term:put(?emqx_ds_builtin_site, Site);
+        {error, Reason} ->
+            logger:error("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
+    end.
+
+forget_node(Node) ->
+    Sites = node_sites(Node),
+    Results = transaction(fun lists:map/2, [fun ?MODULE:forget_site_trans/1, Sites]),
+    case [Reason || {error, Reason} <- Results] of
+        [] ->
+            ok;
+        Errors ->
+            logger:error("Failed to forget leaving node ~p: ~p", [Node, Errors])
+    end.
 
 %% @doc Returns sorted list of sites shards are replicated across.
 -spec list_db_sites([_Shard]) -> [site()].

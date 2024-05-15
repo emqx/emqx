@@ -191,7 +191,7 @@ handle_shard_transitions(Shard, [Trans | _Rest], State) ->
     end.
 
 transition_handler(Shard, Trans, _State = #{db := DB}) ->
-    ThisSite = emqx_ds_replication_layer_meta:this_site(),
+    ThisSite = catch emqx_ds_replication_layer_meta:this_site(),
     case Trans of
         {add, ThisSite} ->
             {Shard, fun trans_add_local/3};

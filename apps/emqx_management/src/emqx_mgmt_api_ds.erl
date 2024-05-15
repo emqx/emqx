@@ -35,7 +35,9 @@
 
     update_db_sites/3,
     join/3,
-    leave/3
+    leave/3,
+
+    forget/2
 ]).
 
 %% behavior callbacks:
@@ -376,6 +378,14 @@ leave(DB, Site, Via) ->
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:leave_db_site(DB, Site)).
 
+-spec forget(emqx_ds_replication_layer_meta:site(), rest | cli) ->
+    ok | {error, _}.
+forget(Site, Via) ->
+    ?SLOG(warning, #{
+        msg => "durable_storage_forget_request", site => Site, via => Via
+    }),
+    meta_result_to_binary(emqx_ds_replication_layer_meta:forget_site(Site)).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -466,14 +476,20 @@ list_shards(DB) ->
      || Shard <- emqx_ds_replication_layer_meta:shards(DB)
     ].
 
-meta_result_to_binary({ok, Result}) ->
-    {ok, Result};
+meta_result_to_binary(Ok) when Ok == ok orelse element(1, Ok) == ok ->
+    Ok;
 meta_result_to_binary({error, {nonexistent_sites, UnknownSites}}) ->
     Msg = ["Unknown sites: " | lists:join(", ", UnknownSites)],
     {error, iolist_to_binary(Msg)};
 meta_result_to_binary({error, {nonexistent_db, DB}}) ->
     IOList = io_lib:format("Unknown storage: ~p", [DB]),
     {error, iolist_to_binary(IOList)};
+meta_result_to_binary({error, nonexistent_site}) ->
+    {error, <<"Unknown site">>};
+meta_result_to_binary({error, {member_of_replica_sets, DBNames}}) ->
+    DBs = lists:map(fun atom_to_binary/1, DBNames),
+    Msg = ["Site is still a member of replica sets of: " | lists:join(", ", DBs)],
+    {error, iolist_to_binary(Msg)};
 meta_result_to_binary({error, Err}) ->
     IOList = io_lib:format("Error: ~p", [Err]),
     {error, iolist_to_binary(IOList)}.
