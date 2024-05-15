@@ -76,7 +76,9 @@ best_effort_json_obj(Input) ->
     best_effort_json_obj(Input, Config).
 
 -spec format(logger:log_event(), config()) -> iodata().
-format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
+format(#{level := _Level, msg := _Msg, meta := _Meta} = Entry, Config0) when is_map(Config0) ->
+    #{level := Level, msg := Msg, meta := Meta} =
+        emqx_logger_textfmt:evaluate_lazy_values_if_dbg_level(Entry),
     Config = add_default_config(Config0),
     [format(Msg, Meta#{level => Level}, Config), "\n"].
 
