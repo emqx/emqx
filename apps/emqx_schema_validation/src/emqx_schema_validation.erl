@@ -65,12 +65,14 @@
 
 -spec add_handler() -> ok.
 add_handler() ->
+    ok = emqx_config_handler:add_handler([?CONF_ROOT], ?MODULE),
     ok = emqx_config_handler:add_handler(?VALIDATIONS_CONF_PATH, ?MODULE),
     ok.
 
 -spec remove_handler() -> ok.
 remove_handler() ->
     ok = emqx_config_handler:remove_handler(?VALIDATIONS_CONF_PATH),
+    ok = emqx_config_handler:remove_handler([?CONF_ROOT]),
     ok.
 
 load() ->
@@ -185,7 +187,12 @@ pre_config_update(?VALIDATIONS_CONF_PATH, {update, Validation}, OldValidations) 
 pre_config_update(?VALIDATIONS_CONF_PATH, {delete, Validation}, OldValidations) ->
     delete(OldValidations, Validation);
 pre_config_update(?VALIDATIONS_CONF_PATH, {reorder, Order}, OldValidations) ->
-    reorder(OldValidations, Order).
+    reorder(OldValidations, Order);
+pre_config_update([?CONF_ROOT], {merge, NewConfig}, OldConfig) ->
+    #{resulting_config := Config} = prepare_config_merge(NewConfig, OldConfig),
+    {ok, Config};
+pre_config_update([?CONF_ROOT], {replace, NewConfig}, _OldConfig) ->
+    {ok, NewConfig}.
 
 post_config_update(?VALIDATIONS_CONF_PATH, {append, #{<<"name">> := Name}}, New, _Old, _AppEnvs) ->
     {Pos, Validation} = fetch_with_index(New, Name),
@@ -202,57 +209,77 @@ post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) 
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, _Old, _AppEnvs) ->
     ok = emqx_schema_validation_registry:reindex_positions(New),
-    ok.
+    ok;
+post_config_update([?CONF_ROOT], {merge, _}, ResultingConfig, Old, _AppEnvs) ->
+    #{validations := ResultingValidations} = ResultingConfig,
+    #{validations := OldValidations} = Old,
+    #{added := NewValidations0} =
+        emqx_utils:diff_lists(
+            ResultingValidations,
+            OldValidations,
+            fun(#{name := N}) -> N end
+        ),
+    NewValidations =
+        lists:map(
+            fun(#{name := Name}) ->
+                {Pos, Validation} = fetch_with_index(ResultingValidations, Name),
+                ok = emqx_schema_validation_registry:insert(Pos, Validation),
+                #{name => Name, pos => Pos}
+            end,
+            NewValidations0
+        ),
+    {ok, #{new_validations => NewValidations}};
+post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnvs) ->
+    #{
+        new_validations := NewValidations,
+        changed_validations := ChangedValidations0,
+        deleted_validations := DeletedValidations
+    } = prepare_config_replace(Input, Old),
+    #{validations := ResultingValidations} = ResultingConfig,
+    #{validations := OldValidations} = Old,
+    lists:foreach(
+        fun(Name) ->
+            {_Pos, Validation} = fetch_with_index(OldValidations, Name),
+            ok = emqx_schema_validation_registry:delete(Validation)
+        end,
+        DeletedValidations
+    ),
+    lists:foreach(
+        fun(Name) ->
+            {Pos, Validation} = fetch_with_index(ResultingValidations, Name),
+            ok = emqx_schema_validation_registry:insert(Pos, Validation)
+        end,
+        NewValidations
+    ),
+    ChangedValidations =
+        lists:map(
+            fun(Name) ->
+                {_Pos, OldValidation} = fetch_with_index(OldValidations, Name),
+                {Pos, NewValidation} = fetch_with_index(ResultingValidations, Name),
+                ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
+                #{name => Name, pos => Pos}
+            end,
+            ChangedValidations0
+        ),
+    ok = emqx_schema_validation_registry:reindex_positions(ResultingValidations),
+    {ok, #{changed_validations => ChangedValidations}}.
 
 %%------------------------------------------------------------------------------
 %% `emqx_config_backup' API
 %%------------------------------------------------------------------------------
 
 import_config(#{?CONF_ROOT_BIN := RawConf0}) ->
-    OldRawValidations = emqx_config:get_raw([?CONF_ROOT_BIN, <<"validations">>], []),
-    {ImportedRawValidations, RawConf1} =
-        case maps:take(<<"validations">>, RawConf0) of
-            error ->
-                {[], RawConf0};
-            {V, R} ->
-                {V, R}
-        end,
-    %% If there's a matching validation, we don't overwrite it.  We don't remove any
-    %% validations, either.
-    #{added := NewRawValidations} = emqx_utils:diff_lists(
-        ImportedRawValidations,
-        OldRawValidations,
-        fun(#{<<"name">> := N}) -> N end
-    ),
-    OtherConfs = maps:to_list(RawConf1),
-    Result = emqx_utils:foldl_while(
-        fun
-            ({validation, RawValidation}, Acc) ->
-                case insert(RawValidation) of
-                    {ok, _} ->
-                        #{<<"name">> := N} = RawValidation,
-                        ChangedPath = [?CONF_ROOT, validations, '?', N],
-                        {cont, [ChangedPath | Acc]};
-                    {error, _} = Error ->
-                        {halt, Error}
-                end;
-            ({Key, RawConf}, Acc) ->
-                case emqx_conf:update([?CONF_ROOT_BIN, Key], RawConf, #{override_to => cluster}) of
-                    {ok, _} ->
-                        ChangedPath = [?CONF_ROOT, Key],
-                        {conf, [ChangedPath | Acc]};
-                    {error, _} = Error ->
-                        {halt, Error}
-                end
-        end,
-        [],
-        OtherConfs ++
-            [{validation, NewValidation} || NewValidation <- NewRawValidations]
+    Result = emqx_conf:update(
+        [?CONF_ROOT],
+        {merge, RawConf0},
+        #{override_to => cluster, rawconf_with_defaults => true}
     ),
     case Result of
         {error, Reason} ->
             {error, #{root_key => ?CONF_ROOT, reason => Reason}};
-        ChangedPaths ->
+        {ok, _} ->
+            Keys0 = maps:keys(RawConf0),
+            ChangedPaths = Keys0 -- [<<"validations">>],
             {ok, #{root_key => ?CONF_ROOT, changed => ChangedPaths}}
     end;
 import_config(_RawConf) ->
@@ -530,3 +557,55 @@ run_schema_validation_failed_hook(Message, Validation) ->
     #{name := Name} = Validation,
     ValidationContext = #{name => Name},
     emqx_hooks:run('schema.validation_failed', [Message, ValidationContext]).
+
+%% "Merging" in the context of the validation array means:
+%%   * Existing validations (identified by `name') are left untouched.
+%%   * No validations are removed.
+%%   * New validations are appended to the existing list.
+%%   * Existing validations are not reordered.
+prepare_config_merge(NewConfig0, OldConfig) ->
+    {ImportedRawValidations, NewConfigNoValidations} =
+        case maps:take(<<"validations">>, NewConfig0) of
+            error ->
+                {[], NewConfig0};
+            {V, R} ->
+                {V, R}
+        end,
+    OldRawValidations = maps:get(<<"validations">>, OldConfig, []),
+    #{added := NewRawValidations} = emqx_utils:diff_lists(
+        ImportedRawValidations,
+        OldRawValidations,
+        fun(#{<<"name">> := N}) -> N end
+    ),
+    Config0 = emqx_utils_maps:deep_merge(OldConfig, NewConfigNoValidations),
+    Config = maps:update_with(
+        <<"validations">>,
+        fun(OldVs) -> OldVs ++ NewRawValidations end,
+        NewRawValidations,
+        Config0
+    ),
+    #{
+        new_validations => NewRawValidations,
+        resulting_config => Config
+    }.
+
+prepare_config_replace(NewConfig, OldConfig) ->
+    ImportedRawValidations = maps:get(<<"validations">>, NewConfig, []),
+    OldValidations = maps:get(validations, OldConfig, []),
+    %% Since, at this point, we have an input raw config but a parsed old config, we
+    %% project both to the to have only their names, and consider common names as changed.
+    #{
+        added := NewValidations,
+        removed := DeletedValidations,
+        changed := ChangedValidations0,
+        identical := ChangedValidations1
+    } = emqx_utils:diff_lists(
+        lists:map(fun(#{<<"name">> := N}) -> N end, ImportedRawValidations),
+        lists:map(fun(#{name := N}) -> N end, OldValidations),
+        fun(N) -> N end
+    ),
+    #{
+        new_validations => NewValidations,
+        changed_validations => ChangedValidations0 ++ ChangedValidations1,
+        deleted_validations => DeletedValidations
+    }.

@@ -751,7 +751,6 @@ safe_filename(Filename) when is_list(Filename) ->
 when
     Func :: fun((T) -> any()),
     T :: any().
-
 diff_lists(New, Old, KeyFunc) when is_list(New) andalso is_list(Old) ->
     Removed =
         lists:foldl(

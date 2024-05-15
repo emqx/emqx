@@ -461,6 +461,12 @@ assert_monitor_metrics() ->
     ),
     ok.
 
+normalize_validations(RawValidations) ->
+    [
+        V#{<<"topics">> := [T]}
+     || #{<<"topics">> := T} = V <- RawValidations
+    ].
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -1287,16 +1293,94 @@ t_import_config_backup(_Config) ->
 
     {204, _} = import_backup(BackupName),
 
-    ExpectedValidations = [
-        V#{<<"topics">> := [T]}
-     || #{<<"topics">> := T} = V <- [
-            Validation1A,
-            Validation2A,
-            Validation3,
-            Validation4
-        ]
-    ],
+    ExpectedValidations = normalize_validations([
+        Validation1A,
+        Validation2A,
+        Validation3,
+        Validation4
+    ]),
     ?assertMatch({200, ExpectedValidations}, list()),
     ?assertIndexOrder([Name1, Name2, Name3, Name4], <<"t/a">>),
+
+    ok.
+
+%% Tests that importing configurations from the CLI interface work.
+t_load_config(_Config) ->
+    Name1 = <<"1">>,
+    Check1A = sql_check(<<"select 1 where true">>),
+    Validation1A = validation(Name1, [Check1A]),
+    {201, _} = insert(Validation1A),
+
+    Name2 = <<"2">>,
+    Check2A = sql_check(<<"select 2 where true">>),
+    Validation2A = validation(Name2, [Check2A]),
+    {201, _} = insert(Validation2A),
+
+    Name3 = <<"3">>,
+    Check3 = sql_check(<<"select 3 where true">>),
+    Validation3 = validation(Name3, [Check3]),
+    {201, _} = insert(Validation3),
+
+    %% Config to load
+    %% Will replace existing config
+    Check2B = sql_check(<<"select 2 where false">>),
+    Validation2B = validation(Name2, [Check2B]),
+
+    %% Will replace existing config
+    Check1B = sql_check(<<"select 1 where false">>),
+    Validation1B = validation(Name1, [Check1B]),
+
+    %% New validation; should be appended
+    Name4 = <<"4">>,
+    Check4 = sql_check(<<"select 4 where true">>),
+    Validation4 = validation(Name4, [Check4]),
+
+    ConfRootBin = <<"schema_validation">>,
+    ConfigToLoad1 = #{
+        ConfRootBin => #{
+            <<"validations">> => [Validation2B, Validation1B, Validation4]
+        }
+    },
+    ConfigToLoadBin1 = iolist_to_binary(hocon_pp:do(ConfigToLoad1, #{})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin1, #{mode => merge})),
+    ExpectedValidations1 = normalize_validations([
+        Validation1A,
+        Validation2A,
+        Validation3,
+        Validation4
+    ]),
+    ?assertMatch(
+        #{
+            ConfRootBin := #{
+                <<"validations">> := ExpectedValidations1
+            }
+        },
+        emqx_conf_cli:get_config(<<"schema_validation">>)
+    ),
+    ?assertIndexOrder([Name1, Name2, Name3, Name4], <<"t/a">>),
+
+    %% Replace
+    Check4B = sql_check(<<"select 4, true where true">>),
+    Validation4B = validation(Name4, [Check4B]),
+
+    Name5 = <<"5">>,
+    Check5 = sql_check(<<"select 5 where true">>),
+    Validation5 = validation(Name5, [Check5]),
+
+    ConfigToLoad2 = #{
+        ConfRootBin => #{<<"validations">> => [Validation4B, Validation3, Validation5]}
+    },
+    ConfigToLoadBin2 = iolist_to_binary(hocon_pp:do(ConfigToLoad2, #{})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin2, #{mode => replace})),
+    ExpectedValidations2 = normalize_validations([Validation4B, Validation3, Validation5]),
+    ?assertMatch(
+        #{
+            ConfRootBin := #{
+                <<"validations">> := ExpectedValidations2
+            }
+        },
+        emqx_conf_cli:get_config(<<"schema_validation">>)
+    ),
+    ?assertIndexOrder([Name4, Name3, Name5], <<"t/a">>),
 
     ok.
