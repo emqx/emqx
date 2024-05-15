@@ -895,7 +895,7 @@ t_kick_session(Config) ->
                 %% kick may fail (not found) without this delay
                 {
                     fun(CTX) ->
-                        timer:sleep(100),
+                        timer:sleep(1000),
                         CTX
                     end,
                     []
