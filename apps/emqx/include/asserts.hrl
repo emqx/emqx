@@ -45,6 +45,10 @@
 ).
 
 -define(assertReceive(PATTERN, TIMEOUT),
+    ?assertReceive(PATTERN, TIMEOUT, #{})
+).
+
+-define(assertReceive(PATTERN, TIMEOUT, EXTRA),
     (fun() ->
         receive
             X__V = PATTERN -> X__V
@@ -54,7 +58,8 @@
                     {module, ?MODULE},
                     {line, ?LINE},
                     {expression, (??PATTERN)},
-                    {mailbox, ?drainMailbox()}
+                    {mailbox, ?drainMailbox()},
+                    {extra_info, EXTRA}
                 ]}
             )
         end

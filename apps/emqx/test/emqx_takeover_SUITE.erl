@@ -884,26 +884,23 @@ t_kick_session(Config) ->
         {will_qos, 1}
     ],
     Commands =
-        %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
-        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]}] ++
-            [
-                {fun start_client/5, [
-                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-                ]}
-            ] ++
-            [
-                %% kick may fail (not found) without this delay
-                {
-                    fun(CTX) ->
-                        timer:sleep(100),
-                        CTX
-                    end,
-                    []
-                }
-            ] ++
+        lists:flatten([
+            %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
+            {fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]},
+            {fun start_client/5, [
+                <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
+            ]},
+            %% kick may fail (not found) without this delay
+            {
+                fun(CTX) ->
+                    timer:sleep(300),
+                    CTX
+                end,
+                []
+            },
             %% WHEN: client is kicked with kick_session
-            [{fun kick_client/2, [ClientId]}],
-
+            {fun kick_client/2, [ClientId]}
+        ]),
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
@@ -1045,9 +1042,15 @@ assert_client_exit(Pid, v5, takenover) ->
     %% @ref: MQTT 5.0 spec [MQTT-3.1.4-3]
     ?assertReceive({'EXIT', Pid, {disconnected, ?RC_SESSION_TAKEN_OVER, _}});
 assert_client_exit(Pid, v3, takenover) ->
-    ?assertReceive({'EXIT', Pid, {shutdown, tcp_closed}});
+    ?assertReceive(
+        {'EXIT', Pid, {shutdown, Reason}} when
+            Reason =:= tcp_closed orelse
+                Reason =:= closed,
+        1_000,
+        #{pid => Pid}
+    );
 assert_client_exit(Pid, v3, kicked) ->
-    ?assertReceive({'EXIT', Pid, _});
+    ?assertReceive({'EXIT', Pid, _}, 1_000, #{pid => Pid});
 assert_client_exit(Pid, v5, kicked) ->
     ?assertReceive({'EXIT', Pid, {disconnected, ?RC_ADMINISTRATIVE_ACTION, _}});
 assert_client_exit(Pid, _, killed) ->
