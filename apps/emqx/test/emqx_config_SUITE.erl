@@ -382,7 +382,7 @@ t_init_zone_with_global_defaults(Config) when is_list(Config) ->
     %% when put zones with global default with emqx_config:put/1
     GlobalDefaults = zone_global_defaults(),
     AllConf = maps:put(zones, Zones, GlobalDefaults),
-    %% Then put sucess
+    %% Then put success
     ?assertEqual(ok, emqx_config:put(AllConf)),
     %% Then GlobalDefaults are set
     ?assertEqual(GlobalDefaults, maps:with(maps:keys(GlobalDefaults), emqx_config:get([]))),
