@@ -242,10 +242,7 @@ interleave_stop_test() ->
 ets_test() ->
     T = ets:new(tab, [ordered_set]),
     Objects = [{N, N} || N <- lists:seq(1, 10)],
-    lists:foreach(
-        fun(Object) -> ets:insert(T, Object) end,
-        Objects
-    ),
+    ets:insert(T, Objects),
     S = emqx_utils_stream:ets(
         fun
             (undefined) -> ets:match_object(T, '_', 4);
