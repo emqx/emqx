@@ -23,21 +23,23 @@
     const/1,
     mqueue/1,
     map/2,
-    filter/2,
-    foreach/2,
     transpose/1,
     chain/1,
     chain/2,
     repeat/1,
     interleave/2,
-    limit_length/2
+    limit_length/2,
+    filter/2,
+    drop/2,
+    chainmap/2
 ]).
 
 %% Evaluating
 -export([
     next/1,
     consume/1,
-    consume/2
+    consume/2,
+    foreach/2
 ]).
 
 %% Streams from ETS tables
@@ -53,8 +55,9 @@
 -export_type([stream/1]).
 
 %% @doc A stream is essentially a lazy list.
--type stream(T) :: fun(() -> next(T) | []).
--type next(T) :: nonempty_improper_list(T, stream(T)).
+-type stream_tail(T) :: fun(() -> next(T) | []).
+-type stream(T) :: list(T) | nonempty_improper_list(T, stream_tail(T)) | stream_tail(T).
+-type next(T) :: nonempty_improper_list(T, stream_tail(T)).
 
 -dialyzer(no_improper_lists).
 
@@ -65,15 +68,12 @@
 %% @doc Make a stream that produces no values.
 -spec empty() -> stream(none()).
 empty() ->
-    fun() -> [] end.
+    [].
 
 %% @doc Make a stream out of the given list.
 %% Essentially it's an opposite of `consume/1`, i.e. `L = consume(list(L))`.
 -spec list([T]) -> stream(T).
-list([]) ->
-    empty();
-list([X | Rest]) ->
-    fun() -> [X | list(Rest)] end.
+list(L) -> L.
 
 %% @doc Make a stream with a single element infinitely repeated
 -spec const(T) -> stream(T).
@@ -107,7 +107,7 @@ map(F, S) ->
 %% @doc Make a stream by filtering the underlying stream with a predicate function.
 filter(F, S) ->
     FilterNext = fun FilterNext(St) ->
-        case emqx_utils_stream:next(St) of
+        case next(St) of
             [X | Rest] ->
                 case F(X) of
                     true ->
@@ -123,13 +123,44 @@ filter(F, S) ->
 
 %% @doc Consumes the stream and applies the given function to each element.
 foreach(F, S) ->
-    case emqx_utils_stream:next(S) of
+    case next(S) of
         [X | Rest] ->
             F(X),
             foreach(F, Rest);
         [] ->
             ok
     end.
+
+%% @doc Drops N first elements from the stream
+-spec drop(non_neg_integer(), stream(T)) -> stream(T).
+drop(N, S) ->
+    DropNext = fun DropNext(M, St) ->
+        case next(St) of
+            [_X | Rest] when M > 0 ->
+                DropNext(M - 1, Rest);
+            Next ->
+                Next
+        end
+    end,
+    fun() -> DropNext(N, S) end.
+
+%% @doc Stream version of flatmap.
+-spec chainmap(fun((X) -> stream(Y)), stream(X)) -> stream(Y).
+chainmap(F, S) ->
+    ChainNext = fun ChainNext(St) ->
+        case next(St) of
+            [X | Rest] ->
+                case next(F(X)) of
+                    [Y | YRest] ->
+                        [Y | chain(YRest, chainmap(F, Rest))];
+                    [] ->
+                        ChainNext(Rest)
+                end;
+            [] ->
+                []
+        end
+    end,
+    fun() -> ChainNext(S) end.
 
 %% @doc Transpose a list of streams into a stream producing lists of their respective values.
 %% The resulting stream is as long as the shortest of the input streams.
@@ -201,7 +232,7 @@ repeat(S) ->
 interleave(L0, ContinueAtEmpty) ->
     L = lists:map(
         fun
-            (Stream) when is_function(Stream) ->
+            (Stream) when is_function(Stream) or is_list(Stream) ->
                 {1, Stream};
             (A = {N, _}) when N >= 0 ->
                 A
@@ -230,8 +261,12 @@ limit_length(N, S) when N >= 0 ->
 
 %% @doc Produce the next value from the stream.
 -spec next(stream(T)) -> next(T) | [].
-next(S) ->
-    S().
+next(EvalNext) when is_function(EvalNext) ->
+    EvalNext();
+next([_ | _Rest] = EvaluatedNext) ->
+    EvaluatedNext;
+next([]) ->
+    [].
 
 %% @doc Consume the stream and return a list of all produced values.
 -spec consume(stream(T)) -> [T].
@@ -279,9 +314,9 @@ ets(Cont, ContF) ->
     fun() ->
         case ContF(Cont) of
             {Records, '$end_of_table'} ->
-                next(list(Records));
+                next(Records);
             {Records, NCont} ->
-                next(chain(list(Records), ets(NCont, ContF)));
+                next(chain(Records, ets(NCont, ContF)));
             '$end_of_table' ->
                 []
         end

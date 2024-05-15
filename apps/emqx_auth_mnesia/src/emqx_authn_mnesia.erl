@@ -449,14 +449,8 @@ group_match_spec(UserGroup, QString) ->
 %% parse import file/data
 
 parse_import_users(Filename, FileData, Convertor) ->
-    Eval = fun _Eval(F) ->
-        case F() of
-            [] -> [];
-            [User | F1] -> [Convertor(User) | _Eval(F1)]
-        end
-    end,
-    ReaderFn = reader_fn(Filename, FileData),
-    Users = Eval(ReaderFn),
+    UserStream = reader_fn(Filename, FileData),
+    Users = emqx_utils_stream:consume(emqx_utils_stream:map(Convertor, UserStream)),
     NewUsersCount =
         lists:foldl(
             fun(

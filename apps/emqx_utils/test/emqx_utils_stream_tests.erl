@@ -74,6 +74,72 @@ chain_list_map_test() ->
         emqx_utils_stream:consume(S)
     ).
 
+filter_test() ->
+    S = emqx_utils_stream:filter(
+        fun(N) -> N rem 2 =:= 0 end,
+        emqx_utils_stream:chain(
+            emqx_utils_stream:list([1, 2, 3]),
+            emqx_utils_stream:chain(
+                emqx_utils_stream:empty(),
+                emqx_utils_stream:list([4, 5, 6])
+            )
+        )
+    ),
+    ?assertEqual(
+        [2, 4, 6],
+        emqx_utils_stream:consume(S)
+    ).
+
+drop_test() ->
+    S = emqx_utils_stream:drop(2, emqx_utils_stream:list([1, 2, 3, 4, 5])),
+    ?assertEqual(
+        [3, 4, 5],
+        emqx_utils_stream:consume(S)
+    ).
+
+foreach_test() ->
+    Self = self(),
+    ok = emqx_utils_stream:foreach(
+        fun(N) -> erlang:send(Self, N) end,
+        emqx_utils_stream:chain(
+            emqx_utils_stream:list([1, 2, 3]),
+            emqx_utils_stream:chain(
+                emqx_utils_stream:empty(),
+                emqx_utils_stream:list([4, 5, 6])
+            )
+        )
+    ),
+    ?assertEqual(
+        [1, 2, 3, 4, 5, 6],
+        emqx_utils_stream:consume(emqx_utils_stream:mqueue(100))
+    ).
+
+chainmap_test() ->
+    S = emqx_utils_stream:chainmap(
+        fun(N) ->
+            case N rem 2 of
+                1 ->
+                    emqx_utils_stream:chain(
+                        emqx_utils_stream:chain(emqx_utils_stream:list([N]), []),
+                        emqx_utils_stream:list([N + 1])
+                    );
+                0 ->
+                    emqx_utils_stream:empty()
+            end
+        end,
+        emqx_utils_stream:chain(
+            emqx_utils_stream:list([1, 2, 3]),
+            emqx_utils_stream:chain(
+                emqx_utils_stream:empty(),
+                emqx_utils_stream:list([4, 5, 6])
+            )
+        )
+    ),
+    ?assertEqual(
+        [1, 2, 3, 4, 5, 6],
+        emqx_utils_stream:consume(S)
+    ).
+
 transpose_test() ->
     S = emqx_utils_stream:transpose([
         emqx_utils_stream:list([1, 2, 3]),
@@ -171,6 +237,24 @@ interleave_stop_test() ->
     ?assertEqual(
         [1, 1, a, b, 1, 1, c, d, 1, 1],
         emqx_utils_stream:consume(emqx_utils_stream:interleave([{2, S1}, {2, S2}], false))
+    ).
+
+ets_test() ->
+    T = ets:new(tab, [ordered_set]),
+    Objects = [{N, N} || N <- lists:seq(1, 10)],
+    lists:foreach(
+        fun(Object) -> ets:insert(T, Object) end,
+        Objects
+    ),
+    S = emqx_utils_stream:ets(
+        fun
+            (undefined) -> ets:match_object(T, '_', 4);
+            (Cont) -> ets:match_object(Cont)
+        end
+    ),
+    ?assertEqual(
+        Objects,
+        emqx_utils_stream:consume(S)
     ).
 
 csv_test() ->
