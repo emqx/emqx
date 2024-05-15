@@ -360,6 +360,12 @@ event_username.desc:
 event_username.label:
 """Username"""
 
+event_validation.desc:
+"""Validation"""
+
+event_validation.label:
+"""Validation"""
+
 root_rule_info.desc:
 """Schema for rule info"""
 
