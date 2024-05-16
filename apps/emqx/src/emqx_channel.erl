@@ -1638,10 +1638,19 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
 get_client_attrs_init_config(Zone) ->
     get_mqtt_conf(Zone, client_attrs_init, []).
 
-maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
+maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo0) ->
     Inits = get_client_attrs_init_config(Zone),
     UserProperty = get_user_property_as_map(ConnPkt),
-    {ok, initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty})}.
+    ClientInfo = ClientInfo0#{
+        user_property => UserProperty,
+        peername => peername(ClientInfo0)
+    },
+    {ok, initialize_client_attrs(Inits, ClientInfo)}.
+
+peername(#{peerhost := Host, peerport := Port}) ->
+    iolist_to_binary(emqx_utils:ntoa({Host, Port}));
+peername(_) ->
+    undefined.
 
 initialize_client_attrs(Inits, ClientInfo) ->
     lists:foldl(

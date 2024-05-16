@@ -78,6 +78,7 @@ groups() ->
             t_certcn_as_alias,
             t_certdn_as_alias,
             t_client_attr_from_user_property,
+            t_client_attr_from_peername,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
@@ -444,6 +445,31 @@ t_client_attr_from_user_property(_Config) ->
         emqx_cm:get_chan_info(ClientId)
     ),
     emqtt:disconnect(Client).
+
+t_client_attr_from_peername(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Compiled} = emqx_variform:compile("peername"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"origin">>
+        }
+    ]),
+    SslConf = emqx_common_test_helpers:client_mtls('tlsv1.3'),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {port, 8883},
+        {ssl, true},
+        {ssl_opts, SslConf}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    %% assert only two chars are extracted
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := #{<<"origin">> := <<"127.0.0.1:", _/binary>>}}},
+        emqx_cm:get_chan_info(ClientId)
+    ),
+    emqtt:disconnect(Client).
+
 t_certcn_as_clientid_default_config_tls(_) ->
     tls_certcn_as_clientid(default).
 
