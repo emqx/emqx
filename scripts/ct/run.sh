@@ -302,6 +302,9 @@ if [ "$DOCKER_USER" != "root" ]; then
            chown $DOCKER_USER /.cache /.hex /.mix && \
            openssl rand -base64 -hex 16 > /.erlang.cookie && \
            chown $DOCKER_USER /.erlang.cookie && \
+           sudo chown $DOCKER_USER /root/.zshrc && \
+           sudo chown $DOCKER_USER /root/.zsh_history && \
+           sudo chown $DOCKER_USER /root/.oh-my-zsh && \
            chmod 0400 /.erlang.cookie && \
            chown -R $DOCKER_USER /var/lib/secret && \
            $INSTALL_ODBC" || true
@@ -316,7 +319,7 @@ set +e
 if [ "$STOP" = 'yes' ]; then
     $DC down --remove-orphans
 elif [ "$ATTACH" = 'yes' ]; then
-    docker exec -it "$ERLANG_CONTAINER" bash
+    docker exec -it -u root "$ERLANG_CONTAINER" zsh
 elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
