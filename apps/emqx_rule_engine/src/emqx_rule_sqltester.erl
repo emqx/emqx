@@ -52,7 +52,8 @@ do_apply_rule(
                     do_apply_matched_rule(
                         Rule,
                         Context,
-                        StopAfterRender
+                        StopAfterRender,
+                        EventTopics
                     );
                 false ->
                     {error, nomatch}
@@ -61,17 +62,21 @@ do_apply_rule(
             case lists:member(InTopic, EventTopics) of
                 true ->
                     %% the rule is for both publish and events, test it directly
-                    do_apply_matched_rule(Rule, Context, StopAfterRender);
+                    do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics);
                 false ->
                     {error, nomatch}
             end
     end.
 
-do_apply_matched_rule(Rule, Context, StopAfterRender) ->
+do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
     update_process_trace_metadata(StopAfterRender),
+    FullContext = fill_default_values(
+        hd(EventTopics),
+        emqx_rule_maps:atom_key_map(Context)
+    ),
     ApplyRuleRes = emqx_rule_runtime:apply_rule(
         Rule,
-        Context,
+        FullContext,
         apply_rule_environment()
     ),
     reset_trace_process_metadata(StopAfterRender),
@@ -99,6 +104,7 @@ apply_rule_environment() -> #{}.
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
 test(#{sql := Sql, context := Context}) ->
+    x:show(context, Context),
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             InTopic = get_in_topic(Context),
