@@ -27,8 +27,8 @@
 
 start(_Type, _Args) ->
     %% load all pre-configured
-    ok = emqx_plugins:ensure_started(),
     {ok, Sup} = emqx_plugins_sup:start_link(),
+    ok = emqx_plugins:ensure_started(),
     ok = emqx_config_handler:add_handler([?CONF_ROOT], emqx_plugins),
     {ok, Sup}.
 

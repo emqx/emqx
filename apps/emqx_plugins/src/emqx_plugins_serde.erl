@@ -33,7 +33,6 @@
     init/1,
     handle_call/3,
     handle_cast/2,
-    handle_continue/2,
     terminate/2
 ]).
 
@@ -126,11 +125,10 @@ init(_) ->
     ]),
     State = #{},
     AvscPaths = get_plugin_avscs(),
-    {ok, State, {continue, {build_serdes, AvscPaths}}}.
-
-handle_continue({build_serdes, AvscPaths}, State) ->
+    %% force build all schemas at startup
+    %% otherwise plugin schema may not be available when needed
     _ = build_serdes(AvscPaths),
-    {noreply, State}.
+    {ok, State}.
 
 handle_call({build_serdes, NameVsn, AvscPath}, _From, State) ->
     BuildRes = do_build_serde({NameVsn, AvscPath}),
