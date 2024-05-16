@@ -195,21 +195,50 @@ print_status() ->
         end,
         eval_qlc(mnesia:table(?NODE_TAB))
     ),
+    Shards = eval_qlc(mnesia:table(?SHARD_TAB)),
     io:format(
         "~nSHARDS:~n~s~s~n",
-        [string:pad("Id", 30), "Replicas"]
+        [string:pad("Shard", 30), "Replicas"]
     ),
     lists:foreach(
-        fun(#?SHARD_TAB{shard = {DB, Shard}, replica_set = RS}) ->
-            ShardStr = io_lib:format("~p/~s", [DB, Shard]),
+        fun(#?SHARD_TAB{shard = DBShard, replica_set = RS}) ->
+            ShardStr = format_shard(DBShard),
             ReplicasStr = string:join([format_replica(R) || R <- RS], "  "),
             io:format(
                 "~s~s~n",
                 [string:pad(ShardStr, 30), ReplicasStr]
             )
         end,
-        eval_qlc(mnesia:table(?SHARD_TAB))
+        Shards
+    ),
+    PendingTransitions = lists:filtermap(
+        fun(Record = #?SHARD_TAB{shard = DBShard}) ->
+            case compute_transitions(Record) of
+                [] -> false;
+                Transitions -> {true, {DBShard, Transitions}}
+            end
+        end,
+        Shards
+    ),
+    PendingTransitions /= [] andalso
+        io:format(
+            "~nREPLICA TRANSITIONS:~n~s~s~n",
+            [string:pad("Shard", 30), "Transitions"]
+        ),
+    lists:foreach(
+        fun({DBShard, Transitions}) ->
+            ShardStr = format_shard(DBShard),
+            TransStr = string:join(lists:map(fun format_transition/1, Transitions), "  "),
+            io:format(
+                "~s~s~n",
+                [string:pad(ShardStr, 30), TransStr]
+            )
+        end,
+        PendingTransitions
     ).
+
+format_shard({DB, Shard}) ->
+    io_lib:format("~p/~s", [DB, Shard]).
 
 format_replica(Site) ->
     Marker =
@@ -219,6 +248,11 @@ format_replica(Site) ->
             false -> "(!)"
         end,
     io_lib:format("~s ~s", [Marker, Site]).
+
+format_transition({add, Site}) ->
+    io_lib:format("+~s", [Site]);
+format_transition({del, Site}) ->
+    io_lib:format("-~s", [Site]).
 
 -spec this_site() -> site().
 this_site() ->
@@ -353,8 +387,8 @@ db_sites(DB) ->
     [transition()] | undefined.
 replica_set_transitions(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
-        [#?SHARD_TAB{target_set = TargetSet, replica_set = ReplicaSet}] ->
-            compute_transitions(TargetSet, ReplicaSet);
+        [Record] ->
+            compute_transitions(Record);
         [] ->
             undefined
     end.
@@ -705,6 +739,9 @@ compute_allocation(Shards, Sites, Opts) ->
         ShardsSorted
     ),
     Allocation.
+
+compute_transitions(#?SHARD_TAB{target_set = TargetSet, replica_set = ReplicaSet}) ->
+    compute_transitions(TargetSet, ReplicaSet).
 
 compute_transitions(undefined, _ReplicaSet) ->
     [];
