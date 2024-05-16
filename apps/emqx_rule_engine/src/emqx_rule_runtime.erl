@@ -740,7 +740,20 @@ nested_put(Alias, Val, Columns0) ->
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
 inc_action_metrics(TraceCtx, Result) ->
-    _ = do_inc_action_metrics(TraceCtx, Result),
+    SavedMetaData = logger:get_process_metadata(),
+    try
+        %% To not pollute the trace we temporary remove the process meta data
+        logger:unset_process_metadata(),
+        _ = do_inc_action_metrics(TraceCtx, Result)
+    after
+        %% Setting process metadata to undefined yields an error
+        case SavedMetaData of
+            undefined ->
+                ok;
+            _ ->
+                logger:set_process_metadata(SavedMetaData)
+        end
+    end,
     Result.
 
 do_inc_action_metrics(

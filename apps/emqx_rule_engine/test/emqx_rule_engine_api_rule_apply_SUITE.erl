@@ -419,13 +419,10 @@ t_apply_rule_test_format_action_failed(_Config) ->
                             <<"name">> := _,
                             <<"type">> := <<"rule_engine_test">>
                         },
-                        <<"client_ids">> := [],
                         <<"clientid">> := _,
                         <<"reason">> := <<"MY REASON">>,
                         <<"rule_id">> := _,
-                        <<"rule_ids">> := [],
                         <<"rule_trigger_time">> := _,
-                        <<"rule_trigger_times">> := [],
                         <<"stop_action_after_render">> := false,
                         <<"trace_tag">> := <<"ACTION">>
                     },
@@ -433,7 +430,11 @@ t_apply_rule_test_format_action_failed(_Config) ->
                     <<"time">> := _
                 },
                 LastEntryJSON
-            )
+            ),
+            MetaMap = maps:get(<<"meta">>, LastEntryJSON),
+            ?assert(not maps:is_key(<<"client_ids">>, MetaMap)),
+            ?assert(not maps:is_key(<<"rule_ids">>, MetaMap)),
+            ?assert(not maps:is_key(<<"rule_trigger_times">>, MetaMap))
         end,
     do_apply_rule_test_format_action_failed_test(1, CheckFun).
 

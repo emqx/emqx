@@ -104,7 +104,6 @@ apply_rule_environment() -> #{}.
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
 test(#{sql := Sql, context := Context}) ->
-    x:show(context, Context),
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             InTopic = get_in_topic(Context),
