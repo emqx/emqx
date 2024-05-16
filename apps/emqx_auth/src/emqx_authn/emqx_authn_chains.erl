@@ -678,15 +678,27 @@ do_authenticate(
             {stop, Result}
     catch
         Class:Reason:Stacktrace ->
-            ?TRACE_AUTHN(warning, "authenticator_error", #{
-                exception => Class,
-                reason => Reason,
-                stacktrace => Stacktrace,
-                authenticator => ID
-            }),
+            ?TRACE_AUTHN(
+                warning,
+                "authenticator_error",
+                maybe_add_stacktrace(
+                    Class,
+                    #{
+                        exception => Class,
+                        reason => Reason,
+                        authenticator => ID
+                    },
+                    Stacktrace
+                )
+            ),
             emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
             do_authenticate(ChainName, More, Credential)
     end.
+
+maybe_add_stacktrace('throw', Data, _Stacktrace) ->
+    Data;
+maybe_add_stacktrace(_, Data, Stacktrace) ->
+    Data#{stacktrace => Stacktrace}.
 
 authenticate_with_provider(#authenticator{id = ID, provider = Provider, state = State}, Credential) ->
     AuthnResult = Provider:authenticate(Credential, State),
