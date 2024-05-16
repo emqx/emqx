@@ -8,8 +8,6 @@
 %% Actions
 -define(ACTION_UPLOAD, s3).
 -define(BRIDGE_TYPE_UPLOAD, <<"s3">>).
--define(ACTION_AGGREGATED_UPLOAD, s3_aggregated_upload).
--define(BRIDGE_TYPE_AGGREGATED_UPLOAD, <<"s3_aggregated_upload">>).
 
 -define(CONNECTOR, s3).
 

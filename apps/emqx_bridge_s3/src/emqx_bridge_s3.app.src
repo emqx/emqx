@@ -12,8 +12,7 @@
     ]},
     {env, [
         {emqx_action_info_modules, [
-            emqx_bridge_s3_upload_action_info,
-            emqx_bridge_s3_aggreg_upload_action_info
+            emqx_bridge_s3_upload_action_info
         ]},
         {emqx_connector_info_modules, [
             emqx_bridge_s3_connector_info
