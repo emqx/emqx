@@ -11,6 +11,7 @@
     unregister_external_broker/0,
     maybe_add_route/1,
     maybe_delete_route/1,
+    match_routes/1,
     forward/2,
     should_route_to_external_dests/1
 ]).
@@ -38,15 +39,16 @@ unregister_external_broker() ->
     emqx_external_broker:unregister_provider(?MODULE).
 
 maybe_add_route(Topic) ->
-    emqx_cluster_link_coordinator:route_op(<<"add">>, Topic).
+    maybe_push_route_op(add, Topic).
 
-maybe_delete_route(_Topic) ->
-    %% Not implemented yet
-    %% emqx_cluster_link_coordinator:route_op(<<"delete">>, Topic).
-    ok.
+maybe_delete_route(Topic) ->
+    maybe_push_route_op(delete, Topic).
 
-forward(ExternalDest, Delivery) ->
-    emqx_cluster_link_mqtt:forward(ExternalDest, Delivery).
+forward(DestCluster, Delivery) ->
+    emqx_cluster_link_mqtt:forward(DestCluster, Delivery).
+
+match_routes(Topic) ->
+    emqx_cluster_link_extrouter:match_routes(Topic).
 
 %% Do not forward any external messages to other links.
 %% Only forward locally originated messages to all the relevant links, i.e. no gossip message forwarding.
@@ -104,6 +106,28 @@ delete_hook() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+maybe_push_route_op(Op, Topic) ->
+    lists:foreach(
+        fun(#{upstream := Cluster, topics := LinkFilters}) ->
+            case topic_intersect_any(Topic, LinkFilters) of
+                false ->
+                    ok;
+                TopicIntersection ->
+                    ID = Topic,
+                    emqx_cluster_link_router_syncer:push(Cluster, Op, TopicIntersection, ID)
+            end
+        end,
+        emqx_cluster_link_config:enabled_links()
+    ).
+
+topic_intersect_any(Topic, [LinkFilter | T]) ->
+    case emqx_topic:intersection(Topic, LinkFilter) of
+        false -> topic_intersect_any(Topic, T);
+        TopicOrFilter -> TopicOrFilter
+    end;
+topic_intersect_any(_Topic, []) ->
+    false.
 
 actor_init(ClusterName, Actor, Incarnation) ->
     Env = #{timestamp => erlang:system_time(millisecond)},

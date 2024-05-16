@@ -16,6 +16,7 @@
 -export([
     %% General
     cluster/0,
+    enabled_links/0,
     links/0,
     link/1,
     topic_filters/1,
@@ -40,6 +41,9 @@ cluster() ->
 
 links() ->
     emqx:get_config(?LINKS_PATH, []).
+
+enabled_links() ->
+    [L || L = #{enable := true} <- links()].
 
 link(Name) ->
     case lists:dropwhile(fun(L) -> Name =/= upstream_name(L) end, links()) of

@@ -123,7 +123,11 @@ refine_client_options(Options = #{clientid := ClientID}) ->
 
 client_session_present(ClientPid) ->
     Info = emqtt:info(ClientPid),
-    proplists:get_value(session_present, Info, false).
+    %% FIXME: waitnig for emqtt release that fixes session_present type (must be a boolean)
+    case proplists:get_value(session_present, Info, 0) of
+        0 -> false;
+        1 -> true
+    end.
 
 announce_client(TargetCluster, Pid) ->
     true = gproc:reg_other(?CLIENT_NAME(TargetCluster), Pid),
@@ -272,11 +276,10 @@ terminate(_Reason, _State) ->
 process_connect(St = #st{target = TargetCluster, actor = Actor, incarnation = Incr}) ->
     case start_link_client(TargetCluster) of
         {ok, ClientPid} ->
+            %% TODO: error handling, handshake
+            {ok, _} = emqx_cluster_link_mqtt:publish_actor_init_sync(ClientPid, Actor, Incr),
             ok = start_syncer(TargetCluster),
             ok = announce_client(TargetCluster, ClientPid),
-            %% TODO: error handling, handshake
-
-            {ok, _} = emqx_cluster_link_mqtt:publish_actor_init_sync(ClientPid, Actor, Incr),
             process_bootstrap(St#st{client = ClientPid});
         {error, Reason} ->
             handle_connect_error(Reason, St)

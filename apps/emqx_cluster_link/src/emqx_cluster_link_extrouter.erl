@@ -64,6 +64,8 @@
 %%    Op4 | n2@ds delete client/42/# → MCounter -= 1 bsl 1 = 0 → route deleted
 -type lane() :: non_neg_integer().
 
+-include_lib("emqx/include/emqx.hrl").
+
 -define(DEFAULT_ACTOR_TTL_MS, 30_000).
 
 -define(EXTROUTE_SHARD, ?MODULE).
@@ -117,7 +119,8 @@ create_tables() ->
 
 match_routes(Topic) ->
     Matches = emqx_topic_index:matches(Topic, ?EXTROUTE_TAB, [unique]),
-    [match_to_route(M) || M <- Matches].
+    %% `unique` opt is not enough, since we keep the original Topic as a part of RouteID
+    lists:usort([match_to_route(M) || M <- Matches]).
 
 lookup_routes(Topic) ->
     Pat = #extroute{entry = emqx_topic_index:make_key(Topic, '$1'), _ = '_'},
@@ -128,7 +131,8 @@ topics() ->
     [emqx_topic_index:get_topic(K) || [K] <- ets:match(?EXTROUTE_TAB, Pat)].
 
 match_to_route(M) ->
-    emqx_topic_index:get_topic(M).
+    ?ROUTE_ID(Cluster, _) = emqx_topic_index:get_id(M),
+    #route{topic = emqx_topic_index:get_topic(M), dest = Cluster}.
 
 %%
 

@@ -256,9 +256,10 @@ do_publish_many([Msg | T]) ->
 
 do_publish(#message{topic = Topic} = Msg) ->
     PersistRes = persist_publish(Msg),
-    {Routes, ExtRoutes} = aggre(emqx_router:match_routes(Topic)),
-    Routes1 = maybe_add_ext_routes(ExtRoutes, Routes, Msg),
-    route(Routes1, delivery(Msg), PersistRes).
+    Routes = aggre(emqx_router:match_routes(Topic)),
+    Delivery = delivery(Msg),
+    RouteRes = route(Routes, Delivery, PersistRes),
+    ext_route(ext_routes(Topic, Msg), Delivery, RouteRes).
 
 persist_publish(Msg) ->
     case emqx_persistent_message:persist(Msg) of
@@ -322,40 +323,43 @@ do_route({To, Node}, Delivery) when Node =:= node() ->
     {Node, To, dispatch(To, Delivery)};
 do_route({To, Node}, Delivery) when is_atom(Node) ->
     {Node, To, forward(Node, To, Delivery, emqx:get_config([rpc, mode]))};
-do_route({To, {external, _} = ExtDest}, Delivery) ->
-    {ExtDest, To, emqx_external_broker:forward(ExtDest, Delivery)};
 do_route({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
     {share, To, emqx_shared_sub:dispatch(Group, To, Delivery)}.
 
 aggre([]) ->
-    {[], []};
+    [];
 aggre([#route{topic = To, dest = Node}]) when is_atom(Node) ->
-    {[{To, Node}], []};
-aggre([#route{topic = To, dest = {external, _} = ExtDest}]) ->
-    {[], [{To, ExtDest}]};
+    [{To, Node}];
 aggre([#route{topic = To, dest = {Group, _Node}}]) ->
-    {[{To, Group}], []};
+    [{To, Group}];
 aggre(Routes) ->
-    aggre(Routes, false, {[], []}).
+    aggre(Routes, false, []).
 
-aggre([#route{topic = To, dest = Node} | Rest], Dedup, {Acc, ExtAcc}) when is_atom(Node) ->
-    aggre(Rest, Dedup, {[{To, Node} | Acc], ExtAcc});
-aggre([#route{topic = To, dest = {external, _} = ExtDest} | Rest], Dedup, {Acc, ExtAcc}) ->
-    aggre(Rest, Dedup, {Acc, [{To, ExtDest} | ExtAcc]});
-aggre([#route{topic = To, dest = {Group, _Node}} | Rest], _Dedup, {Acc, ExtAcc}) ->
-    aggre(Rest, true, {[{To, Group} | Acc], ExtAcc});
+aggre([#route{topic = To, dest = Node} | Rest], Dedup, Acc) when is_atom(Node) ->
+    aggre(Rest, Dedup, [{To, Node} | Acc]);
+aggre([#route{topic = To, dest = {Group, _Node}} | Rest], _Dedup, Acc) ->
+    aggre(Rest, true, [{To, Group} | Acc]);
 aggre([], false, Acc) ->
     Acc;
-aggre([], true, {Acc, ExtAcc}) ->
-    {lists:usort(Acc), lists:usort(ExtAcc)}.
+aggre([], true, Acc) ->
+    lists:usort(Acc).
 
-maybe_add_ext_routes([] = _ExtRoutes, Routes, _Msg) ->
-    Routes;
-maybe_add_ext_routes(ExtRoutes, Routes, Msg) ->
+ext_routes(Topic, Msg) ->
     case emqx_external_broker:should_route_to_external_dests(Msg) of
-        true -> Routes ++ ExtRoutes;
-        false -> Routes
+        true -> emqx_external_broker:match_routes(Topic);
+        false -> []
     end.
+
+ext_route([], _Delivery, RouteRes) ->
+    RouteRes;
+ext_route(ExtRoutes, Delivery, RouteRes) ->
+    lists:foldl(
+        fun(#route{topic = To, dest = ExtDest}, Acc) ->
+            [{ExtDest, To, emqx_external_broker:forward(ExtDest, Delivery)} | Acc]
+        end,
+        RouteRes,
+        ExtRoutes
+    ).
 
 %% @doc Forward message to another node.
 -spec forward(

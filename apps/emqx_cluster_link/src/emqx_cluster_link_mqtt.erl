@@ -556,8 +556,8 @@ encode_field(route, {add, Route = {_Topic, _ID}}) ->
 encode_field(route, {delete, {Topic, ID}}) ->
     {?ROUTE_DELETE, Topic, ID}.
 
-decode_field(route, {?ROUTE_DELETE, Route = {_Topic, _ID}}) ->
-    {delete, Route};
+decode_field(route, {?ROUTE_DELETE, Topic, ID}) ->
+    {delete, {Topic, ID}};
 decode_field(route, Route = {_Topic, _ID}) ->
     {add, Route}.
 
@@ -565,7 +565,7 @@ decode_field(route, Route = {_Topic, _ID}) ->
 %% emqx_external_broker
 %%--------------------------------------------------------------------
 
-forward({external, {link, ClusterName}}, #delivery{message = #message{topic = Topic} = Msg}) ->
+forward(ClusterName, #delivery{message = #message{topic = Topic} = Msg}) ->
     QueryOpts = #{pick_key => Topic},
     emqx_resource:query(?MSG_RES_ID(ClusterName), Msg, QueryOpts).
 

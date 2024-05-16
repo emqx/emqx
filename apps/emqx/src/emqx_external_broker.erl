@@ -24,6 +24,10 @@
 -callback maybe_add_route(emqx_types:topic()) -> ok.
 -callback maybe_delete_route(emqx_types:topic()) -> ok.
 
+-callback match_routes(emqx_types:topic()) -> [emqx_types:route()].
+
+-type dest() :: term().
+
 -export([
     provider/0,
     register_provider/1,
@@ -31,8 +35,11 @@
     forward/2,
     should_route_to_external_dests/1,
     maybe_add_route/1,
-    maybe_delete_route/1
+    maybe_delete_route/1,
+    match_routes/1
 ]).
+
+-export_type([dest/0]).
 
 -include("logger.hrl").
 
@@ -104,6 +111,9 @@ maybe_add_route(Topic) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
 
 maybe_delete_route(Topic) ->
+    ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
+
+match_routes(Topic) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
 
 %%--------------------------------------------------------------------

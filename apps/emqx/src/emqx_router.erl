@@ -95,8 +95,7 @@
 -export_type([schemavsn/0]).
 
 -type group() :: binary().
--type external_dest() :: {external, term()}.
--type dest() :: node() | {group(), node()} | external_dest().
+-type dest() :: node() | {group(), node()}.
 -type schemavsn() :: v1 | v2.
 
 %% Operation :: {add, ...} | {delete, ...}.
