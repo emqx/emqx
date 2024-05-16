@@ -601,7 +601,7 @@ should_keep(MsgDeliver) ->
     not is_banned_msg(MsgDeliver).
 
 is_banned_msg(#message{from = ClientId}) ->
-    [] =/= emqx_banned:look_up({clientid, ClientId}).
+    emqx_banned:check_clientid(ClientId).
 
 %%--------------------------------------------------------------------
 

@@ -215,11 +215,21 @@ t_banned_delayed(_) ->
     emqx:update_config([delayed, max_delayed_messages], 10000),
     ClientId1 = <<"bc1">>,
     ClientId2 = <<"bc2">>,
+    ClientId3 = <<"bc3">>,
 
     Now = erlang:system_time(second),
+
     Who = emqx_banned:who(clientid, ClientId2),
     emqx_banned:create(#{
         who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+    WhoRE = emqx_banned:who(clientid_re, <<"c3">>),
+    emqx_banned:create(#{
+        who => WhoRE,
         by => <<"test">>,
         reason => <<"test">>,
         at => Now,
@@ -230,7 +240,7 @@ t_banned_delayed(_) ->
     {ok, SubRef} =
         snabbkaffe:subscribe(
             ?match_event(#{?snk_kind := ignore_delayed_message_publish}),
-            _NEvents = 2,
+            _NEvents = 4,
             _Timeout = 10000,
             0
         ),
@@ -240,15 +250,16 @@ t_banned_delayed(_) ->
             Msg = emqx_message:make(ClientId, <<"$delayed/1/bc">>, <<"payload">>),
             emqx_delayed:on_message_publish(Msg)
         end,
-        [ClientId1, ClientId1, ClientId1, ClientId2, ClientId2]
+        [ClientId1, ClientId1, ClientId1, ClientId2, ClientId2, ClientId3, ClientId3]
     ),
 
     {ok, Trace} = snabbkaffe:receive_events(SubRef),
     snabbkaffe:stop(),
     emqx_banned:delete(Who),
+    emqx_banned:delete(WhoRE),
     mnesia:clear_table(emqx_delayed),
 
-    ?assertEqual(2, length(?of_kind(ignore_delayed_message_publish, Trace))).
+    ?assertEqual(4, length(?of_kind(ignore_delayed_message_publish, Trace))).
 
 subscribe_proc() ->
     Self = self(),
