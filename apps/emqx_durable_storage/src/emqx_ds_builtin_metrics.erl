@@ -186,7 +186,7 @@ prometheus_per_db(NodeOrAggr) ->
 %% This function returns the data in the following format:
 %% ```
 %% #{emqx_ds_store_batch_time =>
-%%     [{[{db, emqx_persistent_message}], 42}],
+%%     [{[{db, messages}], 42}],
 %%  ...
 %% '''
 %%
@@ -222,11 +222,11 @@ prometheus_per_db(NodeOrAggr, DB, Acc0) ->
 %% This function returns the data in the following format:
 %% ```
 %% #{emqx_ds_egress_batches =>
-%%       [{[{db,emqx_persistent_message},{shard,<<"1">>}],99408},
-%%        {[{db,emqx_persistent_message},{shard,<<"0">>}],99409}],
+%%       [{[{db,messages},{shard,<<"1">>}],99408},
+%%        {[{db,messages},{shard,<<"0">>}],99409}],
 %%   emqx_ds_egress_batches_retry =>
-%%       [{[{db,emqx_persistent_message},{shard,<<"1">>}],0},
-%%        {[{db,emqx_persistent_message},{shard,<<"0">>}],0}],
+%%       [{[{db,messages},{shard,<<"1">>}],0},
+%%        {[{db,messages},{shard,<<"0">>}],0}],
 %%   emqx_ds_egress_messages =>
 %%        ...
 %%  }

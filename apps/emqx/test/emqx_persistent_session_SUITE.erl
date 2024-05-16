@@ -26,7 +26,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+-include("emqx_persistent_message.hrl").
+
 -define(EMQX_CONFIG, "sys_topics.sys_heartbeat_interval = 1s\n").
 
 %%--------------------------------------------------------------------

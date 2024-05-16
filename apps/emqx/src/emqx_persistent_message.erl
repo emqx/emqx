@@ -32,15 +32,7 @@
     persist/1
 ]).
 
--define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
--define(PERSISTENCE_ENABLED, emqx_message_persistence_enabled).
-
--define(WHEN_ENABLED(DO),
-    case is_persistence_enabled() of
-        true -> DO;
-        false -> {skipped, disabled}
-    end
-).
+-include("emqx_persistent_message.hrl").
 
 %%--------------------------------------------------------------------
 
@@ -51,7 +43,7 @@ init() ->
     Zones = maps:keys(emqx_config:get([zones])),
     IsEnabled = lists:any(fun is_persistence_enabled/1, Zones),
     persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
-    ?WHEN_ENABLED(begin
+    ?WITH_DURABILITY_ENABLED(begin
         ?SLOG(notice, #{msg => "Session durability is enabled"}),
         Backend = storage_backend(),
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, Backend),
@@ -100,7 +92,7 @@ pre_config_update(_Root, _NewConf, _OldConf) ->
 -spec persist(emqx_types:message()) ->
     emqx_ds:store_batch_result() | {skipped, needs_no_persistence}.
 persist(Msg) ->
-    ?WHEN_ENABLED(
+    ?WITH_DURABILITY_ENABLED(
         case needs_persistence(Msg) andalso has_subscribers(Msg) of
             true ->
                 store_message(Msg);

@@ -27,7 +27,7 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+-include("emqx_persistent_message.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
