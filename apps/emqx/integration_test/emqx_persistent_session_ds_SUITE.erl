@@ -56,7 +56,7 @@ init_per_testcase(t_session_gc = TestCase, Config) ->
         n => 3,
         roles => [core, core, core],
         extra_emqx_conf =>
-            "\n session_persistence {"
+            "\n durable_sessions {"
             "\n   last_alive_update_interval = 500ms "
             "\n   session_gc_interval = 1s "
             "\n   session_gc_batch_size = 2 "
@@ -116,7 +116,7 @@ app_specs() ->
     app_specs(_Opts = #{}).
 
 app_specs(Opts) ->
-    DefaultEMQXConf = "session_persistence {enable = true, renew_streams_interval = 1s}",
+    DefaultEMQXConf = "durable_sessions {enable = true, renew_streams_interval = 1s}",
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
         {emqx, DefaultEMQXConf ++ ExtraEMQXConf}

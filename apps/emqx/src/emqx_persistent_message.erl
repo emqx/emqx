@@ -32,15 +32,7 @@
     persist/1
 ]).
 
--define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
--define(PERSISTENCE_ENABLED, emqx_message_persistence_enabled).
-
--define(WHEN_ENABLED(DO),
-    case is_persistence_enabled() of
-        true -> DO;
-        false -> {skipped, disabled}
-    end
-).
+-include("emqx_persistent_message.hrl").
 
 %%--------------------------------------------------------------------
 
@@ -51,7 +43,7 @@ init() ->
     Zones = maps:keys(emqx_config:get([zones])),
     IsEnabled = lists:any(fun is_persistence_enabled/1, Zones),
     persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
-    ?WHEN_ENABLED(begin
+    ?WITH_DURABILITY_ENABLED(begin
         ?SLOG(notice, #{msg => "Session durability is enabled"}),
         Backend = storage_backend(),
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, Backend),
@@ -66,7 +58,7 @@ is_persistence_enabled() ->
 
 -spec is_persistence_enabled(emqx_types:zone()) -> boolean().
 is_persistence_enabled(Zone) ->
-    emqx_config:get_zone_conf(Zone, [session_persistence, enable]).
+    emqx_config:get_zone_conf(Zone, [durable_sessions, enable]).
 
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->
@@ -76,7 +68,7 @@ storage_backend() ->
 %% `emqx_persistent_session_ds':
 -spec force_ds(emqx_types:zone()) -> boolean().
 force_ds(Zone) ->
-    emqx_config:get_zone_conf(Zone, [session_persistence, force_persistence]).
+    emqx_config:get_zone_conf(Zone, [durable_sessions, force_persistence]).
 
 storage_backend(Path) ->
     ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
@@ -86,12 +78,12 @@ storage_backend(Path) ->
 
 -spec add_handler() -> ok.
 add_handler() ->
-    emqx_config_handler:add_handler([session_persistence], ?MODULE).
+    emqx_config_handler:add_handler([durable_sessions], ?MODULE).
 
-pre_config_update([session_persistence], #{<<"enable">> := New}, #{<<"enable">> := Old}) when
+pre_config_update([durable_sessions], #{<<"enable">> := New}, #{<<"enable">> := Old}) when
     New =/= Old
 ->
-    {error, "Hot update of session_persistence.enable parameter is currently not supported"};
+    {error, "Hot update of durable_sessions.enable parameter is currently not supported"};
 pre_config_update(_Root, _NewConf, _OldConf) ->
     ok.
 
@@ -100,7 +92,7 @@ pre_config_update(_Root, _NewConf, _OldConf) ->
 -spec persist(emqx_types:message()) ->
     emqx_ds:store_batch_result() | {skipped, needs_no_persistence}.
 persist(Msg) ->
-    ?WHEN_ENABLED(
+    ?WITH_DURABILITY_ENABLED(
         case needs_persistence(Msg) andalso has_subscribers(Msg) of
             true ->
                 store_message(Msg);

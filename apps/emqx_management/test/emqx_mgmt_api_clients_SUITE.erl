@@ -79,7 +79,7 @@ end_per_suite(Config) ->
 
 init_per_group(persistent_sessions, Config) ->
     AppSpecs = [
-        {emqx, "session_persistence.enable = true"},
+        {emqx, "durable_sessions.enable = true"},
         emqx_management
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(

@@ -46,7 +46,7 @@ groups() ->
 init_per_group(persistence_disabled, Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx, "session_persistence { enable = false }"},
+            {emqx, "durable_sessions { enable = false }"},
             emqx_management
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -59,7 +59,7 @@ init_per_group(persistence_enabled, Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx,
-                "session_persistence {\n"
+                "durable_sessions {\n"
                 "  enable = true\n"
                 "  last_alive_update_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"

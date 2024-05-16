@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/emqx_persistent_message.hrl").
 
 -import(hoconsc, [mk/2, ref/1, enum/1, array/1]).
 
@@ -222,7 +223,7 @@ fields(sites_shard) ->
                 atom(),
                 #{
                     desc => <<"Durable storage ID">>,
-                    example => 'emqx_persistent_message'
+                    example => ?PERSISTENT_MESSAGE_DB
                 }
             )},
         {id,
@@ -249,7 +250,7 @@ fields(db) ->
                 atom(),
                 #{
                     desc => <<"Name of the durable storage">>,
-                    example => 'emqx_persistent_message'
+                    example => ?PERSISTENT_MESSAGE_DB
                 }
             )},
         {shards,
@@ -403,7 +404,7 @@ param_storage_id() ->
         required => true,
         in => path,
         desc => <<"Durable storage ID">>,
-        example => emqx_persistent_message
+        example => ?PERSISTENT_MESSAGE_DB
     },
     {ds, mk(enum(dbs()), Info)}.
 
@@ -416,7 +417,7 @@ example_site() ->
     end.
 
 dbs() ->
-    [emqx_persistent_message].
+    [?PERSISTENT_MESSAGE_DB].
 
 shards_of_site(Site) ->
     lists:flatmap(

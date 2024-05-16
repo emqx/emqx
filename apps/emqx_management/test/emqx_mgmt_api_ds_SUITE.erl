@@ -29,7 +29,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx, "session_persistence.enable = true"},
+            {emqx, "durable_sessions.enable = true"},
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
@@ -59,7 +59,7 @@ t_get_storages(_) ->
     Path = api_path(["ds", "storages"]),
     {ok, Response} = request_api(get, Path),
     ?assertEqual(
-        [<<"emqx_persistent_message">>],
+        [<<"messages">>],
         emqx_utils_json:decode(Response, [return_maps])
     ).
 
@@ -81,7 +81,7 @@ t_get_site(_) ->
             <<"shards">> :=
                 [
                     #{
-                        <<"storage">> := <<"emqx_persistent_message">>,
+                        <<"storage">> := <<"messages">>,
                         <<"id">> := _,
                         <<"status">> := <<"up">>
                     }
@@ -99,12 +99,12 @@ t_get_db(_) ->
         request_api(get, Path400)
     ),
     %% Valid path:
-    Path = api_path(["ds", "storages", "emqx_persistent_message"]),
+    Path = api_path(["ds", "storages", "messages"]),
     {ok, Response} = request_api(get, Path),
     ThisSite = emqx_ds_replication_layer_meta:this_site(),
     ?assertMatch(
         #{
-            <<"name">> := <<"emqx_persistent_message">>,
+            <<"name">> := <<"messages">>,
             <<"shards">> :=
                 [
                     #{
@@ -132,7 +132,7 @@ t_get_replicas(_) ->
         request_api(get, Path400)
     ),
     %% Valid path:
-    Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas"]),
+    Path = api_path(["ds", "storages", "messages", "replicas"]),
     {ok, Response} = request_api(get, Path),
     ThisSite = emqx_ds_replication_layer_meta:this_site(),
     ?assertEqual(
@@ -141,7 +141,7 @@ t_get_replicas(_) ->
     ).
 
 t_put_replicas(_) ->
-    Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas"]),
+    Path = api_path(["ds", "storages", "messages", "replicas"]),
     %% Error cases:
     ?assertMatch(
         {ok, 400, #{<<"message">> := <<"Unknown sites: invalid_site">>}},
@@ -154,13 +154,13 @@ t_put_replicas(_) ->
     ).
 
 t_join(_) ->
-    Path400 = api_path(["ds", "storages", "emqx_persistent_message", "replicas", "unknown_site"]),
+    Path400 = api_path(["ds", "storages", "messages", "replicas", "unknown_site"]),
     ?assertMatch(
         {error, {_, 400, _}},
         parse_error(request_api(put, Path400))
     ),
     ThisSite = emqx_ds_replication_layer_meta:this_site(),
-    Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas", ThisSite]),
+    Path = api_path(["ds", "storages", "messages", "replicas", ThisSite]),
     ?assertMatch(
         {ok, "OK"},
         request_api(put, Path)
@@ -168,7 +168,7 @@ t_join(_) ->
 
 t_leave(_) ->
     ThisSite = emqx_ds_replication_layer_meta:this_site(),
-    Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas", ThisSite]),
+    Path = api_path(["ds", "storages", "messages", "replicas", ThisSite]),
     ?assertMatch(
         {error, {_, 400, _}},
         request_api(delete, Path)
@@ -176,7 +176,7 @@ t_leave(_) ->
 
 t_leave_notfound(_) ->
     Site = "not_part_of_replica_set",
-    Path = api_path(["ds", "storages", "emqx_persistent_message", "replicas", Site]),
+    Path = api_path(["ds", "storages", "messages", "replicas", Site]),
     ?assertMatch(
         {error, {_, 404, _}},
         request_api(delete, Path)
