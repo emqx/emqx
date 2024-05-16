@@ -71,7 +71,7 @@ init_per_group(persistence_enabled = Group, Config) ->
             {emqx,
                 "durable_sessions = {\n"
                 "  enable = true\n"
-                "  last_alive_update_interval = 100ms\n"
+                "  heartbeat_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"
                 "  session_gc_interval = 2s\n"
                 "}\n"}
