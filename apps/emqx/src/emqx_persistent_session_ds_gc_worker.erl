@@ -93,7 +93,7 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------------------
 
 ensure_gc_timer() ->
-    Timeout = emqx_config:get([session_persistence, session_gc_interval]),
+    Timeout = emqx_config:get([durable_sessions, session_gc_interval]),
     _ = erlang:send_after(Timeout, self(), #gc{}),
     ok.
 
@@ -133,8 +133,8 @@ start_gc() ->
     ).
 
 gc_context() ->
-    GCInterval = emqx_config:get([session_persistence, session_gc_interval]),
-    BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
+    GCInterval = emqx_config:get([durable_sessions, session_gc_interval]),
+    BumpInterval = emqx_config:get([durable_sessions, last_alive_update_interval]),
     TimeThreshold = max(GCInterval, BumpInterval) * 3,
     NowMS = now_ms(),
     #{
@@ -149,7 +149,7 @@ gc_context() ->
     }.
 
 gc_loop(MinLastAlive, MinLastAliveWillMsg, It0) ->
-    GCBatchSize = emqx_config:get([session_persistence, session_gc_batch_size]),
+    GCBatchSize = emqx_config:get([durable_sessions, session_gc_batch_size]),
     case emqx_persistent_session_ds_state:session_iterator_next(It0, GCBatchSize) of
         {[], _It} ->
             ok;

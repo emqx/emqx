@@ -1150,10 +1150,10 @@ expiry_interval(ConnInfo) ->
 %% zone, since the GC process is responsible for all sessions
 %% regardless of the zone.
 bump_interval() ->
-    emqx_config:get([session_persistence, last_alive_update_interval]).
+    emqx_config:get([durable_sessions, last_alive_update_interval]).
 
 get_config(#{zone := Zone}, Key) ->
-    emqx_config:get_zone_conf(Zone, [session_persistence | Key]).
+    emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).
 
 -spec try_get_live_session(emqx_types:clientid()) ->
     {pid(), session()} | not_found | not_persistent.

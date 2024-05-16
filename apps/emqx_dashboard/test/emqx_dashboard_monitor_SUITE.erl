@@ -82,7 +82,7 @@ init_per_group(persistent_sessions = Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            {emqx, "session_persistence {enable = true}"},
+            {emqx, "durable_sessions {enable = true}"},
             {emqx_retainer, ?BASE_RETAINER_CONF},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(

@@ -65,7 +65,7 @@
     <<"limiter">>,
     <<"log">>,
     <<"persistent_session_store">>,
-    <<"session_persistence">>,
+    <<"durable_sessions">>,
     <<"prometheus">>,
     <<"crl_cache">>,
     <<"conn_congestion">>,

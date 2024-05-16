@@ -29,7 +29,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx, "session_persistence.enable = true"},
+            {emqx, "durable_sessions.enable = true"},
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],

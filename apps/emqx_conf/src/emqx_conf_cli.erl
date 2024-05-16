@@ -208,7 +208,7 @@ hidden_roots() ->
         <<"stats">>,
         <<"broker">>,
         <<"persistent_session_store">>,
-        <<"session_persistence">>,
+        <<"durable_sessions">>,
         <<"plugins">>,
         <<"zones">>
     ].

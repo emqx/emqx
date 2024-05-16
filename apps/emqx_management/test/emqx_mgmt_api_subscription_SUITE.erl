@@ -61,7 +61,7 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx,
-                "session_persistence {\n"
+                "durable_sessions {\n"
                 "    enable = true\n"
                 "    renew_streams_interval = 10ms\n"
                 "}"},

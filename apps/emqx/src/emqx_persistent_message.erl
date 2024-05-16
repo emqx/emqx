@@ -58,7 +58,7 @@ is_persistence_enabled() ->
 
 -spec is_persistence_enabled(emqx_types:zone()) -> boolean().
 is_persistence_enabled(Zone) ->
-    emqx_config:get_zone_conf(Zone, [session_persistence, enable]).
+    emqx_config:get_zone_conf(Zone, [durable_sessions, enable]).
 
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->
@@ -68,7 +68,7 @@ storage_backend() ->
 %% `emqx_persistent_session_ds':
 -spec force_ds(emqx_types:zone()) -> boolean().
 force_ds(Zone) ->
-    emqx_config:get_zone_conf(Zone, [session_persistence, force_persistence]).
+    emqx_config:get_zone_conf(Zone, [durable_sessions, force_persistence]).
 
 storage_backend(Path) ->
     ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
@@ -78,12 +78,12 @@ storage_backend(Path) ->
 
 -spec add_handler() -> ok.
 add_handler() ->
-    emqx_config_handler:add_handler([session_persistence], ?MODULE).
+    emqx_config_handler:add_handler([durable_sessions], ?MODULE).
 
-pre_config_update([session_persistence], #{<<"enable">> := New}, #{<<"enable">> := Old}) when
+pre_config_update([durable_sessions], #{<<"enable">> := New}, #{<<"enable">> := Old}) when
     New =/= Old
 ->
-    {error, "Hot update of session_persistence.enable parameter is currently not supported"};
+    {error, "Hot update of durable_sessions.enable parameter is currently not supported"};
 pre_config_update(_Root, _NewConf, _OldConf) ->
     ok.
 

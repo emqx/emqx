@@ -34,7 +34,7 @@ roots() ->
         conn_congestion,
         force_gc,
         overload_protection,
-        session_persistence
+        durable_sessions
     ].
 
 zones_without_default() ->

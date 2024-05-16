@@ -68,7 +68,7 @@ groups() ->
 
 init_per_group(persistence_disabled, Config) ->
     [
-        {emqx_config, ?EMQX_CONFIG ++ "session_persistence { enable = false }"},
+        {emqx_config, ?EMQX_CONFIG ++ "durable_sessions { enable = false }"},
         {persistence, false}
         | Config
     ];
@@ -76,7 +76,7 @@ init_per_group(persistence_enabled, Config) ->
     [
         {emqx_config,
             ?EMQX_CONFIG ++
-                "session_persistence {\n"
+                "durable_sessions {\n"
                 "  enable = true\n"
                 "  last_alive_update_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"

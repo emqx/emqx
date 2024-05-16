@@ -81,7 +81,7 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------------------
 
 ensure_gc_timer() ->
-    Timeout = emqx_config:get([session_persistence, message_retention_period]),
+    Timeout = emqx_config:get([durable_sessions, message_retention_period]),
     _ = erlang:send_after(Timeout, self(), #gc{}),
     ok.
 
@@ -114,7 +114,7 @@ now_ms() ->
 maybe_gc() ->
     AllGens = emqx_ds:list_generations_with_lifetimes(?PERSISTENT_MESSAGE_DB),
     NowMS = now_ms(),
-    RetentionPeriod = emqx_config:get([session_persistence, message_retention_period]),
+    RetentionPeriod = emqx_config:get([durable_sessions, message_retention_period]),
     TimeThreshold = NowMS - RetentionPeriod,
     maybe_create_new_generation(AllGens, TimeThreshold),
     ?tp_span(

@@ -465,7 +465,7 @@ zone_global_defaults() ->
                 enable => false
             },
         stats => #{enable => true},
-        session_persistence =>
+        durable_sessions =>
             #{
                 enable => false,
                 batch_size => 100,
