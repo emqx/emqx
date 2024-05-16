@@ -497,19 +497,19 @@ open_db_trans(DB, CreateOpts) ->
 -spec allocate_shards_trans(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 allocate_shards_trans(DB) ->
     Opts = #{n_shards := NShards, n_sites := NSites} = db_config_trans(DB),
-    Nodes = mnesia:match_object(?NODE_TAB, ?NODE_PAT(), read),
-    case length(Nodes) of
-        N when N >= NSites ->
-            ok;
-        _ ->
-            mnesia:abort({insufficient_sites_online, NSites, Nodes})
-    end,
     case mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write) of
         [] ->
             ok;
         Records ->
             ShardsAllocated = [Shard || #?SHARD_TAB{shard = {_DB, Shard}} <- Records],
             mnesia:abort({shards_already_allocated, ShardsAllocated})
+    end,
+    Nodes = mnesia:match_object(?NODE_TAB, ?NODE_PAT(), read),
+    case length(Nodes) of
+        N when N >= NSites ->
+            ok;
+        _ ->
+            mnesia:abort({insufficient_sites_online, NSites, Nodes})
     end,
     Shards = gen_shards(NShards),
     Sites = [S || #?NODE_TAB{site = S} <- Nodes],
