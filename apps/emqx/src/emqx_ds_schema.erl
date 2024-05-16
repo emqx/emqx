@@ -126,7 +126,7 @@ fields(builtin) ->
             sc(
                 pos_integer(),
                 #{
-                    default => 16,
+                    default => 12,
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(builtin_n_shards)
                 }
