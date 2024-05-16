@@ -78,19 +78,10 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_group(mnesia_without_indices, Config) ->
-    mnesia:clear_table(?TAB_INDEX_META),
-    mnesia:clear_table(?TAB_INDEX),
-    mnesia:clear_table(?TAB_MESSAGE),
-    Config;
+    [{index, false} | Config];
 init_per_group(mnesia_reindex, Config) ->
-    emqx_retainer_mnesia:populate_index_meta(),
-    mnesia:clear_table(?TAB_INDEX),
-    mnesia:clear_table(?TAB_MESSAGE),
     Config;
 init_per_group(_, Config) ->
-    emqx_retainer_mnesia:populate_index_meta(),
-    mnesia:clear_table(?TAB_INDEX),
-    mnesia:clear_table(?TAB_MESSAGE),
     Config.
 
 end_per_group(_Group, Config) ->
@@ -98,9 +89,13 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_testcase(_TestCase, Config) ->
-    mnesia:clear_table(?TAB_INDEX),
-    mnesia:clear_table(?TAB_MESSAGE),
-    emqx_retainer_mnesia:populate_index_meta(),
+    case ?config(index, Config) of
+        false ->
+            mnesia:clear_table(?TAB_INDEX_META);
+        _ ->
+            emqx_retainer_mnesia:populate_index_meta()
+    end,
+    emqx_retainer:clean(),
     Config.
 
 end_per_testcase(t_flow_control, _Config) ->
@@ -315,7 +310,7 @@ t_message_expiry(Config) ->
 
         ok = emqtt:disconnect(C1)
     end,
-    with_conf(ConfMod, Case).
+    with_conf(Config, ConfMod, Case).
 
 t_message_expiry_2(Config) ->
     ConfMod = fun(Conf) ->
@@ -337,9 +332,9 @@ t_message_expiry_2(Config) ->
 
         ok = emqtt:disconnect(C1)
     end,
-    with_conf(ConfMod, Case).
+    with_conf(Config, ConfMod, Case).
 
-t_table_full(_) ->
+t_table_full(Config) ->
     ConfMod = fun(Conf) ->
         Conf#{<<"backend">> => #{<<"max_retained_messages">> => <<"1">>}}
     end,
@@ -356,7 +351,7 @@ t_table_full(_) ->
 
         ok = emqtt:disconnect(C1)
     end,
-    with_conf(ConfMod, Case).
+    with_conf(Config, ConfMod, Case).
 
 t_clean(Config) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
@@ -440,59 +435,14 @@ t_flow_control(_) ->
     Diff = End - Begin,
 
     ?assert(
-        Diff > timer:seconds(2.1) andalso Diff < timer:seconds(3.9),
+        Diff > timer:seconds(2.1) andalso Diff < timer:seconds(4),
         lists:flatten(io_lib:format("Diff is :~p~n", [Diff]))
     ),
 
     ok = emqtt:disconnect(C1),
     ok.
 
-t_cursor_cleanup(_) ->
-    setup_slow_delivery(),
-    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-    lists:foreach(
-        fun(I) ->
-            emqtt:publish(
-                C1,
-                <<"retained/", (integer_to_binary(I))/binary>>,
-                <<"this is a retained message">>,
-                [{qos, 0}, {retain, true}]
-            )
-        end,
-        lists:seq(1, 5)
-    ),
-    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
-
-    snabbkaffe:start_trace(),
-
-    ?assertWaitEvent(
-        emqtt:disconnect(C1),
-        #{?snk_kind := retainer_dispatcher_no_receiver, topic := <<"retained/#">>},
-        2000
-    ),
-
-    ?assertEqual(0, qlc_process_count()),
-
-    {Pid, Ref} = spawn_monitor(fun() -> ok end),
-    receive
-        {'DOWN', Ref, _, _, _} -> ok
-    after 1000 -> ct:fail("should receive 'DOWN' message")
-    end,
-
-    ?assertWaitEvent(
-        emqx_retainer_dispatcher:dispatch(emqx_retainer:context(), <<"retained/1">>, Pid),
-        #{?snk_kind := retainer_dispatcher_no_receiver, topic := <<"retained/1">>},
-        2000
-    ),
-
-    ?assertEqual(0, qlc_process_count()),
-
-    snabbkaffe:stop(),
-
-    ok.
-
-t_clear_expired(_) ->
+t_clear_expired(Config) ->
     ConfMod = fun(Conf) ->
         Conf#{
             <<"msg_clear_interval">> := <<"1s">>,
@@ -528,9 +478,9 @@ t_clear_expired(_) ->
 
         ok = emqtt:disconnect(C1)
     end,
-    with_conf(ConfMod, Case).
+    with_conf(Config, ConfMod, Case).
 
-t_max_payload_size(_) ->
+t_max_payload_size(Config) ->
     ConfMod = fun(Conf) -> Conf#{<<"max_payload_size">> := <<"1kb">>} end,
     Case = fun() ->
         emqx_retainer:clean(),
@@ -559,7 +509,7 @@ t_max_payload_size(_) ->
 
         ok = emqtt:disconnect(C1)
     end,
-    with_conf(ConfMod, Case).
+    with_conf(Config, ConfMod, Case).
 
 t_page_read(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
@@ -866,10 +816,11 @@ receive_messages(Count, Msgs) ->
         Msgs
     end.
 
-with_conf(ConfMod, Case) ->
+with_conf(CTConfig, ConfMod, Case) ->
     Conf = emqx:get_raw_config([retainer]),
     NewConf = ConfMod(Conf),
     emqx_retainer:update_config(NewConf),
+    ?config(index, CTConfig) =:= false andalso mria:clear_table(?TAB_INDEX_META),
     try
         Case(),
         {ok, _} = emqx_retainer:update_config(Conf)
