@@ -219,6 +219,8 @@ best_effort_unicode(Input, Config) ->
 
 best_effort_json_obj(List, Config) when is_list(List) ->
     try
+        %% We should only do this if there are no duplicated keys
+        check_no_dup_tuple_list(List),
         json_obj(maps:from_list(List), Config)
     catch
         _:_ ->
@@ -231,6 +233,15 @@ best_effort_json_obj(Map, Config) ->
         _:_ ->
             do_format_msg("~p", [Map], Config)
     end.
+
+check_no_dup_tuple_list(List) ->
+    %% Crash if this is not a tuple list
+    lists:foreach(fun({_, _}) -> ok end, List),
+    Items = [K || {K, _} <- List],
+    NumberOfItems = length(Items),
+    %% Crash if there are duplicates
+    NumberOfItems = maps:size(maps:from_keys(Items, true)),
+    ok.
 
 json(A, _) when is_atom(A) -> A;
 json(I, _) when is_integer(I) -> I;
