@@ -50,11 +50,11 @@ description() ->
 create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_authz_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
     Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
 
 update(#{filter := Filter} = Source) ->
-    FilterTemp = emqx_authz_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -69,13 +69,23 @@ authorize(
     Client,
     Action,
     Topic,
-    #{
-        collection := Collection,
-        filter_template := FilterTemplate,
-        annotations := #{id := ResourceID}
-    }
+    #{filter_template := FilterTemplate} = Config
 ) ->
-    RenderedFilter = emqx_authz_utils:render_deep(FilterTemplate, Client),
+    try emqx_auth_utils:render_deep_for_json(FilterTemplate, Client) of
+        RenderedFilter -> authorize_with_filter(RenderedFilter, Client, Action, Topic, Config)
+    catch
+        error:{encode_error, _} = EncodeError ->
+            ?SLOG(error, #{
+                msg => "mongo_authorize_error",
+                reason => EncodeError
+            }),
+            nomatch
+    end.
+
+authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
+    collection := Collection,
+    annotations := #{id := ResourceID}
+}) ->
     case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}}) of
         {error, Reason} ->
             ?SLOG(error, #{

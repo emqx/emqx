@@ -140,6 +140,7 @@ t_create_invalid(_Config) ->
     ).
 
 t_authenticate(_Config) ->
+    ok = emqx_logger:set_primary_log_level(debug),
     ok = lists:foreach(
         fun(Sample) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
@@ -148,12 +149,15 @@ t_authenticate(_Config) ->
         samples()
     ).
 
-test_user_auth(#{
-    handler := Handler,
-    config_params := SpecificConfgParams,
-    result := Expect
-}) ->
-    Result = perform_user_auth(SpecificConfgParams, Handler, ?CREDENTIALS),
+test_user_auth(
+    #{
+        handler := Handler,
+        config_params := SpecificConfgParams,
+        result := Expect
+    } = Sample
+) ->
+    Credentials = maps:merge(?CREDENTIALS, maps:get(credentials, Sample, #{})),
+    Result = perform_user_auth(SpecificConfgParams, Handler, Credentials),
     ?assertEqual(Expect, Result).
 
 perform_user_auth(SpecificConfgParams, Handler, Credentials) ->
@@ -180,7 +184,7 @@ t_authenticate_path_placeholders(_Config) ->
         fun(Req0, State) ->
             Req =
                 case cowboy_req:path(Req0) of
-                    <<"/auth/p%20ath//us%20er/auth//">> ->
+                    <<"/auth/p%20ath//us+er/auth//">> ->
                         cowboy_req:reply(
                             200,
                             #{<<"content-type">> => <<"application/json">>},
@@ -563,6 +567,31 @@ samples() ->
             result => {ok, #{is_superuser => true, client_attrs => #{<<"fid">> => <<"n11">>}}}
         },
 
+        %% get request with non-utf8 password
+        #{
+            handler => fun(Req0, State) ->
+                #{
+                    password := <<255, 255, 255>>
+                } = cowboy_req:match_qs([password], Req0),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{
+                        result => allow,
+                        is_superuser => true,
+                        client_attrs => #{}
+                    }),
+                    Req0
+                ),
+                {ok, Req, State}
+            end,
+            config_params => #{},
+            credentials => #{
+                password => <<255, 255, 255>>
+            },
+            result => {ok, #{is_superuser => true, client_attrs => #{}}}
+        },
+
         %% get request with url-form-encoded body response
         #{
             handler => fun(Req0, State) ->
@@ -619,6 +648,30 @@ samples() ->
             config_params => #{
                 <<"method">> => <<"post">>,
                 <<"headers">> => #{<<"content-type">> => <<"application/json">>}
+            },
+            result => {ok, #{is_superuser => false, client_attrs => #{}}}
+        },
+
+        %% post request, no content-type header
+        #{
+            handler => fun(Req0, State) ->
+                {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+                #{
+                    <<"username">> := <<"plain">>,
+                    <<"password">> := <<"plain">>
+                } = emqx_utils_json:decode(RawBody, [return_maps]),
+                <<"application/json">> = cowboy_req:header(<<"content-type">>, Req0),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{result => allow, is_superuser => false}),
+                    Req1
+                ),
+                {ok, Req, State}
+            end,
+            config_params => #{
+                <<"method">> => <<"post">>,
+                <<"headers">> => #{}
             },
             result => {ok, #{is_superuser => false, client_attrs => #{}}}
         },
@@ -682,6 +735,62 @@ samples() ->
                     <<"cert_common_name">> => ?PH_CERT_CN_NAME,
                     <<"the_group">> => <<"${client_attrs.group}">>
                 }
+            },
+            result => {ok, #{is_superuser => false, client_attrs => #{}}}
+        },
+
+        %% post request with non-utf8 password, application/json
+        #{
+            handler => fun(Req0, State) ->
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{result => allow, is_superuser => false}),
+                    Req0
+                ),
+                {ok, Req, State}
+            end,
+            config_params => #{
+                <<"method">> => <<"post">>,
+                <<"headers">> => #{<<"content-type">> => <<"application/json">>},
+                <<"body">> => #{
+                    <<"password">> => ?PH_PASSWORD
+                }
+            },
+            credentials => #{
+                password => <<255, 255, 255>>
+            },
+            %% non-utf8 password cannot be encoded in json
+            result => {error, not_authorized}
+        },
+
+        %% post request with non-utf8 password, form urlencoded
+        #{
+            handler => fun(Req0, State) ->
+                {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+                #{
+                    <<"password">> := <<255, 255, 255>>
+                } = maps:from_list(PostVars),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{result => allow, is_superuser => false}),
+                    Req1
+                ),
+                {ok, Req, State}
+            end,
+            config_params => #{
+                <<"method">> => <<"post">>,
+                <<"headers">> => #{
+                    <<"content-type">> =>
+                        <<"application/x-www-form-urlencoded">>
+                },
+                <<"body">> => #{
+                    <<"password">> => ?PH_PASSWORD
+                }
+            },
+            credentials => #{
+                password => <<255, 255, 255>>
             },
             result => {ok, #{is_superuser => false, client_attrs => #{}}}
         },

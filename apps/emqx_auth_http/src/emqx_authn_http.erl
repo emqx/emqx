@@ -28,6 +28,8 @@
     destroy/1
 ]).
 
+-define(DEFAULT_CONTENT_TYPE, <<"application/json">>).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -68,23 +70,34 @@ authenticate(
         request_timeout := RequestTimeout
     } = State
 ) ->
-    Request = generate_request(Credential, State),
-    Response = emqx_resource:simple_sync_query(ResourceId, {Method, Request, RequestTimeout}),
-    ?TRACE_AUTHN_PROVIDER("http_response", #{
-        request => request_for_log(Credential, State),
-        response => response_for_log(Response),
-        resource => ResourceId
-    }),
-    case Response of
-        {ok, 204, _Headers} ->
-            {ok, #{is_superuser => false}};
-        {ok, 200, Headers, Body} ->
-            handle_response(Headers, Body);
-        {ok, _StatusCode, _Headers} = Response ->
-            ignore;
-        {ok, _StatusCode, _Headers, _Body} = Response ->
-            ignore;
-        {error, _Reason} ->
+    case generate_request(Credential, State) of
+        {ok, Request} ->
+            Response = emqx_resource:simple_sync_query(
+                ResourceId, {Method, Request, RequestTimeout}
+            ),
+            ?TRACE_AUTHN_PROVIDER("http_response", #{
+                request => request_for_log(Credential, State),
+                response => response_for_log(Response),
+                resource => ResourceId
+            }),
+            case Response of
+                {ok, 204, _Headers} ->
+                    {ok, #{is_superuser => false}};
+                {ok, 200, Headers, Body} ->
+                    handle_response(Headers, Body);
+                {ok, _StatusCode, _Headers} = Response ->
+                    ignore;
+                {ok, _StatusCode, _Headers, _Body} = Response ->
+                    ignore;
+                {error, _Reason} ->
+                    ignore
+            end;
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER(
+                error,
+                "generate_http_request_failed",
+                #{reason => Reason, credential => emqx_authn_utils:without_password(Credential)}
+            ),
             ignore
     end.
 
@@ -99,7 +112,8 @@ destroy(#{resource_id := ResourceId}) ->
 with_validated_config(Config, Fun) ->
     Pipeline = [
         fun check_ssl_opts/1,
-        fun check_headers/1,
+        fun normalize_headers/1,
+        fun check_method_headers/1,
         fun parse_config/1
     ],
     case emqx_utils:pipeline(Pipeline, Config, undefined) of
@@ -116,15 +130,23 @@ check_ssl_opts(#{url := <<"https://", _/binary>>, ssl := #{enable := false}}) ->
 check_ssl_opts(_) ->
     ok.
 
-check_headers(#{headers := Headers, method := get}) ->
+normalize_headers(#{headers := Headers} = Config) ->
+    {ok, Config#{headers => ensure_binary_names(Headers)}, undefined}.
+
+check_method_headers(#{headers := Headers, method := get}) ->
     case maps:is_key(<<"content-type">>, Headers) of
         false ->
             ok;
         true ->
             {error, {invalid_headers, <<"HTTP GET requests cannot include content-type header.">>}}
     end;
-check_headers(_) ->
-    ok.
+check_method_headers(#{headers := Headers, method := post} = Config) ->
+    {ok,
+        Config#{
+            headers =>
+                maps:merge(#{<<"content-type">> => ?DEFAULT_CONTENT_TYPE}, Headers)
+        },
+        undefined}.
 
 parse_config(
     #{
@@ -138,12 +160,15 @@ parse_config(
     State = #{
         method => Method,
         path => Path,
-        headers => ensure_header_name_type(Headers),
+        headers => maps:to_list(Headers),
         base_path_template => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(Query)
         ),
-        body_template => emqx_authn_utils:parse_deep(maps:get(body, Config, #{})),
+        body_template =>
+            emqx_authn_utils:parse_deep(
+                emqx_utils_maps:binary_key_map(maps:get(body, Config, #{}))
+            ),
         request_timeout => RequestTimeout,
         url => RawUrl
     },
@@ -154,46 +179,8 @@ parse_config(
         },
         State}.
 
-generate_request(Credential, #{
-    method := Method,
-    headers := Headers0,
-    base_path_template := BasePathTemplate,
-    base_query_template := BaseQueryTemplate,
-    body_template := BodyTemplate
-}) ->
-    Headers = maps:to_list(Headers0),
-    Path = emqx_authn_utils:render_urlencoded_str(BasePathTemplate, Credential),
-    Query = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
-    Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
-    case Method of
-        get ->
-            NPathQuery = append_query(to_list(Path), to_list(Query) ++ maps:to_list(Body)),
-            {NPathQuery, Headers};
-        post ->
-            NPathQuery = append_query(to_list(Path), to_list(Query)),
-            ContentType = proplists:get_value(<<"content-type">>, Headers),
-            NBody = serialize_body(ContentType, Body),
-            {NPathQuery, Headers, NBody}
-    end.
-
-append_query(Path, []) ->
-    Path;
-append_query(Path, Query) ->
-    Path ++ "?" ++ binary_to_list(qs(Query)).
-
-qs(KVs) ->
-    qs(KVs, []).
-
-qs([], Acc) ->
-    <<$&, Qs/binary>> = iolist_to_binary(lists:reverse(Acc)),
-    Qs;
-qs([{K, V} | More], Acc) ->
-    qs(More, [["&", uri_encode(K), "=", uri_encode(V)] | Acc]).
-
-serialize_body(<<"application/json">>, Body) ->
-    emqx_utils_json:encode(Body);
-serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    qs(maps:to_list(Body)).
+generate_request(Credential, State) ->
+    emqx_auth_utils:generate_request(State, Credential).
 
 handle_response(Headers, Body) ->
     ContentType = proplists:get_value(<<"content-type">>, Headers),
@@ -239,26 +226,31 @@ parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
 
-uri_encode(T) ->
-    emqx_http_lib:uri_encode(to_list(T)).
-
 request_for_log(Credential, #{url := Url, method := Method} = State) ->
     SafeCredential = emqx_authn_utils:without_password(Credential),
     case generate_request(SafeCredential, State) of
-        {PathQuery, Headers} ->
+        {ok, {PathQuery, Headers}} ->
             #{
                 method => Method,
                 url => Url,
                 path_query => PathQuery,
                 headers => Headers
             };
-        {PathQuery, Headers, Body} ->
+        {ok, {PathQuery, Headers, Body}} ->
             #{
                 method => Method,
                 url => Url,
                 path_query => PathQuery,
                 headers => Headers,
                 body => Body
+            };
+        %% we can't get here actually because the real request was already generated
+        %% successfully, so generating it with hidden password won't fail either.
+        {error, Reason} ->
+            #{
+                method => Method,
+                url => Url,
+                error => Reason
             }
     end.
 
@@ -269,20 +261,5 @@ response_for_log({ok, StatusCode, Headers, Body}) ->
 response_for_log({error, Error}) ->
     #{error => Error}.
 
-to_list(A) when is_atom(A) ->
-    atom_to_list(A);
-to_list(B) when is_binary(B) ->
-    binary_to_list(B);
-to_list(L) when is_list(L) ->
-    L.
-
-ensure_header_name_type(Headers) ->
-    Fun = fun
-        (Key, _Val, Acc) when is_binary(Key) ->
-            Acc;
-        (Key, Val, Acc) when is_atom(Key) ->
-            Acc2 = maps:remove(Key, Acc),
-            BinKey = erlang:atom_to_binary(Key),
-            Acc2#{BinKey => Val}
-    end,
-    maps:fold(Fun, Headers, Headers).
+ensure_binary_names(Headers) ->
+    emqx_utils_maps:binary_key_map(Headers).

@@ -75,7 +75,7 @@ authorize(
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    Cmd = emqx_authz_utils:render_deep(CmdTemplate, Vars),
+    Cmd = emqx_auth_utils:render_deep_for_raw(CmdTemplate, Vars),
     case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);
@@ -134,7 +134,7 @@ parse_cmd(Query) ->
     case emqx_redis_command:split(Query) of
         {ok, Cmd} ->
             ok = validate_cmd(Cmd),
-            emqx_authz_utils:parse_deep(Cmd, ?ALLOWED_VARS);
+            emqx_auth_utils:parse_deep(Cmd, ?ALLOWED_VARS);
         {error, Reason} ->
             error({invalid_redis_cmd, Reason, Query})
     end.

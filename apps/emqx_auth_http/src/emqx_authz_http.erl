@@ -85,34 +85,42 @@ authorize(
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    Request = generate_request(Action, Topic, Client, Config),
-    case emqx_resource:simple_sync_query(ResourceID, {Method, Request, RequestTimeout}) of
-        {ok, 204, _Headers} ->
-            {matched, allow};
-        {ok, 200, Headers, Body} ->
-            ContentType = emqx_authz_utils:content_type(Headers),
-            case emqx_authz_utils:parse_http_resp_body(ContentType, Body) of
-                error ->
-                    ?SLOG(error, #{
-                        msg => authz_http_response_incorrect,
-                        content_type => ContentType,
-                        body => Body
-                    }),
+    case generate_request(Action, Topic, Client, Config) of
+        {ok, Request} ->
+            case emqx_resource:simple_sync_query(ResourceID, {Method, Request, RequestTimeout}) of
+                {ok, 204, _Headers} ->
+                    {matched, allow};
+                {ok, 200, Headers, Body} ->
+                    ContentType = emqx_authz_utils:content_type(Headers),
+                    case emqx_authz_utils:parse_http_resp_body(ContentType, Body) of
+                        error ->
+                            ?SLOG(error, #{
+                                msg => authz_http_response_incorrect,
+                                content_type => ContentType,
+                                body => Body
+                            }),
+                            nomatch;
+                        Result ->
+                            {matched, Result}
+                    end;
+                {ok, Status, Headers} ->
+                    log_nomtach_msg(Status, Headers, undefined),
                     nomatch;
-                Result ->
-                    {matched, Result}
+                {ok, Status, Headers, Body} ->
+                    log_nomtach_msg(Status, Headers, Body),
+                    nomatch;
+                {error, Reason} ->
+                    ?tp(authz_http_request_failure, #{error => Reason}),
+                    ?SLOG(error, #{
+                        msg => "http_server_query_failed",
+                        resource => ResourceID,
+                        reason => Reason
+                    }),
+                    ignore
             end;
-        {ok, Status, Headers} ->
-            log_nomtach_msg(Status, Headers, undefined),
-            nomatch;
-        {ok, Status, Headers, Body} ->
-            log_nomtach_msg(Status, Headers, Body),
-            nomatch;
         {error, Reason} ->
-            ?tp(authz_http_request_failure, #{error => Reason}),
             ?SLOG(error, #{
-                msg => "http_server_query_failed",
-                resource => ResourceID,
+                msg => "http_request_generation_failed",
                 reason => Reason
             }),
             ignore
@@ -156,85 +164,28 @@ parse_config(
         method => Method,
         request_base => RequestBase,
         headers => Headers,
-        base_path_template => emqx_authz_utils:parse_str(Path, allowed_vars()),
-        base_query_template => emqx_authz_utils:parse_deep(
+        base_path_template => emqx_auth_utils:parse_str(Path, allowed_vars()),
+        base_query_template => emqx_auth_utils:parse_deep(
             cow_qs:parse_qs(Query),
             allowed_vars()
         ),
-        body_template => emqx_authz_utils:parse_deep(
-            maps:to_list(maps:get(body, Conf, #{})),
-            allowed_vars()
-        ),
+        body_template =>
+            emqx_auth_utils:parse_deep(
+                emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
+                allowed_vars()
+            ),
         request_timeout => ReqTimeout,
         %% pool_type default value `random`
         pool_type => random
     }.
 
-generate_request(
-    Action,
-    Topic,
-    Client,
-    #{
-        method := Method,
-        headers := Headers,
-        base_path_template := BasePathTemplate,
-        base_query_template := BaseQueryTemplate,
-        body_template := BodyTemplate
-    }
-) ->
+generate_request(Action, Topic, Client, Config) ->
     Values = client_vars(Client, Action, Topic),
-    Path = emqx_authz_utils:render_urlencoded_str(BasePathTemplate, Values),
-    Query = emqx_authz_utils:render_deep(BaseQueryTemplate, Values),
-    Body = emqx_authz_utils:render_deep(BodyTemplate, Values),
-    case Method of
-        get ->
-            NPath = append_query(Path, Query ++ Body),
-            {NPath, Headers};
-        _ ->
-            NPath = append_query(Path, Query),
-            NBody = serialize_body(
-                proplists:get_value(<<"accept">>, Headers, <<"application/json">>),
-                Body
-            ),
-            {NPath, Headers, NBody}
-    end.
-
-append_query(Path, []) ->
-    to_list(Path);
-append_query(Path, Query) ->
-    to_list(Path) ++ "?" ++ to_list(query_string(Query)).
-
-query_string(Body) ->
-    query_string(Body, []).
-
-query_string([], Acc) ->
-    case iolist_to_binary(lists:reverse(Acc)) of
-        <<$&, Str/binary>> ->
-            Str;
-        <<>> ->
-            <<>>
-    end;
-query_string([{K, V} | More], Acc) ->
-    query_string(More, [["&", uri_encode(K), "=", uri_encode(V)] | Acc]).
-
-uri_encode(T) ->
-    emqx_http_lib:uri_encode(to_list(T)).
-
-serialize_body(<<"application/json">>, Body) ->
-    emqx_utils_json:encode(Body);
-serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
-    query_string(Body).
+    emqx_auth_utils:generate_request(Config, Values).
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     Vars#{topic => Topic}.
-
-to_list(A) when is_atom(A) ->
-    atom_to_list(A);
-to_list(B) when is_binary(B) ->
-    binary_to_list(B);
-to_list(L) when is_list(L) ->
-    L.
 
 allowed_vars() ->
     allowed_vars(emqx_authz:feature_available(rich_actions)).

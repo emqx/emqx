@@ -253,9 +253,9 @@ t_path(_Config) ->
         fun(Req0, State) ->
             ?assertEqual(
                 <<
-                    "/authz/use%20rs/"
-                    "user%20name/"
-                    "client%20id/"
+                    "/authz/use+rs/"
+                    "user+name/"
+                    "client+id/"
                     "127.0.0.1/"
                     "MQTT/"
                     "MOUNTPOINT/"
@@ -270,7 +270,7 @@ t_path(_Config) ->
         end,
         #{
             <<"url">> => <<
-                "http://127.0.0.1:33333/authz/use%20rs/"
+                "http://127.0.0.1:33333/authz/use+rs/"
                 "${username}/"
                 "${clientid}/"
                 "${peerhost}/"
@@ -402,7 +402,7 @@ t_placeholder_and_body(_Config) ->
                 cowboy_req:path(Req0)
             ),
 
-            {ok, [{PostVars, true}], Req1} = cowboy_req:read_urlencoded_body(Req0),
+            {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
 
             ?assertMatch(
                 #{
@@ -416,7 +416,7 @@ t_placeholder_and_body(_Config) ->
                     <<"CN">> := ?PH_CERT_CN_NAME,
                     <<"CS">> := ?PH_CERT_SUBJECT
                 },
-                emqx_utils_json:decode(PostVars, [return_maps])
+                maps:from_list(PostVars)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -536,7 +536,7 @@ t_disallowed_placeholders_path(_Config) ->
             {ok, ?AUTHZ_HTTP_RESP(allow, Req), State}
         end,
         #{
-            <<"url">> => <<"http://127.0.0.1:33333/authz/use%20rs/${typo}">>
+            <<"url">> => <<"http://127.0.0.1:33333/authz/use+rs/${typo}">>
         }
     ),
 

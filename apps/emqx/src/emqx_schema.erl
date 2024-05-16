@@ -93,7 +93,6 @@
     validate_heap_size/1,
     validate_packet_size/1,
     user_lookup_fun_tr/2,
-    validate_alarm_actions/1,
     validate_keepalive_multiplier/1,
     non_empty_string/1,
     validations/0,
@@ -1617,10 +1616,9 @@ fields("alarm") ->
     [
         {"actions",
             sc(
-                hoconsc:array(atom()),
+                hoconsc:array(hoconsc:enum([log, publish])),
                 #{
                     default => [log, publish],
-                    validator => fun ?MODULE:validate_alarm_actions/1,
                     example => [log, publish],
                     desc => ?DESC(alarm_actions)
                 }
@@ -2776,15 +2774,6 @@ validate_keepalive_multiplier(Multiplier) when
     ok;
 validate_keepalive_multiplier(_Multiplier) ->
     {error, #{reason => keepalive_multiplier_out_of_range, min => 1, max => 65535}}.
-
-validate_alarm_actions(Actions) ->
-    UnSupported = lists:filter(
-        fun(Action) -> Action =/= log andalso Action =/= publish end, Actions
-    ),
-    case UnSupported of
-        [] -> ok;
-        Error -> {error, Error}
-    end.
 
 validate_tcp_keepalive(Value) ->
     case iolist_to_binary(Value) of

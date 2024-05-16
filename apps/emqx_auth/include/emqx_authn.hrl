@@ -21,8 +21,6 @@
 
 -define(AUTHN, emqx_authn_chains).
 
--define(RE_PLACEHOLDER, "\\$\\{[a-z0-9\\-]+\\}").
-
 %% has to be the same as the root field name defined in emqx_schema
 -define(CONF_NS, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME).
 -define(CONF_NS_ATOM, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
@@ -31,5 +29,17 @@
 -type authenticator_id() :: binary().
 
 -define(AUTHN_RESOURCE_GROUP, <<"emqx_authn">>).
+
+%% VAR_NS_CLIENT_ATTRS is added here because it can be initialized before authn.
+%% NOTE: authn return may add more to (or even overwrite) client_attrs.
+-define(AUTHN_DEFAULT_ALLOWED_VARS, [
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_PASSWORD,
+    ?VAR_PEERHOST,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_CERT_CN_NAME,
+    ?VAR_NS_CLIENT_ATTRS
+]).
 
 -endif.

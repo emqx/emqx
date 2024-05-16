@@ -65,7 +65,7 @@
 -type accessor() :: [binary()].
 -type varname() :: string().
 
--type scalar() :: atom() | unicode:chardata() | number().
+-type scalar() :: atom() | unicode:chardata() | binary() | number().
 -type binding() :: scalar() | list(scalar()) | bindings().
 -type bindings() :: #{atom() | binary() => binding()}.
 
@@ -346,7 +346,7 @@ render_deep({tuple, Template}, Context, Opts) when is_list(Template) ->
     {list_to_tuple(Term), Errors};
 render_deep(Template, Context, Opts) when is_list(Template) ->
     {String, Errors} = render(Template, Context, Opts),
-    {unicode:characters_to_binary(String), Errors};
+    {character_segments_to_binary(String), Errors};
 render_deep(Term, _Bindings, _Opts) ->
     {Term, []}.
 
@@ -424,3 +424,20 @@ to_string(List) when is_list(List) ->
         true -> List;
         false -> emqx_utils_json:encode(List)
     end.
+
+character_segments_to_binary(StringSegments) ->
+    iolist_to_binary(
+        lists:map(
+            fun
+                ($$) ->
+                    $$;
+                (Bin) when is_binary(Bin) -> Bin;
+                (Chars) when is_list(Chars) ->
+                    case unicode:characters_to_binary(Chars) of
+                        Bin when is_binary(Bin) -> Bin;
+                        _ -> emqx_utils_json:encode(Chars)
+                    end
+            end,
+            StringSegments
+        )
+    ).

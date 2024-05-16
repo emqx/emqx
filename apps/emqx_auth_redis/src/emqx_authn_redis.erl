@@ -74,7 +74,7 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    NKey = emqx_authn_utils:render_str(KeyTemplate, Credential),
+    NKey = emqx_auth_utils:render_str(KeyTemplate, Credential),
     Command = [CommandName, NKey | Fields],
     case emqx_resource:simple_sync_query(ResourceId, {cmd, Command}) of
         {ok, []} ->

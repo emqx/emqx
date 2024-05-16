@@ -61,14 +61,27 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(#{password := undefined}, _) ->
     {error, bad_username_or_password};
 authenticate(
-    #{password := Password} = Credential,
+    Credential, #{filter_template := FilterTemplate} = State
+) ->
+    try emqx_auth_utils:render_deep_for_json(FilterTemplate, Credential) of
+        Filter ->
+            authenticate_with_filter(Filter, Credential, State)
+    catch
+        error:{encode_error, _} = EncodeError ->
+            ?TRACE_AUTHN_PROVIDER(error, "mongodb_render_filter_failed", #{
+                reason => EncodeError
+            }),
+            ignore
+    end.
+
+authenticate_with_filter(
+    Filter,
+    #{password := Password},
     #{
         collection := Collection,
-        filter_template := FilterTemplate,
         resource_id := ResourceId
     } = State
 ) ->
-    Filter = emqx_authn_utils:render_deep(FilterTemplate, Credential),
     case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter, #{}}) of
         {ok, undefined} ->
             ignore;
