@@ -16,7 +16,7 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2]).
+-export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2, shuffle/1]).
 -export([renew_streams/1, on_unsubscribe/2]).
 
 %% behavior callbacks:
@@ -87,22 +87,20 @@ find_new_streams(S) ->
     %% after timeout?)
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-    shuffle(
-        emqx_persistent_session_ds_state:fold_streams(
-            fun
-                (_Key, #srs{it_end = end_of_stream}, Acc) ->
-                    Acc;
-                (Key, Stream, Acc) ->
-                    case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
-                        true ->
-                            [{Key, Stream} | Acc];
-                        false ->
-                            Acc
-                    end
-            end,
-            [],
-            S
-        )
+    emqx_persistent_session_ds_state:fold_streams(
+        fun
+            (_Key, #srs{it_end = end_of_stream}, Acc) ->
+                Acc;
+            (Key, Stream, Acc) ->
+                case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
+                    true ->
+                        [{Key, Stream} | Acc];
+                    false ->
+                        Acc
+                end
+        end,
+        [],
+        S
     ).
 
 %% @doc This function makes the session aware of the new streams.
@@ -127,7 +125,12 @@ renew_streams(S0) ->
     S1 = remove_unsubscribed_streams(S0),
     S2 = remove_fully_replayed_streams(S1),
     S3 = update_stream_subscription_state_ids(S2),
-    emqx_persistent_session_ds_subs:fold(
+    %% For shared subscriptions, the streams are populated by
+    %% `emqx_persistent_session_ds_shared_subs`.
+    %% TODO
+    %% Move discovery of proper streams
+    %% out of the scheduler for complete symmetry?
+    fold_proper_subscriptions(
         fun
             (Key, #{start_time := StartTime, id := SubId, current_state := SStateId}, Acc) ->
                 TopicFilter = emqx_topic:words(Key),
@@ -197,6 +200,19 @@ is_fully_acked(Srs, S) ->
     CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     is_fully_acked(CommQos1, CommQos2, Srs).
+
+-spec shuffle([A]) -> [A].
+shuffle(L0) ->
+    L1 = lists:map(
+        fun(A) ->
+            %% maybe topic/stream prioritization could be introduced here?
+            {rand:uniform(), A}
+        end,
+        L0
+    ),
+    L2 = lists:sort(L1),
+    {_, L} = lists:unzip(L2),
+    L.
 
 %%================================================================================
 %% Internal functions
@@ -408,15 +424,12 @@ is_fully_acked(_, _, #srs{
 is_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
 
--spec shuffle([A]) -> [A].
-shuffle(L0) ->
-    L1 = lists:map(
-        fun(A) ->
-            %% maybe topic/stream prioritization could be introduced here?
-            {rand:uniform(), A}
+fold_proper_subscriptions(Fun, Acc, S) ->
+    emqx_persistent_session_ds_state:fold_subscriptions(
+        fun
+            (#share{}, _Sub, Acc0) -> Acc0;
+            (TopicFilter, Sub, Acc0) -> Fun(TopicFilter, Sub, Acc0)
         end,
-        L0
-    ),
-    L2 = lists:sort(L1),
-    {_, L} = lists:unzip(L2),
-    L.
+        Acc,
+        S
+    ).

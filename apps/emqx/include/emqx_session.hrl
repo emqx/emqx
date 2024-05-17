@@ -20,4 +20,11 @@
 -define(IS_SESSION_IMPL_MEM(S), (is_tuple(S) andalso element(1, S) =:= session)).
 -define(IS_SESSION_IMPL_DS(S), (is_map_key(id, S))).
 
+%% (Erlang) messages that a connection process should forward to the
+%% session handler.
+-record(session_message, {
+    message :: term()
+}).
+-define(session_message(MSG), #session_message{message = MSG}).
+
 -endif.
