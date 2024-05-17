@@ -24,6 +24,8 @@
 -define(CONFIG_FORMAT_AVRO, config_format_avro).
 -define(CONFIG_FORMAT_MAP, config_format_map).
 
+-define(plugin_conf_not_found, plugin_conf_not_found).
+
 -type schema_name() :: binary().
 -type avsc_path() :: string().
 
