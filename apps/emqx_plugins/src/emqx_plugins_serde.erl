@@ -151,10 +151,10 @@ terminate(_Reason, _State) ->
 
 -spec get_plugin_avscs() -> [{string(), string()}].
 get_plugin_avscs() ->
-    Pattern = filename:join([emqx_plugins:install_dir(), "*", "config_schema.avsc"]),
+    Pattern = filename:join([emqx_plugins:install_dir(), "*", "config", "config_schema.avsc"]),
     lists:foldl(
         fun(AvscPath, AccIn) ->
-            [_, NameVsn | _] = lists:reverse(filename:split(AvscPath)),
+            [_, _, NameVsn | _] = lists:reverse(filename:split(AvscPath)),
             [{to_bin(NameVsn), AvscPath} | AccIn]
         end,
         _Acc0 = [],

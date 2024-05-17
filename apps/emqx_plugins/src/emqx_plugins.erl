@@ -659,7 +659,8 @@ ensure_exists_and_installed(NameVsn) ->
             case get_tar(NameVsn) of
                 {ok, TarContent} ->
                     ok = file:write_file(pkg_file_path(NameVsn), TarContent),
-                    ok = do_ensure_installed(NameVsn);
+                    ok = do_ensure_installed(NameVsn),
+                    ok = ensure_avro_config(NameVsn);
                 _ ->
                     %% If not, try to get it from the cluster.
                     do_get_from_cluster(NameVsn)
@@ -1046,6 +1047,7 @@ maybe_create_config_dir(NameVsn) ->
     ConfigDir = plugin_config_dir(NameVsn),
     case filelib:ensure_path(ConfigDir) of
         ok ->
+            _ = maybe_copy_default_avro_config(NameVsn),
             ok;
         {error, Reason} ->
             ?SLOG(warning, #{
@@ -1054,6 +1056,37 @@ maybe_create_config_dir(NameVsn) ->
                 reason => Reason
             }),
             {error, {mkdir_failed, ConfigDir, Reason}}
+    end.
+
+maybe_copy_default_avro_config(NameVsn) ->
+    Source = default_avro_config_file(NameVsn),
+    Destination = avro_config_file(NameVsn),
+    filelib:is_regular(Source) andalso
+        case file:copy(Source, Destination) of
+            {ok, _} ->
+                ok,
+                ensure_avro_config(NameVsn);
+            {error, Reason} ->
+                ?SLOG(warning, #{
+                    msg => "failed_to_copy_plugin_default_avro_config",
+                    source => Source,
+                    destination => Destination,
+                    reason => Reason
+                })
+        end.
+
+%% ensure_avro_config() ->
+%%     ok = for_plugins(fun(NameVsn) -> ensure_avro_config(NameVsn) end).
+
+ensure_avro_config(NameVsn) ->
+    case read_plugin_avro(NameVsn, #{read_mode => ?JSON_MAP}) of
+        {ok, AvroJsonMap} ->
+            {ok, Config} = decode_plugin_avro_config(
+                NameVsn, emqx_utils_json:encode(AvroJsonMap)
+            ),
+            put_config(NameVsn, AvroJsonMap, Config);
+        _ ->
+            ok
     end.
 
 %% @private Backup the current config to a file with a timestamp suffix and
@@ -1148,7 +1181,7 @@ plugin_dir(NameVsn) ->
 
 -spec plugin_config_dir(name_vsn()) -> string().
 plugin_config_dir(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "data", "configs"])).
+    wrap_list_path(filename:join([emqx:data_dir(), "plugins", NameVsn])).
 
 %% Files
 -spec pkg_file_path(name_vsn()) -> string().
@@ -1161,15 +1194,20 @@ info_file_path(NameVsn) ->
 
 -spec avsc_file_path(name_vsn()) -> string().
 avsc_file_path(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "config_schema.avsc"])).
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "config", "config_schema.avsc"])).
 
 -spec avro_config_file(name_vsn()) -> string().
 avro_config_file(NameVsn) ->
     wrap_list_path(filename:join([plugin_config_dir(NameVsn), "config.avro"])).
 
+%% should only used when plugin installing
+-spec default_avro_config_file(name_vsn()) -> string().
+default_avro_config_file(NameVsn) ->
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "config", "config.avro"])).
+
 -spec i18n_file_path(name_vsn()) -> string().
 i18n_file_path(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "config_i18n.json"])).
+    wrap_list_path(filename:join([plugin_dir(NameVsn), "config", "config_i18n.json"])).
 
 -spec readme_file(name_vsn()) -> string().
 readme_file(NameVsn) ->
