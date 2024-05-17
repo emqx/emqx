@@ -161,7 +161,7 @@ fields(s3_aggregation) ->
                 emqx_schema:duration_s(),
                 #{
                     required => false,
-                    default => <<"1h">>,
+                    default => <<"30m">>,
                     desc => ?DESC(s3_aggregation_interval)
                 }
             )},
