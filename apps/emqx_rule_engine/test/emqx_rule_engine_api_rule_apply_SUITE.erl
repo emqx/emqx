@@ -263,7 +263,6 @@ do_final_log_check(Action, Bin0) when is_binary(Action) ->
                         },
                     <<"rule_id">> := _,
                     <<"rule_trigger_ts">> := _,
-                    <<"stop_action_after_render">> := false,
                     <<"trace_tag">> := <<"ACTION">>
                 },
             <<"msg">> := <<"action_success">>,
@@ -357,9 +356,10 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
                 ok;
             CheckBatchesFunRec(CurCount) ->
                 receive
-                    [{_, #{<<"stop_after_render">> := StopValue}} | _] = List ->
+                    [{_, FirstMsg} | _] = List ->
+                        StopValue = maps:get(<<"stop_after_render">>, FirstMsg, false),
                         [
-                            ?assertMatch(#{<<"stop_after_render">> := StopValue}, Msg)
+                            ?assertEqual(StopValue, maps:get(<<"stop_after_render">>, Msg, false))
                          || {_, Msg} <- List
                         ],
                         Len = length(List),
@@ -420,7 +420,6 @@ t_apply_rule_test_format_action_failed(_Config) ->
                         <<"reason">> := <<"MY REASON">>,
                         <<"rule_id">> := _,
                         <<"rule_trigger_ts">> := _,
-                        <<"stop_action_after_render">> := false,
                         <<"trace_tag">> := <<"ACTION">>
                     },
                     <<"msg">> := <<"action_failed">>,
@@ -492,7 +491,6 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
                         <<"reason">> := <<"request_expired">>,
                         <<"rule_id">> := _,
                         <<"rule_trigger_ts">> := _,
-                        <<"stop_action_after_render">> := false,
                         <<"trace_tag">> := <<"ACTION">>
                     },
                 <<"msg">> := <<"action_failed">>,
@@ -518,7 +516,6 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
                             },
                         <<"rule_id">> := _,
                         <<"rule_trigger_ts">> := _,
-                        <<"stop_action_after_render">> := false,
                         <<"trace_tag">> := <<"ERROR">>
                     },
                 <<"msg">> := SendErrorMsg,

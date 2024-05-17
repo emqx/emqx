@@ -538,30 +538,40 @@ do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
     end.
 
 do_handle_action_get_trace_inc_metrics_context_unconditionally(Action, TraceMeta) ->
-    StopAfterRender = maps:get(stop_action_after_render, TraceMeta, false),
+    StopAfterRenderMap =
+        case maps:get(stop_action_after_render, TraceMeta, false) of
+            false ->
+                #{};
+            true ->
+                #{stop_action_after_render => true}
+        end,
     case TraceMeta of
         #{
             rule_id := RuleID,
             clientid := ClientID,
             rule_trigger_ts := Timestamp
         } ->
-            #{
-                rule_id => RuleID,
-                clientid => ClientID,
-                action_id => Action,
-                stop_action_after_render => StopAfterRender,
-                rule_trigger_ts => Timestamp
-            };
+            maps:merge(
+                #{
+                    rule_id => RuleID,
+                    clientid => ClientID,
+                    action_id => Action,
+                    rule_trigger_ts => Timestamp
+                },
+                StopAfterRenderMap
+            );
         #{
             rule_id := RuleID,
             rule_trigger_ts := Timestamp
         } ->
-            #{
-                rule_id => RuleID,
-                action_id => Action,
-                stop_action_after_render => StopAfterRender,
-                rule_trigger_ts => Timestamp
-            }
+            maps:merge(
+                #{
+                    rule_id => RuleID,
+                    action_id => Action,
+                    rule_trigger_ts => Timestamp
+                },
+                StopAfterRenderMap
+            )
     end.
 
 action_info({bridge, BridgeType, BridgeName, _ResId}) ->

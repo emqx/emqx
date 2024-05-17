@@ -1192,21 +1192,25 @@ set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
     ClientIDs = lists:foldl(fun collect_client_id/2, #{}, Requests),
     RuleTriggerTimes0 = lists:foldl(fun collect_rule_trigger_times/2, [], Requests),
     RuleTriggerTimes = lists:flatten(RuleTriggerTimes0),
-    StopAfterRenderVal =
+    TraceMetadata =
         case Requests of
             %% We know that the batch is not mixed since we prevent this by
             %% using a stop_after function in the replayq:pop call
             [?QUERY(_, _, _, _, #{stop_action_after_render := true}) | _] ->
-                true;
+                #{
+                    rule_ids => RuleIDs,
+                    client_ids => ClientIDs,
+                    rule_trigger_ts => RuleTriggerTimes,
+                    stop_action_after_render => true
+                };
             [?QUERY(_, _, _, _, _TraceCTX) | _] ->
-                false
+                #{
+                    rule_ids => RuleIDs,
+                    client_ids => ClientIDs,
+                    rule_trigger_ts => RuleTriggerTimes
+                }
         end,
-    logger:update_process_metadata(#{
-        rule_ids => RuleIDs,
-        client_ids => ClientIDs,
-        rule_trigger_ts => RuleTriggerTimes,
-        stop_action_after_render => StopAfterRenderVal
-    }),
+    logger:update_process_metadata(TraceMetadata),
     ok;
 set_rule_id_trace_meta_data(Request) ->
     set_rule_id_trace_meta_data([Request]),
