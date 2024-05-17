@@ -16,7 +16,7 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2]).
+-export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2, shuffle/1]).
 -export([renew_streams/1, on_unsubscribe/2]).
 
 %% behavior callbacks:
@@ -87,22 +87,20 @@ find_new_streams(S) ->
     %% after timeout?)
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-    shuffle(
-        emqx_persistent_session_ds_state:fold_streams(
-            fun
-                (_Key, #srs{it_end = end_of_stream}, Acc) ->
-                    Acc;
-                (Key, Stream, Acc) ->
-                    case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
-                        true ->
-                            [{Key, Stream} | Acc];
-                        false ->
-                            Acc
-                    end
-            end,
-            [],
-            S
-        )
+    emqx_persistent_session_ds_state:fold_streams(
+        fun
+            (_Key, #srs{it_end = end_of_stream}, Acc) ->
+                Acc;
+            (Key, Stream, Acc) ->
+                case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
+                    true ->
+                        [{Key, Stream} | Acc];
+                    false ->
+                        Acc
+                end
+        end,
+        [],
+        S
     ).
 
 %% @doc This function makes the session aware of the new streams.
@@ -216,7 +214,8 @@ ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream
                         rank_y = RankY,
                         it_begin = Iterator,
                         it_end = Iterator,
-                        sub_state_id = SStateId
+                        sub_state_id = SStateId,
+                        stream_owner = ?owner_session
                     },
                     emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
                 {error, recoverable, Reason} ->

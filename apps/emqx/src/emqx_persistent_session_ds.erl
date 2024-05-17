@@ -109,7 +109,8 @@
     subscription_id/0,
     subscription/0,
     session/0,
-    stream_state/0
+    stream_state/0,
+    stream_owner/0
 ]).
 
 -type seqno() :: non_neg_integer().
@@ -172,6 +173,8 @@
     props := map(),
     %% Persistent state:
     s := emqx_persistent_session_ds_state:t(),
+    %% Shared subscription state:
+    shared_sub_s := emqx_persistent_session_ds_shared_subs:state(),
     %% Buffer:
     inflight := emqx_persistent_session_ds_inflight:t(),
     %% In-progress replay:
@@ -189,6 +192,8 @@
 }).
 
 -type stream_state() :: #srs{}.
+
+-type stream_owner() :: ?owner_session | ?owner_shared_sub.
 
 -type message() :: emqx_types:message().
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
@@ -277,8 +282,11 @@ info(created_at, #{s := S}) ->
     emqx_persistent_session_ds_state:get_created_at(S);
 info(is_persistent, #{}) ->
     true;
-info(subscriptions, #{s := S}) ->
-    emqx_persistent_session_ds_subs:to_map(S);
+info(subscriptions, #{s := S, shared_sub_s := SharedSubS}) ->
+    maps:merge(
+        emqx_persistent_session_ds_subs:to_map(S),
+        emqx_persistent_session_ds_shared_subs:to_map(S, SharedSubS)
+    );
 info(subscriptions_cnt, #{s := S}) ->
     emqx_persistent_session_ds_state:n_subscriptions(S);
 info(subscriptions_max, #{props := Conf}) ->
@@ -814,13 +822,15 @@ session_open(
                     S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
                     S5 = set_clientinfo(ClientInfo, S4),
                     S6 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S5),
-                    S = emqx_persistent_session_ds_state:commit(S6),
+                    {ok, S7, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(S6),
+                    S = emqx_persistent_session_ds_state:commit(S7),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
                     #{
                         id => SessionId,
                         s => S,
+                        shared_sub_s => SharedSubS,
                         inflight => Inflight,
                         props => #{}
                     }
@@ -869,6 +879,7 @@ session_ensure_new(
         id => Id,
         props => Conf,
         s => S,
+        shared_sub_s => emqx_persistent_session_ds_shared_subs:new(),
         inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo))
     }.
 
@@ -880,6 +891,7 @@ session_drop(SessionId, Reason) ->
         {ok, S0} ->
             ?tp(debug, drop_persistent_session, #{client_id => SessionId, reason => Reason}),
             emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
+            emqx_persistent_session_ds_shared_subs:on_session_drop(SessionId, S0),
             emqx_persistent_session_ds_state:delete(SessionId);
         undefined ->
             ok
@@ -917,8 +929,12 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-fetch_new_messages(Session = #{s := S}, ClientInfo) ->
-    Streams = emqx_persistent_session_ds_stream_scheduler:find_new_streams(S),
+fetch_new_messages(Session = #{s := S, shared_sub_s := SharedSubS}, ClientInfo) ->
+    Streams =
+        emqx_persistent_session_ds_stream_scheduler:shuffle(
+            emqx_persistent_session_ds_shared_subs:find_new_streams(S, SharedSubS) ++
+                emqx_persistent_session_ds_stream_scheduler:find_new_streams(S)
+        ),
     fetch_new_messages(Streams, Session, ClientInfo).
 
 fetch_new_messages([], Session, _ClientInfo) ->
@@ -945,7 +961,7 @@ new_batch({StreamKey, Srs0}, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
         last_seqno_qos2 = SN2
     },
     case enqueue_batch(false, BatchSize, Srs1, Session0, ClientInfo) of
-        {ok, Srs, Session} ->
+        {ok, Srs, #{shared_sub_s := SharedSubS0} = Session} ->
             S1 = emqx_persistent_session_ds_state:put_seqno(
                 ?next(?QOS_1),
                 Srs#srs.last_seqno_qos1,
@@ -956,8 +972,8 @@ new_batch({StreamKey, Srs0}, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
                 Srs#srs.last_seqno_qos2,
                 S1
             ),
-            S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S2),
-            Session#{s => S};
+            {S, SharedSubS} = put_stream(StreamKey, Srs, S2, SharedSubS0),
+            Session#{s => S, shared_sub_s => SharedSubS};
         {error, recoverable, Reason} ->
             ?SLOG(debug, #{
                 msg => "failed_to_fetch_batch",
@@ -1098,6 +1114,11 @@ process_batch(
     process_batch(
         IsReplay, Session, SubState, ClientInfo, LastSeqNoQos1, LastSeqNoQos2, Messages, Inflight
     ).
+
+put_stream(StreamKey, #srs{stream_owner = ?owner_session} = Srs, S, SharedSubS) ->
+    {emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S), SharedSubS};
+put_stream(StreamKey, #srs{stream_owner = ?owner_shared_sub} = Srs, S, SharedSubS) ->
+    {S, emqx_persistent_session_ds_shared_subs:put_stream(StreamKey, Srs, SharedSubS)}.
 
 %%--------------------------------------------------------------------
 %% Transient messages

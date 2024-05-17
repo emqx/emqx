@@ -203,6 +203,8 @@ gc(S0) ->
                 true ->
                     S;
                 false ->
+                    %% TODO
+                    %% Do not delete shared subscription states
                     emqx_persistent_session_ds_state:del_subscription_state(SStateId, S)
             end
         end,
@@ -244,7 +246,14 @@ to_map(S) ->
 ) ->
     Acc.
 fold(Fun, Acc, S) ->
-    emqx_persistent_session_ds_state:fold_subscriptions(Fun, Acc, S).
+    emqx_persistent_session_ds_state:fold_subscriptions(
+        fun
+            (#share{}, _Sub, Acc0) -> Acc0;
+            (TopicFilter, Sub, Acc0) -> Fun(TopicFilter, Sub, Acc0)
+        end,
+        Acc,
+        S
+    ).
 
 -spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
     emqx_persistent_session_ds:subscription() | undefined.

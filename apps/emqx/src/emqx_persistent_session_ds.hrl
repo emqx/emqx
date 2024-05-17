@@ -67,7 +67,8 @@
     %% marked for deletion:
     unsubscribed = false :: boolean(),
     %% Reference to the subscription state:
-    sub_state_id :: emqx_persistent_session_ds_subs:subscription_state_id()
+    sub_state_id :: emqx_persistent_session_ds_subs:subscription_state_id(),
+    stream_owner :: emqx_persistent_session_ds:stream_owner()
 }).
 
 %% Session metadata keys:
@@ -82,5 +83,7 @@
 -define(clientinfo, clientinfo).
 -define(protocol, protocol).
 -define(offline_info, offline_info).
+-define(owner_session, owner_session).
+-define(owner_shared_sub, owner_shared_sub).
 
 -endif.
