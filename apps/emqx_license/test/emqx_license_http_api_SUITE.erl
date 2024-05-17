@@ -57,7 +57,12 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 request(Method, Uri, Body) ->
-    emqx_dashboard_api_test_helpers:request(<<"license_admin">>, Method, Uri, Body).
+    request(Method, Uri, Body, #{}).
+
+request(Method, Uri, Body, Headers) ->
+    emqx_dashboard_api_test_helpers:request(
+        <<"license_admin">>, <<"public">>, Method, Uri, Body, Headers
+    ).
 
 uri(Segments) ->
     emqx_dashboard_api_test_helpers:uri(Segments).
@@ -229,23 +234,43 @@ t_license_setting(_Config) ->
 
 t_license_setting_bc(_Config) ->
     %% Create a BC license
-    Key = emqx_license_test_lib:make_license(#{customer_type => "3"}),
+    Key = emqx_license_test_lib:make_license(#{
+        customer_type => "3",
+        max_connections => "33"
+    }),
     Res = request(post, uri(["license"]), #{key => Key}),
     ?assertMatch({ok, 200, _}, Res),
+    %% for bc customer, before setting dynamic limit,
+    %% the default limit is always 25, as if no license
+    ?assertMatch(#{<<"max_connections">> := 25}, request_dump()),
     %% get
     GetRes = request(get, uri(["license", "setting"]), []),
+    %% aslo check that the settings return correctly
     validate_setting(GetRes, <<"75%">>, <<"80%">>, 25),
     %% update
     Low = <<"50%">>,
     High = <<"55%">>,
-    UpdateRes = request(put, uri(["license", "setting"]), #{
+    Settings = #{
         <<"connection_low_watermark">> => Low,
         <<"connection_high_watermark">> => High,
         <<"dynamic_max_connections">> => 26
-    }),
+    },
+    UpdateRes = request(put, uri(["license", "setting"]), Settings),
+    %% assert it's changed to 26
     validate_setting(UpdateRes, Low, High, 26),
+    ?assertMatch(#{<<"max_connections">> := 26}, request_dump()),
     ?assertEqual(26, emqx_config:get([license, dynamic_max_connections])),
+    %% Try to set it beyond the limit, it's allowed, but no effect
+    Settings2 = Settings#{<<"dynamic_max_connections">> => 99999},
+    UpdateRes2 = request(put, uri(["license", "setting"]), Settings2),
+    validate_setting(UpdateRes2, Low, High, 99999),
+    ?assertMatch(#{<<"max_connections">> := 33}, request_dump()),
+    ?assertEqual(99999, emqx_config:get([license, dynamic_max_connections])),
     ok.
+
+request_dump() ->
+    {ok, 200, DumpJson} = request(get, uri(["license"]), []),
+    emqx_utils_json:decode(DumpJson).
 
 validate_setting(Res, ExpectLow, ExpectHigh) ->
     ?assertMatch({ok, 200, _}, Res),
