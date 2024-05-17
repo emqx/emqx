@@ -1678,12 +1678,12 @@ fields("durable_sessions") ->
                     desc => ?DESC(session_ds_idle_poll_interval)
                 }
             )},
-        {"last_alive_update_interval",
+        {"heartbeat_interval",
             sc(
                 timeout_duration(),
                 #{
                     default => <<"5000ms">>,
-                    desc => ?DESC(session_ds_last_alive_update_interval)
+                    desc => ?DESC(session_ds_heartbeat_interval)
                 }
             )},
         {"renew_streams_interval",

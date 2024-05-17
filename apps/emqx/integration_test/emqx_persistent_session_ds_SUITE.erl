@@ -57,7 +57,7 @@ init_per_testcase(t_session_gc = TestCase, Config) ->
         roles => [core, core, core],
         extra_emqx_conf =>
             "\n durable_sessions {"
-            "\n   last_alive_update_interval = 500ms "
+            "\n   heartbeat_interval = 500ms "
             "\n   session_gc_interval = 1s "
             "\n   session_gc_batch_size = 2 "
             "\n }"

@@ -134,7 +134,7 @@ start_gc() ->
 
 gc_context() ->
     GCInterval = emqx_config:get([durable_sessions, session_gc_interval]),
-    BumpInterval = emqx_config:get([durable_sessions, last_alive_update_interval]),
+    BumpInterval = emqx_config:get([durable_sessions, heartbeat_interval]),
     TimeThreshold = max(GCInterval, BumpInterval) * 3,
     NowMS = now_ms(),
     #{
