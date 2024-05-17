@@ -60,8 +60,8 @@ schema("/stats") ->
                     #{
                         200 => mk(
                             hoconsc:union([
-                                ref(?MODULE, node_stats_data),
-                                array(ref(?MODULE, aggergate_data))
+                                array(ref(?MODULE, per_node_data)),
+                                ref(?MODULE, aggregated_data)
                             ]),
                             #{desc => <<"List stats ok">>}
                         )
@@ -82,7 +82,7 @@ fields(aggregate) ->
                 }
             )}
     ];
-fields(node_stats_data) ->
+fields(aggregated_data) ->
     [
         stats_schema('channels.count', <<"sessions.count">>),
         stats_schema('channels.max', <<"session.max">>),
@@ -106,7 +106,10 @@ fields(node_stats_data) ->
         stats_schema('subscribers.max', <<"Historical maximum number of subscribers">>),
         stats_schema(
             'subscriptions.count',
-            <<"Number of current subscriptions, including shared subscriptions">>
+            <<
+                "Number of current subscriptions, including shared subscriptions,"
+                " but not subscriptions from durable sessions"
+            >>
         ),
         stats_schema('subscriptions.max', <<"Historical maximum number of subscriptions">>),
         stats_schema('subscriptions.shared.count', <<"Number of current shared subscriptions">>),
@@ -116,14 +119,18 @@ fields(node_stats_data) ->
         stats_schema('topics.count', <<"Number of current topics">>),
         stats_schema('topics.max', <<"Historical maximum number of topics">>)
     ];
-fields(aggergate_data) ->
+fields(per_node_data) ->
     [
         {node,
             mk(string(), #{
                 desc => <<"Node name">>,
                 example => <<"emqx@127.0.0.1">>
-            })}
-    ] ++ fields(node_stats_data).
+            })},
+        stats_schema(
+            'durable_subscriptions.count',
+            <<"Number of current subscriptions from durable sessions in the cluster">>
+        )
+    ] ++ fields(aggregated_data).
 
 stats_schema(Name, Desc) ->
     {Name, mk(non_neg_integer(), #{desc => Desc, example => 0})}.

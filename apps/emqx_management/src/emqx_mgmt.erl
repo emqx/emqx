@@ -270,6 +270,12 @@ get_metrics() ->
 get_metrics(Node) ->
     unwrap_rpc(emqx_proto_v1:get_metrics(Node)).
 
+aggregated_only_keys() ->
+    [
+        'durable_subscriptions.count',
+        'durable_subscriptions.max'
+    ].
+
 get_stats() ->
     GlobalStatsKeys =
         [
@@ -294,7 +300,7 @@ get_stats() ->
             emqx:running_nodes()
         )
     ),
-    GlobalStats = maps:with(GlobalStatsKeys, maps:from_list(get_stats(node()))),
+    GlobalStats = maps:with(GlobalStatsKeys, maps:from_list(emqx_stats:getstats())),
     maps:merge(CountStats, GlobalStats).
 
 delete_keys(List, []) ->
@@ -303,7 +309,12 @@ delete_keys(List, [Key | Keys]) ->
     delete_keys(proplists:delete(Key, List), Keys).
 
 get_stats(Node) ->
-    unwrap_rpc(emqx_proto_v1:get_stats(Node)).
+    case unwrap_rpc(emqx_proto_v1:get_stats(Node)) of
+        {error, _} = Error ->
+            Error;
+        Stats when is_list(Stats) ->
+            delete_keys(Stats, aggregated_only_keys())
+    end.
 
 nodes_info_count(PropList) ->
     NodeCount =

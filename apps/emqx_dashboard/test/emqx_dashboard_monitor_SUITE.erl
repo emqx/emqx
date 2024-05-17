@@ -345,7 +345,8 @@ t_persistent_session_stats(_Config) ->
                 %% and non-persistent routes, so we count `commont/topic' twice and get 8
                 %% instead of 6 here.
                 <<"topics">> := 8,
-                <<"subscriptions">> := 8
+                <<"durable_subscriptions">> := 4,
+                <<"subscriptions">> := 4
             }},
             request(["monitor_current"])
         )

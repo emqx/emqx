@@ -111,6 +111,11 @@ reclaim_seq(Topic) ->
 stats_fun() ->
     safe_update_stats(subscriber_val(), 'subscribers.count', 'subscribers.max'),
     safe_update_stats(subscription_count(), 'subscriptions.count', 'subscriptions.max'),
+    safe_update_stats(
+        durable_subscription_count(),
+        'durable_subscriptions.count',
+        'durable_subscriptions.max'
+    ),
     safe_update_stats(table_size(?SUBOPTION), 'suboptions.count', 'suboptions.max').
 
 safe_update_stats(undefined, _Stat, _MaxStat) ->
@@ -118,15 +123,13 @@ safe_update_stats(undefined, _Stat, _MaxStat) ->
 safe_update_stats(Val, Stat, MaxStat) when is_integer(Val) ->
     emqx_stats:setstat(Stat, MaxStat, Val).
 
+%% N.B.: subscriptions from durable sessions are not tied to any particular node.
+%% Therefore, do not sum them with node-local subscriptions.
 subscription_count() ->
-    NonPSCount = table_size(?SUBSCRIPTION),
-    PSCount = emqx_persistent_session_bookkeeper:get_subscription_count(),
-    case is_integer(NonPSCount) of
-        true ->
-            NonPSCount + PSCount;
-        false ->
-            PSCount
-    end.
+    table_size(?SUBSCRIPTION).
+
+durable_subscription_count() ->
+    emqx_persistent_session_bookkeeper:get_subscription_count().
 
 subscriber_val() ->
     sum_subscriber(table_size(?SUBSCRIBER), table_size(?SHARED_SUBSCRIBER)).
