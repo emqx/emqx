@@ -14,14 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_plugins_proto_v1).
+-module(emqx_plugins_proto_v2).
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
-    get_tar/3
+    get_tar/3,
+    get_config/3
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -29,11 +29,11 @@
 -type name_vsn() :: binary() | string().
 
 introduced_in() ->
-    "5.0.21".
-
-deprecated_since() ->
     "5.7.0".
 
 -spec get_tar(node(), name_vsn(), timeout()) -> {ok, binary()} | {error, any}.
 get_tar(Node, NameVsn, Timeout) ->
     rpc:call(Node, emqx_plugins, get_tar, [NameVsn], Timeout).
+
+get_config(Node, NameVsn, Timeout) ->
+    rpc:call(Node, emqx_plugins, get_config, [NameVsn], Timeout).

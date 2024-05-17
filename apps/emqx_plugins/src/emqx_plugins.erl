@@ -67,7 +67,8 @@
 -export([
     decode_plugin_avro_config/2,
     install_dir/0,
-    avsc_file_path/1
+    avsc_file_path/1,
+    with_plugin_avsc/1
 ]).
 
 %% `emqx_config_handler' API
@@ -332,6 +333,15 @@ decode_plugin_avro_config(NameVsn, AvroJsonBin) ->
         {error, ReasonMap} -> {error, ReasonMap}
     end.
 
+-spec with_plugin_avsc(name_vsn()) -> boolean().
+with_plugin_avsc(NameVsn) ->
+    case read_plugin_info(NameVsn, #{fill_readme => false}) of
+        {ok, #{<<"with_config_schema">> := WithAvsc}} when is_boolean(WithAvsc) ->
+            WithAvsc;
+        _ ->
+            false
+    end.
+
 get_config_interal(Key, Default) when is_atom(Key) ->
     get_config_interal([Key], Default);
 get_config_interal(Path, Default) ->
@@ -438,7 +448,6 @@ do_ensure_installed(NameVsn) ->
             ok = write_tar_file_content(install_dir(), TarContent),
             case read_plugin_info(NameVsn, #{}) of
                 {ok, _} ->
-                    ok = maybe_post_op_after_install(NameVsn),
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
@@ -572,6 +581,8 @@ do_ensure_started(NameVsn) ->
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
                     Plugin = do_read_plugin(NameVsn),
+                    %% ok = ensure_avro_config(NameVsn);
+                    ok = maybe_post_op_after_install(NameVsn),
                     ok = load_code_start_apps(NameVsn, Plugin);
                 {error, plugin_not_found} ->
                     ?SLOG(error, #{
@@ -611,16 +622,16 @@ tryit(WhichOp, F) ->
 read_plugin_info(NameVsn, Options) ->
     tryit(
         atom_to_list(?FUNCTION_NAME),
-        fun() -> {ok, do_read_plugin2(NameVsn, Options)} end
+        fun() -> {ok, do_read_plugin(NameVsn, Options)} end
     ).
 
 do_read_plugin(NameVsn) ->
-    do_read_plugin2(NameVsn, #{}).
+    do_read_plugin(NameVsn, #{}).
 
-do_read_plugin2(NameVsn, Option) ->
-    do_read_plugin3(NameVsn, info_file_path(NameVsn), Option).
+do_read_plugin(NameVsn, Option) ->
+    do_read_plugin(NameVsn, info_file_path(NameVsn), Option).
 
-do_read_plugin3(NameVsn, InfoFilePath, Options) ->
+do_read_plugin(NameVsn, InfoFilePath, Options) ->
     {ok, PlainMap} = (read_file_fun(InfoFilePath, "bad_info_file", #{read_mode => ?JSON_MAP}))(),
     Info0 = check_plugin(PlainMap, NameVsn, InfoFilePath),
     Info1 = plugins_readme(NameVsn, Options, Info0),
@@ -659,8 +670,7 @@ ensure_exists_and_installed(NameVsn) ->
             case get_tar(NameVsn) of
                 {ok, TarContent} ->
                     ok = file:write_file(pkg_file_path(NameVsn), TarContent),
-                    ok = do_ensure_installed(NameVsn),
-                    ok = ensure_avro_config(NameVsn);
+                    ok = do_ensure_installed(NameVsn);
                 _ ->
                     %% If not, try to get it from the cluster.
                     do_get_from_cluster(NameVsn)
@@ -692,6 +702,16 @@ get_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
 get_from_any_node([Node | T], NameVsn, Errors) ->
     case emqx_plugins_proto_v1:get_tar(Node, NameVsn, infinity) of
+        {ok, _} = Res ->
+            Res;
+        Err ->
+            get_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+    end.
+
+get_config_from_any_node([], _NameVsn, Errors) ->
+    {error, Errors};
+get_config_from_any_node([Node | T], NameVsn, Errors) ->
+    case emqx_plugins_proto_v2:get_config(Node, NameVsn, 5_000) of
         {ok, _} = Res ->
             Res;
         Err ->
@@ -1031,13 +1051,15 @@ for_plugin(#{name_vsn := NameVsn, enable := false}, _Fun) ->
 
 maybe_post_op_after_install(NameVsn) ->
     _ = maybe_load_config_schema(NameVsn),
-    _ = maybe_create_config_dir(NameVsn),
     ok.
 
 maybe_load_config_schema(NameVsn) ->
     AvscPath = avsc_file_path(NameVsn),
-    filelib:is_regular(AvscPath) andalso
-        do_load_config_schema(NameVsn, AvscPath).
+    _ =
+        with_plugin_avsc(NameVsn) andalso
+            filelib:is_regular(AvscPath) andalso
+            do_load_config_schema(NameVsn, AvscPath),
+    _ = maybe_create_config_dir(NameVsn).
 
 do_load_config_schema(NameVsn, AvscPath) ->
     case emqx_plugins_serde:add_schema(NameVsn, AvscPath) of
@@ -1047,39 +1069,54 @@ do_load_config_schema(NameVsn, AvscPath) ->
     end.
 
 maybe_create_config_dir(NameVsn) ->
-    ConfigDir = plugin_config_dir(NameVsn),
-    case filelib:ensure_path(ConfigDir) of
-        ok ->
-            _ = maybe_copy_default_avro_config(NameVsn),
-            ok;
+    with_plugin_avsc(NameVsn) andalso
+        do_create_config_dir(NameVsn).
+
+do_create_config_dir(NameVsn) ->
+    case plugin_config_dir(NameVsn) of
         {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_create_plugin_config_dir",
-                dir => ConfigDir,
-                reason => Reason
-            }),
-            {error, {mkdir_failed, ConfigDir, Reason}}
+            {error, {gen_config_dir_failed, Reason}};
+        ConfigDir ->
+            case filelib:ensure_path(ConfigDir) of
+                ok ->
+                    %% get config from other nodes or get from tarball
+                    _ = maybe_ensure_plugin_config(NameVsn),
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_create_plugin_config_dir",
+                        dir => ConfigDir,
+                        reason => Reason
+                    }),
+                    {error, {mkdir_failed, ConfigDir, Reason}}
+            end
     end.
 
-maybe_copy_default_avro_config(NameVsn) ->
-    Source = default_avro_config_file(NameVsn),
-    Destination = avro_config_file(NameVsn),
-    filelib:is_regular(Source) andalso
-        case file:copy(Source, Destination) of
-            {ok, _} ->
-                ok,
-                ensure_avro_config(NameVsn);
-            {error, Reason} ->
-                ?SLOG(warning, #{
-                    msg => "failed_to_copy_plugin_default_avro_config",
-                    source => Source,
-                    destination => Destination,
-                    reason => Reason
-                })
-        end.
-
-%% ensure_avro_config() ->
-%%     ok = for_plugins(fun(NameVsn) -> ensure_avro_config(NameVsn) end).
+maybe_ensure_plugin_config(NameVsn) ->
+    Nodes = [N || N <- mria:running_nodes(), N /= node()],
+    case get_config_from_any_node(Nodes, NameVsn, []) of
+        {ok, AvroBin} ->
+            ok = file:write_file(avro_config_file(NameVsn), AvroBin),
+            ensure_avro_config(NameVsn);
+        _ ->
+            %% always copy default avro file into config dir
+            %% when can not get config from other nodes
+            Source = default_avro_config_file(NameVsn),
+            Destination = avro_config_file(NameVsn),
+            filelib:is_regular(Source) andalso
+                case file:copy(Source, Destination) of
+                    {ok, _} ->
+                        ok,
+                        ensure_avro_config(NameVsn);
+                    {error, Reason} ->
+                        ?SLOG(warning, #{
+                            msg => "failed_to_copy_plugin_default_avro_config",
+                            source => Source,
+                            destination => Destination,
+                            reason => Reason
+                        })
+                end
+    end.
 
 ensure_avro_config(NameVsn) ->
     case read_plugin_avro(NameVsn, #{read_mode => ?JSON_MAP}) of
@@ -1182,9 +1219,19 @@ read_file_fun(Path, ErrMsg, #{read_mode := ?JSON_MAP}) ->
 plugin_dir(NameVsn) ->
     wrap_list_path(filename:join([install_dir(), NameVsn])).
 
--spec plugin_config_dir(name_vsn()) -> string().
+-spec plugin_config_dir(name_vsn()) -> string() | {error, Reason :: string()}.
 plugin_config_dir(NameVsn) ->
-    wrap_list_path(filename:join([emqx:data_dir(), "plugins", NameVsn])).
+    case parse_name_vsn(NameVsn) of
+        {ok, NameAtom, _Vsn} ->
+            wrap_list_path(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_generate_plugin_config_dir_for_plugin",
+                plugin_namevsn => NameVsn,
+                reason => Reason
+            }),
+            {error, Reason}
+    end.
 
 %% Files
 -spec pkg_file_path(name_vsn()) -> string().
