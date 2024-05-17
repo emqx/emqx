@@ -1013,8 +1013,11 @@ configured() ->
 
 for_plugins(ActionFun) ->
     case lists:flatmap(fun(I) -> for_plugin(I, ActionFun) end, configured()) of
-        [] -> ok;
-        Errors -> erlang:error(#{function => ActionFun, errors => Errors})
+        [] ->
+            ok;
+        Errors ->
+            ?SLOG(error, #{function => ActionFun, errors => Errors}),
+            ok
     end.
 
 for_plugin(#{name_vsn := NameVsn, enable := true}, Fun) ->
