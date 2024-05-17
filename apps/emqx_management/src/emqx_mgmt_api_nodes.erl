@@ -122,7 +122,7 @@ schema("/nodes/:node/stats") ->
                 responses =>
                     #{
                         200 => mk(
-                            ref(?NODE_STATS_MODULE, node_stats_data),
+                            ref(?NODE_STATS_MODULE, aggregated_data),
                             #{desc => <<"Get node stats successfully">>}
                         ),
                         404 => not_found()

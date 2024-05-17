@@ -72,6 +72,7 @@
 ]).
 
 -define(GAUGE_SAMPLER_LIST, [
+    durable_subscriptions,
     subscriptions,
     topics,
     connections,

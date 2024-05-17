@@ -262,6 +262,8 @@ merge_cluster_rate(Node, Cluster) ->
     Fun =
         fun
             %% cluster-synced values
+            (durable_subscriptions, V, NCluster) ->
+                NCluster#{durable_subscriptions => V};
             (topics, V, NCluster) ->
                 NCluster#{topics => V};
             (retained_msg_count, V, NCluster) ->
@@ -416,6 +418,7 @@ getstats(Key) ->
     end.
 
 stats(connections) -> emqx_stats:getstat('connections.count');
+stats(durable_subscriptions) -> emqx_stats:getstat('durable_subscriptions.count');
 stats(live_connections) -> emqx_stats:getstat('live_connections.count');
 stats(cluster_sessions) -> emqx_stats:getstat('cluster_sessions.count');
 stats(topics) -> emqx_stats:getstat('topics.count');
