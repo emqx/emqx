@@ -52,6 +52,7 @@
 }.
 
 -type s3_upload_parameters() :: #{
+    mode := direct,
     bucket := string(),
     key := string(),
     content := string(),
@@ -59,6 +60,7 @@
 }.
 
 -type s3_aggregated_upload_parameters() :: #{
+    mode := aggregated,
     bucket := string(),
     key := string(),
     acl => emqx_s3:acl(),
