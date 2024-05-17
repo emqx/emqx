@@ -161,7 +161,7 @@ fields(s3_aggregation) ->
                 emqx_schema:duration_s(),
                 #{
                     required => false,
-                    default => <<"1h">>,
+                    default => <<"30m">>,
                     desc => ?DESC(s3_aggregation_interval)
                 }
             )},
@@ -170,7 +170,7 @@ fields(s3_aggregation) ->
                 pos_integer(),
                 #{
                     required => false,
-                    default => <<"1000000">>,
+                    default => <<"100000">>,
                     desc => ?DESC(s3_aggregation_max_records)
                 }
             )}
