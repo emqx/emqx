@@ -513,7 +513,7 @@ add_generation(ShardId, Since) ->
 list_generations_with_lifetimes(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
--spec drop_generation(shard_id(), gen_id()) -> ok.
+-spec drop_generation(shard_id(), gen_id()) -> ok | {error, _}.
 drop_generation(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
 
