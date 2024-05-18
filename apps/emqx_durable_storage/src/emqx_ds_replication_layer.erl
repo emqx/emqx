@@ -761,6 +761,14 @@ apply(
     #{?tag := add_generation, ?since := Since},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
+    ?tp(
+        info,
+        ds_replication_layer_add_generation,
+        #{
+            shard => DBShard,
+            since => Since
+        }
+    ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
     State = State0#{latest := Latest},
@@ -771,6 +779,15 @@ apply(
     #{?tag := update_config, ?since := Since, ?config := Opts},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
+    ?tp(
+        notice,
+        ds_replication_layer_update_config,
+        #{
+            shard => DBShard,
+            config => Opts,
+            since => Since
+        }
+    ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:update_config(DBShard, Timestamp, Opts),
     State = State0#{latest := Latest},
@@ -780,6 +797,14 @@ apply(
     #{?tag := drop_generation, ?generation := GenId},
     #{db_shard := DBShard} = State
 ) ->
+    ?tp(
+        info,
+        ds_replication_layer_drop_generation,
+        #{
+            shard => DBShard,
+            generation => GenId
+        }
+    ),
     Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
     {State, Result};
 apply(
