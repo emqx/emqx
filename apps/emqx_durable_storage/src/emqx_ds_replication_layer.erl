@@ -561,12 +561,27 @@ list_nodes() ->
 %% Too large for normal operation, need better backpressure mechanism.
 -define(RA_TIMEOUT, 60 * 1000).
 
--define(SAFERPC(EXPR),
+-define(SAFE_ERPC(EXPR),
     try
         EXPR
     catch
-        error:RPCError = {erpc, _} ->
-            {error, recoverable, RPCError}
+        error:RPCError__ = {erpc, _} ->
+            {error, recoverable, RPCError__}
+    end
+).
+
+-define(SHARD_RPC(DB, SHARD, NODE, BODY),
+    case
+        emqx_ds_replication_layer_shard:servers(
+            DB, SHARD, application:get_env(emqx_durable_storage, reads, leader_preferred)
+        )
+    of
+        [{_, NODE} | _] ->
+            begin
+                BODY
+            end;
+        [] ->
+            {error, recoverable, replica_offline}
     end
 ).
 
@@ -623,44 +638,79 @@ ra_drop_generation(DB, Shard, GenId) ->
     end.
 
 ra_get_streams(DB, Shard, TopicFilter, Time) ->
-    {_, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     TimestampUs = timestamp_to_timeus(Time),
-    ?SAFERPC(emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, TimestampUs)).
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        ?SAFE_ERPC(emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, TimestampUs))
+    ).
 
 ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    ?SAFERPC(emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time)).
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        ?SAFE_ERPC(emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time))
+    ).
 
 ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
-    {_, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     TimeUs = timestamp_to_timeus(StartTime),
-    ?SAFERPC(emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs)).
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        ?SAFE_ERPC(emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs))
+    ).
 
 ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
     TimeUs = timestamp_to_timeus(StartTime),
-    ?SAFERPC(emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs)).
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        ?SAFE_ERPC(
+            emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs)
+        )
+    ).
 
 ra_update_iterator(DB, Shard, Iter, DSKey) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    ?SAFERPC(emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey)).
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        ?SAFE_ERPC(emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey))
+    ).
 
 ra_next(DB, Shard, Iter, BatchSize) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    case emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize) of
-        RPCError = {badrpc, _} ->
-            {error, recoverable, RPCError};
-        Other ->
-            Other
-    end.
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        case emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize) of
+            Err = {badrpc, _} ->
+                {error, recoverable, Err};
+            Ret ->
+                Ret
+        end
+    ).
 
 ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    emqx_ds_proto_v4:delete_next(Node, DB, Shard, Iter, Selector, BatchSize).
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        ?SAFE_ERPC(emqx_ds_proto_v4:delete_next(Node, DB, Shard, Iter, Selector, BatchSize))
+    ).
 
 ra_list_generations_with_lifetimes(DB, Shard) ->
-    {_Name, Node} = emqx_ds_replication_layer_shard:server(DB, Shard, local_preferred),
-    case ?SAFERPC(emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard)) of
+    Reply = ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        ?SAFE_ERPC(emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard))
+    ),
+    case Reply of
         Gens = #{} ->
             maps:map(
                 fun(_GenId, Data = #{since := Since, until := Until}) ->
