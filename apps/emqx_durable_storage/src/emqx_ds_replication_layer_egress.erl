@@ -33,7 +33,7 @@
 -export([start_link/2, store_batch/3]).
 
 %% behavior callbacks:
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([init/1, format_status/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
 -export([]).
@@ -128,6 +128,13 @@ init([DB, Shard]) ->
         queue = queue:new()
     },
     {ok, S}.
+
+format_status(#s{db = DB, shard = Shard, queue = Q}) ->
+    #{
+        db => DB,
+        shard => Shard,
+        queue => queue:len(Q)
+    }.
 
 handle_call(
     #enqueue_req{

@@ -52,7 +52,7 @@
 ]).
 
 %% gen_server
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([init/1, format_status/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
 -export([db_dir/1]).
@@ -585,6 +585,24 @@ init({ShardId, Options}) ->
     },
     commit_metadata(S),
     {ok, S}.
+
+format_status(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, shard = Shard}) ->
+    #{
+        id => ShardId,
+        db => DB,
+        cf_refs => CFRefs,
+        schema => Schema,
+        shard =>
+            maps:map(
+                fun
+                    (?GEN_KEY(_), _Schema) ->
+                        '...';
+                    (_K, Val) ->
+                        Val
+                end,
+                Shard
+            )
+    }.
 
 handle_call(#call_update_config{since = Since, options = Options}, _From, S0) ->
     case handle_update_config(S0, Since, Options) of
