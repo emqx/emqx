@@ -297,13 +297,14 @@ store_batch(Shard, Messages, Options) ->
     [{emqx_ds:time(), emqx_types:message()}],
     emqx_ds:message_store_opts()
 ) -> {ok, cooked_batch()} | ignore | emqx_ds:error(_).
-prepare_batch(Shard, Messages = [{Time, _Msg} | _], Options) ->
+prepare_batch(Shard, Messages = [_ | _], Options) ->
     %% NOTE
     %% We assume that batches do not span generations. Callers should enforce this.
     ?tp(emqx_ds_storage_layer_prepare_batch, #{
         shard => Shard, messages => Messages, options => Options
     }),
-    {GenId, #{module := Mod, data := GenData}} = generation_at(Shard, Time),
+    GenId = generation_current(Shard),
+    #{module := Mod, data := GenData} = generation_get(Shard, GenId),
     T0 = erlang:monotonic_time(microsecond),
     Result =
         case Mod:prepare_batch(Shard, GenData, Messages, Options) of
