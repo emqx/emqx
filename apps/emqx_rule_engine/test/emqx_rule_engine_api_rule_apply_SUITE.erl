@@ -216,18 +216,15 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
                 end
             )
     end,
-    %% Check that rule_trigger_time meta field is present in all log entries
+    %% Check that rule_trigger_ts meta field is present in all log entries
     Log0 = read_rule_trace_file(TraceName, TraceType, Now),
     Log1 = binary:split(Log0, <<"\n">>, [global, trim]),
     Log2 = lists:join(<<",\n">>, Log1),
     Log3 = iolist_to_binary(["[", Log2, "]"]),
     {ok, LogEntries} = emqx_utils_json:safe_decode(Log3, [return_maps]),
-    [#{<<"meta">> := #{<<"rule_trigger_time">> := RuleTriggerTime}} | _] = LogEntries,
+    [#{<<"meta">> := #{<<"rule_trigger_ts">> := [RuleTriggerTime]}} | _] = LogEntries,
     [
-        ?assert(
-            (maps:get(<<"rule_trigger_time">>, Meta, no_time) =:= RuleTriggerTime) orelse
-                (lists:member(RuleTriggerTime, maps:get(<<"rule_trigger_times">>, Meta, [])))
-        )
+        ?assert(lists:member(RuleTriggerTime, maps:get(<<"rule_trigger_ts">>, Meta, [])))
      || #{<<"meta">> := Meta} <- LogEntries
     ],
     ok.
@@ -265,8 +262,7 @@ do_final_log_check(Action, Bin0) when is_binary(Action) ->
                             <<"result">> := <<"ok">>
                         },
                     <<"rule_id">> := _,
-                    <<"rule_trigger_time">> := _,
-                    <<"stop_action_after_render">> := false,
+                    <<"rule_trigger_ts">> := _,
                     <<"trace_tag">> := <<"ACTION">>
                 },
             <<"msg">> := <<"action_success">>,
@@ -360,9 +356,10 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
                 ok;
             CheckBatchesFunRec(CurCount) ->
                 receive
-                    [{_, #{<<"stop_after_render">> := StopValue}} | _] = List ->
+                    [{_, FirstMsg} | _] = List ->
+                        StopValue = maps:get(<<"stop_after_render">>, FirstMsg, false),
                         [
-                            ?assertMatch(#{<<"stop_after_render">> := StopValue}, Msg)
+                            ?assertEqual(StopValue, maps:get(<<"stop_after_render">>, Msg, false))
                          || {_, Msg} <- List
                         ],
                         Len = length(List),
@@ -419,21 +416,20 @@ t_apply_rule_test_format_action_failed(_Config) ->
                             <<"name">> := _,
                             <<"type">> := <<"rule_engine_test">>
                         },
-                        <<"client_ids">> := [],
                         <<"clientid">> := _,
                         <<"reason">> := <<"MY REASON">>,
                         <<"rule_id">> := _,
-                        <<"rule_ids">> := [],
-                        <<"rule_trigger_time">> := _,
-                        <<"rule_trigger_times">> := [],
-                        <<"stop_action_after_render">> := false,
+                        <<"rule_trigger_ts">> := _,
                         <<"trace_tag">> := <<"ACTION">>
                     },
                     <<"msg">> := <<"action_failed">>,
                     <<"time">> := _
                 },
                 LastEntryJSON
-            )
+            ),
+            MetaMap = maps:get(<<"meta">>, LastEntryJSON),
+            ?assert(not maps:is_key(<<"client_ids">>, MetaMap)),
+            ?assert(not maps:is_key(<<"rule_ids">>, MetaMap))
         end,
     do_apply_rule_test_format_action_failed_test(1, CheckFun).
 
@@ -494,8 +490,7 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
                         <<"clientid">> := _,
                         <<"reason">> := <<"request_expired">>,
                         <<"rule_id">> := _,
-                        <<"rule_trigger_time">> := _,
-                        <<"stop_action_after_render">> := false,
+                        <<"rule_trigger_ts">> := _,
                         <<"trace_tag">> := <<"ACTION">>
                     },
                 <<"msg">> := <<"action_failed">>,
@@ -511,7 +506,6 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
                 <<"level">> := <<"debug">>,
                 <<"meta">> :=
                     #{
-                        <<"client_ids">> := [],
                         <<"clientid">> := _,
                         <<"id">> := _,
                         <<"reason">> :=
@@ -521,17 +515,17 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
                                 <<"msg">> := <<"MY_RECOVERABLE_REASON">>
                             },
                         <<"rule_id">> := _,
-                        <<"rule_ids">> := [],
-                        <<"rule_trigger_time">> := _,
-                        <<"rule_trigger_times">> := [],
-                        <<"stop_action_after_render">> := false,
+                        <<"rule_trigger_ts">> := _,
                         <<"trace_tag">> := <<"ERROR">>
                     },
                 <<"msg">> := SendErrorMsg,
                 <<"time">> := _
             },
             ReasonEntryJSON
-        )
+        ),
+        MetaMap = maps:get(<<"meta">>, ReasonEntryJSON),
+        ?assert(not maps:is_key(<<"client_ids">>, MetaMap)),
+        ?assert(not maps:is_key(<<"rule_ids">>, MetaMap))
     end.
 
 meck_test_connector_recoverable_errors(Reason) ->
