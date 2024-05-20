@@ -229,10 +229,11 @@ actor_apply_operation(
     State;
 actor_apply_operation(
     heartbeat,
-    State = #state{actor = Actor, incarnation = Incarnation},
+    State = #state{cluster = Cluster, actor = Actor, incarnation = Incarnation},
     _Env = #{timestamp := Now}
 ) ->
-    ok = transaction(fun ?MODULE:mnesia_actor_heartbeat/3, [Actor, Incarnation, Now]),
+    ActorID = ?ACTOR_ID(Cluster, Actor),
+    ok = transaction(fun ?MODULE:mnesia_actor_heartbeat/3, [ActorID, Incarnation, Now]),
     State.
 
 apply_actor_operation(ActorID, Incarnation, Entry, OpName, Lane) ->
@@ -303,14 +304,14 @@ select_cluster_lanes(Cluster) ->
     MS = [{#actor{id = {Cluster, '_'}, lane = '$1', _ = '_'}, [], ['$1']}],
     mnesia:select(?EXTROUTE_ACTOR_TAB, MS, write).
 
-mnesia_actor_heartbeat(Actor, Incarnation, TS) ->
-    case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of
+mnesia_actor_heartbeat(ActorID, Incarnation, TS) ->
+    case mnesia:read(?EXTROUTE_ACTOR_TAB, ActorID, write) of
         [#actor{incarnation = Incarnation} = Rec] ->
             ok = mnesia:write(?EXTROUTE_ACTOR_TAB, Rec#actor{until = bump_actor_ttl(TS)}, write);
         [#actor{incarnation = Outdated}] ->
-            mnesia:abort({outdated_incarnation_actor, Actor, Incarnation, Outdated});
+            mnesia:abort({outdated_incarnation_actor, ActorID, Incarnation, Outdated});
         [] ->
-            mnesia:abort({nonexistent_actor, Actor})
+            mnesia:abort({nonexistent_actor, ActorID})
     end.
 
 clean_incarnation(Rec) ->
