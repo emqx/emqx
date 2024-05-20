@@ -695,10 +695,15 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
     aggregate_status(List, NewAcc).
 
 format_plugin_avsc_and_i18n(NameVsn) ->
-    #{
-        avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
-        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
-    }.
+    case emqx_release:edition() of
+        ee ->
+            #{
+                avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
+                i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
+            };
+        ce ->
+            #{avsc => null, i18n => null}
+    end.
 
 try_read_file(Fun) ->
     case Fun() of
