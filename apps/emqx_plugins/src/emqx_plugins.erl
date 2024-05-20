@@ -166,7 +166,7 @@ ensure_installed(NameVsn) ->
             _ = maybe_ensure_plugin_config(NameVsn);
         {error, _} ->
             ok = purge(NameVsn),
-            case do_ensure_installed(NameVsn) of
+            case ensure_exists_and_installed(NameVsn) of
                 ok ->
                     maybe_post_op_after_installed(NameVsn);
                 _ ->
@@ -303,7 +303,7 @@ get_config(Name, Vsn, Options, Default) ->
     {ok, plugin_config()}
     | {error, term()}.
 get_config(NameVsn) ->
-    get_config(bin(NameVsn), #{format => ?CONFIG_FORMAT_MAP}).
+    get_config(NameVsn, #{format => ?CONFIG_FORMAT_MAP}).
 
 -spec get_config(name_vsn(), Options :: map()) ->
     {ok, avro_binary() | plugin_config()}
@@ -317,8 +317,9 @@ get_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
 get_config(NameVsn, Options = #{format := ?CONFIG_FORMAT_MAP}) ->
     get_config(NameVsn, Options, #{}).
 
+%% Present default config value only in map format.
 get_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}, Default) ->
-    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), Default)}.
+    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(bin(NameVsn)), Default)}.
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
@@ -1133,21 +1134,24 @@ do_create_config_dir(NameVsn) ->
 
 maybe_ensure_plugin_config(NameVsn) ->
     maybe
-        true ?= filelib:is_regular(avro_config_file(NameVsn)),
-        ensure_avro_config(NameVsn)
+        true ?= with_plugin_avsc(NameVsn),
+        _ = do_ensure_plugin_config(NameVsn)
     else
-        _ -> do_ensure_plugin_config(NameVsn)
+        _ -> ok
     end.
 
 do_ensure_plugin_config(NameVsn) ->
+    %% fetch plugin avro config from cluster
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
     case get_avro_config_from_any_node(Nodes, NameVsn, []) of
         {ok, AvroJsonMap} when is_map(AvroJsonMap) ->
             AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
             ok = file:write_file(avro_config_file(NameVsn), AvroJsonBin),
             ensure_avro_config(NameVsn);
-        %% {ok, ?plugin_conf_not_found} ->
         _ ->
+            ?SLOG(warning, #{msg => "config_not_found_from_cluster"}),
+            %% otherwise cp default avro file
+            %% i.e. Clean installation
             cp_default_avro_file(NameVsn),
             ensure_avro_config(NameVsn)
     end.
