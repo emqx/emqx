@@ -367,12 +367,17 @@ print_session(ClientId) ->
 -spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
 subscribe(
-    #share{},
-    _SubOpts,
-    _Session
+    #share{} = TopicFilter,
+    SubOpts,
+    Session
 ) ->
-    %% TODO: Shared subscriptions are not supported yet:
-    {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
+    case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session) of
+        {ok, S1, SharedSubS} ->
+            S = emqx_persistent_session_ds_state:commit(S1),
+            {ok, Session#{s => S, shared_sub_s => SharedSubS}}
+        % Error = {error, _} ->
+        %     Error
+    end;
 subscribe(
     TopicFilter,
     SubOpts,
@@ -388,6 +393,21 @@ subscribe(
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
+unsubscribe(
+    #share{} = TopicFilter,
+    Session = #{id := SessionId, s := S0, shared_sub_s := SharedSubS0}
+) ->
+    case
+        emqx_persistent_session_ds_shared_subs:on_unsubscribe(
+            SessionId, TopicFilter, S0, SharedSubS0
+        )
+    of
+        {ok, S1, SharedSubS, #{subopts := SubOpts}} ->
+            S = emqx_persistent_session_ds_state:commit(S1),
+            {ok, Session#{s => S, shared_sub_s => SharedSubS}, SubOpts};
+        Error = {error, _} ->
+            Error
+    end;
 unsubscribe(
     TopicFilter,
     Session = #{id := SessionId, s := S0}
@@ -581,14 +601,15 @@ handle_timeout(ClientInfo, ?TIMER_PULL, Session0) ->
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], Session};
-handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0}) ->
+handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0, shared_sub_s := SharedSubS0}) ->
     S1 = emqx_persistent_session_ds_subs:gc(S0),
-    S = emqx_persistent_session_ds_stream_scheduler:renew_streams(S1),
+    S2 = emqx_persistent_session_ds_stream_scheduler:renew_streams(S1),
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:renew_streams(S2, SharedSubS0),
     Interval = get_config(ClientInfo, [renew_streams_interval]),
     Session = emqx_session:ensure_timer(
         ?TIMER_GET_STREAMS,
         Interval,
-        Session0#{s => S}
+        Session0#{s => S, shared_sub_s => SharedSubS}
     ),
     {ok, [], Session};
 handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0 = #{s := S0}) ->
