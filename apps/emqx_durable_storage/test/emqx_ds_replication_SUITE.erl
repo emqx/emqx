@@ -183,7 +183,7 @@ t_rebalance(Config) ->
             ],
             Stream1 = emqx_utils_stream:interleave(
                 [
-                    {50, Stream0},
+                    {10, Stream0},
                     emqx_utils_stream:const(add_generation)
                 ],
                 false

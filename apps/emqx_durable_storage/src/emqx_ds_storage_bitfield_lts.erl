@@ -161,7 +161,7 @@
 
 %% GVar used for idle detection:
 -define(IDLE_DETECT, idle_detect).
--define(EPOCH(S, TS), (TS bsl S#s.ts_bits)).
+-define(EPOCH(S, TS), (TS bsr S#s.ts_offset)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -458,7 +458,7 @@ next(
     SafeCutoffTime =
         case HasCutoff of
             true ->
-                (Now bsr TSOffset) bsl TSOffset;
+                ?EPOCH(Schema, Now) bsl TSOffset;
             false ->
                 1 bsl TSBits - 1
         end,
@@ -561,13 +561,15 @@ handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
             LastWrittenTs = 0
     end,
     case Latch of
-        false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) ->
+        false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) + 1 ->
             ets:insert(Gvars, {?IDLE_DETECT, true, LastWrittenTs}),
             [dummy_event];
         _ ->
             []
     end;
 handle_event(_ShardId, _Data, _Time, _Event) ->
+    %% `dummy_event' goes here and does nothing. But it forces update
+    %% of `Time' in the replication layer.
     [].
 
 %%================================================================================

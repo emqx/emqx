@@ -246,7 +246,7 @@ fields(layout_builtin_reference) ->
                 reference,
                 #{
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_LOW
                 }
             )}
     ].
@@ -273,17 +273,12 @@ ds_schema(Options) ->
         Options
     ).
 
--ifndef(TEST).
-builtin_layouts() ->
-    [ref(layout_builtin_wildcard_optimized)].
--else.
 builtin_layouts() ->
     %% Reference layout stores everything in one stream, so it's not
     %% suitable for production use. However, it's very simple and
     %% produces a very predictabale replay order, which can be useful
     %% for testing and debugging:
     [ref(layout_builtin_wildcard_optimized), ref(layout_builtin_reference)].
--endif.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
