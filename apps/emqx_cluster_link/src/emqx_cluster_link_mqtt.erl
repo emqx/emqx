@@ -35,7 +35,7 @@
 
 -export([
     publish_actor_init_sync/6,
-    actor_init_ack_resp_msg/4,
+    actor_init_ack_resp_msg/3,
     publish_route_sync/4,
     publish_heartbeat/3,
     encode_field/2
@@ -277,13 +277,17 @@ publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incar
     },
     emqtt:publish(ClientPid, ?ROUTE_TOPIC, Properties, ?ENCODE(Payload), [{qos, ?QOS_1}]).
 
-actor_init_ack_resp_msg(Actor, InitRes, ReqId, RespTopic) ->
+actor_init_ack_resp_msg(Actor, InitRes, MsgIn) ->
     Payload = #{
         ?F_OPERATION => ?OP_ACTOR_INIT_ACK,
         ?F_PROTO_VER => ?PROTO_VER,
         ?F_ACTOR => Actor
     },
     Payload1 = with_res_and_bootstrap(Payload, InitRes),
+    #{
+        'Response-Topic' := RespTopic,
+        'Correlation-Data' := ReqId
+    } = emqx_message:get_header(properties, MsgIn),
     emqx_message:make(
         undefined,
         ?QOS_1,
@@ -334,12 +338,11 @@ decode_route_op1(#{
     ?F_ACTOR := Actor,
     ?F_INCARNATION := Incr
 }) ->
-    {actor_init, #{
-        actor => Actor,
-        incarnation => Incr,
-        cluster => TargetCluster,
+    Info = #{
+        target_cluster => TargetCluster,
         proto_ver => ProtoVer
-    }};
+    },
+    {actor_init, #{actor => Actor, incarnation => Incr}, Info};
 decode_route_op1(#{
     ?F_OPERATION := ?OP_ROUTE,
     ?F_ACTOR := Actor,
