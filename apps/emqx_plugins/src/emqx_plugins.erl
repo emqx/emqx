@@ -16,6 +16,8 @@
 
 -module(emqx_plugins).
 
+-feature(maybe_expr, enable).
+
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_plugins.hrl").
 
@@ -160,11 +162,16 @@ ensure_installed() ->
 ensure_installed(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
         {ok, _} ->
-            ok;
+            ok,
+            _ = maybe_ensure_plugin_config(NameVsn);
         {error, _} ->
             ok = purge(NameVsn),
-            do_ensure_installed(NameVsn),
-            ok = maybe_post_op_after_install(NameVsn)
+            case do_ensure_installed(NameVsn) of
+                ok ->
+                    maybe_post_op_after_installed(NameVsn);
+                _ ->
+                    ok
+            end
     end.
 
 %% @doc Ensure files and directories for the given plugin are being deleted.
@@ -1080,9 +1087,9 @@ for_plugins(ActionFun) ->
             ok
     end.
 
-maybe_post_op_after_install(NameVsn) ->
-    _ = ensure_state(NameVsn, _Position = no_move, _Enabled = false, _ConfLocation = global),
+maybe_post_op_after_installed(NameVsn) ->
     _ = maybe_load_config_schema(NameVsn),
+    _ = ensure_state(NameVsn, no_move, false, global),
     ok.
 
 maybe_load_config_schema(NameVsn) ->
@@ -1125,6 +1132,14 @@ do_create_config_dir(NameVsn) ->
     end.
 
 maybe_ensure_plugin_config(NameVsn) ->
+    maybe
+        true ?= filelib:is_regular(avro_config_file(NameVsn)),
+        ensure_avro_config(NameVsn)
+    else
+        _ -> do_ensure_plugin_config(NameVsn)
+    end.
+
+do_ensure_plugin_config(NameVsn) ->
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
     case get_avro_config_from_any_node(Nodes, NameVsn, []) of
         {ok, AvroJsonMap} when is_map(AvroJsonMap) ->
@@ -1142,11 +1157,13 @@ cp_default_avro_file(NameVsn) ->
     %% when can not get config from other nodes
     Source = default_avro_config_file(NameVsn),
     Destination = avro_config_file(NameVsn),
-    filelib:is_regular(Source) andalso
+    maybe
+        true ?= filelib:is_regular(Source),
+        %% destination path not existed (not configured)
+        true ?= (not filelib:is_regular(Destination)),
         case file:copy(Source, Destination) of
             {ok, _} ->
-                ok,
-                ensure_avro_config(NameVsn);
+                ok;
             {error, Reason} ->
                 ?SLOG(warning, #{
                     msg => "failed_to_copy_plugin_default_avro_config",
@@ -1154,7 +1171,10 @@ cp_default_avro_file(NameVsn) ->
                     destination => Destination,
                     reason => Reason
                 })
-        end.
+        end
+    else
+        _ -> ensure_avro_config(NameVsn)
+    end.
 
 ensure_avro_config(NameVsn) ->
     with_plugin_avsc(NameVsn) andalso
