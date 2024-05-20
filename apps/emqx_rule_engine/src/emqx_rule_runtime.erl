@@ -70,6 +70,7 @@ apply_rule_discard_result(Rule, Columns, Envs) ->
     ok.
 
 apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
+    PrevProcessMetadata = logger:get_process_metadata(),
     set_process_trace_metadata(RuleID, Columns),
     trace_rule_sql(
         "rule_activated",
@@ -137,7 +138,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, {Error, StkTrace}}
     after
-        reset_process_trace_metadata(Columns)
+        reset_logger_process_metadata(PrevProcessMetadata)
     end.
 
 set_process_trace_metadata(RuleID, #{clientid := ClientID} = Columns) ->
@@ -152,6 +153,11 @@ set_process_trace_metadata(RuleID, Columns) ->
         rule_trigger_ts => [rule_trigger_time(Columns)]
     }).
 
+reset_logger_process_metadata(undefined = _PrevProcessMetadata) ->
+    logger:unset_process_metadata();
+reset_logger_process_metadata(PrevProcessMetadata) ->
+    logger:set_process_metadata(PrevProcessMetadata).
+
 rule_trigger_time(Columns) ->
     case Columns of
         #{timestamp := Timestamp} ->
@@ -159,28 +165,6 @@ rule_trigger_time(Columns) ->
         _ ->
             erlang:system_time(millisecond)
     end.
-
-reset_process_trace_metadata(#{clientid := _ClientID}) ->
-    Meta0 = logger:get_process_metadata(),
-    Meta1 = maps:without(
-        [
-            clientid,
-            rule_id,
-            rule_trigger_ts
-        ],
-        Meta0
-    ),
-    logger:set_process_metadata(Meta1);
-reset_process_trace_metadata(_) ->
-    Meta0 = logger:get_process_metadata(),
-    Meta1 = maps:without(
-        [
-            rule_id,
-            rule_trigger_ts
-        ],
-        Meta0
-    ),
-    logger:set_process_metadata(Meta1).
 
 do_apply_rule(
     #{

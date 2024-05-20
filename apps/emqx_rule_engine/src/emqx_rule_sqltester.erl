@@ -69,18 +69,22 @@ do_apply_rule(
     end.
 
 do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
-    update_process_trace_metadata(StopAfterRender),
-    FullContext = fill_default_values(
-        hd(EventTopics),
-        emqx_rule_maps:atom_key_map(Context)
-    ),
-    ApplyRuleRes = emqx_rule_runtime:apply_rule(
-        Rule,
-        FullContext,
-        apply_rule_environment()
-    ),
-    reset_trace_process_metadata(StopAfterRender),
-    ApplyRuleRes.
+    PrevLoggerProcessMetadata = logger:get_process_metadata(),
+    try
+        update_process_trace_metadata(StopAfterRender),
+        FullContext = fill_default_values(
+            hd(EventTopics),
+            emqx_rule_maps:atom_key_map(Context)
+        ),
+        ApplyRuleRes = emqx_rule_runtime:apply_rule(
+            Rule,
+            FullContext,
+            apply_rule_environment()
+        ),
+        ApplyRuleRes
+    after
+        reset_logger_process_metadata(PrevLoggerProcessMetadata)
+    end.
 
 update_process_trace_metadata(true = _StopAfterRender) ->
     logger:update_process_metadata(#{
@@ -89,12 +93,10 @@ update_process_trace_metadata(true = _StopAfterRender) ->
 update_process_trace_metadata(false = _StopAfterRender) ->
     ok.
 
-reset_trace_process_metadata(true = _StopAfterRender) ->
-    Meta = logger:get_process_metadata(),
-    NewMeta = maps:remove(stop_action_after_render, Meta),
-    logger:set_process_metadata(NewMeta);
-reset_trace_process_metadata(false = _StopAfterRender) ->
-    ok.
+reset_logger_process_metadata(undefined = _PrevProcessMetadata) ->
+    logger:unset_process_metadata();
+reset_logger_process_metadata(PrevProcessMetadata) ->
+    logger:set_process_metadata(PrevProcessMetadata).
 
 %% At the time of writing the environment passed to the apply rule function is
 %% not used at all for normal actions. When it is used for custom functions it
