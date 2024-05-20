@@ -136,6 +136,7 @@ schema("/clients_v2") ->
         'operationId' => list_clients_v2,
         get => #{
             description => ?DESC(list_clients),
+            hidden => true,
             tags => ?TAGS,
             parameters => fields(list_clients_v2_inputs),
             responses => #{
