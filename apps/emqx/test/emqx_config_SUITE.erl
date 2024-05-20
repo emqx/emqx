@@ -476,6 +476,7 @@ zone_global_defaults() ->
                 renew_streams_interval => 5000,
                 session_gc_batch_size => 100,
                 session_gc_interval => 600000,
-                subscription_count_refresh_interval => 5000
+                subscription_count_refresh_interval => 5000,
+                disconnected_session_count_refresh_interval => 5000
             }
     }.

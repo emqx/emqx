@@ -1383,7 +1383,6 @@ do_list_clients_cluster_query(
         {Rows, QueryState1 = #{complete := Complete0}} ->
             case emqx_mgmt_api:accumulate_query_rows(Node, Rows, QueryState1, ResultAcc) of
                 {enough, NResultAcc} ->
-                    %% TODO: add persistent session count?
                     %% TODO: this may return `{error, _, _}'...
                     QueryState2 = emqx_mgmt_api:maybe_collect_total_from_tail_nodes(
                         Tail, QueryState1
@@ -1427,8 +1426,9 @@ add_persistent_session_count(QueryState0 = #{total := Totals0}) ->
             %% to traverse the whole table), but also hard to deduplicate live connections
             %% from it...  So this count will possibly overshoot the true count of
             %% sessions.
-            SessionCount = persistent_session_count(),
-            Totals = Totals0#{undefined => SessionCount},
+            DisconnectedSessionCount =
+                emqx_persistent_session_bookkeeper:get_disconnected_session_count(),
+            Totals = Totals0#{undefined => DisconnectedSessionCount},
             QueryState0#{total := Totals};
         false ->
             QueryState0
@@ -1474,27 +1474,6 @@ no_persistent_sessions() ->
             end;
         false ->
             true
-    end.
-
--spec persistent_session_count() -> non_neg_integer().
-persistent_session_count() ->
-    %% N.B.: this is potentially costly.  Should not be called in hot paths.
-    %% `mnesia:table_info(_, size)' is always zero for rocksdb, so we need to traverse...
-    do_persistent_session_count(init_persistent_session_iterator(), 0).
-
-do_persistent_session_count('$end_of_table', N) ->
-    N;
-do_persistent_session_count(Cursor, N) ->
-    case emqx_persistent_session_ds_state:session_iterator_next(Cursor, 1) of
-        {[], _} ->
-            N;
-        {[{_Id, Meta}], NextCursor} ->
-            case is_expired(Meta) of
-                true ->
-                    do_persistent_session_count(NextCursor, N);
-                false ->
-                    do_persistent_session_count(NextCursor, N + 1)
-            end
     end.
 
 is_expired(#{last_alive_at := LastAliveAt, expiry_interval := ExpiryInterval}) ->
