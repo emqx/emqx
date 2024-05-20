@@ -35,5 +35,6 @@ introduced_in() ->
 get_tar(Node, NameVsn, Timeout) ->
     rpc:call(Node, emqx_plugins, get_tar, [NameVsn], Timeout).
 
+-spec get_config(node(), name_vsn(), map(), any(), timeout()) -> {ok, any()} | {error, any()}.
 get_config(Node, NameVsn, Opts, Default, Timeout) ->
     rpc:call(Node, emqx_plugins, get_config, [NameVsn, Opts, Default], Timeout).

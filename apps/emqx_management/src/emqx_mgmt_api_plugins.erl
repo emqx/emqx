@@ -21,6 +21,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
+-dialyzer({no_match, [format_plugin_avsc_and_i18n/1]}).
+
 -export([
     api_spec/0,
     fields/1,
@@ -534,7 +536,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
         {error, Reason} ->
             {400, #{code => 'BAD_POSITION', message => Reason}};
         Position ->
-            case emqx_plugins:ensure_enabled(Name, Position, _ConfLocation = global) of
+            case emqx_plugins:ensure_enabled(Name, Position, global) of
                 ok ->
                     {204};
                 {error, Reason} ->
@@ -694,22 +696,23 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
         ),
     aggregate_status(List, NewAcc).
 
+-if(?EMQX_RELEASE_EDITION == ee).
 format_plugin_avsc_and_i18n(NameVsn) ->
-    case emqx_release:edition() of
-        ee ->
-            #{
-                avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
-                i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
-            };
-        ce ->
-            #{avsc => null, i18n => null}
-    end.
+    #{
+        avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
+        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
+    }.
 
 try_read_file(Fun) ->
     case Fun() of
         {ok, Json} -> Json;
         _ -> null
     end.
+
+-else.
+format_plugin_avsc_and_i18n(_NameVsn) ->
+    #{avsc => null, i18n => null}.
+-endif.
 
 % running_status: running loaded, stopped
 %% config_status: not_configured disable enable

@@ -152,8 +152,10 @@ make_name_vsn_string(Name, Vsn) ->
 -spec ensure_installed() -> ok.
 ensure_installed() ->
     Fun = fun(#{name_vsn := NameVsn}) ->
-        ensure_installed(NameVsn),
-        []
+        case ensure_installed(NameVsn) of
+            ok -> [];
+            {error, Reason} -> [{NameVsn, Reason}]
+        end
     end,
     ok = for_plugins(Fun).
 
@@ -169,8 +171,8 @@ ensure_installed(NameVsn) ->
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
                     maybe_post_op_after_installed(NameVsn);
-                _ ->
-                    ok
+                {error, _Reason} = Err ->
+                    Err
             end
     end.
 
@@ -280,8 +282,10 @@ ensure_started(NameVsn) ->
 -spec ensure_stopped() -> ok.
 ensure_stopped() ->
     Fun = fun(#{name_vsn := NameVsn, enable := true}) ->
-        ensure_stopped(NameVsn),
-        []
+        case ensure_stopped(NameVsn) of
+            ok -> [];
+            {error, Reason} -> [{NameVsn, Reason}]
+        end
     end,
     ok = for_plugins(Fun).
 
@@ -314,7 +318,7 @@ get_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
         {ok, _AvroJson} = Res -> Res;
         {error, _Reason} = Err -> Err
     end;
-get_config(NameVsn, Options = #{format := ?CONFIG_FORMAT_MAP}) ->
+get_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP} = Options) ->
     get_config(NameVsn, Options, #{}).
 
 %% Present default config value only in map format.
@@ -714,7 +718,7 @@ ensure_exists_and_installed(NameVsn) ->
             case get_tar(NameVsn) of
                 {ok, TarContent} ->
                     ok = file:write_file(pkg_file_path(NameVsn), TarContent),
-                    ok = do_ensure_installed(NameVsn);
+                    do_ensure_installed(NameVsn);
                 _ ->
                     %% If not, try to get it from the cluster.
                     do_get_from_cluster(NameVsn)
@@ -733,13 +737,13 @@ do_get_from_cluster(NameVsn) ->
                 name_vsn => NameVsn,
                 node_errors => NodeErrors
             }),
-            {error, plugin_not_found};
+            {error, #{reason => not_found, name_vsn => NameVsn}};
         {error, _} ->
             ?SLOG(error, #{
                 msg => "no_nodes_to_copy_plugin_from",
                 name_vsn => NameVsn
             }),
-            {error, plugin_not_found}
+            {error, #{reason => not_found, name_vsn => NameVsn}}
     end.
 
 get_from_any_node([], _NameVsn, Errors) ->
@@ -763,7 +767,7 @@ get_avro_config_from_any_node([Node | T], NameVsn, Errors) ->
         {ok, _} = Res ->
             Res;
         Err ->
-            get_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+            get_avro_config_from_any_node(T, NameVsn, [{Node, Err} | Errors])
     end.
 
 plugins_readme(NameVsn, #{fill_readme := true}, Info) ->

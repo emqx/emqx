@@ -20,7 +20,6 @@
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
     get_tar/3
 ]).
 
@@ -30,9 +29,6 @@
 
 introduced_in() ->
     "5.0.21".
-
-deprecated_since() ->
-    "5.7.0".
 
 -spec get_tar(node(), name_vsn(), timeout()) -> {ok, binary()} | {error, any}.
 get_tar(Node, NameVsn, Timeout) ->
