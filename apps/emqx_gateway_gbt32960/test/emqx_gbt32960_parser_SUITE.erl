@@ -853,7 +853,7 @@ case19_serialize_ctrl(_Config) ->
         5, 51, 2>> = Body,
     Crc = make_crc(Body, undefined),
 
-    DataUnit1 = <<"The alarm has occured!">>,
+    DataUnit1 = <<"The alarm has occurred!">>,
     Frame1 = #frame{
         cmd = ?CMD_TERMINAL_CTRL,
         ack = ?ACK_IS_CMD,
