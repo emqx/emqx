@@ -34,6 +34,7 @@
 
 %% Package operations
 -export([
+    ensure_installed/0,
     ensure_installed/1,
     ensure_uninstalled/1,
     ensure_enabled/1,
@@ -145,6 +146,15 @@ make_name_vsn_string(Name, Vsn) ->
 %%--------------------------------------------------------------------
 %% Package operations
 
+%% @doc Start all configured plugins are started.
+-spec ensure_installed() -> ok.
+ensure_installed() ->
+    Fun = fun(#{name_vsn := NameVsn}) ->
+        ensure_installed(NameVsn),
+        []
+    end,
+    ok = for_plugins(Fun).
+
 %% @doc Install a .tar.gz package placed in install_dir.
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
@@ -235,7 +245,17 @@ delete_package(NameVsn) ->
 %% @doc Start all configured plugins are started.
 -spec ensure_started() -> ok.
 ensure_started() ->
-    ok = for_plugins(fun ?MODULE:do_ensure_started/1).
+    Fun = fun
+        (#{name_vsn := NameVsn, enable := true}) ->
+            case do_ensure_started(NameVsn) of
+                ok -> [];
+                {error, Reason} -> [{NameVsn, Reason}]
+            end;
+        (#{name_vsn := NameVsn, enable := false}) ->
+            ?SLOG(debug, #{msg => "plugin_disabled", name_vsn => NameVsn}),
+            []
+    end,
+    ok = for_plugins(Fun).
 
 %% @doc Start a plugin from Management API or CLI.
 %% the input is a <name>-<vsn> string.
@@ -252,7 +272,11 @@ ensure_started(NameVsn) ->
 %% @doc Stop all plugins before broker stops.
 -spec ensure_stopped() -> ok.
 ensure_stopped() ->
-    for_plugins(fun ?MODULE:ensure_stopped/1).
+    Fun = fun(#{name_vsn := NameVsn, enable := true}) ->
+        ensure_stopped(NameVsn),
+        []
+    end,
+    ok = for_plugins(Fun).
 
 %% @doc Stop a plugin from Management API or CLI.
 -spec ensure_stopped(name_vsn()) -> ok | {error, term()}.
@@ -297,6 +321,8 @@ put_config(NameVsn, AvroJsonMap, DecodedPluginConfig) when not is_binary(NameVsn
 put_config(NameVsn, AvroJsonMap, _DecodedPluginConfig) ->
     AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
     ok = backup_and_write_avro_bin(NameVsn, AvroJsonBin),
+    %% TODO: callback in plugin's on_config_changed (config update by mgmt API)
+    %% TODO: callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
     %% {ok, AppName, AppVsn} = parse_name_vsn(AppNameVsn),
     %% ok = PluginModule:on_config_changed(NameVsn, AvroJsonMap),
     ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), AvroJsonMap),
@@ -1046,7 +1072,7 @@ configured() ->
     get_config_interal(states, []).
 
 for_plugins(ActionFun) ->
-    case lists:flatmap(fun(I) -> for_plugin(I, ActionFun) end, configured()) of
+    case lists:flatmap(ActionFun, configured()) of
         [] ->
             ok;
         Errors ->
@@ -1054,18 +1080,8 @@ for_plugins(ActionFun) ->
             ok
     end.
 
-for_plugin(#{name_vsn := NameVsn, enable := true}, Fun) ->
-    %% always ensure the plugin is installed
-    ok = ensure_avro_config(NameVsn),
-    case Fun(NameVsn) of
-        ok -> [];
-        {error, Reason} -> [{NameVsn, Reason}]
-    end;
-for_plugin(#{name_vsn := NameVsn, enable := false}, _Fun) ->
-    ?SLOG(debug, #{msg => "plugin_disabled", name_vsn => NameVsn}),
-    [].
-
 maybe_post_op_after_install(NameVsn) ->
+    _ = ensure_state(NameVsn, _Position = no_move, _Enabled = false, _ConfLocation = global),
     _ = maybe_load_config_schema(NameVsn),
     ok.
 
