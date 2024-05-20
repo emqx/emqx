@@ -244,7 +244,6 @@ apply_operation(Entry, OpName, Lane) ->
     %% This is safe sequence of operations only on core nodes. On replicants,
     %% `mria:dirty_update_counter/3` will be replicated asynchronously, which
     %% means this read can be stale.
-    % MCounter = ets:lookup_element(Tab, Entry, 2, 0),
     case mnesia:dirty_read(?EXTROUTE_TAB, Entry) of
         [#extroute{mcounter = MCounter}] ->
             apply_operation(Entry, MCounter, OpName, Lane);

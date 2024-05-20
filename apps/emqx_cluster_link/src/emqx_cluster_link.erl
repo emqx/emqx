@@ -91,7 +91,9 @@ on_message_publish(
             {actor_init, InitInfoMap} ->
                 actor_init(ClusterName, emqx_message:get_header(properties, Msg), InitInfoMap);
             {route_updates, #{actor := Actor, incarnation := Incr}, RouteOps} ->
-                update_routes(ClusterName, Actor, Incr, RouteOps)
+                update_routes(ClusterName, Actor, Incr, RouteOps);
+            {heartbeat, #{actor := Actor, incarnation := Incr}} ->
+                actor_heartbeat(ClusterName, Actor, Incr)
         end,
     {stop, []};
 on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
@@ -200,6 +202,11 @@ update_routes(ClusterName, Actor, Incarnation, RouteOps) ->
         end,
         RouteOps
     ).
+
+actor_heartbeat(ClusterName, Actor, Incarnation) ->
+    Env = #{timestamp => erlang:system_time(millisecond)},
+    ActorState = emqx_cluster_link_extrouter:actor_state(ClusterName, Actor, Incarnation),
+    _State = emqx_cluster_link_extrouter:actor_apply_operation(heartbeat, ActorState, Env).
 
 %% let it crash if extra is not a map,
 %% we don't expect the message to be forwarded from an older EMQX release,

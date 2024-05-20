@@ -53,6 +53,7 @@
 
 -define(RECONNECT_TIMEOUT, 5_000).
 -define(ACTOR_REINIT_TIMEOUT, 7000).
+-define(HEARTBEAT_INTERVAL, 10_000).
 
 -define(CLIENT_SUFFIX, ":routesync:").
 -define(PS_CLIENT_SUFFIX, ":routesync-ps:").
@@ -180,6 +181,10 @@ publish_routes(ClientPid, Actor, Incarnation, Updates) ->
         #{}
     ).
 
+publish_heartbeat(ClientPid, Actor, Incarnation) ->
+    %% NOTE: Fully asynchronous, no need for error handling.
+    emqx_cluster_link_mqtt:publish_heartbeat(ClientPid, Actor, Incarnation).
+
 %% Route syncer
 
 start_syncer(TargetCluster, Actor, Incr) ->
@@ -294,6 +299,7 @@ syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
     client :: {pid(), reference()},
     bootstrapped :: boolean(),
     reconnect_timer :: reference(),
+    heartbeat_timer :: reference(),
     actor_init_req_id :: binary(),
     actor_init_timer :: reference(),
     remote_actor_info :: undefined | map(),
@@ -366,6 +372,8 @@ handle_info({timeout, TRef, actor_reinit}, St = #st{actor_init_timer = TRef}) ->
     _ = maybe_alarm(Reason, St),
     {noreply,
         init_remote_actor(St#st{reconnect_timer = undefined, status = disconnected, error = Reason})};
+handle_info({timeout, TRef, _Heartbeat}, St = #st{heartbeat_timer = TRef}) ->
+    {noreply, process_heartbeat(St#st{heartbeat_timer = undefined})};
 %% Stale timeout.
 handle_info({timeout, _, _}, St) ->
     {noreply, St};
@@ -420,7 +428,9 @@ post_actor_init(
     NeedBootstrap
 ) ->
     ok = start_syncer(TargetCluster, Actor, Incr),
-    process_bootstrap(St#st{client = ClientPid}, NeedBootstrap).
+    %% TODO: Heartbeats are currently blocked by bootstrapping.
+    NSt = schedule_heartbeat(St#st{client = ClientPid}),
+    process_bootstrap(NSt, NeedBootstrap).
 
 handle_connect_error(Reason, St) ->
     ?SLOG(error, #{
@@ -454,6 +464,14 @@ process_bootstrap(St = #st{bootstrapped = true}, NeedBootstrap) ->
         false ->
             process_bootstrapped(St)
     end.
+
+process_heartbeat(St = #st{client = ClientPid, actor = Actor, incarnation = Incarnation}) ->
+    ok = publish_heartbeat(ClientPid, Actor, Incarnation),
+    schedule_heartbeat(St).
+
+schedule_heartbeat(St = #st{heartbeat_timer = undefined}) ->
+    TRef = erlang:start_timer(?HEARTBEAT_INTERVAL, self(), heartbeat),
+    St#st{heartbeat_timer = TRef}.
 
 %% Bootstrapping.
 %% Responsible for transferring local routing table snapshot to the target

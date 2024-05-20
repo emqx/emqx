@@ -37,6 +37,7 @@
     publish_actor_init_sync/6,
     actor_init_ack_resp_msg/4,
     publish_route_sync/4,
+    publish_heartbeat/3,
     encode_field/2
 ]).
 
@@ -62,6 +63,7 @@
 
 -define(F_OPERATION, '$op').
 -define(OP_ROUTE, <<"route">>).
+-define(OP_HEARTBEAT, <<"heartbeat">>).
 -define(OP_ACTOR_INIT, <<"actor_init">>).
 -define(OP_ACTOR_INIT_ACK, <<"actor_init_ack">>).
 
@@ -262,7 +264,6 @@ connect(Options) ->
 %%% New leader-less Syncer/Actor implementation
 
 publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incarnation) ->
-    PubTopic = ?ROUTE_TOPIC,
     Payload = #{
         ?F_OPERATION => ?OP_ACTOR_INIT,
         ?F_PROTO_VER => ?PROTO_VER,
@@ -274,7 +275,7 @@ publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incar
         'Response-Topic' => RespTopic,
         'Correlation-Data' => ReqId
     },
-    emqtt:publish(ClientPid, PubTopic, Properties, ?ENCODE(Payload), [{qos, ?QOS_1}]).
+    emqtt:publish(ClientPid, ?ROUTE_TOPIC, Properties, ?ENCODE(Payload), [{qos, ?QOS_1}]).
 
 actor_init_ack_resp_msg(Actor, InitRes, ReqId, RespTopic) ->
     Payload = #{
@@ -304,14 +305,21 @@ with_res_and_bootstrap(Payload, Error) ->
     }.
 
 publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
-    PubTopic = ?ROUTE_TOPIC,
     Payload = #{
         ?F_OPERATION => ?OP_ROUTE,
         ?F_ACTOR => Actor,
         ?F_INCARNATION => Incarnation,
         ?F_ROUTES => Updates
     },
-    emqtt:publish(ClientPid, PubTopic, ?ENCODE(Payload), ?QOS_1).
+    emqtt:publish(ClientPid, ?ROUTE_TOPIC, ?ENCODE(Payload), ?QOS_1).
+
+publish_heartbeat(ClientPid, Actor, Incarnation) ->
+    Payload = #{
+        ?F_OPERATION => ?OP_HEARTBEAT,
+        ?F_ACTOR => Actor,
+        ?F_INCARNATION => Incarnation
+    },
+    emqtt:publish_async(ClientPid, ?ROUTE_TOPIC, ?ENCODE(Payload), ?QOS_0, undefined).
 
 decode_route_op(Payload) ->
     decode_route_op1(?DECODE(Payload)).
@@ -340,6 +348,12 @@ decode_route_op1(#{
 }) ->
     RouteOps1 = lists:map(fun(Op) -> decode_field(route, Op) end, RouteOps),
     {route_updates, #{actor => Actor, incarnation => Incr}, RouteOps1};
+decode_route_op1(#{
+    ?F_OPERATION := ?OP_HEARTBEAT,
+    ?F_ACTOR := Actor,
+    ?F_INCARNATION := Incr
+}) ->
+    {heartbeat, #{actor => Actor, incarnation => Incr}};
 decode_route_op1(Payload) ->
     ?SLOG(warning, #{
         msg => "unexpected_cluster_link_route_op_payload",
