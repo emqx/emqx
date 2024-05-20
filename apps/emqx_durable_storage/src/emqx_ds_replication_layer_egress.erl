@@ -129,12 +129,20 @@ init([DB, Shard]) ->
     },
     {ok, S}.
 
-format_status(#s{db = DB, shard = Shard, queue = Q}) ->
-    #{
-        db => DB,
-        shard => Shard,
-        queue => queue:len(Q)
-    }.
+format_status(Status) ->
+    maps:map(
+        fun
+            (state, #s{db = DB, shard = Shard, queue = Q}) ->
+                #{
+                    db => DB,
+                    shard => Shard,
+                    queue => queue:len(Q)
+                };
+            (_, Val) ->
+                Val
+        end,
+        Status
+    ).
 
 handle_call(
     #enqueue_req{

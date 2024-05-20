@@ -589,23 +589,16 @@ init({ShardId, Options}) ->
     commit_metadata(S),
     {ok, S}.
 
-format_status(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, shard = Shard}) ->
-    #{
-        id => ShardId,
-        db => DB,
-        cf_refs => CFRefs,
-        schema => Schema,
-        shard =>
-            maps:map(
-                fun
-                    (?GEN_KEY(_), _Schema) ->
-                        '...';
-                    (_K, Val) ->
-                        Val
-                end,
-                Shard
-            )
-    }.
+format_status(Status) ->
+    maps:map(
+        fun
+            (state, State) ->
+                format_state(State);
+            (_, Val) ->
+                Val
+        end,
+        Status
+    ).
 
 handle_call(#call_update_config{since = Since, options = Options}, _From, S0) ->
     case handle_update_config(S0, Since, Options) of
@@ -791,7 +784,7 @@ handle_drop_generation(S0, GenId) ->
                     EC => Err,
                     stacktrace => Stack,
                     generation => GenId,
-                    s => format_status(S0)
+                    s => format_state(S0)
                 }
             )
     end,
@@ -993,6 +986,24 @@ generations_since(Shard, Since) ->
         [],
         Schema
     ).
+
+format_state(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, shard = Shard}) ->
+    #{
+        id => ShardId,
+        db => DB,
+        cf_refs => CFRefs,
+        schema => Schema,
+        shard =>
+            maps:map(
+                fun
+                    (?GEN_KEY(_), _Schema) ->
+                        '...';
+                    (_K, Val) ->
+                        Val
+                end,
+                Shard
+            )
+    }.
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
