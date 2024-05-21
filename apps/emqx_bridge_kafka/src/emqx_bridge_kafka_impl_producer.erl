@@ -211,7 +211,7 @@ ensure_client(ClientId, Hosts, ClientConfig) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, _Pid} ->
             ok;
-        {error, no_such_client} ->
+        {error, #{reason := no_such_client}} ->
             case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
                 {ok, _} ->
                     ?SLOG(info, #{
@@ -543,13 +543,13 @@ check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions) ->
         {ok, Pid} ->
             ok = check_topic_status(ClientId, Pid, KafkaTopic),
             ok = check_if_healthy_leaders(ClientId, Pid, KafkaTopic, MaxPartitions);
-        {error, no_such_client} ->
+        {error, #{reason := no_such_client}} ->
             throw(#{
                 reason => cannot_find_kafka_client,
                 kafka_client => ClientId,
                 kafka_topic => KafkaTopic
             });
-        {error, client_supervisor_not_initialized} ->
+        {error, #{reason := client_supervisor_not_initialized}} ->
             throw(#{
                 reason => restarting,
                 kafka_client => ClientId,
