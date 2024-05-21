@@ -56,7 +56,7 @@
 -record(?shard_sup, {db, shard}).
 
 %%================================================================================
-%% API funcions
+%% API functions
 %%================================================================================
 
 -spec start_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) -> {ok, pid()}.
