@@ -78,7 +78,7 @@ t_session_init(_) ->
     ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session)),
     ?assertEqual(64, emqx_session_mem:info(inflight_max, Session)),
     ?assertEqual(1, emqx_session_mem:info(next_pkt_id, Session)),
-    ?assertEqual(30000, emqx_session_mem:info(retry_interval, Session)),
+    ?assertEqual(infinity, emqx_session_mem:info(retry_interval, Session)),
     ?assertEqual(0, emqx_mqueue:len(emqx_session_mem:info(mqueue, Session))),
     ?assertEqual(0, emqx_session_mem:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session_mem:info(awaiting_rel_max, Session)),
@@ -95,7 +95,7 @@ t_session_info(_) ->
         #{
             subscriptions := #{},
             upgrade_qos := false,
-            retry_interval := 30000,
+            retry_interval := infinity,
             await_rel_timeout := 300000
         },
         maps:from_list(emqx_session_mem:info(Keys, session()))
