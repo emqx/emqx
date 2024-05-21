@@ -24,6 +24,7 @@
     get_config/5
 ]).
 
+-include("emqx_plugins.hrl").
 -include_lib("emqx/include/bpapi.hrl").
 
 -type name_vsn() :: binary() | string().
@@ -31,10 +32,12 @@
 introduced_in() ->
     "5.7.0".
 
--spec get_tar(node(), name_vsn(), timeout()) -> {ok, binary()} | {error, any}.
+-spec get_tar(node(), name_vsn(), timeout()) -> {ok, binary()} | {error, any()}.
 get_tar(Node, NameVsn, Timeout) ->
     rpc:call(Node, emqx_plugins, get_tar, [NameVsn], Timeout).
 
--spec get_config(node(), name_vsn(), map(), any(), timeout()) -> {ok, any()} | {error, any()}.
-get_config(Node, NameVsn, Opts, Default, Timeout) ->
-    rpc:call(Node, emqx_plugins, get_config, [NameVsn, Opts, Default], Timeout).
+-spec get_config(
+    node(), name_vsn(), ?CONFIG_FORMAT_MAP, any(), timeout()
+) -> {ok, map() | any()} | {error, any()}.
+get_config(Node, NameVsn, Opt, Default, Timeout) ->
+    rpc:call(Node, emqx_plugins, get_config, [NameVsn, Opt, Default], Timeout).

@@ -305,30 +305,36 @@ ensure_stopped(NameVsn) ->
         end
     ).
 
-get_config(Name, Vsn, Options, Default) ->
-    get_config(make_name_vsn_string(Name, Vsn), Options, Default).
+get_config(Name, Vsn, Opt, Default) ->
+    get_config(make_name_vsn_string(Name, Vsn), Opt, Default).
 
 -spec get_config(name_vsn()) ->
-    {ok, plugin_config()}
+    {ok, plugin_config() | any()}
     | {error, term()}.
 get_config(NameVsn) ->
-    get_config(NameVsn, #{format => ?CONFIG_FORMAT_MAP}).
+    get_config(NameVsn, ?CONFIG_FORMAT_MAP, #{}).
 
--spec get_config(name_vsn(), Options :: map()) ->
-    {ok, avro_binary() | plugin_config()}
+-spec get_config(name_vsn(), ?CONFIG_FORMAT_MAP | ?CONFIG_FORMAT_AVRO) ->
+    {ok, avro_binary() | plugin_config() | any()}
     | {error, term()}.
-get_config(NameVsn, #{format := ?CONFIG_FORMAT_AVRO}) ->
+get_config(NameVsn, ?CONFIG_FORMAT_MAP) ->
+    get_config(NameVsn, ?CONFIG_FORMAT_MAP, #{});
+get_config(NameVsn, ?CONFIG_FORMAT_AVRO) ->
+    get_config_bin(NameVsn).
+
+%% Present default config value only in map format.
+-spec get_config(name_vsn(), ?CONFIG_FORMAT_MAP, any()) ->
+    {ok, plugin_config() | any()}
+    | {error, term()}.
+get_config(NameVsn, ?CONFIG_FORMAT_MAP, Default) ->
+    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(bin(NameVsn)), Default)}.
+
+get_config_bin(NameVsn) ->
     %% no default value when get raw binary config
     case read_plugin_avro(NameVsn) of
         {ok, _AvroJson} = Res -> Res;
         {error, _Reason} = Err -> Err
-    end;
-get_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP} = Options) ->
-    get_config(NameVsn, Options, #{}).
-
-%% Present default config value only in map format.
-get_config(NameVsn, #{format := ?CONFIG_FORMAT_MAP}, Default) ->
-    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(bin(NameVsn)), Default)}.
+    end.
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
@@ -770,7 +776,7 @@ get_avro_config_from_any_node([], _NameVsn, Errors) ->
 get_avro_config_from_any_node([Node | T], NameVsn, Errors) ->
     case
         emqx_plugins_proto_v2:get_config(
-            Node, NameVsn, #{format => ?CONFIG_FORMAT_MAP}, ?plugin_conf_not_found, 5_000
+            Node, NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found, 5_000
         )
     of
         {ok, _} = Res ->

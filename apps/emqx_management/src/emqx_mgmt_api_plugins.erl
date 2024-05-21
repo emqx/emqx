@@ -180,6 +180,9 @@ schema("/plugins/:name/config") ->
             responses => #{
                 %% avro data, json encoded
                 200 => hoconsc:mk(binary()),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_CONFIG'], <<"Plugin Config Not Found">>
+                ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         },
@@ -490,13 +493,13 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:get_config(NameVsn) of
-                {ok, AvroJson} ->
+            case emqx_plugins:get_config(NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found) of
+                {ok, AvroJson} when is_map(AvroJson) ->
                     {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
-                {error, _} ->
+                {ok, ?plugin_conf_not_found} ->
                     {400, #{
                         code => 'BAD_CONFIG',
-                        message => <<"Failed to get plugin config">>
+                        message => <<"Plugin Config Not Found">>
                     }}
             end;
         _ ->
