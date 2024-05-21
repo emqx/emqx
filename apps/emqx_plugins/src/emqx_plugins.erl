@@ -18,8 +18,9 @@
 
 -feature(maybe_expr, enable).
 
--include_lib("emqx/include/logger.hrl").
 -include("emqx_plugins.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -281,11 +282,15 @@ ensure_started(NameVsn) ->
 %% @doc Stop all plugins before broker stops.
 -spec ensure_stopped() -> ok.
 ensure_stopped() ->
-    Fun = fun(#{name_vsn := NameVsn, enable := true}) ->
-        case ensure_stopped(NameVsn) of
-            ok -> [];
-            {error, Reason} -> [{NameVsn, Reason}]
-        end
+    Fun = fun
+        (#{name_vsn := NameVsn, enable := true}) ->
+            case ensure_stopped(NameVsn) of
+                ok -> [];
+                {error, Reason} -> [{NameVsn, Reason}]
+            end;
+        (#{name_vsn := NameVsn, enable := false}) ->
+            ?SLOG(debug, #{msg => "plugin_disabled", action => stop_plugin, name_vsn => NameVsn}),
+            []
     end,
     ok = for_plugins(Fun).
 
@@ -732,18 +737,22 @@ do_get_from_cluster(NameVsn) ->
             ok = file:write_file(pkg_file_path(NameVsn), TarContent),
             ok = do_ensure_installed(NameVsn);
         {error, NodeErrors} when Nodes =/= [] ->
-            ?SLOG(error, #{
-                msg => "failed_to_copy_plugin_from_other_nodes",
+            ErrMeta = #{
+                error_msg => "failed_to_copy_plugin_from_other_nodes",
                 name_vsn => NameVsn,
-                node_errors => NodeErrors
-            }),
-            {error, #{reason => not_found, name_vsn => NameVsn}};
+                node_errors => NodeErrors,
+                reason => not_found
+            },
+            ?SLOG(error, ErrMeta),
+            {error, ErrMeta};
         {error, _} ->
-            ?SLOG(error, #{
-                msg => "no_nodes_to_copy_plugin_from",
-                name_vsn => NameVsn
-            }),
-            {error, #{reason => not_found, name_vsn => NameVsn}}
+            ErrMeta = #{
+                error_msg => "no_nodes_to_copy_plugin_from",
+                name_vsn => NameVsn,
+                reason => not_found
+            },
+            ?SLOG(error, ErrMeta),
+            {error, ErrMeta}
     end.
 
 get_from_any_node([], _NameVsn, Errors) ->
@@ -1088,7 +1097,12 @@ for_plugins(ActionFun) ->
         [] ->
             ok;
         Errors ->
-            ?SLOG(error, #{function => ActionFun, errors => Errors}),
+            ErrMeta = #{function => ActionFun, errors => Errors},
+            ?tp(
+                for_plugins_action_error_occurred,
+                ErrMeta
+            ),
+            ?SLOG(error, ErrMeta),
             ok
     end.
 

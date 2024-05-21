@@ -21,6 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(EMQX_PLUGIN_APP_NAME, my_emqx_plugin).
 -define(EMQX_PLUGIN_TEMPLATE_RELEASE_NAME, atom_to_list(?EMQX_PLUGIN_APP_NAME)).
@@ -273,9 +274,15 @@ t_start_restart_and_stop(Config) ->
     %% fake enable bar-2
     ok = ensure_state(Bar2, rear, true),
     %% should cause an error
-    ?assertError(
-        #{function := _, errors := [_ | _]},
-        emqx_plugins:ensure_started()
+    ?check_trace(
+        emqx_plugins:ensure_started(),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{function := _, errors := [_ | _]}],
+                ?of_kind(for_plugins_action_error_occurred, Trace)
+            ),
+            ok
+        end
     ),
     %% but demo plugin should still be running
     assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
@@ -337,7 +344,7 @@ t_enable_disable({'end', Config}) ->
 t_enable_disable(Config) ->
     NameVsn = proplists:get_value(name_vsn, Config),
     ok = emqx_plugins:ensure_installed(NameVsn),
-    ?assertEqual([], emqx_plugins:configured()),
+    ?assertEqual([#{name_vsn => NameVsn, enable => false}], emqx_plugins:configured()),
     ok = emqx_plugins:ensure_enabled(NameVsn),
     ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()),
     ok = emqx_plugins:ensure_disabled(NameVsn),
@@ -379,9 +386,10 @@ t_bad_tar_gz(Config) ->
         }},
         emqx_plugins:ensure_installed("fake-vsn")
     ),
+    %% the plugin tarball can not be found on any nodes
     ?assertMatch(
         {error, #{
-            error_msg := "failed_to_extract_plugin_package",
+            error_msg := "no_nodes_to_copy_plugin_from",
             reason := not_found
         }},
         emqx_plugins:ensure_installed("nonexisting")
@@ -556,7 +564,7 @@ t_load_config_from_cli({'end', Config}) ->
 t_load_config_from_cli(Config) when is_list(Config) ->
     NameVsn = ?config(name_vsn, Config),
     ok = emqx_plugins:ensure_installed(NameVsn),
-    ?assertEqual([], emqx_plugins:configured()),
+    ?assertEqual([#{name_vsn => NameVsn, enable => false}], emqx_plugins:configured()),
     ok = emqx_plugins:ensure_enabled(NameVsn),
     ok = emqx_plugins:ensure_started(NameVsn),
     Params0 = unused,
@@ -687,6 +695,14 @@ group_t_copy_plugin_to_a_new_node(Config) ->
     %% see: emqx_conf_app:init_conf/0
     ok = rpc:call(CopyToNode, application, stop, [emqx_plugins]),
     {ok, _} = rpc:call(CopyToNode, application, ensure_all_started, [emqx_plugins]),
+
+    %% Plugin config should be synced from `CopyFromNode`
+    %% by application `emqx` and `emqx_conf`
+    %% FIXME: in test case, we manually do it here
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [[states], CopyFromPluginsState]),
+    ok = rpc:call(CopyToNode, emqx_plugins, ensure_installed, []),
+    ok = rpc:call(CopyToNode, emqx_plugins, ensure_started, []),
+
     ?assertMatch(
         {ok, #{running_status := running, config_status := enabled}},
         rpc:call(CopyToNode, emqx_plugins, describe, [NameVsn])
@@ -739,6 +755,16 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     ct:pal("~p install_dir:\n  ~p", [
         CopyToNode, erpc:call(CopyToNode, file, list_dir, [ToInstallDir])
     ]),
+
+    %% Plugin config should be synced from `CopyFromNode`
+    %% by application `emqx` and `emqx_conf`
+    %% FIXME: in test case, we manually do it here
+    ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [
+        [states], [#{enable => true, name_vsn => NameVsn}]
+    ]),
+    ok = rpc:call(CopyToNode, emqx_plugins, ensure_installed, []),
+    ok = rpc:call(CopyToNode, emqx_plugins, ensure_started, []),
+
     ?assertMatch(
         {ok, #{running_status := running, config_status := enabled}},
         rpc:call(CopyToNode, emqx_plugins, describe, [NameVsn])
@@ -785,6 +811,11 @@ group_t_cluster_leave(Config) ->
     ok = erpc:call(N1, emqx_plugins, ensure_installed, [NameVsn]),
     ok = erpc:call(N1, emqx_plugins, ensure_started, [NameVsn]),
     ok = erpc:call(N1, emqx_plugins, ensure_enabled, [NameVsn]),
+
+    ok = erpc:call(N2, emqx_plugins, ensure_installed, [NameVsn]),
+    ok = erpc:call(N2, emqx_plugins, ensure_started, [NameVsn]),
+    ok = erpc:call(N2, emqx_plugins, ensure_enabled, [NameVsn]),
+
     Params = unused,
     %% 2 nodes running
     ?assertMatch(
