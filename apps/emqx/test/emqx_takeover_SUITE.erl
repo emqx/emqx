@@ -69,9 +69,9 @@ init_per_group(persistence_enabled = Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx,
-                "session_persistence = {\n"
+                "durable_sessions = {\n"
                 "  enable = true\n"
-                "  last_alive_update_interval = 100ms\n"
+                "  heartbeat_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"
                 "  session_gc_interval = 2s\n"
                 "}\n"}
@@ -85,7 +85,7 @@ init_per_group(persistence_enabled = Group, Config) ->
     ];
 init_per_group(persistence_disabled = Group, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "session_persistence.enable = false"}],
+        [{emqx, "durable_sessions.enable = false"}],
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
     [

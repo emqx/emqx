@@ -108,6 +108,7 @@ action_config(Name, ConnectorId) ->
             <<"enable">> => true,
             <<"connector">> => ConnectorId,
             <<"parameters">> => #{
+                <<"mode">> => <<"direct">>,
                 <<"bucket">> => <<"${clientid}">>,
                 <<"key">> => <<"${topic}">>,
                 <<"content">> => <<"${payload}">>,
@@ -122,6 +123,8 @@ action_config(Name, ConnectorId) ->
                 <<"metrics_flush_interval">> => <<"1s">>,
                 <<"query_mode">> => <<"sync">>,
                 <<"request_ttl">> => <<"60s">>,
+                <<"batch_size">> => 42,
+                <<"batch_time">> => <<"100ms">>,
                 <<"resume_interval">> => <<"3s">>,
                 <<"worker_pool_size">> => <<"4">>
             }
@@ -130,6 +133,13 @@ action_config(Name, ConnectorId) ->
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, s3_bridge_stopped).
+
+t_ignore_batch_opts(Config) ->
+    {ok, {_Status, _, Bridge}} = emqx_bridge_v2_testlib:create_bridge_api(Config),
+    ?assertMatch(
+        #{<<"resource_opts">> := #{<<"batch_size">> := 1, <<"batch_time">> := 0}},
+        Bridge
+    ).
 
 t_start_broken_update_restart(Config) ->
     Name = ?config(connector_name, Config),

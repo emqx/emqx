@@ -102,6 +102,6 @@ tally_persistent_subscriptions(State0) ->
     State0#{subs_count := N}.
 
 ensure_subs_tally_timer() ->
-    Timeout = emqx_config:get([session_persistence, subscription_count_refresh_interval]),
+    Timeout = emqx_config:get([durable_sessions, subscription_count_refresh_interval]),
     _ = erlang:send_after(Timeout, self(), #tally_subs{}),
     ok.

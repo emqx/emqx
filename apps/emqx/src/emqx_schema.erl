@@ -303,9 +303,9 @@ roots(low) ->
                     converter => fun flapping_detect_converter/2
                 }
             )},
-        {session_persistence,
+        {durable_sessions,
             sc(
-                ref("session_persistence"),
+                ref("durable_sessions"),
                 #{
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -1652,12 +1652,12 @@ fields("trace") ->
                 desc => ?DESC(fields_trace_payload_encode)
             })}
     ];
-fields("session_persistence") ->
+fields("durable_sessions") ->
     [
         {"enable",
             sc(
                 boolean(), #{
-                    desc => ?DESC(session_persistence_enable),
+                    desc => ?DESC(durable_sessions_enable),
                     default => false
                 }
             )},
@@ -1678,12 +1678,12 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_idle_poll_interval)
                 }
             )},
-        {"last_alive_update_interval",
+        {"heartbeat_interval",
             sc(
                 timeout_duration(),
                 #{
                     default => <<"5000ms">>,
-                    desc => ?DESC(session_ds_last_alive_update_interval)
+                    desc => ?DESC(session_ds_heartbeat_interval)
                 }
             )},
         {"renew_streams_interval",
@@ -2091,7 +2091,7 @@ desc("ocsp") ->
     "Per listener OCSP Stapling configuration.";
 desc("crl_cache") ->
     "Global CRL cache options.";
-desc("session_persistence") ->
+desc("durable_sessions") ->
     "Settings governing durable sessions persistence.";
 desc(durable_storage) ->
     ?DESC(durable_storage);

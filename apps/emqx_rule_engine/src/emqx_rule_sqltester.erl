@@ -52,7 +52,8 @@ do_apply_rule(
                     do_apply_matched_rule(
                         Rule,
                         Context,
-                        StopAfterRender
+                        StopAfterRender,
+                        EventTopics
                     );
                 false ->
                     {error, nomatch}
@@ -61,21 +62,29 @@ do_apply_rule(
             case lists:member(InTopic, EventTopics) of
                 true ->
                     %% the rule is for both publish and events, test it directly
-                    do_apply_matched_rule(Rule, Context, StopAfterRender);
+                    do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics);
                 false ->
                     {error, nomatch}
             end
     end.
 
-do_apply_matched_rule(Rule, Context, StopAfterRender) ->
-    update_process_trace_metadata(StopAfterRender),
-    ApplyRuleRes = emqx_rule_runtime:apply_rule(
-        Rule,
-        Context,
-        apply_rule_environment()
-    ),
-    reset_trace_process_metadata(StopAfterRender),
-    ApplyRuleRes.
+do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
+    PrevLoggerProcessMetadata = logger:get_process_metadata(),
+    try
+        update_process_trace_metadata(StopAfterRender),
+        FullContext = fill_default_values(
+            hd(EventTopics),
+            emqx_rule_maps:atom_key_map(Context)
+        ),
+        ApplyRuleRes = emqx_rule_runtime:apply_rule(
+            Rule,
+            FullContext,
+            apply_rule_environment()
+        ),
+        ApplyRuleRes
+    after
+        reset_logger_process_metadata(PrevLoggerProcessMetadata)
+    end.
 
 update_process_trace_metadata(true = _StopAfterRender) ->
     logger:update_process_metadata(#{
@@ -84,12 +93,10 @@ update_process_trace_metadata(true = _StopAfterRender) ->
 update_process_trace_metadata(false = _StopAfterRender) ->
     ok.
 
-reset_trace_process_metadata(true = _StopAfterRender) ->
-    Meta = logger:get_process_metadata(),
-    NewMeta = maps:remove(stop_action_after_render, Meta),
-    logger:set_process_metadata(NewMeta);
-reset_trace_process_metadata(false = _StopAfterRender) ->
-    ok.
+reset_logger_process_metadata(undefined = _PrevProcessMetadata) ->
+    logger:unset_process_metadata();
+reset_logger_process_metadata(PrevProcessMetadata) ->
+    logger:set_process_metadata(PrevProcessMetadata).
 
 %% At the time of writing the environment passed to the apply rule function is
 %% not used at all for normal actions. When it is used for custom functions it
@@ -197,6 +204,8 @@ is_test_runtime_env() ->
 
 %% Most events have the original `topic' input, but their own topic (i.e.: `$events/...')
 %% is different from `topic'.
+get_in_topic(#{event_type := schema_validation_failed}) ->
+    <<"$events/schema_validation_failed">>;
 get_in_topic(Context) ->
     case maps:find(event_topic, Context) of
         {ok, EventTopic} ->

@@ -119,7 +119,7 @@ on_query(
             ),
             emqx_trace:rendered_action_template(
                 MessageTag,
-                #{command => Cmd, batch => false, mode => sync}
+                #{command => Cmd, batch => false}
             ),
             Result = query(InstId, {cmd, Cmd}, RedisConnSt),
             ?tp(
@@ -143,7 +143,7 @@ on_batch_query(
             [{ChannelID, _} | _] = BatchData,
             emqx_trace:rendered_action_template(
                 ChannelID,
-                #{commands => Cmds, batch => ture, mode => sync}
+                #{commands => Cmds, batch => ture}
             ),
             Result = query(InstId, {cmds, Cmds}, RedisConnSt),
             ?tp(

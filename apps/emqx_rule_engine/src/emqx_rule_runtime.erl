@@ -70,6 +70,7 @@ apply_rule_discard_result(Rule, Columns, Envs) ->
     ok.
 
 apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
+    PrevProcessMetadata = logger:get_process_metadata(),
     set_process_trace_metadata(RuleID, Columns),
     trace_rule_sql(
         "rule_activated",
@@ -137,20 +138,25 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, {Error, StkTrace}}
     after
-        reset_process_trace_metadata(Columns)
+        reset_logger_process_metadata(PrevProcessMetadata)
     end.
 
 set_process_trace_metadata(RuleID, #{clientid := ClientID} = Columns) ->
     logger:update_process_metadata(#{
         clientid => ClientID,
         rule_id => RuleID,
-        rule_trigger_time => rule_trigger_time(Columns)
+        rule_trigger_ts => [rule_trigger_time(Columns)]
     });
 set_process_trace_metadata(RuleID, Columns) ->
     logger:update_process_metadata(#{
         rule_id => RuleID,
-        rule_trigger_time => rule_trigger_time(Columns)
+        rule_trigger_ts => [rule_trigger_time(Columns)]
     }).
+
+reset_logger_process_metadata(undefined = _PrevProcessMetadata) ->
+    logger:unset_process_metadata();
+reset_logger_process_metadata(PrevProcessMetadata) ->
+    logger:set_process_metadata(PrevProcessMetadata).
 
 rule_trigger_time(Columns) ->
     case Columns of
@@ -159,18 +165,6 @@ rule_trigger_time(Columns) ->
         _ ->
             erlang:system_time(millisecond)
     end.
-
-reset_process_trace_metadata(#{clientid := _ClientID}) ->
-    Meta = logger:get_process_metadata(),
-    Meta1 = maps:remove(clientid, Meta),
-    Meta2 = maps:remove(rule_id, Meta1),
-    Meta3 = maps:remove(rule_trigger_time, Meta2),
-    logger:set_process_metadata(Meta3);
-reset_process_trace_metadata(_) ->
-    Meta = logger:get_process_metadata(),
-    Meta1 = maps:remove(rule_id, Meta),
-    Meta2 = maps:remove(rule_trigger_time, Meta1),
-    logger:set_process_metadata(Meta2).
 
 do_apply_rule(
     #{
@@ -528,30 +522,40 @@ do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
     end.
 
 do_handle_action_get_trace_inc_metrics_context_unconditionally(Action, TraceMeta) ->
-    StopAfterRender = maps:get(stop_action_after_render, TraceMeta, false),
+    StopAfterRenderMap =
+        case maps:get(stop_action_after_render, TraceMeta, false) of
+            false ->
+                #{};
+            true ->
+                #{stop_action_after_render => true}
+        end,
     case TraceMeta of
         #{
             rule_id := RuleID,
             clientid := ClientID,
-            rule_trigger_time := Timestamp
+            rule_trigger_ts := Timestamp
         } ->
-            #{
-                rule_id => RuleID,
-                clientid => ClientID,
-                action_id => Action,
-                stop_action_after_render => StopAfterRender,
-                rule_trigger_time => Timestamp
-            };
+            maps:merge(
+                #{
+                    rule_id => RuleID,
+                    clientid => ClientID,
+                    action_id => Action,
+                    rule_trigger_ts => Timestamp
+                },
+                StopAfterRenderMap
+            );
         #{
             rule_id := RuleID,
-            rule_trigger_time := Timestamp
+            rule_trigger_ts := Timestamp
         } ->
-            #{
-                rule_id => RuleID,
-                action_id => Action,
-                stop_action_after_render => StopAfterRender,
-                rule_trigger_time => Timestamp
-            }
+            maps:merge(
+                #{
+                    rule_id => RuleID,
+                    action_id => Action,
+                    rule_trigger_ts => Timestamp
+                },
+                StopAfterRenderMap
+            )
     end.
 
 action_info({bridge, BridgeType, BridgeName, _ResId}) ->
@@ -740,7 +744,20 @@ nested_put(Alias, Val, Columns0) ->
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
 inc_action_metrics(TraceCtx, Result) ->
-    _ = do_inc_action_metrics(TraceCtx, Result),
+    SavedMetaData = logger:get_process_metadata(),
+    try
+        %% To not pollute the trace we temporary remove the process meta data
+        logger:unset_process_metadata(),
+        _ = do_inc_action_metrics(TraceCtx, Result)
+    after
+        %% Setting process metadata to undefined yields an error
+        case SavedMetaData of
+            undefined ->
+                ok;
+            _ ->
+                logger:set_process_metadata(SavedMetaData)
+        end
+    end,
     Result.
 
 do_inc_action_metrics(

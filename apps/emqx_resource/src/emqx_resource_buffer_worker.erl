@@ -1174,12 +1174,13 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
         {ok, _Group, #{status := ?status_connecting, error := unhealthy_target}} ->
             {error, {unrecoverable_error, unhealthy_target}};
         {ok, _Group, Resource} ->
+            PrevLoggerProcessMetadata = logger:get_process_metadata(),
             QueryResult =
                 try
                     set_rule_id_trace_meta_data(Query),
                     do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource)
                 after
-                    unset_rule_id_trace_meta_data()
+                    reset_logger_process_metadata(PrevLoggerProcessMetadata)
                 end,
             QueryResult;
         {error, not_found} ->
@@ -1190,26 +1191,36 @@ set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
     %% Get the rule ids from requests
     RuleIDs = lists:foldl(fun collect_rule_id/2, #{}, Requests),
     ClientIDs = lists:foldl(fun collect_client_id/2, #{}, Requests),
-    RuleTriggerTimes = lists:foldl(fun collect_rule_trigger_times/2, [], Requests),
-    StopAfterRenderVal =
+    RuleTriggerTimes0 = lists:foldl(fun collect_rule_trigger_times/2, [], Requests),
+    RuleTriggerTimes = lists:flatten(RuleTriggerTimes0),
+    TraceMetadata =
         case Requests of
             %% We know that the batch is not mixed since we prevent this by
             %% using a stop_after function in the replayq:pop call
             [?QUERY(_, _, _, _, #{stop_action_after_render := true}) | _] ->
-                true;
+                #{
+                    rule_ids => RuleIDs,
+                    client_ids => ClientIDs,
+                    rule_trigger_ts => RuleTriggerTimes,
+                    stop_action_after_render => true
+                };
             [?QUERY(_, _, _, _, _TraceCTX) | _] ->
-                false
+                #{
+                    rule_ids => RuleIDs,
+                    client_ids => ClientIDs,
+                    rule_trigger_ts => RuleTriggerTimes
+                }
         end,
-    logger:update_process_metadata(#{
-        rule_ids => RuleIDs,
-        client_ids => ClientIDs,
-        rule_trigger_times => RuleTriggerTimes,
-        stop_action_after_render => StopAfterRenderVal
-    }),
+    logger:update_process_metadata(TraceMetadata),
     ok;
 set_rule_id_trace_meta_data(Request) ->
     set_rule_id_trace_meta_data([Request]),
     ok.
+
+reset_logger_process_metadata(undefined = _PrevProcessMetadata) ->
+    logger:unset_process_metadata();
+reset_logger_process_metadata(PrevProcessMetadata) ->
+    logger:set_process_metadata(PrevProcessMetadata).
 
 collect_rule_id(?QUERY(_, _, _, _, #{rule_id := RuleId}), Acc) ->
     Acc#{RuleId => true};
@@ -1221,18 +1232,10 @@ collect_client_id(?QUERY(_, _, _, _, #{clientid := ClientId}), Acc) ->
 collect_client_id(?QUERY(_, _, _, _, _), Acc) ->
     Acc.
 
-collect_rule_trigger_times(?QUERY(_, _, _, _, #{rule_trigger_time := Time}), Acc) ->
+collect_rule_trigger_times(?QUERY(_, _, _, _, #{rule_trigger_ts := Time}), Acc) ->
     [Time | Acc];
 collect_rule_trigger_times(?QUERY(_, _, _, _, _), Acc) ->
     Acc.
-
-unset_rule_id_trace_meta_data() ->
-    logger:update_process_metadata(#{
-        rule_ids => #{},
-        client_ids => #{},
-        stop_action_after_render => false,
-        rule_trigger_times => []
-    }).
 
 %% action:kafka_producer:myproducer1:connector:kafka_producer:mykakfaclient1
 extract_connector_id(Id) when is_binary(Id) ->

@@ -36,8 +36,8 @@ format(
     LogMap,
     #{payload_encode := PEncode} = Config
 ) ->
-    LogMap0 = maybe_format_msg(LogMap, Config),
-    LogMap1 = emqx_trace_formatter:evaluate_lazy_values(LogMap0),
+    LogMap0 = emqx_logger_textfmt:evaluate_lazy_values(LogMap),
+    LogMap1 = maybe_format_msg(LogMap0, Config),
     %% We just make some basic transformations on the input LogMap and then do
     %% an external call to create the JSON text
     Time = emqx_utils_calendar:now_to_rfc3339(microsecond),

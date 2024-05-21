@@ -16,7 +16,7 @@
 -ifndef(EMQX_PERSISTENT_SESSION_DS_HRL_HRL).
 -define(EMQX_PERSISTENT_SESSION_DS_HRL_HRL, true).
 
--define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+-include("emqx_persistent_message.hrl").
 
 -define(SESSION_TAB, emqx_ds_session).
 -define(SESSION_SUBSCRIPTIONS_TAB, emqx_ds_session_subscriptions).

@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/emqx_persistent_message.hrl").
 
 -import(hoconsc, [mk/2, ref/1, enum/1, array/1]).
 
@@ -35,7 +36,9 @@
 
     update_db_sites/3,
     join/3,
-    leave/3
+    leave/3,
+
+    forget/2
 ]).
 
 %% behavior callbacks:
@@ -222,7 +225,7 @@ fields(sites_shard) ->
                 atom(),
                 #{
                     desc => <<"Durable storage ID">>,
-                    example => 'emqx_persistent_message'
+                    example => ?PERSISTENT_MESSAGE_DB
                 }
             )},
         {id,
@@ -249,7 +252,7 @@ fields(db) ->
                 atom(),
                 #{
                     desc => <<"Name of the durable storage">>,
-                    example => 'emqx_persistent_message'
+                    example => ?PERSISTENT_MESSAGE_DB
                 }
             )},
         {shards,
@@ -323,17 +326,11 @@ get_db(get, #{bindings := #{ds := DB}}) ->
     }).
 
 db_replicas(get, #{bindings := #{ds := DB}}) ->
-    Replicas = lists:flatmap(
-        fun(Shard) ->
-            #{replica_set := RS} = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
-            maps:keys(RS)
-        end,
-        emqx_ds_replication_layer_meta:shards(DB)
-    ),
-    ?OK(lists:usort(Replicas));
+    Replicas = emqx_ds_replication_layer_meta:db_sites(DB),
+    ?OK(Replicas);
 db_replicas(put, #{bindings := #{ds := DB}, body := Sites}) ->
     case update_db_sites(DB, Sites, rest) of
-        ok ->
+        {ok, _} ->
             {202, <<"OK">>};
         {error, Description} ->
             ?BAD_REQUEST(400, Description)
@@ -341,21 +338,23 @@ db_replicas(put, #{bindings := #{ds := DB}, body := Sites}) ->
 
 db_replica(put, #{bindings := #{ds := DB, site := Site}}) ->
     case join(DB, Site, rest) of
-        ok ->
+        {ok, _} ->
             {202, <<"OK">>};
         {error, Description} ->
             ?BAD_REQUEST(400, Description)
     end;
 db_replica(delete, #{bindings := #{ds := DB, site := Site}}) ->
     case leave(DB, Site, rest) of
-        ok ->
+        {ok, Sites} when is_list(Sites) ->
             {202, <<"OK">>};
+        {ok, unchanged} ->
+            ?NOT_FOUND(<<"Site is not part of replica set">>);
         {error, Description} ->
             ?BAD_REQUEST(400, Description)
     end.
 
 -spec update_db_sites(emqx_ds:db(), [emqx_ds_replication_layer_meta:site()], rest | cli) ->
-    ok | {error, binary()}.
+    {ok, [emqx_ds_replication_layer_meta:site()]} | {error, _}.
 update_db_sites(DB, Sites, Via) when is_list(Sites) ->
     ?SLOG(warning, #{
         msg => "durable_storage_rebalance_request", ds => DB, sites => Sites, via => Via
@@ -364,19 +363,29 @@ update_db_sites(DB, Sites, Via) when is_list(Sites) ->
 update_db_sites(_, _, _) ->
     {error, <<"Bad type">>}.
 
--spec join(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) -> ok | {error, _}.
+-spec join(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) ->
+    {ok, unchanged | [emqx_ds_replication_layer_meta:site()]} | {error, _}.
 join(DB, Site, Via) ->
     ?SLOG(warning, #{
         msg => "durable_storage_join_request", ds => DB, site => Site, via => Via
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:join_db_site(DB, Site)).
 
--spec leave(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) -> ok | {error, _}.
+-spec leave(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) ->
+    {ok, unchanged | [emqx_ds_replication_layer_meta:site()]} | {error, _}.
 leave(DB, Site, Via) ->
     ?SLOG(warning, #{
         msg => "durable_storage_leave_request", ds => DB, site => Site, via => Via
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:leave_db_site(DB, Site)).
+
+-spec forget(emqx_ds_replication_layer_meta:site(), rest | cli) ->
+    ok | {error, _}.
+forget(Site, Via) ->
+    ?SLOG(warning, #{
+        msg => "durable_storage_forget_request", site => Site, via => Via
+    }),
+    meta_result_to_binary(emqx_ds_replication_layer_meta:forget_site(Site)).
 
 %%================================================================================
 %% Internal functions
@@ -405,7 +414,7 @@ param_storage_id() ->
         required => true,
         in => path,
         desc => <<"Durable storage ID">>,
-        example => emqx_persistent_message
+        example => ?PERSISTENT_MESSAGE_DB
     },
     {ds, mk(enum(dbs()), Info)}.
 
@@ -418,7 +427,7 @@ example_site() ->
     end.
 
 dbs() ->
-    [emqx_persistent_message].
+    [?PERSISTENT_MESSAGE_DB].
 
 shards_of_site(Site) ->
     lists:flatmap(
@@ -468,14 +477,20 @@ list_shards(DB) ->
      || Shard <- emqx_ds_replication_layer_meta:shards(DB)
     ].
 
-meta_result_to_binary(ok) ->
-    ok;
+meta_result_to_binary(Ok) when Ok == ok orelse element(1, Ok) == ok ->
+    Ok;
 meta_result_to_binary({error, {nonexistent_sites, UnknownSites}}) ->
     Msg = ["Unknown sites: " | lists:join(", ", UnknownSites)],
     {error, iolist_to_binary(Msg)};
 meta_result_to_binary({error, {nonexistent_db, DB}}) ->
     IOList = io_lib:format("Unknown storage: ~p", [DB]),
     {error, iolist_to_binary(IOList)};
+meta_result_to_binary({error, nonexistent_site}) ->
+    {error, <<"Unknown site">>};
+meta_result_to_binary({error, {member_of_replica_sets, DBNames}}) ->
+    DBs = lists:map(fun atom_to_binary/1, DBNames),
+    Msg = ["Site is still a member of replica sets of: " | lists:join(", ", DBs)],
+    {error, iolist_to_binary(Msg)};
 meta_result_to_binary({error, Err}) ->
     IOList = io_lib:format("Error: ~p", [Err]),
     {error, iolist_to_binary(IOList)}.

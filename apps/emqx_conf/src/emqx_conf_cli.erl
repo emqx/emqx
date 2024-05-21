@@ -36,6 +36,7 @@
 -define(CONF, conf).
 -define(AUDIT_MOD, audit).
 -define(UPDATE_READONLY_KEYS_PROHIBITED, <<"Cannot update read-only key '~s'.">>).
+-define(SCHEMA_VALIDATION_CONF_ROOT_BIN, <<"schema_validation">>).
 
 -dialyzer({no_match, [load/0]}).
 
@@ -208,7 +209,7 @@ hidden_roots() ->
         <<"stats">>,
         <<"broker">>,
         <<"persistent_session_store">>,
-        <<"session_persistence">>,
+        <<"durable_sessions">>,
         <<"plugins">>,
         <<"zones">>
     ].
@@ -330,6 +331,10 @@ update_config_cluster(
     #{mode := merge} = Opts
 ) ->
     check_res(Key, emqx_authn:merge_config(Conf), Conf, Opts);
+update_config_cluster(?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts) ->
+    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, ?OPTIONS), NewConf, Opts);
+update_config_cluster(?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, #{mode := replace} = Opts) ->
+    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, ?OPTIONS), NewConf, Opts);
 update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
     check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);

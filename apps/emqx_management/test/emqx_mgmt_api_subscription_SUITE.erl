@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(CLIENTID, <<"api_clientid">>).
 -define(USERNAME, <<"api_username">>).
@@ -42,18 +43,25 @@ all() ->
     ].
 
 groups() ->
-    CommonTCs = emqx_common_test_helpers:all(?MODULE),
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    CommonTCs = AllTCs -- persistent_only_tcs(),
     [
         {mem, CommonTCs},
         %% Shared subscriptions are currently not supported:
-        {persistent, CommonTCs -- [t_list_with_shared_sub, t_subscription_api]}
+        {persistent,
+            (CommonTCs -- [t_list_with_shared_sub, t_subscription_api]) ++ persistent_only_tcs()}
+    ].
+
+persistent_only_tcs() ->
+    [
+        t_mixed_persistent_sessions
     ].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx,
-                "session_persistence {\n"
+                "durable_sessions {\n"
                 "    enable = true\n"
                 "    renew_streams_interval = 10ms\n"
                 "}"},
@@ -157,6 +165,51 @@ t_subscription_api(Config) ->
     ?assertEqual(1, maps:get(<<"count">>, Meta2)),
     SubscriptionsList2 = maps:get(<<"data">>, DataTopic2),
     ?assertEqual(length(SubscriptionsList2), 1).
+
+%% Checks a few edge cases where persistent and non-persistent client subscriptions exist.
+t_mixed_persistent_sessions(Config) ->
+    ClientConfig = ?config(client_config, Config),
+    PersistentClient = ?config(client, Config),
+    {ok, MemClient} = emqtt:start_link(ClientConfig#{clientid => <<"mem">>, properties => #{}}),
+    {ok, _} = emqtt:connect(MemClient),
+
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(PersistentClient, <<"t/1">>, 1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(MemClient, <<"t/1">>, 1),
+
+    %% First page with sufficient limit should have both mem and DS clients.
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"data">> := [_, _],
+                <<"meta">> :=
+                    #{
+                        <<"hasnext">> := false,
+                        <<"count">> := 2
+                    }
+            }}},
+        get_subs(#{page => "1"})
+    ),
+
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"data">> := [_],
+                <<"meta">> := #{<<"hasnext">> := true}
+            }}},
+        get_subs(#{page => "1", limit => "1"})
+    ),
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"data">> := [_],
+                <<"meta">> := #{<<"hasnext">> := false}
+            }}},
+        get_subs(#{page => "2", limit => "1"})
+    ),
+
+    emqtt:disconnect(MemClient),
+
+    ok.
 
 t_subscription_fuzzy_search(Config) ->
     Client = proplists:get_value(client, Config),
@@ -272,3 +325,42 @@ request_json(Method, Query, Headers) when is_list(Query) ->
 
 path() ->
     emqx_mgmt_api_test_util:api_path(["subscriptions"]).
+
+get_subs() ->
+    get_subs(_QueryParams = #{}).
+
+get_subs(QueryParams = #{}) ->
+    QS = uri_string:compose_query(maps:to_list(emqx_utils_maps:binary_key_map(QueryParams))),
+    request(get, path(), [], QS).
+
+request(Method, Path, Params) ->
+    request(Method, Path, Params, _QueryParams = "").
+
+request(Method, Path, Params, QueryParams) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    case emqx_mgmt_api_test_util:request_api(Method, Path, QueryParams, AuthHeader, Params, Opts) of
+        {ok, {Status, Headers, Body0}} ->
+            Body = maybe_json_decode(Body0),
+            {ok, {Status, Headers, Body}};
+        {error, {Status, Headers, Body0}} ->
+            Body =
+                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                    {ok, Decoded0 = #{<<"message">> := Msg0}} ->
+                        Msg = maybe_json_decode(Msg0),
+                        Decoded0#{<<"message">> := Msg};
+                    {ok, Decoded0} ->
+                        Decoded0;
+                    {error, _} ->
+                        Body0
+                end,
+            {error, {Status, Headers, Body}};
+        Error ->
+            Error
+    end.
+
+maybe_json_decode(X) ->
+    case emqx_utils_json:safe_decode(X, [return_maps]) of
+        {ok, Decoded} -> Decoded;
+        {error, _} -> X
+    end.

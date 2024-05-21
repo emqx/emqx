@@ -14,7 +14,7 @@
 -import(emqx_utils_conv, [bin/1]).
 
 %% See `emqx_bridge_s3.hrl`.
--define(BRIDGE_TYPE, <<"s3_aggregated_upload">>).
+-define(BRIDGE_TYPE, <<"s3">>).
 -define(CONNECTOR_TYPE, <<"s3">>).
 
 -define(PROXY_NAME, "minio_tcp").
@@ -122,6 +122,7 @@ action_config(Name, ConnectorId, Bucket) ->
             <<"enable">> => true,
             <<"connector">> => ConnectorId,
             <<"parameters">> => #{
+                <<"mode">> => <<"aggregated">>,
                 <<"bucket">> => unicode:characters_to_binary(Bucket),
                 <<"key">> => <<"${action}/${node}/${datetime.rfc3339}">>,
                 <<"acl">> => <<"public_read">>,

@@ -27,7 +27,7 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+-include("emqx_persistent_message.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -46,7 +46,7 @@ init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
 init_per_testcase(t_message_gc = TestCase, Config) ->
     Opts = #{
         extra_emqx_conf =>
-            "\n  session_persistence.message_retention_period = 3s"
+            "\n  durable_sessions.message_retention_period = 3s"
             "\n  durable_storage.messages.n_shards = 3"
     },
     common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
@@ -554,7 +554,7 @@ app_specs(Opts) ->
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
         emqx_durable_storage,
-        {emqx, "session_persistence {enable = true}" ++ ExtraEMQXConf}
+        {emqx, "durable_sessions {enable = true}" ++ ExtraEMQXConf}
     ].
 
 cluster() ->

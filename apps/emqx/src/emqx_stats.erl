@@ -109,6 +109,8 @@
 
 %% PubSub stats
 -define(PUBSUB_STATS, [
+    'durable_subscriptions.count',
+    'durable_subscriptions.max',
     'topics.count',
     'topics.max',
     'suboptions.count',
@@ -166,6 +168,8 @@ names() ->
     [
         emqx_connections_count,
         emqx_connections_max,
+        emqx_durable_subscriptions_count,
+        emqx_durable_subscriptions_max,
         emqx_live_connections_count,
         emqx_live_connections_max,
         emqx_cluster_sessions_count,

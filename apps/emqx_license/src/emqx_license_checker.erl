@@ -119,7 +119,11 @@ handle_call({update, License}, _From, #{license := Old} = State) ->
     ok = log_new_license(Old, License),
     {reply, check_license(License), State1#{license => License}};
 handle_call(dump, _From, #{license := License} = State) ->
-    {reply, emqx_license_parser:dump(License), State};
+    Dump0 = emqx_license_parser:dump(License),
+    %% resolve the current dynamic limit
+    MaybeDynamic = get_max_connections(License),
+    Dump = lists:keyreplace(max_connections, 1, Dump0, {max_connections, MaybeDynamic}),
+    {reply, Dump, State};
 handle_call(expiry_epoch, _From, #{license := License} = State) ->
     ExpiryEpoch = date_to_expiry_epoch(emqx_license_parser:expiry_date(License)),
     {reply, ExpiryEpoch, State};

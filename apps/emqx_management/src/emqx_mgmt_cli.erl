@@ -855,7 +855,7 @@ do_ds(["set_replicas", DBStr | SitesStr]) ->
         {ok, DB} ->
             Sites = lists:map(fun list_to_binary/1, SitesStr),
             case emqx_mgmt_api_ds:update_db_sites(DB, Sites, cli) of
-                ok ->
+                {ok, _} ->
                     emqx_ctl:print("ok~n");
                 {error, Description} ->
                     emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
@@ -867,7 +867,9 @@ do_ds(["join", DBStr, Site]) ->
     case emqx_utils:safe_to_existing_atom(DBStr) of
         {ok, DB} ->
             case emqx_mgmt_api_ds:join(DB, list_to_binary(Site), cli) of
-                ok ->
+                {ok, unchanged} ->
+                    emqx_ctl:print("unchanged~n");
+                {ok, _} ->
                     emqx_ctl:print("ok~n");
                 {error, Description} ->
                     emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
@@ -879,7 +881,9 @@ do_ds(["leave", DBStr, Site]) ->
     case emqx_utils:safe_to_existing_atom(DBStr) of
         {ok, DB} ->
             case emqx_mgmt_api_ds:leave(DB, list_to_binary(Site), cli) of
-                ok ->
+                {ok, unchanged} ->
+                    emqx_ctl:print("unchanged~n");
+                {ok, _} ->
                     emqx_ctl:print("ok~n");
                 {error, Description} ->
                     emqx_ctl:print("Unable to update replicas: ~s~n", [Description])
@@ -887,13 +891,21 @@ do_ds(["leave", DBStr, Site]) ->
         {error, _} ->
             emqx_ctl:print("Unknown durable storage~n")
     end;
+do_ds(["forget", Site]) ->
+    case emqx_mgmt_api_ds:forget(list_to_binary(Site), cli) of
+        ok ->
+            emqx_ctl:print("ok~n");
+        {error, Description} ->
+            emqx_ctl:print("Unable to forget site: ~s~n", [Description])
+    end;
 do_ds(_) ->
     emqx_ctl:usage([
         {"ds info", "Show overview of the embedded durable storage state"},
         {"ds set_replicas <storage> <site1> <site2> ...",
             "Change the replica set of the durable storage"},
         {"ds join <storage> <site>", "Add site to the replica set of the storage"},
-        {"ds leave <storage> <site>", "Remove site from the replica set of the storage"}
+        {"ds leave <storage> <site>", "Remove site from the replica set of the storage"},
+        {"ds forget <site>", "Forcefully remove a site from the list of known sites"}
     ]).
 
 %%--------------------------------------------------------------------

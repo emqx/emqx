@@ -271,6 +271,16 @@ t_http_test_json_formatter(_Config) ->
     }),
     %% We should handle report style logging
     ?SLOG(error, #{msg => "recursive_republish_detected"}, #{topic => Topic}),
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        %% This will be converted to map
+        map_key => [{a, a}, {b, b}]
+    }),
+    ?TRACE("CUSTOM", "my_log_msg", #{
+        topic => Topic,
+        %% We should not convert this to a map as we will lose information
+        map_key => [{a, a}, {a, b}]
+    }),
     ok = emqx_trace_handler_SUITE:filesync(Name, topic),
     {ok, _Detail2} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     {ok, Bin} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
@@ -422,6 +432,25 @@ t_http_test_json_formatter(_Config) ->
                 },
             <<"msg">> := <<"recursive_republish_detected">>,
             <<"time">> := _
+        },
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"meta">> := #{
+                <<"map_key">> := #{
+                    <<"a">> := <<"a">>,
+                    <<"b">> := <<"b">>
+                }
+            }
+        },
+        NextFun()
+    ),
+    ?assertMatch(
+        #{
+            <<"meta">> := #{
+                <<"map_key">> := [_, _]
+            }
         },
         NextFun()
     ),
