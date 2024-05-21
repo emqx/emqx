@@ -246,7 +246,8 @@ fields(layout_builtin_reference) ->
                 reference,
                 #{
                     'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(layout_builtin_reference_type)
                 }
             )}
     ].
@@ -257,6 +258,8 @@ desc(builtin_local_write_buffer) ->
     ?DESC(builtin_local_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
     ?DESC(layout_builtin_wildcard_optimized);
+desc(layout_builtin_reference) ->
+    ?DESC(layout_builtin_reference);
 desc(_) ->
     undefined.
 
