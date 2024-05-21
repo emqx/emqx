@@ -91,7 +91,7 @@
     deinit_schema/0
 ]).
 
--export_type([dest/0, external_dest/0]).
+-export_type([dest/0]).
 -export_type([schemavsn/0]).
 
 -type group() :: binary().
@@ -313,7 +313,7 @@ print_routes(Topic) ->
         match_routes(Topic)
     ).
 
--spec cleanup_routes(node() | external_dest()) -> ok.
+-spec cleanup_routes(node()) -> ok.
 cleanup_routes(NodeOrExtDest) ->
     cleanup_routes(get_schema_vsn(), NodeOrExtDest).
 

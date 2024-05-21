@@ -7,11 +7,15 @@
 
 %% API
 -export([start_link/1]).
--export([push/4]).
 
 -export([
-    start_link_actor/1,
-    start_link_syncer/1
+    push/4,
+    push_persistent_route/4
+]).
+
+-export([
+    start_link_actor/4,
+    start_link_syncer/4
 ]).
 
 %% Internal API / Syncer
@@ -47,10 +51,25 @@
 
 -define(RECONNECT_TIMEOUT, 5_000).
 
-%%
+%% Special actor for persistent routes that has the same actor name on all nodes.
+%% Node actors with the same name  nay race with each other (e.g. during bootstrap),
+%% but it must be tolerable, since persistent route destination is a client ID,
+%% which is unique cluster-wide.
+-define(PS_ACTOR, <<"ps-routes-v1">>).
+-define(PS_INCARNATION, 0).
+-define(PS_ACTOR_REF(Cluster), {via, gproc, ?NAME(Cluster, ps_actor)}).
+-define(PS_CLIENT_NAME(Cluster), ?NAME(Cluster, ps_client)).
+-define(PS_SYNCER_REF(Cluster), {via, gproc, ?PS_SYNCER_NAME(Cluster)}).
+-define(PS_SYNCER_NAME(Cluster), ?NAME(Cluster, ps_syncer)).
 
 push(TargetCluster, OpName, Topic, ID) ->
-    case gproc:where(?SYNCER_NAME(TargetCluster)) of
+    do_push(?SYNCER_NAME(TargetCluster), OpName, Topic, ID).
+
+push_persistent_route(TargetCluster, OpName, Topic, ID) ->
+    do_push(?PS_SYNCER_NAME(TargetCluster), OpName, Topic, ID).
+
+do_push(SyncerName, OpName, Topic, ID) ->
+    case gproc:where(SyncerName) of
         SyncerPid when is_pid(SyncerPid) ->
             emqx_router_syncer:push(SyncerPid, OpName, Topic, ID, #{});
         undefined ->
@@ -66,11 +85,9 @@ start_link(TargetCluster) ->
 
 %% Actor
 
-start_link_actor(TargetCluster) ->
-    Actor = get_actor_id(),
-    Incarnation = ensure_actor_incarnation(),
+start_link_actor(ActorRef, Actor, Incarnation, TargetCluster) ->
     gen_server:start_link(
-        ?ACTOR_REF(TargetCluster),
+        ActorRef,
         ?MODULE,
         {actor, mk_state(TargetCluster, Actor, Incarnation)},
         []
@@ -98,9 +115,9 @@ ensure_actor_incarnation() ->
 
 %% MQTT Client
 
-start_link_client(TargetCluster) ->
+start_link_client(TargetCluster, Actor) ->
     Options = emqx_cluster_link_config:emqtt_options(TargetCluster),
-    case emqtt:start_link(refine_client_options(Options)) of
+    case emqtt:start_link(refine_client_options(Options, Actor)) of
         {ok, Pid} ->
             case emqtt:connect(Pid) of
                 {ok, _Props} ->
@@ -112,10 +129,15 @@ start_link_client(TargetCluster) ->
             Error
     end.
 
-refine_client_options(Options = #{clientid := ClientID}) ->
+refine_client_options(Options = #{clientid := ClientID}, Actor) ->
+    Suffix =
+        case Actor of
+            ?PS_ACTOR -> "-ps";
+            _ -> ""
+        end,
     %% TODO: Reconnect should help, but it looks broken right now.
     Options#{
-        clientid => emqx_utils:format("~s:~s:routesync", [ClientID, node()]),
+        clientid => emqx_utils:format("~s:~s:routesync~s", [ClientID, node(), Suffix]),
         clean_start => false,
         properties => #{'Session-Expiry-Interval' => 60},
         retry_interval => 0
@@ -129,8 +151,13 @@ client_session_present(ClientPid) ->
         1 -> true
     end.
 
-announce_client(TargetCluster, Pid) ->
-    true = gproc:reg_other(?CLIENT_NAME(TargetCluster), Pid),
+announce_client(Actor, TargetCluster, Pid) ->
+    Name =
+        case Actor of
+            ?PS_ACTOR -> ?PS_CLIENT_NAME(TargetCluster);
+            _ -> ?CLIENT_NAME(TargetCluster)
+        end,
+    true = gproc:reg_other(Name, Pid),
     ok.
 
 publish_routes(ClientPid, Actor, Incarnation, Updates) ->
@@ -148,19 +175,17 @@ publish_routes(ClientPid, Actor, Incarnation, Updates) ->
 
 %% Route syncer
 
-start_syncer(TargetCluster) ->
-    case supervisor:start_child(?REF(TargetCluster), child_spec(syncer, TargetCluster)) of
+start_syncer(TargetCluster, Actor, Incr) ->
+    Spec = child_spec(syncer, Actor, Incr, TargetCluster),
+    case supervisor:start_child(?REF(TargetCluster), Spec) of
         {ok, _} ->
             ok;
         {error, {already_started, _}} ->
             ok
     end.
 
-start_link_syncer(TargetCluster) ->
-    Actor = get_actor_id(),
-    Incarnation = get_actor_incarnation(),
-    ClientName = ?CLIENT_NAME(TargetCluster),
-    emqx_router_syncer:start_link(?SYNCER_REF(TargetCluster), #{
+start_link_syncer(Actor, Incarnation, SyncerRef, ClientName) ->
+    emqx_router_syncer:start_link(SyncerRef, #{
         max_batch_size => ?MAX_BATCH_SIZE,
         min_sync_interval => ?MIN_SYNC_INTERVAL,
         error_delay => ?ERROR_DELAY,
@@ -169,10 +194,14 @@ start_link_syncer(TargetCluster) ->
         %% TODO: enable_replies => false
     }).
 
-close_syncer(TargetCluster) ->
+close_syncer(TargetCluster, ?PS_ACTOR) ->
+    emqx_router_syncer:close(?PS_SYNCER_REF(TargetCluster));
+close_syncer(TargetCluster, _Actor) ->
     emqx_router_syncer:close(?SYNCER_REF(TargetCluster)).
 
-open_syncer(TargetCluster) ->
+open_syncer(TargetCluster, ?PS_ACTOR) ->
+    emqx_router_syncer:open(?PS_SYNCER_REF(TargetCluster));
+open_syncer(TargetCluster, _Actor) ->
     emqx_router_syncer:open(?SYNCER_REF(TargetCluster)).
 
 process_syncer_batch(Batch, ClientName, Actor, Incarnation) ->
@@ -200,7 +229,8 @@ init({sup, TargetCluster}) ->
         period => 60
     },
     Children = [
-        child_spec(actor, TargetCluster)
+        child_spec(actor, TargetCluster),
+        child_spec(ps_actor, TargetCluster)
     ],
     {ok, {SupFlags, Children}};
 init({actor, State}) ->
@@ -212,20 +242,37 @@ child_spec(actor, TargetCluster) ->
     %% ClientID: `mycluster:emqx1@emqx.local:routesync`
     %% Occasional TCP/MQTT-level disconnects are expected, and should be handled
     %% gracefully.
-    #{
-        id => actor,
-        start => {?MODULE, start_link_actor, [TargetCluster]},
-        restart => permanent,
-        type => worker
-    };
-child_spec(syncer, TargetCluster) ->
+    Actor = get_actor_id(),
+    Incarnation = ensure_actor_incarnation(),
+    actor_spec(actor, ?ACTOR_REF(TargetCluster), Actor, Incarnation, TargetCluster);
+child_spec(ps_actor, TargetCluster) ->
+    actor_spec(ps_actor, ?PS_ACTOR_REF(TargetCluster), ?PS_ACTOR, ?PS_INCARNATION, TargetCluster).
+
+child_spec(syncer, ?PS_ACTOR, Incarnation, TargetCluster) ->
+    SyncerRef = ?PS_SYNCER_REF(TargetCluster),
+    ClientName = ?PS_CLIENT_NAME(TargetCluster),
+    syncer_spec(ps_syncer, ?PS_ACTOR, Incarnation, SyncerRef, ClientName);
+child_spec(syncer, Actor, Incarnation, TargetCluster) ->
     %% Route syncer process.
     %% Initially starts in a "closed" state. Actor decides when to open it, i.e.
     %% when bootstrapping is done. Syncer crash means re-bootstrap is needed, so
     %% we just restart the actor in this case.
+    SyncerRef = ?SYNCER_REF(TargetCluster),
+    ClientName = ?CLIENT_NAME(TargetCluster),
+    syncer_spec(syncer, Actor, Incarnation, SyncerRef, ClientName).
+
+actor_spec(ChildID, ActorRef, Actor, Incarnation, TargetCluster) ->
     #{
-        id => syncer,
-        start => {?MODULE, start_link_syncer, [TargetCluster]},
+        id => ChildID,
+        start => {?MODULE, start_link_actor, [ActorRef, Actor, Incarnation, TargetCluster]},
+        restart => permanent,
+        type => worker
+    }.
+
+syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
+    #{
+        id => ChildID,
+        start => {?MODULE, start_link_syncer, [Actor, Incarnation, SyncerRef, ClientName]},
         restart => permanent,
         type => worker
     }.
@@ -274,12 +321,12 @@ terminate(_Reason, _State) ->
     ok.
 
 process_connect(St = #st{target = TargetCluster, actor = Actor, incarnation = Incr}) ->
-    case start_link_client(TargetCluster) of
+    case start_link_client(TargetCluster, Actor) of
         {ok, ClientPid} ->
             %% TODO: error handling, handshake
             {ok, _} = emqx_cluster_link_mqtt:publish_actor_init_sync(ClientPid, Actor, Incr),
-            ok = start_syncer(TargetCluster),
-            ok = announce_client(TargetCluster, ClientPid),
+            ok = start_syncer(TargetCluster, Actor, Incr),
+            ok = announce_client(Actor, TargetCluster, ClientPid),
             process_bootstrap(St#st{client = ClientPid});
         {error, Reason} ->
             handle_connect_error(Reason, St)
@@ -290,9 +337,9 @@ handle_connect_error(_Reason, St) ->
     TRef = erlang:start_timer(?RECONNECT_TIMEOUT, self(), reconnect),
     St#st{reconnect_timer = TRef}.
 
-handle_client_down(_Reason, St = #st{target = TargetCluster}) ->
+handle_client_down(_Reason, St = #st{target = TargetCluster, actor = Actor}) ->
     %% TODO: logs
-    ok = close_syncer(TargetCluster),
+    ok = close_syncer(TargetCluster, Actor),
     process_connect(St#st{client = undefined}).
 
 process_bootstrap(St = #st{bootstrapped = false}) ->
@@ -311,6 +358,15 @@ process_bootstrap(St = #st{client = ClientPid, bootstrapped = true}) ->
 %% is re-established with a clean session. Once bootstrapping is done, it
 %% opens the syncer.
 
+run_bootstrap(St = #st{target = TargetCluster, actor = ?PS_ACTOR}) ->
+    case mria_config:whoami() of
+        Role when Role /= replicant ->
+            Opts = #{is_persistent_route => true},
+            Bootstrap = emqx_cluster_link_router_bootstrap:init(TargetCluster, Opts),
+            run_bootstrap(Bootstrap, St);
+        _ ->
+            process_bootstrapped(St)
+    end;
 run_bootstrap(St = #st{target = TargetCluster}) ->
     Bootstrap = emqx_cluster_link_router_bootstrap:init(TargetCluster, #{}),
     run_bootstrap(Bootstrap, St).
@@ -330,8 +386,8 @@ run_bootstrap(Bootstrap, St) ->
             end
     end.
 
-process_bootstrapped(St = #st{target = TargetCluster}) ->
-    ok = open_syncer(TargetCluster),
+process_bootstrapped(St = #st{target = TargetCluster, actor = Actor}) ->
+    ok = open_syncer(TargetCluster, Actor),
     St#st{bootstrapped = true}.
 
 process_bootstrap_batch(Batch, #st{client = ClientPid, actor = Actor, incarnation = Incarnation}) ->

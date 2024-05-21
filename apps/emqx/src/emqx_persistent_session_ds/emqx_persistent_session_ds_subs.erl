@@ -92,6 +92,7 @@ on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) 
             case emqx_persistent_session_ds_state:n_subscriptions(S0) < MaxSubscriptions of
                 true ->
                     ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, SessionId),
+                    _ = emqx_external_broker:maybe_add_persistent_route(TopicFilter, SessionId),
                     {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
                     {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
                     SState = #{
@@ -154,6 +155,7 @@ on_unsubscribe(SessionId, TopicFilter, S0) ->
                 #{session_id => SessionId, topic_filter => TopicFilter},
                 ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId)
             ),
+            _ = emqx_external_broker:maybe_delete_persistent_route(TopicFilter, SessionId),
             {ok, emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0), Subscription}
     end.
 

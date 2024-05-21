@@ -421,8 +421,12 @@ init_monitors() ->
 handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
     mria:dirty_write(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
     case ets:member(?SHARED_SUBSCRIBER, {Group, Topic}) of
-        true -> ok;
-        false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
+        true ->
+            ok;
+        false ->
+            ok = emqx_router:do_add_route(Topic, {Group, node()}),
+            _ = emqx_external_broker:maybe_add_shared_route(Topic, Group),
+            ok
     end,
     ok = maybe_insert_alive_tab(SubPid),
     ok = maybe_insert_round_robin_count({Group, Topic}),
@@ -545,7 +549,9 @@ is_alive_sub(Pid) ->
 
 delete_route_if_needed({Group, Topic} = GroupTopic) ->
     if_no_more_subscribers(GroupTopic, fun() ->
-        ok = emqx_router:do_delete_route(Topic, {Group, node()})
+        ok = emqx_router:do_delete_route(Topic, {Group, node()}),
+        _ = emqx_external_broker:maybe_delete_shared_route(Topic, Group),
+        ok
     end).
 
 get_default_shared_subscription_strategy() ->

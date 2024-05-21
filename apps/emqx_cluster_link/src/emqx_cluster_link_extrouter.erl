@@ -169,14 +169,15 @@ mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
     %% that applies some update out of the blue, but it seems impossible to prevent
     %% it completely w/o transactions.
     State = #state{cluster = Cluster, actor = Actor, incarnation = Incarnation},
-    case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of
+    ActorID = ?ACTOR_ID(Cluster, Actor),
+    case mnesia:read(?EXTROUTE_ACTOR_TAB, ActorID, write) of
         [#actor{incarnation = Incarnation, lane = Lane} = Rec] ->
             ok = mnesia:write(?EXTROUTE_ACTOR_TAB, Rec#actor{until = bump_actor_ttl(TS)}, write),
             {ok, State#state{lane = Lane}};
         [] ->
             Lane = mnesia_assign_lane(Cluster),
             Rec = #actor{
-                id = ?ACTOR_ID(Cluster, Actor),
+                id = ActorID,
                 incarnation = Incarnation,
                 lane = Lane,
                 until = bump_actor_ttl(TS)

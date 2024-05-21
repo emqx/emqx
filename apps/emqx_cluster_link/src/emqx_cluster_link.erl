@@ -11,6 +11,10 @@
     unregister_external_broker/0,
     maybe_add_route/1,
     maybe_delete_route/1,
+    maybe_add_shared_route/2,
+    maybe_delete_shared_route/2,
+    maybe_add_persistent_route/2,
+    maybe_delete_persistent_route/2,
     match_routes/1,
     forward/2,
     should_route_to_external_dests/1
@@ -38,11 +42,29 @@ register_external_broker() ->
 unregister_external_broker() ->
     emqx_external_broker:unregister_provider(?MODULE).
 
+%% Using original Topic as Route ID in the most common scenario:
+%% (non-shared, non-persistent routes).
+%% Original Topic is used to identify the route and  be able
+%% to delete it on a remote cluster.
+%% There is no need to push Node name as this info can be derived from
+%% agent state on the remote cluster.
 maybe_add_route(Topic) ->
-    maybe_push_route_op(add, Topic).
+    maybe_push_route_op(add, Topic, Topic).
 
 maybe_delete_route(Topic) ->
-    maybe_push_route_op(delete, Topic).
+    maybe_push_route_op(delete, Topic, Topic).
+
+maybe_add_shared_route(Topic, Group) ->
+    maybe_push_route_op(add, Topic, ?SHARED_ROUTE_ID(Topic, Group)).
+
+maybe_delete_shared_route(Topic, Group) ->
+    maybe_push_route_op(delete, Topic, ?SHARED_ROUTE_ID(Topic, Group)).
+
+maybe_add_persistent_route(Topic, ID) ->
+    maybe_push_route_op(add, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
+
+maybe_delete_persistent_route(Topic, ID) ->
+    maybe_push_route_op(delete, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
 
 forward(DestCluster, Delivery) ->
     emqx_cluster_link_mqtt:forward(DestCluster, Delivery).
@@ -107,15 +129,17 @@ delete_hook() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-maybe_push_route_op(Op, Topic) ->
+maybe_push_route_op(Op, Topic, RouteID) ->
+    maybe_push_route_op(Op, Topic, RouteID, push).
+
+maybe_push_route_op(Op, Topic, RouteID, PushFun) ->
     lists:foreach(
         fun(#{upstream := Cluster, topics := LinkFilters}) ->
             case topic_intersect_any(Topic, LinkFilters) of
                 false ->
                     ok;
                 TopicIntersection ->
-                    ID = Topic,
-                    emqx_cluster_link_router_syncer:push(Cluster, Op, TopicIntersection, ID)
+                    emqx_cluster_link_router_syncer:PushFun(Cluster, Op, TopicIntersection, RouteID)
             end
         end,
         emqx_cluster_link_config:enabled_links()

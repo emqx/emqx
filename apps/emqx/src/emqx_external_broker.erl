@@ -24,6 +24,12 @@
 -callback maybe_add_route(emqx_types:topic()) -> ok.
 -callback maybe_delete_route(emqx_types:topic()) -> ok.
 
+-callback maybe_add_shared_route(emqx_types:topic(), emqx_types:group()) -> ok.
+-callback maybe_delete_shared_route(emqx_types:topic(), emqx_types:group()) -> ok.
+
+-callback maybe_add_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
+-callback maybe_delete_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
+
 -callback match_routes(emqx_types:topic()) -> [emqx_types:route()].
 
 -type dest() :: term().
@@ -36,6 +42,10 @@
     should_route_to_external_dests/1,
     maybe_add_route/1,
     maybe_delete_route/1,
+    maybe_add_shared_route/2,
+    maybe_delete_shared_route/2,
+    maybe_add_persistent_route/2,
+    maybe_delete_persistent_route/2,
     match_routes/1
 ]).
 
@@ -112,6 +122,18 @@ maybe_add_route(Topic) ->
 
 maybe_delete_route(Topic) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
+
+maybe_add_shared_route(Topic, Group) ->
+    ?safe_with_provider(?FUNCTION_NAME(Topic, Group), ok).
+
+maybe_delete_shared_route(Topic, Group) ->
+    ?safe_with_provider(?FUNCTION_NAME(Topic, Group), ok).
+
+maybe_add_persistent_route(Topic, ID) ->
+    ?safe_with_provider(?FUNCTION_NAME(Topic, ID), ok).
+
+maybe_delete_persistent_route(Topic, ID) ->
+    ?safe_with_provider(?FUNCTION_NAME(Topic, ID), ok).
 
 match_routes(Topic) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic), ok).

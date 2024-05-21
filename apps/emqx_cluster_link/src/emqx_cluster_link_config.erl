@@ -55,7 +55,7 @@ emqtt_options(LinkName) ->
     emqx_maybe:apply(fun mk_emqtt_options/1, ?MODULE:link(LinkName)).
 
 topic_filters(LinkName) ->
-    maps:get(filters, ?MODULE:link(LinkName), []).
+    maps:get(topics, ?MODULE:link(LinkName), []).
 
 %%
 
