@@ -3630,9 +3630,9 @@ mqtt_general() ->
             )},
         {"retry_interval",
             sc(
-                duration(),
+                hoconsc:union([infinity, duration()]),
                 #{
-                    default => <<"30s">>,
+                    default => infinity,
                     desc => ?DESC(mqtt_retry_interval)
                 }
             )},

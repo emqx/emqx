@@ -602,9 +602,9 @@ handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
 %%--------------------------------------------------------------------
 
 -spec retry(clientinfo(), session()) ->
-    {ok, replies(), session()}.
-retry(ClientInfo, Session = #session{inflight = Inflight}) ->
-    case emqx_inflight:is_empty(Inflight) of
+    {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
+retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Interval}) ->
+    case emqx_inflight:is_empty(Inflight) orelse Interval =:= infinity of
         true ->
             {ok, [], Session};
         false ->
