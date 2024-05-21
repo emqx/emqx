@@ -46,9 +46,10 @@
 -export([has_route/2]).
 -endif.
 
+-type route() :: #ps_route{}.
 -type dest() :: emqx_persistent_session_ds:id().
 
--export_type([dest/0]).
+-export_type([dest/0, route/0]).
 
 %%--------------------------------------------------------------------
 %% Table Initialization
@@ -123,19 +124,19 @@ has_any_route(Topic) ->
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic
 %% filters associated with route destination.
--spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
+-spec match_routes(emqx_types:topic()) -> [route()].
 match_routes(Topic) when is_binary(Topic) ->
     lookup_route_tab(Topic) ++
         [match_to_route(M) || M <- match_filters(Topic)].
 
 %% @doc Take a topic or filter as input, and return the existing routes with exactly
 %% this topic or filter.
--spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
+-spec lookup_routes(emqx_types:topic()) -> [route()].
 lookup_routes(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
             Pat = #ps_routeidx{entry = emqx_topic_index:make_key(Topic, '$1')},
-            [Dest || [Dest] <- ets:match(?PS_FILTERS_TAB, Pat)];
+            [#ps_route{topic = Topic, dest = Dest} || [Dest] <- ets:match(?PS_FILTERS_TAB, Pat)];
         false ->
             lookup_route_tab(Topic)
     end.
@@ -194,11 +195,11 @@ cleanup_routes(DSSessionId) ->
         ?PS_ROUTER_TAB
     ).
 
--spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+-spec foldl_routes(fun((route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
     fold_routes(foldl, FoldFun, AccIn).
 
--spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+-spec foldr_routes(fun((route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
     fold_routes(foldr, FoldFun, AccIn).
 
