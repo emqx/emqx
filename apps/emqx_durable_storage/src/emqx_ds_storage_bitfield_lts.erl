@@ -553,6 +553,17 @@ delete_next_until(
     end.
 
 handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
+    %% If the last message was published more than one epoch ago, and
+    %% the shard remains idle, we need to advance safety cutoff
+    %% interval to make sure the last epoch becomes visible to the
+    %% readers.
+    %%
+    %% We do so by emitting a dummy event that will be persisted by
+    %% the replication layer. Processing it will advance the
+    %% replication layer's clock.
+    %%
+    %% This operation is latched to avoid publishing events on every
+    %% tick.
     case ets:lookup(Gvars, ?IDLE_DETECT) of
         [{?IDLE_DETECT, Latch, LastWrittenTs}] ->
             ok;
@@ -562,6 +573,8 @@ handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
     end,
     case Latch of
         false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) + 1 ->
+            %% Note: + 1 above delays the event by one epoch to add a
+            %% safety margin.
             ets:insert(Gvars, {?IDLE_DETECT, true, LastWrittenTs}),
             [dummy_event];
         _ ->

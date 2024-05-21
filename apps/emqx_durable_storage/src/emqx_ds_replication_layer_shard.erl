@@ -115,11 +115,11 @@ get_servers_local_preferred(DB, Shard) ->
         Servers when is_list(Servers) ->
             ok
     end,
-    case lists:keyfind(node(), 2, Servers) of
+    case lists:keytake(node(), 2, Servers) of
         false ->
             Servers;
-        Local when is_tuple(Local) ->
-            [Local | lists:delete(Local, Servers)]
+        {value, Local, Rest} ->
+            [Local | Rest]
     end.
 
 lookup_leader(DB, Shard) ->
