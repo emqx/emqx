@@ -72,6 +72,7 @@
 ]).
 
 -define(GAUGE_SAMPLER_LIST, [
+    disconnected_durable_sessions,
     durable_subscriptions,
     subscriptions,
     topics,

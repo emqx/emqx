@@ -79,7 +79,9 @@ end_per_suite(Config) ->
 
 init_per_group(persistent_sessions, Config) ->
     AppSpecs = [
-        {emqx, "durable_sessions.enable = true"},
+        {emqx,
+            "durable_sessions.enable = true\n"
+            "durable_sessions.disconnected_session_count_refresh_interval = 100ms"},
         emqx_management
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(
@@ -457,9 +459,7 @@ t_persistent_sessions5(Config) ->
                     {{_, 200, _}, _, #{
                         <<"data">> := [_, _, _],
                         <<"meta">> := #{
-                            %% TODO: if/when we fix the persistent session count, this
-                            %% should be 4.
-                            <<"count">> := 6,
+                            <<"count">> := 4,
                             <<"hasnext">> := true
                         }
                     }}},
@@ -470,9 +470,7 @@ t_persistent_sessions5(Config) ->
                     {{_, 200, _}, _, #{
                         <<"data">> := [_],
                         <<"meta">> := #{
-                            %% TODO: if/when we fix the persistent session count, this
-                            %% should be 4.
-                            <<"count">> := 6,
+                            <<"count">> := 4,
                             <<"hasnext">> := false
                         }
                     }}},
@@ -489,9 +487,7 @@ t_persistent_sessions5(Config) ->
                     {{_, 200, _}, _, #{
                         <<"data">> := [_, _],
                         <<"meta">> := #{
-                            %% TODO: if/when we fix the persistent session count, this
-                            %% should be 4.
-                            <<"count">> := 6,
+                            <<"count">> := 4,
                             <<"hasnext">> := true
                         }
                     }}},
@@ -1996,7 +1992,11 @@ assert_single_client(Opts) ->
         100,
         20,
         ?assertMatch(
-            {ok, {{_, 200, _}, _, #{<<"data">> := [#{<<"connected">> := IsConnected}]}}},
+            {ok,
+                {{_, 200, _}, _, #{
+                    <<"data">> := [#{<<"connected">> := IsConnected}],
+                    <<"meta">> := #{<<"count">> := 1}
+                }}},
             list_request(APIPort)
         )
     ),
