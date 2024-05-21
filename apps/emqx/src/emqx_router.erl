@@ -512,7 +512,7 @@ lookup_routes_v2(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
             Pat = #routeidx{entry = emqx_topic_index:make_key(Topic, '$1')},
-            [Dest || [Dest] <- ets:match(?ROUTE_TAB_FILTERS, Pat)];
+            [#route{topic = Topic, dest = Dest} || [Dest] <- ets:match(?ROUTE_TAB_FILTERS, Pat)];
         false ->
             lookup_route_tab(Topic)
     end.
