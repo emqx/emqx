@@ -342,8 +342,8 @@ get_config_bin(NameVsn) ->
 put_config(NameVsn, AvroJsonMap, DecodedPluginConfig) when not is_binary(NameVsn) ->
     put_config(bin(NameVsn), AvroJsonMap, DecodedPluginConfig);
 put_config(NameVsn, AvroJsonMap, _DecodedPluginConfig) ->
-    AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
-    ok = backup_and_write_avro_bin(NameVsn, AvroJsonBin),
+    HoconBin = hocon_pp:do(AvroJsonMap, #{}),
+    ok = backup_and_write_avro_bin(NameVsn, HoconBin),
     %% TODO: callback in plugin's on_config_changed (config update by mgmt API)
     %% TODO: callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
     %% {ok, AppName, AppVsn} = parse_name_vsn(AppNameVsn),
@@ -717,7 +717,7 @@ read_plugin_avro(NameVsn) ->
 read_plugin_avro(NameVsn, Options) ->
     tryit(
         atom_to_list(?FUNCTION_NAME),
-        read_file_fun(avro_config_file(NameVsn), "bad_avro_file", Options)
+        read_file_fun(plugin_config_file(NameVsn), "bad_avro_file", Options)
     ).
 
 ensure_exists_and_installed(NameVsn) ->
@@ -1170,21 +1170,21 @@ do_ensure_plugin_config(NameVsn) ->
     case get_avro_config_from_any_node(Nodes, NameVsn, []) of
         {ok, AvroJsonMap} when is_map(AvroJsonMap) ->
             AvroJsonBin = emqx_utils_json:encode(AvroJsonMap),
-            ok = file:write_file(avro_config_file(NameVsn), AvroJsonBin),
+            ok = file:write_file(plugin_config_file(NameVsn), AvroJsonBin),
             ensure_avro_config(NameVsn);
         _ ->
-            ?SLOG(warning, #{msg => "config_not_found_from_cluster"}),
+            ?SLOG(info, #{msg => "config_not_found_from_cluster"}),
             %% otherwise cp default avro file
             %% i.e. Clean installation
-            cp_default_avro_file(NameVsn),
+            cp_default_config_file(NameVsn),
             ensure_avro_config(NameVsn)
     end.
 
-cp_default_avro_file(NameVsn) ->
+cp_default_config_file(NameVsn) ->
     %% always copy default avro file into config dir
     %% when can not get config from other nodes
-    Source = default_avro_config_file(NameVsn),
-    Destination = avro_config_file(NameVsn),
+    Source = default_plugin_config_file(NameVsn),
+    Destination = plugin_config_file(NameVsn),
     maybe
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
@@ -1224,7 +1224,7 @@ do_ensure_avro_config(NameVsn) ->
 backup_and_write_avro_bin(NameVsn, AvroBin) ->
     %% this may fail, but we don't care
     %% e.g. read-only file system
-    Path = avro_config_file(NameVsn),
+    Path = plugin_config_file(NameVsn),
     _ = filelib:ensure_dir(Path),
     TmpFile = Path ++ ".tmp",
     case file:write_file(TmpFile, AvroBin) of
@@ -1309,6 +1309,16 @@ read_file_fun(Path, ErrMsg, #{read_mode := ?JSON_MAP}) ->
 plugin_dir(NameVsn) ->
     wrap_list_path(filename:join([install_dir(), NameVsn])).
 
+-spec plugin_priv_dir(name_vsn()) -> string().
+plugin_priv_dir(NameVsn) ->
+    case read_plugin_info(NameVsn, #{fill_readme => false}) of
+        {ok, #{<<"name">> := Name, <<"metadata_vsn">> := Vsn}} ->
+            AppDir = <<Name/binary, "-", Vsn/binary>>,
+            wrap_list_path(filename:join([plugin_dir(NameVsn), AppDir, "priv"]));
+        _ ->
+            wrap_list_path(filename:join([install_dir(), NameVsn, "priv"]))
+    end.
+
 -spec plugin_config_dir(name_vsn()) -> string() | {error, Reason :: string()}.
 plugin_config_dir(NameVsn) ->
     case parse_name_vsn(NameVsn) of
@@ -1334,20 +1344,20 @@ info_file_path(NameVsn) ->
 
 -spec avsc_file_path(name_vsn()) -> string().
 avsc_file_path(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "config", "config_schema.avsc"])).
+    wrap_list_path(filename:join([plugin_priv_dir(NameVsn), "config_schema.avsc"])).
 
--spec avro_config_file(name_vsn()) -> string().
-avro_config_file(NameVsn) ->
-    wrap_list_path(filename:join([plugin_config_dir(NameVsn), "config.avro"])).
+-spec plugin_config_file(name_vsn()) -> string().
+plugin_config_file(NameVsn) ->
+    wrap_list_path(filename:join([plugin_config_dir(NameVsn), "config.hocon"])).
 
 %% should only used when plugin installing
--spec default_avro_config_file(name_vsn()) -> string().
-default_avro_config_file(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "config", "config.avro"])).
+-spec default_plugin_config_file(name_vsn()) -> string().
+default_plugin_config_file(NameVsn) ->
+    wrap_list_path(filename:join([plugin_priv_dir(NameVsn), "config.hocon"])).
 
 -spec i18n_file_path(name_vsn()) -> string().
 i18n_file_path(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "config", "config_i18n.json"])).
+    wrap_list_path(filename:join([plugin_priv_dir(NameVsn), "config_i18n.json"])).
 
 -spec readme_file(name_vsn()) -> string().
 readme_file(NameVsn) ->
