@@ -25,6 +25,7 @@
 
 -include("emqx_mqtt.hrl").
 
+-include("emqx_session.hrl").
 -include("emqx_persistent_session_ds.hrl").
 
 -ifdef(TEST).
@@ -63,6 +64,7 @@
     deliver/3,
     replay/3,
     handle_timeout/3,
+    handle_info/2,
     disconnect/2,
     terminate/2
 ]).
@@ -374,9 +376,9 @@ subscribe(
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session) of
         {ok, S1, SharedSubS} ->
             S = emqx_persistent_session_ds_state:commit(S1),
-            {ok, Session#{s => S, shared_sub_s => SharedSubS}}
-        % Error = {error, _} ->
-        %     Error
+            {ok, Session#{s => S, shared_sub_s => SharedSubS}};
+        Error = {error, _} ->
+            Error
     end;
 subscribe(
     TopicFilter,
@@ -568,6 +570,8 @@ pubcomp(_ClientInfo, PacketId, Session0) ->
     end.
 
 %%--------------------------------------------------------------------
+%% Delivers
+%%--------------------------------------------------------------------
 
 -spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
     {ok, replies(), session()}.
@@ -578,6 +582,10 @@ deliver(ClientInfo, Delivers, Session0) ->
         fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
     ),
     {ok, [], pull_now(Session)}.
+
+%%--------------------------------------------------------------------
+%% Timeouts
+%%--------------------------------------------------------------------
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
@@ -629,6 +637,44 @@ handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.
+
+%%--------------------------------------------------------------------
+%% Geneic messages
+%%--------------------------------------------------------------------
+
+-spec handle_info(term(), session()) -> session().
+handle_info(?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := SharedSubS0}) ->
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(Msg, S0, SharedSubS0),
+    Session#{s => S, shared_sub_s => SharedSubS}.
+
+%%--------------------------------------------------------------------
+%% Shared subscription outgoing messages
+%%--------------------------------------------------------------------
+
+shared_sub_opts() ->
+    #{
+        send_funs => #{
+            send => fun send_message/2,
+            send_after => fun send_message_after/3
+        }
+    }.
+
+send_message(Dest, Msg) ->
+    case Dest =:= self() of
+        true ->
+            erlang:send(Dest, ?session_message(?shared_sub_message(Msg))),
+            Msg;
+        false ->
+            erlang:send(Dest, Msg)
+    end.
+
+send_message_after(Time, Dest, Msg) ->
+    case Dest =:= self() of
+        true ->
+            erlang:send_after(Time, Dest, ?session_message(?shared_sub_message(Msg)));
+        false ->
+            erlang:send_after(Time, Dest, Msg)
+    end.
 
 bump_last_alive(S0) ->
     %% Note: we take a pessimistic approach here and assume that the client will be alive
@@ -843,7 +889,9 @@ session_open(
                     S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
                     S5 = set_clientinfo(ClientInfo, S4),
                     S6 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S5),
-                    {ok, S7, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(S6),
+                    {ok, S7, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
+                        S6, shared_sub_opts()
+                    ),
                     S = emqx_persistent_session_ds_state:commit(S7),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
@@ -900,7 +948,7 @@ session_ensure_new(
         id => Id,
         props => Conf,
         s => S,
-        shared_sub_s => emqx_persistent_session_ds_shared_subs:new(),
+        shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts()),
         inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo))
     }.
 

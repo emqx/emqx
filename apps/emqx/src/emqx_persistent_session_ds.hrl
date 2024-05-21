@@ -83,7 +83,15 @@
 -define(clientinfo, clientinfo).
 -define(protocol, protocol).
 -define(offline_info, offline_info).
+
 -define(owner_session, owner_session).
 -define(owner_shared_sub, owner_shared_sub).
+
+%% (Erlang) messages that session should forward to the
+%% shared subscription handler.
+-record(shared_sub_message, {
+    message :: term()
+}).
+-define(shared_sub_message(MSG), #shared_sub_message{message = MSG}).
 
 -endif.

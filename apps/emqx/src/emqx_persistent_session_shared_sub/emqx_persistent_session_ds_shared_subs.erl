@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_persistent_session_ds_shared_subs).
@@ -25,7 +13,9 @@
 -record(state, {
     sub_data = #{} :: #{
         emqx_persistent_session_ds:subscription_id() => shared_sub_data()
-    }
+    },
+    send :: fun((pid(), term()) -> term()),
+    send_after :: fun((non_neg_integer(), pid(), term()) -> reference())
 }).
 
 -define(connecting, connecting).
@@ -40,23 +30,28 @@
 
 -type connecting_data() :: #{}.
 -type replaying_data() :: #{
-    streams := #{
-        emqx_persistent_session_ds:stream_key() => emqx_persistent_session_ds:stream_state()
-    }
+    emqx_persistent_session_ds_state:stream_key() => emqx_persistent_session_ds:stream_state()
 }.
 -type updating_data() :: #{}.
 
 -type shared_topic_filter() :: #share{}.
--type event() :: term().
+
+-type opts() :: #{
+    send_funs := #{
+        send := fun((pid(), term()) -> term()),
+        send_after := fun((non_neg_integer(), pid(), term()) -> reference())
+    }
+}.
 
 -export([
-    open/1,
-    new/0,
+    open/2,
+    new/1,
 
     on_subscribe/3,
     on_unsubscribe/4,
     on_session_drop/2,
-    on_timeout/3,
+
+    on_info/3,
 
     find_new_streams/2,
     renew_streams/2,
@@ -74,18 +69,30 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec new() -> state().
-new() -> #state{sub_data = #{}}.
+-spec new(opts()) -> state().
+new(#{
+    send_funs := #{
+        send := Send,
+        send_after := SendAfter
+    }
+}) ->
+    #state{sub_data = #{}, send = Send, send_after = SendAfter}.
 
--spec open(emqx_persistent_session_ds_state:t()) ->
+-spec open(emqx_persistent_session_ds_state:t(), opts()) ->
     {ok, emqx_persistent_session_ds_state:t(), state()}.
-open(SessionS) ->
-    {ok, SessionS, #state{sub_data = #{}}}.
+open(S, #{
+    send_funs := #{
+        send := Send,
+        send_after := SendAfter
+    }
+}) ->
+    %% TODO: Restore subscriptions from S
+    {ok, S, #state{sub_data = #{}, send = Send, send_after = SendAfter}}.
 
 -spec on_subscribe(
     shared_topic_filter(), emqx_types:subopts(), emqx_persistent_session_ds:session()
 ) ->
-    {ok, emqx_persistent_session_ds_state:t(), state()}.
+    {ok, emqx_persistent_session_ds_state:t(), state()} | {error, ?RC_QUOTA_EXCEEDED}.
 on_subscribe(#share{topic = TopicFilter} = SharedTopicFilter, SubOpts, #{
     id := SessionId, s := S0, shared_sub_s := SharedSubS0, props := Props
 }) ->
@@ -103,7 +110,7 @@ on_subscribe(#share{topic = TopicFilter} = SharedTopicFilter, SubOpts, #{
             %% This is a new subscription:
             case emqx_persistent_session_ds_state:n_subscriptions(S0) < MaxSubscriptions of
                 true ->
-                    %% TODO: The group leaedr will add the route.
+                    %% TODO: The group leaedr should add the route.
                     ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, SessionId),
 
                     {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
@@ -125,7 +132,7 @@ on_subscribe(#share{topic = TopicFilter} = SharedTopicFilter, SubOpts, #{
                     ?tp(persistent_session_ds_shared_subscription_added, #{
                         topic_filter => SharedTopicFilter, session => SessionId
                     }),
-                    {ok, S, find_streams(SharedTopicFilter, S, SharedSubS0)};
+                    {ok, S, init_subscription(SharedTopicFilter, S, SharedSubS0)};
                 false ->
                     {error, ?RC_QUOTA_EXCEEDED}
             end;
@@ -172,51 +179,18 @@ on_unsubscribe(SessionId, #share{topic = TopicFilter} = SharedTopicFilter, S0, S
                 SharedSubS1, Subscription}
     end.
 
--spec on_timeout(event(), emqx_persistent_session_ds_state:t(), state()) -> ok.
-on_timeout(_Event, _S, _SharesSubS) -> ok.
-
 -spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) -> ok.
 on_session_drop(_SessionId, _S) -> ok.
 
 -spec renew_streams(emqx_persistent_session_ds_state:t(), state()) ->
     {emqx_persistent_session_ds_state:t(), state()}.
 renew_streams(S, SharedSubS0) ->
-    SharedSubS1 = fold(
-        fun(SharedTopicFilter, _Sub, SharedSubSAcc) ->
-            find_streams(SharedTopicFilter, S, SharedSubSAcc)
-        end,
-        SharedSubS0,
-        S
-    ),
-    {S, SharedSubS1}.
+    renew_streams_stub0(S, SharedSubS0).
 
 -spec find_new_streams(emqx_persistent_session_ds_state:t(), state()) ->
     [{emqx_persistent_session_ds_state:stream_key(), emqx_persistent_session_ds:stream_state()}].
 find_new_streams(S, SharedSubS) ->
-    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
-    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-    StreamStates = fold(
-        fun(_SharedTopicFilter, #{id := SubId}, StreamAcc) ->
-            {?replaying, SubData} = get_sub_data(SubId, SharedSubS),
-            lists:filtermap(
-                fun({Stream, StreamState}) ->
-                    case
-                        is_fully_acked(Comm1, Comm2, StreamState) andalso
-                            not is_fully_replayed(Comm1, Comm2, StreamState)
-                    of
-                        true ->
-                            {true, {{SubId, Stream}, StreamState}};
-                        false ->
-                            false
-                    end
-                end,
-                maps:to_list(SubData)
-            ) ++ StreamAcc
-        end,
-        [],
-        S
-    ),
-    StreamStates.
+    find_new_streams_stub(S, SharedSubS).
 
 -spec put_stream(
     emqx_persistent_session_ds_state:stream_key(),
@@ -230,6 +204,17 @@ put_stream({SubId, Stream}, StreamState, SharedSubS) ->
 
 -spec to_map(emqx_persistent_session_ds_state:t(), state()) -> map().
 to_map(_SessionS, _S) -> #{}.
+
+-spec on_info(_Message :: term(), emqx_persistent_session_ds_state:t(), state()) ->
+    {emqx_persistent_session_ds_state:t(), state()}.
+on_info(renew_streams, S, SharedSubS) ->
+    renew_streams_stub1(S, SharedSubS);
+on_info(Message, S, SharedSubS) ->
+    ?SLOG(warning, #{
+        msg => on_info,
+        message => Message
+    }),
+    {S, SharedSubS}.
 
 %% @doc Fold over active subscriptions:
 -spec fold(
@@ -252,8 +237,9 @@ fold(Fun, Acc, S) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec lookup(shared_topic_filter(), emqx_persistent_session_ds_state:t()) ->
-    emqx_persistent_session_ds:subscription() | undefined.
+init_subscription(SharedTopicFilter, S, SharedSubS0) ->
+    init_subscription_stub(SharedTopicFilter, S, SharedSubS0).
+
 lookup(SharedTopicFilter, S) ->
     case emqx_persistent_session_ds_state:get_subscription(SharedTopicFilter, S) of
         Sub = #{current_state := SStateId} ->
@@ -289,6 +275,56 @@ put_sub_data(SubId, NewData, #state{sub_data = SubData0} = State) ->
     SubData1 = maps:put(SubId, {Status, NewData}, SubData0),
     State#state{sub_data = SubData1}.
 
+%%--------------------------------------------------------------------
+%% Stub implementations
+%% Just to verify that we interact with session correctly
+%%--------------------------------------------------------------------
+
+init_subscription_stub(_SharedTopicFilter, _S, SharedSubS0) ->
+    SharedSubS0.
+
+renew_streams_stub0(S, #state{send_after = SendAfter} = SharedSubS) ->
+    %% Handle asynchronously just to check message sending and receiving
+    _ = SendAfter(0, self(), renew_streams),
+    {S, SharedSubS}.
+
+renew_streams_stub1(S, SharedSubS0) ->
+    SharedSubS1 = fold(
+        fun(SharedTopicFilter, _Sub, SharedSubSAcc) ->
+            find_streams(SharedTopicFilter, S, SharedSubSAcc)
+        end,
+        SharedSubS0,
+        S
+    ),
+    {S, SharedSubS1}.
+
+find_new_streams_stub(S, SharedSubS) ->
+    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+    StreamStates = fold(
+        fun(_SharedTopicFilter, #{id := SubId}, StreamAcc) ->
+            {?replaying, SubData} = get_sub_data(SubId, SharedSubS),
+            lists:filtermap(
+                fun({Stream, StreamState}) ->
+                    case
+                        is_fully_acked(Comm1, Comm2, StreamState) andalso
+                            not is_fully_replayed(Comm1, Comm2, StreamState)
+                    of
+                        true ->
+                            {true, {{SubId, Stream}, StreamState}};
+                        false ->
+                            false
+                    end
+                end,
+                maps:to_list(SubData)
+            ) ++ StreamAcc
+        end,
+        [],
+        S
+    ),
+    StreamStates.
+
+%% It's a stub, no rank management, no progress persistence
 find_streams(#share{topic = TopicFilter} = SharedTopicFilter, S, SharedSubS) ->
     #{start_time := StartTime, id := SubId, current_state := SStateId} =
         emqx_persistent_session_ds_state:get_subscription(SharedTopicFilter, S),

@@ -83,6 +83,7 @@
 
 -export([
     deliver/3,
+    handle_info/2,
     handle_timeout/3,
     disconnect/3,
     terminate/3
@@ -188,6 +189,10 @@
 -callback destroy(t() | clientinfo()) -> ok.
 -callback clear_will_message(t()) -> t().
 -callback publish_will_message_now(t(), message()) -> t().
+-callback handle_timeout(clientinfo(), common_timer_name() | custom_timer_name(), t()) ->
+    {ok, replies(), t()}
+    | {ok, replies(), timeout(), t()}.
+-callback handle_info(term(), t()) -> t().
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -483,6 +488,14 @@ enrich_subopts(_Opt, _V, Msg, _) ->
     | {ok, replies(), timeout(), t()}.
 handle_timeout(ClientInfo, Timer, Session) ->
     ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session).
+
+%%--------------------------------------------------------------------
+%% Generic Messages
+%%--------------------------------------------------------------------
+
+-spec handle_info(term(), t()) -> t().
+handle_info(Info, Session) ->
+    ?IMPL(Session):handle_info(Info, Session).
 
 %%--------------------------------------------------------------------
 
