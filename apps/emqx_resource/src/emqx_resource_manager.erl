@@ -1038,7 +1038,8 @@ continue_resource_health_check_not_connected(NewStatus, Data0) ->
 
 handle_manual_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
     {keep_state_and_data, [
-        {reply, From, channel_status({error, resource_disconnected}, undefined)}
+        {reply, From,
+            maps:remove(config, channel_status({error, resource_disconnected}, undefined))}
     ]};
 handle_manual_channel_health_check(
     From,
@@ -1072,13 +1073,15 @@ handle_manual_channel_health_check(
     is_map_key(ChannelId, Channels)
 ->
     %% No ongoing health check: reply with current status.
-    {keep_state_and_data, [{reply, From, maps:get(ChannelId, Channels)}]};
+    {keep_state_and_data, [{reply, From, maps:remove(config, maps:get(ChannelId, Channels))}]};
 handle_manual_channel_health_check(
     From,
     _Data,
     _ChannelId
 ) ->
-    {keep_state_and_data, [{reply, From, channel_status({error, channel_not_found}, undefined)}]}.
+    {keep_state_and_data, [
+        {reply, From, maps:remove(config, channel_status({error, channel_not_found}, undefined))}
+    ]}.
 
 -spec channels_health_check(resource_status(), data()) -> data().
 channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
@@ -1327,8 +1330,9 @@ handle_channel_health_check_worker_down_new_channels_and_status(
     {AddedChannels, NewStatus}.
 
 reply_pending_channel_health_check_callers(
-    ChannelId, Status, Data0 = #data{hc_pending_callers = Pending0}
+    ChannelId, Status0, Data0 = #data{hc_pending_callers = Pending0}
 ) ->
+    Status = maps:remove(config, Status0),
     #{channel := CPending0} = Pending0,
     Pending = maps:get(ChannelId, CPending0, []),
     Actions = [{reply, From, Status} || From <- Pending],
@@ -1459,6 +1463,14 @@ maybe_reply(Actions, From, Reply) ->
 
 -spec data_record_to_external_map(data()) -> resource_data().
 data_record_to_external_map(Data) ->
+    AddedChannelsList = maps:to_list(Data#data.added_channels),
+    AddedChannelsListWithoutConfigs =
+        [
+            {ChanID, maps:remove(config, Status)}
+         || {ChanID, Status} <- AddedChannelsList
+        ],
+    AddedChannelsWithoutConfigs =
+        maps:from_list(AddedChannelsListWithoutConfigs),
     #{
         id => Data#data.id,
         error => external_error(Data#data.error),
@@ -1468,7 +1480,7 @@ data_record_to_external_map(Data) ->
         config => Data#data.config,
         status => Data#data.status,
         state => Data#data.state,
-        added_channels => Data#data.added_channels
+        added_channels => AddedChannelsWithoutConfigs
     }.
 
 -spec wait_for_ready(resource_id(), integer()) -> ok | timeout | {error, term()}.
