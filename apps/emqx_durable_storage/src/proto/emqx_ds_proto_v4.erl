@@ -179,8 +179,7 @@ make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     | {ok, end_of_stream}
     | {error, _}.
 delete_next(Node, DB, Shard, Iter, Selector, BatchSize) ->
-    emqx_rpc:call(
-        Shard,
+    erpc:call(
         Node,
         emqx_ds_replication_layer,
         do_delete_next_v4,
