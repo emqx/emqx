@@ -118,6 +118,7 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
         (Method =:= put) orelse
         (Method =:= delete)
 ->
+    ContentType = maps:get('content-type', Opts, "application/json"),
     NewUrl =
         case QueryParams of
             "" -> Url;
@@ -125,9 +126,8 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
         end,
     do_request_api(
         Method,
-        {NewUrl, build_http_header(AuthOrHeaders), "application/json",
-            emqx_utils_json:encode(Body)},
-        Opts
+        {NewUrl, build_http_header(AuthOrHeaders), ContentType, emqx_utils_json:encode(Body)},
+        maps:remove('content-type', Opts)
     ).
 
 do_request_api(Method, Request, Opts) ->

@@ -30,6 +30,7 @@
 -export([base_path/0]).
 -export([relative_uri/1, get_relative_uri/1]).
 -export([compose_filters/2]).
+-export([is_content_type_json/2, validate_content_type/3]).
 
 -export([
     filter_check_request/2,
@@ -151,6 +152,30 @@ spec(Module, Options) ->
             Paths
         ),
     {ApiSpec, components(lists:usort(AllRefs), Options)}.
+
+is_content_type_json(Params, Meta) ->
+    validate_content_type(Params, Meta, <<"application/json">>).
+
+%% tip: Skip content-type check if body is empty.
+validate_content_type(#{body := Body} = Params, #{method := Method}, Expect) when
+    (Method =:= put orelse
+        Method =:= post orelse
+        method =:= patch) andalso
+        Body =/= #{}
+->
+    ExpectSize = byte_size(Expect),
+    case find_content_type(Params) of
+        <<Expect:ExpectSize/binary, _/binary>> ->
+            {ok, Params};
+        _ ->
+            {415, 'UNSUPPORTED_MEDIA_TYPE', <<"content-type:", Expect/binary, " Required">>}
+    end;
+validate_content_type(Params, _Meta, _Expect) ->
+    {ok, Params}.
+
+find_content_type(#{headers := #{<<"content-type">> := Type}}) -> Type;
+find_content_type(#{headers := #{<<"Content-Type">> := Type}}) -> Type;
+find_content_type(_Headers) -> error.
 
 -spec namespace() -> hocon_schema:name().
 namespace() -> "public".
@@ -341,8 +366,12 @@ translate_req(Request, #{module := Module, path := Path, method := Method}, Chec
         Params = maps:get(parameters, Spec, []),
         Body = maps:get('requestBody', Spec, []),
         {Bindings, QueryStr} = check_parameters(Request, Params, Module),
-        NewBody = check_request_body(Request, Body, Module, CheckFun, hoconsc:is_schema(Body)),
-        {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}}
+        case check_request_body(Request, Body, Module, CheckFun, hoconsc:is_schema(Body)) of
+            {ok, NewBody} ->
+                {ok, Request#{bindings => Bindings, query_string => QueryStr, body => NewBody}};
+            Error ->
+                Error
+        end
     catch
         throw:HoconError ->
             Msg = hocon_error_msg(HoconError),
@@ -523,16 +552,23 @@ unwrap_array_conv([HVal | _], _Opts) -> HVal;
 unwrap_array_conv(SingleVal, _Opts) -> SingleVal.
 
 check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
-    Type0 = hocon_schema:field_schema(Schema, type),
-    Type =
-        case Type0 of
-            ?REF(StructName) -> ?R_REF(Module, StructName);
-            _ -> Type0
-        end,
-    NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
-    Option = #{required => false},
-    #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
-    NewBody;
+    %% the body was already being decoded
+    %% if the content-type header specified application/json.
+    case is_binary(Body) of
+        false ->
+            Type0 = hocon_schema:field_schema(Schema, type),
+            Type =
+                case Type0 of
+                    ?REF(StructName) -> ?R_REF(Module, StructName);
+                    _ -> Type0
+                end,
+            NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
+            Option = #{required => false},
+            #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
+            {ok, NewBody};
+        true ->
+            {415, 'UNSUPPORTED_MEDIA_TYPE', <<"content-type:application/json Required">>}
+    end;
 %% TODO not support nest object check yet, please use ref!
 %% 'requestBody' = [ {per_page, mk(integer(), #{}},
 %%                 {nest_object, [
@@ -541,18 +577,19 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
 %%                ]}
 %% ]
 check_request_body(#{body := Body}, Spec, _Module, CheckFun, false) when is_list(Spec) ->
-    lists:foldl(
-        fun({Name, Type}, Acc) ->
-            Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
-            maps:merge(Acc, CheckFun(Schema, Body, #{}))
-        end,
-        #{},
-        Spec
-    );
+    {ok,
+        lists:foldl(
+            fun({Name, Type}, Acc) ->
+                Schema = ?INIT_SCHEMA#{roots => [{Name, Type}]},
+                maps:merge(Acc, CheckFun(Schema, Body, #{}))
+            end,
+            #{},
+            Spec
+        )};
 %% requestBody => #{content => #{ 'application/octet-stream' =>
 %% #{schema => #{ type => string, format => binary}}}
 check_request_body(#{body := Body}, Spec, _Module, _CheckFun, false) when is_map(Spec) ->
-    Body.
+    {ok, Body}.
 
 %% tags, description, summary, security, deprecated
 meta_to_spec(Meta, Module, Options) ->

@@ -60,8 +60,11 @@ maybe_json_decode(X) ->
     end.
 
 request(Method, Path, Params) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Opts = #{return_all => true},
+    request(Method, Path, Params, Opts).
+
+request(Method, Path, Params, Opts) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(Method, Path, "", AuthHeader, Params, Opts) of
         {ok, {Status, Headers, Body0}} ->
             Body = maybe_json_decode(Body0),
@@ -384,6 +387,38 @@ t_rule_test_smoke(_Config) ->
     Cases = Publish ++ DefaultNoMatch ++ MultipleFrom,
     FailedCases = lists:filtermap(fun do_t_rule_test_smoke/1, Cases),
     ?assertEqual([], FailedCases),
+    ok.
+
+%% validate check_schema is function with bad content_type
+t_rule_test_with_bad_content_type(_Config) ->
+    Params =
+        #{
+            <<"context">> =>
+                #{
+                    <<"clientid">> => <<"c_emqx">>,
+                    <<"event_type">> => <<"message_publish">>,
+                    <<"payload">> => <<"{\"msg\": \"hello\"}">>,
+                    <<"qos">> => 1,
+                    <<"topic">> => <<"t/a">>,
+                    <<"username">> => <<"u_emqx">>
+                },
+            <<"sql">> => <<"SELECT\n  *\nFROM\n  \"t/#\"">>
+        },
+    Method = post,
+    Path = emqx_mgmt_api_test_util:api_path(["rule_test"]),
+    Opts = #{return_all => true, 'content-type' => "application/xml"},
+    ?assertMatch(
+        {error,
+            {
+                {"HTTP/1.1", 415, "Unsupported Media Type"},
+                _Headers,
+                #{
+                    <<"code">> := <<"UNSUPPORTED_MEDIA_TYPE">>,
+                    <<"message">> := <<"content-type:application/json Required">>
+                }
+            }},
+        request(Method, Path, Params, Opts)
+    ),
     ok.
 
 do_t_rule_test_smoke(#{input := Input, expected := #{code := ExpectedCode}} = Case) ->
