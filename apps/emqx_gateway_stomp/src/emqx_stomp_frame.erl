@@ -140,6 +140,9 @@ g(Key, Opts, Val) ->
 -spec parse(binary(), parse_state()) -> parse_result().
 parse(<<>>, Parser) ->
     {more, Parser};
+%% treat the \n as a heartbeat frame
+parse(<<$\n>>, Parser = #{phase := none}) ->
+    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, <<>>, Parser};
 parse(Bytes, #{phase := body, length := Len, state := State}) ->
     parse(body, Bytes, State, Len);
 parse(<<?LF, Bytes/binary>>, #{phase := hdname, state := State}) ->
