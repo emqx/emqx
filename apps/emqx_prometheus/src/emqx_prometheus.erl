@@ -331,6 +331,8 @@ emqx_collect(K = emqx_channels_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_cluster_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_cluster_sessions_max, D) -> gauge_metrics(?MG(K, D));
 %% pub/sub stats
+emqx_collect(K = emqx_durable_subscriptions_count, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_durable_subscriptions_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_topics_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_topics_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_suboptions_count, D) -> gauge_metrics(?MG(K, D));
@@ -541,6 +543,8 @@ stats_metric_meta() ->
         {emqx_subscribers_max, gauge, 'subscribers.max'},
         {emqx_subscriptions_count, gauge, 'subscriptions.count'},
         {emqx_subscriptions_max, gauge, 'subscriptions.max'},
+        {emqx_durable_subscriptions_count, gauge, 'durable_subscriptions.count'},
+        {emqx_durable_subscriptions_max, gauge, 'durable_subscriptions.max'},
         %% delayed
         {emqx_delayed_count, gauge, 'delayed.count'},
         {emqx_delayed_max, gauge, 'delayed.max'}

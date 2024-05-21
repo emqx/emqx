@@ -38,7 +38,7 @@ init_per_suite(Config) ->
     AppSpecs = [
         emqx_durable_storage,
         {emqx, #{
-            config => #{session_persistence => #{enable => true}},
+            config => #{durable_sessions => #{enable => true}},
             override_env => [{boot_modules, [broker]}]
         }}
     ],

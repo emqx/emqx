@@ -402,6 +402,8 @@ assert_json_data__stats(M, Mode) when
         #{
             emqx_connections_count := _,
             emqx_connections_max := _,
+            emqx_durable_subscriptions_count := _,
+            emqx_durable_subscriptions_max := _,
             emqx_live_connections_count := _,
             emqx_live_connections_max := _,
             emqx_sessions_count := _,

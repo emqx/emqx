@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 
 %% schema
 -export([roots/0, fields/1, desc/1, namespace/0]).
@@ -273,10 +274,13 @@ do_batch_query(InstId, Requests, Async, #{pool_name := PoolName} = State) ->
             _ -> none
         end,
     emqx_trace:rendered_action_template(ChannelID, #{
-        cqls => CQLs
+        cqls => #emqx_trace_format_func_data{data = CQLs, function = fun trace_format_cql_tuples/1}
     }),
     Res = exec_cql_batch_query(InstId, PoolName, Async, CQLs),
     handle_result(Res).
+
+trace_format_cql_tuples(Tuples) ->
+    [CQL || {_, CQL} <- Tuples].
 
 parse_request_to_cql({query, CQL}) ->
     {query, CQL, #{}};

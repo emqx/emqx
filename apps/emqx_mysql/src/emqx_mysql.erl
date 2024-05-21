@@ -507,7 +507,13 @@ on_sql_query(
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
     ChannelID = maps:get(channel_id, State, no_channel),
-    emqx_trace:rendered_action_template(ChannelID, #{sql => SQLOrKey}),
+    emqx_trace:rendered_action_template(
+        ChannelID,
+        #{
+            sql_or_key => SQLOrKey,
+            parameters => Params
+        }
+    ),
     Worker = ecpool:get_client(PoolName),
     case ecpool_worker:client(Worker) of
         {ok, Conn} ->

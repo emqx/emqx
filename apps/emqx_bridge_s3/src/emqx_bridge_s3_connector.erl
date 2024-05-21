@@ -52,6 +52,7 @@
 }.
 
 -type s3_upload_parameters() :: #{
+    mode := direct,
     bucket := string(),
     key := string(),
     content := string(),
@@ -59,6 +60,7 @@
 }.
 
 -type s3_aggregated_upload_parameters() :: #{
+    mode := aggregated,
     bucket := string(),
     key := string(),
     acl => emqx_s3:acl(),
@@ -187,22 +189,24 @@ on_get_channel_status(_InstId, ChannelId, State = #{channels := Channels}) ->
 start_channel(_State, #{
     bridge_type := ?BRIDGE_TYPE_UPLOAD,
     parameters := Parameters = #{
+        mode := Mode = direct,
         bucket := Bucket,
         key := Key,
         content := Content
     }
 }) ->
     #{
-        type => ?ACTION_UPLOAD,
+        mode => Mode,
         bucket => emqx_template:parse(Bucket),
         key => emqx_template:parse(Key),
         content => emqx_template:parse(Content),
         upload_options => upload_options(Parameters)
     };
 start_channel(State, #{
-    bridge_type := Type = ?BRIDGE_TYPE_AGGREGATED_UPLOAD,
+    bridge_type := Type = ?BRIDGE_TYPE_UPLOAD,
     bridge_name := Name,
     parameters := Parameters = #{
+        mode := Mode = aggregated,
         aggregation := #{
             time_interval := TimeInterval,
             max_records := MaxRecords
@@ -219,9 +223,9 @@ start_channel(State, #{
     },
     DeliveryOpts = #{
         bucket => Bucket,
-        key => emqx_bridge_s3_aggreg_upload:mk_key_template(Parameters),
+        key => emqx_bridge_s3_upload:mk_key_template(Parameters),
         container => Container,
-        upload_options => emqx_bridge_s3_aggreg_upload:mk_upload_options(Parameters),
+        upload_options => emqx_bridge_s3_upload:mk_upload_options(Parameters),
         callback_module => ?MODULE,
         client_config => maps:get(client_config, State),
         uploader_config => maps:with([min_part_size, max_part_size], Parameters)
@@ -235,7 +239,7 @@ start_channel(State, #{
         restart => permanent
     }),
     #{
-        type => ?ACTION_AGGREGATED_UPLOAD,
+        mode => Mode,
         name => Name,
         aggreg_id => AggregId,
         bucket => Bucket,
@@ -254,14 +258,12 @@ stop_channel(#{on_stop := OnStop}) ->
 stop_channel(_ChannelState) ->
     ok.
 
-channel_status(#{type := ?ACTION_UPLOAD}, _State) ->
+channel_status(#{mode := direct}, _State) ->
     %% TODO
     %% Since bucket name may be templated, we can't really provide any additional
     %% information regarding the channel health.
     ?status_connected;
-channel_status(
-    #{type := ?ACTION_AGGREGATED_UPLOAD, aggreg_id := AggregId, bucket := Bucket}, State
-) ->
+channel_status(#{mode := aggregated, aggreg_id := AggregId, bucket := Bucket}, State) ->
     %% NOTE: This will effectively trigger uploads of buffers yet to be uploaded.
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
@@ -305,9 +307,9 @@ check_aggreg_upload_errors(AggregId) ->
     {ok, _Result} | {error, _Reason}.
 on_query(InstId, {Tag, Data}, #{client_config := Config, channels := Channels}) ->
     case maps:get(Tag, Channels, undefined) of
-        ChannelState = #{type := ?ACTION_UPLOAD} ->
+        ChannelState = #{mode := direct} ->
             run_simple_upload(InstId, Tag, Data, ChannelState, Config);
-        ChannelState = #{type := ?ACTION_AGGREGATED_UPLOAD} ->
+        ChannelState = #{mode := aggregated} ->
             run_aggregated_upload(InstId, [Data], ChannelState);
         undefined ->
             {error, {unrecoverable_error, {invalid_message_tag, Tag}}}
@@ -317,7 +319,7 @@ on_query(InstId, {Tag, Data}, #{client_config := Config, channels := Channels}) 
     {ok, _Result} | {error, _Reason}.
 on_batch_query(InstId, [{Tag, Data0} | Rest], #{channels := Channels}) ->
     case maps:get(Tag, Channels, undefined) of
-        ChannelState = #{type := ?ACTION_AGGREGATED_UPLOAD} ->
+        ChannelState = #{mode := aggregated} ->
             Records = [Data0 | [Data || {_, Data} <- Rest]],
             run_aggregated_upload(InstId, Records, ChannelState);
         undefined ->

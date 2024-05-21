@@ -194,8 +194,11 @@ swagger_desc(validation_failed) ->
     swagger_desc_format("Schema validations failed ");
 swagger_desc(persisted) ->
     swagger_desc_format("Messages saved to the durable storage ");
+swagger_desc(durable_subscriptions) ->
+    <<"Subscriptions from durable sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(subscriptions) ->
-    <<"Subscriptions at the time of sampling.", ?APPROXIMATE_DESC>>;
+    <<"Subscriptions at the time of sampling (not considering durable sessions).",
+        ?APPROXIMATE_DESC>>;
 swagger_desc(topics) ->
     <<"Count topics at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(connections) ->

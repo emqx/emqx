@@ -82,7 +82,7 @@ init_per_group(persistent_sessions = Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            {emqx, "session_persistence {enable = true}"},
+            {emqx, "durable_sessions {enable = true}"},
             {emqx_retainer, ?BASE_RETAINER_CONF},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(
@@ -345,7 +345,8 @@ t_persistent_session_stats(_Config) ->
                 %% and non-persistent routes, so we count `commont/topic' twice and get 8
                 %% instead of 6 here.
                 <<"topics">> := 8,
-                <<"subscriptions">> := 8
+                <<"durable_subscriptions">> := 4,
+                <<"subscriptions">> := 4
             }},
             request(["monitor_current"])
         )

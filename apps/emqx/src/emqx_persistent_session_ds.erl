@@ -1146,14 +1146,14 @@ receive_maximum(ConnInfo) ->
 expiry_interval(ConnInfo) ->
     maps:get(expiry_interval, ConnInfo, 0).
 
-%% Note: we don't allow overriding `last_alive_update_interval' per
+%% Note: we don't allow overriding `heartbeat_interval' per
 %% zone, since the GC process is responsible for all sessions
 %% regardless of the zone.
 bump_interval() ->
-    emqx_config:get([session_persistence, last_alive_update_interval]).
+    emqx_config:get([durable_sessions, heartbeat_interval]).
 
 get_config(#{zone := Zone}, Key) ->
-    emqx_config:get_zone_conf(Zone, [session_persistence | Key]).
+    emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).
 
 -spec try_get_live_session(emqx_types:clientid()) ->
     {pid(), session()} | not_found | not_persistent.
@@ -1182,7 +1182,12 @@ maybe_set_offline_info(S, Id) ->
     case emqx_cm:lookup_client({clientid, Id}) of
         [{_Key, ChannelInfo, Stats}] ->
             emqx_persistent_session_ds_state:set_offline_info(
-                #{chan_info => ChannelInfo, stats => Stats},
+                #{
+                    chan_info => ChannelInfo,
+                    stats => Stats,
+                    disconnected_at => erlang:system_time(millisecond),
+                    last_connected_to => node()
+                },
                 S
             );
         _ ->

@@ -319,6 +319,13 @@ fields("ctx_delivery_dropped") ->
         {"from_clientid", sc(binary(), #{desc => ?DESC("event_from_clientid")})},
         {"from_username", sc(binary(), #{desc => ?DESC("event_from_username")})}
         | msg_event_common_fields()
+    ];
+fields("ctx_schema_validation_failed") ->
+    Event = 'schema.validation_failed',
+    [
+        {"event_type", event_type_sc(Event)},
+        {"validation", sc(binary(), #{desc => ?DESC("event_validation")})}
+        | msg_event_common_fields()
     ].
 
 rule_input_message_context() ->
@@ -337,7 +344,8 @@ rule_input_message_context() ->
                 ref("ctx_check_authz_complete"),
                 ref("ctx_check_authn_complete"),
                 ref("ctx_bridge_mqtt"),
-                ref("ctx_delivery_dropped")
+                ref("ctx_delivery_dropped"),
+                ref("ctx_schema_validation_failed")
             ]),
             #{
                 desc => ?DESC("test_context"),

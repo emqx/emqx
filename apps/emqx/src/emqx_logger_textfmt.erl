@@ -16,15 +16,20 @@
 
 -module(emqx_logger_textfmt).
 
+-include("emqx_trace.hrl").
+
 -export([format/2]).
 -export([check_config/1]).
 -export([try_format_unicode/1]).
+%% Used in the other log formatters
+-export([evaluate_lazy_values_if_dbg_level/1, evaluate_lazy_values/1]).
 
 check_config(X) -> logger_formatter:check_config(maps:without([timestamp_format], X)).
 
 %% Principle here is to delegate the formatting to logger_formatter:format/2
 %% as much as possible, and only enrich the report with clientid, peername, topic, username
-format(#{msg := {report, ReportMap}, meta := Meta} = Event, Config) when is_map(ReportMap) ->
+format(#{msg := {report, ReportMap0}, meta := _Meta} = Event0, Config) when is_map(ReportMap0) ->
+    #{msg := {report, ReportMap}, meta := Meta} = Event = evaluate_lazy_values_if_dbg_level(Event0),
     %% The most common case, when entering from SLOG macro
     %% i.e. logger:log(Level, #{msg => "my_msg", foo => bar})
     ReportList = enrich_report(ReportMap, Meta),
@@ -40,12 +45,39 @@ format(#{msg := {string, String}} = Event, Config) ->
     %% copied from logger_formatter:format/2
     %% unsure how this case is triggered
     format(Event#{msg => {"~ts ", [String]}}, Config);
-format(#{msg := Msg0, meta := Meta} = Event, Config) ->
+format(#{msg := _Msg, meta := _Meta} = Event0, Config) ->
+    #{msg := Msg0, meta := Meta} = Event1 = evaluate_lazy_values_if_dbg_level(Event0),
     %% For format strings like logger:log(Level, "~p", [Var])
     %% and logger:log(Level, "message", #{key => value})
     Msg1 = enrich_client_info(Msg0, Meta),
     Msg2 = enrich_topic(Msg1, Meta),
-    fmt(Event#{msg := Msg2}, Config).
+    fmt(Event1#{msg := Msg2}, Config).
+
+%% Most log entries with lazy values are trace events with level debug. So to
+%% be more efficient we only search for lazy values to evaluate in the entries
+%% with level debug in the main log formatters.
+evaluate_lazy_values_if_dbg_level(#{level := debug} = Map) ->
+    evaluate_lazy_values(Map);
+evaluate_lazy_values_if_dbg_level(Map) ->
+    Map.
+
+evaluate_lazy_values(Map) when is_map(Map) ->
+    maps:map(fun evaluate_lazy_values_kv/2, Map);
+evaluate_lazy_values({report, Report}) ->
+    {report, evaluate_lazy_values(Report)};
+evaluate_lazy_values(V) ->
+    V.
+
+evaluate_lazy_values_kv(_K, #emqx_trace_format_func_data{function = Formatter, data = V}) ->
+    try
+        NewV = Formatter(V),
+        evaluate_lazy_values(NewV)
+    catch
+        _:_ ->
+            V
+    end;
+evaluate_lazy_values_kv(_K, V) ->
+    evaluate_lazy_values(V).
 
 fmt(#{meta := #{time := Ts}} = Data, Config) ->
     Timestamp =

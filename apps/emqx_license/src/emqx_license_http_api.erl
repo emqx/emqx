@@ -149,7 +149,7 @@ error_msg(Code, Msg) ->
 '/license/setting'(get, _Params) ->
     {200, get_setting()};
 '/license/setting'(put, #{body := Setting}) ->
-    case emqx_license:update_setting(Setting) of
+    case update_setting(Setting) of
         {error, Error} ->
             ?SLOG(
                 error,
@@ -164,6 +164,12 @@ error_msg(Code, Msg) ->
             ?SLOG(info, #{msg => "updated_license_setting"}, #{tag => "LICENSE"}),
             '/license/setting'(get, undefined)
     end.
+
+update_setting(Setting) when is_map(Setting) ->
+    emqx_license:update_setting(Setting);
+update_setting(_Setting) ->
+    %% TODO: EMQX-12401 content-type enforcement by framework
+    {error, "bad content-type"}.
 
 fields(key_license) ->
     [lists:keyfind(key, 1, emqx_license_schema:fields(key_license))].

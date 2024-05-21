@@ -580,7 +580,7 @@ t_handle_out_publish_1(_) ->
     {ok, {outgoing, [?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>)]}, _Chan} =
         emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
-t_handle_out_connack_sucess(_) ->
+t_handle_out_connack_success(_) ->
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
         emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, #{}}, channel()),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).

@@ -323,7 +323,7 @@ on_query(
             #{headers_config => KafkaHeaders, instance_id => InstId}
         ),
         emqx_trace:rendered_action_template(MessageTag, #{
-            message => KafkaMessage, send_type => sync
+            message => KafkaMessage
         }),
         do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
     catch
@@ -383,7 +383,7 @@ on_query_async(
             #{headers_config => KafkaHeaders, instance_id => InstId}
         ),
         emqx_trace:rendered_action_template(MessageTag, #{
-            message => KafkaMessage, send_type => async
+            message => KafkaMessage
         }),
         do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
     catch
@@ -506,7 +506,7 @@ on_get_status(
 ) ->
     %% Note: we must avoid returning `?status_disconnected' here if the connector ever was
     %% connected.  If the connector ever connected, wolff producers might have been
-    %% sucessfully started, and returning `?status_disconnected' will make resource
+    %% successfully started, and returning `?status_disconnected' will make resource
     %% manager try to restart the producers / connector, thus potentially dropping data
     %% held in wolff producer's replayq.
     case check_client_connectivity(ClientId) of

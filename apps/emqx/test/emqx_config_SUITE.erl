@@ -382,7 +382,7 @@ t_init_zone_with_global_defaults(Config) when is_list(Config) ->
     %% when put zones with global default with emqx_config:put/1
     GlobalDefaults = zone_global_defaults(),
     AllConf = maps:put(zones, Zones, GlobalDefaults),
-    %% Then put sucess
+    %% Then put success
     ?assertEqual(ok, emqx_config:put(AllConf)),
     %% Then GlobalDefaults are set
     ?assertEqual(GlobalDefaults, maps:with(maps:keys(GlobalDefaults), emqx_config:get([]))),
@@ -465,13 +465,13 @@ zone_global_defaults() ->
                 enable => false
             },
         stats => #{enable => true},
-        session_persistence =>
+        durable_sessions =>
             #{
                 enable => false,
                 batch_size => 100,
                 force_persistence => false,
                 idle_poll_interval => 100,
-                last_alive_update_interval => 5000,
+                heartbeat_interval => 5000,
                 message_retention_period => 86400000,
                 renew_streams_interval => 5000,
                 session_gc_batch_size => 100,

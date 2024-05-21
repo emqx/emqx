@@ -23,6 +23,27 @@ parse_semver() {
     echo "$1" | tr '.|-' ' '
 }
 
+is_allowed_non_strict() {
+    local src_file="$1"
+    local from="$2"
+    local to="$3"
+    case "$(basename "${src_file}" '.app.src')" in
+        emqx_auth_http)
+            case "${from}-${to}" in
+                '0.1.4-0.2.1')
+                    return 0
+                    ;;
+                *)
+                    return 1
+                    ;;
+            esac
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 APPS="$(./scripts/find-apps.sh)"
 for app in ${APPS}; do
     if [ "$app" != "emqx" ]; then
@@ -70,8 +91,10 @@ for app in ${APPS}; do
              [ "${now_app_version_semver[2]}" = "0" ]; then
             true
         else
-            echo "$src_file: non-strict semver version bump from $old_app_version to $now_app_version"
-            bad_app_count=$(( bad_app_count + 1))
+            if ! is_allowed_non_strict "$src_file" "$old_app_version" "$now_app_version"; then
+                echo "$src_file: non-strict semver version bump from $old_app_version to $now_app_version"
+                bad_app_count=$(( bad_app_count + 1))
+            fi
         fi
     fi
 done

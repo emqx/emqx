@@ -24,7 +24,6 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 
 all() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
@@ -80,7 +79,7 @@ end_per_suite(Config) ->
 
 init_per_group(persistent_sessions, Config) ->
     AppSpecs = [
-        {emqx, "session_persistence.enable = true"},
+        {emqx, "durable_sessions.enable = true"},
         emqx_management
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(
@@ -581,13 +580,32 @@ t_persistent_sessions6(Config) ->
             %% Wait for session to be considered expired but not GC'ed
             ct:sleep(2_000),
             assert_single_client(O#{node => N1, clientid => ClientId, status => disconnected}),
+            N1Bin = atom_to_binary(N1),
             ?retry(
                 100,
                 20,
                 ?assertMatch(
-                    {ok, {{_, 200, _}, _, #{<<"data">> := [#{<<"is_expired">> := true}]}}},
+                    {ok,
+                        {{_, 200, _}, _, #{
+                            <<"data">> := [
+                                #{
+                                    <<"is_expired">> := true,
+                                    <<"node">> := N1Bin,
+                                    <<"disconnected_at">> := <<_/binary>>
+                                }
+                            ]
+                        }}},
                     list_request(APIPort)
                 )
+            ),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"is_expired">> := true,
+                        <<"node">> := N1Bin,
+                        <<"disconnected_at">> := <<_/binary>>
+                    }}},
+                get_client_request(APIPort, ClientId)
             ),
 
             C2 = connect_client(#{port => Port1, clientid => ClientId}),

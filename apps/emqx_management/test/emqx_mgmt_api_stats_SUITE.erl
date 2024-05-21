@@ -25,12 +25,22 @@ all() ->
 
 init_per_suite(Config) ->
     meck:expect(emqx, running_nodes, 0, [node(), 'fake@node']),
-    emqx_mgmt_api_test_util:init_suite(),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _Api} = emqx_common_test_http:create_default_app(),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
+    Apps = proplists:get_value(apps, Config),
     meck:unload(emqx),
-    emqx_mgmt_api_test_util:end_suite().
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 t_stats_api(_) ->
     S = emqx_mgmt_api_test_util:api_path(["stats?aggregate=false"]),
@@ -39,7 +49,8 @@ t_stats_api(_) ->
     SystemStats1 = emqx_mgmt:get_stats(),
     Fun1 =
         fun(Key) ->
-            ?assertEqual(maps:get(Key, SystemStats1), maps:get(atom_to_binary(Key, utf8), Stats1))
+            ?assertEqual(maps:get(Key, SystemStats1), maps:get(atom_to_binary(Key, utf8), Stats1)),
+            ?assertNot(is_map_key(<<"durable_subscriptions.count">>, Stats1), #{stats => Stats1})
         end,
     lists:foreach(Fun1, maps:keys(SystemStats1)),
     StatsPath = emqx_mgmt_api_test_util:api_path(["stats?aggregate=true"]),

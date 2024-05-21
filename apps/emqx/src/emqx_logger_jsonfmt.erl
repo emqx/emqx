@@ -76,7 +76,9 @@ best_effort_json_obj(Input) ->
     best_effort_json_obj(Input, Config).
 
 -spec format(logger:log_event(), config()) -> iodata().
-format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
+format(#{level := _Level, msg := _Msg, meta := _Meta} = Entry, Config0) when is_map(Config0) ->
+    #{level := Level, msg := Msg, meta := Meta} =
+        emqx_logger_textfmt:evaluate_lazy_values_if_dbg_level(Entry),
     Config = add_default_config(Config0),
     [format(Msg, Meta#{level => Level}, Config), "\n"].
 
@@ -219,7 +221,7 @@ best_effort_unicode(Input, Config) ->
 
 best_effort_json_obj(List, Config) when is_list(List) ->
     try
-        json_obj(maps:from_list(List), Config)
+        json_obj(convert_tuple_list_to_map(List), Config)
     catch
         _:_ ->
             [json(I, Config) || I <- List]
@@ -231,6 +233,16 @@ best_effort_json_obj(Map, Config) ->
         _:_ ->
             do_format_msg("~p", [Map], Config)
     end.
+
+%% This function will throw if the list do not only contain tuples or if there
+%% are duplicate keys.
+convert_tuple_list_to_map(List) ->
+    %% Crash if this is not a tuple list
+    CandidateMap = maps:from_list(List),
+    %% Crash if there are duplicates
+    NumberOfItems = length(List),
+    NumberOfItems = maps:size(CandidateMap),
+    CandidateMap.
 
 json(A, _) when is_atom(A) -> A;
 json(I, _) when is_integer(I) -> I;

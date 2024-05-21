@@ -894,7 +894,7 @@ test_columns('client.connack') ->
     [
         {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
         {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
-        {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]}
+        {<<"reason_code">>, [<<"success">>, <<"the reason code">>]}
     ];
 test_columns('client.check_authz_complete') ->
     [

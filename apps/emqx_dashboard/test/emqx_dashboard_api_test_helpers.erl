@@ -25,6 +25,7 @@
     request/3,
     request/4,
     request/5,
+    request/6,
     multipart_formdata_request/3,
     multipart_formdata_request/4,
     host/0,
@@ -77,8 +78,11 @@ request(Username, Method, Url, Body) ->
     request(Username, <<"public">>, Method, Url, Body).
 
 request(Username, Password, Method, Url, Body) ->
+    request(Username, Password, Method, Url, Body, #{}).
+
+request(Username, Password, Method, Url, Body0, Headers) ->
     Request =
-        case Body of
+        case Body0 of
             [] when
                 Method =:= get orelse Method =:= put orelse
                     Method =:= head orelse Method =:= delete orelse
@@ -86,8 +90,10 @@ request(Username, Password, Method, Url, Body) ->
             ->
                 {Url, [auth_header(Username, Password)]};
             _ ->
-                {Url, [auth_header(Username, Password)], "application/json",
-                    emqx_utils_json:encode(Body)}
+                ContentType = maps:get("content-type", Headers, "application/json"),
+                HeadersList = maps:to_list(maps:without(["content-type"], Headers)),
+                Body = maybe_encode(Body0),
+                {Url, [auth_header(Username, Password) | HeadersList], ContentType, Body}
         end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
@@ -98,6 +104,9 @@ request(Username, Password, Method, Url, Body) ->
         {ok, {Reason, _, _}} ->
             {error, Reason}
     end.
+
+maybe_encode(Body) when is_binary(Body) -> Body;
+maybe_encode(Body) -> emqx_utils_json:encode(Body).
 
 host() ->
     ?HOST.

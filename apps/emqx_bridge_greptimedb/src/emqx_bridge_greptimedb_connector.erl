@@ -422,7 +422,7 @@ is_auth_key(_) ->
 %% -------------------------------------------------------------------------------------------------
 %% Query
 do_query(InstId, Channel, Client, Points) ->
-    emqx_trace:rendered_action_template(Channel, #{points => Points, is_async => false}),
+    emqx_trace:rendered_action_template(Channel, #{points => Points}),
     case greptimedb:write_batch(Client, Points) of
         {ok, #{response := {affected_rows, #{value := Rows}}}} ->
             ?SLOG(debug, #{
@@ -465,7 +465,7 @@ do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
         connector => InstId,
         points => Points
     }),
-    emqx_trace:rendered_action_template(Channel, #{points => Points, is_async => true}),
+    emqx_trace:rendered_action_template(Channel, #{points => Points}),
     WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
     ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
 
