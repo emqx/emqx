@@ -218,6 +218,16 @@ fields("cluster") ->
                     desc => ?DESC(cluster_proto_dist)
                 }
             )},
+        {"quic_lb_mode",
+            sc(
+                integer(),
+                #{
+                    mapping => "quicer.lb_mode",
+                    default => 0,
+                    'readOnly' => true,
+                    desc => ?DESC(cluster_quic_lb_mode)
+                }
+            )},
         {"static",
             sc(
                 ?R_REF(cluster_static),
