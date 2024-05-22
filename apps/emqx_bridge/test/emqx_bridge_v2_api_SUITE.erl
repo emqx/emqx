@@ -109,6 +109,7 @@
 
 -define(SOURCE_TYPE_STR, "mqtt").
 -define(SOURCE_TYPE, <<?SOURCE_TYPE_STR>>).
+-define(SOURCE_CONNECTOR_TYPE, ?SOURCE_TYPE).
 
 -define(APPSPECS, [
     emqx_conf,
@@ -166,9 +167,19 @@ init_per_group(single = Group, Config) ->
     Apps = emqx_cth_suite:start(?APPSPECS ++ [?APPSPEC_DASHBOARD], #{work_dir => WorkDir}),
     init_api([{group, single}, {group_apps, Apps}, {node, node()} | Config]);
 init_per_group(actions, Config) ->
-    [{bridge_kind, action} | Config];
+    [
+        {bridge_kind, action},
+        {connector_type, ?ACTION_CONNECTOR_TYPE},
+        {connector_name, ?ACTION_CONNECTOR_NAME}
+        | Config
+    ];
 init_per_group(sources, Config) ->
-    [{bridge_kind, source} | Config];
+    [
+        {bridge_kind, source},
+        {connector_type, ?SOURCE_CONNECTOR_TYPE},
+        {connector_name, ?SOURCE_CONNECTOR_NAME}
+        | Config
+    ];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -202,14 +213,45 @@ end_per_group(single, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-init_per_testcase(t_action_types, Config) ->
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_start_action_or_source_with_disabled_connector;
+    TestCase =:= t_action_types
+->
     case ?config(cluster_nodes, Config) of
         undefined ->
             init_mocks();
         Nodes ->
             [erpc:call(Node, ?MODULE, init_mocks, []) || Node <- Nodes]
     end,
-    Config;
+    #{
+        connector_config := ConnectorConfig,
+        bridge_type := BridgeType,
+        bridge_name := BridgeName,
+        bridge_config := BridgeConfig
+    } =
+        case ?config(bridge_kind, Config) of
+            action ->
+                #{
+                    connector_config => ?ACTIONS_CONNECTOR,
+                    bridge_type => {action_type, ?ACTION_TYPE},
+                    bridge_name => {action_name, ?ACTION_CONNECTOR_NAME},
+                    bridge_config => {action_config, ?KAFKA_BRIDGE(?ACTION_CONNECTOR_NAME)}
+                };
+            source ->
+                #{
+                    connector_config => source_connector_create_config(#{}),
+                    bridge_type => {source_type, ?SOURCE_TYPE},
+                    bridge_name => {source_name, ?SOURCE_CONNECTOR_NAME},
+                    bridge_config => {source_config, source_config_base()}
+                }
+        end,
+    [
+        {connector_config, ConnectorConfig},
+        BridgeType,
+        BridgeName,
+        BridgeConfig
+        | Config
+    ];
 init_per_testcase(_TestCase, Config) ->
     case ?config(cluster_nodes, Config) of
         undefined ->
@@ -434,7 +476,7 @@ source_connector_create_config(Overrides0) ->
         source_connector_config_base(),
         #{
             <<"enable">> => true,
-            <<"type">> => ?SOURCE_TYPE,
+            <<"type">> => ?SOURCE_CONNECTOR_TYPE,
             <<"name">> => ?SOURCE_CONNECTOR_NAME
         }
     ),
@@ -1546,4 +1588,13 @@ t_older_version_nodes_in_cluster(Config) ->
         []
     ),
 
+    ok.
+
+t_start_action_or_source_with_disabled_connector(matrix) ->
+    [
+        [single, actions],
+        [single, sources]
+    ];
+t_start_action_or_source_with_disabled_connector(Config) ->
+    ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
     ok.

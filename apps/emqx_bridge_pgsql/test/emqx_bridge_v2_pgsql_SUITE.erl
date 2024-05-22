@@ -228,3 +228,7 @@ t_sync_query(Config) ->
         postgres_bridge_connector_on_query_return
     ),
     ok.
+
+t_start_action_or_source_with_disabled_connector(Config) ->
+    ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
+    ok.
