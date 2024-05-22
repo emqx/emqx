@@ -28,8 +28,7 @@
 
 %% Dynamic server location API
 -export([
-    servers/3,
-    server/3
+    servers/3
 ]).
 
 %% Membership
@@ -83,15 +82,14 @@ server_name(DB, Shard, Site) ->
 
 %%
 
--spec servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), Order) -> [server(), ...] when
-    Order :: leader_preferred | undefined.
-servers(DB, Shard, _Order = leader_preferred) ->
+-spec servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), Order) -> [server()] when
+    Order :: leader_preferred | local_preferred | undefined.
+servers(DB, Shard, leader_preferred) ->
     get_servers_leader_preferred(DB, Shard);
+servers(DB, Shard, local_preferred) ->
+    get_servers_local_preferred(DB, Shard);
 servers(DB, Shard, _Order = undefined) ->
     get_shard_servers(DB, Shard).
-
-server(DB, Shard, _Which = local_preferred) ->
-    get_server_local_preferred(DB, Shard).
 
 get_servers_leader_preferred(DB, Shard) ->
     %% NOTE: Contact last known leader first, then rest of shard servers.
@@ -104,17 +102,24 @@ get_servers_leader_preferred(DB, Shard) ->
             get_online_servers(DB, Shard)
     end.
 
-get_server_local_preferred(DB, Shard) ->
-    %% NOTE: Contact either local server or a random replica.
+get_servers_local_preferred(DB, Shard) ->
+    %% Return list of servers, where the local replica (if exists) is
+    %% the first element. Note: result is _NOT_ shuffled. This can be
+    %% bad for the load balancing, but it makes results more
+    %% deterministic. Caller that doesn't care about that can shuffle
+    %% the results by itself.
     ClusterName = get_cluster_name(DB, Shard),
     case ra_leaderboard:lookup_members(ClusterName) of
-        Servers when is_list(Servers) ->
-            pick_local(Servers);
         undefined ->
-            %% TODO
-            %% Leader is unkonwn if there are no servers of this group on the
-            %% local node. We want to pick a replica in that case as well.
-            pick_random(get_online_servers(DB, Shard))
+            Servers = get_online_servers(DB, Shard);
+        Servers when is_list(Servers) ->
+            ok
+    end,
+    case lists:keytake(node(), 2, Servers) of
+        false ->
+            Servers;
+        {value, Local, Rest} ->
+            [Local | Rest]
     end.
 
 lookup_leader(DB, Shard) ->
@@ -138,17 +143,6 @@ filter_online(Servers) ->
 
 is_server_online({_Name, Node}) ->
     Node == node() orelse lists:member(Node, nodes()).
-
-pick_local(Servers) ->
-    case lists:keyfind(node(), 2, Servers) of
-        Local when is_tuple(Local) ->
-            Local;
-        false ->
-            pick_random(Servers)
-    end.
-
-pick_random(Servers) ->
-    lists:nth(rand:uniform(length(Servers)), Servers).
 
 get_cluster_name(DB, Shard) ->
     memoize(fun cluster_name/2, [DB, Shard]).

@@ -67,10 +67,16 @@ t_00_smoke_open_drop(_Config) ->
 %% A simple smoke test that verifies that storing the messages doesn't
 %% crash
 t_01_smoke_store(_Config) ->
-    DB = default,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
-    Msg = message(<<"foo/bar">>, <<"foo">>, 0),
-    ?assertMatch(ok, emqx_ds:store_batch(DB, [Msg])).
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            DB = default,
+            ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+            Msg = message(<<"foo/bar">>, <<"foo">>, 0),
+            ?assertMatch(ok, emqx_ds:store_batch(DB, [Msg]))
+        end,
+        []
+    ).
 
 %% A simple smoke test that verifies that getting the list of streams
 %% doesn't crash and that iterators can be opened.
