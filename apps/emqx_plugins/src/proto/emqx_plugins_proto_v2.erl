@@ -27,8 +27,6 @@
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/bpapi.hrl").
 
--type name_vsn() :: binary() | string().
-
 introduced_in() ->
     "5.7.0".
 

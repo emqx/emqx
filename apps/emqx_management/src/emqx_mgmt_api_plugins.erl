@@ -508,7 +508,7 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
 plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:decode_plugin_avro_config(NameVsn, AvroJsonMap) of
+            case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, AvroValueConfig} ->
                     Nodes = emqx:running_nodes(),
                     %% cluster call with config in map (binary key-value)
@@ -702,8 +702,8 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
 -if(?EMQX_RELEASE_EDITION == ee).
 format_plugin_avsc_and_i18n(NameVsn) ->
     #{
-        avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
-        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
+        avsc => try_read_file(fun() -> emqx_plugins:plugin_schema_json(NameVsn) end),
+        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n_json(NameVsn) end)
     }.
 
 try_read_file(Fun) ->
