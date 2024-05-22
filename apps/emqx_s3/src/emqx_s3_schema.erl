@@ -9,7 +9,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([roots/0, fields/1, namespace/0, tags/0, desc/1]).
+-export([roots/0, fields/1, namespace/0, tags/0, validations/0, desc/1]).
 
 -export([translate/1]).
 -export([translate/2]).
@@ -42,7 +42,8 @@ fields(s3_client) ->
         {secret_access_key,
             emqx_schema_secret:mk(
                 #{
-                    desc => ?DESC("secret_access_key")
+                    desc => ?DESC("secret_access_key"),
+                    required => false
                 }
             )},
         {host,
@@ -176,6 +177,27 @@ desc(s3_upload) ->
     "S3 upload options";
 desc(transport_options) ->
     "Options for the HTTP transport layer used by the S3 client".
+
+validations() ->
+    [{no_partially_defined_credentials, fun validate_no_partially_defined_credentials/1}].
+
+validate_no_partially_defined_credentials(Config) ->
+    AccessKeyId = hocon_maps:get("s3.access_key_id", Config),
+    SecretAccessKey = hocon_maps:get("s3.secret_access_key", Config),
+    case {AccessKeyId, SecretAccessKey} of
+        {Defined, undefined} when Defined /= undefined ->
+            throw(<<
+                "Option 'secret_access_key' must also be present when 'access_key_id'"
+                " is specified"
+            >>);
+        {undefined, Defined} when Defined /= undefined ->
+            throw(<<
+                "Option 'access_key_id' must also be present when 'secret_access_key'"
+                " is specified"
+            >>);
+        _ ->
+            ok
+    end.
 
 translate(Conf) ->
     translate(Conf, #{}).

@@ -190,3 +190,37 @@ t_invalid_limits(_Config) ->
             <<"max_part_size">> => <<"100000gb">>
         })
     ).
+
+t_partial_credentials(_Config) ->
+    ?assertException(
+        throw,
+        {emqx_s3_schema, [
+            #{
+                kind := validation_error,
+                reason := integrity_validation_failure,
+                validation_name := no_partially_defined_credentials,
+                result := <<_/bytes>>
+            }
+        ]},
+        emqx_s3_schema:translate(#{
+            <<"bucket">> => <<"bucket">>,
+            <<"host">> => <<"s3.us-east-1.endpoint.com">>,
+            <<"port">> => 443,
+            <<"access_key_id">> => <<"ACCESSKEY">>
+        })
+    ),
+    ?assertException(
+        throw,
+        {emqx_s3_schema, [
+            #{
+                kind := validation_error,
+                validation_name := no_partially_defined_credentials
+            }
+        ]},
+        emqx_s3_schema:translate(#{
+            <<"bucket">> => <<"bucket">>,
+            <<"host">> => <<"s3.us-east-1.endpoint.com">>,
+            <<"port">> => 443,
+            <<"secret_access_key">> => <<"SECRET">>
+        })
+    ).
