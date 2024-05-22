@@ -30,7 +30,7 @@
 -export([base_path/0]).
 -export([relative_uri/1, get_relative_uri/1]).
 -export([compose_filters/2]).
--export([is_content_type_json/2, validate_content_type/3]).
+-export([validate_content_type_json/2, validate_content_type/3]).
 
 -export([
     filter_check_request/2,
@@ -153,18 +153,22 @@ spec(Module, Options) ->
         ),
     {ApiSpec, components(lists:usort(AllRefs), Options)}.
 
-is_content_type_json(Params, Meta) ->
+validate_content_type_json(Params, Meta) ->
     validate_content_type(Params, Meta, <<"application/json">>).
 
 %% tip: Skip content-type check if body is empty.
-validate_content_type(#{body := Body} = Params, #{method := Method}, Expect) when
+validate_content_type(
+    #{body := Body, headers := Headers} = Params,
+    #{method := Method},
+    Expect
+) when
     (Method =:= put orelse
         Method =:= post orelse
         method =:= patch) andalso
         Body =/= #{}
 ->
     ExpectSize = byte_size(Expect),
-    case find_content_type(Params) of
+    case maps:get(<<"content-type">>, Headers, undefined) of
         <<Expect:ExpectSize/binary, _/binary>> ->
             {ok, Params};
         _ ->
@@ -172,10 +176,6 @@ validate_content_type(#{body := Body} = Params, #{method := Method}, Expect) whe
     end;
 validate_content_type(Params, _Meta, _Expect) ->
     {ok, Params}.
-
-find_content_type(#{headers := #{<<"content-type">> := Type}}) -> Type;
-find_content_type(#{headers := #{<<"Content-Type">> := Type}}) -> Type;
-find_content_type(_Headers) -> error.
 
 -spec namespace() -> hocon_schema:name().
 namespace() -> "public".

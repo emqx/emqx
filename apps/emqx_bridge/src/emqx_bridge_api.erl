@@ -83,7 +83,7 @@ namespace() -> "bridge".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
-        check_schema => fun emqx_dashboard_swagger:is_content_type_json/2
+        check_schema => fun emqx_dashboard_swagger:validate_content_type_json/2
     }).
 
 paths() ->
