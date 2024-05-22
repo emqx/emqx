@@ -28,7 +28,8 @@ jobs:
       - run: ./scripts/check-deps-integrity.escript
       - name: Setup mix
         run: |
-          mix local.hex --force
+          # mix local.hex --force
+          mix local.hex 2.0.6 --force
           mix local.rebar --force
           mix deps.get
       - name: print mix dependency tree

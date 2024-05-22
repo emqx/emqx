@@ -69,7 +69,11 @@ fields(?ACTION) ->
             }),
             #{
                 required => true,
-                desc => ?DESC(s3_upload)
+                desc => ?DESC(s3_upload),
+                %% NOTE
+                %% There seems to be no way to attach validators to union types, thus we
+                %% have to attach a "common denominator" validator here.
+                validator => validators(s3_upload_parameters)
             }
         ),
         #{
@@ -210,6 +214,9 @@ desc(s3_upload_resource_opts) ->
     ?DESC(emqx_resource_schema, resource_opts);
 desc(_Name) ->
     undefined.
+
+validators(s3_upload_parameters) ->
+    emqx_s3_schema:validators(s3_uploader).
 
 convert_actions(Conf = #{}, Opts) ->
     maps:map(fun(_Name, ConfAction) -> convert_action(ConfAction, Opts) end, Conf);

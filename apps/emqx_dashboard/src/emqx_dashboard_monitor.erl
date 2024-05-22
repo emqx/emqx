@@ -262,6 +262,8 @@ merge_cluster_rate(Node, Cluster) ->
     Fun =
         fun
             %% cluster-synced values
+            (disconnected_durable_sessions, V, NCluster) ->
+                NCluster#{disconnected_durable_sessions => V};
             (durable_subscriptions, V, NCluster) ->
                 NCluster#{durable_subscriptions => V};
             (topics, V, NCluster) ->
@@ -417,22 +419,40 @@ getstats(Key) ->
         _:_ -> 0
     end.
 
-stats(connections) -> emqx_stats:getstat('connections.count');
-stats(durable_subscriptions) -> emqx_stats:getstat('durable_subscriptions.count');
-stats(live_connections) -> emqx_stats:getstat('live_connections.count');
-stats(cluster_sessions) -> emqx_stats:getstat('cluster_sessions.count');
-stats(topics) -> emqx_stats:getstat('topics.count');
-stats(subscriptions) -> emqx_stats:getstat('subscriptions.count');
-stats(shared_subscriptions) -> emqx_stats:getstat('subscriptions.shared.count');
-stats(retained_msg_count) -> emqx_stats:getstat('retained.count');
-stats(received) -> emqx_metrics:val('messages.received');
-stats(received_bytes) -> emqx_metrics:val('bytes.received');
-stats(sent) -> emqx_metrics:val('messages.sent');
-stats(sent_bytes) -> emqx_metrics:val('bytes.sent');
-stats(validation_succeeded) -> emqx_metrics:val('messages.validation_succeeded');
-stats(validation_failed) -> emqx_metrics:val('messages.validation_failed');
-stats(dropped) -> emqx_metrics:val('messages.dropped');
-stats(persisted) -> emqx_metrics:val('messages.persisted').
+stats(connections) ->
+    emqx_stats:getstat('connections.count');
+stats(disconnected_durable_sessions) ->
+    emqx_persistent_session_bookkeeper:get_disconnected_session_count();
+stats(durable_subscriptions) ->
+    emqx_stats:getstat('durable_subscriptions.count');
+stats(live_connections) ->
+    emqx_stats:getstat('live_connections.count');
+stats(cluster_sessions) ->
+    emqx_stats:getstat('cluster_sessions.count');
+stats(topics) ->
+    emqx_stats:getstat('topics.count');
+stats(subscriptions) ->
+    emqx_stats:getstat('subscriptions.count');
+stats(shared_subscriptions) ->
+    emqx_stats:getstat('subscriptions.shared.count');
+stats(retained_msg_count) ->
+    emqx_stats:getstat('retained.count');
+stats(received) ->
+    emqx_metrics:val('messages.received');
+stats(received_bytes) ->
+    emqx_metrics:val('bytes.received');
+stats(sent) ->
+    emqx_metrics:val('messages.sent');
+stats(sent_bytes) ->
+    emqx_metrics:val('bytes.sent');
+stats(validation_succeeded) ->
+    emqx_metrics:val('messages.validation_succeeded');
+stats(validation_failed) ->
+    emqx_metrics:val('messages.validation_failed');
+stats(dropped) ->
+    emqx_metrics:val('messages.dropped');
+stats(persisted) ->
+    emqx_metrics:val('messages.persisted').
 
 %% -------------------------------------------------------------------------------------------------
 %% Retained && License Quota

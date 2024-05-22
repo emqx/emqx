@@ -341,6 +341,8 @@ t_persistent_session_stats(_Config) ->
     ?retry(1_000, 10, begin
         ?assertMatch(
             {ok, #{
+                <<"connections">> := 2,
+                <<"disconnected_durable_sessions">> := 0,
                 %% N.B.: we currently don't perform any deduplication between persistent
                 %% and non-persistent routes, so we count `commont/topic' twice and get 8
                 %% instead of 6 here.
@@ -356,6 +358,29 @@ t_persistent_session_stats(_Config) ->
     ?assert(PSRouteCount > 0, #{ps_route_count => PSRouteCount}),
     PSSubCount = emqx_persistent_session_bookkeeper:get_subscription_count(),
     ?assert(PSSubCount > 0, #{ps_sub_count => PSSubCount}),
+
+    %% Now with disconnected but alive persistent sessions
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqtt:disconnect(PSClient),
+            #{?snk_kind := dashboard_monitor_flushed}
+        ),
+    ?retry(1_000, 10, begin
+        ?assertMatch(
+            {ok, #{
+                <<"connections">> := 1,
+                <<"disconnected_durable_sessions">> := 1,
+                %% N.B.: we currently don't perform any deduplication between persistent
+                %% and non-persistent routes, so we count `commont/topic' twice and get 8
+                %% instead of 6 here.
+                <<"topics">> := 8,
+                <<"durable_subscriptions">> := 4,
+                <<"subscriptions">> := 4
+            }},
+            request(["monitor_current"])
+        )
+    end),
+
     ok.
 
 request(Path) ->

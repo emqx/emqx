@@ -1719,6 +1719,14 @@ fields("durable_sessions") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
+        {"disconnected_session_count_refresh_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"message_retention_period",
             sc(
                 timeout_duration(),
