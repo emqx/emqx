@@ -264,8 +264,8 @@ merge_cluster_rate(Node, Cluster) ->
             %% cluster-synced values
             (disconnected_durable_sessions, V, NCluster) ->
                 NCluster#{disconnected_durable_sessions => V};
-            (durable_subscriptions, V, NCluster) ->
-                NCluster#{durable_subscriptions => V};
+            (subscriptions_durable, V, NCluster) ->
+                NCluster#{subscriptions_durable => V};
             (topics, V, NCluster) ->
                 NCluster#{topics => V};
             (retained_msg_count, V, NCluster) ->
@@ -281,7 +281,28 @@ merge_cluster_rate(Node, Cluster) ->
                 ClusterValue = maps:get(Key, NCluster, 0),
                 NCluster#{Key => Value + ClusterValue}
         end,
-    maps:fold(Fun, Cluster, Node).
+    Metrics = maps:fold(Fun, Cluster, Node),
+    adjust_synthetic_cluster_metrics(Metrics).
+
+adjust_synthetic_cluster_metrics(Metrics0) ->
+    %% ensure renamed
+    Metrics1 = emqx_utils_maps:rename(durable_subscriptions, subscriptions_durable, Metrics0),
+    DSSubs = maps:get(subscriptions_durable, Metrics1, 0),
+    RamSubs = maps:get(subscriptions, Metrics1, 0),
+    DisconnectedDSs = maps:get(disconnected_durable_sessions, Metrics1, 0),
+    Metrics2 = maps:update_with(
+        subscriptions,
+        fun(Subs) -> Subs + DSSubs end,
+        0,
+        Metrics1
+    ),
+    Metrics = maps:put(subscriptions_ram, RamSubs, Metrics2),
+    maps:update_with(
+        connections,
+        fun(RamConns) -> RamConns + DisconnectedDSs end,
+        DisconnectedDSs,
+        Metrics
+    ).
 
 format({badrpc, Reason}) ->
     {badrpc, Reason};

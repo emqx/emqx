@@ -19,6 +19,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 
 -behaviour(minirest_api).
 
@@ -159,7 +160,12 @@ dashboard_samplers_fun(Latest) ->
 
 monitor_current(get, #{bindings := Bindings}) ->
     RawNode = maps:get(node, Bindings, <<"all">>),
-    emqx_utils_api:with_node_or_cluster(RawNode, fun current_rate/1).
+    case emqx_utils_api:with_node_or_cluster(RawNode, fun current_rate/1) of
+        ?OK(Rates) ->
+            ?OK(maybe_reject_cluster_only_metrics(RawNode, Rates));
+        Error ->
+            Error
+    end.
 
 -spec current_rate(atom()) ->
     {error, term()}
@@ -242,3 +248,12 @@ swagger_desc_format(Format) ->
 swagger_desc_format(Format, Type) ->
     Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_SAMPLE_INTERVAL),
     list_to_binary(io_lib:format(Format ++ "~p ~p seconds", [Type, Interval])).
+
+maybe_reject_cluster_only_metrics(<<"all">>, Rates) ->
+    Rates;
+maybe_reject_cluster_only_metrics(_Node, Rates) ->
+    ClusterOnlyMetrics = [
+        durable_subscriptions,
+        disconnected_durable_sessions
+    ],
+    maps:without(ClusterOnlyMetrics, Rates).
