@@ -1499,14 +1499,11 @@ maybe_reply(Actions, From, Reply) ->
 
 -spec data_record_to_external_map(data()) -> resource_data().
 data_record_to_external_map(Data) ->
-    AddedChannelsList = maps:to_list(Data#data.added_channels),
-    AddedChannelsListWithoutConfigs =
-        [
-            {ChanID, maps:remove(config, Status)}
-         || {ChanID, Status} <- AddedChannelsList
-        ],
     AddedChannelsWithoutConfigs =
-        maps:from_list(AddedChannelsListWithoutConfigs),
+        maps:map(
+            fun(_ChanID, Status) -> maps:remove(config, Status) end,
+            Data#data.added_channels
+        ),
     #{
         id => Data#data.id,
         error => external_error(Data#data.error),
