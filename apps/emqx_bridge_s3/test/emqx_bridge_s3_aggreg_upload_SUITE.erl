@@ -156,6 +156,24 @@ t_create_via_http(Config) ->
 t_on_get_status(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config, #{}).
 
+t_invalid_config(Config) ->
+    ?assertMatch(
+        {error,
+            {_Status, _, #{
+                <<"code">> := <<"BAD_REQUEST">>,
+                <<"message">> := #{<<"kind">> := <<"validation_error">>}
+            }}},
+        emqx_bridge_v2_testlib:create_bridge_api(
+            Config,
+            _Overrides = #{
+                <<"parameters">> => #{
+                    <<"min_part_size">> => <<"5GB">>,
+                    <<"max_part_size">> => <<"100MB">>
+                }
+            }
+        )
+    ).
+
 t_aggreg_upload(Config) ->
     Bucket = ?config(s3_bucket, Config),
     BridgeName = ?config(bridge_name, Config),
