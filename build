@@ -185,7 +185,8 @@ just_compile_elixir() {
     rm -f rebar.lock
     env MIX_ENV="$PROFILE" mix local.rebar --if-missing --force
     env MIX_ENV="$PROFILE" mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
-    env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
+    # env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
+    env MIX_ENV="$PROFILE" mix local.hex 2.0.6 --if-missing --force
     env MIX_ENV="$PROFILE" mix deps.get
     env MIX_ENV="$PROFILE" mix compile
 }
@@ -203,7 +204,8 @@ make_elixir_rel() {
     export_elixir_release_vars "$PROFILE"
     env MIX_ENV="$PROFILE" mix local.rebar --if-missing --force
     env MIX_ENV="$PROFILE" mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
-    env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
+    # env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
+    env MIX_ENV="$PROFILE" mix local.hex 2.0.6 --if-missing --force
     env MIX_ENV="$PROFILE" mix deps.get
     env MIX_ENV="$PROFILE" mix release --overwrite
     assert_no_excluded_deps emqx-enterprise emqx_telemetry

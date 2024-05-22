@@ -10,6 +10,7 @@
 -import(hoconsc, [mk/2, ref/2]).
 
 -export([roots/0, fields/1, namespace/0, tags/0, desc/1]).
+-export([validators/1]).
 
 -export([translate/1]).
 -export([translate/2]).
@@ -176,6 +177,14 @@ desc(s3_upload) ->
     "S3 upload options";
 desc(transport_options) ->
     "Options for the HTTP transport layer used by the S3 client".
+
+validators(s3_uploader) ->
+    [fun validate_part_size/1].
+
+validate_part_size(Conf) ->
+    Min = hocon_maps:get(<<"min_part_size">>, Conf),
+    Max = hocon_maps:get(<<"max_part_size">>, Conf),
+    Min =< Max orelse {error, <<"Inconsistent 'min_part_size': cannot exceed 'max_part_size'">>}.
 
 translate(Conf) ->
     translate(Conf, #{}).
