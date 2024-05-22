@@ -878,8 +878,9 @@ case19_serialize_ctrl(_Config) ->
     Bin1 = emqx_gbt32960_frame:serialize(Frame1),
     BodyLen1 = byte_size(Bin1) - 3,
     <<"##", Body1:BodyLen1/binary, Crc1:?BYTE>> = Bin1,
-    <<?CMD_TERMINAL_CTRL, ?ACK_IS_CMD, "1G1BL52P7TR115520", ?ENCRYPT_NONE, 30:?WORD, 17, 10, 25, 22,
-        5, 51, 6, 1, DataUnit1/binary>> = Body1,
+    EncryptedLen1 = 31,
+    <<?CMD_TERMINAL_CTRL, ?ACK_IS_CMD, "1G1BL52P7TR115520", ?ENCRYPT_NONE, EncryptedLen1:?WORD, 17,
+        10, 25, 22, 5, 51, 6, 1, DataUnit1/binary>> = Body1,
     Crc1 = make_crc(Body1, undefined),
 
     DataUnit2 =
