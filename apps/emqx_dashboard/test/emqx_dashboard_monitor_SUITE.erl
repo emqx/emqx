@@ -196,13 +196,22 @@ t_monitor_current_api(_) ->
     {ok, Rate} = request(["monitor_current"]),
     [
         ?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
-     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
+     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
+        %% We rename `durable_subscriptions' key.
+        Key =/= durable_subscriptions
     ],
+    ?assert(maps:is_key(<<"subscriptions_durable">>, Rate)),
+    ?assert(maps:is_key(<<"disconnected_durable_sessions">>, Rate)),
+    ClusterOnlyMetrics = [durable_subscriptions, disconnected_durable_sessions],
     {ok, NodeRate} = request(["monitor_current", "nodes", node()]),
     [
-        ?assert(maps:is_key(atom_to_binary(Key, utf8), NodeRate))
-     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
+        ?assert(maps:is_key(atom_to_binary(Key, utf8), NodeRate), #{key => Key, rates => NodeRate})
+     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
+        not lists:member(Key, ClusterOnlyMetrics)
     ],
+    ?assertNot(maps:is_key(<<"subscriptions_durable">>, NodeRate)),
+    ?assertNot(maps:is_key(<<"subscriptions_ram">>, NodeRate)),
+    ?assertNot(maps:is_key(<<"disconnected_durable_sessions">>, NodeRate)),
     ok.
 
 t_monitor_current_api_live_connections(_) ->
@@ -290,8 +299,11 @@ t_monitor_reset(_) ->
     {ok, Rate} = request(["monitor_current"]),
     [
         ?assert(maps:is_key(atom_to_binary(Key, utf8), Rate))
-     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST
+     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
+        %% We rename `durable_subscriptions' key.
+        Key =/= durable_subscriptions
     ],
+    ?assert(maps:is_key(<<"subscriptions_durable">>, Rate)),
     {ok, _} =
         snabbkaffe:block_until(
             ?match_n_events(1, #{?snk_kind := dashboard_monitor_flushed}),
@@ -347,8 +359,9 @@ t_persistent_session_stats(_Config) ->
                 %% and non-persistent routes, so we count `commont/topic' twice and get 8
                 %% instead of 6 here.
                 <<"topics">> := 8,
-                <<"durable_subscriptions">> := 4,
-                <<"subscriptions">> := 4
+                <<"subscriptions">> := 8,
+                <<"subscriptions_ram">> := 4,
+                <<"subscriptions_durable">> := 4
             }},
             request(["monitor_current"])
         )
@@ -368,14 +381,15 @@ t_persistent_session_stats(_Config) ->
     ?retry(1_000, 10, begin
         ?assertMatch(
             {ok, #{
-                <<"connections">> := 1,
+                <<"connections">> := 2,
                 <<"disconnected_durable_sessions">> := 1,
                 %% N.B.: we currently don't perform any deduplication between persistent
                 %% and non-persistent routes, so we count `commont/topic' twice and get 8
                 %% instead of 6 here.
                 <<"topics">> := 8,
-                <<"durable_subscriptions">> := 4,
-                <<"subscriptions">> := 4
+                <<"subscriptions">> := 8,
+                <<"subscriptions_ram">> := 4,
+                <<"subscriptions_durable">> := 4
             }},
             request(["monitor_current"])
         )
