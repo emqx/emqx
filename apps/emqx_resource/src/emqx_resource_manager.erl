@@ -1431,9 +1431,13 @@ maybe_alarm(_Status, _ResId, Error, Error) ->
 maybe_alarm(_Status, ResId, Error, _PrevError) ->
     HrError =
         case Error of
-            {error, undefined} -> <<"Unknown reason">>;
-            {error, Reason} -> emqx_utils:readable_error_msg(Reason);
-            _ -> emqx_utils:readable_error_msg(Error)
+            {error, undefined} ->
+                <<"Unknown reason">>;
+            {error, Reason} ->
+                emqx_utils:readable_error_msg(Reason);
+            _ ->
+                Error1 = redact_config_from_error_status(Error),
+                emqx_utils:readable_error_msg(Error1)
         end,
     emqx_alarm:safe_activate(
         ResId,
@@ -1441,6 +1445,11 @@ maybe_alarm(_Status, ResId, Error, _PrevError) ->
         <<"resource down: ", HrError/binary>>
     ),
     ?tp(resource_activate_alarm, #{resource_id => ResId}).
+
+redact_config_from_error_status(#{config := _} = ErrorStatus) ->
+    maps:remove(config, ErrorStatus);
+redact_config_from_error_status(Error) ->
+    Error.
 
 -spec maybe_resume_resource_workers(resource_id(), resource_status()) -> ok.
 maybe_resume_resource_workers(ResId, ?status_connected) ->
