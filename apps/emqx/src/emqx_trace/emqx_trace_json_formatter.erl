@@ -42,7 +42,7 @@ format(
     %% an external call to create the JSON text
     Time = emqx_utils_calendar:now_to_rfc3339(microsecond),
     LogMap2 = LogMap1#{time => Time},
-    LogMap3 = prepare_log_map(LogMap2, PEncode),
+    LogMap3 = prepare_log_data(LogMap2, PEncode),
     [emqx_logger_jsonfmt:best_effort_json(LogMap3, [force_utf8]), "\n"].
 
 %%%-----------------------------------------------------------------
@@ -85,9 +85,17 @@ do_maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) -
 do_maybe_format_msg(Msg, Meta, Config) ->
     emqx_logger_jsonfmt:format_msg(Msg, Meta, Config).
 
-prepare_log_map(LogMap, PEncode) ->
+prepare_log_data(LogMap, PEncode) when is_map(LogMap) ->
     NewKeyValuePairs = [prepare_key_value(K, V, PEncode) || {K, V} <- maps:to_list(LogMap)],
-    maps:from_list(NewKeyValuePairs).
+    maps:from_list(NewKeyValuePairs);
+prepare_log_data(V, PEncode) when is_list(V) ->
+    [prepare_log_data(Item, PEncode) || Item <- V];
+prepare_log_data(V, PEncode) when is_tuple(V) ->
+    List = erlang:tuple_to_list(V),
+    PreparedList = [prepare_log_data(Item, PEncode) || Item <- List],
+    erlang:list_to_tuple(PreparedList);
+prepare_log_data(V, _PEncode) ->
+    V.
 
 prepare_key_value(host, {I1, I2, I3, I4} = IP, _PEncode) when
     is_integer(I1),
@@ -118,6 +126,8 @@ prepare_key_value(payload = K, V, PEncode) ->
                 V
         end,
     {K, NewV};
+prepare_key_value(<<"payload">>, V, PEncode) ->
+    prepare_key_value(payload, V, PEncode);
 prepare_key_value(packet = K, V, PEncode) ->
     NewV =
         try
@@ -167,10 +177,8 @@ prepare_key_value(action_id = K, V, _PEncode) ->
         _:_ ->
             {K, V}
     end;
-prepare_key_value(K, V, PEncode) when is_map(V) ->
-    {K, prepare_log_map(V, PEncode)};
-prepare_key_value(K, V, _PEncode) ->
-    {K, V}.
+prepare_key_value(K, V, PEncode) ->
+    {K, prepare_log_data(V, PEncode)}.
 
 format_packet(undefined, _) -> "";
 format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).
