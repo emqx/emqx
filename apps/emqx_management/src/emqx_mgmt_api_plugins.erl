@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
+-include_lib("erlavro/include/erlavro.hrl").
 
 -dialyzer({no_match, [format_plugin_avsc_and_i18n/1]}).
 
@@ -506,14 +507,20 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
             {404, plugin_not_found_msg()}
     end;
 plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
+    Nodes = emqx:running_nodes(),
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
-                {ok, AvroValueConfig} ->
-                    Nodes = emqx:running_nodes(),
+                {ok, ?plugin_without_config_schema} ->
+                    %% no plugin avro schema, just put the json map it as-is
+                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
+                        Nodes, NameVsn, AvroJsonMap, ?plugin_without_config_schema
+                    ),
+                    {204};
+                {ok, AvroValue} ->
                     %% cluster call with config in map (binary key-value)
                     _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap, AvroValueConfig
+                        Nodes, NameVsn, AvroJsonMap, AvroValue
                     ),
                     {204};
                 {error, Reason} ->
@@ -604,9 +611,13 @@ ensure_action(Name, restart) ->
     ok.
 
 %% for RPC plugin avro encoded config update
-do_update_plugin_config(NameVsn, AvroJsonMap, PluginConfigMap) ->
+-spec do_update_plugin_config(
+    name_vsn(), map(), avro_value() | ?plugin_without_config_schema
+) ->
+    ok.
+do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
     %% TODO: maybe use `PluginConfigMap` to validate config
-    emqx_plugins:put_config(NameVsn, AvroJsonMap, PluginConfigMap).
+    emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
 
 %%--------------------------------------------------------------------
 %% Helper functions

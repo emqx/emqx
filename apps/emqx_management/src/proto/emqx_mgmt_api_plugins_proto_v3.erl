@@ -28,6 +28,7 @@
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
+-include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
 introduced_in() ->
     "5.7.0".
@@ -56,14 +57,14 @@ ensure_action(Name, Action) ->
     [node()],
     binary() | string(),
     binary(),
-    map()
+    map() | ?plugin_without_config_schema
 ) ->
     emqx_rpc:multicall_result().
-update_plugin_config(Nodes, NameVsn, AvroJsonMap, PluginConfig) ->
+update_plugin_config(Nodes, NameVsn, AvroJsonMap, MaybeAvroValue) ->
     rpc:multicall(
         Nodes,
         emqx_mgmt_api_plugins,
         do_update_plugin_config,
-        [NameVsn, AvroJsonMap, PluginConfig],
+        [NameVsn, AvroJsonMap, MaybeAvroValue],
         10000
     ).
