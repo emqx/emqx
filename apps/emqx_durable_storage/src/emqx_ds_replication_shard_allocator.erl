@@ -41,6 +41,7 @@
 -define(shard_meta(DB, SHARD), {?MODULE, DB, SHARD}).
 
 -define(ALLOCATE_RETRY_TIMEOUT, 1_000).
+-define(TRIGGER_PENDING_TIMEOUT, 60_000).
 
 -define(TRANS_RETRY_TIMEOUT, 5_000).
 -define(CRASH_RETRY_DELAY, 20_000).
@@ -106,7 +107,7 @@ handle_call(_Call, _From, State) ->
 
 -spec handle_cast(_Cast, state()) -> {noreply, state()}.
 handle_cast(#trigger_transitions{}, State) ->
-    {noreply, handle_pending_transitions(State)};
+    {noreply, handle_pending_transitions(State), ?TRIGGER_PENDING_TIMEOUT};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -118,13 +119,15 @@ handle_cast(_Cast, State) ->
 handle_info({timeout, _TRef, allocate}, State) ->
     {noreply, handle_allocate_shards(State)};
 handle_info({changed, {shard, DB, Shard}}, State = #{db := DB}) ->
-    {noreply, handle_shard_changed(Shard, State)};
+    {noreply, handle_shard_changed(Shard, State), ?TRIGGER_PENDING_TIMEOUT};
 handle_info({changed, _}, State) ->
-    {noreply, State};
+    {noreply, State, ?TRIGGER_PENDING_TIMEOUT};
 handle_info({'EXIT', Pid, Reason}, State) ->
-    {noreply, handle_exit(Pid, Reason, State)};
+    {noreply, handle_exit(Pid, Reason, State), ?TRIGGER_PENDING_TIMEOUT};
+handle_info(timeout, State) ->
+    {noreply, handle_pending_transitions(State), ?TRIGGER_PENDING_TIMEOUT};
 handle_info(_Info, State) ->
-    {noreply, State}.
+    {noreply, State, ?TRIGGER_PENDING_TIMEOUT}.
 
 -spec terminate(_Reason, state()) -> _Ok.
 terminate(_Reason, State = #{db := DB, shards := Shards}) ->
