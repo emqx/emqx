@@ -9,7 +9,6 @@
         kernel,
         stdlib,
         emqtt,
-        ecpool,
         emqx,
         emqx_resource
     ]},

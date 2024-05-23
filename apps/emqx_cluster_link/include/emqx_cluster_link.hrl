@@ -3,11 +3,8 @@
 %%--------------------------------------------------------------------
 
 -define(TOPIC_PREFIX, "$LINK/cluster/").
--define(CTRL_TOPIC_PREFIX, ?TOPIC_PREFIX "ctrl/").
 -define(ROUTE_TOPIC_PREFIX, ?TOPIC_PREFIX "route/").
 -define(MSG_TOPIC_PREFIX, ?TOPIC_PREFIX "msg/").
-
--define(DEST(FromClusterName), {external, {link, FromClusterName}}).
 
 %% Fairly compact text encoding.
 -define(SHARED_ROUTE_ID(Topic, Group), <<"$s/", Group/binary, "/", Topic/binary>>).

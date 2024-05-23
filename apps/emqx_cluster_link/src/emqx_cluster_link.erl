@@ -100,22 +100,6 @@ on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, p
             %% Just ignore it. It must be already logged by the decoder
             {stop, []}
     end;
-on_message_publish(
-    #message{topic = <<?CTRL_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload} = Msg
-) ->
-    case emqx_cluster_link_mqtt:decode_ctrl_msg(Payload, ClusterName) of
-        {init_link, InitRes} ->
-            on_init(InitRes, ClusterName, Msg);
-        {ack_link, Res} ->
-            on_init_ack(Res, ClusterName, Msg);
-        unlink ->
-            %% Stop pushing messages to the cluster that requested unlink,
-            %% It brings the link to a half-closed (unidirectional) state,
-            %% as this cluster may still replicate routes and receive messages from ClusterName.
-            emqx_cluster_link_mqtt:stop_msg_fwd_resource(ClusterName),
-            cleanup_routes(ClusterName)
-    end,
-    {stop, []};
 on_message_publish(_Msg) ->
     ok.
 
@@ -165,44 +149,6 @@ update_routes(ClusterName, Actor, Incarnation, RouteOps) ->
         end,
         RouteOps
     ).
-
-cleanup_routes(ClusterName) ->
-    emqx_router:cleanup_routes(?DEST(ClusterName)).
-
-lookup_link_conf(ClusterName) ->
-    lists:search(
-        fun(#{upstream := N}) -> N =:= ClusterName end,
-        emqx:get_config([cluster, links], [])
-    ).
-
-on_init(Res, ClusterName, Msg) ->
-    #{
-        'Correlation-Data' := ReqId,
-        'Response-Topic' := RespTopic
-    } = emqx_message:get_header(properties, Msg),
-    case lookup_link_conf(ClusterName) of
-        {value, LinkConf} ->
-            _ = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
-            emqx_cluster_link_mqtt:ack_link(ClusterName, Res, RespTopic, ReqId);
-        false ->
-            ?SLOG(error, #{
-                msg => "init_link_request_from_unknown_cluster",
-                link_name => ClusterName
-            }),
-            %% Cannot ack/reply since we don't know how to reach the link cluster,
-            %% The cluster that tried to initiatw this link is expected to eventually fail with timeout.
-            ok
-    end.
-
-on_init_ack(Res, ClusterName, Msg) ->
-    #{'Correlation-Data' := ReqId} = emqx_message:get_header(properties, Msg),
-    emqx_cluster_link_coordinator:on_link_ack(ClusterName, ReqId, Res).
-
-%% add_routes(Topics, ClusterName) ->
-%%     lists:foreach(
-%%         fun(T) -> emqx_router_syncer:push(add, T, ?DEST(ClusterName), #{}) end,
-%%         Topics
-%%     ).
 
 %% let it crash if extra is not a map,
 %% we don't expect the message to be forwarded from an older EMQX release,

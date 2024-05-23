@@ -21,7 +21,8 @@
     link/1,
     topic_filters/1,
     %% Connections
-    emqtt_options/1
+    emqtt_options/1,
+    mk_emqtt_options/1
 ]).
 
 -export([
@@ -152,16 +153,18 @@ add_links(LinksConf) ->
 add_link(#{enabled := true} = LinkConf) ->
     %% NOTE: this can be started later during init_link phase, but it looks not harmful to start it beforehand...
     MsgFwdRes = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
-    CoordRes = ensure_coordinator(LinkConf),
-    combine_results(CoordRes, MsgFwdRes);
+    %% TODO
+    ActorRes = ok,
+    combine_results(ActorRes, MsgFwdRes);
 add_link(_DisabledLinkConf) ->
     ok.
 
 remove_links(LinksConf) ->
     [remove_link(Link) || Link <- LinksConf].
 
-remove_link(LinkConf) ->
-    emqx_cluster_link_coord_sup:stop_coordinator(LinkConf).
+remove_link(_LinkConf) ->
+    %% TODO
+    ok.
 
 update_links(LinksConf) ->
     [update_link(Link) || Link <- LinksConf].
@@ -174,14 +177,6 @@ update_link(#{enabled := false} = LinkConf) ->
     case remove_link(LinkConf) of
         {error, not_found} -> ok;
         Other -> Other
-    end.
-
-ensure_coordinator(LinkConf) ->
-    case emqx_cluster_link_coord_sup:start_coordinator(LinkConf) of
-        {error, {already_started, Pid}} ->
-            {ok, Pid};
-        {error, already_present} ->
-            emqx_cluster_link_coord_sup:restart_coordinator(LinkConf)
     end.
 
 combine_results(ok, ok) ->
