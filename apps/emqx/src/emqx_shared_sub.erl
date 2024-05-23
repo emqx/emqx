@@ -80,18 +80,22 @@
     | round_robin
     | round_robin_per_group
     | sticky
+    | sticky_clientid
+    | sticky_prioritize_leastload
     | local
     | hash_clientid
     | hash_topic.
 
 -define(SERVER, ?MODULE).
-
 -define(SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS, 5).
 -define(IS_LOCAL_PID(Pid), (is_pid(Pid) andalso node(Pid) =:= node())).
 -define(ACK, shared_sub_ack).
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 -define(SUBSCRIBER_DOWN, noproc).
+
+%% new publisher rate filter time constant for sticky_prioritize_leastload strategy
+-define(LEASTLOAD_RATE_FILTER_TIME_CONSTANT, 1000.0).
 
 -type redispatch_to() :: ?REDISPATCH_TO(emqx_types:group(), emqx_types:topic()).
 
@@ -310,17 +314,27 @@ maybe_ack(Msg) ->
     end.
 
 pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    pick_sticky(random, ClientId, SourceTopic, Group, Topic, FailedSubs);
+pick(sticky_clientid, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    pick_sticky(hash_clientid, ClientId, SourceTopic, Group, Topic, FailedSubs);
+pick(sticky_prioritize_leastload, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    pick_sticky(sticky_prioritize_leastload, ClientId, SourceTopic, Group, Topic, FailedSubs);
+pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    All = subscribers(Group, Topic, FailedSubs),
+    do_pick(All, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs).
+
+pick_sticky(FirstStrategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
     All = subscribers(Group, Topic, FailedSubs),
     case is_active_sub(Sub0, FailedSubs, All) of
         true ->
             %% the old subscriber is still alive
-            %% keep using it for sticky strategy
+            %% keep using it for the sticky strategies
             {fresh, Sub0};
         false ->
-            %% randomly pick one for the first message
+            %% pick the initial subscriber by FirstStrategy
             FailedSubs1 = FailedSubs#{Sub0 => ?SUBSCRIBER_DOWN},
-            Res = do_pick(All, random, ClientId, SourceTopic, Group, Topic, FailedSubs1),
+            Res = do_pick(All, FirstStrategy, ClientId, SourceTopic, Group, Topic, FailedSubs1),
             case Res of
                 {_, Sub} ->
                     %% stick to whatever pick result
@@ -329,10 +343,7 @@ pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
                     ok
             end,
             Res
-    end;
-pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
-    All = subscribers(Group, Topic, FailedSubs),
-    do_pick(All, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs).
+    end.
 
 do_pick([], _Strategy, _ClientId, _SourceTopic, _Group, _Topic, _FailedSubs) ->
     false;
@@ -355,9 +366,61 @@ pick_subscriber(Group, Topic, local, ClientId, SourceTopic, Subs) ->
         [] ->
             pick_subscriber(Group, Topic, random, ClientId, SourceTopic, Subs)
     end;
+pick_subscriber(Group, Topic, sticky_prioritize_leastload, _ClientId, _SourceTopic, Subs) ->
+    pick_subscriber_weighted_random({Group, Topic}, Subs);
 pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
     Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, length(Subs)),
     lists:nth(Nth, Subs).
+
+%% weighted random pick for the sticky_prioritize_leastload mode
+pick_subscriber_weighted_random(GroupTopic, Subs) ->
+    %% assign subs to an array that includes the cumulative sum of weights for each
+    {WeightedSubs, Sum} = lists:mapfoldl(
+        fun(Sub, Acc) ->
+            {Rate, Time} = get_subscriber_rate_and_timestamp(GroupTopic, Sub),
+            Weight = 1.0 / max(Rate, 1.0 / ?LEASTLOAD_RATE_FILTER_TIME_CONSTANT),
+            CumSum = Acc + Weight,
+            {{Sub, Rate, Time, CumSum}, CumSum}
+        end,
+        0,
+        Subs
+    ),
+    RandomValue = rand:uniform() * Sum,
+    %% random pick based on the weights
+    {value, {Sub, Rate, Time, _}} = lists:search(
+        fun({_Sub, _Rate, _Time, CumSum}) ->
+            if
+                CumSum >= RandomValue -> true;
+                true -> false
+            end
+        end,
+        WeightedSubs
+    ),
+    %% update the rate for the chosen subscriber
+    update_subscriber_new_publisher_rate_and_timestamp(GroupTopic, Sub, Rate, Time),
+    Sub.
+
+get_subscriber_rate_and_timestamp(GroupTopic, Sub) ->
+    case
+        catch ets:lookup_element(
+            ?SHARED_SUBS_DISPATCH_COUNTER, {GroupTopic, Sub}, 2, {0.0, undefined}
+        )
+    of
+        {Rate, Time} when is_number(Rate) -> {Rate, Time};
+        % errors
+        _ -> {0.0, undefined}
+    end.
+
+update_subscriber_new_publisher_rate_and_timestamp(GroupTopic, Sub, PreviousRate, undefined) ->
+    UpdateTime = erlang:monotonic_time(millisecond) / 1000.0,
+    ets:insert(?SHARED_SUBS_DISPATCH_COUNTER, {{GroupTopic, Sub}, {PreviousRate, UpdateTime}});
+update_subscriber_new_publisher_rate_and_timestamp(GroupTopic, Sub, PreviousRate, PreviousTime) ->
+    UpdateTime = erlang:monotonic_time(millisecond) / 1000.0,
+    Dt = abs(UpdateTime - PreviousTime),
+    Rate = 1.0 / max(Dt, 0.000001),
+    Alpha = 1.0 - math:exp(-Dt / ?LEASTLOAD_RATE_FILTER_TIME_CONSTANT),
+    FilteredRate = (1.0 - Alpha) * PreviousRate + Alpha * Rate,
+    ets:insert(?SHARED_SUBS_DISPATCH_COUNTER, {{GroupTopic, Sub}, {FilteredRate, UpdateTime}}).
 
 do_pick_subscriber(_Group, _Topic, random, _ClientId, _SourceTopic, Count) ->
     rand:uniform(Count);
@@ -377,7 +440,7 @@ do_pick_subscriber(Group, Topic, round_robin_per_group, _ClientId, _SourceTopic,
     %% reset the counter to 1 if counter > subscriber count to avoid the counter to grow larger
     %% than the current subscriber count.
     %% if no counter for the given group topic exists - due to a configuration change - create a new one starting at 0
-    ets:update_counter(?SHARED_SUBS_ROUND_ROBIN_COUNTER, {Group, Topic}, {2, 1, Count, 1}, {
+    ets:update_counter(?SHARED_SUBS_DISPATCH_COUNTER, {Group, Topic}, {2, 1, Count, 1}, {
         {Group, Topic}, 0
     }).
 
@@ -404,7 +467,7 @@ init([]) ->
     {atomic, PMon} = mria:transaction(?SHARED_SUB_SHARD, fun ?MODULE:init_monitors/0),
     ok = emqx_utils_ets:new(?SHARED_SUBSCRIBER, [protected, bag]),
     ok = emqx_utils_ets:new(?ALIVE_SHARED_SUBSCRIBERS, [protected, set, {read_concurrency, true}]),
-    ok = emqx_utils_ets:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [
+    ok = emqx_utils_ets:new(?SHARED_SUBS_DISPATCH_COUNTER, [
         public, set, {write_concurrency, true}
     ]),
     {ok, update_stats(#state{pmon = PMon})}.
@@ -425,14 +488,14 @@ handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon
         false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
     end,
     ok = maybe_insert_alive_tab(SubPid),
-    ok = maybe_insert_round_robin_count({Group, Topic}),
+    ok = maybe_insert_dispatch_count({Group, Topic}, SubPid),
     true = ets:insert(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}),
     {reply, ok, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     mria:dirty_delete_object(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
     true = ets:delete_object(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}),
     delete_route_if_needed({Group, Topic}),
-    maybe_delete_round_robin_count({Group, Topic}),
+    maybe_delete_dispatch_count({Group, Topic}, SubPid),
     {reply, ok, update_stats(State)};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
@@ -486,16 +549,28 @@ send(Pid, Topic, Msg) ->
         end,
     ok.
 
-maybe_insert_round_robin_count({Group, _Topic} = GroupTopic) ->
-    strategy(Group) =:= round_robin_per_group andalso
-        ets:insert(?SHARED_SUBS_ROUND_ROBIN_COUNTER, {GroupTopic, 0}),
+maybe_insert_dispatch_count({Group, _Topic} = GroupTopic, SubPid) ->
+    case strategy(Group) of
+        round_robin_per_group ->
+            ets:insert(?SHARED_SUBS_DISPATCH_COUNTER, {GroupTopic, 0});
+        sticky_prioritize_leastload ->
+            update_subscriber_new_publisher_rate_and_timestamp(GroupTopic, SubPid, 0.0, undefined);
+        _ ->
+            ok
+    end,
     ok.
 
-maybe_delete_round_robin_count({Group, _Topic} = GroupTopic) ->
-    strategy(Group) =:= round_robin_per_group andalso
-        if_no_more_subscribers(GroupTopic, fun() ->
-            ets:delete(?SHARED_SUBS_ROUND_ROBIN_COUNTER, GroupTopic)
-        end),
+maybe_delete_dispatch_count({Group, _Topic} = GroupTopic, SubPid) ->
+    case strategy(Group) of
+        round_robin_per_group ->
+            if_no_more_subscribers(GroupTopic, fun() ->
+                ets:delete(?SHARED_SUBS_DISPATCH_COUNTER, GroupTopic)
+            end);
+        sticky_prioritize_leastload ->
+            ets:delete(?SHARED_SUBS_DISPATCH_COUNTER, {GroupTopic, SubPid});
+        _ ->
+            ok
+    end,
     ok.
 
 if_no_more_subscribers(GroupTopic, Fn) ->
@@ -517,7 +592,7 @@ cleanup_down(SubPid) ->
         fun(Record = #?SHARED_SUBSCRIPTION{topic = Topic, group = Group}) ->
             ok = mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record),
             true = ets:delete_object(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}),
-            maybe_delete_round_robin_count({Group, Topic}),
+            maybe_delete_dispatch_count({Group, Topic}, SubPid),
             delete_route_if_needed({Group, Topic})
         end,
         mnesia:dirty_match_object(#?SHARED_SUBSCRIPTION{_ = '_', subpid = SubPid})
