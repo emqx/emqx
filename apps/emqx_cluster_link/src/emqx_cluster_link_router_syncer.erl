@@ -51,6 +51,9 @@
 
 -define(RECONNECT_TIMEOUT, 5_000).
 
+-define(CLIENT_SUFFIX, ":routesync").
+-define(PS_CLIENT_SUFFIX, ":routesync-ps").
+
 %% Special actor for persistent routes that has the same actor name on all nodes.
 %% Node actors with the same name  nay race with each other (e.g. during bootstrap),
 %% but it must be tolerable, since persistent route destination is a client ID,
@@ -132,12 +135,12 @@ start_link_client(TargetCluster, Actor) ->
 refine_client_options(Options = #{clientid := ClientID}, Actor) ->
     Suffix =
         case Actor of
-            ?PS_ACTOR -> "-ps";
-            _ -> ""
+            ?PS_ACTOR -> ?PS_CLIENT_SUFFIX;
+            _ -> ?CLIENT_SUFFIX
         end,
     %% TODO: Reconnect should help, but it looks broken right now.
     Options#{
-        clientid => emqx_utils:format("~s:~s:routesync~s", [ClientID, node(), Suffix]),
+        clientid => emqx_bridge_mqtt_lib:clientid_base([ClientID, Suffix]),
         clean_start => false,
         properties => #{'Session-Expiry-Interval' => 60},
         retry_interval => 0
