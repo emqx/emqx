@@ -91,13 +91,16 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 t_basic_apply_rule_trace_ruleid(Config) ->
-    basic_apply_rule_test_helper(get_action(Config), ruleid, false).
+    basic_apply_rule_test_helper(get_action(Config), ruleid, false, text).
+
+t_basic_apply_rule_trace_ruleid_hidden_payload(Config) ->
+    basic_apply_rule_test_helper(get_action(Config), ruleid, false, hidden).
 
 t_basic_apply_rule_trace_clientid(Config) ->
-    basic_apply_rule_test_helper(get_action(Config), clientid, false).
+    basic_apply_rule_test_helper(get_action(Config), clientid, false, text).
 
 t_basic_apply_rule_trace_ruleid_stop_after_render(Config) ->
-    basic_apply_rule_test_helper(get_action(Config), ruleid, true).
+    basic_apply_rule_test_helper(get_action(Config), ruleid, true, text).
 
 get_action(Config) ->
     case ?config(group_name, Config) of
@@ -135,10 +138,10 @@ republish_action() ->
 console_print_action() ->
     #{<<"function">> => <<"console">>}.
 
-basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
+basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) ->
     %% Create Rule
     RuleTopic = iolist_to_binary([<<"my_rule_topic/">>, atom_to_binary(?FUNCTION_NAME)]),
-    SQL = <<"SELECT payload.id as id FROM \"", RuleTopic/binary, "\"">>,
+    SQL = <<"SELECT payload.id as id, payload as payload FROM \"", RuleTopic/binary, "\"">>,
     {ok, #{<<"id">> := RuleId}} =
         emqx_bridge_testlib:create_rule_and_action(
             Action,
@@ -157,12 +160,12 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
             clientid ->
                 ClientId
         end,
-    create_trace(TraceName, TraceType, TraceValue),
+    create_trace(TraceName, TraceType, TraceValue, PayloadEncode),
     %% ===================================
     Context = #{
         clientid => ClientId,
         event_type => message_publish,
-        payload => <<"{\"msg\": \"hello\"}">>,
+        payload => <<"{\"msg\": \"my_payload_msg\"}">>,
         qos => 1,
         topic => RuleTopic,
         username => <<"u_emqx">>
@@ -179,6 +182,12 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender) ->
         begin
             Bin = read_rule_trace_file(TraceName, TraceType, Now),
             io:format("THELOG:~n~s", [Bin]),
+            case PayloadEncode of
+                hidden ->
+                    ?assertEqual(nomatch, binary:match(Bin, [<<"my_payload_msg">>]));
+                text ->
+                    ?assertNotEqual(nomatch, binary:match(Bin, [<<"my_payload_msg">>]))
+            end,
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"rule_activated">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"SQL_yielded_result">>])),
             case Action of
@@ -273,7 +282,7 @@ do_final_log_check(Action, Bin0) when is_binary(Action) ->
 do_final_log_check(_, _) ->
     ok.
 
-create_trace(TraceName, TraceType, TraceValue) ->
+create_trace(TraceName, TraceType, TraceValue, PayloadEncode) ->
     Now = erlang:system_time(second) - 10,
     Start = Now,
     End = Now + 60,
@@ -283,7 +292,8 @@ create_trace(TraceName, TraceType, TraceValue) ->
         TraceType => TraceValue,
         start_at => Start,
         end_at => End,
-        formatter => json
+        formatter => json,
+        payload_encode => PayloadEncode
     },
     {ok, _} = CreateRes = emqx_trace:create(Trace),
     emqx_common_test_helpers:on_exit(fun() ->
@@ -323,7 +333,7 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
         ?FUNCTION_NAME,
         SQL
     ),
-    create_trace(Name, ruleid, RuleID),
+    create_trace(Name, ruleid, RuleID, text),
     Now = erlang:system_time(second) - 10,
     %% Stop
     ParmsStopAfterRender = apply_rule_parms(true, Name),
@@ -588,7 +598,7 @@ do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) 
         ?FUNCTION_NAME,
         SQL
     ),
-    create_trace(Name, ruleid, RuleID),
+    create_trace(Name, ruleid, RuleID, text),
     Now = erlang:system_time(second) - 10,
     %% Stop
     ParmsNoStopAfterRender = apply_rule_parms(false, Name),

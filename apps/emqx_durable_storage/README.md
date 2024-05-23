@@ -124,6 +124,8 @@ The following application environment variables are available:
 
 - `emqx_durable_storage.egress_flush_interval`: period at which the batches of messages are committed to the durable storage.
 
+- `emqx_durable_storage.reads`: `leader_preferred` | `local_preferred`.
+
 Runtime settings for the durable storages can be modified via CLI as well as the REST API.
 The following CLI commands are available:
 

@@ -119,7 +119,7 @@ current_rate(all) ->
 current_rate(Node) when Node == node() ->
     try
         {ok, Rate} = do_call(current_rate),
-        {ok, Rate}
+        {ok, adjust_individual_node_metrics(Rate)}
     catch
         _E:R ->
             ?SLOG(warning, #{msg => "dashboard_monitor_error", reason => R}),
@@ -156,8 +156,8 @@ current_rate_cluster() ->
     case lists:foldl(Fun, #{}, mria:cluster_nodes(running)) of
         {badrpc, Reason} ->
             {badrpc, Reason};
-        Rate ->
-            {ok, Rate}
+        Metrics ->
+            {ok, adjust_synthetic_cluster_metrics(Metrics)}
     end.
 
 %% -------------------------------------------------------------------------------------------------
@@ -264,8 +264,8 @@ merge_cluster_rate(Node, Cluster) ->
             %% cluster-synced values
             (disconnected_durable_sessions, V, NCluster) ->
                 NCluster#{disconnected_durable_sessions => V};
-            (durable_subscriptions, V, NCluster) ->
-                NCluster#{durable_subscriptions => V};
+            (subscriptions_durable, V, NCluster) ->
+                NCluster#{subscriptions_durable => V};
             (topics, V, NCluster) ->
                 NCluster#{topics => V};
             (retained_msg_count, V, NCluster) ->
@@ -282,6 +282,28 @@ merge_cluster_rate(Node, Cluster) ->
                 NCluster#{Key => Value + ClusterValue}
         end,
     maps:fold(Fun, Cluster, Node).
+
+adjust_individual_node_metrics(Metrics0) ->
+    %% ensure renamed
+    emqx_utils_maps:rename(durable_subscriptions, subscriptions_durable, Metrics0).
+
+adjust_synthetic_cluster_metrics(Metrics0) ->
+    DSSubs = maps:get(subscriptions_durable, Metrics0, 0),
+    RamSubs = maps:get(subscriptions, Metrics0, 0),
+    DisconnectedDSs = maps:get(disconnected_durable_sessions, Metrics0, 0),
+    Metrics1 = maps:update_with(
+        subscriptions,
+        fun(Subs) -> Subs + DSSubs end,
+        0,
+        Metrics0
+    ),
+    Metrics = maps:put(subscriptions_ram, RamSubs, Metrics1),
+    maps:update_with(
+        connections,
+        fun(RamConns) -> RamConns + DisconnectedDSs end,
+        DisconnectedDSs,
+        Metrics
+    ).
 
 format({badrpc, Reason}) ->
     {badrpc, Reason};

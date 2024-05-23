@@ -90,11 +90,20 @@ wildcard_optimized_epoch_bits.desc:
 
   Time span covered by each epoch grows exponentially with the value of `epoch_bits`:
 
-  - `epoch_bits = 1`: epoch time = 1 millisecond
-  - `epoch_bits = 2`: 2 milliseconds
+  - `epoch_bits = 1`: epoch time = 2 microseconds
+  - `epoch_bits = 2`: 4 microseconds
   ...
-  - `epoch_bits = 10`: 1024 milliseconds
-  - `epoch_bits = 13`: ~8 seconds
+  - `epoch_bits = 20`: ~1s
   ...~"""
+
+layout_builtin_reference.label: "Reference layout"
+layout_builtin_reference.desc:
+  """~
+  A simplistic layout type that stores all messages from all topics in chronological order in a single stream.
+
+  Not recommended for production use.~"""
+
+layout_builtin_reference_type.label: "Layout type"
+layout_builtin_reference_type.desc: "Reference layout type."
 
 }

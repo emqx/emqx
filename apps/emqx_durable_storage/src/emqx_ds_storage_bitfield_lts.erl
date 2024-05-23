@@ -35,7 +35,7 @@
     make_iterator/5,
     make_delete_iterator/5,
     update_iterator/4,
-    next/5,
+    next/6,
     delete_next/6,
     post_creation_actions/1,
 
@@ -161,7 +161,7 @@
 
 %% GVar used for idle detection:
 -define(IDLE_DETECT, idle_detect).
--define(EPOCH(S, TS), (TS bsl S#s.ts_bits)).
+-define(EPOCH(S, TS), (TS bsr S#s.ts_offset)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -424,23 +424,21 @@ next(
     Schema = #s{ts_offset = TSOffset, ts_bits = TSBits},
     It = #{?storage_key := Stream},
     BatchSize,
-    Now
+    Now,
+    IsCurrent
 ) ->
     init_counters(),
     %% Compute safe cutoff time. It's the point in time where the last
     %% complete epoch ends, so we need to know the current time to
     %% compute it. This is needed because new keys can be added before
     %% the iterator.
-    IsWildcard =
+    %%
+    %% This is needed to avoid situations when the iterator advances
+    %% to position k1, and then a new message with k2, such that k2 <
+    %% k1 is inserted. k2 would be missed.
+    HasCutoff =
         case Stream of
-            {_StaticKey, []} -> false;
-            _ -> true
-        end,
-    SafeCutoffTime =
-        case IsWildcard of
-            true ->
-                (Now bsr TSOffset) bsl TSOffset;
-            false ->
+            {_StaticKey, []} ->
                 %% Iterators scanning streams without varying topic
                 %% levels can operate on incomplete epochs, since new
                 %% matching keys for the single topic are added in
@@ -450,10 +448,27 @@ next(
                 %% filters operating on streams with varying parts:
                 %% iterator can jump to the next topic and then it
                 %% won't backtrack.
+                false;
+            _ ->
+                %% New batches are only added to the current
+                %% generation. We can ignore cutoff time for old
+                %% generations:
+                IsCurrent
+        end,
+    SafeCutoffTime =
+        case HasCutoff of
+            true ->
+                ?EPOCH(Schema, Now) bsl TSOffset;
+            false ->
                 1 bsl TSBits - 1
         end,
     try
-        next_until(Schema, It, SafeCutoffTime, BatchSize)
+        case next_until(Schema, It, SafeCutoffTime, BatchSize) of
+            {ok, _, []} when not IsCurrent ->
+                {ok, end_of_stream};
+            Result ->
+                Result
+        end
     after
         report_counters(Shard)
     end.
@@ -538,6 +553,17 @@ delete_next_until(
     end.
 
 handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
+    %% If the last message was published more than one epoch ago, and
+    %% the shard remains idle, we need to advance safety cutoff
+    %% interval to make sure the last epoch becomes visible to the
+    %% readers.
+    %%
+    %% We do so by emitting a dummy event that will be persisted by
+    %% the replication layer. Processing it will advance the
+    %% replication layer's clock.
+    %%
+    %% This operation is latched to avoid publishing events on every
+    %% tick.
     case ets:lookup(Gvars, ?IDLE_DETECT) of
         [{?IDLE_DETECT, Latch, LastWrittenTs}] ->
             ok;
@@ -546,13 +572,17 @@ handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
             LastWrittenTs = 0
     end,
     case Latch of
-        false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) ->
+        false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) + 1 ->
+            %% Note: + 1 above delays the event by one epoch to add a
+            %% safety margin.
             ets:insert(Gvars, {?IDLE_DETECT, true, LastWrittenTs}),
             [dummy_event];
         _ ->
             []
     end;
 handle_event(_ShardId, _Data, _Time, _Event) ->
+    %% `dummy_event' goes here and does nothing. But it forces update
+    %% of `Time' in the replication layer.
     [].
 
 %%================================================================================

@@ -383,6 +383,25 @@ start_connector_api(ConnectorName, ConnectorType) ->
     ct:pal("connector update (http) result:\n  ~p", [Res]),
     Res.
 
+enable_connector_api(ConnectorType, ConnectorName) ->
+    do_enable_disable_connector_api(ConnectorType, ConnectorName, enable).
+
+disable_connector_api(ConnectorType, ConnectorName) ->
+    do_enable_disable_connector_api(ConnectorType, ConnectorName, disable).
+
+do_enable_disable_connector_api(ConnectorType, ConnectorName, Op) ->
+    ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
+    {OpPath, OpStr} =
+        case Op of
+            enable -> {"true", "enable"};
+            disable -> {"false", "disable"}
+        end,
+    Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId, "enable", OpPath]),
+    ct:pal(OpStr ++ " connector ~s (http)", [ConnectorId]),
+    Res = request(put, Path, []),
+    ct:pal(OpStr ++ " connector ~s (http) result:\n  ~p", [ConnectorId, Res]),
+    Res.
+
 get_connector_api(ConnectorType, ConnectorName) ->
     ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
     Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
@@ -955,4 +974,28 @@ t_on_get_status(Config, Opts) ->
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             )
     end,
+    ok.
+
+%% Verifies that attempting to start an action while its connnector is disabled does not
+%% start the connector.
+t_start_action_or_source_with_disabled_connector(Config) ->
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name,
+        connector_type := ConnectorType,
+        connector_name := ConnectorName
+    } = get_common_values(Config),
+    ?check_trace(
+        begin
+            {ok, _} = create_bridge_api(Config),
+            {ok, {{_, 204, _}, _, _}} = disable_connector_api(ConnectorType, ConnectorName),
+            ?assertMatch(
+                {error, {{_, 400, _}, _, _}},
+                op_bridge_api(Kind, "start", Type, Name)
+            ),
+            ok
+        end,
+        []
+    ),
     ok.

@@ -987,14 +987,45 @@ call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, ConfRootKey, BridgeType, 
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
     end.
 
-is_enabled_bridge(ConfRootKey, BridgeType, BridgeName) ->
-    try emqx_bridge_v2:lookup(ConfRootKey, BridgeType, binary_to_existing_atom(BridgeName)) of
+is_enabled_bridge(ConfRootKey, ActionOrSourceType, BridgeName) ->
+    try
+        emqx_bridge_v2:lookup(ConfRootKey, ActionOrSourceType, binary_to_existing_atom(BridgeName))
+    of
         {ok, #{raw_config := ConfMap}} ->
-            maps:get(<<"enable">>, ConfMap, true);
+            maps:get(<<"enable">>, ConfMap, true) andalso
+                is_connector_enabled(
+                    ActionOrSourceType,
+                    maps:get(<<"connector">>, ConfMap)
+                );
         {error, not_found} ->
             throw(not_found)
     catch
         error:badarg ->
+            %% catch non-existing atom,
+            %% none-existing atom means it is not available in config PT storage.
+            throw(not_found);
+        error:{badkey, _} ->
+            %% `connector' field not present.  Should never happen if action/source schema
+            %% is properly defined.
+            throw(not_found)
+    end.
+
+is_connector_enabled(ActionOrSourceType, ConnectorName0) ->
+    try
+        ConnectorType = emqx_bridge_v2:connector_type(ActionOrSourceType),
+        ConnectorName = to_existing_atom(ConnectorName0),
+        case emqx_config:get([connectors, ConnectorType, ConnectorName], undefined) of
+            undefined ->
+                throw(not_found);
+            Config = #{} ->
+                maps:get(enable, Config, true)
+        end
+    catch
+        throw:badarg ->
+            %% catch non-existing atom,
+            %% none-existing atom means it is not available in config PT storage.
+            throw(not_found);
+        throw:bad_atom ->
             %% catch non-existing atom,
             %% none-existing atom means it is not available in config PT storage.
             throw(not_found)
@@ -1406,4 +1437,10 @@ map_to_json(M0) ->
         error:_ ->
             M2 = maps:without([value, <<"value">>], M1),
             emqx_utils_json:encode(M2)
+    end.
+
+to_existing_atom(X) ->
+    case emqx_utils:safe_to_existing_atom(X, utf8) of
+        {ok, A} -> A;
+        {error, _} -> throw(bad_atom)
     end.

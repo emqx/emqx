@@ -183,7 +183,7 @@ t_rebalance(Config) ->
             ],
             Stream1 = emqx_utils_stream:interleave(
                 [
-                    {50, Stream0},
+                    {10, Stream0},
                     emqx_utils_stream:const(add_generation)
                 ],
                 false
@@ -479,11 +479,13 @@ t_rebalance_offline_restarts(Config) ->
 %%
 
 shard_server_info(Node, DB, Shard, Site, Info) ->
-    Server = shard_server(Node, DB, Shard, Site),
-    {Server, ds_repl_shard(Node, server_info, [Info, Server])}.
-
-shard_server(Node, DB, Shard, Site) ->
-    ds_repl_shard(Node, shard_server, [DB, Shard, Site]).
+    ?ON(
+        Node,
+        begin
+            Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
+            {Server, emqx_ds_replication_layer_shard:server_info(Info, Server)}
+        end
+    ).
 
 ds_repl_meta(Node, Fun) ->
     ds_repl_meta(Node, Fun, []).
@@ -498,9 +500,6 @@ ds_repl_meta(Node, Fun, Args) ->
             ]),
             error(meta_op_failed)
     end.
-
-ds_repl_shard(Node, Fun, Args) ->
-    erpc:call(Node, emqx_ds_replication_layer_shard, Fun, Args).
 
 shards(Node, DB) ->
     erpc:call(Node, emqx_ds_replication_layer_meta, shards, [DB]).

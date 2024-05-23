@@ -473,7 +473,7 @@ zone_global_defaults() ->
                 idle_poll_interval => 100,
                 heartbeat_interval => 5000,
                 message_retention_period => 86400000,
-                renew_streams_interval => 5000,
+                renew_streams_interval => 1000,
                 session_gc_batch_size => 100,
                 session_gc_interval => 600000,
                 subscription_count_refresh_interval => 5000,

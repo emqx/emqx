@@ -788,6 +788,60 @@ t_update_connector_not_found(_Config) ->
     ),
     ok.
 
+%% Check that https://emqx.atlassian.net/browse/EMQX-12376 is fixed
+t_update_concurrent_health_check(_Config) ->
+    Msg = <<"Channel status check failed">>,
+    ok = meck:expect(
+        emqx_bridge_v2_test_connector,
+        on_get_channel_status,
+        fun(
+            _ResId,
+            ChannelId,
+            #{channels := Channels}
+        ) ->
+            #{
+                is_conf_for_connected := Connected
+            } = maps:get(ChannelId, Channels),
+            case Connected of
+                true ->
+                    connected;
+                false ->
+                    {error, Msg}
+            end
+        end
+    ),
+    BaseConf = (bridge_config())#{
+        is_conf_for_connected => false
+    },
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, BaseConf)),
+    SetStatusConnected =
+        fun
+            (true) ->
+                Conf = BaseConf#{is_conf_for_connected => true},
+                %% Update the config
+                ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+                ?assertMatch(
+                    #{status := connected},
+                    emqx_bridge_v2:health_check(bridge_type(), my_test_bridge)
+                );
+            (false) ->
+                Conf = BaseConf#{is_conf_for_connected => false},
+                %% Update the config
+                ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+                ?assertMatch(
+                    #{status := disconnected},
+                    emqx_bridge_v2:health_check(bridge_type(), my_test_bridge)
+                )
+        end,
+    [
+        begin
+            Connected = (N rem 2) =:= 0,
+            SetStatusConnected(Connected)
+        end
+     || N <- lists:seq(0, 20)
+    ],
+    ok.
+
 t_remove_single_connector_being_referenced_with_active_channels(_Config) ->
     %% we test the connector post config update here because we also need bridges.
     Conf = bridge_config(),
