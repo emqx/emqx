@@ -33,7 +33,6 @@
     init/1,
     handle_call/3,
     handle_cast/2,
-    handle_continue/2,
     terminate/2
 ]).
 
@@ -126,11 +125,10 @@ init(_) ->
     ]),
     State = #{},
     AvscPaths = get_plugin_avscs(),
-    {ok, State, {continue, {build_serdes, AvscPaths}}}.
-
-handle_continue({build_serdes, AvscPaths}, State) ->
+    %% force build all schemas at startup
+    %% otherwise plugin schema may not be available when needed
     _ = build_serdes(AvscPaths),
-    {noreply, State}.
+    {ok, State}.
 
 handle_call({build_serdes, NameVsn, AvscPath}, _From, State) ->
     BuildRes = do_build_serde({NameVsn, AvscPath}),
@@ -153,10 +151,10 @@ terminate(_Reason, _State) ->
 
 -spec get_plugin_avscs() -> [{string(), string()}].
 get_plugin_avscs() ->
-    Pattern = filename:join([emqx_plugins:install_dir(), "*", "config_schema.avsc"]),
+    Pattern = filename:join([emqx_plugins:install_dir(), "*", "*", "priv", "config_schema.avsc"]),
     lists:foldl(
         fun(AvscPath, AccIn) ->
-            [_, NameVsn | _] = lists:reverse(filename:split(AvscPath)),
+            [_, _, _, NameVsn | _] = lists:reverse(filename:split(AvscPath)),
             [{to_bin(NameVsn), AvscPath} | AccIn]
         end,
         _Acc0 = [],

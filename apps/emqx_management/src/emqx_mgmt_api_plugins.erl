@@ -21,6 +21,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
+-dialyzer({no_match, [format_plugin_avsc_and_i18n/1]}).
+
 -export([
     api_spec/0,
     fields/1,
@@ -178,6 +180,9 @@ schema("/plugins/:name/config") ->
             responses => #{
                 %% avro data, json encoded
                 200 => hoconsc:mk(binary()),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_CONFIG'], <<"Plugin Config Not Found">>
+                ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         },
@@ -488,13 +493,13 @@ update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:get_config(NameVsn) of
-                {ok, AvroJson} ->
+            case emqx_plugins:get_config(NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found) of
+                {ok, AvroJson} when is_map(AvroJson) ->
                     {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
-                {error, _} ->
+                {ok, ?plugin_conf_not_found} ->
                     {400, #{
                         code => 'BAD_CONFIG',
-                        message => <<"Failed to get plugin config">>
+                        message => <<"Plugin Config Not Found">>
                     }}
             end;
         _ ->
@@ -503,7 +508,7 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
 plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:decode_plugin_avro_config(NameVsn, AvroJsonMap) of
+            case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, AvroValueConfig} ->
                     Nodes = emqx:running_nodes(),
                     %% cluster call with config in map (binary key-value)
@@ -534,7 +539,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
         {error, Reason} ->
             {400, #{code => 'BAD_POSITION', message => Reason}};
         Position ->
-            case emqx_plugins:ensure_enabled(Name, Position, _ConfLocation = global) of
+            case emqx_plugins:ensure_enabled(Name, Position, global) of
                 ok ->
                     {204};
                 {error, Reason} ->
@@ -599,9 +604,9 @@ ensure_action(Name, restart) ->
     ok.
 
 %% for RPC plugin avro encoded config update
-do_update_plugin_config(Name, AvroJsonMap, PluginConfigMap) ->
+do_update_plugin_config(NameVsn, AvroJsonMap, PluginConfigMap) ->
     %% TODO: maybe use `PluginConfigMap` to validate config
-    emqx_plugins:put_config(Name, AvroJsonMap, PluginConfigMap).
+    emqx_plugins:put_config(NameVsn, AvroJsonMap, PluginConfigMap).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -694,10 +699,11 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
         ),
     aggregate_status(List, NewAcc).
 
+-if(?EMQX_RELEASE_EDITION == ee).
 format_plugin_avsc_and_i18n(NameVsn) ->
     #{
-        avsc => try_read_file(fun() -> emqx_plugins:plugin_avsc(NameVsn) end),
-        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n(NameVsn) end)
+        avsc => try_read_file(fun() -> emqx_plugins:plugin_schema_json(NameVsn) end),
+        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n_json(NameVsn) end)
     }.
 
 try_read_file(Fun) ->
@@ -705,6 +711,11 @@ try_read_file(Fun) ->
         {ok, Json} -> Json;
         _ -> null
     end.
+
+-else.
+format_plugin_avsc_and_i18n(_NameVsn) ->
+    #{avsc => null, i18n => null}.
+-endif.
 
 % running_status: running loaded, stopped
 %% config_status: not_configured disable enable
