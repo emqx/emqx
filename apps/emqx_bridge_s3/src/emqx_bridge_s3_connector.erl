@@ -366,10 +366,7 @@ run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
     emqx_trace:rendered_action_template(ChannelID, #{
         mode => aggregated,
-        records => #emqx_trace_format_func_data{
-            function = fun render_records/1,
-            data = Records
-        }
+        records => Records
     }),
     case emqx_connector_aggregator:push_records(AggregId, Timestamp, Records) of
         ok ->
@@ -377,13 +374,6 @@ run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
             ok;
         {error, Reason} ->
             {error, {unrecoverable_error, Reason}}
-    end.
-
-render_records(Records) ->
-    try
-        [unicode:characters_to_binary(R) || R <- Records]
-    catch
-        _:_ -> Records
     end.
 
 map_error({socket_error, _} = Reason) ->
