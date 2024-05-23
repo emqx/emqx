@@ -512,7 +512,7 @@ plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
         {ok, _} ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, ?plugin_without_config_schema} ->
-                    %% no plugin avro schema, just put the json map it as-is
+                    %% no plugin avro schema, just put the json map as-is
                     _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
                         Nodes, NameVsn, AvroJsonMap, ?plugin_without_config_schema
                     ),
@@ -616,7 +616,7 @@ ensure_action(Name, restart) ->
 ) ->
     ok.
 do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
-    %% TODO: maybe use `PluginConfigMap` to validate config
+    %% TODO: maybe use `AvroValue` to validate config
     emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
 
 %%--------------------------------------------------------------------

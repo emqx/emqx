@@ -162,7 +162,8 @@ ensure_installed(NameVsn) ->
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
                     maybe_post_op_after_installed(NameVsn),
-                    _ = maybe_ensure_plugin_config(NameVsn);
+                    _ = maybe_ensure_plugin_config(NameVsn),
+                    ok;
                 {error, _Reason} = Err ->
                     Err
             end
@@ -1166,6 +1167,7 @@ do_create_config_dir(NameVsn) ->
             end
     end.
 
+-spec maybe_ensure_plugin_config(name_vsn()) -> ok.
 maybe_ensure_plugin_config(NameVsn) ->
     maybe
         true ?= with_plugin_avsc(NameVsn),
@@ -1174,10 +1176,13 @@ maybe_ensure_plugin_config(NameVsn) ->
         _ -> ok
     end.
 
+-spec ensure_plugin_config(name_vsn()) -> ok.
 ensure_plugin_config(NameVsn) ->
     %% fetch plugin hocon config from cluster
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
     ensure_plugin_config(NameVsn, Nodes).
+
+-spec ensure_plugin_config(name_vsn(), list()) -> ok.
 ensure_plugin_config(NameVsn, []) ->
     ?SLOG(debug, #{
         msg => "default_plugin_config_used",
@@ -1200,6 +1205,7 @@ ensure_plugin_config(NameVsn, Nodes) ->
             cp_default_config_file(NameVsn)
     end.
 
+-spec cp_default_config_file(name_vsn()) -> ok.
 cp_default_config_file(NameVsn) ->
     %% always copy default hocon file into config dir when can not get config from other nodes
     Source = default_plugin_config_file(NameVsn),
@@ -1211,7 +1217,6 @@ cp_default_config_file(NameVsn) ->
         ok = filelib:ensure_dir(Destination),
         case file:copy(Source, Destination) of
             {ok, _} ->
-                ok,
                 ensure_config_map(NameVsn);
             {error, Reason} ->
                 ?SLOG(warning, #{
