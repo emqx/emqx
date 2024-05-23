@@ -64,7 +64,7 @@ typedef struct {
     - `n_elems': Size of the `elems' array.
 
     - `elems': Array that contains coordinates of the non-zero
-      elements of the matrix.
+      elements of the matrix (0-based).
 
     - `smatrix': Pointer to where the result will be stored.
 

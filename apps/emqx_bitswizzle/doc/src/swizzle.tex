@@ -27,6 +27,9 @@ We can represent our source binary as a bit vector:
 Transformation (bit mapping) can be represented as matrix multiplication,
 with exception that bitwise $\&$ is used instead of multiplication, and bitwise $\|$ is used instead of plus.
 
+Intuitive way to understand the matrix transformation is the following:
+non-zero matrix element $m_{i j}$ of an orthogonal matrix $m$ maps $i$-th bit of the input vector to $j$-th bit of the output vector.
+
 \begin{equation}
   \label{eq:trans1}
   \begin{bmatrix}

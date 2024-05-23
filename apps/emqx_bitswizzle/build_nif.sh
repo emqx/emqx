@@ -11,8 +11,8 @@ case "$(basename "${REBAR_BUILD_DIR}")" in
 esac
 
 BUILD_DIR="${REBAR_BUILD_DIR}/nif"
-cmake "${OPTIONS}" -B "${BUILD_DIR}" -S "${REBAR_ROOT_DIR}/c_src"
+cmake "${OPTIONS}" -B "${BUILD_DIR}" -S "$(dirname "$0")/c_src"
 make -C "${BUILD_DIR}" "$@"
 
-export INSTALL_PREFIX="${REBAR_BUILD_DIR}/lib/bitswizzle/priv"
+export INSTALL_PREFIX="${REBAR_BUILD_DIR}/lib/emqx_bitswizzle/priv"
 cp "${BUILD_DIR}/libbitswizzle.so" "${INSTALL_PREFIX}"
