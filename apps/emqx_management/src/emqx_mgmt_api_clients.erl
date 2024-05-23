@@ -141,14 +141,16 @@ schema("/clients_v2") ->
             parameters => fields(list_clients_v2_inputs),
             responses => #{
                 200 =>
-                    emqx_dashboard_swagger:schema_with_example(?R_REF(list_clients_v2_response), #{
-                        <<"data">> => [client_example()],
-                        <<"meta">> => #{
-                            <<"count">> => 1,
-                            <<"cursor">> => <<"g2wAAAADYQFhAm0AAAACYzJq">>,
-                            <<"hasnext">> => true
-                        }
-                    }),
+                    %% TODO: unhide after API is ready
+                    %% emqx_dashboard_swagger:schema_with_example(?R_REF(list_clients_v2_response), #{
+                    %%     <<"data">> => [client_example()],
+                    %%     <<"meta">> => #{
+                    %%         <<"count">> => 1,
+                    %%         <<"cursor">> => <<"g2wAAAADYQFhAm0AAAACYzJq">>,
+                    %%         <<"hasnext">> => true
+                    %%     }
+                    %% }),
+                    emqx_dashboard_swagger:schema_with_example(map(), #{}),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
                         ['INVALID_PARAMETER'], <<"Invalid parameters">>
