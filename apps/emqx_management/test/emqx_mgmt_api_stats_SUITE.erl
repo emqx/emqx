@@ -33,7 +33,6 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    {ok, _Api} = emqx_common_test_http:create_default_app(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
