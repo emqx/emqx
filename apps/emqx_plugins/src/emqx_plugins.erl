@@ -161,8 +161,8 @@ ensure_installed(NameVsn) ->
             ok = purge(NameVsn),
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
-                    _ = maybe_ensure_plugin_config(NameVsn),
-                    maybe_post_op_after_installed(NameVsn);
+                    maybe_post_op_after_installed(NameVsn),
+                    _ = maybe_ensure_plugin_config(NameVsn);
                 {error, _Reason} = Err ->
                     Err
             end
