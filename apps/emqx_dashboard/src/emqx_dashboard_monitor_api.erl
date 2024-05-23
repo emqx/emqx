@@ -253,7 +253,7 @@ maybe_reject_cluster_only_metrics(<<"all">>, Rates) ->
     Rates;
 maybe_reject_cluster_only_metrics(_Node, Rates) ->
     ClusterOnlyMetrics = [
-        durable_subscriptions,
+        subscriptions_durable,
         disconnected_durable_sessions
     ],
     maps:without(ClusterOnlyMetrics, Rates).

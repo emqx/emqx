@@ -109,6 +109,7 @@ start(Nodes, ClusterOpts) ->
     start(NodeSpecs).
 
 start(NodeSpecs) ->
+    emqx_common_test_helpers:clear_screen(),
     ct:pal("(Re)starting nodes:\n  ~p", [NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS),
