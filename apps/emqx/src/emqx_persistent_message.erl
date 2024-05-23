@@ -54,7 +54,7 @@ init() ->
 
 -spec is_persistence_enabled() -> boolean().
 is_persistence_enabled() ->
-    persistent_term:get(?PERSISTENCE_ENABLED).
+    persistent_term:get(?PERSISTENCE_ENABLED, false).
 
 -spec is_persistence_enabled(emqx_types:zone()) -> boolean().
 is_persistence_enabled(Zone) ->

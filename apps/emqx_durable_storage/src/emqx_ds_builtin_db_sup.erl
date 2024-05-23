@@ -79,11 +79,15 @@ start_shard({DB, Shard}) ->
 start_egress({DB, Shard}) ->
     supervisor:start_child(?via(#?egress_sup{db = DB}), egress_spec(DB, Shard)).
 
--spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok.
+-spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok | {error, not_found}.
 stop_shard({DB, Shard}) ->
     Sup = ?via(#?shards_sup{db = DB}),
-    ok = supervisor:terminate_child(Sup, Shard),
-    ok = supervisor:delete_child(Sup, Shard).
+    case supervisor:terminate_child(Sup, Shard) of
+        ok ->
+            supervisor:delete_child(Sup, Shard);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec terminate_storage(emqx_ds_storage_layer:shard_id()) -> ok | {error, _Reason}.
 terminate_storage({DB, Shard}) ->
