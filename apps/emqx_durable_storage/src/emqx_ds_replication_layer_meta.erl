@@ -694,12 +694,12 @@ ensure_site() ->
 
 forget_node(Node) ->
     Sites = node_sites(Node),
-    Results = transaction(fun lists:map/2, [fun ?MODULE:forget_site_trans/1, Sites]),
-    case [Reason || {error, Reason} <- Results] of
-        [] ->
+    Result = transaction(fun lists:map/2, [fun ?MODULE:forget_site_trans/1, Sites]),
+    case Result of
+        Ok when is_list(Ok) ->
             ok;
-        Errors ->
-            logger:error("Failed to forget leaving node ~p: ~p", [Node, Errors])
+        {error, Reason} ->
+            logger:error("Failed to forget leaving node ~p: ~p", [Node, Reason])
     end.
 
 %% @doc Returns sorted list of sites shards are replicated across.
