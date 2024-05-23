@@ -506,6 +506,8 @@ ctl() {
         case rpc:call('$EMQX_NODE_NAME', emqx_ctl, run_command, [[$args]]) of
           ok ->
             init:stop(0);
+          true ->
+            init:stop(0);
           Error ->
             io:format(\"~p~n\", [Error]),
             init:stop(1)
