@@ -355,13 +355,13 @@ init(_Opts) ->
     ok = emqx_config_handler:add_handler([listeners, '?', '?', ?CONF_ROOT], Module),
     ok = hook_deny(),
     {ok, #{hooked => false, providers => #{}, init_done => false},
-        {continue, {initialize_authentication, init}}}.
+        {continue, initialize_authentication}}.
 
 handle_call(get_providers, _From, #{providers := Providers} = State) ->
     reply(Providers, State);
 handle_call(
     {register_providers, Providers},
-    From,
+    _From,
     #{providers := Reg0} = State
 ) ->
     case lists:filter(fun({T, _}) -> maps:is_key(T, Reg0) end, Providers) of
@@ -373,7 +373,7 @@ handle_call(
                 Reg0,
                 Providers
             ),
-            reply(ok, State#{providers := Reg}, {initialize_authentication, From});
+            reply(ok, State#{providers := Reg}, initialize_authentication);
         Clashes ->
             reply({error, {authentication_type_clash, Clashes}}, State)
     end;
@@ -449,10 +449,10 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_continue({initialize_authentication, _From}, #{init_done := true} = State) ->
+handle_continue(initialize_authentication, #{init_done := true} = State) ->
     {noreply, State};
-handle_continue({initialize_authentication, From}, #{providers := Providers} = State) ->
-    InitDone = initialize_authentication(Providers, From),
+handle_continue(initialize_authentication, #{providers := Providers} = State) ->
+    InitDone = initialize_authentication(Providers),
     {noreply, maybe_hook(State#{init_done := InitDone})}.
 
 handle_cast(Req, State) ->
@@ -486,12 +486,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% Private functions
 %%------------------------------------------------------------------------------
 
-initialize_authentication(Providers, From) ->
+initialize_authentication(Providers) ->
     ProviderTypes = maps:keys(Providers),
     Chains = chain_configs(),
     HasProviders = has_providers_for_configs(Chains, ProviderTypes),
     Result = do_initialize_authentication(Providers, Chains, HasProviders),
-    ?tp(info, authn_chains_initialization_done, #{from => From, result => Result}),
+    ?tp(info, authn_chains_initialization_done, #{providers => Providers}),
     Result.
 
 do_initialize_authentication(_Providers, _Chains, _HasProviders = false) ->
