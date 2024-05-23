@@ -161,6 +161,7 @@ ensure_installed(NameVsn) ->
             ok = purge(NameVsn),
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
+                    _ = maybe_ensure_plugin_config(NameVsn),
                     maybe_post_op_after_installed(NameVsn);
                 {error, _Reason} = Err ->
                     Err
@@ -1167,7 +1168,9 @@ ensure_plugin_config(NameVsn, Nodes) ->
     case get_plugin_config_from_any_node(Nodes, NameVsn, []) of
         {ok, ConfigMap} when is_map(ConfigMap) ->
             HoconBin = hocon_pp:do(ConfigMap, #{}),
-            ok = file:write_file(plugin_config_file(NameVsn), HoconBin),
+            Path = plugin_config_file(NameVsn),
+            ok = filelib:ensure_dir(Path),
+            ok = file:write_file(Path, HoconBin),
             ensure_config_map(NameVsn);
         _ ->
             ?SLOG(error, #{msg => "config_not_found_from_cluster", name_vsn => NameVsn}),
@@ -1184,9 +1187,11 @@ cp_default_config_file(NameVsn) ->
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
         true ?= (not filelib:is_regular(Destination)),
+        ok = filelib:ensure_dir(Destination),
         case file:copy(Source, Destination) of
             {ok, _} ->
-                ok;
+                ok,
+                ensure_config_map(NameVsn);
             {error, Reason} ->
                 ?SLOG(warning, #{
                     msg => "failed_to_copy_plugin_default_hocon_config",
