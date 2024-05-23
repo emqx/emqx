@@ -841,7 +841,7 @@ t_conn_change_client_addr(Config) ->
     NewPort = select_port(),
     {ok, OldAddr} = quicer:sockname(Conn),
     ?assertEqual(
-        ok, quicer:setopt(Conn, param_conn_local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
+        ok, quicer:setopt(Conn, local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
     ),
     {ok, NewAddr} = quicer:sockname(Conn),
     ct:pal("NewAddr: ~p, Old Addr: ~p", [NewAddr, OldAddr]),
@@ -1681,7 +1681,7 @@ t_client_conn_bump_streams(Config) ->
     ]),
     {ok, _} = emqtt:quic_connect(C),
     {quic, Conn, _Stream} = proplists:get_value(socket, emqtt:info(C)),
-    ok = quicer:setopt(Conn, param_conn_settings, #{peer_unidi_stream_count => 20}).
+    ok = quicer:setopt(Conn, settings, #{peer_unidi_stream_count => 20}).
 
 t_olp_true(Config) ->
     meck:new(emqx_olp, [passthrough, no_history]),
