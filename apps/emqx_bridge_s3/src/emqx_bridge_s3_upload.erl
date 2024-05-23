@@ -63,10 +63,14 @@ fields(action) ->
 fields(?ACTION) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(
-            mkunion(mode, #{
-                <<"direct">> => ?R_REF(s3_direct_upload_parameters),
-                <<"aggregated">> => ?R_REF(s3_aggregated_upload_parameters)
-            }),
+            mkunion(
+                mode,
+                #{
+                    <<"direct">> => ?R_REF(s3_direct_upload_parameters),
+                    <<"aggregated">> => ?R_REF(s3_aggregated_upload_parameters)
+                },
+                <<"direct">>
+            ),
             #{
                 required => true,
                 desc => ?DESC(s3_upload),
@@ -87,7 +91,7 @@ fields(s3_direct_upload_parameters) ->
                 hoconsc:mk(
                     direct,
                     #{
-                        required => true,
+                        default => <<"direct">>,
                         desc => ?DESC(s3_direct_upload_mode)
                     }
                 )},
@@ -187,13 +191,22 @@ fields(s3_upload_resource_opts) ->
     ]).
 
 mkunion(Field, Schemas) ->
-    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Arg) end).
+    mkunion(Field, Schemas, none).
 
-scunion(_Field, Schemas, all_union_members) ->
+mkunion(Field, Schemas, Default) ->
+    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Default, Arg) end).
+
+scunion(_Field, Schemas, _Default, all_union_members) ->
     maps:values(Schemas);
-scunion(Field, Schemas, {value, Value}) ->
-    Selector = maps:get(emqx_utils_conv:bin(Field), Value, undefined),
-    case Selector == undefined orelse maps:find(emqx_utils_conv:bin(Selector), Schemas) of
+scunion(Field, Schemas, Default, {value, Value}) ->
+    Selector =
+        case maps:get(emqx_utils_conv:bin(Field), Value, undefined) of
+            undefined ->
+                Default;
+            X ->
+                emqx_utils_conv:bin(X)
+        end,
+    case maps:find(Selector, Schemas) of
         {ok, Schema} ->
             [Schema];
         _Error ->

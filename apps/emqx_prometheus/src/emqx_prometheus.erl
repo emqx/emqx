@@ -294,19 +294,19 @@ fetch_cluster_consistented_data() ->
     }.
 
 aggre_or_zip_init_acc() ->
-    #{
-        stats_data => maps:from_keys(metrics_name(stats_metric_meta()), []),
-        vm_data => maps:from_keys(metrics_name(vm_metric_meta()), []),
-        cluster_data => maps:from_keys(metrics_name(cluster_metric_meta()), []),
-        emqx_packet_data => maps:from_keys(metrics_name(emqx_packet_metric_meta()), []),
-        emqx_message_data => maps:from_keys(metrics_name(message_metric_meta()), []),
-        emqx_delivery_data => maps:from_keys(metrics_name(delivery_metric_meta()), []),
-        emqx_client_data => maps:from_keys(metrics_name(client_metric_meta()), []),
-        emqx_session_data => maps:from_keys(metrics_name(session_metric_meta()), []),
-        emqx_olp_data => maps:from_keys(metrics_name(olp_metric_meta()), []),
-        emqx_acl_data => maps:from_keys(metrics_name(acl_metric_meta()), []),
-        emqx_authn_data => maps:from_keys(metrics_name(authn_metric_meta()), []),
-        mria_data => maps:from_keys(metrics_name(mria_metric_meta()), [])
+    (maybe_add_ds_meta())#{
+        stats_data => meta_to_init_from(stats_metric_meta()),
+        vm_data => meta_to_init_from(vm_metric_meta()),
+        cluster_data => meta_to_init_from(cluster_metric_meta()),
+        emqx_packet_data => meta_to_init_from(emqx_packet_metric_meta()),
+        emqx_message_data => meta_to_init_from(message_metric_meta()),
+        emqx_delivery_data => meta_to_init_from(delivery_metric_meta()),
+        emqx_client_data => meta_to_init_from(client_metric_meta()),
+        emqx_session_data => meta_to_init_from(session_metric_meta()),
+        emqx_olp_data => meta_to_init_from(olp_metric_meta()),
+        emqx_acl_data => meta_to_init_from(acl_metric_meta()),
+        emqx_authn_data => meta_to_init_from(authn_metric_meta()),
+        mria_data => meta_to_init_from(mria_metric_meta())
     }.
 
 logic_sum_metrics() ->
@@ -655,6 +655,18 @@ emqx_metric_data(MetricNameTypeKeyL, Mode) ->
         #{},
         MetricNameTypeKeyL
     ).
+
+%%==========
+%% Durable Storage
+maybe_add_ds_meta() ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            #{
+                ds_data => meta_to_init_from(emqx_ds_builtin_metrics:prometheus_meta())
+            };
+        false ->
+            #{}
+    end.
 
 %%==========
 %% Bytes && Packets
@@ -1115,6 +1127,9 @@ zip_json_prom_stats_metrics(Key, Points, [] = _AccIn) ->
 zip_json_prom_stats_metrics(Key, Points, AllResultedAcc) ->
     ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
     lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
+
+meta_to_init_from(Meta) ->
+    maps:from_keys(metrics_name(Meta), []).
 
 metrics_name(MetricsAll) ->
     [Name || {Name, _, _} <- MetricsAll].

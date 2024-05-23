@@ -145,7 +145,7 @@ make_docs() {
         scripts/merge-i18n.escript | jq --sort-keys . > "$desc"
     else
         # it is not a big deal if we cannot generate the desc
-        log_red "NOT Generated: $desc"
+        log_red "NOT Generated: $desc due to jq command missing."
     fi
 }
 

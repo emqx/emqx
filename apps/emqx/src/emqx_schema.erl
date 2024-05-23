@@ -1690,7 +1690,7 @@ fields("durable_sessions") ->
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"5000ms">>,
+                    default => <<"1s">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},

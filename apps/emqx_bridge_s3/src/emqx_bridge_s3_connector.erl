@@ -310,7 +310,7 @@ on_query(InstId, {Tag, Data}, #{client_config := Config, channels := Channels}) 
         ChannelState = #{mode := direct} ->
             run_simple_upload(InstId, Tag, Data, ChannelState, Config);
         ChannelState = #{mode := aggregated} ->
-            run_aggregated_upload(InstId, [Data], ChannelState);
+            run_aggregated_upload(InstId, Tag, [Data], ChannelState);
         undefined ->
             {error, {unrecoverable_error, {invalid_message_tag, Tag}}}
     end.
@@ -321,7 +321,7 @@ on_batch_query(InstId, [{Tag, Data0} | Rest], #{channels := Channels}) ->
     case maps:get(Tag, Channels, undefined) of
         ChannelState = #{mode := aggregated} ->
             Records = [Data0 | [Data || {_, Data} <- Rest]],
-            run_aggregated_upload(InstId, Records, ChannelState);
+            run_aggregated_upload(InstId, Tag, Records, ChannelState);
         undefined ->
             {error, {unrecoverable_error, {invalid_message_tag, Tag}}}
     end.
@@ -362,8 +362,12 @@ run_simple_upload(
             {error, map_error(Reason)}
     end.
 
-run_aggregated_upload(InstId, Records, #{aggreg_id := AggregId}) ->
+run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
+    emqx_trace:rendered_action_template(ChannelID, #{
+        mode => aggregated,
+        records => Records
+    }),
     case emqx_connector_aggregator:push_records(AggregId, Timestamp, Records) of
         ok ->
             ?tp(s3_bridge_aggreg_push_ok, #{instance_id => InstId, name => AggregId}),
