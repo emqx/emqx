@@ -294,7 +294,7 @@ fetch_cluster_consistented_data() ->
     }.
 
 aggre_or_zip_init_acc() ->
-    #{
+    (maybe_add_ds_meta())#{
         stats_data => maps:from_keys(metrics_name(stats_metric_meta()), []),
         vm_data => maps:from_keys(metrics_name(vm_metric_meta()), []),
         cluster_data => maps:from_keys(metrics_name(cluster_metric_meta()), []),
@@ -655,6 +655,20 @@ emqx_metric_data(MetricNameTypeKeyL, Mode) ->
         #{},
         MetricNameTypeKeyL
     ).
+
+%%==========
+%% Durable Storage
+maybe_add_ds_meta() ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            #{
+                ds_data => maps:from_keys(
+                    metrics_name(emqx_ds_builtin_metrics:prometheus_meta()), []
+                )
+            };
+        false ->
+            #{}
+    end.
 
 %%==========
 %% Bytes && Packets
