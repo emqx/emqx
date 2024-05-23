@@ -25,6 +25,7 @@
 -define(CONFIG_FORMAT_MAP, config_format_map).
 
 -define(plugin_conf_not_found, plugin_conf_not_found).
+-define(plugin_without_config_schema, plugin_without_config_schema).
 
 -type schema_name() :: binary().
 -type avsc_path() :: string().
