@@ -48,7 +48,11 @@ format_meta_map(Meta) ->
     format_meta_map(Meta, Encode).
 
 format_meta_map(Meta, Encode) ->
-    format_meta_map(Meta, Encode, [{packet, fun format_packet/2}, {payload, fun format_payload/2}]).
+    format_meta_map(Meta, Encode, [
+        {packet, fun format_packet/2},
+        {payload, fun format_payload/2},
+        {<<"payload">>, fun format_payload/2}
+    ]).
 
 format_meta_map(Meta, _Encode, []) ->
     Meta;
@@ -61,9 +65,21 @@ format_meta_map(Meta, Encode, [{Name, FormatFun} | Rest]) ->
             format_meta_map(Meta, Encode, Rest)
     end.
 
+format_meta_data(Meta0, Encode) when is_map(Meta0) ->
+    Meta1 = format_meta_map(Meta0, Encode),
+    maps:map(fun(_K, V) -> format_meta_data(V, Encode) end, Meta1);
+format_meta_data(Meta, Encode) when is_list(Meta) ->
+    [format_meta_data(Item, Encode) || Item <- Meta];
+format_meta_data(Meta, Encode) when is_tuple(Meta) ->
+    List = erlang:tuple_to_list(Meta),
+    FormattedList = [format_meta_data(Item, Encode) || Item <- List],
+    erlang:list_to_tuple(FormattedList);
+format_meta_data(Meta, _Encode) ->
+    Meta.
+
 format_meta(Meta0, Encode) ->
     Meta1 = maps:without([msg, clientid, peername, trace_tag], Meta0),
-    Meta2 = format_meta_map(Meta1, Encode),
+    Meta2 = format_meta_data(Meta1, Encode),
     kvs_to_iolist(lists:sort(fun compare_meta_kvs/2, maps:to_list(Meta2))).
 
 %% packet always goes first; payload always goes last
