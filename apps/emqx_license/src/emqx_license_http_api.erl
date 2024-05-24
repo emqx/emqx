@@ -28,7 +28,9 @@
 namespace() -> "license_http_api".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{
+        check_schema => fun emqx_dashboard_swagger:validate_content_type_json/2
+    }).
 
 paths() ->
     [

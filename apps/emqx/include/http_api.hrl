@@ -86,5 +86,6 @@
     {'SOURCE_ERROR', <<"Source error">>},
     {'UPDATE_FAILED', <<"Update failed">>},
     {'REST_FAILED', <<"Reset source or config failed">>},
-    {'CLIENT_NOT_RESPONSE', <<"Client not responding">>}
+    {'CLIENT_NOT_RESPONSE', <<"Client not responding">>},
+    {'UNSUPPORTED_MEDIA_TYPE', <<"Unsupported media type">>}
 ]).

@@ -216,6 +216,45 @@ t_create_failed(_Config) ->
     ?assertEqual(BadRequest, create_banned(Expired)),
     ok.
 
+%% validate check_schema is true with bad content_type
+t_create_with_bad_content_type(_Config) ->
+    Now = erlang:system_time(second),
+    At = emqx_banned:to_rfc3339(Now),
+    Until = emqx_banned:to_rfc3339(Now + 3),
+    Who = <<"TestClient-"/utf8>>,
+    By = <<"banned suite 中"/utf8>>,
+    Reason = <<"test测试"/utf8>>,
+    Banned = #{
+        as => clientid,
+        who => Who,
+        by => By,
+        reason => Reason,
+        at => At,
+        until => Until
+    },
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Path = emqx_mgmt_api_test_util:api_path(["banned"]),
+    {error, {
+        {"HTTP/1.1", 415, "Unsupported Media Type"},
+        _Headers,
+        MsgBin
+    }} =
+        emqx_mgmt_api_test_util:request_api(
+            post,
+            Path,
+            "",
+            AuthHeader,
+            Banned,
+            #{'content-type' => "application/xml", return_all => true}
+        ),
+    ?assertEqual(
+        #{
+            <<"code">> => <<"UNSUPPORTED_MEDIA_TYPE">>,
+            <<"message">> => <<"content-type:application/json Required">>
+        },
+        emqx_utils_json:decode(MsgBin)
+    ).
+
 t_delete(_Config) ->
     Now = erlang:system_time(second),
     At = emqx_banned:to_rfc3339(Now),

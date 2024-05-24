@@ -38,7 +38,12 @@
 namespace() -> "dashboard_sso".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false, translate_body => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{
+        translate_body => false,
+        check_schema => fun(Params, Meta) ->
+            emqx_dashboard_swagger:validate_content_type(Params, Meta, <<"application/xml">>)
+        end
+    }).
 
 paths() ->
     [
