@@ -9,10 +9,6 @@ services:
   selenium:
     shm_size: '2gb'
     image: ghcr.io/emqx/selenium-chrome:latest
-    environment:
-      EMQX_NAME: ${EMQX_NAME}
-      EMQX_COMMUNITY_VERSION: ${EMQX_VERSION}
-      EMQX_ENTERPRISE_VERSION: ${EMQX_ENTERPRISE_VERSION}
     volumes:
       - ./:/app
     depends_on:

@@ -156,7 +156,7 @@ jobs:
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ecr: true
 
-      - name: Build docker image
+      - name: Build docker image for smoke test
         env:
           PROFILE: ${{ matrix.profile[0] }}
           DOCKER_REGISTRY: ${{ matrix.profile[1] }}
@@ -164,7 +164,6 @@ jobs:
           DOCKER_LATEST: ${{ inputs.latest }}
           DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
-          DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: true
           EMQX_RUNNER: 'public.ecr.aws/debian/debian:12-slim'
           EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
@@ -203,7 +202,8 @@ jobs:
           docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
-      - name: Push docker image
+
+      - name: Build and push docker image
         if: inputs.publish || github.repository_owner != 'emqx'
         env:
           PROFILE: ${{ matrix.profile[0] }}
