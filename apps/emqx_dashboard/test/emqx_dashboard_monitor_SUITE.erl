@@ -224,13 +224,16 @@ t_monitor_current_api(_) ->
     ],
     ?assert(maps:is_key(<<"subscriptions_durable">>, Rate)),
     ?assert(maps:is_key(<<"disconnected_durable_sessions">>, Rate)),
-    ClusterOnlyMetrics = [durable_subscriptions, disconnected_durable_sessions],
     {ok, NodeRate} = request(["monitor_current", "nodes", node()]),
-    [
-        ?assert(maps:is_key(atom_to_binary(Key, utf8), NodeRate), #{key => Key, rates => NodeRate})
-     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
-        not lists:member(Key, ClusterOnlyMetrics)
-    ],
+    ExpectedKeys = lists:map(
+        fun atom_to_binary/1,
+        (?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP)) -- ?CLUSTERONLY_SAMPLER_LIST
+    ),
+    ?assertEqual(
+        [],
+        ExpectedKeys -- maps:keys(NodeRate),
+        NodeRate
+    ),
     ?assertNot(maps:is_key(<<"subscriptions_durable">>, NodeRate)),
     ?assertNot(maps:is_key(<<"subscriptions_ram">>, NodeRate)),
     ?assertNot(maps:is_key(<<"disconnected_durable_sessions">>, NodeRate)),
@@ -426,6 +429,21 @@ t_persistent_session_stats(Config) ->
             ?ON(N1, request(["monitor_current"]))
         )
     end),
+    %% Verify that historical metrics are in line with the current ones.
+    ?assertMatch(
+        {ok, [
+            #{
+                <<"time_stamp">> := _,
+                <<"connections">> := 3,
+                <<"disconnected_durable_sessions">> := 1,
+                <<"topics">> := 8,
+                <<"subscriptions">> := 8,
+                <<"subscriptions_ram">> := 4,
+                <<"subscriptions_durable">> := 4
+            }
+        ]},
+        ?ON(N1, request(["monitor"], "latest=1"))
+    ),
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:disconnect(PSClient2),

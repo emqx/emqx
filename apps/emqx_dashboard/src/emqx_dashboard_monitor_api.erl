@@ -202,11 +202,10 @@ swagger_desc(persisted) ->
     swagger_desc_format("Messages saved to the durable storage ");
 swagger_desc(disconnected_durable_sessions) ->
     <<"Disconnected durable sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(durable_subscriptions) ->
+swagger_desc(subscriptions_durable) ->
     <<"Subscriptions from durable sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(subscriptions) ->
-    <<"Subscriptions at the time of sampling (not considering durable sessions).",
-        ?APPROXIMATE_DESC>>;
+    <<"Subscriptions at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(topics) ->
     <<"Count topics at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(connections) ->
@@ -252,8 +251,4 @@ swagger_desc_format(Format, Type) ->
 maybe_reject_cluster_only_metrics(<<"all">>, Rates) ->
     Rates;
 maybe_reject_cluster_only_metrics(_Node, Rates) ->
-    ClusterOnlyMetrics = [
-        subscriptions_durable,
-        disconnected_durable_sessions
-    ],
-    maps:without(ClusterOnlyMetrics, Rates).
+    maps:without(?CLUSTERONLY_SAMPLER_LIST, Rates).

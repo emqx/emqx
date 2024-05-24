@@ -118,8 +118,7 @@ current_rate(all) ->
     current_rate_cluster();
 current_rate(Node) when Node == node() ->
     try
-        {ok, Rate} = do_call(current_rate),
-        {ok, adjust_individual_node_metrics(Rate)}
+        do_call(current_rate)
     catch
         _E:R ->
             ?SLOG(warning, #{msg => "dashboard_monitor_error", reason => R}),
@@ -222,8 +221,11 @@ do_sample(Node, Time) ->
             Res
     end.
 
-do_sample([], _Time, Res) ->
-    Res;
+do_sample([], _Time, Samples) ->
+    maps:map(
+        fun(_TS, Sample) -> adjust_synthetic_cluster_metrics(Sample) end,
+        Samples
+    );
 do_sample([Node | Nodes], Time, Res) ->
     case do_sample(Node, Time) of
         {badrpc, Reason} ->
@@ -237,22 +239,27 @@ match_spec(infinity) ->
 match_spec(Time) ->
     [{{'_', '$1', '_'}, [{'>=', '$1', Time}], ['$_']}].
 
-merge_cluster_samplers(Node, Cluster) ->
-    maps:fold(fun merge_cluster_samplers/3, Cluster, Node).
+merge_cluster_samplers(NodeSamples, Cluster) ->
+    maps:fold(fun merge_cluster_samplers/3, Cluster, NodeSamples).
 
-merge_cluster_samplers(TS, NodeData, Cluster) ->
+merge_cluster_samplers(TS, NodeSample, Cluster) ->
     case maps:get(TS, Cluster, undefined) of
         undefined ->
-            Cluster#{TS => NodeData};
-        ClusterData ->
-            Cluster#{TS => merge_cluster_sampler_map(NodeData, ClusterData)}
+            Cluster#{TS => NodeSample};
+        ClusterSample ->
+            Cluster#{TS => merge_cluster_sampler_map(NodeSample, ClusterSample)}
     end.
 
 merge_cluster_sampler_map(M1, M2) ->
     Fun =
         fun
-            (topics, Map) ->
-                Map#{topics => maps:get(topics, M1)};
+            (Key, Map) when
+                %% cluster-synced values
+                Key =:= topics;
+                Key =:= subscriptions_durable;
+                Key =:= disconnected_durable_sessions
+            ->
+                Map#{Key => maps:get(Key, M1)};
             (Key, Map) ->
                 Map#{Key => maps:get(Key, M1, 0) + maps:get(Key, M2, 0)}
         end,
@@ -282,10 +289,6 @@ merge_cluster_rate(Node, Cluster) ->
                 NCluster#{Key => Value + ClusterValue}
         end,
     maps:fold(Fun, Cluster, Node).
-
-adjust_individual_node_metrics(Metrics0) ->
-    %% ensure renamed
-    emqx_utils_maps:rename(durable_subscriptions, subscriptions_durable, Metrics0).
 
 adjust_synthetic_cluster_metrics(Metrics0) ->
     DSSubs = maps:get(subscriptions_durable, Metrics0, 0),
@@ -445,7 +448,7 @@ stats(connections) ->
     emqx_stats:getstat('connections.count');
 stats(disconnected_durable_sessions) ->
     emqx_persistent_session_bookkeeper:get_disconnected_session_count();
-stats(durable_subscriptions) ->
+stats(subscriptions_durable) ->
     emqx_stats:getstat('durable_subscriptions.count');
 stats(live_connections) ->
     emqx_stats:getstat('live_connections.count');
