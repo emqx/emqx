@@ -566,7 +566,11 @@ list_nodes() ->
         EXPR
     catch
         error:RPCError__ = {erpc, _} ->
-            {error, recoverable, RPCError__}
+            {error, recoverable, RPCError__};
+        %% Note: remote node never _throws_ unrecoverable errors, so
+        %% we can assume that all exceptions are transient.
+        EC__:RPCError__:Stack__ ->
+            {error, recoverable, #{EC__ => RPCError__, stacktrace => Stack__}}
     end
 ).
 
