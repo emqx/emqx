@@ -73,14 +73,14 @@
 
 -define(GAUGE_SAMPLER_LIST, [
     disconnected_durable_sessions,
-    durable_subscriptions,
+    subscriptions_durable,
     subscriptions,
     topics,
     connections,
     live_connections
 ]).
 
--define(SAMPLER_LIST, ?GAUGE_SAMPLER_LIST ++ ?DELTA_SAMPLER_LIST).
+-define(SAMPLER_LIST, (?GAUGE_SAMPLER_LIST ++ ?DELTA_SAMPLER_LIST)).
 
 -define(DELTA_SAMPLER_RATE_MAP, #{
     received => received_msg_rate,
@@ -101,6 +101,11 @@
         shared_subscriptions
     ] ++ ?LICENSE_QUOTA
 ).
+
+-define(CLUSTERONLY_SAMPLER_LIST, [
+    subscriptions_durable,
+    disconnected_durable_sessions
+]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -define(LICENSE_QUOTA, [license_quota]).

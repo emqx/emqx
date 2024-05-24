@@ -224,13 +224,16 @@ t_monitor_current_api(_) ->
     ],
     ?assert(maps:is_key(<<"subscriptions_durable">>, Rate)),
     ?assert(maps:is_key(<<"disconnected_durable_sessions">>, Rate)),
-    ClusterOnlyMetrics = [durable_subscriptions, disconnected_durable_sessions],
     {ok, NodeRate} = request(["monitor_current", "nodes", node()]),
-    [
-        ?assert(maps:is_key(atom_to_binary(Key, utf8), NodeRate), #{key => Key, rates => NodeRate})
-     || Key <- maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST,
-        not lists:member(Key, ClusterOnlyMetrics)
-    ],
+    ExpectedKeys = lists:map(
+        fun atom_to_binary/1,
+        (?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP)) -- ?CLUSTERONLY_SAMPLER_LIST
+    ),
+    ?assertEqual(
+        [],
+        ExpectedKeys -- maps:keys(NodeRate),
+        NodeRate
+    ),
     ?assertNot(maps:is_key(<<"subscriptions_durable">>, NodeRate)),
     ?assertNot(maps:is_key(<<"subscriptions_ram">>, NodeRate)),
     ?assertNot(maps:is_key(<<"disconnected_durable_sessions">>, NodeRate)),

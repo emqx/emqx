@@ -118,8 +118,7 @@ current_rate(all) ->
     current_rate_cluster();
 current_rate(Node) when Node == node() ->
     try
-        {ok, Rate} = do_call(current_rate),
-        {ok, adjust_individual_node_metrics(Rate)}
+        do_call(current_rate)
     catch
         _E:R ->
             ?SLOG(warning, #{msg => "dashboard_monitor_error", reason => R}),
@@ -243,8 +242,7 @@ match_spec(Time) ->
 merge_cluster_samplers(NodeSamples, Cluster) ->
     maps:fold(fun merge_cluster_samplers/3, Cluster, NodeSamples).
 
-merge_cluster_samplers(TS, NodeSample0, Cluster) ->
-    NodeSample = adjust_individual_node_metrics(NodeSample0),
+merge_cluster_samplers(TS, NodeSample, Cluster) ->
     case maps:get(TS, Cluster, undefined) of
         undefined ->
             Cluster#{TS => NodeSample};
@@ -291,10 +289,6 @@ merge_cluster_rate(Node, Cluster) ->
                 NCluster#{Key => Value + ClusterValue}
         end,
     maps:fold(Fun, Cluster, Node).
-
-adjust_individual_node_metrics(Metrics0) ->
-    %% ensure renamed
-    emqx_utils_maps:rename(durable_subscriptions, subscriptions_durable, Metrics0).
 
 adjust_synthetic_cluster_metrics(Metrics0) ->
     DSSubs = maps:get(subscriptions_durable, Metrics0, 0),
@@ -454,7 +448,7 @@ stats(connections) ->
     emqx_stats:getstat('connections.count');
 stats(disconnected_durable_sessions) ->
     emqx_persistent_session_bookkeeper:get_disconnected_session_count();
-stats(durable_subscriptions) ->
+stats(subscriptions_durable) ->
     emqx_stats:getstat('durable_subscriptions.count');
 stats(live_connections) ->
     emqx_stats:getstat('live_connections.count');
