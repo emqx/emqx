@@ -23,8 +23,30 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -define(ON(NODE, BODY),
-    erpc:call(NODE, erlang, apply, [fun() -> BODY end, []])
+    emqx_ds_test_helpers:on(NODE, fun() -> BODY end)
 ).
+
+-spec on([node()] | node(), fun(() -> A)) -> A | [A].
+on(Node, Fun) when is_atom(Node) ->
+    [Ret] = on([Node], Fun),
+    Ret;
+on(Nodes, Fun) ->
+    Results = erpc:multicall(Nodes, erlang, apply, [Fun, []]),
+    lists:map(
+        fun
+            ({_Node, {ok, Result}}) ->
+                Result;
+            ({Node, Error}) ->
+                ct:pal("Error on node ~p", [Node]),
+                case Error of
+                    {error, {exception, Reason, Stack}} ->
+                        erlang:raise(error, Reason, Stack);
+                    _ ->
+                        error(Error)
+                end
+        end,
+        lists:zip(Nodes, Results)
+    ).
 
 %% RPC mocking
 
