@@ -556,6 +556,7 @@ ensure_state(NameVsn, Position, State, ConfLocation) ->
                 fun() -> ensure_configured(Item, Position, ConfLocation) end
             );
         {error, Reason} ->
+            ?SLOG(error, #{msg => "ensure_plugin_states_failed", reason => Reason}),
             {error, Reason}
     end.
 
@@ -1133,7 +1134,7 @@ maybe_ensure_state(NameVsn) ->
         case NV of
             NameVsn ->
                 %% Configured, using existed cluster config
-                ensure_state(NV, no_move, Bool, global),
+                _ = ensure_state(NV, no_move, Bool, global),
                 AccIn#{ensured => true};
             _ ->
                 AccIn
