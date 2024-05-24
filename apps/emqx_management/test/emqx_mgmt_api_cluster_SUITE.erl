@@ -41,9 +41,12 @@ init_per_testcase(TC = t_cluster_invite_api_timeout, Config0) ->
 init_per_testcase(TC = t_cluster_invite_async, Config0) ->
     Config = [{tc_name, TC} | Config0],
     [{cluster, cluster(Config)} | setup(Config)];
-init_per_testcase(_TC, Config) ->
-    emqx_mgmt_api_test_util:init_suite(?APPS),
-    Config.
+init_per_testcase(TC, Config) ->
+    Apps = emqx_cth_suite:start(
+        ?APPS ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    [{tc_apps, Apps} | Config].
 
 end_per_testcase(t_cluster_topology_api_replicants, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
@@ -54,8 +57,8 @@ end_per_testcase(t_cluster_invite_api_timeout, Config) ->
 end_per_testcase(t_cluster_invite_async, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config);
-end_per_testcase(_TC, _Config) ->
-    emqx_mgmt_api_test_util:end_suite(?APPS).
+end_per_testcase(_TC, Config) ->
+    ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 t_cluster_topology_api_empty_resp(_) ->
     ClusterTopologyPath = emqx_mgmt_api_test_util:api_path(["cluster", "topology"]),
