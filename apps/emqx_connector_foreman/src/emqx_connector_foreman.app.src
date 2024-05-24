@@ -1,0 +1,14 @@
+{application, emqx_connector_foreman, [
+    {description, "EMQX Connector Foreman"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        gproc
+    ]},
+    {env, []},
+    {mod, {emqx_connector_foreman_app, []}},
+    {modules, []},
+    {links, []}
+]}.

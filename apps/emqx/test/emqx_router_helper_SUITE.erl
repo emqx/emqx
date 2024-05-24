@@ -127,7 +127,7 @@ t_cleanup_membership_node_down(_Config) ->
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_cleanup_monitor_node_down(_Config) ->
-    [Slave] = emqx_cth_cluster:start_bare_nodes([node4]),
+    [Slave] = emqx_cth_cluster:start_bare_nodes([#{name => node4}]),
     emqx_router:add_route(<<"a/b/c">>, Slave),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),

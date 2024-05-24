@@ -84,6 +84,10 @@
 
     base_port => inet:port_number(),
 
+    %% Extra command line flags to be prepended to default args when starting the VM.
+    %% Ex: ["-kernel", "prevent_overlapping_partitions", "false"]
+    extra_vm_args => [string()],
+
     % Node to join to in clustering phase
     % If set to `undefined` this node won't try to join the cluster
     % Default: no (first core node is used to join to by default)
@@ -332,24 +336,24 @@ allocate_listener_ports(Types, Spec) ->
     lists:foldl(fun maps:merge/2, #{}, [allocate_listener_port(Type, Spec) || Type <- Types]).
 
 start_nodes_init(Specs, Timeout) ->
-    Names = lists:map(fun(#{name := Name}) -> Name end, Specs),
-    _Nodes = start_bare_nodes(Names, Timeout),
+    _Nodes = start_bare_nodes(Specs, Timeout),
     lists:foreach(fun node_init/1, Specs).
 
-start_bare_nodes(Names) ->
-    start_bare_nodes(Names, ?TIMEOUT_NODE_START_MS).
+start_bare_nodes(Specs) ->
+    start_bare_nodes(Specs, ?TIMEOUT_NODE_START_MS).
 
-start_bare_nodes(Names, Timeout) ->
-    Args = erl_flags(),
+start_bare_nodes(Specs, Timeout) ->
     Envs = [],
     Waits = lists:map(
-        fun(Name) ->
+        fun(#{name := Name} = Spec) ->
+            ExtraVMArgs = maps:get(extra_vm_args, Spec, []),
+            Args = ExtraVMArgs ++ erl_flags(),
             WaitTag = {boot_complete, Name},
             WaitBoot = {self(), WaitTag},
             {ok, _} = emqx_cth_peer:start(Name, Args, Envs, WaitBoot),
             WaitTag
         end,
-        Names
+        Specs
     ),
     Deadline = deadline(Timeout),
     Nodes = wait_boot_complete(Waits, Deadline),

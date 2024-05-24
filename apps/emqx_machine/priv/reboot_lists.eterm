@@ -44,6 +44,7 @@
             emqx_durable_storage,
             emqx_http_lib,
             emqx_resource,
+            emqx_connector_foreman,
             emqx_connector,
             emqx_auth,
             emqx_auth_http,
