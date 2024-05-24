@@ -1,0 +1,42 @@
+%% This file contains instructions for upgrading from the LAST version to
+%% the CURRENT version.
+%%
+%% We only need to write instructions for the changes in the specific pull request,
+%% these files will be automatically merged/aggregated into a complete relup file
+%% before a new version is released.
+%%
+%% Note that we do not support the 'apply' command in the 'code_changes' section.
+%% If any complex operations are needed during the upgrade process, please add
+%% them in the 'post_upgrade_callbacks' section, and implement them in the
+%% 'emqx_post_upgrade' module.
+
+#{
+    target_version => "5.6.1+patch.A",
+    from_version => "5.6.1",
+    code_changes =>
+        [ {load_module, emqx_post_upgrade}
+        , {load_module, emqx_broker}
+        , {load_module, emqx_metrics}
+        , {load_module, emqx_persistent_message}
+        , {load_module, emqx_dashboard_monitor}
+        , {load_module, emqx_dashboard_monitor_api}
+        , {load_module, emqx_ds_builtin_metrics}
+        , {load_module, emqx_ds_storage_bitfield_lts}
+        , {load_module, emqx_prometheus}
+        , {load_module, emqx_ds_builtin_db_sup}
+        , {load_module, emqx_ds_builtin_sup}
+        , {load_module, emqx_ds_replication_layer}
+        , {load_module, emqx_ds_storage_layer}
+        , {load_module, emqx_broker_helper}
+        , {load_module, emqx_shared_sub}
+        , {load_module, emqx_ds_replication_shard_allocator}
+        , {load_module, emqx_mgmt_api_metrics}
+        , {update, emqx_ds_replication_layer_egress, {advanced, #{}}}
+        ],
+    post_upgrade_callbacks =>
+        [ {pr12781_init_db_metrics, pr12781_termiate_db_metrics}
+        , {pr12781_create_persist_msg_pterm, pr12781_erase_persist_msg_pterm}
+        , {pr12781_trans_tables, pr12781_revert_tables}
+        , {pr12765_update_stats_timer, pr12765_revert_stats_timer}
+        ]
+}.
