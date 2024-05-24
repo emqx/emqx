@@ -83,11 +83,13 @@ should_route_to_external_dests(_Msg) ->
 %% EMQX Hooks
 %%--------------------------------------------------------------------
 
-on_message_publish(#message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
+on_message_publish(
+    #message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload} = Msg
+) ->
     _ =
         case emqx_cluster_link_mqtt:decode_route_op(Payload) of
-            {actor_init, #{actor := Actor, incarnation := Incr}} ->
-                actor_init(ClusterName, Actor, Incr);
+            {actor_init, InitInfoMap} ->
+                actor_init(ClusterName, emqx_message:get_header(properties, Msg), InitInfoMap);
             {route_updates, #{actor := Actor, incarnation := Incr}, RouteOps} ->
                 update_routes(ClusterName, Actor, Incr, RouteOps)
         end,
@@ -137,9 +139,61 @@ topic_intersect_any(Topic, [LinkFilter | T]) ->
 topic_intersect_any(_Topic, []) ->
     false.
 
-actor_init(ClusterName, Actor, Incarnation) ->
-    Env = #{timestamp => erlang:system_time(millisecond)},
-    {ok, _} = emqx_cluster_link_extrouter:actor_init(ClusterName, Actor, Incarnation, Env).
+actor_init(
+    ClusterName,
+    #{'Correlation-Data' := ReqId, 'Response-Topic' := RespTopic},
+    #{
+        actor := Actor,
+        incarnation := Incr,
+        cluster := TargetCluster,
+        proto_ver := _
+    }
+) ->
+    Res =
+        case emqx_cluster_link_config:link(ClusterName) of
+            undefined ->
+                ?SLOG(
+                    error,
+                    #{
+                        msg => "init_link_request_from_unknown_cluster",
+                        link_name => ClusterName
+                    }
+                ),
+                %% Avoid atom error reasons, since they can be sent to the remote cluster,
+                %% which will use safe binary_to_term decoding
+                %% TODO: add error details?
+                {error, <<"unknown_cluster">>};
+            LinkConf ->
+                %% TODO: may be worth checking resource health and communicate it?
+                _ = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
+                MyClusterName = emqx_cluster_link_config:cluster(),
+                case MyClusterName of
+                    TargetCluster ->
+                        Env = #{timestamp => erlang:system_time(millisecond)},
+                        {ok, _} = emqx_cluster_link_extrouter:actor_init(
+                            ClusterName, Actor, Incr, Env
+                        ),
+                        ok;
+                    _ ->
+                        %% The remote cluster uses a different name to refer to this cluster
+                        ?SLOG(error, #{
+                            msg => "misconfigured_cluster_link_name",
+                            %% How this cluster names itself
+                            local_name => MyClusterName,
+                            %% How the remote cluster names this local cluster
+                            remote_name => TargetCluster,
+                            %% How the remote cluster names itself
+                            received_from => ClusterName
+                        }),
+                        {error, <<"bad_remote_cluster_link_name">>}
+                end
+        end,
+    _ = actor_init_ack(Actor, Res, ReqId, RespTopic),
+    {stop, []}.
+
+actor_init_ack(Actor, Res, ReqId, RespTopic) ->
+    RespMsg = emqx_cluster_link_mqtt:actor_init_ack_resp_msg(Actor, Res, ReqId, RespTopic),
+    emqx_broker:publish(RespMsg).
 
 update_routes(ClusterName, Actor, Incarnation, RouteOps) ->
     ActorState = emqx_cluster_link_extrouter:actor_state(ClusterName, Actor, Incarnation),

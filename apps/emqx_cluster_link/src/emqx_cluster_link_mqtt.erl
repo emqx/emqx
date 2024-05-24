@@ -29,11 +29,13 @@
     ensure_msg_fwd_resource/1,
     stop_msg_fwd_resource/1,
     decode_route_op/1,
-    decode_forwarded_msg/1
+    decode_forwarded_msg/1,
+    decode_resp/1
 ]).
 
 -export([
-    publish_actor_init_sync/3,
+    publish_actor_init_sync/6,
+    actor_init_ack_resp_msg/4,
     publish_route_sync/4,
     encode_field/2
 ]).
@@ -45,11 +47,6 @@
 -define(MSG_CLIENTID_SUFFIX, ":msg:").
 
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
--define(MY_CLUSTER_NAME, emqx_cluster_link_config:cluster()).
-
--define(ROUTE_TOPIC, <<?ROUTE_TOPIC_PREFIX, (?MY_CLUSTER_NAME)/binary>>).
--define(MSG_FWD_TOPIC, <<?MSG_TOPIC_PREFIX, (?MY_CLUSTER_NAME)/binary>>).
-%%-define(CTRL_TOPIC(ClusterName), <<?CTRL_TOPIC_PREFIX, (ClusterName)/binary>>).
 
 -define(MSG_POOL_PREFIX, "emqx_cluster_link_mqtt:msg:").
 -define(RES_NAME(Prefix, ClusterName), <<Prefix, ClusterName/binary>>).
@@ -58,8 +55,7 @@
 -define(HEALTH_CHECK_TIMEOUT, 1000).
 -define(RES_GROUP, <<"emqx_cluster_link">>).
 
-%% Protocol
-%% -define(PROTO_VER, <<"1.0">>).
+-define(PROTO_VER, 1).
 
 -define(DECODE(Payload), erlang:binary_to_term(Payload, [safe])).
 -define(ENCODE(Payload), erlang:term_to_binary(Payload)).
@@ -67,10 +63,14 @@
 -define(F_OPERATION, '$op').
 -define(OP_ROUTE, <<"route">>).
 -define(OP_ACTOR_INIT, <<"actor_init">>).
+-define(OP_ACTOR_INIT_ACK, <<"actor_init_ack">>).
 
 -define(F_ACTOR, 10).
 -define(F_INCARNATION, 11).
 -define(F_ROUTES, 12).
+-define(F_TARGET_CLUSTER, 13).
+-define(F_PROTO_VER, 14).
+-define(F_RESULT, 15).
 
 -define(ROUTE_DELETE, 100).
 
@@ -125,16 +125,6 @@ on_query(_ResourceId, FwdMsg, #{pool_name := PoolName, topic := LinkTopic} = _St
             {PoolName, Topic},
             fun(ConnPid) ->
                 emqtt:publish(ConnPid, LinkTopic, ?ENCODE(FwdMsg), QoS)
-            end,
-            no_handover
-        )
-    );
-on_query(_ResourceId, {Topic, Props, Payload, QoS}, #{pool_name := PoolName} = _State) ->
-    handle_send_result(
-        ecpool:pick_and_do(
-            {PoolName, Topic},
-            fun(ConnPid) ->
-                emqtt:publish(ConnPid, Topic, Props, ?ENCODE(Payload), [{qos, QoS}])
             end,
             no_handover
         )
@@ -270,15 +260,36 @@ connect(Options) ->
 
 %%% New leader-less Syncer/Actor implementation
 
-publish_actor_init_sync(ClientPid, Actor, Incarnation) ->
-    %% TODO: handshake (request / response) to make sure the link is established
+publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incarnation) ->
     PubTopic = ?ROUTE_TOPIC,
     Payload = #{
         ?F_OPERATION => ?OP_ACTOR_INIT,
+        ?F_PROTO_VER => ?PROTO_VER,
+        ?F_TARGET_CLUSTER => TargetCluster,
         ?F_ACTOR => Actor,
         ?F_INCARNATION => Incarnation
     },
-    emqtt:publish(ClientPid, PubTopic, ?ENCODE(Payload), ?QOS_1).
+    Properties = #{
+        'Response-Topic' => RespTopic,
+        'Correlation-Data' => ReqId
+    },
+    emqtt:publish(ClientPid, PubTopic, Properties, ?ENCODE(Payload), [{qos, ?QOS_1}]).
+
+actor_init_ack_resp_msg(Actor, InitRes, ReqId, RespTopic) ->
+    Payload = #{
+        ?F_OPERATION => ?OP_ACTOR_INIT_ACK,
+        ?F_PROTO_VER => ?PROTO_VER,
+        ?F_ACTOR => Actor,
+        ?F_RESULT => InitRes
+    },
+    emqx_message:make(
+        undefined,
+        ?QOS_1,
+        RespTopic,
+        ?ENCODE(Payload),
+        #{},
+        #{properties => #{'Correlation-Data' => ReqId}}
+    ).
 
 publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
     PubTopic = ?ROUTE_TOPIC,
@@ -293,12 +304,22 @@ publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
 decode_route_op(Payload) ->
     decode_route_op1(?DECODE(Payload)).
 
+decode_resp(Payload) ->
+    decode_resp1(?DECODE(Payload)).
+
 decode_route_op1(#{
     ?F_OPERATION := ?OP_ACTOR_INIT,
+    ?F_PROTO_VER := ProtoVer,
+    ?F_TARGET_CLUSTER := TargetCluster,
     ?F_ACTOR := Actor,
     ?F_INCARNATION := Incr
 }) ->
-    {actor_init, #{actor => Actor, incarnation => Incr}};
+    {actor_init, #{
+        actor => Actor,
+        incarnation => Incr,
+        cluster => TargetCluster,
+        proto_ver => ProtoVer
+    }};
 decode_route_op1(#{
     ?F_OPERATION := ?OP_ROUTE,
     ?F_ACTOR := Actor,
@@ -313,6 +334,14 @@ decode_route_op1(Payload) ->
         payload => Payload
     }),
     {error, Payload}.
+
+decode_resp1(#{
+    ?F_OPERATION := ?OP_ACTOR_INIT_ACK,
+    ?F_ACTOR := Actor,
+    ?F_PROTO_VER := ProtoVer,
+    ?F_RESULT := InitResult
+}) ->
+    {actor_init_ack, #{actor => Actor, result => InitResult, proto_ver => ProtoVer}}.
 
 decode_forwarded_msg(Payload) ->
     case ?DECODE(Payload) of

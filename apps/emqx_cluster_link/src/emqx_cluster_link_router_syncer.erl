@@ -4,6 +4,8 @@
 -module(emqx_cluster_link_router_syncer).
 
 -include_lib("emqtt/include/emqtt.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include("emqx_cluster_link.hrl").
 
 %% API
 -export([start_link/1]).
@@ -50,9 +52,10 @@
 -define(ERROR_DELAY, 200).
 
 -define(RECONNECT_TIMEOUT, 5_000).
+-define(ACTOR_REINIT_TIMEOUT, 7000).
 
--define(CLIENT_SUFFIX, ":routesync").
--define(PS_CLIENT_SUFFIX, ":routesync-ps").
+-define(CLIENT_SUFFIX, ":routesync:").
+-define(PS_CLIENT_SUFFIX, ":routesync-ps:").
 
 %% Special actor for persistent routes that has the same actor name on all nodes.
 %% Node actors with the same name  nay race with each other (e.g. during bootstrap),
@@ -64,6 +67,21 @@
 -define(PS_CLIENT_NAME(Cluster), ?NAME(Cluster, ps_client)).
 -define(PS_SYNCER_REF(Cluster), {via, gproc, ?PS_SYNCER_NAME(Cluster)}).
 -define(PS_SYNCER_NAME(Cluster), ?NAME(Cluster, ps_syncer)).
+
+-define(SAFE_MQTT_PUB(Expr, ClientPid), ?SAFE_MQTT_PUB(Expr, ClientPid, ok)).
+-define(SAFE_MQTT_PUB(Expr, ClientPid, OnSuccess),
+    try Expr of
+        {ok, #{reason_code := __RC}} when __RC < ?RC_UNSPECIFIED_ERROR ->
+            OnSuccess;
+        {ok, #{reason_code_name := __RCN}} ->
+            {error, {mqtt, __RCN}};
+        {error, __Reason} ->
+            {error, __Reason}
+    catch
+        exit:__Reason ->
+            {error, {client, ClientPid, __Reason}}
+    end
+).
 
 push(TargetCluster, OpName, Topic, ID) ->
     do_push(?SYNCER_NAME(TargetCluster), OpName, Topic, ID).
@@ -164,17 +182,11 @@ announce_client(Actor, TargetCluster, Pid) ->
     ok.
 
 publish_routes(ClientPid, Actor, Incarnation, Updates) ->
-    try emqx_cluster_link_mqtt:publish_route_sync(ClientPid, Actor, Incarnation, Updates) of
-        {ok, #{reason_code := RC}} when RC < ?RC_UNSPECIFIED_ERROR ->
-            #{};
-        {ok, #{reason_code_name := RCN}} ->
-            {error, {mqtt, RCN}};
-        {error, Reason} ->
-            {error, Reason}
-    catch
-        exit:Reason ->
-            {error, {client, ClientPid, Reason}}
-    end.
+    ?SAFE_MQTT_PUB(
+        emqx_cluster_link_mqtt:publish_route_sync(ClientPid, Actor, Incarnation, Updates),
+        ClientPid,
+        #{}
+    ).
 
 %% Route syncer
 
@@ -227,6 +239,7 @@ batch_get_opname(Op) ->
 init({sup, TargetCluster}) ->
     %% FIXME: Intensity.
     SupFlags = #{
+        %% TODO: one_for_one?
         strategy => one_for_all,
         intensity => 10,
         period => 60
@@ -288,7 +301,10 @@ syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
     incarnation :: non_neg_integer(),
     client :: {pid(), reference()},
     bootstrapped :: boolean(),
-    reconnect_timer :: reference()
+    reconnect_timer :: reference(),
+    actor_init_req_id :: binary(),
+    actor_init_timer :: reference(),
+    remote_actor_info :: undefined | map()
 }).
 
 mk_state(TargetCluster, Actor, Incarnation) ->
@@ -314,26 +330,90 @@ handle_cast(_Request, State) ->
 
 handle_info({'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
     {noreply, handle_client_down(Reason, St)};
-handle_info({timeout, TRef, _Reconnect}, St = #st{reconnect_timer = TRef}) ->
+handle_info(
+    {publish, #{payload := Payload, properties := #{'Correlation-Data' := ReqId}}},
+    St = #st{actor_init_req_id = ReqId}
+) ->
+    {actor_init_ack, #{result := Res} = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(Payload),
+    St1 = St#st{
+        actor_init_req_id = undefined, actor_init_timer = undefined, remote_actor_info = AckInfoMap
+    },
+    case Res of
+        ok ->
+            {noreply, post_actor_init(St1)};
+        Error ->
+            ?SLOG(error, #{
+                msg => "failed_to_init_link",
+                reason => Error,
+                target_cluster => St#st.target,
+                actor => St#st.actor,
+                remote_link_proto_ver => maps:get(proto_ver, AckInfoMap, undefined)
+            }),
+            %% TODO: It doesn't fit permanent workers/one_for_all restart/strategy.
+            %% The actor may be kept alive with some error status instead (waiting for a user intervention to fix it)?
+            {stop, {shutdown, Error}, St1}
+    end;
+handle_info({publish, #{}}, St) ->
+    {noreply, St};
+handle_info({timeout, TRef, reconnect}, St = #st{reconnect_timer = TRef}) ->
     {noreply, process_connect(St#st{reconnect_timer = undefined})};
-handle_info(_Info, St) ->
-    %% TODO: log?
+handle_info({timeout, TRef, actor_reinit}, St = #st{reconnect_timer = TRef}) ->
+    ?SLOG(error, #{
+        msg => "remote_actor_init_timeout",
+        target_cluster => St#st.target,
+        actor => St#st.actor
+    }),
+    {noreply, init_remote_actor(St#st{reconnect_timer = undefined})};
+%% Stale timeout.
+handle_info({timeout, _, _}, St) ->
+    {noreply, St};
+handle_info(Info, St) ->
+    ?SLOG(warning, #{msg => "unexpected_info", info => Info}),
     {noreply, St}.
 
 terminate(_Reason, _State) ->
     ok.
 
-process_connect(St = #st{target = TargetCluster, actor = Actor, incarnation = Incr}) ->
+process_connect(St = #st{target = TargetCluster, actor = Actor}) ->
     case start_link_client(TargetCluster, Actor) of
         {ok, ClientPid} ->
-            %% TODO: error handling, handshake
-            {ok, _} = emqx_cluster_link_mqtt:publish_actor_init_sync(ClientPid, Actor, Incr),
-            ok = start_syncer(TargetCluster, Actor, Incr),
             ok = announce_client(Actor, TargetCluster, ClientPid),
-            process_bootstrap(St#st{client = ClientPid});
+            %% TODO: handle subscribe errors
+            {ok, _, _} = emqtt:subscribe(ClientPid, ?RESP_TOPIC(Actor), ?QOS_1),
+            init_remote_actor(St#st{client = ClientPid});
         {error, Reason} ->
             handle_connect_error(Reason, St)
     end.
+
+init_remote_actor(
+    St = #st{target = TargetCluster, client = ClientPid, actor = Actor, incarnation = Incr}
+) ->
+    ReqId = emqx_utils_conv:bin(emqx_utils:gen_id(16)),
+    Res = ?SAFE_MQTT_PUB(
+        emqx_cluster_link_mqtt:publish_actor_init_sync(
+            ClientPid, ReqId, ?RESP_TOPIC(Actor), TargetCluster, Actor, Incr
+        ),
+        ClientPid
+    ),
+    case Res of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_init_remote_actor",
+                reason => Reason,
+                target_cluster => TargetCluster,
+                actor => Actor
+            })
+    end,
+    TRef = erlang:start_timer(?ACTOR_REINIT_TIMEOUT, self(), actor_reinit),
+    St#st{actor_init_req_id = ReqId, actor_init_timer = TRef}.
+
+post_actor_init(
+    St = #st{client = ClientPid, target = TargetCluster, actor = Actor, incarnation = Incr}
+) ->
+    ok = start_syncer(TargetCluster, Actor, Incr),
+    process_bootstrap(St#st{client = ClientPid}).
 
 handle_connect_error(_Reason, St) ->
     %% TODO: logs
@@ -342,6 +422,7 @@ handle_connect_error(_Reason, St) ->
 
 handle_client_down(_Reason, St = #st{target = TargetCluster, actor = Actor}) ->
     %% TODO: logs
+    %% TODO: syncer may be already down due to one_for_all strategy
     ok = close_syncer(TargetCluster, Actor),
     process_connect(St#st{client = undefined}).
 

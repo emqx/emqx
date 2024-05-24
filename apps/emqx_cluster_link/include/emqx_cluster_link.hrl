@@ -5,6 +5,12 @@
 -define(TOPIC_PREFIX, "$LINK/cluster/").
 -define(ROUTE_TOPIC_PREFIX, ?TOPIC_PREFIX "route/").
 -define(MSG_TOPIC_PREFIX, ?TOPIC_PREFIX "msg/").
+-define(RESP_TOPIC_PREFIX, ?TOPIC_PREFIX "resp/").
+
+-define(MY_CLUSTER_NAME, emqx_cluster_link_config:cluster()).
+-define(ROUTE_TOPIC, <<?ROUTE_TOPIC_PREFIX, (?MY_CLUSTER_NAME)/binary>>).
+-define(MSG_FWD_TOPIC, <<?MSG_TOPIC_PREFIX, (?MY_CLUSTER_NAME)/binary>>).
+-define(RESP_TOPIC(Actor), <<?RESP_TOPIC_PREFIX, (?MY_CLUSTER_NAME)/binary, "/", Actor/binary>>).
 
 %% Fairly compact text encoding.
 -define(SHARED_ROUTE_ID(Topic, Group), <<"$s/", Group/binary, "/", Topic/binary>>).
