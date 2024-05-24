@@ -591,6 +591,7 @@ init({ShardId, Options}) ->
         shard = Shard
     },
     commit_metadata(S),
+    ?tp(debug, ds_storage_init_state, #{shard => ShardId, s => S}),
     {ok, S}.
 
 format_status(Status) ->
@@ -625,7 +626,6 @@ handle_call(#call_list_generations_with_lifetimes{}, _From, S) ->
     {reply, Generations, S};
 handle_call(#call_drop_generation{gen_id = GenId}, _From, S0) ->
     {Reply, S} = handle_drop_generation(S0, GenId),
-    commit_metadata(S),
     {reply, Reply, S};
 handle_call(#call_take_snapshot{}, _From, S) ->
     Snapshot = handle_take_snapshot(S),
@@ -774,6 +774,21 @@ handle_drop_generation(S0, GenId) ->
         shard = OldShard,
         cf_refs = OldCFRefs
     } = S0,
+    %% 1. Commit the metadata first, so other functions are less
+    %% likely to see stale data, and replicas don't end up
+    %% inconsistent state, where generation's column families are
+    %% absent, but its metadata is still present.
+    %%
+    %% Note: in theory, this operation may be interrupted in the
+    %% middle. This will leave column families hanging.
+    Shard = maps:remove(?GEN_KEY(GenId), OldShard),
+    Schema = maps:remove(?GEN_KEY(GenId), OldSchema),
+    S1 = S0#s{
+        shard = Shard,
+        schema = Schema
+    },
+    commit_metadata(S1),
+    %% 2. Now, actually drop the data from RocksDB:
     #{module := Mod, cf_refs := GenCFRefs} = GenSchema,
     #{?GEN_KEY(GenId) := #{data := RuntimeData}} = OldShard,
     try
@@ -793,13 +808,7 @@ handle_drop_generation(S0, GenId) ->
             )
     end,
     CFRefs = OldCFRefs -- GenCFRefs,
-    Shard = maps:remove(?GEN_KEY(GenId), OldShard),
-    Schema = maps:remove(?GEN_KEY(GenId), OldSchema),
-    S = S0#s{
-        cf_refs = CFRefs,
-        shard = Shard,
-        schema = Schema
-    },
+    S = S1#s{cf_refs = CFRefs},
     {ok, S}.
 
 -spec open_generation(shard_id(), rocksdb:db_handle(), cf_refs(), gen_id(), generation_schema()) ->
