@@ -1235,13 +1235,25 @@ ensure_config_map(NameVsn) ->
         {ok, ConfigJsonMap} ->
             case with_plugin_avsc(NameVsn) of
                 true ->
-                    {ok, AvroValue} = decode_plugin_config_map(NameVsn, ConfigJsonMap),
-                    put_config(NameVsn, ConfigJsonMap, AvroValue);
+                    do_ensure_config_map(NameVsn, ConfigJsonMap);
                 false ->
                     put_config(NameVsn, ConfigJsonMap, ?plugin_without_config_schema)
             end;
         _ ->
             ?SLOG(warning, #{msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn}),
+            ok
+    end.
+
+do_ensure_config_map(NameVsn, ConfigJsonMap) ->
+    case decode_plugin_config_map(NameVsn, ConfigJsonMap) of
+        {ok, AvroValue} ->
+            put_config(NameVsn, ConfigJsonMap, AvroValue);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "plugin_config_validation_failed",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
             ok
     end.
 
