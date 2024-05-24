@@ -429,6 +429,21 @@ t_persistent_session_stats(Config) ->
             ?ON(N1, request(["monitor_current"]))
         )
     end),
+    %% Verify that historical metrics are in line with the current ones.
+    ?assertMatch(
+        {ok, [
+            #{
+                <<"time_stamp">> := _,
+                <<"connections">> := 3,
+                <<"disconnected_durable_sessions">> := 1,
+                <<"topics">> := 8,
+                <<"subscriptions">> := 8,
+                <<"subscriptions_ram">> := 4,
+                <<"subscriptions_durable">> := 4
+            }
+        ]},
+        ?ON(N1, request(["monitor"], "latest=1"))
+    ),
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:disconnect(PSClient2),
