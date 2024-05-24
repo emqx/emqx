@@ -23,7 +23,8 @@
 %% API
 -export([
     stage_assignments/4,
-    ack_assignments/3,
+    commit_assignments/3,
+    ack_assignments/4,
     nack_assignments/3
 ]).
 
@@ -54,13 +55,22 @@ introduced_in() ->
 stage_assignments(Node, ServerRef, GenId, Assignments) ->
     erpc:cast(Node, emqx_connector_foreman, stage_assignments, [ServerRef, GenId, Assignments]).
 
--spec ack_assignments(
-    node(),
+-spec commit_assignments(
+    [node()],
     gen_statem:server_ref(),
     emqx_connector_foreman:gen_id()
 ) -> ok.
-ack_assignments(Node, ServerRef, GenId) ->
-    erpc:cast(Node, emqx_connector_foreman, ack_assignments, [ServerRef, GenId]).
+commit_assignments(Nodes, ServerRef, GenId) ->
+    erpc:multicast(Nodes, emqx_connector_foreman, commit_assignments, [ServerRef, GenId]).
+
+-spec ack_assignments(
+    node(),
+    gen_statem:server_ref(),
+    emqx_connector_foreman:gen_id(),
+    node()
+) -> ok.
+ack_assignments(Node, ServerRef, GenId, Member) ->
+    erpc:cast(Node, emqx_connector_foreman, ack_assignments, [ServerRef, GenId, Member]).
 
 -spec nack_assignments(
     node(),

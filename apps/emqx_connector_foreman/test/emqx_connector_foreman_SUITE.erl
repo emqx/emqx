@@ -35,29 +35,46 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    snabbkaffe:stop(),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-app_specs(_Config) ->
+app_specs(AppOpts) ->
     [
-        emqx_connector_foreman
+        {emqx_connector_foreman, #{
+            after_start => fun() -> setup_node(AppOpts) end
+        }}
     ].
 
 mk_node_name(N) ->
     binary_to_atom(<<"foreman_SUITE", (integer_to_binary(N))/binary>>).
 
 mk_cluster(TestCase, Config, NodeRoles) ->
-    AppSpecs = app_specs(Config),
     ExtraVMArgs = ["-kernel", "prevent_overlapping_partitions", "false"],
     Cluster = lists:map(
         fun
-            ({N, {Role, Opts}}) ->
+            ({N, {Role, NodeOpts, AppOpts}}) ->
                 Name = mk_node_name(N),
-                {Name, Opts#{role => Role, apps => AppSpecs, extra_vm_args => ExtraVMArgs}};
-            ({N, Role}) ->
+                {Name, NodeOpts#{
+                    role => Role,
+                    apps => app_specs(AppOpts),
+                    extra_vm_args => ExtraVMArgs
+                }};
+            ({N, {Role, AppOpts}}) ->
                 Name = mk_node_name(N),
-                {Name, #{role => Role, apps => AppSpecs, extra_vm_args => ExtraVMArgs}}
+                {Name, #{
+                    role => Role,
+                    apps => app_specs(AppOpts),
+                    extra_vm_args => ExtraVMArgs
+                }}
         end,
         lists:enumerate(NodeRoles)
     ),
@@ -69,11 +86,8 @@ mk_cluster(TestCase, Config, NodeRoles) ->
     on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
     NodeSpecs.
 
-start_cluster(NodeSpecs, Opts) ->
-    Nodes = emqx_cth_cluster:start(NodeSpecs),
-    Res = erpc:multicall(Nodes, fun() -> setup_node(Opts) end),
-    assert_all_erpc_ok(Res),
-    Nodes.
+start_cluster(NodeSpecs) ->
+    emqx_cth_cluster:start(NodeSpecs).
 
 assert_all_erpc_ok(Res) ->
     ?assert(
@@ -98,7 +112,21 @@ setup_node(Opts) ->
         name => Name,
         scope => Name,
         compute_allocation_fn => fun(#{members := Members}) ->
-            maps:from_keys(Members, [dummy_resource])
+            lists:foldl(
+                fun({N, Member}, Acc) ->
+                    Acc#{Member => N}
+                end,
+                #{},
+                lists:enumerate(lists:sort(Members))
+            )
+        end,
+        on_stage_fn => fun(Ctx) ->
+            ?tp(stage, Ctx#{member => node()}),
+            ok
+        end,
+        on_commit_fn => fun(Ctx) ->
+            ?tp(commit, Ctx#{member => node()}),
+            ok
         end
     },
     InitOpts0 = maps:get(init_opts, Opts, #{}),
@@ -149,9 +177,8 @@ assert_exactly_one_leader(Nodes) ->
     ?ON(LeaderNode, ?assertEqual(core, mria_rlog:role())),
     ok.
 
-restart(NodeSpec, Opts) ->
+restart(NodeSpec) ->
     [Node] = emqx_cth_cluster:restart(NodeSpec),
-    ok = ?ON(Node, setup_node(Opts)),
     [Node].
 
 %%------------------------------------------------------------------------------
@@ -162,19 +189,19 @@ restart(NodeSpec, Opts) ->
 %% leader emerges.
 t_resolve_name_clash(Config) ->
     NodeOpts = #{join_to => undefined},
+    AppOpts = #{name => ?FUNCTION_NAME},
     NSpecs =
         mk_cluster(
             ?FUNCTION_NAME,
             Config,
             [
-                {core, NodeOpts},
-                {core, NodeOpts}
+                {core, NodeOpts, AppOpts},
+                {core, NodeOpts, AppOpts}
             ]
         ),
-    Opts = #{name => ?FUNCTION_NAME},
     ?check_trace(
         begin
-            [N1, N2] = Nodes = start_cluster(NSpecs, Opts),
+            [N1, N2] = Nodes = start_cluster(NSpecs),
             wait_foremen_stabilized(Nodes),
             assert_exactly_one_leader(Nodes),
             ?tp(partitioning, #{}),
@@ -202,7 +229,7 @@ t_resolve_name_clash(Config) ->
 
 %% We limit leaders to core nodes only, to avoid them reading stale data.
 t_replicants_are_never_elected(Config) ->
-    NodeOpts = #{},
+    AppOpts = #{name => ?FUNCTION_NAME, init_opts => #{retry_election_timeout => 500}},
     NSpecs =
         [SpecCore, _SpecRep] =
         mk_cluster(
@@ -210,15 +237,14 @@ t_replicants_are_never_elected(Config) ->
             Config,
             [
                 %% We need one core so that the replicant starts up.
-                {core, NodeOpts},
-                {replicant, NodeOpts}
+                {core, AppOpts},
+                {replicant, AppOpts}
             ]
         ),
-    Opts = #{name => ?FUNCTION_NAME, init_opts => #{retry_election_timeout => 500}},
     ?check_trace(
         #{timetrap => 10_000},
         begin
-            [Core, Rep] = Nodes = start_cluster(NSpecs, Opts),
+            [Core, Rep] = Nodes = start_cluster(NSpecs),
             wait_foremen_stabilized(Nodes),
             assert_exactly_one_leader(Nodes),
             ?block_until(#{?snk_kind := foreman_replicant_try_follow_leader}),
@@ -237,7 +263,7 @@ t_replicants_are_never_elected(Config) ->
                 end
             ),
             %% Revive the core node, which shall become the leader again.
-            [Core] = restart(SpecCore, Opts),
+            [Core] = restart(SpecCore),
             wait_foremen_stabilized(Nodes),
             assert_exactly_one_leader(Nodes),
             ok
@@ -249,20 +275,21 @@ t_replicants_are_never_elected(Config) ->
 %% Checks that, once a leader dies, a new leader is elected in the cluster.
 t_new_leader_takeover(Config) ->
     NodeOpts = #{join_to => undefined},
+    AppOpts = #{name => ?FUNCTION_NAME},
     NSpecs =
         mk_cluster(
             ?FUNCTION_NAME,
             Config,
             [
-                {core, NodeOpts},
-                {core, NodeOpts},
-                {core, NodeOpts}
+                {core, NodeOpts, AppOpts},
+                {core, NodeOpts, AppOpts},
+                {core, NodeOpts, AppOpts}
             ]
         ),
-    Opts = #{name => ?FUNCTION_NAME},
     ?check_trace(
+        #{timetrap => 10_000},
         begin
-            [_N1, _N2, _N3] = Nodes = start_cluster(NSpecs, Opts),
+            [_N1, _N2, _N3] = Nodes = start_cluster(NSpecs),
             wait_foremen_stabilized(Nodes),
             assert_exactly_one_leader(Nodes),
             [
@@ -307,5 +334,80 @@ t_new_leader_takeover(Config) ->
             ok
         end,
         [fun ?MODULE:inspect_trace/1]
+    ),
+    ok.
+
+%% Smoke test for basic happy-path allocations.
+t_allocate(Config) ->
+    Name = ?FUNCTION_NAME,
+    [N1, N2, N3] = [emqx_cth_cluster:node_name(mk_node_name(N)) || N <- lists:seq(1, 3)],
+    FixedAllocation = #{
+        N1 => [1, 2, 3],
+        N2 => [4, 5, 6],
+        N3 => [7, 8, 9]
+    },
+    AppOpts = #{
+        name => Name,
+        init_opts => #{
+            compute_allocation_fn => fun(#{members := Members}) ->
+                maps:with(Members, FixedAllocation)
+            end
+        }
+    },
+    NSpecs =
+        mk_cluster(
+            ?FUNCTION_NAME,
+            Config,
+            [
+                {core, AppOpts},
+                {core, AppOpts},
+                {core, AppOpts}
+            ]
+        ),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            [N1, N2, N3] = Nodes = start_cluster(NSpecs),
+            NumNodes = length(Nodes),
+
+            wait_foremen_stabilized(Nodes),
+            assert_exactly_one_leader(Nodes),
+
+            ?tp(notice, "waiting for assignments to be committed", #{}),
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NumNodes, #{?snk_kind := "foreman_committed_assignments"}),
+                infinity
+            ),
+            lists:foreach(
+                fun(N) ->
+                    ?assertEqual(
+                        {committed, maps:get(N, FixedAllocation)},
+                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        #{node => N}
+                    )
+                end,
+                Nodes
+            ),
+
+            #{nodes => Nodes}
+        end,
+        [
+            fun ?MODULE:inspect_trace/1,
+            fun(#{nodes := Nodes}, Trace) ->
+                %% Stage callback called
+                ?projection_complete(member, ?of_kind(stage, Trace), Nodes),
+                %% Commit callback called
+                ?projection_complete(member, ?of_kind(commit, Trace), Nodes),
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := "foreman_staged_assignments"},
+                        #{?snk_kind := "foreman_committed_assignments"},
+                        Trace
+                    )
+                ),
+                %% TODO: more interesting/relevant properties?
+                ok
+            end
+        ]
     ),
     ok.
