@@ -184,7 +184,7 @@ project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
 
 plugins() ->
     [
-        %{relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
+        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {branch, "main"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.0"}
