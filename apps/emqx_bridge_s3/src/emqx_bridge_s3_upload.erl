@@ -238,12 +238,12 @@ convert_actions(undefined, _) ->
 
 convert_action(Conf = #{<<"parameters">> := Params, <<"resource_opts">> := ResourceOpts}, _) ->
     case Params of
-        #{<<"mode">> := <<"direct">>} ->
+        #{<<"mode">> := <<"aggregated">>} ->
+            Conf;
+        #{} ->
             %% NOTE: Disable batching for direct uploads.
             NResourceOpts = ResourceOpts#{<<"batch_size">> => 1, <<"batch_time">> => 0},
-            Conf#{<<"resource_opts">> := NResourceOpts};
-        #{} ->
-            Conf
+            Conf#{<<"resource_opts">> := NResourceOpts}
     end.
 
 %% Interpreting options
