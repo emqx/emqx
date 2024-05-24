@@ -27,7 +27,7 @@
 
 -define(DEFAULT_CONFIG, #{
     backend => builtin,
-    storage => {emqx_ds_storage_bitfield_lts, #{}},
+    storage => {emqx_ds_storage_bitfield_lts, #{epoch_bits => 16}},
     n_shards => 1,
     n_sites => 1,
     replication_factor => 1,
@@ -38,7 +38,9 @@
     backend => builtin,
     storage =>
         {emqx_ds_storage_bitfield_lts, #{
-            bits_per_wildcard_level => 8
+            bits_per_wildcard_level => 8,
+            %% FIXME: this is needed for compatibility with old stuff for some reason.
+            epoch_bits => 16
         }},
     n_shards => 1,
     replication_factor => 1

@@ -89,6 +89,12 @@
         ts_offset_bits := non_neg_integer()
     }.
 
+-record(keymapper_ng, {
+    smatrix :: bitswizzle:smatrix(),
+    padding :: non_neg_integer(),
+    size :: non_neg_integer()
+}).
+
 %% Runtime state:
 -record(s, {
     db :: rocksdb:db_handle(),
@@ -96,6 +102,9 @@
     trie :: emqx_ds_lts:trie(),
     trie_cf :: rocksdb:cf_handle(),
     keymappers :: array:array(emqx_ds_bitmask_keymapper:keymapper()),
+    static_bits :: non_neg_integer(),
+    wildcard_bits :: non_neg_integer(),
+    keymappers_ng :: tuple(),
     ts_bits :: non_neg_integer(),
     ts_offset :: non_neg_integer(),
     gvars :: ets:table()
@@ -230,6 +239,12 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
          || N <- lists:seq(0, MaxWildcardLevels)
         ]
     ),
+    Matrices = list_to_tuple(
+        [
+            make_smatrix(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N)
+         || N <- lists:seq(0, MaxWildcardLevels)
+        ]
+    ),
     #s{
         db = DBHandle,
         data = DataCF,
@@ -238,6 +253,9 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         keymappers = KeymapperCache,
         ts_offset = TSOffsetBits,
         ts_bits = TSBits,
+        static_bits = TopicIndexBytes * 8,
+        wildcard_bits = BitsPerTopicLevel,
+        keymappers_ng = Matrices,
         gvars = ets:new(?MODULE, [public, set, {read_concurrency, true}])
     }.
 
@@ -284,7 +302,7 @@ prepare_batch(_ShardId, S, Messages, _Options) ->
     {Payloads, MaxTs} =
         lists:mapfoldl(
             fun({Timestamp, Msg}, Acc) ->
-                {Key, _} = make_key(S, Timestamp, Msg),
+                Key = make_key(S, Timestamp, Msg),
                 Payload = {Key, message_to_value_v1(Msg)},
                 {Payload, max(Acc, Timestamp)}
             end,
@@ -808,31 +826,86 @@ format_key(KeyMapper, Key) ->
     lists:flatten(io_lib:format("~.16B (~s)", [Key, string:join(Vec, ",")])).
 
 -spec make_key(s(), emqx_ds:time(), emqx_types:message()) -> {binary(), [binary()]}.
-make_key(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, #message{topic = TopicBin}) ->
+make_key(Schema, Timestamp, #message{topic = TopicBin}) ->
+    #s{
+        keymappers_ng = KM,
+        trie = Trie,
+        static_bits = StaticBits,
+        wildcard_bits = WildcardBits,
+        ts_bits = TSBits
+    } = Schema,
     Tokens = emqx_topic:words(TopicBin),
     {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
-    VaryingHashes = [hash_topic_level(I) || I <- Varying],
-    KeyMapper = array:get(length(Varying), KeyMappers),
-    KeyBin = make_key(KeyMapper, TopicIndex, Timestamp, VaryingHashes),
-    {KeyBin, Varying}.
+    %% Offset = Timstamp - Epoch,
+    case Varying of
+        [] ->
+            %% TODO: just
+            %% <<TopicIndex:StaticBits, Timestamp:TSBits>>;
+            #keymapper_ng{smatrix = Matrix, padding = Padding, size = Size} = element(1, KM),
+            mmul(
+                Matrix,
+                Size,
+                <<TopicIndex:StaticBits, Timestamp:TSBits, 0:Padding>>
+            );
+        [Var1] ->
+            #keymapper_ng{smatrix = Matrix, padding = Padding, size = Size} = element(2, KM),
+            Var1Hash = hash_topic_level(WildcardBits, Var1),
+            mmul(
+                Matrix,
+                Size,
+                <<TopicIndex:StaticBits, Timestamp:TSBits, Var1Hash:WildcardBits, 0:Padding>>
+            );
+        [Var1, Var2] ->
+            #keymapper_ng{smatrix = Matrix, padding = Padding, size = Size} = element(3, KM),
+            Var1Hash = hash_topic_level(WildcardBits, Var1),
+            Var2Hash = hash_topic_level(WildcardBits, Var2),
+            mmul(
+                Matrix,
+                Size,
+                <<TopicIndex:StaticBits, Timestamp:TSBits, Var1Hash:WildcardBits,
+                    Var2Hash:WildcardBits, 0:Padding>>
+            );
+        _ ->
+            %% #keymapper_ng{smatrix = Matrix, padding = Padding, size = Size} = element(length(Varying) + 1, KM),
+            %% VaryingHashes = [hash_topic_level(WildcardBits, I) || I <- Varying],
+            error(too_many_varying_topic_levels)
+    end.
 
--spec make_key(emqx_ds_bitmask_keymapper:keymapper(), emqx_ds_lts:static_key(), emqx_ds:time(), [
-    non_neg_integer()
-]) ->
-    binary().
-make_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
-    emqx_ds_bitmask_keymapper:key_to_bitstring(
-        KeyMapper,
-        emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, [
-            TopicIndex, Timestamp | Varying
-        ])
-    ).
+mmul(Matrix, Size, Bin0) ->
+    Bin = bitswizzle:sm_v_multiply(Matrix, Bin0),
+    %% io:format(user, "~0.p ->~n  ~0.p~n", [Bin0, Bin]),
+    erlang:binary_part(Bin, 0, Size).
+
+%% -spec make_key_old(s(), emqx_ds:time(), emqx_types:message()) -> {binary(), [binary()]}.
+%% make_key_old(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, #message{topic = TopicBin}) ->
+%%     Tokens = emqx_topic:words(TopicBin),
+%%     {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
+%%     VaryingHashes = [hash_topic_level(I) || I <- Varying],
+%%     KeyMapper = array:get(length(Varying), KeyMappers),
+%%     KeyBin = make_key(KeyMapper, TopicIndex, Timestamp, VaryingHashes),
+%%     {KeyBin, Varying}.
+
+%% -spec make_key(emqx_ds_bitmask_keymapper:keymapper(), emqx_ds_lts:static_key(), emqx_ds:time(), [
+%%     non_neg_integer()
+%% ]) ->
+%%     binary().
+%% make_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
+%%     emqx_ds_bitmask_keymapper:key_to_bitstring(
+%%         KeyMapper,
+%%         emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, [
+%%             TopicIndex, Timestamp | Varying
+%%         ])
+%%     ).
 
 %% TODO: don't hardcode the thresholds
 threshold_fun(0) ->
     100;
 threshold_fun(_) ->
     20.
+
+hash_topic_level(BitsPerTopicLevel, TopicLevel) ->
+    <<_:(64 - BitsPerTopicLevel), Int:BitsPerTopicLevel, _/bitstring>> = erlang:md5(TopicLevel),
+    Int.
 
 hash_topic_level(TopicLevel) ->
     <<Int:64, _/binary>> = erlang:md5(TopicLevel),
@@ -959,6 +1032,31 @@ pop_lts_persist_ops() ->
         L when is_list(L) ->
             L
     end.
+
+%% Smatrix
+
+make_smatrix(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N) ->
+    KeySize = TopicIndexBytes * 8 + TSBits + BitsPerTopicLevel * N,
+    Padding = (64 - KeySize rem 64) rem 64,
+    VSize = KeySize + Padding,
+    %% Bit where timestamp offset begins in the source vector:
+    TSOffsetBegin = TopicIndexBytes * 8 + TSBits - TSOffsetBits,
+    %% Bit where varying topic levels begin in the source vector:
+    VaryingBegin = TopicIndexBytes * 8 + TSBits,
+    %%
+    Columns =
+        %% Topic index and epoch:
+        lists:seq(0, TSOffsetBegin - 1) ++
+            %% Varying topic levels:
+            lists:seq(VaryingBegin, KeySize - 1) ++
+            %% Timestamp offset:
+            lists:seq(TSOffsetBegin, VaryingBegin - 1),
+    Elements = lists:zip(lists:seq(0, KeySize - 1), Columns, fail),
+    #keymapper_ng{
+        smatrix = bitswizzle:make_sparse_matrix(VSize, Elements),
+        padding = Padding,
+        size = KeySize div 8
+    }.
 
 -ifdef(TEST).
 
