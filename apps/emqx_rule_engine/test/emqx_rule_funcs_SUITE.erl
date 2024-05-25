@@ -1376,6 +1376,27 @@ t_parse_date_errors(_) ->
 
     ok.
 
+t_map_to_redis_hset_args(_Config) ->
+    Do = fun(Map) -> tl(emqx_rule_funcs:map_to_redis_hset_args(Map)) end,
+    ?assertEqual([], Do(#{})),
+    ?assertEqual([], Do(#{1 => 2})),
+    ?assertEqual([<<"a">>, <<"1">>], Do(#{<<"a">> => 1, 3 => 4})),
+    ?assertEqual([<<"a">>, <<"1.1">>], Do(#{<<"a">> => 1.1})),
+    ?assertEqual([<<"a">>, <<"true">>], Do(#{<<"a">> => true})),
+    ?assertEqual([<<"a">>, <<"false">>], Do(#{<<"a">> => false})),
+    ?assertEqual([<<"a">>, <<"\"\"">>], Do(#{<<"a">> => <<"">>})),
+    ?assertEqual([<<"a">>, <<"\"i j\"">>], Do(#{<<"a">> => <<"i j">>})),
+    %% no determined ordering
+    ?assert(
+        case Do(#{<<"a">> => 1, <<"b">> => 2}) of
+            [<<"a">>, <<"1">>, <<"b">>, <<"2">>] ->
+                true;
+            [<<"b">>, <<"2">>, <<"a">>, <<"1">>] ->
+                true
+        end
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Utility functions
 %%------------------------------------------------------------------------------
