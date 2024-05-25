@@ -82,5 +82,6 @@
 -define(clientinfo, clientinfo).
 -define(protocol, protocol).
 -define(offline_info, offline_info).
+-define(last_owner_node, last_owner_node).
 
 -endif.

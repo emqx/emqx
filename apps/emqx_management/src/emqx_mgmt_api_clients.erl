@@ -1738,16 +1738,15 @@ format_channel_info(undefined, {ClientId, PSInfo0 = #{}}, _Opts) ->
 
 format_persistent_session_info(
     _ClientId,
-    #{
-        metadata := #{offline_info := #{chan_info := ChanInfo, stats := Stats} = OfflineInfo} =
-            Metadata
-    } =
-        PSInfo
+    #{metadata := Metadata} = PSInfo
 ) ->
+    %% FIXME: this function should not access internal representation
+    %% of DS state directly
+    #{offline_info := #{chan_info := ChanInfo, stats := Stats} = OfflineInfo} = Metadata,
     Info0 = format_channel_info(_Node = undefined, {_Key = undefined, ChanInfo, Stats}, #{
         fields => all
     }),
-    LastConnectedToNode = maps:get(last_connected_to, OfflineInfo, undefined),
+    LastConnectedToNode = maps:get(last_owner_node, Metadata, undefined),
     DisconnectedAt = maps:get(disconnected_at, OfflineInfo, undefined),
     %% `created_at' and `connected_at' have already been formatted by this point.
     Info = result_format_time_fun(

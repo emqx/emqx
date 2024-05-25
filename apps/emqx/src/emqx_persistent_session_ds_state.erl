@@ -34,6 +34,7 @@
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
 -export([get_clientinfo/1, set_clientinfo/2]).
+-export([get_last_owner_node/1, set_last_owner_node/2]).
 -export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
 -export([set_offline_info/2]).
 -export([get_peername/1, set_peername/2]).
@@ -126,7 +127,8 @@
         ?expiry_interval => non_neg_integer(),
         ?last_id => integer(),
         ?peername => emqx_types:peername(),
-        ?protocol => protocol()
+        ?protocol => protocol(),
+        ?last_owner_node => node()
     }.
 
 -type seqno_type() ::
@@ -348,6 +350,14 @@ get_clientinfo(Rec) ->
 -spec set_clientinfo(emqx_types:clientinfo(), t()) -> t().
 set_clientinfo(Val, Rec) ->
     set_meta(?clientinfo, Val, Rec).
+
+-spec get_last_owner_node(t()) -> emqx_maybe:t(node()).
+get_last_owner_node(Rec) ->
+    get_meta(?last_owner_node, Rec).
+
+-spec set_last_owner_node(node(), t()) -> t().
+set_last_owner_node(Val, Rec) ->
+    set_meta(?last_owner_node, Val, Rec).
 
 -spec get_will_message(t()) -> emqx_maybe:t(message()).
 get_will_message(Rec) ->
