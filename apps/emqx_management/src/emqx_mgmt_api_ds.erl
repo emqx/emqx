@@ -307,7 +307,7 @@ get_site(get, #{bindings := #{site := Site}}) ->
             ?NOT_FOUND(<<"Site not found: ", Site/binary>>);
         true ->
             Node = emqx_ds_replication_layer_meta:node(Site),
-            IsUp = lists:member(Node, [node() | nodes()]),
+            IsUp = mria:cluster_status(Node) =:= running,
             Shards = shards_of_site(Site),
             ?OK(#{
                 node => Node,
