@@ -37,7 +37,8 @@
     proc_tmpl_deep/3,
 
     bin/1,
-    sql_data/1
+    sql_data/1,
+    lookup_var/2
 ]).
 
 -export([
