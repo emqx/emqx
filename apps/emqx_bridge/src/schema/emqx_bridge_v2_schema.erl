@@ -31,6 +31,7 @@
     actions_get_response/0,
     actions_put_request/0,
     actions_post_request/0,
+    action_api_schema/2,
     actions_examples/1,
     action_values/4
 ]).
@@ -99,6 +100,15 @@ actions_post_request() ->
 actions_api_schema(Method) ->
     APISchemas = ?MODULE:registered_actions_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
+
+action_api_schema(Method, BridgeV2Type) ->
+    APISchemas = ?MODULE:registered_actions_api_schemas(Method),
+    case lists:keyfind(atom_to_binary(BridgeV2Type), 1, APISchemas) of
+        {_, SchemaRef} ->
+            hoconsc:mk(SchemaRef);
+        false ->
+            unknown_bridge_schema(BridgeV2Type)
+    end.
 
 registered_actions_api_schemas(Method) ->
     RegisteredSchemas = emqx_action_info:registered_schema_modules_actions(),
@@ -230,6 +240,17 @@ bridge_api_union(Refs) ->
                     maps:values(Index)
             end
     end.
+
+-dialyzer({nowarn_function, [unknown_bridge_schema/1]}).
+unknown_bridge_schema(BridgeV2Type) ->
+    hoconsc:mk(typerefl:any(), #{
+        validator => fun(_) ->
+            throw(#{
+                value => BridgeV2Type,
+                reason => <<"unknown bridge type">>
+            })
+        end
+    }).
 
 -spec method_values(action | source, http_method(), atom()) -> schema_example_map().
 method_values(Kind, post, Type) ->

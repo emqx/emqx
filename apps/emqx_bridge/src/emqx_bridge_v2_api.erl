@@ -96,7 +96,7 @@
 namespace() -> "actions_and_sources".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun check_api_schema/2}).
 
 paths() ->
     [
@@ -655,6 +655,23 @@ schema("/source_types") ->
             }
         }
     }.
+
+%%------------------------------------------------------------------------------
+
+check_api_schema(Request, ReqMeta = #{path := Path = "/actions/:id", method := put}) ->
+    Spec = maps:get(put, schema(Path)),
+    BridgeId = emqx_utils_maps:deep_get([bindings, id], Request),
+    try emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}) of
+        {BridgeType, _Name} ->
+            Schema = emqx_bridge_v2_schema:action_api_schema("put", BridgeType),
+            SpecRefined = Spec#{'requestBody' => Schema},
+            emqx_dashboard_swagger:filter_check_request(Request, ReqMeta#{apispec => SpecRefined})
+    catch
+        throw:#{reason := Reason} ->
+            ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>)
+    end;
+check_api_schema(Request, ReqMeta) ->
+    emqx_dashboard_swagger:filter_check_request(Request, ReqMeta).
 
 %%------------------------------------------------------------------------------
 %% Thin Handlers
