@@ -119,6 +119,7 @@ is_community_umbrella_app("apps/emqx_bridge_syskeeper") -> false;
 is_community_umbrella_app("apps/emqx_schema_validation") -> false;
 is_community_umbrella_app("apps/emqx_eviction_agent") -> false;
 is_community_umbrella_app("apps/emqx_node_rebalance") -> false;
+is_community_umbrella_app("apps/emqx_auth_ext") -> false;
 is_community_umbrella_app(_) -> true.
 
 %% BUILD_WITHOUT_JQ
