@@ -407,8 +407,8 @@ iolist_to_string(IOList) ->
 
 %% `emqx_connector_aggreg_delivery` APIs
 
--spec init_transfer_state(buffer_map(), map()) -> emqx_s3_upload:t().
-init_transfer_state(BufferMap, Opts) ->
+-spec init_transfer_state(buffer(), map()) -> emqx_s3_upload:t().
+init_transfer_state(Buffer, Opts) ->
     #{
         bucket := Bucket,
         upload_options := UploadOpts,
@@ -416,11 +416,11 @@ init_transfer_state(BufferMap, Opts) ->
         uploader_config := UploaderConfig
     } = Opts,
     Client = emqx_s3_client:create(Bucket, Config),
-    Key = mk_object_key(BufferMap, Opts),
+    Key = mk_object_key(Buffer, Opts),
     emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig).
 
-mk_object_key(BufferMap, #{action := AggregId, key := Template}) ->
-    emqx_template:render_strict(Template, {?MODULE, {AggregId, BufferMap}}).
+mk_object_key(Buffer, #{action := AggregId, key := Template}) ->
+    emqx_template:render_strict(Template, {?MODULE, {AggregId, Buffer}}).
 
 process_append(Writes, Upload0) ->
     {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
@@ -454,34 +454,26 @@ process_terminate(Upload) ->
 
 %% `emqx_template` APIs
 
--spec lookup(emqx_template:accessor(), {_Name, buffer_map()}) ->
+-spec lookup(emqx_template:accessor(), {_Name, buffer()}) ->
     {ok, integer() | string()} | {error, undefined}.
 lookup([<<"action">>], {_AggregId = {_Type, Name}, _Buffer}) ->
     {ok, mk_fs_safe_string(Name)};
-lookup(Accessor, {_AggregId, Buffer = #{}}) ->
+lookup([<<"node">>], {_AggregId, _Buffer}) ->
+    {ok, mk_fs_safe_string(atom_to_binary(erlang:node()))};
+lookup(Accessor, {_AggregId, Buffer}) ->
     lookup_buffer_var(Accessor, Buffer);
 lookup(_Accessor, _Context) ->
     {error, undefined}.
 
-lookup_buffer_var([<<"datetime">>, Format], #{since := Since}) ->
-    {ok, format_timestamp(Since, Format)};
-lookup_buffer_var([<<"datetime_until">>, Format], #{until := Until}) ->
-    {ok, format_timestamp(Until, Format)};
-lookup_buffer_var([<<"sequence">>], #{seq := Seq}) ->
-    {ok, Seq};
-lookup_buffer_var([<<"node">>], #{}) ->
-    {ok, mk_fs_safe_string(atom_to_binary(erlang:node()))};
-lookup_buffer_var(_Binding, _Context) ->
-    {error, undefined}.
-
-format_timestamp(Timestamp, <<"rfc3339utc">>) ->
-    String = calendar:system_time_to_rfc3339(Timestamp, [{unit, second}, {offset, "Z"}]),
-    mk_fs_safe_string(String);
-format_timestamp(Timestamp, <<"rfc3339">>) ->
-    String = calendar:system_time_to_rfc3339(Timestamp, [{unit, second}]),
-    mk_fs_safe_string(String);
-format_timestamp(Timestamp, <<"unix">>) ->
-    Timestamp.
+lookup_buffer_var(Accessor, Buffer) ->
+    case emqx_connector_aggreg_buffer_ctx:lookup(Accessor, Buffer) of
+        {ok, String} when is_list(String) ->
+            {ok, mk_fs_safe_string(String)};
+        {ok, Value} ->
+            {ok, Value};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 mk_fs_safe_string(String) ->
     unicode:characters_to_binary(string:replace(String, ":", "_", all)).

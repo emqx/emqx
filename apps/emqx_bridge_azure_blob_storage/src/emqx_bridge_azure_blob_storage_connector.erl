@@ -339,9 +339,9 @@ do_list_blobs(Worker, Container) ->
 %% `emqx_connector_aggreg_delivery' API
 %%------------------------------------------------------------------------------
 
--spec init_transfer_state(emqx_connector_aggreg_delivery:buffer_map(), transfer_opts()) ->
+-spec init_transfer_state(buffer(), transfer_opts()) ->
     transfer_state().
-init_transfer_state(BufferMap, Opts) ->
+init_transfer_state(Buffer, Opts) ->
     #{
         upload_options := #{
             action := ActionName,
@@ -351,7 +351,7 @@ init_transfer_state(BufferMap, Opts) ->
             pool := Pool
         }
     } = Opts,
-    Blob = mk_blob_name_key(BufferMap, ActionName, BlobTemplate),
+    Blob = mk_blob_name_key(Buffer, ActionName, BlobTemplate),
     #{
         blob => Blob,
         buffer => [],
@@ -363,8 +363,8 @@ init_transfer_state(BufferMap, Opts) ->
         started => false
     }.
 
-mk_blob_name_key(BufferMap, ActionName, BlobTemplate) ->
-    emqx_template:render_strict(BlobTemplate, {?MODULE, {ActionName, BufferMap}}).
+mk_blob_name_key(Buffer, ActionName, BlobTemplate) ->
+    emqx_template:render_strict(BlobTemplate, {?MODULE, {ActionName, Buffer}}).
 
 -spec process_append(iodata(), transfer_state()) ->
     transfer_state().
@@ -455,34 +455,26 @@ process_complete(TransferState) ->
 %% `emqx_template' API
 %%------------------------------------------------------------------------------
 
--spec lookup(emqx_template:accessor(), {_Name, buffer_map()}) ->
+-spec lookup(emqx_template:accessor(), {_Name, buffer()}) ->
     {ok, integer() | string()} | {error, undefined}.
-lookup([<<"action">>], {ActionName, _BufferMap}) ->
+lookup([<<"action">>], {ActionName, _Buffer}) ->
     {ok, mk_fs_safe_string(ActionName)};
-lookup(Accessor, {_ActionName, BufferMap = #{}}) ->
-    lookup_buffer_var(Accessor, BufferMap);
+lookup([<<"node">>], {_ActionName, _Buffer}) ->
+    {ok, mk_fs_safe_string(atom_to_binary(erlang:node()))};
+lookup(Accessor, {_ActionName, Buffer}) ->
+    lookup_buffer_var(Accessor, Buffer);
 lookup(_Accessor, _Context) ->
     {error, undefined}.
 
-lookup_buffer_var([<<"datetime">>, Format], #{since := Since}) ->
-    {ok, format_timestamp(Since, Format)};
-lookup_buffer_var([<<"datetime_until">>, Format], #{until := Until}) ->
-    {ok, format_timestamp(Until, Format)};
-lookup_buffer_var([<<"sequence">>], #{seq := Seq}) ->
-    {ok, Seq};
-lookup_buffer_var([<<"node">>], #{}) ->
-    {ok, mk_fs_safe_string(atom_to_binary(erlang:node()))};
-lookup_buffer_var(_Binding, _Context) ->
-    {error, undefined}.
-
-format_timestamp(Timestamp, <<"rfc3339utc">>) ->
-    String = calendar:system_time_to_rfc3339(Timestamp, [{unit, second}, {offset, "Z"}]),
-    mk_fs_safe_string(String);
-format_timestamp(Timestamp, <<"rfc3339">>) ->
-    String = calendar:system_time_to_rfc3339(Timestamp, [{unit, second}]),
-    mk_fs_safe_string(String);
-format_timestamp(Timestamp, <<"unix">>) ->
-    Timestamp.
+lookup_buffer_var(Accessor, Buffer) ->
+    case emqx_connector_aggreg_buffer_ctx:lookup(Accessor, Buffer) of
+        {ok, String} when is_list(String) ->
+            {ok, mk_fs_safe_string(String)};
+        {ok, Value} ->
+            {ok, Value};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 mk_fs_safe_string(String) ->
     unicode:characters_to_binary(string:replace(String, ":", "_", all)).
