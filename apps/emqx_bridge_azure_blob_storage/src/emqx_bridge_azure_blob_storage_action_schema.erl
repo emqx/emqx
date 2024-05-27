@@ -144,6 +144,16 @@ fields(aggregation) ->
                     default => 1_000_000,
                     desc => ?DESC("aggregation_max_records")
                 }
+            )},
+        {min_block_size,
+            mk(
+                emqx_schema:bytesize(),
+                #{
+                    default => <<"10mb">>,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    required => true,
+                    validator => fun block_size_validator/1
+                }
             )}
     ];
 fields(common_action_parameters) ->
@@ -156,7 +166,7 @@ fields(common_action_parameters) ->
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC("max_block_size"),
                     required => true,
-                    validator => fun max_block_size_validator/1
+                    validator => fun block_size_validator/1
                 }
             )}
     ];
@@ -293,7 +303,7 @@ scunion(Field, Schemas, {value, Value}) ->
             throw(#{field_name => Field, expected => maps:keys(Schemas)})
     end.
 
-max_block_size_validator(SizeLimit) ->
+block_size_validator(SizeLimit) ->
     case SizeLimit =< 4_000 * 1024 * 1024 of
         true -> ok;
         false -> {error, "must be less than 4000 MiB"}

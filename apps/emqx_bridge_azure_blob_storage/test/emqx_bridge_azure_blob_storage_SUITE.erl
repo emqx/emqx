@@ -615,7 +615,9 @@ t_aggreg_pending_upload_restart(Config) ->
                     #{
                         <<"parameters">> =>
                             #{
-                                <<"max_block_size">> => <<"1024B">>
+                                <<"aggregation">> => #{
+                                    <<"min_block_size">> => <<"1024B">>
+                                }
                             }
                     }
                 )
