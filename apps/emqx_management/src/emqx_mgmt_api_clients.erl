@@ -24,6 +24,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/emqx_durable_session_metadata.hrl").
 
 -include("emqx_mgmt.hrl").
 
@@ -1739,7 +1740,7 @@ format_channel_info(undefined, {ClientId, PSInfo0 = #{}}, _Opts) ->
 format_persistent_session_info(
     _ClientId,
     #{
-        metadata := #{offline_info := #{chan_info := ChanInfo, stats := Stats} = OfflineInfo} =
+        metadata := #{?offline_info := #{chan_info := ChanInfo, stats := Stats} = OfflineInfo} =
             Metadata
     } =
         PSInfo
