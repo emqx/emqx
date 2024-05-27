@@ -357,7 +357,7 @@ handle_info({publish, #{}}, St) ->
     {noreply, St};
 handle_info({timeout, TRef, reconnect}, St = #st{reconnect_timer = TRef}) ->
     {noreply, process_connect(St#st{reconnect_timer = undefined})};
-handle_info({timeout, TRef, actor_reinit}, St = #st{reconnect_timer = TRef}) ->
+handle_info({timeout, TRef, actor_reinit}, St = #st{actor_init_timer = TRef}) ->
     ?SLOG(error, #{
         msg => "remote_actor_init_timeout",
         target_cluster => St#st.target,
