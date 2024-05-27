@@ -91,7 +91,14 @@
 -define(DEFAULT_ROW, 100).
 
 -type request() :: #{bindings => map(), query_string => map(), body => map()}.
--type request_meta() :: #{module => module(), path => string(), method => atom()}.
+-type request_meta() :: #{
+    module := module(),
+    path := string(),
+    method := atom(),
+    %% API Operation specification override.
+    %% Takes precedence over the API specification defined in the module.
+    apispec => map()
+}.
 
 %% More exact types are defined in minirest.hrl, but we don't want to include it
 %% because it defines a lot of types and they may clash with the types declared locally.
