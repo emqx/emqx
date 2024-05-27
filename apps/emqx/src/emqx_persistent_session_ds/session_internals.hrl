@@ -13,8 +13,8 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--ifndef(EMQX_PERSISTENT_SESSION_DS_HRL_HRL).
--define(EMQX_PERSISTENT_SESSION_DS_HRL_HRL, true).
+-ifndef(EMQX_SESSION_DS_INTERNALS_HRL).
+-define(EMQX_SESSION_DS_INTERNALS_HRL, true).
 
 -include("emqx_persistent_message.hrl").
 
