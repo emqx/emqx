@@ -1,19 +1,8 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_listener_tls_verify_keyusage_SUITE).
+
+-module(emqx_auth_ext_listener_tls_verify_keyusage_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -22,13 +11,14 @@
 -include_lib("common_test/include/ct.hrl").
 
 -import(
-    emqx_test_tls_certs_helper,
+    emqx_auth_ext_test_tls_certs_helper,
     [
         fail_when_ssl_error/1,
         fail_when_no_ssl_alert/2,
         generate_tls_certs/1,
         gen_host_cert/4,
-        emqx_start_listener/4
+        emqx_start_listener/4,
+        select_free_port/1
     ]
 ).
 
@@ -66,7 +56,7 @@ end_per_group(_, Config) ->
     Config.
 
 t_conn_success_verify_peer_ext_key_usage_unset(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Given listener keyusage unset
     Options = [{ssl_options, ?config(ssl_config, Config)}],
@@ -87,7 +77,7 @@ t_conn_success_verify_peer_ext_key_usage_unset(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_success_verify_peer_ext_key_usage_undefined(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is set to undefined
     Options = [
@@ -113,7 +103,7 @@ t_conn_success_verify_peer_ext_key_usage_undefined(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_success_verify_peer_ext_key_usage_matched_predefined(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is set to clientAuth
     Options = [
@@ -141,7 +131,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_predefined(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_success_verify_peer_ext_key_usage_matched_raw_oid(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is set to raw OID
 
@@ -170,7 +160,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_raw_oid(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_success_verify_peer_ext_key_usage_matched_ordered_list(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
 
     %% Give listener keyusage is clientAuth,serverAuth
@@ -198,7 +188,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_ordered_list(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_success_verify_peer_ext_key_usage_matched_unordered_list(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is clientAuth,serverAuth
     Options = [
@@ -225,7 +215,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_unordered_list(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_fail_verify_peer_ext_key_usage_unmatched_raw_oid(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is using OID
     Options = [
@@ -254,7 +244,7 @@ t_conn_fail_verify_peer_ext_key_usage_unmatched_raw_oid(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_fail_verify_peer_ext_key_usage_empty_str(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options, [
@@ -280,7 +270,7 @@ t_conn_fail_verify_peer_ext_key_usage_empty_str(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_fail_client_keyusage_unmatch(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
 
     %% Give listener keyusage is clientAuth
@@ -308,7 +298,7 @@ t_conn_fail_client_keyusage_unmatch(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_fail_client_keyusage_incomplete(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is codeSigning,clientAuth
     Options = [

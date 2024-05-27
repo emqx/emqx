@@ -80,7 +80,7 @@
 -define(AUTHZ_SOURCE_SCHEMA_MODS, ?CE_AUTHZ_SOURCE_SCHEMA_MODS).
 -define(AUTHN_PROVIDER_SCHEMA_MODS, ?CE_AUTHN_PROVIDER_SCHEMA_MODS).
 
--define(OTHER_INJECTING_CONFIGS, []).
+-define(OTHER_INJECTING_CONFIGS, ?AUTH_EXT_SCHEMA_MODS).
 
 -endif.
 
@@ -89,5 +89,11 @@
     {emqx_authz_schema, ?AUTHZ_SOURCE_SCHEMA_MODS}
     | ?OTHER_INJECTING_CONFIGS
 ]).
+
+-define(AUTH_EXT_SCHEMA_MODS, []).
+-if(defined(EMQX_RELEASE_EDITION) andalso ?EMQX_RELEASE_EDITION == ee).
+-undef(AUTH_EXT_SCHEMA_MODS).
+-define(AUTH_EXT_SCHEMA_MODS, [emqx_auth_ext_schema]).
+-endif.
 
 -endif.

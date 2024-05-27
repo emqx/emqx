@@ -1,0 +1,21 @@
+{application, emqx_auth_ext, [
+    {description, "EMQX Extended Auth Library"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        ssl,
+        emqx
+    ]},
+    {env, []},
+    {modules, [
+        emqx_auth_ext,
+        emqx_auth_ext_schema,
+        emqx_auth_ext_tls_lib,
+        emqx_auth_ext_tls_const_v1
+    ]},
+
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+]}.

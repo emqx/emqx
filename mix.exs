@@ -202,7 +202,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_gateway_ocpp,
       :emqx_gateway_jt808,
       :emqx_bridge_syskeeper,
-      :emqx_ds_shared_sub
+      :emqx_ds_shared_sub,
+      :emqx_auth_ext
     ])
   end
 
