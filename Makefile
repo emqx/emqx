@@ -20,9 +20,10 @@ endif
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.9.0-beta.1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.7.0-beta.9
+export EMQX_DASHBOARD_VERSION ?= v1.9.0
+export EMQX_EE_DASHBOARD_VERSION ?= e1.7.0
 
+-include default-profile.mk
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-enterprise
 PKG_PROFILES := emqx-pkg emqx-enterprise-pkg

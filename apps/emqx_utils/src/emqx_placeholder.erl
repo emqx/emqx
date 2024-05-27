@@ -265,11 +265,16 @@ lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     Value;
 lookup_var([Prop | Rest], Data0) ->
     Data =
-        case emqx_utils_json:safe_decode(Data0, [return_maps]) of
-            {ok, Data1} ->
-                Data1;
-            {error, _} ->
-                Data0
+        case is_map(Data0) of
+            true ->
+                Data0;
+            false ->
+                case emqx_utils_json:safe_decode(Data0, [return_maps]) of
+                    {ok, Data1} ->
+                        Data1;
+                    {error, _} ->
+                        Data0
+                end
         end,
     case lookup(Prop, Data) of
         {ok, Value} ->
@@ -293,12 +298,10 @@ lookup(Prop, Data) when is_binary(Prop) ->
     end.
 
 do_one_lookup(Key, Data) ->
-    try
-        {ok, maps:get(Key, Data)}
-    catch
-        error:{badkey, _} ->
-            {error, undefined};
-        error:{badmap, _} ->
+    case Data of
+        #{Key := Value} ->
+            {ok, Value};
+        _ ->
             {error, undefined}
     end.
 

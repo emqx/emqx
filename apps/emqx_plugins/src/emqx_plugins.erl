@@ -161,7 +161,9 @@ ensure_installed(NameVsn) ->
             ok = purge(NameVsn),
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
-                    maybe_post_op_after_installed(NameVsn);
+                    maybe_post_op_after_installed(NameVsn),
+                    _ = maybe_ensure_plugin_config(NameVsn),
+                    ok;
                 {error, _Reason} = Err ->
                     Err
             end
@@ -328,10 +330,11 @@ get_config_bin(NameVsn) ->
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
-%% the plugin config Json Map and plugin config ALWAYS be valid before calling this function.
-put_config(NameVsn, ConfigJsonMap, DecodedPluginConfig) when not is_binary(NameVsn) ->
-    put_config(bin(NameVsn), ConfigJsonMap, DecodedPluginConfig);
-put_config(NameVsn, ConfigJsonMap, _DecodedPluginConfig) ->
+%% The plugin config Json Map was valid by avro schema
+%% Or: if no and plugin config ALWAYS be valid before calling this function.
+put_config(NameVsn, ConfigJsonMap, AvroValue) when not is_binary(NameVsn) ->
+    put_config(bin(NameVsn), ConfigJsonMap, AvroValue);
+put_config(NameVsn, ConfigJsonMap, _AvroValue) ->
     HoconBin = hocon_pp:do(ConfigJsonMap, #{}),
     ok = backup_and_write_hocon_bin(NameVsn, HoconBin),
     %% TODO: callback in plugin's on_config_changed (config update by mgmt API)
@@ -369,10 +372,30 @@ list() ->
 %%--------------------------------------------------------------------
 %% Package utils
 
--spec decode_plugin_config_map(name_vsn(), map() | binary()) -> {ok, map()} | {error, any()}.
-decode_plugin_config_map(NameVsn, AvroJsonMap) when is_map(AvroJsonMap) ->
-    decode_plugin_config_map(NameVsn, emqx_utils_json:encode(AvroJsonMap));
-decode_plugin_config_map(NameVsn, AvroJsonBin) ->
+-spec decode_plugin_config_map(name_vsn(), map() | binary()) ->
+    {ok, map() | ?plugin_without_config_schema}
+    | {error, any()}.
+decode_plugin_config_map(NameVsn, AvroJsonMap) ->
+    case with_plugin_avsc(NameVsn) of
+        true ->
+            case emqx_plugins_serde:lookup_serde(NameVsn) of
+                {error, not_found} ->
+                    Reason = "plugin_config_schema_serde_not_found",
+                    ?SLOG(error, #{
+                        msg => Reason, name_vsn => NameVsn, plugin_with_avro_schema => true
+                    }),
+                    {error, Reason};
+                {ok, _Serde} ->
+                    do_decode_plugin_config_map(NameVsn, AvroJsonMap)
+            end;
+        false ->
+            ?SLOG(debug, #{name_vsn => NameVsn, plugin_with_avro_schema => false}),
+            {ok, ?plugin_without_config_schema}
+    end.
+
+do_decode_plugin_config_map(NameVsn, AvroJsonMap) when is_map(AvroJsonMap) ->
+    do_decode_plugin_config_map(NameVsn, emqx_utils_json:encode(AvroJsonMap));
+do_decode_plugin_config_map(NameVsn, AvroJsonBin) ->
     case emqx_plugins_serde:decode(NameVsn, AvroJsonBin) of
         {ok, Config} -> {ok, Config};
         {error, ReasonMap} -> {error, ReasonMap}
@@ -533,6 +556,7 @@ ensure_state(NameVsn, Position, State, ConfLocation) ->
                 fun() -> ensure_configured(Item, Position, ConfLocation) end
             );
         {error, Reason} ->
+            ?SLOG(error, #{msg => "ensure_plugin_states_failed", reason => Reason}),
             {error, Reason}
     end.
 
@@ -1100,9 +1124,31 @@ for_plugins(ActionFun) ->
             ok
     end.
 
-maybe_post_op_after_installed(NameVsn) ->
+maybe_post_op_after_installed(NameVsn0) ->
+    NameVsn = wrap_to_list(NameVsn0),
     _ = maybe_load_config_schema(NameVsn),
-    _ = ensure_state(NameVsn, no_move, false, global),
+    ok = maybe_ensure_state(NameVsn).
+
+maybe_ensure_state(NameVsn) ->
+    EnsureStateFun = fun(#{name_vsn := NV, enable := Bool}, AccIn) ->
+        case NV of
+            NameVsn ->
+                %% Configured, using existed cluster config
+                _ = ensure_state(NV, no_move, Bool, global),
+                AccIn#{ensured => true};
+            _ ->
+                AccIn
+        end
+    end,
+    case lists:foldl(EnsureStateFun, #{ensured => false}, configured()) of
+        #{ensured := true} ->
+            ok;
+        #{ensured := false} ->
+            ?SLOG(info, #{msg => "plugin_not_configured", name_vsn => NameVsn}),
+            %% Clean installation, no config, ensure with `Enable = false`
+            _ = ensure_state(NameVsn, no_move, false, global),
+            ok
+    end,
     ok.
 
 maybe_load_config_schema(NameVsn) ->
@@ -1114,7 +1160,7 @@ maybe_load_config_schema(NameVsn) ->
     _ = maybe_create_config_dir(NameVsn).
 
 do_load_config_schema(NameVsn, AvscPath) ->
-    case emqx_plugins_serde:add_schema(NameVsn, AvscPath) of
+    case emqx_plugins_serde:add_schema(bin(NameVsn), AvscPath) of
         ok -> ok;
         {error, already_exists} -> ok;
         {error, _Reason} -> ok
@@ -1144,6 +1190,7 @@ do_create_config_dir(NameVsn) ->
             end
     end.
 
+-spec maybe_ensure_plugin_config(name_vsn()) -> ok.
 maybe_ensure_plugin_config(NameVsn) ->
     maybe
         true ?= with_plugin_avsc(NameVsn),
@@ -1152,10 +1199,13 @@ maybe_ensure_plugin_config(NameVsn) ->
         _ -> ok
     end.
 
+-spec ensure_plugin_config(name_vsn()) -> ok.
 ensure_plugin_config(NameVsn) ->
     %% fetch plugin hocon config from cluster
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
     ensure_plugin_config(NameVsn, Nodes).
+
+-spec ensure_plugin_config(name_vsn(), list()) -> ok.
 ensure_plugin_config(NameVsn, []) ->
     ?SLOG(debug, #{
         msg => "default_plugin_config_used",
@@ -1167,7 +1217,9 @@ ensure_plugin_config(NameVsn, Nodes) ->
     case get_plugin_config_from_any_node(Nodes, NameVsn, []) of
         {ok, ConfigMap} when is_map(ConfigMap) ->
             HoconBin = hocon_pp:do(ConfigMap, #{}),
-            ok = file:write_file(plugin_config_file(NameVsn), HoconBin),
+            Path = plugin_config_file(NameVsn),
+            ok = filelib:ensure_dir(Path),
+            ok = file:write_file(Path, HoconBin),
             ensure_config_map(NameVsn);
         _ ->
             ?SLOG(error, #{msg => "config_not_found_from_cluster", name_vsn => NameVsn}),
@@ -1176,6 +1228,7 @@ ensure_plugin_config(NameVsn, Nodes) ->
             cp_default_config_file(NameVsn)
     end.
 
+-spec cp_default_config_file(name_vsn()) -> ok.
 cp_default_config_file(NameVsn) ->
     %% always copy default hocon file into config dir when can not get config from other nodes
     Source = default_plugin_config_file(NameVsn),
@@ -1184,9 +1237,10 @@ cp_default_config_file(NameVsn) ->
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
         true ?= (not filelib:is_regular(Destination)),
+        ok = filelib:ensure_dir(Destination),
         case file:copy(Source, Destination) of
             {ok, _} ->
-                ok;
+                ensure_config_map(NameVsn);
             {error, Reason} ->
                 ?SLOG(warning, #{
                     msg => "failed_to_copy_plugin_default_hocon_config",
@@ -1200,16 +1254,29 @@ cp_default_config_file(NameVsn) ->
     end.
 
 ensure_config_map(NameVsn) ->
-    with_plugin_avsc(NameVsn) andalso
-        do_ensure_config_map(NameVsn).
-
-do_ensure_config_map(NameVsn) ->
     case read_plugin_hocon(NameVsn, #{read_mode => ?JSON_MAP}) of
         {ok, ConfigJsonMap} ->
-            {ok, Config} = decode_plugin_config_map(NameVsn, ConfigJsonMap),
-            put_config(NameVsn, ConfigJsonMap, Config);
+            case with_plugin_avsc(NameVsn) of
+                true ->
+                    do_ensure_config_map(NameVsn, ConfigJsonMap);
+                false ->
+                    put_config(NameVsn, ConfigJsonMap, ?plugin_without_config_schema)
+            end;
         _ ->
             ?SLOG(warning, #{msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn}),
+            ok
+    end.
+
+do_ensure_config_map(NameVsn, ConfigJsonMap) ->
+    case decode_plugin_config_map(NameVsn, ConfigJsonMap) of
+        {ok, AvroValue} ->
+            put_config(NameVsn, ConfigJsonMap, AvroValue);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "plugin_config_validation_failed",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
             ok
     end.
 
@@ -1301,23 +1368,23 @@ read_file_fun(Path, ErrMsg, #{read_mode := ?JSON_MAP}) ->
 %% Directorys
 -spec plugin_dir(name_vsn()) -> string().
 plugin_dir(NameVsn) ->
-    wrap_list_path(filename:join([install_dir(), NameVsn])).
+    wrap_to_list(filename:join([install_dir(), NameVsn])).
 
 -spec plugin_priv_dir(name_vsn()) -> string().
 plugin_priv_dir(NameVsn) ->
     case read_plugin_info(NameVsn, #{fill_readme => false}) of
         {ok, #{<<"name">> := Name, <<"metadata_vsn">> := Vsn}} ->
             AppDir = make_name_vsn_string(Name, Vsn),
-            wrap_list_path(filename:join([plugin_dir(NameVsn), AppDir, "priv"]));
+            wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]));
         _ ->
-            wrap_list_path(filename:join([install_dir(), NameVsn, "priv"]))
+            wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
     end.
 
 -spec plugin_config_dir(name_vsn()) -> string() | {error, Reason :: string()}.
 plugin_config_dir(NameVsn) ->
     case parse_name_vsn(NameVsn) of
         {ok, NameAtom, _Vsn} ->
-            wrap_list_path(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
+            wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_generate_plugin_config_dir_for_plugin",
@@ -1330,32 +1397,32 @@ plugin_config_dir(NameVsn) ->
 %% Files
 -spec pkg_file_path(name_vsn()) -> string().
 pkg_file_path(NameVsn) ->
-    wrap_list_path(filename:join([install_dir(), bin([NameVsn, ".tar.gz"])])).
+    wrap_to_list(filename:join([install_dir(), bin([NameVsn, ".tar.gz"])])).
 
 -spec info_file_path(name_vsn()) -> string().
 info_file_path(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "release.json"])).
+    wrap_to_list(filename:join([plugin_dir(NameVsn), "release.json"])).
 
 -spec avsc_file_path(name_vsn()) -> string().
 avsc_file_path(NameVsn) ->
-    wrap_list_path(filename:join([plugin_priv_dir(NameVsn), "config_schema.avsc"])).
+    wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_schema.avsc"])).
 
 -spec plugin_config_file(name_vsn()) -> string().
 plugin_config_file(NameVsn) ->
-    wrap_list_path(filename:join([plugin_config_dir(NameVsn), "config.hocon"])).
+    wrap_to_list(filename:join([plugin_config_dir(NameVsn), "config.hocon"])).
 
 %% should only used when plugin installing
 -spec default_plugin_config_file(name_vsn()) -> string().
 default_plugin_config_file(NameVsn) ->
-    wrap_list_path(filename:join([plugin_priv_dir(NameVsn), "config.hocon"])).
+    wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config.hocon"])).
 
 -spec i18n_file_path(name_vsn()) -> string().
 i18n_file_path(NameVsn) ->
-    wrap_list_path(filename:join([plugin_priv_dir(NameVsn), "config_i18n.json"])).
+    wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_i18n.json"])).
 
 -spec readme_file(name_vsn()) -> string().
 readme_file(NameVsn) ->
-    wrap_list_path(filename:join([plugin_dir(NameVsn), "README.md"])).
+    wrap_to_list(filename:join([plugin_dir(NameVsn), "README.md"])).
 
 running_apps() ->
     lists:map(
@@ -1387,5 +1454,5 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
-wrap_list_path(Path) ->
+wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).

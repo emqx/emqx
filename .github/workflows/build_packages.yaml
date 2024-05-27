@@ -205,18 +205,6 @@ jobs:
         pattern: "${{ matrix.profile }}-*"
         path: packages/${{ matrix.profile }}
         merge-multiple: true
-    - name: install dos2unix
-      run: sudo apt-get update -y && sudo apt install -y dos2unix
-    - name: get packages
-      run: |
-        set -eu
-        cd packages/${{ matrix.profile }}
-        # fix the .sha256 file format
-        for f in *.sha256; do
-          dos2unix $f
-          echo "$(cat $f) ${f%.*}" | sha256sum -c || exit 1
-        done
-        cd -
     - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
