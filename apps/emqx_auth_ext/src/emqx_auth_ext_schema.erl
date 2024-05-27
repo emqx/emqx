@@ -25,7 +25,7 @@ fields(auth_ext) ->
             sc(
                 hoconsc:enum([true, false, two_cacerts_from_cacertfile, cacert_from_cacertfile]),
                 #{
-                    default => false,
+                    required => false,
                     desc => ?DESC(common_ssl_opts_schema_partial_chain)
                 }
             )},
