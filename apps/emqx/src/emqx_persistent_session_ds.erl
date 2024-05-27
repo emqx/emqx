@@ -704,6 +704,7 @@ disconnect(Session = #{id := Id, s := S0}, ConnInfo) ->
                 S2
         end,
     S = emqx_persistent_session_ds_state:commit(S3),
+    inc_disconnected_sessions(S),
     {shutdown, Session#{s => S}}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
@@ -804,8 +805,9 @@ session_open(
                     session_drop(SessionId, expired),
                     false;
                 false ->
+                    %% New connection being established:
                     ?tp(open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
-                    %% New connection being established
+                    dec_disconnected_sessions(S0),
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
                     S2 = emqx_persistent_session_ds_state:set_last_alive_at(NowMS, S1),
                     S3 = emqx_persistent_session_ds_state:set_peername(
@@ -814,7 +816,8 @@ session_open(
                     S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
                     S5 = set_clientinfo(ClientInfo, S4),
                     S6 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S5),
-                    S = emqx_persistent_session_ds_state:commit(S6),
+                    S7 = emqx_persistent_session_ds_state:set_last_owner_node(node(), S6),
+                    S = emqx_persistent_session_ds_state:commit(S7),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
@@ -864,7 +867,8 @@ session_ensure_new(
     S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
     S6 = set_clientinfo(ClientInfo, S5),
     S7 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S6),
-    S = emqx_persistent_session_ds_state:commit(S7),
+    S8 = emqx_persistent_session_ds_state:set_last_owner_node(node(), S7),
+    S = emqx_persistent_session_ds_state:commit(S8),
     #{
         id => Id,
         props => Conf,
@@ -880,7 +884,8 @@ session_drop(SessionId, Reason) ->
         {ok, S0} ->
             ?tp(debug, drop_persistent_session, #{client_id => SessionId, reason => Reason}),
             emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
-            emqx_persistent_session_ds_state:delete(SessionId);
+            emqx_persistent_session_ds_state:delete(SessionId),
+            dec_disconnected_sessions(S0);
         undefined ->
             ok
     end.
@@ -1221,8 +1226,7 @@ maybe_set_offline_info(S, Id) ->
                 #{
                     chan_info => ChannelInfo,
                     stats => Stats,
-                    disconnected_at => erlang:system_time(millisecond),
-                    last_connected_to => node()
+                    disconnected_at => erlang:system_time(millisecond)
                 },
                 S
             );
@@ -1362,6 +1366,25 @@ maybe_set_will_message_timer(#{id := SessionId, s := S}) ->
             ok;
         _ ->
             ok
+    end.
+
+-spec dec_disconnected_sessions(emqx_persistent_session_ds_state:t()) -> ok.
+dec_disconnected_sessions(S) ->
+    case emqx_persistent_session_ds_state:get_last_owner_node(S) of
+        undefined ->
+            ok;
+        Node ->
+            emqx_persistent_session_bookkeeper:dec_disconnected_sessions(Node)
+    end.
+
+-spec inc_disconnected_sessions(emqx_persistent_session_ds_state:t()) -> ok.
+inc_disconnected_sessions(S) ->
+    case emqx_persistent_session_ds_state:get_last_owner_node(S) of
+        undefined ->
+            %% Should not happen:
+            ok;
+        Node ->
+            emqx_persistent_session_bookkeeper:inc_disconnected_sessions(Node)
     end.
 
 %%--------------------------------------------------------------------

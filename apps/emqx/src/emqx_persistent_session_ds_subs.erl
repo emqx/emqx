@@ -109,6 +109,7 @@ on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) 
                     S = emqx_persistent_session_ds_state:put_subscription(
                         TopicFilter, Subscription, S3
                     ),
+                    emqx_persistent_session_bookkeeper:inc_subs(),
                     ?tp(persistent_session_ds_subscription_added, #{
                         topic_filter => TopicFilter, session => SessionId
                     }),
@@ -155,6 +156,7 @@ on_unsubscribe(SessionId, TopicFilter, S0) ->
                 #{session_id => SessionId, topic_filter => TopicFilter},
                 ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId)
             ),
+            emqx_persistent_session_bookkeeper:dec_subs(),
             {ok, emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0), Subscription}
     end.
 
