@@ -1,0 +1,227 @@
+\documentclass{article}
+\usepackage[a4paper,margin=2cm]{geometry}
+\usepackage{amsmath}
+\usepackage{xcolor}
+
+\usepackage{tikz}
+
+\title{Bitmapper NIF}
+
+\begin{document}
+\maketitle
+
+We can represent our source binary as a bit vector:
+
+\begin{equation}
+  \label{eq:vec1}
+  \begin{bmatrix}
+    {\color{red} i_1} \\
+    {\color{red} i_2} \\
+    t_1 \\
+    t_2 \\
+    {\color{blue} w_1} \\
+    {\color{blue} w_2}
+  \end{bmatrix}
+\end{equation}
+
+Transformation (bit mapping) can be represented as matrix multiplication,
+with exception that bitwise $\&$ is used instead of multiplication, and bitwise $\|$ is used instead of plus.
+
+Intuitive way to understand the matrix transformation is the following:
+non-zero matrix element $m_{i j}$ of an orthogonal matrix $m$ maps $i$-th bit of the input vector to $j$-th bit of the output vector.
+
+\begin{equation}
+  \label{eq:trans1}
+  \begin{bmatrix}
+    1 & 0 &   0 & 0 &  0 & 0 \\
+    0 & 1 &   0 & 0 &  0 & 0 \\
+    0 & 0 &   1 & 0 &  0 & 0 \\
+    0 & 0 &   0 & 0 &  1 & 0 \\
+    0 & 0 &   0 & 0 &  0 & 1 \\
+    0 & 0 &   0 & 1 &  0 & 0
+  \end{bmatrix}
+  \begin{bmatrix}
+    {\color{red} i_1} \\
+    {\color{red} i_2} \\
+    t_1 \\
+    t_2 \\
+    {\color{blue} w_1} \\
+    {\color{blue} w_2}
+  \end{bmatrix}
+  =
+  \begin{bmatrix}
+    {\color{red} i_1} \\
+    {\color{red} i_2} \\
+    t_1 \\
+    {\color{blue} w_1} \\
+    {\color{blue} w_2} \\
+    t_2
+  \end{bmatrix}
+\end{equation}
+
+Note: as long as the matrix is orthogonal, there is no difference from the regular matrix multiplication using arithmetic operations.
+
+Matrix multiplication can be optimized by splitting matrix into rectangular cells of height equal to the size of machine integer.
+This will allow to pack rows of the matrix as bits of an integer.
+
+Let's recall the rules of matrix multiplication:
+
+\begin{equation}
+  \label{eq:vmul1}
+  \begin{split}
+    \begin{bmatrix}
+      m_{1 1} & m_{1 2} & m_{1 3} & m_{1 4} \\
+      m_{2 1} & m_{2 2} & m_{2 3} & m_{2 4} \\
+      m_{3 1} & m_{3 2} & m_{3 3} & m_{3 4} \\
+      m_{4 1} & m_{4 2} & m_{4 3} & m_{4 4}
+    \end{bmatrix}
+    \begin{bmatrix}
+      v_1 \\
+      v_2 \\
+      v_3 \\
+      v_4
+    \end{bmatrix}
+    =
+    \begin{bmatrix}
+      m_{1 1} v_1 + m_{1 2}   v_2 + m_{1 3}   v_3 + m_{1 4} v_4 \\
+      m_{2 1} v_1 + m_{2 2}   v_2 + m_{2 3}   v_3 + m_{2 4} v_4 \\
+      m_{3 1} v_1 + m_{3 2}   v_2 + m_{3 3}   v_3 + m_{3 4} v_4 \\
+      m_{4 1} v_1 + m_{4 2}   v_2 + m_{4 3}   v_3 + m_{4 4} v_4
+    \end{bmatrix}
+  \end{split}
+\end{equation}
+
+With a naive approach using dense matrix any bit transformation of a vector with $n$ elements will require $n$ multiplications and $n$ additions.
+We can assume that in our usecase the majority of non-zero matrix elements is located on the diagonals pointing in the southeast direction.
+Therefore, we can find a sparse matrix representation optimized for this shape.
+
+\newcommand{\dcolor}[1]{%
+  \ifcase #1%
+    green%
+  \or%
+    blue%
+  \or%
+    red%
+  \or%
+    cyan%
+  \fi%
+}
+
+\newcommand{\diagcolor}[2]{%
+  \ifnum #1<#2
+    \dcolor{\numexpr 4-#2+#1}%
+  \else%
+    \dcolor{\numexpr #1-#2}%
+  \fi%
+}
+
+\newcommand{\m}[2]{%
+  {\color{\diagcolor{#1}{#2}} {m_{#1 #2}}}%
+}
+
+Let's add color-coding of the diagonals in (\ref{eq:vmul1}):
+
+\begin{equation}
+  \label{eq:diags}
+    \begin{bmatrix}
+      \m{1}{1} v_1 + \m{1}{2} v_2 + \m{1}{3} v_3 + \m{1}{4} v_4 \\
+      \m{2}{1} v_1 + \m{2}{2} v_2 + \m{2}{3} v_3 + \m{2}{4} v_4 \\
+      \m{3}{1} v_1 + \m{3}{2} v_2 + \m{3}{3} v_3 + \m{3}{4} v_4 \\
+      \m{4}{1} v_1 + \m{4}{2} v_2 + \m{4}{3} v_3 + \m{4}{4} v_4
+    \end{bmatrix}
+\end{equation}
+
+\newcommand{\rot}[1]{\text{rot}_{#1}}
+
+Let's define a function called $\rot{n}\left( \vec v \right)$, that ``rotates'' elements of the original vector by a given amount:
+\begin{equation}
+  \label{eq:rotdev}
+  \rot{0}
+  \begin{bmatrix}
+    a \\
+    b \\
+    c \\
+    d
+  \end{bmatrix}
+  =
+  \begin{bmatrix}
+    a \\
+    b \\
+    c \\
+    d
+  \end{bmatrix}
+  ,\,
+  \rot{1}
+  \begin{bmatrix}
+    a \\
+    b \\
+    c \\
+    d
+  \end{bmatrix}
+  =
+  \begin{bmatrix}
+    d \\
+    a \\
+    b \\
+    c
+  \end{bmatrix}
+  ,\,
+  \rot{2}
+  \begin{bmatrix}
+    a \\
+    b \\
+    c \\
+    d
+  \end{bmatrix}
+  =
+  \begin{bmatrix}
+    c \\
+    d \\
+    a \\
+    b
+  \end{bmatrix}
+  , \ldots
+\end{equation}
+
+We can use commutativity of $+$ to rearrange the summands in (\ref{eq:diags}), and then rewrite the sum using element-wise multiplication (denoted as $\odot$) of the matrix diagonal to a rotated vector:
+
+\begin{equation}
+  \label{eq:vmuldiag}
+  \begin{split}
+    \begin{bmatrix}
+      \m{1}{1} v_1 + \m{1}{2} v_2 + \m{1}{3} v_3 + \m{1}{4} v_4 \\
+      \m{2}{1} v_1 + \m{2}{2} v_2 + \m{2}{3} v_3 + \m{2}{4} v_4 \\
+      \m{3}{1} v_1 + \m{3}{2} v_2 + \m{3}{3} v_3 + \m{3}{4} v_4 \\
+      \m{4}{1} v_1 + \m{4}{2} v_2 + \m{4}{3} v_3 + \m{4}{4} v_4
+    \end{bmatrix}
+    =
+    \begin{bmatrix}
+      \m{1}{1} v_1 + \m{1}{4} v_4 + \m{1}{3} v_3 + \m{1}{2} v_2 \\
+      \m{2}{2} v_2 + \m{2}{1} v_1 + \m{2}{4} v_4 + \m{2}{3} v_3 \\
+      \m{3}{3} v_3 + \m{3}{2} v_2 + \m{3}{1} v_1 + \m{3}{4} v_4 \\
+      \m{4}{4} v_4 + \m{4}{3} v_3 + \m{4}{2} v_2 + \m{4}{1} v_1
+    \end{bmatrix}
+    = \\
+    =
+    \begin{bmatrix}
+      \m{1}{1} \\ \m{2}{2} \\ \m{3}{3} \\ \m{4}{4}
+    \end{bmatrix} \odot
+    \rot{0} \left( \vec{v} \right) +
+    \begin{bmatrix}
+      \m{1}{4} \\ \m{2}{1} \\ \m{3}{2} \\ \m{4}{3}
+    \end{bmatrix} \odot
+    \rot{1} \left( \vec{v} \right) +
+    \begin{bmatrix}
+      \m{1}{3} \\ \m{2}{4} \\ \m{3}{1} \\ \m{4}{2}
+    \end{bmatrix} \odot
+    \rot{2} \left( \vec{v} \right) +
+    \begin{bmatrix}
+      \m{1}{2} \\ \m{2}{3} \\ \m{3}{4} \\ \m{4}{1}
+    \end{bmatrix} \odot
+    \rot{3} \left( \vec{v} \right)
+  \end{split}
+\end{equation}
+
+If a matrix shaped such that most of the diagonals don't contain any non-zero elements, then most of the summands in (\ref{eq:vmuldiag}) can be omitted.
+
+\end{document}

@@ -5,7 +5,7 @@
     {vsn, "0.2.0"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib, rocksdb, gproc, mria, ra, emqx_utils]},
+    {applications, [kernel, stdlib, rocksdb, gproc, mria, ra, emqx_utils, emqx_bitswizzle]},
     {mod, {emqx_ds_app, []}},
     {env, []}
 ]}.

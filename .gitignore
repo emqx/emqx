@@ -78,3 +78,6 @@ rebar-git-cache.tar
 .git/
 apps/emqx_utils/src/emqx_variform_parser.erl
 apps/emqx_utils/src/emqx_variform_scan.erl
+*.aux
+*.log
+*.pdf
