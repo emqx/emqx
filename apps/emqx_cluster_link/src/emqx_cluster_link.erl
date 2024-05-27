@@ -9,12 +9,12 @@
 -export([
     register_external_broker/0,
     unregister_external_broker/0,
-    maybe_add_route/1,
-    maybe_delete_route/1,
-    maybe_add_shared_route/2,
-    maybe_delete_shared_route/2,
-    maybe_add_persistent_route/2,
-    maybe_delete_persistent_route/2,
+    add_route/1,
+    delete_route/1,
+    add_shared_route/2,
+    delete_shared_route/2,
+    add_persistent_route/2,
+    delete_persistent_route/2,
     match_routes/1,
     forward/2,
     should_route_to_external_dests/1
@@ -48,22 +48,22 @@ unregister_external_broker() ->
 %% to delete it on a remote cluster.
 %% There is no need to push Node name as this info can be derived from
 %% agent state on the remote cluster.
-maybe_add_route(Topic) ->
+add_route(Topic) ->
     maybe_push_route_op(add, Topic, Topic).
 
-maybe_delete_route(Topic) ->
+delete_route(Topic) ->
     maybe_push_route_op(delete, Topic, Topic).
 
-maybe_add_shared_route(Topic, Group) ->
+add_shared_route(Topic, Group) ->
     maybe_push_route_op(add, Topic, ?SHARED_ROUTE_ID(Topic, Group)).
 
-maybe_delete_shared_route(Topic, Group) ->
+delete_shared_route(Topic, Group) ->
     maybe_push_route_op(delete, Topic, ?SHARED_ROUTE_ID(Topic, Group)).
 
-maybe_add_persistent_route(Topic, ID) ->
+add_persistent_route(Topic, ID) ->
     maybe_push_route_op(add, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
 
-maybe_delete_persistent_route(Topic, ID) ->
+delete_persistent_route(Topic, ID) ->
     maybe_push_route_op(delete, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
 
 forward(DestCluster, Delivery) ->

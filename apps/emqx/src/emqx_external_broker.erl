@@ -21,14 +21,14 @@
 
 -callback should_route_to_external_dests(emqx_types:message()) -> boolean().
 
--callback maybe_add_route(emqx_types:topic()) -> ok.
--callback maybe_delete_route(emqx_types:topic()) -> ok.
+-callback add_route(emqx_types:topic()) -> ok.
+-callback delete_route(emqx_types:topic()) -> ok.
 
--callback maybe_add_shared_route(emqx_types:topic(), emqx_types:group()) -> ok.
--callback maybe_delete_shared_route(emqx_types:topic(), emqx_types:group()) -> ok.
+-callback add_shared_route(emqx_types:topic(), emqx_types:group()) -> ok.
+-callback delete_shared_route(emqx_types:topic(), emqx_types:group()) -> ok.
 
--callback maybe_add_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
--callback maybe_delete_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
+-callback add_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
+-callback delete_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
 
 -callback match_routes(emqx_types:topic()) -> [emqx_types:route()].
 
@@ -40,12 +40,12 @@
     unregister_provider/1,
     forward/2,
     should_route_to_external_dests/1,
-    maybe_add_route/1,
-    maybe_delete_route/1,
-    maybe_add_shared_route/2,
-    maybe_delete_shared_route/2,
-    maybe_add_persistent_route/2,
-    maybe_delete_persistent_route/2,
+    add_route/1,
+    delete_route/1,
+    add_shared_route/2,
+    delete_shared_route/2,
+    add_persistent_route/2,
+    delete_persistent_route/2,
     match_routes/1
 ]).
 
@@ -117,22 +117,22 @@ forward(ExternalDest, Delivery) ->
 should_route_to_external_dests(Message) ->
     ?safe_with_provider(?FUNCTION_NAME(Message), false).
 
-maybe_add_route(Topic) ->
+add_route(Topic) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
 
-maybe_delete_route(Topic) ->
+delete_route(Topic) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
 
-maybe_add_shared_route(Topic, Group) ->
+add_shared_route(Topic, Group) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic, Group), ok).
 
-maybe_delete_shared_route(Topic, Group) ->
+delete_shared_route(Topic, Group) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic, Group), ok).
 
-maybe_add_persistent_route(Topic, ID) ->
+add_persistent_route(Topic, ID) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic, ID), ok).
 
-maybe_delete_persistent_route(Topic, ID) ->
+delete_persistent_route(Topic, ID) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic, ID), ok).
 
 match_routes(Topic) ->

@@ -690,9 +690,9 @@ sync_route(Action, Topic, ReplyTo) ->
     Res.
 
 external_sync_route(add, Topic) ->
-    emqx_external_broker:maybe_add_route(Topic);
+    emqx_external_broker:add_route(Topic);
 external_sync_route(delete, Topic) ->
-    emqx_external_broker:maybe_delete_route(Topic).
+    emqx_external_broker:delete_route(Topic).
 
 push_sync_route(Action, Topic, Opts) ->
     emqx_router_syncer:push(Action, Topic, node(), Opts).

@@ -425,7 +425,7 @@ handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon
             ok;
         false ->
             ok = emqx_router:do_add_route(Topic, {Group, node()}),
-            _ = emqx_external_broker:maybe_add_shared_route(Topic, Group),
+            _ = emqx_external_broker:add_shared_route(Topic, Group),
             ok
     end,
     ok = maybe_insert_alive_tab(SubPid),
@@ -550,7 +550,7 @@ is_alive_sub(Pid) ->
 delete_route_if_needed({Group, Topic} = GroupTopic) ->
     if_no_more_subscribers(GroupTopic, fun() ->
         ok = emqx_router:do_delete_route(Topic, {Group, node()}),
-        _ = emqx_external_broker:maybe_delete_shared_route(Topic, Group),
+        _ = emqx_external_broker:delete_shared_route(Topic, Group),
         ok
     end).
 
