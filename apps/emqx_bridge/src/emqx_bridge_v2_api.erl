@@ -658,20 +658,37 @@ schema("/source_types") ->
 
 %%------------------------------------------------------------------------------
 
-check_api_schema(Request, ReqMeta = #{path := Path = "/actions/:id", method := put}) ->
-    Spec = maps:get(put, schema(Path)),
+check_api_schema(Request, ReqMeta = #{path := "/actions/:id", method := put}) ->
     BridgeId = emqx_utils_maps:deep_get([bindings, id], Request),
     try emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}) of
+        %% NOTE
+        %% Bridge type is known, refine the API schema to get more specific error messages.
         {BridgeType, _Name} ->
             Schema = emqx_bridge_v2_schema:action_api_schema("put", BridgeType),
-            SpecRefined = Spec#{'requestBody' => Schema},
-            emqx_dashboard_swagger:filter_check_request(Request, ReqMeta#{apispec => SpecRefined})
+            emqx_dashboard_swagger:filter_check_request(Request, refine_api_schema(Schema, ReqMeta))
     catch
         throw:#{reason := Reason} ->
             ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>)
     end;
+check_api_schema(Request, ReqMeta = #{path := "/sources/:id", method := put}) ->
+    SourceId = emqx_utils_maps:deep_get([bindings, id], Request),
+    try emqx_bridge_resource:parse_bridge_id(SourceId, #{atom_name => false}) of
+        %% NOTE
+        %% Source type is known, refine the API schema to get more specific error messages.
+        {BridgeType, _Name} ->
+            Schema = emqx_bridge_v2_schema:source_api_schema("put", BridgeType),
+            emqx_dashboard_swagger:filter_check_request(Request, refine_api_schema(Schema, ReqMeta))
+    catch
+        throw:#{reason := Reason} ->
+            ?NOT_FOUND(<<"Invalid source ID, ", Reason/binary>>)
+    end;
 check_api_schema(Request, ReqMeta) ->
     emqx_dashboard_swagger:filter_check_request(Request, ReqMeta).
+
+refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
+    Spec = maps:get(Method, schema(Path)),
+    SpecRefined = Spec#{'requestBody' => Schema},
+    ReqMeta#{apispec => SpecRefined}.
 
 %%------------------------------------------------------------------------------
 %% Thin Handlers

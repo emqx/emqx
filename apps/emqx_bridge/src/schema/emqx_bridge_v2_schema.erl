@@ -40,6 +40,7 @@
     sources_get_response/0,
     sources_put_request/0,
     sources_post_request/0,
+    source_api_schema/2,
     sources_examples/1,
     source_values/4
 ]).
@@ -169,6 +170,15 @@ sources_api_schema(Method) ->
     APISchemas = ?MODULE:registered_sources_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
+source_api_schema(Method, SourceType) ->
+    APISchemas = ?MODULE:registered_sources_api_schemas(Method),
+    case lists:keyfind(atom_to_binary(SourceType), 1, APISchemas) of
+        {_, SchemaRef} ->
+            hoconsc:mk(SchemaRef);
+        false ->
+            unknown_source_schema(SourceType)
+    end.
+
 registered_sources_api_schemas(Method) ->
     RegisteredSchemas = emqx_action_info:registered_schema_modules_sources(),
     [
@@ -241,13 +251,19 @@ bridge_api_union(Refs) ->
             end
     end.
 
--dialyzer({nowarn_function, [unknown_bridge_schema/1]}).
 unknown_bridge_schema(BridgeV2Type) ->
+    erroneous_value_schema(BridgeV2Type, <<"unknown bridge type">>).
+
+unknown_source_schema(SourceType) ->
+    erroneous_value_schema(SourceType, <<"unknown source type">>).
+
+-dialyzer({nowarn_function, [erroneous_value_schema/2]}).
+erroneous_value_schema(Value, Reason) ->
     hoconsc:mk(typerefl:any(), #{
         validator => fun(_) ->
             throw(#{
-                value => BridgeV2Type,
-                reason => <<"unknown bridge type">>
+                value => Value,
+                reason => Reason
             })
         end
     }).
