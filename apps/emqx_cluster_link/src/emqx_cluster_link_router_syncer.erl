@@ -241,10 +241,10 @@ init({sup, TargetCluster}) ->
         intensity => 10,
         period => 60
     },
-    Children = [
-        child_spec(actor, TargetCluster),
-        child_spec(ps_actor, TargetCluster)
-    ],
+    Children = lists:append([
+        [child_spec(actor, TargetCluster)],
+        [child_spec(ps_actor, TargetCluster) || emqx_persistent_message:is_persistence_enabled()]
+    ]),
     {ok, {SupFlags, Children}};
 init({actor, State}) ->
     init_actor(State).
