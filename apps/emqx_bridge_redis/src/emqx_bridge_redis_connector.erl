@@ -170,9 +170,8 @@ on_batch_query(
     end.
 
 trace_format_commands(Commands0) ->
-    Commands1 = [[unicode:characters_to_list(S) || S <- C] || C <- Commands0],
-    Commands2 = [lists:join(" ", C) || C <- Commands1],
-    unicode:characters_to_binary(lists:join("; ", Commands2)).
+    Commands1 = [lists:join(" ", C) || C <- Commands0],
+    unicode:characters_to_binary(lists:join("; ", Commands1)).
 
 on_format_query_result({ok, Msg}) ->
     #{result => ok, message => Msg};
