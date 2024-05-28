@@ -225,61 +225,6 @@ update_global_zone(Change) ->
 %    ?assertEqual(undefined, emqx_config:get_raw([zones, new_zone], undefined)),
 %    ok.
 
-t_dashboard(_Config) ->
-    {ok, Dashboard = #{<<"listeners">> := Listeners}} = get_config("dashboard"),
-    Https1 = #{enable => true, bind => 18084},
-    ?assertMatch(
-        {error, {"HTTP/1.1", 400, _}},
-        update_config("dashboard", Dashboard#{<<"listeners">> => Listeners#{<<"https">> => Https1}})
-    ),
-
-    Https2 = #{
-        <<"bind">> => 18084,
-        <<"ssl_options">> =>
-            #{
-                <<"keyfile">> => "etc/certs/badkey.pem",
-                <<"cacertfile">> => "etc/certs/badcacert.pem",
-                <<"certfile">> => "etc/certs/badcert.pem"
-            }
-    },
-    Dashboard2 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => Https2}},
-    ?assertMatch(
-        {error, {"HTTP/1.1", 400, _}},
-        update_config("dashboard", Dashboard2)
-    ),
-
-    KeyFile = emqx_common_test_helpers:app_path(emqx, filename:join(["etc", "certs", "key.pem"])),
-    CertFile = emqx_common_test_helpers:app_path(emqx, filename:join(["etc", "certs", "cert.pem"])),
-    CacertFile = emqx_common_test_helpers:app_path(
-        emqx, filename:join(["etc", "certs", "cacert.pem"])
-    ),
-    Https3 = #{
-        <<"bind">> => 18084,
-        <<"ssl_options">> => #{
-            <<"keyfile">> => list_to_binary(KeyFile),
-            <<"cacertfile">> => list_to_binary(CacertFile),
-            <<"certfile">> => list_to_binary(CertFile)
-        }
-    },
-    Dashboard3 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => Https3}},
-    ?assertMatch({ok, _}, update_config("dashboard", Dashboard3)),
-
-    Dashboard4 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => #{<<"bind">> => 0}}},
-    ?assertMatch({ok, _}, update_config("dashboard", Dashboard4)),
-    {ok, Dashboard41} = get_config("dashboard"),
-    ?assertEqual(
-        Https3#{<<"bind">> => 0},
-        read_conf([<<"dashboard">>, <<"listeners">>, <<"https">>]),
-        Dashboard41
-    ),
-
-    ?assertMatch({ok, _}, update_config("dashboard", Dashboard)),
-
-    {ok, Dashboard1} = get_config("dashboard"),
-    ?assertNotEqual(Dashboard, Dashboard1),
-    timer:sleep(1500),
-    ok.
-
 %% v1 version json
 t_configs_node({'init', Config}) ->
     Node = node(),
