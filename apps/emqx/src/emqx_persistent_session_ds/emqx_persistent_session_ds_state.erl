@@ -79,7 +79,7 @@
 ]).
 
 -include("emqx_mqtt.hrl").
--include("emqx_persistent_session_ds.hrl").
+-include("session_internals.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 

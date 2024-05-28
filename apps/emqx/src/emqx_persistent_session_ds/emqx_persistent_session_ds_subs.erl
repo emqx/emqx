@@ -41,7 +41,7 @@
 
 -export_type([subscription_state_id/0, subscription/0, subscription_state/0]).
 
--include("emqx_persistent_session_ds.hrl").
+-include("session_internals.hrl").
 -include("emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 

@@ -13,10 +13,11 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--ifndef(EMQX_PERSISTENT_SESSION_DS_HRL_HRL).
--define(EMQX_PERSISTENT_SESSION_DS_HRL_HRL, true).
+-ifndef(EMQX_SESSION_DS_INTERNALS_HRL).
+-define(EMQX_SESSION_DS_INTERNALS_HRL, true).
 
 -include("emqx_persistent_message.hrl").
+-include("emqx_durable_session_metadata.hrl").
 
 -define(SESSION_TAB, emqx_ds_session).
 -define(SESSION_SUBSCRIPTIONS_TAB, emqx_ds_session_subscriptions).
@@ -69,18 +70,5 @@
     %% Reference to the subscription state:
     sub_state_id :: emqx_persistent_session_ds_subs:subscription_state_id()
 }).
-
-%% Session metadata keys:
--define(created_at, created_at).
--define(last_alive_at, last_alive_at).
--define(expiry_interval, expiry_interval).
-%% Unique integer used to create unique identities:
--define(last_id, last_id).
-%% Connection info (relevent for the dashboard):
--define(peername, peername).
--define(will_message, will_message).
--define(clientinfo, clientinfo).
--define(protocol, protocol).
--define(offline_info, offline_info).
 
 -endif.

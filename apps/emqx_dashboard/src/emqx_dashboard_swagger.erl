@@ -92,7 +92,14 @@
 -define(DEFAULT_ROW, 100).
 
 -type request() :: #{bindings => map(), query_string => map(), body => map()}.
--type request_meta() :: #{module => module(), path => string(), method => atom()}.
+-type request_meta() :: #{
+    module := module(),
+    path := string(),
+    method := atom(),
+    %% API Operation specification override.
+    %% Takes precedence over the API specification defined in the module.
+    apispec => map()
+}.
 
 %% More exact types are defined in minirest.hrl, but we don't want to include it
 %% because it defines a lot of types and they may clash with the types declared locally.
@@ -360,8 +367,8 @@ filter_check_request_and_translate_body(Request, RequestMeta) ->
 filter_check_request(Request, RequestMeta) ->
     translate_req(Request, RequestMeta, fun check_only/3).
 
-translate_req(Request, #{module := Module, path := Path, method := Method}, CheckFun) ->
-    #{Method := Spec} = apply(Module, schema, [Path]),
+translate_req(Request, ReqMeta = #{module := Module}, CheckFun) ->
+    Spec = find_req_apispec(ReqMeta),
     try
         Params = maps:get(parameters, Spec, []),
         Body = maps:get('requestBody', Spec, []),
@@ -377,6 +384,12 @@ translate_req(Request, #{module := Module, path := Path, method := Method}, Chec
             Msg = hocon_error_msg(HoconError),
             {400, 'BAD_REQUEST', Msg}
     end.
+
+find_req_apispec(#{apispec := Spec}) ->
+    Spec;
+find_req_apispec(#{module := Module, path := Path, method := Method}) ->
+    #{Method := Spec} = apply(Module, schema, [Path]),
+    Spec.
 
 check_and_translate(Schema, Map, Opts) ->
     hocon_tconf:check_plain(Schema, Map, Opts).

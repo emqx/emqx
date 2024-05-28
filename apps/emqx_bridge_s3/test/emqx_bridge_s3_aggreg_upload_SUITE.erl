@@ -156,14 +156,39 @@ t_create_via_http(Config) ->
 t_on_get_status(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config, #{}).
 
-t_invalid_config(Config) ->
+t_create_invalid_config(Config) ->
     ?assertMatch(
         {error,
             {_Status, _, #{
                 <<"code">> := <<"BAD_REQUEST">>,
-                <<"message">> := #{<<"kind">> := <<"validation_error">>}
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> := <<"Inconsistent 'min_part_size'", _/bytes>>
+                }
             }}},
         emqx_bridge_v2_testlib:create_bridge_api(
+            Config,
+            _Overrides = #{
+                <<"parameters">> => #{
+                    <<"min_part_size">> => <<"5GB">>,
+                    <<"max_part_size">> => <<"100MB">>
+                }
+            }
+        )
+    ).
+
+t_update_invalid_config(Config) ->
+    ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ?assertMatch(
+        {error,
+            {_Status, _, #{
+                <<"code">> := <<"BAD_REQUEST">>,
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> := <<"Inconsistent 'min_part_size'", _/bytes>>
+                }
+            }}},
+        emqx_bridge_v2_testlib:update_bridge_api(
             Config,
             _Overrides = #{
                 <<"parameters">> => #{

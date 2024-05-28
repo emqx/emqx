@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,16 +30,16 @@ init_per_suite(Config) ->
     Cert = fun(Name) -> filename:join(CertDir, Name) end,
     %% keep it the same as default conf in emqx_dashboard.conf
     Conf =
-        "dashboard.listeners.http { enable = true, bind = 18083 }"
-        "dashboard.listeners.https {\n"
-        "  bind = 0 # disabled by default\n"
-        "  ssl_options {\n"
-        "    certfile = \"" ++ Cert("cert.pem") ++
-            "\"\n"
-            "    keyfile = \"" ++ Cert("key.pem") ++
-            "\"\n"
+        [
+            "dashboard.listeners.http { enable = true, bind = 18083 }",
+            "dashboard.listeners.https {\n",
+            "  bind = 0 # disabled by default\n",
+            "  ssl_options {\n",
+            "    certfile = \"" ++ Cert("cert.pem") ++ "\"\n",
+            "    keyfile = \"" ++ Cert("key.pem") ++ "\"\n",
             "  }\n"
-            "}\n",
+            "}\n"
+        ],
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -62,6 +62,8 @@ end_per_testcase(_TestCase, Config) ->
 t_dashboard(_Config) ->
     {ok, Dashboard = #{<<"listeners">> := Listeners}} = get_config("dashboard"),
     Https1 = #{enable => true, bind => 18084},
+    %% Ensure HTTPS listener can be enabled with just changing bind to a non-zero number
+    %% i.e. the default certs should work
     ?assertMatch(
         {ok, _},
         update_config("dashboard", Dashboard#{<<"listeners">> => Listeners#{<<"https">> => Https1}})
