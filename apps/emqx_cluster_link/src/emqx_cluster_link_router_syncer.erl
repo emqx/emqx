@@ -5,6 +5,7 @@
 
 -include_lib("emqtt/include/emqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_cluster_link.hrl").
 
 %% API
@@ -226,7 +227,12 @@ process_syncer_batch(Batch, ClientName, Actor, Incarnation) ->
         [],
         Batch
     ),
-    publish_routes(gproc:where(ClientName), Actor, Incarnation, Updates).
+    Result = publish_routes(gproc:where(ClientName), Actor, Incarnation, Updates),
+    ?tp(debug, clink_route_sync_complete, #{
+        actor => {Actor, Incarnation},
+        batch => Batch
+    }),
+    Result.
 
 batch_get_opname(Op) ->
     element(1, Op).
