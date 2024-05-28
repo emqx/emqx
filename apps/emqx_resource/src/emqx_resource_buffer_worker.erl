@@ -1777,8 +1777,8 @@ append_queue(Id, Index, Q, Queries) ->
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
                 Counters = #{dropped_queue_full => Dropped},
-                ?SLOG(info, #{
-                    msg => "buffer_worker_overflow",
+                ?SLOG_THROTTLE(warning, #{
+                    msg => data_bridge_buffer_overflow,
                     resource_id => Id,
                     worker_index => Index,
                     dropped => Dropped
