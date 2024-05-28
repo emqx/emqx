@@ -452,19 +452,19 @@ best_effort_json_test() ->
     ),
     %% List is IO Data
     ?assertMatch(
-        #{<<"what">> => <<"hej\n">>},
+        #{<<"what">> := <<"hej\n">>},
         emqx_utils_json:decode(emqx_logger_jsonfmt:best_effort_json(#{what => [<<"hej">>, 10]}))
     ),
     %% Force list to be interpreted as an array
     ?assertMatch(
-        #{<<"what">> => [<<"hej">>, 10]},
+        #{<<"what">> := [<<"hej">>, 10]},
         emqx_utils_json:decode(
             emqx_logger_jsonfmt:best_effort_json(#{what => {'$array$', [<<"hej">>, 10]}})
         )
     ),
     %% IO Data inside an array
     ?assertMatch(
-        #{<<"what">> => [<<"hej">>, 10, <<"hej\n">>]},
+        #{<<"what">> := [<<"hej">>, 10, <<"hej\n">>]},
         emqx_utils_json:decode(
             emqx_logger_jsonfmt:best_effort_json(#{
                 what => {'$array$', [<<"hej">>, 10, [<<"hej">>, 10]]}
@@ -473,7 +473,7 @@ best_effort_json_test() ->
     ),
     %% Array inside an array
     ?assertMatch(
-        #{<<"what">> => [<<"hej">>, 10, [<<"hej">>, 10]]},
+        #{<<"what">> := [<<"hej">>, 10, [<<"hej">>, 10]]},
         emqx_utils_json:decode(
             emqx_logger_jsonfmt:best_effort_json(#{
                 what => {'$array$', [<<"hej">>, 10, {'$array$', [<<"hej">>, 10]}]}
