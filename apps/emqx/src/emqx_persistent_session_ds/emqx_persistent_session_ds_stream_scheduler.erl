@@ -29,7 +29,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_mqtt.hrl").
--include("emqx_persistent_session_ds.hrl").
+-include("session_internals.hrl").
 
 %%================================================================================
 %% Type declarations

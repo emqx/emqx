@@ -21,7 +21,7 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
--include("emqx_persistent_session_ds.hrl").
+-include("session_internals.hrl").
 
 %% API
 -export([
