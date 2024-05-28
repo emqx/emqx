@@ -34,9 +34,6 @@
         , {update, emqx_ds_replication_layer_egress, {advanced, #{}}}
         ],
     post_upgrade_callbacks =>
-        [ {pr12781_init_db_metrics, pr12781_termiate_db_metrics}
-        , {pr12781_create_persist_msg_pterm, pr12781_erase_persist_msg_pterm}
-        , {pr12781_trans_tables, pr12781_revert_tables}
-        , {pr12765_update_stats_timer, pr12765_revert_stats_timer}
+        [ {pr12765_update_stats_timer, pr12765_revert_stats_timer}
         ]
 }.
