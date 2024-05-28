@@ -53,8 +53,8 @@ start_source_cluster(Config) ->
     SourceApps2 = [{emqx_conf, combine([conf_log(), conf_mqtt_listener(41883), SourceConf])}],
     emqx_cth_cluster:start(
         [
-            {emqx_clink_msgfwd_source1, #{apps => SourceApps1 ++ [emqx]}},
-            {emqx_clink_msgfwd_source2, #{apps => SourceApps2 ++ [emqx]}}
+            {emqx_clink_msgfwd_source1, #{apps => SourceApps1}},
+            {emqx_clink_msgfwd_source2, #{apps => SourceApps2}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ).
@@ -75,8 +75,8 @@ start_target_cluster(Config) ->
     TargetApps2 = [{emqx_conf, combine([conf_log(), conf_mqtt_listener(31883), TargetConf])}],
     emqx_cth_cluster:start(
         [
-            {emqx_clink_msgfwd_target1, #{apps => TargetApps1 ++ [emqx], base_port => 20100}},
-            {emqx_clink_msgfwd_target2, #{apps => TargetApps2 ++ [emqx], base_port => 20200}}
+            {emqx_clink_msgfwd_target1, #{apps => TargetApps1, base_port => 20100}},
+            {emqx_clink_msgfwd_target2, #{apps => TargetApps2, base_port => 20200}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ).
