@@ -170,10 +170,7 @@ actor_init(
                 case MyClusterName of
                     TargetCluster ->
                         Env = #{timestamp => erlang:system_time(millisecond)},
-                        {ok, _} = emqx_cluster_link_extrouter:actor_init(
-                            ClusterName, Actor, Incr, Env
-                        ),
-                        ok;
+                        emqx_cluster_link_extrouter:actor_init(ClusterName, Actor, Incr, Env);
                     _ ->
                         %% The remote cluster uses a different name to refer to this cluster
                         ?SLOG(error, #{

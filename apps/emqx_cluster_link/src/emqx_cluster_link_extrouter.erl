@@ -19,7 +19,8 @@
     actor_state/3,
     actor_apply_operation/2,
     actor_apply_operation/3,
-    actor_gc/1
+    actor_gc/1,
+    is_present_incarnation/1
 ]).
 
 %% Internal API
@@ -140,7 +141,8 @@ match_to_route(M) ->
     cluster :: cluster(),
     actor :: actor(),
     incarnation :: incarnation(),
-    lane :: lane() | undefined
+    lane :: lane() | undefined,
+    extra :: map()
 }).
 
 -type state() :: #state{}.
@@ -159,6 +161,12 @@ actor_init(Cluster, Actor, Incarnation, Env = #{timestamp := Now}) ->
             actor_init(Cluster, Actor, Incarnation, Env)
     end.
 
+-spec is_present_incarnation(state()) -> boolean().
+is_present_incarnation(#state{extra = #{is_present_incarnation := IsNew}}) ->
+    IsNew;
+is_present_incarnation(_State) ->
+    false.
+
 mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
     %% NOTE
     %% We perform this heavy-weight transaction only in the case of a new route
@@ -173,7 +181,7 @@ mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
     case mnesia:read(?EXTROUTE_ACTOR_TAB, ActorID, write) of
         [#actor{incarnation = Incarnation, lane = Lane} = Rec] ->
             ok = mnesia:write(?EXTROUTE_ACTOR_TAB, Rec#actor{until = bump_actor_ttl(TS)}, write),
-            {ok, State#state{lane = Lane}};
+            {ok, State#state{lane = Lane, extra = #{is_present_incarnation => true}}};
         [] ->
             Lane = mnesia_assign_lane(Cluster),
             Rec = #actor{
@@ -183,7 +191,7 @@ mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
                 until = bump_actor_ttl(TS)
             },
             ok = mnesia:write(?EXTROUTE_ACTOR_TAB, Rec, write),
-            {ok, State#state{lane = Lane}};
+            {ok, State#state{lane = Lane, extra = #{is_present_incarnation => false}}};
         [#actor{incarnation = Outdated} = Rec] when Incarnation > Outdated ->
             {reincarnate, Rec};
         [#actor{incarnation = Newer}] ->
@@ -321,7 +329,7 @@ mnesia_clean_incarnation(#actor{id = Actor, incarnation = Incarnation, lane = La
 clean_lane(Lane) ->
     ets:foldl(
         fun(#extroute{entry = Entry, mcounter = MCounter}, _) ->
-            apply_operation(Entry, MCounter, del, Lane)
+            apply_operation(Entry, MCounter, delete, Lane)
         end,
         0,
         ?EXTROUTE_TAB

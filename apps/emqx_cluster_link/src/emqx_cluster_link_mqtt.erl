@@ -71,6 +71,7 @@
 -define(F_TARGET_CLUSTER, 13).
 -define(F_PROTO_VER, 14).
 -define(F_RESULT, 15).
+-define(F_NEED_BOOTSTRAP, 16).
 
 -define(ROUTE_DELETE, 100).
 
@@ -279,17 +280,28 @@ actor_init_ack_resp_msg(Actor, InitRes, ReqId, RespTopic) ->
     Payload = #{
         ?F_OPERATION => ?OP_ACTOR_INIT_ACK,
         ?F_PROTO_VER => ?PROTO_VER,
-        ?F_ACTOR => Actor,
-        ?F_RESULT => InitRes
+        ?F_ACTOR => Actor
     },
+    Payload1 = with_res_and_bootstrap(Payload, InitRes),
     emqx_message:make(
         undefined,
         ?QOS_1,
         RespTopic,
-        ?ENCODE(Payload),
+        ?ENCODE(Payload1),
         #{},
         #{properties => #{'Correlation-Data' => ReqId}}
     ).
+
+with_res_and_bootstrap(Payload, {ok, ActorState}) ->
+    Payload#{
+        ?F_RESULT => ok,
+        ?F_NEED_BOOTSTRAP => not emqx_cluster_link_extrouter:is_present_incarnation(ActorState)
+    };
+with_res_and_bootstrap(Payload, Error) ->
+    Payload#{
+        ?F_RESULT => Error,
+        ?F_NEED_BOOTSTRAP => false
+    }.
 
 publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
     PubTopic = ?ROUTE_TOPIC,
@@ -339,9 +351,12 @@ decode_resp1(#{
     ?F_OPERATION := ?OP_ACTOR_INIT_ACK,
     ?F_ACTOR := Actor,
     ?F_PROTO_VER := ProtoVer,
-    ?F_RESULT := InitResult
+    ?F_RESULT := InitResult,
+    ?F_NEED_BOOTSTRAP := NeedBootstrap
 }) ->
-    {actor_init_ack, #{actor => Actor, result => InitResult, proto_ver => ProtoVer}}.
+    {actor_init_ack, #{
+        actor => Actor, result => InitResult, proto_ver => ProtoVer, need_bootstrap => NeedBootstrap
+    }}.
 
 decode_forwarded_msg(Payload) ->
     case ?DECODE(Payload) of

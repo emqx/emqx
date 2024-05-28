@@ -164,14 +164,6 @@ refine_client_options(Options = #{clientid := ClientID}, Actor) ->
         retry_interval => 0
     }.
 
-client_session_present(ClientPid) ->
-    Info = emqtt:info(ClientPid),
-    %% FIXME: waitnig for emqtt release that fixes session_present type (must be a boolean)
-    case proplists:get_value(session_present, Info, 0) of
-        0 -> false;
-        1 -> true
-    end.
-
 announce_client(Actor, TargetCluster, Pid) ->
     Name =
         case Actor of
@@ -334,13 +326,15 @@ handle_info(
     {publish, #{payload := Payload, properties := #{'Correlation-Data' := ReqId}}},
     St = #st{actor_init_req_id = ReqId}
 ) ->
-    {actor_init_ack, #{result := Res} = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(Payload),
+    {actor_init_ack, #{result := Res, need_bootstrap := NeedBootstrap} = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(
+        Payload
+    ),
     St1 = St#st{
         actor_init_req_id = undefined, actor_init_timer = undefined, remote_actor_info = AckInfoMap
     },
     case Res of
         ok ->
-            {noreply, post_actor_init(St1)};
+            {noreply, post_actor_init(St1, NeedBootstrap)};
         Error ->
             ?SLOG(error, #{
                 msg => "failed_to_init_link",
@@ -410,10 +404,11 @@ init_remote_actor(
     St#st{actor_init_req_id = ReqId, actor_init_timer = TRef}.
 
 post_actor_init(
-    St = #st{client = ClientPid, target = TargetCluster, actor = Actor, incarnation = Incr}
+    St = #st{client = ClientPid, target = TargetCluster, actor = Actor, incarnation = Incr},
+    NeedBootstrap
 ) ->
     ok = start_syncer(TargetCluster, Actor, Incr),
-    process_bootstrap(St#st{client = ClientPid}).
+    process_bootstrap(St#st{client = ClientPid}, NeedBootstrap).
 
 handle_connect_error(_Reason, St) ->
     %% TODO: logs
@@ -426,14 +421,14 @@ handle_client_down(_Reason, St = #st{target = TargetCluster, actor = Actor}) ->
     ok = close_syncer(TargetCluster, Actor),
     process_connect(St#st{client = undefined}).
 
-process_bootstrap(St = #st{bootstrapped = false}) ->
+process_bootstrap(St = #st{bootstrapped = false}, _NeedBootstrap) ->
     run_bootstrap(St);
-process_bootstrap(St = #st{client = ClientPid, bootstrapped = true}) ->
-    case client_session_present(ClientPid) of
+process_bootstrap(St = #st{bootstrapped = true}, NeedBootstrap) ->
+    case NeedBootstrap of
         true ->
-            process_bootstrapped(St);
+            run_bootstrap(St);
         false ->
-            run_bootstrap(St)
+            process_bootstrapped(St)
     end.
 
 %% Bootstrapping.
