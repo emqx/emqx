@@ -536,14 +536,20 @@ do_start_connector(TestType, Config) ->
         request_json(
             post,
             uri(["connectors"]),
-            ?KAFKA_CONNECTOR(BadName, BadServer),
+            (?KAFKA_CONNECTOR(BadName, BadServer))#{
+                <<"resource_opts">> => #{
+                    <<"start_timeout">> => <<"10ms">>
+                }
+            },
             Config
         )
     ),
     BadConnectorID = emqx_connector_resource:connector_id(?CONNECTOR_TYPE, BadName),
+    %% Checks that an `emqx_resource_manager:start' timeout when waiting for the resource to
+    %% be connected doesn't return a 500 error.
     ?assertMatch(
         %% request from product: return 400 on such errors
-        {ok, SC, _} when SC == 500 orelse SC == 400,
+        {ok, 400, _},
         request(post, {operation, TestType, start, BadConnectorID}, Config)
     ),
     ok = gen_tcp:close(Sock),
