@@ -89,8 +89,17 @@ weight({packet, _}) -> {0, packet};
 weight({payload, _}) -> {2, payload};
 weight({K, _}) -> {1, K}.
 
-format_packet(undefined, _) -> "";
-format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).
+format_packet(undefined, _) ->
+    "";
+format_packet(Packet, Encode) ->
+    try
+        emqx_packet:format(Packet, Encode)
+    catch
+        _:_ ->
+            %% We don't want to crash if there is a field named packet with
+            %% some other type of value
+            Packet
+    end.
 
 format_payload(undefined, _) ->
     "";
@@ -100,7 +109,11 @@ format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
     unicode:characters_to_list(Payload);
 format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) -> binary:encode_hex(Payload);
 format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
-    emqx_packet:format_truncated_payload(Part, byte_size(Payload), Type).
+    emqx_packet:format_truncated_payload(Part, byte_size(Payload), Type);
+format_payload(Payload, _) ->
+    %% We don't want to crash if there is a field named payload with some other
+    %% type of value
+    Payload.
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);
