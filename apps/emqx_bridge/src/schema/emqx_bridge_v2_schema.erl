@@ -31,6 +31,7 @@
     actions_get_response/0,
     actions_put_request/0,
     actions_post_request/0,
+    action_api_schema/2,
     actions_examples/1,
     action_values/4
 ]).
@@ -39,6 +40,7 @@
     sources_get_response/0,
     sources_put_request/0,
     sources_post_request/0,
+    source_api_schema/2,
     sources_examples/1,
     source_values/4
 ]).
@@ -100,6 +102,15 @@ actions_api_schema(Method) ->
     APISchemas = ?MODULE:registered_actions_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
+action_api_schema(Method, BridgeV2Type) ->
+    APISchemas = ?MODULE:registered_actions_api_schemas(Method),
+    case lists:keyfind(atom_to_binary(BridgeV2Type), 1, APISchemas) of
+        {_, SchemaRef} ->
+            hoconsc:mk(SchemaRef);
+        false ->
+            unknown_bridge_schema(BridgeV2Type)
+    end.
+
 registered_actions_api_schemas(Method) ->
     RegisteredSchemas = emqx_action_info:registered_schema_modules_actions(),
     [
@@ -158,6 +169,15 @@ sources_post_request() ->
 sources_api_schema(Method) ->
     APISchemas = ?MODULE:registered_sources_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
+
+source_api_schema(Method, SourceType) ->
+    APISchemas = ?MODULE:registered_sources_api_schemas(Method),
+    case lists:keyfind(atom_to_binary(SourceType), 1, APISchemas) of
+        {_, SchemaRef} ->
+            hoconsc:mk(SchemaRef);
+        false ->
+            unknown_source_schema(SourceType)
+    end.
 
 registered_sources_api_schemas(Method) ->
     RegisteredSchemas = emqx_action_info:registered_schema_modules_sources(),
@@ -230,6 +250,25 @@ bridge_api_union(Refs) ->
                     maps:values(Index)
             end
     end.
+
+unknown_bridge_schema(BridgeV2Type) ->
+    erroneous_value_schema(BridgeV2Type, <<"unknown bridge type">>).
+
+unknown_source_schema(SourceType) ->
+    erroneous_value_schema(SourceType, <<"unknown source type">>).
+
+%% @doc Construct a schema that always emits validation error.
+%% We need to silence dialyzer because inner anonymous function always throws.
+-dialyzer({nowarn_function, [erroneous_value_schema/2]}).
+erroneous_value_schema(Value, Reason) ->
+    hoconsc:mk(typerefl:any(), #{
+        validator => fun(_) ->
+            throw(#{
+                value => Value,
+                reason => Reason
+            })
+        end
+    }).
 
 -spec method_values(action | source, http_method(), atom()) -> schema_example_map().
 method_values(Kind, post, Type) ->
