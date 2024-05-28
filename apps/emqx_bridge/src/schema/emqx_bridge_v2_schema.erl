@@ -257,6 +257,8 @@ unknown_bridge_schema(BridgeV2Type) ->
 unknown_source_schema(SourceType) ->
     erroneous_value_schema(SourceType, <<"unknown source type">>).
 
+%% @doc Construct a schema that always emits validation error.
+%% We need to silence dialyzer because inner anonymous function always throws.
 -dialyzer({nowarn_function, [erroneous_value_schema/2]}).
 erroneous_value_schema(Value, Reason) ->
     hoconsc:mk(typerefl:any(), #{
