@@ -270,6 +270,8 @@ json(L, Config) when is_list(L) ->
     end;
 json(Map, Config) when is_map(Map) ->
     best_effort_json_obj(Map, Config);
+json({'$array$', List}, Config) when is_list(List) ->
+    [json(I, Config) || I <- List];
 json(Term, Config) ->
     do_format_msg("~p", [Term], Config).
 
@@ -447,6 +449,36 @@ best_effort_json_test() ->
     ?assertEqual(
         <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
         best_effort_json([#{key => []}])
+    ),
+    %% List is IO Data
+    ?assertMatch(
+        #{<<"what">> := <<"hej\n">>},
+        emqx_utils_json:decode(emqx_logger_jsonfmt:best_effort_json(#{what => [<<"hej">>, 10]}))
+    ),
+    %% Force list to be interpreted as an array
+    ?assertMatch(
+        #{<<"what">> := [<<"hej">>, 10]},
+        emqx_utils_json:decode(
+            emqx_logger_jsonfmt:best_effort_json(#{what => {'$array$', [<<"hej">>, 10]}})
+        )
+    ),
+    %% IO Data inside an array
+    ?assertMatch(
+        #{<<"what">> := [<<"hej">>, 10, <<"hej\n">>]},
+        emqx_utils_json:decode(
+            emqx_logger_jsonfmt:best_effort_json(#{
+                what => {'$array$', [<<"hej">>, 10, [<<"hej">>, 10]]}
+            })
+        )
+    ),
+    %% Array inside an array
+    ?assertMatch(
+        #{<<"what">> := [<<"hej">>, 10, [<<"hej">>, 10]]},
+        emqx_utils_json:decode(
+            emqx_logger_jsonfmt:best_effort_json(#{
+                what => {'$array$', [<<"hej">>, 10, {'$array$', [<<"hej">>, 10]}]}
+            })
+        )
     ),
     ok.
 

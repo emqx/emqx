@@ -8,6 +8,7 @@
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(UNHEALTHY_TARGET_MSG,
@@ -288,7 +289,7 @@ on_sql_query(InstId, ChannelID, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
         type => Type,
         apply_mode => ApplyMode,
         name_or_sql => NameOrSQL,
-        data => Data
+        data => #emqx_trace_format_func_data{function = fun trace_format_data/1, data = Data}
     }),
     case ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, ApplyMode) of
         {error, Reason} = Result ->
@@ -316,6 +317,15 @@ on_sql_query(InstId, ChannelID, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
             ),
             Result
     end.
+
+trace_format_data(Data0) ->
+    %% In batch request, we get a two level list
+    {'$array$', lists:map(fun insert_array_marker_if_list/1, Data0)}.
+
+insert_array_marker_if_list(List) when is_list(List) ->
+    {'$array$', List};
+insert_array_marker_if_list(Item) ->
+    Item.
 
 on_get_status(_InstId, #{pool_name := Pool} = _State) ->
     case emqx_resource_pool:health_check_workers(Pool, fun ?MODULE:do_get_status/1) of
