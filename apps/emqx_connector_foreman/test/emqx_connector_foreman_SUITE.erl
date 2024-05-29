@@ -143,6 +143,12 @@ inspect_trace(Trace) ->
     ct:pal("trace:\n  ~p", [Trace]),
     ok.
 
+trace_prop_no_unexpected_events() ->
+    {"no unexpected events received", fun ?MODULE:trace_prop_no_unexpected_events/1}.
+trace_prop_no_unexpected_events(Trace) ->
+    ?assertEqual([], ?of_kind("foreman_unexpected_event", Trace)),
+    ok.
+
 get_foremen_states(Nodes) ->
     Res = erpc:multicall(Nodes, fun() ->
         [Pid] = [Pid || {foreman, Pid, _, _} <- supervisor:which_children(?SUP)],
@@ -223,7 +229,10 @@ t_resolve_name_clash(Config) ->
             assert_exactly_one_leader(Nodes),
             ok
         end,
-        [fun ?MODULE:inspect_trace/1]
+        [
+            fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events()
+        ]
     ),
     ok.
 
@@ -268,13 +277,16 @@ t_replicants_are_never_elected(Config) ->
             assert_exactly_one_leader(Nodes),
             ok
         end,
-        [fun ?MODULE:inspect_trace/1]
+        [
+            fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events()
+        ]
     ),
     ok.
 
 %% Checks that, once a leader dies, a new leader is elected in the cluster.
 t_new_leader_takeover(Config) ->
-    NodeOpts = #{join_to => undefined},
+    NodeOpts = #{},
     AppOpts = #{name => ?FUNCTION_NAME},
     NSpecs =
         mk_cluster(
@@ -297,30 +309,12 @@ t_new_leader_takeover(Config) ->
                 {follower, FollowerPid2},
                 {leader, LeaderPid}
             ] = lists:sort([{S, P} || {P, {S, _D}} <- get_foremen_states(Nodes)]),
-            %% To avoid the old leader being revived too fast by the supervisor and
-            %% electing itself.
-            ?force_ordering(
-                #{?snk_kind := "foreman_elected"},
-                #{
-                    ?snk_kind := "foreman_state_enter",
-                    current_state := candidate,
-                    ?snk_meta := #{pid := P}
-                } when P =/= FollowerPid1 andalso P =/= FollowerPid2
-            ),
             {_, {ok, _}} =
                 ?wait_async_action(
                     ?tp_span(
                         kill_leader,
                         #{leader => LeaderPid},
-                        begin
-                            Ref = monitor(process, LeaderPid),
-                            exit(LeaderPid, kill),
-                            receive
-                                {'DOWN', Ref, process, LeaderPid, killed} -> ok
-                            after 1_000 -> ct:fail("leader didn't die")
-                            end,
-                            ok
-                        end
+                        ?ON(node(LeaderPid), ok = ?SUP:delete_child(foreman))
                     ),
                     #{?snk_kind := "foreman_elected"}
                 ),
@@ -330,10 +324,13 @@ t_new_leader_takeover(Config) ->
                 follower,
                 leader
             ] = lists:sort([S || {_P, {S, _D}} <- get_foremen_states(FollowerNodes)]),
-            assert_exactly_one_leader(Nodes),
+            assert_exactly_one_leader(FollowerNodes),
             ok
         end,
-        [fun ?MODULE:inspect_trace/1]
+        [
+            fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events()
+        ]
     ),
     ok.
 
@@ -393,6 +390,7 @@ t_allocate(Config) ->
         end,
         [
             fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events(),
             fun(#{nodes := Nodes}, Trace) ->
                 %% Stage callback called
                 ?projection_complete(member, ?of_kind(stage, Trace), Nodes),
@@ -474,6 +472,7 @@ t_allocate_crash_waiting_for_ack(Config) ->
         end,
         [
             fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events(),
             fun(Trace) ->
                 ?assertMatch([_, _ | _], ?of_kind(snabbkaffe_crash, Trace)),
                 ok
@@ -544,6 +543,7 @@ t_allocate_crash_during_commit(Config) ->
         end,
         [
             fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events(),
             fun(Trace) ->
                 ?assertMatch([_, _ | _], ?of_kind(snabbkaffe_crash, Trace)),
                 ok
@@ -642,6 +642,95 @@ t_allocation_handover(Config) ->
 
             ok
         end,
-        [fun ?MODULE:inspect_trace/1]
+        [
+            fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events()
+        ]
+    ),
+    ok.
+
+%% Checks that nacks work as a mechanism to make the leader catch up.
+t_nack_assignments(Config) ->
+    Name = ?FUNCTION_NAME,
+    [N1, N2, N3] = [emqx_cth_cluster:node_name(mk_node_name(N)) || N <- lists:seq(1, 3)],
+    FixedAllocation = #{
+        N1 => [1, 2, 3],
+        N2 => [4, 5, 6],
+        N3 => [7, 8, 9]
+    },
+    AppOpts = #{
+        name => Name,
+        init_opts => #{
+            compute_allocation_fn => fun(#{members := Members}) ->
+                maps:with(Members, FixedAllocation)
+            end
+        }
+    },
+    NSpecs =
+        mk_cluster(
+            ?FUNCTION_NAME,
+            Config,
+            [
+                {core, AppOpts},
+                {core, AppOpts},
+                {core, AppOpts}
+            ]
+        ),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            [N1, N2, N3] = Nodes = start_cluster(NSpecs),
+            NumNodes = length(Nodes),
+
+            wait_foremen_stabilized(Nodes),
+            assert_exactly_one_leader(Nodes),
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NumNodes, #{?snk_kind := "foreman_committed_assignments"}),
+                infinity
+            ),
+            [LeaderPid1] = [P || {P, {leader, _D}} <- get_foremen_states(Nodes)],
+            LeaderNode = node(LeaderPid1),
+            FollowerPids = [_, _] = [P || {P, {follower, _D}} <- get_foremen_states(Nodes)],
+
+            %% Now we force a restart of the leader while "freezing" the followers, so the
+            %% leader node elects itself again, but its followers have a higher gen id.
+            ?tp("freezing followers", #{}),
+            lists:foreach(fun(P) -> ok = sys:suspend(P) end, FollowerPids),
+            {ok, SRef1} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := "foreman_committed_assignments"}),
+                NumNodes,
+                infinity
+            ),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    exit(LeaderPid1, kill),
+                    #{?snk_kind := "foreman_elected", ?snk_meta := #{node := N}} when
+                        N =:= LeaderNode
+                ),
+            ?tp("thawing followers", #{}),
+            lists:foreach(fun(P) -> ok = sys:resume(P) end, FollowerPids),
+            {ok, _} = snabbkaffe:receive_events(SRef1),
+
+            lists:foreach(
+                fun(N) ->
+                    ?assertEqual(
+                        {committed, maps:get(N, FixedAllocation)},
+                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        #{node => N}
+                    )
+                end,
+                Nodes
+            ),
+
+            ok
+        end,
+        [
+            fun ?MODULE:inspect_trace/1,
+            trace_prop_no_unexpected_events(),
+            fun(Trace) ->
+                ?assertMatch([_, _], ?of_kind("foreman_nack_assignments", Trace)),
+                ok
+            end
+        ]
     ),
     ok.

@@ -300,6 +300,7 @@ handle_event(
     ?follower,
     FData = #{leader := Pid, leader_mon := MRef}
 ) ->
+    ?tp("foreman_leader_down", #{}),
     CData = follower_to_candidate_data(FData),
     {next_state, ?candidate, CData};
 handle_event(state_timeout, #consult_leader{}, ?follower, FData) ->
@@ -327,8 +328,8 @@ handle_event({call, From}, #get_assignments{}, _State, Data) ->
     handle_get_assignments(From, Data);
 handle_event({call, From}, #get_allocation{member = Member}, State, Data) ->
     handle_get_allocation(From, Member, State, Data);
-handle_event(cast, #new_assignments{} = Event, State, Data) ->
-    ?tp("foreman_new_assignments", #{state => State}),
+handle_event(cast, #new_assignments{gen_id = GenId} = Event, State, Data) ->
+    ?tp("foreman_new_assignments", #{state => State, input_gen_id => GenId}),
     handle_new_assignments(Event, State, Data);
 handle_event(cast, #ack_assignments{} = Event, State, Data) ->
     ?tp("foreman_ack_assignments", #{state => State}),
@@ -342,7 +343,7 @@ handle_event(cast, #commit_assignments{} = Event, State, Data) ->
 handle_event(EventType, EventContent, State, Data) ->
     ?tp(
         info,
-        "unexpected_event",
+        "foreman_unexpected_event",
         #{
             event_type => EventType,
             event_content => EventContent,
@@ -373,11 +374,9 @@ handle_state_enter(_OldState, NewState, Data) ->
         ?leader ->
             %% Assert
             core = mria_rlog:role(),
-            %% Bump generation id
-            #{gen_id := GenId0} = Data,
             %% Fixme: wait a while in case multiple nodes are starting at the same time?
             Delay = 500,
-            {keep_state, Data#{gen_id := GenId0 + 1}, [{state_timeout, Delay, #allocate{}}]}
+            {keep_state, Data, [{state_timeout, Delay, #allocate{}}]}
     end.
 
 -spec try_election(candidate_data()) -> handler_result().
@@ -579,7 +578,7 @@ handle_consult_leader(FData0) ->
         {ok, #{resources := undefined}} ->
             %% Leader didn't compute allocation yet.
             keep_state_and_data;
-        {ok, #{gen_id := LeaderGenId}} when LeaderGenId < MyGenId ->
+        {ok, #{gen_id := LeaderGenId}} when LeaderGenId =< MyGenId ->
             %% Stale leader
             keep_state_and_data;
         {ok, #{resources := PrevResources, status := PrevAllocationStatus}} ->
@@ -610,17 +609,12 @@ handle_consult_leader(FData0) ->
     end.
 
 -spec handle_new_assignments(#new_assignments{}, state(), data()) -> handler_result().
-handle_new_assignments(#new_assignments{gen_id = GenId, resources = _}, _State, #{gen_id := MyGenId}) when
-    GenId < MyGenId
-->
-    %% Stale message from old leader.
-    keep_state_and_data;
 handle_new_assignments(#new_assignments{gen_id = _, resources = _}, ?candidate, _CData) ->
     {keep_state_and_data, [postpone]};
 handle_new_assignments(
     #new_assignments{gen_id = GenId0, resources = _}, ?follower, Data = #{gen_id := MyGenId}
 ) when
-    GenId0 < MyGenId
+    GenId0 =< MyGenId
 ->
     %% New started and elected leaders start at generationd id = 0.  Reply with our
     %% generation id so it may catch up faster.
@@ -628,7 +622,8 @@ handle_new_assignments(
         name := Name,
         leader := LeaderPid
     } = Data,
-    ok = emqx_connector_foreman_proto_v1:nack_assignments(node(LeaderPid), Name, MyGenId),
+    Member = node(),
+    ok = emqx_connector_foreman_proto_v1:nack_assignments(node(LeaderPid), Name, MyGenId, Member),
     keep_state_and_data;
 handle_new_assignments(
     #new_assignments{gen_id = GenId0, resources = Resources},
