@@ -169,7 +169,6 @@ remove_link(_LinkConf) ->
 update_links(LinksConf) ->
     [update_link(Link) || Link <- LinksConf].
 
-%% TODO: do some updates without restart (at least without coordinator restart and re-election)
 update_link(#{enabled := true} = LinkConf) ->
     _ = remove_link(LinkConf),
     add_link(LinkConf);

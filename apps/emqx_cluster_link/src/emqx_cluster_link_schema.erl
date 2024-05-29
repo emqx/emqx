@@ -28,8 +28,8 @@ injected_fields() ->
 
 fields("cluster_linking") ->
     [
-        %% TODO: validate and ensure upstream names are unique!
-        {links, ?HOCON(?ARRAY(?R_REF("link")), #{default => []})}
+        {links,
+            ?HOCON(?ARRAY(?R_REF("link")), #{default => [], validator => fun links_validator/1})}
     ];
 fields("link") ->
     [
@@ -47,10 +47,33 @@ fields("link") ->
         }},
         %% TODO: validate topics:
         %% - basic topic validation
-        %% - non-overlapping (not intersecting) filters ?
+        %% - non-overlapping (not intersecting) filters?
+        %%  (this may be not required, depends on config update implementation)
         {topics, ?HOCON(?ARRAY(binary()), #{required => true})},
         {pool_size, ?HOCON(pos_integer(), #{default => emqx_vm:schedulers() * 2})}
     ].
 
 desc(_) ->
     "todo".
+
+links_validator(Links) ->
+    {_, Dups} = lists:foldl(
+        fun(Link, {Acc, DupAcc}) ->
+            Name = link_name(Link),
+            case Acc of
+                #{Name := _} ->
+                    {Acc, [Name | DupAcc]};
+                _ ->
+                    {Acc#{Name => undefined}, DupAcc}
+            end
+        end,
+        {#{}, []},
+        Links
+    ),
+    case Dups of
+        [] -> ok;
+        _ -> {error, #{reason => duplicated_cluster_links, names => Dups}}
+    end.
+
+link_name(#{upstream := Name}) -> Name;
+link_name(#{<<"upstream">> := Name}) -> Name.
