@@ -201,6 +201,11 @@
 -record(nack_assignments, {gen_id :: gen_id(), member :: node()}).
 -record(commit_assignments, {gen_id :: gen_id()}).
 
+-type new_assignments_event() :: #new_assignments{}.
+-type ack_assignments_event() :: #ack_assignments{}.
+-type nack_assignments_event() :: #nack_assignments{}.
+-type commit_assignments_event() :: #commit_assignments{}.
+
 -export_type([
     gen_id/0,
     resource/0,
@@ -661,7 +666,7 @@ handle_consult_leader(FData0) ->
             {keep_state_and_data, [{state_timeout, 1_000, #consult_leader{}}]}
     end.
 
--spec handle_new_assignments(#new_assignments{}, state(), data()) -> handler_result().
+-spec handle_new_assignments(new_assignments_event(), state(), data()) -> handler_result().
 handle_new_assignments(#new_assignments{gen_id = _, resources = _}, ?candidate, _CData) ->
     {keep_state_and_data, [postpone]};
 handle_new_assignments(
@@ -708,7 +713,7 @@ handle_new_assignments(
     {keep_state, Data}.
 
 %% Received by the leader when a member acknowledges an assignment.
--spec handle_ack_assignments(#ack_assignments{}, state(), data()) -> handler_result().
+-spec handle_ack_assignments(ack_assignments_event(), state(), data()) -> handler_result().
 handle_ack_assignments(#ack_assignments{gen_id = GenId, member = _}, _State, #{gen_id := MyGenId}) when
     MyGenId > GenId
 ->
@@ -732,7 +737,7 @@ handle_ack_assignments(#ack_assignments{gen_id = _, member = _}, _State, _Data) 
     keep_state_and_data.
 
 %% Received by the leader when a member has a higher generation id than the leader.
--spec handle_nack_assignments(#nack_assignments{}, state(), data()) -> handler_result().
+-spec handle_nack_assignments(nack_assignments_event(), state(), data()) -> handler_result().
 handle_nack_assignments(#nack_assignments{gen_id = GenId, member = _}, ?leader, #{gen_id := MyGenId}) when
     MyGenId > GenId
 ->
@@ -771,7 +776,7 @@ handle_trigger_commit(LData0) ->
     Delay = 1_000,
     {keep_state, LData, [{state_timeout, Delay, #allocate{}}]}.
 
--spec handle_commit_assignments(#commit_assignments{}, state(), data()) -> handler_result().
+-spec handle_commit_assignments(commit_assignments_event(), state(), data()) -> handler_result().
 handle_commit_assignments(#commit_assignments{gen_id = GenId}, _State, #{gen_id := GenId} = Data0) ->
     #{
         on_commit_fn := OnCommitFn,
