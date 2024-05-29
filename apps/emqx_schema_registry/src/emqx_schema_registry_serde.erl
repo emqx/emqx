@@ -74,7 +74,7 @@ handle_rule_function(schema_decode, [SchemaId, Data | MoreArgs]) ->
                     schema_id => SchemaId,
                     data => Data,
                     more_args => MoreArgs,
-                    msg =>
+                    explain =>
                         <<"The given data could not be decoded. Please check the input data and the schema.">>
                 }}
             )
