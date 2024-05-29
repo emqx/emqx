@@ -16,6 +16,51 @@
 
 -module(emqx_connector_foreman).
 
+%%========================================================================================
+%% @doc This process implements leader election on top of `global' to distribute
+%% "resources" to members of its `pg' group.
+%%
+%% Upon initialization, each process must be given a `pg' scope and name, which should
+%% only be shared by processes of the same kind (e.g.: the same connector type and name).
+%%
+%% This process can be in one of 3 states: `leader', `follower', `candidate'.
+%%
+%% The process starts in the `candidate' state and attempts to elect itself by claiming a
+%% `global' name based on the input scope and name.  If it manages to claim it, it's the
+%% `leader'.  Otherwise, it monitors the leader pid and enters the `follower' state.  A
+%% `follower' will transition back to a `candidate' if it deems that the leader is dead.
+%%
+%% If a name clash is detected by `global' (e.g.: after cliques in a netsplit merge back),
+%% the leaders in each clique will shut themselves down to signal their followers to
+%% trigger a new election.
+%%
+%% Once a leader is elected, it'll evaluate an allocation of resources based on the
+%% current `pg' group members and an input callback function, and then "stage" these
+%% allocations by casting a message to each member if it's a new allocation (i.e.:
+%% different from previously computed).  Each process has a generation id to track
+%% evolving configurations, which is bumped on new allocations and included in allocation
+%% messages.
+%%
+%% If a `follower' receives an assignment tagged with an older generation id, it sends the
+%% `leader' a nack message containing its own, greater generation so that the leader may
+%% catch up faster.  Otherwise, if the generation id is larger than its currently known
+%% generation id, it sets its own gen id to the received value and sends an ack to the
+%% leader.  If the leader receives any nacks, it updates its own generation id using the
+%% replied generation id (larger than its own), bumps it, and begins allocation again.
+%%
+%% After the leader receives an ack from each member, it then commits this allocation by
+%% sending a commit message to each one.
+%%
+%% Callbacks are evaluated when staging and committing an allocation, so that previously
+%% allocated resources may be released and new ones acquired/initialized when staged, and
+%% then effectively "started" when committed.
+%%
+%% Recently started followers attempt to consult the leader for their own allocations, so
+%% that they may catch up faster if they were restarted.  The leader also tries to stage
+%% the same allocations multiple times to lagging members.  The leader does not track
+%% commit success.
+%%========================================================================================
+
 -feature(maybe_expr, enable).
 
 -behaviour(gen_statem).
