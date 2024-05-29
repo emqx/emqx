@@ -120,6 +120,16 @@ fields(aggreg_parameters) ->
                     desc => ?DESC("aggregated_blob_template"),
                     required => true
                 }
+            )},
+        {min_block_size,
+            mk(
+                emqx_schema:bytesize(),
+                #{
+                    default => <<"10mb">>,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    required => true,
+                    validator => fun block_size_validator/1
+                }
             )}
         | fields(common_action_parameters)
     ];
@@ -143,16 +153,6 @@ fields(aggregation) ->
                     required => false,
                     default => 1_000_000,
                     desc => ?DESC("aggregation_max_records")
-                }
-            )},
-        {min_block_size,
-            mk(
-                emqx_schema:bytesize(),
-                #{
-                    default => <<"10mb">>,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    required => true,
-                    validator => fun block_size_validator/1
                 }
             )}
     ];

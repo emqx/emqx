@@ -526,12 +526,12 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState)
             aggregation := #{
                 container := ContainerOpts,
                 max_records := MaxRecords,
-                min_block_size := MinBlockSize,
                 time_interval := TimeInterval
             },
             container := ContainerName,
             blob := BlobTemplateStr,
-            max_block_size := MaxBlockSize
+            max_block_size := MaxBlockSize,
+            min_block_size := MinBlockSize
         }
     } = ActionConfig,
     Type = ?ACTION_TYPE_BIN,
