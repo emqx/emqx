@@ -411,3 +411,237 @@ t_allocate(Config) ->
         ]
     ),
     ok.
+
+%% Check that if the follower doesn't respond with acks for some time but later recovers,
+%% we eventually reach a stable state.
+t_allocate_crash_waiting_for_ack(Config) ->
+    Name = ?FUNCTION_NAME,
+    [N1, N2, N3] = Nodes = [emqx_cth_cluster:node_name(mk_node_name(N)) || N <- lists:seq(1, 3)],
+    NumNodes = length(Nodes),
+    FixedAllocation = #{
+        N1 => [1, 2, 3],
+        N2 => [4, 5, 6],
+        N3 => [7, 8, 9]
+    },
+    AppOpts = #{
+        name => Name,
+        init_opts => #{
+            compute_allocation_fn => fun(#{members := Members}) ->
+                maps:with(Members, FixedAllocation)
+            end
+        }
+    },
+    NSpecs =
+        mk_cluster(
+            ?FUNCTION_NAME,
+            Config,
+            [
+                {core, AppOpts},
+                {core, AppOpts},
+                {core, AppOpts}
+            ]
+        ),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            ?inject_crash(
+                #{?snk_kind := "foreman_new_assignments", state := follower},
+                snabbkaffe_nemesis:recover_after((NumNodes - 1) * 3)
+            ),
+
+            Nodes = start_cluster(NSpecs),
+
+            wait_foremen_stabilized(Nodes),
+            assert_exactly_one_leader(Nodes),
+
+            ?tp(notice, "waiting for recovery", #{}),
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NumNodes, #{?snk_kind := "foreman_committed_assignments"}),
+                infinity
+            ),
+            lists:foreach(
+                fun(N) ->
+                    ?assertEqual(
+                        {committed, maps:get(N, FixedAllocation)},
+                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        #{node => N}
+                    )
+                end,
+                Nodes
+            ),
+
+            ok
+        end,
+        [
+            fun ?MODULE:inspect_trace/1,
+            fun(Trace) ->
+                ?assertMatch([_, _ | _], ?of_kind(snabbkaffe_crash, Trace)),
+                ok
+            end
+        ]
+    ),
+    ok.
+
+%% Check that if the follower doesn't commit for some time but later recovers, we
+%% eventually reach a stable state.
+t_allocate_crash_during_commit(Config) ->
+    Name = ?FUNCTION_NAME,
+    [N1, N2, N3] = Nodes = [emqx_cth_cluster:node_name(mk_node_name(N)) || N <- lists:seq(1, 3)],
+    NumNodes = length(Nodes),
+    FixedAllocation = #{
+        N1 => [1, 2, 3],
+        N2 => [4, 5, 6],
+        N3 => [7, 8, 9]
+    },
+    AppOpts = #{
+        name => Name,
+        init_opts => #{
+            compute_allocation_fn => fun(#{members := Members}) ->
+                maps:with(Members, FixedAllocation)
+            end
+        }
+    },
+    NSpecs =
+        mk_cluster(
+            ?FUNCTION_NAME,
+            Config,
+            [
+                {core, AppOpts},
+                {core, AppOpts},
+                {core, AppOpts}
+            ]
+        ),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            ?inject_crash(
+                #{?snk_kind := "foreman_commit_assignments", state := follower},
+                snabbkaffe_nemesis:recover_after((NumNodes - 1) * 3)
+            ),
+
+            Nodes = start_cluster(NSpecs),
+
+            wait_foremen_stabilized(Nodes),
+            assert_exactly_one_leader(Nodes),
+
+            ?tp(notice, "waiting for recovery", #{}),
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NumNodes, #{?snk_kind := "foreman_committed_assignments"}),
+                infinity
+            ),
+            lists:foreach(
+                fun(N) ->
+                    ?assertEqual(
+                        {committed, maps:get(N, FixedAllocation)},
+                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        #{node => N}
+                    )
+                end,
+                Nodes
+            ),
+
+            ok
+        end,
+        [
+            fun ?MODULE:inspect_trace/1,
+            fun(Trace) ->
+                ?assertMatch([_, _ | _], ?of_kind(snabbkaffe_crash, Trace)),
+                ok
+            end,
+            fun(Trace) ->
+                %% Stage callback called
+                ?projection_complete(member, ?of_kind(stage, Trace), Nodes),
+                %% Commit callback called
+                ?projection_complete(member, ?of_kind(commit, Trace), Nodes),
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := "foreman_staged_assignments"},
+                        #{?snk_kind := "foreman_committed_assignments"},
+                        Trace
+                    )
+                ),
+                %% TODO: more interesting/relevant properties?
+                ok
+            end
+        ]
+    ),
+    ok.
+
+%% Checks that, if a member goes away for long enough, its resources will be eventually
+%% re-assigned.
+t_allocation_handover(Config) ->
+    Name = ?FUNCTION_NAME,
+    AllResources = lists:seq(0, 10),
+    AppOpts = #{
+        name => Name,
+        init_opts => #{
+            compute_allocation_fn => fun(#{members := Members}) ->
+                CurrentNumNodes = length(Members),
+                maps:from_list([
+                    {N, [
+                        X
+                     || X <- AllResources,
+                        X rem CurrentNumNodes =:= I
+                    ]}
+                 || {I, N} <- lists:enumerate(0, Members)
+                ])
+            end
+        }
+    },
+    NSpecs =
+        mk_cluster(
+            ?FUNCTION_NAME,
+            Config,
+            [
+                {core, AppOpts},
+                {core, AppOpts},
+                {core, AppOpts}
+            ]
+        ),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            Nodes = [N1 | RestNodes] = start_cluster(NSpecs),
+            NumNodes = length(Nodes),
+
+            wait_foremen_stabilized(Nodes),
+            assert_exactly_one_leader(Nodes),
+
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NumNodes, #{?snk_kind := "foreman_committed_assignments"}),
+                infinity
+            ),
+            Committed1 = lists:flatmap(
+                fun(N) ->
+                    {Status, Rs} = ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                    ?assertEqual(committed, Status, #{node => N}),
+                    Rs
+                end,
+                Nodes
+            ),
+            ?assertEqual(AllResources, lists:sort(Committed1)),
+
+            %% Now, we take down one node.
+            {ok, SRef1} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := "foreman_committed_assignments"}),
+                NumNodes - 1,
+                infinity
+            ),
+            ok = emqx_cth_cluster:stop_node(N1),
+            {ok, _} = snabbkaffe:receive_events(SRef1),
+
+            Committed2 = lists:flatmap(
+                fun(N) ->
+                    {Status, Rs} = ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                    ?assertEqual(committed, Status, #{node => N}),
+                    Rs
+                end,
+                RestNodes
+            ),
+            ?assertEqual(AllResources, lists:sort(Committed2)),
+
+            ok
+        end,
+        [fun ?MODULE:inspect_trace/1]
+    ),
+    ok.

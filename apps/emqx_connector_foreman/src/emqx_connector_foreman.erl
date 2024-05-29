@@ -16,6 +16,8 @@
 
 -module(emqx_connector_foreman).
 
+-feature(maybe_expr, enable).
+
 -behaviour(gen_statem).
 
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -26,11 +28,12 @@
     ensure_pg_scope_started/2,
 
     current_members/2,
+    get_allocation/2,
 
     get_assignments/1,
     stage_assignments/3,
     ack_assignments/3,
-    nack_assignments/2,
+    nack_assignments/3,
     commit_assignments/2
 ]).
 
@@ -74,7 +77,8 @@
     retry_election_timeout := pos_integer(),
     %% leader-only fields
     pg_ref := reference(),
-    allocation := allocation(),
+    allocation := undefined | allocation(),
+    allocation_status := allocation_status(),
     pending_acks := #{node() => _}
 }.
 -type follower_data() :: #{
@@ -121,9 +125,14 @@
 -type on_stage_fn() :: fun((allocation_context()) -> ok | {error, term()}).
 -type on_commit_fn() :: fun((allocation_context()) -> ok | {error, term()}).
 -type group_context() :: #{gen_id := gen_id(), members := [node()]}.
--type allocation_context() :: #{resources := [resource()], gen_id := gen_id()}.
+-type allocation_context() :: #{
+    gen_id := gen_id(),
+    previous_resources := [resource()],
+    resources := [resource()]
+}.
 -type resource() :: term().
--type resources() :: {committed | staged, [resource()]}.
+-type resources() :: {allocation_status(), [resource()]}.
+-type allocation_status() :: committed | staged.
 -type gen_id() :: integer().
 
 -type handler_result(State, Data) :: gen_statem:event_handler_result(State, Data).
@@ -136,17 +145,21 @@
 -record(try_election, {}).
 -record(allocate, {}).
 -record(trigger_commit, {}).
+-record(ping_lagging_members, {}).
+-record(consult_leader, {}).
 
 %% external calls/casts/infos
 -record(get_assignments, {}).
+-record(get_allocation, {member :: node()}).
 -record(new_assignments, {gen_id :: gen_id(), resources :: [resource()]}).
 -record(ack_assignments, {gen_id :: gen_id(), member :: node()}).
--record(nack_assignments, {current_gen_id :: gen_id()}).
+-record(nack_assignments, {gen_id :: gen_id(), member :: node()}).
 -record(commit_assignments, {gen_id :: gen_id()}).
 
 -export_type([
     gen_id/0,
-    resource/0
+    resource/0,
+    allocation_status/0
 ]).
 
 %%------------------------------------------------------------------------------
@@ -189,6 +202,22 @@ get_assignments(Name) ->
             undefined
     end.
 
+-spec get_allocation(name(), node()) ->
+    {ok, #{
+        gen_id => gen_id(),
+        status => allocation_status(),
+        resources => [resource()]
+    }}
+    | {error, not_leader}
+    | {error, noproc}.
+get_allocation(Name, Member) ->
+    try
+        gen_statem:call(?via(Name), #get_allocation{member = Member})
+    catch
+        exit:{noproc, _} ->
+            {error, noproc}
+    end.
+
 %% @doc Called by the leader on group members to stage the resources for a given
 %% generation id.  Members should "release" the resources from previous generations and
 %% prepare to use the received resources
@@ -205,9 +234,9 @@ ack_assignments(Name, GenId, Member) ->
 %% @doc Called by the group member on leader as a negative acknowledgement to received
 %% resources, in response to `new_assignments', along with the member's last seen
 %% generation id so the leader may bump its counter.
--spec nack_assignments(name(), gen_id()) -> ok.
-nack_assignments(Name, CurrentGenId) ->
-    gen_statem:cast(?via(Name), #nack_assignments{current_gen_id = CurrentGenId}).
+-spec nack_assignments(name(), gen_id(), node()) -> ok.
+nack_assignments(Name, CurrentGenId, Member) ->
+    gen_statem:cast(?via(Name), #nack_assignments{gen_id = CurrentGenId, member = Member}).
 
 %% @doc Called by the leader on group members to commit the resources for a given
 %% generation id.  Sent after all members reply with positive acknowledgements.
@@ -273,10 +302,19 @@ handle_event(
 ) ->
     CData = follower_to_candidate_data(FData),
     {next_state, ?candidate, CData};
+handle_event(state_timeout, #consult_leader{}, ?follower, FData) ->
+    ?tp("foreman_consult_leader", #{}),
+    handle_consult_leader(FData);
 %% `?leader' state
 handle_event(info, {Ref, JoinOrLeave, _Group, Pids}, ?leader, LData = #{pg_ref := Ref}) ->
     handle_pg_event(JoinOrLeave, Pids, LData);
 handle_event(state_timeout, #allocate{}, ?leader, LData) ->
+    ?tp("foreman_allocate", #{}),
+    handle_allocate(LData);
+handle_event(state_timeout, #ping_lagging_members{}, ?leader, LData) ->
+    ?tp("foreman_ping_lagging_members", #{}),
+    handle_ping_lagging_members(LData);
+handle_event(internal, #allocate{}, ?leader, LData) ->
     ?tp("foreman_allocate", #{}),
     handle_allocate(LData);
 handle_event(internal, #trigger_commit{}, ?leader, LData) ->
@@ -287,11 +325,19 @@ handle_event(info, {global_name_conflict, ?GROUP(Name), _OthePid}, State, Data =
     handle_name_clash(State, Data);
 handle_event({call, From}, #get_assignments{}, _State, Data) ->
     handle_get_assignments(From, Data);
+handle_event({call, From}, #get_allocation{member = Member}, State, Data) ->
+    handle_get_allocation(From, Member, State, Data);
 handle_event(cast, #new_assignments{} = Event, State, Data) ->
+    ?tp("foreman_new_assignments", #{state => State}),
     handle_new_assignments(Event, State, Data);
 handle_event(cast, #ack_assignments{} = Event, State, Data) ->
+    ?tp("foreman_ack_assignments", #{state => State}),
     handle_ack_assignments(Event, State, Data);
+handle_event(cast, #nack_assignments{} = Event, State, Data) ->
+    ?tp("foreman_nack_assignments", #{state => State}),
+    handle_nack_assignments(Event, State, Data);
 handle_event(cast, #commit_assignments{} = Event, State, Data) ->
+    ?tp("foreman_commit_assignments", #{state => State}),
     handle_commit_assignments(Event, State, Data);
 handle_event(EventType, EventContent, State, Data) ->
     ?tp(
@@ -323,7 +369,7 @@ handle_state_enter(_OldState, NewState, Data) ->
         ?candidate ->
             {keep_state_and_data, [{state_timeout, _Now = 0, #try_election{}}]};
         ?follower ->
-            keep_state_and_data;
+            {keep_state_and_data, [{state_timeout, _Now = 0, #consult_leader{}}]};
         ?leader ->
             %% Assert
             core = mria_rlog:role(),
@@ -360,7 +406,8 @@ do_try_election(CData) ->
             {Ref, _} = pg:monitor(Scope, ?GROUP(Name)),
             LData = CData#{
                 pg_ref => Ref,
-                allocation => #{},
+                allocation => undefined,
+                allocation_status => staged,
                 pending_acks => #{}
             },
             ?tp(debug, "foreman_elected", #{leader => node()}),
@@ -377,7 +424,8 @@ do_try_election(CData) ->
                     {Ref, _} = pg:monitor(Scope, ?GROUP(Name)),
                     LData = CData#{
                         pg_ref => Ref,
-                        allocation => #{},
+                        allocation => undefined,
+                        allocation_status => staged,
                         pending_acks => #{}
                     },
                     ?tp(debug, "foreman_elected", #{leader => node()}),
@@ -413,6 +461,7 @@ try_follow_leader(CData) ->
 handle_pg_event(_JoinOrLeave, _Pids, _LData) ->
     ?tp("foreman_pg_event", #{event => _JoinOrLeave, pids => _Pids, data => _LData}),
     %% TODO: check allocations?
+    %% TODO: re-send assignments if node is already expected.
     keep_state_and_data.
 
 -spec handle_name_clash(state(), data()) -> handler_result().
@@ -429,24 +478,51 @@ handle_get_assignments(From, Data) ->
     #{resources := Resources} = Data,
     {keep_state_and_data, [{reply, From, Resources}]}.
 
+handle_get_allocation(From, Member, ?leader, LData) ->
+    #{
+        allocation := Allocation,
+        allocation_status := AllocationStatus,
+        gen_id := GenId
+    } = LData,
+    Resources =
+        maybe
+            #{} ?= Allocation,
+            maps:get(Member, Allocation, undefined)
+        else
+            _ -> undefined
+        end,
+    Reply =
+        {ok, #{
+            status => AllocationStatus,
+            resources => Resources,
+            gen_id => GenId
+        }},
+    {keep_state_and_data, [{reply, From, Reply}]};
+handle_get_allocation(From, _Member, _State, _Data) ->
+    {keep_state_and_data, [{reply, From, {error, not_leader}}]}.
+
+-spec handle_allocate(leader_data()) -> handler_result(?leader, leader_data()).
 handle_allocate(LData0) ->
     #{
         name := Name,
         scope := Scope,
-        gen_id := GenId,
+        gen_id := GenId0,
         allocation := PrevAllocation,
         compute_allocation_fn := ComputeAllocationFn
     } = LData0,
     MemberNodes = current_members(Scope, Name),
     GroupContext = #{
-        gen_id => GenId,
+        gen_id => GenId0,
         members => MemberNodes
     },
     Allocation = #{} = ComputeAllocationFn(GroupContext),
     case Allocation of
         PrevAllocation ->
-            keep_state_and_data;
+            %% TODO: make configurable and larger default
+            Delay = 1_000,
+            {keep_state_and_data, [{state_timeout, Delay, #allocate{}}]};
         _ ->
+            GenId = GenId0 + 1,
             maps:foreach(
                 fun(N, Rs) ->
                     ok = emqx_connector_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
@@ -455,10 +531,82 @@ handle_allocate(LData0) ->
             ),
             LData = LData0#{
                 allocation := Allocation,
+                allocation_status := staged,
+                gen_id := GenId,
                 pending_acks := maps:from_keys(MemberNodes, true)
             },
-            %% TODO: timeout to ping lagging members?
-            {keep_state, LData}
+            %% TODO: make delay configurable
+            Delay = 1_000,
+            {keep_state, LData, [{state_timeout, Delay, #ping_lagging_members{}}]}
+    end.
+
+-spec handle_ping_lagging_members(leader_data()) -> handler_result(?leader, leader_data()).
+handle_ping_lagging_members(LData) ->
+    #{
+        gen_id := GenId,
+        name := Name,
+        %% FIXME: check this before crashing...
+        allocation := #{} = Allocation,
+        pending_acks := PendingAcks
+    } = LData,
+    lists:foreach(
+        fun(N) ->
+            Rs = maps:get(N, Allocation),
+            ok = emqx_connector_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
+        end,
+        maps:keys(PendingAcks)
+    ),
+    %% TODO: make delay configurable
+    Delay = 1_000,
+    {keep_state_and_data, [{state_timeout, Delay, #ping_lagging_members{}}]}.
+
+-spec handle_consult_leader(follower_data()) -> handler_result(?follower, follower_data()).
+handle_consult_leader(FData0) ->
+    #{
+        leader := LeaderPid,
+        name := Name,
+        gen_id := MyGenId,
+        on_stage_fn := OnStageFn,
+        on_commit_fn := OnCommitFn,
+        resources := {PrevAllocationStatus, PrevResources}
+    } = FData0,
+    try emqx_connector_foreman_proto_v1:get_allocation(node(LeaderPid), Name, node()) of
+        {error, noproc} ->
+            {keep_state_and_data, [{state_timeout, 1_000, #consult_leader{}}]};
+        {error, not_leader} ->
+            %% Race condition?  Should receive `DOWN' signal any moment, then.
+            keep_state_and_data;
+        {ok, #{resources := undefined}} ->
+            %% Leader didn't compute allocation yet.
+            keep_state_and_data;
+        {ok, #{gen_id := LeaderGenId}} when LeaderGenId < MyGenId ->
+            %% Stale leader
+            keep_state_and_data;
+        {ok, #{resources := PrevResources, status := PrevAllocationStatus}} ->
+            keep_state_and_data;
+        {ok, #{resources := Resources, gen_id := LeaderGenId, status := AllocationStatus}} ->
+            AllocationContext = allocation_context(LeaderGenId, Resources, PrevResources),
+            %% TODO: handle errors
+            ok = OnStageFn(AllocationContext),
+            Member = node(),
+            ok = emqx_connector_foreman_proto_v1:ack_assignments(
+                node(LeaderPid), Name, LeaderGenId, Member
+            ),
+            maybe
+                committed ?= AllocationStatus,
+                %% TODO: handle errors
+                ok = OnCommitFn(AllocationContext),
+                ?tp("foreman_committed_assignments", #{gen_id => LeaderGenId}),
+                ok
+            end,
+            FData = FData0#{
+                gen_id := LeaderGenId,
+                resources := {AllocationStatus, Resources}
+            },
+            {keep_state, FData}
+    catch
+        error:{erpc, _} ->
+            {keep_state_and_data, [{state_timeout, 1_000, #consult_leader{}}]}
     end.
 
 -spec handle_new_assignments(#new_assignments{}, state(), data()) -> handler_result().
@@ -491,17 +639,15 @@ handle_new_assignments(
 ->
     #{
         name := Name,
-        on_stage_fn := OnStageFn
+        on_stage_fn := OnStageFn,
+        resources := {_PrevAllocationStatus, PrevResources}
     } = Data0,
     {GenId, LeaderPid} =
         case State of
             ?leader -> {MyGenId, self()};
             ?follower -> {GenId0, maps:get(leader, Data0)}
         end,
-    AllocationContext = #{
-        gen_id => GenId,
-        resources => Resources
-    },
+    AllocationContext = allocation_context(GenId, Resources, PrevResources),
     %% TODO: handle errors
     ok = OnStageFn(AllocationContext),
     Member = node(),
@@ -513,6 +659,7 @@ handle_new_assignments(
     },
     {keep_state, Data}.
 
+%% Received by the leader when a member acknowledges an assignment.
 -spec handle_ack_assignments(#ack_assignments{}, state(), data()) -> handler_result().
 handle_ack_assignments(#ack_assignments{gen_id = GenId, member = _}, _State, #{gen_id := MyGenId}) when
     MyGenId > GenId
@@ -525,28 +672,56 @@ handle_ack_assignments(
     #{pending_acks := PendingAcks0} = LData0,
     PendingAcks = maps:remove(Member, PendingAcks0),
     LData = LData0#{pending_acks := PendingAcks},
-    case map_size(PendingAcks) of
-        0 ->
+    WasMember = is_map_key(Member, PendingAcks0),
+    case map_size(PendingAcks) =:= 0 andalso WasMember of
+        true ->
             {keep_state, LData, [{next_event, internal, #trigger_commit{}}]};
-        _ ->
+        false ->
             {keep_state, LData}
     end;
 handle_ack_assignments(#ack_assignments{gen_id = _, member = _}, _State, _Data) ->
     %% Stale message?
     keep_state_and_data.
 
+%% Received by the leader when a member has a higher generation id than the leader.
+-spec handle_nack_assignments(#nack_assignments{}, state(), data()) -> handler_result().
+handle_nack_assignments(#nack_assignments{gen_id = GenId, member = _}, ?leader, #{gen_id := MyGenId}) when
+    MyGenId > GenId
+->
+    %% Stale message?
+    keep_state_and_data;
+handle_nack_assignments(
+    #nack_assignments{gen_id = GenId0, member = _}, ?leader, #{gen_id := MyGenId} = LData0
+) ->
+    %% Generation id in the nack can be higher than ours if we just started and got
+    %% elected.  We use the member's gen id to catch up.
+    %% This is the only reason to nack an assignment.
+    %% We trigger another allocation round.
+    GenId = max(MyGenId, GenId0) + 1,
+    LData = LData0#{
+        gen_id := GenId,
+        pending_acks := #{},
+        allocation := undefined,
+        allocation_status := staged
+    },
+    {keep_state, LData, [{next_event, internal, #allocate{}}]};
+handle_nack_assignments(#nack_assignments{gen_id = _, member = _}, _State, _Data) ->
+    %% Stale message?
+    keep_state_and_data.
+
 -spec handle_trigger_commit(leader_data()) -> handler_result(?leader, leader_data()).
-handle_trigger_commit(LData) ->
+handle_trigger_commit(LData0) ->
     #{
         gen_id := GenId,
         name := Name,
         scope := Scope
-    } = LData,
+    } = LData0,
     MemberNodes = current_members(Scope, Name),
     ok = emqx_connector_foreman_proto_v1:commit_assignments(MemberNodes, Name, GenId),
+    LData = LData0#{allocation_status := committed},
     %% TODO: make configurable and larger default
     Delay = 1_000,
-    {keep_state_and_data, [{state_timeout, Delay, #allocate{}}]}.
+    {keep_state, LData, [{state_timeout, Delay, #allocate{}}]}.
 
 -spec handle_commit_assignments(#commit_assignments{}, state(), data()) -> handler_result().
 handle_commit_assignments(#commit_assignments{gen_id = GenId}, _State, #{gen_id := GenId} = Data0) ->
@@ -557,10 +732,7 @@ handle_commit_assignments(#commit_assignments{gen_id = GenId}, _State, #{gen_id 
     Data = Data0#{resources := {committed, Resources}},
     case PrevResState of
         staged ->
-            AllocationContext = #{
-                gen_id => GenId,
-                resources => Resources
-            },
+            AllocationContext = allocation_context(GenId, Resources, Resources),
             %% TODO: handle errors
             ok = OnCommitFn(AllocationContext),
             ?tp("foreman_committed_assignments", #{gen_id => GenId}),
@@ -602,4 +774,11 @@ follower_to_candidate_data(FData) ->
         on_commit_fn => OnCommitFn,
         resources => Resources,
         retry_election_timeout => RetryElectionTimeout
+    }.
+
+allocation_context(GenId, NewResources, PrevResources) ->
+    #{
+        gen_id => GenId,
+        resources => NewResources,
+        previous_resources => PrevResources
     }.

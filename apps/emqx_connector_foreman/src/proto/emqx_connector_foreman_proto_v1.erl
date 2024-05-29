@@ -25,7 +25,8 @@
     stage_assignments/4,
     commit_assignments/3,
     ack_assignments/4,
-    nack_assignments/3
+    nack_assignments/4,
+    get_allocation/3
 ]).
 
 %% `emqx_bpapi' API
@@ -75,10 +76,26 @@ ack_assignments(Node, ServerRef, GenId, Member) ->
 -spec nack_assignments(
     node(),
     gen_statem:server_ref(),
-    emqx_connector_foreman:gen_id()
+    emqx_connector_foreman:gen_id(),
+    node()
 ) -> ok.
-nack_assignments(Node, ServerRef, CurrentGenId) ->
-    erpc:cast(Node, emqx_connector_foreman, nack_assignments, [ServerRef, CurrentGenId]).
+nack_assignments(Node, ServerRef, CurrentGenId, Member) ->
+    erpc:cast(Node, emqx_connector_foreman, nack_assignments, [ServerRef, CurrentGenId, Member]).
+
+-spec get_allocation(
+    node(),
+    gen_statem:server_ref(),
+    node()
+) ->
+    {ok, #{
+        gen_id => emqx_connector_foreman:gen_id(),
+        status => emqx_connector_foreman:allocation_status(),
+        resources => undefined | [emqx_connector_foreman:resource()]
+    }}
+    | {error, not_leader}
+    | {error, noproc}.
+get_allocation(Node, ServerRef, Member) ->
+    erpc:call(Node, emqx_connector_foreman, get_allocation, [ServerRef, Member]).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
