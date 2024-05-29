@@ -215,7 +215,7 @@ get_actor_state(ClusterName, Actor) ->
     erlang:get(?PD_EXTROUTER_ACTOR_STATE).
 
 set_actor_state(ClusterName, Actor, ActorSt) ->
-    undefined = erlang:put(?PD_EXTROUTER_ACTOR, {ClusterName, Actor}),
+    _Undefined = erlang:put(?PD_EXTROUTER_ACTOR, {ClusterName, Actor}),
     update_actor_state(ActorSt).
 
 update_actor_state(ActorSt) ->
