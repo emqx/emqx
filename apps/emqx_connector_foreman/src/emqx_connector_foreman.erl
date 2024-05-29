@@ -53,7 +53,7 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
-%% Also the leader name in `global'.
+-define(LEADER_NAME(SCOPE, NAME), {?MODULE, SCOPE, NAME}).
 -define(GROUP(NAME), {?MODULE, NAME}).
 -define(gproc_ref(NAME), {n, l, {?MODULE, NAME}}).
 -define(via(NAME), {via, gproc, ?gproc_ref(NAME)}).
@@ -322,7 +322,12 @@ handle_event(internal, #trigger_commit{}, ?leader, LData) ->
     ?tp("foreman_trigger_commit", #{}),
     handle_trigger_commit(LData);
 %% Misc events
-handle_event(info, {global_name_conflict, ?GROUP(Name), _OthePid}, State, Data = #{name := Name}) ->
+handle_event(
+    info,
+    {global_name_conflict, ?LEADER_NAME(Scope, Name), _OthePid},
+    State,
+    Data = #{name := Name, scope := Scope}
+) ->
     handle_name_clash(State, Data);
 handle_event({call, From}, #get_assignments{}, _State, Data) ->
     handle_get_assignments(From, Data);
@@ -400,7 +405,9 @@ do_try_election(CData) ->
         retry_election_timeout := RetryElectionTimeout,
         scope := Scope
     } = CData,
-    case global:register_name(?GROUP(Name), self(), fun ?MODULE:resolve_name_clash/3) of
+    case
+        global:register_name(?LEADER_NAME(Scope, Name), self(), fun ?MODULE:resolve_name_clash/3)
+    of
         yes ->
             {Ref, _} = pg:monitor(Scope, ?GROUP(Name)),
             LData = CData#{
@@ -412,7 +419,7 @@ do_try_election(CData) ->
             ?tp(debug, "foreman_elected", #{leader => node()}),
             {next_state, ?leader, LData};
         no ->
-            case global:whereis_name(?GROUP(Name)) of
+            case global:whereis_name(?LEADER_NAME(Scope, Name)) of
                 undefined ->
                     %% race condition: leader died / network partition?
                     {keep_state_and_data, [{state_timeout, RetryElectionTimeout, #try_election{}}]};
@@ -441,9 +448,10 @@ do_try_election(CData) ->
 try_follow_leader(CData) ->
     #{
         name := Name,
-        retry_election_timeout := RetryElectionTimeout
+        retry_election_timeout := RetryElectionTimeout,
+        scope := Scope
     } = CData,
-    case global:whereis_name(?GROUP(Name)) of
+    case global:whereis_name(?LEADER_NAME(Scope, Name)) of
         undefined ->
             {keep_state_and_data, [{state_timeout, RetryElectionTimeout, #try_election{}}]};
         LeaderPid when is_pid(LeaderPid) ->
