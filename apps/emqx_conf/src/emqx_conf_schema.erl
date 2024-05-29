@@ -70,10 +70,6 @@
     emqx_otel_schema,
     emqx_mgmt_api_key_schema
 ]).
--define(INJECTING_CONFIGS, [
-    {emqx_authn_schema, ?AUTHN_PROVIDER_SCHEMA_MODS},
-    {emqx_authz_schema, ?AUTHZ_SOURCE_SCHEMA_MODS}
-]).
 
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).

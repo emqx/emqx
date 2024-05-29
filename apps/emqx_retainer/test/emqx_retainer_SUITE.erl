@@ -375,6 +375,7 @@ t_clean(Config) ->
         [{qos, 0}, {retain, true}],
         Config
     ),
+    ct:sleep(100),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
 

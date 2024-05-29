@@ -25,7 +25,7 @@
 
 -include("emqx_mqtt.hrl").
 
--include("emqx_persistent_session_ds.hrl").
+-include("emqx_persistent_session_ds/session_internals.hrl").
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
