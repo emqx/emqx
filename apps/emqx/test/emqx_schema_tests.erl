@@ -938,5 +938,7 @@ unicode_template_test() ->
     },
     HoconText = <<"root = {template = \"中文\"}"/utf8>>,
     {ok, Hocon} = hocon:binary(HoconText),
-    _ = hocon_tconf:check_plain(Sc, Hocon),
-    ok.
+    ?assertEqual(
+        #{<<"root">> => #{<<"template">> => <<"中文"/utf8>>}},
+        hocon_tconf:check_plain(Sc, Hocon)
+    ).
