@@ -11,8 +11,6 @@ file_transfer {
         ## Local file system backend setting
         ## Currently, it's the only available storage backend.
         local {
-            ## Enable the backend
-            enable = true
 
             ## Segments and temporary files storage settings
             segments {
@@ -30,12 +28,11 @@ file_transfer {
             }
 
             ## Local filesystem exporter
+            ## Enable the backend
+            ## Note: Can only configure one backend at a time
+            ## One can set 'exporter.local.enable=false' to disable it
+            ## while keeping the configuration context
             exporter.local {
-
-                ## Enable the backend
-                ## Note: Only one backend may be enabled at a time
-                enable = true
-
                 ## Directory in the local file system where to store transferred files
                 root = "/var/lib/emqx/transfers/exports"
             }

@@ -12,8 +12,6 @@ file_transfer {
         ## Local file system backend setting
         ## Currently, it's the only available storage backend.
         local {
-            ## Enable the backend
-            enable = true
 
             ## Segments and temporary files storage settings
             segments {
@@ -31,11 +29,11 @@ file_transfer {
             }
 
             ## S3-compatible object storage exporter
+            ## Enable the backend
+            ## Note: Can only configure one backend at a time
+            ## One can set 'exporter.s3.enable=false' to disable it
+            ## while keeping the configuration context
             exporter.s3 {
-
-                ## Disable the backend
-                ## Note: Only one backend may be enabled at a time.
-                enable = true
 
                 ## Endpoint of S3 API of the object storage service of your choice
                 host = "s3.us-east-1.amazonaws.com"
