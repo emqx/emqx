@@ -259,7 +259,7 @@ merge_cluster_sampler_map(M1, M2) ->
                 Key =:= subscriptions_durable;
                 Key =:= disconnected_durable_sessions
             ->
-                Map#{Key => maps:get(Key, M1)};
+                Map#{Key => maps:get(Key, M1, 0)};
             (Key, Map) ->
                 Map#{Key => maps:get(Key, M1, 0) + maps:get(Key, M2, 0)}
         end,
