@@ -486,8 +486,8 @@ source_for_logging(Type, _) ->
 
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
-    do_authorize(Client, PubSub, Topic, Rest);
+do_authorize(Client, PubSub, Topic, [#{enable := false} | Tail]) ->
+    do_authorize(Client, PubSub, Topic, Tail);
 do_authorize(
     #{
         username := Username
@@ -501,16 +501,8 @@ do_authorize(
     try Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch ->
             emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
-            ?TRACE("AUTHZ", "authorization_module_nomatch", #{
-                module => Module,
-                username => Username,
-                topic => Topic,
-                action => emqx_access_control:format_action(PubSub)
-            }),
-            do_authorize(Client, PubSub, Topic, Tail);
-        %% {matched, allow | deny | ignore}
-        {matched, ignore} ->
-            ?TRACE("AUTHZ", "authorization_module_match_ignore", #{
+            ?TRACE("AUTHZ", "authorization_nomatch", #{
+                authorize_type => Type,
                 module => Module,
                 username => Username,
                 topic => Topic,
@@ -518,15 +510,40 @@ do_authorize(
             }),
             do_authorize(Client, PubSub, Topic, Tail);
         ignore ->
-            ?TRACE("AUTHZ", "authorization_module_ignore", #{
+            ?TRACE("AUTHZ", "authorization_ignore", #{
+                authorize_type => Type,
                 module => Module,
                 username => Username,
                 topic => Topic,
                 action => emqx_access_control:format_action(PubSub)
             }),
             do_authorize(Client, PubSub, Topic, Tail);
-        %% {matched, allow | deny}
-        Matched ->
+        {matched, ignore} ->
+            ?TRACE("AUTHZ", "authorization_matched_ignore", #{
+                authorize_type => Type,
+                module => Module,
+                username => Username,
+                topic => Topic,
+                action => emqx_access_control:format_action(PubSub)
+            }),
+            do_authorize(Client, PubSub, Topic, Tail);
+        {matched, allow} = Matched ->
+            ?TRACE("AUTHZ", "authorization_matched_allow", #{
+                authorize_type => Type,
+                module => Module,
+                username => Username,
+                topic => Topic,
+                action => emqx_access_control:format_action(PubSub)
+            }),
+            {Matched, Type};
+        {matched, deny} = Matched ->
+            ?TRACE("AUTHZ", "authorization_matched_deny", #{
+                authorize_type => Type,
+                module => Module,
+                username => Username,
+                topic => Topic,
+                action => emqx_access_control:format_action(PubSub)
+            }),
             {Matched, Type}
     catch
         Class:Reason:Stacktrace ->

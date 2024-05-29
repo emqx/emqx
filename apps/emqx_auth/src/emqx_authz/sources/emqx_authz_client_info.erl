@@ -59,10 +59,10 @@ update(Source) ->
 
 destroy(_Source) -> ok.
 
-%% @doc Authorize based on cllientinfo enriched with `acl' data.
+%% @doc Authorize based on client info enriched with `acl' data.
 %% e.g. From JWT.
 %%
-%% Supproted rules formats are:
+%% Supported rules formats are:
 %%
 %% v1: (always deny when no match)
 %%
@@ -116,7 +116,7 @@ authorize(#{acl := Acl} = Client, PubSub, Topic, _Source) ->
             MatchResult
     end;
 authorize(_Client, _PubSub, _Topic, _Source) ->
-    nomatch.
+    ignore.
 
 %%--------------------------------------------------------------------
 %% Internal functions
