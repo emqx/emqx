@@ -112,37 +112,40 @@ match(_, _) ->
     TopicOrFilter :: emqx_types:topic().
 intersection(Topic1, Topic2) when is_binary(Topic1), is_binary(Topic2) ->
     case intersect_start(words(Topic1), words(Topic2)) of
-        [] -> false;
-        Intersection -> join(lists:reverse(Intersection))
+        false -> false;
+        Intersection -> join(Intersection)
     end.
 
 intersect_start([<<"$", _/bytes>> | _], [W | _]) when ?IS_WILDCARD(W) ->
-    [];
+    false;
 intersect_start([W | _], [<<"$", _/bytes>> | _]) when ?IS_WILDCARD(W) ->
-    [];
+    false;
 intersect_start(Words1, Words2) ->
-    intersection(Words1, Words2, []).
+    intersect(Words1, Words2).
 
-intersection(Words1, ['#'], Acc) ->
-    lists:reverse(Words1, Acc);
-intersection(['#'], Words2, Acc) ->
-    lists:reverse(Words2, Acc);
-intersection([W1], ['+'], Acc) ->
-    [W1 | Acc];
-intersection(['+'], [W2], Acc) ->
-    [W2 | Acc];
-intersection([W1 | T1], [W2 | T2], Acc) when ?IS_WILDCARD(W1), ?IS_WILDCARD(W2) ->
-    intersection(T1, T2, [wildcard_intersection(W1, W2) | Acc]);
-intersection([W | T1], [W | T2], Acc) ->
-    intersection(T1, T2, [W | Acc]);
-intersection([W1 | T1], [W2 | T2], Acc) when ?IS_WILDCARD(W1) ->
-    intersection(T1, T2, [W2 | Acc]);
-intersection([W1 | T1], [W2 | T2], Acc) when ?IS_WILDCARD(W2) ->
-    intersection(T1, T2, [W1 | Acc]);
-intersection([], [], Acc) ->
-    Acc;
-intersection(_, _, _) ->
-    [].
+intersect(Words1, ['#']) ->
+    Words1;
+intersect(['#'], Words2) ->
+    Words2;
+intersect([W1], ['+']) ->
+    [W1];
+intersect(['+'], [W2]) ->
+    [W2];
+intersect([W1 | T1], [W2 | T2]) when ?IS_WILDCARD(W1), ?IS_WILDCARD(W2) ->
+    intersect_join(wildcard_intersection(W1, W2), intersect(T1, T2));
+intersect([W | T1], [W | T2]) ->
+    intersect_join(W, intersect(T1, T2));
+intersect([W1 | T1], [W2 | T2]) when ?IS_WILDCARD(W1) ->
+    intersect_join(W2, intersect(T1, T2));
+intersect([W1 | T1], [W2 | T2]) when ?IS_WILDCARD(W2) ->
+    intersect_join(W1, intersect(T1, T2));
+intersect([], []) ->
+    [];
+intersect(_, _) ->
+    false.
+
+intersect_join(_, false) -> false;
+intersect_join(W, Words) -> [W | Words].
 
 wildcard_intersection(W, W) -> W;
 wildcard_intersection(_, _) -> '+'.
