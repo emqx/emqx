@@ -245,7 +245,7 @@ t_license_setting_bc(_Config) ->
     ?assertMatch(#{<<"max_connections">> := 25}, request_dump()),
     %% get
     GetRes = request(get, uri(["license", "setting"]), []),
-    %% aslo check that the settings return correctly
+    %% also check that the settings return correctly
     validate_setting(GetRes, <<"75%">>, <<"80%">>, 25),
     %% update
     Low = <<"50%">>,
