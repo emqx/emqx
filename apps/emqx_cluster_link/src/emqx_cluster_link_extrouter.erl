@@ -67,8 +67,6 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
--define(DEFAULT_ACTOR_TTL_MS, 30_000).
-
 -define(EXTROUTE_SHARD, ?MODULE).
 -define(EXTROUTE_TAB, emqx_external_router_route).
 -define(EXTROUTE_ACTOR_TAB, emqx_external_router_actor).
@@ -280,16 +278,22 @@ apply_operation(Entry, MCounter, OpName, Lane) ->
             MCounter
     end.
 
--spec actor_gc(env()) -> ok.
+-spec actor_gc(env()) -> _NumCleaned :: non_neg_integer().
 actor_gc(#{timestamp := Now}) ->
     MS = [{#actor{until = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}],
-    case mnesia:dirty_select(?EXTROUTE_ACTOR_TAB, MS) of
-        [Rec | _Rest] ->
-            %% NOTE: One at a time.
-            clean_incarnation(Rec);
-        [] ->
-            ok
-    end.
+    Dead = mnesia:dirty_select(?EXTROUTE_ACTOR_TAB, MS),
+    try_clean_incarnation(Dead).
+
+try_clean_incarnation([Rec | Rest]) ->
+    %% NOTE: One at a time.
+    case clean_incarnation(Rec) of
+        ok ->
+            1;
+        stale ->
+            try_clean_incarnation(Rest)
+    end;
+try_clean_incarnation([]) ->
+    0.
 
 mnesia_assign_lane(Cluster) ->
     Assignment = lists:foldl(
@@ -323,7 +327,7 @@ mnesia_clean_incarnation(#actor{id = Actor, incarnation = Incarnation, lane = La
             _ = clean_lane(Lane),
             mnesia:delete(?EXTROUTE_ACTOR_TAB, Actor, write);
         _Renewed ->
-            ok
+            stale
     end.
 
 clean_lane(Lane) ->
@@ -368,7 +372,4 @@ first_zero_bit(N, I) ->
 %%
 
 bump_actor_ttl(TS) ->
-    TS + get_actor_ttl().
-
-get_actor_ttl() ->
-    ?DEFAULT_ACTOR_TTL_MS.
+    TS + emqx_cluster_link_config:actor_ttl().

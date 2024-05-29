@@ -54,7 +54,6 @@
 
 -define(RECONNECT_TIMEOUT, 5_000).
 -define(ACTOR_REINIT_TIMEOUT, 7000).
--define(HEARTBEAT_INTERVAL, 10_000).
 
 -define(CLIENT_SUFFIX, ":routesync:").
 -define(PS_CLIENT_SUFFIX, ":routesync-ps:").
@@ -475,7 +474,8 @@ process_heartbeat(St = #st{client = ClientPid, actor = Actor, incarnation = Inca
     schedule_heartbeat(St).
 
 schedule_heartbeat(St = #st{heartbeat_timer = undefined}) ->
-    TRef = erlang:start_timer(?HEARTBEAT_INTERVAL, self(), heartbeat),
+    Timeout = emqx_cluster_link_config:actor_heartbeat_interval(),
+    TRef = erlang:start_timer(Timeout, self(), heartbeat),
     St#st{heartbeat_timer = TRef}.
 
 %% Bootstrapping.

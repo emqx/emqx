@@ -10,7 +10,6 @@
 
 -export([init/1]).
 
--define(COORD_SUP, emqx_cluster_link_coord_sup).
 -define(SERVER, ?MODULE).
 
 start_link(LinksConf) ->
@@ -22,12 +21,21 @@ init(LinksConf) ->
         intensity => 10,
         period => 5
     },
-    %% Children = [sup_spec(?COORD_SUP, ?COORD_SUP, LinksConf)],
-    Children = [
+    ExtrouterGC = extrouter_gc_spec(),
+    RouteActors = [
         sup_spec(Name, emqx_cluster_link_router_syncer, [Name])
      || #{upstream := Name} <- LinksConf
     ],
-    {ok, {SupFlags, Children}}.
+    {ok, {SupFlags, [ExtrouterGC | RouteActors]}}.
+
+extrouter_gc_spec() ->
+    %% NOTE: This one is currently global, not per-link.
+    #{
+        id => {extrouter, gc},
+        start => {emqx_cluster_link_extrouter_gc, start_link, []},
+        restart => permanent,
+        type => worker
+    }.
 
 sup_spec(Id, Mod, Args) ->
     #{

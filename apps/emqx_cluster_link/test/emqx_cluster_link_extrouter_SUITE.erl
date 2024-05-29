@@ -124,7 +124,10 @@ t_actor_gc(_Config) ->
         topics_sorted()
     ),
     _AS13 = apply_operation(heartbeat, AS12, 50_000),
-    ok = emqx_cluster_link_extrouter:actor_gc(env(60_000)),
+    ?assertEqual(
+        1,
+        emqx_cluster_link_extrouter:actor_gc(env(60_000))
+    ),
     ?assertEqual(
         [<<"topic/#">>, <<"topic/42/+">>],
         topics_sorted()
@@ -133,7 +136,10 @@ t_actor_gc(_Config) ->
         _IncarnationMismatch,
         apply_operation({add, {<<"toolate/#">>, id}}, AS21)
     ),
-    ok = emqx_cluster_link_extrouter:actor_gc(env(120_000)),
+    ?assertEqual(
+        1,
+        emqx_cluster_link_extrouter:actor_gc(env(120_000))
+    ),
     ?assertEqual(
         [],
         topics_sorted()
@@ -273,7 +279,7 @@ run_actor({Actor, Seq}) ->
             ({TS, heartbeat}, AS) ->
                 apply_operation(heartbeat, AS, TS);
             ({TS, gc}, AS) ->
-                ok = emqx_cluster_link_extrouter:actor_gc(env(TS)),
+                _NC = emqx_cluster_link_extrouter:actor_gc(env(TS)),
                 AS;
             ({_TS, {sleep, MS}}, AS) ->
                 ok = timer:sleep(MS),

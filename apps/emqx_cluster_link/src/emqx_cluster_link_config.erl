@@ -13,6 +13,8 @@
 
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
+-define(DEFAULT_ACTOR_TTL, 30_000).
+
 -export([
     %% General
     cluster/0,
@@ -22,7 +24,11 @@
     topic_filters/1,
     %% Connections
     emqtt_options/1,
-    mk_emqtt_options/1
+    mk_emqtt_options/1,
+    %% Actor Lifecycle
+    actor_ttl/0,
+    actor_gc_interval/0,
+    actor_heartbeat_interval/0
 ]).
 
 -export([
@@ -57,6 +63,18 @@ emqtt_options(LinkName) ->
 
 topic_filters(LinkName) ->
     maps:get(topics, ?MODULE:link(LinkName), []).
+
+-spec actor_ttl() -> _Milliseconds :: pos_integer().
+actor_ttl() ->
+    ?DEFAULT_ACTOR_TTL.
+
+-spec actor_gc_interval() -> _Milliseconds :: pos_integer().
+actor_gc_interval() ->
+    actor_ttl().
+
+-spec actor_heartbeat_interval() -> _Milliseconds :: pos_integer().
+actor_heartbeat_interval() ->
+    actor_ttl() div 3.
 
 %%
 
