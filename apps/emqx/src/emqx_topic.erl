@@ -111,10 +111,17 @@ match(_, _) ->
 -spec intersection(TopicOrFilter, TopicOrFilter) -> TopicOrFilter | false when
     TopicOrFilter :: emqx_types:topic().
 intersection(Topic1, Topic2) when is_binary(Topic1), is_binary(Topic2) ->
-    case intersection(words(Topic1), words(Topic2), []) of
+    case intersect_start(words(Topic1), words(Topic2)) of
         [] -> false;
         Intersection -> join(lists:reverse(Intersection))
     end.
+
+intersect_start([<<"$", _/bytes>> | _], [W | _]) when ?IS_WILDCARD(W) ->
+    [];
+intersect_start([W | _], [<<"$", _/bytes>> | _]) when ?IS_WILDCARD(W) ->
+    [];
+intersect_start(Words1, Words2) ->
+    intersection(Words1, Words2, []).
 
 intersection(Words1, ['#'], Acc) ->
     lists:reverse(Words1, Acc);
