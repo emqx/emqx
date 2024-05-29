@@ -64,7 +64,21 @@ handle_rule_function(sparkplug_encode, [Term | MoreArgs]) ->
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
     );
 handle_rule_function(schema_decode, [SchemaId, Data | MoreArgs]) ->
-    decode(SchemaId, Data, MoreArgs);
+    try
+        decode(SchemaId, Data, MoreArgs)
+    catch
+        error:{gpb_error, {decoding_failure, {_Data, _Schema, {error, function_clause, _Stack}}}} ->
+            throw(
+                {schema_decode_error, #{
+                    error_type => decoding_failure,
+                    schema_id => SchemaId,
+                    data => Data,
+                    more_args => MoreArgs,
+                    explain =>
+                        <<"The given data could not be decoded. Please check the input data and the schema.">>
+                }}
+            )
+    end;
 handle_rule_function(schema_decode, Args) ->
     error({args_count_error, {schema_decode, Args}});
 handle_rule_function(schema_encode, [SchemaId, Term | MoreArgs]) ->
