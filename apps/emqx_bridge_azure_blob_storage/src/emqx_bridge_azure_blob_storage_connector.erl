@@ -81,7 +81,8 @@
         mode := direct,
         container := template_str(),
         blob := template_str(),
-        content := template_str()
+        content := template_str(),
+        max_block_size := pos_integer()
     }
 }.
 -type aggreg_action_config() :: #{
@@ -94,7 +95,9 @@
             max_records := pos_integer()
         },
         container := string(),
-        blob := template_str()
+        blob := template_str(),
+        max_block_size := pos_integer(),
+        min_block_size := pos_integer()
     },
     any() => term()
 }.
@@ -106,7 +109,8 @@
     mode := direct,
     container := emqx_template:t(),
     blob := emqx_template:t(),
-    content := emqx_template:t()
+    content := emqx_template:t(),
+    max_block_size := pos_integer()
 }.
 -type aggreg_action_state() :: #{
     mode := aggregated,
@@ -505,7 +509,8 @@ install_action(#{parameters := #{mode := direct}} = ActionConfig, _ConnState) ->
             mode := Mode = direct,
             container := ContainerTemplateStr,
             blob := BlobTemplateStr,
-            content := ContentTemplateStr
+            content := ContentTemplateStr,
+            max_block_size := MaxBlockSize
         }
     } = ActionConfig,
     ContainerTemplate = emqx_template:parse(ContainerTemplateStr),
@@ -515,7 +520,8 @@ install_action(#{parameters := #{mode := direct}} = ActionConfig, _ConnState) ->
         mode => Mode,
         container => ContainerTemplate,
         blob => BlobTemplate,
-        content => ContentTemplate
+        content => ContentTemplate,
+        max_block_size => MaxBlockSize
     };
 install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState) ->
     #{pool_name := Pool} = ConnState,
@@ -582,7 +588,8 @@ run_direct_transfer(Data, ConnResId, ActionResId, ActionState) ->
     #{
         container := ContainerTemplate,
         blob := BlobTemplate,
-        content := ContentTemplate
+        content := ContentTemplate,
+        max_block_size := MaxBlockSize
     } = ActionState,
     Container = render_container(ContainerTemplate, Data),
     Blob = render_blob(BlobTemplate, Data),
@@ -595,6 +602,12 @@ run_direct_transfer(Data, ConnResId, ActionResId, ActionState) ->
             data = Content
         }
     }),
+    case iolist_size(Content) > MaxBlockSize of
+        true ->
+            error({unrecoverable_error, payload_too_large});
+        false ->
+            ok
+    end,
     case put_block_blob(ConnResId, Container, Blob, Content) of
         {ok, created} ->
             ?tp(azure_blob_storage_bridge_connector_upload_ok, #{instance_id => ConnResId}),
@@ -652,7 +665,7 @@ render_container(Template, Data) ->
         {Result, []} ->
             iolist_to_string(Result);
         {_, Errors} ->
-            erlang:error({unrecoverable_error, {container_undefined, Errors}})
+            error({unrecoverable_error, {container_undefined, Errors}})
     end.
 
 render_blob(Template, Data) ->

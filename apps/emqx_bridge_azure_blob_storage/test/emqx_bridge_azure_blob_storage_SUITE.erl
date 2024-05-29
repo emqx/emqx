@@ -136,7 +136,8 @@ end_per_testcase(_Testcase, Config) ->
 direct_action_cases() ->
     [
         t_sync_query,
-        t_sync_query_down
+        t_sync_query_down,
+        t_max_block_size_direct_transfer
     ].
 
 %%------------------------------------------------------------------------------
@@ -683,5 +684,25 @@ t_aggreg_pending_upload_restart(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% Checks that we return an unrecoverable error if the payload exceeds `max_block_size'.
+t_max_block_size_direct_transfer(Config) ->
+    {ok, _Bridge} = emqx_bridge_v2_testlib:create_bridge_api(
+        Config,
+        #{<<"parameters">> => #{<<"max_block_size">> => <<"1B">>}}
+    ),
+    Topic = <<"t/a">>,
+    ClientId = <<"myclient">>,
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+    Payload = <<"too large">>,
+    PayloadBin = emqx_utils_json:encode(Payload),
+    MsgEvent = mk_message_event(ClientId, Topic, PayloadBin),
+    Message = {BridgeId, MsgEvent},
+    ?assertMatch(
+        {error, {unrecoverable_error, payload_too_large}},
+        emqx_resource:simple_sync_query(ResourceId, Message)
     ),
     ok.
