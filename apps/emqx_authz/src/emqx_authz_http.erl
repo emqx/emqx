@@ -39,6 +39,10 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PH_ACCESS, <<"${access}">>).
+-define(LEGACY_SUBSCRIBE_ACTION, 1).
+-define(LEGACY_PUBLISH_ACTION, 2).
+
 -define(PLACEHOLDERS, [
     ?PH_USERNAME,
     ?PH_CLIENTID,
@@ -48,7 +52,8 @@
     ?PH_TOPIC,
     ?PH_ACTION,
     ?PH_CERT_SUBJECT,
-    ?PH_CERT_CN_NAME
+    ?PH_CERT_CN_NAME,
+    ?PH_ACCESS
 ]).
 
 -define(PLACEHOLDERS_FOR_RICH_ACTIONS, [
@@ -234,7 +239,14 @@ serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    Vars#{topic => Topic}.
+    add_legacy_access_var(Vars#{topic => Topic}).
+
+add_legacy_access_var(#{action := subscribe} = Vars) ->
+    Vars#{access => ?LEGACY_SUBSCRIBE_ACTION};
+add_legacy_access_var(#{action := publish} = Vars) ->
+    Vars#{access => ?LEGACY_PUBLISH_ACTION};
+add_legacy_access_var(Vars) ->
+    Vars.
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
