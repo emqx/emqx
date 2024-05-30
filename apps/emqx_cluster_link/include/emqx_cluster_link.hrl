@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 
 -define(TOPIC_PREFIX, "$LINK/cluster/").
+-define(TOPIC_PREFIX_WILDCARD, <<?TOPIC_PREFIX "#">>).
+
 -define(ROUTE_TOPIC_PREFIX, ?TOPIC_PREFIX "route/").
 -define(MSG_TOPIC_PREFIX, ?TOPIC_PREFIX "msg/").
 -define(RESP_TOPIC_PREFIX, ?TOPIC_PREFIX "resp/").
