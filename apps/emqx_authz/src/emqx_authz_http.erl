@@ -200,7 +200,7 @@ generate_request(
         _ ->
             NPath = append_query(Path, Query),
             NBody = serialize_body(
-                proplists:get_value(<<"accept">>, Headers, <<"application/json">>),
+                proplists:get_value(<<"Content-Type">>, Headers, <<"application/json">>),
                 Body
             ),
             {NPath, Headers, NBody}
