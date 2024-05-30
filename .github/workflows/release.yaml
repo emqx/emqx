@@ -8,7 +8,7 @@ on:
       tag:
         type: string
         required: true
-      publish_release_artefacts:
+      publish_release_artifacts:
         type: boolean
         required: true
         default: false
@@ -75,7 +75,7 @@ jobs:
           tag_name: "${{ env.ref_name }}"
           skip_existing: true
       - name: update to emqx.io
-        if: startsWith(env.ref_name, 'v') && ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts)
+        if: github.event_name == 'release' || inputs.publish_release_artifacts
         run: |
           set -eux
           curl -w %{http_code} \
@@ -86,7 +86,7 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - name: Push to packagecloud.io
-        if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts
+        if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts
         env:
           PROFILE: ${{ steps.profile.outputs.profile }}
           VERSION: ${{ steps.profile.outputs.version }}
