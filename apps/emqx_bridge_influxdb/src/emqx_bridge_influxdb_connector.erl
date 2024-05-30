@@ -396,7 +396,7 @@ do_start_client(InstId, ClientConfig, Config) ->
                             }),
                             %% no leak
                             _ = influxdb:stop_client(Client),
-                            {error, influxdb_client_auth_error}
+                            {error, connect_ok_but_auth_failed}
                     end;
                 {false, Reason} ->
                     ?tp(influxdb_connector_start_failed, #{
@@ -410,7 +410,7 @@ do_start_client(InstId, ClientConfig, Config) ->
                     }),
                     %% no leak
                     _ = influxdb:stop_client(Client),
-                    {error, influxdb_client_not_alive}
+                    {error, {connect_failed, Reason}}
             end;
         {error, {already_started, Client0}} ->
             ?tp(influxdb_connector_start_already_started, #{}),
