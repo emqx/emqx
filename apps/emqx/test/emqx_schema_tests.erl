@@ -930,3 +930,15 @@ timeout_types_test_() ->
             typerefl:from_string(emqx_schema:timeout_duration_s(), <<"4294967001ms">>)
         )
     ].
+
+unicode_template_test() ->
+    Sc = #{
+        roots => [root],
+        fields => #{root => [{template, #{type => emqx_schema:template()}}]}
+    },
+    HoconText = <<"root = {template = \"中文\"}"/utf8>>,
+    {ok, Hocon} = hocon:binary(HoconText),
+    ?assertEqual(
+        #{<<"root">> => #{<<"template">> => <<"中文"/utf8>>}},
+        hocon_tconf:check_plain(Sc, Hocon)
+    ).
