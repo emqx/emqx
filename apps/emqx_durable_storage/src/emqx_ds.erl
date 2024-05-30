@@ -23,7 +23,8 @@
 
 %% Management API:
 -export([
-    base_dir/0,
+    register_backend/2,
+
     open_db/2,
     update_db_config/2,
     add_generation/1,
@@ -247,21 +248,22 @@
 %% API functions
 %%================================================================================
 
--spec base_dir() -> file:filename().
-base_dir() ->
-    application:get_env(?APP, db_data_dir, emqx:data_dir()).
+%% @doc Register DS backend.
+-spec register_backend(atom(), module()) -> ok.
+register_backend(Name, Module) ->
+    persistent_term:put({emqx_ds_backend_module, Name}, Module).
 
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin orelse Backend =:= fdb ->
-    Module =
-        case Backend of
-            builtin -> emqx_ds_replication_layer;
-            fdb -> emqx_fdb_ds
-        end,
-    persistent_term:put(?persistent_term(DB), Module),
-    ?module(DB):open_db(DB, Opts).
+open_db(DB, Opts = #{backend := Backend}) ->
+    case persistent_term:get({emqx_ds_backend_module, Backend}, undefined) of
+        undefined ->
+            error({no_such_backend, Backend});
+        Module ->
+            persistent_term:put(?persistent_term(DB), Module),
+            ?module(DB):open_db(DB, Opts)
+    end.
 
 -spec add_generation(db()) -> ok.
 add_generation(DB) ->

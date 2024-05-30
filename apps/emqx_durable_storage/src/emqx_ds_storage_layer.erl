@@ -55,7 +55,7 @@
 -export([init/1, format_status/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([db_dir/1]).
+-export([db_dir/1, base_dir/0]).
 
 -export_type([
     gen_id/0,
@@ -87,6 +87,8 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-define(APP, emqx_durable_storage).
 
 %% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
 %% records over the wire.
@@ -892,13 +894,17 @@ rocksdb_open(Shard, Options) ->
             Error
     end.
 
+-spec base_dir() -> file:filename().
+base_dir() ->
+    application:get_env(?APP, db_data_dir, emqx:data_dir()).
+
 -spec db_dir(shard_id()) -> file:filename().
 db_dir({DB, ShardId}) ->
-    filename:join([emqx_ds:base_dir(), DB, binary_to_list(ShardId)]).
+    filename:join([base_dir(), DB, binary_to_list(ShardId)]).
 
 -spec checkpoints_dir(shard_id()) -> file:filename().
 checkpoints_dir({DB, ShardId}) ->
-    filename:join([emqx_ds:base_dir(), DB, checkpoints, binary_to_list(ShardId)]).
+    filename:join([base_dir(), DB, checkpoints, binary_to_list(ShardId)]).
 
 -spec checkpoint_dir(shard_id(), _Name :: file:name()) -> file:filename().
 checkpoint_dir(ShardId, Name) ->

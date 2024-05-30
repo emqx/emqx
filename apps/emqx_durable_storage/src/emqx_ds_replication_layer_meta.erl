@@ -673,7 +673,7 @@ ensure_tables() ->
     ok = mria:wait_for_tables([?META_TAB, ?NODE_TAB, ?SHARD_TAB]).
 
 ensure_site() ->
-    Filename = filename:join(emqx_ds:base_dir(), "emqx_ds_builtin_site.eterm"),
+    Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
     case file:consult(Filename) of
         {ok, [Site]} ->
             ok;
