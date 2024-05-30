@@ -14,8 +14,7 @@
     target_version => "5.6.1+patch.A",
     from_version => "5.6.1",
     code_changes =>
-        [ {load_module, emqx_post_upgrade}
-        , {load_module, emqx_broker}
+        [ {load_module, emqx_broker}
         , {load_module, emqx_metrics}
         , {load_module, emqx_persistent_message}
         , {load_module, emqx_dashboard_monitor}
