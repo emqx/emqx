@@ -131,6 +131,21 @@ emqx_test(){
                 exit 1
             fi
 
+            echo "try to install again and purge while the service is running"
+            dpkg -i "${PACKAGE_PATH}/${packagename}"
+            if [ "$(dpkg -l | grep ${EMQX_NAME} | awk '{print $1}')" != "ii" ]
+            then
+                echo "package install error"
+                exit 1
+            fi
+            if ! /usr/bin/emqx start
+            then
+                echo "ERROR: failed_to_start_emqx"
+                cat /var/log/emqx/erlang.log.1 || true
+                cat /var/log/emqx/emqx.log.1 || true
+                exit 1
+            fi
+            /usr/bin/emqx ping
             dpkg -P "${EMQX_NAME}"
             if dpkg -l |grep -q emqx
             then
