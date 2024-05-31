@@ -38,6 +38,10 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(VAR_ACCESS, "access").
+-define(LEGACY_SUBSCRIBE_ACTION, 1).
+-define(LEGACY_PUBLISH_ACTION, 2).
+
 -define(ALLOWED_VARS, [
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
@@ -48,6 +52,7 @@
     ?VAR_ACTION,
     ?VAR_CERT_SUBJECT,
     ?VAR_CERT_CN_NAME,
+    ?VAR_ACCESS,
     ?VAR_NS_CLIENT_ATTRS
 ]).
 
@@ -214,7 +219,7 @@ generate_request(
         _ ->
             NPath = append_query(Path, Query),
             NBody = serialize_body(
-                proplists:get_value(<<"accept">>, Headers, <<"application/json">>),
+                proplists:get_value(<<"content-type">>, Headers, <<"application/json">>),
                 Body
             ),
             {NPath, Headers, NBody}
@@ -248,7 +253,14 @@ serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    Vars#{topic => Topic}.
+    add_legacy_access_var(Vars#{topic => Topic}).
+
+add_legacy_access_var(#{action := subscribe} = Vars) ->
+    Vars#{access => ?LEGACY_SUBSCRIBE_ACTION};
+add_legacy_access_var(#{action := publish} = Vars) ->
+    Vars#{access => ?LEGACY_PUBLISH_ACTION};
+add_legacy_access_var(Vars) ->
+    Vars.
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
