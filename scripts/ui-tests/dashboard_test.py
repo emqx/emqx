@@ -100,7 +100,15 @@ def test_docs_link(driver, login, dashboard_url):
     driver.get(dest_url)
     ensure_current_url(driver, dest_url)
     xpath_link_help = "//div[@id='app']//div[@class='nav-header']//a[contains(@class, 'link-help')]"
-    link_help = driver.find_element(By.XPATH, xpath_link_help)
+    # retry up to 5 times
+    for _ in range(5):
+        try:
+            link_help = driver.find_element(By.XPATH, xpath_link_help)
+            break
+        except NoSuchElementException:
+            time.sleep(1)
+    else:
+        raise AssertionError("Cannot find the help link")
     driver.execute_script("arguments[0].click();", link_help)
 
     prefix, emqx_version = fetch_version(dashboard_url)
