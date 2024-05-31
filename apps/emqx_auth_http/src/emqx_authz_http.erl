@@ -38,7 +38,7 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(PH_ACCESS, <<"${access}">>).
+-define(VAR_ACCESS, "access").
 -define(LEGACY_SUBSCRIBE_ACTION, 1).
 -define(LEGACY_PUBLISH_ACTION, 2).
 
@@ -52,7 +52,7 @@
     ?VAR_ACTION,
     ?VAR_CERT_SUBJECT,
     ?VAR_CERT_CN_NAME,
-    ?PH_ACCESS,
+    ?VAR_ACCESS,
     ?VAR_NS_CLIENT_ATTRS
 ]).
 
