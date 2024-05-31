@@ -61,9 +61,9 @@ emqx_bridge_azure_blob_storage_action_schema {
   If event rate is high enough, there obviously may be more than one aggregated upload during the same time interval. These uploads will have different, but consecutive sequence numbers, which will be a part of Azure Blob Storage blob name."""
 
   aggregated_container_name.label:
-  """Container for aggregated events"""
+  """Azure Blob Storage Container name"""
   aggregated_container_name.desc:
-  """Settings governing the file format of an upload containing aggregated events. Does not support templates."""
+  """The Azure Blob Storage container name. Does not support templates."""
 
   aggregated_blob_template.label:
   """Azure Blob Storage blob name template"""
@@ -71,17 +71,17 @@ emqx_bridge_azure_blob_storage_action_schema {
   """Template for the Azure Blob Storage blob name of an aggregated upload.<br/>
   Template may contain placeholders for the following variables:
   <ul>
-  <li><code>${action}</code>: name of the action (required).<li/>
-  <li><code>${node}</code>: name of the EMQX node conducting the upload (required).<li/>
+  <li><code>${action}</code>: name of the action (required).</li>
+  <li><code>${node}</code>: name of the EMQX node conducting the upload (required).</li>
   <li><code>${datetime.{format}}</code>: date and time when aggregation started, formatted according to the <code>{format}</code> string (required):
       <ul>
-      <li><code>${datetime.rfc3339utc}</code>: RFC3339-formatted date and time in UTC,<li/>
-      <li><code>${datetime.rfc3339}</code>: RFC3339-formatted date and time in local timezone,<li/>
-      <li><code>${datetime.unix}</code>: Unix timestamp.<li/>
+      <li><code>${datetime.rfc3339utc}</code>: RFC3339-formatted date and time in UTC,</li>
+      <li><code>${datetime.rfc3339}</code>: RFC3339-formatted date and time in local timezone,</li>
+      <li><code>${datetime.unix}</code>: Unix timestamp.</li>
       </ul>
-  <li/>
-  <li><code>${datetime_until.{format}}</code>: date and time when aggregation ended, with the same formatting options.<li/>
-  <li><code>${sequence}</code>: sequence number of the aggregated upload within the same time interval (required).<li/>
+  </li>
+  <li><code>${datetime_until.{format}}</code>: date and time when aggregation ended, with the same formatting options.</li>
+  <li><code>${sequence}</code>: sequence number of the aggregated upload within the same time interval (required).</li>
   </ul>
   All other placeholders are considered invalid. Note that placeholders marked as required will be added as a path suffix to the Azure Blob Storage blob name if they are missing from the template."""
 
