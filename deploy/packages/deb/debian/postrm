@@ -21,6 +21,8 @@ set -e
 
 case "$1" in
     purge)
+        # force kill all processes owned by emqx, if any
+        pkill -9 -u emqx || true
         rm -f /etc/default/emqx
 
         if [ -d /var/lib/emqx ]; then
@@ -38,9 +40,8 @@ case "$1" in
         if [ -e /etc/init.d/emqx ]; then
                 rm  /etc/init.d/emqx
         fi
-        # Remove User & Group, killing any process owned by them
+        # Remove User & Group
         if getent passwd emqx >/dev/null; then
-                pkill -u emqx || true
                 deluser --quiet --system emqx
         fi
         if getent group emqx >/dev/null; then

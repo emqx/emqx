@@ -214,7 +214,7 @@ ensure_client(ClientId, Hosts, ClientConfig) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, _Pid} ->
             ok;
-        {error, no_such_client} ->
+        {error, #{reason := no_such_client}} ->
             case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
                 {ok, _} ->
                     ?SLOG(info, #{
@@ -546,13 +546,13 @@ check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions) ->
         {ok, Pid} ->
             ok = check_topic_status(ClientId, Pid, KafkaTopic),
             ok = check_if_healthy_leaders(ClientId, Pid, KafkaTopic, MaxPartitions);
-        {error, no_such_client} ->
+        {error, #{reason := no_such_client}} ->
             throw(#{
                 reason => cannot_find_kafka_client,
                 kafka_client => ClientId,
                 kafka_topic => KafkaTopic
             });
-        {error, client_supervisor_not_initialized} ->
+        {error, #{reason := client_supervisor_not_initialized}} ->
             throw(#{
                 reason => restarting,
                 kafka_client => ClientId,
@@ -593,33 +593,54 @@ maybe_check_health_check_topic(_) ->
     %% Cannot infer further information.  Maybe upgraded from older version.
     ?status_connected.
 
+is_alive(Pid) ->
+    is_pid(Pid) andalso erlang:is_process_alive(Pid).
+
+error_summary(Map, [Error]) ->
+    Map#{error => Error};
+error_summary(Map, [Error | More]) ->
+    Map#{first_error => Error, total_errors => length(More) + 1}.
+
 check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic, MaxPartitions) when is_pid(ClientPid) ->
-    Leaders =
-        case wolff_client:get_leader_connections(ClientPid, KafkaTopic, MaxPartitions) of
-            {ok, LeadersToCheck} ->
-                %% Kafka is considered healthy as long as any of the partition leader is reachable.
-                lists:filtermap(
-                    fun({_Partition, Pid}) ->
-                        case is_pid(Pid) andalso erlang:is_process_alive(Pid) of
-                            true -> {true, Pid};
-                            _ -> false
-                        end
-                    end,
-                    LeadersToCheck
-                );
-            {error, _} ->
-                []
-        end,
-    case Leaders of
-        [] ->
+    case wolff_client:get_leader_connections(ClientPid, KafkaTopic, MaxPartitions) of
+        {ok, Leaders} ->
+            %% Kafka is considered healthy as long as any of the partition leader is reachable.
+            case lists:partition(fun({_Partition, Pid}) -> is_alive(Pid) end, Leaders) of
+                {[], Errors} ->
+                    throw(
+                        error_summary(
+                            #{
+                                cause => "no_connected_partition_leader",
+                                kafka_client => ClientId,
+                                kafka_topic => KafkaTopic
+                            },
+                            Errors
+                        )
+                    );
+                {_, []} ->
+                    ok;
+                {_, Errors} ->
+                    ?SLOG(
+                        warning,
+                        "not_all_kafka_partitions_connected",
+                        error_summary(
+                            #{
+                                kafka_client => ClientId,
+                                kafka_topic => KafkaTopic
+                            },
+                            Errors
+                        )
+                    ),
+                    ok
+            end;
+        {error, Reason} ->
+            %% If failed to fetch metadata, wolff_client logs a warning level message
+            %% which includes the reason for each seed host
             throw(#{
-                error => no_connected_partition_leader,
+                cause => Reason,
                 kafka_client => ClientId,
-                kafka_topic => KafkaTopic,
-                partitions_limit => MaxPartitions
-            });
-        _ ->
-            ok
+                kafka_topic => KafkaTopic
+            })
     end.
 
 check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->

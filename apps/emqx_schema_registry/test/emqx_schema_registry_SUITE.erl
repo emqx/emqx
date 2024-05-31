@@ -44,7 +44,8 @@ sparkplug_tests() ->
         t_sparkplug_decode,
         t_sparkplug_encode,
         t_sparkplug_decode_encode_with_message_name,
-        t_sparkplug_encode_float_to_uint64_key
+        t_sparkplug_encode_float_to_uint64_key,
+        t_decode_fail
     ].
 
 init_per_suite(Config) ->
@@ -530,6 +531,23 @@ t_encode(Config) ->
             {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
             ?assertEqual(Payload, eval_decode(Serde, [Encoded | ExtraArgs]))
     end,
+    ok.
+
+t_decode_fail(_Config) ->
+    SerdeName = my_serde,
+    SerdeType = protobuf,
+    ok = create_serde(SerdeType, SerdeName),
+    Payload = <<"ss">>,
+    ?assertThrow(
+        {schema_decode_error, #{
+            data := <<"ss">>,
+            error_type := decoding_failure,
+            explain := _,
+            more_args := [<<"Person">>],
+            schema_id := <<"my_serde">>
+        }},
+        emqx_rule_funcs:schema_decode(<<"my_serde">>, Payload, <<"Person">>)
+    ),
     ok.
 
 t_decode(Config) ->

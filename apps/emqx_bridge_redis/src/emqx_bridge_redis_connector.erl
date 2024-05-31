@@ -6,6 +6,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 
 -behaviour(emqx_resource).
 
@@ -143,7 +144,13 @@ on_batch_query(
             [{ChannelID, _} | _] = BatchData,
             emqx_trace:rendered_action_template(
                 ChannelID,
-                #{commands => Cmds, batch => ture}
+                #{
+                    commands => #emqx_trace_format_func_data{
+                        function = fun trace_format_commands/1,
+                        data = Cmds
+                    },
+                    batch => true
+                }
             ),
             Result = query(InstId, {cmds, Cmds}, RedisConnSt),
             ?tp(
@@ -161,6 +168,10 @@ on_batch_query(
         Error ->
             Error
     end.
+
+trace_format_commands(Commands0) ->
+    Commands1 = [lists:join(" ", C) || C <- Commands0],
+    unicode:characters_to_binary(lists:join("; ", Commands1)).
 
 on_format_query_result({ok, Msg}) ->
     #{result => ok, message => Msg};

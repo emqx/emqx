@@ -2487,7 +2487,7 @@ converter_ciphers(Ciphers, _Opts) when is_binary(Ciphers) ->
 
 default_ciphers(Which) ->
     lists:map(
-        fun erlang:iolist_to_binary/1,
+        fun unicode:characters_to_binary/1,
         do_default_ciphers(Which)
     ).
 
@@ -2510,7 +2510,7 @@ bin_str_converter(I, _) when is_integer(I) ->
     integer_to_binary(I);
 bin_str_converter(X, _) ->
     try
-        iolist_to_binary(X)
+        unicode:characters_to_binary(X)
     catch
         _:_ ->
             throw("must_quote")
@@ -2665,7 +2665,7 @@ to_comma_separated_list(Str) ->
     {ok, string:tokens(Str, ", ")}.
 
 to_comma_separated_binary(Str) ->
-    {ok, lists:map(fun erlang:list_to_binary/1, string:tokens(Str, ", "))}.
+    {ok, lists:map(fun unicode:characters_to_binary/1, string:tokens(Str, ", "))}.
 
 to_comma_separated_atoms(Str) ->
     {ok, lists:map(fun to_atom/1, string:tokens(Str, ", "))}.
@@ -2674,7 +2674,7 @@ to_url(Str) ->
     case emqx_http_lib:uri_parse(Str) of
         {ok, URIMap} ->
             URIString = emqx_http_lib:normalize(URIMap),
-            {ok, iolist_to_binary(URIString)};
+            {ok, unicode:characters_to_binary(URIString)};
         Error ->
             Error
     end.
@@ -2682,13 +2682,13 @@ to_url(Str) ->
 to_json_binary(Str) ->
     case emqx_utils_json:safe_decode(Str) of
         {ok, _} ->
-            {ok, iolist_to_binary(Str)};
+            {ok, unicode:characters_to_binary(Str)};
         Error ->
             Error
     end.
 
 to_template(Str) ->
-    {ok, iolist_to_binary(Str)}.
+    {ok, unicode:characters_to_binary(Str, utf8)}.
 
 to_template_str(Str) ->
     {ok, unicode:characters_to_list(Str, utf8)}.
@@ -2784,7 +2784,7 @@ validate_keepalive_multiplier(_Multiplier) ->
     {error, #{reason => keepalive_multiplier_out_of_range, min => 1, max => 65535}}.
 
 validate_tcp_keepalive(Value) ->
-    case iolist_to_binary(Value) of
+    case unicode:characters_to_binary(Value) of
         <<"none">> ->
             ok;
         _ ->
@@ -2965,7 +2965,7 @@ convert_servers(undefined) ->
 convert_servers(Map) when is_map(Map) ->
     try
         List = convert_hocon_map_host_port(Map),
-        iolist_to_binary(string:join(List, ","))
+        unicode:characters_to_binary(string:join(List, ","))
     catch
         _:_ ->
             throw("bad_host_port")
@@ -2973,13 +2973,13 @@ convert_servers(Map) when is_map(Map) ->
 convert_servers([H | _] = Array) when is_binary(H) orelse is_list(H) ->
     %% if the old config was a string array
     %% we want to make sure it's converted to a comma-separated
-    iolist_to_binary([[I, ","] || I <- Array]);
+    unicode:characters_to_binary([[I, ","] || I <- Array]);
 convert_servers(Str) ->
     normalize_host_port_str(Str).
 
 %% remove spaces around comma (,)
 normalize_host_port_str(Str) ->
-    iolist_to_binary(re:replace(Str, "(\s)*,(\s)*", ",")).
+    unicode:characters_to_binary(re:replace(Str, "(\s)*,(\s)*", ",")).
 
 %% @doc Shared validation function for both 'server' and 'servers' string.
 %% NOTE: Validator is called after converter.
@@ -3458,8 +3458,10 @@ ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
 
-cert_file(_File, client) -> undefined;
-cert_file(File, server) -> iolist_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
+cert_file(_File, client) ->
+    undefined;
+cert_file(File, server) ->
+    unicode:characters_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
 
 mqtt_converter(#{<<"keepalive_multiplier">> := Multi} = Mqtt, _Opts) ->
     case round(Multi * 100) =:= round(?DEFAULT_MULTIPLIER * 100) of
