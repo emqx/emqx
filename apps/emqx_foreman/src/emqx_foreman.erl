@@ -108,6 +108,9 @@
 -define(follower, follower).
 -define(candidate, candidate).
 
+%% TODO: make configurable
+-define(DEFAULT_ALLOCATION_TRIGGER_TIMEOUT, 5_000).
+
 -type state() :: ?leader | ?follower | ?candidate.
 
 -type leader_data() :: #{
@@ -575,9 +578,9 @@ handle_allocate(LData0) ->
     Allocation = #{} = ComputeAllocationFn(GroupContext),
     case Allocation of
         PrevAllocation ->
-            %% TODO: make configurable and larger default
-            Delay = 1_000,
-            {keep_state_and_data, [{state_timeout, Delay, #allocate{}}]};
+            {keep_state_and_data, [
+                {state_timeout, ?DEFAULT_ALLOCATION_TRIGGER_TIMEOUT, #allocate{}}
+            ]};
         _ ->
             GenId = GenId0 + 1,
             maps:foreach(
@@ -772,9 +775,7 @@ handle_trigger_commit(LData0) ->
     MemberNodes = current_members(Scope, Name),
     ok = emqx_foreman_proto_v1:commit_assignments(MemberNodes, Name, GenId),
     LData = LData0#{allocation_status := committed},
-    %% TODO: make configurable and larger default
-    Delay = 1_000,
-    {keep_state, LData, [{state_timeout, Delay, #allocate{}}]}.
+    {keep_state, LData, [{state_timeout, ?DEFAULT_ALLOCATION_TRIGGER_TIMEOUT, #allocate{}}]}.
 
 -spec handle_commit_assignments(commit_assignments_event(), state(), data()) -> handler_result().
 handle_commit_assignments(#commit_assignments{gen_id = GenId}, _State, #{gen_id := GenId} = Data0) ->
