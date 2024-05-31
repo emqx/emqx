@@ -1,4 +1,4 @@
-{application, emqx_connector_foreman, [
+{application, emqx_foreman, [
     {description, "EMQX Connector Foreman"},
     {vsn, "0.1.0"},
     {registered, []},
@@ -8,7 +8,7 @@
         gproc
     ]},
     {env, []},
-    {mod, {emqx_connector_foreman_app, []}},
+    {mod, {emqx_foreman_app, []}},
     {modules, []},
     {links, []}
 ]}.

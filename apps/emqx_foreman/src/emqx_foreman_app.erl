@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_foreman_app).
+-module(emqx_foreman_app).
 
 -behaviour(application).
 
@@ -30,7 +30,7 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
-    emqx_connector_foreman_sup:start_link().
+    emqx_foreman_sup:start_link().
 
 stop(_State) ->
     ok.

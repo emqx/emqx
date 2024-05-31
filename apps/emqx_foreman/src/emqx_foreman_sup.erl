@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_foreman_sup).
+-module(emqx_foreman_sup).
 
 -behaviour(supervisor).
 

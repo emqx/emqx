@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_foreman_proto_v1).
+-module(emqx_foreman_proto_v1).
 
 -behavior(emqx_bpapi).
 
@@ -50,37 +50,37 @@ introduced_in() ->
 -spec stage_assignments(
     node(),
     gen_statem:server_ref(),
-    emqx_connector_foreman:gen_id(),
-    [emqx_connector_foreman:resource()]
+    emqx_foreman:gen_id(),
+    [emqx_foreman:resource()]
 ) -> ok.
 stage_assignments(Node, ServerRef, GenId, Assignments) ->
-    erpc:cast(Node, emqx_connector_foreman, stage_assignments, [ServerRef, GenId, Assignments]).
+    erpc:cast(Node, emqx_foreman, stage_assignments, [ServerRef, GenId, Assignments]).
 
 -spec commit_assignments(
     [node()],
     gen_statem:server_ref(),
-    emqx_connector_foreman:gen_id()
+    emqx_foreman:gen_id()
 ) -> ok.
 commit_assignments(Nodes, ServerRef, GenId) ->
-    erpc:multicast(Nodes, emqx_connector_foreman, commit_assignments, [ServerRef, GenId]).
+    erpc:multicast(Nodes, emqx_foreman, commit_assignments, [ServerRef, GenId]).
 
 -spec ack_assignments(
     node(),
     gen_statem:server_ref(),
-    emqx_connector_foreman:gen_id(),
+    emqx_foreman:gen_id(),
     node()
 ) -> ok.
 ack_assignments(Node, ServerRef, GenId, Member) ->
-    erpc:cast(Node, emqx_connector_foreman, ack_assignments, [ServerRef, GenId, Member]).
+    erpc:cast(Node, emqx_foreman, ack_assignments, [ServerRef, GenId, Member]).
 
 -spec nack_assignments(
     node(),
     gen_statem:server_ref(),
-    emqx_connector_foreman:gen_id(),
+    emqx_foreman:gen_id(),
     node()
 ) -> ok.
 nack_assignments(Node, ServerRef, CurrentGenId, Member) ->
-    erpc:cast(Node, emqx_connector_foreman, nack_assignments, [ServerRef, CurrentGenId, Member]).
+    erpc:cast(Node, emqx_foreman, nack_assignments, [ServerRef, CurrentGenId, Member]).
 
 -spec get_allocation(
     node(),
@@ -88,14 +88,14 @@ nack_assignments(Node, ServerRef, CurrentGenId, Member) ->
     node()
 ) ->
     {ok, #{
-        gen_id => emqx_connector_foreman:gen_id(),
-        status => emqx_connector_foreman:allocation_status(),
-        resources => undefined | [emqx_connector_foreman:resource()]
+        gen_id => emqx_foreman:gen_id(),
+        status => emqx_foreman:allocation_status(),
+        resources => undefined | [emqx_foreman:resource()]
     }}
     | {error, not_leader}
     | {error, noproc}.
 get_allocation(Node, ServerRef, Member) ->
-    erpc:call(Node, emqx_connector_foreman, get_allocation, [ServerRef, Member]).
+    erpc:call(Node, emqx_foreman, get_allocation, [ServerRef, Member]).
 
 %%------------------------------------------------------------------------------
 %% Internal fns

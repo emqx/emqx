@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_foreman_SUITE).
+-module(emqx_foreman_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -25,7 +25,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(SUP, emqx_connector_foreman_sup).
+-define(SUP, emqx_foreman_sup).
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 %%------------------------------------------------------------------------------
@@ -49,7 +49,7 @@ end_per_testcase(_TestCase, _Config) ->
 
 app_specs(AppOpts) ->
     [
-        {emqx_connector_foreman, #{
+        {emqx_foreman, #{
             after_start => fun() -> setup_node(AppOpts) end
         }}
     ].
@@ -107,7 +107,7 @@ assert_all_erpc_ok(Res) ->
 
 setup_node(Opts) ->
     #{name := Name} = Opts,
-    ok = emqx_connector_foreman:ensure_pg_scope_started(?SUP, Name),
+    ok = emqx_foreman:ensure_pg_scope_started(?SUP, Name),
     InitOptsDefault = #{
         name => Name,
         scope => Name,
@@ -134,7 +134,7 @@ setup_node(Opts) ->
     {ok, _} = ?SUP:start_child(
         #{
             id => foreman,
-            start => {emqx_connector_foreman, start_link, [InitOpts]}
+            start => {emqx_foreman, start_link, [InitOpts]}
         }
     ),
     ok.
@@ -379,7 +379,7 @@ t_allocate(Config) ->
                 fun(N) ->
                     ?assertEqual(
                         {committed, maps:get(N, FixedAllocation)},
-                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        ?ON(N, emqx_foreman:get_assignments(Name)),
                         #{node => N}
                     )
                 end,
@@ -461,7 +461,7 @@ t_allocate_crash_waiting_for_ack(Config) ->
                 fun(N) ->
                     ?assertEqual(
                         {committed, maps:get(N, FixedAllocation)},
-                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        ?ON(N, emqx_foreman:get_assignments(Name)),
                         #{node => N}
                     )
                 end,
@@ -532,7 +532,7 @@ t_allocate_crash_during_commit(Config) ->
                 fun(N) ->
                     ?assertEqual(
                         {committed, maps:get(N, FixedAllocation)},
-                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        ?ON(N, emqx_foreman:get_assignments(Name)),
                         #{node => N}
                     )
                 end,
@@ -613,7 +613,7 @@ t_allocation_handover(Config) ->
             ),
             Committed1 = lists:flatmap(
                 fun(N) ->
-                    {Status, Rs} = ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                    {Status, Rs} = ?ON(N, emqx_foreman:get_assignments(Name)),
                     ?assertEqual(committed, Status, #{node => N}),
                     Rs
                 end,
@@ -632,7 +632,7 @@ t_allocation_handover(Config) ->
 
             Committed2 = lists:flatmap(
                 fun(N) ->
-                    {Status, Rs} = ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                    {Status, Rs} = ?ON(N, emqx_foreman:get_assignments(Name)),
                     ?assertEqual(committed, Status, #{node => N}),
                     Rs
                 end,
@@ -715,7 +715,7 @@ t_nack_assignments(Config) ->
                 fun(N) ->
                     ?assertEqual(
                         {committed, maps:get(N, FixedAllocation)},
-                        ?ON(N, emqx_connector_foreman:get_assignments(Name)),
+                        ?ON(N, emqx_foreman:get_assignments(Name)),
                         #{node => N}
                     )
                 end,

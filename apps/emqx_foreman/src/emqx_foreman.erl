@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_foreman).
+-module(emqx_foreman).
 
 %%========================================================================================
 %% @doc This process implements leader election on top of `global' to distribute
@@ -582,7 +582,7 @@ handle_allocate(LData0) ->
             GenId = GenId0 + 1,
             maps:foreach(
                 fun(N, Rs) ->
-                    ok = emqx_connector_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
+                    ok = emqx_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
                 end,
                 Allocation
             ),
@@ -609,7 +609,7 @@ handle_ping_lagging_members(LData) ->
     lists:foreach(
         fun(N) ->
             Rs = maps:get(N, Allocation),
-            ok = emqx_connector_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
+            ok = emqx_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
         end,
         maps:keys(PendingAcks)
     ),
@@ -627,7 +627,7 @@ handle_consult_leader(FData0) ->
         on_commit_fn := OnCommitFn,
         resources := {PrevAllocationStatus, PrevResources}
     } = FData0,
-    try emqx_connector_foreman_proto_v1:get_allocation(node(LeaderPid), Name, node()) of
+    try emqx_foreman_proto_v1:get_allocation(node(LeaderPid), Name, node()) of
         {error, noproc} ->
             {keep_state_and_data, [{state_timeout, 1_000, #consult_leader{}}]};
         {error, not_leader} ->
@@ -646,7 +646,7 @@ handle_consult_leader(FData0) ->
             %% TODO: handle errors
             ok = OnStageFn(AllocationContext),
             Member = node(),
-            ok = emqx_connector_foreman_proto_v1:ack_assignments(
+            ok = emqx_foreman_proto_v1:ack_assignments(
                 node(LeaderPid), Name, LeaderGenId, Member
             ),
             maybe
@@ -681,7 +681,7 @@ handle_new_assignments(
         leader := LeaderPid
     } = Data,
     Member = node(),
-    ok = emqx_connector_foreman_proto_v1:nack_assignments(node(LeaderPid), Name, MyGenId, Member),
+    ok = emqx_foreman_proto_v1:nack_assignments(node(LeaderPid), Name, MyGenId, Member),
     keep_state_and_data;
 handle_new_assignments(
     #new_assignments{gen_id = GenId0, resources = Resources},
@@ -704,7 +704,7 @@ handle_new_assignments(
     %% TODO: handle errors
     ok = OnStageFn(AllocationContext),
     Member = node(),
-    ok = emqx_connector_foreman_proto_v1:ack_assignments(node(LeaderPid), Name, GenId, Member),
+    ok = emqx_foreman_proto_v1:ack_assignments(node(LeaderPid), Name, GenId, Member),
     ?tp("foreman_staged_assignments", #{gen_id => GenId}),
     Data = Data0#{
         gen_id := GenId,
@@ -770,7 +770,7 @@ handle_trigger_commit(LData0) ->
         scope := Scope
     } = LData0,
     MemberNodes = current_members(Scope, Name),
-    ok = emqx_connector_foreman_proto_v1:commit_assignments(MemberNodes, Name, GenId),
+    ok = emqx_foreman_proto_v1:commit_assignments(MemberNodes, Name, GenId),
     LData = LData0#{allocation_status := committed},
     %% TODO: make configurable and larger default
     Delay = 1_000,
