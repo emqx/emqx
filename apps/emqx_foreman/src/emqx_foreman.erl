@@ -18,15 +18,12 @@
 
 %%========================================================================================
 %% @doc This process implements leader election on top of `global' to distribute
-%% "resources" to members of its `pg' group.
-%%
-%% Upon initialization, each process must be given a `pg' scope and name, which should
-%% only be shared by processes of the same kind (e.g.: the same connector type and name).
+%% "resources" to members of the EMQX cluster.
 %%
 %% This process can be in one of 3 states: `leader', `follower', `candidate'.
 %%
 %% The process starts in the `candidate' state and attempts to elect itself by claiming a
-%% `global' name based on the input scope and name.  If it manages to claim it, it's the
+%% `global' name based on the input name.  If it manages to claim it, it's the
 %% `leader'.  Otherwise, it monitors the leader pid and enters the `follower' state.  A
 %% `follower' will transition back to a `candidate' if it deems that the leader is dead.
 %%
@@ -35,7 +32,7 @@
 %% trigger a new election.
 %%
 %% Once a leader is elected, it'll evaluate an allocation of resources based on the
-%% current `pg' group members and an input callback function, and then "stage" these
+%% current running nodes and an input callback function, and then "stage" these
 %% allocations by casting a message to each member if it's a new allocation (i.e.:
 %% different from previously computed).  Each process has a generation id to track
 %% evolving configurations, which is bumped on new allocations and included in allocation
@@ -70,9 +67,8 @@
 %% API
 -export([
     start_link/1,
-    ensure_pg_scope_started/2,
 
-    current_members/2,
+    current_members/0,
     get_allocation/2,
 
     get_assignments/1,
@@ -98,8 +94,7 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(LEADER_NAME(SCOPE, NAME), {?MODULE, SCOPE, NAME}).
--define(GROUP(NAME), {?MODULE, NAME}).
+-define(LEADER_NAME(NAME), {?MODULE, NAME}).
 -define(gproc_ref(NAME), {n, l, {?MODULE, NAME}}).
 -define(via(NAME), {via, gproc, ?gproc_ref(NAME)}).
 
@@ -116,7 +111,6 @@
 -type leader_data() :: #{
     %% common fields
     name := name(),
-    scope := scope(),
     gen_id := gen_id(),
     compute_allocation_fn := compute_allocation_fn(),
     on_stage_fn := on_stage_fn(),
@@ -124,7 +118,6 @@
     resources := resources(),
     retry_election_timeout := pos_integer(),
     %% leader-only fields
-    pg_ref := reference(),
     allocation := undefined | allocation(),
     allocation_status := allocation_status(),
     pending_acks := #{node() => _}
@@ -132,7 +125,6 @@
 -type follower_data() :: #{
     %% common fields
     name := name(),
-    scope := scope(),
     gen_id := gen_id(),
     compute_allocation_fn := compute_allocation_fn(),
     on_stage_fn := on_stage_fn(),
@@ -146,7 +138,6 @@
 -type candidate_data() :: #{
     %% common fields
     name := name(),
-    scope := scope(),
     gen_id := gen_id(),
     compute_allocation_fn := compute_allocation_fn(),
     on_stage_fn := on_stage_fn(),
@@ -157,11 +148,9 @@
 -type data() :: leader_data() | follower_data() | candidate_data().
 
 -type name() :: term().
--type scope() :: atom().
 
 -type init_opts() :: #{
     name := name(),
-    scope := scope(),
     compute_allocation_fn := compute_allocation_fn(),
     on_stage_fn := on_stage_fn(),
     on_commit_fn := on_commit_fn(),
@@ -223,28 +212,9 @@
 start_link(Opts = #{name := Name}) ->
     gen_statem:start_link(?via(Name), ?MODULE, Opts, []).
 
-%% N.B.: There's the `supervisor:sup_ref()' type, which is more appropriate here, but that
-%% type is not exported in OTP 26, so dialyzer complains if we try to use it here...  In
-%% OTP 27, `supervisor:sup_ref()' is correctly exported.
--spec ensure_pg_scope_started(gen_server:server_ref(), scope()) -> ok.
-ensure_pg_scope_started(Sup, Scope) ->
-    ChildSpec = #{
-        id => {scope, Scope},
-        start => {pg, start_link, [Scope]},
-        restart => permanent,
-        type => worker,
-        shutdown => 5_000
-    },
-    case supervisor:start_child(Sup, ChildSpec) of
-        {error, {already_started, _}} ->
-            ok;
-        {ok, _} ->
-            ok
-    end.
-
--spec current_members(scope(), name()) -> [node()].
-current_members(Scope, Name) ->
-    lists:usort([node(P) || P <- pg:get_members(Scope, ?GROUP(Name))]).
+-spec current_members() -> [node()].
+current_members() ->
+    emqx:running_nodes().
 
 -spec get_assignments(name()) -> {committed | staged, [resource()]} | undefined.
 get_assignments(Name) ->
@@ -308,13 +278,11 @@ callback_mode() ->
 init(Opts) ->
     #{
         name := Name,
-        scope := Scope,
         compute_allocation_fn := ComputeAllocationFn,
         on_stage_fn := OnStageFn,
         on_commit_fn := OnCommitFn
     } = Opts,
     RetryElectionTimeout = maps:get(retry_election_timeout, Opts, 5_000),
-    ok = pg:join(Scope, ?GROUP(Name), self()),
     CData = #{
         name => Name,
         gen_id => 0,
@@ -322,12 +290,10 @@ init(Opts) ->
         on_stage_fn => OnStageFn,
         on_commit_fn => OnCommitFn,
         resources => {staged, []},
-        retry_election_timeout => RetryElectionTimeout,
-        scope => Scope
+        retry_election_timeout => RetryElectionTimeout
     },
     logger:set_process_metadata(#{
         name => Name,
-        scope => Scope,
         domain => [emqx, connector, foreman]
     }),
     {ok, ?candidate, CData}.
@@ -360,8 +326,6 @@ handle_event(state_timeout, #consult_leader{}, ?follower, FData) ->
     ?tp("foreman_consult_leader", #{}),
     handle_consult_leader(FData);
 %% `?leader' state
-handle_event(info, {Ref, JoinOrLeave, _Group, Pids}, ?leader, LData = #{pg_ref := Ref}) ->
-    handle_pg_event(JoinOrLeave, Pids, LData);
 handle_event(state_timeout, #allocate{}, ?leader, LData) ->
     ?tp("foreman_allocate", #{}),
     handle_allocate(LData);
@@ -377,9 +341,9 @@ handle_event(internal, #trigger_commit{}, ?leader, LData) ->
 %% Misc events
 handle_event(
     info,
-    {global_name_conflict, ?LEADER_NAME(Scope, Name), _OthePid},
+    {global_name_conflict, ?LEADER_NAME(Name), _OthePid},
     State,
-    Data = #{name := Name, scope := Scope}
+    Data = #{name := Name}
 ) ->
     handle_name_clash(State, Data);
 handle_event({call, From}, #get_assignments{}, _State, Data) ->
@@ -455,16 +419,11 @@ try_election(CData) ->
 do_try_election(CData) ->
     #{
         name := Name,
-        retry_election_timeout := RetryElectionTimeout,
-        scope := Scope
+        retry_election_timeout := RetryElectionTimeout
     } = CData,
-    case
-        global:register_name(?LEADER_NAME(Scope, Name), self(), fun ?MODULE:resolve_name_clash/3)
-    of
+    case global:register_name(?LEADER_NAME(Name), self(), fun ?MODULE:resolve_name_clash/3) of
         yes ->
-            {Ref, _} = pg:monitor(Scope, ?GROUP(Name)),
             LData = CData#{
-                pg_ref => Ref,
                 allocation => undefined,
                 allocation_status => staged,
                 pending_acks => #{}
@@ -472,7 +431,7 @@ do_try_election(CData) ->
             ?tp(debug, "foreman_elected", #{leader => node()}),
             {next_state, ?leader, LData};
         no ->
-            case global:whereis_name(?LEADER_NAME(Scope, Name)) of
+            case global:whereis_name(?LEADER_NAME(Name)) of
                 undefined ->
                     %% race condition: leader died / network partition?
                     {keep_state_and_data, [{state_timeout, RetryElectionTimeout, #try_election{}}]};
@@ -480,9 +439,7 @@ do_try_election(CData) ->
                     %% `global' name clash resolve function picked this process?
                     %% currently, we make the leaders shutdown, so this should be
                     %% unreachable until that behavior changes.
-                    {Ref, _} = pg:monitor(Scope, ?GROUP(Name)),
                     LData = CData#{
-                        pg_ref => Ref,
                         allocation => undefined,
                         allocation_status => staged,
                         pending_acks => #{}
@@ -501,10 +458,9 @@ do_try_election(CData) ->
 try_follow_leader(CData) ->
     #{
         name := Name,
-        retry_election_timeout := RetryElectionTimeout,
-        scope := Scope
+        retry_election_timeout := RetryElectionTimeout
     } = CData,
-    case global:whereis_name(?LEADER_NAME(Scope, Name)) of
+    case global:whereis_name(?LEADER_NAME(Name)) of
         undefined ->
             {keep_state_and_data, [{state_timeout, RetryElectionTimeout, #try_election{}}]};
         LeaderPid when is_pid(LeaderPid) ->
@@ -515,14 +471,6 @@ try_follow_leader(CData) ->
             ?tp(debug, "foreman_elected", #{leader => node(LeaderPid)}),
             {next_state, ?follower, FData}
     end.
-
--spec handle_pg_event(join | leave, [pid()], leader_data()) ->
-    handler_result(?leader, leader_data()).
-handle_pg_event(_JoinOrLeave, _Pids, _LData) ->
-    ?tp("foreman_pg_event", #{event => _JoinOrLeave, pids => _Pids, data => _LData}),
-    %% TODO: check allocations?
-    %% TODO: re-send assignments if node is already expected.
-    keep_state_and_data.
 
 -spec handle_name_clash(state(), data()) -> handler_result().
 handle_name_clash(?leader, LData) ->
@@ -565,12 +513,11 @@ handle_get_allocation(From, _Member, _State, _Data) ->
 handle_allocate(LData0) ->
     #{
         name := Name,
-        scope := Scope,
         gen_id := GenId0,
         allocation := PrevAllocation,
         compute_allocation_fn := ComputeAllocationFn
     } = LData0,
-    MemberNodes = current_members(Scope, Name),
+    MemberNodes = current_members(),
     GroupContext = #{
         gen_id => GenId0,
         members => MemberNodes
@@ -769,10 +716,9 @@ handle_nack_assignments(#nack_assignments{gen_id = _, member = _}, _State, _Data
 handle_trigger_commit(LData0) ->
     #{
         gen_id := GenId,
-        name := Name,
-        scope := Scope
+        name := Name
     } = LData0,
-    MemberNodes = current_members(Scope, Name),
+    MemberNodes = current_members(),
     ok = emqx_foreman_proto_v1:commit_assignments(MemberNodes, Name, GenId),
     LData = LData0#{allocation_status := committed},
     {keep_state, LData, [{state_timeout, ?DEFAULT_ALLOCATION_TRIGGER_TIMEOUT, #allocate{}}]}.
@@ -811,7 +757,6 @@ follower_to_candidate_data(FData) ->
     %% dialyzer actually make a helpful analysis and avoid missing fields.
     #{
         name := Name,
-        scope := Scope,
         gen_id := GenId,
         compute_allocation_fn := ComputeAllocationFn,
         on_stage_fn := OnStageFn,
@@ -821,7 +766,6 @@ follower_to_candidate_data(FData) ->
     } = FData,
     #{
         name => Name,
-        scope => Scope,
         gen_id => GenId,
         compute_allocation_fn => ComputeAllocationFn,
         on_stage_fn => OnStageFn,

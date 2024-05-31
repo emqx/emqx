@@ -107,7 +107,6 @@ assert_all_erpc_ok(Res) ->
 
 setup_node(Opts) ->
     #{name := Name} = Opts,
-    ok = emqx_foreman:ensure_pg_scope_started(?SUP, Name),
     InitOptsDefault = #{
         name => Name,
         scope => Name,
