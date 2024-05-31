@@ -22,10 +22,9 @@
 
 %% API
 -export([
-    stage_assignments/4,
-    commit_assignments/3,
-    ack_assignments/4,
-    nack_assignments/4,
+    stage_assignments/3,
+    commit_assignments/2,
+    ack_assignments/3,
     get_allocation/3
 ]).
 
@@ -50,37 +49,25 @@ introduced_in() ->
 -spec stage_assignments(
     node(),
     gen_statem:server_ref(),
-    emqx_foreman:gen_id(),
     [emqx_foreman:resource()]
 ) -> ok.
-stage_assignments(Node, ServerRef, GenId, Assignments) ->
-    erpc:cast(Node, emqx_foreman, stage_assignments, [ServerRef, GenId, Assignments]).
+stage_assignments(Node, ServerRef, Assignments) ->
+    erpc:cast(Node, emqx_foreman, stage_assignments, [ServerRef, Assignments]).
 
 -spec commit_assignments(
     [node()],
-    gen_statem:server_ref(),
-    emqx_foreman:gen_id()
+    gen_statem:server_ref()
 ) -> ok.
-commit_assignments(Nodes, ServerRef, GenId) ->
-    erpc:multicast(Nodes, emqx_foreman, commit_assignments, [ServerRef, GenId]).
+commit_assignments(Nodes, ServerRef) ->
+    erpc:multicast(Nodes, emqx_foreman, commit_assignments, [ServerRef]).
 
 -spec ack_assignments(
     node(),
     gen_statem:server_ref(),
-    emqx_foreman:gen_id(),
     node()
 ) -> ok.
-ack_assignments(Node, ServerRef, GenId, Member) ->
-    erpc:cast(Node, emqx_foreman, ack_assignments, [ServerRef, GenId, Member]).
-
--spec nack_assignments(
-    node(),
-    gen_statem:server_ref(),
-    emqx_foreman:gen_id(),
-    node()
-) -> ok.
-nack_assignments(Node, ServerRef, CurrentGenId, Member) ->
-    erpc:cast(Node, emqx_foreman, nack_assignments, [ServerRef, CurrentGenId, Member]).
+ack_assignments(Node, ServerRef, Member) ->
+    erpc:cast(Node, emqx_foreman, ack_assignments, [ServerRef, Member]).
 
 -spec get_allocation(
     node(),
@@ -88,7 +75,6 @@ nack_assignments(Node, ServerRef, CurrentGenId, Member) ->
     node()
 ) ->
     {ok, #{
-        gen_id => emqx_foreman:gen_id(),
         status => emqx_foreman:allocation_status(),
         resources => undefined | [emqx_foreman:resource()]
     }}

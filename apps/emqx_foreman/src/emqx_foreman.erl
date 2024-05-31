@@ -34,16 +34,7 @@
 %% Once a leader is elected, it'll evaluate an allocation of resources based on the
 %% current running nodes and an input callback function, and then "stage" these
 %% allocations by casting a message to each member if it's a new allocation (i.e.:
-%% different from previously computed).  Each process has a generation id to track
-%% evolving configurations, which is bumped on new allocations and included in allocation
-%% messages.
-%%
-%% If a `follower' receives an assignment tagged with an older generation id, it sends the
-%% `leader' a nack message containing its own, greater generation so that the leader may
-%% catch up faster.  Otherwise, if the generation id is larger than its currently known
-%% generation id, it sets its own gen id to the received value and sends an ack to the
-%% leader.  If the leader receives any nacks, it updates its own generation id using the
-%% replied generation id (larger than its own), bumps it, and begins allocation again.
+%% different from previously computed).
 %%
 %% After the leader receives an ack from each member, it then commits this allocation by
 %% sending a commit message to each one.
@@ -72,10 +63,9 @@
     get_allocation/2,
 
     get_assignments/1,
-    stage_assignments/3,
-    ack_assignments/3,
-    nack_assignments/3,
-    commit_assignments/2
+    stage_assignments/2,
+    ack_assignments/2,
+    commit_assignments/1
 ]).
 
 %% `gen_statem' API
@@ -111,7 +101,6 @@
 -type leader_data() :: #{
     %% common fields
     name := name(),
-    gen_id := gen_id(),
     compute_allocation_fn := compute_allocation_fn(),
     on_stage_fn := on_stage_fn(),
     on_commit_fn := on_commit_fn(),
@@ -125,7 +114,6 @@
 -type follower_data() :: #{
     %% common fields
     name := name(),
-    gen_id := gen_id(),
     compute_allocation_fn := compute_allocation_fn(),
     on_stage_fn := on_stage_fn(),
     on_commit_fn := on_commit_fn(),
@@ -138,7 +126,6 @@
 -type candidate_data() :: #{
     %% common fields
     name := name(),
-    gen_id := gen_id(),
     compute_allocation_fn := compute_allocation_fn(),
     on_stage_fn := on_stage_fn(),
     on_commit_fn := on_commit_fn(),
@@ -161,16 +148,14 @@
 -type allocation() :: #{node() => [resource()]}.
 -type on_stage_fn() :: fun((allocation_context()) -> ok | {error, term()}).
 -type on_commit_fn() :: fun((allocation_context()) -> ok | {error, term()}).
--type group_context() :: #{gen_id := gen_id(), members := [node()]}.
+-type group_context() :: #{members := [node()]}.
 -type allocation_context() :: #{
-    gen_id := gen_id(),
     previous_resources := [resource()],
     resources := [resource()]
 }.
 -type resource() :: term().
 -type resources() :: {allocation_status(), [resource()]}.
 -type allocation_status() :: committed | staged.
--type gen_id() :: integer().
 
 -type handler_result(State, Data) :: gen_statem:event_handler_result(State, Data).
 -type handler_result() ::
@@ -188,18 +173,15 @@
 %% external calls/casts/infos
 -record(get_assignments, {}).
 -record(get_allocation, {member :: node()}).
--record(new_assignments, {gen_id :: gen_id(), resources :: [resource()]}).
--record(ack_assignments, {gen_id :: gen_id(), member :: node()}).
--record(nack_assignments, {gen_id :: gen_id(), member :: node()}).
--record(commit_assignments, {gen_id :: gen_id()}).
+-record(new_assignments, {resources :: [resource()]}).
+-record(ack_assignments, {member :: node()}).
+-record(commit_assignments, {}).
 
 -type new_assignments_event() :: #new_assignments{}.
 -type ack_assignments_event() :: #ack_assignments{}.
--type nack_assignments_event() :: #nack_assignments{}.
 -type commit_assignments_event() :: #commit_assignments{}.
 
 -export_type([
-    gen_id/0,
     resource/0,
     allocation_status/0
 ]).
@@ -227,7 +209,6 @@ get_assignments(Name) ->
 
 -spec get_allocation(name(), node()) ->
     {ok, #{
-        gen_id => gen_id(),
         status => allocation_status(),
         resources => [resource()]
     }}
@@ -241,31 +222,24 @@ get_allocation(Name, Member) ->
             {error, noproc}
     end.
 
-%% @doc Called by the leader on group members to stage the resources for a given
-%% generation id.  Members should "release" the resources from previous generations and
-%% prepare to use the received resources
--spec stage_assignments(name(), gen_id(), [resource()]) -> ok.
-stage_assignments(Name, GenId, Assignments) ->
-    gen_statem:cast(?via(Name), #new_assignments{gen_id = GenId, resources = Assignments}).
+%% @doc Called by the leader on group members to stage the resources from the input.
+%% Members should "release" the resources from previous generations and prepare to use the
+%% received resources
+-spec stage_assignments(name(), [resource()]) -> ok.
+stage_assignments(Name, Assignments) ->
+    gen_statem:cast(?via(Name), #new_assignments{resources = Assignments}).
 
 %% @doc Called by the group member on leader as a positive acknowledgement to received
 %% resources, in response to `new_assignments'.
--spec ack_assignments(name(), gen_id(), node()) -> ok.
-ack_assignments(Name, GenId, Member) ->
-    gen_statem:cast(?via(Name), #ack_assignments{gen_id = GenId, member = Member}).
+-spec ack_assignments(name(), node()) -> ok.
+ack_assignments(Name, Member) ->
+    gen_statem:cast(?via(Name), #ack_assignments{member = Member}).
 
-%% @doc Called by the group member on leader as a negative acknowledgement to received
-%% resources, in response to `new_assignments', along with the member's last seen
-%% generation id so the leader may bump its counter.
--spec nack_assignments(name(), gen_id(), node()) -> ok.
-nack_assignments(Name, CurrentGenId, Member) ->
-    gen_statem:cast(?via(Name), #nack_assignments{gen_id = CurrentGenId, member = Member}).
-
-%% @doc Called by the leader on group members to commit the resources for a given
-%% generation id.  Sent after all members reply with positive acknowledgements.
--spec commit_assignments(name(), gen_id()) -> ok.
-commit_assignments(Name, GenId) ->
-    gen_statem:cast(?via(Name), #commit_assignments{gen_id = GenId}).
+%% @doc Called by the leader on group members to commit the resources already received.
+%% Sent after all members reply with positive acknowledgements.
+-spec commit_assignments(name()) -> ok.
+commit_assignments(Name) ->
+    gen_statem:cast(?via(Name), #commit_assignments{}).
 
 %%------------------------------------------------------------------------------
 %% `gen_statem' API
@@ -285,7 +259,6 @@ init(Opts) ->
     RetryElectionTimeout = maps:get(retry_election_timeout, Opts, 5_000),
     CData = #{
         name => Name,
-        gen_id => 0,
         compute_allocation_fn => ComputeAllocationFn,
         on_stage_fn => OnStageFn,
         on_commit_fn => OnCommitFn,
@@ -350,15 +323,12 @@ handle_event({call, From}, #get_assignments{}, _State, Data) ->
     handle_get_assignments(From, Data);
 handle_event({call, From}, #get_allocation{member = Member}, State, Data) ->
     handle_get_allocation(From, Member, State, Data);
-handle_event(cast, #new_assignments{gen_id = GenId} = Event, State, Data) ->
-    ?tp("foreman_new_assignments", #{state => State, input_gen_id => GenId}),
+handle_event(cast, #new_assignments{} = Event, State, Data) ->
+    ?tp("foreman_new_assignments", #{state => State}),
     handle_new_assignments(Event, State, Data);
 handle_event(cast, #ack_assignments{} = Event, State, Data) ->
     ?tp("foreman_ack_assignments", #{state => State}),
     handle_ack_assignments(Event, State, Data);
-handle_event(cast, #nack_assignments{} = Event, State, Data) ->
-    ?tp("foreman_nack_assignments", #{state => State}),
-    handle_nack_assignments(Event, State, Data);
 handle_event(cast, #commit_assignments{} = Event, State, Data) ->
     ?tp("foreman_commit_assignments", #{state => State}),
     handle_commit_assignments(Event, State, Data);
@@ -489,8 +459,7 @@ handle_get_assignments(From, Data) ->
 handle_get_allocation(From, Member, ?leader, LData) ->
     #{
         allocation := Allocation,
-        allocation_status := AllocationStatus,
-        gen_id := GenId
+        allocation_status := AllocationStatus
     } = LData,
     Resources =
         maybe
@@ -502,8 +471,7 @@ handle_get_allocation(From, Member, ?leader, LData) ->
     Reply =
         {ok, #{
             status => AllocationStatus,
-            resources => Resources,
-            gen_id => GenId
+            resources => Resources
         }},
     {keep_state_and_data, [{reply, From, Reply}]};
 handle_get_allocation(From, _Member, _State, _Data) ->
@@ -513,15 +481,11 @@ handle_get_allocation(From, _Member, _State, _Data) ->
 handle_allocate(LData0) ->
     #{
         name := Name,
-        gen_id := GenId0,
         allocation := PrevAllocation,
         compute_allocation_fn := ComputeAllocationFn
     } = LData0,
     MemberNodes = current_members(),
-    GroupContext = #{
-        gen_id => GenId0,
-        members => MemberNodes
-    },
+    GroupContext = #{members => MemberNodes},
     Allocation = #{} = ComputeAllocationFn(GroupContext),
     case Allocation of
         PrevAllocation ->
@@ -529,17 +493,15 @@ handle_allocate(LData0) ->
                 {state_timeout, ?DEFAULT_ALLOCATION_TRIGGER_TIMEOUT, #allocate{}}
             ]};
         _ ->
-            GenId = GenId0 + 1,
             maps:foreach(
                 fun(N, Rs) ->
-                    ok = emqx_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
+                    ok = emqx_foreman_proto_v1:stage_assignments(N, Name, Rs)
                 end,
                 Allocation
             ),
             LData = LData0#{
                 allocation := Allocation,
                 allocation_status := staged,
-                gen_id := GenId,
                 pending_acks := maps:from_keys(MemberNodes, true)
             },
             %% TODO: make delay configurable
@@ -550,7 +512,6 @@ handle_allocate(LData0) ->
 -spec handle_ping_lagging_members(leader_data()) -> handler_result(?leader, leader_data()).
 handle_ping_lagging_members(LData) ->
     #{
-        gen_id := GenId,
         name := Name,
         %% FIXME: check this before crashing...
         allocation := #{} = Allocation,
@@ -559,7 +520,7 @@ handle_ping_lagging_members(LData) ->
     lists:foreach(
         fun(N) ->
             Rs = maps:get(N, Allocation),
-            ok = emqx_foreman_proto_v1:stage_assignments(N, Name, GenId, Rs)
+            ok = emqx_foreman_proto_v1:stage_assignments(N, Name, Rs)
         end,
         maps:keys(PendingAcks)
     ),
@@ -572,7 +533,6 @@ handle_consult_leader(FData0) ->
     #{
         leader := LeaderPid,
         name := Name,
-        gen_id := MyGenId,
         on_stage_fn := OnStageFn,
         on_commit_fn := OnCommitFn,
         resources := {PrevAllocationStatus, PrevResources}
@@ -586,30 +546,24 @@ handle_consult_leader(FData0) ->
         {ok, #{resources := undefined}} ->
             %% Leader didn't compute allocation yet.
             keep_state_and_data;
-        {ok, #{gen_id := LeaderGenId}} when LeaderGenId =< MyGenId ->
-            %% Stale leader
-            keep_state_and_data;
         {ok, #{resources := PrevResources, status := PrevAllocationStatus}} ->
             keep_state_and_data;
-        {ok, #{resources := Resources, gen_id := LeaderGenId, status := AllocationStatus}} ->
-            AllocationContext = allocation_context(LeaderGenId, Resources, PrevResources),
+        {ok, #{resources := Resources, status := AllocationStatus}} ->
+            AllocationContext = allocation_context(Resources, PrevResources),
             %% TODO: handle errors
             ok = OnStageFn(AllocationContext),
             Member = node(),
             ok = emqx_foreman_proto_v1:ack_assignments(
-                node(LeaderPid), Name, LeaderGenId, Member
+                node(LeaderPid), Name, Member
             ),
             maybe
                 committed ?= AllocationStatus,
                 %% TODO: handle errors
                 ok = OnCommitFn(AllocationContext),
-                ?tp("foreman_committed_assignments", #{gen_id => LeaderGenId}),
+                ?tp("foreman_committed_assignments", #{}),
                 ok
             end,
-            FData = FData0#{
-                gen_id := LeaderGenId,
-                resources := {AllocationStatus, Resources}
-            },
+            FData = FData0#{resources := {AllocationStatus, Resources}},
             {keep_state, FData}
     catch
         error:{erpc, _} ->
@@ -617,61 +571,31 @@ handle_consult_leader(FData0) ->
     end.
 
 -spec handle_new_assignments(new_assignments_event(), state(), data()) -> handler_result().
-handle_new_assignments(#new_assignments{gen_id = _, resources = _}, ?candidate, _CData) ->
+handle_new_assignments(#new_assignments{resources = _}, ?candidate, _CData) ->
     {keep_state_and_data, [postpone]};
-handle_new_assignments(
-    #new_assignments{gen_id = GenId0, resources = _}, ?follower, Data = #{gen_id := MyGenId}
-) when
-    GenId0 =< MyGenId
-->
-    %% New started and elected leaders start at generationd id = 0.  Reply with our
-    %% generation id so it may catch up faster.
-    #{
-        name := Name,
-        leader := LeaderPid
-    } = Data,
-    Member = node(),
-    ok = emqx_foreman_proto_v1:nack_assignments(node(LeaderPid), Name, MyGenId, Member),
-    keep_state_and_data;
-handle_new_assignments(
-    #new_assignments{gen_id = GenId0, resources = Resources},
-    State,
-    Data0 = #{gen_id := MyGenId}
-) when
-    GenId0 >= MyGenId
-->
+handle_new_assignments(#new_assignments{resources = Resources}, State, Data0) ->
     #{
         name := Name,
         on_stage_fn := OnStageFn,
         resources := {_PrevAllocationStatus, PrevResources}
     } = Data0,
-    {GenId, LeaderPid} =
+    LeaderPid =
         case State of
-            ?leader -> {MyGenId, self()};
-            ?follower -> {GenId0, maps:get(leader, Data0)}
+            ?leader -> self();
+            ?follower -> maps:get(leader, Data0)
         end,
-    AllocationContext = allocation_context(GenId, Resources, PrevResources),
+    AllocationContext = allocation_context(Resources, PrevResources),
     %% TODO: handle errors
     ok = OnStageFn(AllocationContext),
     Member = node(),
-    ok = emqx_foreman_proto_v1:ack_assignments(node(LeaderPid), Name, GenId, Member),
-    ?tp("foreman_staged_assignments", #{gen_id => GenId}),
-    Data = Data0#{
-        gen_id := GenId,
-        resources := {staged, Resources}
-    },
+    ok = emqx_foreman_proto_v1:ack_assignments(node(LeaderPid), Name, Member),
+    ?tp("foreman_staged_assignments", #{}),
+    Data = Data0#{resources := {staged, Resources}},
     {keep_state, Data}.
 
 %% Received by the leader when a member acknowledges an assignment.
 -spec handle_ack_assignments(ack_assignments_event(), state(), data()) -> handler_result().
-handle_ack_assignments(#ack_assignments{gen_id = GenId, member = _}, _State, #{gen_id := MyGenId}) when
-    MyGenId > GenId
-->
-    %% Stale message
-    keep_state_and_data;
-handle_ack_assignments(
-    #ack_assignments{gen_id = GenId, member = Member}, ?leader, #{gen_id := GenId} = LData0
-) ->
+handle_ack_assignments(#ack_assignments{member = Member}, ?leader, LData0) ->
     #{pending_acks := PendingAcks0} = LData0,
     PendingAcks = maps:remove(Member, PendingAcks0),
     LData = LData0#{pending_acks := PendingAcks},
@@ -682,49 +606,22 @@ handle_ack_assignments(
         false ->
             {keep_state, LData}
     end;
-handle_ack_assignments(#ack_assignments{gen_id = _, member = _}, _State, _Data) ->
-    %% Stale message?
-    keep_state_and_data.
-
-%% Received by the leader when a member has a higher generation id than the leader.
--spec handle_nack_assignments(nack_assignments_event(), state(), data()) -> handler_result().
-handle_nack_assignments(#nack_assignments{gen_id = GenId, member = _}, ?leader, #{gen_id := MyGenId}) when
-    MyGenId > GenId
-->
-    %% Stale message?
-    keep_state_and_data;
-handle_nack_assignments(
-    #nack_assignments{gen_id = GenId0, member = _}, ?leader, #{gen_id := MyGenId} = LData0
-) ->
-    %% Generation id in the nack can be higher than ours if we just started and got
-    %% elected.  We use the member's gen id to catch up.
-    %% This is the only reason to nack an assignment.
-    %% We trigger another allocation round.
-    GenId = max(MyGenId, GenId0) + 1,
-    LData = LData0#{
-        gen_id := GenId,
-        pending_acks := #{},
-        allocation := undefined,
-        allocation_status := staged
-    },
-    {keep_state, LData, [{next_event, internal, #allocate{}}]};
-handle_nack_assignments(#nack_assignments{gen_id = _, member = _}, _State, _Data) ->
+handle_ack_assignments(#ack_assignments{member = _}, _State, _Data) ->
     %% Stale message?
     keep_state_and_data.
 
 -spec handle_trigger_commit(leader_data()) -> handler_result(?leader, leader_data()).
 handle_trigger_commit(LData0) ->
-    #{
-        gen_id := GenId,
-        name := Name
-    } = LData0,
+    #{name := Name} = LData0,
     MemberNodes = current_members(),
-    ok = emqx_foreman_proto_v1:commit_assignments(MemberNodes, Name, GenId),
+    ok = emqx_foreman_proto_v1:commit_assignments(MemberNodes, Name),
     LData = LData0#{allocation_status := committed},
     {keep_state, LData, [{state_timeout, ?DEFAULT_ALLOCATION_TRIGGER_TIMEOUT, #allocate{}}]}.
 
 -spec handle_commit_assignments(commit_assignments_event(), state(), data()) -> handler_result().
-handle_commit_assignments(#commit_assignments{gen_id = GenId}, _State, #{gen_id := GenId} = Data0) ->
+handle_commit_assignments(#commit_assignments{}, ?candidate, _CData) ->
+    {keep_state_and_data, [postpone]};
+handle_commit_assignments(#commit_assignments{}, _State, Data0) ->
     #{
         on_commit_fn := OnCommitFn,
         resources := {PrevResState, Resources}
@@ -732,20 +629,15 @@ handle_commit_assignments(#commit_assignments{gen_id = GenId}, _State, #{gen_id 
     Data = Data0#{resources := {committed, Resources}},
     case PrevResState of
         staged ->
-            AllocationContext = allocation_context(GenId, Resources, Resources),
+            AllocationContext = allocation_context(Resources, Resources),
             %% TODO: handle errors
             ok = OnCommitFn(AllocationContext),
-            ?tp("foreman_committed_assignments", #{gen_id => GenId}),
+            ?tp("foreman_committed_assignments", #{}),
             ok;
         committed ->
             ok
     end,
-    {keep_state, Data};
-handle_commit_assignments(#commit_assignments{gen_id = _}, ?candidate, _CData) ->
-    {keep_state_and_data, [postpone]};
-handle_commit_assignments(#commit_assignments{gen_id = _}, _State, _Data) ->
-    %% Stale message
-    keep_state_and_data.
+    {keep_state, Data}.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -757,7 +649,6 @@ follower_to_candidate_data(FData) ->
     %% dialyzer actually make a helpful analysis and avoid missing fields.
     #{
         name := Name,
-        gen_id := GenId,
         compute_allocation_fn := ComputeAllocationFn,
         on_stage_fn := OnStageFn,
         on_commit_fn := OnCommitFn,
@@ -766,7 +657,6 @@ follower_to_candidate_data(FData) ->
     } = FData,
     #{
         name => Name,
-        gen_id => GenId,
         compute_allocation_fn => ComputeAllocationFn,
         on_stage_fn => OnStageFn,
         on_commit_fn => OnCommitFn,
@@ -774,9 +664,8 @@ follower_to_candidate_data(FData) ->
         retry_election_timeout => RetryElectionTimeout
     }.
 
-allocation_context(GenId, NewResources, PrevResources) ->
+allocation_context(NewResources, PrevResources) ->
     #{
-        gen_id => GenId,
         resources => NewResources,
         previous_resources => PrevResources
     }.
