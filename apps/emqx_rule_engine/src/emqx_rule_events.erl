@@ -690,8 +690,8 @@ event_info() ->
 event_info_schema_validation_failed() ->
     event_info_common(
         'schema.validation_failed',
-        {<<"schema validation failed">>, <<"TODO"/utf8>>},
-        {<<"messages that do not pass configured validations">>, <<"TODO"/utf8>>},
+        {<<"schema validation failed">>, <<"schema 验证失败"/utf8>>},
+        {<<"messages that do not pass configured validations">>, <<"未通过验证的消息"/utf8>>},
         <<"SELECT * FROM \"$events/schema_validation_failed\" WHERE topic =~ 't/#'">>
     ).
 ee_event_info() ->
