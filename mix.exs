@@ -102,8 +102,7 @@ defmodule EMQXUmbrella.MixProject do
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       {:ra, "2.7.3", override: true},
-      {:mimerl, "1.2.0", override: true},
-      {:supervisor3, "1.1.12", override: true}
+      {:mimerl, "1.2.0", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ jq_dep() ++ quicer_dep()
@@ -213,7 +212,7 @@ defmodule EMQXUmbrella.MixProject do
       {:wolff, github: "kafka4beam/wolff", tag: "1.10.4"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
-      {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
+      {:brod, github: "kafka4beam/brod", tag: "3.18.0"},
       {:snappyer, "1.2.9", override: true},
       {:crc32cer, "0.1.8", override: true},
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
