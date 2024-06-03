@@ -69,8 +69,6 @@
     block2 => {non_neg_integer(), boolean(), non_neg_integer()}
 }.
 
--record(coap_mqtt_auth, {clientid, username, password}).
-
 -record(coap_message, {
     type :: message_type(),
     method,
