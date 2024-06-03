@@ -189,6 +189,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_license,
       :emqx_s3,
       :emqx_bridge_s3,
+      :emqx_bridge_azure_blob_storage,
       :emqx_schema_registry,
       :emqx_schema_validation,
       :emqx_enterprise,

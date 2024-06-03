@@ -104,6 +104,7 @@ is_community_umbrella_app("apps/emqx_bridge_rabbitmq") -> false;
 is_community_umbrella_app("apps/emqx_ft") -> false;
 is_community_umbrella_app("apps/emqx_s3") -> false;
 is_community_umbrella_app("apps/emqx_bridge_s3") -> false;
+is_community_umbrella_app("apps/emqx_bridge_azure_blob_storage") -> false;
 is_community_umbrella_app("apps/emqx_schema_registry") -> false;
 is_community_umbrella_app("apps/emqx_enterprise") -> false;
 is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;

@@ -1,0 +1,88 @@
+emqx_bridge_azure_blob_storage_action_schema {
+  azure_blob_storage.label:
+  """Upload to Azure Blob Storage"""
+  azure_blob_storage.desc:
+  """Action that takes incoming events and uploads them to the Azure Blob Storage service."""
+
+  direct_parameters.label:
+  """Direct Azure Blob Storage Upload action parameters"""
+  direct_parameters.desc:
+  """Set of parameters for the upload action. Action supports templates in Azure Blob Storage container name, blob name and blob content."""
+
+  direct_container_template.desc:
+  """The name of the Azure Blob Storage container name."""
+  direct_container_template.label:
+  """Container Name"""
+
+  direct_blob_template.desc:
+  """The name of the Azure Blob Storage blob name."""
+  direct_blob_template.label:
+  """Blob Name"""
+
+  direct_content_template.label:
+  """Azure Blob Storage Blob Content"""
+  direct_content_template.desc:
+  """Content of the Azure Blob Storage blob being uploaded. Supports templates."""
+
+  parameters.label:
+  """Azure Blob Storage action parameters"""
+  parameters.desc:
+  """Set of parameters for the action."""
+
+  aggreg_parameters.label:
+  """Azure Blob Storage Aggregated Mode action parameters"""
+  aggreg_parameters.desc:
+  """Set of parameters for the action in aggregated mode."""
+
+  direct_mode.label:
+  """Direct Azure Blob Storage Upload"""
+  direct_mode.desc:
+  """Enables uploading of events to the Azure Blob Storage service as separate objects."""
+
+  aggregated_mode.label:
+  """Aggregated Azure Blob Storage Upload"""
+  aggregated_mode.desc:
+  """Enables time-based aggregation of incoming events and uploading them to the Azure Blob Storage service as a single object."""
+
+  aggregation.label:
+  """Aggregation parameters"""
+  aggregation.desc:
+  """Set of parameters governing the aggregation process."""
+
+  aggregation_interval.label:
+  """Time interval"""
+  aggregation_interval.desc:
+  """Amount of time events will be aggregated in a single object before uploading."""
+
+  aggregation_max_records.label:
+  """Maximum number of records"""
+  aggregation_max_records.desc:
+  """Number of records (events) allowed per each aggregated object. Each aggregated upload will contain no more than that number of events, but may contain less.<br/>
+  If event rate is high enough, there obviously may be more than one aggregated upload during the same time interval. These uploads will have different, but consecutive sequence numbers, which will be a part of Azure Blob Storage blob name."""
+
+  aggregated_container_name.label:
+  """Azure Blob Storage Container name"""
+  aggregated_container_name.desc:
+  """The Azure Blob Storage container name. Does not support templates."""
+
+  aggregated_blob_template.label:
+  """Azure Blob Storage blob name template"""
+  aggregated_blob_template.desc:
+  """Template for the Azure Blob Storage blob name of an aggregated upload.<br/>
+  Template may contain placeholders for the following variables:
+  <ul>
+  <li><code>${action}</code>: name of the action (required).</li>
+  <li><code>${node}</code>: name of the EMQX node conducting the upload (required).</li>
+  <li><code>${datetime.{format}}</code>: date and time when aggregation started, formatted according to the <code>{format}</code> string (required):
+      <ul>
+      <li><code>${datetime.rfc3339utc}</code>: RFC3339-formatted date and time in UTC,</li>
+      <li><code>${datetime.rfc3339}</code>: RFC3339-formatted date and time in local timezone,</li>
+      <li><code>${datetime.unix}</code>: Unix timestamp.</li>
+      </ul>
+  </li>
+  <li><code>${datetime_until.{format}}</code>: date and time when aggregation ended, with the same formatting options.</li>
+  <li><code>${sequence}</code>: sequence number of the aggregated upload within the same time interval (required).</li>
+  </ul>
+  All other placeholders are considered invalid. Note that placeholders marked as required will be added as a path suffix to the Azure Blob Storage blob name if they are missing from the template."""
+
+}

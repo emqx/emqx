@@ -1,0 +1,16 @@
+emqx_bridge_azure_blob_storage_connector_schema {
+  config_connector.label:
+  """Azure Blob Storage Connector Configuration"""
+  config_connector.desc:
+  """Configuration for a connector to Azure Blob Storage service."""
+
+  account_name.label:
+  """Account Name"""
+  account_name.desc:
+  """Account name for Azure Blob Storage service."""
+
+  account_key.label:
+  """Account Key"""
+  account_key.desc:
+  """Account key for Azure Blob Storage service."""
+}

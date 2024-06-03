@@ -162,8 +162,8 @@ do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf) ->
     InnerConfigMap.
 
 bridge_id(Config) ->
-    BridgeType = ?config(bridge_type, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeType = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+    BridgeName = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     ConnectorId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     <<"action:", BridgeId/binary, ":", ConnectorId/binary>>.
@@ -536,6 +536,36 @@ list_connectors_http_api() ->
     ct:pal("list connectors result:\n  ~p", [Res]),
     Res.
 
+enable_kind_http_api(Config) ->
+    do_enable_disable_kind_http_api(enable, Config).
+
+disable_kind_http_api(Config) ->
+    do_enable_disable_kind_http_api(disable, Config).
+
+do_enable_disable_kind_http_api(Op, Config) ->
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name
+    } = get_common_values(Config),
+    RootBin =
+        case Kind of
+            action -> <<"actions">>;
+            source -> <<"sources">>
+        end,
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    OpPath =
+        case Op of
+            enable -> "true";
+            disable -> "false"
+        end,
+    Path = emqx_mgmt_api_test_util:api_path([RootBin, BridgeId, "enable", OpPath]),
+    OpStr = emqx_utils_conv:str(Op),
+    ct:pal(OpStr ++ " action ~p (http v2)", [{Type, Name}]),
+    Res = request(put, Path, _Params = []),
+    ct:pal(OpStr ++ " action ~p (http v2) result:\n  ~p", [{Type, Name}, Res]),
+    Res.
+
 update_rule_http(RuleId, Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
     ct:pal("update rule ~p:\n  ~p", [RuleId, Params]),
@@ -585,7 +615,7 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
     create_rule_and_action_http(BridgeType, RuleTopic, Config, _Opts = #{}).
 
 create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     SQL = maps:get(sql, Opts, <<"SELECT * FROM \"", RuleTopic/binary, "\"">>),
     Params0 = #{
@@ -740,6 +770,85 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     after 8_000 ->
         throw(timeout)
     end,
+    ok.
+
+%% Like `t_sync_query', but we send the message while the connector is
+%% `?status_disconnected' and test that, after recovery, the buffered message eventually
+%% is sent.
+%%   * `make_message_fn' is a function that receives the rule topic and returns a
+%%   `#message{}' record.
+%%   * `enter_tp_filter' is a function that selects a tracepoint that indicates the point
+%%     inside the connector's `on_query' callback function before actually trying to push
+%%     the data.
+%%   * `error_tp_filter' is a function that selects a tracepoint that indicates the
+%%     message was attempted to be sent at least once and failed.
+%%   * `success_tp_filter' is a function that selects a tracepoint that indicates the
+%%     point where the message was acknowledged as successfully written.
+t_sync_query_down(Config, Opts) ->
+    #{
+        make_message_fn := MakeMessageFn,
+        enter_tp_filter := EnterTPFilter,
+        error_tp_filter := ErrorTPFilter,
+        success_tp_filter := SuccessTPFilter
+    } = Opts,
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyName = ?config(proxy_name, Config),
+    {CTTimetrap, _} = ct:get_timetrap_info(),
+    ?check_trace(
+        #{timetrap => max(0, CTTimetrap - 500)},
+        begin
+            #{type := Type} = get_common_values(Config),
+            ?assertMatch({ok, _}, create_bridge_api(Config)),
+            RuleTopic = emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)]),
+            {ok, _} = create_rule_and_action_http(Type, RuleTopic, Config),
+            ResourceId = resource_id(Config),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+
+            ?force_ordering(
+                #{?snk_kind := call_query},
+                #{?snk_kind := cut_connection, ?snk_span := start}
+            ),
+            %% Note: order of arguments here is reversed compared to `?force_ordering'.
+            snabbkaffe_nemesis:force_ordering(
+                EnterTPFilter,
+                _NEvents = 1,
+                fun(Event1, Event2) ->
+                    EnterTPFilter(Event1) andalso
+                        ?match_event(#{
+                            ?snk_kind := cut_connection,
+                            ?snk_span := {complete, _}
+                        })(
+                            Event2
+                        )
+                end
+            ),
+            spawn_link(fun() ->
+                ?tp_span(
+                    cut_connection,
+                    #{},
+                    emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort)
+                )
+            end),
+            try
+                {_, {ok, _}} =
+                    snabbkaffe:wait_async_action(
+                        fun() -> spawn(fun() -> emqx:publish(MakeMessageFn(RuleTopic)) end) end,
+                        ErrorTPFilter,
+                        infinity
+                    )
+            after
+                emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort)
+            end,
+            {ok, _} = snabbkaffe:block_until(SuccessTPFilter, infinity),
+            ok
+        end,
+        []
+    ),
     ok.
 
 %% - `ProduceFn': produces a message in the remote system that shall be consumed.  May be
@@ -945,7 +1054,7 @@ t_on_get_status(Config, Opts) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
     FailureStatus = maps:get(failure_status, Opts, disconnected),
-    ?assertMatch({ok, _}, create_bridge(Config)),
+    ?assertMatch({ok, _}, create_bridge_api(Config)),
     ResourceId = resource_id(Config),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.

@@ -215,5 +215,11 @@
     "listen": "0.0.0.0:9200",
     "upstream": "elasticsearch:9200",
     "enabled": true
+  },
+  {
+    "name": "azurite_plain",
+    "listen": "0.0.0.0:10000",
+    "upstream": "azurite:10000",
+    "enabled": true
   }
 ]

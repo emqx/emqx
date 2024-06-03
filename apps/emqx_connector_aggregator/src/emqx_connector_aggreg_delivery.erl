@@ -24,6 +24,8 @@
     format_status/2
 ]).
 
+-export_type([buffer_map/0]).
+
 -record(delivery, {
     id :: id(),
     callback_module :: module(),
@@ -46,7 +48,7 @@
 
 %% @doc Initialize the transfer state, such as blob storage path, transfer options, client
 %% credentials, etc. .
--callback init_transfer_state(buffer_map(), map()) -> transfer_state().
+-callback init_transfer_state(buffer(), map()) -> transfer_state().
 
 %% @doc Append data to the transfer before sending.  Usually should not fail.
 -callback process_append(iodata(), transfer_state()) -> transfer_state().
@@ -84,13 +86,12 @@ init_delivery(
         callback_module := Mod
     }
 ) ->
-    BufferMap = emqx_connector_aggregator:buffer_to_map(Buffer),
     #delivery{
         id = Id,
         callback_module = Mod,
         container = mk_container(ContainerOpts),
         reader = Reader,
-        transfer = Mod:init_transfer_state(BufferMap, Opts),
+        transfer = Mod:init_transfer_state(Buffer, Opts),
         empty = true
     }.
 

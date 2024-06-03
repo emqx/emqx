@@ -107,7 +107,8 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_pulsar_connector_info,
         emqx_bridge_tdengine_connector_info,
         emqx_bridge_rabbitmq_connector_info,
-        emqx_bridge_s3_connector_info
+        emqx_bridge_s3_connector_info,
+        emqx_bridge_azure_blob_storage_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->
