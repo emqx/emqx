@@ -145,10 +145,17 @@ start_link_client(TargetCluster, Actor) ->
                 {ok, _Props} ->
                     {ok, Pid};
                 Error ->
+                    _ = flush_link_signal(Pid),
                     Error
             end;
         Error ->
             Error
+    end.
+
+flush_link_signal(Pid) ->
+    receive
+        {'EXIT', Pid, _} -> ok
+    after 1 -> timeout
     end.
 
 refine_client_options(Options = #{clientid := ClientID}, Actor) ->
