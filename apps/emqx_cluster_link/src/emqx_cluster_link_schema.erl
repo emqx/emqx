@@ -11,6 +11,9 @@
 
 -export([injected_fields/0]).
 
+%% Used in emqx_cluster_link_api
+-export([links_schema/1]).
+
 -export([
     roots/0,
     fields/1,
@@ -27,14 +30,14 @@ roots() -> [].
 injected_fields() ->
     #{cluster => fields("cluster_linking")}.
 
+links_schema(Meta) ->
+    ?HOCON(?ARRAY(?R_REF("link")), Meta#{default => [], validator => fun links_validator/1}).
+
 fields("cluster_linking") ->
-    [
-        {links,
-            ?HOCON(?ARRAY(?R_REF("link")), #{default => [], validator => fun links_validator/1})}
-    ];
+    [{links, links_schema(#{})}];
 fields("link") ->
     [
-        {enable, ?HOCON(boolean(), #{default => false})},
+        {enable, ?HOCON(boolean(), #{default => true})},
         {upstream, ?HOCON(binary(), #{required => true})},
         {server,
             emqx_schema:servers_sc(#{required => true, desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
@@ -46,13 +49,13 @@ fields("link") ->
             default => #{<<"enable">> => false},
             desc => ?DESC("ssl")
         }},
-        %% TODO: validate topics:
-        %% - basic topic validation
-        %% - non-overlapping (not intersecting) filters?
-        %%  (this may be not required, depends on config update implementation)
         {topics,
             ?HOCON(?ARRAY(binary()), #{required => true, validator => fun topics_validator/1})},
-        {pool_size, ?HOCON(pos_integer(), #{default => emqx_vm:schedulers() * 2})}
+        {pool_size, ?HOCON(pos_integer(), #{default => emqx_vm:schedulers() * 2})},
+        %% Must not be configured manually. The value is incremented by cluster link config handler
+        %% and is used as a globally synchronized sequence to ensure persistent routes actors have
+        %% the same next incarnation after each config change.
+        {ps_actor_incarnation, ?HOCON(integer(), #{default => 0, importance => ?IMPORTANCE_HIDDEN})}
     ].
 
 desc(_) ->

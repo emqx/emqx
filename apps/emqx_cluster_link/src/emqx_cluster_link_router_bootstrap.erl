@@ -10,7 +10,7 @@
 -include("emqx_cluster_link.hrl").
 
 -export([
-    init/2,
+    init/3,
     next_batch/1
 ]).
 
@@ -27,8 +27,7 @@
 
 %%
 
-init(TargetCluster, Options) ->
-    LinkFilters = emqx_cluster_link_config:topic_filters(TargetCluster),
+init(TargetCluster, LinkFilters, Options) ->
     {Wildcards, Topics} = lists:partition(fun emqx_topic:wildcard/1, LinkFilters),
     IsPersistentRoute = maps:get(is_persistent_route, Options, false),
     #bootstrap{

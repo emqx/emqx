@@ -13,7 +13,7 @@
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_link_extrouter:create_tables()),
     emqx_cluster_link_config:add_handler(),
-    LinksConf = enabled_links(),
+    LinksConf = emqx_cluster_link_config:enabled_links(),
     _ =
         case LinksConf of
             [_ | _] ->
@@ -32,18 +32,12 @@ prep_stop(State) ->
 stop(_State) ->
     _ = emqx_cluster_link:delete_hook(),
     _ = emqx_cluster_link:unregister_external_broker(),
-    _ = stop_msg_fwd_resources(emqx_cluster_link_config:links()),
+    _ = remove_msg_fwd_resources(emqx_cluster_link_config:links()),
     ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-enabled_links() ->
-    lists:filter(
-        fun(#{enable := IsEnabled}) -> IsEnabled =:= true end,
-        emqx_cluster_link_config:links()
-    ).
 
 start_msg_fwd_resources(LinksConf) ->
     lists:foreach(
@@ -53,10 +47,10 @@ start_msg_fwd_resources(LinksConf) ->
         LinksConf
     ).
 
-stop_msg_fwd_resources(LinksConf) ->
+remove_msg_fwd_resources(LinksConf) ->
     lists:foreach(
         fun(#{upstream := Name}) ->
-            emqx_cluster_link_mqtt:stop_msg_fwd_resource(Name)
+            emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name)
         end,
         LinksConf
     ).

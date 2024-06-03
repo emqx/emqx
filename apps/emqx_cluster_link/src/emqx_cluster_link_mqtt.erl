@@ -28,7 +28,7 @@
 
 -export([
     ensure_msg_fwd_resource/1,
-    stop_msg_fwd_resource/1,
+    remove_msg_fwd_resource/1,
     decode_route_op/1,
     decode_forwarded_msg/1,
     decode_resp/1
@@ -80,6 +80,15 @@
 
 -define(PUB_TIMEOUT, 10_000).
 
+-spec ensure_msg_fwd_resource(binary() | map()) ->
+    {ok, emqx_resource:resource_data() | already_started} | {error, Reason :: term()}.
+ensure_msg_fwd_resource(ClusterName) when is_binary(ClusterName) ->
+    case emqx_cluster_link_config:link(ClusterName) of
+        #{} = Conf ->
+            ensure_msg_fwd_resource(Conf);
+        undefined ->
+            {error, link_config_not_found}
+    end;
 ensure_msg_fwd_resource(#{upstream := Name, pool_size := PoolSize} = ClusterConf) ->
     ResConf = #{
         query_mode => async,
@@ -91,8 +100,9 @@ ensure_msg_fwd_resource(#{upstream := Name, pool_size := PoolSize} = ClusterConf
     },
     emqx_resource:create_local(?MSG_RES_ID(Name), ?RES_GROUP, ?MODULE, ClusterConf, ResConf).
 
-stop_msg_fwd_resource(ClusterName) ->
-    emqx_resource:stop(?MSG_RES_ID(ClusterName)).
+-spec remove_msg_fwd_resource(binary() | map()) -> ok | {error, Reason :: term()}.
+remove_msg_fwd_resource(ClusterName) ->
+    emqx_resource:remove_local(?MSG_RES_ID(ClusterName)).
 
 %%--------------------------------------------------------------------
 %% emqx_resource callbacks (message forwarding)
@@ -247,9 +257,9 @@ combine_status(Statuses) ->
 %%--------------------------------------------------------------------
 
 connect(Options) ->
-    WorkerId = proplists:get_value(ecpool_worker_id, Options),
+    WorkerIdBin = integer_to_binary(proplists:get_value(ecpool_worker_id, Options)),
     #{clientid := ClientId} = ClientOpts = proplists:get_value(client_opts, Options),
-    ClientId1 = emqx_bridge_mqtt_lib:bytes23([ClientId], WorkerId),
+    ClientId1 = <<ClientId/binary, ":", WorkerIdBin/binary>>,
     ClientOpts1 = ClientOpts#{clientid => ClientId1},
     case emqtt:start_link(ClientOpts1) of
         {ok, Pid} ->
@@ -369,11 +379,7 @@ decode_route_op1(#{
 }) ->
     {heartbeat, #{actor => Actor, incarnation => Incr}};
 decode_route_op1(Payload) ->
-    ?SLOG(warning, #{
-        msg => "unexpected_cluster_link_route_op_payload",
-        payload => Payload
-    }),
-    {error, Payload}.
+    {error, {unknown_payload, Payload}}.
 
 decode_resp1(#{
     ?F_OPERATION := ?OP_ACTOR_INIT_ACK,

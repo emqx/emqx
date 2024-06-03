@@ -21,6 +21,7 @@
 
 -export([
     %% General
+    update/1,
     cluster/0,
     enabled_links/0,
     links/0,
@@ -46,6 +47,20 @@
 ]).
 
 %%
+
+update(Config) ->
+    case
+        emqx_conf:update(
+            ?LINKS_PATH,
+            Config,
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, #{raw_config := NewConfigRows}} ->
+            {ok, NewConfigRows};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 cluster() ->
     atom_to_binary(emqx_config:get([cluster, name])).
@@ -83,7 +98,7 @@ actor_heartbeat_interval() ->
 %%
 
 mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = LinkConf) ->
-    ClientId = maps:get(client_id, LinkConf, cluster()),
+    ClientId = maps:get(clientid, LinkConf, cluster()),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?MQTT_HOST_OPTS),
     Opts = #{
         host => Host,
@@ -115,13 +130,13 @@ remove_handler() ->
 
 pre_config_update(?LINKS_PATH, RawConf, RawConf) ->
     {ok, RawConf};
-pre_config_update(?LINKS_PATH, NewRawConf, _RawConf) ->
-    {ok, convert_certs(NewRawConf)}.
+pre_config_update(?LINKS_PATH, NewRawConf, OldRawConf) ->
+    {ok, convert_certs(maybe_increment_ps_actor_incr(NewRawConf, OldRawConf))}.
 
 post_config_update(?LINKS_PATH, _Req, Old, Old, _AppEnvs) ->
     ok;
 post_config_update(?LINKS_PATH, _Req, New, Old, _AppEnvs) ->
-    ok = maybe_toggle_hook_and_provider(New),
+    ok = toggle_hook_and_broker(enabled_links(New), enabled_links(Old)),
     #{
         removed := Removed,
         added := Added,
@@ -142,22 +157,17 @@ post_config_update(?LINKS_PATH, _Req, New, Old, _AppEnvs) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-maybe_toggle_hook_and_provider(LinksConf) ->
-    case is_any_enabled(LinksConf) of
-        true ->
-            ok = emqx_cluster_link:register_external_broker(),
-            ok = emqx_cluster_link:put_hook();
-        false ->
-            _ = emqx_cluster_link:delete_hook(),
-            _ = emqx_cluster_link:unregister_external_broker(),
-            ok
-    end.
+toggle_hook_and_broker([_ | _] = _NewEnabledLinks, [] = _OldEnabledLinks) ->
+    ok = emqx_cluster_link:register_external_broker(),
+    ok = emqx_cluster_link:put_hook();
+toggle_hook_and_broker([] = _NewEnabledLinks, _OldLinks) ->
+    ok = emqx_cluster_link:unregister_external_broker(),
+    ok = emqx_cluster_link:delete_hook();
+toggle_hook_and_broker(_, _) ->
+    ok.
 
-is_any_enabled(LinksConf) ->
-    lists:any(
-        fun(#{enable := IsEnabled}) -> IsEnabled =:= true end,
-        LinksConf
-    ).
+enabled_links(LinksConf) ->
+    [L || #{enable := true} = L <- LinksConf].
 
 all_ok(Results) ->
     lists:all(
@@ -172,41 +182,85 @@ all_ok(Results) ->
 add_links(LinksConf) ->
     [add_link(Link) || Link <- LinksConf].
 
-add_link(#{enabled := true} = LinkConf) ->
-    %% NOTE: this can be started later during init_link phase, but it looks not harmful to start it beforehand...
-    MsgFwdRes = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
-    %% TODO
-    ActorRes = ok,
-    combine_results(ActorRes, MsgFwdRes);
+add_link(#{enable := true} = LinkConf) ->
+    {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(LinkConf),
+    {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
+    ok;
 add_link(_DisabledLinkConf) ->
     ok.
 
 remove_links(LinksConf) ->
-    [remove_link(Link) || Link <- LinksConf].
+    [remove_link(Name) || #{upstream := Name} <- LinksConf].
 
-remove_link(_LinkConf) ->
-    %% TODO
-    ok.
+remove_link(Name) ->
+    _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
+    ensure_actor_stopped(Name).
 
 update_links(LinksConf) ->
     [update_link(Link) || Link <- LinksConf].
 
-update_link(#{enabled := true} = LinkConf) ->
-    _ = remove_link(LinkConf),
-    add_link(LinkConf);
-update_link(#{enabled := false} = LinkConf) ->
-    case remove_link(LinkConf) of
-        {error, not_found} -> ok;
-        Other -> Other
-    end.
-
-combine_results(ok, ok) ->
+update_link({OldLinkConf, #{enable := true, upstream := Name} = NewLinkConf}) ->
+    _ = ensure_actor_stopped(Name),
+    {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(NewLinkConf),
+    %% TODO: if only msg_fwd resource related config is changed,
+    %% we can skip actor reincarnation/restart.
+    ok = update_msg_fwd_resource(OldLinkConf, NewLinkConf),
     ok;
-combine_results(CoordRes, MsgFwdRes) ->
-    {error, #{coordinator => CoordRes, msg_fwd_resource => MsgFwdRes}}.
+update_link({_OldLinkConf, #{enable := false, upstream := Name} = _NewLinkConf}) ->
+    _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
+    ensure_actor_stopped(Name).
+
+update_msg_fwd_resource(#{pool_size := Old}, #{pool_size := Old} = NewConf) ->
+    {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(NewConf),
+    ok;
+update_msg_fwd_resource(_, #{upstream := Name} = NewConf) ->
+    _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
+    {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(NewConf),
+    ok.
+
+ensure_actor_stopped(ClusterName) ->
+    emqx_cluster_link_sup:ensure_actor_stopped(ClusterName).
 
 upstream_name(#{upstream := N}) -> N;
 upstream_name(#{<<"upstream">> := N}) -> N.
+
+maybe_increment_ps_actor_incr(New, Old) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            %% TODO: what if a link was removed and then added again?
+            %% Assume that incarnation was 0 when the link was removed
+            %% and now it's also 0 (a default value for new actor).
+            %% If persistent routing state changed during this link absence
+            %% and remote GC has not started before ps actor restart (with the same incarnation),
+            %% then some old (stale) external ps routes may be never cleaned on the remote side.
+            %% No (permanent) message loss is expected, as new actor incrantaion will re-bootstrap.
+            %% Similarly, irrelevant messages will be filtered out at receiving end, so
+            %% the main risk is having some stale routes unreachable for GC...
+            #{changed := Changed} = emqx_utils:diff_lists(New, Old, fun upstream_name/1),
+            ChangedNames = [upstream_name(C) || {_, C} <- Changed],
+            lists:foldr(
+                fun(LConf, Acc) ->
+                    case lists:member(upstream_name(LConf), ChangedNames) of
+                        true -> [increment_ps_actor_incr(LConf) | Acc];
+                        false -> [LConf | Acc]
+                    end
+                end,
+                [],
+                New
+            );
+        false ->
+            New
+    end.
+
+increment_ps_actor_incr(#{ps_actor_incarnation := Incr} = Conf) ->
+    Conf#{ps_actor_incarnation => Incr + 1};
+increment_ps_actor_incr(#{<<"ps_actor_incarnation">> := Incr} = Conf) ->
+    Conf#{<<"ps_actor_incarnation">> => Incr + 1};
+%% Default value set in schema is 0, so need to set it to 1 during the first update.
+increment_ps_actor_incr(#{<<"upstream">> := _} = Conf) ->
+    Conf#{<<"ps_actor_incarnation">> => 1};
+increment_ps_actor_incr(#{upstream := _} = Conf) ->
+    Conf#{ps_actor_incarnation => 1}.
 
 convert_certs(LinksConf) ->
     lists:map(

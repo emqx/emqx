@@ -22,7 +22,8 @@
     actor_apply_operation/2,
     actor_apply_operation/3,
     actor_gc/1,
-    is_present_incarnation/1
+    is_present_incarnation/1,
+    list_actors/1
 ]).
 
 %% Internal API
@@ -166,6 +167,14 @@ is_present_incarnation(#state{extra = #{is_present_incarnation := IsNew}}) ->
     IsNew;
 is_present_incarnation(_State) ->
     false.
+
+-spec list_actors(cluster()) -> [#{actor := actor(), incarnation := incarnation()}].
+list_actors(Cluster) ->
+    Matches = ets:match(
+        emqx_external_router_actor,
+        #actor{id = {Cluster, '$1'}, incarnation = '$2', _ = '_'}
+    ),
+    [#{actor => Actor, incarnation => Incr} || [Actor, Incr] <- Matches].
 
 mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
     %% NOTE

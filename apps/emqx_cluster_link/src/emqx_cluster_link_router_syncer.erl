@@ -47,6 +47,7 @@
 -define(SYNCER_NAME(Cluster), ?NAME(Cluster, syncer)).
 -define(SYNCER_REF(Cluster), {via, gproc, ?SYNCER_NAME(Cluster)}).
 -define(ACTOR_REF(Cluster), {via, gproc, ?NAME(Cluster, actor)}).
+-define(ACTOR_NAME(Cluster), ?NAME(Cluster, actor)).
 
 -define(MAX_BATCH_SIZE, 4000).
 -define(MIN_SYNC_INTERVAL, 10).
@@ -63,8 +64,8 @@
 %% but it must be tolerable, since persistent route destination is a client ID,
 %% which is unique cluster-wide.
 -define(PS_ACTOR, <<"ps-routes-v1">>).
--define(PS_INCARNATION, 0).
 -define(PS_ACTOR_REF(Cluster), {via, gproc, ?NAME(Cluster, ps_actor)}).
+-define(PS_ACTOR_NAME(Cluster), ?NAME(Cluster, ps_actor)).
 -define(PS_CLIENT_NAME(Cluster), ?NAME(Cluster, ps_client)).
 -define(PS_SYNCER_REF(Cluster), {via, gproc, ?PS_SYNCER_NAME(Cluster)}).
 -define(PS_SYNCER_NAME(Cluster), ?NAME(Cluster, ps_syncer)).
@@ -102,43 +103,30 @@ do_push(SyncerName, OpName, Topic, ID) ->
 %% 1. Actor + MQTT Client
 %% 2. Syncer
 
-start_link(TargetCluster) ->
-    supervisor:start_link(?REF(TargetCluster), ?MODULE, {sup, TargetCluster}).
+start_link(#{upstream := TargetCluster} = LinkConf) ->
+    supervisor:start_link(?REF(TargetCluster), ?MODULE, {sup, LinkConf}).
 
 %% Actor
 
-start_link_actor(ActorRef, Actor, Incarnation, TargetCluster) ->
+new_incarnation() ->
+    %% TODO: Subject to clock skew, need something more robust.
+    erlang:system_time(millisecond).
+
+start_link_actor(ActorRef, Actor, Incarnation, LinkConf) ->
     gen_server:start_link(
         ActorRef,
         ?MODULE,
-        {actor, mk_state(TargetCluster, Actor, Incarnation)},
+        {actor, mk_state(LinkConf, Actor, Incarnation)},
         []
     ).
 
 get_actor_id() ->
     atom_to_binary(node()).
 
-get_actor_incarnation() ->
-    persistent_term:get({?MODULE, incarnation}).
-
-set_actor_incarnation(Incarnation) ->
-    ok = persistent_term:put({?MODULE, incarnation}, Incarnation),
-    Incarnation.
-
-ensure_actor_incarnation() ->
-    try
-        get_actor_incarnation()
-    catch
-        error:badarg ->
-            %% TODO: Subject to clock skew, need something more robust.
-            Incarnation = erlang:system_time(millisecond),
-            set_actor_incarnation(Incarnation)
-    end.
-
 %% MQTT Client
 
-start_link_client(TargetCluster, Actor) ->
-    Options = emqx_cluster_link_config:emqtt_options(TargetCluster),
+start_link_client(Actor, LinkConf) ->
+    Options = emqx_cluster_link_config:mk_emqtt_options(LinkConf),
     case emqtt:start_link(refine_client_options(Options, Actor)) of
         {ok, Pid} ->
             case emqtt:connect(Pid) of
@@ -245,7 +233,7 @@ batch_get_opname(Op) ->
 
 %%
 
-init({sup, TargetCluster}) ->
+init({sup, LinkConf}) ->
     %% FIXME: Intensity.
     SupFlags = #{
         %% TODO: one_for_one?
@@ -254,24 +242,24 @@ init({sup, TargetCluster}) ->
         period => 60
     },
     Children = lists:append([
-        [child_spec(actor, TargetCluster)],
-        [child_spec(ps_actor, TargetCluster) || emqx_persistent_message:is_persistence_enabled()]
+        [child_spec(actor, LinkConf)],
+        [child_spec(ps_actor, LinkConf) || emqx_persistent_message:is_persistence_enabled()]
     ]),
     {ok, {SupFlags, Children}};
 init({actor, State}) ->
     init_actor(State).
 
-child_spec(actor, TargetCluster) ->
+child_spec(actor, #{upstream := TargetCluster} = LinkConf) ->
     %% Actor process.
     %% Wraps MQTT Client process.
     %% ClientID: `mycluster:emqx1@emqx.local:routesync`
     %% Occasional TCP/MQTT-level disconnects are expected, and should be handled
     %% gracefully.
     Actor = get_actor_id(),
-    Incarnation = ensure_actor_incarnation(),
-    actor_spec(actor, ?ACTOR_REF(TargetCluster), Actor, Incarnation, TargetCluster);
-child_spec(ps_actor, TargetCluster) ->
-    actor_spec(ps_actor, ?PS_ACTOR_REF(TargetCluster), ?PS_ACTOR, ?PS_INCARNATION, TargetCluster).
+    Incarnation = new_incarnation(),
+    actor_spec(actor, ?ACTOR_REF(TargetCluster), Actor, Incarnation, LinkConf);
+child_spec(ps_actor, #{upstream := TargetCluster, ps_actor_incarnation := Incr} = LinkConf) ->
+    actor_spec(ps_actor, ?PS_ACTOR_REF(TargetCluster), ?PS_ACTOR, Incr, LinkConf).
 
 child_spec(syncer, ?PS_ACTOR, Incarnation, TargetCluster) ->
     SyncerRef = ?PS_SYNCER_REF(TargetCluster),
@@ -286,10 +274,10 @@ child_spec(syncer, Actor, Incarnation, TargetCluster) ->
     ClientName = ?CLIENT_NAME(TargetCluster),
     syncer_spec(syncer, Actor, Incarnation, SyncerRef, ClientName).
 
-actor_spec(ChildID, ActorRef, Actor, Incarnation, TargetCluster) ->
+actor_spec(ChildID, ActorRef, Actor, Incarnation, LinkConf) ->
     #{
         id => ChildID,
-        start => {?MODULE, start_link_actor, [ActorRef, Actor, Incarnation, TargetCluster]},
+        start => {?MODULE, start_link_actor, [ActorRef, Actor, Incarnation, LinkConf]},
         restart => permanent,
         type => worker
     }.
@@ -308,7 +296,7 @@ syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
     target :: binary(),
     actor :: binary(),
     incarnation :: non_neg_integer(),
-    client :: {pid(), reference()},
+    client :: {pid(), reference()} | undefined,
     bootstrapped :: boolean(),
     reconnect_timer :: reference(),
     heartbeat_timer :: reference(),
@@ -316,30 +304,31 @@ syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
     actor_init_timer :: reference(),
     remote_actor_info :: undefined | map(),
     status :: connecting | connected | disconnected,
-    error :: undefined | term()
+    error :: undefined | term(),
+    link_conf :: map()
 }).
 
-mk_state(TargetCluster, Actor, Incarnation) ->
+mk_state(#{upstream := TargetCluster} = LinkConf, Actor, Incarnation) ->
     #st{
         target = TargetCluster,
         actor = Actor,
         incarnation = Incarnation,
         bootstrapped = false,
-        status = connecting
+        status = connecting,
+        link_conf = LinkConf
     }.
 
 init_actor(State = #st{}) ->
     _ = erlang:process_flag(trap_exit, true),
     {ok, State, {continue, connect}}.
 
-handle_continue(connect, State) ->
-    {noreply, process_connect(State)}.
+handle_continue(connect, St) ->
+    {noreply, process_connect(St)}.
+handle_call(_Request, _From, St) ->
+    {reply, ignored, St}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ignored, State}.
-
-handle_cast(_Request, State) ->
-    {noreply, State}.
+handle_cast(_Request, St) ->
+    {noreply, St}.
 
 handle_info({'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
     {noreply, handle_client_down(Reason, St)};
@@ -396,8 +385,8 @@ handle_info(Info, St) ->
 terminate(_Reason, _State) ->
     ok.
 
-process_connect(St = #st{target = TargetCluster, actor = Actor}) ->
-    case start_link_client(TargetCluster, Actor) of
+process_connect(St = #st{target = TargetCluster, actor = Actor, link_conf = Conf}) ->
+    case start_link_client(Actor, Conf) of
         {ok, ClientPid} ->
             _ = maybe_deactivate_alarm(St),
             ok = announce_client(Actor, TargetCluster, ClientPid),
@@ -498,17 +487,17 @@ cancel_heartbeat(St = #st{heartbeat_timer = TRef}) ->
 %% is re-established with a clean session. Once bootstrapping is done, it
 %% opens the syncer.
 
-run_bootstrap(St = #st{target = TargetCluster, actor = ?PS_ACTOR}) ->
+run_bootstrap(St = #st{target = TargetCluster, actor = ?PS_ACTOR, link_conf = #{topics := Topics}}) ->
     case mria_config:whoami() of
         Role when Role /= replicant ->
             Opts = #{is_persistent_route => true},
-            Bootstrap = emqx_cluster_link_router_bootstrap:init(TargetCluster, Opts),
+            Bootstrap = emqx_cluster_link_router_bootstrap:init(TargetCluster, Topics, Opts),
             run_bootstrap(Bootstrap, St);
         _ ->
             process_bootstrapped(St)
     end;
-run_bootstrap(St = #st{target = TargetCluster}) ->
-    Bootstrap = emqx_cluster_link_router_bootstrap:init(TargetCluster, #{}),
+run_bootstrap(St = #st{target = TargetCluster, link_conf = #{topics := Topics}}) ->
+    Bootstrap = emqx_cluster_link_router_bootstrap:init(TargetCluster, Topics, #{}),
     run_bootstrap(Bootstrap, St).
 
 run_bootstrap(Bootstrap, St) ->
@@ -527,7 +516,9 @@ run_bootstrap(Bootstrap, St) ->
             end
     end.
 
-process_bootstrapped(St = #st{target = TargetCluster, actor = Actor}) ->
+process_bootstrapped(
+    St = #st{target = TargetCluster, actor = Actor}
+) ->
     ok = open_syncer(TargetCluster, Actor),
     St#st{bootstrapped = true}.
 

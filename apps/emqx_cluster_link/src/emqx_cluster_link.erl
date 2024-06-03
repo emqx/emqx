@@ -7,6 +7,7 @@
 -behaviour(emqx_external_broker).
 
 -export([
+    is_registered/0,
     register_external_broker/0,
     unregister_external_broker/0,
     add_route/1,
@@ -36,8 +37,14 @@
 %% emqx_external_broker API
 %%--------------------------------------------------------------------
 
+is_registered() ->
+    emqx_external_broker:provider() =:= ?MODULE.
+
 register_external_broker() ->
-    emqx_external_broker:register_provider(?MODULE).
+    case is_registered() of
+        true -> ok;
+        false -> emqx_external_broker:register_provider(?MODULE)
+    end.
 
 unregister_external_broker() ->
     emqx_external_broker:unregister_provider(?MODULE).
@@ -94,13 +101,18 @@ on_message_publish(
         {route_updates, #{actor := Actor}, RouteOps} ->
             ok = update_routes(ClusterName, Actor, RouteOps);
         {heartbeat, #{actor := Actor}} ->
-            ok = actor_heartbeat(ClusterName, Actor)
+            ok = actor_heartbeat(ClusterName, Actor);
+        {error, {unknown_payload, ParsedPayload}} ->
+            ?SLOG(warning, #{
+                msg => "unexpected_cluster_link_route_op_payload",
+                payload => ParsedPayload
+            })
     end,
     {stop, []};
 on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
     case emqx_cluster_link_mqtt:decode_forwarded_msg(Payload) of
         #message{} = ForwardedMsg ->
-            {stop, with_sender_name(ForwardedMsg, ClusterName)};
+            {stop, maybe_filter_incomming_msg(ForwardedMsg, ClusterName)};
         _Err ->
             %% Just ignore it. It must be already logged by the decoder
             {stop, []}
@@ -163,9 +175,7 @@ actor_init(
             %% which will use safe binary_to_term decoding
             %% TODO: add error details?
             {error, <<"unknown_cluster">>};
-        LinkConf ->
-            %% TODO: may be worth checking resource health and communicate it?
-            _ = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
+        #{enable := true} = _LinkConf ->
             MyClusterName = emqx_cluster_link_config:cluster(),
             case MyClusterName of
                 TargetCluster ->
@@ -187,7 +197,9 @@ actor_init(
                         received_from => ClusterName
                     }),
                     {error, <<"bad_remote_cluster_link_name">>}
-            end
+            end;
+        #{enable := false} ->
+            {error, <<"clster_link_disabled">>}
     end.
 
 actor_init_ack(#{actor := Actor}, Res, MsgIn) ->
@@ -226,3 +238,12 @@ update_actor_state(ActorSt) ->
 %% that doesn't set extra = #{} by default.
 with_sender_name(#message{extra = Extra} = Msg, ClusterName) when is_map(Extra) ->
     Msg#message{extra = Extra#{link_origin => ClusterName}}.
+
+maybe_filter_incomming_msg(#message{topic = T} = Msg, ClusterName) ->
+    %% Should prevent irrelevant messages from being dispatched in case
+    %% the remote routing state lags behind the local config changes.
+    #{enable := Enable, topics := Topics} = emqx_cluster_link_config:link(ClusterName),
+    case Enable andalso emqx_topic:match_any(T, Topics) of
+        true -> with_sender_name(Msg, ClusterName);
+        false -> []
+    end.

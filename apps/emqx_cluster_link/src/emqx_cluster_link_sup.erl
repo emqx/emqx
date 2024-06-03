@@ -8,9 +8,15 @@
 
 -export([start_link/1]).
 
+-export([
+    ensure_actor/1,
+    ensure_actor_stopped/1
+]).
+
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
+-define(ACTOR_MODULE, emqx_cluster_link_router_syncer).
 
 start_link(LinksConf) ->
     supervisor:start_link({local, ?SERVER}, ?SERVER, LinksConf).
@@ -23,8 +29,8 @@ init(LinksConf) ->
     },
     ExtrouterGC = extrouter_gc_spec(),
     RouteActors = [
-        sup_spec(Name, emqx_cluster_link_router_syncer, [Name])
-     || #{upstream := Name} <- LinksConf
+        sup_spec(Name, ?ACTOR_MODULE, [LinkConf])
+     || #{upstream := Name} = LinkConf <- LinksConf
     ],
     {ok, {SupFlags, [ExtrouterGC | RouteActors]}}.
 
@@ -46,3 +52,22 @@ sup_spec(Id, Mod, Args) ->
         type => supervisor,
         modules => [Mod]
     }.
+
+ensure_actor(#{upstream := Name} = LinkConf) ->
+    case supervisor:start_child(?SERVER, sup_spec(Name, ?ACTOR_MODULE, [LinkConf])) of
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        Err ->
+            Err
+    end.
+
+ensure_actor_stopped(ClusterName) ->
+    case supervisor:terminate_child(?MODULE, ClusterName) of
+        ok ->
+            _ = supervisor:delete_child(?MODULE, ClusterName),
+            ok;
+        {error, not_found} ->
+            ok
+    end.
