@@ -138,6 +138,48 @@ t_intersect(_) ->
     false = intersection(<<"t/global/#">>, <<"t/local/+">>),
     false = intersection(<<"t/local/1/+">>, <<"t/local/+">>).
 
+t_intersect_topic_wildcard(_) ->
+    <<"t/test/1">> = intersection(<<"t/test/#">>, <<"t/test/1">>),
+    <<"t/test/1/1">> = intersection(<<"t/test/1/1">>, <<"t/test/#">>),
+    false = intersection(<<"t/test/1/1">>, <<"t/test/+">>),
+    <<"t/test/1/1">> = intersection(<<"t/test/1/1">>, <<"t/test/1/1">>),
+    false = intersection(<<"t/test/1">>, <<"t/test/2">>),
+    false = intersection(<<"t/test/1">>, <<"t/test/1/2">>).
+
+t_intersect_commutes(_) ->
+    ?assertEqual(
+        intersection(<<"t/+/1/+">>, <<"t/global/#">>),
+        intersection(<<"t/global/#">>, <<"t/+/1/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"#">>, <<"t/global/#">>),
+        intersection(<<"t/global/#">>, <<"#">>)
+    ),
+    ?assertEqual(
+        intersection(<<"+/2/+/4/+">>, <<"1/+/3/+/5/#">>),
+        intersection(<<"1/+/3/+/5/#">>, <<"+/2/+/4/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/local/+">>, <<"t/local/1/#">>),
+        intersection(<<"t/local/1/#">>, <<"t/local/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/local/+">>, <<"t/global/#">>),
+        intersection(<<"t/global/#">>, <<"t/local/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/local/+">>, <<"t/local/1/+">>),
+        intersection(<<"t/local/1/+">>, <<"t/local/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/test/#">>, <<"t/test/1/1">>),
+        intersection(<<"t/test/1/1">>, <<"t/test/#">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/test/+">>, <<"t/test/1/1">>),
+        intersection(<<"t/test/1/1">>, <<"t/test/+">>)
+    ).
+
 t_sys_intersect(_) ->
     <<"$SYS/broker/+">> = intersection(<<"$SYS/broker/#">>, <<"$SYS/+/+">>),
     <<"$SYS/broker">> = intersection(<<"$SYS/broker">>, <<"$SYS/+">>),
