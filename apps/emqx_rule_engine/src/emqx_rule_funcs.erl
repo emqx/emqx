@@ -839,7 +839,7 @@ redis_field_name(K) ->
     throw({bad_redis_field_name, K}).
 
 redis_field_value(V) when erlang:is_binary(V) ->
-    iolist_to_binary([$", V, $"]);
+    V;
 redis_field_value(V) when erlang:is_integer(V) ->
     integer_to_binary(V);
 redis_field_value(V) when erlang:is_float(V) ->

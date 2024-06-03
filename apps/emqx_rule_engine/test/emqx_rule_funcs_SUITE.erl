@@ -1384,8 +1384,8 @@ t_map_to_redis_hset_args(_Config) ->
     ?assertEqual([<<"a">>, <<"1.1">>], Do(#{<<"a">> => 1.1})),
     ?assertEqual([<<"a">>, <<"true">>], Do(#{<<"a">> => true})),
     ?assertEqual([<<"a">>, <<"false">>], Do(#{<<"a">> => false})),
-    ?assertEqual([<<"a">>, <<"\"\"">>], Do(#{<<"a">> => <<"">>})),
-    ?assertEqual([<<"a">>, <<"\"i j\"">>], Do(#{<<"a">> => <<"i j">>})),
+    ?assertEqual([<<"a">>, <<"">>], Do(#{<<"a">> => <<"">>})),
+    ?assertEqual([<<"a">>, <<"i j">>], Do(#{<<"a">> => <<"i j">>})),
     %% no determined ordering
     ?assert(
         case Do(#{<<"a">> => 1, <<"b">> => 2}) of
