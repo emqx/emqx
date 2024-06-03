@@ -61,7 +61,7 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       with:
         fetch-depth: 0
     - name: Work around https://github.com/actions/checkout/issues/766
@@ -88,13 +88,13 @@ jobs:
       run: |
         make ${EMQX_NAME}-elixir-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
         path: _packages/${{ matrix.profile[0] }}/*
         retention-days: 7
         compression-level: 0
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: "${{ matrix.profile[0] }}-schema-dump-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
         path: |
@@ -118,7 +118,7 @@ jobs:
       EMQX_NAME: ${{ matrix.profile }}
 
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
@@ -128,7 +128,7 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*
