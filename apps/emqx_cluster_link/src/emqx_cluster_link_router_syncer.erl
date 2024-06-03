@@ -457,7 +457,8 @@ handle_client_down(Reason, St = #st{target = TargetCluster, actor = Actor}) ->
     %% TODO: syncer may be already down due to one_for_all strategy
     ok = close_syncer(TargetCluster, Actor),
     _ = maybe_alarm(Reason, St),
-    process_connect(St#st{client = undefined, error = Reason, status = connecting}).
+    NSt = cancel_heartbeat(St),
+    process_connect(NSt#st{client = undefined, error = Reason, status = connecting}).
 
 process_bootstrap(St = #st{bootstrapped = false}, _NeedBootstrap) ->
     run_bootstrap(St);
@@ -477,6 +478,12 @@ schedule_heartbeat(St = #st{heartbeat_timer = undefined}) ->
     Timeout = emqx_cluster_link_config:actor_heartbeat_interval(),
     TRef = erlang:start_timer(Timeout, self(), heartbeat),
     St#st{heartbeat_timer = TRef}.
+
+cancel_heartbeat(St = #st{heartbeat_timer = undefined}) ->
+    St;
+cancel_heartbeat(St = #st{heartbeat_timer = TRef}) ->
+    ok = emqx_utils:cancel_timer(TRef),
+    St#st{heartbeat_timer = undefined}.
 
 %% Bootstrapping.
 %% Responsible for transferring local routing table snapshot to the target
