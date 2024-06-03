@@ -426,6 +426,7 @@ setup_config(SpecialParams) ->
 pgsql_config() ->
     #{
         auto_reconnect => true,
+        disable_prepared_statements => false,
         database => <<"mqtt">>,
         username => <<"root">>,
         password => <<"public">>,
