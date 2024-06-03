@@ -119,7 +119,7 @@ create_tables() ->
 match_routes(Topic) ->
     Matches = emqx_topic_index:matches(Topic, ?EXTROUTE_TAB, [unique]),
     %% `unique` opt is not enough, since we keep the original Topic as a part of RouteID
-    lists:usort([match_to_route(M) || M <- Matches]).
+    lists:ukeysort(#route.dest, [match_to_route(M) || M <- Matches]).
 
 lookup_routes(Topic) ->
     Pat = #extroute{entry = emqx_topic_index:make_key(Topic, '$1'), _ = '_'},

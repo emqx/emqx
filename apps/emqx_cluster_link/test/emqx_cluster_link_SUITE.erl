@@ -132,13 +132,24 @@ t_message_forwarding('end', Config) ->
 
 t_message_forwarding(Config) ->
     [SourceNode1 | _] = nodes_source(Config),
-    [TargetNode1 | _] = nodes_target(Config),
+    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
     SourceC1 = start_client("t_message_forwarding", SourceNode1),
-    TargetC1 = start_client("t_message_forwarding", TargetNode1),
+    TargetC1 = start_client("t_message_forwarding1", TargetNode1),
+    TargetC2 = start_client("t_message_forwarding2", TargetNode2),
     {ok, _, _} = emqtt:subscribe(TargetC1, <<"t/+">>, qos1),
+    {ok, _, _} = emqtt:subscribe(TargetC2, <<"t/#">>, qos1),
     {ok, _} = ?block_until(#{?snk_kind := clink_route_sync_complete}),
     {ok, _} = emqtt:publish(SourceC1, <<"t/42">>, <<"hello">>, qos1),
-    ?assertReceive({publish, #{topic := <<"t/42">>, payload := <<"hello">>}}),
+    ?assertReceive(
+        {publish, #{topic := <<"t/42">>, payload := <<"hello">>, client_pid := TargetC1}}
+    ),
+    ?assertReceive(
+        {publish, #{topic := <<"t/42">>, payload := <<"hello">>, client_pid := TargetC2}}
+    ),
+    ?assertNotReceive({publish, _Message = #{}}),
+    ok = emqtt:stop(SourceC1),
+    ok = emqtt:stop(TargetC1),
+    ok = emqtt:stop(TargetC2).
     ok = emqtt:stop(SourceC1),
     ok = emqtt:stop(TargetC1).
 
