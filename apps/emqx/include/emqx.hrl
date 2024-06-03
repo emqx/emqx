@@ -50,8 +50,6 @@
 %% Message and Delivery
 %%--------------------------------------------------------------------
 
--record(subscription, {topic, subid, subopts}).
-
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -record(delivery, {
@@ -68,19 +66,6 @@
 -record(route, {
     topic :: binary(),
     dest :: node() | {binary(), node()} | emqx_session:session_id()
-}).
-
-%%--------------------------------------------------------------------
-%% Command
-%%--------------------------------------------------------------------
-
--record(command, {
-    name :: atom(),
-    action :: atom(),
-    args = [] :: list(),
-    opts = [] :: list(),
-    usage :: string(),
-    descr :: string()
 }).
 
 %%--------------------------------------------------------------------
