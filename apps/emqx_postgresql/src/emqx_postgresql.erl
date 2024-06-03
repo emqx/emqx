@@ -240,7 +240,9 @@ close_prepared_statement(ChannelId, #{pool_name := PoolName} = State) ->
 
 close_prepared_statement([WorkerPid | Rest], ChannelId, State) ->
     %% We ignore errors since any error probably means that the
-    %% prepared statement doesn't exist.
+    %% prepared statement doesn't exist. If it exists when we try
+    %% to insert one with the same name, we will try to remove it
+    %% again anyway.
     try ecpool_worker:client(WorkerPid) of
         {ok, Conn} ->
             Statement = get_prepared_statement(ChannelId, State),
@@ -648,16 +650,21 @@ do_prepare_sql([], _Prepares, LastSts) ->
     {ok, LastSts}.
 
 prepare_sql_to_conn(Conn, Prepares) ->
-    prepare_sql_to_conn(Conn, Prepares, #{}).
+    prepare_sql_to_conn(Conn, Prepares, #{}, 0).
 
-prepare_sql_to_conn(Conn, [], Statements) when is_pid(Conn) ->
+prepare_sql_to_conn(Conn, [], Statements, _Attempts) when is_pid(Conn) ->
     {ok, Statements};
-prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when is_pid(Conn) ->
+prepare_sql_to_conn(Conn, [{Key, _} | _Rest], _Statements, 3) when is_pid(Conn) ->
+    {error, {failed_to_remove_prev_prepared_statement, Key}};
+prepare_sql_to_conn(
+    Conn, [{Key, {SQL, _RowTemplate}} | Rest] = ToPrepare, Statements, Attempts
+) when is_pid(Conn) ->
     LogMeta = #{msg => "postgresql_prepare_statement", name => Key, sql => SQL},
     ?SLOG(info, LogMeta),
+    test_maybe_inject_prepared_statement_already_exists(Conn, Key, SQL),
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
-            prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement});
+            prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement}, 0);
         {error, {error, error, _, undefined_table, _, _} = Error} ->
             %% Target table is not created
             ?tp(pgsql_undefined_table, #{}),
@@ -668,6 +675,29 @@ prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when 
                 ),
             ?SLOG(error, LogMsg),
             {error, undefined_table};
+        {error, {error, error, _, duplicate_prepared_statement, _, _}} = Error ->
+            ?tp(pgsql_prepared_statement_exists, #{}),
+            LogMsg =
+                maps:merge(
+                    LogMeta#{
+                        msg => "postgresql_prepared_statment_with_same_name_already_exists",
+                        explain => <<
+                            "A prepared statement with the same name already "
+                            "exists in the driver. Will attempt to remove the "
+                            "previous prepared statement with the name and then "
+                            "try again."
+                        >>
+                    },
+                    translate_to_log_context(Error)
+                ),
+            ?SLOG(warning, LogMsg),
+            case epgsql:close(Conn, statement, Key) of
+                ok ->
+                    ?SLOG(info, #{msg => "pqsql_closed_statement_succefully"});
+                {error, Error} ->
+                    ?SLOG(warning, #{msg => "pqsql_close_statement_failed", cause => Error})
+            end,
+            prepare_sql_to_conn(Conn, ToPrepare, Statements, Attempts + 1);
         {error, Error} ->
             TranslatedError = translate_to_log_context(Error),
             LogMsg =
@@ -678,6 +708,25 @@ prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when 
             ?SLOG(error, LogMsg),
             {error, export_error(TranslatedError)}
     end.
+
+-ifdef(TEST).
+test_maybe_inject_prepared_statement_already_exists(Conn, Key, SQL) ->
+    try
+        %% In test we inject a crash in the following trace point to test the
+        %% scenario when the prepared statement already exists. It is unknkown
+        %% in which scenario this can happen but it has been observed in a
+        %% production log file. See:
+        %% https://emqx.atlassian.net/browse/EEC-1036
+        ?tp(pgsql_fake_prepare_statement_exists, #{})
+    catch
+        _:_ ->
+            epgsql:parse2(Conn, Key, SQL, [])
+    end,
+    ok.
+-else.
+test_maybe_inject_prepared_statement_already_exists(_Conn, _Key, _SQL) ->
+    ok.
+-endif.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;

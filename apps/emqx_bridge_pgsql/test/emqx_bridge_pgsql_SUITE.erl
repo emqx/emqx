@@ -715,6 +715,59 @@ t_missing_table(Config) ->
     connect_and_create_table(Config),
     ok.
 
+t_prepared_statement_exists(Config) ->
+    Name = ?config(pgsql_name, Config),
+    BridgeType = ?config(pgsql_bridge_type, Config),
+    %% We should recover if the prepared statement name already exists in the
+    %% driver
+    ?check_trace(
+        begin
+            ?inject_crash(
+                #{?snk_kind := pgsql_fake_prepare_statement_exists},
+                snabbkaffe_nemesis:recover_after(1)
+            ),
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(
+                    #{status := Status} when Status == connected,
+                    emqx_bridge_v2:health_check(BridgeType, Name)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(pgsql_prepared_statement_exists, Trace)),
+            ok
+        end
+    ),
+    %% We should get status disconnected if removing already existing statment don't help
+    ?check_trace(
+        begin
+            ?inject_crash(
+                #{?snk_kind := pgsql_fake_prepare_statement_exists},
+                snabbkaffe_nemesis:recover_after(30)
+            ),
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(
+                    #{status := Status} when Status == disconnected,
+                    emqx_bridge_v2:health_check(BridgeType, Name)
+                )
+            ),
+            snabbkaffe_nemesis:cleanup(),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(pgsql_prepared_statement_exists, Trace)),
+            ok
+        end
+    ),
+    ok.
+
 t_table_removed(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
