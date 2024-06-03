@@ -4,6 +4,8 @@
 
 -module(emqx_cluster_link_extrouter).
 
+-include_lib("snabbkaffe/include/trace.hrl").
+
 -export([create_tables/0]).
 
 %% Router API
@@ -318,8 +320,16 @@ mnesia_actor_heartbeat(ActorID, Incarnation, TS) ->
             mnesia:abort({nonexistent_actor, ActorID})
     end.
 
-clean_incarnation(Rec) ->
-    transaction(fun ?MODULE:mnesia_clean_incarnation/1, [Rec]).
+clean_incarnation(Rec = #actor{id = {Cluster, Actor}}) ->
+    case transaction(fun ?MODULE:mnesia_clean_incarnation/1, [Rec]) of
+        ok ->
+            ?tp(debug, clink_extrouter_actor_cleaned, #{
+                cluster => Cluster,
+                actor => Actor
+            });
+        Result ->
+            Result
+    end.
 
 mnesia_clean_incarnation(#actor{id = Actor, incarnation = Incarnation, lane = Lane}) ->
     case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of

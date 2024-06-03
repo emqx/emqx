@@ -8,6 +8,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -behaviour(emqx_resource).
 -behaviour(ecpool_worker).
@@ -123,15 +124,19 @@ on_query(_ResourceId, FwdMsg, #{pool_name := PoolName, topic := LinkTopic} = _St
     is_record(FwdMsg, message)
 ->
     #message{topic = Topic, qos = QoS} = FwdMsg,
-    handle_send_result(
-        ecpool:pick_and_do(
-            {PoolName, Topic},
-            fun(ConnPid) ->
-                emqtt:publish(ConnPid, LinkTopic, ?ENCODE(FwdMsg), QoS)
-            end,
-            no_handover
-        )
-    ).
+    PubResult = ecpool:pick_and_do(
+        {PoolName, Topic},
+        fun(ConnPid) ->
+            emqtt:publish(ConnPid, LinkTopic, ?ENCODE(FwdMsg), QoS)
+        end,
+        no_handover
+    ),
+    ?tp_ignore_side_effects_in_prod(clink_message_forwarded, #{
+        pool => PoolName,
+        message => FwdMsg,
+        pub_result => PubResult
+    }),
+    handle_send_result(PubResult).
 
 on_query_async(
     _ResourceId, FwdMsg, CallbackIn, #{pool_name := PoolName, topic := LinkTopic} = _State
@@ -145,7 +150,13 @@ on_query_async(
             %% #delivery{} record has no valuable data for a remote link...
             Payload = ?ENCODE(FwdMsg),
             %% TODO: check override QOS requirements (if any)
-            emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback)
+            PubResult = emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback),
+            ?tp_ignore_side_effects_in_prod(clink_message_forwarded, #{
+                pool => PoolName,
+                message => FwdMsg,
+                pub_result => PubResult
+            }),
+            PubResult
         end,
         no_handover
     ).

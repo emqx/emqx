@@ -13,7 +13,11 @@
 
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
+-ifndef(TEST).
 -define(DEFAULT_ACTOR_TTL, 30_000).
+-else.
+-define(DEFAULT_ACTOR_TTL, 3_000).
+-endif.
 
 -export([
     %% General

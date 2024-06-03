@@ -20,7 +20,11 @@
 
 -define(SERVER, ?MODULE).
 
+-ifndef(TEST).
 -define(REPEAT_GC_INTERVAL, 5_000).
+-else.
+-define(REPEAT_GC_INTERVAL, 1_000).
+-endif.
 
 %%
 
