@@ -103,8 +103,7 @@
 -type batch_route() :: {emqx_types:topic(), dest()}.
 
 -record(routeidx, {
-    entry :: '$1' | emqx_topic_index:key(dest()),
-    unused = [] :: nil()
+    entry :: '$1' | emqx_topic_index:key(dest())
 }).
 
 -define(node_patterns(Node), [Node, {'_', Node}]).

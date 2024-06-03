@@ -51,7 +51,7 @@
     cleanup_routes/1
 ]).
 
--record(routing_node, {name, const = unused}).
+-record(routing_node, {name}).
 
 -define(LOCK, {?MODULE, cleanup_routes}).
 
