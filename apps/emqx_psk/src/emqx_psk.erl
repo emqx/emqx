@@ -58,6 +58,7 @@
     backup_tables/0
 ]).
 
+-hank([{unused_record_fields, [{psk_entry, extra}]}]).
 -record(psk_entry, {
     psk_id :: binary(),
     shared_secret :: binary(),

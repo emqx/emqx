@@ -43,6 +43,7 @@
 -type plugin_config_map() :: map().
 -type position() :: no_move | front | rear | {before, name_vsn()} | {behind, name_vsn()}.
 
+-hank([{unused_record_fields, [{plugin_schema_serde, extra}]}]).
 -record(plugin_schema_serde, {
     name :: schema_name(),
     eval_context :: term(),

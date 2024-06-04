@@ -61,6 +61,7 @@
 
 -type duration() :: non_neg_integer().
 
+-hank([{unused_record_fields, [{state, extra}]}]).
 -record(state, {
     refresh_timers = #{} :: #{binary() => reference()},
     refresh_interval = timer:minutes(15) :: duration(),

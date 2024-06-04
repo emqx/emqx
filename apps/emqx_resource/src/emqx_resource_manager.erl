@@ -64,6 +64,7 @@
 -export([worker_resource_health_check/1, worker_channel_health_check/2]).
 
 % State record
+-hank([{unused_record_fields, [{data, extra}]}]).
 -record(data, {
     id,
     group,

@@ -57,6 +57,7 @@
 
 -export([backup_tables/0]).
 
+-hank([{unused_record_fields, [{retained_index_meta, extra}]}]).
 -record(retained_message, {topic, msg, expiry_time}).
 -record(retained_index, {key, expiry_time}).
 -record(retained_index_meta, {key, read_indices, write_indices, reindexing, extra}).
