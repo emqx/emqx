@@ -159,12 +159,12 @@ is_rocksdb_supported(_) ->
     not is_build_without("ROCKSDB").
 
 project_app_dirs() ->
-    Edition = get_edition_from_profile_env(),
-    project_app_dirs(Edition).
+    #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
+    project_app_dirs(Edition, RelType).
 
-project_app_dirs(Edition) ->
+project_app_dirs(Edition, RelType) ->
     IsEnterprise = is_enterprise(Edition),
-    ExcludedApps = excluded_apps(),
+    ExcludedApps = excluded_apps(RelType),
     UmbrellaApps = [
         Path
      || Path <- filelib:wildcard("apps/*"),
@@ -205,10 +205,10 @@ test_deps() ->
     ].
 
 common_compile_opts() ->
-    Edition = get_edition_from_profile_env(),
-    common_compile_opts(Edition, undefined).
+    #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
+    common_compile_opts(Edition, RelType, undefined).
 
-common_compile_opts(Edition, Vsn) ->
+common_compile_opts(Edition, _RelType, Vsn) ->
     % always include debug_info
     [
         debug_info,
@@ -234,65 +234,65 @@ warn_profile_env() ->
 get_edition_from_profile_env() ->
     case os:getenv("PROFILE") of
         "emqx-enterprise" ++ _ ->
-            ee;
+            #{edition => ee, reltype => standard};
         "emqx" ++ _ ->
-            ce;
+            #{edition => ce, reltype => standard};
         false ->
-            ee;
+            #{edition => ee, reltype => standard};
         V ->
             io:format(standard_error, "ERROR: bad_PROFILE ~p~n", [V]),
             exit(bad_PROFILE)
     end.
 
-prod_compile_opts(Edition, Vsn) ->
+prod_compile_opts(Edition, RelType, Vsn) ->
     [
         compressed,
         deterministic,
         warnings_as_errors
-        | common_compile_opts(Edition, Vsn)
+        | common_compile_opts(Edition, RelType, Vsn)
     ].
 
 prod_overrides() ->
     [{add, [{erl_opts, [deterministic]}]}].
 
 profiles() ->
-    Edition = get_edition_from_profile_env(),
-    profiles(Edition) ++ profiles(dev).
+    #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
+    profiles(Edition, RelType) ++ profiles(dev, RelType).
 
-profiles(ce) ->
+profiles(ce, RelType) ->
     Vsn = get_vsn(emqx),
     [
         {'emqx', [
-            {erl_opts, prod_compile_opts(ce, Vsn)},
-            {relx, relx(Vsn, bin, ce)},
+            {erl_opts, prod_compile_opts(ce, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, bin, ce)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)}
+            {project_app_dirs, project_app_dirs(ce, RelType)}
         ]},
         {'emqx-pkg', [
-            {erl_opts, prod_compile_opts(ce, Vsn)},
-            {relx, relx(Vsn, pkg, ce)},
+            {erl_opts, prod_compile_opts(ce, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, pkg, ce)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ce)}
+            {project_app_dirs, project_app_dirs(ce, RelType)}
         ]}
     ];
-profiles(ee) ->
+profiles(ee, RelType) ->
     Vsn = get_vsn('emqx-enterprise'),
     [
         {'emqx-enterprise', [
-            {erl_opts, prod_compile_opts(ee, Vsn)},
-            {relx, relx(Vsn, bin, ee)},
+            {erl_opts, prod_compile_opts(ee, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, bin, ee)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ee)}
+            {project_app_dirs, project_app_dirs(ee, RelType)}
         ]},
         {'emqx-enterprise-pkg', [
-            {erl_opts, prod_compile_opts(ee, Vsn)},
-            {relx, relx(Vsn, pkg, ee)},
+            {erl_opts, prod_compile_opts(ee, RelType, Vsn)},
+            {relx, relx(Vsn, RelType, pkg, ee)},
             {overrides, prod_overrides()},
-            {project_app_dirs, project_app_dirs(ee)}
+            {project_app_dirs, project_app_dirs(ee, RelType)}
         ]}
     ];
 %% EE has more files than CE, always test/check with EE options.
-profiles(dev) ->
+profiles(dev, _RelType) ->
     [
         {check, [
             {erl_opts, common_compile_opts()},
@@ -306,9 +306,10 @@ profiles(dev) ->
         ]}
     ].
 
+%% RelType: standard
 %% PkgType: bin | pkg
 %% Edition: ce (opensource) | ee (enterprise)
-relx(Vsn, PkgType, Edition) ->
+relx(Vsn, RelType, PkgType, Edition) ->
     [
         {include_src, false},
         {include_erts, true},
@@ -316,13 +317,13 @@ relx(Vsn, PkgType, Edition) ->
         {generate_start_script, false},
         {sys_config, false},
         {vm_args, false},
-        {release, {emqx, Vsn}, relx_apps(Edition)},
-        {overlay, relx_overlay(Edition)},
+        {release, {emqx, Vsn}, relx_apps(RelType, Edition)},
+        {overlay, relx_overlay(RelType, Edition)},
         {overlay_vars_values,
             build_info() ++
                 [
-                    {emqx_description, emqx_description(Edition)}
-                    | overlay_vars(PkgType, Edition)
+                    {emqx_description, emqx_description(RelType, Edition)}
+                    | overlay_vars(RelType, PkgType, Edition)
                 ]}
     ].
 
@@ -344,10 +345,10 @@ relform() ->
         Other -> Other
     end.
 
-emqx_description(ee) -> "EMQX Enterprise";
-emqx_description(ce) -> "EMQX".
+emqx_description(_RelType, ee) -> "EMQX Enterprise";
+emqx_description(_RelType, ce) -> "EMQX".
 
-overlay_vars(PkgType, Edition) ->
+overlay_vars(_RelType, PkgType, Edition) ->
     [
         {emqx_default_erlang_cookie, "emqxsecretcookie"}
     ] ++
@@ -398,7 +399,7 @@ overlay_vars_pkg(pkg) ->
         {is_elixir, "no"}
     ].
 
-relx_apps(Edition) ->
+relx_apps(RelType, Edition) ->
     {ok, [
         #{
             db_apps := DBApps,
@@ -414,7 +415,7 @@ relx_apps(Edition) ->
             ce -> CEBusinessApps
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
-    ExcludedApps = excluded_apps(),
+    ExcludedApps = excluded_apps(RelType),
     Apps =
         ([App || App <- SystemApps, not lists:member(App, ExcludedApps)] ++
             %% EMQX starts the DB and the business applications:
@@ -423,7 +424,7 @@ relx_apps(Edition) ->
             [{App, load} || App <- BusinessApps, not lists:member(App, ExcludedApps)]),
     Apps.
 
-excluded_apps() ->
+excluded_apps(_RelType) ->
     OptionalApps = [
         {quicer, is_quicer_supported()},
         {jq, is_jq_supported()},
@@ -439,7 +440,7 @@ is_app(Name) ->
         _ -> false
     end.
 
-relx_overlay(Edition) ->
+relx_overlay(RelType, Edition) ->
     [
         {mkdir, "log/"},
         {mkdir, "data/"},
@@ -464,10 +465,10 @@ relx_overlay(Edition) ->
         {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"},
         {copy, "bin/nodetool", "bin/nodetool"},
         {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
-    ] ++ etc_overlay(Edition).
+    ] ++ etc_overlay(RelType, Edition).
 
-etc_overlay(Edition) ->
-    Templates = emqx_etc_overlay(),
+etc_overlay(RelType, Edition) ->
+    Templates = emqx_etc_overlay(RelType),
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"}
@@ -489,15 +490,18 @@ copy_examples(ee) ->
         {copy, "rel/config/ee-examples/*", "etc/examples/"}
     ].
 
-emqx_etc_overlay() ->
-    emqx_etc_overlay_per_rel() ++
-        [
-            {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
-            {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
-        ].
+emqx_etc_overlay(RelType) ->
+    emqx_etc_overlay_per_rel(RelType) ++
+        emqx_etc_overlay().
 
-emqx_etc_overlay_per_rel() ->
+emqx_etc_overlay_per_rel(_RelType) ->
     [{"{{base_dir}}/lib/emqx/etc/vm.args.cloud", "etc/vm.args"}].
+
+emqx_etc_overlay() ->
+    [
+        {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
+    ].
 
 get_vsn(Profile) ->
     case os:getenv("PKG_VSN") of
@@ -545,7 +549,7 @@ dialyzer(Config) ->
 
     AppNames = app_names(),
     KnownApps = [Name || Name <- AppsToAnalyse, lists:member(Name, AppNames)],
-    ExcludedApps = excluded_apps(),
+    ExcludedApps = excluded_apps(standard),
     AppsToExclude = ExcludedApps ++ (AppNames -- KnownApps),
 
     Extra =
