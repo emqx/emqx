@@ -23,9 +23,14 @@ roots() ->
 
 fields(config) ->
     Fields =
-        [{server, server()}, {sid, fun sid/1}, {service_name, fun service_name/1}] ++
+        [
+            {server, server()},
+            {sid, fun sid/1},
+            {service_name, fun service_name/1}
+        ] ++
             adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
-            emqx_connector_schema_lib:prepare_statement_fields(),
+            emqx_connector_schema_lib:prepare_statement_fields() ++
+            emqx_connector_schema_lib:ssl_fields(),
     proplists:delete(database, Fields).
 
 server() ->

@@ -97,7 +97,7 @@ on_start(
             undefined -> undefined;
             ServiceName0 -> emqx_utils_conv:str(ServiceName0)
         end,
-    Options = [
+    Options0 = [
         {host, Host},
         {port, Port},
         {user, emqx_utils_conv:str(User)},
@@ -108,12 +108,21 @@ on_start(
         {timeout, ?OPT_TIMEOUT},
         {app_name, "EMQX Data To Oracle Database Action"}
     ],
+    Options1 =
+        case emqx_utils_maps:deep_get([ssl, enable], Config, false) of
+            true ->
+                SSLOptsMap = maps:get(ssl, Config),
+                SSLOpts = maps:to_list(SSLOptsMap),
+                [{ssl, SSLOpts} | Options0];
+            false ->
+                Options0
+        end,
     PoolName = InstId,
     State = #{
         pool_name => PoolName,
         installed_channels => #{}
     },
-    case emqx_resource_pool:start(InstId, ?MODULE, Options) of
+    case emqx_resource_pool:start(InstId, ?MODULE, Options1) of
         ok ->
             {ok, State};
         {error, Reason} ->
