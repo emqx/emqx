@@ -914,7 +914,6 @@ send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) 
     Oct = iolist_size(IoData),
     ok = emqx_metrics:inc('bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
-    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     case Transport:async_send(Socket, IoData, []) of
         ok ->
             ok;
