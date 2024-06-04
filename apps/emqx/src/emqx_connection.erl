@@ -158,31 +158,6 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--define(ALARM_TCP_CONGEST(Channel),
-    list_to_binary(
-        io_lib:format(
-            "mqtt_conn/congested/~ts/~ts",
-            [
-                emqx_channel:info(clientid, Channel),
-                emqx_channel:info(username, Channel)
-            ]
-        )
-    )
-).
-
--define(ALARM_CONN_INFO_KEYS, [
-    socktype,
-    sockname,
-    peername,
-    clientid,
-    username,
-    proto_name,
-    proto_ver,
-    connected_at
-]).
--define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
--define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
-
 -define(LIMITER_BYTES_IN, bytes).
 -define(LIMITER_MESSAGE_IN, messages).
 
@@ -603,17 +578,6 @@ handle_msg(
     ActiveN = get_active_n(Type, Listener),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
-%% Something sent
-handle_msg({inet_reply, _Sock, ok}, State = #state{listener = {Type, Listener}}) ->
-    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Type, Listener) of
-        true ->
-            Pubs = emqx_pd:reset_counter(outgoing_pubs),
-            Bytes = emqx_pd:reset_counter(outgoing_bytes),
-            OutStats = #{cnt => Pubs, oct => Bytes},
-            {ok, check_oom(run_gc(OutStats, State))};
-        false ->
-            ok
-    end;
 handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
     handle_info({sock_error, Reason}, State);
 handle_msg({connack, ConnAck}, State) ->
@@ -729,9 +693,9 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
             shutdown(Reason, Reply, State#state{channel = NChannel});
         {shutdown, Reason, Reply, OutPacket, NChannel} ->
             NState = State#state{channel = NChannel},
-            ok = handle_outgoing(OutPacket, NState),
-            NState2 = graceful_shutdown_transport(Reason, NState),
-            shutdown(Reason, Reply, NState2)
+            {ok, NState2} = handle_outgoing(OutPacket, NState),
+            NState3 = graceful_shutdown_transport(Reason, NState2),
+            shutdown(Reason, Reply, NState3)
     end.
 
 %%--------------------------------------------------------------------
@@ -854,8 +818,8 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
-            ok = handle_outgoing(Packet, NState),
-            shutdown(Reason, NState)
+            {ok, NState2} = handle_outgoing(Packet, NState),
+            shutdown(Reason, NState2)
     end.
 
 %%--------------------------------------------------------------------
@@ -909,19 +873,36 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
 %%--------------------------------------------------------------------
 %% Send data
 
--spec send(iodata(), state()) -> ok.
-send(IoData, #state{transport = Transport, socket = Socket, channel = Channel}) ->
+-spec send(iodata(), state()) -> {ok, state()}.
+send(IoData, #state{transport = Transport, socket = Socket} = State) ->
     Oct = iolist_size(IoData),
-    ok = emqx_metrics:inc('bytes.sent', Oct),
+    emqx_metrics:inc('bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
-    case Transport:async_send(Socket, IoData, []) of
+    case Transport:send(Socket, IoData) of
         ok ->
-            ok;
+            %% NOTE: for Transport=emqx_quic_stream, it's actually an
+            %% async_send, sent/1 should technically be called when
+            %% {quic, send_complete, _Stream, true | false} is received,
+            %% but it is handled early for simplicity
+            sent(State);
         Error = {error, _Reason} ->
-            %% Send an inet_reply to postpone handling the error
-            %% @FIXME: why not just return error?
+            %% Defer error handling
+            %% so it's handled the same as tcp_closed or ssl_closed
             self() ! {inet_reply, Socket, Error},
-            ok
+            {ok, State}
+    end.
+
+%% Some bytes sent
+sent(#state{listener = {Type, Listener}} = State) ->
+    %% Run GC and check OOM after certain amount of messages or bytes sent.
+    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Type, Listener) of
+        true ->
+            Pubs = emqx_pd:reset_counter(outgoing_pubs),
+            Bytes = emqx_pd:reset_counter(outgoing_bytes),
+            OutStats = #{cnt => Pubs, oct => Bytes},
+            {ok, check_oom(run_gc(OutStats, State))};
+        false ->
+            {ok, State}
     end.
 
 %%--------------------------------------------------------------------
