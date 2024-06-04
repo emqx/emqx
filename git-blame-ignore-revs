@@ -39,3 +39,5 @@ a4feb3e6e95c18cb531416112e57520c5ba00d40
 72eb34658d31fb38130421949cff262efab51139
 # erlfmt rebar.config files and bin/nodetool
 5e100f52b8a530f4a952a4b20125ec37b38e2906
+# erlfmt files in `erlang-mode`
+336ed1b9223e37adb3336b8edacfd2a9b4238319
