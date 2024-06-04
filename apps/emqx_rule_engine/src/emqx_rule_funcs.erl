@@ -160,6 +160,7 @@
     find/3,
     join_to_string/1,
     join_to_string/2,
+    map_to_redis_hset_args/1,
     join_to_sql_values_string/1,
     jq/2,
     jq/3,
@@ -813,6 +814,38 @@ find(S, P, Position) -> emqx_variform_bif:find(S, P, Position).
 join_to_string(Str) -> emqx_variform_bif:join_to_string(Str).
 
 join_to_string(Sep, List) -> emqx_variform_bif:join_to_string(Sep, List).
+
+%% @doc Format map key-value pairs as redis HSET (or HMSET) command fields.
+%% Notes:
+%% - Non-string keys in the input map are dropped
+%% - Keys are not quoted
+%% - String values are always quoted
+%% - No escape sequence for keys and values
+%% - Float point values are formatted with fixed (6) decimal point compact-formatting
+map_to_redis_hset_args(Map) when erlang:is_map(Map) ->
+    [map_to_redis_hset_args | maps:fold(fun redis_hset_acc/3, [], Map)].
+
+redis_hset_acc(K, V, IoData) ->
+    try
+        [redis_field_name(K), redis_field_value(V) | IoData]
+    catch
+        _:_ ->
+            IoData
+    end.
+
+redis_field_name(K) when erlang:is_binary(K) ->
+    K;
+redis_field_name(K) ->
+    throw({bad_redis_field_name, K}).
+
+redis_field_value(V) when erlang:is_binary(V) ->
+    V;
+redis_field_value(V) when erlang:is_integer(V) ->
+    integer_to_binary(V);
+redis_field_value(V) when erlang:is_float(V) ->
+    float2str(V, 6);
+redis_field_value(V) when erlang:is_boolean(V) ->
+    atom_to_binary(V).
 
 join_to_sql_values_string(List) ->
     QuotedList =

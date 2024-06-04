@@ -128,8 +128,8 @@ on_query(
                 #{instance_id => InstId, cmd => Cmd, batch => false, mode => sync, result => Result}
             ),
             Result;
-        Error ->
-            Error
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 on_batch_query(
@@ -165,8 +165,8 @@ on_batch_query(
                 }
             ),
             Result;
-        Error ->
-            Error
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 trace_format_commands(Commands0) ->
@@ -204,11 +204,15 @@ query(InstId, Query, RedisConnSt) ->
     end.
 
 proc_command_template(CommandTemplate, Msg) ->
-    lists:map(
-        fun(ArgTks) ->
-            emqx_placeholder:proc_tmpl(ArgTks, Msg, #{return => full_binary})
-        end,
-        CommandTemplate
+    lists:reverse(
+        lists:foldl(
+            fun(ArgTks, Acc) ->
+                New = proc_tmpl(ArgTks, Msg),
+                lists:reverse(New, Acc)
+            end,
+            [],
+            CommandTemplate
+        )
     ).
 
 preproc_command_template(CommandTemplate) ->
@@ -216,3 +220,18 @@ preproc_command_template(CommandTemplate) ->
         fun emqx_placeholder:preproc_tmpl/1,
         CommandTemplate
     ).
+
+%% This function mimics emqx_placeholder:proc_tmpl/3 but with an
+%% injected special handling of map_to_redis_hset_args result
+%% which is a list of redis command args (all in binary string format)
+proc_tmpl([{var, Phld}], Data) ->
+    case emqx_placeholder:lookup_var(Phld, Data) of
+        [map_to_redis_hset_args | L] ->
+            L;
+        Other ->
+            [emqx_utils_conv:bin(Other)]
+    end;
+proc_tmpl(Tokens, Data) ->
+    %% more than just a var ref, but a string, or a concatenation of string and a var
+    %% this is must be a single arg, format it into a binary
+    [emqx_placeholder:proc_tmpl(Tokens, Data, #{return => full_binary})].
