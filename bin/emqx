@@ -337,6 +337,9 @@ compatiblity_info() {
   # set crash-dump bytes to zero to ensure no crash dump is generated when erl crashes
   env ERL_CRASH_DUMP_BYTES=0 "$BINDIR/$PROGNAME" \
     -noshell \
+    +S 2 \
+    +P 65536 \
+    +Q 65536 \
     -boot "$REL_DIR/start_clean" \
     -boot_var RELEASE_LIB "$ERTS_LIB_DIR/lib" \
     -eval "$COMPATIBILITY_CHECK"
@@ -408,6 +411,7 @@ remsh() {
             -setcookie "$COOKIE" \
             -hidden \
             -kernel net_ticktime "$TICKTIME" \
+            +P 65536 \
             +Q 65536 \
             +S 2 \
             $EPMD_ARGS
@@ -420,6 +424,7 @@ remsh() {
             --erl "-kernel net_ticktime $TICKTIME" \
             --erl "$EPMD_ARGS" \
             --erl "$NAME_TYPE $id" \
+            --erl "+P 65536" \
             --erl "+Q 65536" \
             --erl "+S 2" \
             --boot "$REL_DIR/start_clean"
@@ -1307,7 +1312,11 @@ case "${COMMAND}" in
               --boot "$REL_DIR/start_clean" \
               --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
               --vm-args "$REL_DIR/remote.vm.args" \
-              --erl "-start_epmd false -epmd_module ekka_epmd" \
+              --erl "-start_epmd false" \
+              --erl "-epmd_module ekka_epmd" \
+              --erl "+P 65536" \
+              --erl "+Q 65536" \
+              --erl "+S 2" \
               --rpc-eval "$NAME" "$@"
         else
             echo "EMQX node is not an Elixir node"

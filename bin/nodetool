@@ -1,6 +1,6 @@
 #!/usr/bin/env escript
 %% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
-%%! +Q 65536 +S 1
+%%! +P 65536 +Q 65536 +S 1
 %% ex: ft=erlang ts=4 sw=4 et
 %% -------------------------------------------------------------------
 %%
