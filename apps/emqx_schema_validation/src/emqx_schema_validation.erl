@@ -144,7 +144,7 @@ delete(Name) ->
 
 -spec register_hooks() -> ok.
 register_hooks() ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_MSG_VALIDATION).
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_SCHEMA_VALIDATION).
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->

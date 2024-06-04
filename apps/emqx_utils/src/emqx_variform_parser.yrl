@@ -22,6 +22,7 @@ Rootsymbol
 expr -> call_or_var : '$1'.
 
 %% Function call or variable
+call_or_var -> identifier '(' ')' : {call, element(3, '$1'), []}.
 call_or_var -> identifier '(' args ')' : {call, element(3, '$1'), '$3'}.
 call_or_var -> identifier : {var, element(3, '$1')}.
 

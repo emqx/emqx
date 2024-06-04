@@ -31,6 +31,7 @@
 
 -export([render/2, render/3]).
 -export([compile/1, decompile/1]).
+-export([skip_stringification/1]).
 
 -export_type([compiled/0]).
 
@@ -43,6 +44,7 @@
 ).
 
 -define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
+-define(SKIP_STRINGIFICATION, {?MODULE, '__skip_stringification__'}).
 
 %% @doc Render a variform expression with bindings.
 %% A variform expression is a template string which supports variable substitution
@@ -88,17 +90,23 @@ eval_as_string(Expr, Bindings, _Opts) ->
             {error, #{exception => C, reason => E, stack_trace => S}}
     end.
 
-%% Force the expression to return binary string.
+%% Force the expression to return binary string (in most cases).
 return_str(Str) when is_binary(Str) -> Str;
 return_str(Num) when is_integer(Num) -> integer_to_binary(Num);
 return_str(Num) when is_float(Num) -> float_to_binary(Num, [{decimals, 10}, compact]);
 return_str(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
+%% For usage by other modules (e.g.: message transformation)
+return_str({?SKIP_STRINGIFICATION, X}) ->
+    X;
 return_str(Other) ->
     throw(#{
         reason => bad_return,
         expected => string,
         got => Other
     }).
+
+skip_stringification(X) ->
+    {?SKIP_STRINGIFICATION, X}.
 
 %% @doc Compile varifom expression.
 -spec compile(string() | binary() | compiled()) -> {ok, compiled()} | {error, any()}.
@@ -313,7 +321,7 @@ assert_module_allowed(Mod) ->
             ok;
         false ->
             throw(#{
-                reason => unallowed_veriform_module,
+                reason => unallowed_variform_module,
                 module => Mod
             })
     end.

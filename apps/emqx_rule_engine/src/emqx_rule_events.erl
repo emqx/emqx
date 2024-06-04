@@ -45,6 +45,7 @@
     on_session_unsubscribed/4,
     on_message_publish/2,
     on_message_dropped/4,
+    on_message_transformation_failed/3,
     on_schema_validation_failed/3,
     on_message_delivered/3,
     on_message_acked/3,
@@ -80,6 +81,7 @@ event_names() ->
         'message.delivered',
         'message.acked',
         'message.dropped',
+        'message.transformation_failed',
         'schema.validation_failed',
         'delivery.dropped'
     ].
@@ -96,6 +98,7 @@ event_topics_enum() ->
         '$events/message_delivered',
         '$events/message_acked',
         '$events/message_dropped',
+        '$events/message_transformation_failed',
         '$events/schema_validation_failed',
         '$events/delivery_dropped'
         % '$events/message_publish' % not possible to use in SELECT FROM
@@ -232,6 +235,19 @@ on_message_dropped(Message, _, Reason, Conf) ->
             apply_event(
                 'message.dropped',
                 fun() -> eventmsg_dropped(Message, Reason) end,
+                Conf
+            )
+    end,
+    {ok, Message}.
+
+on_message_transformation_failed(Message, TransformationContext, Conf) ->
+    case ignore_sys_message(Message) of
+        true ->
+            ok;
+        false ->
+            apply_event(
+                'message.transformation_failed',
+                fun() -> eventmsg_transformation_failed(Message, TransformationContext) end,
                 Conf
             )
     end,
@@ -535,6 +551,38 @@ eventmsg_dropped(
         #{headers => Headers}
     ).
 
+eventmsg_transformation_failed(
+    Message = #message{
+        id = Id,
+        from = ClientId,
+        qos = QoS,
+        flags = Flags,
+        topic = Topic,
+        headers = Headers,
+        payload = Payload,
+        timestamp = Timestamp
+    },
+    TransformationContext
+) ->
+    #{name := TransformationName} = TransformationContext,
+    with_basic_columns(
+        'message.transformation_failed',
+        #{
+            id => emqx_guid:to_hexstr(Id),
+            transformation => TransformationName,
+            clientid => ClientId,
+            username => emqx_message:get_header(username, Message, undefined),
+            payload => Payload,
+            peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
+            topic => Topic,
+            qos => QoS,
+            flags => Flags,
+            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            publish_received_at => Timestamp
+        },
+        #{headers => Headers}
+    ).
+
 eventmsg_validation_failed(
     Message = #message{
         id = Id,
@@ -737,9 +785,17 @@ event_info_schema_validation_failed() ->
         {<<"messages that do not pass configured validations">>, <<"未通过验证的消息"/utf8>>},
         <<"SELECT * FROM \"$events/schema_validation_failed\" WHERE topic =~ 't/#'">>
     ).
+event_info_message_transformation_failed() ->
+    event_info_common(
+        'message.transformation_failed',
+        {<<"message transformation failed">>, <<"message 验证失败"/utf8>>},
+        {<<"messages that do not pass configured transformation">>, <<"未通过验证的消息"/utf8>>},
+        <<"SELECT * FROM \"$events/message_transformation_failed\" WHERE topic =~ 't/#'">>
+    ).
 ee_event_info() ->
     [
-        event_info_schema_validation_failed()
+        event_info_schema_validation_failed(),
+        event_info_message_transformation_failed()
     ].
 -else.
 %% END (?EMQX_RELEASE_EDITION == ee).
@@ -933,6 +989,9 @@ test_columns(Event) ->
 -if(?EMQX_RELEASE_EDITION == ee).
 ee_test_columns('schema.validation_failed') ->
     [{<<"validation">>, <<"myvalidation">>}] ++
+        test_columns('message.publish');
+ee_test_columns('message.transformation_failed') ->
+    [{<<"transformation">>, <<"mytransformation">>}] ++
         test_columns('message.publish').
 %% ELSE (?EMQX_RELEASE_EDITION == ee).
 -else.
@@ -984,6 +1043,23 @@ columns_with_exam('schema.validation_failed') ->
     [
         {<<"event">>, 'schema.validation_failed'},
         {<<"validation">>, <<"my_validation">>},
+        {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
+        {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"topic">>, <<"t/a">>},
+        {<<"qos">>, 1},
+        {<<"flags">>, #{}},
+        {<<"publish_received_at">>, erlang:system_time(millisecond)},
+        columns_example_props(pub_props),
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
+    ];
+columns_with_exam('message.transformation_failed') ->
+    [
+        {<<"event">>, 'message.transformation_failed'},
+        {<<"validation">>, <<"my_transformation">>},
         {<<"id">>, emqx_guid:to_hexstr(emqx_guid:gen())},
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
@@ -1200,6 +1276,7 @@ hook_fun('session.unsubscribed') -> fun ?MODULE:on_session_unsubscribed/4;
 hook_fun('message.delivered') -> fun ?MODULE:on_message_delivered/3;
 hook_fun('message.acked') -> fun ?MODULE:on_message_acked/3;
 hook_fun('message.dropped') -> fun ?MODULE:on_message_dropped/4;
+hook_fun('message.transformation_failed') -> fun ?MODULE:on_message_transformation_failed/3;
 hook_fun('schema.validation_failed') -> fun ?MODULE:on_schema_validation_failed/3;
 hook_fun('delivery.dropped') -> fun ?MODULE:on_delivery_dropped/4;
 hook_fun('message.publish') -> fun ?MODULE:on_message_publish/2;
@@ -1231,6 +1308,7 @@ event_name(<<"$events/session_unsubscribed">>) -> 'session.unsubscribed';
 event_name(<<"$events/message_delivered">>) -> 'message.delivered';
 event_name(<<"$events/message_acked">>) -> 'message.acked';
 event_name(<<"$events/message_dropped">>) -> 'message.dropped';
+event_name(<<"$events/message_transformation_failed">>) -> 'message.transformation_failed';
 event_name(<<"$events/schema_validation_failed">>) -> 'schema.validation_failed';
 event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
@@ -1246,6 +1324,7 @@ event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
 event_topic('message.acked') -> <<"$events/message_acked">>;
 event_topic('message.dropped') -> <<"$events/message_dropped">>;
+event_topic('message.transformation_failed') -> <<"$events/message_transformation_failed">>;
 event_topic('schema.validation_failed') -> <<"$events/schema_validation_failed">>;
 event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
 event_topic('message.publish') -> <<"$events/message_publish">>.

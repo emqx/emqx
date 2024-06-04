@@ -1,0 +1,14 @@
+{application, emqx_message_transformation, [
+    {description, "EMQX Message Transformation"},
+    {vsn, "0.1.0"},
+    {registered, [emqx_message_transformation_sup, emqx_message_transformation_registry]},
+    {mod, {emqx_message_transformation_app, []}},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

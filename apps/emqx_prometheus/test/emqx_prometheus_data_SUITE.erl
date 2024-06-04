@@ -82,7 +82,8 @@ all() ->
         {group, '/prometheus/stats'},
         {group, '/prometheus/auth'},
         {group, '/prometheus/data_integration'},
-        [{group, '/prometheus/schema_validation'} || emqx_release:edition() == ee]
+        [{group, '/prometheus/schema_validation'} || emqx_release:edition() == ee],
+        [{group, '/prometheus/message_transformation'} || emqx_release:edition() == ee]
     ]).
 
 groups() ->
@@ -101,6 +102,7 @@ groups() ->
         {'/prometheus/auth', ModeGroups},
         {'/prometheus/data_integration', ModeGroups},
         {'/prometheus/schema_validation', ModeGroups},
+        {'/prometheus/message_transformation', ModeGroups},
         {?PROM_DATA_MODE__NODE, AcceptGroups},
         {?PROM_DATA_MODE__ALL_NODES_AGGREGATED, AcceptGroups},
         {?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, AcceptGroups},
@@ -136,6 +138,10 @@ init_per_suite(Config) ->
                 {emqx_schema_validation, #{config => schema_validation_config()}}
              || emqx_release:edition() == ee
             ],
+            [
+                {emqx_message_transformation, #{config => message_transformation_config()}}
+             || emqx_release:edition() == ee
+            ],
             {emqx_prometheus, emqx_prometheus_SUITE:legacy_conf_default()}
         ]),
         #{
@@ -168,6 +174,8 @@ init_per_group('/prometheus/data_integration', Config) ->
     [{module, emqx_prometheus_data_integration} | Config];
 init_per_group('/prometheus/schema_validation', Config) ->
     [{module, emqx_prometheus_schema_validation} | Config];
+init_per_group('/prometheus/message_transformation', Config) ->
+    [{module, emqx_prometheus_message_transformation} | Config];
 init_per_group(?PROM_DATA_MODE__NODE, Config) ->
     [{mode, ?PROM_DATA_MODE__NODE} | Config];
 init_per_group(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Config) ->
@@ -357,6 +365,8 @@ metric_meta(<<"emqx_action_", _Tail/binary>>) -> ?meta(1, 1, 2);
 metric_meta(<<"emqx_connector_", _Tail/binary>>) -> ?meta(1, 1, 2);
 %% `/prometheus/schema_validation`
 metric_meta(<<"emqx_schema_validation_", _Tail/binary>>) -> ?meta(1, 1, 2);
+%% `/prometheus/message_transformation`
+metric_meta(<<"emqx_message_transformation_", _Tail/binary>>) -> ?meta(1, 1, 2);
 %% normal emqx metrics
 metric_meta(<<"emqx_", _Tail/binary>>) -> ?meta(0, 0, 1);
 metric_meta(_) -> #{}.
@@ -840,6 +850,23 @@ assert_json_data__schema_validations(Ms, _) ->
         Ms
     ).
 
+assert_json_data__message_transformations(Ms, _) ->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    validation_name := _,
+                    emqx_message_transformation_enable := _,
+                    emqx_message_transformation_matched := _,
+                    emqx_message_transformation_failed := _,
+                    emqx_message_transformation_succeeded := _
+                },
+                M
+            )
+        end,
+        Ms
+    ).
+
 schema_validation_config() ->
     Validation = #{
         <<"enable">> => true,
@@ -857,6 +884,25 @@ schema_validation_config() ->
     #{
         <<"schema_validation">> => #{
             <<"validations">> => [Validation]
+        }
+    }.
+
+message_transformation_config() ->
+    Transformation = #{
+        <<"enable">> => true,
+        <<"name">> => <<"my_transformation">>,
+        <<"topics">> => [<<"t/#">>],
+        <<"failure_action">> => <<"drop">>,
+        <<"operations">> => [
+            #{
+                <<"key">> => <<"topic">>,
+                <<"value">> => <<"concat([topic, '/', payload.t])">>
+            }
+        ]
+    },
+    #{
+        <<"message_transformation">> => #{
+            <<"transformations">> => [Transformation]
         }
     }.
 
