@@ -136,6 +136,19 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
 make_name_vsn_string(Name, Vsn) ->
     binary_to_list(iolist_to_binary([Name, "-", Vsn])).
 
+app_dir(AppName, Apps) ->
+    case
+        lists:filter(
+            fun(AppNameVsn) -> nomatch =/= string:prefix(AppNameVsn, AppName) end,
+            Apps
+        )
+    of
+        [AppNameVsn] ->
+            {ok, AppNameVsn};
+        _ ->
+            {error, not_found}
+    end.
+
 %%--------------------------------------------------------------------
 %% Package operations
 
@@ -1372,12 +1385,14 @@ plugin_dir(NameVsn) ->
 
 -spec plugin_priv_dir(name_vsn()) -> string().
 plugin_priv_dir(NameVsn) ->
-    case read_plugin_info(NameVsn, #{fill_readme => false}) of
-        {ok, #{<<"name">> := Name, <<"metadata_vsn">> := Vsn}} ->
-            AppDir = make_name_vsn_string(Name, Vsn),
-            wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]));
-        _ ->
-            wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
+    maybe
+        {ok, #{<<"name">> := Name, <<"rel_apps">> := Apps}} ?=
+            read_plugin_info(NameVsn, #{fill_readme => false}),
+        {ok, AppDir} ?= app_dir(Name, Apps),
+        wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]))
+    else
+        %% Otherwise assume the priv directory is under the plugin root directory
+        _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
     end.
 
 -spec plugin_config_dir(name_vsn()) -> string() | {error, Reason :: string()}.
