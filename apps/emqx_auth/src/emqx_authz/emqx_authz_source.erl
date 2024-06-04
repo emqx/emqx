@@ -19,7 +19,7 @@
 -type source_type() :: atom().
 -type source() :: #{type => source_type(), _ => _}.
 -type raw_source() :: map().
--type match_result() :: {matched, allow} | {matched, deny} | nomatch.
+-type match_result() :: {matched, allow | deny | ignore} | nomatch | ignore.
 
 -export_type([
     source_type/0,
