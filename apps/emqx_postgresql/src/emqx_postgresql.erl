@@ -654,7 +654,7 @@ prepare_sql_to_conn(Conn, Prepares) ->
 
 prepare_sql_to_conn(Conn, [], Statements, _Attempts) when is_pid(Conn) ->
     {ok, Statements};
-prepare_sql_to_conn(Conn, [{Key, _} | _Rest], _Statements, 3) when is_pid(Conn) ->
+prepare_sql_to_conn(Conn, [{Key, _} | _Rest], _Statements, _MaxAttempts = 3) when is_pid(Conn) ->
     {error, {failed_to_remove_prev_prepared_statement, Key}};
 prepare_sql_to_conn(
     Conn, [{Key, {SQL, _RowTemplate}} | Rest] = ToPrepare, Statements, Attempts
@@ -665,7 +665,7 @@ prepare_sql_to_conn(
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
             prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement}, 0);
-        {error, {error, error, _, undefined_table, _, _} = Error} ->
+        {error, #error{severity = error, codename = undefined_table} = Error} ->
             %% Target table is not created
             ?tp(pgsql_undefined_table, #{}),
             LogMsg =
@@ -675,7 +675,7 @@ prepare_sql_to_conn(
                 ),
             ?SLOG(error, LogMsg),
             {error, undefined_table};
-        {error, {error, error, _, duplicate_prepared_statement, _, _}} = Error ->
+        {error, #error{severity = error, codename = duplicate_prepared_statement}} = Error ->
             ?tp(pgsql_prepared_statement_exists, #{}),
             LogMsg =
                 maps:merge(
@@ -693,7 +693,7 @@ prepare_sql_to_conn(
             ?SLOG(warning, LogMsg),
             case epgsql:close(Conn, statement, Key) of
                 ok ->
-                    ?SLOG(info, #{msg => "pqsql_closed_statement_succefully"});
+                    ?SLOG(info, #{msg => "pqsql_closed_statement_successfully"});
                 {error, Error} ->
                     ?SLOG(warning, #{msg => "pqsql_close_statement_failed", cause => Error})
             end,
