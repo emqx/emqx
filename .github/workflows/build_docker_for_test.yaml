@@ -52,12 +52,16 @@ jobs:
         run: |
           CID=$(docker run -d --rm -P $_EMQX_DOCKER_IMAGE_TAG)
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
-          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          if ! ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT; then
+            docker logs $CID
+          fi
           docker stop $CID
       - name: export docker image
+        if: always()
         run: |
           docker save $_EMQX_DOCKER_IMAGE_TAG | gzip > $EMQX_NAME-docker-$PKG_VSN.tar.gz
       - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        if: always()
         with:
           name: "${{ env.EMQX_NAME }}-docker"
           path: "${{ env.EMQX_NAME }}-docker-${{ env.PKG_VSN }}.tar.gz"
