@@ -654,8 +654,8 @@ prepare_sql_to_conn(Conn, Prepares) ->
 
 prepare_sql_to_conn(Conn, [], Statements, _Attempts) when is_pid(Conn) ->
     {ok, Statements};
-prepare_sql_to_conn(Conn, [{Key, _} | _Rest], _Statements, _MaxAttempts = 3) when is_pid(Conn) ->
-    {error, {failed_to_remove_prev_prepared_statement, Key}};
+prepare_sql_to_conn(Conn, [{Key, _} | _Rest], _Statements, _MaxAttempts = 2) when is_pid(Conn) ->
+    failed_to_remove_prev_prepared_statement_error();
 prepare_sql_to_conn(
     Conn, [{Key, {SQL, _RowTemplate}} | Rest] = ToPrepare, Statements, Attempts
 ) when is_pid(Conn) ->
@@ -692,11 +692,12 @@ prepare_sql_to_conn(
             ?SLOG(warning, LogMsg),
             case epgsql:close(Conn, statement, Key) of
                 ok ->
-                    ?SLOG(info, #{msg => "pqsql_closed_statement_successfully"});
+                    ?SLOG(info, #{msg => "pqsql_closed_statement_successfully"}),
+                    prepare_sql_to_conn(Conn, ToPrepare, Statements, Attempts + 1);
                 {error, CloseError} ->
-                    ?SLOG(warning, #{msg => "pqsql_close_statement_failed", cause => CloseError})
-            end,
-            prepare_sql_to_conn(Conn, ToPrepare, Statements, Attempts + 1);
+                    ?SLOG(error, #{msg => "pqsql_close_statement_failed", cause => CloseError}),
+                    failed_to_remove_prev_prepared_statement_error()
+            end;
         {error, Error} ->
             TranslatedError = translate_to_log_context(Error),
             LogMsg =
@@ -707,6 +708,13 @@ prepare_sql_to_conn(
             ?SLOG(error, LogMsg),
             {error, export_error(TranslatedError)}
     end.
+
+failed_to_remove_prev_prepared_statement_error() ->
+    Msg =
+        ("A previous prepared statement for the action already exists and "
+        "we are not able to close it. Please, try to disable and then enable "
+        "the connector to resolve this issue."),
+    {error, unicode:charactes_to_binary(Msg)}.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;
