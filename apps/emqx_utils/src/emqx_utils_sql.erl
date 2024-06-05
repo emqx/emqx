@@ -54,17 +54,26 @@ get_statement_type(Query) ->
 -spec parse_insert(iodata()) ->
     {ok, {_Statement :: binary(), _Rows :: binary()}} | {error, not_insert_sql}.
 parse_insert(SQL) ->
-    case re:split(SQL, "((?i)values)", [{return, binary}]) of
-        [Part1, _, Part3] ->
-            case string:trim(Part1, leading) of
-                <<"insert", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                <<"INSERT", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                _ ->
-                    {error, not_insert_sql}
-            end;
-        _ ->
+    Pattern = <<
+        %% case-insensitive
+        "(?i)^\\s*",
+        %% Group-1: insert into, table name and columns (when existed).
+        %% All space characters suffixed to <TABLE_NAME> will be kept
+        %% `INSERT INTO <TABLE_NAME> [(<COLUMN>, ..)]`
+        "(insert\\s+into\\s+[^\\s\\(\\)]+\\s*(?:\\([^\\)]*\\))?)",
+        %% Keyword: `VALUES`
+        "\\s*values\\s*",
+        %% Group-2: literals value(s) or placeholder(s) with round brackets.
+        %% And the sub-pattern in brackets does not do any capturing
+        %% `([<VALUE> | <PLACEHOLDER>], ..])`
+        "(\\((?:[^()]++|(?2))*\\))",
+        "\\s*$"
+    >>,
+
+    case re:run(SQL, Pattern, [{capture, all_but_first, binary}]) of
+        {match, [InsertInto, ValuesTemplate]} ->
+            {ok, {InsertInto, ValuesTemplate}};
+        nomatch ->
             {error, not_insert_sql}
     end.
 
