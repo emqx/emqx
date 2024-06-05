@@ -19,6 +19,7 @@
 
 -include("emqx.hrl").
 -include("emqx_channel.hrl").
+-include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_access_control.hrl").
 -include("logger.hrl").
@@ -1299,6 +1300,9 @@ handle_info({'DOWN', Ref, process, Pid, Reason}, Channel) ->
         [] -> {ok, Channel};
         Msgs -> {ok, Msgs, Channel}
     end;
+handle_info(?session_message(Message), #channel{session = Session} = Channel) ->
+    NSession = emqx_session:handle_info(Message, Session),
+    {ok, Channel#channel{session = NSession}};
 handle_info(Info, Channel) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.

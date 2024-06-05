@@ -127,7 +127,12 @@ renew_streams(S0) ->
     S1 = remove_unsubscribed_streams(S0),
     S2 = remove_fully_replayed_streams(S1),
     S3 = update_stream_subscription_state_ids(S2),
-    emqx_persistent_session_ds_subs:fold(
+    %% For shared subscriptions, the streams are populated by
+    %% `emqx_persistent_session_ds_shared_subs`.
+    %% TODO
+    %% Move discovery of proper streams
+    %% out of the scheduler for complete symmetry?
+    fold_proper_subscriptions(
         fun
             (Key, #{start_time := StartTime, id := SubId, current_state := SStateId}, Acc) ->
                 TopicFilter = emqx_topic:words(Key),
@@ -206,9 +211,6 @@ ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream
     Key = {SubId, Stream},
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
-            ?SLOG(debug, #{
-                msg => new_stream, key => Key, stream => Stream
-            }),
             case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
                 {ok, Iterator} ->
                     NewStreamState = #srs{
@@ -420,3 +422,13 @@ shuffle(L0) ->
     L2 = lists:sort(L1),
     {_, L} = lists:unzip(L2),
     L.
+
+fold_proper_subscriptions(Fun, Acc, S) ->
+    emqx_persistent_session_ds_state:fold_subscriptions(
+        fun
+            (#share{}, _Sub, Acc0) -> Acc0;
+            (TopicFilter, Sub, Acc0) -> Fun(TopicFilter, Sub, Acc0)
+        end,
+        Acc,
+        S
+    ).

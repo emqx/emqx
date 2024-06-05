@@ -30,8 +30,7 @@
     on_session_drop/2,
     gc/1,
     lookup/2,
-    to_map/1,
-    fold/3
+    to_map/1
 ]).
 
 %% Management API:
@@ -160,7 +159,7 @@ on_unsubscribe(SessionId, TopicFilter, S0) ->
 
 -spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) -> ok.
 on_session_drop(SessionId, S0) ->
-    fold(
+    _ = fold_proper_subscriptions(
         fun(TopicFilter, _Subscription, S) ->
             case on_unsubscribe(SessionId, TopicFilter, S) of
                 {ok, S1, _} -> S1;
@@ -169,10 +168,14 @@ on_session_drop(SessionId, S0) ->
         end,
         S0,
         S0
-    ).
+    ),
+    ok.
 
 %% @doc Remove subscription states that don't have a parent, and that
-%% don't have any unacked messages:
+%% don't have any unacked messages.
+%% TODO
+%% This function collects shared subs as well
+%% Move to a separate module to keep symmetry?
 -spec gc(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
 gc(S0) ->
     %% Create a set of subscription states IDs referenced either by a
@@ -210,7 +213,7 @@ gc(S0) ->
         S0
     ).
 
-%% @doc Fold over active subscriptions:
+%% @doc Lookup a subscription and merge it with its current state:
 -spec lookup(emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds_state:t()) ->
     emqx_persistent_session_ds:subscription() | undefined.
 lookup(TopicFilter, S) ->
@@ -230,21 +233,11 @@ lookup(TopicFilter, S) ->
 %% purpose:
 -spec to_map(emqx_persistent_session_ds_state:t()) -> map().
 to_map(S) ->
-    fold(
+    fold_proper_subscriptions(
         fun(TopicFilter, _, Acc) -> Acc#{TopicFilter => lookup(TopicFilter, S)} end,
         #{},
         S
     ).
-
-%% @doc Fold over active subscriptions:
--spec fold(
-    fun((emqx_types:topic(), emqx_persistent_session_ds:subscription(), Acc) -> Acc),
-    Acc,
-    emqx_persistent_session_ds_state:t()
-) ->
-    Acc.
-fold(Fun, Acc, S) ->
-    emqx_persistent_session_ds_state:fold_subscriptions(Fun, Acc, S).
 
 -spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
     emqx_persistent_session_ds:subscription() | undefined.
@@ -266,6 +259,16 @@ cold_get_subscription(SessionId, Topic) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+fold_proper_subscriptions(Fun, Acc, S) ->
+    emqx_persistent_session_ds_state:fold_subscriptions(
+        fun
+            (#share{}, _Sub, Acc0) -> Acc0;
+            (TopicFilter, Sub, Acc0) -> Fun(TopicFilter, Sub, Acc0)
+        end,
+        Acc,
+        S
+    ).
 
 now_ms() ->
     erlang:system_time(millisecond).

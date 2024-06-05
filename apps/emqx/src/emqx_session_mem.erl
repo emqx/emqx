@@ -87,6 +87,7 @@
     deliver/3,
     replay/3,
     handle_timeout/3,
+    handle_info/2,
     disconnect/2,
     terminate/2
 ]).
@@ -596,6 +597,15 @@ handle_timeout(ClientInfo, retry_delivery, Session) ->
     retry(ClientInfo, Session);
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session).
+
+%%--------------------------------------------------------------------
+%% Geneic messages
+%%--------------------------------------------------------------------
+
+-spec handle_info(term(), session()) -> session().
+handle_info(Msg, Session) ->
+    ?SLOG(warning, #{msg => emqx_session_mem_unknown_message, message => Msg}),
+    Session.
 
 %%--------------------------------------------------------------------
 %% Retry Delivery
