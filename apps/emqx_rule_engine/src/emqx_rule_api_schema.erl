@@ -282,6 +282,18 @@ fields("ctx_check_authz_complete") ->
         {"authz_source", sc(binary(), #{desc => ?DESC("event_authz_source")})},
         {"result", sc(binary(), #{desc => ?DESC("event_result")})}
     ];
+fields("ctx_check_authn_complete") ->
+    Event = 'client.check_authn_complete',
+    [
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
+        {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
+        {"username", sc(binary(), #{desc => ?DESC("event_username")})},
+        {"reason_code", sc(binary(), #{desc => ?DESC("event_ctx_authn_reason_code")})},
+        {"peername", sc(binary(), #{desc => ?DESC("event_peername")})},
+        {"is_anonymous", sc(boolean(), #{desc => ?DESC("event_is_anonymous"), required => false})},
+        {"is_superuser", sc(boolean(), #{desc => ?DESC("event_is_superuser"), required => false})}
+    ];
 fields("ctx_bridge_mqtt") ->
     Event = '$bridges/mqtt:*',
     EventBin = atom_to_binary(Event),
@@ -330,6 +342,7 @@ rule_input_message_context() ->
                 ref("ctx_disconnected"),
                 ref("ctx_connack"),
                 ref("ctx_check_authz_complete"),
+                ref("ctx_check_authn_complete"),
                 ref("ctx_bridge_mqtt"),
                 ref("ctx_delivery_dropped"),
                 ref("ctx_schema_validation_failed")

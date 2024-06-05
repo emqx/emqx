@@ -40,6 +40,7 @@
     on_client_disconnected/4,
     on_client_connack/4,
     on_client_check_authz_complete/6,
+    on_client_check_authn_complete/3,
     on_session_subscribed/4,
     on_session_unsubscribed/4,
     on_message_publish/2,
@@ -177,6 +178,18 @@ on_client_check_authz_complete(
                 Topic,
                 Result,
                 AuthzSource
+            )
+        end,
+        Conf
+    ).
+
+on_client_check_authn_complete(ClientInfo, Result, Conf) ->
+    apply_event(
+        'client.check_authn_complete',
+        fun() ->
+            eventmsg_check_authn_complete(
+                ClientInfo,
+                Result
             )
         end,
         Conf
@@ -438,6 +451,35 @@ eventmsg_check_authz_complete(
         #{}
     ).
 
+eventmsg_check_authn_complete(
+    _ClientInfo = #{
+        clientid := ClientId,
+        username := Username,
+        peerhost := PeerHost,
+        peerport := PeerPort
+    },
+    Result
+) ->
+    #{
+        reason_code := Reason,
+        is_superuser := IsSuperuser,
+        is_anonymous := IsAnonymous
+    } = maps:merge(
+        #{is_anonymous => false, is_superuser => false}, Result
+    ),
+    with_basic_columns(
+        'client.check_authn_complete',
+        #{
+            clientid => ClientId,
+            username => Username,
+            peername => ntoa({PeerHost, PeerPort}),
+            reason_code => force_to_bin(Reason),
+            is_anonymous => IsAnonymous,
+            is_superuser => IsSuperuser
+        },
+        #{}
+    ).
+
 eventmsg_sub_or_unsub(
     Event,
     _ClientInfo = #{
@@ -679,6 +721,7 @@ event_info() ->
         event_info_client_disconnected(),
         event_info_client_connack(),
         event_info_client_check_authz_complete(),
+        event_info_client_check_authn_complete(),
         event_info_session_subscribed(),
         event_info_session_unsubscribed(),
         event_info_delivery_dropped(),
@@ -770,6 +813,13 @@ event_info_client_check_authz_complete() ->
         {<<"client check authz complete">>, <<"授权结果"/utf8>>},
         <<"SELECT * FROM \"$events/client_check_authz_complete\"">>
     ).
+event_info_client_check_authn_complete() ->
+    event_info_common(
+        'client.check_authn_complete',
+        {<<"client check authn complete">>, <<"认证结果"/utf8>>},
+        {<<"client check authn complete">>, <<"认证结果"/utf8>>},
+        <<"SELECT * FROM \"$events/client_check_authn_complete\"">>
+    ).
 event_info_session_subscribed() ->
     event_info_common(
         'session.subscribed',
@@ -853,6 +903,14 @@ test_columns('client.check_authz_complete') ->
         {<<"topic">>, [<<"t/1">>, <<"the topic of the MQTT message">>]},
         {<<"action">>, [<<"publish">>, <<"the action of publish or subscribe">>]},
         {<<"result">>, [<<"allow">>, <<"the authz check complete result">>]}
+    ];
+test_columns('client.check_authn_complete') ->
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
+        {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]},
+        {<<"is_superuser">>, [true, <<"Whether this is a superuser">>]},
+        {<<"is_anonymous">>, [false, <<"Whether this is a superuser">>]}
     ];
 test_columns('session.unsubscribed') ->
     test_columns('session.subscribed');
@@ -1023,6 +1081,18 @@ columns_with_exam('client.check_authz_complete') ->
         {<<"timestamp">>, erlang:system_time(millisecond)},
         {<<"node">>, node()}
     ];
+columns_with_exam('client.check_authn_complete') ->
+    [
+        {<<"event">>, 'client.check_authz_complete'},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"peername">>, <<"192.168.0.10:56431">>},
+        {<<"reason_code">>, <<"sucess">>},
+        {<<"is_superuser">>, true},
+        {<<"is_anonymous">>, false},
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
+    ];
 columns_with_exam('session.subscribed') ->
     [columns_example_props(sub_props)] ++ columns_message_sub_unsub('session.subscribed');
 columns_with_exam('session.unsubscribed') ->
@@ -1124,6 +1194,7 @@ hook_fun('client.connected') -> fun ?MODULE:on_client_connected/3;
 hook_fun('client.disconnected') -> fun ?MODULE:on_client_disconnected/4;
 hook_fun('client.connack') -> fun ?MODULE:on_client_connack/4;
 hook_fun('client.check_authz_complete') -> fun ?MODULE:on_client_check_authz_complete/6;
+hook_fun('client.check_authn_complete') -> fun ?MODULE:on_client_check_authn_complete/3;
 hook_fun('session.subscribed') -> fun ?MODULE:on_session_subscribed/4;
 hook_fun('session.unsubscribed') -> fun ?MODULE:on_session_unsubscribed/4;
 hook_fun('message.delivered') -> fun ?MODULE:on_message_delivered/3;
@@ -1139,6 +1210,11 @@ reason({shutdown, Reason}) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
 
+force_to_bin(Bin) when is_binary(Bin) ->
+    Bin;
+force_to_bin(Term) ->
+    emqx_utils_conv:bin(io_lib:format("~p", [Term])).
+
 ntoa(undefined) ->
     undefined;
 ntoa(IpOrIpPort) ->
@@ -1149,6 +1225,7 @@ event_name(<<"$events/client_connected">>) -> 'client.connected';
 event_name(<<"$events/client_disconnected">>) -> 'client.disconnected';
 event_name(<<"$events/client_connack">>) -> 'client.connack';
 event_name(<<"$events/client_check_authz_complete">>) -> 'client.check_authz_complete';
+event_name(<<"$events/client_check_authn_complete">>) -> 'client.check_authn_complete';
 event_name(<<"$events/session_subscribed">>) -> 'session.subscribed';
 event_name(<<"$events/session_unsubscribed">>) -> 'session.unsubscribed';
 event_name(<<"$events/message_delivered">>) -> 'message.delivered';
@@ -1163,6 +1240,7 @@ event_topic('client.connected') -> <<"$events/client_connected">>;
 event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
 event_topic('client.connack') -> <<"$events/client_connack">>;
 event_topic('client.check_authz_complete') -> <<"$events/client_check_authz_complete">>;
+event_topic('client.check_authn_complete') -> <<"$events/client_check_authn_complete">>;
 event_topic('session.subscribed') -> <<"$events/session_subscribed">>;
 event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message_delivered">>;
