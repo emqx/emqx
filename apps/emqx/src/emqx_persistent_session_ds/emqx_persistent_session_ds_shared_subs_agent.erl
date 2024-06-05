@@ -4,6 +4,8 @@
 
 -module(emqx_persistent_session_ds_shared_subs_agent).
 
+-include("shared_subs_agent.hrl").
+
 -type session_id() :: emqx_persistent_session_ds:id().
 
 -type subscription() :: #{
@@ -57,48 +59,54 @@
 
     on_subscribe/3,
     on_unsubscribe/2,
-    on_session_drop/1,
     on_stream_progress/2,
     on_info/2,
 
     renew_streams/1
 ]).
 
+%%--------------------------------------------------------------------
+%% Behaviour
+%%--------------------------------------------------------------------
+
+-callback new(opts()) -> t().
+-callback open([{topic_filter(), subscription()}], opts()) -> t().
+-callback on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
+    {ok, t()} | {error, term()}.
+-callback on_unsubscribe(t(), topic_filter()) -> t().
+-callback renew_streams(t()) -> {[stream_lease()], [stream_revoke()], t()}.
+-callback on_stream_progress(t(), [stream_progress()]) -> t().
+-callback on_info(t(), term()) -> t().
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 -spec new(opts()) -> t().
-new(_Opts) ->
-    undefined.
+new(Opts) ->
+    ?shared_subs_agent:new(Opts).
 
 -spec open([{topic_filter(), subscription()}], opts()) -> t().
-open(_Topics, _Opts) ->
-    undefined.
+open(Topics, Opts) ->
+    ?shared_subs_agent:open(Topics, Opts).
 
 -spec on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
-    {ok, t()} | {error, term()}.
-on_subscribe(Agent, _TopicFilter, _SubOpts) ->
-    % {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}
-    {ok, Agent}.
+    {ok, t()} | {error, emqx_types:reason_code()}.
+on_subscribe(Agent, TopicFilter, SubOpts) ->
+    ?shared_subs_agent:on_subscribe(Agent, TopicFilter, SubOpts).
 
 -spec on_unsubscribe(t(), topic_filter()) -> t().
-on_unsubscribe(Agent, _TopicFilter) ->
-    Agent.
-
--spec on_session_drop(t()) -> t().
-on_session_drop(Agent) ->
-    Agent.
+on_unsubscribe(Agent, TopicFilter) ->
+    ?shared_subs_agent:on_unsubscribe(Agent, TopicFilter).
 
 -spec renew_streams(t()) -> {[stream_lease()], [stream_revoke()], t()}.
 renew_streams(Agent) ->
-    {[], [], Agent}.
+    ?shared_subs_agent:renew_streams(Agent).
 
 -spec on_stream_progress(t(), [stream_progress()]) -> t().
-on_stream_progress(Agent, _StreamProgress) ->
-    Agent.
+on_stream_progress(Agent, StreamProgress) ->
+    ?shared_subs_agent:on_stream_progress(Agent, StreamProgress).
 
 -spec on_info(t(), term()) -> t().
-on_info(Agent, _Info) ->
-    Agent.
+on_info(Agent, Info) ->
+    ?shared_subs_agent:on_info(Agent, Info).

@@ -16,7 +16,7 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2, shuffle/1]).
+-export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2]).
 -export([renew_streams/1, on_unsubscribe/2]).
 
 %% behavior callbacks:
@@ -87,20 +87,22 @@ find_new_streams(S) ->
     %% after timeout?)
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-    emqx_persistent_session_ds_state:fold_streams(
-        fun
-            (_Key, #srs{it_end = end_of_stream}, Acc) ->
-                Acc;
-            (Key, Stream, Acc) ->
-                case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
-                    true ->
-                        [{Key, Stream} | Acc];
-                    false ->
-                        Acc
-                end
-        end,
-        [],
-        S
+    shuffle(
+        emqx_persistent_session_ds_state:fold_streams(
+            fun
+                (_Key, #srs{it_end = end_of_stream}, Acc) ->
+                    Acc;
+                (Key, Stream, Acc) ->
+                    case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
+                        true ->
+                            [{Key, Stream} | Acc];
+                        false ->
+                            Acc
+                    end
+            end,
+            [],
+            S
+        )
     ).
 
 %% @doc This function makes the session aware of the new streams.
@@ -201,19 +203,6 @@ is_fully_acked(Srs, S) ->
     CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     is_fully_acked(CommQos1, CommQos2, Srs).
 
--spec shuffle([A]) -> [A].
-shuffle(L0) ->
-    L1 = lists:map(
-        fun(A) ->
-            %% maybe topic/stream prioritization could be introduced here?
-            {rand:uniform(), A}
-        end,
-        L0
-    ),
-    L2 = lists:sort(L1),
-    {_, L} = lists:unzip(L2),
-    L.
-
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -222,9 +211,6 @@ ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream
     Key = {SubId, Stream},
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
-            ?SLOG(debug, #{
-                msg => new_stream, key => Key, stream => Stream
-            }),
             case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
                 {ok, Iterator} ->
                     NewStreamState = #srs{
@@ -423,6 +409,19 @@ is_fully_acked(_, _, #srs{
     true;
 is_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
+
+-spec shuffle([A]) -> [A].
+shuffle(L0) ->
+    L1 = lists:map(
+        fun(A) ->
+            %% maybe topic/stream prioritization could be introduced here?
+            {rand:uniform(), A}
+        end,
+        L0
+    ),
+    L2 = lists:sort(L1),
+    {_, L} = lists:unzip(L2),
+    L.
 
 fold_proper_subscriptions(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(

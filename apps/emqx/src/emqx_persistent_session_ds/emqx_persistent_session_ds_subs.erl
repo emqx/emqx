@@ -172,7 +172,10 @@ on_session_drop(SessionId, S0) ->
     ok.
 
 %% @doc Remove subscription states that don't have a parent, and that
-%% don't have any unacked messages:
+%% don't have any unacked messages.
+%% TODO
+%% This function collects shared subs as well
+%% Move to a separate module to keep symmetry?
 -spec gc(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
 gc(S0) ->
     %% Create a set of subscription states IDs referenced either by a

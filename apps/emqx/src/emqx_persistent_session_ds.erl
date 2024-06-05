@@ -367,7 +367,7 @@ print_session(ClientId) ->
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
-%% Suppress warnings about clauses handling unimplemented reuslts
+%% Suppress warnings about clauses handling unimplemented results
 %% of `emqx_persistent_session_ds_shared_subs:on_subscribe/3`
 -dialyzer({nowarn_function, subscribe/3}).
 -spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
@@ -378,9 +378,9 @@ subscribe(
     Session
 ) ->
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session) of
-        {ok, S1} ->
-            S = emqx_persistent_session_ds_state:commit(S1),
-            {ok, Session#{s => S}};
+        {ok, S0, SharedSubS} ->
+            S = emqx_persistent_session_ds_state:commit(S0),
+            {ok, Session#{s => S, shared_sub_s => SharedSubS}};
         Error = {error, _} ->
             Error
     end;
@@ -397,20 +397,24 @@ subscribe(
             Error
     end.
 
-%% Suppress warnings about clauses handling unimplemented reuslts
-%% of `emqx_persistent_session_ds_shared_subs:on_subscribe/4`
+%% Suppress warnings about clauses handling unimplemented results
+%% of `emqx_persistent_session_ds_shared_subs:on_unsubscribe/4`
 -dialyzer({nowarn_function, unsubscribe/2}).
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
     #share{} = TopicFilter,
-    Session = #{id := SessionId, s := S0}
+    Session = #{id := SessionId, s := S0, shared_sub_s := SharedSubS0}
 ) ->
-    case emqx_persistent_session_ds_shared_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
-        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
+    case
+        emqx_persistent_session_ds_shared_subs:on_unsubscribe(
+            SessionId, TopicFilter, S0, SharedSubS0
+        )
+    of
+        {ok, S1, SharedSubS1, #{id := SubId, subopts := SubOpts}} ->
             S2 = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, S1),
             S = emqx_persistent_session_ds_state:commit(S2),
-            {ok, Session#{s => S}, SubOpts};
+            {ok, Session#{s => S, shared_sub_s => SharedSubS1}, SubOpts};
         Error = {error, _} ->
             Error
     end;

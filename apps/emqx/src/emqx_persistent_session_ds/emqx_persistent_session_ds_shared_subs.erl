@@ -4,7 +4,8 @@
 
 -module(emqx_persistent_session_ds_shared_subs).
 
--include_lib("emqx_mqtt.hrl").
+-include("emqx_mqtt.hrl").
+-include("logger.hrl").
 -include("session_internals.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -46,7 +47,7 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec new(emqx_persistent_session_ds:shared_sub_opts()) -> t().
+-spec new(opts()) -> t().
 new(Opts) ->
     #{
         agent => emqx_persistent_session_ds_shared_subs_agent:new(
@@ -54,7 +55,7 @@ new(Opts) ->
         )
     }.
 
--spec open(emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds:shared_sub_opts()) ->
+-spec open(emqx_persistent_session_ds_state:t(), opts()) ->
     {ok, emqx_persistent_session_ds_state:t(), t()}.
 open(S, Opts) ->
     SharedSubscriptions = fold_shared_subs(
@@ -71,10 +72,9 @@ open(S, Opts) ->
     {ok, S, SharedSubS}.
 
 -spec on_subscribe(
-    emqx_persistent_session_ds_state:t(),
-    t(),
     share_topic_filter(),
-    emqx_types:subopts()
+    emqx_types:subopts(),
+    emqx_persistent_session_ds:session()
 ) -> {ok, emqx_persistent_session_ds_state:t(), t()} | {error, emqx_types:reason_code()}.
 on_subscribe(TopicFilter, SubOpts, #{s := S} = Session) ->
     Subscription = emqx_persistent_session_ds_state:get_subscription(TopicFilter, S),
@@ -110,6 +110,10 @@ renew_streams(S0, #{agent := Agent0} = SharedSubS0) ->
     {NewLeasedStreams, RevokedStreams, Agent1} = emqx_persistent_session_ds_shared_subs_agent:renew_streams(
         Agent0
     ),
+    NewLeasedStreams =/= [] andalso
+        ?SLOG(
+            info, #{msg => shared_subs_new_stream_leases, stream_leases => NewLeasedStreams}
+        ),
     S1 = lists:foldl(fun accept_stream/2, S0, NewLeasedStreams),
     S2 = lists:foldl(fun revoke_stream/2, S1, RevokedStreams),
     SharedSubS1 = SharedSubS0#{agent => Agent1},
@@ -118,7 +122,7 @@ renew_streams(S0, #{agent := Agent0} = SharedSubS0) ->
 -spec on_streams_replayed(
     emqx_persistent_session_ds_state:t(),
     t()
-) -> t().
+) -> {emqx_persistent_session_ds_state:t(), t()}.
 on_streams_replayed(S, #{agent := Agent0} = SharedSubS0) ->
     %% TODO
     %% Is it sufficient for a report?
@@ -208,6 +212,7 @@ on_subscribe(undefined, TopicFilter, SubOpts, #{props := Props, s := S} = Sessio
 on_subscribe(Subscription, TopicFilter, SubOpts, Session) ->
     update_subscription(Subscription, TopicFilter, SubOpts, Session).
 
+-dialyzer({nowarn_function, create_new_subscription/3}).
 create_new_subscription(TopicFilter, SubOpts, #{
     id := SessionId, s := S0, shared_sub_s := #{agent := Agent0} = SharedSubS0, props := Props
 }) ->
@@ -286,17 +291,22 @@ accept_stream(
             %% and should not have passed this stream as a new one
             error(new_stream_without_sub);
         #{id := SubId, current_state := SStateId} ->
-            NewSRS =
-                #srs{
-                    rank_x = ?rank_x,
-                    rank_y = ?rank_y,
-                    it_begin = Iterator,
-                    it_end = Iterator,
-                    sub_state_id = SStateId
-                },
             Key = {SubId, Stream},
-            S1 = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
-            S1
+            case emqx_persistent_session_ds_state:get_stream(Key, S0) of
+                undefined ->
+                    NewSRS =
+                        #srs{
+                            rank_x = ?rank_x,
+                            rank_y = ?rank_y,
+                            it_begin = Iterator,
+                            it_end = Iterator,
+                            sub_state_id = SStateId
+                        },
+                    S1 = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
+                    S1;
+                _SRS ->
+                    S0
+            end
     end.
 
 revoke_stream(
@@ -364,5 +374,6 @@ send_after_from_agent(SendAfter, Time, Dest, Msg) ->
             SendAfter(Time, Dest, Msg)
     end.
 
+-dialyzer({nowarn_function, now_ms/0}).
 now_ms() ->
     erlang:system_time(millisecond).
