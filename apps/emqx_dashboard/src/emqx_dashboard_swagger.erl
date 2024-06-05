@@ -575,7 +575,14 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
                     ?REF(StructName) -> ?R_REF(Module, StructName);
                     _ -> Type0
                 end,
-            NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}]},
+            Validations =
+                case hocon_schema:field_schema(Schema, validator) of
+                    undefined ->
+                        [];
+                    Fun when is_function(Fun) ->
+                        [{validator, fun(#{<<"root">> := B}) -> Fun(B) end}]
+                end,
+            NewSchema = ?INIT_SCHEMA#{roots => [{root, Type}], validations => Validations},
             Option = #{required => false},
             #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
             {ok, NewBody};
