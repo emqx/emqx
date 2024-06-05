@@ -112,7 +112,7 @@ on_start(
         case emqx_utils_maps:deep_get([ssl, enable], Config, false) of
             true ->
                 SSLOptsMap = maps:get(ssl, Config),
-                SSLOpts = maps:to_list(SSLOptsMap),
+                SSLOpts = emqx_tls_lib:to_client_opts(SSLOptsMap),
                 [{ssl, SSLOpts} | Options0];
             false ->
                 Options0
