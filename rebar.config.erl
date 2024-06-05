@@ -232,9 +232,9 @@ warn_profile_env() ->
 %% this function is only used for test/check profiles
 get_edition_from_profile_env() ->
     case os:getenv("PROFILE") of
-        "emqx-enterprise" ++ _ ->
+        "emqx-enterprise" ->
             #{edition => ee, reltype => standard};
-        "emqx" ++ _ ->
+        "emqx" ->
             #{edition => ce, reltype => standard};
         false ->
             #{edition => ee, reltype => standard};
