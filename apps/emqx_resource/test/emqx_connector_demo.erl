@@ -71,6 +71,16 @@ set_callback_mode(Mode) ->
 on_start(_InstId, #{create_error := true}) ->
     ?tp(connector_demo_start_error, #{}),
     error("some error");
+on_start(InstId, #{create_error := {delay, Delay, Agent}} = Opts) ->
+    ?tp(connector_demo_start_delay, #{}),
+    case emqx_utils_agent:get_and_update(Agent, fun(St) -> {St, called} end) of
+        not_called ->
+            emqx_resource:allocate_resource(InstId, i_should_be_deallocated, yep),
+            timer:sleep(Delay),
+            on_start(InstId, maps:remove(create_error, Opts));
+        called ->
+            on_start(InstId, maps:remove(create_error, Opts))
+    end;
 on_start(InstId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
     StopError = maps:get(stop_error, Opts, false),
@@ -81,6 +91,9 @@ on_start(InstId, #{name := Name} = Opts) ->
         pid => spawn_counter_process(Name, Register)
     }}.
 
+on_stop(_InstId, undefined) ->
+    ?tp(connector_demo_free_resources_without_state, #{}),
+    ok;
 on_stop(_InstId, #{stop_error := true}) ->
     {error, stop_error};
 on_stop(InstId, #{pid := Pid}) ->
