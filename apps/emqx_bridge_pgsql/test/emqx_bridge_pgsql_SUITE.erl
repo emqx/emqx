@@ -715,17 +715,39 @@ t_missing_table(Config) ->
     connect_and_create_table(Config),
     ok.
 
+%% We test that we can handle when the prepared statement with the channel
+%% name already exists in the connection instance when we try to make a new
+%% prepared statement. It is unknown in which scenario this can happen but it
+%% has been observed in a production log file.
+%% See:
+%% https://emqx.atlassian.net/browse/EEC-1036
 t_prepared_statement_exists(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
+    emqx_common_test_helpers:on_exit(fun() ->
+        meck:unload()
+    end),
+    MeckOpts = [passthrough, no_link, no_history, non_strict],
+    meck:new(emqx_postgresql, MeckOpts),
+    InsertPrepStatementDupAndThenRemoveMeck =
+        fun(Conn, Key, SQL, List) ->
+            meck:passthrough([Conn, Key, SQL, List]),
+            meck:delete(
+                epgsql,
+                parse2,
+                4
+            ),
+            meck:passthrough([Conn, Key, SQL, List])
+        end,
+    meck:expect(
+        epgsql,
+        parse2,
+        InsertPrepStatementDupAndThenRemoveMeck
+    ),
     %% We should recover if the prepared statement name already exists in the
     %% driver
     ?check_trace(
         begin
-            ?inject_crash(
-                #{?snk_kind := pgsql_fake_prepare_statement_exists},
-                snabbkaffe_nemesis:recover_after(1)
-            ),
             ?assertMatch({ok, _}, create_bridge(Config)),
             ?retry(
                 _Sleep = 1_000,
@@ -742,13 +764,19 @@ t_prepared_statement_exists(Config) ->
             ok
         end
     ),
+    InsertPrepStatementDup =
+        fun(Conn, Key, SQL, List) ->
+            meck:passthrough([Conn, Key, SQL, List]),
+            meck:passthrough([Conn, Key, SQL, List])
+        end,
+    meck:expect(
+        epgsql,
+        parse2,
+        InsertPrepStatementDup
+    ),
     %% We should get status disconnected if removing already existing statment don't help
     ?check_trace(
         begin
-            ?inject_crash(
-                #{?snk_kind := pgsql_fake_prepare_statement_exists},
-                snabbkaffe_nemesis:recover_after(30)
-            ),
             ?assertMatch({ok, _}, create_bridge(Config)),
             ?retry(
                 _Sleep = 1_000,

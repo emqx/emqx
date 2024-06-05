@@ -661,7 +661,6 @@ prepare_sql_to_conn(
 ) when is_pid(Conn) ->
     LogMeta = #{msg => "postgresql_prepare_statement", name => Key, sql => SQL},
     ?SLOG(info, LogMeta),
-    test_maybe_inject_prepared_statement_already_exists(Conn, Key, SQL),
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
             prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement}, 0);
@@ -694,8 +693,8 @@ prepare_sql_to_conn(
             case epgsql:close(Conn, statement, Key) of
                 ok ->
                     ?SLOG(info, #{msg => "pqsql_closed_statement_successfully"});
-                {error, Error} ->
-                    ?SLOG(warning, #{msg => "pqsql_close_statement_failed", cause => Error})
+                {error, CloseError} ->
+                    ?SLOG(warning, #{msg => "pqsql_close_statement_failed", cause => CloseError})
             end,
             prepare_sql_to_conn(Conn, ToPrepare, Statements, Attempts + 1);
         {error, Error} ->
@@ -708,25 +707,6 @@ prepare_sql_to_conn(
             ?SLOG(error, LogMsg),
             {error, export_error(TranslatedError)}
     end.
-
--ifdef(TEST).
-test_maybe_inject_prepared_statement_already_exists(Conn, Key, SQL) ->
-    try
-        %% In test we inject a crash in the following trace point to test the
-        %% scenario when the prepared statement already exists. It is unknkown
-        %% in which scenario this can happen but it has been observed in a
-        %% production log file. See:
-        %% https://emqx.atlassian.net/browse/EEC-1036
-        ?tp(pgsql_fake_prepare_statement_exists, #{})
-    catch
-        _:_ ->
-            epgsql:parse2(Conn, Key, SQL, [])
-    end,
-    ok.
--else.
-test_maybe_inject_prepared_statement_already_exists(_Conn, _Key, _SQL) ->
-    ok.
--endif.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;
