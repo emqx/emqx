@@ -1,18 +1,18 @@
 %% -*- mode: erlang -*-
-{application, http_server,
- [{description, "An HTTP server application"},
-  {vsn, "0.2.0"},
-  {registered, []},
-  % {mod, {http_server_app, []}},
-  {modules, []},
-  {applications,
-   [kernel,
-    stdlib,
-    minirest
-   ]},
-  {env,[]},
-  {modules, []},
+{application, http_server, [
+    {description, "An HTTP server application"},
+    {vsn, "0.2.0"},
+    {registered, []},
+    % {mod, {http_server_app, []}},
+    {modules, []},
+    {applications, [
+        kernel,
+        stdlib,
+        minirest
+    ]},
+    {env, []},
+    {modules, []},
 
-  {licenses, ["Apache 2.0"]},
-  {links, []}
- ]}.
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.
