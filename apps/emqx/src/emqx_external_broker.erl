@@ -16,10 +16,8 @@
 
 -module(emqx_external_broker).
 
--callback forward(dest(), emqx_types:delivery()) ->
+-callback forward(emqx_types:delivery()) ->
     emqx_types:deliver_result().
-
--callback should_route_to_external_dests(emqx_types:message()) -> boolean().
 
 -callback add_route(emqx_types:topic()) -> ok.
 -callback delete_route(emqx_types:topic()) -> ok.
@@ -30,23 +28,22 @@
 -callback add_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
 -callback delete_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
 
--callback match_routes(emqx_types:topic()) -> [emqx_types:route()].
-
 -type dest() :: term().
 
 -export([
+    %% Registration
     provider/0,
     register_provider/1,
     unregister_provider/1,
-    forward/2,
-    should_route_to_external_dests/1,
+    %% Forwarding
+    forward/1,
+    %% Routing updates
     add_route/1,
     delete_route/1,
     add_shared_route/2,
     delete_shared_route/2,
     add_persistent_route/2,
-    delete_persistent_route/2,
-    match_routes/1
+    delete_persistent_route/2
 ]).
 
 -export_type([dest/0]).
@@ -111,11 +108,8 @@ provider() ->
 %% Broker API
 %%--------------------------------------------------------------------
 
-forward(ExternalDest, Delivery) ->
-    ?safe_with_provider(?FUNCTION_NAME(ExternalDest, Delivery), {error, unknown_dest}).
-
-should_route_to_external_dests(Message) ->
-    ?safe_with_provider(?FUNCTION_NAME(Message), false).
+forward(Delivery) ->
+    ?safe_with_provider(?FUNCTION_NAME(Delivery), []).
 
 add_route(Topic) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
@@ -134,9 +128,6 @@ add_persistent_route(Topic, ID) ->
 
 delete_persistent_route(Topic, ID) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic, ID), ok).
-
-match_routes(Topic) ->
-    ?safe_with_provider(?FUNCTION_NAME(Topic), ok).
 
 %%--------------------------------------------------------------------
 %% Internal functions

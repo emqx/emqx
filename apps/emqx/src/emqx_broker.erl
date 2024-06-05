@@ -246,7 +246,8 @@ publish(Msg) when is_record(Msg, message) ->
             [];
         Msg1 = #message{} ->
             do_publish(Msg1);
-        Msgs when is_list(Msgs) -> do_publish_many(Msgs)
+        Msgs when is_list(Msgs) ->
+            do_publish_many(Msgs)
     end.
 
 do_publish_many([]) ->
@@ -259,7 +260,7 @@ do_publish(#message{topic = Topic} = Msg) ->
     Routes = aggre(emqx_router:match_routes(Topic)),
     Delivery = delivery(Msg),
     RouteRes = route(Routes, Delivery, PersistRes),
-    ext_route(ext_routes(Topic, Msg), Delivery, RouteRes).
+    do_forward_external(Delivery, RouteRes).
 
 persist_publish(Msg) ->
     case emqx_persistent_message:persist(Msg) of
@@ -344,22 +345,8 @@ aggre([], false, Acc) ->
 aggre([], true, Acc) ->
     lists:usort(Acc).
 
-ext_routes(Topic, Msg) ->
-    case emqx_external_broker:should_route_to_external_dests(Msg) of
-        true -> emqx_external_broker:match_routes(Topic);
-        false -> []
-    end.
-
-ext_route([], _Delivery, RouteRes) ->
-    RouteRes;
-ext_route(ExtRoutes, Delivery, RouteRes) ->
-    lists:foldl(
-        fun(#route{topic = To, dest = ExtDest}, Acc) ->
-            [{ExtDest, To, emqx_external_broker:forward(ExtDest, Delivery)} | Acc]
-        end,
-        RouteRes,
-        ExtRoutes
-    ).
+do_forward_external(Delivery, RouteRes) ->
+    emqx_external_broker:forward(Delivery) ++ RouteRes.
 
 %% @doc Forward message to another node.
 -spec forward(

@@ -16,9 +16,7 @@
     delete_shared_route/2,
     add_persistent_route/2,
     delete_persistent_route/2,
-    match_routes/1,
-    forward/2,
-    should_route_to_external_dests/1
+    forward/1
 ]).
 
 %% emqx hooks
@@ -73,18 +71,26 @@ add_persistent_route(Topic, ID) ->
 delete_persistent_route(Topic, ID) ->
     maybe_push_route_op(delete, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
 
-forward(DestCluster, Delivery) ->
-    emqx_cluster_link_mqtt:forward(DestCluster, Delivery).
+forward(#delivery{message = #message{extra = #{link_origin := _}}}) ->
+    %% Do not forward any external messages to other links.
+    %% Only forward locally originated messages to all the relevant links, i.e. no gossip
+    %% message forwarding.
+    [];
+forward(Delivery = #delivery{message = #message{topic = Topic}}) ->
+    Routes = emqx_cluster_link_extrouter:match_routes(Topic),
+    forward(Routes, Delivery).
 
-match_routes(Topic) ->
-    emqx_cluster_link_extrouter:match_routes(Topic).
-
-%% Do not forward any external messages to other links.
-%% Only forward locally originated messages to all the relevant links, i.e. no gossip message forwarding.
-should_route_to_external_dests(#message{extra = #{link_origin := _}}) ->
-    false;
-should_route_to_external_dests(_Msg) ->
-    true.
+forward([], _Delivery) ->
+    [];
+forward(Routes, Delivery) ->
+    lists:foldl(
+        fun(#route{topic = To, dest = Cluster}, Acc) ->
+            Result = emqx_cluster_link_mqtt:forward(Cluster, Delivery),
+            [{Cluster, To, Result} | Acc]
+        end,
+        [],
+        Routes
+    ).
 
 %%--------------------------------------------------------------------
 %% EMQX Hooks
