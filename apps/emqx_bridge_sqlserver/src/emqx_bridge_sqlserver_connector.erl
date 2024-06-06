@@ -78,7 +78,7 @@
 %% https://www.erlang.org/doc/man/odbc.html
 
 %% as returned by connect/2
--type connection_reference() :: pid().
+-type connection_reference() :: odbc:connection_reference().
 -type time_out() :: milliseconds() | infinity.
 -type sql() :: string() | binary().
 -type milliseconds() :: pos_integer().
@@ -478,7 +478,7 @@ worker_do_insert(
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
 
--spec execute(pid(), sql()) ->
+-spec execute(connection_reference(), sql()) ->
     updated_tuple()
     | selected_tuple()
     | [updated_tuple()]
@@ -487,7 +487,7 @@ worker_do_insert(
 execute(Conn, SQL) ->
     odbc:sql_query(Conn, str(SQL)).
 
--spec execute(pid(), sql(), time_out()) ->
+-spec execute(connection_reference(), sql(), time_out()) ->
     updated_tuple()
     | selected_tuple()
     | [updated_tuple()]
