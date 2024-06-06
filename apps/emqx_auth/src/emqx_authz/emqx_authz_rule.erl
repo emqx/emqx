@@ -73,7 +73,8 @@
     permission/0,
     who_condition/0,
     action_condition/0,
-    topic_condition/0
+    topic_condition/0,
+    rule/0
 ]).
 
 -type action_precompile() ::

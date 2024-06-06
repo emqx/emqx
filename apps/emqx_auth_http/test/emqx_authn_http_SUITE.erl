@@ -23,6 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(PATH, [?CONF_NS_ATOM]).
 
@@ -46,6 +47,21 @@
     emqx_utils_json:encode(#{
         result => Result,
         is_superuser => IsSuperuser
+    })
+).
+
+-define(SERVER_RESPONSE_WITH_ACL_JSON(ACL),
+    emqx_utils_json:encode(#{
+        result => allow,
+        acl => ACL
+    })
+).
+
+-define(SERVER_RESPONSE_WITH_ACL_JSON(ACL, Expire),
+    emqx_utils_json:encode(#{
+        result => allow,
+        acl => ACL,
+        expire_at => Expire
     })
 ).
 
@@ -506,6 +522,129 @@ test_ignore_allow_deny({ExpectedValue, ServerResponse}) ->
             )
     end.
 
+t_acl(_Config) ->
+    ACL = acl_rules(),
+    Config = raw_http_auth_config(),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ok = emqx_authn_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_WITH_ACL_JSON(ACL),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    {ok, C} = emqtt:start_link(
+        [
+            {clean_start, true},
+            {proto_ver, v5},
+            {clientid, <<"clientid">>},
+            {username, <<"username">>},
+            {password, <<"password">>}
+        ]
+    ),
+    {ok, _} = emqtt:connect(C),
+    Cases = [
+        {allow, <<"http-authn-acl/#">>},
+        {deny, <<"http-authn-acl/1">>},
+        {deny, <<"t/#">>}
+    ],
+    try
+        lists:foreach(
+            fun(Case) ->
+                test_acl(Case, C)
+            end,
+            Cases
+        )
+    after
+        ok = emqtt:disconnect(C)
+    end.
+
+t_auth_expire(_Config) ->
+    ACL = acl_rules(),
+    Config = raw_http_auth_config(),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ExpireSec = 3,
+    WaitTime = timer:seconds(ExpireSec + 1),
+    Tests = [
+        {<<"ok-to-connect-but-expire-on-pub">>, erlang:system_time(second) + ExpireSec, fun(C) ->
+            {ok, _} = emqtt:connect(C),
+            receive
+                {'DOWN', _Ref, process, C, Reason} ->
+                    ?assertMatch({disconnected, ?RC_NOT_AUTHORIZED, _}, Reason)
+            after WaitTime ->
+                error(timeout)
+            end
+        end},
+        {<<"past">>, erlang:system_time(second) - 1, fun(C) ->
+            ?assertMatch({error, {bad_username_or_password, _}}, emqtt:connect(C)),
+            receive
+                {'DOWN', _Ref, process, C, Reason} ->
+                    ?assertMatch({shutdown, bad_username_or_password}, Reason)
+            end
+        end},
+        {<<"invalid">>, erlang:system_time(millisecond), fun(C) ->
+            ?assertMatch({error, {bad_username_or_password, _}}, emqtt:connect(C)),
+            receive
+                {'DOWN', _Ref, process, C, Reason} ->
+                    ?assertMatch({shutdown, bad_username_or_password}, Reason)
+            end
+        end}
+    ],
+    ok = emqx_authn_http_test_server:set_handler(
+        fun(Req0, State) ->
+            QS = cowboy_req:parse_qs(Req0),
+            {_, Username} = lists:keyfind(<<"username">>, 1, QS),
+            {_, ExpireTime, _} = lists:keyfind(Username, 1, Tests),
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_WITH_ACL_JSON(ACL, ExpireTime),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    lists:foreach(fun test_auth_expire/1, Tests).
+
+test_auth_expire({Username, _ExpireTime, TestFn}) ->
+    {ok, C} = emqtt:start_link(
+        [
+            {clean_start, true},
+            {proto_ver, v5},
+            {clientid, <<"clientid">>},
+            {username, Username},
+            {password, <<"password">>}
+        ]
+    ),
+    _ = monitor(process, C),
+    unlink(C),
+    try
+        TestFn(C)
+    after
+        [ok = emqtt:disconnect(C) || is_process_alive(C)]
+    end.
+
+test_acl({allow, Topic}, C) ->
+    ?assertMatch(
+        {ok, #{}, [0]},
+        emqtt:subscribe(C, Topic)
+    );
+test_acl({deny, Topic}, C) ->
+    ?assertMatch(
+        {ok, #{}, [?RC_NOT_AUTHORIZED]},
+        emqtt:subscribe(C, Topic)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -765,3 +904,27 @@ to_list(B) when is_binary(B) ->
     binary_to_list(B);
 to_list(L) when is_list(L) ->
     L.
+
+acl_rules() ->
+    [
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"pub">>,
+            <<"topics">> => [
+                <<"http-authn-acl/1">>
+            ]
+        },
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"sub">>,
+            <<"topics">> =>
+                [
+                    <<"eq http-authn-acl/#">>
+                ]
+        },
+        #{
+            <<"permission">> => <<"deny">>,
+            <<"action">> => <<"all">>,
+            <<"topics">> => [<<"#">>]
+        }
+    ].

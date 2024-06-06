@@ -402,20 +402,7 @@ binary_to_number(Bin) ->
 parse_rules(Rules) when is_map(Rules) ->
     Rules;
 parse_rules(Rules) when is_list(Rules) ->
-    lists:map(fun parse_rule/1, Rules).
-
-parse_rule(Rule) ->
-    case emqx_authz_rule_raw:parse_rule(Rule) of
-        {ok, {Permission, Action, Topics}} ->
-            try
-                emqx_authz_rule:compile({Permission, all, Action, Topics})
-            catch
-                throw:Reason ->
-                    throw({bad_acl_rule, Reason})
-            end;
-        {error, Reason} ->
-            throw({bad_acl_rule, Reason})
-    end.
+    emqx_authz_rule_raw:parse_and_compile_rules(Rules).
 
 merge_maps([]) -> #{};
 merge_maps([Map | Maps]) -> maps:merge(Map, merge_maps(Maps)).
