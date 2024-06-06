@@ -469,8 +469,8 @@ users(get, #{query_string := QueryString}) ->
             {200, Result}
     end;
 users(post, #{body := Body}) when is_list(Body) ->
-    case ensure_all_not_exists(<<"username">>, username, Body) of
-        [] ->
+    case ensure_rules_is_valid(<<"username">>, username, Body) of
+        ok ->
             lists:foreach(
                 fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
                     emqx_authz_mnesia:store_rules({username, Username}, Rules)
@@ -478,10 +478,16 @@ users(post, #{body := Body}) when is_list(Body) ->
                 Body
             ),
             {204};
-        Exists ->
+        {error, rules_too_long} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message =>
+                    <<"The length of rules exceeds the maximum limit.">>
+            }};
+        {error, {already_exists, Exists}} ->
             {409, #{
                 code => <<"ALREADY_EXISTS">>,
-                message => binfmt("Users '~ts' already exist", [binjoin(Exists)])
+                message => binfmt("User '~ts' already exist", [binjoin(Exists)])
             }}
     end.
 
@@ -507,8 +513,8 @@ clients(get, #{query_string := QueryString}) ->
             {200, Result}
     end;
 clients(post, #{body := Body}) when is_list(Body) ->
-    case ensure_all_not_exists(<<"clientid">>, clientid, Body) of
-        [] ->
+    case ensure_rules_is_valid(<<"clientid">>, clientid, Body) of
+        ok ->
             lists:foreach(
                 fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
                     emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules)
@@ -516,10 +522,16 @@ clients(post, #{body := Body}) when is_list(Body) ->
                 Body
             ),
             {204};
-        Exists ->
+        {error, rules_too_long} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message =>
+                    <<"The length of rules exceeds the maximum limit.">>
+            }};
+        {error, {already_exists, Exists}} ->
             {409, #{
                 code => <<"ALREADY_EXISTS">>,
-                message => binfmt("Clients '~ts' already exist", [binjoin(Exists)])
+                message => binfmt("Client '~ts' already exist", [binjoin(Exists)])
             }}
     end.
 
@@ -583,8 +595,17 @@ all(get, _) ->
             }}
     end;
 all(post, #{body := #{<<"rules">> := Rules}}) ->
-    emqx_authz_mnesia:store_rules(all, Rules),
-    {204};
+    case ensure_rules_len(Rules) of
+        ok ->
+            emqx_authz_mnesia:store_rules(all, Rules),
+            {204};
+        _ ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message =>
+                    <<"The length of rules exceeds the maximum limit.">>
+            }}
+    end;
 all(delete, _) ->
     emqx_authz_mnesia:store_rules(all, []),
     {204}.
@@ -700,24 +721,53 @@ rules_example({ExampleName, ExampleType}) ->
         }
     }.
 
-ensure_all_not_exists(Key, Type, Cfgs) ->
-    lists:foldl(
-        fun(#{Key := Id}, Acc) ->
-            case emqx_authz_mnesia:get_rules({Type, Id}) of
-                not_found ->
-                    Acc;
-                _ ->
-                    [Id | Acc]
-            end
-        end,
-        [],
-        Cfgs
+ensure_rules_len(Rules) ->
+    emqx_authz_api_sources:with_source(
+        ?AUTHZ_TYPE_BIN,
+        fun(#{<<"max_rules_len">> := MaxLen}) ->
+            ensure_rules_len(Rules, MaxLen)
+        end
     ).
+
+ensure_rules_len(Rules, MaxLen) ->
+    case erlang:length(Rules) =< MaxLen of
+        true ->
+            ok;
+        _ ->
+            {error, rules_too_long}
+    end.
+
+ensure_rules_is_valid(Key, Type, Cfgs) ->
+    MaxLen = emqx_authz_api_sources:with_source(
+        ?AUTHZ_TYPE_BIN,
+        fun(#{<<"max_rules_len">> := MaxLen}) ->
+            MaxLen
+        end
+    ),
+    ensure_rules_is_valid(Key, Type, MaxLen, Cfgs).
+
+ensure_rules_is_valid(Key, Type, MaxLen, [Cfg | Cfgs]) ->
+    #{Key := Id, <<"rules">> := Rules} = Cfg,
+    case emqx_authz_mnesia:get_rules({Type, Id}) of
+        not_found ->
+            case ensure_rules_len(Rules, MaxLen) of
+                ok ->
+                    ensure_rules_is_valid(Key, Type, MaxLen, Cfgs);
+                Error ->
+                    Error
+            end;
+        _ ->
+            {error, {already_exists, Id}}
+    end;
+ensure_rules_is_valid(_Key, _Type, _MaxLen, []) ->
+    ok.
 
 binjoin([Bin]) ->
     Bin;
-binjoin(Bins) ->
-    binjoin(Bins, <<>>).
+binjoin(Bins) when is_list(Bins) ->
+    binjoin(Bins, <<>>);
+binjoin(Bin) ->
+    Bin.
 
 binjoin([H | T], Acc) ->
     binjoin(T, <<H/binary, $,, Acc/binary>>);

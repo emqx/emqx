@@ -6,4 +6,7 @@ builtin_db.desc:
 builtin_db.label:
 """Builtin Database"""
 
+max_rules_len.desc:
+"""Maximum rule length per client/user. Note that performance may decrease as rule length increases."""
+
 }
