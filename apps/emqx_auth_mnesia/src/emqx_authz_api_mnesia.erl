@@ -487,7 +487,7 @@ users(post, #{body := Body}) when is_list(Body) ->
         {error, {already_exists, Exists}} ->
             {409, #{
                 code => <<"ALREADY_EXISTS">>,
-                message => binfmt("User '~ts' already exist", [binjoin(Exists)])
+                message => binfmt("User '~ts' already exist", [Exists])
             }}
     end.
 
@@ -531,7 +531,7 @@ clients(post, #{body := Body}) when is_list(Body) ->
         {error, {already_exists, Exists}} ->
             {409, #{
                 code => <<"ALREADY_EXISTS">>,
-                message => binfmt("Client '~ts' already exist", [binjoin(Exists)])
+                message => binfmt("Client '~ts' already exist", [Exists])
             }}
     end.
 
@@ -761,17 +761,5 @@ ensure_rules_is_valid(Key, Type, MaxLen, [Cfg | Cfgs]) ->
     end;
 ensure_rules_is_valid(_Key, _Type, _MaxLen, []) ->
     ok.
-
-binjoin([Bin]) ->
-    Bin;
-binjoin(Bins) when is_list(Bins) ->
-    binjoin(Bins, <<>>);
-binjoin(Bin) ->
-    Bin.
-
-binjoin([H | T], Acc) ->
-    binjoin(T, <<H/binary, $,, Acc/binary>>);
-binjoin([], Acc) ->
-    Acc.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
