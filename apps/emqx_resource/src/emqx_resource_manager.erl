@@ -63,6 +63,10 @@
 %% Internal exports.
 -export([worker_resource_health_check/1, worker_channel_health_check/2]).
 
+-ifdef(TEST).
+-export([stop/2]).
+-endif.
+
 % State record
 -record(data, {
     id,
@@ -254,7 +258,17 @@ remove(ResId) when is_binary(ResId) ->
 -spec remove(resource_id(), boolean()) -> ok | {error, Reason :: term()}.
 remove(ResId, ClearMetrics) when is_binary(ResId) ->
     try
-        safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION)
+        case safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION) of
+            {error, timeout} ->
+                ?tp(error, "forcefully_stopping_resource_due_to_timeout", #{
+                    action => remove,
+                    resource_id => ResId
+                }),
+                force_kill(ResId),
+                ok;
+            Res ->
+                Res
+        end
     after
         %% Ensure the supervisor has it removed, otherwise the immediate re-add will see a stale process
         %% If the 'remove' call above had succeeded, this is mostly a no-op but still needed to avoid race condition.
@@ -274,7 +288,7 @@ restart(ResId, Opts) when is_binary(ResId) ->
     end.
 
 %% @doc Start the resource
--spec start(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
+-spec start(resource_id(), creation_opts()) -> ok | timeout | {error, Reason :: term()}.
 start(ResId, Opts) ->
     StartTimeout = maps:get(start_timeout, Opts, ?T_OPERATION),
     case safe_call(ResId, start, StartTimeout) of
@@ -287,8 +301,19 @@ start(ResId, Opts) ->
 %% @doc Stop the resource
 -spec stop(resource_id()) -> ok | {error, Reason :: term()}.
 stop(ResId) ->
-    case safe_call(ResId, stop, ?T_OPERATION) of
+    stop(ResId, ?T_OPERATION).
+
+-spec stop(resource_id(), timeout()) -> ok | {error, Reason :: term()}.
+stop(ResId, Timeout) ->
+    case safe_call(ResId, stop, Timeout) of
         ok ->
+            ok;
+        {error, timeout} ->
+            ?tp(error, "forcefully_stopping_resource_due_to_timeout", #{
+                action => stop,
+                resource_id => ResId
+            }),
+            force_kill(ResId),
             ok;
         {error, _Reason} = Error ->
             Error
@@ -405,6 +430,25 @@ get_error(ResId, #{added_channels := #{} = Channels} = ResourceData) when
     end;
 get_error(_ResId, #{error := Error}) ->
     Error.
+
+force_kill(ResId) ->
+    case gproc:whereis_name(?NAME(ResId)) of
+        undefined ->
+            ok;
+        Pid when is_pid(Pid) ->
+            exit(Pid, kill),
+            try_clean_allocated_resources(ResId),
+            ok
+    end.
+
+try_clean_allocated_resources(ResId) ->
+    case try_read_cache(ResId) of
+        #data{mod = Mod} ->
+            catch emqx_resource:clean_allocated_resources(ResId, Mod),
+            ok;
+        _ ->
+            ok
+    end.
 
 %% Server start/stop callbacks
 
@@ -737,7 +781,7 @@ maybe_stop_resource(#data{status = ?rm_status_stopped} = Data) ->
     Data.
 
 stop_resource(#data{state = ResState, id = ResId} = Data) ->
-    %% We don't care the return value of the Mod:on_stop/2.
+    %% We don't care about the return value of `Mod:on_stop/2'.
     %% The callback mod should make sure the resource is stopped after on_stop/2
     %% is returned.
     HasAllocatedResources = emqx_resource:has_allocated_resources(ResId),

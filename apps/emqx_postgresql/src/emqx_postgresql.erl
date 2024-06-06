@@ -50,6 +50,8 @@
     execute_batch/3
 ]).
 
+-export([disable_prepared_statements/0]).
+
 %% for ecpool workers usage
 -export([do_get_status/1, prepare_sql_to_conn/2]).
 
@@ -62,7 +64,7 @@
     #{
         pool_name := binary(),
         query_templates := #{binary() => template()},
-        prepares := #{binary() => epgsql:statement()} | {error, _}
+        prepares := disabled | #{binary() => epgsql:statement()} | {error, _}
     }.
 
 %% FIXME: add `{error, sync_required}' to `epgsql:execute_batch'
@@ -78,7 +80,10 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    [{server, server()}] ++
+    [
+        {server, server()},
+        disable_prepared_statements()
+    ] ++
         adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
         emqx_connector_schema_lib:ssl_fields() ++
         emqx_connector_schema_lib:prepare_statement_fields().
@@ -86,6 +91,17 @@ fields(config) ->
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
+
+disable_prepared_statements() ->
+    {disable_prepared_statements,
+        hoconsc:mk(
+            boolean(),
+            #{
+                default => false,
+                required => false,
+                desc => ?DESC("disable_prepared_statements")
+            }
+        )}.
 
 adjust_fields(Fields) ->
     lists:map(
@@ -108,6 +124,7 @@ on_start(
     InstId,
     #{
         server := Server,
+        disable_prepared_statements := DisablePreparedStatements,
         database := DB,
         username := User,
         pool_size := PoolSize,
@@ -143,11 +160,16 @@ on_start(
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
     ],
-    State1 = parse_prepare_sql(Config, <<"send_message">>),
+    State1 = parse_sql_template(Config, <<"send_message">>),
     State2 = State1#{installed_channels => #{}},
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, init_prepare(State2#{pool_name => InstId, prepares => #{}})};
+            Prepares =
+                case DisablePreparedStatements of
+                    true -> disabled;
+                    false -> #{}
+                end,
+            {ok, init_prepare(State2#{pool_name => InstId, prepares => Prepares})};
         {error, Reason} ->
             ?tp(
                 pgsql_connector_start_failed,
@@ -209,13 +231,17 @@ on_add_channel(
 
 create_channel_state(
     ChannelId,
-    #{pool_name := PoolName} = _ConnectorState,
+    #{
+        pool_name := PoolName,
+        prepares := Prepares
+    } = _ConnectorState,
     #{parameters := Parameters} = _ChannelConfig
 ) ->
-    State1 = parse_prepare_sql(Parameters, ChannelId),
+    State1 = parse_sql_template(Parameters, ChannelId),
     {ok,
         init_prepare(State1#{
             pool_name => PoolName,
+            prepares => Prepares,
             prepare_statement => #{}
         })}.
 
@@ -233,6 +259,8 @@ on_remove_channel(
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
 
+close_prepared_statement(_ChannelId, #{prepares := disabled}) ->
+    ok;
 close_prepared_statement(ChannelId, #{pool_name := PoolName} = State) ->
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     close_prepared_statement(WorkerPids, ChannelId, State),
@@ -243,7 +271,7 @@ close_prepared_statement([WorkerPid | Rest], ChannelId, State) ->
     %% prepared statement doesn't exist.
     try ecpool_worker:client(WorkerPid) of
         {ok, Conn} ->
-            Statement = get_prepared_statement(ChannelId, State),
+            Statement = get_templated_statement(ChannelId, State),
             _ = epgsql:close(Conn, Statement),
             close_prepared_statement(Rest, ChannelId, State);
         _ ->
@@ -303,21 +331,23 @@ on_query(
         sql => NameOrSQL,
         state => State
     }),
-    Type = pgsql_query_type(TypeOrKey),
+    Type = pgsql_query_type(TypeOrKey, State),
     {NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrSQL, Params, State),
     Res = on_sql_query(TypeOrKey, InstId, PoolName, Type, NameOrSQL2, Data),
     ?tp(postgres_bridge_connector_on_query_return, #{instance_id => InstId, result => Res}),
     handle_result(Res).
 
-pgsql_query_type(sql) ->
+pgsql_query_type(_TypeOrTag, #{prepares := disabled}) ->
     query;
-pgsql_query_type(query) ->
+pgsql_query_type(sql, _ConnectorState) ->
     query;
-pgsql_query_type(prepared_query) ->
+pgsql_query_type(query, _ConnectorState) ->
+    query;
+pgsql_query_type(prepared_query, _ConnectorState) ->
     prepared_query;
 %% for bridge
-pgsql_query_type(_) ->
-    pgsql_query_type(prepared_query).
+pgsql_query_type(_, ConnectorState) ->
+    pgsql_query_type(prepared_query, ConnectorState).
 
 on_batch_query(
     InstId,
@@ -336,9 +366,9 @@ on_batch_query(
             ?SLOG(error, Log),
             {error, {unrecoverable_error, batch_prepare_not_implemented}};
         {_Statement, RowTemplate} ->
-            PrepStatement = get_prepared_statement(BinKey, State),
+            StatementTemplate = get_templated_statement(BinKey, State),
             Rows = [render_prepare_sql_row(RowTemplate, Data) || {_Key, Data} <- BatchReq],
-            case on_sql_query(Key, InstId, PoolName, execute_batch, PrepStatement, Rows) of
+            case on_sql_query(Key, InstId, PoolName, execute_batch, StatementTemplate, Rows) of
                 {error, _Error} = Result ->
                     handle_result(Result);
                 {_Column, Results} ->
@@ -359,12 +389,19 @@ proc_sql_params(query, SQLOrKey, Params, _State) ->
 proc_sql_params(prepared_query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
 proc_sql_params(TypeOrKey, SQLOrData, Params, State) ->
+    DisablePreparedStatements = maps:get(prepares, State, #{}) =:= disabled,
     BinKey = to_bin(TypeOrKey),
     case get_template(BinKey, State) of
         undefined ->
             {SQLOrData, Params};
-        {_Statement, RowTemplate} ->
-            {BinKey, render_prepare_sql_row(RowTemplate, SQLOrData)}
+        {Statement, RowTemplate} ->
+            Rendered = render_prepare_sql_row(RowTemplate, SQLOrData),
+            case DisablePreparedStatements of
+                true ->
+                    {Statement, Rendered};
+                false ->
+                    {BinKey, Rendered}
+            end
     end.
 
 get_template(Key, #{installed_channels := Channels} = _State) when is_map_key(Key, Channels) ->
@@ -376,14 +413,14 @@ get_template(Key, #{query_templates := Templates}) ->
     BinKey = to_bin(Key),
     maps:get(BinKey, Templates, undefined).
 
-get_prepared_statement(Key, #{installed_channels := Channels} = _State) when
+get_templated_statement(Key, #{installed_channels := Channels} = _State) when
     is_map_key(Key, Channels)
 ->
     BinKey = to_bin(Key),
     ChannelState = maps:get(BinKey, Channels),
     ChannelPreparedStatements = maps:get(prepares, ChannelState),
     maps:get(BinKey, ChannelPreparedStatements);
-get_prepared_statement(Key, #{prepares := PrepStatements}) ->
+get_templated_statement(Key, #{prepares := PrepStatements}) ->
     BinKey = to_bin(Key),
     maps:get(BinKey, PrepStatements).
 
@@ -480,6 +517,8 @@ do_check_prepares(
         {error, Reason} ->
             {error, Reason}
     end;
+do_check_prepares(#{prepares := disabled}) ->
+    ok;
 do_check_prepares(#{prepares := Prepares}) when is_map(Prepares) ->
     ok;
 do_check_prepares(#{prepares := {error, _}} = State) ->
@@ -579,7 +618,7 @@ conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
 
-parse_prepare_sql(Config, SQLID) ->
+parse_sql_template(Config, SQLID) ->
     Queries =
         case Config of
             #{prepare_statement := Qs} ->
@@ -589,10 +628,10 @@ parse_prepare_sql(Config, SQLID) ->
             #{} ->
                 #{}
         end,
-    Templates = maps:fold(fun parse_prepare_sql/3, #{}, Queries),
+    Templates = maps:fold(fun parse_sql_template/3, #{}, Queries),
     #{query_templates => Templates}.
 
-parse_prepare_sql(Key, Query, Acc) ->
+parse_sql_template(Key, Query, Acc) ->
     Template = emqx_template_sql:parse_prepstmt(Query, #{parameters => '$n'}),
     Acc#{Key => Template}.
 
@@ -601,6 +640,8 @@ render_prepare_sql_row(RowTemplate, Data) ->
     {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, {emqx_jsonish, Data}),
     Row.
 
+init_prepare(State = #{prepares := disabled}) ->
+    State;
 init_prepare(State = #{query_templates := Templates}) when map_size(Templates) == 0 ->
     State;
 init_prepare(State = #{}) ->
