@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_validation).
 
+-feature(maybe_expr, enable).
+
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -41,7 +43,13 @@
 -define(TRACE_TAG, "SCHEMA_VALIDATION").
 
 -type validation_name() :: binary().
--type validation() :: _TODO.
+-type raw_validation() :: #{binary() => _}.
+-type validation() :: #{
+    name := validation_name(),
+    strategy := all_pass | any_pass,
+    failure_action := drop | disconnect | ignore,
+    log_failure := #{level := error | warning | notice | info | debug | none}
+}.
 
 -export_type([
     validation/0,
@@ -65,12 +73,12 @@ reorder(Order) ->
 lookup(Name) ->
     emqx_schema_validation_config:lookup(Name).
 
--spec insert(validation()) ->
+-spec insert(raw_validation()) ->
     {ok, _} | {error, _}.
 insert(Validation) ->
     emqx_schema_validation_config:insert(Validation).
 
--spec update(validation()) ->
+-spec update(raw_validation()) ->
     {ok, _} | {error, _}.
 update(Validation) ->
     emqx_schema_validation_config:update(Validation).
