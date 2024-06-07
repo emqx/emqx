@@ -31,7 +31,43 @@
 -type statement_type() :: select | insert | delete | update.
 -type value() :: null | binary() | number() | boolean() | [value()].
 
+-define(INSERT_RE_MP_KEY, insert_re_mp).
+-define(INSERT_RE_BIN, <<
+    %% case-insensitive
+    "(?i)^\\s*",
+    %% Group-1: insert into, table name and columns (when existed).
+    %% All space characters suffixed to <TABLE_NAME> will be kept
+    %% `INSERT INTO <TABLE_NAME> [(<COLUMN>, ..)]`
+    "(insert\\s+into\\s+[^\\s\\(\\)]+\\s*(?:\\([^\\)]*\\))?)",
+    %% Keyword: `VALUES`
+    "\\s*values\\s*",
+    %% Group-2: literals value(s) or placeholder(s) with round brackets.
+    %% And the sub-pattern in brackets does not do any capturing
+    %% `([<VALUE> | <PLACEHOLDER>], ..])`
+    "(\\((?:[^()]++|(?2))*\\))",
+    "\\s*$"
+>>).
+
 -dialyzer({no_improper_lists, [escape_mysql/4, escape_prepend/4]}).
+
+-on_load(put_insert_mp/0).
+
+put_insert_mp() ->
+    persistent_term:put({?MODULE, ?INSERT_RE_MP_KEY}, re:compile(?INSERT_RE_BIN)),
+    ok.
+
+%% The type Copied from stdlib/src/re.erl to compatibility with OTP 26
+%% Since `re:mp()` exported after OTP 27
+-type mp() :: {re_pattern, _, _, _, _}.
+-spec get_insert_mp() -> {ok, mp()}.
+get_insert_mp() ->
+    case persistent_term:get({?MODULE, ?INSERT_RE_MP_KEY}, undefined) of
+        undefined ->
+            ok = put_insert_mp(),
+            get_insert_mp();
+        {ok, MP} ->
+            {ok, MP}
+    end.
 
 -spec get_statement_type(iodata()) -> statement_type() | {error, unknown}.
 get_statement_type(Query) ->
@@ -54,17 +90,11 @@ get_statement_type(Query) ->
 -spec parse_insert(iodata()) ->
     {ok, {_Statement :: binary(), _Rows :: binary()}} | {error, not_insert_sql}.
 parse_insert(SQL) ->
-    case re:split(SQL, "((?i)values)", [{return, binary}]) of
-        [Part1, _, Part3] ->
-            case string:trim(Part1, leading) of
-                <<"insert", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                <<"INSERT", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                _ ->
-                    {error, not_insert_sql}
-            end;
-        _ ->
+    {ok, MP} = get_insert_mp(),
+    case re:run(SQL, MP, [{capture, all_but_first, binary}]) of
+        {match, [InsertInto, ValuesTemplate]} ->
+            {ok, {InsertInto, ValuesTemplate}};
+        nomatch ->
             {error, not_insert_sql}
     end.
 
