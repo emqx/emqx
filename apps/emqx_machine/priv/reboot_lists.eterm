@@ -54,6 +54,7 @@
             emqx_auth_mysql,
             emqx_auth_postgresql,
             emqx_auth_redis,
+            emqx_auth_gssapi,
             emqx_ldap,
             emqx_auth_ldap,
             emqx_auto_subscribe,
