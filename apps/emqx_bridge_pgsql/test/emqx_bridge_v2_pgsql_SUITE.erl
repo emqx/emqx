@@ -273,6 +273,7 @@ t_disable_prepared_statements(Config0) ->
         fun(Res) -> ?assertMatch({ok, _}, Res) end,
         postgres_bridge_connector_on_query_return
     ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok = emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok = emqx_bridge_v2_testlib:t_create_via_http(Config),
