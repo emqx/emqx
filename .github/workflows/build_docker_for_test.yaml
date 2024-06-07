@@ -42,7 +42,7 @@ jobs:
           - emqx-enterprise-elixir
 
     steps:
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       - name: build and export to Docker
         id: build
         run: |
@@ -57,7 +57,7 @@ jobs:
       - name: export docker image
         run: |
           docker save $_EMQX_DOCKER_IMAGE_TAG | gzip > $EMQX_NAME-docker-$PKG_VSN.tar.gz
-      - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: "${{ env.EMQX_NAME }}-docker"
           path: "${{ env.EMQX_NAME }}-docker-${{ env.PKG_VSN }}.tar.gz"

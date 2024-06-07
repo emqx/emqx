@@ -322,7 +322,11 @@ fmt: $(REBAR)
 				  -name '*.hrl' -o \
 				  -name 'rebar.config' -o \
 				  -name '*.eterm' -o \
-				  -name '*.escript' \) -not -path '*/_build/*' -type f \
+				  -name '*.escript' \) \
+	                          -not -path '*/_build/*' \
+	                          -not -path '*/deps/*' \
+	                          -not -path '*/_checkouts/*' \
+	                          -type f \
 		| xargs $(SCRIPTS)/erlfmt -w
 	@$(SCRIPTS)/erlfmt -w 'apps/emqx/rebar.config.script'
 	@$(SCRIPTS)/erlfmt -w 'elvis.config'
