@@ -45,10 +45,13 @@
     to_client_opts/2
 ]).
 
+-export([maybe_inject_ssl_fun/2]).
+
 %% ssl:tls_version/0 is not exported.
 -type tls_version() :: tlsv1 | 'tlsv1.1' | 'tlsv1.2' | 'tlsv1.3'.
 
 -include("logger.hrl").
+-include("emqx_schema.hrl").
 
 -define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
 -define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
@@ -685,4 +688,15 @@ ensure_ssl_file_key(SSL, RequiredKeyPaths) ->
     case lists:filter(Filter, RequiredKeyPaths) of
         [] -> ok;
         Miss -> {error, #{reason => ssl_file_option_not_found, which_options => Miss}}
+    end.
+
+-spec maybe_inject_ssl_fun(root_fun | verify_fun, map()) -> map().
+maybe_inject_ssl_fun(FunName, SslOpts) ->
+    case persistent_term:get(?EMQX_SSL_FUN_MFA(FunName), undefined) of
+        undefined ->
+            SslOpts;
+        {M, F, A} ->
+            %% We should have one entry not a list of {M,F,A},
+            %% as ordering matters in validations
+            erlang:apply(M, F, [SslOpts | A])
     end.

@@ -588,21 +588,11 @@ ssl_server_opts(SSLOpts, ssl_options) ->
 ssl_server_opts(SSLOpts, dtls_options) ->
     emqx_tls_lib:to_server_opts(dtls, SSLOpts).
 
--if(defined(EMQX_RELEASE_EDITION) andalso ?EMQX_RELEASE_EDITION == ee).
 ssl_partial_chain(SSLOpts, _Options) ->
-    emqx_auth_ext_tls_lib:opt_partial_chain(SSLOpts).
--else.
-ssl_partial_chain(SSLOpts, _) ->
-    SSLOpts.
--endif.
+    emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts).
 
--if(defined(EMQX_RELEASE_EDITION) andalso ?EMQX_RELEASE_EDITION == ee).
 ssl_verify_fun(SSLOpts, _Options) ->
-    emqx_auth_ext_tls_lib:opt_verify_fun(SSLOpts).
--else.
-ssl_verify_fun(SSLOpts, _) ->
-    SSLOpts.
--endif.
+    emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts).
 
 ranch_opts(Type, ListenOn, Opts) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),
