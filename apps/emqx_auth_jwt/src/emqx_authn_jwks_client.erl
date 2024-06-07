@@ -159,7 +159,10 @@ refresh_jwks(
         case
             httpc:request(
                 get,
-                {Endpoint, [{"Accept", "application/json"}]},
+                {Endpoint, [
+                    {"Accept", "application/json"},
+                    {"User-Agent", "EMQX/" ++ emqx_release:version_with_prefix()}
+                ]},
                 HTTPOpts,
                 [{body_format, binary}, {sync, false}, {receiver, self()}]
             )
