@@ -22,6 +22,10 @@
     connector_examples/1
 ]).
 
+-export([
+    pre_config_update/4
+]).
+
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
 %%-------------------------------------------------------------------------------------------------
@@ -110,3 +114,15 @@ connector_example(put) ->
             enable_pipelining => 1
         }
     }.
+
+%% Config update
+
+pre_config_update(Path, _Name, Conf = #{<<"transport_options">> := TransportOpts}, _ConfOld) ->
+    case emqx_connector_ssl:convert_certs(filename:join(Path), TransportOpts) of
+        {ok, NTransportOpts} ->
+            {ok, Conf#{<<"transport_options">> := NTransportOpts}};
+        {error, {bad_ssl_config, Error}} ->
+            {error, Error#{reason => <<"bad_ssl_config">>}}
+    end;
+pre_config_update(_Path, _Name, Conf, _ConfOld) ->
+    {ok, Conf}.

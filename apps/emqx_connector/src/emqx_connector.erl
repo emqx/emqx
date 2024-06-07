@@ -126,17 +126,26 @@ pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig) when
 ->
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
-pre_config_update([?ROOT_KEY, _Type, Name] = Path, Conf = #{}, _OldConfig) ->
+pre_config_update([?ROOT_KEY, _Type, Name] = Path, Conf = #{}, ConfOld) ->
     case validate_connector_name(Name) of
         ok ->
             case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
-                {error, Reason} ->
-                    {error, Reason};
                 {ok, ConfNew} ->
-                    {ok, ConfNew}
+                    connector_pre_config_update(Path, ConfNew, ConfOld);
+                {error, Reason} ->
+                    {error, Reason}
             end;
         Error ->
             Error
+    end.
+
+connector_pre_config_update([?ROOT_KEY, Type, Name] = Path, ConfNew, ConfOld) ->
+    Mod = emqx_connector_info:config_transform_module(Type),
+    case Mod =/= undefined andalso erlang:function_exported(Mod, pre_config_update, 4) of
+        true ->
+            apply(Mod, pre_config_update, [Path, Name, ConfNew, ConfOld]);
+        false ->
+            {ok, ConfNew}
     end.
 
 operation_to_enable(disable) -> false;
