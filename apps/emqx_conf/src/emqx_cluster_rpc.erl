@@ -501,11 +501,12 @@ do_initiate(MFA, State = #{node := Node}, Count, Failure0) ->
 
 stale_view_of_cluster_msg(Meta, Count) ->
     Reason = Meta#{
-        msg => stale_view_of_cluster_state,
-        retry_times => Count
+        msg => stale_view_of_cluster,
+        retry_times => Count,
+        suggested => "run `./bin/emqx_ctl conf cluster_sync fix` when not restored for a long time"
     },
     ?SLOG(warning, Reason),
-    Reason.
+    {error, Reason}.
 
 %% The entry point of a config change transaction.
 init_mfa(Node, MFA) ->
