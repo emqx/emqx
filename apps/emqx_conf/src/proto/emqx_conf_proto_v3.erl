@@ -37,6 +37,7 @@
 ]).
 
 -export([get_hocon_config/1, get_hocon_config/2]).
+-export([get_raw_config/2]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
@@ -113,6 +114,10 @@ get_override_config_file(Nodes) ->
 -spec get_hocon_config(node()) -> map() | {badrpc, _}.
 get_hocon_config(Node) ->
     rpc:call(Node, emqx_conf_cli, get_config, []).
+
+-spec get_raw_config(node(), update_config_key_path()) -> map() | {badrpc, _}.
+get_raw_config(Node, KeyPath) ->
+    rpc:call(Node, emqx, get_raw_config, [KeyPath]).
 
 -spec get_hocon_config(node(), binary()) -> map() | {badrpc, _}.
 get_hocon_config(Node, Key) ->
