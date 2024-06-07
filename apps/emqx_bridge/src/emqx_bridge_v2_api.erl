@@ -879,6 +879,8 @@ handle_disable_enable(ConfRootKey, Id, Enable) ->
                 ?SERVICE_UNAVAILABLE(<<"request timeout">>);
             {error, timeout} ->
                 ?SERVICE_UNAVAILABLE(<<"request timeout">>);
+            {error, Reason} when is_binary(Reason) ->
+                ?BAD_REQUEST(Reason);
             {error, Reason} ->
                 ?INTERNAL_ERROR(Reason)
         end

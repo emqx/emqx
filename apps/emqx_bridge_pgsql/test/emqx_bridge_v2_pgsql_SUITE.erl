@@ -19,6 +19,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(BRIDGE_TYPE, pgsql).
 -define(BRIDGE_TYPE_BIN, <<"pgsql">>).
@@ -33,7 +34,18 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    All0 = emqx_common_test_helpers:all(?MODULE),
+    All = All0 -- matrix_cases(),
+    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
+    Groups ++ All.
+
+matrix_cases() ->
+    [
+        t_disable_prepared_statements
+    ].
+
+groups() ->
+    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
 
 init_per_suite(Config) ->
     PostgresHost = os:getenv("PGSQL_TCP_HOST", "toxiproxy"),
@@ -80,10 +92,26 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(Apps),
     ok.
 
-init_per_testcase(TestCase, Config) ->
-    common_init_per_testcase(TestCase, Config).
+init_per_group(Group, Config) when
+    Group =:= postgres;
+    Group =:= timescale;
+    Group =:= matrix
+->
+    [
+        {bridge_type, group_to_type(Group)},
+        {connector_type, group_to_type(Group)}
+        | Config
+    ];
+init_per_group(_Group, Config) ->
+    Config.
 
-common_init_per_testcase(TestCase, Config) ->
+group_to_type(postgres) -> pgsql;
+group_to_type(Group) -> Group.
+
+end_per_group(_Group, _Config) ->
+    ok.
+
+init_per_testcase(TestCase, Config) ->
     ct:timetrap(timer:seconds(60)),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_config:delete_override_conf_files(),
@@ -103,10 +131,10 @@ common_init_per_testcase(TestCase, Config) ->
     BridgeConfig = bridge_config(Name, Name),
     ok = snabbkaffe:start_trace(),
     [
-        {connector_type, ?CONNECTOR_TYPE},
+        {connector_type, proplists:get_value(connector_type, Config, ?CONNECTOR_TYPE)},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
-        {bridge_type, ?BRIDGE_TYPE},
+        {bridge_type, proplists:get_value(bridge_type, Config, ?BRIDGE_TYPE)},
         {bridge_name, Name},
         {bridge_config, BridgeConfig}
         | NConfig
@@ -231,4 +259,21 @@ t_sync_query(Config) ->
 
 t_start_action_or_source_with_disabled_connector(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
+    ok.
+
+t_disable_prepared_statements(matrix) ->
+    [[postgres], [timescale], [matrix]];
+t_disable_prepared_statements(Config0) ->
+    ConnectorConfig0 = ?config(connector_config, Config0),
+    ConnectorConfig = maps:merge(ConnectorConfig0, #{<<"disable_prepared_statements">> => true}),
+    Config = lists:keyreplace(connector_config, 1, Config0, {connector_config, ConnectorConfig}),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config,
+        fun make_message/0,
+        fun(Res) -> ?assertMatch({ok, _}, Res) end,
+        postgres_bridge_connector_on_query_return
+    ),
+    ok = emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    ok = emqx_bridge_v2_testlib:t_create_via_http(Config),
     ok.

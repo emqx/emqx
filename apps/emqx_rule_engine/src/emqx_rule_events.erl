@@ -733,8 +733,8 @@ event_info() ->
 event_info_schema_validation_failed() ->
     event_info_common(
         'schema.validation_failed',
-        {<<"schema validation failed">>, <<"TODO"/utf8>>},
-        {<<"messages that do not pass configured validations">>, <<"TODO"/utf8>>},
+        {<<"schema validation failed">>, <<"schema 验证失败"/utf8>>},
+        {<<"messages that do not pass configured validations">>, <<"未通过验证的消息"/utf8>>},
         <<"SELECT * FROM \"$events/schema_validation_failed\" WHERE topic =~ 't/#'">>
     ).
 ee_event_info() ->
@@ -908,7 +908,7 @@ test_columns('client.check_authn_complete') ->
     [
         {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
         {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
-        {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]},
+        {<<"reason_code">>, [<<"success">>, <<"the reason code">>]},
         {<<"is_superuser">>, [true, <<"Whether this is a superuser">>]},
         {<<"is_anonymous">>, [false, <<"Whether this is a superuser">>]}
     ];
@@ -1087,7 +1087,7 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
         {<<"peername">>, <<"192.168.0.10:56431">>},
-        {<<"reason_code">>, <<"sucess">>},
+        {<<"reason_code">>, <<"success">>},
         {<<"is_superuser">>, true},
         {<<"is_anonymous">>, false},
         {<<"timestamp">>, erlang:system_time(millisecond)},

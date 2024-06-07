@@ -1151,7 +1151,18 @@ post_config_update([ConfRootKey, BridgeType, BridgeName], _Req, NewConf, undefin
 post_config_update([ConfRootKey, BridgeType, BridgeName], _Req, NewConf, OldConf, _AppEnvs) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    ok = uninstall_bridge_v2(ConfRootKey, BridgeType, BridgeName, OldConf),
+    case uninstall_bridge_v2(ConfRootKey, BridgeType, BridgeName, OldConf) of
+        ok ->
+            ok;
+        {error, timeout} ->
+            throw(<<
+                "Timed out trying to remove action or source.  Please try again and,"
+                " if the error persists, try disabling the connector before retrying."
+            >>);
+        {error, not_found} ->
+            %% Should not happen, unless config is inconsistent.
+            throw(<<"Referenced connector not found">>)
+    end,
     ok = install_bridge_v2(ConfRootKey, BridgeType, BridgeName, NewConf),
     Bridges = emqx_utils_maps:deep_put(
         [BridgeType, BridgeName], emqx:get_config([ConfRootKey]), NewConf

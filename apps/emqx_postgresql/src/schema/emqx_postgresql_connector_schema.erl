@@ -47,7 +47,10 @@ roots() ->
     [].
 
 fields("connection_fields") ->
-    [{server, server()}] ++
+    [
+        {server, server()},
+        emqx_postgresql:disable_prepared_statements()
+    ] ++
         adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
         emqx_connector_schema_lib:ssl_fields();
 fields("config_connector") ->

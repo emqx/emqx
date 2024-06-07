@@ -199,6 +199,7 @@ t_query_params(_Config) ->
                 mountpoint := <<"MOUNTPOINT">>,
                 topic := <<"t/1">>,
                 action := <<"publish">>,
+                access := <<"2">>,
                 qos := <<"1">>,
                 retain := <<"false">>
             } = cowboy_req:match_qs(
@@ -210,6 +211,7 @@ t_query_params(_Config) ->
                     mountpoint,
                     topic,
                     action,
+                    access,
                     qos,
                     retain
                 ],
@@ -227,6 +229,7 @@ t_query_params(_Config) ->
                 "mountpoint=${mountpoint}&"
                 "topic=${topic}&"
                 "action=${action}&"
+                "access=${access}&"
                 "qos=${qos}&"
                 "retain=${retain}"
             >>
@@ -261,6 +264,7 @@ t_path(_Config) ->
                     "MOUNTPOINT/"
                     "t%2F1/"
                     "publish/"
+                    "2/"
                     "1/"
                     "false"
                 >>,
@@ -278,6 +282,7 @@ t_path(_Config) ->
                 "${mountpoint}/"
                 "${topic}/"
                 "${action}/"
+                "${access}/"
                 "${qos}/"
                 "${retain}"
             >>
@@ -318,6 +323,7 @@ t_json_body(_Config) ->
                     <<"mountpoint">> := <<"MOUNTPOINT">>,
                     <<"topic">> := <<"t">>,
                     <<"action">> := <<"publish">>,
+                    <<"access">> := <<"2">>,
                     <<"qos">> := <<"1">>,
                     <<"retain">> := <<"false">>
                 },
@@ -335,6 +341,7 @@ t_json_body(_Config) ->
                 <<"mountpoint">> => <<"${mountpoint}">>,
                 <<"topic">> => <<"${topic}">>,
                 <<"action">> => <<"${action}">>,
+                <<"access">> => <<"${access}">>,
                 <<"qos">> => <<"${qos}">>,
                 <<"retain">> => <<"${retain}">>
             }
@@ -413,6 +420,7 @@ t_placeholder_and_body(_Config) ->
                     <<"mountpoint">> := <<"MOUNTPOINT">>,
                     <<"topic">> := <<"t">>,
                     <<"action">> := <<"publish">>,
+                    <<"access">> := <<"2">>,
                     <<"CN">> := ?PH_CERT_CN_NAME,
                     <<"CS">> := ?PH_CERT_SUBJECT
                 },
@@ -430,6 +438,7 @@ t_placeholder_and_body(_Config) ->
                 <<"mountpoint">> => <<"${mountpoint}">>,
                 <<"topic">> => <<"${topic}">>,
                 <<"action">> => <<"${action}">>,
+                <<"access">> => <<"${access}">>,
                 <<"CN">> => ?PH_CERT_CN_NAME,
                 <<"CS">> => ?PH_CERT_SUBJECT
             },
