@@ -139,12 +139,13 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     Res1 = gen_server:call(?NODE2, Call),
     Res2 = gen_server:call(?NODE3, Call),
     %% Node2 is retry on tnx_id 1, and should not run Next MFA.
-    ?assertEqual(
+    ?assertMatch(
         {init_failure, #{
-            msg => stale_view_of_cluster_state,
-            retry_times => 2,
-            cluster_tnx_id => 2,
-            node_tnx_id => 1
+            msg := stale_view_of_cluster_state,
+            retry_times := 2,
+            cluster_tnx_id := 2,
+            node_tnx_id := 1,
+            suggested := _
         }},
         Res1
     ),
