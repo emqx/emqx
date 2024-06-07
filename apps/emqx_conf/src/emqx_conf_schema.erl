@@ -82,7 +82,8 @@
     connection_rejected_due_to_license_limit_reached,
     dropped_msg_due_to_mqueue_is_full,
     socket_receive_paused_by_rate_limit,
-    data_bridge_buffer_overflow
+    data_bridge_buffer_overflow,
+    external_broker_crashed
 ]).
 
 %% Callback to upgrade config after loaded from config file but before validation.

@@ -1,0 +1,53 @@
+emqx_cluster_link_schema {
+
+links.desc:
+"""The list of the linked EMQX clusters."""
+links.label: "Cluster Links"
+
+link.desc:
+"""Cluster link configuration"""
+link.label: "Cluster Link"
+
+enable.desc:
+"""Enable or disable a cluster link. The link is enabled by default, disabling it allows stopping the link without removing its configuration. The link must be enabled on both sides to be operational. Disabling the link should also be done on both clusters in order to free up all associated resources."""
+enable.label: "Enable"
+
+upstream.desc:
+"""Upstream cluster name. Must be exactly equal to the value of `cluster.name` configured at the remote cluster. Must not be equal to the local cluster.name. All configured cluster link upstream names must be unique."""
+upstream.label: "Upstream Name"
+
+server.desc:
+"""MQTT host and port of the remote EMQX broker."""
+server.label: "MQTT Server"
+
+username.desc:
+"""Optional MQTT username for connecting to the remote EMQX cluster."""
+username.label: "Username"
+
+password.desc:
+"""Optional MQTT username for connecting to the remote EMQX cluster."""
+password.label: "Password"
+
+clientid.desc:
+"""Optional Base MQTT client ID for connecting to the remote EMQX cluster. If omitted, local `cluster.name` is used. EMQX maintains several connections between linked clusters, so distinct suffixes are automatically appended to the base client ID."""
+clientid.label: "Base Client ID"
+
+ssl.desc: """SSL configuration for connecting to the remote EMQX cluster."""
+ssl.label: "SSL Options"
+
+topics.desc: """MQTT topics to be forwarded by the linked remote EMQX broker to the local broker. Messages are only forwarded if the local EMQX broker has matching subscriber(s).
+Wildcards are supported. Setting empty topics list on one side of the link can be used to establish unidirectional links: the side with the empty topics won't receive remote messages, but it can forward relevant messages to its linked counterpart (according to the topics configured on that side of the link)."""
+topics.label: "Topics"
+
+pool_size.desc:
+"""Size of the pool of MQTT clients that will publish messages to the linked EMQX broker."""
+
+pool_size.label:
+"""Connection Pool Size"""
+
+max_inflight.desc:
+"""Max inflight (sent, but un-acked) messages of the MQTT protocol"""
+
+max_inflight.label:
+"""Max Inflight Message"""
+}

@@ -89,16 +89,12 @@ ensure_msg_fwd_resource(ClusterName) when is_binary(ClusterName) ->
         undefined ->
             {error, link_config_not_found}
     end;
-ensure_msg_fwd_resource(#{upstream := Name, pool_size := PoolSize} = ClusterConf) ->
-    ResConf = #{
+ensure_msg_fwd_resource(#{upstream := Name, resource_opts := ResOpts} = ClusterConf) ->
+    ResOpts1 = ResOpts#{
         query_mode => async,
-        start_after_created => true,
-        start_timeout => 5000,
-        health_check_interval => 5000,
-        %% TODO: configure res_buf_worker pool separately?
-        worker_pool_size => PoolSize
+        start_after_created => true
     },
-    emqx_resource:create_local(?MSG_RES_ID(Name), ?RES_GROUP, ?MODULE, ClusterConf, ResConf).
+    emqx_resource:create_local(?MSG_RES_ID(Name), ?RES_GROUP, ?MODULE, ClusterConf, ResOpts1).
 
 -spec remove_msg_fwd_resource(binary() | map()) -> ok | {error, Reason :: term()}.
 remove_msg_fwd_resource(ClusterName) ->
@@ -344,7 +340,7 @@ publish_heartbeat(ClientPid, Actor, Incarnation) ->
         ?F_ACTOR => Actor,
         ?F_INCARNATION => Incarnation
     },
-    emqtt:publish_async(ClientPid, ?ROUTE_TOPIC, ?ENCODE(Payload), ?QOS_0, undefined).
+    emqtt:publish_async(ClientPid, ?ROUTE_TOPIC, ?ENCODE(Payload), ?QOS_0, {fun(_) -> ok end, []}).
 
 decode_route_op(Payload) ->
     decode_route_op1(?DECODE(Payload)).

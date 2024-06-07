@@ -14,15 +14,14 @@ start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_link_extrouter:create_tables()),
     emqx_cluster_link_config:add_handler(),
     LinksConf = emqx_cluster_link_config:enabled_links(),
-    _ =
-        case LinksConf of
-            [_ | _] ->
-                ok = emqx_cluster_link:register_external_broker(),
-                ok = emqx_cluster_link:put_hook(),
-                ok = start_msg_fwd_resources(LinksConf);
-            _ ->
-                ok
-        end,
+    case LinksConf of
+        [_ | _] ->
+            ok = emqx_cluster_link:register_external_broker(),
+            ok = emqx_cluster_link:put_hook(),
+            ok = start_msg_fwd_resources(LinksConf);
+        _ ->
+            ok
+    end,
     emqx_cluster_link_sup:start_link(LinksConf).
 
 prep_stop(State) ->

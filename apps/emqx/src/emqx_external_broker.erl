@@ -16,7 +16,7 @@
 
 -module(emqx_external_broker).
 
--callback forward(emqx_router:external_dest(), emqx_types:delivery()) ->
+-callback forward(dest(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
 
 -callback should_route_to_external_dests(emqx_types:message()) -> boolean().
@@ -64,8 +64,8 @@
                 Provider:IfRegistered
             catch
                 Err:Reason:St ->
-                    ?SLOG(error, #{
-                        msg => "external_broker_crashed",
+                    ?SLOG_THROTTLE(error, #{
+                        msg => external_broker_crashed,
                         provider => Provider,
                         callback => ?FUNCTION_NAME,
                         stacktrace => St,

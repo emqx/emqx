@@ -37,7 +37,7 @@ run() ->
 %%
 
 -record(st, {
-    gc_timer :: reference()
+    gc_timer :: undefined | reference()
 }).
 
 init(_) ->

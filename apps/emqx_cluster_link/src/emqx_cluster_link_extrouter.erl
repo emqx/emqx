@@ -119,22 +119,33 @@ create_tables() ->
 
 %%
 
+-spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) ->
     Matches = emqx_topic_index:matches(Topic, ?EXTROUTE_TAB, [unique]),
     %% `unique` opt is not enough, since we keep the original Topic as a part of RouteID
     lists:ukeysort(#route.dest, [match_to_route(M) || M <- Matches]).
 
+-spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
-    Pat = #extroute{entry = emqx_topic_index:make_key(Topic, '$1'), _ = '_'},
+    Pat = make_extroute_rec_pat(emqx_topic_index:make_key(Topic, '$1')),
     [match_to_route(R#extroute.entry) || Records <- ets:match(?EXTROUTE_TAB, Pat), R <- Records].
 
+-spec topics() -> [emqx_types:topic()].
 topics() ->
-    Pat = #extroute{entry = '$1', _ = '_'},
+    Pat = make_extroute_rec_pat('$1'),
     [emqx_topic_index:get_topic(K) || [K] <- ets:match(?EXTROUTE_TAB, Pat)].
 
 match_to_route(M) ->
     ?ROUTE_ID(Cluster, _) = emqx_topic_index:get_id(M),
     #route{topic = emqx_topic_index:get_topic(M), dest = Cluster}.
+
+%% Make Dialyzer happy
+make_extroute_rec_pat(Entry) ->
+    erlang:make_tuple(
+        record_info(size, extroute),
+        '_',
+        [{1, extroute}, {#extroute.entry, Entry}]
+    ).
 
 %%
 
@@ -143,12 +154,12 @@ match_to_route(M) ->
     actor :: actor(),
     incarnation :: incarnation(),
     lane :: lane() | undefined,
-    extra :: map()
+    extra = #{} :: map()
 }).
 
 -type state() :: #state{}.
 
--type env() :: #{timestamp := _Milliseconds}.
+-type env() :: #{timestamp => _Milliseconds}.
 
 -spec actor_init(cluster(), actor(), incarnation(), env()) -> {ok, state()}.
 actor_init(Cluster, Actor, Incarnation, Env = #{timestamp := Now}) ->
@@ -170,10 +181,8 @@ is_present_incarnation(_State) ->
 
 -spec list_actors(cluster()) -> [#{actor := actor(), incarnation := incarnation()}].
 list_actors(Cluster) ->
-    Matches = ets:match(
-        emqx_external_router_actor,
-        #actor{id = {Cluster, '$1'}, incarnation = '$2', _ = '_'}
-    ),
+    Pat = make_actor_rec_pat([{#actor.id, {Cluster, '$1'}}, {#actor.incarnation, '$2'}]),
+    Matches = ets:match(emqx_external_router_actor, Pat),
     [#{actor => Actor, incarnation => Incr} || [Actor, Incr] <- Matches].
 
 mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
@@ -291,7 +300,8 @@ apply_operation(Entry, MCounter, OpName, Lane) ->
 
 -spec actor_gc(env()) -> _NumCleaned :: non_neg_integer().
 actor_gc(#{timestamp := Now}) ->
-    MS = [{#actor{until = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}],
+    Pat = make_actor_rec_pat([{#actor.until, '$1'}]),
+    MS = [{Pat, [{'<', '$1', Now}], ['$_']}],
     Dead = mnesia:dirty_select(?EXTROUTE_ACTOR_TAB, MS),
     try_clean_incarnation(Dead).
 
@@ -316,8 +326,17 @@ mnesia_assign_lane(Cluster) ->
     Lane.
 
 select_cluster_lanes(Cluster) ->
-    MS = [{#actor{id = {Cluster, '_'}, lane = '$1', _ = '_'}, [], ['$1']}],
+    Pat = make_actor_rec_pat([{#actor.id, {Cluster, '_'}}, {#actor.lane, '$1'}]),
+    MS = [{Pat, [], ['$1']}],
     mnesia:select(?EXTROUTE_ACTOR_TAB, MS, write).
+
+%% Make Dialyzer happy
+make_actor_rec_pat(PosValues) ->
+    erlang:make_tuple(
+        record_info(size, actor),
+        '_',
+        [{1, actor} | PosValues]
+    ).
 
 mnesia_actor_heartbeat(ActorID, Incarnation, TS) ->
     case mnesia:read(?EXTROUTE_ACTOR_TAB, ActorID, write) of

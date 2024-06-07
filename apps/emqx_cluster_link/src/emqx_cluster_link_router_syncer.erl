@@ -196,20 +196,20 @@ start_link_syncer(Actor, Incarnation, SyncerRef, ClientName) ->
         max_batch_size => ?MAX_BATCH_SIZE,
         min_sync_interval => ?MIN_SYNC_INTERVAL,
         error_delay => ?ERROR_DELAY,
-        initial_state => closed,
+        initial_state => suspended,
         batch_handler => {?MODULE, process_syncer_batch, [ClientName, Actor, Incarnation]}
         %% TODO: enable_replies => false
     }).
 
-close_syncer(TargetCluster, ?PS_ACTOR) ->
-    emqx_router_syncer:close(?PS_SYNCER_REF(TargetCluster));
-close_syncer(TargetCluster, _Actor) ->
-    emqx_router_syncer:close(?SYNCER_REF(TargetCluster)).
+suspend_syncer(TargetCluster, ?PS_ACTOR) ->
+    emqx_router_syncer:suspend(?PS_SYNCER_REF(TargetCluster));
+suspend_syncer(TargetCluster, _Actor) ->
+    emqx_router_syncer:suspend(?SYNCER_REF(TargetCluster)).
 
-open_syncer(TargetCluster, ?PS_ACTOR) ->
-    emqx_router_syncer:open(?PS_SYNCER_REF(TargetCluster));
-open_syncer(TargetCluster, _Actor) ->
-    emqx_router_syncer:open(?SYNCER_REF(TargetCluster)).
+activate_syncer(TargetCluster, ?PS_ACTOR) ->
+    emqx_router_syncer:activate(?PS_SYNCER_REF(TargetCluster));
+activate_syncer(TargetCluster, _Actor) ->
+    emqx_router_syncer:activate(?SYNCER_REF(TargetCluster)).
 
 process_syncer_batch(Batch, ClientName, Actor, Incarnation) ->
     Updates = maps:fold(
@@ -296,12 +296,12 @@ syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
     target :: binary(),
     actor :: binary(),
     incarnation :: non_neg_integer(),
-    client :: {pid(), reference()} | undefined,
+    client :: undefined | pid(),
     bootstrapped :: boolean(),
-    reconnect_timer :: reference(),
-    heartbeat_timer :: reference(),
-    actor_init_req_id :: binary(),
-    actor_init_timer :: reference(),
+    reconnect_timer :: undefined | reference(),
+    heartbeat_timer :: undefined | reference(),
+    actor_init_req_id :: undefined | binary(),
+    actor_init_timer :: undefined | reference(),
     remote_actor_info :: undefined | map(),
     status :: connecting | connected | disconnected,
     error :: undefined | term(),
@@ -336,7 +336,11 @@ handle_info(
     {publish, #{payload := Payload, properties := #{'Correlation-Data' := ReqId}}},
     St = #st{actor_init_req_id = ReqId}
 ) ->
-    {actor_init_ack, #{result := Res, need_bootstrap := NeedBootstrap} = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(
+    {actor_init_ack,
+        #{
+            result := Res,
+            need_bootstrap := NeedBootstrap
+        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(
         Payload
     ),
     St1 = St#st{
@@ -451,7 +455,7 @@ handle_client_down(Reason, St = #st{target = TargetCluster, actor = Actor}) ->
         actor => St#st.actor
     }),
     %% TODO: syncer may be already down due to one_for_all strategy
-    ok = close_syncer(TargetCluster, Actor),
+    ok = suspend_syncer(TargetCluster, Actor),
     _ = maybe_alarm(Reason, St),
     NSt = cancel_heartbeat(St),
     process_connect(NSt#st{client = undefined, error = Reason, status = connecting}).
@@ -519,7 +523,7 @@ run_bootstrap(Bootstrap, St) ->
 process_bootstrapped(
     St = #st{target = TargetCluster, actor = Actor}
 ) ->
-    ok = open_syncer(TargetCluster, Actor),
+    ok = activate_syncer(TargetCluster, Actor),
     St#st{bootstrapped = true}.
 
 process_bootstrap_batch(Batch, #st{client = ClientPid, actor = Actor, incarnation = Incarnation}) ->
@@ -529,7 +533,7 @@ ensure_bootstrap_heartbeat(St = #st{heartbeat_timer = TRef}) ->
     case erlang:read_timer(TRef) of
         false ->
             ok = emqx_utils:cancel_timer(TRef),
-            process_heartbeat(St);
+            process_heartbeat(St#st{heartbeat_timer = undefined});
         _TimeLeft ->
             St
     end.

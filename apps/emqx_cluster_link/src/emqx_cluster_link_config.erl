@@ -100,7 +100,8 @@ actor_heartbeat_interval() ->
 mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = LinkConf) ->
     ClientId = maps:get(clientid, LinkConf, cluster()),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?MQTT_HOST_OPTS),
-    Opts = #{
+    Opts = maps:with([username, retry_interval, max_inflight], LinkConf),
+    Opts1 = Opts#{
         host => Host,
         port => Port,
         clientid => ClientId,
@@ -108,12 +109,7 @@ mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = Link
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     },
-    with_password(with_user(Opts, LinkConf), LinkConf).
-
-with_user(Opts, #{username := U} = _LinkConf) ->
-    Opts#{username => U};
-with_user(Opts, _LinkConf) ->
-    Opts.
+    with_password(Opts1, LinkConf).
 
 with_password(Opts, #{password := P} = _LinkConf) ->
     Opts#{password => emqx_secret:unwrap(P)};

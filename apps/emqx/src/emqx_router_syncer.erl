@@ -29,8 +29,8 @@
 -export([push/5]).
 -export([wait/1]).
 
--export([close/1]).
--export([open/1]).
+-export([suspend/1]).
+-export([activate/1]).
 
 -export([stats/0]).
 
@@ -49,7 +49,7 @@
     min_sync_interval => non_neg_integer(),
     error_delay => non_neg_integer(),
     error_retry_interval => non_neg_integer(),
-    initial_state => open | closed,
+    initial_state => activated | suspended,
     batch_handler => {module(), _Function :: atom(), _Args :: list()}
 }.
 
@@ -166,11 +166,13 @@ mk_push_context(_) ->
 
 %%
 
-close(Ref) ->
-    gen_server:call(Ref, close, infinity).
+%% Suspended syncer receives and accumulates route ops but doesn't apply them
+%% until it is activated.
+suspend(Ref) ->
+    gen_server:call(Ref, suspend, infinity).
 
-open(Ref) ->
-    gen_server:call(Ref, open, infinity).
+activate(Ref) ->
+    gen_server:call(Ref, activate, infinity).
 
 %%
 
@@ -191,7 +193,7 @@ stats() ->
 
 mk_state(Options) ->
     #{
-        state => maps:get(initial_state, Options, open),
+        state => maps:get(initial_state, Options, active),
         stash => stash_new(),
         retry_timer => undefined,
         max_batch_size => maps:get(max_batch_size, Options, ?MAX_BATCH_SIZE),
@@ -209,13 +211,13 @@ init({Pool, Id, State}) ->
 init(State) ->
     {ok, State}.
 
-handle_call(close, _From, State) ->
-    NState = State#{state := closed},
+handle_call(suspend, _From, State) ->
+    NState = State#{state := suspended},
     {reply, ok, NState};
-handle_call(open, _From, State = #{state := closed}) ->
-    NState = run_batch_loop([], State#{state := open}),
+handle_call(activate, _From, State = #{state := suspended}) ->
+    NState = run_batch_loop([], State#{state := active}),
     {reply, ok, NState};
-handle_call(open, _From, State) ->
+handle_call(activate, _From, State) ->
     {reply, ok, State};
 handle_call(stats, _From, State = #{stash := Stash}) ->
     {reply, stash_stats(Stash), State};
@@ -239,7 +241,7 @@ terminate(_Reason, _State) ->
 
 %%
 
-run_batch_loop(Incoming, State = #{stash := Stash0, state := closed}) ->
+run_batch_loop(Incoming, State = #{stash := Stash0, state := suspended}) ->
     Stash1 = stash_add(Incoming, Stash0),
     Stash2 = stash_drain(Stash1),
     State#{stash := Stash2};

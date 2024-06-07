@@ -210,7 +210,7 @@ update_routes(ClusterName, Actor, RouteOps) ->
     ActorSt = get_actor_state(ClusterName, Actor),
     lists:foreach(
         fun(RouteOp) ->
-            emqx_cluster_link_extrouter:actor_apply_operation(RouteOp, ActorSt)
+            _ = emqx_cluster_link_extrouter:actor_apply_operation(RouteOp, ActorSt)
         end,
         RouteOps
     ).
