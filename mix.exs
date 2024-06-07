@@ -100,7 +100,8 @@ defmodule EMQXUmbrella.MixProject do
       {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
       {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
+      {:mimerl, "1.2.0", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ jq_dep() ++ quicer_dep()
