@@ -654,7 +654,7 @@ prepare_sql_to_conn(Conn, Prepares) ->
 
 prepare_sql_to_conn(Conn, [], Statements, _Attempts) when is_pid(Conn) ->
     {ok, Statements};
-prepare_sql_to_conn(Conn, [{Key, _} | _Rest], _Statements, _MaxAttempts = 2) when is_pid(Conn) ->
+prepare_sql_to_conn(Conn, [{_Key, _} | _Rest], _Statements, _MaxAttempts = 2) when is_pid(Conn) ->
     failed_to_remove_prev_prepared_statement_error();
 prepare_sql_to_conn(
     Conn, [{Key, {SQL, _RowTemplate}} | Rest] = ToPrepare, Statements, Attempts
@@ -711,8 +711,8 @@ prepare_sql_to_conn(
 
 failed_to_remove_prev_prepared_statement_error() ->
     Msg =
-        ("A previous prepared statement for the action already exists and "
-        "we are not able to close it. Please, try to disable and then enable "
+        ("A previous prepared statement for the action already exists "
+        "but cannot be closed. Please, try to disable and then enable "
         "the connector to resolve this issue."),
     {error, unicode:charactes_to_binary(Msg)}.
 
