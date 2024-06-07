@@ -123,6 +123,7 @@ is_community_umbrella_app("apps/emqx_eviction_agent") -> false;
 is_community_umbrella_app("apps/emqx_node_rebalance") -> false;
 is_community_umbrella_app("apps/emqx_ds_shared_sub") -> false;
 is_community_umbrella_app("apps/emqx_auth_ext") -> false;
+is_community_umbrella_app("apps/emqx_cluster_link") -> false;
 is_community_umbrella_app(_) -> true.
 
 %% BUILD_WITHOUT_JQ
