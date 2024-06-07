@@ -16,7 +16,7 @@ jobs:
     steps:
     - name: Cache Jmeter
       id: cache-jmeter
-      uses: actions/cache@ab5e6d0c87105b4c9c2047343972218f562e4319 # v4.0.1
+      uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
       with:
         path: /tmp/apache-jmeter.tgz
         key: apache-jmeter-5.4.3.tgz
@@ -35,7 +35,7 @@ jobs:
         else
           wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz $ARCHIVE_URL
         fi
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: apache-jmeter.tgz
         path: /tmp/apache-jmeter.tgz
@@ -55,7 +55,7 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: ./.github/actions/prepare-jmeter
       with:
         version-emqx: ${{ inputs.version-emqx }}
@@ -86,7 +86,7 @@ jobs:
           echo "check logs failed"
           exit 1
         fi
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       if: always()
       with:
         name: jmeter_logs-advanced_feat-${{ matrix.scripts_type }}
@@ -111,7 +111,7 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: ./.github/actions/prepare-jmeter
       with:
         version-emqx: ${{ inputs.version-emqx }}
@@ -153,7 +153,7 @@ jobs:
       if: failure()
       run: |
         docker compose -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml logs --no-color > ./jmeter_logs/emqx.log
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       if: always()
       with:
         name: jmeter_logs-pgsql_authn_authz-${{ matrix.scripts_type }}_${{ matrix.pgsql_tag }}
@@ -175,7 +175,7 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: ./.github/actions/prepare-jmeter
       with:
         version-emqx: ${{ inputs.version-emqx }}
@@ -213,7 +213,7 @@ jobs:
           echo "check logs failed"
           exit 1
         fi
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       if: always()
       with:
         name: jmeter_logs-mysql_authn_authz-${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}
@@ -231,7 +231,7 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: ./.github/actions/prepare-jmeter
       with:
         version-emqx: ${{ inputs.version-emqx }}
@@ -265,7 +265,7 @@ jobs:
           echo "check logs failed"
           exit 1
         fi
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       if: always()
       with:
         name: jmeter_logs-JWT_authn-${{ matrix.scripts_type }}
@@ -284,7 +284,7 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: ./.github/actions/prepare-jmeter
       with:
         version-emqx: ${{ inputs.version-emqx }}
@@ -309,7 +309,7 @@ jobs:
           echo "check logs failed"
           exit 1
         fi
-    - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+    - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       if: always()
       with:
         name: jmeter_logs-built_in_database_authn_authz-${{ matrix.scripts_type }}
