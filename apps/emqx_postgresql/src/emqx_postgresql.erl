@@ -714,7 +714,7 @@ failed_to_remove_prev_prepared_statement_error() ->
         ("A previous prepared statement for the action already exists "
         "but cannot be closed. Please, try to disable and then enable "
         "the connector to resolve this issue."),
-    {error, unicode:charactes_to_binary(Msg)}.
+    {error, unicode:characters_to_binary(Msg)}.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;
