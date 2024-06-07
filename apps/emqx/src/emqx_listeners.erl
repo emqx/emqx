@@ -75,10 +75,6 @@
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 -define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
 
--ifndef(EMQX_RELEASE_EDITION).
--define(EMQX_RELEASE_EDITION, ce).
--endif.
-
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
 
@@ -978,21 +974,10 @@ quic_listener_optional_settings() ->
         stateless_operation_expiration_ms
     ].
 
--if(?EMQX_RELEASE_EDITION == ee).
-inject_root_fun(#{ssl_options := SslOpts} = Opts) ->
-    Opts#{ssl_options := emqx_auth_ext_tls_lib:opt_partial_chain(SslOpts)}.
--else.
-inject_root_fun(Opts) ->
-    Opts.
--endif.
-
--if(?EMQX_RELEASE_EDITION == ee).
-inject_verify_fun(#{ssl_options := SslOpts} = Opts) ->
-    Opts#{ssl_options := emqx_auth_ext_tls_lib:opt_verify_fun(SslOpts)}.
--else.
-inject_verify_fun(Opts) ->
-    Opts.
--endif.
+inject_root_fun(#{ssl_options := SSLOpts} = Opts) ->
+    Opts#{ssl_options := emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts)}.
+inject_verify_fun(#{ssl_options := SSLOpts} = Opts) ->
+    Opts#{ssl_options := emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts)}.
 
 inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}}) ->
     emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf);
