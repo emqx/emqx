@@ -74,7 +74,7 @@ jobs:
     steps:
     - uses: erlef/setup-beam@0a541161e47ec43ccbd9510053c5f336ca76c2a2 # v1.17.6
       with:
-        otp-version: 26.2.1
+        otp-version: 26.2.5
     - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       with:
         repository: hawk/lux

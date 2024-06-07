@@ -53,7 +53,7 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '25.3.2-2'
+        default: '26.2.5-1'
       elixir_vsn:
         required: false
         type: string
@@ -61,7 +61,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.3-5'
+        default: '5.3-7'
 
 permissions:
   contents: read
@@ -169,8 +169,8 @@ jobs:
           EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
           PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
           EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
-          EMQX_BUILDER_OTP: ${{ inputs.otp_vsn }}
-          EMQX_BUILDER_ELIXIR: ${{ inputs.elixir_vsn }}
+          OTP_VSN: ${{ inputs.otp_vsn }}
+          ELIXIR_VSN: ${{ inputs.elixir_vsn }}
           EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker
@@ -218,8 +218,8 @@ jobs:
           EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
           PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
           EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
-          EMQX_BUILDER_OTP: ${{ inputs.otp_vsn }}
-          EMQX_BUILDER_ELIXIR: ${{ inputs.elixir_vsn }}
+          OTP_VSN: ${{ inputs.otp_vsn }}
+          ELIXIR_VSN: ${{ inputs.elixir_vsn }}
           EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker

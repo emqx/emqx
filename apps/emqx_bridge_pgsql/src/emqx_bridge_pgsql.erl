@@ -82,6 +82,7 @@ fields("get_bridge_v2") ->
 fields("post_bridge_v2") ->
     fields("post", pgsql, pgsql_action);
 fields("config") ->
+    %% Bridge v1 config for all postgres-based bridges (pgsql, matrix, timescale)
     [
         {enable, hoconsc:mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {sql,
@@ -95,8 +96,11 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_postgresql:fields(config) --
-            emqx_connector_schema_lib:prepare_statement_fields());
+        proplists:delete(
+            disable_prepared_statements,
+            emqx_postgresql:fields(config) --
+                emqx_connector_schema_lib:prepare_statement_fields()
+        );
 fields("post") ->
     fields("post", ?ACTION_TYPE, "config");
 fields("put") ->

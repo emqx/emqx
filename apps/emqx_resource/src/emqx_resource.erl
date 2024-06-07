@@ -85,6 +85,7 @@
     get_allocated_resources_list/1,
     forget_allocated_resources/1,
     deallocate_resource/2,
+    clean_allocated_resources/2,
     %% Get channel config from resource
     call_get_channel_config/3,
     % Call the format query result function

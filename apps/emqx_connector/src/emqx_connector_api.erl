@@ -685,6 +685,10 @@ is_ok(OkResult = {ok, _}) ->
     OkResult;
 is_ok(Error = {error, _}) ->
     Error;
+is_ok(timeout) ->
+    %% Returned by `emqx_resource_manager:start' when the connector fails to reach either
+    %% `?status_connected' or `?status_disconnected' within `start_timeout'.
+    timeout;
 is_ok(ResL) ->
     case
         lists:filter(
@@ -723,6 +727,14 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, ConnectorType, ConnectorName
     case is_ok(do_bpapi_call(NodeOrAll, OperFunc, Args)) of
         Ok when Ok =:= ok; is_tuple(Ok), element(1, Ok) =:= ok ->
             ?NO_CONTENT;
+        timeout ->
+            %% Returned by `emqx_resource_manager:start' when the connector fails to reach
+            %% either `?status_connected' or `?status_disconnected' within
+            %% `start_timeout'.
+            ?BAD_REQUEST(<<
+                "Timeout while waiting for connector to reach connected status."
+                " Please try again."
+            >>);
         {error, not_implemented} ->
             ?NOT_IMPLEMENTED;
         {error, timeout} ->

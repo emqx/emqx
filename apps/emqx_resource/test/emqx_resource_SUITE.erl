@@ -3189,6 +3189,43 @@ t_non_blocking_channel_health_check(_Config) ->
     ),
     ok.
 
+%% Test that `stop' forcefully stops the resource manager even if it's stuck on a sync
+%% call such as `on_start', and that the claimed resources, if any, are freed.
+t_force_stop(_Config) ->
+    ?check_trace(
+        begin
+            {ok, Agent} = emqx_utils_agent:start_link(not_called),
+            {ok, _} =
+                create(
+                    ?ID,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        create_error => {delay, 30_000, Agent}
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100
+                    }
+                ),
+            ?assertEqual(ok, emqx_resource_manager:stop(?ID, _Timeout = 100)),
+            ok
+        end,
+        [
+            log_consistency_prop(),
+            fun(Trace) ->
+                ?assertMatch([_ | _], ?of_kind(connector_demo_start_delay, Trace)),
+                ?assertMatch(
+                    [_ | _], ?of_kind("forcefully_stopping_resource_due_to_timeout", Trace)
+                ),
+                ?assertMatch([_ | _], ?of_kind(connector_demo_free_resources_without_state, Trace)),
+                ok
+            end
+        ]
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

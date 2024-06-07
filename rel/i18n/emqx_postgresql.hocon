@@ -14,4 +14,13 @@ config_connector.desc:
 config_connector.label:
 """PostgreSQL Connector Config"""
 
+disable_prepared_statements.label:
+"""Disable Prepared Statements"""
+disable_prepared_statements.desc:
+"""~
+Disables the usage of prepared statements in the connections.
+Some endpoints, like PGBouncer or Supabase in Transaction mode, do not
+support session features such as prepared statements.  For such connections,
+this option should be enabled.~"""
+
 }
