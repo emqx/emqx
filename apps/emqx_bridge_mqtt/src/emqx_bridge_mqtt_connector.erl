@@ -57,6 +57,7 @@
 -define(HEALTH_CHECK_TIMEOUT, 1000).
 -define(INGRESS, "I").
 -define(EGRESS, "E").
+-define(IS_NO_PREFIX(P), (P =:= undefined orelse P =:= <<>>)).
 
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
@@ -441,9 +442,9 @@ ms_to_s(Ms) ->
 clientid(Name, _Conf = #{clientid_prefix := Prefix}) when
     is_binary(Prefix) andalso Prefix =/= <<>>
 ->
-    emqx_bridge_mqtt_lib:clientid_base([Prefix, $:, Name]);
+    {Prefix, emqx_bridge_mqtt_lib:clientid_base(Name)};
 clientid(Name, _Conf) ->
-    emqx_bridge_mqtt_lib:clientid_base([Name]).
+    {undefined, emqx_bridge_mqtt_lib:clientid_base(Name)}.
 
 %% @doc Start an ingress bridge worker.
 -spec connect([option() | {ecpool_worker_id, pos_integer()}]) ->
@@ -481,8 +482,17 @@ mk_client_opts(
         msg_handler => mk_client_event_handler(Name, TopicToHandlerIndex)
     }.
 
-mk_clientid(WorkerId, ClientId) ->
-    emqx_bridge_mqtt_lib:bytes23([ClientId], WorkerId).
+mk_clientid(WorkerId, {Prefix, ClientId}) when ?IS_NO_PREFIX(Prefix) ->
+    %% When there is no prefix, try to keep the client ID length within 23 bytes
+    emqx_bridge_mqtt_lib:bytes23(ClientId, WorkerId);
+mk_clientid(WorkerId, {Prefix, ClientId}) when size(Prefix) < 20 ->
+    %% Try to respect client ID prefix when it's less than 20 bytes
+    %% meaning there is at least 3 bytes to randomize
+    %% Must add $: for backward compatibility
+    emqx_bridge_mqtt_lib:bytes23_with_prefix(Prefix, ClientId, WorkerId);
+mk_clientid(WorkerId, {Prefix, ClientId}) ->
+    %% There is no other option but to use a long client ID
+    iolist_to_binary([Prefix, ClientId, $:, integer_to_binary(WorkerId)]).
 
 mk_client_event_handler(Name, TopicToHandlerIndex) ->
     #{
