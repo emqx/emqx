@@ -86,9 +86,6 @@
         Op =:= '!=')
 ).
 
-%% Logical operators
--define(is_logical(Op), (Op =:= 'and' orelse Op =:= 'or')).
-
 -define(RAISE(EXP, ERROR),
     ?RAISE(EXP, _ = do_nothing, ERROR)
 ).
