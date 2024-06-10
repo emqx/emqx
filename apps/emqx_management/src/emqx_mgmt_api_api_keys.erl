@@ -26,6 +26,9 @@
 -export([validate_name/1]).
 -define(TAGS, [<<"API Keys">>]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["NAME_RE"]}]).
+
 namespace() -> "api_key".
 
 api_spec() ->

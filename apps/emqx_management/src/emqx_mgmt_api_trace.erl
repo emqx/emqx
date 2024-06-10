@@ -49,6 +49,9 @@
     get_trace_size/0
 ]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["NAME_RE"]}]).
+
 -define(MAX_SINT32, 2147483647).
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).

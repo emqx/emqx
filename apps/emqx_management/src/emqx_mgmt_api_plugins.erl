@@ -59,7 +59,6 @@
 -define(VSN_WILDCARD, "-*.tar.gz").
 
 -define(CONTENT_PLUGIN, plugin).
--define(CONTENT_CONFIG, config).
 
 namespace() ->
     "plugins".

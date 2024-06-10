@@ -22,6 +22,9 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["DEFAULT_TRACE_DURATION"]}]).
+-define(DEFAULT_TRACE_DURATION, "1800").
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
 
 -export([load/0]).
@@ -567,7 +570,6 @@ trace_off(Type, Filter) ->
 
 %%--------------------------------------------------------------------
 %% @doc Trace Cluster Command
--define(DEFAULT_TRACE_DURATION, "1800").
 
 traces(["list"]) ->
     {200, List} = emqx_mgmt_api_trace:trace(get, []),
