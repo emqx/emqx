@@ -24,7 +24,7 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-22.04
-    container: 'ghcr.io/emqx/emqx-builder/5.3-7:1.15.7-26.2.5-1-ubuntu22.04'
+    container: 'ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-ubuntu22.04'
     outputs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
       release: ${{ steps.parse-git-ref.outputs.release }}
@@ -32,9 +32,9 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-      builder: 'ghcr.io/emqx/emqx-builder/5.3-7:1.15.7-26.2.5-1-ubuntu22.04'
-      builder_vsn: '5.3-7'
-      otp_vsn: '26.2.5-1'
+      builder: 'ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-ubuntu22.04'
+      builder_vsn: '5.3-8'
+      otp_vsn: '26.2.5-2'
       elixir_vsn: '1.15.7'
 
     permissions:
@@ -66,13 +66,13 @@ jobs:
           MATRIX="$(echo "${APPS}" | jq -c '
             [
               (.[] | select(.profile == "emqx") | . + {
-                builder: "5.3-7",
-                otp: "26.2.5-1",
+                builder: "5.3-8",
+                otp: "26.2.5-2",
                 elixir: "1.15.7"
               }),
               (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.3-7",
-                otp: ["26.2.5-1"][],
+                builder: "5.3-8",
+                otp: ["26.2.5-2"][],
                 elixir: "1.15.7"
               })
             ]
