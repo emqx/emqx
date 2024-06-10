@@ -49,9 +49,9 @@
 -define(TRANSFORMATIONS_CONF_PATH, [?CONF_ROOT, transformations]).
 
 -type transformation_name() :: binary().
-%% TODO
+%% TODO: make more specific typespec
 -type transformation() :: #{atom() => term()}.
-%% TODO
+%% TODO: make more specific typespec
 -type variform() :: any().
 -type operation() :: #{key := [binary(), ...], value := variform()}.
 -type qos() :: 0..2.
@@ -174,7 +174,6 @@ on_message_publish(Message = #message{topic = Topic, headers = Headers}) ->
         Transformations ->
             case run_transformations(Transformations, Message) of
                 #message{} = FinalMessage ->
-                    %% FIXME: must ensure final payload is a binary!!  Check this.
                     emqx_metrics:inc('messages.transformation_succeeded'),
                     {ok, FinalMessage};
                 drop ->
