@@ -684,7 +684,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
     end.
 
 packet_to_message(Packet, #channel{
-    conninfo = #{proto_ver := ProtoVer},
+    conninfo = #{
+        peername := PeerName,
+        proto_ver := ProtoVer
+    },
     clientinfo =
         #{
             protocol := Protocol,
@@ -702,6 +705,7 @@ packet_to_message(Packet, #channel{
             ClientId,
             #{
                 client_attrs => ClientAttrs,
+                peername => PeerName,
                 proto_ver => ProtoVer,
                 protocol => Protocol,
                 username => Username,

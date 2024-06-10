@@ -1095,8 +1095,20 @@ t_multiple_transformations(_Config) ->
 
     ?assertMatch(
         [
-            {_, #{data := #{transformation := Name1, event := 'message.transformation_failed'}}},
-            {_, #{data := #{transformation := Name2, event := 'message.transformation_failed'}}}
+            {_, #{
+                data := #{
+                    transformation := Name1,
+                    event := 'message.transformation_failed',
+                    peername := <<_/binary>>
+                }
+            }},
+            {_, #{
+                data := #{
+                    transformation := Name2,
+                    event := 'message.transformation_failed',
+                    peername := <<_/binary>>
+                }
+            }}
         ],
         get_traced_failures_from_rule_engine()
     ),
