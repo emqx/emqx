@@ -17,7 +17,7 @@
 -module(emqx_external_broker).
 
 -callback forward(emqx_types:delivery()) ->
-    emqx_types:deliver_result().
+    emqx_types:publish_result().
 
 -callback add_route(emqx_types:topic()) -> ok.
 -callback delete_route(emqx_types:topic()) -> ok.
