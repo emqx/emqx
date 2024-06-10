@@ -381,7 +381,6 @@ channel_health_check(ResId, ChannelId) ->
 add_channel(ResId, ChannelId, Config) ->
     Result = safe_call(ResId, {add_channel, ChannelId, Config}, ?T_OPERATION),
     %% Wait for health_check to finish
-    _ = health_check(ResId),
     _ = channel_health_check(ResId, ChannelId),
     Result.
 
