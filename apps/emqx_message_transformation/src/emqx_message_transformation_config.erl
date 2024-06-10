@@ -65,10 +65,10 @@ load() ->
 unload() ->
     Transformations = emqx:get_config(?TRANSFORMATIONS_CONF_PATH, []),
     lists:foreach(
-        fun(Transformation) ->
-            ok = emqx_message_transformation_registry:delete(Transformation)
+        fun({Pos, Transformation}) ->
+            ok = emqx_message_transformation_registry:delete(Transformation, Pos)
         end,
-        Transformations
+        lists:enumerate(Transformations)
     ).
 
 -spec list() -> [transformation()].
@@ -147,11 +147,11 @@ post_config_update(?TRANSFORMATIONS_CONF_PATH, {update, #{<<"name">> := Name}}, 
     ok = emqx_message_transformation_registry:update(OldTransformation, Pos, NewTransformation),
     ok;
 post_config_update(?TRANSFORMATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) ->
-    {_Pos, Transformation} = fetch_with_index(Old, Name),
-    ok = emqx_message_transformation_registry:delete(Transformation),
+    {Pos, Transformation} = fetch_with_index(Old, Name),
+    ok = emqx_message_transformation_registry:delete(Transformation, Pos),
     ok;
-post_config_update(?TRANSFORMATIONS_CONF_PATH, {reorder, _Order}, New, _Old, _AppEnvs) ->
-    ok = emqx_message_transformation_registry:reindex_positions(New),
+post_config_update(?TRANSFORMATIONS_CONF_PATH, {reorder, _Order}, New, Old, _AppEnvs) ->
+    ok = emqx_message_transformation_registry:reindex_positions(New, Old),
     ok;
 post_config_update([?CONF_ROOT], {merge, _}, ResultingConfig, Old, _AppEnvs) ->
     #{transformations := ResultingTransformations} = ResultingConfig,
@@ -182,8 +182,8 @@ post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnv
     #{transformations := OldTransformations} = Old,
     lists:foreach(
         fun(Name) ->
-            {_Pos, Transformation} = fetch_with_index(OldTransformations, Name),
-            ok = emqx_message_transformation_registry:delete(Transformation)
+            {Pos, Transformation} = fetch_with_index(OldTransformations, Name),
+            ok = emqx_message_transformation_registry:delete(Transformation, Pos)
         end,
         DeletedTransformations
     ),
@@ -206,7 +206,9 @@ post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnv
             end,
             ChangedTransformations0
         ),
-    ok = emqx_message_transformation_registry:reindex_positions(ResultingTransformations),
+    ok = emqx_message_transformation_registry:reindex_positions(
+        ResultingTransformations, OldTransformations
+    ),
     {ok, #{changed_transformations => ChangedTransformations}}.
 
 %%------------------------------------------------------------------------------
