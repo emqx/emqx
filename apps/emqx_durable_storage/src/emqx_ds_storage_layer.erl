@@ -312,9 +312,6 @@ store_batch(Shard, Messages, Options) ->
 prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
     %% NOTE
     %% We assume that batches do not span generations. Callers should enforce this.
-    ?tp(emqx_ds_storage_layer_prepare_batch, #{
-        shard => Shard, messages => Messages, options => Options
-    }),
     %% FIXME: always store messages in the current generation
     case generation_at(Shard, Time) of
         {GenId, #{module := Mod, data := GenData}} ->
@@ -322,6 +319,9 @@ prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
             Result =
                 case Mod:prepare_batch(Shard, GenData, Messages, Options) of
                     {ok, CookedBatch} ->
+                        ?tp(emqx_ds_storage_layer_batch_cooked, #{
+                            shard => Shard, gen => GenId, batch => CookedBatch
+                        }),
                         {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
                     Error = {error, _, _} ->
                         Error

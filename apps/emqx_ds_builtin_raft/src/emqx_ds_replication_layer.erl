@@ -143,7 +143,12 @@
 
 %% Core state of the replication, i.e. the state of ra machine.
 -type ra_state() :: #{
+    %% Shard ID.
     db_shard := {emqx_ds:db(), shard_id()},
+
+    %% Unique timestamp tracking real time closely.
+    %% With microsecond granularity it should be nearly impossible for it to run
+    %% too far ahead of the real time clock.
     latest := timestamp_us()
 }.
 
@@ -755,11 +760,7 @@ apply(
     },
     #{db_shard := DBShard = {DB, Shard}, latest := Latest0} = State0
 ) ->
-    %% NOTE
-    %% Unique timestamp tracking real time closely.
-    %% With microsecond granularity it should be nearly impossible for it to run
-    %% too far ahead than the real time clock.
-    ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => MessagesIn, ts => Latest0}),
+    ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => MessagesIn, latest => Latest0}),
     {Latest, Messages} = assign_timestamps(Latest0, MessagesIn),
     Result = emqx_ds_storage_layer:store_batch(DBShard, Messages, #{}),
     State = State0#{latest := Latest},
@@ -839,7 +840,7 @@ apply(
 tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
     %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
-    ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, ts => Timestamp}),
+    ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, timestamp => Timestamp}),
     handle_custom_event(DBShard, Timestamp, tick).
 
 assign_timestamps(Latest, Messages) ->
