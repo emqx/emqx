@@ -66,10 +66,10 @@ load() ->
 unload() ->
     Validations = emqx:get_config(?VALIDATIONS_CONF_PATH, []),
     lists:foreach(
-        fun(Validation) ->
-            ok = emqx_schema_validation_registry:delete(Validation)
+        fun({Pos, Validation}) ->
+            ok = emqx_schema_validation_registry:delete(Validation, Pos)
         end,
-        Validations
+        lists:enumerate(Validations)
     ).
 
 -spec list() -> [validation()].
@@ -146,11 +146,11 @@ post_config_update(?VALIDATIONS_CONF_PATH, {update, #{<<"name">> := Name}}, New,
     ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) ->
-    {_Pos, Validation} = fetch_with_index(Old, Name),
-    ok = emqx_schema_validation_registry:delete(Validation),
+    {Pos, Validation} = fetch_with_index(Old, Name),
+    ok = emqx_schema_validation_registry:delete(Validation, Pos),
     ok;
-post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, _Old, _AppEnvs) ->
-    ok = emqx_schema_validation_registry:reindex_positions(New),
+post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, Old, _AppEnvs) ->
+    ok = emqx_schema_validation_registry:reindex_positions(New, Old),
     ok;
 post_config_update([?CONF_ROOT], {merge, _}, ResultingConfig, Old, _AppEnvs) ->
     #{validations := ResultingValidations} = ResultingConfig,
@@ -181,8 +181,8 @@ post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnv
     #{validations := OldValidations} = Old,
     lists:foreach(
         fun(Name) ->
-            {_Pos, Validation} = fetch_with_index(OldValidations, Name),
-            ok = emqx_schema_validation_registry:delete(Validation)
+            {Pos, Validation} = fetch_with_index(OldValidations, Name),
+            ok = emqx_schema_validation_registry:delete(Validation, Pos)
         end,
         DeletedValidations
     ),
@@ -203,7 +203,7 @@ post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnv
             end,
             ChangedValidations0
         ),
-    ok = emqx_schema_validation_registry:reindex_positions(ResultingValidations),
+    ok = emqx_schema_validation_registry:reindex_positions(ResultingValidations, OldValidations),
     {ok, #{changed_validations => ChangedValidations}}.
 
 %%------------------------------------------------------------------------------
