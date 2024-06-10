@@ -250,7 +250,11 @@ connect(ClientId) ->
     connect(ClientId, _IsPersistent = false).
 
 connect(ClientId, IsPersistent) ->
-    Properties = emqx_utils_maps:put_if(#{}, 'Session-Expiry-Interval', 30, IsPersistent),
+    connect(ClientId, IsPersistent, _Opts = #{}).
+
+connect(ClientId, IsPersistent, Opts) ->
+    Properties0 = maps:get(properties, Opts, #{}),
+    Properties = emqx_utils_maps:put_if(Properties0, 'Session-Expiry-Interval', 30, IsPersistent),
     {ok, Client} = emqtt:start_link([
         {clean_start, true},
         {clientid, ClientId},
@@ -1436,6 +1440,40 @@ t_json_encode_decode_smoke_test(_Config) ->
             {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
             ok = publish(C, <<"t/1">>, #{}),
             ?assertReceive({publish, #{payload := <<"{\"hello\":\"planet\"}">>}}),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Simple smoke test for client attributes support.
+t_client_attrs(_Config) ->
+    {ok, Compiled} = emqx_variform:compile(<<"user_property.tenant">>),
+    ok = emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"tenant">>
+        }
+    ]),
+    on_exit(fun() -> ok = emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []) end),
+    ?check_trace(
+        begin
+            Name1 = <<"foo">>,
+            Operation1 = operation(topic, <<"concat([client_attrs.tenant, '/', topic])">>),
+            Transformation1 = transformation(Name1, [Operation1]),
+            {201, _} = insert(Transformation1),
+
+            Tenant = <<"mytenant">>,
+            C = connect(
+                <<"c1">>,
+                _IsPersistent = false,
+                #{properties => #{'User-Property' => [{<<"tenant">>, Tenant}]}}
+            ),
+            {ok, _, [_]} = emqtt:subscribe(C, emqx_topic:join([Tenant, <<"#">>])),
+
+            ok = publish(C, <<"t/1">>, #{x => 1, y => 2}),
+            ?assertReceive({publish, #{topic := <<"mytenant/t/1">>}}),
+
             ok
         end,
         []

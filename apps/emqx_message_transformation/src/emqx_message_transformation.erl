@@ -45,6 +45,7 @@
 -type rendered_value() :: qos() | boolean() | binary().
 
 -type eval_context() :: #{
+    client_attrs := map(),
     payload := _,
     qos := _,
     retain := _,
@@ -309,6 +310,7 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
         end,
     #{
         dirty => Dirty,
+        client_attrs => emqx_message:get_header(client_attrs, Message, #{}),
         payload => Payload,
         qos => Message#message.qos,
         retain => emqx_message:get_flag(retain, Message, false),
