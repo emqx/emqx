@@ -14,6 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_resource_manager).
+
+-feature(maybe_expr, enable).
+
 -behaviour(gen_statem).
 
 -include("emqx_resource.hrl").
@@ -34,6 +37,7 @@
     health_check/1,
     channel_health_check/2,
     add_channel/3,
+    add_channel/4,
     remove_channel/2,
     get_channels/1
 ]).
@@ -132,6 +136,12 @@
 -define(IS_STATUS(ST),
     ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
 ).
+
+-type add_channel_opts() :: #{
+    %% Whether to immediately perform a health check after adding the channel.
+    %% Default: `true'
+    perform_health_check => boolean()
+}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -378,10 +388,30 @@ channel_health_check(ResId, ChannelId) ->
     _ = health_check(ResId),
     safe_call(ResId, {channel_health_check, ChannelId}, ?T_OPERATION).
 
+-spec add_channel(
+    connector_resource_id(),
+    action_resource_id() | source_resource_id(),
+    _Config
+) ->
+    ok | {error, term()}.
 add_channel(ResId, ChannelId, Config) ->
+    add_channel(ResId, ChannelId, Config, _Opts = #{}).
+
+-spec add_channel(
+    connector_resource_id(),
+    action_resource_id() | source_resource_id(),
+    _Config,
+    add_channel_opts()
+) ->
+    ok | {error, term()}.
+add_channel(ResId, ChannelId, Config, Opts) ->
     Result = safe_call(ResId, {add_channel, ChannelId, Config}, ?T_OPERATION),
-    %% Wait for health_check to finish
-    _ = channel_health_check(ResId, ChannelId),
+    maybe
+        true ?= maps:get(perform_health_check, Opts, true),
+        %% Wait for health_check to finish
+        _ = channel_health_check(ResId, ChannelId),
+        ok
+    end,
     Result.
 
 remove_channel(ResId, ChannelId) ->
