@@ -64,7 +64,10 @@ groups() ->
             t_malformed_connect_header,
             t_malformed_connect_data,
             t_reserved_connect_flag,
-            t_invalid_clientid
+            t_invalid_clientid,
+            t_undefined_password,
+            t_invalid_will_retain,
+            t_invalid_will_qos
         ]},
         {connack, [parallel], [
             t_serialize_parse_connack,
@@ -735,6 +738,56 @@ t_undefined_password(_) ->
             payload = undefined
         },
         Packet
+    ),
+    ok.
+
+t_invalid_will_retain(_) ->
+    ConnectFlags = <<2#01100000>>,
+    ConnectBin =
+        <<16, 51, 0, 4, 77, 81, 84, 84, 5, ConnectFlags/binary, 174, 157, 24, 38, 0, 14, 98, 55,
+            122, 51, 83, 73, 89, 50, 54, 79, 77, 73, 65, 86, 0, 5, 66, 117, 53, 57, 66, 0, 6, 84,
+            54, 75, 78, 112, 57, 0, 6, 68, 103, 55, 87, 87, 87>>,
+    ?assertException(
+        throw,
+        {frame_parse_error, invalid_will_retain},
+        emqx_frame:parse(ConnectBin)
+    ),
+    ok.
+
+t_invalid_will_qos(_) ->
+    Will_F_WillQoS0 = <<2#010:3, 2#00:2, 2#000:3>>,
+    Will_F_WillQoS1 = <<2#010:3, 2#01:2, 2#000:3>>,
+    Will_F_WillQoS2 = <<2#010:3, 2#10:2, 2#000:3>>,
+    Will_F_WillQoS3 = <<2#010:3, 2#11:2, 2#000:3>>,
+    Will_T_WillQoS3 = <<2#011:3, 2#11:2, 2#000:3>>,
+    ConnectBinFun = fun(ConnectFlags) ->
+        <<16, 51, 0, 4, 77, 81, 84, 84, 5, ConnectFlags/binary, 174, 157, 24, 38, 0, 14, 98, 55,
+            122, 51, 83, 73, 89, 50, 54, 79, 77, 73, 65, 86, 0, 5, 66, 117, 53, 57, 66, 0, 6, 84,
+            54, 75, 78, 112, 57, 0, 6, 68, 103, 55, 87, 87, 87>>
+    end,
+    ?assertMatch(
+        {ok, _, _, _},
+        emqx_frame:parse(ConnectBinFun(Will_F_WillQoS0))
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, invalid_will_qos},
+        emqx_frame:parse(ConnectBinFun(Will_F_WillQoS1))
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, invalid_will_qos},
+        emqx_frame:parse(ConnectBinFun(Will_F_WillQoS2))
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, invalid_will_qos},
+        emqx_frame:parse(ConnectBinFun(Will_F_WillQoS3))
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, invalid_will_qos},
+        emqx_frame:parse(ConnectBinFun(Will_T_WillQoS3))
     ),
     ok.
 
