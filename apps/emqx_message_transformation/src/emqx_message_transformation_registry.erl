@@ -94,18 +94,34 @@ delete(Transformation) ->
 %% @doc Returns a list of matching transformation names, sorted by their configuration order.
 -spec matching_transformations(emqx_types:topic()) -> [transformation()].
 matching_transformations(Topic) ->
-    Transformations0 = [
-        {Pos, Transformation}
-     || M <- emqx_topic_index:matches(Topic, ?TRANSFORMATION_TOPIC_INDEX, [unique]),
-        [Pos] <- [emqx_topic_index:get_record(M, ?TRANSFORMATION_TOPIC_INDEX)],
-        {ok, Transformation} <- [
-            lookup(emqx_topic_index:get_id(M))
-        ]
-    ],
-    Transformations1 = lists:sort(
-        fun({Pos1, _V1}, {Pos2, _V2}) -> Pos1 =< Pos2 end, Transformations0
+    Transformations0 =
+        lists:flatmap(
+            fun(M) ->
+                case emqx_topic_index:get_record(M, ?TRANSFORMATION_TOPIC_INDEX) of
+                    [Pos] ->
+                        [{Pos, emqx_topic_index:get_id(M)}];
+                    _ ->
+                        []
+                end
+            end,
+            emqx_topic_index:matches(Topic, ?TRANSFORMATION_TOPIC_INDEX, [unique])
+        ),
+    Transformations1 =
+        lists:flatmap(
+            fun({Pos, Id}) ->
+                case lookup(Id) of
+                    {ok, Transformation} ->
+                        [{Pos, Transformation}];
+                    _ ->
+                        []
+                end
+            end,
+            Transformations0
+        ),
+    Transformations2 = lists:sort(
+        fun({Pos1, _V1}, {Pos2, _V2}) -> Pos1 =< Pos2 end, Transformations1
     ),
-    lists:map(fun({_Pos, V}) -> V end, Transformations1).
+    lists:map(fun({_Pos, V}) -> V end, Transformations2).
 
 -spec metrics_worker_spec() -> supervisor:child_spec().
 metrics_worker_spec() ->

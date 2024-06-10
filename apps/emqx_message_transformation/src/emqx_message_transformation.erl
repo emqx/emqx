@@ -112,27 +112,12 @@ unregister_hooks() ->
 
 -spec on_message_publish(emqx_types:message()) ->
     {ok, emqx_types:message()} | {stop, emqx_types:message()}.
-on_message_publish(Message = #message{topic = Topic, headers = Headers}) ->
+on_message_publish(Message = #message{topic = Topic}) ->
     case emqx_message_transformation_registry:matching_transformations(Topic) of
         [] ->
             ok;
         Transformations ->
-            case run_transformations(Transformations, Message) of
-                #message{} = FinalMessage ->
-                    emqx_metrics:inc('messages.transformation_succeeded'),
-                    {ok, FinalMessage};
-                drop ->
-                    emqx_metrics:inc('messages.transformation_failed'),
-                    {stop, Message#message{headers = Headers#{allow_publish => false}}};
-                disconnect ->
-                    emqx_metrics:inc('messages.transformation_failed'),
-                    {stop, Message#message{
-                        headers = Headers#{
-                            allow_publish => false,
-                            should_disconnect => true
-                        }
-                    }}
-            end
+            run_transformations(Transformations, Message)
     end.
 
 %%------------------------------------------------------------------------------
@@ -224,7 +209,25 @@ map_result(RetainBin, [<<"retain">>]) ->
 map_result(Rendered, _Key) ->
     {ok, Rendered}.
 
-run_transformations(Transformations, Message) ->
+run_transformations(Transformations, Message = #message{headers = Headers}) ->
+    case do_run_transformations(Transformations, Message) of
+        #message{} = FinalMessage ->
+            emqx_metrics:inc('messages.transformation_succeeded'),
+            {ok, FinalMessage};
+        drop ->
+            emqx_metrics:inc('messages.transformation_failed'),
+            {stop, Message#message{headers = Headers#{allow_publish => false}}};
+        disconnect ->
+            emqx_metrics:inc('messages.transformation_failed'),
+            {stop, Message#message{
+                headers = Headers#{
+                    allow_publish => false,
+                    should_disconnect => true
+                }
+            }}
+    end.
+
+do_run_transformations(Transformations, Message) ->
     Fun = fun(Transformation, MessageAcc) ->
         #{name := Name} = Transformation,
         emqx_message_transformation_registry:inc_matched(Name),
