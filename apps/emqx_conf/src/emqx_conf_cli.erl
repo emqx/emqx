@@ -104,7 +104,8 @@ admins(["fix"]) ->
     AllConfs = find_running_confs(),
     case find_inconsistent(Status, AllConfs) of
         {inconsistent_tnx_id_key, Target, InconsistentKeys} ->
-            fix_inconsistent_with_raw(Target, InconsistentKeys);
+            _ = fix_inconsistent_with_raw(Target, InconsistentKeys),
+            ok;
         inconsistent_tnx_id ->
             print_tnx_id_status(Status),
             ok = emqx_cluster_rpc:reset(),
