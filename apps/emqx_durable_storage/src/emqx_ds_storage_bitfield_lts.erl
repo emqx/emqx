@@ -326,7 +326,7 @@ commit_batch(
         end,
         Payloads
     ),
-    Result = rocksdb:write_batch(DB, Batch, []),
+    Result = rocksdb:write_batch(DB, Batch, [{disable_wal, true}]),
     rocksdb:release_batch(Batch),
     ets:insert(Gvars, {?IDLE_DETECT, false, MaxTs}),
     %% NOTE

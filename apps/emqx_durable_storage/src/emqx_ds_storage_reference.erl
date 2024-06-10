@@ -115,7 +115,7 @@ commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages) ->
         end,
         Messages
     ),
-    Res = rocksdb:write_batch(DB, Batch, _WriteOptions = []),
+    Res = rocksdb:write_batch(DB, Batch, _WriteOptions = [{disable_wal, true}]),
     rocksdb:release_batch(Batch),
     Res.
 

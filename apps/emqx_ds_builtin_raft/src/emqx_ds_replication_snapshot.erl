@@ -70,6 +70,7 @@ prepare(Index, State) ->
     ok | {ok, _BytesWritten :: non_neg_integer()} | {error, ra_snapshot:file_err()}.
 write(Dir, Meta, MachineState) ->
     ?tp(dsrepl_snapshot_write, #{meta => Meta, state => MachineState}),
+    ok = emqx_ds_storage_layer:flush(shard_id(MachineState)),
     ra_log_snapshot:write(Dir, Meta, MachineState).
 
 %% Reading a snapshot.
@@ -229,7 +230,7 @@ complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
     write_machine_snapshot(WS).
 
 write_machine_snapshot(#ws{dir = Dir, meta = Meta, state = MachineState}) ->
-    write(Dir, Meta, MachineState).
+    ra_log_snapshot:write(Dir, Meta, MachineState).
 
 %% Restoring machine state from a snapshot.
 %% This is equivalent to restoring from a log snapshot.

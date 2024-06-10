@@ -44,6 +44,7 @@
     drop_generation/2,
 
     %% Snapshotting
+    flush/1,
     take_snapshot/1,
     accept_snapshot/1,
 
@@ -279,6 +280,7 @@
 -record(call_update_config, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
 -record(call_list_generations_with_lifetimes, {}).
 -record(call_drop_generation, {gen_id :: gen_id()}).
+-record(call_flush, {}).
 -record(call_take_snapshot, {}).
 
 -spec drop_shard(shard_id()) -> ok.
@@ -539,6 +541,10 @@ shard_info(ShardId, status) ->
         error:badarg -> down
     end.
 
+-spec flush(shard_id()) -> ok | {error, _}.
+flush(ShardId) ->
+    gen_server:call(?REF(ShardId), #call_flush{}, infinity).
+
 -spec take_snapshot(shard_id()) -> {ok, emqx_ds_storage_snapshot:reader()} | {error, _Reason}.
 take_snapshot(ShardId) ->
     case gen_server:call(?REF(ShardId), #call_take_snapshot{}, infinity) of
@@ -566,6 +572,7 @@ start_link(Shard = {_, _}, Options) ->
     shard_id :: shard_id(),
     db :: rocksdb:db_handle(),
     cf_refs :: cf_refs(),
+    cf_need_flush :: gen_id(),
     schema :: shard_schema(),
     shard :: shard()
 }).
@@ -591,10 +598,12 @@ init({ShardId, Options}) ->
                 {Scm, CFRefs0}
         end,
     Shard = open_shard(ShardId, DB, CFRefs, Schema),
+    CurrentGenId = maps:get(current_generation, Schema),
     S = #s{
         shard_id = ShardId,
         db = DB,
         cf_refs = CFRefs,
+        cf_need_flush = CurrentGenId,
         schema = Schema,
         shard = Shard
     },
@@ -634,6 +643,9 @@ handle_call(#call_list_generations_with_lifetimes{}, _From, S) ->
     {reply, Generations, S};
 handle_call(#call_drop_generation{gen_id = GenId}, _From, S0) ->
     {Reply, S} = handle_drop_generation(S0, GenId),
+    {reply, Reply, S};
+handle_call(#call_flush{}, _From, S0) ->
+    {Reply, S} = handle_flush(S0),
     {reply, Reply, S};
 handle_call(#call_take_snapshot{}, _From, S) ->
     Snapshot = handle_take_snapshot(S),
@@ -866,6 +878,10 @@ rocksdb_open(Shard, Options) ->
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
+        %% NOTE
+        %% With WAL-less writes, it's important to have CFs flushed atomically.
+        %% For example, bitfield-lts backend needs data + trie CFs to be consistent.
+        {atomic_flush, true},
         {enable_write_thread_adaptive_yield, false}
         | maps:get(db_options, Options, [])
     ],
@@ -919,6 +935,30 @@ update_last_until(Schema = #{current_generation := GenId}, Until) ->
             {error, exists};
         #{since := CurrentSince} when CurrentSince > Until ->
             {error, overlaps_existing_generations}
+    end.
+
+handle_flush(S = #s{db = DB, cf_need_flush = NeedFlushGenId, schema = Schema}) ->
+    %% NOTE
+    %% There could have been few generations added since the last time `flush/1` was
+    %% called. Strictly speaking, we don't need to flush them all at once as part of
+    %% a single atomic flush, but the error handling is a bit easier this way.
+    CurrentGenId = maps:get(current_generation, Schema),
+    GenIds = lists:seq(NeedFlushGenId, CurrentGenId),
+    CFHandles = lists:flatmap(
+        fun(GenId) ->
+            #{?GEN_KEY(GenId) := #{cf_refs := CFRefs}} = Schema,
+            {_, CFHandles} = lists:unzip(CFRefs),
+            CFHandles
+        end,
+        GenIds
+    ),
+    case rocksdb:flush(DB, CFHandles, [{wait, true}]) of
+        ok ->
+            %% Current generation will always need a flush.
+            ?tp(ds_storage_flush_complete, #{gens => GenIds, cfs => CFHandles}),
+            {ok, S#s{cf_need_flush = CurrentGenId}};
+        {error, _} = Error ->
+            {Error, S}
     end.
 
 handle_take_snapshot(#s{db = DB, shard_id = ShardId}) ->
