@@ -59,7 +59,7 @@
 %% records over the wire.
 
 %% tags:
--define(STREAM, 1).
+% -define(STREAM, 1).
 -define(IT, 2).
 -define(DELETE_IT, 3).
 

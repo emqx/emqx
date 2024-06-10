@@ -72,6 +72,8 @@
     namespace => undefined
 }).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["TO_COMPONENTS_SCHEMA"]}]).
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
 -define(TO_COMPONENTS_SCHEMA(_M_, _F_),
     iolist_to_binary([

@@ -30,6 +30,7 @@
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_mgmt_util, [bad_request/0]).
 
+-hank([{unused_macros, ["APP"]}]).
 -define(APP, emqx_slow_subs).
 
 namespace() -> "slow_subscribers_statistics".
