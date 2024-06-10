@@ -135,6 +135,7 @@ end_per_testcase(_Testcase, Config) ->
     connect_and_clear_table(Config),
     ok = snabbkaffe:stop(),
     delete_bridge(Config),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
