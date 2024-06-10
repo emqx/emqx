@@ -908,7 +908,7 @@ test_columns('client.check_authn_complete') ->
     [
         {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
         {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]},
-        {<<"reason_code">>, [<<"sucess">>, <<"the reason code">>]},
+        {<<"reason_code">>, [<<"success">>, <<"the reason code">>]},
         {<<"is_superuser">>, [true, <<"Whether this is a superuser">>]},
         {<<"is_anonymous">>, [false, <<"Whether this is a superuser">>]}
     ];
@@ -1087,7 +1087,7 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
         {<<"peername">>, <<"192.168.0.10:56431">>},
-        {<<"reason_code">>, <<"sucess">>},
+        {<<"reason_code">>, <<"success">>},
         {<<"is_superuser">>, true},
         {<<"is_anonymous">>, false},
         {<<"timestamp">>, erlang:system_time(millisecond)},
