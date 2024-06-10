@@ -17,10 +17,7 @@
 -ifndef(EMQX_COAP_HRL).
 
 -define(APP, emqx_coap).
--define(DEFAULT_COAP_PORT, 5683).
--define(DEFAULT_COAPS_PORT, 5684).
 -define(MAX_MESSAGE_ID, 65535).
--define(MAX_BLOCK_SIZE, 1024).
 -define(DEFAULT_MAX_AGE, 60).
 -define(MAXIMUM_MAX_AGE, 4294967295).
 

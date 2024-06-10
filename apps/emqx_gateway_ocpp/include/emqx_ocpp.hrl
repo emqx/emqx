@@ -19,52 +19,52 @@
 -define(OCPP_MSG_TYPE_ID_CALL, 2).
 -define(OCPP_MSG_TYPE_ID_CALLRESULT, 3).
 -define(OCPP_MSG_TYPE_ID_CALLERROR, 4).
+
 %% actions for ocppj-1.6
--define(OCPP_ACT_Authorize, <<"Authorize">>).
--define(OCPP_ACT_BootNotification, <<"BootNotification">>).
--define(OCPP_ACT_CancelReservation, <<"CancelReservation">>).
--define(OCPP_ACT_ChangeAvailability, <<"ChangeAvailability">>).
--define(OCPP_ACT_ChangeConfiguration, <<"ChangeConfiguration">>).
--define(OCPP_ACT_ClearCache, <<"ClearCache">>).
--define(OCPP_ACT_ClearChargingProfile, <<"ClearChargingProfile">>).
--define(OCPP_ACT_DataTransfer, <<"DataTransfer">>).
--define(OCPP_ACT_DiagnosticsStatusNotification, <<"DiagnosticsStatusNotification">>).
--define(OCPP_ACT_FirmwareStatusNotification, <<"FirmwareStatusNotification">>).
--define(OCPP_ACT_GetCompositeSchedule, <<"GetCompositeSchedule">>).
--define(OCPP_ACT_GetConfiguration, <<"GetConfiguration">>).
--define(OCPP_ACT_GetDiagnostics, <<"GetDiagnostics">>).
--define(OCPP_ACT_GetLocalListVersion, <<"GetLocalListVersion">>).
--define(OCPP_ACT_Heartbeat, <<"Heartbeat">>).
--define(OCPP_ACT_MeterValues, <<"MeterValues">>).
--define(OCPP_ACT_RemoteStartTransaction, <<"RemoteStartTransaction">>).
--define(OCPP_ACT_RemoteStopTransaction, <<"RemoteStopTransaction">>).
--define(OCPP_ACT_ReserveNow, <<"ReserveNow">>).
--define(OCPP_ACT_Reset, <<"Reset">>).
--define(OCPP_ACT_SendLocalList, <<"SendLocalList">>).
--define(OCPP_ACT_SetChargingProfile, <<"SetChargingProfile">>).
--define(OCPP_ACT_StartTransaction, <<"StartTransaction">>).
--define(OCPP_ACT_StatusNotification, <<"StatusNotification">>).
--define(OCPP_ACT_StopTransaction, <<"StopTransaction">>).
--define(OCPP_ACT_TriggerMessage, <<"TriggerMessage">>).
--define(OCPP_ACT_UnlockConnector, <<"UnlockConnector">>).
--define(OCPP_ACT_UpdateFirmware, <<"UpdateFirmware">>).
+% -define(OCPP_ACT_Authorize, <<"Authorize">>).
+% -define(OCPP_ACT_BootNotification, <<"BootNotification">>).
+% -define(OCPP_ACT_CancelReservation, <<"CancelReservation">>).
+% -define(OCPP_ACT_ChangeAvailability, <<"ChangeAvailability">>).
+% -define(OCPP_ACT_ChangeConfiguration, <<"ChangeConfiguration">>).
+% -define(OCPP_ACT_ClearCache, <<"ClearCache">>).
+% -define(OCPP_ACT_ClearChargingProfile, <<"ClearChargingProfile">>).
+% -define(OCPP_ACT_DataTransfer, <<"DataTransfer">>).
+% -define(OCPP_ACT_DiagnosticsStatusNotification, <<"DiagnosticsStatusNotification">>).
+% -define(OCPP_ACT_FirmwareStatusNotification, <<"FirmwareStatusNotification">>).
+% -define(OCPP_ACT_GetCompositeSchedule, <<"GetCompositeSchedule">>).
+% -define(OCPP_ACT_GetConfiguration, <<"GetConfiguration">>).
+% -define(OCPP_ACT_GetDiagnostics, <<"GetDiagnostics">>).
+% -define(OCPP_ACT_GetLocalListVersion, <<"GetLocalListVersion">>).
+% -define(OCPP_ACT_Heartbeat, <<"Heartbeat">>).
+% -define(OCPP_ACT_MeterValues, <<"MeterValues">>).
+% -define(OCPP_ACT_RemoteStartTransaction, <<"RemoteStartTransaction">>).
+% -define(OCPP_ACT_RemoteStopTransaction, <<"RemoteStopTransaction">>).
+% -define(OCPP_ACT_ReserveNow, <<"ReserveNow">>).
+% -define(OCPP_ACT_Reset, <<"Reset">>).
+% -define(OCPP_ACT_SendLocalList, <<"SendLocalList">>).
+% -define(OCPP_ACT_SetChargingProfile, <<"SetChargingProfile">>).
+% -define(OCPP_ACT_StartTransaction, <<"StartTransaction">>).
+% -define(OCPP_ACT_StatusNotification, <<"StatusNotification">>).
+% -define(OCPP_ACT_StopTransaction, <<"StopTransaction">>).
+% -define(OCPP_ACT_TriggerMessage, <<"TriggerMessage">>).
+% -define(OCPP_ACT_UnlockConnector, <<"UnlockConnector">>).
+% -define(OCPP_ACT_UpdateFirmware, <<"UpdateFirmware">>).
+
 %% error codes for ocppj-1.6
--define(OCPP_ERR_NotSupported, <<"NotSupported">>).
--define(OCPP_ERR_InternalError, <<"InternalError">>).
--define(OCPP_ERR_ProtocolError, <<"ProtocolError">>).
--define(OCPP_ERR_SecurityError, <<"SecurityError">>).
--define(OCPP_ERR_FormationViolation, <<"FormationViolation">>).
--define(OCPP_ERR_PropertyConstraintViolation, <<"PropertyConstraintViolation">>).
--define(OCPP_ERR_OccurenceConstraintViolation, <<"OccurenceConstraintViolation">>).
--define(OCPP_ERR_TypeConstraintViolation, <<"TypeConstraintViolation">>).
--define(OCPP_ERR_GenericError, <<"GenericError">>).
+% -define(OCPP_ERR_NotSupported, <<"NotSupported">>).
+% -define(OCPP_ERR_InternalError, <<"InternalError">>).
+% -define(OCPP_ERR_ProtocolError, <<"ProtocolError">>).
+% -define(OCPP_ERR_SecurityError, <<"SecurityError">>).
+% -define(OCPP_ERR_FormationViolation, <<"FormationViolation">>).
+% -define(OCPP_ERR_PropertyConstraintViolation, <<"PropertyConstraintViolation">>).
+% -define(OCPP_ERR_OccurenceConstraintViolation, <<"OccurenceConstraintViolation">>).
+% -define(OCPP_ERR_TypeConstraintViolation, <<"TypeConstraintViolation">>).
+% -define(OCPP_ERR_GenericError, <<"GenericError">>).
 
 -type utf8_string() :: unicode:unicode_binary().
+-type action() :: utf8_string().
 
 -type message_type() :: ?OCPP_MSG_TYPE_ID_CALL..?OCPP_MSG_TYPE_ID_CALLERROR.
-
-%% OCPP_ACT_Authorize..OCPP_ACT_UpdateFirmware
--type action() :: utf8_string().
 
 -type frame() :: #{
     type := message_type(),
@@ -79,12 +79,10 @@
     payload := null | map()
 }.
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["IS_REQ", "IS_BootNotification_RESP", "ERR_FRAME"]}]).
+
 -define(IS_REQ(F), F = #{type := ?OCPP_MSG_TYPE_ID_CALL}).
--define(IS_REQ(F, Id), F = #{type := ?OCPP_MSG_TYPE_ID_CALL, id := Id}).
--define(IS_RESP(F), F = #{type := ?OCPP_MSG_TYPE_ID_CALLRESULT}).
--define(IS_RESP(F, Id), F = #{type := ?OCPP_MSG_TYPE_ID_CALLRESULT, id := Id}).
--define(IS_ERROR(F), F = #{type := ?OCPP_MSG_TYPE_ID_CALLERROR}).
--define(IS_ERROR(F, Id), F = #{type := ?OCPP_MSG_TYPE_ID_CALLERROR, id := Id}).
 
 -define(IS_BootNotification_RESP(Status, Interval), #{
     type := ?OCPP_MSG_TYPE_ID_CALLRESULT,

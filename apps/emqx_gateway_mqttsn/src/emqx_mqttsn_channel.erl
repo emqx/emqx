@@ -112,6 +112,9 @@
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["NEG_QOS_CLIENT_ID", "REGISTER_INFLIGHT"]}]).
+
 -define(NEG_QOS_CLIENT_ID, <<"NegQoS-Client">>).
 
 -define(REGISTER_INFLIGHT(TopicId, TopicName), #channel{register_inflight = {TopicId, _, TopicName}}).

@@ -25,6 +25,9 @@
 
 -export([lookup/2, observe/2, read/2, write/2]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["TAGS"]}]).
+
 -define(PATH(Suffix), "/gateways/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
 -define(TAGS, [<<"LwM2M Gateways">>]).

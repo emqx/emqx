@@ -16,16 +16,6 @@
 
 -define(APP, emqx_exproto).
 
--define(TCP_SOCKOPTS, [
-    binary,
-    {packet, raw},
-    {reuseaddr, true},
-    {backlog, 512},
-    {nodelay, true}
-]).
-
--define(UDP_SOCKOPTS, []).
-
 %%--------------------------------------------------------------------
 %% gRPC result code
 

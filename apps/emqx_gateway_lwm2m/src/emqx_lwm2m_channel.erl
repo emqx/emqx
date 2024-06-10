@@ -79,14 +79,14 @@
 -type replies() :: reply() | [reply()].
 
 %% TODO:
--define(DEFAULT_OVERRIDE,
-    %% Generate clientid by default
-    #{
-        clientid => <<"">>,
-        username => <<"${Packet.uri_query.ep}">>,
-        password => <<"">>
-    }
-).
+% -define(DEFAULT_OVERRIDE,
+%     %% Generate clientid by default
+%     #{
+%         clientid => <<"">>,
+%         username => <<"${Packet.uri_query.ep}">>,
+%         password => <<"">>
+%     }
+% ).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
 

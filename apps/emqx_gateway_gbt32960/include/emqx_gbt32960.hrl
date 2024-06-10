@@ -6,6 +6,9 @@
 
 -type frame() :: #frame{}.
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["CMD", "RE_ESCAPE"]}]).
+
 -define(CMD(CmdType), #frame{
     cmd = CmdType,
     ack = ?ACK_IS_CMD
@@ -55,10 +58,11 @@
 %% Encrypt Feilds
 %%--------------------------------------------------------------------
 -define(ENCRYPT_NONE, 16#01).
--define(ENCRYPT_RSA, 16#02).
--define(ENCRYPT_AES128, 16#03).
--define(ENCRYPT_ABNORMAL, 16#FE).
--define(ENCRYPT_INVAILD, 16#FF).
+% Unused
+% -define(ENCRYPT_RSA, 16#02).
+% -define(ENCRYPT_AES128, 16#03).
+% -define(ENCRYPT_ABNORMAL, 16#FE).
+% -define(ENCRYPT_INVALID, 16#FF).
 
 %%--------------------------------------------------------------------
 %% Info Type Flags
