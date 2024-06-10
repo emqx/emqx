@@ -5,7 +5,8 @@
     {mod, {emqx_message_transformation_app, []}},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        emqx
     ]},
     {env, []},
     {modules, []},
