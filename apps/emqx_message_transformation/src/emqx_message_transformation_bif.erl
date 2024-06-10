@@ -28,7 +28,7 @@ json_encode(X) ->
 json_decode(JSON) ->
     case emqx_utils_json:safe_decode(JSON, [return_maps]) of
         {ok, X} ->
-            emqx_variform:skip_stringification(X);
+            X;
         {error, Reason} ->
             throw(#{reason => json_decode_failure, detail => Reason})
     end.

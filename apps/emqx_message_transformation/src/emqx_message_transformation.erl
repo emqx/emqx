@@ -160,7 +160,14 @@ eval_operation(Operation, Transformation, Context) ->
 -spec eval_variform([binary(), ...], _, eval_context()) ->
     {ok, rendered_value()} | {error, term()}.
 eval_variform(K, V, Context) ->
-    case emqx_variform:render(V, Context) of
+    Opts =
+        case K of
+            [<<"payload">> | _] ->
+                #{eval_as_string => false};
+            _ ->
+                #{}
+        end,
+    case emqx_variform:render(V, Context, Opts) of
         {error, Reason} ->
             {error, Reason};
         {ok, Rendered} ->
