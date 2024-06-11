@@ -684,7 +684,6 @@ common_ssl_opts_schema_verify.desc:
 common_ssl_opts_schema_verify.label:
 """Verify peer"""
 
-
 fields_listeners_ssl.desc:
 """SSL listeners."""
 

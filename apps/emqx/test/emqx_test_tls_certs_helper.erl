@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_ext_test_tls_certs_helper).
+-module(emqx_test_tls_certs_helper).
 -export([
     gen_ca/2,
     gen_host_cert/3,

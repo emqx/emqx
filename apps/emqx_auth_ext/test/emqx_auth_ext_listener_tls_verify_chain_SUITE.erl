@@ -11,7 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -import(
-    emqx_auth_ext_test_tls_certs_helper,
+    emqx_test_tls_certs_helper,
     [
         emqx_start_listener/4,
         fail_when_ssl_error/1,
