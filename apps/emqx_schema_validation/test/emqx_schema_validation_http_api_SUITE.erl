@@ -392,9 +392,12 @@ create_failure_tracing_rule() ->
         sql => <<"select * from \"$events/schema_validation_failed\" ">>,
         actions => [make_trace_fn_action()]
     },
+    create_rule(Params).
+
+create_rule(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     Res = request(post, Path, Params),
-    ct:pal("create failure tracing rule result:\n  ~p", [Res]),
+    ct:pal("create rule result:\n  ~p", [Res]),
     case Res of
         {ok, {{_, 201, _}, _, #{<<"id">> := RuleId}}} ->
             on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
@@ -1383,4 +1386,86 @@ t_load_config(_Config) ->
     ),
     ?assertIndexOrder([Name4, Name3, Name5], <<"t/a">>),
 
+    ok.
+
+%% Checks that the republish action failure metric increases when schema validation fails
+%% for an outgoing message.  Though this is arguably more appropriate as an
+%% `emqx_rule_runtime' test case, it's simpler to setup the conditions here.
+t_republish_action_failure(_Config) ->
+    ?check_trace(
+        begin
+            Name1 = <<"1">>,
+            %% Always fails
+            Check1A = sql_check(<<"select 1 where false">>),
+            Validation1A = validation(Name1, [Check1A]),
+            {201, _} = insert(Validation1A),
+
+            RuleTopic = <<"some/topic">>,
+            Params = #{
+                enable => true,
+                sql => iolist_to_binary([
+                    <<"select * from \"">>,
+                    RuleTopic,
+                    <<"\"">>
+                ]),
+                actions => [
+                    #{
+                        function => <<"republish">>,
+                        args =>
+                            #{
+                                <<"mqtt_properties">> => #{},
+                                <<"payload">> => <<"aaa">>,
+                                <<"qos">> => 0,
+                                <<"retain">> => false,
+                                <<"topic">> => <<"t/republished">>,
+                                <<"user_properties">> => <<>>
+                            }
+                    }
+                ]
+            },
+            {201, #{<<"id">> := RuleId}} = create_rule(Params),
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+            ok = publish(C, RuleTopic, #{}),
+            ?assertNotReceive({publish, _}),
+
+            ?assertMatch(
+                #{
+                    matched := 1,
+                    failed := 0,
+                    passed := 1,
+                    'actions.total' := 1,
+                    'actions.success' := 0,
+                    'actions.failed' := 1,
+                    'actions.failed.unknown' := 1,
+                    'actions.failed.out_of_service' := 0
+                },
+                emqx_metrics_worker:get_counters(rule_metrics, RuleId)
+            ),
+
+            %% `publish' return type is different when failure action is `disconnect'
+            Validation1B = validation(Name1, [Check1A], #{<<"failure_action">> => <<"disconnect">>}),
+            {200, _} = update(Validation1B),
+
+            ok = publish(C, RuleTopic, #{}),
+            ?assertNotReceive({publish, _}),
+
+            ?assertMatch(
+                #{
+                    matched := 2,
+                    failed := 0,
+                    passed := 2,
+                    'actions.total' := 2,
+                    'actions.success' := 0,
+                    'actions.failed' := 2,
+                    'actions.failed.unknown' := 2,
+                    'actions.failed.out_of_service' := 0
+                },
+                emqx_metrics_worker:get_counters(rule_metrics, RuleId)
+            ),
+
+            ok
+        end,
+        []
+    ),
     ok.
