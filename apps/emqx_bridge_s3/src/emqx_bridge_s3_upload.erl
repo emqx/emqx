@@ -248,17 +248,35 @@ convert_action(Conf = #{<<"parameters">> := Params, <<"resource_opts">> := Resou
 
 %% Interpreting options
 
--spec mk_key_template(_Parameters :: map()) -> emqx_template:str().
+-spec mk_key_template(_Parameters :: map()) ->
+    {ok, emqx_template:str()} | {error, _Reason}.
 mk_key_template(#{key := Key}) ->
     Template = emqx_template:parse(Key),
-    {_, BindingErrors} = emqx_template:render(Template, #{}),
-    {UsedBindings, _} = lists:unzip(BindingErrors),
-    SuffixTemplate = mk_suffix_template(UsedBindings),
-    case emqx_template:is_const(SuffixTemplate) of
-        true ->
-            Template;
-        false ->
-            Template ++ SuffixTemplate
+    case validate_bindings(emqx_template:placeholders(Template)) of
+        UsedBindings when is_list(UsedBindings) ->
+            SuffixTemplate = mk_suffix_template(UsedBindings),
+            case emqx_template:is_const(SuffixTemplate) of
+                true ->
+                    {ok, Template};
+                false ->
+                    {ok, Template ++ SuffixTemplate}
+            end;
+        Error = {error, _} ->
+            Error
+    end.
+
+validate_bindings(Bindings) ->
+    Formats = ["rfc3339", "rfc3339utc", "unix"],
+    AllowedBindings = lists:append([
+        ["action", "node", "sequence"],
+        ["datetime." ++ F || F <- Formats],
+        ["datetime_until." ++ F || F <- Formats]
+    ]),
+    case Bindings -- AllowedBindings of
+        [] ->
+            Bindings;
+        Disallowed ->
+            {error, {invalid_key_template, {disallowed_placeholders, Disallowed}}}
     end.
 
 mk_suffix_template(UsedBindings) ->
