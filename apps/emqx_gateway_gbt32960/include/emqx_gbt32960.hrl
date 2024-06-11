@@ -7,7 +7,7 @@
 -type frame() :: #frame{}.
 
 % The ignore below is due to a hank's false-positive..!
--hank([{unused_macros, ["CMD", "RE_ESCAPE"]}]).
+-hank([{unused_macros, ["CMD"]}]).
 
 -define(CMD(CmdType), #frame{
     cmd = CmdType,
