@@ -242,7 +242,7 @@ esockd_send(Data, #state{
 }) ->
     gen_udp:send(Sock, Ip, Port, Data);
 esockd_send(Data, #state{socket = {esockd_transport, Sock}}) ->
-    esockd_transport:async_send(Sock, Data).
+    esockd_transport:send(Sock, Data).
 
 keepalive_stats(recv) ->
     emqx_pd:get_counter(recv_pkt);
@@ -503,18 +503,6 @@ handle_msg(
 ) ->
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
-%% Something sent
-%% TODO: Who will deliver this message?
-handle_msg({inet_reply, _Sock, ok}, State = #state{active_n = ActiveN}) ->
-    case emqx_pd:get_counter(outgoing_pkt) > ActiveN of
-        true ->
-            Pubs = emqx_pd:reset_counter(outgoing_pkt),
-            Bytes = emqx_pd:reset_counter(outgoing_bytes),
-            OutStats = #{cnt => Pubs, oct => Bytes},
-            {ok, check_oom(run_gc(OutStats, State))};
-        false ->
-            ok
-    end;
 handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
     handle_info({sock_error, Reason}, State);
 handle_msg({close, Reason}, State) ->
@@ -630,8 +618,8 @@ handle_call(
             shutdown(Reason, Reply, State#state{channel = NChannel});
         {shutdown, Reason, Reply, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
-            ok = handle_outgoing(Packet, NState),
-            shutdown(Reason, Reply, NState)
+            {ok, NState1} = handle_outgoing(Packet, NState),
+            shutdown(Reason, Reply, NState1)
     end.
 
 %%--------------------------------------------------------------------
@@ -772,15 +760,15 @@ with_channel(
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
-            ok = handle_outgoing(Packet, NState),
-            shutdown(Reason, NState)
+            {ok, NState1} = handle_outgoing(Packet, NState),
+            shutdown(Reason, NState1)
     end.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(_Packets = [], _State) ->
-    ok;
+handle_outgoing(_Packets = [], State) ->
+    {ok, State};
 handle_outgoing(
     Packets,
     State = #state{socket = Socket}
@@ -792,12 +780,15 @@ handle_outgoing(
                 State
             );
         _ ->
-            lists:foreach(
-                fun(Packet) ->
-                    handle_outgoing(Packet, State)
+            NState = lists:foldl(
+                fun(Packet, State0) ->
+                    {ok, State1} = handle_outgoing(Packet, State0),
+                    State1
                 end,
+                State,
                 Packets
-            )
+            ),
+            {ok, NState}
     end;
 handle_outgoing(Packet, State) ->
     send((serialize_and_inc_stats_fun(State))(Packet), State).
@@ -842,7 +833,7 @@ serialize_and_inc_stats_fun(#state{
 %%--------------------------------------------------------------------
 %% Send data
 
--spec send(iodata(), state()) -> ok.
+-spec send(iodata(), state()) -> {ok, state()}.
 send(
     IoData,
     State = #state{
@@ -858,11 +849,22 @@ send(
     inc_counter(outgoing_bytes, Oct),
     case esockd_send(IoData, State) of
         ok ->
-            ok;
+            sent(State);
         Error = {error, _Reason} ->
-            %% Send an inet_reply to postpone handling the error
+            %% Send an inet_reply to defer handling the error
             self() ! {inet_reply, Socket, Error},
-            ok
+            {ok, State}
+    end.
+
+sent(#state{active_n = ActiveN} = State) ->
+    case emqx_pd:get_counter(outgoing_pkt) > ActiveN of
+        true ->
+            Pubs = emqx_pd:reset_counter(outgoing_pkt),
+            Bytes = emqx_pd:reset_counter(outgoing_bytes),
+            OutStats = #{cnt => Pubs, oct => Bytes},
+            {ok, check_oom(run_gc(OutStats, State))};
+        false ->
+            {ok, State}
     end.
 
 %%--------------------------------------------------------------------
