@@ -372,9 +372,13 @@ lookup_current_buffer(Name) ->
 %%
 
 enqueue_delivery(Buffer, St = #st{name = Name, deliveries = Ds}) ->
-    {ok, Pid} = emqx_connector_aggreg_upload_sup:start_delivery(Name, Buffer),
-    MRef = erlang:monitor(process, Pid),
-    St#st{deliveries = Ds#{MRef => Buffer}}.
+    case emqx_connector_aggreg_upload_sup:start_delivery(Name, Buffer) of
+        {ok, Pid} ->
+            MRef = erlang:monitor(process, Pid),
+            St#st{deliveries = Ds#{MRef => Buffer}};
+        {error, _} = Error ->
+            handle_delivery_exit(Buffer, Error, St)
+    end.
 
 handle_delivery_exit(Buffer, Normal, St = #st{name = Name}) when
     Normal == normal; Normal == noproc

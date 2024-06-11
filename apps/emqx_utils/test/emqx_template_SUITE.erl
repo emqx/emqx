@@ -128,6 +128,14 @@ t_render_custom_bindings(_) ->
         render_string(Template, {?MODULE, []})
     ).
 
+t_placeholders(_) ->
+    TString = <<"a:${a},b:${b},c:$${c},d:{${d.d1}},e:${$}{e},lit:${$}{$}">>,
+    Template = emqx_template:parse(TString),
+    ?assertEqual(
+        ["a", "b", "c", "d.d1"],
+        emqx_template:placeholders(Template)
+    ).
+
 t_unparse(_) ->
     TString = <<"a:${a},b:${b},c:$${c},d:{${d.d1}},e:${$}{e},lit:${$}{$}">>,
     Template = emqx_template:parse(TString),
@@ -336,6 +344,16 @@ t_unparse_tmpl_deep(_) ->
     Term = #{<<"${a}">> => [<<"$${b}">>, "c", 2, 3.0, '${d}', {[<<"${c}">>], <<"${$}{d}">>, 0}]},
     Template = emqx_template:parse_deep(Term),
     ?assertEqual(Term, emqx_template:unparse(Template)).
+
+t_allow_this(_) ->
+    ?assertEqual(
+        {error, [{"", disallowed}]},
+        emqx_template:validate(["d"], emqx_template:parse(<<"this:${}">>))
+    ),
+    ?assertEqual(
+        {error, [{"", disallowed}]},
+        emqx_template:validate(["d"], emqx_template:parse(<<"this:${.}">>))
+    ).
 
 t_allow_var_by_namespace(_) ->
     Context = #{d => #{d1 => <<"hi">>}},
