@@ -16,6 +16,8 @@
     start_link/0,
     add_schema/2,
     get_schema/1,
+    is_existing_type/1,
+    is_existing_type/2,
     delete_schema/1,
     list_schemas/0
 ]).
@@ -52,6 +54,7 @@
 %% API
 %%-------------------------------------------------------------------------------------------------
 
+-spec start_link() -> gen_server:start_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -63,6 +66,14 @@ get_serde(SchemaName) ->
         [Serde] ->
             {ok, Serde}
     end.
+
+-spec is_existing_type(schema_name()) -> boolean().
+is_existing_type(SchemaName) ->
+    is_existing_type(SchemaName, []).
+
+-spec is_existing_type(schema_name(), [binary()]) -> boolean().
+is_existing_type(SchemaName, Path) ->
+    emqx_schema_registry_serde:is_existing_type(SchemaName, Path).
 
 -spec get_schema(schema_name()) -> {ok, map()} | {error, not_found}.
 get_schema(SchemaName) ->

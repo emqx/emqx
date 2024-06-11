@@ -5,7 +5,8 @@
     {mod, {emqx_schema_validation_app, []}},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        emqx_schema_registry
     ]},
     {env, []},
     {modules, []},

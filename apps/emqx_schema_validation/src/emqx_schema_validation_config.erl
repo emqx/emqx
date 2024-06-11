@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_validation_config).
 
+-feature(maybe_expr, enable).
+
 %% API
 -export([
     add_handler/0,
@@ -136,15 +138,25 @@ pre_config_update([?CONF_ROOT], {merge, NewConfig}, OldConfig) ->
 pre_config_update([?CONF_ROOT], {replace, NewConfig}, _OldConfig) ->
     {ok, NewConfig}.
 
-post_config_update(?VALIDATIONS_CONF_PATH, {append, #{<<"name">> := Name}}, New, _Old, _AppEnvs) ->
-    {Pos, Validation} = fetch_with_index(New, Name),
-    ok = emqx_schema_validation_registry:insert(Pos, Validation),
-    ok;
-post_config_update(?VALIDATIONS_CONF_PATH, {update, #{<<"name">> := Name}}, New, Old, _AppEnvs) ->
-    {_Pos, OldValidation} = fetch_with_index(Old, Name),
-    {Pos, NewValidation} = fetch_with_index(New, Name),
-    ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
-    ok;
+post_config_update(
+    ?VALIDATIONS_CONF_PATH, {append, #{<<"name">> := Name} = RawValidation}, New, _Old, _AppEnvs
+) ->
+    maybe
+        ok ?= assert_referenced_schemas_exist(RawValidation),
+        {Pos, Validation} = fetch_with_index(New, Name),
+        ok = emqx_schema_validation_registry:insert(Pos, Validation),
+        ok
+    end;
+post_config_update(
+    ?VALIDATIONS_CONF_PATH, {update, #{<<"name">> := Name} = RawValidation}, New, Old, _AppEnvs
+) ->
+    maybe
+        ok ?= assert_referenced_schemas_exist(RawValidation),
+        {_Pos, OldValidation} = fetch_with_index(Old, Name),
+        {Pos, NewValidation} = fetch_with_index(New, Name),
+        ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
+        ok
+    end;
 post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) ->
     {Pos, Validation} = fetch_with_index(Old, Name),
     ok = emqx_schema_validation_registry:delete(Validation, Pos),
@@ -161,16 +173,19 @@ post_config_update([?CONF_ROOT], {merge, _}, ResultingConfig, Old, _AppEnvs) ->
             OldValidations,
             fun(#{name := N}) -> N end
         ),
-    NewValidations =
-        lists:map(
-            fun(#{name := Name}) ->
-                {Pos, Validation} = fetch_with_index(ResultingValidations, Name),
-                ok = emqx_schema_validation_registry:insert(Pos, Validation),
-                #{name => Name, pos => Pos}
-            end,
-            NewValidations0
-        ),
-    {ok, #{new_validations => NewValidations}};
+    maybe
+        ok ?= multi_assert_referenced_schemas_exist(NewValidations0),
+        NewValidations =
+            lists:map(
+                fun(#{name := Name}) ->
+                    {Pos, Validation} = fetch_with_index(ResultingValidations, Name),
+                    ok = emqx_schema_validation_registry:insert(Pos, Validation),
+                    #{name => Name, pos => Pos}
+                end,
+                NewValidations0
+            ),
+        {ok, #{new_validations => NewValidations}}
+    end;
 post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnvs) ->
     #{
         new_validations := NewValidations,
@@ -179,32 +194,46 @@ post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnv
     } = prepare_config_replace(Input, Old),
     #{validations := ResultingValidations} = ResultingConfig,
     #{validations := OldValidations} = Old,
-    lists:foreach(
-        fun(Name) ->
-            {Pos, Validation} = fetch_with_index(OldValidations, Name),
-            ok = emqx_schema_validation_registry:delete(Validation, Pos)
-        end,
-        DeletedValidations
-    ),
-    lists:foreach(
-        fun(Name) ->
-            {Pos, Validation} = fetch_with_index(ResultingValidations, Name),
-            ok = emqx_schema_validation_registry:insert(Pos, Validation)
-        end,
-        NewValidations
-    ),
-    ChangedValidations =
-        lists:map(
+    NewOrChangedValidationNames = NewValidations ++ ChangedValidations0,
+    maybe
+        ok ?=
+            multi_assert_referenced_schemas_exist(
+                lists:filter(
+                    fun(#{name := N}) ->
+                        lists:member(N, NewOrChangedValidationNames)
+                    end,
+                    ResultingValidations
+                )
+            ),
+        lists:foreach(
             fun(Name) ->
-                {_Pos, OldValidation} = fetch_with_index(OldValidations, Name),
-                {Pos, NewValidation} = fetch_with_index(ResultingValidations, Name),
-                ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
-                #{name => Name, pos => Pos}
+                {Pos, Validation} = fetch_with_index(OldValidations, Name),
+                ok = emqx_schema_validation_registry:delete(Validation, Pos)
             end,
-            ChangedValidations0
+            DeletedValidations
         ),
-    ok = emqx_schema_validation_registry:reindex_positions(ResultingValidations, OldValidations),
-    {ok, #{changed_validations => ChangedValidations}}.
+        lists:foreach(
+            fun(Name) ->
+                {Pos, Validation} = fetch_with_index(ResultingValidations, Name),
+                ok = emqx_schema_validation_registry:insert(Pos, Validation)
+            end,
+            NewValidations
+        ),
+        ChangedValidations =
+            lists:map(
+                fun(Name) ->
+                    {_Pos, OldValidation} = fetch_with_index(OldValidations, Name),
+                    {Pos, NewValidation} = fetch_with_index(ResultingValidations, Name),
+                    ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
+                    #{name => Name, pos => Pos}
+                end,
+                ChangedValidations0
+            ),
+        ok = emqx_schema_validation_registry:reindex_positions(
+            ResultingValidations, OldValidations
+        ),
+        {ok, #{changed_validations => ChangedValidations}}
+    end.
 
 %%------------------------------------------------------------------------------
 %% `emqx_config_backup' API
@@ -388,3 +417,65 @@ prepare_config_replace(NewConfig, OldConfig) ->
         changed_validations => ChangedValidations0 ++ ChangedValidations1,
         deleted_validations => DeletedValidations
     }.
+
+-spec assert_referenced_schemas_exist(raw_validation()) -> ok | {error, map()}.
+assert_referenced_schemas_exist(RawValidation) ->
+    #{<<"checks">> := RawChecks} = RawValidation,
+    SchemasToCheck =
+        lists:filtermap(
+            fun
+                (#{<<"schema">> := SchemaName} = Check) ->
+                    %% so far, only protobuf has inner types
+                    InnerPath =
+                        case maps:find(<<"message_type">>, Check) of
+                            {ok, MessageType} -> [MessageType];
+                            error -> []
+                        end,
+                    {true, {SchemaName, InnerPath}};
+                (_Check) ->
+                    false
+            end,
+            RawChecks
+        ),
+    do_assert_referenced_schemas_exist(SchemasToCheck).
+
+do_assert_referenced_schemas_exist(SchemasToCheck) ->
+    MissingSchemas =
+        lists:foldl(
+            fun({SchemaName, InnerPath}, Acc) ->
+                case emqx_schema_registry:is_existing_type(SchemaName, InnerPath) of
+                    true ->
+                        Acc;
+                    false ->
+                        [[SchemaName | InnerPath] | Acc]
+                end
+            end,
+            [],
+            SchemasToCheck
+        ),
+    case MissingSchemas of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, #{missing_schemas => MissingSchemas}}
+    end.
+
+-spec multi_assert_referenced_schemas_exist([validation()]) -> ok | {error, map()}.
+multi_assert_referenced_schemas_exist(Validations) ->
+    SchemasToCheck =
+        lists:filtermap(
+            fun
+                (#{schema := SchemaName} = Check) ->
+                    %% so far, only protobuf has inner types
+                    InnerPath =
+                        case maps:find(message_type, Check) of
+                            {ok, MessageType} -> [MessageType];
+                            error -> []
+                        end,
+                    {true, {SchemaName, InnerPath}};
+                (_Check) ->
+                    false
+            end,
+            [Check || #{checks := Checks} <- Validations, Check <- Checks]
+        ),
+    do_assert_referenced_schemas_exist(SchemasToCheck).
