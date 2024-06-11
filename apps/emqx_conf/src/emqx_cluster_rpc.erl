@@ -503,7 +503,7 @@ stale_view_of_cluster_msg(Meta, Count) ->
     Reason = Meta#{
         msg => stale_view_of_cluster,
         retry_times => Count,
-        suggested => "run `./bin/emqx_ctl conf cluster_sync fix` when not restored for a long time"
+        suggested => "run `./bin/emqx_ctl conf cluster_sync fix` when suck for a long time"
     },
     ?SLOG(warning, Reason),
     {error, Reason}.
