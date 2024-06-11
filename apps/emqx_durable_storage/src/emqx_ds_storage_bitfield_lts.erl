@@ -28,8 +28,8 @@
     create/5,
     open/5,
     drop/5,
-    prepare_batch/4,
-    commit_batch/3,
+    prepare_batch/3,
+    commit_batch/4,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
@@ -269,11 +269,10 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
 -spec prepare_batch(
     emqx_ds_storage_layer:shard_id(),
     s(),
-    [{emqx_ds:time(), emqx_types:message()}, ...],
-    emqx_ds:message_store_opts()
+    [{emqx_ds:time(), emqx_types:message()}, ...]
 ) ->
     {ok, cooked_batch()}.
-prepare_batch(_ShardId, S, Messages, _Options) ->
+prepare_batch(_ShardId, S, Messages) ->
     _ = erase(?lts_persist_ops),
     {Payloads, MaxTs} =
         lists:mapfoldl(
@@ -294,12 +293,14 @@ prepare_batch(_ShardId, S, Messages, _Options) ->
 -spec commit_batch(
     emqx_ds_storage_layer:shard_id(),
     s(),
-    cooked_batch()
+    cooked_batch(),
+    emqx_ds_storage_layer:db_write_opts()
 ) -> ok | emqx_ds:error(_).
 commit_batch(
     _ShardId,
     _Data,
-    #{?cooked_payloads := [], ?cooked_lts_ops := LTS}
+    #{?cooked_payloads := [], ?cooked_lts_ops := LTS},
+    _WriteOpts
 ) ->
     %% Assert:
     [] = LTS,
@@ -307,7 +308,8 @@ commit_batch(
 commit_batch(
     _ShardId,
     #s{db = DB, data = DataCF, trie = Trie, trie_cf = TrieCF, gvars = Gvars},
-    #{?cooked_lts_ops := LtsOps, ?cooked_payloads := Payloads, ?cooked_ts := MaxTs}
+    #{?cooked_lts_ops := LtsOps, ?cooked_payloads := Payloads, ?cooked_ts := MaxTs},
+    WriteOpts
 ) ->
     {ok, Batch} = rocksdb:batch(),
     %% Commit LTS trie to the storage:
@@ -326,7 +328,7 @@ commit_batch(
         end,
         Payloads
     ),
-    Result = rocksdb:write_batch(DB, Batch, [{disable_wal, true}]),
+    Result = rocksdb:write_batch(DB, Batch, WriteOpts),
     rocksdb:release_batch(Batch),
     ets:insert(Gvars, {?IDLE_DETECT, false, MaxTs}),
     %% NOTE

@@ -27,7 +27,7 @@
     %% Data
     store_batch/3,
     prepare_batch/3,
-    commit_batch/2,
+    commit_batch/3,
 
     get_streams/3,
     get_delete_streams/3,
@@ -70,7 +70,9 @@
     shard_id/0,
     options/0,
     prototype/0,
-    cooked_batch/0
+    cooked_batch/0,
+    batch_store_opts/0,
+    db_write_opts/0
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -112,6 +114,23 @@
 -type cf_refs() :: [{string(), rocksdb:cf_handle()}].
 
 -type gen_id() :: 0..16#ffff.
+
+%% Options affecting how batches should be stored.
+%% See also: `emqx_ds:message_store_opts()'.
+-type batch_store_opts() ::
+    #{
+        %% Whether the whole batch given to `store_batch' should be inserted atomically as
+        %% a unit. Default: `false'.
+        atomic => boolean(),
+        %% Should the storage make sure that the batch is written durably? Non-durable
+        %% writes are in general unsafe but require much less resources, i.e. with RocksDB
+        %% non-durable (WAL-less) writes do not usually involve _any_ disk I/O.
+        %% Default: `true'.
+        durable => boolean()
+    }.
+
+%% Options affecting how batches should be prepared.
+-type batch_prepare_opts() :: #{}.
 
 %% TODO: kept for BPAPI compatibility. Remove me on EMQX v5.6
 -opaque stream_v1() ::
@@ -203,6 +222,9 @@
 %% Generation callbacks
 %%================================================================================
 
+%% See: `rocksdb:write_options()'.
+-type db_write_opts() :: [_Option].
+
 %% Create the new schema given generation id and the options.
 %% Create rocksdb column families.
 -callback create(
@@ -225,15 +247,15 @@
 -callback prepare_batch(
     shard_id(),
     generation_data(),
-    [{emqx_ds:time(), emqx_types:message()}, ...],
-    emqx_ds:message_store_opts()
+    [{emqx_ds:time(), emqx_types:message()}, ...]
 ) ->
     {ok, term()} | emqx_ds:error(_).
 
 -callback commit_batch(
     shard_id(),
     generation_data(),
-    _CookedBatch
+    _CookedBatch,
+    db_write_opts()
 ) -> ok | emqx_ds:error(_).
 
 -callback get_streams(
@@ -290,16 +312,16 @@ drop_shard(Shard) ->
 -spec store_batch(
     shard_id(),
     [{emqx_ds:time(), emqx_types:message()}],
-    emqx_ds:message_store_opts()
+    batch_store_opts()
 ) ->
     emqx_ds:store_batch_result().
 store_batch(Shard, Messages, Options) ->
     ?tp(emqx_ds_storage_layer_store_batch, #{
         shard => Shard, messages => Messages, options => Options
     }),
-    case prepare_batch(Shard, Messages, Options) of
+    case prepare_batch(Shard, Messages, #{}) of
         {ok, CookedBatch} ->
-            commit_batch(Shard, CookedBatch);
+            commit_batch(Shard, CookedBatch, Options);
         ignore ->
             ok;
         Error = {error, _, _} ->
@@ -309,9 +331,9 @@ store_batch(Shard, Messages, Options) ->
 -spec prepare_batch(
     shard_id(),
     [{emqx_ds:time(), emqx_types:message()}],
-    emqx_ds:message_store_opts()
+    batch_prepare_opts()
 ) -> {ok, cooked_batch()} | ignore | emqx_ds:error(_).
-prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
+prepare_batch(Shard, Messages = [{Time, _} | _], _Options) ->
     %% NOTE
     %% We assume that batches do not span generations. Callers should enforce this.
     %% FIXME: always store messages in the current generation
@@ -319,7 +341,7 @@ prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
         {GenId, #{module := Mod, data := GenData}} ->
             T0 = erlang:monotonic_time(microsecond),
             Result =
-                case Mod:prepare_batch(Shard, GenData, Messages, Options) of
+                case Mod:prepare_batch(Shard, GenData, Messages) of
                     {ok, CookedBatch} ->
                         ?tp(emqx_ds_storage_layer_batch_cooked, #{
                             shard => Shard, gen => GenId, batch => CookedBatch
@@ -338,11 +360,16 @@ prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
 prepare_batch(_Shard, [], _Options) ->
     ignore.
 
--spec commit_batch(shard_id(), cooked_batch()) -> emqx_ds:store_batch_result().
-commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
+-spec commit_batch(
+    shard_id(),
+    cooked_batch(),
+    batch_store_opts()
+) -> emqx_ds:store_batch_result().
+commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, Options) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
+    WriteOptions = mk_write_options(Options),
     T0 = erlang:monotonic_time(microsecond),
-    Result = Mod:commit_batch(Shard, GenData, CookedBatch),
+    Result = Mod:commit_batch(Shard, GenData, CookedBatch, WriteOptions),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result.
@@ -993,6 +1020,13 @@ handle_event(Shard, Time, ?storage_event(GenId, Event)) ->
 handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
+
+%%--------------------------------------------------------------------------------
+
+mk_write_options(#{durable := false}) ->
+    [{disable_wal, true}];
+mk_write_options(#{}) ->
+    [].
 
 %%--------------------------------------------------------------------------------
 %% Schema access

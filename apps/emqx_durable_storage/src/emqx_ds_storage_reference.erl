@@ -31,8 +31,8 @@
     create/5,
     open/5,
     drop/5,
-    prepare_batch/4,
-    commit_batch/3,
+    prepare_batch/3,
+    commit_batch/4,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
@@ -102,10 +102,10 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
     ok = rocksdb:drop_column_family(DBHandle, CFHandle),
     ok.
 
-prepare_batch(_ShardId, _Data, Messages, _Options) ->
+prepare_batch(_ShardId, _Data, Messages) ->
     {ok, Messages}.
 
-commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages) ->
+commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages, WriteOpts) ->
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(
         fun({TS, Msg}) ->
@@ -115,7 +115,7 @@ commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages) ->
         end,
         Messages
     ),
-    Res = rocksdb:write_batch(DB, Batch, _WriteOptions = [{disable_wal, true}]),
+    Res = rocksdb:write_batch(DB, Batch, WriteOpts),
     rocksdb:release_batch(Batch),
     Res.
 

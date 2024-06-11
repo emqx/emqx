@@ -57,6 +57,7 @@
     ra_store_batch/3
 ]).
 
+-behaviour(ra_machine).
 -export([
     init/1,
     apply/3,
@@ -768,7 +769,7 @@ apply(
 ) ->
     ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => MessagesIn, latest => Latest0}),
     {Latest, Messages} = assign_timestamps(Latest0, MessagesIn),
-    Result = emqx_ds_storage_layer:store_batch(DBShard, Messages, #{}),
+    Result = emqx_ds_storage_layer:store_batch(DBShard, Messages, #{durable => false}),
     State = State0#{latest := Latest},
     set_ts(DBShard, Latest),
     Effects = try_release_log(RaftMeta, State),
