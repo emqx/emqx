@@ -684,11 +684,11 @@ reserved_idx('messages.dropped') -> 109;
 reserved_idx('messages.dropped.await_pubrel_timeout') -> 110;
 reserved_idx('messages.dropped.no_subscribers') -> 111;
 reserved_idx('messages.forward') -> 112;
-%%reserved_idx('messages.retained')            -> 113; %% keep the index, new metrics can use this
+%% reserved_idx('messages.retained') -> 113; %% keep the index, new metrics can use this
 reserved_idx('messages.delayed') -> 114;
 reserved_idx('messages.delivered') -> 115;
 reserved_idx('messages.acked') -> 116;
-reserved_idx('delivery.expired') -> 117;
+%% reserved_idx('delivery.expired') -> 117; %% have never used
 reserved_idx('delivery.dropped') -> 118;
 reserved_idx('delivery.dropped.no_local') -> 119;
 reserved_idx('delivery.dropped.too_large') -> 120;
@@ -699,7 +699,7 @@ reserved_idx('client.connect') -> 200;
 reserved_idx('client.connack') -> 201;
 reserved_idx('client.connected') -> 202;
 reserved_idx('client.authenticate') -> 203;
-reserved_idx('client.enhanced_authenticate') -> 204;
+%% reserved_idx('client.enhanced_authenticate') -> 204; %% have never used
 reserved_idx('client.auth.anonymous') -> 205;
 reserved_idx('client.authorize') -> 206;
 reserved_idx('client.subscribe') -> 207;
