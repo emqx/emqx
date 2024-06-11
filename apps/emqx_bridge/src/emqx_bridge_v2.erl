@@ -456,7 +456,7 @@ install_bridge_v2_helper(
     ConnectorId = emqx_connector_resource:resource_id(
         connector_type(BridgeV2Type), ConnectorName
     ),
-    emqx_resource_manager:add_channel(
+    _ = emqx_resource_manager:add_channel(
         ConnectorId,
         BridgeV2Id,
         augment_channel_config(
@@ -786,7 +786,11 @@ create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawCo
                 BridgeName,
                 BridgeV2Conf
             ),
-            case emqx_resource_manager:add_channel(ConnectorId, ChannelTestId, AugmentedConf) of
+            %% We'll perform it ourselves to get the resulting status afterwards.
+            Opts = #{perform_health_check => false},
+            case
+                emqx_resource_manager:add_channel(ConnectorId, ChannelTestId, AugmentedConf, Opts)
+            of
                 {error, Reason} ->
                     {error, Reason};
                 ok ->
