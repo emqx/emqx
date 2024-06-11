@@ -897,7 +897,7 @@ list_authenticators(ConfKeyPath) ->
         maps:put(
             id,
             emqx_authn_chains:authenticator_id(AuthenticatorConfig),
-            convert_certs(AuthenticatorConfig)
+            convert_certs(emqx_utils:redact(AuthenticatorConfig))
         )
      || AuthenticatorConfig <- AuthenticatorsConfig
     ],
@@ -907,7 +907,8 @@ list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
     with_authenticator(
         AuthenticatorID,
         ConfKeyPath,
-        fun(AuthenticatorConfig) ->
+        fun(AuthenticatorConfig0) ->
+            AuthenticatorConfig = emqx_utils:redact(AuthenticatorConfig0),
             {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))}
         end
     ).
@@ -1050,9 +1051,16 @@ is_ok(ResL) ->
 
 update_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Config) ->
     case
-        update_config(
+        with_deobfuscate_update(
             ConfKeyPath,
-            {update_authenticator, ChainName, AuthenticatorID, Config}
+            AuthenticatorID,
+            Config,
+            fun(AuthenticatorConfig) ->
+                update_config(
+                    ConfKeyPath,
+                    {update_authenticator, ChainName, AuthenticatorID, AuthenticatorConfig}
+                )
+            end
         )
     of
         {ok, _} ->
@@ -1158,6 +1166,15 @@ list_users(ChainName, AuthenticatorID, QueryString) ->
             serialize_error({user_error, Reason});
         Result ->
             {200, Result}
+    end.
+
+with_deobfuscate_update(ConfKeyPath, AuthenticatorID, NewConf, Fun) ->
+    case find_authenticator_config(AuthenticatorID, ConfKeyPath) of
+        {ok, RawConf} ->
+            Conf = emqx_utils:deobfuscate(NewConf, RawConf),
+            Fun(Conf);
+        {error, _} = Error ->
+            Error
     end.
 
 update_config(Path, ConfigRequest) ->
