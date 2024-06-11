@@ -60,6 +60,7 @@
     'message.publish',
     'message.puback',
     'message.dropped',
+    'message.transformation_failed',
     'schema.validation_failed',
     'message.delivered',
     'message.acked',

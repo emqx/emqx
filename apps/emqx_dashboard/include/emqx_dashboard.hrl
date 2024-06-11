@@ -67,6 +67,8 @@
     %, sent_bytes
     validation_succeeded,
     validation_failed,
+    transformation_succeeded,
+    transformation_failed,
     dropped,
     persisted
 ]).
@@ -90,6 +92,8 @@
     sent => sent_msg_rate,
     validation_succeeded => validation_succeeded_rate,
     validation_failed => validation_failed_rate,
+    transformation_succeeded => transformation_succeeded_rate,
+    transformation_failed => transformation_failed_rate,
     dropped => dropped_msg_rate,
     persisted => persisted_rate
 }).

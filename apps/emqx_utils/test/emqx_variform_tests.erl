@@ -126,7 +126,7 @@ inject_allowed_module_test() ->
             render(atom_to_list(?MODULE) ++ ".concat('a','b')", #{})
         ),
         ?assertMatch(
-            {error, #{reason := unallowed_veriform_module, module := emqx}},
+            {error, #{reason := unallowed_variform_module, module := emqx}},
             render("emqx.concat('a','b')", #{})
         )
     after
@@ -231,8 +231,12 @@ syntax_error_test_() ->
         {"const string single quote", fun() -> ?assertMatch(?SYNTAX_ERROR, render("'a'", #{})) end},
         {"const string double quote", fun() ->
             ?assertMatch(?SYNTAX_ERROR, render(<<"\"a\"">>, #{}))
-        end},
-        {"no arity", fun() -> ?assertMatch(?SYNTAX_ERROR, render("concat()", #{})) end}
+        end}
+    ].
+
+maps_test_() ->
+    [
+        {"arity zero", ?_assertEqual({ok, <<"0">>}, render(<<"maps.size(maps.new())">>, #{}))}
     ].
 
 render(Expression, Bindings) ->

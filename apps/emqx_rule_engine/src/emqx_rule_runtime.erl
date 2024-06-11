@@ -27,7 +27,7 @@
     inc_action_metrics/2
 ]).
 
-%% Internal exports used by schema validation
+%% Internal exports used by schema validation and message transformation.
 -export([evaluate_select/3, clear_rule_payload/0]).
 
 -import(

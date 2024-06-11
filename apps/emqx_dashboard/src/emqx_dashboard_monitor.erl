@@ -474,6 +474,10 @@ stats(validation_succeeded) ->
     emqx_metrics:val('messages.validation_succeeded');
 stats(validation_failed) ->
     emqx_metrics:val('messages.validation_failed');
+stats(transformation_succeeded) ->
+    emqx_metrics:val('messages.transformation_succeeded');
+stats(transformation_failed) ->
+    emqx_metrics:val('messages.transformation_failed');
 stats(dropped) ->
     emqx_metrics:val('messages.dropped');
 stats(persisted) ->
