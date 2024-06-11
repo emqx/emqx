@@ -20,6 +20,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
     sync_data_from_node/1,
     get_config/2,
     get_config/3,
@@ -42,6 +43,9 @@
 
 introduced_in() ->
     "5.1.1".
+
+deprecated_since() ->
+    "5.7.1".
 
 -spec sync_data_from_node(node()) -> {ok, binary()} | emqx_rpc:badrpc().
 sync_data_from_node(Node) ->
