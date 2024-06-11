@@ -10,8 +10,8 @@
     lookup/1,
     insert/2,
     update/3,
-    delete/1,
-    reindex_positions/1,
+    delete/2,
+    reindex_positions/2,
 
     matching_validations/1,
 
@@ -51,10 +51,10 @@
 -type validation() :: _TODO.
 -type position_index() :: pos_integer().
 
--record(reindex_positions, {validations :: [validation()]}).
+-record(reindex_positions, {new_validations :: [validation()], old_validations :: [validation()]}).
 -record(insert, {pos :: position_index(), validation :: validation()}).
 -record(update, {old :: validation(), pos :: position_index(), new :: validation()}).
--record(delete, {validation :: validation()}).
+-record(delete, {validation :: validation(), pos :: position_index()}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -74,9 +74,16 @@ lookup(Name) ->
             {ok, Validation}
     end.
 
--spec reindex_positions([validation()]) -> ok.
-reindex_positions(Validations) ->
-    gen_server:call(?MODULE, #reindex_positions{validations = Validations}, infinity).
+-spec reindex_positions([validation()], [validation()]) -> ok.
+reindex_positions(NewValidations, OldValidations) ->
+    gen_server:call(
+        ?MODULE,
+        #reindex_positions{
+            new_validations = NewValidations,
+            old_validations = OldValidations
+        },
+        infinity
+    ).
 
 -spec insert(position_index(), validation()) -> ok.
 insert(Pos, Validation) ->
@@ -86,23 +93,36 @@ insert(Pos, Validation) ->
 update(Old, Pos, New) ->
     gen_server:call(?MODULE, #update{old = Old, pos = Pos, new = New}, infinity).
 
--spec delete(validation()) -> ok.
-delete(Validation) ->
-    gen_server:call(?MODULE, #delete{validation = Validation}, infinity).
+-spec delete(validation(), position_index()) -> ok.
+delete(Validation, Pos) ->
+    gen_server:call(?MODULE, #delete{validation = Validation, pos = Pos}, infinity).
 
 %% @doc Returns a list of matching validation names, sorted by their configuration order.
 -spec matching_validations(emqx_types:topic()) -> [validation()].
 matching_validations(Topic) ->
-    Validations0 = [
-        {Pos, Validation}
-     || M <- emqx_topic_index:matches(Topic, ?VALIDATION_TOPIC_INDEX, [unique]),
-        [Pos] <- [emqx_topic_index:get_record(M, ?VALIDATION_TOPIC_INDEX)],
-        {ok, Validation} <- [
-            lookup(emqx_topic_index:get_id(M))
-        ]
-    ],
-    Validations1 = lists:sort(fun({Pos1, _V1}, {Pos2, _V2}) -> Pos1 =< Pos2 end, Validations0),
-    lists:map(fun({_Pos, V}) -> V end, Validations1).
+    Validations0 =
+        lists:flatmap(
+            fun(M) ->
+                case emqx_topic_index:get_record(M, ?VALIDATION_TOPIC_INDEX) of
+                    [Name] ->
+                        [Name];
+                    _ ->
+                        []
+                end
+            end,
+            emqx_topic_index:matches(Topic, ?VALIDATION_TOPIC_INDEX, [unique])
+        ),
+    lists:flatmap(
+        fun(Name) ->
+            case lookup(Name) of
+                {ok, Validation} ->
+                    [Validation];
+                _ ->
+                    []
+            end
+        end,
+        Validations0
+    ).
 
 -spec metrics_worker_spec() -> supervisor:child_spec().
 metrics_worker_spec() ->
@@ -133,8 +153,15 @@ init(_) ->
     State = #{},
     {ok, State}.
 
-handle_call(#reindex_positions{validations = Validations}, _From, State) ->
-    do_reindex_positions(Validations),
+handle_call(
+    #reindex_positions{
+        new_validations = NewValidations,
+        old_validations = OldValidations
+    },
+    _From,
+    State
+) ->
+    do_reindex_positions(NewValidations, OldValidations),
     {reply, ok, State};
 handle_call(#insert{pos = Pos, validation = Validation}, _From, State) ->
     do_insert(Pos, Validation),
@@ -142,8 +169,8 @@ handle_call(#insert{pos = Pos, validation = Validation}, _From, State) ->
 handle_call(#update{old = OldValidation, pos = Pos, new = NewValidation}, _From, State) ->
     ok = do_update(OldValidation, Pos, NewValidation),
     {reply, ok, State};
-handle_call(#delete{validation = Validation}, _From, State) ->
-    do_delete(Validation),
+handle_call(#delete{validation = Validation, pos = Pos}, _From, State) ->
+    do_delete(Validation, Pos),
     {reply, ok, State};
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
@@ -160,7 +187,14 @@ create_tables() ->
     _ = emqx_utils_ets:new(?VALIDATION_TAB, [public, ordered_set, {read_concurrency, true}]),
     ok.
 
-do_reindex_positions(Validations) ->
+do_reindex_positions(NewValidations, OldValidations) ->
+    lists:foreach(
+        fun({Pos, Validation}) ->
+            #{topics := Topics} = Validation,
+            delete_topic_index(Pos, Topics)
+        end,
+        lists:enumerate(OldValidations)
+    ),
     lists:foreach(
         fun({Pos, Validation}) ->
             #{
@@ -170,7 +204,7 @@ do_reindex_positions(Validations) ->
             do_insert_into_tab(Name, Validation, Pos),
             update_topic_index(Name, Pos, Topics)
         end,
-        lists:enumerate(Validations)
+        lists:enumerate(NewValidations)
     ).
 
 do_insert(Pos, Validation) ->
@@ -193,17 +227,17 @@ do_update(OldValidation, Pos, NewValidation) ->
     } = NewValidation,
     maybe_create_metrics(Name),
     do_insert_into_tab(Name, NewValidation, Pos),
-    delete_topic_index(Name, OldTopics),
+    delete_topic_index(Pos, OldTopics),
     Enabled andalso update_topic_index(Name, Pos, NewTopics),
     ok.
 
-do_delete(Validation) ->
+do_delete(Validation, Pos) ->
     #{
         name := Name,
         topics := Topics
     } = Validation,
     ets:delete(?VALIDATION_TAB, Name),
-    delete_topic_index(Name, Topics),
+    delete_topic_index(Pos, Topics),
     drop_metrics(Name),
     ok.
 
@@ -226,15 +260,15 @@ drop_metrics(Name) ->
 update_topic_index(Name, Pos, Topics) ->
     lists:foreach(
         fun(Topic) ->
-            true = emqx_topic_index:insert(Topic, Name, Pos, ?VALIDATION_TOPIC_INDEX)
+            true = emqx_topic_index:insert(Topic, Pos, Name, ?VALIDATION_TOPIC_INDEX)
         end,
         Topics
     ).
 
-delete_topic_index(Name, Topics) ->
+delete_topic_index(Pos, Topics) ->
     lists:foreach(
         fun(Topic) ->
-            true = emqx_topic_index:delete(Topic, Name, ?VALIDATION_TOPIC_INDEX)
+            true = emqx_topic_index:delete(Topic, Pos, ?VALIDATION_TOPIC_INDEX)
         end,
         Topics
     ).
