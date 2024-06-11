@@ -145,7 +145,7 @@ admins(_) ->
     emqx_ctl:usage(usage_sync()).
 
 fix_inconsistent_with_raw(Node, Keys) ->
-    Confs = [#{Key => emqx_conf_proto_v3:get_raw_config(Node, Key)} || Key <- Keys],
+    Confs = [#{Key => emqx_conf_proto_v4:get_raw_config(Node, Key)} || Key <- Keys],
     ok = emqx_cluster_rpc:reset(),
     case load_config_from_raw(Confs, #{mode => replace}) of
         ok -> waiting_for_fix_finish();
@@ -713,7 +713,7 @@ changed(K, V, Conf) ->
 find_running_confs() ->
     lists:map(
         fun(Node) ->
-            Conf = emqx_conf_proto_v3:get_config(Node, []),
+            Conf = emqx_conf_proto_v4:get_config(Node, []),
             {Node, maps:without(?READONLY_KEYS, Conf)}
         end,
         mria:running_nodes()
@@ -782,8 +782,8 @@ print_inconsistent(Conf, Fmt, Options) when Conf =/= #{} ->
         node := {Node, NodeTnxId}
     } = Options,
     emqx_ctl:warning(Fmt, [Target, TargetTnxId, Key, Node, NodeTnxId]),
-    NodeRawConf = emqx_conf_proto_v3:get_raw_config(Node, [Key]),
-    TargetRawConf = emqx_conf_proto_v3:get_raw_config(Target, [Key]),
+    NodeRawConf = emqx_conf_proto_v4:get_raw_config(Node, [Key]),
+    TargetRawConf = emqx_conf_proto_v4:get_raw_config(Target, [Key]),
     {TargetConf, NodeConf} =
         maps:fold(
             fun(SubKey, _, {NewAcc, OldAcc}) ->
