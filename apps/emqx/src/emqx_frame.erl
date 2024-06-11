@@ -46,6 +46,8 @@
     serialize_opts/0
 ]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["Q"]}]).
 -define(Q(BYTES, Q), {BYTES, Q}).
 
 -type options() :: #{

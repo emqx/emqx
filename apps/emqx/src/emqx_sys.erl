@@ -71,21 +71,9 @@
     sysdescr :: binary()
 }).
 
+-hank([{unused_macros, ["APP"]}]).
 -define(APP, emqx).
 -define(SYS, ?MODULE).
-
--define(INFO_KEYS,
-    % Broker version
-    [
-        version,
-        % Broker uptime
-        uptime,
-        % Broker local datetime
-        datetime,
-        % Broker description
-        sysdescr
-    ]
-).
 
 -define(CONF_KEY_PATH, [sys_topics]).
 

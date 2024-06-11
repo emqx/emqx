@@ -17,6 +17,8 @@
 -ifndef(EMQX_BRIDGE_RESOURCE_HRL).
 -define(EMQX_BRIDGE_RESOURCE_HRL, true).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["BRIDGE_HOOKPOINT"]}]).
 -define(BRIDGE_HOOKPOINT(BridgeId), <<"$bridges/", BridgeId/binary>>).
 
 -endif.

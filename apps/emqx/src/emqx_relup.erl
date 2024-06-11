@@ -25,7 +25,6 @@
     post_release_downgrade/2
 ]).
 
--define(INFO(FORMAT), io:format("[emqx_relup] " ++ FORMAT ++ "~n")).
 -define(INFO(FORMAT, ARGS), io:format("[emqx_relup] " ++ FORMAT ++ "~n", ARGS)).
 
 %% What to do after upgraded from an old release vsn.

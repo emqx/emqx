@@ -64,6 +64,8 @@
 -define(PUSH(PRIO, OP), {PRIO, OP}).
 -define(OP(ACT, TOPIC, DEST, CTX), {ACT, TOPIC, DEST, CTX}).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["ROUTEOP"]}]).
 -define(ROUTEOP(ACT), {ACT, _, _}).
 -define(ROUTEOP(ACT, PRIO), {ACT, PRIO, _}).
 -define(ROUTEOP(ACT, PRIO, CTX), {ACT, PRIO, CTX}).

@@ -41,7 +41,7 @@
 -define(NEW_SEQ, atomics:new(1, [{signed, false}])).
 -define(GET_SEQ(Msg), persistent_term:get(?SEQ_ID(Msg), undefined)).
 -define(RESET_SEQ(SeqRef), atomics:put(SeqRef, 1, 0)).
--define(INC_SEQ(SeqRef), atomics:add(SeqRef, 1, 1)).
+% -define(INC_SEQ(SeqRef), atomics:add(SeqRef, 1, 1)).
 -define(GET_DROPPED(SeqRef), atomics:get(SeqRef, 1) - 1).
 -define(IS_ALLOWED(SeqRef), atomics:add_get(SeqRef, 1, 1) =:= 1).
 

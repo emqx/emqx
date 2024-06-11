@@ -39,6 +39,7 @@
 
 %% NOTE: do not forget to use atom for msg and add every used msg to
 %% the default value of `log.thorttling.msgs` list.
+-hank([{unused_macros, [{"SLOG_THROTTLE", 2}]}]).
 -define(SLOG_THROTTLE(Level, Data),
     ?SLOG_THROTTLE(Level, Data, #{})
 ).

@@ -55,8 +55,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HEALTH_CHECK_TIMEOUT, 1000).
--define(INGRESS, "I").
--define(EGRESS, "E").
 
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called

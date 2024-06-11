@@ -39,9 +39,6 @@
     desc/1
 ]).
 
-%% Allocatable resources
--define(hstreamdb_client, hstreamdb_client).
-
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
 callback_mode() -> always_sync.
