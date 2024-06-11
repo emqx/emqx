@@ -27,6 +27,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(SERVER, "http://127.0.0.1:18083").
 -define(BASE_PATH, "/api/v5").
@@ -189,6 +190,41 @@ t_monitor_sampler_format(_Config) ->
     Latest = hd(emqx_dashboard_monitor:samplers(node(), 1)),
     SamplerKeys = maps:keys(Latest),
     [?assert(lists:member(SamplerName, SamplerKeys)) || SamplerName <- ?SAMPLER_LIST],
+    ok.
+
+t_handle_old_monitor_data(_Config) ->
+    Now = erlang:system_time(second),
+    FakeOldData = maps:from_list(
+        lists:map(
+            fun(N) ->
+                Time = (Now - N) * 1000,
+                {Time, #{foo => 123}}
+            end,
+            lists:seq(0, 9)
+        )
+    ),
+
+    Self = self(),
+
+    ok = meck:new(emqx, [passthrough, no_history]),
+    ok = meck:expect(emqx, running_nodes, fun() -> [node(), 'other@node'] end),
+    ok = meck:new(emqx_dashboard_proto_v1, [passthrough, no_history]),
+    ok = meck:expect(emqx_dashboard_proto_v1, do_sample, fun('other@node', _Time) ->
+        Self ! sample_called,
+        FakeOldData
+    end),
+
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_event(#{?snk_kind := dashboard_monitor_flushed}),
+            infinity
+        ),
+    ?assertMatch(
+        #{},
+        hd(emqx_dashboard_monitor:samplers())
+    ),
+    ?assertReceive(sample_called, 1_000),
+    ok = meck:unload([emqx, emqx_dashboard_proto_v1]),
     ok.
 
 t_monitor_api(_) ->

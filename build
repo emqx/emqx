@@ -397,9 +397,9 @@ function is_ecr_and_enterprise() {
 
 ## Build the default docker image based on debian 12.
 make_docker() {
-    local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.3-7}"
+    local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.3-8}"
     local EMQX_BUILDER_PLATFORM="${EMQX_BUILDER_PLATFORM:-debian12}"
-    local OTP_VSN="${OTP_VSN:-26.2.5-1}"
+    local OTP_VSN="${OTP_VSN:-26.2.5-2}"
     local ELIXIR_VSN="${ELIXIR_VSN:-1.15.7}"
     local EMQX_BUILDER=${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VERSION}:${ELIXIR_VSN}-${OTP_VSN}-${EMQX_BUILDER_PLATFORM}}
     local EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"

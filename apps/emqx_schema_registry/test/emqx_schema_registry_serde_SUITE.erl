@@ -14,7 +14,6 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(APPS, [emqx_conf, emqx_rule_engine, emqx_schema_registry]).
 -define(INVALID_JSON, #{
     reason := #{expected := "emqx_schema:json_binary()"},
     kind := validation_error
@@ -28,12 +27,20 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_config:save_schema_mod_and_names(emqx_schema_registry_schema),
-    emqx_mgmt_api_test_util:init_suite(?APPS),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_schema_registry,
+            emqx_rule_engine
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(lists:reverse(?APPS)),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -239,4 +246,28 @@ t_json_validation(_Config) ->
     ?assertNot(F(schema_check, NotOk)),
     ?assertNot(F(schema_check, <<"{\"bar\": 2}">>)),
     ?assertNot(F(schema_check, <<"{\"foo\": \"notinteger\", \"bar\": 2}">>)),
+    ok.
+
+t_is_existing_type(_Config) ->
+    JsonName = <<"myjson">>,
+    ?assertNot(emqx_schema_registry:is_existing_type(JsonName)),
+    ok = emqx_schema_registry:add_schema(JsonName, schema_params(json)),
+    AvroName = <<"myavro">>,
+    ?assertNot(emqx_schema_registry:is_existing_type(AvroName)),
+    ok = emqx_schema_registry:add_schema(AvroName, schema_params(avro)),
+    ProtobufName = <<"myprotobuf">>,
+    MessageType = <<"Person">>,
+    ?assertNot(emqx_schema_registry:is_existing_type(ProtobufName)),
+    ok = emqx_schema_registry:add_schema(ProtobufName, schema_params(protobuf)),
+    %% JSON Schema: no inner names
+    ?assert(emqx_schema_registry:is_existing_type(JsonName)),
+    ?assertNot(emqx_schema_registry:is_existing_type(JsonName, [JsonName])),
+    %% Avro: no inner names
+    ?assert(emqx_schema_registry:is_existing_type(AvroName)),
+    ?assertNot(emqx_schema_registry:is_existing_type(AvroName, [AvroName])),
+    %% Protobuf: one level of message types
+    ?assert(emqx_schema_registry:is_existing_type(ProtobufName)),
+    ?assertNot(emqx_schema_registry:is_existing_type(ProtobufName, [ProtobufName])),
+    ?assert(emqx_schema_registry:is_existing_type(ProtobufName, [MessageType])),
+    ?assertNot(emqx_schema_registry:is_existing_type(ProtobufName, [MessageType, MessageType])),
     ok.

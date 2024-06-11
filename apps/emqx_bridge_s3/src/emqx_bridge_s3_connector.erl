@@ -162,8 +162,13 @@ on_get_status(_InstId, State = #{client_config := Config}) ->
 -spec on_add_channel(_InstanceId :: resource_id(), state(), channel_id(), channel_config()) ->
     {ok, state()} | {error, _Reason}.
 on_add_channel(_InstId, State = #{channels := Channels}, ChannelId, Config) ->
-    ChannelState = start_channel(State, Config),
-    {ok, State#{channels => Channels#{ChannelId => ChannelState}}}.
+    try
+        ChannelState = start_channel(State, Config),
+        {ok, State#{channels => Channels#{ChannelId => ChannelState}}}
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
 
 -spec on_remove_channel(_InstanceId :: resource_id(), state(), channel_id()) ->
     {ok, state()}.
@@ -221,9 +226,10 @@ start_channel(State, #{
         max_records => MaxRecords,
         work_dir => work_dir(Type, Name)
     },
+    Template = ensure_ok(emqx_bridge_s3_upload:mk_key_template(Parameters)),
     DeliveryOpts = #{
         bucket => Bucket,
-        key => emqx_bridge_s3_upload:mk_key_template(Parameters),
+        key => Template,
         container => Container,
         upload_options => emqx_bridge_s3_upload:mk_upload_options(Parameters),
         callback_module => ?MODULE,
@@ -246,6 +252,11 @@ start_channel(State, #{
         supervisor => SupPid,
         on_stop => fun() -> ?AGGREG_SUP:delete_child(AggregId) end
     }.
+
+ensure_ok({ok, V}) ->
+    V;
+ensure_ok({error, Reason}) ->
+    throw(Reason).
 
 upload_options(Parameters) ->
     #{acl => maps:get(acl, Parameters, undefined)}.

@@ -198,6 +198,10 @@ swagger_desc(validation_succeeded) ->
     swagger_desc_format("Schema validations succeeded ");
 swagger_desc(validation_failed) ->
     swagger_desc_format("Schema validations failed ");
+swagger_desc(transformation_succeeded) ->
+    swagger_desc_format("Message transformations succeeded ");
+swagger_desc(transformation_failed) ->
+    swagger_desc_format("Message transformations failed ");
 swagger_desc(persisted) ->
     swagger_desc_format("Messages saved to the durable storage ");
 swagger_desc(disconnected_durable_sessions) ->
@@ -230,6 +234,10 @@ swagger_desc(validation_succeeded_rate) ->
     swagger_desc_format("Schema validations succeeded ", per);
 swagger_desc(validation_failed_rate) ->
     swagger_desc_format("Schema validations failed ", per);
+swagger_desc(transformation_succeeded_rate) ->
+    swagger_desc_format("Message transformations succeeded ", per);
+swagger_desc(transformation_failed_rate) ->
+    swagger_desc_format("Message transformations failed ", per);
 swagger_desc(persisted_rate) ->
     swagger_desc_format("Messages saved to the durable storage ", per);
 swagger_desc(retained_msg_count) ->

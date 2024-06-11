@@ -6,7 +6,7 @@ the message without further processing, or to disconnect the offending client as
 
 # Documentation
 
-Refer to [Message
+Refer to [Schema
 Validation](https://docs.emqx.com/en/enterprise/latest/data-integration/schema-validation.html)
 for more information about the semantics and checks available.
 

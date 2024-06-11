@@ -37,6 +37,7 @@
 -define(AUDIT_MOD, audit).
 -define(UPDATE_READONLY_KEYS_PROHIBITED, <<"Cannot update read-only key '~s'.">>).
 -define(SCHEMA_VALIDATION_CONF_ROOT_BIN, <<"schema_validation">>).
+-define(MESSAGE_TRANSFORMATION_CONF_ROOT_BIN, <<"message_transformation">>).
 
 -dialyzer({no_match, [load/0]}).
 
@@ -334,6 +335,14 @@ update_config_cluster(
 update_config_cluster(?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts) ->
     check_res(Key, emqx_conf:update([Key], {merge, NewConf}, ?OPTIONS), NewConf, Opts);
 update_config_cluster(?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, #{mode := replace} = Opts) ->
+    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, ?OPTIONS), NewConf, Opts);
+update_config_cluster(
+    ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts
+) ->
+    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, ?OPTIONS), NewConf, Opts);
+update_config_cluster(
+    ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, #{mode := replace} = Opts
+) ->
     check_res(Key, emqx_conf:update([Key], {replace, NewConf}, ?OPTIONS), NewConf, Opts);
 update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),

@@ -1,0 +1,36 @@
+emqx_message_transformation_http_api {
+
+  list_transformations.desc:
+  """List transformations"""
+
+  lookup_transformation.desc:
+  """Lookup a transformation"""
+
+  update_transformation.desc:
+  """Update a transformation"""
+
+  delete_transformation.desc:
+  """Delete a transformation"""
+
+  append_transformation.desc:
+  """Append a new transformation to the list of transformations"""
+
+  reorder_transformations.desc:
+  """Reorder of all transformations"""
+
+  enable_disable_transformation.desc:
+  """Enable or disable a particular transformation"""
+
+  get_transformation_metrics.desc:
+  """Get metrics for a particular transformation"""
+
+  reset_transformation_metrics.desc:
+  """Reset metrics for a particular transformation"""
+
+  param_path_name.desc:
+  """Transformation name"""
+
+  param_path_enable.desc:
+  """Enable or disable transformation"""
+
+}

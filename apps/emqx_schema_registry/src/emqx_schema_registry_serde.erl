@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_serde).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_rule_funcs).
 
 -include("emqx_schema_registry.hrl").
@@ -14,6 +16,8 @@
     make_serde/3,
     handle_rule_function/2,
     schema_check/3,
+    is_existing_type/1,
+    is_existing_type/2,
     destroy/1
 ]).
 
@@ -27,6 +31,10 @@
     eval_encode/2
 ]).
 
+%%------------------------------------------------------------------------------
+%% Type definitions
+%%------------------------------------------------------------------------------
+
 -define(BOOL(SerdeName, EXPR),
     try
         _ = EXPR,
@@ -38,9 +46,27 @@
     end
 ).
 
+-type eval_context() :: term().
+
+-export_type([serde_type/0]).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+-spec is_existing_type(schema_name()) -> boolean().
+is_existing_type(SchemaName) ->
+    is_existing_type(SchemaName, []).
+
+-spec is_existing_type(schema_name(), [binary()]) -> boolean().
+is_existing_type(SchemaName, Path) ->
+    maybe
+        {ok, #serde{type = SerdeType, eval_context = EvalContext}} ?=
+            emqx_schema_registry:get_serde(SchemaName),
+        has_inner_type(SerdeType, EvalContext, Path)
+    else
+        _ -> false
+    end.
 
 -spec handle_rule_function(atom(), list()) -> any() | {error, no_match_for_function}.
 handle_rule_function(sparkplug_decode, [Data]) ->
@@ -338,3 +364,22 @@ unload_code(SerdeMod) ->
     _ = code:purge(SerdeMod),
     _ = code:delete(SerdeMod),
     ok.
+
+-spec has_inner_type(serde_type(), eval_context(), [binary()]) ->
+    boolean().
+has_inner_type(protobuf, _SerdeMod, [_, _ | _]) ->
+    %% Protobuf only has one level of message types.
+    false;
+has_inner_type(protobuf, SerdeMod, [MessageTypeBin]) ->
+    try apply(SerdeMod, get_msg_names, []) of
+        Names ->
+            lists:member(MessageTypeBin, [atom_to_binary(N, utf8) || N <- Names])
+    catch
+        _:_ ->
+            false
+    end;
+has_inner_type(_SerdeType, _EvalContext, []) ->
+    %% This function is only called if we already found a serde, so the root does exist.
+    true;
+has_inner_type(_SerdeType, _EvalContext, _Path) ->
+    false.

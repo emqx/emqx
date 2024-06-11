@@ -135,6 +135,7 @@ end_per_testcase(_Testcase, Config) ->
     connect_and_clear_table(Config),
     ok = snabbkaffe:stop(),
     delete_bridge(Config),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -713,6 +714,87 @@ t_missing_table(Config) ->
         end
     ),
     connect_and_create_table(Config),
+    ok.
+
+%% We test that we can handle when the prepared statement with the channel
+%% name already exists in the connection instance when we try to make a new
+%% prepared statement. It is unknown in which scenario this can happen but it
+%% has been observed in a production log file.
+%% See:
+%% https://emqx.atlassian.net/browse/EEC-1036
+t_prepared_statement_exists(Config) ->
+    Name = ?config(pgsql_name, Config),
+    BridgeType = ?config(pgsql_bridge_type, Config),
+    emqx_common_test_helpers:on_exit(fun() ->
+        meck:unload()
+    end),
+    MeckOpts = [passthrough, no_link, no_history, non_strict],
+    meck:new(emqx_postgresql, MeckOpts),
+    InsertPrepStatementDupAndThenRemoveMeck =
+        fun(Conn, Key, SQL, List) ->
+            meck:passthrough([Conn, Key, SQL, List]),
+            meck:delete(
+                epgsql,
+                parse2,
+                4
+            ),
+            meck:passthrough([Conn, Key, SQL, List])
+        end,
+    meck:expect(
+        epgsql,
+        parse2,
+        InsertPrepStatementDupAndThenRemoveMeck
+    ),
+    %% We should recover if the prepared statement name already exists in the
+    %% driver
+    ?check_trace(
+        begin
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(
+                    #{status := Status} when Status == connected,
+                    emqx_bridge_v2:health_check(BridgeType, Name)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(pgsql_prepared_statement_exists, Trace)),
+            ok
+        end
+    ),
+    InsertPrepStatementDup =
+        fun(Conn, Key, SQL, List) ->
+            meck:passthrough([Conn, Key, SQL, List]),
+            meck:passthrough([Conn, Key, SQL, List])
+        end,
+    meck:expect(
+        epgsql,
+        parse2,
+        InsertPrepStatementDup
+    ),
+    %% We should get status disconnected if removing already existing statment don't help
+    ?check_trace(
+        begin
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(
+                    #{status := Status} when Status == disconnected,
+                    emqx_bridge_v2:health_check(BridgeType, Name)
+                )
+            ),
+            snabbkaffe_nemesis:cleanup(),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(pgsql_prepared_statement_exists, Trace)),
+            ok
+        end
+    ),
     ok.
 
 t_table_removed(Config) ->

@@ -16,7 +16,7 @@
 
 -module(emqx_bridge_mqtt_lib).
 
--export([clientid_base/1, bytes23/2]).
+-export([clientid_base/1, bytes23/2, bytes23_with_prefix/3]).
 
 %% @doc Make the base ID of client IDs.
 %% A base ID is used to concatenate with pool worker ID to build a
@@ -28,17 +28,28 @@ clientid_base(Name) ->
     bin([Name, shortener(atom_to_list(node()), 8)]).
 
 %% @doc Limit the number of bytes for client ID under 23 bytes.
-%% If Prefix and suffix concatenated is longer than 23 bytes
+%% If ClientID base and suffix concatenated is longer than 23 bytes
 %% it hashes the concatenation and replace the non-random suffix.
-bytes23(Prefix, SeqNo) ->
+bytes23(ClientId, SeqNo) ->
+    bytes_n(ClientId, SeqNo, 23).
+
+bytes_n(ClientId, SeqNo, N) ->
     Suffix = integer_to_binary(SeqNo),
-    Concat = bin([Prefix, $:, Suffix]),
-    case size(Concat) =< 23 of
+    Concat = bin([ClientId, $:, Suffix]),
+    case size(Concat) =< N of
         true ->
             Concat;
         false ->
-            shortener(Concat, 23)
+            shortener(Concat, N)
     end.
+
+%% @doc Limit the number of bytes for client ID under 23 bytes.
+%% If Prefix, ClientID base and suffix concatenated is longer than 23 bytes
+%% it hashes the ClientID and SeqNo before appended to the Prefix
+bytes23_with_prefix(Prefix, ClientId, SeqNo) when Prefix =/= <<>> ->
+    SuffixLen = 23 - size(Prefix),
+    true = (SuffixLen > 0),
+    bin([Prefix, bytes_n(ClientId, SeqNo, SuffixLen)]).
 
 %% @private SHA hash a string and return the prefix of
 %% the given length as hex string in binary format.
