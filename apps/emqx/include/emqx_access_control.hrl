@@ -24,6 +24,8 @@
 -define(DEFAULT_ACTION_QOS, 0).
 -define(DEFAULT_ACTION_RETAIN, false).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["AUTHZ_SUBSCRIBE_MATCH_MAP", "AUTHZ_PUBLISH_MATCH_MAP"]}]).
 -define(AUTHZ_SUBSCRIBE_MATCH_MAP(QOS), #{action_type := subscribe, qos := QOS}).
 -define(AUTHZ_SUBSCRIBE(QOS), #{action_type => subscribe, qos => QOS}).
 -define(AUTHZ_SUBSCRIBE, ?AUTHZ_SUBSCRIBE(?DEFAULT_ACTION_QOS)).
