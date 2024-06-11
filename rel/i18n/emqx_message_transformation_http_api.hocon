@@ -18,6 +18,9 @@ emqx_message_transformation_http_api {
   reorder_transformations.desc:
   """Reorder of all transformations"""
 
+  test_transformation.desc:
+  """Test an input against a transformation"""
+
   enable_disable_transformation.desc:
   """Enable or disable a particular transformation"""
 
