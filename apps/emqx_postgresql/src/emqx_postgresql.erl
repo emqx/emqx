@@ -268,7 +268,9 @@ close_prepared_statement(ChannelId, #{pool_name := PoolName} = State) ->
 
 close_prepared_statement([WorkerPid | Rest], ChannelId, State) ->
     %% We ignore errors since any error probably means that the
-    %% prepared statement doesn't exist.
+    %% prepared statement doesn't exist. If it exists when we try
+    %% to insert one with the same name, we will try to remove it
+    %% again anyway.
     try ecpool_worker:client(WorkerPid) of
         {ok, Conn} ->
             Statement = get_templated_statement(ChannelId, State),
@@ -689,17 +691,21 @@ do_prepare_sql([], _Prepares, LastSts) ->
     {ok, LastSts}.
 
 prepare_sql_to_conn(Conn, Prepares) ->
-    prepare_sql_to_conn(Conn, Prepares, #{}).
+    prepare_sql_to_conn(Conn, Prepares, #{}, 0).
 
-prepare_sql_to_conn(Conn, [], Statements) when is_pid(Conn) ->
+prepare_sql_to_conn(Conn, [], Statements, _Attempts) when is_pid(Conn) ->
     {ok, Statements};
-prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when is_pid(Conn) ->
+prepare_sql_to_conn(Conn, [{_Key, _} | _Rest], _Statements, _MaxAttempts = 2) when is_pid(Conn) ->
+    failed_to_remove_prev_prepared_statement_error();
+prepare_sql_to_conn(
+    Conn, [{Key, {SQL, _RowTemplate}} | Rest] = ToPrepare, Statements, Attempts
+) when is_pid(Conn) ->
     LogMeta = #{msg => "postgresql_prepare_statement", name => Key, sql => SQL},
     ?SLOG(info, LogMeta),
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
-            prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement});
-        {error, {error, error, _, undefined_table, _, _} = Error} ->
+            prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement}, 0);
+        {error, #error{severity = error, codename = undefined_table} = Error} ->
             %% Target table is not created
             ?tp(pgsql_undefined_table, #{}),
             LogMsg =
@@ -709,6 +715,30 @@ prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when 
                 ),
             ?SLOG(error, LogMsg),
             {error, undefined_table};
+        {error, #error{severity = error, codename = duplicate_prepared_statement}} = Error ->
+            ?tp(pgsql_prepared_statement_exists, #{}),
+            LogMsg =
+                maps:merge(
+                    LogMeta#{
+                        msg => "postgresql_prepared_statment_with_same_name_already_exists",
+                        explain => <<
+                            "A prepared statement with the same name already "
+                            "exists in the driver. Will attempt to remove the "
+                            "previous prepared statement with the name and then "
+                            "try again."
+                        >>
+                    },
+                    translate_to_log_context(Error)
+                ),
+            ?SLOG(warning, LogMsg),
+            case epgsql:close(Conn, statement, Key) of
+                ok ->
+                    ?SLOG(info, #{msg => "pqsql_closed_statement_successfully"}),
+                    prepare_sql_to_conn(Conn, ToPrepare, Statements, Attempts + 1);
+                {error, CloseError} ->
+                    ?SLOG(error, #{msg => "pqsql_close_statement_failed", cause => CloseError}),
+                    failed_to_remove_prev_prepared_statement_error()
+            end;
         {error, Error} ->
             TranslatedError = translate_to_log_context(Error),
             LogMsg =
@@ -719,6 +749,13 @@ prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when 
             ?SLOG(error, LogMsg),
             {error, export_error(TranslatedError)}
     end.
+
+failed_to_remove_prev_prepared_statement_error() ->
+    Msg =
+        ("A previous prepared statement for the action already exists "
+        "but cannot be closed. Please, try to disable and then enable "
+        "the connector to resolve this issue."),
+    {error, unicode:characters_to_binary(Msg)}.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;
