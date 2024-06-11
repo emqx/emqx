@@ -209,7 +209,7 @@ do_call(Request) ->
     gen_server:call(?MODULE, Request, 5000).
 
 do_sample(all, Time) ->
-    do_sample(mria:cluster_nodes(running), Time, #{});
+    do_sample(emqx:running_nodes(), Time, #{});
 do_sample(Node, Time) when Node == node() ->
     MS = match_spec(Time),
     internal_format(ets:select(?TAB, MS));
@@ -259,7 +259,7 @@ merge_cluster_sampler_map(M1, M2) ->
                 Key =:= subscriptions_durable;
                 Key =:= disconnected_durable_sessions
             ->
-                Map#{Key => maps:get(Key, M1)};
+                Map#{Key => maps:get(Key, M1, maps:get(Key, M2, 0))};
             (Key, Map) ->
                 Map#{Key => maps:get(Key, M1, 0) + maps:get(Key, M2, 0)}
         end,
