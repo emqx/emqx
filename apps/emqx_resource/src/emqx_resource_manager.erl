@@ -68,6 +68,7 @@
 -endif.
 
 % State record
+-hank([{unused_record_fields, [{data, extra}]}]).
 -record(data, {
     id,
     group,

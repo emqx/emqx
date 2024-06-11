@@ -158,6 +158,9 @@
     variable = {Flags, MsgId, Topic}
 }).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["SN_SUBSCRIBE_MSG_TYPE", "SN_UNSUBSCRIBE_MSG_TYPE"]}]).
+
 -define(SN_SUBSCRIBE_MSG_TYPE(Type, Topic, QoS), #mqtt_sn_message{
     type = ?SN_SUBSCRIBE,
     variable = {

@@ -258,14 +258,9 @@ prod_overrides() ->
 
 profiles() ->
     #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
-    case Edition of
-        ee ->
-            profiles_ee(RelType);
-        ce ->
-            profiles_ce(RelType)
-    end ++ profiles_dev(RelType).
+    profiles(Edition, RelType) ++ profiles(dev, RelType).
 
-profiles_ce(RelType) ->
+profiles(ce, RelType) ->
     Vsn = get_vsn(emqx),
     [
         {'emqx', [
@@ -280,9 +275,8 @@ profiles_ce(RelType) ->
             {overrides, prod_overrides()},
             {project_app_dirs, project_app_dirs(ce, RelType)}
         ]}
-    ].
-
-profiles_ee(RelType) ->
+    ];
+profiles(ee, RelType) ->
     Vsn = get_vsn('emqx-enterprise'),
     [
         {'emqx-enterprise', [
@@ -297,10 +291,9 @@ profiles_ee(RelType) ->
             {overrides, prod_overrides()},
             {project_app_dirs, project_app_dirs(ee, RelType)}
         ]}
-    ].
-
+    ];
 %% EE has more files than CE, always test/check with EE options.
-profiles_dev(_RelType) ->
+profiles(dev, _RelType) ->
     [
         {check, [
             {erl_opts, common_compile_opts()},
@@ -353,8 +346,8 @@ relform() ->
         Other -> Other
     end.
 
-emqx_description(_, ee) -> "EMQX Enterprise";
-emqx_description(_, ce) -> "EMQX".
+emqx_description(_RelType, ee) -> "EMQX Enterprise";
+emqx_description(_RelType, ce) -> "EMQX".
 
 overlay_vars(_RelType, PkgType, Edition) ->
     [
@@ -407,7 +400,7 @@ overlay_vars_pkg(pkg) ->
         {is_elixir, "no"}
     ].
 
-relx_apps(ReleaseType, Edition) ->
+relx_apps(RelType, Edition) ->
     {ok, [
         #{
             db_apps := DBApps,
@@ -423,7 +416,7 @@ relx_apps(ReleaseType, Edition) ->
             ce -> CEBusinessApps
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
-    ExcludedApps = excluded_apps(ReleaseType),
+    ExcludedApps = excluded_apps(RelType),
     Apps =
         ([App || App <- SystemApps, not lists:member(App, ExcludedApps)] ++
             %% EMQX starts the DB and the business applications:
@@ -448,7 +441,7 @@ is_app(Name) ->
         _ -> false
     end.
 
-relx_overlay(ReleaseType, Edition) ->
+relx_overlay(RelType, Edition) ->
     [
         {mkdir, "log/"},
         {mkdir, "data/"},
@@ -473,10 +466,10 @@ relx_overlay(ReleaseType, Edition) ->
         {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"},
         {copy, "bin/nodetool", "bin/nodetool"},
         {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
-    ] ++ etc_overlay(ReleaseType, Edition).
+    ] ++ etc_overlay(RelType, Edition).
 
-etc_overlay(ReleaseType, Edition) ->
-    Templates = emqx_etc_overlay(ReleaseType),
+etc_overlay(RelType, Edition) ->
+    Templates = emqx_etc_overlay(RelType),
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"}
@@ -498,8 +491,8 @@ copy_examples(ee) ->
         {copy, "rel/config/ee-examples/*", "etc/examples/"}
     ].
 
-emqx_etc_overlay(ReleaseType) ->
-    emqx_etc_overlay_per_rel(ReleaseType) ++
+emqx_etc_overlay(RelType) ->
+    emqx_etc_overlay_per_rel(RelType) ++
         emqx_etc_overlay().
 
 emqx_etc_overlay_per_rel(_RelType) ->

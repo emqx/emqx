@@ -30,8 +30,14 @@
     code_change/4
 ]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["SERVER_REFERENCE", {"enabled", 1}]}]).
+
 -define(ENABLE_KIND, emqx_node_rebalance).
 -define(SERVER_REFERENCE, undefined).
+
+-define(disabled, disabled).
+-define(enabled(ST), {enabled, ST}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -73,9 +79,6 @@ status() ->
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
-
--define(disabled, disabled).
--define(enabled(ST), {enabled, ST}).
 
 callback_mode() ->
     handle_event_function.

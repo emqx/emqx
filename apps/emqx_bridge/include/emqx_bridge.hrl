@@ -60,6 +60,8 @@
     }
 ).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["metrics"]}]).
 -define(metrics(
     Dropped,
     DroppedOther,

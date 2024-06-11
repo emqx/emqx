@@ -2,7 +2,7 @@
 {application, emqx_psk, [
     {description, "EMQX PSK"},
     % strict semver, bump manually!
-    {vsn, "5.0.6"},
+    {vsn, "5.0.7"},
     {modules, []},
     {registered, [emqx_psk_sup]},
     {applications, [kernel, stdlib]},

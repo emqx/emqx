@@ -29,6 +29,7 @@
 -type serde_type() :: avro | protobuf | json.
 -type serde_opts() :: map().
 
+-hank([{unused_record_fields, [{serde, extra}]}]).
 -record(serde, {
     name :: schema_name(),
     type :: serde_type(),

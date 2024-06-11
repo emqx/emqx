@@ -18,6 +18,7 @@
 
 -behaviour(application).
 
+-hank([{unused_macros, ["APP"]}]).
 -define(APP, emqx_management).
 
 -export([

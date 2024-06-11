@@ -17,6 +17,7 @@
 -ifndef(EMQX_HRL).
 -define(EMQX_HRL, true).
 
+%%--------------------------------------------------------------------
 %% Shard
 %%--------------------------------------------------------------------
 -define(COMMON_SHARD, emqx_common_shard).
@@ -25,23 +26,10 @@
 -define(ROUTE_SHARD, route_shard).
 -define(PS_ROUTER_SHARD, persistent_session_router_shard).
 
-%% Banner
+%%--------------------------------------------------------------------
+%% Alarms
 %%--------------------------------------------------------------------
 
--define(PROTOCOL_VERSION, "MQTT/5.0").
-
--define(ERTS_MINIMUM_REQUIRED, "10.0").
-
-%%--------------------------------------------------------------------
-%% Topics' prefix: $SYS | $queue | $share
-%%--------------------------------------------------------------------
-
-%% System topic
--define(SYSTOP, <<"$SYS/">>).
-
-%%--------------------------------------------------------------------
-%% alarms
-%%--------------------------------------------------------------------
 -define(ACTIVATED_ALARM, emqx_activated_alarm).
 -define(DEACTIVATED_ALARM, emqx_deactivated_alarm).
 -define(TRIE, emqx_trie).
@@ -49,8 +37,6 @@
 %%--------------------------------------------------------------------
 %% Message and Delivery
 %%--------------------------------------------------------------------
-
--record(subscription, {topic, subid, subopts}).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
@@ -68,19 +54,6 @@
 -record(route, {
     topic :: binary(),
     dest :: node() | {binary(), node()} | emqx_session:session_id()
-}).
-
-%%--------------------------------------------------------------------
-%% Command
-%%--------------------------------------------------------------------
-
--record(command, {
-    name :: atom(),
-    action :: atom(),
-    args = [] :: list(),
-    opts = [] :: list(),
-    usage :: string(),
-    descr :: string()
 }).
 
 %%--------------------------------------------------------------------

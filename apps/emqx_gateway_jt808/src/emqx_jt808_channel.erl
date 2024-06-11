@@ -92,6 +92,8 @@
 
 -define(DEFAULT_KEEPALIVE, 300).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["MSG"]}]).
 -define(MSG(MsgId), #{<<"header">> := #{<<"msg_id">> := MsgId}}).
 
 -dialyzer({nowarn_function, init/2}).

@@ -24,6 +24,11 @@
 
 -define(META_FUN, bpapi_meta).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["BACKEND", "IS_RPC"]}]).
+-define(BACKEND(MOD, FUN), {remote, _, {atom, _, MOD}, {atom, _, FUN}}).
+-define(IS_RPC(MOD), (MOD =:= erpc orelse MOD =:= rpc)).
+
 -type semantics() :: call | cast.
 
 -record(s, {
@@ -139,9 +144,6 @@ extract_outer_args(Abs) ->
 extract_target_call(RPCBackend, OuterArgs) ->
     {Semantics, {atom, _, M}, {atom, _, F}, A} = extract_mfa(RPCBackend, OuterArgs),
     {Semantics, {M, F, list_to_args(A)}}.
-
--define(BACKEND(MOD, FUN), {remote, _, {atom, _, MOD}, {atom, _, FUN}}).
--define(IS_RPC(MOD), (MOD =:= erpc orelse MOD =:= rpc)).
 
 %% gen_rpc:
 extract_mfa(?BACKEND(gen_rpc, _), _) ->

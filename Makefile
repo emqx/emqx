@@ -228,6 +228,10 @@ xref: $(REBAR)
 dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
 
+.PHONY: hank
+hank: $(REBAR)
+	@$(REBAR) as check hank
+
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
 $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)

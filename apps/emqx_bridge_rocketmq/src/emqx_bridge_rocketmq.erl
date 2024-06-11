@@ -28,7 +28,6 @@
 -define(CONNECTOR_TYPE, rocketmq).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
 -define(DEFAULT_TEMPLATE, <<>>).
--define(DEFFAULT_REQ_TIMEOUT, <<"15s">>).
 
 %% -------------------------------------------------------------------------------------------------
 %% api

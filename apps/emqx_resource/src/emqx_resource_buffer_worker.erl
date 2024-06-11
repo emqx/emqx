@@ -62,6 +62,8 @@
 
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["COLLECT_REQ_LIMIT", "APPLY_RESOURCE"]}]).
 -define(COLLECT_REQ_LIMIT, 1000).
 -define(SEND_REQ(FROM, REQUEST), {'$send_req', FROM, REQUEST}).
 -define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT, TRACE_CTX),

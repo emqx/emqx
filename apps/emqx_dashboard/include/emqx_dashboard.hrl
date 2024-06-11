@@ -44,8 +44,6 @@
     extra = #{} :: map()
 }).
 
--define(TAB_COLLECT, emqx_collect).
-
 -define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).
 
 -define(DASHBOARD_SHARD, emqx_dashboard_shard).

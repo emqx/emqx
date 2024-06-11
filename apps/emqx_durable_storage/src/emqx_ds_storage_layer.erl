@@ -80,6 +80,8 @@
 -define(stream_v2(GENERATION, INNER), [GENERATION | INNER]).
 -define(delete_stream(GENERATION, INNER), [GENERATION | INNER]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["storage_event", "mk_storage_event"]}]).
 %% Wrappers for the storage events:
 -define(storage_event(GEN_ID, PAYLOAD), #{0 := 3333, 1 := GEN_ID, 2 := PAYLOAD}).
 -define(mk_storage_event(GEN_ID, PAYLOAD), #{0 => 3333, 1 => GEN_ID, 2 => PAYLOAD}).

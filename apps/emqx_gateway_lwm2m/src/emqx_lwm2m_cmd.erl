@@ -29,8 +29,6 @@
 
 -export([path_list/1, extract_path/1]).
 
--define(STANDARD, 1).
-
 %%-type msg_type() :: <<"create">>
 %%                  | <<"delete">>
 %%                  | <<"read">>

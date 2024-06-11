@@ -182,6 +182,9 @@
     {?awaiting_rel, ?awaiting_rel_tab}
 ]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["set_dirty", "unset_dirty"]}]).
+
 %% Enable this flag if you suspect some code breaks the sequence:
 -ifndef(CHECK_SEQNO).
 -define(set_dirty, dirty => true).

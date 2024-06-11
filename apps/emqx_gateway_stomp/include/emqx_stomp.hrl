@@ -64,6 +64,8 @@
 
 -type stomp_frame() :: #stomp_frame{}.
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["PACKET"]}]).
 -define(PACKET(CMD), #stomp_frame{command = CMD}).
 
 -define(PACKET(CMD, Headers), #stomp_frame{command = CMD, headers = Headers}).

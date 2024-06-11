@@ -74,7 +74,6 @@
 ]).
 
 -export_type([
-    subscription/0,
     subscriber/0,
     topic_filters/0
 ]).
@@ -101,8 +100,7 @@
 
 -export_type([
     banned/0,
-    banned_who/0,
-    command/0
+    banned_who/0
 ]).
 
 -export_type([
@@ -235,7 +233,6 @@
 -type topic_filters() :: list({topic(), subopts()}).
 -type packet() :: #mqtt_packet{}.
 
--type subscription() :: #subscription{}.
 -type subscriber() :: {pid(), subid()}.
 -type payload() :: binary() | iodata().
 -type message() :: #message{}.
@@ -272,7 +269,6 @@
     | disconnect.
 -type route() :: #route{}.
 -type route_entry() :: {topic(), node()} | {topic, group()}.
--type command() :: #command{}.
 
 -type caps() :: emqx_mqtt_caps:caps().
 -type channel_attrs() :: #{atom() => term()}.

@@ -79,26 +79,6 @@
 
 -define(IS_QOS(I), (I >= ?QOS_0 andalso I =< ?QOS_2)).
 
--define(QOS_I(Name), begin
-    (case Name of
-        ?QOS_0 -> ?QOS_0;
-        qos0 -> ?QOS_0;
-        at_most_once -> ?QOS_0;
-        ?QOS_1 -> ?QOS_1;
-        qos1 -> ?QOS_1;
-        at_least_once -> ?QOS_1;
-        ?QOS_2 -> ?QOS_2;
-        qos2 -> ?QOS_2;
-        exactly_once -> ?QOS_2
-    end)
-end).
-
--define(IS_QOS_NAME(I),
-    (I =:= qos0 orelse I =:= at_most_once orelse
-        I =:= qos1 orelse I =:= at_least_once orelse
-        I =:= qos2 orelse I =:= exactly_once)
-).
-
 %%--------------------------------------------------------------------
 %% Maximum ClientId Length.
 %%--------------------------------------------------------------------

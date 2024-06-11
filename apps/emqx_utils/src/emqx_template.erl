@@ -93,6 +93,8 @@
 %% Access module API
 -callback lookup(accessor(), _Bindings) -> {ok, _Value} | {error, reason()}.
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["RE_PLACEHOLDER", "RE_ESCAPE"]}]).
 -define(RE_PLACEHOLDER, "\\$\\{[.]?([a-zA-Z0-9._]*)\\}").
 -define(RE_ESCAPE, "\\$\\{(\\$)\\}").
 

@@ -47,8 +47,9 @@
 
 -opaque inflight() :: {inflight, max_size(), gb_trees:tree()}.
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["INFLIGHT"]}]).
 -define(INFLIGHT(Tree), {inflight, _MaxSize, Tree}).
-
 -define(INFLIGHT(MaxSize, Tree), {inflight, MaxSize, (Tree)}).
 
 -spec new() -> inflight().

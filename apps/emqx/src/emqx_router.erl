@@ -102,6 +102,7 @@
 -type batch() :: #{batch_route() => _Operation :: tuple()}.
 -type batch_route() :: {emqx_types:topic(), dest()}.
 
+-hank([{unused_record_fields, [{routeidx, unused}]}]).
 -record(routeidx, {
     entry :: '$1' | emqx_topic_index:key(dest()),
     unused = [] :: nil()

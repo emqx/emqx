@@ -14,26 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(LWAPP, emqx_lwm2m).
-
 -define(OMA_ALTER_PATH_RT, <<"\"oma.lwm2m\"">>).
 
--define(MQ_COMMAND_ID, <<"CmdID">>).
--define(MQ_COMMAND, <<"requestID">>).
--define(MQ_BASENAME, <<"BaseName">>).
--define(MQ_ARGS, <<"Arguments">>).
-
--define(MQ_VALUE_TYPE, <<"ValueType">>).
--define(MQ_VALUE, <<"Value">>).
--define(MQ_ERROR, <<"Error">>).
--define(MQ_RESULT, <<"Result">>).
-
--define(ERR_NO_XML, <<"No XML Definition">>).
--define(ERR_NOT_ACCEPTABLE, <<"Not Acceptable">>).
--define(ERR_METHOD_NOT_ALLOWED, <<"Method Not Allowed">>).
--define(ERR_NOT_FOUND, <<"Not Found">>).
--define(ERR_UNAUTHORIZED, <<"Unauthorized">>).
--define(ERR_BAD_REQUEST, <<"Bad Request">>).
 -define(REG_PREFIX, <<"rd">>).
 
 %%--------------------------------------------------------------------
@@ -45,7 +27,8 @@
 %% Resources. i.e: /3/0/0
 %%
 %% This data format has a Media Type of "text/plain".
--define(LWM2M_FORMAT_PLAIN_TEXT, 0).
+% Unused
+% -define(LWM2M_FORMAT_PLAIN_TEXT, 0).
 
 %% 40: Link format. 40 is numeric value used in CoAP Content-Format option.
 %%
@@ -57,18 +40,21 @@
 %% i.e: firmware images or opaque value from top layer.
 %%
 %% This data format has a Media Type of "application/octet-stream".
--define(LWM2M_FORMAT_OPAQUE, 42).
+% Unused
+% -define(LWM2M_FORMAT_OPAQUE, 42).
 
 %% 11542: TLV. 11542 is numeric value used in CoAP Content-Format option.
 %% For "Read" and "Write" operation, the binary TLV format is used to represent
 %% an array of values or a single value using a compact binary representation.
 %%
 %% This data format has a Media Type of "application/vnd.oma.lwm2m+tlv".
--define(LWM2M_FORMAT_TLV, 11542).
+% Unused
+% -define(LWM2M_FORMAT_TLV, 11542).
 
 %% 11543: JSON. 11543 is numeric value used in CoAP Content-Format option.
 %% The client may support the JSON format for "Read" and "Write" operations to
 %% represent multiple resource or single resource values.
 %%
 %% This data format has a Media Type of "application/vnd.oma.lwm2m+json".
--define(LWM2M_FORMAT_OMA_JSON, 11543).
+% Unused
+% -define(LWM2M_FORMAT_OMA_JSON, 11543).

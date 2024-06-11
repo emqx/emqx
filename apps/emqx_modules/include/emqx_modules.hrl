@@ -15,4 +15,3 @@
 %%--------------------------------------------------------------------
 
 -define(API_TAG_MQTT, [<<"MQTT">>]).
--define(API_SCHEMA_MODULE, emqx_modules_schema).

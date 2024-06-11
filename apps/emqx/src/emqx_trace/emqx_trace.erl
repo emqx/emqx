@@ -79,6 +79,10 @@
     action_id := any()
 }.
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["NAME_RE"]}]).
+-define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
+
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
@@ -616,8 +620,6 @@ fill_default(Trace = #?TRACE{end_at = undefined, start_at = StartAt}) ->
     fill_default(Trace#?TRACE{end_at = StartAt + 10 * 60});
 fill_default(Trace) ->
     Trace.
-
--define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
 to_trace(#{name := Name} = Trace, Rec) ->
     case re:run(Name, ?NAME_RE) of

@@ -37,6 +37,9 @@
     monitor_current/2
 ]).
 
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["APPROXIMATE_DESC"]}]).
+
 namespace() -> undefined.
 
 api_spec() ->

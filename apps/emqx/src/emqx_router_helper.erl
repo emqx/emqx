@@ -51,6 +51,7 @@
     cleanup_routes/1
 ]).
 
+-hank([{unused_record_fields, [{routing_node, const}]}]).
 -record(routing_node, {name, const = unused}).
 
 -define(LOCK, {?MODULE, cleanup_routes}).

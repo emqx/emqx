@@ -158,18 +158,8 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--define(ALARM_TCP_CONGEST(Channel),
-    list_to_binary(
-        io_lib:format(
-            "mqtt_conn/congested/~ts/~ts",
-            [
-                emqx_channel:info(clientid, Channel),
-                emqx_channel:info(username, Channel)
-            ]
-        )
-    )
-).
-
+% The ignore below is due to a hank's false-positive..!
+-hank([{unused_macros, ["ALARM_CONN_INFO_KEYS", "ALARM_SOCK_STATS_KEYS", "ALARM_SOCK_OPTS_KEYS"]}]).
 -define(ALARM_CONN_INFO_KEYS, [
     socktype,
     sockname,

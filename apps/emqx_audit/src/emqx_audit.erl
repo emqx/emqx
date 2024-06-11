@@ -27,8 +27,6 @@
     code_change/3
 ]).
 
--define(FILTER_REQ, [cert, host_info, has_sent_resp, pid, path_info, peer, ref, sock, streamid]).
-
 -ifdef(TEST).
 -define(INTERVAL, 100).
 -else.
