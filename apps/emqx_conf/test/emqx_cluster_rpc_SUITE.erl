@@ -142,7 +142,7 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     ?assertMatch(
         {init_failure,
             {error, #{
-                msg := stale_view_of_cluster_state,
+                msg := stale_view_of_cluster,
                 retry_times := 2,
                 cluster_tnx_id := 2,
                 node_tnx_id := 1,

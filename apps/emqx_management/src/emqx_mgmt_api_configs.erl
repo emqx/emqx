@@ -428,9 +428,9 @@ get_configs_v2(QueryStr) ->
     Conf =
         case maps:find(<<"key">>, QueryStr) of
             error ->
-                emqx_conf_proto_v3:get_hocon_config(Node);
+                emqx_conf_proto_v4:get_hocon_config(Node);
             {ok, Key} ->
-                emqx_conf_proto_v3:get_hocon_config(Node, atom_to_binary(Key))
+                emqx_conf_proto_v4:get_hocon_config(Node, atom_to_binary(Key))
         end,
     {
         200,
