@@ -105,7 +105,7 @@ init_per_testcase(TestCase, Config0) ->
                     parameters => #{container => ContainerName}
                 })
         end,
-    Client = start_control_client(Endpoint),
+    Client = new_control_driver(Endpoint),
     ct:pal("container name: ~s", [ContainerName]),
     ok = ensure_new_container(ContainerName, Client),
     Config = [
@@ -123,14 +123,12 @@ init_per_testcase(TestCase, Config0) ->
     Config.
 
 end_per_testcase(_Testcase, Config) ->
-    Client = ?config(client, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok = snabbkaffe:stop(),
-    stop_control_client(Client),
     ok.
 
 direct_action_cases() ->
@@ -144,16 +142,13 @@ direct_action_cases() ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-start_control_client(Endpoint) ->
-    {ok, Client} = erlazure:start(#{
+new_control_driver(Endpoint) ->
+    {ok, Client} = erlazure:new(#{
         endpoint => Endpoint,
         account => binary_to_list(?ACCOUNT_NAME_BIN),
         key => binary_to_list(?ACCOUNT_KEY_BIN)
     }),
     Client.
-
-stop_control_client(Client) ->
-    gen_server:stop(Client).
 
 container_name(Name) ->
     IOList = re:replace(bin(Name), <<"[^a-z0-9-]">>, <<"-">>, [global]),
