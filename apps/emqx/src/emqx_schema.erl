@@ -970,7 +970,7 @@ fields("tcp_opts") ->
     [
         {"active_n",
             sc(
-                integer(),
+                non_neg_integer(),
                 #{
                     default => 100,
                     desc => ?DESC(fields_tcp_opts_active_n)
