@@ -205,7 +205,7 @@ actor_init(
                     {error, <<"bad_remote_cluster_link_name">>}
             end;
         #{enable := false} ->
-            {error, <<"clster_link_disabled">>}
+            {error, <<"cluster_link_disabled">>}
     end.
 
 actor_init_ack(#{actor := Actor}, Res, MsgIn) ->

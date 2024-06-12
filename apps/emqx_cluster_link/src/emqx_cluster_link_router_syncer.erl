@@ -16,6 +16,13 @@
     push_persistent_route/4
 ]).
 
+%% debug/test helpers
+-export([
+    status/1,
+    where/1,
+    where/2
+]).
+
 -export([
     start_link_actor/4,
     start_link_syncer/4
@@ -46,8 +53,8 @@
 -define(CLIENT_NAME(Cluster), ?NAME(Cluster, client)).
 -define(SYNCER_NAME(Cluster), ?NAME(Cluster, syncer)).
 -define(SYNCER_REF(Cluster), {via, gproc, ?SYNCER_NAME(Cluster)}).
--define(ACTOR_REF(Cluster), {via, gproc, ?NAME(Cluster, actor)}).
 -define(ACTOR_NAME(Cluster), ?NAME(Cluster, actor)).
+-define(ACTOR_REF(Cluster), {via, gproc, ?ACTOR_NAME(Cluster)}).
 
 -define(MAX_BATCH_SIZE, 4000).
 -define(MIN_SYNC_INTERVAL, 10).
@@ -85,6 +92,22 @@
     end
 ).
 
+-record(st, {
+    target :: binary(),
+    actor :: binary(),
+    incarnation :: non_neg_integer(),
+    client :: undefined | pid(),
+    bootstrapped :: boolean(),
+    reconnect_timer :: undefined | reference(),
+    heartbeat_timer :: undefined | reference(),
+    actor_init_req_id :: undefined | binary(),
+    actor_init_timer :: undefined | reference(),
+    remote_actor_info :: undefined | map(),
+    status :: connecting | connected | disconnected,
+    error :: undefined | term(),
+    link_conf :: map()
+}).
+
 push(TargetCluster, OpName, Topic, ID) ->
     do_push(?SYNCER_NAME(TargetCluster), OpName, Topic, ID).
 
@@ -97,6 +120,24 @@ do_push(SyncerName, OpName, Topic, ID) ->
             emqx_router_syncer:push(SyncerPid, OpName, Topic, ID, #{});
         undefined ->
             dropped
+    end.
+
+%% Debug/test helpers
+where(Cluster) ->
+    where(actor, Cluster).
+
+where(actor, Cluster) ->
+    gproc:where(?ACTOR_NAME(Cluster));
+where(ps_actor, Cluster) ->
+    gproc:where(?PS_ACTOR_NAME(Cluster)).
+
+status(Cluster) ->
+    case where(actor, Cluster) of
+        Pid when is_pid(Pid) ->
+            #st{error = Err, status = Status} = sys:get_state(Pid),
+            #{error => Err, status => Status};
+        undefined ->
+            undefined
     end.
 
 %% Supervisor:
@@ -290,24 +331,6 @@ syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
         type => worker
     }.
 
-%%
-
--record(st, {
-    target :: binary(),
-    actor :: binary(),
-    incarnation :: non_neg_integer(),
-    client :: undefined | pid(),
-    bootstrapped :: boolean(),
-    reconnect_timer :: undefined | reference(),
-    heartbeat_timer :: undefined | reference(),
-    actor_init_req_id :: undefined | binary(),
-    actor_init_timer :: undefined | reference(),
-    remote_actor_info :: undefined | map(),
-    status :: connecting | connected | disconnected,
-    error :: undefined | term(),
-    link_conf :: map()
-}).
-
 mk_state(#{upstream := TargetCluster} = LinkConf, Actor, Incarnation) ->
     #st{
         target = TargetCluster,
@@ -361,6 +384,12 @@ handle_info(
                 remote_link_proto_ver => maps:get(proto_ver, AckInfoMap, undefined)
             }),
             _ = maybe_alarm(Reason, St1),
+            ?tp(
+                debug,
+                clink_handshake_error,
+                #{actor => {St1#st.actor, St1#st.incarnation}, reason => Reason}
+            ),
+            %% TODO: retry after a timeout?
             {noreply, St1#st{error = Reason, status = disconnected}}
     end;
 handle_info({publish, #{}}, St) ->
@@ -376,7 +405,7 @@ handle_info({timeout, TRef, actor_reinit}, St = #st{actor_init_timer = TRef}) ->
     Reason = init_timeout,
     _ = maybe_alarm(Reason, St),
     {noreply,
-        init_remote_actor(St#st{reconnect_timer = undefined, status = disconnected, error = Reason})};
+        init_remote_actor(St#st{actor_init_timer = undefined, status = disconnected, error = Reason})};
 handle_info({timeout, TRef, _Heartbeat}, St = #st{heartbeat_timer = TRef}) ->
     {noreply, process_heartbeat(St#st{heartbeat_timer = undefined})};
 %% Stale timeout.
@@ -386,7 +415,8 @@ handle_info(Info, St) ->
     ?SLOG(warning, #{msg => "unexpected_info", info => Info}),
     {noreply, St}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, State) ->
+    _ = maybe_deactivate_alarm(State),
     ok.
 
 process_connect(St = #st{target = TargetCluster, actor = Actor, link_conf = Conf}) ->
@@ -507,6 +537,11 @@ run_bootstrap(St = #st{target = TargetCluster, link_conf = #{topics := Topics}})
 run_bootstrap(Bootstrap, St) ->
     case emqx_cluster_link_router_bootstrap:next_batch(Bootstrap) of
         done ->
+            ?tp(
+                debug,
+                clink_route_bootstrap_complete,
+                #{actor => {St#st.actor, St#st.incarnation}, cluster => St#st.target}
+            ),
             process_bootstrapped(St);
         {Batch, NBootstrap} ->
             %% TODO: Better error handling.

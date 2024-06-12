@@ -123,7 +123,8 @@ t_actor_gc(_Config) ->
         [<<"global/#">>, <<"topic/#">>, <<"topic/42/+">>],
         topics_sorted()
     ),
-    _AS13 = apply_operation(heartbeat, AS12, 50_000),
+    _AS13 = apply_operation(heartbeat, AS12, 60_000),
+
     ?assertEqual(
         1,
         emqx_cluster_link_extrouter:actor_gc(env(60_000))

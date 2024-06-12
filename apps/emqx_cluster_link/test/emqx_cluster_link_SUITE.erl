@@ -15,12 +15,30 @@
 %%
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, shared_subs},
+        {group, non_shared_subs}
+    ].
+
+groups() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {shared_subs, AllTCs},
+        {non_shared_subs, AllTCs}
+    ].
 
 init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    ok.
+
+init_per_group(shared_subs, Config) ->
+    [{is_shared_sub, true} | Config];
+init_per_group(non_shared_subs, Config) ->
+    [{is_shared_sub, false} | Config].
+
+end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(TCName, Config) ->
@@ -136,11 +154,14 @@ t_message_forwarding('end', Config) ->
 t_message_forwarding(Config) ->
     [SourceNode1 | _] = nodes_source(Config),
     [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+
     SourceC1 = start_client("t_message_forwarding", SourceNode1),
     TargetC1 = start_client("t_message_forwarding1", TargetNode1),
     TargetC2 = start_client("t_message_forwarding2", TargetNode2),
-    {ok, _, _} = emqtt:subscribe(TargetC1, <<"t/+">>, qos1),
-    {ok, _, _} = emqtt:subscribe(TargetC2, <<"t/#">>, qos1),
+    IsShared = ?config(is_shared_sub, Config),
+
+    {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, <<"t/+">>), qos1),
+    {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, <<"t/#">>), qos1),
     {ok, _} = ?block_until(#{?snk_kind := clink_route_sync_complete}),
     {ok, _} = emqtt:publish(SourceC1, <<"t/42">>, <<"hello">>, qos1),
     ?assertReceive(
@@ -178,8 +199,10 @@ t_target_extrouting_gc(Config) ->
     SourceC1 = start_client("t_target_extrouting_gc", SourceNode1),
     TargetC1 = start_client_unlink("t_target_extrouting_gc1", TargetNode1),
     TargetC2 = start_client_unlink("t_target_extrouting_gc2", TargetNode2),
-    {ok, _, _} = emqtt:subscribe(TargetC1, <<"t/#">>, qos1),
-    {ok, _, _} = emqtt:subscribe(TargetC2, <<"t/+">>, qos1),
+    IsShared = ?config(is_shared_sub, Config),
+
+    {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, <<"t/#">>), qos1),
+    {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, <<"t/+">>), qos1),
     {ok, _} = ?block_until(#{?snk_kind := clink_route_sync_complete}),
     {ok, _} = emqtt:publish(SourceC1, <<"t/1">>, <<"HELLO1">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/2/ext">>, <<"HELLO2">>, qos1),
@@ -231,6 +254,11 @@ t_target_extrouting_gc(Config) ->
     ).
 
 %%
+
+maybe_shared_topic(true = _IsShared, Topic) ->
+    <<"$share/test-group/", Topic/binary>>;
+maybe_shared_topic(false = _IsShared, Topic) ->
+    Topic.
 
 start_client_unlink(ClientId, Node) ->
     Client = start_client(ClientId, Node),
