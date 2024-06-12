@@ -32,7 +32,7 @@
     {counter, 'packets.connack.error',
         <<"Number of received CONNECT packet with unsuccessful connections">>},
     {counter, 'packets.connack.auth_error',
-        <<"Number of received CONNECT packet with failed authentication">>},
+        <<"Number of received CONNECT packet with failed Authentication">>},
     {counter, 'packets.publish.received', <<"Number of received PUBLISH packet">>},
     %% PUBLISH packets sent
     {counter, 'packets.publish.sent', <<"Number of sent PUBLISH packet">>},
@@ -207,8 +207,8 @@
 -define(CLIENT_METRICS, [
     {counter, 'client.connect', <<"Number of client connections">>},
     {counter, 'client.connack', <<"Number of CONNACK packet sent">>},
-    {counter, 'client.connected', <<"Number of successful client connections">>},
-    {counter, 'client.authenticate', <<"Number of client authentications">>},
+    {counter, 'client.connected', <<"Number of successful client connected">>},
+    {counter, 'client.authenticate', <<"Number of client Authentication">>},
     {counter, 'client.auth.anonymous', <<"Number of clients who log in anonymously">>},
     {counter, 'client.authorize', <<"Number of Authorization rule checks">>},
     {counter, 'client.subscribe', <<"Number of client subscriptions">>},
