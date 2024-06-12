@@ -46,8 +46,13 @@ cmd(["load", Mod]) ->
         Nodes ->
             case emqx_utils:safe_to_existing_atom(Mod) of
                 {ok, Module} ->
-                    Res = recon:remote_load(Nodes, Module),
-                    emqx_ctl:print("Loaded ~p module on ~p: ~p~n", [Module, Nodes, Res]);
+                    case code:get_object_code(Module) of
+                        error ->
+                            emqx_ctl:print("Module(~s)'s object code not found~n", [Mod]);
+                        _ ->
+                            Res = recon:remote_load(Nodes, Module),
+                            emqx_ctl:print("Loaded ~p module on ~p: ~p~n", [Module, Nodes, Res])
+                    end;
                 {error, Reason} ->
                     emqx_ctl:print("Module(~s) not found: ~p~n", [Mod, Reason])
             end
