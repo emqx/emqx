@@ -36,7 +36,7 @@ init_per_suite(Config) ->
             {emqx_conf,
                 "authorization.cache { enable = false },"
                 "authorization.no_match = deny,"
-                "authorization.sources = [{type = built_in_database, max_rules_len = 5}]"},
+                "authorization.sources = [{type = built_in_database, max_rules = 5}]"},
             emqx,
             emqx_auth,
             emqx_auth_mnesia,

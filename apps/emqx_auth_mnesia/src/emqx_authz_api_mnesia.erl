@@ -478,11 +478,14 @@ users(post, #{body := Body}) when is_list(Body) ->
                 Body
             ),
             {204};
-        {error, rules_too_long} ->
+        {error, {Username, too_many_rules}} ->
             {400, #{
                 code => <<"BAD_REQUEST">>,
                 message =>
-                    <<"The length of rules exceeds the maximum limit.">>
+                    binfmt(
+                        <<"The rules length of User '~ts' exceeds the maximum limit.">>,
+                        [Username]
+                    )
             }};
         {error, {already_exists, Exists}} ->
             {409, #{
@@ -522,11 +525,14 @@ clients(post, #{body := Body}) when is_list(Body) ->
                 Body
             ),
             {204};
-        {error, rules_too_long} ->
+        {error, {ClientId, too_many_rules}} ->
             {400, #{
                 code => <<"BAD_REQUEST">>,
                 message =>
-                    <<"The length of rules exceeds the maximum limit.">>
+                    binfmt(
+                        <<"The rules length of Client '~ts' exceeds the maximum limit.">>,
+                        [ClientId]
+                    )
             }};
         {error, {already_exists, Exists}} ->
             {409, #{
@@ -724,7 +730,7 @@ rules_example({ExampleName, ExampleType}) ->
 ensure_rules_len(Rules) ->
     emqx_authz_api_sources:with_source(
         ?AUTHZ_TYPE_BIN,
-        fun(#{<<"max_rules_len">> := MaxLen}) ->
+        fun(#{<<"max_rules">> := MaxLen}) ->
             ensure_rules_len(Rules, MaxLen)
         end
     ).
@@ -734,13 +740,13 @@ ensure_rules_len(Rules, MaxLen) ->
         true ->
             ok;
         _ ->
-            {error, rules_too_long}
+            {error, too_many_rules}
     end.
 
 ensure_rules_is_valid(Key, Type, Cfgs) ->
     MaxLen = emqx_authz_api_sources:with_source(
         ?AUTHZ_TYPE_BIN,
-        fun(#{<<"max_rules_len">> := MaxLen}) ->
+        fun(#{<<"max_rules">> := MaxLen}) ->
             MaxLen
         end
     ),
@@ -753,8 +759,8 @@ ensure_rules_is_valid(Key, Type, MaxLen, [Cfg | Cfgs]) ->
             case ensure_rules_len(Rules, MaxLen) of
                 ok ->
                     ensure_rules_is_valid(Key, Type, MaxLen, Cfgs);
-                Error ->
-                    Error
+                {error, Reason} ->
+                    {error, {Id, Reason}}
             end;
         _ ->
             {error, {already_exists, Id}}

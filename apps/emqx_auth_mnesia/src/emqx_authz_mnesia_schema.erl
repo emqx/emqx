@@ -30,7 +30,7 @@
     namespace/0
 ]).
 
--define(MAX_RULES_LEN, 100).
+-define(MAX_RULES, 100).
 
 namespace() -> "authz".
 
@@ -39,12 +39,12 @@ type() -> ?AUTHZ_TYPE.
 fields(builtin_db) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
         [
-            {max_rules_len,
+            {max_rules,
                 ?HOCON(
                     pos_integer(),
                     #{
-                        default => ?MAX_RULES_LEN,
-                        desc => ?DESC(max_rules_len)
+                        default => ?MAX_RULES,
+                        desc => ?DESC(max_rules)
                     }
                 )}
         ].
