@@ -59,7 +59,6 @@
 -define(VSN_WILDCARD, "-*.tar.gz").
 
 -define(CONTENT_PLUGIN, plugin).
--define(CONTENT_CONFIG, config).
 
 namespace() ->
     "plugins".
@@ -565,6 +564,7 @@ install_package(FileName, Bin) ->
     ok = filelib:ensure_dir(File),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
+    put(?fresh_install, true),
     case emqx_plugins:ensure_installed(PackageName) of
         {error, #{reason := not_found}} = NotFound ->
             NotFound;

@@ -1233,9 +1233,18 @@ maybe_ensure_plugin_config(NameVsn) ->
 
 -spec ensure_plugin_config(name_vsn()) -> ok.
 ensure_plugin_config(NameVsn) ->
-    %% fetch plugin hocon config from cluster
-    Nodes = [N || N <- mria:running_nodes(), N /= node()],
-    ensure_plugin_config(NameVsn, Nodes).
+    case get(?fresh_install) of
+        true ->
+            ?SLOG(debug, #{
+                msg => "default_plugin_config_used",
+                name_vsn => NameVsn,
+                reason => "fresh_install"
+            }),
+            cp_default_config_file(NameVsn);
+        _ ->
+            %% fetch plugin hocon config from cluster
+            ensure_plugin_config(NameVsn, [N || N <- mria:running_nodes(), N /= node()])
+    end.
 
 -spec ensure_plugin_config(name_vsn(), list()) -> ok.
 ensure_plugin_config(NameVsn, []) ->
@@ -1255,8 +1264,6 @@ ensure_plugin_config(NameVsn, Nodes) ->
             ensure_config_map(NameVsn);
         _ ->
             ?SLOG(error, #{msg => "config_not_found_from_cluster", name_vsn => NameVsn}),
-            %% otherwise cp default hocon file
-            %% i.e. Clean installation
             cp_default_config_file(NameVsn)
     end.
 
