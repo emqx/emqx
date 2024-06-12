@@ -292,6 +292,7 @@ json_obj_root(Data0, Config) ->
             _ ->
                 json(Msg1, Config)
         end,
+    MFA = emqx_utils:format_mfal(Data0, Config),
     Data =
         maps:fold(
             fun(K, V, D) ->
@@ -300,12 +301,12 @@ json_obj_root(Data0, Config) ->
             end,
             [],
             maps:without(
-                [time, gl, file, report_cb, msg, '$kind', level, is_trace], Data0
+                [time, gl, file, report_cb, msg, '$kind', level, mfa, is_trace], Data0
             )
         ),
     lists:filter(
         fun({_, V}) -> V =/= undefined end,
-        [{time, format_ts(Time, Config)}, {level, Level}, {msg, Msg}]
+        [{time, format_ts(Time, Config)}, {level, Level}, {msg, Msg}, {mfa, MFA}]
     ) ++ Data.
 
 format_ts(Ts, #{timestamp_format := rfc3339, time_offset := Offset}) when is_integer(Ts) ->

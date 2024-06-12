@@ -24,7 +24,7 @@
 %% Used in the other log formatters
 -export([evaluate_lazy_values_if_dbg_level/1, evaluate_lazy_values/1]).
 
-check_config(X) -> logger_formatter:check_config(maps:without([timestamp_format], X)).
+check_config(X) -> logger_formatter:check_config(maps:without([timestamp_format, with_mfa], X)).
 
 %% Principle here is to delegate the formatting to logger_formatter:format/2
 %% as much as possible, and only enrich the report with clientid, peername, topic, username
@@ -32,7 +32,7 @@ format(#{msg := {report, ReportMap0}, meta := _Meta} = Event0, Config) when is_m
     #{msg := {report, ReportMap}, meta := Meta} = Event = evaluate_lazy_values_if_dbg_level(Event0),
     %% The most common case, when entering from SLOG macro
     %% i.e. logger:log(Level, #{msg => "my_msg", foo => bar})
-    ReportList = enrich_report(ReportMap, Meta),
+    ReportList = enrich_report(ReportMap, Meta, Config),
     Report =
         case is_list_report_acceptable(Meta) of
             true ->
@@ -40,18 +40,24 @@ format(#{msg := {report, ReportMap0}, meta := _Meta} = Event0, Config) when is_m
             false ->
                 maps:from_list(ReportList)
         end,
-    fmt(Event#{msg := {report, Report}}, Config);
+    fmt(Event#{msg := {report, Report}}, maps:remove(with_mfa, Config));
 format(#{msg := {string, String}} = Event, Config) ->
     %% copied from logger_formatter:format/2
     %% unsure how this case is triggered
-    format(Event#{msg => {"~ts ", [String]}}, Config);
+    format(Event#{msg => {"~ts ", [String]}}, maps:remove(with_mfa, Config));
 format(#{msg := _Msg, meta := _Meta} = Event0, Config) ->
     #{msg := Msg0, meta := Meta} = Event1 = evaluate_lazy_values_if_dbg_level(Event0),
     %% For format strings like logger:log(Level, "~p", [Var])
     %% and logger:log(Level, "message", #{key => value})
     Msg1 = enrich_client_info(Msg0, Meta),
-    Msg2 = enrich_topic(Msg1, Meta),
-    fmt(Event1#{msg := Msg2}, Config).
+    Msg2 = enrich_mfa(Msg1, Meta, Config),
+    Msg3 = enrich_topic(Msg2, Meta),
+    fmt(Event1#{msg := Msg3}, maps:remove(with_mfa, Config)).
+
+enrich_mfa({Fmt, Args}, Data, #{with_mfa := true} = Config) when is_list(Fmt) ->
+    {Fmt ++ " mfa: ~ts", Args ++ [emqx_utils:format_mfal(Data, Config)]};
+enrich_mfa(Msg, _, _) ->
+    Msg.
 
 %% Most log entries with lazy values are trace events with level debug. So to
 %% be more efficient we only search for lazy values to evaluate in the entries
@@ -101,7 +107,7 @@ is_list_report_acceptable(#{report_cb := Cb}) ->
 is_list_report_acceptable(_) ->
     false.
 
-enrich_report(ReportRaw, Meta) ->
+enrich_report(ReportRaw, Meta, Config) ->
     %% clientid and peername always in emqx_conn's process metadata.
     %% topic and username can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
     Topic =
@@ -117,6 +123,7 @@ enrich_report(ReportRaw, Meta) ->
     ClientId = maps:get(clientid, Meta, undefined),
     Peer = maps:get(peername, Meta, undefined),
     Msg = maps:get(msg, ReportRaw, undefined),
+    MFA = emqx_utils:format_mfal(Meta, Config),
     %% TODO: move all tags to Meta so we can filter traces
     %% based on tags (currently not supported)
     Tag = maps:get(tag, ReportRaw, maps:get(tag, Meta, undefined)),
@@ -131,6 +138,7 @@ enrich_report(ReportRaw, Meta) ->
             {topic, try_format_unicode(Topic)},
             {username, try_format_unicode(Username)},
             {peername, Peer},
+            {mfa, try_format_unicode(MFA)},
             {msg, Msg},
             {clientid, try_format_unicode(ClientId)},
             {tag, Tag}

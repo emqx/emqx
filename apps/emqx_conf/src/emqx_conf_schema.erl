@@ -1247,7 +1247,7 @@ tr_cluster_discovery(Conf) ->
 log_handler_common_confs(Handler, Default) ->
     %% We rarely support dynamic defaults like this.
     %% For this one, we have build-time default the same as runtime default so it's less tricky
-    %% Buildtime default: "" (which is the same as "file")
+    %% Build time default: "" (which is the same as "file")
     %% Runtime default: "file" (because .service file sets EMQX_DEFAULT_LOG_HANDLER to "file")
     EnableValues =
         case Handler of
@@ -1367,6 +1367,15 @@ log_handler_common_confs(Handler, Default) ->
                 #{
                     default => 100,
                     desc => ?DESC("common_handler_max_depth"),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"with_mfa",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => <<"Recording MFA and line in the log(usefully).">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
