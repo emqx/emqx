@@ -131,7 +131,9 @@ handle_event(
     } = Data
 ) ->
     case emqx_eviction_agent:all_channels_count() of
-        Sessions when Sessions > 0 ->
+        InMemSessions when InMemSessions > 0 ->
+            DSCount = emqx_eviction_agent:durable_session_count(),
+            Sessions = InMemSessions + DSCount,
             ok = purge_sessions(PurgeRate),
             ?tp(
                 warning,
@@ -145,11 +147,41 @@ handle_event(
             {keep_state, NewData, [{state_timeout, ?EVICT_INTERVAL, purge}]};
         _Sessions = 0 ->
             NewData = Data#{current_conns => 0},
+            {keep_state, NewData, [
+                {state_timeout, 0, purge_ds}
+            ]}
+    end;
+%% durable session purge
+handle_event(
+    state_timeout,
+    purge_ds,
+    ?purging,
+    #{
+        purge_rate := PurgeRate
+    } = Data
+) ->
+    case purge_durable_sessions(PurgeRate) of
+        ok ->
+            %% Count is updated asynchronously; better rely on deletion results to known
+            %% when to stop.
+            Sessions = emqx_eviction_agent:durable_session_count(),
+            ?tp(
+                warning,
+                "cluster_purge_evict_sessions",
+                #{
+                    count => Sessions,
+                    purge_rate => PurgeRate
+                }
+            ),
+            NewData = Data#{current_sessions => Sessions},
+            {keep_state, NewData, [{state_timeout, ?EVICT_INTERVAL, purge_ds}]};
+        done ->
             ?SLOG(warning, #{msg => "cluster_purge_evict_sessions_done"}),
-            {next_state, ?cleaning_data, NewData, [
+            {next_state, ?cleaning_data, Data, [
                 {state_timeout, 0, clean_retained_messages}
             ]}
     end;
+%% retained message purge
 handle_event(
     state_timeout,
     clean_retained_messages,
@@ -195,7 +227,11 @@ init_data(Data0, Opts) ->
 
 deinit(Data) ->
     Keys =
-        [initial_sessions, current_sessions | maps:keys(default_opts())],
+        [
+            initial_sessions,
+            current_sessions
+            | maps:keys(default_opts())
+        ],
     maps:without(Keys, Data).
 
 multicall(Nodes, F, A) ->
@@ -231,3 +267,6 @@ purge_sessions(PurgeRate) ->
     Nodes = emqx:running_nodes(),
     _ = multicall(Nodes, purge_sessions, [PurgeRate]),
     ok.
+
+purge_durable_sessions(PurgeRate) ->
+    emqx_eviction_agent:purge_durable_sessions(PurgeRate).

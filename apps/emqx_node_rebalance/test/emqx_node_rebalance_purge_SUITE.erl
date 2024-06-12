@@ -24,13 +24,23 @@
     ]
 ).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 all() ->
-    [{group, one_node}, {group, two_nodes}].
+    [
+        {group, durability_enabled},
+        {group, one_node},
+        {group, two_nodes}
+    ].
 
 groups() ->
-    [
+    Groups = [
         {one_node, [], one_node_cases()},
         {two_nodes, [], two_nodes_cases()}
+    ],
+    [
+        {durability_enabled, [], Groups}
+        | Groups
     ].
 
 two_nodes_cases() ->
@@ -43,19 +53,17 @@ one_node_cases() ->
     emqx_common_test_helpers:all(?MODULE) -- two_nodes_cases().
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
-    [{apps, Apps} | Config].
+    Config.
 
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
+end_per_suite(_Config) ->
     ok.
 
 init_per_group(one_node, Config) ->
     [{cluster_type, one_node} | Config];
 init_per_group(two_nodes, Config) ->
-    [{cluster_type, two_nodes} | Config].
+    [{cluster_type, two_nodes} | Config];
+init_per_group(durability_enabled, Config) ->
+    [{durability, enabled} | Config].
 
 end_per_group(_Group, _Config) ->
     ok.
@@ -77,7 +85,7 @@ init_per_testcase(TestCase, Config) ->
         role => core,
         join_to => emqx_cth_cluster:node_name(Node1),
         listeners => true,
-        apps => app_specs()
+        apps => app_specs(Config)
     },
     Cluster = [{Node, Spec} || Node <- Nodes],
     ClusterNodes = emqx_cth_cluster:start(
@@ -98,12 +106,25 @@ end_per_testcase(_TestCase, Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-app_specs() ->
+app_specs(CTConfig) ->
+    DSConfig =
+        case proplists:get_value(durability, CTConfig, disabled) of
+            enabled ->
+                #{
+                    durable_sessions =>
+                        #{
+                            enable => true
+                        }
+                };
+            disabled ->
+                #{}
+        end,
     [
         {emqx, #{
             before_start => fun() ->
                 emqx_app:set_config_loader(?MODULE)
             end,
+            config => DSConfig,
             override_env => [{boot_modules, [broker, listeners]}]
         }},
         {emqx_retainer, #{
@@ -320,6 +341,12 @@ t_session_purged(Config) ->
     NumClientsNode2 = 35,
     Node1Clients = emqtt_connect_many(Port1, NumClientsNode1, _StartN1 = 1),
     Node2Clients = emqtt_connect_many(Port2, NumClientsNode2, _StartN2 = 21),
+    AllClientPids = Node1Clients ++ Node2Clients,
+    AllClientIds =
+        lists:map(
+            fun(ClientPid) -> proplists:get_value(clientid, emqtt:info(ClientPid)) end,
+            AllClientPids
+        ),
     lists:foreach(
         fun(C) ->
             ClientId = proplists:get_value(clientid, emqtt:info(C)),
@@ -354,6 +381,32 @@ t_session_purged(Config) ->
     ?assertEqual(0, erpc:call(Node1, emqx_delayed, delayed_count, [])),
     ?assertEqual(0, erpc:call(Node2, emqx_delayed, delayed_count, [])),
 
-    ok = drain_exits(Node1Clients ++ Node2Clients),
+    ok = drain_exits(AllClientPids),
+
+    FormatFun = undefined,
+    ?assertEqual(
+        [],
+        ?ON(
+            Node1,
+            lists:flatmap(
+                fun(ClientId) ->
+                    emqx_mgmt:lookup_client({clientid, ClientId}, FormatFun)
+                end,
+                AllClientIds
+            )
+        )
+    ),
+    ?assertEqual(
+        [],
+        ?ON(
+            Node2,
+            lists:flatmap(
+                fun(ClientId) ->
+                    emqx_mgmt:lookup_client({clientid, ClientId}, FormatFun)
+                end,
+                AllClientIds
+            )
+        )
+    ),
 
     ok.
