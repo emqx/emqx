@@ -164,7 +164,7 @@ toggle_hook_and_broker([_ | _] = _NewEnabledLinks, [] = _OldEnabledLinks) ->
     ok = emqx_cluster_link:register_external_broker(),
     ok = emqx_cluster_link:put_hook();
 toggle_hook_and_broker([] = _NewEnabledLinks, _OldLinks) ->
-    ok = emqx_cluster_link:unregister_external_broker(),
+    _ = emqx_cluster_link:unregister_external_broker(),
     ok = emqx_cluster_link:delete_hook();
 toggle_hook_and_broker(_, _) ->
     ok.
