@@ -885,7 +885,7 @@ fields("ws_opts") ->
             )},
         {"max_frame_size",
             sc(
-                hoconsc:union([infinity, integer()]),
+                hoconsc:union([infinity, pos_integer()]),
                 #{
                     default => infinity,
                     desc => ?DESC(fields_ws_opts_max_frame_size)
