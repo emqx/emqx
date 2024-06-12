@@ -30,4 +30,9 @@ get_prom_schema_validation.desc:
 get_prom_schema_validation.label:
 """Prometheus Metrics for Schema Validation"""
 
+get_prom_message_transformation.desc:
+"""Get Prometheus Metrics for Message Validation"""
+get_prom_message_transformation.label:
+"""Prometheus Metrics for Message Validation"""
+
 }

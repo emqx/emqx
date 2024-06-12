@@ -69,7 +69,7 @@ render(Expression, Bindings) ->
     render(Expression, Bindings, #{}).
 
 render(#{form := Form}, Bindings, Opts) ->
-    eval_as_string(Form, Bindings, Opts);
+    eval_render(Form, Bindings, Opts);
 render(Expression, Bindings, Opts) ->
     case compile(Expression) of
         {ok, Compiled} ->
@@ -78,9 +78,16 @@ render(Expression, Bindings, Opts) ->
             {error, Reason}
     end.
 
-eval_as_string(Expr, Bindings, _Opts) ->
+eval_render(Expr, Bindings, Opts) ->
+    EvalAsStr = maps:get(eval_as_string, Opts, true),
     try
-        {ok, return_str(eval(Expr, Bindings, #{}))}
+        Result = eval(Expr, Bindings, #{}),
+        case EvalAsStr of
+            true ->
+                {ok, return_str(Result)};
+            false ->
+                {ok, Result}
+        end
     catch
         throw:Reason ->
             {error, Reason};
@@ -88,7 +95,7 @@ eval_as_string(Expr, Bindings, _Opts) ->
             {error, #{exception => C, reason => E, stack_trace => S}}
     end.
 
-%% Force the expression to return binary string.
+%% Force the expression to return binary string (in most cases).
 return_str(Str) when is_binary(Str) -> Str;
 return_str(Num) when is_integer(Num) -> integer_to_binary(Num);
 return_str(Num) when is_float(Num) -> float_to_binary(Num, [{decimals, 10}, compact]);
@@ -313,7 +320,7 @@ assert_module_allowed(Mod) ->
             ok;
         false ->
             throw(#{
-                reason => unallowed_veriform_module,
+                reason => unallowed_variform_module,
                 module => Mod
             })
     end.

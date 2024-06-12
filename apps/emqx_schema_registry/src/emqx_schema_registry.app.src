@@ -11,7 +11,8 @@
         stdlib,
         erlavro,
         gpb,
-        jesse
+        jesse,
+        emqx
     ]},
     {env, []},
     {modules, []},

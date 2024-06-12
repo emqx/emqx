@@ -568,6 +568,7 @@ t_egress_short_clientid(_Config) ->
     Name = <<"abc01234">>,
     BaseId = emqx_bridge_mqtt_lib:clientid_base([Name]),
     ExpectedClientId = iolist_to_binary([BaseId, $:, "1"]),
+    ?assertMatch(<<"abc01234", _/binary>>, ExpectedClientId),
     test_egress_clientid(Name, ExpectedClientId).
 
 t_egress_long_clientid(_Config) ->
@@ -578,11 +579,34 @@ t_egress_long_clientid(_Config) ->
     ExpectedClientId = emqx_bridge_mqtt_lib:bytes23(BaseId, 1),
     test_egress_clientid(Name, ExpectedClientId).
 
+t_egress_with_short_prefix(_Config) ->
+    %% Expect the actual client ID in use is hashed from
+    %% <prefix>head(sha1(<name><nodename-hash>:<pool_worker_id>), 16)
+    Prefix = <<"012-">>,
+    Name = <<"345">>,
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name]),
+    ExpectedClientId = emqx_bridge_mqtt_lib:bytes23_with_prefix(Prefix, BaseId, 1),
+    ?assertMatch(<<"012-", _/binary>>, ExpectedClientId),
+    test_egress_clientid(Name, Prefix, ExpectedClientId).
+
+t_egress_with_long_prefix(_Config) ->
+    %% Expect the actual client ID in use is hashed from
+    %% <prefix><name><nodename-hash>:<pool_worker_id>
+    Prefix = <<"0123456789abcdef01234-">>,
+    Name = <<"345">>,
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name]),
+    ExpectedClientId = iolist_to_binary([Prefix, BaseId, <<":1">>]),
+    test_egress_clientid(Name, Prefix, ExpectedClientId).
+
 test_egress_clientid(Name, ExpectedClientId) ->
+    test_egress_clientid(Name, <<>>, ExpectedClientId).
+
+test_egress_clientid(Name, ClientIdPrefix, ExpectedClientId) ->
     BridgeIDEgress = create_bridge(
         ?SERVER_CONF#{
             <<"name">> => Name,
-            <<"egress">> => (?EGRESS_CONF)#{<<"pool_size">> => 1}
+            <<"egress">> => (?EGRESS_CONF)#{<<"pool_size">> => 1},
+            <<"clientid_prefix">> => ClientIdPrefix
         }
     ),
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,

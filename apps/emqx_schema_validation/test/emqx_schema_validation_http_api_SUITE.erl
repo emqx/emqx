@@ -356,24 +356,35 @@ protobuf_invalid_payloads() ->
     ].
 
 protobuf_create_serde(SerdeName) ->
-    Source =
-        <<
-            "message Person {\n"
-            "     required string name = 1;\n"
-            "     required int32 id = 2;\n"
-            "     optional string email = 3;\n"
-            "  }\n"
-            "message UnionValue {\n"
-            "    oneof u {\n"
-            "        int32  a = 1;\n"
-            "        string b = 2;\n"
-            "    }\n"
-            "}"
-        >>,
+    protobuf_upsert_serde(SerdeName, <<"Person">>).
+
+protobuf_upsert_serde(SerdeName, MessageType) ->
+    Source = protobuf_source(MessageType),
     Schema = #{type => protobuf, source => Source},
     ok = emqx_schema_registry:add_schema(SerdeName, Schema),
     on_exit(fun() -> ok = emqx_schema_registry:delete_schema(SerdeName) end),
     ok.
+
+protobuf_source(MessageType) ->
+    iolist_to_binary(
+        [
+            <<"message ">>,
+            MessageType,
+            <<" {\n">>,
+            <<
+                "     required string name = 1;\n"
+                "     required int32 id = 2;\n"
+                "     optional string email = 3;\n"
+                "  }\n"
+                "message UnionValue {\n"
+                "    oneof u {\n"
+                "        int32  a = 1;\n"
+                "        string b = 2;\n"
+                "    }\n"
+                "}"
+            >>
+        ]
+    ).
 
 %% Checks that the internal order in the registry/index matches expectation.
 assert_index_order(ExpectedOrder, Topic, Comment) ->
@@ -1044,6 +1055,7 @@ t_duplicated_schema_checks(_Config) ->
     Name1 = <<"foo">>,
     SerdeName = <<"myserde">>,
     Check = schema_check(json, SerdeName),
+    json_create_serde(SerdeName),
 
     Validation1 = validation(Name1, [Check, sql_check(), Check]),
     ?assertMatch({400, _}, insert(Validation1)),
@@ -1133,18 +1145,87 @@ t_multiple_validations(_Config) ->
 
     ok.
 
+%% Test that we validate schema registry serde existency when using the HTTP API.
 t_schema_check_non_existent_serde(_Config) ->
     SerdeName = <<"idontexist">>,
     Name1 = <<"foo">>,
+
     Check1 = schema_check(json, SerdeName),
     Validation1 = validation(Name1, [Check1]),
-    {201, _} = insert(Validation1),
+    ?assertMatch({400, _}, insert(Validation1)),
 
-    C = connect(<<"c1">>),
-    {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+    Check2 = schema_check(avro, SerdeName),
+    Validation2 = validation(Name1, [Check2]),
+    ?assertMatch({400, _}, insert(Validation2)),
 
-    ok = publish(C, <<"t/1">>, #{i => 10, s => <<"s">>}),
-    ?assertNotReceive({publish, _}),
+    MessageType = <<"idontexisteither">>,
+    Check3 = schema_check(protobuf, SerdeName, #{<<"message_type">> => MessageType}),
+    Validation3 = validation(Name1, [Check3]),
+    ?assertMatch({400, _}, insert(Validation3)),
+
+    protobuf_create_serde(SerdeName),
+    %% Still fails because reference message type doesn't exist.
+    ?assertMatch({400, _}, insert(Validation3)),
+
+    ok.
+
+%% Test that we validate schema registry serde existency when loading configs.
+t_schema_check_non_existent_serde_load_config(_Config) ->
+    Name1 = <<"1">>,
+    SerdeName1 = <<"serde1">>,
+    MessageType1 = <<"mt">>,
+    Check1A = schema_check(protobuf, SerdeName1, #{<<"message_type">> => MessageType1}),
+    Validation1A = validation(Name1, [Check1A]),
+    protobuf_upsert_serde(SerdeName1, MessageType1),
+    {201, _} = insert(Validation1A),
+    Name2 = <<"2">>,
+    SerdeName2 = <<"serde2">>,
+    Check2A = schema_check(json, SerdeName2),
+    Validation2A = validation(Name2, [Check2A]),
+    json_create_serde(SerdeName2),
+    {201, _} = insert(Validation2A),
+
+    %% Config to load
+    %% Will replace existing config
+    MissingMessageType = <<"missing_mt">>,
+    Check1B = schema_check(protobuf, SerdeName1, #{<<"message_type">> => MissingMessageType}),
+    Validation1B = validation(Name1, [Check1B]),
+
+    %% Will replace existing config
+    MissingSerdeName1 = <<"missing1">>,
+    Check2B = schema_check(json, MissingSerdeName1),
+    Validation2B = validation(Name2, [Check2B]),
+
+    %% New validation; should be appended
+    Name3 = <<"3">>,
+    MissingSerdeName2 = <<"missing2">>,
+    Check3 = schema_check(avro, MissingSerdeName2),
+    Validation3 = validation(Name3, [Check3]),
+
+    ConfRootBin = <<"schema_validation">>,
+    ConfigToLoad1 = #{
+        ConfRootBin => #{
+            <<"validations">> => [Validation1B, Validation2B, Validation3]
+        }
+    },
+    ConfigToLoadBin1 = iolist_to_binary(hocon_pp:do(ConfigToLoad1, #{})),
+    %% Merge
+    ResMerge = emqx_conf_cli:load_config(ConfigToLoadBin1, #{mode => merge}),
+    ?assertMatch({error, _}, ResMerge),
+    {error, ErrorMessage1} = ResMerge,
+    ?assertEqual(match, re:run(ErrorMessage1, <<"missing_schemas">>, [{capture, none}])),
+    ?assertEqual(match, re:run(ErrorMessage1, MissingSerdeName1, [{capture, none}])),
+    ?assertEqual(match, re:run(ErrorMessage1, MissingSerdeName2, [{capture, none}])),
+    ?assertEqual(match, re:run(ErrorMessage1, MissingMessageType, [{capture, none}])),
+
+    %% Replace
+    ResReplace = emqx_conf_cli:load_config(ConfigToLoadBin1, #{mode => replace}),
+    ?assertMatch({error, _}, ResReplace),
+    {error, ErrorMessage2} = ResReplace,
+    ?assertEqual(match, re:run(ErrorMessage2, <<"missing_schemas">>, [{capture, none}])),
+    ?assertEqual(match, re:run(ErrorMessage2, MissingSerdeName1, [{capture, none}])),
+    ?assertEqual(match, re:run(ErrorMessage2, MissingSerdeName2, [{capture, none}])),
+    ?assertEqual(match, re:run(ErrorMessage2, MissingMessageType, [{capture, none}])),
 
     ok.
 
@@ -1235,16 +1316,16 @@ t_schema_check_protobuf(_Config) ->
     ),
 
     %% Bad config: unknown message name
-    Check2 = schema_check(protobuf, SerdeName, #{<<"message_type">> => <<"idontexist">>}),
-    Validation2 = validation(Name1, [Check2]),
-    {200, _} = update(Validation2),
+    %% Schema updated to use another message type after validation was created
+    OtherMessageType = <<"NewPersonType">>,
+    protobuf_upsert_serde(SerdeName, OtherMessageType),
 
     lists:foreach(
         fun(Payload) ->
             ok = publish(C, <<"t/1">>, {raw, Payload}),
             ?assertNotReceive({publish, _})
         end,
-        protobuf_valid_payloads(SerdeName, MessageType)
+        protobuf_valid_payloads(SerdeName, OtherMessageType)
     ),
 
     ok.

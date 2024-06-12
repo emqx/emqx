@@ -24,10 +24,13 @@
 -define(PROMETHEUS_DATA_INTEGRATION_COLLECTOR, emqx_prometheus_data_integration).
 -define(PROMETHEUS_SCHEMA_VALIDATION_REGISTRY, '/prometheus/schema_validation').
 -define(PROMETHEUS_SCHEMA_VALIDATION_COLLECTOR, emqx_prometheus_schema_validation).
+-define(PROMETHEUS_MESSAGE_TRANSFORMATION_REGISTRY, '/prometheus/message_transformation').
+-define(PROMETHEUS_MESSAGE_TRANSFORMATION_COLLECTOR, emqx_prometheus_message_transformation).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -define(PROMETHEUS_EE_REGISTRIES, [
-    ?PROMETHEUS_SCHEMA_VALIDATION_REGISTRY
+    ?PROMETHEUS_SCHEMA_VALIDATION_REGISTRY,
+    ?PROMETHEUS_MESSAGE_TRANSFORMATION_REGISTRY
 ]).
 %% ELSE if(?EMQX_RELEASE_EDITION == ee).
 -else.

@@ -211,6 +211,10 @@
         {counter, 'messages.validation_failed'},
         %% % Messages that passed validations
         {counter, 'messages.validation_succeeded'},
+        %% % Messages that failed transformations
+        {counter, 'messages.transformation_failed'},
+        %% % Messages that passed transformations
+        {counter, 'messages.transformation_succeeded'},
         % QoS2 Messages expired
         {counter, 'messages.dropped.await_pubrel_timeout'},
         % Messages dropped
@@ -721,4 +725,6 @@ reserved_idx('overload_protection.new_conn') -> 404;
 reserved_idx('messages.validation_succeeded') -> 405;
 reserved_idx('messages.validation_failed') -> 406;
 reserved_idx('messages.persisted') -> 407;
+reserved_idx('messages.transformation_succeeded') -> 408;
+reserved_idx('messages.transformation_failed') -> 409;
 reserved_idx(_) -> undefined.

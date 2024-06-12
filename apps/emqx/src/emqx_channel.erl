@@ -685,21 +685,28 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
     end.
 
 packet_to_message(Packet, #channel{
-    conninfo = #{proto_ver := ProtoVer},
-    clientinfo = #{
-        protocol := Protocol,
-        clientid := ClientId,
-        username := Username,
-        peerhost := PeerHost,
-        mountpoint := MountPoint
-    }
+    conninfo = #{
+        peername := PeerName,
+        proto_ver := ProtoVer
+    },
+    clientinfo =
+        #{
+            protocol := Protocol,
+            clientid := ClientId,
+            username := Username,
+            peerhost := PeerHost,
+            mountpoint := MountPoint
+        } = ClientInfo
 }) ->
+    ClientAttrs = maps:get(client_attrs, ClientInfo, #{}),
     emqx_mountpoint:mount(
         MountPoint,
         emqx_packet:to_message(
             Packet,
             ClientId,
             #{
+                client_attrs => ClientAttrs,
+                peername => PeerName,
                 proto_ver => ProtoVer,
                 protocol => Protocol,
                 username => Username,
