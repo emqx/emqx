@@ -105,6 +105,9 @@ authorize(
                         body => Body
                     }),
                     nomatch;
+                {error, Reason} ->
+                    ?tp(error, bad_authz_http_response, #{reason => Reason}),
+                    nomatch;
                 Result ->
                     {matched, Result}
             end;
