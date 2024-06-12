@@ -102,7 +102,8 @@ defmodule EMQXUmbrella.MixProject do
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       {:mimerl, "1.2.0", override: true},
-      {:ra, "2.7.3", override: true}
+      {:ra, "2.7.3", override: true},
+      {:sasl_auth, github: "zhongwencool/sasl_auth", tag: "v2.0.3-alpha", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ jq_dep() ++ quicer_dep()

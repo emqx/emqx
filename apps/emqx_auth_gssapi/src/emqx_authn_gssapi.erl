@@ -94,12 +94,14 @@ auth_begin(SaslConn, ClientToken) ->
         {ok, {sasl_continue, ServerToken}} ->
             {continue, ServerToken, #{sasl_conn => SaslConn}};
         {ok, {sasl_ok, ServerToken}} ->
+            sasl_auth:server_done(SaslConn),
             {ok, #{}, ServerToken};
         Reason ->
             ?TRACE_AUTHN_PROVIDER("sasl_gssapi_start_failed", #{
                 reason => Reason,
                 sasl_function => "server_server_start"
             }),
+            sasl_auth:server_done(SaslConn),
             {error, not_authorized}
     end.
 
@@ -108,11 +110,13 @@ auth_continue(SaslConn, ClientToken) ->
         {ok, {sasl_continue, ServerToken}} ->
             {continue, ServerToken, #{sasl_conn => SaslConn}};
         {ok, {sasl_ok, ServerToken}} ->
+            sasl_auth:server_done(SaslConn),
             {ok, #{}, ServerToken};
         Reason ->
             ?TRACE_AUTHN_PROVIDER("sasl_gssapi_step_failed", #{
                 reason => Reason,
                 sasl_function => "server_server_step"
             }),
+            sasl_auth:server_done(SaslConn),
             {error, not_authorized}
     end.
