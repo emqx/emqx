@@ -88,7 +88,7 @@
 -define(SERVER, ?MODULE).
 
 olp_metrics() ->
-    lists:map(fun({_, Metric}) -> Metric end, ?OLP_METRICS).
+    lists:map(fun({_, Metric, _}) -> Metric end, ?OLP_METRICS).
 
 -record(state, {next_idx = 1}).
 
@@ -369,7 +369,7 @@ init([]) ->
     ]),
     % Store reserved indices
     ok = lists:foreach(
-        fun({Type, Name}) ->
+        fun({Type, Name, _Desc}) ->
             Idx = reserved_idx(Name),
             Metric = #metric{name = Name, type = Type, idx = Idx},
             true = ets:insert(?TAB, Metric),
