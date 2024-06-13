@@ -238,6 +238,7 @@ inc_authn_metrics(error) ->
 inc_authn_metrics(ok) ->
     emqx_metrics:inc('authentication.success');
 inc_authn_metrics(anonymous) ->
+    emqx_metrics:inc('client.auth.anonymous'),
     emqx_metrics:inc('authentication.success.anonymous'),
     emqx_metrics:inc('authentication.success').
 
