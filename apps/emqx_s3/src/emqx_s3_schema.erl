@@ -121,7 +121,7 @@ fields(s3_uploader) ->
                 #{
                     default => <<"5mb">>,
                     desc => ?DESC("min_part_size"),
-                    required => true,
+                    required => false,
                     validator => fun part_size_validator/1
                 }
             )},
@@ -131,7 +131,7 @@ fields(s3_uploader) ->
                 #{
                     default => <<"5gb">>,
                     desc => ?DESC("max_part_size"),
-                    required => true,
+                    required => false,
                     validator => fun part_size_validator/1
                 }
             )}
