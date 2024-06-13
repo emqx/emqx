@@ -134,9 +134,26 @@ roots() ->
         lists:flatmap(fun roots/1, common_apps()).
 
 validations() ->
-    [{check_node_name_and_discovery_strategy, fun validate_cluster_strategy/1}] ++
+    [
+        {check_node_name_and_discovery_strategy, fun validate_cluster_strategy/1},
+        {validate_durable_sessions_strategy, fun validate_durable_sessions_strategy/1}
+    ] ++
         hocon_schema:validations(emqx_schema) ++
         lists:flatmap(fun hocon_schema:validations/1, common_apps()).
+
+validate_durable_sessions_strategy(Conf) ->
+    DSEnabled = hocon_maps:get("durable_sessions.enable", Conf),
+    DiscoveryStrategy = hocon_maps:get("cluster.discovery_strategy", Conf),
+    DSBackend = hocon_maps:get("durable_storage.messages.backend", Conf),
+    case {DSEnabled, DSBackend} of
+        {true, builtin_local} when DiscoveryStrategy =/= singleton ->
+            {error, <<
+                "cluster discovery strategy must be 'singleton' when"
+                " durable storage backend is builtin_local"
+            >>};
+        _ ->
+            ok
+    end.
 
 common_apps() ->
     Edition = emqx_release:edition(),
@@ -166,7 +183,7 @@ fields("cluster") ->
             )},
         {"discovery_strategy",
             sc(
-                hoconsc:enum([manual, static, dns, etcd, k8s]),
+                hoconsc:enum([manual, static, singleton, dns, etcd, k8s]),
                 #{
                     default => manual,
                     desc => ?DESC(cluster_discovery_strategy),
