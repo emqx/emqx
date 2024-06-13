@@ -338,7 +338,7 @@ t_handle_outing_non_utf8_topic(_) ->
     StrictOff = #{version => 5, max_size => 16#FFFF, strict_mode => false},
     StOff = st(#{serialize => StrictOff}),
     OffResult = emqx_connection:handle_outgoing(Publish, StOff),
-    ?assertMatch(ok, OffResult),
+    ?assertMatch({ok, _}, OffResult),
     StrictOn = #{version => 5, max_size => 16#FFFF, strict_mode => true},
     StOn = st(#{serialize => StrictOn}),
     ?assertError(frame_serialize_error, emqx_connection:handle_outgoing(Publish, StOn)).
