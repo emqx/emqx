@@ -135,7 +135,8 @@
             emqx_bridge_confluent,
             emqx_ds_shared_sub,
             emqx_auth_ext,
-            emqx_cluster_link
+            emqx_cluster_link,
+            emqx_ds_builtin_raft
         ],
     %% must always be of type `load'
     ce_business_apps =>

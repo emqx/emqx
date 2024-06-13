@@ -1,23 +1,11 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc This supervisor manages the global worker processes needed for
 %% the functioning of builtin databases, and all builtin database
 %% attach to it.
--module(emqx_ds_builtin_sup).
+-module(emqx_ds_builtin_raft_sup).
 
 -behaviour(supervisor).
 
@@ -39,7 +27,6 @@
 
 -define(top, ?MODULE).
 -define(databases, emqx_ds_builtin_databases_sup).
-
 -define(gvar_tab, emqx_ds_builtin_gvar).
 
 -record(gvar, {
@@ -57,7 +44,7 @@ start_db(DB, Opts) ->
     ensure_top(),
     ChildSpec = #{
         id => DB,
-        start => {emqx_ds_builtin_db_sup, start_db, [DB, Opts]},
+        start => {emqx_ds_builtin_raft_db_sup, start_db, [DB, Opts]},
         type => supervisor,
         shutdown => infinity
     },
@@ -158,5 +145,5 @@ start_databases_sup() ->
 %%================================================================================
 
 ensure_top() ->
-    {ok, _} = emqx_ds_sup:attach_backend(builtin, {?MODULE, start_top, []}),
+    {ok, _} = emqx_ds_sup:attach_backend(builtin_raft, {?MODULE, start_top, []}),
     ok.

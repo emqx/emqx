@@ -205,7 +205,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_syskeeper,
       :emqx_ds_shared_sub,
       :emqx_auth_ext,
-      :emqx_cluster_link
+      :emqx_cluster_link,
+      :emqx_ds_builtin_raft
     ])
   end
 
@@ -341,6 +342,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_s3,
             :emqx_opentelemetry,
             :emqx_durable_storage,
+            :emqx_ds_builtin_local,
+            :emqx_ds_builtin_raft,
             :rabbit_common,
             :emqx_eviction_agent,
             :emqx_node_rebalance

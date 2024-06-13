@@ -175,8 +175,7 @@
         _ => _
     }.
 
--type create_db_opts() ::
-    emqx_ds_replication_layer:builtin_db_opts() | generic_db_opts().
+-type create_db_opts() :: generic_db_opts().
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 

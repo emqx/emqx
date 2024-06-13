@@ -1,28 +1,17 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc Replication layer for DS backends that don't support
 %% replication on their own.
 -module(emqx_ds_replication_layer).
 
--behaviour(emqx_ds).
+%-behaviour(emqx_ds).
 
 -export([
     list_shards/1,
     open_db/2,
+    close_db/1,
     add_generation/1,
     update_db_config/2,
     list_generations_with_lifetimes/1,
@@ -176,7 +165,7 @@ list_shards(DB) ->
 
 -spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 open_db(DB, CreateOpts) ->
-    case emqx_ds_builtin_sup:start_db(DB, CreateOpts) of
+    case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
         {error, {already_started, _}} ->
@@ -184,6 +173,10 @@ open_db(DB, CreateOpts) ->
         {error, Err} ->
             {error, Err}
     end.
+
+-spec close_db(emqx_ds:db()) -> ok.
+close_db(DB) ->
+    emqx_ds_builtin_raft_sup:stop_db(DB).
 
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
@@ -376,7 +369,7 @@ foreach_shard(DB, Fun) ->
 %% local server
 -spec current_timestamp(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> emqx_ds:time().
 current_timestamp(DB, Shard) ->
-    emqx_ds_builtin_sup:get_gvar(DB, ?gv_timestamp(Shard), 0).
+    emqx_ds_builtin_raft_sup:get_gvar(DB, ?gv_timestamp(Shard), 0).
 
 %%================================================================================
 %% behavior callbacks
@@ -402,7 +395,7 @@ current_timestamp(DB, Shard) ->
 -spec do_drop_db_v1(emqx_ds:db()) -> ok | {error, _}.
 do_drop_db_v1(DB) ->
     MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
-    emqx_ds_builtin_sup:stop_db(DB),
+    emqx_ds_builtin_raft_sup:stop_db(DB),
     lists:foreach(
         fun(Shard) ->
             emqx_ds_storage_layer:drop_shard({DB, Shard})
@@ -874,4 +867,4 @@ handle_custom_event(DBShard, Latest, Event) ->
     end.
 
 set_ts({DB, Shard}, TS) ->
-    emqx_ds_builtin_sup:set_gvar(DB, ?gv_timestamp(Shard), TS).
+    emqx_ds_builtin_raft_sup:set_gvar(DB, ?gv_timestamp(Shard), TS).

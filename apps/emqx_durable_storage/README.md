@@ -103,7 +103,7 @@ Consumption of messages is done in several stages:
 
 # Documentation links
 
-TBD
+https://docs.emqx.com/en/enterprise/latest/durability/durability_introduction.html
 
 # Usage
 
@@ -146,7 +146,39 @@ The following REST APIs are available for managing the builtin durable storages:
 - `/ds/storages/:ds/replicas/:site` — add or remove replica of the durable storage on the site
 
 # Other
-TBD
+
+Note: this application contains main interface module and some common utility modules used by the backends, but it doesn't contain any ready-to-use DS backends.
+The backends are instead implemented as separate OTP applications, such as `emqx_ds_backend_local` and `emqx_ds_backend_raft`.
+
+There is a helper placeholder application `emqx_ds_backends` that depends on all backend applications available in the release.
+Business logic applications must have `emqx_ds_backends` as a dependency.
+
+The dependency diagram is the following:
+
+```
+                              +------------------------+
+                              |  emqx_durable_storage  |
+                              +------------------------+
+                              /           |            \
+                             /            |             \
+                            /             |              \
+   +------------------------+  +----------------------+   +------+
+   | emqx_ds_backend_local  |  | emqx_ds_builtin_raft |   | ...  |
+   +------------------------+  +-----------+----------+   +------+
+                            \            |               /
+                             \           |              /
+                              \          |             /
+                             +-------------------------+
+                             |    emqx_ds_backends     |
+                             +-------------------------+
+                                 /              \
+                                /                \
+       ......................../.. business apps .\........................
+                              /                    \
+                         +------+                +-------+
+                         | emqx |                |  ...  |
+                         +------+                +-------+
+```
 
 # Contributing
 Please see our [contributing.md](../../CONTRIBUTING.md).

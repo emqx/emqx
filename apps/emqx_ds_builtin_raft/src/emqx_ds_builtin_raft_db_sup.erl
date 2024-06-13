@@ -1,22 +1,10 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc Supervisor that contains all the processes that belong to a
 %% given builtin DS database.
--module(emqx_ds_builtin_db_sup).
+-module(emqx_ds_builtin_raft_db_sup).
 
 -behaviour(supervisor).
 
@@ -150,7 +138,7 @@ get_shard_workers(DB) ->
 init({#?db_sup{db = DB}, DefaultOpts}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
-    emqx_ds_builtin_sup:clean_gvars(DB),
+    emqx_ds_builtin_raft_sup:clean_gvars(DB),
     emqx_ds_builtin_metrics:init_for_db(DB),
     Opts = emqx_ds_replication_layer_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
@@ -197,7 +185,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
-    DataDir = filename:join([emqx_ds:base_dir(), DB, dsrepl]),
+    DataDir = filename:join([emqx_ds_storage_layer:base_dir(), DB, dsrepl]),
     Config = lists:foldr(fun maps:merge/2, #{}, [
         ra_system:default_config(),
         #{
