@@ -207,7 +207,12 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
             %% Give some time for at least one transition to complete.
             Transitions = transitions(Node, DB),
             ct:pal("Transitions after ~p: ~p", [Operation, Transitions]),
-            ?retry(200, 10, ?assertNotEqual(Transitions, transitions(Node, DB))),
+            case Transitions of
+                [_ | _] ->
+                    ?retry(200, 10, ?assertNotEqual(Transitions, transitions(Node, DB)));
+                [] ->
+                    ok
+            end,
             apply_stream(DB, NodeStream0, Stream, N);
         [Fun | Stream] when is_function(Fun) ->
             Fun(),
