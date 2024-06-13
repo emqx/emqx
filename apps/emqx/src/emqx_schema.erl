@@ -191,6 +191,8 @@
 -define(DEFAULT_MULTIPLIER, 1.5).
 -define(DEFAULT_BACKOFF, 0.75).
 
+-define(INJECTING_CONFIGS, [?AUTH_EXT_SCHEMA_MODS]).
+
 namespace() -> emqx.
 
 tags() ->
@@ -2247,7 +2249,7 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
-    ].
+    ] ++ emqx_schema_hooks:injection_point('common_ssl_opts_schema').
 
 %% @doc Make schema for SSL listener options.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
