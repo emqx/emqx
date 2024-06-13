@@ -1032,6 +1032,7 @@ t_query_multiple_clients_urlencode(_) ->
 t_query_clients_with_fields(_) ->
     process_flag(trap_exit, true),
     TCBin = atom_to_binary(?FUNCTION_NAME),
+    APIPort = 18083,
     ClientId = <<TCBin/binary, "_client">>,
     Username = <<TCBin/binary, "_user">>,
     {ok, C} = emqtt:start_link(#{clientid => ClientId, username => Username}),
@@ -1040,6 +1041,13 @@ t_query_clients_with_fields(_) ->
 
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     ?assertEqual([#{<<"clientid">> => ClientId}], get_clients_all_fields(Auth, "fields=clientid")),
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"data">> := [#{<<"client_attrs">> := #{}}]
+            }}},
+        list_request(APIPort, "fields=client_attrs")
+    ),
     ?assertEqual(
         [#{<<"clientid">> => ClientId, <<"username">> => Username}],
         get_clients_all_fields(Auth, "fields=clientid,username")
@@ -1072,6 +1080,7 @@ get_clients(Auth, Qs, ExpectError, ClientIdOnly) ->
     Resp = emqx_mgmt_api_test_util:request_api(get, ClientsPath, Qs, Auth),
     case ExpectError of
         false ->
+            ct:pal("get clients response:\n  ~p", [Resp]),
             {ok, Body} = Resp,
             #{<<"data">> := Clients} = emqx_utils_json:decode(Body),
             case ClientIdOnly of
