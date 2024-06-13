@@ -232,14 +232,14 @@ t_rebalance(Config) ->
             ],
             Stream1 = emqx_utils_stream:interleave(
                 [
-                    {10, Stream0},
+                    {20, Stream0},
                     emqx_utils_stream:const(add_generation)
                 ],
                 false
             ),
             Stream = emqx_utils_stream:interleave(
                 [
-                    {50, Stream0},
+                    {50, Stream1},
                     emqx_utils_stream:list(Sequence)
                 ],
                 true
@@ -604,7 +604,7 @@ t_drop_generation(Config) ->
         after
             emqx_cth_cluster:stop(Nodes)
         end,
-        fun(Trace) ->
+        fun(_Trace) ->
             %% TODO: some idempotency errors still happen
             %% ?assertMatch([], ?of_kind(ds_storage_layer_failed_to_drop_generation, Trace)),
             true
