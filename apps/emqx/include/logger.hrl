@@ -30,7 +30,10 @@
             logger:log(
                 Level,
                 (Data),
-                Meta
+                maps:merge(Meta, #{
+                    mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
+                    line => ?LINE
+                })
             );
         false ->
             ok

@@ -237,32 +237,35 @@ log_formatter(HandlerName, Conf) ->
             _ ->
                 conf_get("formatter", Conf)
         end,
-    TsFormat = timstamp_format(Conf),
+    TsFormat = timestamp_format(Conf),
+    WithMfa = conf_get("with_mfa", Conf),
     do_formatter(
-        Format, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat
+        Format, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa
     ).
 
 %% auto | epoch | rfc3339
-timstamp_format(Conf) ->
+timestamp_format(Conf) ->
     conf_get("timestamp_format", Conf).
 
 %% helpers
-do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat) ->
+do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa) ->
     {emqx_logger_jsonfmt, #{
         chars_limit => CharsLimit,
         single_line => SingleLine,
         time_offset => TimeOffSet,
         depth => Depth,
-        timestamp_format => TsFormat
+        timestamp_format => TsFormat,
+        with_mfa => WithMfa
     }};
-do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat) ->
+do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa) ->
     {emqx_logger_textfmt, #{
         template => ["[", level, "] ", msg, "\n"],
         chars_limit => CharsLimit,
         single_line => SingleLine,
         time_offset => TimeOffSet,
         depth => Depth,
-        timestamp_format => TsFormat
+        timestamp_format => TsFormat,
+        with_mfa => WithMfa
     }}.
 
 %% Don't record all logger message
