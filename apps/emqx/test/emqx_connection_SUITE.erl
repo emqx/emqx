@@ -94,8 +94,7 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
         {ok, [{K, 0} || K <- Options]}
     end),
-    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data) -> ok end),
-    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) -> ok end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> ok end),
     ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
     case erlang:function_exported(?MODULE, TestCase, 2) of
         true -> ?MODULE:TestCase(init, Config);
@@ -234,9 +233,11 @@ t_handle_msg_incoming(_) ->
     ?assertMatch({ok, _St}, handle_msg({incoming, undefined}, st())).
 
 t_handle_msg_outgoing(_) ->
-    ?assertEqual(ok, handle_msg({outgoing, ?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 1, <<>>)}, st())),
-    ?assertEqual(ok, handle_msg({outgoing, ?PUBREL_PACKET(1)}, st())),
-    ?assertEqual(ok, handle_msg({outgoing, ?PUBCOMP_PACKET(1)}, st())).
+    ?assertMatch(
+        {ok, _}, handle_msg({outgoing, ?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 1, <<>>)}, st())
+    ),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PUBREL_PACKET(1)}, st())),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PUBCOMP_PACKET(1)}, st())).
 
 t_handle_msg_tcp_error(_) ->
     ?assertMatch(
@@ -255,18 +256,13 @@ t_handle_msg_deliver(_) ->
     ?assertMatch({ok, _St}, handle_msg({deliver, topic, msg}, st())).
 
 t_handle_msg_inet_reply(_) ->
-    ok = meck:expect(emqx_pd, get_counter, fun(_) -> 10 end),
-    emqx_config:put_listener_conf(tcp, default, [tcp_options, active_n], 0),
-    ?assertMatch({ok, _St}, handle_msg({inet_reply, for_testing, ok}, st())),
-    emqx_config:put_listener_conf(tcp, default, [tcp_options, active_n], 100),
-    ?assertEqual(ok, handle_msg({inet_reply, for_testing, ok}, st())),
     ?assertMatch(
         {stop, {shutdown, for_testing}, _St},
         handle_msg({inet_reply, for_testing, {error, for_testing}}, st())
     ).
 
 t_handle_msg_connack(_) ->
-    ?assertEqual(ok, handle_msg({connack, ?CONNACK_PACKET(?CONNACK_ACCEPT)}, st())).
+    ?assertMatch({ok, _}, handle_msg({connack, ?CONNACK_PACKET(?CONNACK_ACCEPT)}, st())).
 
 t_handle_msg_close(_) ->
     ?assertMatch({stop, {shutdown, normal}, _St}, handle_msg({close, normal}, st())).
@@ -399,8 +395,8 @@ t_with_channel(_) ->
     meck:unload(emqx_channel).
 
 t_handle_outgoing(_) ->
-    ?assertEqual(ok, emqx_connection:handle_outgoing(?PACKET(?PINGRESP), st())),
-    ?assertEqual(ok, emqx_connection:handle_outgoing([?PACKET(?PINGRESP)], st())).
+    ?assertMatch({ok, _}, emqx_connection:handle_outgoing(?PACKET(?PINGRESP), st())),
+    ?assertMatch({ok, _}, emqx_connection:handle_outgoing([?PACKET(?PINGRESP)], st())).
 
 t_handle_info(_) ->
     ?assertMatch(

@@ -28,8 +28,10 @@
 %% cert
 -define(VAR_CERT_SUBJECT, "cert_subject").
 -define(VAR_CERT_CN_NAME, "cert_common_name").
+-define(VAR_CERT_PEM, "cert_pem").
 -define(PH_CERT_SUBJECT, ?PH(?VAR_CERT_SUBJECT)).
 -define(PH_CERT_CN_NAME, ?PH(?VAR_CERT_CN_NAME)).
+-define(PH_CERT_PEM, ?PH(?VAR_CERT_PEM)).
 
 %% MQTT/Gateway
 -define(VAR_PASSWORD, "password").

@@ -37,6 +37,7 @@
     protocol => mqtt,
     cert_subject => <<"cert_subject_data">>,
     cert_common_name => <<"cert_common_name_data">>,
+    cert_pem => <<"fake_raw_cert_to_be_base64_encoded">>,
     client_attrs => #{<<"group">> => <<"g1">>}
 }).
 
@@ -230,7 +231,8 @@ t_no_value_for_placeholder(_Config) ->
         {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
         #{
             <<"cert_subject">> := <<"">>,
-            <<"cert_common_name">> := <<"">>
+            <<"cert_common_name">> := <<"">>,
+            <<"cert_pem">> := <<"">>
         } = emqx_utils_json:decode(RawBody, [return_maps]),
         Req = cowboy_req:reply(
             200,
@@ -246,7 +248,8 @@ t_no_value_for_placeholder(_Config) ->
         <<"headers">> => #{<<"content-type">> => <<"application/json">>},
         <<"body">> => #{
             <<"cert_subject">> => ?PH_CERT_SUBJECT,
-            <<"cert_common_name">> => ?PH_CERT_CN_NAME
+            <<"cert_common_name">> => ?PH_CERT_CN_NAME,
+            <<"cert_pem">> => ?PH_CERT_PEM
         }
     },
 
@@ -259,7 +262,7 @@ t_no_value_for_placeholder(_Config) ->
 
     ok = emqx_authn_http_test_server:set_handler(Handler),
 
-    Credentials = maps:without([cert_subject, cert_common_name], ?CREDENTIALS),
+    Credentials = maps:without([cert_subject, cert_common_name, cert_pem], ?CREDENTIALS),
 
     ?assertMatch({ok, _}, emqx_access_control:authenticate(Credentials)),
 
@@ -713,8 +716,10 @@ samples() ->
                     <<"peerhost">> := <<"127.0.0.1">>,
                     <<"cert_subject">> := <<"cert_subject_data">>,
                     <<"cert_common_name">> := <<"cert_common_name_data">>,
+                    <<"cert_pem">> := CertPem,
                     <<"the_group">> := <<"g1">>
                 } = emqx_utils_json:decode(RawBody, [return_maps]),
+                <<"fake_raw_cert_to_be_base64_encoded">> = base64:decode(CertPem),
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
@@ -733,6 +738,7 @@ samples() ->
                     <<"peerhost">> => ?PH_PEERHOST,
                     <<"cert_subject">> => ?PH_CERT_SUBJECT,
                     <<"cert_common_name">> => ?PH_CERT_CN_NAME,
+                    <<"cert_pem">> => ?PH_CERT_PEM,
                     <<"the_group">> => <<"${client_attrs.group}">>
                 }
             },

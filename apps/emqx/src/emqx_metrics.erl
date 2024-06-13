@@ -22,6 +22,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_metrics.hrl").
 
 -export([
     start_link/0,
@@ -86,210 +87,8 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
-%% Bytes sent and received
--define(BYTES_METRICS,
-    % Total bytes received
-    [
-        {counter, 'bytes.received'},
-        % Total bytes sent
-        {counter, 'bytes.sent'}
-    ]
-).
-
-%% Packets sent and received
--define(PACKET_METRICS,
-    % All Packets received
-    [
-        {counter, 'packets.received'},
-        % All Packets sent
-        {counter, 'packets.sent'},
-        % CONNECT Packets received
-        {counter, 'packets.connect.received'},
-        % CONNACK Packets sent
-        {counter, 'packets.connack.sent'},
-        % CONNACK error sent
-        {counter, 'packets.connack.error'},
-        % CONNACK auth_error sent
-        {counter, 'packets.connack.auth_error'},
-        % PUBLISH packets received
-        {counter, 'packets.publish.received'},
-        % PUBLISH packets sent
-        {counter, 'packets.publish.sent'},
-        % PUBLISH packet_id inuse
-        {counter, 'packets.publish.inuse'},
-        % PUBLISH failed for error
-        {counter, 'packets.publish.error'},
-        % PUBLISH failed for auth error
-        {counter, 'packets.publish.auth_error'},
-        % PUBLISH(QoS2) packets dropped
-        {counter, 'packets.publish.dropped'},
-        % PUBACK packets received
-        {counter, 'packets.puback.received'},
-        % PUBACK packets sent
-        {counter, 'packets.puback.sent'},
-        % PUBACK packet_id inuse
-        {counter, 'packets.puback.inuse'},
-        % PUBACK packets missed
-        {counter, 'packets.puback.missed'},
-        % PUBREC packets received
-        {counter, 'packets.pubrec.received'},
-        % PUBREC packets sent
-        {counter, 'packets.pubrec.sent'},
-        % PUBREC packet_id inuse
-        {counter, 'packets.pubrec.inuse'},
-        % PUBREC packets missed
-        {counter, 'packets.pubrec.missed'},
-        % PUBREL packets received
-        {counter, 'packets.pubrel.received'},
-        % PUBREL packets sent
-        {counter, 'packets.pubrel.sent'},
-        % PUBREL packets missed
-        {counter, 'packets.pubrel.missed'},
-        % PUBCOMP packets received
-        {counter, 'packets.pubcomp.received'},
-        % PUBCOMP packets sent
-        {counter, 'packets.pubcomp.sent'},
-        % PUBCOMP packet_id inuse
-        {counter, 'packets.pubcomp.inuse'},
-        % PUBCOMP packets missed
-        {counter, 'packets.pubcomp.missed'},
-        % SUBSCRIBE Packets received
-        {counter, 'packets.subscribe.received'},
-        % SUBSCRIBE error
-        {counter, 'packets.subscribe.error'},
-        % SUBSCRIBE failed for not auth
-        {counter, 'packets.subscribe.auth_error'},
-        % SUBACK packets sent
-        {counter, 'packets.suback.sent'},
-        % UNSUBSCRIBE Packets received
-        {counter, 'packets.unsubscribe.received'},
-        % UNSUBSCRIBE error
-        {counter, 'packets.unsubscribe.error'},
-        % UNSUBACK Packets sent
-        {counter, 'packets.unsuback.sent'},
-        % PINGREQ packets received
-        {counter, 'packets.pingreq.received'},
-        % PINGRESP Packets sent
-        {counter, 'packets.pingresp.sent'},
-        % DISCONNECT Packets received
-        {counter, 'packets.disconnect.received'},
-        % DISCONNECT Packets sent
-        {counter, 'packets.disconnect.sent'},
-        % Auth Packets received
-        {counter, 'packets.auth.received'},
-        % Auth Packets sent
-        {counter, 'packets.auth.sent'}
-    ]
-).
-
-%% Messages sent/received and pubsub
--define(MESSAGE_METRICS,
-    % All Messages received
-    [
-        {counter, 'messages.received'},
-        % All Messages sent
-        {counter, 'messages.sent'},
-        % QoS0 Messages received
-        {counter, 'messages.qos0.received'},
-        % QoS0 Messages sent
-        {counter, 'messages.qos0.sent'},
-        % QoS1 Messages received
-        {counter, 'messages.qos1.received'},
-        % QoS1 Messages sent
-        {counter, 'messages.qos1.sent'},
-        % QoS2 Messages received
-        {counter, 'messages.qos2.received'},
-        % QoS2 Messages sent
-        {counter, 'messages.qos2.sent'},
-        %% PubSub Metrics
-
-        % Messages Publish
-        {counter, 'messages.publish'},
-        % Messages dropped due to no subscribers
-        {counter, 'messages.dropped'},
-        %% % Messages that failed validations
-        {counter, 'messages.validation_failed'},
-        %% % Messages that passed validations
-        {counter, 'messages.validation_succeeded'},
-        %% % Messages that failed transformations
-        {counter, 'messages.transformation_failed'},
-        %% % Messages that passed transformations
-        {counter, 'messages.transformation_succeeded'},
-        % QoS2 Messages expired
-        {counter, 'messages.dropped.await_pubrel_timeout'},
-        % Messages dropped
-        {counter, 'messages.dropped.no_subscribers'},
-        % Messages forward
-        {counter, 'messages.forward'},
-        % Messages delayed
-        {counter, 'messages.delayed'},
-        % Messages delivered
-        {counter, 'messages.delivered'},
-        % Messages acked
-        {counter, 'messages.acked'},
-        % Messages persistently stored
-        {counter, 'messages.persisted'}
-    ]
-).
-
-%% Delivery metrics
--define(DELIVERY_METRICS, [
-    {counter, 'delivery.dropped'},
-    {counter, 'delivery.dropped.no_local'},
-    {counter, 'delivery.dropped.too_large'},
-    {counter, 'delivery.dropped.qos0_msg'},
-    {counter, 'delivery.dropped.queue_full'},
-    {counter, 'delivery.dropped.expired'}
-]).
-
-%% Client Lifecircle metrics
--define(CLIENT_METRICS, [
-    {counter, 'client.connect'},
-    {counter, 'client.connack'},
-    {counter, 'client.connected'},
-    {counter, 'client.authenticate'},
-    {counter, 'client.auth.anonymous'},
-    {counter, 'client.authorize'},
-    {counter, 'client.subscribe'},
-    {counter, 'client.unsubscribe'},
-    {counter, 'client.disconnected'}
-]).
-
-%% Session Lifecircle metrics
--define(SESSION_METRICS, [
-    {counter, 'session.created'},
-    {counter, 'session.resumed'},
-    {counter, 'session.takenover'},
-    {counter, 'session.discarded'},
-    {counter, 'session.terminated'}
-]).
-
-%% Statistic metrics for ACL checking
--define(STASTS_ACL_METRICS, [
-    {counter, 'authorization.allow'},
-    {counter, 'authorization.deny'},
-    {counter, 'authorization.cache_hit'},
-    {counter, 'authorization.cache_miss'}
-]).
-
-%% Statistic metrics for auth checking
--define(STASTS_AUTHN_METRICS, [
-    {counter, 'authentication.success'},
-    {counter, 'authentication.success.anonymous'},
-    {counter, 'authentication.failure'}
-]).
-
-%% Overload protection counters
--define(OLP_METRICS, [
-    {counter, 'overload_protection.delay.ok'},
-    {counter, 'overload_protection.delay.timeout'},
-    {counter, 'overload_protection.hibernation'},
-    {counter, 'overload_protection.gc'},
-    {counter, 'overload_protection.new_conn'}
-]).
-
 olp_metrics() ->
-    lists:map(fun({_, Metric}) -> Metric end, ?OLP_METRICS).
+    lists:map(fun({_, Metric, _}) -> Metric end, ?OLP_METRICS).
 
 -record(state, {next_idx = 1}).
 
@@ -570,7 +369,7 @@ init([]) ->
     ]),
     % Store reserved indices
     ok = lists:foreach(
-        fun({Type, Name}) ->
+        fun({Type, Name, _Desc}) ->
             Idx = reserved_idx(Name),
             Metric = #metric{name = Name, type = Type, idx = Idx},
             true = ets:insert(?TAB, Metric),
@@ -684,11 +483,11 @@ reserved_idx('messages.dropped') -> 109;
 reserved_idx('messages.dropped.await_pubrel_timeout') -> 110;
 reserved_idx('messages.dropped.no_subscribers') -> 111;
 reserved_idx('messages.forward') -> 112;
-%%reserved_idx('messages.retained')            -> 113; %% keep the index, new metrics can use this
+%% reserved_idx('messages.retained') -> 113; %% keep the index, new metrics can use this
 reserved_idx('messages.delayed') -> 114;
 reserved_idx('messages.delivered') -> 115;
 reserved_idx('messages.acked') -> 116;
-reserved_idx('delivery.expired') -> 117;
+%% reserved_idx('delivery.expired') -> 117; %% have never used
 reserved_idx('delivery.dropped') -> 118;
 reserved_idx('delivery.dropped.no_local') -> 119;
 reserved_idx('delivery.dropped.too_large') -> 120;
@@ -699,7 +498,7 @@ reserved_idx('client.connect') -> 200;
 reserved_idx('client.connack') -> 201;
 reserved_idx('client.connected') -> 202;
 reserved_idx('client.authenticate') -> 203;
-reserved_idx('client.enhanced_authenticate') -> 204;
+%% reserved_idx('client.enhanced_authenticate') -> 204; %% have never used
 reserved_idx('client.auth.anonymous') -> 205;
 reserved_idx('client.authorize') -> 206;
 reserved_idx('client.subscribe') -> 207;
