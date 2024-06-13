@@ -87,6 +87,8 @@
 %% Type declarations
 %%================================================================================
 
+-define(APP, emqx_durable_storage).
+
 %% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
 %% records over the wire.
 %% tags:

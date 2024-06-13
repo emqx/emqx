@@ -42,6 +42,7 @@
             esasl,
             emqx_utils,
             emqx_durable_storage,
+            emqx_ds_backends,
             emqx_http_lib,
             emqx_resource,
             emqx_connector,
