@@ -463,6 +463,72 @@ t_placeholder_and_body(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
+%% Checks that we don't crash when receiving an unsupported content-type back.
+t_bad_response_content_type(_Config) ->
+    ok = setup_handler_and_config(
+        fun(Req0, State) ->
+            ?assertEqual(
+                <<"/authz/users/">>,
+                cowboy_req:path(Req0)
+            ),
+
+            {ok, _PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"text/csv">>},
+                "hi",
+                Req1
+            ),
+            {ok, Req, State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{
+                <<"username">> => <<"${username}">>,
+                <<"clientid">> => <<"${clientid}">>,
+                <<"peerhost">> => <<"${peerhost}">>,
+                <<"proto_name">> => <<"${proto_name}">>,
+                <<"mountpoint">> => <<"${mountpoint}">>,
+                <<"topic">> => <<"${topic}">>,
+                <<"action">> => <<"${action}">>,
+                <<"access">> => <<"${access}">>,
+                <<"CN">> => ?PH_CERT_CN_NAME,
+                <<"CS">> => ?PH_CERT_SUBJECT
+            },
+            <<"headers">> => #{
+                <<"accept">> => <<"text/plain">>,
+                <<"content-type">> => <<"application/json">>
+            }
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        mountpoint => <<"MOUNTPOINT">>,
+        zone => default,
+        listener => {tcp, default},
+        cn => ?PH_CERT_CN_NAME,
+        dn => ?PH_CERT_SUBJECT
+    },
+
+    ?check_trace(
+        ?assertEqual(
+            deny,
+            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{reason := <<"unsupported content-type", _/binary>>}],
+                ?of_kind(bad_authz_http_response, Trace)
+            ),
+            ok
+        end
+    ).
+
 t_no_value_for_placeholder(_Config) ->
     ok = setup_handler_and_config(
         fun(Req0, State) ->

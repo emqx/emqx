@@ -188,7 +188,7 @@ render_sql_params(ParamList, Values) ->
     ),
     Row.
 
--spec parse_http_resp_body(binary(), binary()) -> allow | deny | ignore | error.
+-spec parse_http_resp_body(binary(), binary()) -> allow | deny | ignore | error | {error, term()}.
 parse_http_resp_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     try
         result(maps:from_list(cow_qs:parse_qs(Body)))
@@ -200,7 +200,9 @@ parse_http_resp_body(<<"application/json", _/binary>>, Body) ->
         result(emqx_utils_json:decode(Body, [return_maps]))
     catch
         _:_ -> error
-    end.
+    end;
+parse_http_resp_body(ContentType = <<_/binary>>, _Body) ->
+    {error, <<"unsupported content-type: ", ContentType/binary>>}.
 
 result(#{<<"result">> := <<"allow">>}) -> allow;
 result(#{<<"result">> := <<"deny">>}) -> deny;
