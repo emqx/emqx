@@ -24,10 +24,12 @@
     all_channels_count/0,
     session_count/0,
     session_count/1,
+    durable_session_count/0,
     evict_connections/1,
     evict_sessions/2,
     evict_sessions/3,
-    purge_sessions/1
+    purge_sessions/1,
+    purge_durable_sessions/1
 ]).
 
 %% RPC targets
@@ -149,6 +151,18 @@ purge_sessions(N) ->
     case enable_status() of
         {enabled, _Kind, _ServerReference, _Options} ->
             ok = do_purge_sessions(N);
+        disabled ->
+            {error, disabled}
+    end.
+
+-spec purge_durable_sessions(non_neg_integer()) -> ok | done | {error, disabled}.
+purge_durable_sessions(N) ->
+    PersistenceEnabled = emqx_persistent_message:is_persistence_enabled(),
+    case enable_status() of
+        {enabled, _Kind, _ServerReference, _Options} when PersistenceEnabled ->
+            do_purge_durable_sessions(N);
+        {enabled, _Kind, _ServerReference, _Options} ->
+            done;
         disabled ->
             {error, disabled}
     end.
@@ -301,7 +315,10 @@ all_local_channels_count() ->
     table_count(channel_table(any)).
 
 session_count() ->
-    session_count(any).
+    session_count(any) + durable_session_count().
+
+durable_session_count() ->
+    emqx_persistent_session_bookkeeper:get_disconnected_session_count().
 
 session_count(ConnState) ->
     table_count(channel_table(ConnState)).
@@ -454,6 +471,22 @@ do_purge_sessions(N) when N > 0 ->
         end,
         Channels
     ).
+
+do_purge_durable_sessions(N) when N > 0 ->
+    Iterator = emqx_persistent_session_ds_state:make_session_iterator(),
+    {Sessions, _NewIterator} = emqx_persistent_session_ds_state:session_iterator_next(Iterator, N),
+    lists:foreach(
+        fun({ClientId, _Metadata}) ->
+            emqx_persistent_session_ds:destroy_session(ClientId)
+        end,
+        Sessions
+    ),
+    case Sessions of
+        [] ->
+            done;
+        _ ->
+            ok
+    end.
 
 select_random(List) when length(List) > 0 ->
     lists:nth(rand:uniform(length(List)), List).
