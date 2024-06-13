@@ -69,7 +69,6 @@
     shard_id/0,
     options/0,
     prototype/0,
-    post_creation_context/0,
     cooked_batch/0
 ]).
 
@@ -194,25 +193,19 @@
 
 -type options() :: map().
 
--type post_creation_context() ::
-    #{
-        shard_id := emqx_ds_storage_layer:shard_id(),
-        db := rocksdb:db_handle(),
-        new_gen_id := emqx_ds_storage_layer:gen_id(),
-        old_gen_id := emqx_ds_storage_layer:gen_id(),
-        new_cf_refs := cf_refs(),
-        old_cf_refs := cf_refs(),
-        new_gen_runtime_data := _NewData,
-        old_gen_runtime_data := _OldData
-    }.
-
 %%================================================================================
 %% Generation callbacks
 %%================================================================================
 
 %% Create the new schema given generation id and the options.
 %% Create rocksdb column families.
--callback create(shard_id(), rocksdb:db_handle(), gen_id(), Options :: map()) ->
+-callback create(
+    shard_id(),
+    rocksdb:db_handle(),
+    gen_id(),
+    Options :: map(),
+    PrevRuntimeData :: term()
+) ->
     {_Schema, cf_refs()}.
 
 %% Open the existing schema
@@ -258,9 +251,7 @@
 
 -callback handle_event(shard_id(), _Data, emqx_ds:time(), CustomEvent | tick) -> [CustomEvent].
 
--callback post_creation_actions(post_creation_context()) -> _Data.
-
--optional_callbacks([post_creation_actions/1, handle_event/4]).
+-optional_callbacks([handle_event/4]).
 
 %%================================================================================
 %% API for the replication layer
@@ -686,42 +677,14 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     server_state() | {error, overlaps_existing_generations}.
 handle_add_generation(S0, Since) ->
     #s{shard_id = ShardId, db = DB, schema = Schema0, shard = Shard0, cf_refs = CFRefs0} = S0,
-
-    #{current_generation := OldGenId, prototype := {CurrentMod, _ModConf}} = Schema0,
-    OldKey = ?GEN_KEY(OldGenId),
-    #{OldKey := OldGenSchema} = Schema0,
-    #{cf_refs := OldCFRefs} = OldGenSchema,
-    #{OldKey := #{module := OldMod, data := OldGenData}} = Shard0,
-
     Schema1 = update_last_until(Schema0, Since),
     Shard1 = update_last_until(Shard0, Since),
-
     case Schema1 of
         _Updated = #{} ->
-            {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema1, Since),
+            {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema1, Shard0, Since),
             CFRefs = NewCFRefs ++ CFRefs0,
             Key = ?GEN_KEY(GenId),
-            Generation0 =
-                #{data := NewGenData0} =
-                open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
-            %% When the new generation's module is the same as the last one, we might want to
-            %% perform actions like inheriting some of the previous (meta)data.
-            NewGenData =
-                run_post_creation_actions(
-                    #{
-                        shard_id => ShardId,
-                        db => DB,
-                        new_gen_id => GenId,
-                        old_gen_id => OldGenId,
-                        new_cf_refs => NewCFRefs,
-                        old_cf_refs => OldCFRefs,
-                        new_gen_runtime_data => NewGenData0,
-                        old_gen_runtime_data => OldGenData,
-                        new_module => CurrentMod,
-                        old_module => OldMod
-                    }
-                ),
-            Generation = Generation0#{data := NewGenData},
+            Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
             Shard = Shard1#{current_generation := GenId, Key => Generation},
             S0#s{
                 cf_refs = CFRefs,
@@ -834,9 +797,28 @@ create_new_shard_schema(ShardId, DB, CFRefs, Prototype) ->
 -spec new_generation(shard_id(), rocksdb:db_handle(), shard_schema(), emqx_ds:time()) ->
     {gen_id(), shard_schema(), cf_refs()}.
 new_generation(ShardId, DB, Schema0, Since) ->
+    new_generation(ShardId, DB, Schema0, undefined, Since).
+
+-spec new_generation(
+    shard_id(),
+    rocksdb:db_handle(),
+    shard_schema(),
+    shard() | undefined,
+    emqx_ds:time()
+) ->
+    {gen_id(), shard_schema(), cf_refs()}.
+new_generation(ShardId, DB, Schema0, Shard0, Since) ->
     #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
+    case Shard0 of
+        #{?GEN_KEY(PrevGenId) := #{module := Mod} = PrevGen} ->
+            %% When the new generation's module is the same as the last one, we might want
+            %% to perform actions like inheriting some of the previous (meta)data.
+            PrevRuntimeData = maps:get(data, PrevGen);
+        _ ->
+            PrevRuntimeData = undefined
+    end,
     GenId = next_generation_id(PrevGenId),
-    {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf),
+    {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf, PrevRuntimeData),
     GenSchema = #{
         module => Mod,
         data => GenData,
@@ -917,23 +899,6 @@ update_last_until(Schema = #{current_generation := GenId}, Until) ->
         #{since := CurrentSince} when CurrentSince > Until ->
             {error, overlaps_existing_generations}
     end.
-
-run_post_creation_actions(
-    #{
-        new_module := Mod,
-        old_module := Mod,
-        new_gen_runtime_data := NewGenData
-    } = Context
-) ->
-    case erlang:function_exported(Mod, post_creation_actions, 1) of
-        true ->
-            Mod:post_creation_actions(Context);
-        false ->
-            NewGenData
-    end;
-run_post_creation_actions(#{new_gen_runtime_data := NewGenData}) ->
-    %% Different implementation modules
-    NewGenData.
 
 handle_take_snapshot(#s{db = DB, shard_id = ShardId}) ->
     Name = integer_to_list(erlang:system_time(millisecond)),
