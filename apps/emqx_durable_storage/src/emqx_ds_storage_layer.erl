@@ -424,11 +424,11 @@ make_delete_iterator(
                         ?generation => GenId,
                         ?enc => Iter
                     }};
-                {error, _} = Err ->
-                    Err
+                {error, Err} ->
+                    {error, unrecoverable, Err}
             end;
         not_found ->
-            {error, end_of_stream}
+            {error, unrecoverable, generation_not_found}
     end.
 
 -spec update_iterator(shard_id(), iterator(), emqx_ds:message_key()) ->
@@ -447,8 +447,8 @@ update_iterator(
                         ?generation => GenId,
                         ?enc => Iter
                     }};
-                {error, _} = Err ->
-                    Err
+                {error, Err} ->
+                    {error, unrecoverable, Err}
             end;
         not_found ->
             {error, unrecoverable, generation_not_found}

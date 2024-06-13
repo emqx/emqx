@@ -136,7 +136,7 @@
 
 -type ds_specific_delete_stream() :: term().
 
--type make_delete_iterator_result(DeleteIterator) :: {ok, DeleteIterator} | {error, term()}.
+-type make_delete_iterator_result(DeleteIterator) :: {ok, DeleteIterator} | error(_).
 
 -type make_delete_iterator_result() :: make_delete_iterator_result(delete_iterator()).
 
@@ -286,9 +286,6 @@ drop_generation(DB, GenId) ->
             {error, not_implemented}
     end.
 
-%% @doc TODO: currently if one or a few shards are down, they won't be
-
-%% deleted.
 -spec drop_db(db()) -> ok.
 drop_db(DB) ->
     case persistent_term:get(?persistent_term(DB), undefined) of
