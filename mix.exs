@@ -101,8 +101,7 @@ defmodule EMQXUmbrella.MixProject do
       {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
-      {:ra, "2.7.3", override: true},
-      {:mimerl, "1.2.0", override: true}
+      {:ra, "2.7.3", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ jq_dep() ++ quicer_dep()
