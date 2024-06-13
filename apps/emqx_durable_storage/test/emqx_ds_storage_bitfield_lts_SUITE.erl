@@ -26,16 +26,13 @@
 -define(SHARD, shard(?FUNCTION_NAME)).
 
 -define(DEFAULT_CONFIG, #{
-    backend => builtin,
+    backend => builtin_local,
     storage => {emqx_ds_storage_bitfield_lts, #{}},
-    n_shards => 1,
-    n_sites => 1,
-    replication_factor => 1,
-    replication_options => #{}
+    n_shards => 1
 }).
 
 -define(COMPACT_CONFIG, #{
-    backend => builtin,
+    backend => builtin_local,
     storage =>
         {emqx_ds_storage_bitfield_lts, #{
             bits_per_wildcard_level => 8
@@ -138,8 +135,8 @@ t_get_streams(_Config) ->
     [FooBarBaz] = GetStream(<<"foo/bar/baz">>),
     [A] = GetStream(<<"a">>),
     %% Restart shard to make sure trie is persisted and restored:
-    ok = emqx_ds_builtin_sup:stop_db(?FUNCTION_NAME),
-    {ok, _} = emqx_ds_builtin_sup:start_db(?FUNCTION_NAME, #{}),
+    ok = emqx_ds:close_db(?FUNCTION_NAME),
+    ok = emqx_ds:open_db(?FUNCTION_NAME, ?DEFAULT_CONFIG),
     %% Verify that there are no "ghost streams" for topics that don't
     %% have any messages:
     [] = GetStream(<<"bar/foo">>),
@@ -241,8 +238,8 @@ t_replay(_Config) ->
     ?assert(check(?SHARD, <<"+/+/+">>, 0, Messages)),
     ?assert(check(?SHARD, <<"+/+/baz">>, 0, Messages)),
     %% Restart the DB to make sure trie is persisted and restored:
-    ok = emqx_ds_builtin_sup:stop_db(?FUNCTION_NAME),
-    {ok, _} = emqx_ds_builtin_sup:start_db(?FUNCTION_NAME, #{}),
+    ok = emqx_ds:close_db(?FUNCTION_NAME),
+    ok = emqx_ds:open_db(?FUNCTION_NAME, ?DEFAULT_CONFIG),
     %% Learned wildcard topics:
     ?assertNot(check(?SHARD, <<"wildcard/1000/suffix/foo">>, 0, [])),
     ?assert(check(?SHARD, <<"wildcard/1/suffix/foo">>, 0, Messages)),
@@ -512,7 +509,7 @@ suite() -> [{timetrap, {seconds, 20}}].
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_screen(),
     Apps = emqx_cth_suite:start(
-        [emqx_durable_storage],
+        [emqx_ds_builtin_local],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
