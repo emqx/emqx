@@ -149,7 +149,7 @@ validate_durable_sessions_strategy(Conf) ->
         {true, builtin_local} when DiscoveryStrategy =/= singleton ->
             {error, <<
                 "cluster discovery strategy must be 'singleton' when"
-                " durable storage backend is builtin_local"
+                " durable storage backend is 'builtin_local'"
             >>};
         _ ->
             ok
