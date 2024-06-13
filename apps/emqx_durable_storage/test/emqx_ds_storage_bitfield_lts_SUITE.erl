@@ -276,7 +276,7 @@ t_atomic_store_batch(_Config) ->
             %% Must contain exactly one flush with all messages.
             ?assertMatch(
                 [#{batch := [_, _, _]}],
-                ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)
+                ?of_kind(emqx_ds_buffer_flush, Trace)
             ),
             ok
         end
@@ -305,7 +305,7 @@ t_non_atomic_store_batch(_Config) ->
         end,
         fun(ExpectedMsgs, Trace) ->
             ProcessedMsgs = lists:append(
-                ?projection(batch, ?of_kind(emqx_ds_replication_layer_egress_flush, Trace))
+                ?projection(batch, ?of_kind(emqx_ds_buffer_flush, Trace))
             ),
             ?assertEqual(
                 ExpectedMsgs,

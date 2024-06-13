@@ -7,6 +7,7 @@
 -module(emqx_ds_replication_layer).
 
 %-behaviour(emqx_ds).
+-behaviour(emqx_ds_buffer).
 
 -export([
     list_shards/1,
@@ -25,8 +26,12 @@
     update_iterator/3,
     next/3,
     delete_next/4,
-    shard_of_message/3,
-    current_timestamp/2
+
+    current_timestamp/2,
+
+    shard_of_message/4,
+    flush_buffer/4,
+    init_buffer/3
 ]).
 
 %% internal exports:
@@ -234,7 +239,7 @@ drop_db(DB) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
     try
-        emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts)
+        emqx_ds_buffer:store_batch(DB, Messages, Opts)
     catch
         error:{Reason, _Call} when Reason == timeout; Reason == noproc ->
             {error, recoverable, Reason}
@@ -350,17 +355,6 @@ delete_next(DB, Iter0, Selector, BatchSize) ->
             Other
     end.
 
--spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic) ->
-    emqx_ds_replication_layer:shard_id().
-shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy) ->
-    N = emqx_ds_replication_shard_allocator:n_shards(DB),
-    Hash =
-        case SerializeBy of
-            clientid -> erlang:phash2(From, N);
-            topic -> erlang:phash2(Topic, N)
-        end,
-    integer_to_binary(Hash).
-
 -spec foreach_shard(emqx_ds:db(), fun((shard_id()) -> _)) -> ok.
 foreach_shard(DB, Fun) ->
     lists:foreach(Fun, list_shards(DB)).
@@ -372,8 +366,37 @@ current_timestamp(DB, Shard) ->
     emqx_ds_builtin_raft_sup:get_gvar(DB, ?gv_timestamp(Shard), 0).
 
 %%================================================================================
-%% behavior callbacks
+%% emqx_ds_buffer callbacks
 %%================================================================================
+
+-record(bs, {}).
+-type egress_state() :: #bs{}.
+
+-spec init_buffer(emqx_ds:db(), shard_id(), _Options) -> {ok, egress_state()}.
+init_buffer(_DB, _Shard, _Options) ->
+    {ok, #bs{}}.
+
+-spec flush_buffer(emqx_ds:db(), shard_id(), [emqx_types:message()], egress_state()) ->
+    {egress_state(), ok | {error, recoverable | unrecoverable, _}}.
+flush_buffer(DB, Shard, Messages, State) ->
+    case ra_store_batch(DB, Shard, Messages) of
+        {timeout, ServerId} ->
+            Result = {error, recoverable, {timeout, ServerId}};
+        Result ->
+            ok
+    end,
+    {State, Result}.
+
+-spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic, _Options) ->
+    emqx_ds_replication_layer:shard_id().
+shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+    N = emqx_ds_replication_shard_allocator:n_shards(DB),
+    Hash =
+        case SerializeBy of
+            clientid -> erlang:phash2(From, N);
+            topic -> erlang:phash2(Topic, N)
+        end,
+    integer_to_binary(Hash).
 
 %%================================================================================
 %% Internal exports (RPC targets)

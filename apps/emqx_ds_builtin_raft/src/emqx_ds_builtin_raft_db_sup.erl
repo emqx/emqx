@@ -267,9 +267,10 @@ shard_allocator_spec(DB) ->
     }.
 
 egress_spec(DB, Shard) ->
+    Options = #{},
     #{
         id => Shard,
-        start => {emqx_ds_replication_layer_egress, start_link, [DB, Shard]},
+        start => {emqx_ds_buffer, start_link, [emqx_ds_replication_layer, Options, DB, Shard]},
         shutdown => 5_000,
         restart => permanent,
         type => worker

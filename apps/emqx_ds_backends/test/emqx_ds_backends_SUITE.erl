@@ -241,7 +241,7 @@ t_09_atomic_store_batch(Config) ->
                     sync => true
                 })
             ),
-            {ok, Flush} = ?block_until(#{?snk_kind := emqx_ds_replication_layer_egress_flush}),
+            {ok, Flush} = ?block_until(#{?snk_kind := emqx_ds_buffer_flush}),
             ?assertMatch(#{batch := [_, _, _]}, Flush)
         end,
         []
@@ -271,7 +271,7 @@ t_10_non_atomic_store_batch(Config) ->
         end,
         fun(Trace) ->
             %% Should contain one flush per message.
-            Batches = ?projection(batch, ?of_kind(emqx_ds_replication_layer_egress_flush, Trace)),
+            Batches = ?projection(batch, ?of_kind(emqx_ds_buffer_flush, Trace)),
             ?assertMatch([_], Batches),
             ?assertMatch(
                 [_, _, _],

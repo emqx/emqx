@@ -630,8 +630,8 @@ t_error_mapping_replication_layer(_Config) ->
 
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
 
-    ?block_until(#{?snk_kind := emqx_ds_replication_layer_egress_flush, shard := Shard1}),
-    ?block_until(#{?snk_kind := emqx_ds_replication_layer_egress_flush, shard := Shard2}),
+    ?block_until(#{?snk_kind := emqx_ds_buffer_flush, shard := Shard1}),
+    ?block_until(#{?snk_kind := emqx_ds_buffer_flush, shard := Shard2}),
 
     Streams0 = emqx_ds:get_streams(DB, TopicFilter, 0),
     Iterators0 = lists:map(
