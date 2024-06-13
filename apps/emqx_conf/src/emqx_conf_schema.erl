@@ -1428,6 +1428,8 @@ to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
 
 roots(Module) ->
+    %% io:format(user, "\n\n>>>>>>>>>>>>>>>\n  ~p\n\n", [#{e => emqx_release:edition(), m => Module}]),
+    %% error({Module, emqx_release:edition()}),
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
 
 %% Like authentication schema, authorization schema is incomplete in emqx_schema
