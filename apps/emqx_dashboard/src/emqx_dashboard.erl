@@ -28,11 +28,14 @@
 %% Authorization
 -export([authorize/1]).
 
+-export([save_dispatch_eterm/1]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
+-define(DISPATCH_FILE, "dispatch.eterm").
 
 %%--------------------------------------------------------------------
 %% Start/Stop Listeners
@@ -46,6 +49,42 @@ stop_listeners() ->
 
 start_listeners(Listeners) ->
     {ok, _} = application:ensure_all_started(minirest),
+    SwaggerSupport = emqx:get_config([dashboard, swagger_support], true),
+    InitDispatch = dispatch(),
+    {OkListeners, ErrListeners} =
+        lists:foldl(
+            fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
+                init_cache_dispatch(Name, InitDispatch),
+                Options = #{
+                    dispatch => InitDispatch,
+                    swagger_support => SwaggerSupport,
+                    protocol => Protocol,
+                    protocol_options => ProtoOpts
+                },
+                Minirest = minirest_option(Options),
+                case minirest:start(Name, RanchOptions, Minirest) of
+                    {ok, _} ->
+                        ?ULOG("Listener ~ts on ~ts started.~n", [
+                            Name, emqx_listeners:format_bind(Bind)
+                        ]),
+                        {[Name | OkAcc], ErrAcc};
+                    {error, _Reason} ->
+                        %% Don't record the reason because minirest already does(too much logs noise).
+                        {OkAcc, [Name | ErrAcc]}
+                end
+            end,
+            {[], []},
+            listeners(ensure_ssl_cert(Listeners))
+        ),
+    case ErrListeners of
+        [] ->
+            optvar:set(emqx_dashboard_listeners_ready, OkListeners),
+            ok;
+        _ ->
+            {error, ErrListeners}
+    end.
+
+minirest_option(Options) ->
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
@@ -68,42 +107,33 @@ start_listeners(Listeners) ->
             }
         }
     },
-    BaseMinirest = #{
-        base_path => emqx_dashboard_swagger:base_path(),
-        modules => minirest_api:find_api_modules(apps()),
-        authorization => Authorization,
-        log => audit_log_fun(),
-        security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
-        swagger_global_spec => GlobalSpec,
-        dispatch => dispatch(),
-        middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler],
-        swagger_support => emqx:get_config([dashboard, swagger_support], true)
-    },
-    {OkListeners, ErrListeners} =
-        lists:foldl(
-            fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
-                Minirest = BaseMinirest#{protocol => Protocol, protocol_options => ProtoOpts},
-                case minirest:start(Name, RanchOptions, Minirest) of
-                    {ok, _} ->
-                        ?ULOG("Listener ~ts on ~ts started.~n", [
-                            Name, emqx_listeners:format_bind(Bind)
-                        ]),
-                        {[Name | OkAcc], ErrAcc};
-                    {error, _Reason} ->
-                        %% Don't record the reason because minirest already does(too much logs noise).
-                        {OkAcc, [Name | ErrAcc]}
-                end
-            end,
-            {[], []},
-            listeners(ensure_ssl_cert(Listeners))
-        ),
-    case ErrListeners of
-        [] ->
-            optvar:set(emqx_dashboard_listeners_ready, OkListeners),
-            ok;
-        _ ->
-            {error, ErrListeners}
-    end.
+    Base =
+        #{
+            base_path => emqx_dashboard_swagger:base_path(),
+            modules => minirest_api:find_api_modules(apps()),
+            authorization => Authorization,
+            log => audit_log_fun(),
+            security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
+            swagger_global_spec => GlobalSpec,
+            dispatch => static_dispatch(),
+            middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler],
+            swagger_support => true
+        },
+    maps:merge(Base, Options).
+
+%% save dispatch to priv dir.
+save_dispatch_eterm(SchemaMod) ->
+    Dir = code:priv_dir(emqx_dashboard),
+    emqx_config:put([dashboard], #{i18n_lang => en, swagger_support => false}),
+    os:putenv("SCHEMA_MOD", atom_to_list(SchemaMod)),
+    DispatchFile = filename:join([Dir, ?DISPATCH_FILE]),
+    io:format(user, "===< Generating: ~s~n", [DispatchFile]),
+    #{dispatch := Dispatch} = generate_dispatch(),
+    IoData = io_lib:format("~p.~n", [Dispatch]),
+    ok = file:write_file(DispatchFile, IoData),
+    {ok, [SaveDispatch]} = file:consult(DispatchFile),
+    SaveDispatch =/= Dispatch andalso erlang:error("bad dashboard dispatch.eterm file generated"),
+    ok.
 
 stop_listeners(Listeners) ->
     optvar:unset(emqx_dashboard_listeners_ready),
@@ -127,6 +157,34 @@ wait_for_listeners() ->
 
 %%--------------------------------------------------------------------
 %% internal
+%%--------------------------------------------------------------------
+
+init_cache_dispatch(Name, Dispatch0) ->
+    Dispatch1 = [{_, _, Rules}] = trails:single_host_compile(Dispatch0),
+    FileName = filename:join(code:priv_dir(emqx_dashboard), ?DISPATCH_FILE),
+    Dispatch2 =
+        case file:consult(FileName) of
+            {ok, [[{Host, Path, CacheRules}]]} ->
+                Trails = trails:trails([{cowboy_swagger_handler, #{server => 'http:dashboard'}}]),
+                [{_, _, SwaggerRules}] = trails:single_host_compile(Trails),
+                [{Host, Path, CacheRules ++ SwaggerRules ++ Rules}];
+            {error, _} ->
+                Dispatch1
+        end,
+    persistent_term:put(Name, Dispatch2).
+
+generate_dispatch() ->
+    Options = #{
+        dispatch => [],
+        swagger_support => false,
+        protocol => http,
+        protocol_options => proto_opts(#{})
+    },
+    Minirest = minirest_option(Options),
+    minirest:generate_dispatch(Minirest).
+
+dispatch() ->
+    static_dispatch() ++ dynamic_dispatch().
 
 apps() ->
     [
@@ -286,9 +344,6 @@ ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
     Listeners#{https => maps:merge(Https1, SslOpt1)};
 ensure_ssl_cert(Listeners) ->
     Listeners.
-
-dispatch() ->
-    static_dispatch() ++ dynamic_dispatch().
 
 static_dispatch() ->
     StaticFiles = ["/editor.worker.js", "/json.worker.js", "/version"],
