@@ -399,7 +399,6 @@ compat_windows(Fun) when is_function(Fun, 0) ->
             0.0
     end;
 compat_windows(Fun) ->
-    ?SLOG(warning, "Invalid function: ~p", [Fun]),
     error({badarg, Fun}).
 
 load(Avg) ->

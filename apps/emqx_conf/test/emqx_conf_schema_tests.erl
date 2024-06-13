@@ -133,7 +133,8 @@ log.file_handlers {
         single_line => true,
         template => ["[", level, "] ", msg, "\n"],
         time_offset => TimeOffset,
-        timestamp_format => auto
+        timestamp_format => auto,
+        with_mfa => false
     }}
 ).
 
