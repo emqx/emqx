@@ -18,7 +18,7 @@
         sasl,
         lc,
         hocon,
-        emqx_durable_storage,
+        emqx_ds_backends,
         bcrypt,
         pbkdf2,
         emqx_http_lib,

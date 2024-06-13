@@ -570,7 +570,7 @@ wait_shards_online(Nodes = [Node | _]) ->
     ?retry(500, 10, [?assertEqual(NShards, shards_online(N)) || N <- Nodes]).
 
 shards_online(Node) ->
-    length(erpc:call(Node, emqx_ds_builtin_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
+    length(erpc:call(Node, emqx_ds_builtin_raft_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
 
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),

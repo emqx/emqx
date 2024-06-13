@@ -180,7 +180,7 @@ prometheus_per_db(NodeOrAggr) ->
             prometheus_per_db(NodeOrAggr, DB, Acc)
         end,
         #{},
-        emqx_ds_builtin_db_sup:which_dbs()
+        emqx_ds_builtin_raft_db_sup:which_dbs()
     ).
 
 %% This function returns the data in the following format:
@@ -246,7 +246,7 @@ prometheus_per_shard(NodeOrAggr) ->
             )
         end,
         #{},
-        emqx_ds_builtin_db_sup:which_dbs()
+        emqx_ds_builtin_raft_db_sup:which_dbs()
     ).
 
 prometheus_per_shard(NodeOrAggr, DB, Shard, Acc0) ->

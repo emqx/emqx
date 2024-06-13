@@ -62,7 +62,7 @@ translate_builtin(
                 {emqx_ds_storage_reference, #{}}
         end,
     #{
-        backend => builtin,
+        backend => builtin_raft,
         n_shards => NShards,
         n_sites => NSites,
         replication_factor => ReplFactor,
