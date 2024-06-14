@@ -420,8 +420,12 @@ get_templated_statement(Key, #{installed_channels := Channels} = _State) when
 ->
     BinKey = to_bin(Key),
     ChannelState = maps:get(BinKey, Channels),
-    ChannelPreparedStatements = maps:get(prepares, ChannelState),
-    maps:get(BinKey, ChannelPreparedStatements);
+    case ChannelState of
+        #{prepares := disabled, query_templates := #{BinKey := {ExprTemplate, _}}} ->
+            ExprTemplate;
+        #{prepares := #{BinKey := ExprTemplate}} ->
+            ExprTemplate
+    end;
 get_templated_statement(Key, #{prepares := PrepStatements}) ->
     BinKey = to_bin(Key),
     maps:get(BinKey, PrepStatements).
@@ -785,6 +789,7 @@ handle_batch_result([{error, Error} | _Rest], _Acc) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_batch_result([], Acc) ->
+    ?tp("postgres_success_batch_result", #{row_count => Acc}),
     {ok, Acc}.
 
 translate_to_log_context({error, Reason}) ->
