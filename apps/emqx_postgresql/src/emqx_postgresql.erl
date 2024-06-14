@@ -59,6 +59,9 @@
     default_port => ?PGSQL_DEFAULT_PORT
 }).
 
+-type connector_resource_id() :: binary().
+-type action_resource_id() :: binary().
+
 -type template() :: {unicode:chardata(), emqx_template_sql:row_template()}.
 -type state() ::
     #{
@@ -319,37 +322,39 @@ do_check_channel_sql(
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
 
-on_query(InstId, {TypeOrKey, NameOrSQL}, State) ->
-    on_query(InstId, {TypeOrKey, NameOrSQL, []}, State);
+-spec on_query
+    %% Called from authn and authz modules
+    (connector_resource_id(), {prepared_query, binary(), [term()]}, state()) ->
+        {ok, _} | {error, term()};
+    %% Called from bridges
+    (connector_resource_id(), {action_resource_id(), map()}, state()) ->
+        {ok, _} | {error, term()}.
+on_query(InstId, {TypeOrKey, NameOrMap}, State) ->
+    on_query(InstId, {TypeOrKey, NameOrMap, []}, State);
 on_query(
     InstId,
-    {TypeOrKey, NameOrSQL, Params},
+    {TypeOrKey, NameOrMap, Params},
     #{pool_name := PoolName} = State
 ) ->
     ?SLOG(debug, #{
         msg => "postgresql_connector_received_sql_query",
         connector => InstId,
         type => TypeOrKey,
-        sql => NameOrSQL,
+        sql => NameOrMap,
         state => State
     }),
-    Type = pgsql_query_type(TypeOrKey, State),
-    {NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrSQL, Params, State),
-    Res = on_sql_query(TypeOrKey, InstId, PoolName, Type, NameOrSQL2, Data),
+    {QueryType, NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrMap, Params, State),
+    emqx_trace:rendered_action_template(
+        TypeOrKey,
+        #{
+            statement_type => QueryType,
+            statement_or_name => NameOrSQL2,
+            data => Data
+        }
+    ),
+    Res = on_sql_query(InstId, PoolName, QueryType, NameOrSQL2, Data),
     ?tp(postgres_bridge_connector_on_query_return, #{instance_id => InstId, result => Res}),
     handle_result(Res).
-
-pgsql_query_type(_TypeOrTag, #{prepares := disabled}) ->
-    query;
-pgsql_query_type(sql, _ConnectorState) ->
-    query;
-pgsql_query_type(query, _ConnectorState) ->
-    query;
-pgsql_query_type(prepared_query, _ConnectorState) ->
-    prepared_query;
-%% for bridge
-pgsql_query_type(_, ConnectorState) ->
-    pgsql_query_type(prepared_query, ConnectorState).
 
 on_batch_query(
     InstId,
@@ -370,7 +375,15 @@ on_batch_query(
         {_Statement, RowTemplate} ->
             StatementTemplate = get_templated_statement(BinKey, State),
             Rows = [render_prepare_sql_row(RowTemplate, Data) || {_Key, Data} <- BatchReq],
-            case on_sql_query(Key, InstId, PoolName, execute_batch, StatementTemplate, Rows) of
+            emqx_trace:rendered_action_template(
+                Key,
+                #{
+                    statement_type => execute_batch,
+                    statement_or_name => StatementTemplate,
+                    data => Rows
+                }
+            ),
+            case on_sql_query(InstId, PoolName, execute_batch, StatementTemplate, Rows) of
                 {error, _Error} = Result ->
                     handle_result(Result);
                 {_Column, Results} ->
@@ -386,25 +399,33 @@ on_batch_query(InstId, BatchReq, State) ->
     }),
     {error, {unrecoverable_error, invalid_request}}.
 
-proc_sql_params(query, SQLOrKey, Params, _State) ->
-    {SQLOrKey, Params};
-proc_sql_params(prepared_query, SQLOrKey, Params, _State) ->
-    {SQLOrKey, Params};
-proc_sql_params(TypeOrKey, SQLOrData, Params, State) ->
+proc_sql_params(ActionResId, #{} = Map, [], State) when is_binary(ActionResId) ->
+    %% When this connector is called from actions/bridges.
     DisablePreparedStatements = maps:get(prepares, State, #{}) =:= disabled,
-    BinKey = to_bin(TypeOrKey),
-    case get_template(BinKey, State) of
-        undefined ->
-            {SQLOrData, Params};
-        {Statement, RowTemplate} ->
-            Rendered = render_prepare_sql_row(RowTemplate, SQLOrData),
-            case DisablePreparedStatements of
-                true ->
-                    {Statement, Rendered};
-                false ->
-                    {BinKey, Rendered}
-            end
-    end.
+    {ExprTemplate, RowTemplate} = get_template(ActionResId, State),
+    Rendered = render_prepare_sql_row(RowTemplate, Map),
+    case DisablePreparedStatements of
+        true ->
+            {query, ExprTemplate, Rendered};
+        false ->
+            {prepared_query, ActionResId, Rendered}
+    end;
+proc_sql_params(prepared_query, ConnResId, Params, State) ->
+    %% When this connector is called from authn/authz modules
+    DisablePreparedStatements = maps:get(prepares, State, #{}) =:= disabled,
+    case DisablePreparedStatements of
+        true ->
+            #{query_templates := #{ConnResId := {ExprTemplate, _VarsTemplate}}} = State,
+            {query, ExprTemplate, Params};
+        false ->
+            %% Connector resource id itself is the prepared statement name
+            {prepared_query, ConnResId, Params}
+    end;
+proc_sql_params(QueryType, SQL, Params, _State) when
+    is_atom(QueryType), is_binary(SQL) orelse is_list(SQL), is_list(Params)
+->
+    %% When called to do ad-hoc commands/queries.
+    {QueryType, SQL, Params}.
 
 get_template(Key, #{installed_channels := Channels} = _State) when is_map_key(Key, Channels) ->
     BinKey = to_bin(Key),
@@ -430,15 +451,7 @@ get_templated_statement(Key, #{prepares := PrepStatements}) ->
     BinKey = to_bin(Key),
     maps:get(BinKey, PrepStatements).
 
-on_sql_query(Key, InstId, PoolName, Type, NameOrSQL, Data) ->
-    emqx_trace:rendered_action_template(
-        Key,
-        #{
-            statement_type => Type,
-            statement_or_name => NameOrSQL,
-            data => Data
-        }
-    ),
+on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
     try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover) of
         {error, Reason} ->
             ?tp(
