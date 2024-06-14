@@ -15,13 +15,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_ds).
 
--behaviour(minirest_api).
+-if(?EMQX_RELEASE_EDITION == ee).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("typerefl/include/types.hrl").
--include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
--include_lib("emqx/include/emqx_persistent_message.hrl").
+-behaviour(minirest_api).
 
 -import(hoconsc, [mk/2, ref/1, enum/1, array/1]).
 
@@ -50,10 +46,11 @@
     fields/1
 ]).
 
-%% internal exports:
--export([]).
-
--export_type([]).
+-include_lib("emqx/include/logger.hrl").
+-include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/emqx_persistent_message.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -494,3 +491,5 @@ meta_result_to_binary({error, {member_of_replica_sets, DBNames}}) ->
 meta_result_to_binary({error, Err}) ->
     IOList = io_lib:format("Error: ~p", [Err]),
     {error, iolist_to_binary(IOList)}.
+
+-endif.
