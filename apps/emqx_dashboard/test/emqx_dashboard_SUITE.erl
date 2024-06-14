@@ -69,6 +69,9 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    _ = emqx_conf_schema:roots(),
+    ok = emqx_dashboard_desc_cache:init(),
+    emqx_dashboard:save_dispatch_eterm(emqx_conf:schema_module()),
     emqx_common_test_http:create_default_app(),
     [{suite_apps, SuiteApps} | Config].
 
@@ -86,6 +89,79 @@ t_overview(_) ->
         {ok, _} = request_dashboard(get, api_path([Overview]), Headers)
      || Overview <- ?OVERVIEWS
     ].
+
+t_dashboard_restart(Config) ->
+    emqx_config:put([dashboard], #{
+        i18n_lang => en,
+        swagger_support => true,
+        listeners =>
+            #{
+                http =>
+                    #{
+                        inet6 => false,
+                        bind => 18083,
+                        ipv6_v6only => false,
+                        send_timeout => 10000,
+                        num_acceptors => 8,
+                        max_connections => 512,
+                        backlog => 1024,
+                        proxy_header => false
+                    }
+            }
+    }),
+    application:stop(emqx_dashboard),
+    application:start(emqx_dashboard),
+    Name = 'http:dashboard',
+    t_overview(Config),
+    [{'_', [], Rules}] = Dispatch = persistent_term:get(Name),
+    %% complete dispatch has more than 150 rules.
+    ?assertNotMatch([{[], [], cowboy_static, _} | _], Rules),
+    ?assert(erlang:length(Rules) > 150),
+    CheckRules = fun(Tag) ->
+        [{'_', [], NewRules}] = persistent_term:get(Name, Tag),
+        ?assertEqual(length(Rules), length(NewRules), Tag),
+        ?assertEqual(lists:sort(Rules), lists:sort(NewRules), Tag)
+    end,
+    ?check_trace(
+        ?wait_async_action(
+            begin
+                ok = application:stop(emqx_dashboard),
+                ?assertEqual(Dispatch, persistent_term:get(Name)),
+                ok = application:start(emqx_dashboard),
+                %% After we restart the dashboard, the dispatch rules should be the same.
+                CheckRules(step_1)
+            end,
+            #{?snk_kind := regenerate_minirest_dispatch},
+            30_000
+        ),
+        fun(Trace) ->
+            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
+            %% The dispatch is updated after being regenerated.
+            CheckRules(step_2)
+        end
+    ),
+    t_overview(Config),
+    ?check_trace(
+        ?wait_async_action(
+            begin
+                %% erase to mock the initial dashboard startup.
+                persistent_term:erase(Name),
+                ok = application:stop(emqx_dashboard),
+                ok = application:start(emqx_dashboard),
+                ct:sleep(800),
+                %% regenerate the dispatch rules again
+                CheckRules(step_3)
+            end,
+            #{?snk_kind := regenerate_minirest_dispatch},
+            30_000
+        ),
+        fun(Trace) ->
+            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
+            CheckRules(step_4)
+        end
+    ),
+    t_overview(Config),
+    ok.
 
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
@@ -196,28 +272,41 @@ t_disable_swagger_json(_Config) ->
         {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
         httpc:request(get, {Url, []}, [], [{body_format, binary}])
     ),
-
     DashboardCfg = emqx:get_raw_config([dashboard]),
-    DashboardCfg2 = DashboardCfg#{<<"swagger_support">> => false},
-    emqx:update_config([dashboard], DashboardCfg2),
-    ?retry(
-        _Sleep = 1000,
-        _Attempts = 5,
-        ?assertMatch(
-            {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
-            httpc:request(get, {Url, []}, [], [{body_format, binary}])
-        )
-    ),
 
-    DashboardCfg3 = DashboardCfg#{<<"swagger_support">> => true},
-    emqx:update_config([dashboard], DashboardCfg3),
-    ?retry(
-        _Sleep0 = 1000,
-        _Attempts0 = 5,
-        ?assertMatch(
-            {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
-            httpc:request(get, {Url, []}, [], [{body_format, binary}])
-        )
+    ?check_trace(
+        ?wait_async_action(
+            begin
+                DashboardCfg2 = DashboardCfg#{<<"swagger_support">> => false},
+                emqx:update_config([dashboard], DashboardCfg2)
+            end,
+            #{?snk_kind := regenerate_minirest_dispatch},
+            30_000
+        ),
+        fun(Trace) ->
+            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
+            ?assertMatch(
+                {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
+                httpc:request(get, {Url, []}, [], [{body_format, binary}])
+            )
+        end
+    ),
+    ?check_trace(
+        ?wait_async_action(
+            begin
+                DashboardCfg3 = DashboardCfg#{<<"swagger_support">> => true},
+                emqx:update_config([dashboard], DashboardCfg3)
+            end,
+            #{?snk_kind := regenerate_minirest_dispatch},
+            30_000
+        ),
+        fun(Trace) ->
+            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
+            ?assertMatch(
+                {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
+                httpc:request(get, {Url, []}, [], [{body_format, binary}])
+            )
+        end
     ),
     ok.
 

@@ -323,14 +323,7 @@ compose_filters(undefined, Filter2) ->
 compose_filters(Filter1, undefined) ->
     Filter1;
 compose_filters(Filter1, Filter2) ->
-    fun(Request, RequestMeta) ->
-        case Filter1(Request, RequestMeta) of
-            {ok, Request1} ->
-                Filter2(Request1, RequestMeta);
-            Response ->
-                Response
-        end
-    end.
+    [Filter1, Filter2].
 
 %%------------------------------------------------------------------------------
 %% Private functions
