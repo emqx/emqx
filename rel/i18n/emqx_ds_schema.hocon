@@ -8,7 +8,13 @@ messages.desc:
 builtin_raft.label: "Builtin backend with Raft replication"
 builtin_raft.desc:
   """~
-  Builtin session storage backend utilizing embedded RocksDB key-value store.~"""
+  Builtin storage backend utilizing embedded RocksDB key-value store.~"""
+
+builtin_local.label: "Builtin backend"
+builtin_local.desc:
+  """~
+  Builtin storage backend utilizing embedded RocksDB key-value store.
+  This backend doesn't support clustering.~"""
 
 backend_type.label: "Backend type"
 backend_type.desc:

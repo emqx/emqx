@@ -18,7 +18,7 @@
 -module(emqx_ds_schema).
 
 %% API:
--export([schema/0, translate_builtin_raft/1]).
+-export([schema/0, translate_builtin_raft/1, translate_builtin_local/1]).
 
 %% Behavior callbacks:
 -export([fields/1, desc/1, namespace/0]).
@@ -31,6 +31,14 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-if(defined(EMQX_RELEASE_EDITION) andalso EMQX_RELEASE_EDITION == ee).
+-define(DEFAULT_BACKEND, builtin_raft).
+-define(BUILTIN_BACKENDS, [ref(builtin_raft), ref(builtin_local)]).
+-else.
+-define(DEFAULT_BACKEND, builtin_local).
+-define(BUILTIN_BACKENDS, [ref(builtin_local)]).
+-endif.
 
 %%================================================================================
 %% API
@@ -45,29 +53,26 @@ translate_builtin_raft(
         layout := Layout
     }
 ) ->
-    Storage =
-        case Layout of
-            #{
-                type := wildcard_optimized,
-                bits_per_topic_level := BitsPerTopicLevel,
-                epoch_bits := EpochBits,
-                topic_index_bytes := TIBytes
-            } ->
-                {emqx_ds_storage_bitfield_lts, #{
-                    bits_per_topic_level => BitsPerTopicLevel,
-                    topic_index_bytes => TIBytes,
-                    epoch_bits => EpochBits
-                }};
-            #{type := reference} ->
-                {emqx_ds_storage_reference, #{}}
-        end,
     #{
         backend => builtin_raft,
         n_shards => NShards,
         n_sites => NSites,
         replication_factor => ReplFactor,
         replication_options => maps:get(replication_options, Backend, #{}),
-        storage => Storage
+        storage => translate_layout(Layout)
+    }.
+
+translate_builtin_local(
+    #{
+        backend := builtin_local,
+        n_shards := NShards,
+        layout := Layout
+    }
+) ->
+    #{
+        backend => builtin_local,
+        n_shards => NShards,
+        storage => translate_layout(Layout)
     }.
 
 %%================================================================================
@@ -83,13 +88,37 @@ schema() ->
             ds_schema(#{
                 default =>
                     #{
-                        <<"backend">> => builtin_raft
+                        <<"backend">> => ?DEFAULT_BACKEND
                     },
                 importance => ?IMPORTANCE_MEDIUM,
                 desc => ?DESC(messages)
             })}
     ].
 
+fields(builtin_local) ->
+    %% Schema for the builtin_raft backend:
+    [
+        {backend,
+            sc(
+                builtin_local,
+                #{
+                    'readOnly' => true,
+                    default => builtin_local,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(backend_type)
+                }
+            )},
+        {'_config_handler',
+            sc(
+                {module(), atom()},
+                #{
+                    'readOnly' => true,
+                    default => {?MODULE, translate_builtin_local},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+        | common_builtin_fields()
+    ];
 fields(builtin_raft) ->
     %% Schema for the builtin_raft backend:
     [
@@ -259,6 +288,8 @@ common_builtin_fields() ->
 
 desc(builtin_raft) ->
     ?DESC(builtin_raft);
+desc(builtin_local) ->
+    ?DESC(builtin_local);
 desc(builtin_write_buffer) ->
     ?DESC(builtin_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
@@ -272,12 +303,27 @@ desc(_) ->
 %% Internal functions
 %%================================================================================
 
+translate_layout(
+    #{
+        type := wildcard_optimized,
+        bits_per_topic_level := BitsPerTopicLevel,
+        epoch_bits := EpochBits,
+        topic_index_bytes := TIBytes
+    }
+) ->
+    {emqx_ds_storage_bitfield_lts, #{
+        bits_per_topic_level => BitsPerTopicLevel,
+        topic_index_bytes => TIBytes,
+        epoch_bits => EpochBits
+    }};
+translate_layout(#{type := reference}) ->
+    {emqx_ds_storage_reference, #{}}.
+
 ds_schema(Options) ->
     sc(
-        hoconsc:union([
-            ref(builtin_raft)
-            | emqx_schema_hooks:injection_point('durable_storage.backends', [])
-        ]),
+        hoconsc:union(
+            ?BUILTIN_BACKENDS ++ emqx_schema_hooks:injection_point('durable_storage.backends', [])
+        ),
         Options
     ).
 
