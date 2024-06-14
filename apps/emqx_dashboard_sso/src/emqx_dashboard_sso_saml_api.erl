@@ -20,7 +20,6 @@
 
 -export([
     api_spec/0,
-    validate_xml_content_type/2,
     paths/0,
     schema/1,
     namespace/0
@@ -40,9 +39,6 @@ namespace() -> "dashboard_sso".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false, translate_body => false}).
-
-validate_xml_content_type(Params, Meta) ->
-    emqx_dashboard_swagger:validate_content_type(Params, Meta, <<"application/xml">>).
 
 paths() ->
     [

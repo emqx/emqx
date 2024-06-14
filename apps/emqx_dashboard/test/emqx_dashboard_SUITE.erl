@@ -61,7 +61,6 @@ init_per_suite(Config) ->
     Apps = emqx_machine_boot:reboot_apps(),
     ct:pal("load apps:~p~n", [Apps]),
     lists:foreach(fun(App) -> application:load(App) end, Apps),
-    emqx_dashboard:save_dispatch_eterm(emqx_conf:schema_module()),
     SuiteApps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -70,6 +69,9 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    _ = emqx_conf_schema:roots(),
+    ok = emqx_dashboard_desc_cache:init(),
+    emqx_dashboard:save_dispatch_eterm(emqx_conf:schema_module()),
     emqx_common_test_http:create_default_app(),
     [{suite_apps, SuiteApps} | Config].
 
@@ -89,6 +91,26 @@ t_overview(_) ->
     ].
 
 t_dashboard_restart(Config) ->
+    emqx_config:put([dashboard], #{
+        i18n_lang => en,
+        swagger_support => true,
+        listeners =>
+            #{
+                http =>
+                    #{
+                        inet6 => false,
+                        bind => 18083,
+                        ipv6_v6only => false,
+                        send_timeout => 10000,
+                        num_acceptors => 8,
+                        max_connections => 512,
+                        backlog => 1024,
+                        proxy_header => false
+                    }
+            }
+    }),
+    application:stop(emqx_dashboard),
+    application:start(emqx_dashboard),
     Name = 'http:dashboard',
     t_overview(Config),
     [{'_', [], Rules}] = Dispatch = persistent_term:get(Name),
@@ -96,10 +118,9 @@ t_dashboard_restart(Config) ->
     ?assertNotMatch([{[], [], cowboy_static, _} | _], Rules),
     ?assert(erlang:length(Rules) > 150),
     CheckRules = fun(Tag) ->
-        io:format("zhongwen:~p~n", [Tag]),
-        [{'_', [], NewRules}] = persistent_term:get(Name),
-        ?assertEqual(length(NewRules), length(Rules), Tag),
-        ?assertEqual(lists:sort(NewRules), lists:sort(Rules), Tag)
+        [{'_', [], NewRules}] = persistent_term:get(Name, Tag),
+        ?assertEqual(length(Rules), length(NewRules), Tag),
+        ?assertEqual(lists:sort(Rules), lists:sort(NewRules), Tag)
     end,
     ?check_trace(
         ?wait_async_action(
@@ -123,9 +144,9 @@ t_dashboard_restart(Config) ->
     ?check_trace(
         ?wait_async_action(
             begin
-                ok = application:stop(emqx_dashboard),
                 %% erase to mock the initial dashboard startup.
                 persistent_term:erase(Name),
+                ok = application:stop(emqx_dashboard),
                 ok = application:start(emqx_dashboard),
                 ct:sleep(800),
                 %% regenerate the dispatch rules again

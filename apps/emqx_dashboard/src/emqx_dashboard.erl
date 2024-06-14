@@ -33,6 +33,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
+-dialyzer({[no_opaque, no_match, no_return], [init_cache_dispatch/2, start_listeners/1]}).
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
 -define(DISPATCH_FILE, "dispatch.eterm").
@@ -54,7 +55,7 @@ start_listeners(Listeners) ->
     {OkListeners, ErrListeners} =
         lists:foldl(
             fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
-                init_cache_dispatch(Name, InitDispatch),
+                ok = init_cache_dispatch(Name, InitDispatch),
                 Options = #{
                     dispatch => InitDispatch,
                     swagger_support => SwaggerSupport,
