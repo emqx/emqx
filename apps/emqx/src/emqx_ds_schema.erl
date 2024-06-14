@@ -160,10 +160,10 @@ fields(builtin) ->
             )},
         {local_write_buffer,
             sc(
-                ref(builtin_local_write_buffer),
+                ref(builtin_write_buffer),
                 #{
                     importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_local_write_buffer)
+                    desc => ?DESC(builtin_write_buffer)
                 }
             )},
         {layout,
@@ -179,7 +179,7 @@ fields(builtin) ->
                 }
             )}
     ];
-fields(builtin_local_write_buffer) ->
+fields(builtin_write_buffer) ->
     [
         {max_items,
             sc(
@@ -188,7 +188,7 @@ fields(builtin_local_write_buffer) ->
                     default => 1000,
                     mapping => "emqx_durable_storage.egress_batch_size",
                     importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_local_write_buffer_max_items)
+                    desc => ?DESC(builtin_write_buffer_max_items)
                 }
             )},
         {flush_interval,
@@ -198,7 +198,7 @@ fields(builtin_local_write_buffer) ->
                     default => 100,
                     mapping => "emqx_durable_storage.egress_flush_interval",
                     importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_local_write_buffer_flush_interval)
+                    desc => ?DESC(builtin_write_buffer_flush_interval)
                 }
             )}
     ];
@@ -254,8 +254,8 @@ fields(layout_builtin_reference) ->
 
 desc(builtin) ->
     ?DESC(builtin);
-desc(builtin_local_write_buffer) ->
-    ?DESC(builtin_local_write_buffer);
+desc(builtin_write_buffer) ->
+    ?DESC(builtin_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
     ?DESC(layout_builtin_wildcard_optimized);
 desc(layout_builtin_reference) ->
