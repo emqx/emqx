@@ -251,7 +251,7 @@ t_session_subscription_idempotency(Config) ->
 
             ok
         end,
-        fun(Trace) ->
+        fun(_Trace) ->
             Session = session_open(Node1, ClientId),
             ?assertMatch(
                 #{SubTopicFilter := #{}},
@@ -324,7 +324,7 @@ t_session_unsubscription_idempotency(Config) ->
 
             ok
         end,
-        fun(Trace) ->
+        fun(_Trace) ->
             Session = session_open(Node1, ClientId),
             ?assertEqual(
                 #{},

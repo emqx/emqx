@@ -1738,7 +1738,7 @@ maybe_add_cert(Map, #channel{conninfo = ConnInfo}) ->
     maybe_add_cert(Map, ConnInfo);
 maybe_add_cert(Map, #{peercert := PeerCert}) when is_binary(PeerCert) ->
     %% NOTE: it's raw binary at this point,
-    %% encoding to PEM (base64) is done lazy in emqx_authn_utils:render_var
+    %% encoding to PEM (base64) is done lazy in emqx_auth_utils:render_var
     Map#{cert_pem => PeerCert};
 maybe_add_cert(Map, _) ->
     Map.
