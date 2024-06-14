@@ -22,6 +22,7 @@
 -export([start/2, start/3, start/4]).
 -export([start_link/2, start_link/3, start_link/4]).
 -export([stop/1]).
+-export([kill/1]).
 
 start(Name, Args) ->
     start(Name, Args, []).
@@ -64,6 +65,32 @@ stop(Node) when is_atom(Node) ->
         false ->
             ct:pal("The control process for node ~p is unexpectedly down", [Node]),
             ok
+    end.
+
+%% @doc Kill a node abruptly, through mechanisms provided by OS.
+%% Relies on POSIX `kill`.
+kill(Node) ->
+    try erpc:call(Node, os, getpid, []) of
+        OSPid ->
+            Pid = whereis(Node),
+            _ = is_pid(Pid) andalso unlink(Pid),
+            Result = kill_os_process(OSPid),
+            %% Either ensure control process stops, or try to stop if not killed.
+            _ = is_pid(Pid) andalso catch peer:stop(Pid),
+            Result
+    catch
+        error:{erpc, _} = Reason ->
+            {error, Reason}
+    end.
+
+kill_os_process(OSPid) ->
+    Cmd = "kill -SIGKILL " ++ OSPid,
+    Port = erlang:open_port({spawn, Cmd}, [binary, exit_status, hide]),
+    receive
+        {Port, {exit_status, 0}} ->
+            ok;
+        {Port, {exit_status, EC}} ->
+            {error, EC}
     end.
 
 parse_node_name(NodeName) ->
