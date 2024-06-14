@@ -310,7 +310,7 @@ t_configs_key(_Config) ->
     ReadOnlyBin = iolist_to_binary(hocon_pp:do(ReadOnlyConf, #{})),
     {error, ReadOnlyError} = update_configs_with_binary(ReadOnlyBin),
     ?assertEqual(<<"{\"errors\":\"Cannot update read-only key 'cluster'.\"}">>, ReadOnlyError),
-    ?assertMatch({ok, <<>>}, update_configs_with_binary(ReadOnlyBin, _InogreReadonly = true)),
+    ?assertMatch({ok, <<>>}, update_configs_with_binary(ReadOnlyBin, _IgnoreReadonly = true)),
     ok.
 
 t_get_configs_in_different_accept(_Config) ->
@@ -444,13 +444,38 @@ t_create_webhook_v1_bridges_api(Config) ->
     ok.
 
 t_config_update_parse_error(_Config) ->
-    ?assertMatch(
-        {error, <<"{\"errors\":\"{parse_error,", _/binary>>},
-        update_configs_with_binary(<<"not an object">>)
+    BadHoconList = [
+        <<"not an object">>,
+        <<"a = \"tlsv1\"\"\"3e-01">>
+    ],
+    lists:map(
+        fun(BadHocon) ->
+            {error, ParseError} = update_configs_with_binary(BadHocon),
+            ?assertMatch(
+                #{
+                    <<"errors">> :=
+                        #{
+                            <<"line">> := 1,
+                            <<"reason">> := _,
+                            <<"type">> := <<"parse_error">>
+                        }
+                },
+                emqx_utils_json:decode(ParseError)
+            )
+        end,
+        BadHoconList
     ),
+
+    {error, ScanError} = update_configs_with_binary(<<"a=测试"/utf8>>),
     ?assertMatch(
-        {error, <<"{\"errors\":\"{parse_error,", _/binary>>},
-        update_configs_with_binary(<<"a = \"tlsv1\"\"\"3e-01">>)
+        #{
+            <<"errors">> := #{
+                <<"line">> := 1,
+                <<"reason">> := _,
+                <<"type">> := <<"scan_error">>
+            }
+        },
+        emqx_utils_json:decode(ScanError)
     ).
 
 t_config_update_unknown_root(_Config) ->
