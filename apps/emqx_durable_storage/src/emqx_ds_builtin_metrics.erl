@@ -22,13 +22,13 @@
 -export([prometheus_meta/0, prometheus_collect/1]).
 
 -export([
-    inc_egress_batches/1,
-    inc_egress_batches_retry/1,
-    inc_egress_batches_failed/1,
-    inc_egress_messages/2,
-    inc_egress_bytes/2,
+    inc_buffer_batches/1,
+    inc_buffer_batches_retry/1,
+    inc_buffer_batches_failed/1,
+    inc_buffer_messages/2,
+    inc_buffer_bytes/2,
 
-    observe_egress_flush_time/2,
+    observe_buffer_flush_time/2,
 
     observe_store_batch_time/2,
 
@@ -106,36 +106,36 @@ init_for_shard(ShardId) ->
     emqx_metrics_worker:create_metrics(?WORKER, ShardId, ?SHARD_METRICS, []).
 
 %% @doc Increase the number of successfully flushed batches
--spec inc_egress_batches(shard_metrics_id()) -> ok.
-inc_egress_batches(Id) ->
+-spec inc_buffer_batches(shard_metrics_id()) -> ok.
+inc_buffer_batches(Id) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES).
 
-%% @doc Increase the number of time the egress worker had to retry
+%% @doc Increase the number of time the buffer worker had to retry
 %% flushing the batch
--spec inc_egress_batches_retry(shard_metrics_id()) -> ok.
-inc_egress_batches_retry(Id) ->
+-spec inc_buffer_batches_retry(shard_metrics_id()) -> ok.
+inc_buffer_batches_retry(Id) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_RETRY).
 
-%% @doc Increase the number of time the egress worker encountered an
+%% @doc Increase the number of time the buffer worker encountered an
 %% unrecoverable error while trying to flush the batch
--spec inc_egress_batches_failed(shard_metrics_id()) -> ok.
-inc_egress_batches_failed(Id) ->
+-spec inc_buffer_batches_failed(shard_metrics_id()) -> ok.
+inc_buffer_batches_failed(Id) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_FAILED).
 
 %% @doc Increase the number of messages successfully saved to the shard
--spec inc_egress_messages(shard_metrics_id(), non_neg_integer()) -> ok.
-inc_egress_messages(Id, NMessages) ->
+-spec inc_buffer_messages(shard_metrics_id(), non_neg_integer()) -> ok.
+inc_buffer_messages(Id, NMessages) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_MESSAGES, NMessages).
 
 %% @doc Increase the number of messages successfully saved to the shard
--spec inc_egress_bytes(shard_metrics_id(), non_neg_integer()) -> ok.
-inc_egress_bytes(Id, NMessages) ->
+-spec inc_buffer_bytes(shard_metrics_id(), non_neg_integer()) -> ok.
+inc_buffer_bytes(Id, NMessages) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BYTES, NMessages).
 
-%% @doc Add a sample of elapsed time spent flushing the egress to the
+%% @doc Add a sample of elapsed time spent flushing the buffer to the
 %% Raft log (in microseconds)
--spec observe_egress_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
-observe_egress_flush_time(Id, FlushTime) ->
+-spec observe_buffer_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
+observe_buffer_flush_time(Id, FlushTime) ->
     catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_FLUSH_TIME, FlushTime).
 
 -spec observe_store_batch_time(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
@@ -221,13 +221,13 @@ prometheus_per_db(NodeOrAggr, DB, Acc0) ->
 
 %% This function returns the data in the following format:
 %% ```
-%% #{emqx_ds_egress_batches =>
+%% #{emqx_ds_buffer_batches =>
 %%       [{[{db,messages},{shard,<<"1">>}],99408},
 %%        {[{db,messages},{shard,<<"0">>}],99409}],
-%%   emqx_ds_egress_batches_retry =>
+%%   emqx_ds_buffer_batches_retry =>
 %%       [{[{db,messages},{shard,<<"1">>}],0},
 %%        {[{db,messages},{shard,<<"0">>}],0}],
-%%   emqx_ds_egress_messages =>
+%%   emqx_ds_buffer_messages =>
 %%        ...
 %%  }
 %% '''

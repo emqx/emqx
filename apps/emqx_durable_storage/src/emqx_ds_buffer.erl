@@ -22,6 +22,7 @@
 
 %% API:
 -export([start_link/4, store_batch/3, shard_of_message/3]).
+-export([ls/0]).
 
 %% behavior callbacks:
 -export([init/1, format_status/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -62,6 +63,11 @@
 %%================================================================================
 %% API functions
 %%================================================================================
+
+-spec ls() -> [{emqx_ds:db(), _Shard}].
+ls() ->
+    MS = {{n, l, {?MODULE, '$1', '$2'}}, [], ['$1', '$2']},
+    gproc:select({local, names}, [MS]).
 
 -spec start_link(module(), _CallbackOptions, emqx_ds:db(), _ShardId) ->
     {ok, pid()}.
@@ -267,12 +273,12 @@ do_flush(
     {CallbackS, Result} = CBM:flush_buffer(DB, Shard, Messages, CallbackS0),
     S = S0#s{callback_state = CallbackS},
     T1 = erlang:monotonic_time(microsecond),
-    emqx_ds_builtin_metrics:observe_egress_flush_time(Metrics, T1 - T0),
+    emqx_ds_builtin_metrics:observe_buffer_flush_time(Metrics, T1 - T0),
     case Result of
         ok ->
-            emqx_ds_builtin_metrics:inc_egress_batches(Metrics),
-            emqx_ds_builtin_metrics:inc_egress_messages(Metrics, S#s.n),
-            emqx_ds_builtin_metrics:inc_egress_bytes(Metrics, S#s.n_bytes),
+            emqx_ds_builtin_metrics:inc_buffer_batches(Metrics),
+            emqx_ds_builtin_metrics:inc_buffer_messages(Metrics, S#s.n),
+            emqx_ds_builtin_metrics:inc_buffer_bytes(Metrics, S#s.n_bytes),
             ?tp(
                 emqx_ds_buffer_flush,
                 #{db => DB, shard => Shard, batch => Messages}
@@ -298,7 +304,7 @@ do_flush(
                 #{db => DB, shard => Shard, reason => Err}
             ),
             %% Retry sending the batch:
-            emqx_ds_builtin_metrics:inc_egress_batches_retry(Metrics),
+            emqx_ds_builtin_metrics:inc_buffer_batches_retry(Metrics),
             erlang:garbage_collect(),
             %% We block the gen_server until the next retry.
             BlockTime = ?COOLDOWN_MIN + rand:uniform(?COOLDOWN_MAX - ?COOLDOWN_MIN),
@@ -310,7 +316,7 @@ do_flush(
                 emqx_ds_buffer_flush_failed,
                 #{db => DB, shard => Shard, error => Err}
             ),
-            emqx_ds_builtin_metrics:inc_egress_batches_failed(Metrics),
+            emqx_ds_builtin_metrics:inc_buffer_batches_failed(Metrics),
             Reply =
                 case Err of
                     {error, _, _} -> Err;
