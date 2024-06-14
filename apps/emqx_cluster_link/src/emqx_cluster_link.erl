@@ -144,7 +144,7 @@ maybe_push_route_op(Op, Topic, RouteID) ->
 
 maybe_push_route_op(Op, Topic, RouteID, PushFun) ->
     lists:foreach(
-        fun(#{upstream := Cluster, topics := LinkFilters}) ->
+        fun(#{name := Cluster, topics := LinkFilters}) ->
             case topic_intersect_any(Topic, LinkFilters) of
                 false ->
                     ok;

@@ -48,7 +48,7 @@ start_msg_fwd_resources(LinksConf) ->
 
 remove_msg_fwd_resources(LinksConf) ->
     lists:foreach(
-        fun(#{upstream := Name}) ->
+        fun(#{name := Name}) ->
             emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name)
         end,
         LinksConf

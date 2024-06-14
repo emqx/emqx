@@ -80,16 +80,9 @@
 
 -define(PUB_TIMEOUT, 10_000).
 
--spec ensure_msg_fwd_resource(binary() | map()) ->
+-spec ensure_msg_fwd_resource(map()) ->
     {ok, emqx_resource:resource_data() | already_started} | {error, Reason :: term()}.
-ensure_msg_fwd_resource(ClusterName) when is_binary(ClusterName) ->
-    case emqx_cluster_link_config:link(ClusterName) of
-        #{} = Conf ->
-            ensure_msg_fwd_resource(Conf);
-        undefined ->
-            {error, link_config_not_found}
-    end;
-ensure_msg_fwd_resource(#{upstream := Name, resource_opts := ResOpts} = ClusterConf) ->
+ensure_msg_fwd_resource(#{name := Name, resource_opts := ResOpts} = ClusterConf) ->
     ResOpts1 = ResOpts#{
         query_mode => async,
         start_after_created => true

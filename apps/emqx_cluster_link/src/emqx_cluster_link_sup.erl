@@ -30,7 +30,7 @@ init(LinksConf) ->
     ExtrouterGC = extrouter_gc_spec(),
     RouteActors = [
         sup_spec(Name, ?ACTOR_MODULE, [LinkConf])
-     || #{upstream := Name} = LinkConf <- LinksConf
+     || #{name := Name} = LinkConf <- LinksConf
     ],
     {ok, {SupFlags, [ExtrouterGC | RouteActors]}}.
 
@@ -53,7 +53,7 @@ sup_spec(Id, Mod, Args) ->
         modules => [Mod]
     }.
 
-ensure_actor(#{upstream := Name} = LinkConf) ->
+ensure_actor(#{name := Name} = LinkConf) ->
     case supervisor:start_child(?SERVER, sup_spec(Name, ?ACTOR_MODULE, [LinkConf])) of
         {ok, Pid} ->
             {ok, Pid};

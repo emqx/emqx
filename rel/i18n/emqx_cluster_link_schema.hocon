@@ -12,9 +12,9 @@ enable.desc:
 """Enable or disable a cluster link. The link is enabled by default, disabling it allows stopping the link without removing its configuration. The link must be enabled on both sides to be operational. Disabling the link should also be done on both clusters in order to free up all associated resources."""
 enable.label: "Enable"
 
-upstream.desc:
-"""Upstream cluster name. Must be exactly equal to the value of `cluster.name` configured at the remote cluster. Must not be equal to the local cluster.name. All configured cluster link upstream names must be unique."""
-upstream.label: "Upstream Name"
+link_name.desc:
+"""Linked (remote) cluster name. Must be exactly equal to the value of `cluster.name` configured at the remote cluster. Must not be equal to the local cluster.name. All configured cluster link names must be unique."""
+link_name.label: "Linked Cluster Name"
 
 server.desc:
 """MQTT host and port of the remote EMQX broker."""

@@ -144,7 +144,7 @@ status(Cluster) ->
 %% 1. Actor + MQTT Client
 %% 2. Syncer
 
-start_link(#{upstream := TargetCluster} = LinkConf) ->
+start_link(#{name := TargetCluster} = LinkConf) ->
     supervisor:start_link(?REF(TargetCluster), ?MODULE, {sup, LinkConf}).
 
 %% Actor
@@ -290,7 +290,7 @@ init({sup, LinkConf}) ->
 init({actor, State}) ->
     init_actor(State).
 
-child_spec(actor, #{upstream := TargetCluster} = LinkConf) ->
+child_spec(actor, #{name := TargetCluster} = LinkConf) ->
     %% Actor process.
     %% Wraps MQTT Client process.
     %% ClientID: `mycluster:emqx1@emqx.local:routesync`
@@ -299,7 +299,7 @@ child_spec(actor, #{upstream := TargetCluster} = LinkConf) ->
     Actor = get_actor_id(),
     Incarnation = new_incarnation(),
     actor_spec(actor, ?ACTOR_REF(TargetCluster), Actor, Incarnation, LinkConf);
-child_spec(ps_actor, #{upstream := TargetCluster, ps_actor_incarnation := Incr} = LinkConf) ->
+child_spec(ps_actor, #{name := TargetCluster, ps_actor_incarnation := Incr} = LinkConf) ->
     actor_spec(ps_actor, ?PS_ACTOR_REF(TargetCluster), ?PS_ACTOR, Incr, LinkConf).
 
 child_spec(syncer, ?PS_ACTOR, Incarnation, TargetCluster) ->
@@ -331,7 +331,7 @@ syncer_spec(ChildID, Actor, Incarnation, SyncerRef, ClientName) ->
         type => worker
     }.
 
-mk_state(#{upstream := TargetCluster} = LinkConf, Actor, Incarnation) ->
+mk_state(#{name := TargetCluster} = LinkConf, Actor, Incarnation) ->
     #st{
         target = TargetCluster,
         actor = Actor,

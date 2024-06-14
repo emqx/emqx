@@ -101,14 +101,14 @@ t_config_update(Config) ->
         <<"pool_size">> => 1,
         <<"server">> => <<"localhost:", (integer_to_binary(LPortB))/binary>>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"upstream">> => NameB
+        <<"name">> => NameB
     },
     LinkConfB = #{
         <<"enable">> => true,
         <<"pool_size">> => 1,
         <<"server">> => <<"localhost:", (integer_to_binary(LPortA))/binary>>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"upstream">> => NameA
+        <<"name">> => NameA
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
@@ -242,7 +242,7 @@ t_config_validations(Config) ->
         <<"pool_size">> => 1,
         <<"server">> => <<"localhost:", (integer_to_binary(LPortB))/binary>>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"upstream">> => NameB
+        <<"name">> => NameB
     },
     DuplicatedLinks = [LinkConfA, LinkConfA#{<<"enable">> => false, <<"pool_size">> => 2}],
     ?assertMatch(
@@ -267,7 +267,7 @@ t_config_validations(Config) ->
     ?assertMatch(
         {error, #{reason := required_field}},
         erpc:call(NodeA, emqx_cluster_link_config, update, [
-            [maps:remove(<<"upstream">>, LinkConfA)]
+            [maps:remove(<<"name">>, LinkConfA)]
         ])
     ),
     ?assertMatch(
@@ -285,7 +285,7 @@ t_config_validations(Config) ->
         erpc:call(NodeA, emqx_cluster_link_config, update, [[LinkConfA]])
     ),
     LinkConfUnknown = LinkConfA#{
-        <<"upstream">> => <<"no-cluster">>, <<"server">> => <<"no-cluster.emqx:31883">>
+        <<"name">> => <<"no-cluster">>, <<"server">> => <<"no-cluster.emqx:31883">>
     },
     ?assertMatch(
         {ok, _},
@@ -365,14 +365,14 @@ t_config_update_ds(Config) ->
         <<"pool_size">> => 1,
         <<"server">> => <<"localhost:", (integer_to_binary(LPortB))/binary>>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"upstream">> => NameB
+        <<"name">> => NameB
     },
     LinkConfB = #{
         <<"enable">> => true,
         <<"pool_size">> => 1,
         <<"server">> => <<"localhost:", (integer_to_binary(LPortA))/binary>>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"upstream">> => NameA
+        <<"name">> => NameA
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
@@ -500,14 +500,14 @@ t_misconfigured_links(Config) ->
         <<"pool_size">> => 1,
         <<"server">> => <<"localhost:", (integer_to_binary(LPortB))/binary>>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"upstream">> => <<"bad-b-name">>
+        <<"name">> => <<"bad-b-name">>
     },
     LinkConfB = #{
         <<"enable">> => true,
         <<"pool_size">> => 1,
         <<"server">> => <<"localhost:", (integer_to_binary(LPortA))/binary>>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"upstream">> => NameA
+        <<"name">> => NameA
     },
 
     ?assertMatch({ok, _}, erpc:call(NodeB1, emqx_cluster_link_config, update, [[LinkConfB]])),
@@ -528,7 +528,7 @@ t_misconfigured_links(Config) ->
     ),
 
     {{ok, _}, {ok, _}} = ?wait_async_action(
-        erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"upstream">> => NameB}]]),
+        erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
             ?snk_kind := clink_route_bootstrap_complete,
             ?snk_meta := #{node := NodeA1}
@@ -554,7 +554,7 @@ t_misconfigured_links(Config) ->
                     LinkConfB#{<<"enable">> => false},
                     %% An extra dummy link to keep B hook/external_broker registered and be able to
                     %% respond with "link disabled error" for the first disabled link
-                    LinkConfB#{<<"upstream">> => <<"bad-a-name">>}
+                    LinkConfB#{<<"name">> => <<"bad-a-name">>}
                 ]
             ]
         )
@@ -562,7 +562,7 @@ t_misconfigured_links(Config) ->
 
     ?assertMatch({ok, _}, erpc:call(NodeA1, emqx_cluster_link_config, update, [[]])),
     {{ok, _}, {ok, _}} = ?wait_async_action(
-        erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"upstream">> => NameB}]]),
+        erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
             ?snk_kind := clink_handshake_error,
             reason := <<"cluster_link_disabled">>,
@@ -579,13 +579,13 @@ t_misconfigured_links(Config) ->
     ?assertMatch(
         {ok, _},
         erpc:call(NodeB1, emqx_cluster_link_config, update, [
-            [LinkConfB#{<<"upstream">> => <<"bad-a-name">>}]
+            [LinkConfB#{<<"name">> => <<"bad-a-name">>}]
         ])
     ),
     ?assertMatch({ok, _}, erpc:call(NodeA1, emqx_cluster_link_config, update, [[]])),
 
     {{ok, _}, {ok, _}} = ?wait_async_action(
-        erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"upstream">> => NameB}]]),
+        erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
             ?snk_kind := clink_handshake_error,
             reason := <<"unknown_cluster">>,

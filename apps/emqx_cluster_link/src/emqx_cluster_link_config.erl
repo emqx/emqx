@@ -193,7 +193,7 @@ add_link(_DisabledLinkConf) ->
     ok.
 
 remove_links(LinksConf) ->
-    [remove_link(Name) || #{upstream := Name} <- LinksConf].
+    [remove_link(Name) || #{name := Name} <- LinksConf].
 
 remove_link(Name) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
@@ -202,7 +202,7 @@ remove_link(Name) ->
 update_links(LinksConf) ->
     [update_link(Link) || Link <- LinksConf].
 
-update_link({OldLinkConf, #{enable := true, upstream := Name} = NewLinkConf}) ->
+update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
     case what_is_changed(OldLinkConf, NewLinkConf) of
         both ->
             _ = ensure_actor_stopped(Name),
@@ -215,7 +215,7 @@ update_link({OldLinkConf, #{enable := true, upstream := Name} = NewLinkConf}) ->
         msg_resource ->
             ok = update_msg_fwd_resource(OldLinkConf, NewLinkConf)
     end;
-update_link({_OldLinkConf, #{enable := false, upstream := Name} = _NewLinkConf}) ->
+update_link({_OldLinkConf, #{enable := false, name := Name} = _NewLinkConf}) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
     ensure_actor_stopped(Name).
 
@@ -240,7 +240,7 @@ what_is_changed(OldLink, NewLink) ->
 are_fields_changed(Fields, OldLink, NewLink) ->
     maps:with(Fields, OldLink) =/= maps:with(Fields, NewLink).
 
-update_msg_fwd_resource(_, #{upstream := Name} = NewConf) ->
+update_msg_fwd_resource(_, #{name := Name} = NewConf) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
     {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(NewConf),
     ok.
@@ -248,8 +248,8 @@ update_msg_fwd_resource(_, #{upstream := Name} = NewConf) ->
 ensure_actor_stopped(ClusterName) ->
     emqx_cluster_link_sup:ensure_actor_stopped(ClusterName).
 
-upstream_name(#{upstream := N}) -> N;
-upstream_name(#{<<"upstream">> := N}) -> N.
+upstream_name(#{name := N}) -> N;
+upstream_name(#{<<"name">> := N}) -> N.
 
 maybe_increment_ps_actor_incr(New, Old) ->
     case emqx_persistent_message:is_persistence_enabled() of
@@ -284,9 +284,9 @@ increment_ps_actor_incr(#{ps_actor_incarnation := Incr} = Conf) ->
 increment_ps_actor_incr(#{<<"ps_actor_incarnation">> := Incr} = Conf) ->
     Conf#{<<"ps_actor_incarnation">> => Incr + 1};
 %% Default value set in schema is 0, so need to set it to 1 during the first update.
-increment_ps_actor_incr(#{<<"upstream">> := _} = Conf) ->
+increment_ps_actor_incr(#{<<"name">> := _} = Conf) ->
     Conf#{<<"ps_actor_incarnation">> => 1};
-increment_ps_actor_incr(#{upstream := _} = Conf) ->
+increment_ps_actor_incr(#{name := _} = Conf) ->
     Conf#{ps_actor_incarnation => 1}.
 
 convert_certs(LinksConf) ->

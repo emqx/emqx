@@ -99,7 +99,7 @@ links_config_example() ->
                     <<"t/topic-example">>,
                     <<"t/topic-filter-example/1/#">>
                 ],
-            <<"upstream">> => <<"emqxcl_b">>
+            <<"name">> => <<"emqxcl_b">>
         },
         #{
             <<"enable">> => true,
@@ -111,6 +111,6 @@ links_config_example() ->
                     <<"t/topic-example">>,
                     <<"t/topic-filter-example/1/#">>
                 ],
-            <<"upstream">> => <<"emqxcl_c">>
+            <<"name">> => <<"emqxcl_c">>
         }
     ].

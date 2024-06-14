@@ -40,7 +40,7 @@ links_schema(Meta) ->
 fields("link") ->
     [
         {enable, ?HOCON(boolean(), #{default => true, desc => ?DESC(enable)})},
-        {upstream, ?HOCON(binary(), #{required => true, desc => ?DESC(upstream)})},
+        {name, ?HOCON(binary(), #{required => true, desc => ?DESC(link_name)})},
         {server,
             emqx_schema:servers_sc(#{required => true, desc => ?DESC(server)}, ?MQTT_HOST_OPTS)},
         {clientid, ?HOCON(binary(), #{desc => ?DESC(clientid)})},
@@ -121,8 +121,8 @@ links_validator(Links) ->
     ),
     check_errors(Dups, duplicated_cluster_links, names).
 
-link_name(#{upstream := Name}) -> Name;
-link_name(#{<<"upstream">> := Name}) -> Name.
+link_name(#{name := Name}) -> Name;
+link_name(#{<<"name">> := Name}) -> Name.
 
 topics_validator(Topics) ->
     Errors = lists:foldl(
