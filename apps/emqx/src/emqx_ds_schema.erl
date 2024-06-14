@@ -112,25 +112,6 @@ fields(builtin) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {data_dir,
-            sc(
-                string(),
-                #{
-                    mapping => "emqx_durable_storage.db_data_dir",
-                    required => false,
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_data_dir)
-                }
-            )},
-        {n_shards,
-            sc(
-                pos_integer(),
-                #{
-                    default => 12,
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_n_shards)
-                }
-            )},
         %% TODO: Deprecate once cluster management and rebalancing is implemented.
         {"n_sites",
             sc(
@@ -157,27 +138,8 @@ fields(builtin) ->
                     default => #{},
                     importance => ?IMPORTANCE_HIDDEN
                 }
-            )},
-        {local_write_buffer,
-            sc(
-                ref(builtin_write_buffer),
-                #{
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_write_buffer)
-                }
-            )},
-        {layout,
-            sc(
-                hoconsc:union(builtin_layouts()),
-                #{
-                    desc => ?DESC(builtin_layout),
-                    importance => ?IMPORTANCE_MEDIUM,
-                    default =>
-                        #{
-                            <<"type">> => wildcard_optimized
-                        }
-                }
             )}
+        | common_builtin_fields()
     ];
 fields(builtin_write_buffer) ->
     [
@@ -248,6 +210,49 @@ fields(layout_builtin_reference) ->
                     'readOnly' => true,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(layout_builtin_reference_type)
+                }
+            )}
+    ].
+
+common_builtin_fields() ->
+    [
+        {data_dir,
+            sc(
+                string(),
+                #{
+                    mapping => "emqx_durable_storage.db_data_dir",
+                    required => false,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_data_dir)
+                }
+            )},
+        {n_shards,
+            sc(
+                pos_integer(),
+                #{
+                    default => 12,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_n_shards)
+                }
+            )},
+        {local_write_buffer,
+            sc(
+                ref(builtin_write_buffer),
+                #{
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(builtin_write_buffer)
+                }
+            )},
+        {layout,
+            sc(
+                hoconsc:union(builtin_layouts()),
+                #{
+                    desc => ?DESC(builtin_layout),
+                    importance => ?IMPORTANCE_MEDIUM,
+                    default =>
+                        #{
+                            <<"type">> => wildcard_optimized
+                        }
                 }
             )}
     ].
