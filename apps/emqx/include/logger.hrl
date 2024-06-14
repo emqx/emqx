@@ -119,13 +119,7 @@ end).
 -endif.
 
 %% print to 'user' group leader
--define(ULOG(Fmt, Args),
-    io:format(user, "~ts " ++ Fmt, [emqx_utils_calendar:now_to_rfc3339(millisecond) | Args])
-).
--define(ELOG(Fmt, Args),
-    io:format(standard_error, "~ts " ++ Fmt, [
-        emqx_utils_calendar:now_to_rfc3339(millisecond) | Args
-    ])
-).
+-define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).
+-define(ELOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
 
 -endif.
