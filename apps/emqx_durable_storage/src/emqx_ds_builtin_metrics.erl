@@ -68,16 +68,16 @@
 
 -define(DB_METRICS, ?STORAGE_LAYER_METRICS ++ ?FETCH_METRICS).
 
--define(EGRESS_METRICS, [
-    {counter, ?DS_EGRESS_BATCHES},
-    {counter, ?DS_EGRESS_BATCHES_RETRY},
-    {counter, ?DS_EGRESS_BATCHES_FAILED},
-    {counter, ?DS_EGRESS_MESSAGES},
-    {counter, ?DS_EGRESS_BYTES},
-    {slide, ?DS_EGRESS_FLUSH_TIME}
+-define(BUFFER_METRICS, [
+    {counter, ?DS_BUFFER_BATCHES},
+    {counter, ?DS_BUFFER_BATCHES_RETRY},
+    {counter, ?DS_BUFFER_BATCHES_FAILED},
+    {counter, ?DS_BUFFER_MESSAGES},
+    {counter, ?DS_BUFFER_BYTES},
+    {slide, ?DS_BUFFER_FLUSH_TIME}
 ]).
 
--define(SHARD_METRICS, ?EGRESS_METRICS).
+-define(SHARD_METRICS, ?BUFFER_METRICS).
 
 -type shard_metrics_id() :: binary().
 
@@ -108,35 +108,35 @@ init_for_shard(ShardId) ->
 %% @doc Increase the number of successfully flushed batches
 -spec inc_egress_batches(shard_metrics_id()) -> ok.
 inc_egress_batches(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BATCHES).
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES).
 
 %% @doc Increase the number of time the egress worker had to retry
 %% flushing the batch
 -spec inc_egress_batches_retry(shard_metrics_id()) -> ok.
 inc_egress_batches_retry(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BATCHES_RETRY).
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_RETRY).
 
 %% @doc Increase the number of time the egress worker encountered an
 %% unrecoverable error while trying to flush the batch
 -spec inc_egress_batches_failed(shard_metrics_id()) -> ok.
 inc_egress_batches_failed(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BATCHES_FAILED).
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_FAILED).
 
 %% @doc Increase the number of messages successfully saved to the shard
 -spec inc_egress_messages(shard_metrics_id(), non_neg_integer()) -> ok.
 inc_egress_messages(Id, NMessages) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_MESSAGES, NMessages).
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_MESSAGES, NMessages).
 
 %% @doc Increase the number of messages successfully saved to the shard
 -spec inc_egress_bytes(shard_metrics_id(), non_neg_integer()) -> ok.
 inc_egress_bytes(Id, NMessages) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_EGRESS_BYTES, NMessages).
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BYTES, NMessages).
 
 %% @doc Add a sample of elapsed time spent flushing the egress to the
 %% Raft log (in microseconds)
 -spec observe_egress_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
 observe_egress_flush_time(Id, FlushTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_EGRESS_FLUSH_TIME, FlushTime).
+    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_FLUSH_TIME, FlushTime).
 
 -spec observe_store_batch_time(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 observe_store_batch_time({DB, _}, StoreTime) ->

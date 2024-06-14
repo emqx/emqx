@@ -5,3 +5,12 @@
    This backend is available in both open source and enterprise editions.
 - `builtin_raft`: A durable storage backend that uses Raft algorithm for replication.
    This backend is available enterprise edition.
+
+The following Prometheus metrics have been renamed:
+
+- `emqx_ds_egress_batches` -> `emqx_ds_buffer_batches`
+- `emqx_ds_egress_batches_retry` -> `emqx_ds_buffer_batches_retry`
+- `emqx_ds_egress_batches_failed` -> `emqx_ds_buffer_batches_failed`
+- `emqx_ds_egress_messages` -> `emqx_ds_buffer_messages`
+- `emqx_ds_egress_bytes` -> `emqx_ds_buffer_bytes`
+- `emqx_ds_egress_flush_time` -> `emqx_ds_buffer_flush_time`
