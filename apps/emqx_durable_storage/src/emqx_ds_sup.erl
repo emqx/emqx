@@ -19,6 +19,7 @@
 
 %% API:
 -export([start_link/0, attach_backend/2]).
+-export([register_db/2, unregister_db/1, which_dbs/0]).
 
 %% behaviour callbacks:
 -export([init/1]).
@@ -28,6 +29,7 @@
 %%================================================================================
 
 -define(SUP, ?MODULE).
+-define(TAB, ?MODULE).
 
 %%================================================================================
 %% API functions
@@ -58,11 +60,23 @@ attach_backend(Backend, Start) ->
             {error, Err}
     end.
 
+register_db(DB, Backend) ->
+    ets:insert(?TAB, {DB, Backend}),
+    ok.
+
+unregister_db(DB) ->
+    ets:delete(?TAB, DB),
+    ok.
+
+which_dbs() ->
+    ets:tab2list(?TAB).
+
 %%================================================================================
 %% behaviour callbacks
 %%================================================================================
 
 init(top) ->
+    _ = ets:new(?TAB, [public, set, named_table]),
     Children = [],
     SupFlags = #{
         strategy => one_for_one,

@@ -33,7 +33,12 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Config.
+    case is_standalone() of
+        true ->
+            {skip, standalone_not_supported};
+        false ->
+            Config
+    end.
 
 end_per_suite(_Config) ->
     ok.
@@ -590,3 +595,11 @@ on_message_dropped(Msg, Context, Res, TestPid) ->
     ErrCtx = #{msg => Msg, ctx => Context, res => Res},
     ct:pal("this hook should not be called.\n  ~p", [ErrCtx]),
     exit(TestPid, {hookpoint_called, ErrCtx}).
+
+is_standalone() ->
+    try
+        emqx_conf:module_info(),
+        false
+    catch
+        error:undef -> true
+    end.

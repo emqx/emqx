@@ -27,6 +27,7 @@
 
     open_db/2,
     close_db/1,
+    which_dbs/0,
     update_db_config/2,
     add_generation/1,
     list_generations_with_lifetimes/1,
@@ -264,12 +265,18 @@ open_db(DB, Opts = #{backend := Backend}) ->
             error({no_such_backend, Backend});
         Module ->
             persistent_term:put(?persistent_term(DB), Module),
+            emqx_ds_sup:register_db(DB, Backend),
             ?module(DB):open_db(DB, Opts)
     end.
 
 -spec close_db(db()) -> ok.
 close_db(DB) ->
+    emqx_ds_sup:unregister_db(DB),
     ?module(DB):close_db(DB).
+
+-spec which_dbs() -> [{db(), _Backend :: atom()}].
+which_dbs() ->
+    emqx_ds_sup:which_dbs().
 
 -spec add_generation(db()) -> ok.
 add_generation(DB) ->

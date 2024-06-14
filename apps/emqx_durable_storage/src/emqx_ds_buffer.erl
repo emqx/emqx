@@ -39,7 +39,8 @@
 %% Type declarations
 %%================================================================================
 
--define(via(DB, Shard), {via, gproc, {n, l, {?MODULE, DB, Shard}}}).
+-define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
+-define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
 -define(flush, flush).
 
 -define(cbm(DB), {?MODULE, DB}).
@@ -66,7 +67,7 @@
 
 -spec ls() -> [{emqx_ds:db(), _Shard}].
 ls() ->
-    MS = {{n, l, {?MODULE, '$1', '$2'}}, [], ['$1', '$2']},
+    MS = {{?name('$1', '$2'), '_', '_'}, [], [{{'$1', '$2'}}]},
     gproc:select({local, names}, [MS]).
 
 -spec start_link(module(), _CallbackOptions, emqx_ds:db(), _ShardId) ->

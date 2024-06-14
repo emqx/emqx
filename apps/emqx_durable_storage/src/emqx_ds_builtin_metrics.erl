@@ -176,11 +176,14 @@ prometheus_collect(NodeOrAggr) ->
 
 prometheus_per_db(NodeOrAggr) ->
     lists:foldl(
-        fun(DB, Acc) ->
-            prometheus_per_db(NodeOrAggr, DB, Acc)
+        fun
+            ({DB, Backend}, Acc) when Backend =:= builtin_local; Backend =:= builtin_raft ->
+                prometheus_per_db(NodeOrAggr, DB, Acc);
+            ({_, _}, Acc) ->
+                Acc
         end,
         #{},
-        emqx_ds_builtin_raft_db_sup:which_dbs()
+        emqx_ds:which_dbs()
     ).
 
 %% This function returns the data in the following format:
@@ -235,18 +238,15 @@ prometheus_per_db(NodeOrAggr, DB, Acc0) ->
 %% If `NodeOrAggr' = `node' then node name is appended to the list of
 %% labels.
 prometheus_per_shard(NodeOrAggr) ->
+    prometheus_buffer_metrics(NodeOrAggr).
+
+prometheus_buffer_metrics(NodeOrAggr) ->
     lists:foldl(
-        fun(DB, Acc0) ->
-            lists:foldl(
-                fun(Shard, Acc) ->
-                    prometheus_per_shard(NodeOrAggr, DB, Shard, Acc)
-                end,
-                Acc0,
-                emqx_ds_replication_layer_meta:shards(DB)
-            )
+        fun({DB, Shard}, Acc) ->
+            prometheus_per_shard(NodeOrAggr, DB, Shard, Acc)
         end,
         #{},
-        emqx_ds_builtin_raft_db_sup:which_dbs()
+        emqx_ds_buffer:ls()
     ).
 
 prometheus_per_shard(NodeOrAggr, DB, Shard, Acc0) ->
