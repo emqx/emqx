@@ -38,7 +38,7 @@
 %%    in `end_per_suite/1` or `end_per_group/2`) with the result from step 2.
 -module(emqx_cth_cluster).
 
--export([start/1, start/2, restart/1, restart/2]).
+-export([start/1, start/2, restart/1]).
 -export([stop/1, stop_node/1]).
 
 -export([start_bare_nodes/1, start_bare_nodes/2]).
@@ -163,13 +163,13 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
             wait_clustered(All, Check, Deadline)
     end.
 
-restart(NodeSpec) ->
-    restart(maps:get(name, NodeSpec), NodeSpec).
-
-restart(Node, Spec) ->
-    ct:pal("Stopping peer node ~p", [Node]),
-    ok = emqx_cth_peer:stop(Node),
-    start([Spec#{boot_type => restart}]).
+restart(NodeSpecs = [_ | _]) ->
+    Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
+    ct:pal("Stopping peer nodes: ~p", [Nodes]),
+    ok = stop(Nodes),
+    start([Spec#{boot_type => restart} || Spec <- NodeSpecs]);
+restart(NodeSpec = #{}) ->
+    restart([NodeSpec]).
 
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
