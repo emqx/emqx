@@ -32,7 +32,11 @@
 %% Type declarations
 %%================================================================================
 
--if(defined(EMQX_RELEASE_EDITION) andalso EMQX_RELEASE_EDITION == ee).
+-ifndef(EMQX_RELEASE_EDITION).
+-define(EMQX_RELEASE_EDITION, ce).
+-endif.
+
+-if(?EMQX_RELEASE_EDITION == ee).
 -define(DEFAULT_BACKEND, builtin_raft).
 -define(BUILTIN_BACKENDS, [ref(builtin_raft), ref(builtin_local)]).
 -else.

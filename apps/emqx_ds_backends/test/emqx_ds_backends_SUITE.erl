@@ -553,9 +553,17 @@ delete(DB, It0, Selector, BatchSize, Acc) ->
 -if(?EMQX_RELEASE_EDITION == ee).
 all() ->
     [{group, builtin_local}, {group, builtin_raft}].
+
+%% kernel-10 OTP application (OTP 27) introduces
+%% `optional_applications` application spec flag. Once we migrate to
+%% OTP27, this won't be needed, as application controller will
+%% automatically load raft backend when available:
+-define(MAYBE_RAFT, [emqx_ds_builtin_raft]).
 -else.
 all() ->
     [{group, builtin_local}].
+
+-define(MAYBE_RAFT, []).
 -endif.
 
 groups() ->
@@ -587,25 +595,22 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
-    Apps = emqx_cth_suite:start(
-        [mria, emqx_ds_backends],
-        #{work_dir => ?config(priv_dir, Config)}
-    ),
-    [{apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
-
-init_per_testcase(_TC, Config) ->
-    application:ensure_all_started(emqx_durable_storage),
     Config.
 
-end_per_testcase(TC, _Config) ->
+end_per_suite(_Config) ->
+    ok.
+
+init_per_testcase(TC, Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx_durable_storage, emqx_ds_backends | ?MAYBE_RAFT],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    ct:pal("Apps: ~p", [Apps]),
+    [{apps, Apps} | Config].
+
+end_per_testcase(TC, Config) ->
     ok = emqx_ds:drop_db(TC),
-    snabbkaffe:stop(),
-    ok = application:stop(emqx_durable_storage),
-    mria:stop(),
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     _ = mnesia:delete_schema([node()]),
+    snabbkaffe:stop(),
     ok.
