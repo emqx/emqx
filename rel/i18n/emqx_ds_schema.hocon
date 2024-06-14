@@ -5,15 +5,15 @@ messages.desc:
   """~
   Configuration related to the durable storage of MQTT messages.~"""
 
-builtin.label: "Builtin backend"
-builtin.desc:
+builtin_raft.label: "Builtin backend with Raft replication"
+builtin_raft.desc:
   """~
   Builtin session storage backend utilizing embedded RocksDB key-value store.~"""
 
-builtin_backend.label: "Backend type"
-builtin_backend.desc:
+backend_type.label: "Backend type"
+backend_type.desc:
   """~
-  Built-in backend.~"""
+  Backend type.~"""
 
 builtin_data_dir.label: "Database location"
 builtin_data_dir.desc:

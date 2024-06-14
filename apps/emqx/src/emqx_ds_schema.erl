@@ -18,7 +18,7 @@
 -module(emqx_ds_schema).
 
 %% API:
--export([schema/0, translate_builtin/1]).
+-export([schema/0, translate_builtin_raft/1]).
 
 %% Behavior callbacks:
 -export([fields/1, desc/1, namespace/0]).
@@ -36,9 +36,9 @@
 %% API
 %%================================================================================
 
-translate_builtin(
+translate_builtin_raft(
     Backend = #{
-        backend := builtin,
+        backend := builtin_raft,
         n_shards := NShards,
         n_sites := NSites,
         replication_factor := ReplFactor,
@@ -83,24 +83,24 @@ schema() ->
             ds_schema(#{
                 default =>
                     #{
-                        <<"backend">> => builtin
+                        <<"backend">> => builtin_raft
                     },
                 importance => ?IMPORTANCE_MEDIUM,
                 desc => ?DESC(messages)
             })}
     ].
 
-fields(builtin) ->
-    %% Schema for the builtin backend:
+fields(builtin_raft) ->
+    %% Schema for the builtin_raft backend:
     [
         {backend,
             sc(
-                builtin,
+                builtin_raft,
                 #{
                     'readOnly' => true,
-                    default => builtin,
+                    default => builtin_raft,
                     importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_backend)
+                    desc => ?DESC(backend_type)
                 }
             )},
         {'_config_handler',
@@ -108,7 +108,7 @@ fields(builtin) ->
                 {module(), atom()},
                 #{
                     'readOnly' => true,
-                    default => {?MODULE, translate_builtin},
+                    default => {?MODULE, translate_builtin_raft},
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -257,8 +257,8 @@ common_builtin_fields() ->
             )}
     ].
 
-desc(builtin) ->
-    ?DESC(builtin);
+desc(builtin_raft) ->
+    ?DESC(builtin_raft);
 desc(builtin_write_buffer) ->
     ?DESC(builtin_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
@@ -275,7 +275,7 @@ desc(_) ->
 ds_schema(Options) ->
     sc(
         hoconsc:union([
-            ref(builtin)
+            ref(builtin_raft)
             | emqx_schema_hooks:injection_point('durable_storage.backends', [])
         ]),
         Options
