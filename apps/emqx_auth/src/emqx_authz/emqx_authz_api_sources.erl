@@ -244,7 +244,8 @@ sources(get, _) ->
         fun(Source0, AccIn) ->
             try emqx_authz:maybe_read_source_files(Source0) of
                 Source1 ->
-                    lists:append(AccIn, [Source1])
+                    Source2 = emqx_utils:redact(Source1),
+                    lists:append(AccIn, [Source2])
             catch
                 _Error:_Reason ->
                     lists:append(AccIn, [Source0])
@@ -267,7 +268,8 @@ source(get, #{bindings := #{type := Type}}) ->
         fun(Source0) ->
             try emqx_authz:maybe_read_source_files(Source0) of
                 Source1 ->
-                    {200, Source1}
+                    Source2 = emqx_utils:redact(Source1),
+                    {200, Source2}
             catch
                 _Error:Reason ->
                     {500, #{
@@ -280,8 +282,9 @@ source(get, #{bindings := #{type := Type}}) ->
 source(put, #{bindings := #{type := Type}, body := #{<<"type">> := Type} = Body}) ->
     with_source(
         Type,
-        fun(_) ->
-            update_config({?CMD_REPLACE, Type}, Body)
+        fun(RawConf) ->
+            Conf = emqx_utils:deobfuscate(Body, RawConf),
+            update_config({?CMD_REPLACE, Type}, Conf)
         end
     );
 source(put, #{bindings := #{type := Type}, body := #{<<"type">> := _OtherType}}) ->
