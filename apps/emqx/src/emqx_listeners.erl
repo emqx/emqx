@@ -974,15 +974,10 @@ quic_listener_optional_settings() ->
         stateless_operation_expiration_ms
     ].
 
-inject_root_fun(#{ssl_options := SslOpts} = Opts) ->
-    Opts#{ssl_options := emqx_tls_lib:opt_partial_chain(SslOpts)};
-inject_root_fun(Opts) ->
-    Opts.
-
-inject_verify_fun(#{ssl_options := SslOpts} = Opts) ->
-    Opts#{ssl_options := emqx_tls_lib:opt_verify_fun(SslOpts)};
-inject_verify_fun(Opts) ->
-    Opts.
+inject_root_fun(#{ssl_options := SSLOpts} = Opts) ->
+    Opts#{ssl_options := emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts)}.
+inject_verify_fun(#{ssl_options := SSLOpts} = Opts) ->
+    Opts#{ssl_options := emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts)}.
 
 inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}}) ->
     emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf);

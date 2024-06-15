@@ -421,7 +421,6 @@ t_create_webhook_v1_bridges_api(Config) ->
                                     <<"enable">> => true,
                                     <<"hibernate_after">> => <<"5s">>,
                                     <<"log_level">> => <<"notice">>,
-                                    <<"partial_chain">> => false,
                                     <<"reuse_sessions">> => true,
                                     <<"secure_renegotiate">> => true,
                                     <<"user_lookup_fun">> =>

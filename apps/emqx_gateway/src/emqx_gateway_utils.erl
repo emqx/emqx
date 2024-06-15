@@ -589,10 +589,10 @@ ssl_server_opts(SSLOpts, dtls_options) ->
     emqx_tls_lib:to_server_opts(dtls, SSLOpts).
 
 ssl_partial_chain(SSLOpts, _Options) ->
-    emqx_tls_lib:opt_partial_chain(SSLOpts).
+    emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts).
 
 ssl_verify_fun(SSLOpts, _Options) ->
-    emqx_tls_lib:opt_verify_fun(SSLOpts).
+    emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts).
 
 ranch_opts(Type, ListenOn, Opts) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),

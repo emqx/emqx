@@ -207,6 +207,8 @@ render_var(_, undefined) ->
     % Any allowed but undefined binding will be replaced with empty string, even when
     % rendering SQL values.
     <<>>;
+render_var(?VAR_CERT_PEM, Value) ->
+    base64:encode(Value);
 render_var(?VAR_PEERHOST, Value) ->
     inet:ntoa(Value);
 render_var(?VAR_PASSWORD, Value) ->

@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_listener_tls_verify_partial_chain_SUITE).
+-module(emqx_auth_ext_listener_tls_verify_partial_chain_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -27,7 +27,8 @@
         emqx_start_listener/4,
         fail_when_ssl_error/1,
         fail_when_no_ssl_alert/2,
-        generate_tls_certs/1
+        generate_tls_certs/1,
+        select_free_port/1
     ]
 ).
 
@@ -42,7 +43,7 @@ end_per_suite(_Config) ->
     application:stop(esockd).
 
 t_conn_success_with_server_intermediate_cacert_and_client_cert(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -68,7 +69,7 @@ t_conn_success_with_server_intermediate_cacert_and_client_cert(Config) ->
     ssl:close(Socket).
 
 t_conn_success_with_intermediate_cacert_bundle(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -94,7 +95,7 @@ t_conn_success_with_intermediate_cacert_bundle(Config) ->
     ssl:close(Socket).
 
 t_conn_success_with_renewed_intermediate_cacert(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -120,7 +121,7 @@ t_conn_success_with_renewed_intermediate_cacert(Config) ->
     ssl:close(Socket).
 
 t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_complete_bundle(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -145,7 +146,7 @@ t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_complete_bundl
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_bundle(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -172,7 +173,7 @@ t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_bundle(Config)
 t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_renewed_client_cert(
     Config
 ) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -202,7 +203,7 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_rene
 t_conn_success_with_new_intermediate_cacert_and_client_provides_renewed_client_cert_signed_by_old_intermediate(
     Config
 ) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -229,7 +230,7 @@ t_conn_success_with_new_intermediate_cacert_and_client_provides_renewed_client_c
 
 %% @doc server should build a partial_chain with old version of ca cert.
 t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_client_cert(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -257,7 +258,7 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_clie
 
 %% @doc verify when config does not allow two versions of certs from same trusted CA.
 t_conn_fail_with_renewed_and_old_intermediate_cacert_and_client_using_old_bundle(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -285,7 +286,7 @@ t_conn_fail_with_renewed_and_old_intermediate_cacert_and_client_using_old_bundle
 t_001_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_old_bundle(
     Config
 ) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -318,7 +319,7 @@ t_001_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_us
 %%  Oldintermediate2Cert (trusted CA cert).
 %% @end
 t_conn_fail_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all_CAcerts(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -344,7 +345,7 @@ t_conn_fail_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_renewed_intermediate_cacert_other_client(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -369,7 +370,7 @@ t_conn_fail_with_renewed_intermediate_cacert_other_client(Config) ->
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_intermediate_cacert_bundle_but_incorrect_order(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -394,7 +395,7 @@ t_conn_fail_with_intermediate_cacert_bundle_but_incorrect_order(Config) ->
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_when_singed_by_other_intermediate_ca(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -419,7 +420,7 @@ t_conn_fail_when_singed_by_other_intermediate_ca(Config) ->
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_success_with_complete_chain_that_server_root_cacert_and_client_complete_cert_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -445,7 +446,7 @@ t_conn_success_with_complete_chain_that_server_root_cacert_and_client_complete_c
     ok = ssl:close(Socket).
 
 t_conn_fail_with_other_client_complete_cert_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -470,7 +471,7 @@ t_conn_fail_with_other_client_complete_cert_chain(Config) ->
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_server_intermediate_and_other_client_complete_cert_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -496,7 +497,7 @@ t_conn_fail_with_server_intermediate_and_other_client_complete_cert_chain(Config
     ok = ssl:close(Socket).
 
 t_conn_success_with_server_intermediate_cacert_and_client_complete_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -522,7 +523,7 @@ t_conn_success_with_server_intermediate_cacert_and_client_complete_chain(Config)
     ok = ssl:close(Socket).
 
 t_conn_fail_with_server_intermediate_chain_and_client_other_incomplete_cert_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -547,7 +548,7 @@ t_conn_fail_with_server_intermediate_chain_and_client_other_incomplete_cert_chai
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_server_intermediate_and_other_client_root_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -572,7 +573,7 @@ t_conn_fail_with_server_intermediate_and_other_client_root_chain(Config) ->
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_success_with_server_intermediate_and_client_root_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -599,7 +600,7 @@ t_conn_success_with_server_intermediate_and_client_root_chain(Config) ->
 
 %% @doc once rootCA cert present in cacertfile, sibling CA signed Client cert could connect.
 t_conn_success_with_server_all_CA_bundle_and_client_root_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -625,7 +626,7 @@ t_conn_success_with_server_all_CA_bundle_and_client_root_chain(Config) ->
     ok = ssl:close(Socket).
 
 t_conn_fail_with_server_two_IA_bundle_and_client_root_chain(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -650,7 +651,7 @@ t_conn_fail_with_server_two_IA_bundle_and_client_root_chain(Config) ->
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_server_partial_chain_false_intermediate_cacert_and_client_cert(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
         {ssl_options,
@@ -676,7 +677,7 @@ t_conn_fail_with_server_partial_chain_false_intermediate_cacert_and_client_cert(
     fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_error_handling_invalid_cacertfile(Config) ->
-    Port = emqx_test_tls_certs_helper:select_free_port(ssl),
+    Port = select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     %% trigger error
     Options = [

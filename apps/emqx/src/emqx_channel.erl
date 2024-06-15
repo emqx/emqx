@@ -1733,6 +1733,16 @@ count_flapping_event(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
 %%--------------------------------------------------------------------
 %% Authenticate
 
+%% If peercert exists, add it as `cert_pem` credential field.
+maybe_add_cert(Map, #channel{conninfo = ConnInfo}) ->
+    maybe_add_cert(Map, ConnInfo);
+maybe_add_cert(Map, #{peercert := PeerCert}) when is_binary(PeerCert) ->
+    %% NOTE: it's raw binary at this point,
+    %% encoding to PEM (base64) is done lazy in emqx_auth_utils:render_var
+    Map#{cert_pem => PeerCert};
+maybe_add_cert(Map, _) ->
+    Map.
+
 authenticate(
     ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -1745,20 +1755,23 @@ authenticate(
         auth_cache = AuthCache
     } = Channel
 ) ->
+    %% Auth with CONNECT packet for MQTT v5
     AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-    do_authenticate(
+    Credential0 =
         ClientInfo#{
             auth_method => AuthMethod,
             auth_data => AuthData,
             auth_cache => AuthCache
         },
-        Channel
-    );
+    Credential = maybe_add_cert(Credential0, Channel),
+    do_authenticate(Credential, Channel);
 authenticate(
     ?CONNECT_PACKET(#mqtt_packet_connect{password = Password}),
     #channel{clientinfo = ClientInfo} = Channel
 ) ->
-    do_authenticate(ClientInfo#{password => Password}, Channel);
+    %% Auth with CONNECT packet for MQTT v3
+    Credential = maybe_add_cert(ClientInfo#{password => Password}, Channel),
+    do_authenticate(Credential, Channel);
 authenticate(
     ?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properties),
     #channel{
@@ -1767,6 +1780,7 @@ authenticate(
         auth_cache = AuthCache
     } = Channel
 ) ->
+    %% Enhanced auth
     case emqx_mqtt_props:get('Authentication-Method', ConnProps, undefined) of
         AuthMethod ->
             AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
