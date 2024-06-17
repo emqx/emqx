@@ -198,6 +198,8 @@ create_bridge_ssl_bad_ssl_opts(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
     Name = ?GET_CONFIG(rocketmq_name, Config),
     RocketMQConf0 = ?GET_CONFIG(rocketmq_config_ssl, Config),
+    %% This config is wrong because we use verify_peer without
+    %% a cert that can be used in the verification.
     RocketMQConf1 = maps:put(
         <<"ssl">>,
         #{

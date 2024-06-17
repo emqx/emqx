@@ -116,13 +116,7 @@ on_start(
     Namespace = maps:get(namespace, Config, <<>>),
     ClientCfg0 = #{acl_info => ACLInfo, namespace => Namespace},
     SSLOpts = emqx_tls_lib:to_client_opts(SSLOptsMap),
-    ClientCfg =
-        case SSLOpts of
-            [] ->
-                ClientCfg0;
-            SSLOpts ->
-                ClientCfg0#{ssl_opts => SSLOpts}
-        end,
+    ClientCfg = emqx_utils_maps:put_if(ClientCfg0, ssl_opts, SSLOpts, SSLOpts =/= []),
     State = #{
         client_id => ClientId,
         acl_info => ACLInfo,
@@ -432,12 +426,7 @@ make_producer_opts(
                 _ -> key_dispatch
             end
     },
-    case SSLOpts of
-        [] ->
-            ProducerOpts;
-        _ ->
-            ProducerOpts#{ssl_opts => SSLOpts}
-    end.
+    emqx_utils_maps:put_if(ProducerOpts, ssl_opts, SSLOpts, SSLOpts =/= []).
 
 acl_info(<<>>, _, _) ->
     #{};
