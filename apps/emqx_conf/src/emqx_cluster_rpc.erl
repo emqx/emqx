@@ -28,6 +28,7 @@
     reset/0,
     status/0,
     is_initiator/1,
+    find_leader/0,
     skip_failed_commit/1,
     fast_forward_to_commit/2,
     on_mria_stop/1,
@@ -226,6 +227,17 @@ status() ->
 
 is_initiator(Opts) ->
     ?KIND_INITIATE =:= maps:get(kind, Opts, ?KIND_INITIATE).
+
+find_leader() ->
+    {atomic, Status} = status(),
+    case Status of
+        [#{node := N} | _] ->
+            N;
+        [] ->
+            %% running nodes already sort.
+            [N | _] = emqx:running_nodes(),
+            N
+    end.
 
 %% DO NOT delete this on_leave_clean/0, It's use when rpc before v560.
 on_leave_clean() ->
@@ -500,10 +512,11 @@ do_initiate(MFA, State = #{node := Node}, Count, Failure0) ->
     end.
 
 stale_view_of_cluster_msg(Meta, Count) ->
+    Node = find_leader(),
     Reason = Meta#{
         msg => stale_view_of_cluster,
         retry_times => Count,
-        suggested => "run `./bin/emqx_ctl conf cluster_sync fix` when suck for a long time"
+        suggestion => ?SUGGESTION(Node)
     },
     ?SLOG(warning, Reason),
     {error, Reason}.
@@ -537,7 +550,7 @@ transaction(Func, Args) ->
     mria:transaction(?CLUSTER_RPC_SHARD, Func, Args).
 
 trans_status() ->
-    mnesia:foldl(
+    List = mnesia:foldl(
         fun(Rec, Acc) ->
             #cluster_rpc_commit{node = Node, tnx_id = TnxId} = Rec,
             case mnesia:read(?CLUSTER_MFA, TnxId) of
@@ -560,6 +573,12 @@ trans_status() ->
         end,
         [],
         ?CLUSTER_COMMIT
+    ),
+    lists:sort(
+        fun(#{node := NA, tnx_id := IdA}, #{node := NB, tnx_id := IdB}) ->
+            {IdA, NA} > {IdB, NB}
+        end,
+        List
     ).
 
 trans_query(TnxId) ->
