@@ -36,7 +36,7 @@ init_per_suite(Config) ->
             {emqx_conf,
                 "authorization.cache { enable = false },"
                 "authorization.no_match = deny,"
-                "authorization.sources = [{type = built_in_database}]"},
+                "authorization.sources = [{type = built_in_database, max_rules = 5}]"},
             emqx,
             emqx_auth,
             emqx_auth_mnesia,
@@ -64,6 +64,14 @@ t_api(_) ->
             post,
             uri(["authorization", "sources", "built_in_database", "rules", "users"]),
             [?USERNAME_RULES_EXAMPLE]
+        ),
+
+    %% check length limit
+    {ok, 400, _} =
+        request(
+            post,
+            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
+            [dup_rules_example(?USERNAME_RULES_EXAMPLE)]
         ),
 
     {ok, 409, _} =
@@ -171,6 +179,13 @@ t_api(_) ->
             [?CLIENTID_RULES_EXAMPLE]
         ),
 
+    {ok, 400, _} =
+        request(
+            post,
+            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
+            [dup_rules_example(?CLIENTID_RULES_EXAMPLE)]
+        ),
+
     {ok, 409, _} =
         request(
             post,
@@ -238,6 +253,14 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "all"]),
             ?ALL_RULES_EXAMPLE
         ),
+
+    {ok, 400, _} =
+        request(
+            post,
+            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
+            dup_rules_example(?ALL_RULES_EXAMPLE)
+        ),
+
     {ok, 200, Request7} =
         request(
             get,
@@ -491,3 +514,10 @@ replace_parts(Parts, Replacements) ->
         end,
         Parts
     ).
+
+dup_rules_example(#{username := _, rules := Rules}) ->
+    #{username => user2, rules => Rules ++ Rules};
+dup_rules_example(#{clientid := _, rules := Rules}) ->
+    #{clientid => client2, rules => Rules ++ Rules};
+dup_rules_example(#{rules := Rules}) ->
+    #{rules => Rules ++ Rules}.
