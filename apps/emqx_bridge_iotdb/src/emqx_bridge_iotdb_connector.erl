@@ -44,11 +44,10 @@
 
 -type config() ::
     #{
-        base_url := #{
+        request_base := #{
             scheme := http | https,
             host := iolist(),
-            port := inet:port_number(),
-            path := _
+            port := inet:port_number()
         },
         connect_timeout := pos_integer(),
         pool_type := random | hash,
@@ -60,7 +59,6 @@
 
 -type state() ::
     #{
-        base_path := _,
         connect_timeout := pos_integer(),
         pool_type := random | hash,
         channels := map(),
@@ -245,10 +243,10 @@ on_stop(InstanceId, State) ->
 
 -spec on_get_status(manager_id(), state()) ->
     connected | connecting | {disconnected, state(), term()}.
-on_get_status(InstanceId, #{base_path := BasePath} = State) ->
+on_get_status(InstanceId, State) ->
     Func = fun(Worker, Timeout) ->
         Request = {?IOTDB_PING_PATH, [], undefined},
-        NRequest = emqx_bridge_http_connector:formalize_request(get, BasePath, Request),
+        NRequest = emqx_bridge_http_connector:formalize_request(get, Request),
         Result0 = ehttpc:request(Worker, get, NRequest, Timeout),
         case emqx_bridge_http_connector:transform_result(Result0) of
             {ok, 200, _, Body} ->

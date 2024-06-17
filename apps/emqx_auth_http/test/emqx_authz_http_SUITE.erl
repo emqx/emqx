@@ -639,6 +639,8 @@ t_create_replace(_Config) ->
         listener => {tcp, default}
     },
 
+    ValidConfig = raw_http_authz_config(),
+
     %% Create with valid URL
     ok = setup_handler_and_config(
         fun(Req0, State) ->
@@ -656,13 +658,10 @@ t_create_replace(_Config) ->
     ),
 
     %% Changing to valid config
-    OkConfig = maps:merge(
-        raw_http_authz_config(),
-        #{
-            <<"url">> =>
-                <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>
-        }
-    ),
+    OkConfig = ValidConfig#{
+        <<"url">> =>
+            <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>
+    },
 
     ?assertMatch(
         {ok, _},
@@ -672,6 +671,37 @@ t_create_replace(_Config) ->
     ?assertEqual(
         allow,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+
+    ?assertMatch(
+        {error, _},
+        emqx_authz:update({?CMD_REPLACE, http}, ValidConfig#{
+            <<"url">> => <<"localhost">>
+        })
+    ),
+
+    ?assertMatch(
+        {error, _},
+        emqx_authz:update({?CMD_REPLACE, http}, ValidConfig#{
+            <<"url">> => <<"//foo.bar/x/y?q=z">>
+        })
+    ),
+
+    ?assertMatch(
+        {error, _},
+        emqx_authz:update({?CMD_REPLACE, http}, ValidConfig#{
+            <<"url">> =>
+                <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}#fragment">>
+        })
+    ).
+
+t_uri_normalization(_Config) ->
+    ok = emqx_authz_test_lib:setup_config(
+        raw_http_authz_config(),
+        #{
+            <<"url">> =>
+                <<"http://127.0.0.1:33333?topic=${topic}&action=${action}">>
+        }
     ).
 
 %%------------------------------------------------------------------------------

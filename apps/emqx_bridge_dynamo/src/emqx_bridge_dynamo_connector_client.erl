@@ -63,11 +63,11 @@ init(#{
     aws_secret_access_key := Secret,
     host := Host,
     port := Port,
-    schema := Schema
+    scheme := Scheme
 }) ->
     %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
     SecretAccessKey = to_str(emqx_secret:unwrap(Secret)),
-    erlcloud_ddb2:configure(AccessKeyID, SecretAccessKey, Host, Port, Schema),
+    erlcloud_ddb2:configure(AccessKeyID, SecretAccessKey, Host, Port, Scheme),
     {ok, #{}}.
 
 handle_call(is_connected, _From, State) ->

@@ -98,15 +98,6 @@ validate_webhook_url(undefined) ->
         required_field => <<"url">>
     });
 validate_webhook_url(Url) ->
-    {BaseUrl, _Path} = emqx_connector_resource:parse_url(Url),
-    case emqx_http_lib:uri_parse(BaseUrl) of
-        {ok, _} ->
-            ok;
-        {error, Reason} ->
-            throw(#{
-                kind => validation_error,
-                reason => invalid_url,
-                url => Url,
-                error => emqx_utils:readable_error_msg(Reason)
-            })
-    end.
+    %% parse_url throws if the URL is invalid
+    {_RequestBase, _Path} = emqx_connector_resource:parse_url(Url),
+    ok.
