@@ -32,6 +32,7 @@
 %% Swagger specs from hocon schema
 -export([
     api_spec/0,
+    check_api_schema/2,
     paths/0,
     schema/1,
     namespace/0
@@ -96,7 +97,7 @@
 namespace() -> "actions_and_sources".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun check_api_schema/2}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun ?MODULE:check_api_schema/2}).
 
 paths() ->
     [

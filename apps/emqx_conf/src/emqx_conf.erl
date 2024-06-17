@@ -144,17 +144,27 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 %% TODO: move to a external escript after all refactoring is done
 dump_schema(Dir, SchemaModule) ->
-    %% TODO: Load all apps instead of only emqx_dashboard
+    %% Load all apps in ERL_LIBS
     %% as this will help schemas that searches for apps with
     %% relevant schema definitions
-    _ = application:load(emqx_dashboard),
+    lists:foreach(
+        fun(LibPath) ->
+            Lib = list_to_atom(lists:last(filename:split(LibPath))),
+            load(SchemaModule, Lib)
+        end,
+        string:lexemes(os:getenv("ERL_LIBS"), ":;")
+    ),
     ok = emqx_dashboard_desc_cache:init(),
     lists:foreach(
         fun(Lang) ->
             ok = gen_schema_json(Dir, SchemaModule, Lang)
         end,
         ["en", "zh"]
-    ).
+    ),
+    emqx_dashboard:save_dispatch_eterm(SchemaModule).
+
+load(emqx_enterprise_schema, emqx_telemetry) -> ignore;
+load(_, Lib) -> ok = application:load(Lib).
 
 %% for scripts/spellcheck.
 gen_schema_json(Dir, SchemaModule, Lang) ->

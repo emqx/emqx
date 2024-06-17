@@ -25,6 +25,8 @@
 
 -include("emqx_dashboard.hrl").
 
+-dialyzer({nowarn_function, [start/2]}).
+
 start(_StartType, _StartArgs) ->
     Tables = lists:append([
         emqx_dashboard_admin:create_tables(),

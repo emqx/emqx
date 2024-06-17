@@ -1,3 +1,5 @@
+简体中文 | [English](./README.md) | [Русский](./README-RU.md)
+
 # EMQX
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen&label=Release)](https://github.com/emqx/emqx/releases)

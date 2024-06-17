@@ -815,7 +815,8 @@ fields(mqueue_message) ->
 fields(requested_client_fields) ->
     %% NOTE: some Client fields actually returned in response are missing in schema:
     %%  enable_authn, is_persistent, listener, peerport
-    ClientFields = [element(1, F) || F <- fields(client)],
+    ClientFields0 = [element(1, F) || F <- fields(client)],
+    ClientFields = [client_attrs | ClientFields0],
     [
         {fields,
             hoconsc:mk(
