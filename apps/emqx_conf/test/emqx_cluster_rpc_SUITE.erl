@@ -146,7 +146,7 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
                 retry_times := 2,
                 cluster_tnx_id := 2,
                 node_tnx_id := 1,
-                suggested := _
+                suggestion := _
             }}},
         Res1
     ),

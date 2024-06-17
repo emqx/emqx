@@ -96,15 +96,23 @@ admins(["inspect", TnxId0]) ->
     TnxId = list_to_integer(TnxId0),
     print(emqx_cluster_rpc:query(TnxId));
 admins(["fix"]) ->
+    {atomic, Status} = emqx_cluster_rpc:status(),
     case mria_rlog:role() of
         core ->
-            {atomic, Status} = emqx_cluster_rpc:status(),
             #{stopped_nodes := StoppedNodes} = emqx_mgmt_cli:cluster_info(),
             maybe_fix_inconsistent(Status, #{fix => true}),
             StoppedNodes =/= [] andalso
                 emqx_ctl:warning("Found stopped nodes: ~p~n", [StoppedNodes]);
         Role ->
-            emqx_ctl:print("Run fix command on core node, but current is ~p~n", [Role])
+            Core =
+                case find_highest_node(Status) of
+                    {same_tnx_id, _TnxId} ->
+                        {ok, Node} = mria_status:upstream_node(?CLUSTER_RPC_SHARD),
+                        Node;
+                    {ok, Node} ->
+                        Node
+                end,
+            emqx_ctl:print("Run fix command on ~p(core) node, but current is ~p~n", [Core, Role])
     end;
 admins(["fast_forward"]) ->
     status(),
@@ -128,7 +136,14 @@ admins(_) ->
     emqx_ctl:usage(usage_sync()).
 
 fix_inconsistent_with_raw(Node, Keys) ->
-    Confs = [#{Key => emqx_conf_proto_v4:get_raw_config(Node, Key)} || Key <- Keys],
+    Confs = lists:foldl(
+        fun(Key, Acc) ->
+            KeyRaw = atom_to_binary(Key),
+            Acc#{KeyRaw => emqx_conf_proto_v4:get_raw_config(Node, [Key])}
+        end,
+        #{},
+        Keys
+    ),
     ok = emqx_cluster_rpc:reset(),
     case load_config_from_raw(Confs, #{mode => replace}) of
         ok -> waiting_for_fix_finish();
@@ -179,7 +194,7 @@ usage_sync() ->
             "WARNING: This results in inconsistent configs among the clustered nodes."},
         {"conf cluster_sync fix",
             "Sync the node with the most comprehensive configuration to other node.\n"
-            "WARNING: typically the one with the highest tnxid."}
+            "WARNING: typically the config leader(with the highest tnxid)."}
     ].
 
 status() ->
@@ -210,7 +225,8 @@ maybe_fix_inconsistent(Status, #{fix := Fix}) ->
             emqx_ctl:print("Reset tnxid to 0 successfully~n");
         inconsistent_tnx_id ->
             print_tnx_id_status(Status),
-            emqx_ctl:print("run `./bin/emqx_ctl conf cluster_sync fix` when stuck for a long time");
+            Leader = emqx_cluster_rpc:find_leader(),
+            emqx_ctl:print(?SUGGESTION(Leader));
         {inconsistent_key, TnxId, InconsistentKeys} ->
             [{Target, _} | _] = AllConfs,
             print_inconsistent_conf(InconsistentKeys, Target, Status, AllConfs),
@@ -223,7 +239,7 @@ maybe_fix_inconsistent(Status, #{fix := Fix}) ->
             ),
             emqx_ctl:warning(
                 "Configuring different values (excluding node.name) through environment variables and etc/emqx.conf"
-                " is allowed but not recommended. "
+                " is allowed but not recommended.~n"
             ),
             Fix andalso emqx_ctl:warning("So this fix will not make any changes.~n"),
             ok;
