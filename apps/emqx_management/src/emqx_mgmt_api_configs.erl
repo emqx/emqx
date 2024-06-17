@@ -314,15 +314,15 @@ global_zone_configs(get, _Params, _Req) ->
     {200, get_zones()};
 global_zone_configs(put, #{body := Body}, _Req) ->
     PrevZones = get_zones(),
-    Res =
+    {Res, Error} =
         maps:fold(
-            fun(Path, Value, Acc) ->
+            fun(Path, Value, {Acc, Error}) ->
                 PrevValue = maps:get(Path, PrevZones),
                 case Value =/= PrevValue of
                     true ->
                         case emqx_conf:update([Path], Value, ?OPTS) of
                             {ok, #{raw_config := RawConf}} ->
-                                Acc#{Path => RawConf};
+                                {Acc#{Path => RawConf}, Error};
                             {error, Reason} ->
                                 ?SLOG(error, #{
                                     msg => "update_global_zone_failed",
@@ -330,18 +330,18 @@ global_zone_configs(put, #{body := Body}, _Req) ->
                                     path => Path,
                                     value => Value
                                 }),
-                                Acc
+                                {Acc, Error#{Path => Reason}}
                         end;
                     false ->
-                        Acc#{Path => Value}
+                        {Acc#{Path => Value}, Error}
                 end
             end,
-            #{},
+            {#{}, #{}},
             Body
         ),
     case maps:size(Res) =:= maps:size(Body) of
         true -> {200, Res};
-        false -> {400, #{code => 'UPDATE_FAILED'}}
+        false -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Error)}}
     end.
 
 config_reset(post, _Params, Req) ->
