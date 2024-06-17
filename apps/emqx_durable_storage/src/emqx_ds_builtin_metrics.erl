@@ -96,7 +96,7 @@ child_spec() ->
 init_for_db(DB) ->
     emqx_metrics_worker:create_metrics(?WORKER, DB, ?DB_METRICS, []).
 
--spec shard_metric_id(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> shard_metrics_id().
+-spec shard_metric_id(emqx_ds:db(), binary()) -> shard_metrics_id().
 shard_metric_id(DB, ShardId) ->
     iolist_to_binary([atom_to_list(DB), $/, ShardId]).
 

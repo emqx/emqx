@@ -73,7 +73,6 @@
     delete_stream/0,
     iterator/0,
     delete_iterator/0,
-    message_id/0,
     batch/0
 ]).
 
@@ -132,8 +131,6 @@
         ?shard := emqx_ds_replication_layer:shard_id(),
         ?enc := emqx_ds_storage_layer:delete_iterator()
     }.
-
--type message_id() :: emqx_ds:message_id().
 
 %% TODO: this type is obsolete and is kept only for compatibility with
 %% BPAPIs. Remove it when emqx_ds_proto_v4 is gone (EMQX 5.6)

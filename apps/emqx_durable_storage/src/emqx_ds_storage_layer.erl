@@ -106,7 +106,7 @@
     {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
     | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}.
 
--type shard_id() :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()}.
+-type shard_id() :: {emqx_ds:db(), binary()}.
 
 -type cf_refs() :: [{string(), rocksdb:cf_handle()}].
 

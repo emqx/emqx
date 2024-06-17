@@ -16,9 +16,7 @@
 
 %% @doc Main interface module for `emqx_durable_storage' application.
 %%
-%% It takes care of forwarding calls to the underlying DBMS. Currently
-%% only the embedded `emqx_ds_replication_layer' storage is supported,
-%% so all the calls are simply passed through.
+%% It takes care of forwarding calls to the underlying DBMS.
 -module(emqx_ds).
 
 %% Management API:
@@ -63,7 +61,6 @@
     iterator/0,
     delete_iterator/0,
     iterator_id/0,
-    message_id/0,
     message_key/0,
     message_store_opts/0,
     next_result/1, next_result/0,
@@ -177,8 +174,6 @@
     }.
 
 -type create_db_opts() :: generic_db_opts().
-
--type message_id() :: emqx_ds_replication_layer:message_id().
 
 %% An opaque term identifying a generation.  Each implementation will possibly add
 %% information to this term to match its inner structure (e.g.: by embedding the shard id,
