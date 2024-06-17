@@ -972,17 +972,17 @@ generation_get(Shard, GenId) ->
 
 -spec generations_since(shard_id(), emqx_ds:time()) -> [gen_id()].
 generations_since(Shard, Since) ->
-    Schema = get_schema_runtime(Shard),
-    maps:fold(
-        fun
-            (?GEN_KEY(GenId), #{until := Until}, Acc) when Until >= Since ->
-                [GenId | Acc];
-            (_K, _V, Acc) ->
-                Acc
-        end,
-        [],
-        Schema
-    ).
+    Schema = #{current_generation := Current} = get_schema_runtime(Shard),
+    list_generations_since(Schema, Current, Since).
+
+list_generations_since(Schema, GenId, Since) ->
+    case Schema of
+        #{?GEN_KEY(GenId) := #{until := Until}} when Until > Since ->
+            [GenId | list_generations_since(Schema, GenId - 1, Since)];
+        #{} ->
+            %% No more live generations.
+            []
+    end.
 
 format_state(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, shard = Shard}) ->
     #{
