@@ -185,6 +185,10 @@ action_config(ConnectorName, Overrides) ->
     emqx_utils_maps:deep_merge(Cfg1, Overrides).
 
 bridge_v2_config(ConnectorName) ->
+    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    bridge_v2_config(ConnectorName, KafkaTopic).
+
+bridge_v2_config(ConnectorName, KafkaTopic) ->
     #{
         <<"connector">> => ConnectorName,
         <<"enable">> => true,
@@ -209,9 +213,7 @@ bridge_v2_config(ConnectorName) ->
             <<"query_mode">> => <<"sync">>,
             <<"required_acks">> => <<"all_isr">>,
             <<"sync_query_timeout">> => <<"5s">>,
-            <<"topic">> => list_to_binary(
-                emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition()
-            )
+            <<"topic">> => list_to_binary(KafkaTopic)
         },
         <<"local_topic">> => <<"kafka_t/#">>,
         <<"resource_opts">> => #{
@@ -376,6 +378,28 @@ t_local_topic(_) ->
     check_kafka_message_payload(Offset, Payload),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge),
     ok = emqx_connector:remove(?TYPE, test_connector),
+    ok.
+
+t_message_too_large(_) ->
+    BridgeV2Config = bridge_v2_config(<<"test_connector4">>, "max-100-bytes"),
+    ConnectorConfig = connector_config(),
+    {ok, _} = emqx_connector:create(?TYPE, test_connector4, ConnectorConfig),
+    BridgeName = test_bridge4,
+    {ok, _} = emqx_bridge_v2:create(?TYPE, BridgeName, BridgeV2Config),
+    BridgeV2Id = emqx_bridge_v2:id(?TYPE, BridgeName),
+    TooLargePayload = iolist_to_binary(lists:duplicate(100, 100)),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(BridgeV2Id)),
+    emqx:publish(emqx_message:make(<<"kafka_t/hej">>, TooLargePayload)),
+    ?retry(
+        _Sleep0 = 50,
+        _Attempts0 = 100,
+        begin
+            ?assertEqual(1, emqx_resource_metrics:failed_get(BridgeV2Id)),
+            ok
+        end
+    ),
+    ok = emqx_bridge_v2:remove(?TYPE, BridgeName),
+    ok = emqx_connector:remove(?TYPE, test_connector4),
     ok.
 
 t_unknown_topic(_Config) ->
