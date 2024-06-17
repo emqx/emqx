@@ -80,7 +80,7 @@ fields(config) ->
 
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
-    ].
+    ] ++ emqx_connector_schema_lib:ssl_fields().
 
 servers() ->
     Meta = #{desc => ?DESC("servers")},
@@ -98,7 +98,8 @@ on_start(
         servers := BinServers,
         access_key := AccessKey,
         secret_key := SecretKey,
-        security_token := SecurityToken
+        security_token := SecurityToken,
+        ssl := SSLOptsMap
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -113,13 +114,21 @@ on_start(
     ClientId = client_id(InstanceId),
     ACLInfo = acl_info(AccessKey, SecretKey, SecurityToken),
     Namespace = maps:get(namespace, Config, <<>>),
-    ClientCfg = #{acl_info => ACLInfo, namespace => Namespace},
-
+    ClientCfg0 = #{acl_info => ACLInfo, namespace => Namespace},
+    SSLOpts = emqx_tls_lib:to_client_opts(SSLOptsMap),
+    ClientCfg =
+        case SSLOpts of
+            [] ->
+                ClientCfg0;
+            SSLOpts ->
+                ClientCfg0#{ssl_opts => SSLOpts}
+        end,
     State = #{
         client_id => ClientId,
         acl_info => ACLInfo,
         namespace => Namespace,
-        installed_channels => #{}
+        installed_channels => #{},
+        ssl_opts => SSLOpts
     },
 
     ok = emqx_resource:allocate_resource(InstanceId, client_id, ClientId),
@@ -142,12 +151,13 @@ on_add_channel(
     #{
         installed_channels := InstalledChannels,
         namespace := Namespace,
-        acl_info := ACLInfo
+        acl_info := ACLInfo,
+        ssl_opts := SSLOpts
     } = OldState,
     ChannelId,
     ChannelConfig
 ) ->
-    {ok, ChannelState} = create_channel_state(ChannelConfig, ACLInfo, Namespace),
+    {ok, ChannelState} = create_channel_state(ChannelConfig, ACLInfo, Namespace, SSLOpts),
     NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
     %% Update state
     NewState = OldState#{installed_channels => NewInstalledChannels},
@@ -156,7 +166,8 @@ on_add_channel(
 create_channel_state(
     #{parameters := Conf} = _ChannelConfig,
     ACLInfo,
-    Namespace
+    Namespace,
+    SSLOpts
 ) ->
     #{
         topic := Topic,
@@ -164,7 +175,7 @@ create_channel_state(
         strategy := Strategy
     } = Conf,
     TopicTks = emqx_placeholder:preproc_tmpl(Topic),
-    ProducerOpts = make_producer_opts(Conf, ACLInfo, Namespace, Strategy),
+    ProducerOpts = make_producer_opts(Conf, ACLInfo, Namespace, Strategy, SSLOpts),
     Templates = parse_template(Conf),
     DispatchStrategy = parse_dispatch_strategy(Strategy),
     State = #{
@@ -407,9 +418,10 @@ make_producer_opts(
     },
     ACLInfo,
     Namespace,
-    Strategy
+    Strategy,
+    SSLOpts
 ) ->
-    #{
+    ProducerOpts = #{
         tcp_opts => [{sndbuf, SendBuff}],
         ref_topic_route_interval => RefreshInterval,
         acl_info => emqx_secret:wrap(ACLInfo),
@@ -419,7 +431,13 @@ make_producer_opts(
                 roundrobin -> roundrobin;
                 _ -> key_dispatch
             end
-    }.
+    },
+    case SSLOpts of
+        [] ->
+            ProducerOpts;
+        _ ->
+            ProducerOpts#{ssl_opts => SSLOpts}
+    end.
 
 acl_info(<<>>, _, _) ->
     #{};

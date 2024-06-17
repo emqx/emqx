@@ -116,9 +116,17 @@ common_init(ConfigT) ->
             _ = emqx_bridge_enterprise:module_info(),
             emqx_mgmt_api_test_util:init_suite(),
             {Name, RocketMQConf} = rocketmq_config(BridgeType, Config0),
+            RocketMQSSLConf = RocketMQConf#{
+                <<"servers">> => <<"rocketmq_namesrv_ssl:9876">>,
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"verify">> => verify_none
+                }
+            },
             Config =
                 [
                     {rocketmq_config, RocketMQConf},
+                    {rocketmq_config_ssl, RocketMQSSLConf},
                     {rocketmq_bridge_type, BridgeType},
                     {rocketmq_name, Name},
                     {proxy_host, ProxyHost},
@@ -180,6 +188,26 @@ create_bridge(Config) ->
     RocketMQConf = ?GET_CONFIG(rocketmq_config, Config),
     emqx_bridge:create(BridgeType, Name, RocketMQConf).
 
+create_bridge_ssl(Config) ->
+    BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    RocketMQConf = ?GET_CONFIG(rocketmq_config_ssl, Config),
+    emqx_bridge:create(BridgeType, Name, RocketMQConf).
+
+create_bridge_ssl_bad_ssl_opts(Config) ->
+    BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    RocketMQConf0 = ?GET_CONFIG(rocketmq_config_ssl, Config),
+    RocketMQConf1 = maps:put(
+        <<"ssl">>,
+        #{
+            <<"enable">> => true,
+            <<"verify">> => verify_peer
+        },
+        RocketMQConf0
+    ),
+    emqx_bridge:create(BridgeType, Name, RocketMQConf1).
+
 delete_bridge(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
     Name = ?GET_CONFIG(rocketmq_name, Config),
@@ -231,6 +259,44 @@ t_setup_via_config_and_publish(Config) ->
             ok
         end
     ),
+    ok.
+
+t_setup_via_config_and_publish_ssl(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge_ssl(Config)
+    ),
+    SentData = #{payload => ?PAYLOAD},
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertEqual(ok, send_message(Config, SentData)),
+                #{?snk_kind := rocketmq_connector_query_return},
+                10_000
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(rocketmq_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            ok
+        end
+    ),
+    ok.
+
+%% Check that we can not connect to the SSL only RocketMQ instance
+%% with incorrect SSL options
+t_setup_via_config_ssl_host_bad_ssl_opts(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge_ssl_bad_ssl_opts(Config)
+    ),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+
+    ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceID)),
+    ?assertMatch(#{status := disconnected}, emqx_bridge_v2:health_check(BridgeType, Name)),
     ok.
 
 t_setup_via_http_api_and_publish(Config) ->
