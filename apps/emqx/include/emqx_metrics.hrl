@@ -119,12 +119,12 @@
     %% All Messages received
     {counter, 'messages.received', <<
         "Number of messages received from the client, equal to the sum of "
-        "messages.qos0.received\fmessages.qos1.received and messages.qos2.received"
+        "messages.qos0.received, messages.qos1.received and messages.qos2.received"
     >>},
     %% All Messages sent
     {counter, 'messages.sent', <<
         "Number of messages sent to the client, equal to the sum of "
-        "messages.qos0.sent\fmessages.qos1.sent and messages.qos2.sent"
+        "messages.qos0.sent, messages.qos1.sent and messages.qos2.sent"
     >>},
     %% QoS0 Messages received
     {counter, 'messages.qos0.received', <<"Number of QoS 0 messages received from clients">>},

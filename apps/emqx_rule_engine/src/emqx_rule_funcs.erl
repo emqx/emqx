@@ -155,6 +155,7 @@
     replace/4,
     regex_match/2,
     regex_replace/3,
+    regex_extract/2,
     ascii/1,
     find/2,
     find/3,
@@ -804,6 +805,8 @@ replace(SrcStr, Pattern, RepStr, Position) ->
 regex_match(Str, RE) -> emqx_variform_bif:regex_match(Str, RE).
 
 regex_replace(SrcStr, RE, RepStr) -> emqx_variform_bif:regex_replace(SrcStr, RE, RepStr).
+
+regex_extract(SrcStr, RE) -> emqx_variform_bif:regex_extract(SrcStr, RE).
 
 ascii(Char) -> emqx_variform_bif:ascii(Char).
 
