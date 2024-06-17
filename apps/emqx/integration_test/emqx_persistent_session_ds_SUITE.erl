@@ -85,9 +85,11 @@ end_per_testcase(TestCase, Config) when
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
+    snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
+    snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------
