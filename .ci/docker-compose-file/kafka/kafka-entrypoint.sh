@@ -49,6 +49,9 @@ echo "+++++++ Creating Kafka Topics ++++++++"
 # there seem to be a race condition when creating the topics (too early)
 env KAFKA_CREATE_TOPICS="$KAFKA_CREATE_TOPICS_NG" KAFKA_PORT="$PORT1" create-topics.sh
 
+# create a topic with max.message.bytes=100
+/opt/kafka/bin/kafka-topics.sh --create --bootstrap-server "${SERVER}:${PORT1}" --topic max-100-bytes --partitions 1 --replication-factor 1 --config max.message.bytes=100
+
 echo "+++++++ Wait until Kafka ports are down ++++++++"
 
 bash -c 'while printf "" 2>>/dev/null >>/dev/tcp/$0/$1; do sleep 1; done' $SERVER $PORT1
