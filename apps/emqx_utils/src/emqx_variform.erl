@@ -276,7 +276,7 @@ resolve_var_value(VarName, Bindings, _Opts) ->
             Value;
         {error, _Reason} ->
             throw(#{
-                var_name => VarName,
+                var_name => iolist_to_binary(VarName),
                 reason => var_unbound
             })
     end.
