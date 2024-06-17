@@ -33,7 +33,8 @@
     feed_var/3,
     systop/1,
     parse/1,
-    parse/2
+    parse/2,
+    intersection/2
 ]).
 
 -export([
@@ -51,6 +52,8 @@
 -define(MULTI_LEVEL_WILDCARD_NOT_LAST(C, REST),
     ((C =:= '#' orelse C =:= <<"#">>) andalso REST =/= [])
 ).
+
+-define(IS_WILDCARD(W), W =:= '+' orelse W =:= '#').
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -97,6 +100,55 @@ match(_, ['#']) ->
     true;
 match(_, _) ->
     false.
+
+%% @doc Finds an intersection between two topics, two filters or a topic and a filter.
+%% The function is commutative: reversing parameters doesn't affect the returned value.
+%% Two topics intersect only when they are equal.
+%% The intersection of a topic and a filter is always either the topic itself or false (no intersection).
+%% The intersection of two filters is either false or a new topic filter that would match only those topics,
+%% that can be matched by both input filters.
+%% For example, the intersection of "t/global/#" and "t/+/1/+" is "t/global/1/+".
+-spec intersection(TopicOrFilter, TopicOrFilter) -> TopicOrFilter | false when
+    TopicOrFilter :: emqx_types:topic().
+intersection(Topic1, Topic2) when is_binary(Topic1), is_binary(Topic2) ->
+    case intersect_start(words(Topic1), words(Topic2)) of
+        false -> false;
+        Intersection -> join(Intersection)
+    end.
+
+intersect_start([<<"$", _/bytes>> | _], [W | _]) when ?IS_WILDCARD(W) ->
+    false;
+intersect_start([W | _], [<<"$", _/bytes>> | _]) when ?IS_WILDCARD(W) ->
+    false;
+intersect_start(Words1, Words2) ->
+    intersect(Words1, Words2).
+
+intersect(Words1, ['#']) ->
+    Words1;
+intersect(['#'], Words2) ->
+    Words2;
+intersect([W1], ['+']) ->
+    [W1];
+intersect(['+'], [W2]) ->
+    [W2];
+intersect([W1 | T1], [W2 | T2]) when ?IS_WILDCARD(W1), ?IS_WILDCARD(W2) ->
+    intersect_join(wildcard_intersection(W1, W2), intersect(T1, T2));
+intersect([W | T1], [W | T2]) ->
+    intersect_join(W, intersect(T1, T2));
+intersect([W1 | T1], [W2 | T2]) when ?IS_WILDCARD(W1) ->
+    intersect_join(W2, intersect(T1, T2));
+intersect([W1 | T1], [W2 | T2]) when ?IS_WILDCARD(W2) ->
+    intersect_join(W1, intersect(T1, T2));
+intersect([], []) ->
+    [];
+intersect(_, _) ->
+    false.
+
+intersect_join(_, false) -> false;
+intersect_join(W, Words) -> [W | Words].
+
+wildcard_intersection(W, W) -> W;
+wildcard_intersection(_, _) -> '+'.
 
 -spec match_share(Name, Filter) -> boolean() when
     Name :: share(),

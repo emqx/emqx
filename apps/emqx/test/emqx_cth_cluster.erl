@@ -158,7 +158,7 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
                     nodes_not_running => NodesNotRunnging
                 }}
             );
-        {false, Nodes} ->
+        {false, _Nodes} ->
             timer:sleep(100),
             wait_clustered(All, Check, Deadline)
     end.

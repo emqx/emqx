@@ -244,10 +244,23 @@ publish(Msg) when is_record(Msg, message) ->
                 topic => Topic
             }),
             [];
-        Msg1 = #message{topic = Topic} ->
-            PersistRes = persist_publish(Msg1),
-            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1), PersistRes)
+        Msg1 = #message{} ->
+            do_publish(Msg1);
+        Msgs when is_list(Msgs) ->
+            do_publish_many(Msgs)
     end.
+
+do_publish_many([]) ->
+    [];
+do_publish_many([Msg | T]) ->
+    do_publish(Msg) ++ do_publish_many(T).
+
+do_publish(#message{topic = Topic} = Msg) ->
+    PersistRes = persist_publish(Msg),
+    Routes = aggre(emqx_router:match_routes(Topic)),
+    Delivery = delivery(Msg),
+    RouteRes = route(Routes, Delivery, PersistRes),
+    do_forward_external(Delivery, RouteRes).
 
 persist_publish(Msg) ->
     case emqx_persistent_message:persist(Msg) of
@@ -331,6 +344,9 @@ aggre([], false, Acc) ->
     Acc;
 aggre([], true, Acc) ->
     lists:usort(Acc).
+
+do_forward_external(Delivery, RouteRes) ->
+    emqx_external_broker:forward(Delivery) ++ RouteRes.
 
 %% @doc Forward message to another node.
 -spec forward(
@@ -643,19 +659,27 @@ maybe_delete_route(Topic) ->
 
 sync_route(Action, Topic, ReplyTo) ->
     EnabledOn = emqx_config:get([broker, routing, batch_sync, enable_on]),
-    case EnabledOn of
-        all ->
-            push_sync_route(Action, Topic, ReplyTo);
-        none ->
-            regular_sync_route(Action, Topic);
-        Role ->
-            case Role =:= mria_config:whoami() of
-                true ->
-                    push_sync_route(Action, Topic, ReplyTo);
-                false ->
-                    regular_sync_route(Action, Topic)
-            end
-    end.
+    Res =
+        case EnabledOn of
+            all ->
+                push_sync_route(Action, Topic, ReplyTo);
+            none ->
+                regular_sync_route(Action, Topic);
+            Role ->
+                case Role =:= mria_config:whoami() of
+                    true ->
+                        push_sync_route(Action, Topic, ReplyTo);
+                    false ->
+                        regular_sync_route(Action, Topic)
+                end
+        end,
+    _ = external_sync_route(Action, Topic),
+    Res.
+
+external_sync_route(add, Topic) ->
+    emqx_external_broker:add_route(Topic);
+external_sync_route(delete, Topic) ->
+    emqx_external_broker:delete_route(Topic).
 
 push_sync_route(Action, Topic, Opts) ->
     emqx_router_syncer:push(Action, Topic, node(), Opts).

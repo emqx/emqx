@@ -26,6 +26,8 @@
     lookup_value/3
 ]).
 
+-export([keyfoldl/3]).
+
 -export([delete/1]).
 
 %% Create an ets table.
@@ -55,6 +57,24 @@ lookup_value(Tab, Key, Def) ->
         ets:lookup_element(Tab, Key, 2)
     catch
         error:badarg -> Def
+    end.
+
+-spec keyfoldl(fun((_Key :: term(), Acc) -> Acc), Acc, ets:tab()) -> Acc.
+keyfoldl(F, Acc, Tab) ->
+    true = ets:safe_fixtable(Tab, true),
+    First = ets:first(Tab),
+    try
+        keyfoldl(F, Acc, First, Tab)
+    after
+        ets:safe_fixtable(Tab, false)
+    end.
+
+keyfoldl(F, Acc, Key, Tab) ->
+    case Key of
+        '$end_of_table' ->
+            Acc;
+        _ ->
+            keyfoldl(F, F(Key, Acc), ets:next(Tab, Key), Tab)
     end.
 
 %% Delete the ets table.

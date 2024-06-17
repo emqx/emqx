@@ -28,6 +28,7 @@
     [
         wildcard/1,
         match/2,
+        intersection/2,
         validate/1,
         prepend/2,
         join/1,
@@ -127,6 +128,63 @@ t_match_perf(_) ->
     Filter = <<"/abkc/19383/+/akakdkkdkak/#">>,
     true = match(Name, Filter),
     ok = bench('match/2', fun emqx_topic:match/2, [Name, Filter]).
+
+t_intersect(_) ->
+    <<"t/global/1/+">> = intersection(<<"t/global/#">>, <<"t/+/1/+">>),
+    <<"t/global/#">> = intersection(<<"t/global/#">>, <<"#">>),
+    <<"t/global/#">> = intersection(<<"t/global/#">>, <<"t/global/#">>),
+    <<"1/2/3/4/5">> = intersection(<<"1/+/3/+/5/#">>, <<"+/2/+/4/+">>),
+    <<"t/local/1">> = intersection(<<"t/local/1/#">>, <<"t/local/+">>),
+    false = intersection(<<"t/global/#">>, <<"t/local/+">>),
+    false = intersection(<<"t/local/1/+">>, <<"t/local/+">>).
+
+t_intersect_topic_wildcard(_) ->
+    <<"t/test/1">> = intersection(<<"t/test/#">>, <<"t/test/1">>),
+    <<"t/test/1/1">> = intersection(<<"t/test/1/1">>, <<"t/test/#">>),
+    false = intersection(<<"t/test/1/1">>, <<"t/test/+">>),
+    <<"t/test/1/1">> = intersection(<<"t/test/1/1">>, <<"t/test/1/1">>),
+    false = intersection(<<"t/test/1">>, <<"t/test/2">>),
+    false = intersection(<<"t/test/1">>, <<"t/test/1/2">>).
+
+t_intersect_commutes(_) ->
+    ?assertEqual(
+        intersection(<<"t/+/1/+">>, <<"t/global/#">>),
+        intersection(<<"t/global/#">>, <<"t/+/1/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"#">>, <<"t/global/#">>),
+        intersection(<<"t/global/#">>, <<"#">>)
+    ),
+    ?assertEqual(
+        intersection(<<"+/2/+/4/+">>, <<"1/+/3/+/5/#">>),
+        intersection(<<"1/+/3/+/5/#">>, <<"+/2/+/4/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/local/+">>, <<"t/local/1/#">>),
+        intersection(<<"t/local/1/#">>, <<"t/local/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/local/+">>, <<"t/global/#">>),
+        intersection(<<"t/global/#">>, <<"t/local/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/local/+">>, <<"t/local/1/+">>),
+        intersection(<<"t/local/1/+">>, <<"t/local/+">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/test/#">>, <<"t/test/1/1">>),
+        intersection(<<"t/test/1/1">>, <<"t/test/#">>)
+    ),
+    ?assertEqual(
+        intersection(<<"t/test/+">>, <<"t/test/1/1">>),
+        intersection(<<"t/test/1/1">>, <<"t/test/+">>)
+    ).
+
+t_sys_intersect(_) ->
+    <<"$SYS/broker/+">> = intersection(<<"$SYS/broker/#">>, <<"$SYS/+/+">>),
+    <<"$SYS/broker">> = intersection(<<"$SYS/broker">>, <<"$SYS/+">>),
+    false = intersection(<<"$SYS/broker">>, <<"+/+">>),
+    false = intersection(<<"$SYS/broker">>, <<"#">>).
 
 t_validate(_) ->
     true = validate(<<"a/+/#">>),
