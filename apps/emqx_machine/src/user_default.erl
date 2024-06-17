@@ -35,6 +35,9 @@
 -export([lock/0, unlock/0]).
 -export([trace/0, t/0, t/1, t/2, t_msg/0, t_msg/1, t_stop/0]).
 
+-dialyzer({nowarn_function, start_trace/3}).
+-dialyzer({no_return, [t/0, t/1, t/2]}).
+
 lock() -> emqx_restricted_shell:lock().
 unlock() -> emqx_restricted_shell:unlock().
 
