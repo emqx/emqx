@@ -986,14 +986,7 @@ start_app(App) ->
 %% but not the ones shared with others.
 ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
     %% load plugin apps and beam code
-    AppsToStop =
-        lists:map(
-            fun(NameVsn) ->
-                {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
-                AppName
-            end,
-            Apps
-        ),
+    AppsToStop = lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps),
     case tryit("stop_apps", fun() -> stop_apps(AppsToStop) end) of
         {ok, []} ->
             %% all apps stopped
@@ -1008,6 +1001,30 @@ ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+%% On one hand, Elixir plugins might include Elixir itself, when targetting a non-Elixir
+%% EMQX release.  If, on the other hand, the EMQX release already includes Elixir, we
+%% shouldn't stop Elixir nor IEx.
+-ifdef(EMQX_ELIXIR).
+is_protected_app(elixir) -> true;
+is_protected_app(iex) -> true;
+is_protected_app(_) -> false.
+
+parse_name_vsn_for_stopping(NameVsn) ->
+    {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
+    case is_protected_app(AppName) of
+        true ->
+            false;
+        false ->
+            {true, AppName}
+    end.
+%% ELSE ifdef(EMQX_ELIXIR)
+-else.
+parse_name_vsn_for_stopping(NameVsn) ->
+    {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
+    {true, AppName}.
+%% END ifdef(EMQX_ELIXIR)
+-endif.
 
 stop_apps(Apps) ->
     RunningApps = running_apps(),
@@ -1045,8 +1062,10 @@ stop_app(App) ->
 
 unload_moudle_and_app(App) ->
     case application:get_key(App, modules) of
-        {ok, Modules} -> lists:foreach(fun code:soft_purge/1, Modules);
-        _ -> ok
+        {ok, Modules} ->
+            lists:foreach(fun code:soft_purge/1, Modules);
+        _ ->
+            ok
     end,
     _ = application:unload(App),
     ok.
