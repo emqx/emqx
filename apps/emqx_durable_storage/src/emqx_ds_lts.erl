@@ -20,6 +20,7 @@
 -export([
     trie_create/1, trie_create/0,
     destroy/1,
+    trie_dump/2,
     trie_restore/2,
     trie_update/2,
     trie_copy_learned_paths/2,
@@ -76,6 +77,8 @@
         static_key_size => pos_integer()
     }.
 
+-type dump() :: [{_Key, _Val}].
+
 -record(trie, {
     persist :: persist_callback(),
     static_key_size :: pos_integer(),
@@ -125,12 +128,12 @@ destroy(#trie{trie = Trie, stats = Stats}) ->
     ok.
 
 %% @doc Restore trie from a dump
--spec trie_restore(options(), [{_Key, _Val}]) -> trie().
+-spec trie_restore(options(), dump()) -> trie().
 trie_restore(Options, Dump) ->
     trie_update(trie_create(Options), Dump).
 
 %% @doc Update a trie with a dump of operations (used for replication)
--spec trie_update(trie(), [{_Key, _Val}]) -> trie().
+-spec trie_update(trie(), dump()) -> trie().
 trie_update(Trie, Dump) ->
     lists:foreach(
         fun({{StateFrom, Token}, StateTo}) ->
@@ -140,14 +143,23 @@ trie_update(Trie, Dump) ->
     ),
     Trie.
 
+-spec trie_dump(trie(), _Filter :: all | wildcard) -> dump().
+trie_dump(Trie, Filter) ->
+    case Filter of
+        all ->
+            Fun = fun(_) -> true end;
+        wildcard ->
+            Fun = fun contains_wildcard/1
+    end,
+    lists:append([P || P <- paths(Trie), Fun(P)]).
+
 -spec trie_copy_learned_paths(trie(), trie()) -> trie().
 trie_copy_learned_paths(OldTrie, NewTrie) ->
-    WildcardPaths = [P || P <- paths(OldTrie), contains_wildcard(P)],
     lists:foreach(
         fun({{StateFrom, Token}, StateTo}) ->
             trie_insert(NewTrie, StateFrom, Token, StateTo)
         end,
-        lists:flatten(WildcardPaths)
+        trie_dump(OldTrie, wildcard)
     ),
     NewTrie.
 
