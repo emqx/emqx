@@ -185,8 +185,7 @@ t_new_generation_inherit_trie(_Config) ->
             %% learned trie.
             ok = emqx_ds_storage_layer:add_generation(?SHARD, _Since = 1_000),
             %% Restart the shard, to verify that LTS is persisted.
-            ok = application:stop(emqx_durable_storage),
-            ok = application:start(emqx_durable_storage),
+            ok = emqx_ds:close_db(?FUNCTION_NAME),
             ok = emqx_ds:open_db(?FUNCTION_NAME, ?DEFAULT_CONFIG),
             %% Store a batch of messages with the same set of topics.
             TS2 = 1_500,
