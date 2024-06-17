@@ -155,11 +155,11 @@ schema("/message_transformations/dryrun") ->
         post => #{
             tags => ?TAGS,
             summary => <<"Test an input against a configuration">>,
-            description => ?DESC("test_transformation"),
+            description => ?DESC("dryrun_transformation"),
             'requestBody' =>
                 emqx_dashboard_swagger:schema_with_examples(
-                    ref(test_transformation),
-                    example_input_test_transformation()
+                    ref(dryrun_transformation),
+                    example_input_dryrun_transformation()
                 ),
             responses =>
                 #{
@@ -292,27 +292,27 @@ fields(reorder) ->
     [
         {order, mk(array(binary()), #{required => true, in => body})}
     ];
-fields(test_transformation) ->
+fields(dryrun_transformation) ->
     [
         {transformation,
             mk(
                 hoconsc:ref(emqx_message_transformation_schema, transformation),
                 #{required => true, in => body}
             )},
-        {message, mk(ref(test_input_message), #{required => true, in => body})}
+        {message, mk(ref(dryrun_input_message), #{required => true, in => body})}
     ];
-fields(test_input_message) ->
+fields(dryrun_input_message) ->
     %% See `emqx_message_transformation:eval_context()'.
     [
-        {client_attrs, mk(map(), #{required => true})},
+        {client_attrs, mk(map(), #{default => #{}})},
         {payload, mk(binary(), #{required => true})},
-        {qos, mk(range(0, 2), #{required => true})},
-        {retain, mk(boolean(), #{required => true})},
+        {qos, mk(range(0, 2), #{default => 0})},
+        {retain, mk(boolean(), #{default => false})},
         {topic, mk(binary(), #{required => true})},
         {user_property,
             mk(
                 typerefl:alias("map(binary(), binary())", user_property()),
-                #{required => true}
+                #{default => #{}}
             )}
     ];
 fields(get_metrics) ->
@@ -487,7 +487,7 @@ example_input_reorder() ->
             }
     }.
 
-example_input_test_transformation() ->
+example_input_dryrun_transformation() ->
     #{
         <<"test">> =>
             #{
@@ -736,7 +736,7 @@ dryrun_input_message_in(Params) ->
     %% expect it to succeed here.
     #{root := Result = #{message := Message0}} =
         hocon_tconf:check_plain(
-            #{roots => [{root, ref(test_transformation)}]},
+            #{roots => [{root, ref(dryrun_transformation)}]},
             #{<<"root">> => Params},
             #{atom_key => true}
         ),
