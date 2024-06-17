@@ -279,8 +279,31 @@ publish_messages(
             {error, Reason};
         %% if send a message to a non-existent exchange, RabbitMQ client will crash
         %% {shutdown,{server_initiated_close,404,<<"NOT_FOUND - no exchange 'xyz' in vhost '/'">>}
-        %% so we catch and return {recoverable_error, Reason} to increase metrics
+        %% so we catch and return a more user friendly message in that case.
+        %% This seems to happen sometimes when the exchange does not exists.
+        exit:{{shutdown, {server_initiated_close, Code, Msg}}, _InternalReason} ->
+            ?tp(emqx_bridge_rabbitmq_connector_rabbit_publish_failed_with_msg, #{}),
+            {error,
+                {recoverable_error, #{
+                    msg => <<"rabbitmq_publish_failed">>,
+                    explain => Msg,
+                    exchange => Exchange,
+                    routing_key => RoutingKey,
+                    rabbit_mq_error_code => Code
+                }}};
+        %% This probably happens when the RabbitMQ driver is restarting the connection process
+        exit:{noproc, _} = InternalError ->
+            ?tp(emqx_bridge_rabbitmq_connector_rabbit_publish_failed_con_not_ready, #{}),
+            {error,
+                {recoverable_error, #{
+                    msg => <<"rabbitmq_publish_failed">>,
+                    explain => "Connection is establishing",
+                    exchange => Exchange,
+                    routing_key => RoutingKey,
+                    internal_error => InternalError
+                }}};
         _Type:Reason ->
+            ?tp(emqx_bridge_rabbitmq_connector_rabbit_publish_failed_other, #{}),
             Msg = iolist_to_binary(io_lib:format("RabbitMQ: publish_failed: ~p", [Reason])),
             {error, {recoverable_error, Msg}}
     end.

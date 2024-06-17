@@ -288,7 +288,9 @@ t_action_not_exist_exchange(_Config) ->
             description => <<"bridge_v2 send msg to rabbitmq action failed">>
         }
     ),
+    ok = snabbkaffe:start_trace(),
     on_exit(fun() ->
+        snabbkaffe:stop(),
         emqx_rule_engine:delete_rule(RuleId),
         _ = delete_action(Name)
     end),
@@ -316,6 +318,25 @@ t_action_not_exist_exchange(_Config) ->
     ok = delete_action(Name),
     ActionsAfterDelete = emqx_bridge_v2:list(actions),
     ?assertNot(lists:any(Any, ActionsAfterDelete), ActionsAfterDelete),
+    Trace = snabbkaffe:collect_trace(50),
+    ?assert(
+        lists:any(
+            fun(K) ->
+                maps:get(msg, K, not_found) =:=
+                    emqx_bridge_rabbitmq_connector_rabbit_publish_failed_with_msg
+            end,
+            Trace
+        )
+    ),
+    ?assert(
+        lists:any(
+            fun(K) ->
+                maps:get(msg, K, not_found) =:=
+                    emqx_bridge_rabbitmq_connector_rabbit_publish_failed_con_not_ready
+            end,
+            Trace
+        )
+    ),
     ok.
 
 t_replace_action_source(Config) ->
