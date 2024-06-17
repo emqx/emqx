@@ -470,7 +470,7 @@ t_metrics_not_dropped(_Config) ->
 t_replication_options(_Config) ->
     ?assertMatch(
         #{
-            backend := builtin,
+            backend := builtin_raft,
             replication_options := #{
                 wal_max_size_bytes := 16000000,
                 wal_max_batch_size := 1024,

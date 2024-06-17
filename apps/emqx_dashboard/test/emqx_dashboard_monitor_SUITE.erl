@@ -56,11 +56,18 @@
 %% CT boilerplate
 %%--------------------------------------------------------------------
 
+-if(?EMQX_RELEASE_EDITION == ee).
 all() ->
     [
         {group, common},
         {group, persistent_sessions}
     ].
+-else.
+all() ->
+    [
+        {group, common}
+    ].
+-endif.
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),

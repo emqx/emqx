@@ -60,7 +60,8 @@ init_per_testcase(t_session_gc = TestCase, Config) ->
             "\n   heartbeat_interval = 500ms "
             "\n   session_gc_interval = 1s "
             "\n   session_gc_batch_size = 2 "
-            "\n }"
+            "\n }\n"
+            "durable_storage.messages.backend = builtin_local\n"
     },
     Cluster = cluster(Opts),
     ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)},

@@ -558,12 +558,9 @@ all() ->
 %% `optional_applications` application spec flag. Once we migrate to
 %% OTP27, this won't be needed, as application controller will
 %% automatically load raft backend when available:
--define(MAYBE_RAFT, [emqx_ds_builtin_raft]).
 -else.
 all() ->
     [{group, builtin_local}].
-
--define(MAYBE_RAFT, []).
 -endif.
 
 groups() ->
@@ -602,7 +599,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TC, Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx_durable_storage, emqx_ds_backends | ?MAYBE_RAFT],
+        [emqx_durable_storage, emqx_ds_backends],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
     ct:pal("Apps: ~p", [Apps]),

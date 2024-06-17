@@ -1,0 +1,26 @@
+%% -*- mode:erlang -*-
+Profile = case os:getenv("PROFILE") of
+            "emqx-enterprise" ++ _ ->
+              ee;
+            false ->
+              io:format(user, "WARN: environment variable PROFILE is not set, using 'emqx-enterprise'~n", []),
+              ee;
+            _ ->
+              ce
+          end,
+CEDeps =
+    [
+        {emqx_utils, {path, "../emqx_utils"}},
+        {emqx_durable_storage, {path, "../emqx_durable_storage"}},
+        {emqx_ds_builtin_local, {path, "../emqx_ds_builtin_local"}}
+    ],
+EEDeps =
+    [
+        {emqx_ds_builtin_raft, {path, "../emqx_ds_builtin_raft"}}
+    ],
+case Profile of
+  ee ->
+    {deps, CEDeps ++ EEDeps};
+  ce ->
+    {deps, CEDeps}
+end.
