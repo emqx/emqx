@@ -6,7 +6,8 @@
     {applications, [
         kernel,
         stdlib,
-        emqx
+        emqx,
+        emqx_schema_registry
     ]},
     {env, []},
     {modules, []},

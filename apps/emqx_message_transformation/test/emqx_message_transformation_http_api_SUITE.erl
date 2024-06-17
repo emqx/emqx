@@ -140,6 +140,31 @@ topic_operation(VariformExpr) ->
 operation(Key, VariformExpr) ->
     {Key, VariformExpr}.
 
+json_serde() ->
+    #{<<"type">> => <<"json">>}.
+
+avro_serde(SerdeName) ->
+    #{<<"type">> => <<"avro">>, <<"schema">> => SerdeName}.
+
+dryrun_input_message() ->
+    dryrun_input_message(_Overrides = #{}).
+
+dryrun_input_message(Overrides) ->
+    dryrun_input_message(Overrides, _Opts = #{}).
+
+dryrun_input_message(Overrides, Opts) ->
+    Encoder = maps:get(encoder, Opts, fun emqx_utils_json:encode/1),
+    Defaults = #{
+        client_attrs => #{},
+        payload => #{},
+        qos => 2,
+        retain => true,
+        topic => <<"t/u/v">>,
+        user_property => #{}
+    },
+    InputMessage0 = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    maps:update_with(payload, Encoder, InputMessage0).
+
 api_root() -> "message_transformations".
 
 simplify_result(Res) ->
@@ -244,6 +269,13 @@ import_backup(BackupName) ->
     Path = emqx_mgmt_api_test_util:api_path(["data", "import"]),
     Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
     Res = request(post, Path, Body),
+    simplify_result(Res).
+
+dryrun_transformation(Transformation, Message) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "dryrun"]),
+    Params = #{transformation => Transformation, message => Message},
+    Res = request(post, Path, Params),
+    ct:pal("dryrun transformation result:\n  ~p", [Res]),
     simplify_result(Res).
 
 connect(ClientId) ->
@@ -1485,6 +1517,96 @@ t_client_attrs(_Config) ->
 
             ok = publish(C, <<"t/1">>, #{x => 1, y => 2}),
             ?assertReceive({publish, #{topic := <<"mytenant/t/1">>}}),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Smoke tests for the dryrun endpoint.
+t_dryrun_transformation(_Config) ->
+    ?check_trace(
+        begin
+            Name1 = <<"foo">>,
+            Operations = [
+                operation(qos, <<"payload.q">>),
+                operation(topic, <<"concat([topic, '/', payload.t])">>),
+                operation(retain, <<"payload.r">>),
+                operation(<<"user_property.a">>, <<"payload.u.a">>),
+                operation(<<"payload">>, <<"payload.p.hello">>)
+            ],
+            Transformation1 = transformation(Name1, Operations),
+
+            %% Good input
+            Message1 = dryrun_input_message(#{
+                payload => #{
+                    p => #{<<"hello">> => <<"world">>},
+                    q => 1,
+                    r => true,
+                    t => <<"t">>,
+                    u => #{a => <<"b">>}
+                }
+            }),
+            ?assertMatch(
+                {200, #{
+                    <<"payload">> := <<"\"world\"">>,
+                    <<"qos">> := 1,
+                    <<"retain">> := true,
+                    <<"topic">> := <<"t/u/v/t">>,
+                    <<"user_property">> := #{<<"a">> := <<"b">>}
+                }},
+                dryrun_transformation(Transformation1, Message1)
+            ),
+
+            %% Bad input: fails to decode
+            Message2 = dryrun_input_message(#{payload => "{"}, #{encoder => fun(X) -> X end}),
+            ?assertMatch(
+                {400, #{
+                    <<"decoder">> := <<"json">>,
+                    <<"reason">> := <<_/binary>>
+                }},
+                dryrun_transformation(Transformation1, Message2)
+            ),
+
+            %% Bad output: fails to encode
+            MissingSerde = <<"missing_serde">>,
+            Transformation2 = transformation(Name1, [dummy_operation()], #{
+                <<"payload_decoder">> => json_serde(),
+                <<"payload_encoder">> => avro_serde(MissingSerde)
+            }),
+            ?assertMatch(
+                {400, #{
+                    <<"msg">> := <<"payload_encode_schema_not_found">>,
+                    <<"encoder">> := <<"avro">>,
+                    <<"schema_name">> := MissingSerde
+                }},
+                dryrun_transformation(Transformation2, Message1)
+            ),
+
+            %% Bad input: unbound var during one of the operations
+            Message3 = dryrun_input_message(#{
+                payload => #{
+                    p => #{<<"hello">> => <<"world">>},
+                    q => 1,
+                    %% Missing:
+                    %% r => true,
+                    t => <<"t">>,
+                    u => #{a => <<"b">>}
+                }
+            }),
+            ?assertMatch(
+                {400, #{
+                    <<"msg">> :=
+                        <<"transformation_eval_operation_failure">>,
+                    <<"reason">> :=
+                        #{
+                            <<"reason">> := <<"var_unbound">>,
+                            <<"var_name">> := <<"payload.r">>
+                        }
+                }},
+                dryrun_transformation(Transformation1, Message3)
+            ),
 
             ok
         end,

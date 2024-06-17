@@ -30,15 +30,28 @@
 
 -define(PATH, [authentication]).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    TCs = AllTCs -- require_seeds_tests(),
     [
-        {group, require_seeds},
-        t_update_with_invalid_config,
-        t_update_with_bad_config_value
+        {group, require_seeds}
+        | TCs
     ].
 
 groups() ->
-    [{require_seeds, [], [t_create, t_authenticate, t_update, t_destroy, t_is_superuser]}].
+    [{require_seeds, [], require_seeds_tests()}].
+
+require_seeds_tests() ->
+    [
+        t_create,
+        t_authenticate,
+        t_authenticate_disabled_prepared_statements,
+        t_update,
+        t_destroy,
+        t_is_superuser
+    ].
 
 init_per_testcase(_, Config) ->
     emqx_authn_test_lib:delete_authenticators(
@@ -46,6 +59,10 @@ init_per_testcase(_, Config) ->
         ?GLOBAL
     ),
     Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 init_per_group(require_seeds, Config) ->
     ok = init_seeds(),
@@ -70,7 +87,12 @@ init_per_suite(Config) ->
             ),
             [{apps, Apps} | Config];
         false ->
-            {skip, no_pgsql}
+            case os:getenv("IS_CI") of
+                "yes" ->
+                    throw(no_postgres);
+                _ ->
+                    {skip, no_postgres}
+            end
     end.
 
 end_per_suite(Config) ->
@@ -172,6 +194,25 @@ test_user_auth(#{
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
+    ).
+
+t_authenticate_disabled_prepared_statements(Config) ->
+    ResConfig = maps:merge(pgsql_config(), #{disable_prepared_statements => true}),
+    {ok, _} = emqx_resource:recreate_local(?PGSQL_RESOURCE, emqx_postgresql, ResConfig),
+    on_exit(fun() ->
+        emqx_resource:recreate_local(?PGSQL_RESOURCE, emqx_postgresql, pgsql_config())
+    end),
+    ok = lists:foreach(
+        fun(Sample0) ->
+            Sample = maps:update_with(
+                config_params,
+                fun(Cfg) -> Cfg#{<<"disable_prepared_statements">> => true} end,
+                Sample0
+            ),
+            ct:pal("test_user_auth sample: ~p", [Sample]),
+            test_user_auth(Sample)
+        end,
+        user_seeds()
     ).
 
 t_destroy(_Config) ->

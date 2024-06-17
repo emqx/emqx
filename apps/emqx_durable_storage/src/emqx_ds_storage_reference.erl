@@ -28,7 +28,7 @@
 
 %% behavior callbacks:
 -export([
-    create/4,
+    create/5,
     open/5,
     drop/5,
     prepare_batch/4,
@@ -88,7 +88,7 @@
 %% behavior callbacks
 %%================================================================================
 
-create(_ShardId, DBHandle, GenId, _Options) ->
+create(_ShardId, DBHandle, GenId, _Options, _SPrev) ->
     CFName = data_cf(GenId),
     {ok, CFHandle} = rocksdb:create_column_family(DBHandle, CFName, []),
     Schema = #schema{},
