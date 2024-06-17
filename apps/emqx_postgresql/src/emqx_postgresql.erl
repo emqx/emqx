@@ -401,7 +401,7 @@ on_batch_query(InstId, BatchReq, State) ->
 
 proc_sql_params(ActionResId, #{} = Map, [], State) when is_binary(ActionResId) ->
     %% When this connector is called from actions/bridges.
-    DisablePreparedStatements = maps:get(prepares, State, #{}) =:= disabled,
+    DisablePreparedStatements = prepared_statements_disabled(State),
     {ExprTemplate, RowTemplate} = get_template(ActionResId, State),
     Rendered = render_prepare_sql_row(RowTemplate, Map),
     case DisablePreparedStatements of
@@ -412,7 +412,7 @@ proc_sql_params(ActionResId, #{} = Map, [], State) when is_binary(ActionResId) -
     end;
 proc_sql_params(prepared_query, ConnResId, Params, State) ->
     %% When this connector is called from authn/authz modules
-    DisablePreparedStatements = maps:get(prepares, State, #{}) =:= disabled,
+    DisablePreparedStatements = prepared_statements_disabled(State),
     case DisablePreparedStatements of
         true ->
             #{query_templates := #{ConnResId := {ExprTemplate, _VarsTemplate}}} = State,
@@ -422,10 +422,15 @@ proc_sql_params(prepared_query, ConnResId, Params, State) ->
             {prepared_query, ConnResId, Params}
     end;
 proc_sql_params(QueryType, SQL, Params, _State) when
-    is_atom(QueryType), is_binary(SQL) orelse is_list(SQL), is_list(Params)
+    is_atom(QueryType) andalso
+        (is_binary(SQL) orelse is_list(SQL)) andalso
+        is_list(Params)
 ->
     %% When called to do ad-hoc commands/queries.
     {QueryType, SQL, Params}.
+
+prepared_statements_disabled(State) ->
+    maps:get(prepares, State, #{}) =:= disabled.
 
 get_template(Key, #{installed_channels := Channels} = _State) when is_map_key(Key, Channels) ->
     BinKey = to_bin(Key),
