@@ -601,7 +601,7 @@ t_simple_sql_query(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Request = {sql, <<"SELECT count(1) AS T">>},
+    Request = {query, <<"SELECT count(1) AS T">>},
     Result =
         case QueryMode of
             sync ->
@@ -651,7 +651,7 @@ t_bad_sql_parameter(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Request = {sql, <<"">>, [bad_parameter]},
+    Request = {query, <<"">>, [bad_parameter]},
     Result =
         case QueryMode of
             sync ->

@@ -25,7 +25,7 @@
 
 %% behavior callbacks:
 -export([
-    create/4,
+    create/5,
     open/5,
     drop/5,
     prepare_batch/4,
@@ -37,7 +37,6 @@
     update_iterator/4,
     next/6,
     delete_next/6,
-    post_creation_actions/1,
 
     handle_event/4
 ]).
@@ -179,10 +178,11 @@
     emqx_ds_storage_layer:shard_id(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
-    options()
+    options(),
+    _PrevGeneration :: s() | undefined
 ) ->
     {schema(), emqx_ds_storage_layer:cf_refs()}.
-create(_ShardId, DBHandle, GenId, Options) ->
+create(_ShardId, DBHandle, GenId, Options, SPrev) ->
     %% Get options:
     BitsPerTopicLevel = maps:get(bits_per_wildcard_level, Options, 64),
     TopicIndexBytes = maps:get(topic_index_bytes, Options, 4),
@@ -193,6 +193,14 @@ create(_ShardId, DBHandle, GenId, Options) ->
     TrieCFName = trie_cf(GenId),
     {ok, DataCFHandle} = rocksdb:create_column_family(DBHandle, DataCFName, []),
     {ok, TrieCFHandle} = rocksdb:create_column_family(DBHandle, TrieCFName, []),
+    case SPrev of
+        #s{trie = TriePrev} ->
+            ok = copy_previous_trie(DBHandle, TrieCFHandle, TriePrev),
+            ?tp(bitfield_lts_inherited_trie, #{}),
+            ok;
+        undefined ->
+            ok
+    end,
     %% Create schema:
     Schema = #{
         bits_per_wildcard_level => BitsPerTopicLevel,
@@ -240,20 +248,6 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         ts_bits = TSBits,
         gvars = ets:new(?MODULE, [public, set, {read_concurrency, true}])
     }.
-
--spec post_creation_actions(emqx_ds_storage_layer:post_creation_context()) ->
-    s().
-post_creation_actions(
-    #{
-        new_gen_runtime_data := NewGenData,
-        old_gen_runtime_data := OldGenData
-    }
-) ->
-    #s{trie = OldTrie} = OldGenData,
-    #s{trie = NewTrie0} = NewGenData,
-    NewTrie = copy_previous_trie(OldTrie, NewTrie0),
-    ?tp(bitfield_lts_inherited_trie, #{}),
-    NewGenData#s{trie = NewTrie}.
 
 -spec drop(
     emqx_ds_storage_layer:shard_id(),
@@ -905,9 +899,19 @@ restore_trie(TopicIndexBytes, DB, CF) ->
         rocksdb:iterator_close(IT)
     end.
 
--spec copy_previous_trie(emqx_ds_lts:trie(), emqx_ds_lts:trie()) -> emqx_ds_lts:trie().
-copy_previous_trie(OldTrie, NewTrie) ->
-    emqx_ds_lts:trie_copy_learned_paths(OldTrie, NewTrie).
+-spec copy_previous_trie(rocksdb:db_handle(), rocksdb:cf_handle(), emqx_ds_lts:trie()) ->
+    ok.
+copy_previous_trie(DB, TrieCF, TriePrev) ->
+    {ok, Batch} = rocksdb:batch(),
+    lists:foreach(
+        fun({Key, Val}) ->
+            ok = rocksdb:batch_put(Batch, TrieCF, term_to_binary(Key), term_to_binary(Val))
+        end,
+        emqx_ds_lts:trie_dump(TriePrev, wildcard)
+    ),
+    Result = rocksdb:write_batch(DB, Batch, []),
+    rocksdb:release_batch(Batch),
+    Result.
 
 read_persisted_trie(IT, {ok, KeyB, ValB}) ->
     [

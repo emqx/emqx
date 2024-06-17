@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 
 %% `minirest' and `minirest_trails' API
@@ -23,6 +24,7 @@
 -export([
     '/message_transformations'/2,
     '/message_transformations/reorder'/2,
+    '/message_transformations/dryrun'/2,
     '/message_transformations/transformation/:name'/2,
     '/message_transformations/transformation/:name/metrics'/2,
     '/message_transformations/transformation/:name/metrics/reset'/2,
@@ -35,6 +37,9 @@
 
 -define(TAGS, [<<"Message Transformation">>]).
 -define(METRIC_NAME, message_transformation).
+
+-type user_property() :: #{binary() => binary()}.
+-reflect_type([user_property/0]).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
@@ -49,6 +54,7 @@ paths() ->
     [
         "/message_transformations",
         "/message_transformations/reorder",
+        "/message_transformations/dryrun",
         "/message_transformations/transformation/:name",
         "/message_transformations/transformation/:name/metrics",
         "/message_transformations/transformation/:name/metrics/reset",
@@ -140,6 +146,25 @@ schema("/message_transformations/reorder") ->
                                 mk(array(binary()), #{desc => "Duplicated transformations in input"})}
                         ]
                     )
+                }
+        }
+    };
+schema("/message_transformations/dryrun") ->
+    #{
+        'operationId' => '/message_transformations/dryrun',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Test an input against a configuration">>,
+            description => ?DESC("dryrun_transformation"),
+            'requestBody' =>
+                emqx_dashboard_swagger:schema_with_examples(
+                    ref(dryrun_transformation),
+                    example_input_dryrun_transformation()
+                ),
+            responses =>
+                #{
+                    200 => <<"TODO">>,
+                    400 => error_schema('BAD_REQUEST', <<"Bad request">>)
                 }
         }
     };
@@ -267,6 +292,29 @@ fields(reorder) ->
     [
         {order, mk(array(binary()), #{required => true, in => body})}
     ];
+fields(dryrun_transformation) ->
+    [
+        {transformation,
+            mk(
+                hoconsc:ref(emqx_message_transformation_schema, transformation),
+                #{required => true, in => body}
+            )},
+        {message, mk(ref(dryrun_input_message), #{required => true, in => body})}
+    ];
+fields(dryrun_input_message) ->
+    %% See `emqx_message_transformation:eval_context()'.
+    [
+        {client_attrs, mk(map(), #{default => #{}})},
+        {payload, mk(binary(), #{required => true})},
+        {qos, mk(range(0, 2), #{default => 0})},
+        {retain, mk(boolean(), #{default => false})},
+        {topic, mk(binary(), #{required => true})},
+        {user_property,
+            mk(
+                typerefl:alias("map(binary(), binary())", user_property()),
+                #{default => #{}}
+            )}
+    ];
 fields(get_metrics) ->
     [
         {metrics, mk(ref(metrics), #{})},
@@ -342,6 +390,9 @@ fields(node_metrics) ->
 
 '/message_transformations/reorder'(post, #{body := #{<<"order">> := Order}}) ->
     do_reorder(Order).
+
+'/message_transformations/dryrun'(post, #{body := Params}) ->
+    do_transformation_dryrun(Params).
 
 '/message_transformations/transformation/:name/enable/:enable'(post, #{
     bindings := #{name := Name, enable := Enable}
@@ -432,6 +483,17 @@ example_input_reorder() ->
                 summary => <<"Update">>,
                 value => #{
                     order => [<<"bar">>, <<"foo">>, <<"baz">>]
+                }
+            }
+    }.
+
+example_input_dryrun_transformation() ->
+    #{
+        <<"test">> =>
+            #{
+                summary => <<"Test an input against a configuration">>,
+                value => #{
+                    todo => true
                 }
             }
     }.
@@ -539,6 +601,20 @@ do_reorder(Order) ->
             {400, Msg};
         {error, Error} ->
             ?BAD_REQUEST(Error)
+    end.
+
+do_transformation_dryrun(Params) ->
+    #{
+        transformation := Transformation,
+        message := Message
+    } = dryrun_input_message_in(Params),
+    case emqx_message_transformation:run_transformation(Transformation, Message) of
+        {ok, #message{} = FinalMessage} ->
+            MessageOut = dryrun_input_message_out(FinalMessage),
+            ?OK(MessageOut);
+        {_FailureAction, TraceFailureContext} ->
+            Result = trace_failure_context_out(TraceFailureContext),
+            {400, Result}
     end.
 
 do_enable_disable(Transformation, Enable) ->
@@ -653,4 +729,75 @@ operation_out(Operation0) ->
         key,
         fun(Path) -> iolist_to_binary(lists:join(".", Path)) end,
         Operation
+    ).
+
+dryrun_input_message_in(Params) ->
+    %% We already check the params against the schema at the API boundary, so we can
+    %% expect it to succeed here.
+    #{root := Result = #{message := Message0}} =
+        hocon_tconf:check_plain(
+            #{roots => [{root, ref(dryrun_transformation)}]},
+            #{<<"root">> => Params},
+            #{atom_key => true}
+        ),
+    #{
+        client_attrs := ClientAttrs,
+        payload := Payload,
+        qos := QoS,
+        retain := Retain,
+        topic := Topic,
+        user_property := UserProperty0
+    } = Message0,
+    UserProperty = maps:to_list(UserProperty0),
+    Message1 = #{
+        id => emqx_guid:gen(),
+        timestamp => emqx_message:timestamp_now(),
+        extra => #{},
+        from => <<"test-clientid">>,
+
+        flags => #{retain => Retain},
+        qos => QoS,
+        topic => Topic,
+        payload => Payload,
+        headers => #{
+            client_attrs => ClientAttrs,
+            properties => #{'User-Property' => UserProperty}
+        }
+    },
+    Message = emqx_message:from_map(Message1),
+    Result#{message := Message}.
+
+dryrun_input_message_out(#message{} = Message) ->
+    Retain = emqx_message:get_flag(retain, Message, false),
+    Props = emqx_message:get_header(properties, Message, #{}),
+    UserProperty0 = maps:get('User-Property', Props, []),
+    UserProperty = maps:from_list(UserProperty0),
+    MessageOut0 = emqx_message:to_map(Message),
+    MessageOut = maps:with([payload, qos, topic], MessageOut0),
+    MessageOut#{
+        retain => Retain,
+        user_property => UserProperty
+    }.
+
+trace_failure_context_out(TraceFailureContext) ->
+    Context0 = emqx_message_transformation:trace_failure_context_to_map(TraceFailureContext),
+    %% Some context keys may not be JSON-encodable.
+    maps:filtermap(
+        fun
+            (reason, Reason) ->
+                case emqx_utils_json:safe_encode(Reason) of
+                    {ok, _} ->
+                        %% Let minirest encode it if it's structured.
+                        true;
+                    {error, _} ->
+                        %% "Best effort"
+                        {true, iolist_to_binary(io_lib:format("~p", [Reason]))}
+                end;
+            (stacktrace, _Stacktrace) ->
+                %% Log?
+                false;
+            (_Key, _Value) ->
+                true
+        end,
+        Context0
     ).

@@ -117,6 +117,7 @@
             emqx_bridge_oracle,
             emqx_bridge_rabbitmq,
             emqx_bridge_azure_event_hub,
+            emqx_s3,
             emqx_bridge_s3,
             emqx_bridge_azure_blob_storage,
             emqx_schema_registry,
