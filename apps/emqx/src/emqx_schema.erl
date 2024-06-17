@@ -1954,10 +1954,6 @@ zones_field_schema() ->
         }
     ).
 
-desc("persistent_session_store") ->
-    "Settings for message persistence.";
-desc("persistent_session_builtin") ->
-    "Settings for the built-in storage engine of persistent messages.";
 desc("persistent_table_mria_opts") ->
     "Tuning options for the mria table.";
 desc("stats") ->
