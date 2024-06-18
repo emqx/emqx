@@ -597,6 +597,9 @@ delete_package(Name) ->
     end.
 
 %% for RPC plugin update
+%% TODO: catch thrown error to return 400
+%% - plugin_not_found
+%% - otp vsn assertion failed
 ensure_action(Name, start) ->
     _ = emqx_plugins:ensure_started(Name),
     _ = emqx_plugins:ensure_enabled(Name),

@@ -279,9 +279,9 @@ ensure_started(NameVsn) ->
     case do_ensure_started(NameVsn) of
         ok ->
             ok;
-        {error, Reason} ->
-            ?SLOG(alert, Reason#{msg => "failed_to_start_plugin"}),
-            {error, Reason}
+        {error, ReasonMap} ->
+            ?SLOG(alert, ReasonMap#{msg => "failed_to_start_plugin"}),
+            {error, ReasonMap}
     end.
 
 %% @doc Stop all plugins before broker stops.
@@ -664,12 +664,12 @@ do_ensure_started(NameVsn) ->
                 ok ->
                     Plugin = do_read_plugin(NameVsn),
                     ok = load_code_start_apps(NameVsn, Plugin);
-                {error, plugin_not_found} ->
+                {error, #{reason := Reason} = ReasonMap} ->
                     ?SLOG(error, #{
-                        error_msg => "plugin_not_found",
+                        error_msg => string_reason(Reason),
                         name_vsn => NameVsn
                     }),
-                    ok
+                    {error, ReasonMap}
             end
         end
     ).
@@ -772,7 +772,7 @@ do_get_from_cluster(NameVsn) ->
                 error_msg => "failed_to_copy_plugin_from_other_nodes",
                 name_vsn => NameVsn,
                 node_errors => NodeErrors,
-                reason => not_found
+                reason => plugin_not_found
             },
             ?SLOG(error, ErrMeta),
             {error, ErrMeta};
@@ -780,7 +780,7 @@ do_get_from_cluster(NameVsn) ->
             ErrMeta = #{
                 error_msg => "no_nodes_to_copy_plugin_from",
                 name_vsn => NameVsn,
-                reason => not_found
+                reason => plugin_not_found
             },
             ?SLOG(error, ErrMeta),
             {error, ErrMeta}
@@ -1497,3 +1497,8 @@ bin(B) when is_binary(B) -> B.
 
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).
+
+string_reason(plugin_not_found) ->
+    "plugin_not_found";
+string_reason(_) ->
+    "unexpected_error".

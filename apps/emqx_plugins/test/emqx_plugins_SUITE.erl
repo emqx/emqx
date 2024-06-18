@@ -390,7 +390,7 @@ t_bad_tar_gz(Config) ->
     ?assertMatch(
         {error, #{
             error_msg := "no_nodes_to_copy_plugin_from",
-            reason := not_found
+            reason := plugin_not_found
         }},
         emqx_plugins:ensure_installed("nonexisting")
     ),
