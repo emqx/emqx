@@ -1457,6 +1457,8 @@ cluster_options(k8s, Conf) ->
         {suffix, conf_get("cluster.k8s.suffix", Conf, "")}
     ];
 cluster_options(manual, _Conf) ->
+    [];
+cluster_options(singleton, _Conf) ->
     [].
 
 to_atom(Atom) when is_atom(Atom) ->
