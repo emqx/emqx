@@ -660,30 +660,7 @@ handle_info(?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := Share
 %%--------------------------------------------------------------------
 
 shared_sub_opts(SessionId) ->
-    #{
-        session_id => SessionId,
-        send_funs => #{
-            send => fun send_message/2,
-            send_after => fun send_message_after/3
-        }
-    }.
-
-send_message(Dest, Msg) ->
-    case Dest =:= self() of
-        true ->
-            erlang:send(Dest, ?session_message(?shared_sub_message(Msg))),
-            Msg;
-        false ->
-            erlang:send(Dest, Msg)
-    end.
-
-send_message_after(Time, Dest, Msg) ->
-    case Dest =:= self() of
-        true ->
-            erlang:send_after(Time, Dest, ?session_message(?shared_sub_message(Msg)));
-        false ->
-            erlang:send_after(Time, Dest, Msg)
-    end.
+    #{session_id => SessionId}.
 
 bump_last_alive(S0) ->
     %% Note: we take a pessimistic approach here and assume that the client will be alive

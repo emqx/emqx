@@ -23,23 +23,14 @@
     to_map/2
 ]).
 
--record(agent_message, {
-    message :: term()
-}).
-
 -type t() :: #{
     agent := emqx_persistent_session_ds_shared_subs_agent:t()
 }.
 -type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
 -type opts() :: #{
-    session_id := emqx_persistent_session_ds:id(),
-    send_funs := #{
-        send := fun((pid(), term()) -> term()),
-        send_after := fun((non_neg_integer(), pid(), term()) -> reference())
-    }
+    session_id := emqx_persistent_session_ds:id()
 }.
 
--define(agent_message(Msg), #agent_message{message = Msg}).
 -define(rank_x, rank_shared).
 -define(rank_y, 0).
 
@@ -107,17 +98,25 @@ on_unsubscribe(SessionId, TopicFilter, S0, #{agent := Agent0} = SharedSubS0) ->
 -spec renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 renew_streams(S0, #{agent := Agent0} = SharedSubS0) ->
-    {NewLeasedStreams, RevokedStreams, Agent1} = emqx_persistent_session_ds_shared_subs_agent:renew_streams(
+    {StreamLeaseEvents, Agent1} = emqx_persistent_session_ds_shared_subs_agent:renew_streams(
         Agent0
     ),
-    NewLeasedStreams =/= [] andalso
+    StreamLeaseEvents =/= [] andalso
         ?SLOG(
-            info, #{msg => shared_subs_new_stream_leases, stream_leases => NewLeasedStreams}
+            info, #{
+                msg => shared_subs_new_stream_lease_events, stream_lease_events => StreamLeaseEvents
+            }
         ),
-    S1 = lists:foldl(fun accept_stream/2, S0, NewLeasedStreams),
-    S2 = lists:foldl(fun revoke_stream/2, S1, RevokedStreams),
+    S1 = lists:foldl(
+        fun
+            (#{type := lease} = Event, S) -> accept_stream(Event, S);
+            (#{type := revoke} = Event, S) -> revoke_stream(Event, S)
+        end,
+        S0,
+        StreamLeaseEvents
+    ),
     SharedSubS1 = SharedSubS0#{agent => Agent1},
-    {S2, SharedSubS1}.
+    {S1, SharedSubS1}.
 
 -spec on_streams_replayed(
     emqx_persistent_session_ds_state:t(),
@@ -147,14 +146,10 @@ on_streams_replayed(S, #{agent := Agent0} = SharedSubS0) ->
 
 -spec on_info(emqx_persistent_session_ds_state:t(), t(), term()) ->
     {emqx_persistent_session_ds_state:t(), t()}.
-on_info(S, #{agent := Agent0} = SharedSubS0, ?agent_message(Info)) ->
+on_info(S, #{agent := Agent0} = SharedSubS0, Info) ->
     Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_info(Agent0, Info),
     SharedSubS1 = SharedSubS0#{agent => Agent1},
-    {S, SharedSubS1};
-on_info(S, SharedSubS, _Info) ->
-    %% TODO
-    %% Log warning
-    {S, SharedSubS}.
+    {S, SharedSubS1}.
 
 -spec to_map(emqx_persistent_session_ds_state:t(), t()) -> map().
 to_map(_S, _SharedSubS) ->
@@ -340,39 +335,8 @@ to_agent_subscription(_S, Subscription) ->
     maps:with([start_time], Subscription).
 
 -spec agent_opts(opts()) -> emqx_persistent_session_ds_shared_subs_agent:opts().
-agent_opts(#{session_id := SessionId, send_funs := SendFuns}) ->
-    #{
-        session_id => SessionId,
-        send_funs => agent_send_funs(SendFuns)
-    }.
-
-agent_send_funs(#{
-    send := Send,
-    send_after := SendAfter
-}) ->
-    #{
-        send => fun(Pid, Msg) -> send_from_agent(Send, Pid, Msg) end,
-        send_after => fun(Time, Pid, Msg) ->
-            send_after_from_agent(SendAfter, Time, Pid, Msg)
-        end
-    }.
-
-send_from_agent(Send, Dest, Msg) ->
-    case Dest =:= self() of
-        true ->
-            Send(Dest, ?agent_message(Msg)),
-            Msg;
-        false ->
-            Send(Dest, Msg)
-    end.
-
-send_after_from_agent(SendAfter, Time, Dest, Msg) ->
-    case Dest =:= self() of
-        true ->
-            SendAfter(Time, Dest, ?agent_message(Msg));
-        false ->
-            SendAfter(Time, Dest, Msg)
-    end.
+agent_opts(#{session_id := SessionId}) ->
+    #{session_id => SessionId}.
 
 -dialyzer({nowarn_function, now_ms/0}).
 now_ms() ->
