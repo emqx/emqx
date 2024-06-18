@@ -50,18 +50,15 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    delete_all_bridges(),
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_connector_test_helpers:stop_apps([
-        emqx_conf, emqx_bridge, emqx_resource, emqx_rule_engine
-    ]),
-    _ = application:stop(emqx_connector),
     ok.
 
 init_per_group(GreptimedbType, Config0) when
     GreptimedbType =:= grpcv1_tcp;
     GreptimedbType =:= grpcv1_tls
 ->
+    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     #{
         host := GreptimedbHost,
         port := GreptimedbPort,
@@ -89,13 +86,19 @@ init_per_group(GreptimedbType, Config0) when
         end,
     case emqx_common_test_helpers:is_tcp_server_available(GreptimedbHost, GreptimedbHttpPort) of
         true ->
-            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            ok = start_apps(),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            {ok, _} = application:ensure_all_started(greptimedb),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_bridge_greptimedb,
+                    emqx_bridge,
+                    emqx_rule_engine,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
+            {ok, _Api} = emqx_common_test_http:create_default_app(),
             Config = [{use_tls, UseTLS} | Config0],
             {Name, ConfigString, GreptimedbConfig} = greptimedb_config(
                 grpcv1, GreptimedbHost, GreptimedbPort, Config
@@ -116,6 +119,7 @@ init_per_group(GreptimedbType, Config0) when
             ],
             {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
             [
+                {group_apps, Apps},
                 {proxy_host, ProxyHost},
                 {proxy_port, ProxyPort},
                 {proxy_name, ProxyName},
@@ -150,18 +154,21 @@ end_per_group(Group, Config) when
     Group =:= grpcv1_tcp;
     Group =:= grpcv1_tls
 ->
+    Apps = ?config(group_apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     EHttpcPoolName = ?config(ehttpc_pool_name, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ehttpc_sup:stop_pool(EHttpcPoolName),
-    delete_bridge(Config),
-    _ = application:stop(greptimedb),
+    emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     delete_all_rules(),
     delete_all_bridges(),
     Config.
@@ -178,14 +185,6 @@ end_per_testcase(_Testcase, Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
-
-start_apps() ->
-    %% some configs in emqx_conf app are mandatory
-    %% we want to make sure they are loaded before
-    %% ekka start in emqx_common_test_helpers:start_apps/1
-    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]).
 
 example_write_syntax() ->
     %% N.B.: this single space character is relevant
@@ -215,6 +214,7 @@ greptimedb_config(grpcv1 = Type, GreptimedbHost, GreptimedbPort, Config) ->
             "    request_ttl = 1s\n"
             "    query_mode = ~s\n"
             "    batch_size = ~b\n"
+            "    health_check_interval = 5s\n"
             "  }\n"
             "  ssl {\n"
             "    enable = ~p\n"
@@ -259,6 +259,7 @@ delete_bridge(Config) ->
     emqx_bridge:remove(Type, Name).
 
 delete_all_bridges() ->
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
             emqx_bridge:remove(Type, Name)
@@ -692,6 +693,12 @@ t_boolean_variants(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
+    ResourceId = resource_id(Config),
+    ?retry(
+        _Sleep1 = 1_000,
+        _Attempts1 = 10,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
     BoolVariants = #{
         true => true,
         false => false,
@@ -728,14 +735,22 @@ t_boolean_variants(Config) ->
                 async -> ct:sleep(500);
                 sync -> ok
             end,
-            PersistedData = query_by_clientid(atom_to_binary(?FUNCTION_NAME), ClientId, Config),
-            Expected = #{
-                bool => Translation,
-                int_value => -123,
-                uint_value => 123,
-                payload => emqx_utils_json:encode(Payload)
-            },
-            assert_persisted_data(ClientId, Expected, PersistedData),
+            ?retry(
+                _Sleep2 = 500,
+                _Attempts2 = 20,
+                begin
+                    PersistedData = query_by_clientid(
+                        atom_to_binary(?FUNCTION_NAME), ClientId, Config
+                    ),
+                    Expected = #{
+                        bool => Translation,
+                        int_value => -123,
+                        uint_value => 123,
+                        payload => emqx_utils_json:encode(Payload)
+                    },
+                    assert_persisted_data(ClientId, Expected, PersistedData)
+                end
+            ),
             ok
         end,
         BoolVariants
@@ -841,6 +856,11 @@ t_get_status(Config) ->
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId))
     end),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 10,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
     ok.
 
 t_create_disconnected(Config) ->
@@ -858,6 +878,12 @@ t_create_disconnected(Config) ->
             ),
             ok
         end
+    ),
+    ResourceId = resource_id(Config),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 10,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
     ),
     ok.
 
