@@ -32,13 +32,22 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+%% Needed for standalone mode:
+-ifndef(EMQX_RELEASE_EDITION).
+-define(EMQX_RELEASE_EDITION, ce).
+-endif.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+
 init_per_suite(Config) ->
-    case emqx_ds_test_helpers:skip_if_norepl() of
-        false ->
-            Config;
-        Yes ->
-            Yes
-    end.
+    Config.
+
+-else.
+
+init_per_suite(Config) ->
+    {skip, no_replication}.
+
+-endif.
 
 end_per_suite(_Config) ->
     ok.

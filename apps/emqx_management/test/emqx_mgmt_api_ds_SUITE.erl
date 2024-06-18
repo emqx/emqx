@@ -27,16 +27,21 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx, "durable_sessions.enable = true"},
-            emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    {ok, _} = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            Apps = emqx_cth_suite:start(
+                [
+                    {emqx, "durable_sessions.enable = true"},
+                    emqx_management,
+                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
+            {ok, _} = emqx_common_test_http:create_default_app(),
+            [{suite_apps, Apps} | Config];
+        Yes ->
+            Yes
+    end.
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).

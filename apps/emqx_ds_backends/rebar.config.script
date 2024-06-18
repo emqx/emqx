@@ -20,7 +20,7 @@ EEDeps =
     ],
 case Profile of
   ee ->
-    {deps, CEDeps ++ EEDeps};
+    [{deps, CEDeps ++ EEDeps}];
   ce ->
-    {deps, CEDeps}
+    [{deps, CEDeps}]
 end.
