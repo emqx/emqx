@@ -148,8 +148,6 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -191,11 +189,10 @@ common_init(Config0) ->
                     emqx_bridge,
                     emqx_rule_engine,
                     emqx_management,
-                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                    emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config0)}
             ),
-            {ok, _Api} = emqx_common_test_http:create_default_app(),
             % Connect to cassnadra directly and create the table
             catch connect_and_drop_table(Config0),
             connect_and_create_table(Config0),

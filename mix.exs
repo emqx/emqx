@@ -40,73 +40,85 @@ defmodule EMQXUmbrella.MixProject do
       erlc_options: erlc_options(profile_info, version),
       version: version,
       deps: deps(profile_info, version),
-      releases: releases()
+      releases: releases(),
+      aliases: aliases()
     ]
   end
 
-  defp deps(_profile_info, _version) do
+  defp deps(profile_info, version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
-    [
-      {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
-      {:redbug, github: "emqx/redbug", tag: "2.0.10"},
-      {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
-      {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.14", override: true},
-      {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
-      {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
-      {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
-      {:esockd, github: "emqx/esockd", tag: "5.11.2", override: true},
-      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-5", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true},
-      {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
-      {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.4.3", override: true},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.7", override: true},
-      {:replayq, github: "emqx/replayq", tag: "0.3.8", override: true},
-      {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-      # maybe forbid to fetch quicer
-      {:emqtt,
-       github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()},
-      {:rulesql, github: "emqx/rulesql", tag: "0.2.1"},
-      {:observer_cli, "1.7.1"},
-      {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"},
-      {:telemetry, "1.1.0", override: true},
-      # in conflict by emqtt and hocon
-      {:getopt, "1.0.2", override: true},
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.10", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true},
-      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
-      {:esasl, github: "emqx/esasl", tag: "0.2.1"},
-      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true},
-      # in conflict by ehttpc and emqtt
-      {:gun, github: "emqx/gun", tag: "1.3.11", override: true},
-      # in conflict by emqx_connector and system_monitor
-      {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true},
-      # in conflict by emqx and observer_cli
-      {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
-      {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
-      # in conflict by erlavro and rocketmq
-      {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true},
-      # dependencies of dependencies; we choose specific refs to match
-      # what rebar3 chooses.
-      # in conflict by gun and emqtt
-      {:cowlib,
-       github: "ninenines/cowlib", ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363", override: true},
-      # in conflict by cowboy_swagger and cowboy
-      {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true},
-      # in conflict by grpc and eetcd
-      {:gpb, "4.19.9", override: true, runtime: false},
-      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
-      # set by hackney (dependency)
-      {:ssl_verify_fun, "1.1.7", override: true},
-      {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
-      {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true},
-      {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
-      {:ra, "2.7.3", override: true},
-      {:mimerl, "1.2.0", override: true}
-    ] ++ jq_dep() ++ quicer_dep()
+    common_deps() ++
+      [
+        {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
+        {:redbug, github: "emqx/redbug", tag: "2.0.10"},
+        {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
+        {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
+        {:ehttpc, github: "emqx/ehttpc", tag: "0.4.14", override: true},
+        {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
+        {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
+        {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
+        {:esockd, github: "emqx/esockd", tag: "5.11.2", override: true},
+        {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-5", override: true},
+        {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true},
+        {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
+        {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
+        {:minirest, github: "emqx/minirest", tag: "1.4.3", override: true},
+        {:ecpool, github: "emqx/ecpool", tag: "0.5.7", override: true},
+        {:replayq, github: "emqx/replayq", tag: "0.3.8", override: true},
+        {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
+        # maybe forbid to fetch quicer
+        {:emqtt,
+         github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()},
+        {:rulesql, github: "emqx/rulesql", tag: "0.2.1"},
+        {:observer_cli, "1.7.1"},
+        {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"},
+        {:telemetry, "1.1.0", override: true},
+        # in conflict by emqtt and hocon
+        {:getopt, "1.0.2", override: true},
+        {
+          :snabbkaffe,
+          ## without this, snabbkaffe is compiled with `-define(snk_kind, '$kind')`, which
+          ## will basically make events in tests never match any predicates.
+          github: "kafka4beam/snabbkaffe",
+          tag: "1.0.10",
+          override: true,
+          system_env: emqx_app_system_env(profile_info, version)
+        },
+        {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true},
+        {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
+        {:esasl, github: "emqx/esasl", tag: "0.2.1"},
+        {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true},
+        # in conflict by ehttpc and emqtt
+        {:gun, github: "emqx/gun", tag: "1.3.11", override: true},
+        # in conflict by emqx_connector and system_monitor
+        {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true},
+        # in conflict by emqx and observer_cli
+        {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
+        {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
+        # in conflict by erlavro and rocketmq
+        {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true},
+        # dependencies of dependencies; we choose specific refs to match
+        # what rebar3 chooses.
+        # in conflict by gun and emqtt
+        {:cowlib,
+         github: "ninenines/cowlib",
+         ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363",
+         override: true},
+        # in conflict by cowboy_swagger and cowboy
+        {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true},
+        # in conflict by grpc and eetcd
+        {:gpb, "4.19.9", override: true, runtime: false},
+        {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
+        # set by hackney (dependency)
+        {:ssl_verify_fun, "1.1.7", override: true},
+        {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
+        {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true},
+        {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
+        {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
+        {:ra, "2.7.3", override: true},
+        {:mimerl, "1.2.0", override: true}
+      ] ++ jq_dep() ++ quicer_dep()
   end
 
   def emqx_app_system_env(profile_info, version) do
@@ -122,22 +134,94 @@ defmodule EMQXUmbrella.MixProject do
       {:d, :EMQX_RELEASE_EDITION, erlang_edition(edition_type)},
       {:d, :EMQX_ELIXIR},
       {:d, :snk_kind, :msg}
-    ]
+    ] ++
+      singleton(test_env?(), {:d, :TEST}) ++
+      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC})
+  end
+
+  defp singleton(false, _value), do: []
+  defp singleton(true, value), do: [value]
+
+  def profile_info() do
+    k = {__MODULE__, :profile_info}
+    get_memoized(k, &check_profile!/0)
+  end
+
+  def pkg_vsn() do
+    k = {__MODULE__, :pkg_vsn}
+    get_memoized(k, &do_pkg_vsn/0)
+  end
+
+  def common_deps() do
+    if test_env?() do
+      [
+        {:bbmustache, "1.10.0"},
+        {:cth_readable, "1.5.1"},
+        {:proper, "1.4.0"},
+        {:meck, "0.9.2"}
+      ]
+    else
+      []
+    end
+  end
+
+  def extra_applications() do
+    k = {__MODULE__, :extra_applications}
+
+    get_memoized(k, fn ->
+      if test_env?() do
+        [:eunit, :common_test, :dialyzer, :mnesia]
+      else
+        []
+      end
+    end)
+  end
+
+  def erlc_paths() do
+    k = {__MODULE__, :erlc_paths}
+
+    get_memoized(k, fn ->
+      if test_env?() do
+        ["src", "test"]
+      else
+        ["src"]
+      end
+    end)
   end
 
   def erlc_options() do
     k = {__MODULE__, :erlc_options}
 
+    get_memoized(k, fn ->
+      profile_info = profile_info()
+      version = pkg_vsn()
+      erlc_options(profile_info, version)
+    end)
+  end
+
+  def test_env?() do
+    k = {__MODULE__, :test_env?}
+
+    get_memoized(k, fn ->
+      env = to_string(Mix.env())
+      System.get_env("TEST") == "1" || env =~ ~r/-test$/
+    end)
+  end
+
+  defp set_test_env!(test_env?) do
+    k = {__MODULE__, :test_env?}
+    :persistent_term.put(k, test_env?)
+  end
+
+  defp get_memoized(k, compute_fn) do
     case :persistent_term.get(k, :undefined) do
       :undefined ->
-        profile_info = check_profile!()
-        version = pkg_vsn()
-        opts = erlc_options(profile_info, version)
-        :persistent_term.put(k, opts)
-        opts
+        res = compute_fn.()
+        :persistent_term.put(k, res)
+        res
 
-      opts ->
-        opts
+      res ->
+        res
     end
   end
 
@@ -282,8 +366,10 @@ defmodule EMQXUmbrella.MixProject do
   def check_profile!() do
     valid_envs = [
       :emqx,
+      :"emqx-test",
       :"emqx-pkg",
       :"emqx-enterprise",
+      :"emqx-enterprise-test",
       :"emqx-enterprise-pkg"
     ]
 
@@ -296,12 +382,10 @@ defmodule EMQXUmbrella.MixProject do
         |> String.to_atom()
         |> Mix.env()
       else
-        IO.puts(
-          IO.ANSI.format([
-            :yellow,
-            "Warning: env var PROFILE is unset; defaulting to emqx"
-          ])
-        )
+        Mix.shell().info([
+          :yellow,
+          "Warning: env var PROFILE is unset; defaulting to emqx"
+        ])
 
         Mix.env(:emqx)
       end
@@ -319,19 +403,27 @@ defmodule EMQXUmbrella.MixProject do
       """)
     end
 
+    mix_env = Mix.env()
+
     {
       release_type,
       package_type,
       edition_type
     } =
-      case Mix.env() do
+      case mix_env do
         :dev ->
           {:standard, :bin, :community}
 
         :emqx ->
           {:standard, :bin, :community}
 
+        :"emqx-test" ->
+          {:standard, :bin, :community}
+
         :"emqx-enterprise" ->
+          {:standard, :bin, :enterprise}
+
+        :"emqx-enterprise-test" ->
           {:standard, :bin, :enterprise}
 
         :"emqx-pkg" ->
@@ -341,12 +433,45 @@ defmodule EMQXUmbrella.MixProject do
           {:standard, :pkg, :enterprise}
       end
 
-    normalize_env!()
+    test? = to_string(mix_env) =~ ~r/-test$/ || test_env?()
+
+    normalize_env!(test?)
+
+    # Mix.debug(true)
+
+    if Mix.debug?() do
+      Mix.shell().info([
+        :blue,
+        "mix_env: #{Mix.env()}",
+        "; release type: #{release_type}",
+        "; package type: #{package_type}",
+        "; edition type: #{edition_type}",
+        "; test env?: #{test?}"
+      ])
+    end
+
+    test? = to_string(mix_env) =~ ~r/-test$/ || test_env?()
+
+    normalize_env!(test?)
+
+    # Mix.debug(true)
+
+    if Mix.debug?() do
+      Mix.shell().info([
+        :blue,
+        "mix_env: #{Mix.env()}",
+        "; release type: #{release_type}",
+        "; package type: #{package_type}",
+        "; edition type: #{edition_type}",
+        "; test env?: #{test?}"
+      ])
+    end
 
     %{
       release_type: release_type,
       package_type: package_type,
-      edition_type: edition_type
+      edition_type: edition_type,
+      test?: test?
     }
   end
 
@@ -712,7 +837,7 @@ defmodule EMQXUmbrella.MixProject do
     ])
   end
 
-  defp pkg_vsn() do
+  defp do_pkg_vsn() do
     %{edition_type: edition_type} = check_profile!()
     basedir = Path.dirname(__ENV__.file)
     script = Path.join(basedir, "pkg-vsn.sh")
@@ -785,7 +910,7 @@ defmodule EMQXUmbrella.MixProject do
     to_string(8 * size)
   end
 
-  defp normalize_env!() do
+  defp normalize_env!(test_env?) do
     env =
       case Mix.env() do
         :dev ->
@@ -794,6 +919,10 @@ defmodule EMQXUmbrella.MixProject do
         env ->
           env
       end
+
+    if test_env? do
+      ensure_test_mix_env!()
+    end
 
     Mix.env(env)
   end
@@ -830,4 +959,51 @@ defmodule EMQXUmbrella.MixProject do
 
   defp erlang_edition(:community), do: :ce
   defp erlang_edition(:enterprise), do: :ee
+
+  defp aliases() do
+    [
+      ct: &do_ct/1,
+      eunit: &do_eunit/1,
+      proper: &do_proper/1
+    ]
+  end
+
+  defp do_ct(args) do
+    IO.inspect(args)
+    Mix.shell().info("testing")
+
+    ensure_test_mix_env!()
+    set_test_env!(true)
+
+    Code.require_file("lib/mix/tasks/emqx.ct.ex")
+    Mix.Task.run("emqx.ct", args)
+  end
+
+  defp do_eunit(args) do
+    ensure_test_mix_env!()
+    set_test_env!(true)
+    Code.require_file("lib/mix/tasks/emqx.eunit.ex")
+    Mix.Task.run("emqx.eunit", args)
+  end
+
+  defp do_proper(args) do
+    ensure_test_mix_env!()
+    set_test_env!(true)
+    Code.require_file("lib/mix/tasks/emqx.proper.ex")
+    Mix.Task.run("emqx.proper", args)
+  end
+
+  defp ensure_test_mix_env!() do
+    Mix.env()
+    |> to_string()
+    |> then(fn env ->
+      if String.ends_with?(env, "-test") do
+        env
+      else
+        env <> "-test"
+      end
+    end)
+    |> String.to_atom()
+    |> Mix.env()
+  end
 end

@@ -1,12 +1,14 @@
 defmodule EMQXConnectorAggregator.MixProject do
   use Mix.Project
+  alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
       app: :emqx_connector_aggregator,
       version: "0.1.0",
       build_path: "../../_build",
-      erlc_options: EMQXUmbrella.MixProject.erlc_options(),
+      erlc_options: UMP.erlc_options(),
+      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
@@ -16,10 +18,13 @@ defmodule EMQXConnectorAggregator.MixProject do
   end
 
   def application do
-    [extra_applications: []]
+    [extra_applications: UMP.extra_applications()]
   end
 
   def deps() do
-    [{:emqx, in_umbrella: true}]
+    [
+      {:emqx, in_umbrella: true},
+      {:erl_csv, "0.2.0"}
+    ]
   end
 end

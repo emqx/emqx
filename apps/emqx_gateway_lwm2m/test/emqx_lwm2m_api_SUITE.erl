@@ -24,7 +24,7 @@
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 
 -include("emqx_lwm2m.hrl").
--include("emqx_gateway_coap/include/emqx_coap.hrl").
+-include("../../emqx_gateway_coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -58,23 +58,26 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_gateway),
-    application:load(emqx_gateway_lwm2m),
-    DefaultConfig = emqx_lwm2m_SUITE:default_config(),
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, DefaultConfig),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_gateway_lwm2m,
+            emqx_gateway,
+            emqx_auth,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    ok = emqx_conf_cli:load_config(emqx_lwm2m_SUITE:default_config(), #{mode => replace}),
+    [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    timer:sleep(300),
-    {ok, _} = emqx_conf:remove([<<"gateway">>, <<"lwm2m">>], #{}),
-    emqx_mgmt_api_test_util:end_suite([emqx_auth, emqx_conf]),
-    Config.
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok.
 
 init_per_testcase(_AllTestCase, Config) ->
-    DefaultConfig = emqx_lwm2m_SUITE:default_config(),
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, DefaultConfig),
-    {ok, _} = application:ensure_all_started(emqx_gateway),
+    ok = emqx_conf_cli:load_config(emqx_lwm2m_SUITE:default_config(), #{mode => replace}),
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 
     {ok, C} = emqtt:start_link([{host, "localhost"}, {port, 1883}, {clientid, <<"c1">>}]),
@@ -86,7 +89,6 @@ init_per_testcase(_AllTestCase, Config) ->
 end_per_testcase(_AllTestCase, Config) ->
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
-    ok = application:stop(emqx_gateway),
     timer:sleep(300).
 
 %%--------------------------------------------------------------------

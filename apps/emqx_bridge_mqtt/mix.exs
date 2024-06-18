@@ -1,5 +1,6 @@
 defmodule EMQXBridgeMQTT.MixProject do
   use Mix.Project
+  alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
@@ -7,7 +8,8 @@ defmodule EMQXBridgeMQTT.MixProject do
       version: "0.1.0",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
-      erlc_options: EMQXUmbrella.MixProject.erlc_options(),
+      erlc_options: UMP.erlc_options(),
+      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
@@ -18,15 +20,14 @@ defmodule EMQXBridgeMQTT.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [
-      extra_applications: []
-    ]
+    [extra_applications: UMP.extra_applications()]
   end
 
   def deps() do
     [
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
+      {:emqtt, github: "emqx/emqtt", tag: "1.10.1", system_env: UMP.maybe_no_quic_env()}
     ]
   end
 end

@@ -1,12 +1,14 @@
 defmodule EMQXBridgeHstreamdb.MixProject do
   use Mix.Project
+  alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
       app: :emqx_bridge_hstreamdb,
       version: "0.1.0",
       build_path: "../../_build",
-      erlc_options: EMQXUmbrella.MixProject.erlc_options(),
+      erlc_options: UMP.erlc_options(),
+      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
@@ -16,7 +18,7 @@ defmodule EMQXBridgeHstreamdb.MixProject do
   end
 
   def application do
-    [extra_applications: []]
+    [extra_applications: UMP.extra_applications()]
   end
 
   def deps() do
@@ -26,7 +28,7 @@ defmodule EMQXBridgeHstreamdb.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_connector, in_umbrella: true, runtime: false},
-      {:emqx_resource, in_umbrella: true},
+      {:emqx_resource, in_umbrella: true}
     ]
   end
 end

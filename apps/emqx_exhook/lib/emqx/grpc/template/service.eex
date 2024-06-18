@@ -1,0 +1,29 @@
+%%%-------------------------------------------------------------------
+%% @doc Behaviour to implement for grpc service <%= unmodified_service_name %>.
+%% @end
+%%%-------------------------------------------------------------------
+
+%% this module was generated and should not be modified manually
+
+-module(<%= module_name %>_bhvr).
+
+<%= for method <- methods do %>
+
+<%= if (not method.input_stream) and (not method.output_stream) do %>
+-callback <%= method.snake_case %>(<%= method.pb_module %>:<%= method.input %>(), grpc:metadata())
+    -> {ok, <%= method.pb_module %>:<%= method.output %>(), grpc:metadata()}
+     | {error, grpc_stream:error_response()}.
+<% end %>
+
+<%= if method.input_stream and (not method.output_stream) do %>
+-callback <%= method.snake_case %>(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+<% end %>
+
+<%= if method.output_stream do %>
+-callback <%= method.snake_case %>(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+<% end %>
+
+<%!-- END for method <- methods --%>
+<% end %>

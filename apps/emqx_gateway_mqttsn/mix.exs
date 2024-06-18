@@ -1,12 +1,14 @@
 defmodule EMQXGatewayMqttsn.MixProject do
   use Mix.Project
+  alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
       app: :emqx_gateway_mqttsn,
       version: "0.1.0",
       build_path: "../../_build",
-      erlc_options: EMQXUmbrella.MixProject.erlc_options(),
+      erlc_options: UMP.erlc_options(),
+      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
@@ -16,7 +18,7 @@ defmodule EMQXGatewayMqttsn.MixProject do
   end
 
   def application do
-    [extra_applications: []]
+    [extra_applications: UMP.extra_applications()]
   end
 
   def deps() do

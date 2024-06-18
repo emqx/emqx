@@ -57,7 +57,6 @@ t_copy_conf_override_on_restarts(Config) ->
 
 t_copy_new_data_dir(Config) ->
     ct:timetrap({seconds, 120}),
-    snabbkaffe:fix_ct_logging(),
     Cluster = cluster(
         ?FUNCTION_NAME,
         [cluster_spec({core, 4}), cluster_spec({core, 5}), cluster_spec({core, 6})],

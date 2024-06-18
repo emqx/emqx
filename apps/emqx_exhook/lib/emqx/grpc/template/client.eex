@@ -1,0 +1,85 @@
+%%%-------------------------------------------------------------------
+%% @doc Client module for grpc service <%= unmodified_service_name %>.
+%% @end
+%%%-------------------------------------------------------------------
+
+%% this module was generated and should not be modified manually
+
+-module(<%= module_name %>_client).
+
+-compile(export_all).
+-compile(nowarn_export_all).
+
+-include_lib("grpc/include/grpc.hrl").
+
+-define(SERVICE, '<%= unmodified_service_name %>').
+-define(PROTO_MODULE, '<%= pb_module %>').
+-define(MARSHAL(T), fun(I) -> ?PROTO_MODULE:encode_msg(I, T) end).
+-define(UNMARSHAL(T), fun(I) -> ?PROTO_MODULE:decode_msg(I, T) end).
+-define(DEF(Path, Req, Resp, MessageType),
+        #{path => Path,
+          service =>?SERVICE,
+          message_type => MessageType,
+          marshal => ?MARSHAL(Req),
+          unmarshal => ?UNMARSHAL(Resp)}).
+
+<%= for method <- methods do %>
+<%!-- IF1 --%>
+<%= if (not method.input_stream) and (not method.output_stream) do %>
+-spec <%= method.snake_case %>(<%= method.pb_module %>:<%= method.input %>())
+    -> {ok, <%= method.pb_module %>:<%= method.output %>(), grpc:metadata()}
+     | {error, term()}.
+<%= method.snake_case %>(Req) ->
+    <%= method.snake_case %>(Req, #{}, #{}).
+
+-spec <%= method.snake_case %>(<%= method.pb_module %>:<%= method.input %>(), grpc:options())
+    -> {ok, <%= method.pb_module %>:<%= method.output %>(), grpc:metadata()}
+     | {error, term()}.
+<%= method.snake_case %>(Req, Options) ->
+    <%= method.snake_case %>(Req, #{}, Options).
+
+-spec <%= method.snake_case %>(<%= method.pb_module %>:<%= method.input %>(), grpc:metadata(), grpc_client:options())
+    -> {ok, <%= method.pb_module %>:<%= method.output %>(), grpc:metadata()}
+     | {error, term()}.
+<%= method.snake_case %>(Req, Metadata, Options) ->
+    grpc_client:unary(?DEF(<<"/<%= unmodified_service_name %>/<%= method.unmodified_method %>">>,
+                           <%= method.input %>, <%= method.output %>, <<"<%= method.message_type %>">>),
+                      Req, Metadata, Options).
+<%!-- END IF1 --%>
+<% end %>
+<%!-- IF2 --%>
+<%= if (not method.input_stream) and method.output_stream do %>
+-spec <%= method.snake_case %>(grpc_client:options())
+    -> {ok, grpc_client:grpcstream()}
+     | {error, term()}.
+<%= method.snake_case %>(Options) ->
+    <%= method.snake_case %>(#{}, Options).
+
+-spec <%= method.snake_case %>(grpc:metadata(), grpc_client:options())
+    -> {ok, grpc_client:grpcstream()}
+     | {error, term()}.
+<%= method.snake_case %>(Metadata, Options) ->
+    grpc_client:open(?DEF(<<"/<%= unmodified_service_name %>/<%= method.unmodified_method %>">>,
+                          <%= method.input %>, <%= method.output %>, <<"<%= method.message_type %>">>),
+                     Metadata, Options).
+<%!-- END IF2 --%>
+<% end %>
+<%!-- IF3 --%>
+<%= if method.input_stream do %>
+-spec <%= method.snake_case %>(grpc_client:options())
+    -> {ok, grpc_client:grpcstream()}
+     | {error, term()}.
+<%= method.snake_case %>(Options) ->
+    <%= method.snake_case %>(#{}, Options).
+
+-spec <%= method.snake_case %>(grpc:metadata(), grpc_client:options())
+    -> {ok, grpc_client:grpcstream()}
+     | {error, term()}.
+<%= method.snake_case %>(Metadata, Options) ->
+    grpc_client:open(?DEF(<<"/<%= unmodified_service_name %>/<%= method.unmodified_method %>">>,
+                          <%= method.input %>, <%= method.output %>, <<"<%= method.message_type %>">>),
+                     Metadata, Options).
+<% end %>
+<%!-- END IF3 --%>
+<% end %>
+<%!-- END for method <- methods --%>

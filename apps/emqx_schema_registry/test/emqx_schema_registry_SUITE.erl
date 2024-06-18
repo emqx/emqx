@@ -14,8 +14,6 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(APPS, [emqx_conf, emqx_rule_engine, emqx_schema_registry]).
-
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -369,7 +367,11 @@ cluster(Config) ->
     Cluster = emqx_common_test_helpers:emqx_cluster(
         [core, core],
         [
-            {apps, ?APPS},
+            {apps, [
+                emqx_conf,
+                emqx_rule_engine,
+                emqx_schema_registry
+            ]},
             {listener_ports, []},
             {priv_data_dir, PrivDataDir},
             {load_schema, true},

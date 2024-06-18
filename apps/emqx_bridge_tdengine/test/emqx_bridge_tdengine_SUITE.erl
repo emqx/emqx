@@ -55,9 +55,6 @@
 ).
 
 -define(BRIDGE_TYPE_BIN, <<"tdengine">>).
--define(APPS, [
-    hackney, tdengine, emqx_bridge, emqx_resource, emqx_rule_engine, emqx_bridge_tdengine
-]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -81,7 +78,19 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_bridge_v2_testlib:init_per_suite(Config, ?APPS).
+    emqx_bridge_v2_testlib:init_per_suite(
+        Config,
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_tdengine,
+            emqx_connector,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ]
+    ).
 
 end_per_suite(Config) ->
     emqx_bridge_v2_testlib:end_per_suite(Config).
@@ -99,7 +108,10 @@ init_per_group(without_batch, Config0) ->
 init_per_group(_Group, Config) ->
     Config.
 
-end_per_group(default, Config) ->
+end_per_group(Group, Config) when
+    Group =:= with_batch;
+    Group =:= without_batch
+->
     emqx_bridge_v2_testlib:end_per_group(Config),
     ok;
 end_per_group(_Group, _Config) ->

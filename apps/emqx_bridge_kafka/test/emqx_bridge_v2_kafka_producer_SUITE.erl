@@ -94,7 +94,7 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_ancient_v1_config_migration_without_local_topic
 ->
     Cluster = ?config(cluster, Config),
-    emqx_cth_cluster:stop(Cluster),
+    ok = emqx_cth_cluster:stop(Cluster),
     ok;
 end_per_testcase(_TestCase, Config) ->
     ProxyHost = ?config(proxy_host, Config),

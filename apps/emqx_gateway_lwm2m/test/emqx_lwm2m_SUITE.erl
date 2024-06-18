@@ -134,17 +134,22 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    %% load application first for minirest api searching
-    application:load(emqx_gateway),
-    application:load(emqx_gateway_lwm2m),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_gateway_lwm2m,
+            emqx_gateway,
+            emqx_auth,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    timer:sleep(300),
-    {ok, _} = emqx_conf:remove([<<"gateway">>, <<"lwm2m">>], #{}),
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_auth]),
-    Config.
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok.
 
 init_per_testcase(TestCase, Config) ->
     snabbkaffe:start_trace(),
@@ -155,9 +160,8 @@ init_per_testcase(TestCase, Config) ->
             _ ->
                 default_config()
         end,
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, GatewayConfig),
+    ok = emqx_conf_cli:load_config(GatewayConfig, #{mode => replace}),
 
-    {ok, _} = application:ensure_all_started(emqx_gateway),
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 
     {ok, C} = emqtt:start_link([
@@ -175,7 +179,7 @@ end_per_testcase(_AllTestCase, Config) ->
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
     snabbkaffe:stop(),
-    ok = application:stop(emqx_gateway).
+    ok.
 
 default_config() ->
     default_config(#{}).

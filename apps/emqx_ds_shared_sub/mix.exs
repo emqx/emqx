@@ -1,12 +1,14 @@
 defmodule EMQXDsSharedSub.MixProject do
   use Mix.Project
+  alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
       app: :emqx_ds_shared_sub,
       version: "0.1.0",
       build_path: "../../_build",
-      erlc_options: EMQXUmbrella.MixProject.erlc_options(),
+      erlc_options: UMP.erlc_options(),
+      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
@@ -16,7 +18,7 @@ defmodule EMQXDsSharedSub.MixProject do
   end
 
   def application do
-    [extra_applications: [], mod: {:emqx_ds_shared_sub_app, []}]
+    [extra_applications: UMP.extra_applications(), mod: {:emqx_ds_shared_sub_app, []}]
   end
 
   def deps() do
