@@ -550,18 +550,8 @@ delete(DB, It0, Selector, BatchSize, Acc) ->
 
 %% CT callbacks
 
--if(?EMQX_RELEASE_EDITION == ee).
 all() ->
     [{group, builtin_local}, {group, builtin_raft}].
-
-%% kernel-10 OTP application (OTP 27) introduces
-%% `optional_applications` application spec flag. Once we migrate to
-%% OTP27, this won't be needed, as application controller will
-%% automatically load raft backend when available:
--else.
-all() ->
-    [{group, builtin_local}].
--endif.
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
@@ -578,15 +568,20 @@ init_per_group(builtin_local, Config) ->
     },
     [{ds_conf, Conf} | Config];
 init_per_group(builtin_raft, Config) ->
-    Conf = #{
-        backend => builtin_raft,
-        storage => {emqx_ds_storage_reference, #{}},
-        n_shards => ?N_SHARDS,
-        n_sites => 1,
-        replication_factor => 3,
-        replication_options => #{}
-    },
-    [{ds_conf, Conf} | Config].
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            Conf = #{
+                backend => builtin_raft,
+                storage => {emqx_ds_storage_reference, #{}},
+                n_shards => ?N_SHARDS,
+                n_sites => 1,
+                replication_factor => 3,
+                replication_options => #{}
+            },
+            [{ds_conf, Conf} | Config];
+        Yes ->
+            Yes
+    end.
 
 end_per_group(_Group, Config) ->
     Config.

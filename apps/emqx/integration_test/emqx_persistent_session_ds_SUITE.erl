@@ -25,11 +25,16 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    TCApps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{tc_apps, TCApps} | Config].
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            TCApps = emqx_cth_suite:start(
+                app_specs(),
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
+            [{tc_apps, TCApps} | Config];
+        Yes ->
+            Yes
+    end.
 
 end_per_suite(Config) ->
     TCApps = ?config(tc_apps, Config),
@@ -60,8 +65,7 @@ init_per_testcase(t_session_gc = TestCase, Config) ->
             "\n   heartbeat_interval = 500ms "
             "\n   session_gc_interval = 1s "
             "\n   session_gc_batch_size = 2 "
-            "\n }\n"
-            "durable_storage.messages.backend = builtin_local\n"
+            "\n }"
     },
     Cluster = cluster(Opts),
     ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)},

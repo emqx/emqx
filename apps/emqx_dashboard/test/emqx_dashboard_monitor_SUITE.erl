@@ -56,18 +56,11 @@
 %% CT boilerplate
 %%--------------------------------------------------------------------
 
--if(?EMQX_RELEASE_EDITION == ee).
 all() ->
     [
         {group, common},
         {group, persistent_sessions}
     ].
--else.
-all() ->
-    [
-        {group, common}
-    ].
--endif.
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
@@ -89,37 +82,42 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(persistent_sessions = Group, Config) ->
-    AppSpecsFn = fun(Enable) ->
-        Port =
-            case Enable of
-                true -> "18083";
-                false -> "0"
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            AppSpecsFn = fun(Enable) ->
+                Port =
+                    case Enable of
+                        true -> "18083";
+                        false -> "0"
+                    end,
+                [
+                    emqx_conf,
+                    {emqx, "durable_sessions {enable = true}"},
+                    {emqx_retainer, ?BASE_RETAINER_CONF},
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard(
+                        lists:concat([
+                            "dashboard.listeners.http { bind = " ++ Port ++ " }\n",
+                            "dashboard.sample_interval = 1s\n",
+                            "dashboard.listeners.http.enable = " ++ atom_to_list(Enable)
+                        ])
+                    )
+                ]
             end,
-        [
-            emqx_conf,
-            {emqx, "durable_sessions {enable = true}"},
-            {emqx_retainer, ?BASE_RETAINER_CONF},
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard(
-                lists:concat([
-                    "dashboard.listeners.http { bind = " ++ Port ++ " }\n",
-                    "dashboard.sample_interval = 1s\n",
-                    "dashboard.listeners.http.enable = " ++ atom_to_list(Enable)
-                ])
-            )
-        ]
-    end,
-    NodeSpecs = [
-        {dashboard_monitor1, #{apps => AppSpecsFn(true)}},
-        {dashboard_monitor2, #{apps => AppSpecsFn(false)}}
-    ],
-    Nodes =
-        [N1 | _] = emqx_cth_cluster:start(
-            NodeSpecs,
-            #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
-        ),
-    ?ON(N1, {ok, _} = emqx_common_test_http:create_default_app()),
-    [{cluster, Nodes} | Config];
+            NodeSpecs = [
+                {dashboard_monitor1, #{apps => AppSpecsFn(true)}},
+                {dashboard_monitor2, #{apps => AppSpecsFn(false)}}
+            ],
+            Nodes =
+                [N1 | _] = emqx_cth_cluster:start(
+                    NodeSpecs,
+                    #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
+                ),
+            ?ON(N1, {ok, _} = emqx_common_test_http:create_default_app()),
+            [{cluster, Nodes} | Config];
+        Yes ->
+            Yes
+    end;
 init_per_group(common = Group, Config) ->
     Apps = emqx_cth_suite:start(
         [

@@ -56,22 +56,27 @@ init_per_group(persistence_disabled, Config) ->
         | Config
     ];
 init_per_group(persistence_enabled, Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx,
-                "durable_sessions {\n"
-                "  enable = true\n"
-                "  heartbeat_interval = 100ms\n"
-                "  renew_streams_interval = 100ms\n"
-                "}"},
-            emqx_management
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [
-        {apps, Apps}
-        | Config
-    ];
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            Apps = emqx_cth_suite:start(
+                [
+                    {emqx,
+                        "durable_sessions {\n"
+                        "  enable = true\n"
+                        "  heartbeat_interval = 100ms\n"
+                        "  renew_streams_interval = 100ms\n"
+                        "}"},
+                    emqx_management
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
+            [
+                {apps, Apps}
+                | Config
+            ];
+        Yes ->
+            Yes
+    end;
 init_per_group(cm_registry_enabled, Config) ->
     [{emqx_config, "broker.enable_session_registry = true"} | Config];
 init_per_group(cm_registry_disabled, Config) ->
