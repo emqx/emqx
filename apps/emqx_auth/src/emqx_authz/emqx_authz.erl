@@ -256,9 +256,11 @@ do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources) ->
     ok = check_dup_types(NSources),
     NSources;
 do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources) ->
-    {_Old, Front, Rear} = take(Type, Sources),
-    NSources = Front ++ Rear,
-    NSources;
+    try take(Type, Sources) of
+        {_Found, Front, Rear} -> Front ++ Rear
+    catch
+        throw:{not_found_source, Type} -> Sources
+    end;
 do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources) ->
     %% overwrite the entire config!
     NSources = lists:map(fun maybe_write_source_files/1, Sources),
@@ -293,9 +295,14 @@ do_post_config_update(?CONF_KEY_PATH, {{?CMD_REPLACE, Type}, RawNewSource}, Sour
     Front ++ [InitedSources] ++ Rear;
 do_post_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
-    {OldSource, Front, Rear} = take(Type, OldInitedSources),
-    ok = ensure_deleted(OldSource, #{clear_metric => true}),
-    Front ++ Rear;
+    try take(Type, OldInitedSources) of
+        {OldSource, Front, Rear} ->
+            ok = ensure_deleted(OldSource, #{clear_metric => true}),
+            Front ++ Rear
+    catch
+        throw:{not_found_source, _} ->
+            OldInitedSources
+    end;
 do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, _RawNewSources}, Sources) ->
     overwrite_entire_sources(Sources);
 do_post_config_update(?CONF_KEY_PATH, {?CMD_REORDER, NewSourcesOrder}, _Sources) ->

@@ -442,7 +442,7 @@ fields(rules) ->
 is_configured_authz_source(Params, _Meta) ->
     emqx_authz_api_sources:with_source(
         ?AUTHZ_TYPE_BIN,
-        fun(_Source) ->
+        fun(_Source, _NotFoundNode) ->
             {ok, Params}
         end
     ).
@@ -591,16 +591,16 @@ all(delete, _) ->
 
 rules(delete, _) ->
     case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
-        [#{<<"enable">> := false}] ->
+        {ok, #{<<"enable">> := false}, _} ->
             ok = emqx_authz_mnesia:purge_rules(),
             {204};
-        [#{<<"enable">> := true}] ->
+        {ok, #{<<"enable">> := true}, _} ->
             {400, #{
                 code => <<"BAD_REQUEST">>,
                 message =>
                     <<"'built_in_database' type source must be disabled before purge.">>
             }};
-        [] ->
+        {error, not_found} ->
             {404, #{
                 code => <<"BAD_REQUEST">>,
                 message => <<"'built_in_database' type source is not found.">>

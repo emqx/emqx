@@ -264,7 +264,7 @@ source(Method, #{bindings := #{type := Type} = Bindings} = Req) when
 source(get, #{bindings := #{type := Type}}) ->
     with_source(
         Type,
-        fun(Source0) ->
+        fun(Source0, _NotFoundNodes) ->
             try emqx_authz:maybe_read_source_files(Source0) of
                 Source1 ->
                     {200, Source1}
@@ -280,29 +280,33 @@ source(get, #{bindings := #{type := Type}}) ->
 source(put, #{bindings := #{type := Type}, body := #{<<"type">> := Type} = Body}) ->
     with_source(
         Type,
-        fun(_) ->
-            update_config({?CMD_REPLACE, Type}, Body)
+        fun(_, NotFoundNodes) ->
+            case NotFoundNodes of
+                [] ->
+                    update_config({?CMD_REPLACE, Type}, Body);
+                _ ->
+                    Msg = <<
+                        Type/binary,
+                        " not found on nodes: ",
+                        (bin(NotFoundNodes))/binary,
+                        ". Delete this source from here, then re-add it"
+                    >>,
+                    {400, #{
+                        code => <<"BAD_REQUEST">>,
+                        message => Msg
+                    }}
+            end
         end
     );
-source(put, #{bindings := #{type := Type}, body := #{<<"type">> := _OtherType}}) ->
-    with_source(
-        Type,
-        fun(_) ->
-            {400, #{code => <<"BAD_REQUEST">>, message => <<"Type mismatch">>}}
-        end
-    );
+source(put, #{bindings := #{type := _Type}, body := #{<<"type">> := _OtherType}}) ->
+    {400, #{code => <<"BAD_REQUEST">>, message => <<"Type mismatch">>}};
 source(delete, #{bindings := #{type := Type}}) ->
-    with_source(
-        Type,
-        fun(_) ->
-            update_config({?CMD_DELETE, Type}, #{})
-        end
-    ).
+    update_config({?CMD_DELETE, Type}, #{}).
 
 source_status(get, #{bindings := #{type := Type}}) ->
     with_source(
         atom_to_binary(Type, utf8),
-        fun(_) -> lookup_from_all_nodes(Type) end
+        fun(_, _) -> lookup_from_all_nodes(Type) end
     ).
 
 source_move(Method, #{bindings := #{type := Type} = Bindings} = Req) when
@@ -312,7 +316,7 @@ source_move(Method, #{bindings := #{type := Type} = Bindings} = Req) when
 source_move(post, #{bindings := #{type := Type}, body := #{<<"position">> := Position}}) ->
     with_source(
         Type,
-        fun(_Source) ->
+        fun(_Source, _NotFoundNode) ->
             case parse_position(Position) of
                 {ok, NPosition} ->
                     try emqx_authz:move(Type, NPosition) of
@@ -398,7 +402,7 @@ lookup_from_local_node(Type) ->
     end.
 
 lookup_from_all_nodes(Type) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     case is_ok(emqx_authz_proto_v1:lookup_from_all_nodes(Nodes, Type)) of
         {ok, ResList} ->
             {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap} = make_result_map(ResList),
@@ -513,6 +517,9 @@ is_ok(ResL) ->
 
 get_raw_sources() ->
     RawSources = emqx:get_raw_config([authorization, sources], []),
+    fill_default(RawSources).
+
+fill_default(RawSources) ->
     Schema = emqx_hocon:make_schema(emqx_authz_schema:authz_fields()),
     Conf = #{<<"sources">> => RawSources},
     #{<<"sources">> := Sources} = hocon_tconf:make_serializable(Schema, Conf, #{}),
@@ -522,20 +529,44 @@ merge_defaults(Sources) ->
     lists:map(fun emqx_authz:merge_defaults/1, Sources).
 
 get_raw_source(Type) ->
-    lists:filter(
-        fun(#{<<"type">> := T}) ->
-            T =:= Type
-        end,
-        get_raw_sources()
-    ).
+    get_raw_source(Type, emqx:running_nodes(), [], []).
 
--spec with_source(binary(), fun((map()) -> term())) -> term().
+get_raw_source(Type, [], Sources, NotFoundNodes) ->
+    case NotFoundNodes of
+        [] ->
+            ok;
+        _ ->
+            ?SLOG(error, #{
+                msg => "authz_source_not_found",
+                suggestion => "delete this source from existing nodes, then re-add it",
+                nodes => NotFoundNodes,
+                self => node(),
+                type => Type
+            })
+    end,
+    case lists:keyfind(node(), 1, Sources) of
+        false ->
+            {error, not_found};
+        {_, Source} ->
+            [RawSource] = fill_default([Source]),
+            {ok, RawSource, NotFoundNodes}
+    end;
+get_raw_source(Type, [Node | Nodes], Found, NotFoundNodes) ->
+    RawSources = emqx_conf_proto_v4:get_raw_config(Node, [authorization, sources]),
+    case lists:search(fun(#{<<"type">> := T}) -> T =:= Type end, RawSources) of
+        false ->
+            get_raw_source(Type, Nodes, Found, [Node | NotFoundNodes]);
+        {value, RawSource} ->
+            get_raw_source(Type, Nodes, [{Node, RawSource} | Found], NotFoundNodes)
+    end.
+
+-spec with_source(binary(), fun((map(), list()) -> term())) -> term().
 with_source(Type, ContF) ->
     case get_raw_source(Type) of
-        [] ->
+        {error, not_found} ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Not found: ", Type/binary>>}};
-        [Source] ->
-            ContF(Source)
+        {ok, Source, NotFoundNodes} ->
+            ContF(Source, NotFoundNodes)
     end.
 
 update_config(Cmd, Sources) ->
