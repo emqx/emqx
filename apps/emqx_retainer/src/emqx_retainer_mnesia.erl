@@ -56,7 +56,10 @@
 -export([populate_index_meta/0]).
 -export([reindex/3]).
 
--export([backup_tables/0]).
+-export([
+    backup_tables/0,
+    on_backup_table_imported/2
+]).
 
 -record(retained_message, {topic, msg, expiry_time}).
 -record(retained_index, {key, expiry_time}).
@@ -80,8 +83,45 @@ topics() ->
 %%--------------------------------------------------------------------
 %% Data backup
 %%--------------------------------------------------------------------
+
 backup_tables() ->
-    [?TAB_MESSAGE].
+    [?TAB_MESSAGE || is_enabled()].
+
+on_backup_table_imported(?TAB_MESSAGE, Opts) ->
+    case is_enabled() of
+        true ->
+            maybe_print("Starting reindexing retained messages ~n", [], Opts),
+            Res = reindex(false, mk_status_fun(Opts)),
+            maybe_print("Reindexing retained messages finished~n", [], Opts),
+            Res;
+        false ->
+            ok
+    end;
+on_backup_table_imported(_Tab, _Opts) ->
+    ok.
+
+mk_status_fun(Opts) ->
+    fun(Done) ->
+        log_status(Done),
+        maybe_print("Reindexed ~p messages~n", [Done], Opts)
+    end.
+
+maybe_print(Fmt, Args, #{print_fun := Fun}) when is_function(Fun, 2) ->
+    Fun(Fmt, Args);
+maybe_print(_Fmt, _Args, _Opts) ->
+    ok.
+
+log_status(Done) ->
+    ?SLOG(
+        info,
+        #{
+            msg => "retainer_message_record_reindexing_progress",
+            done => Done
+        }
+    ).
+
+is_enabled() ->
+    emqx_retainer:enabled() andalso emqx_retainer:backend_module() =:= ?MODULE.
 
 %%--------------------------------------------------------------------
 %% emqx_retainer callbacks

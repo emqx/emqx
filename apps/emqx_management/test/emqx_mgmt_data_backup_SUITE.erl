@@ -114,6 +114,36 @@ t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
     end,
     ok.
 
+t_import_retained_messages(Config) ->
+    FName = "emqx-export-ce-retained-msgs-test.tar.gz",
+    BackupFile = filename:join(?config(data_dir, Config), FName),
+    Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(BackupFile)),
+    %% verify that retainer messages are imported
+    ?assertMatch(
+        {ok, [#message{payload = <<"Hi 1!!!">>}]},
+        emqx_retainer:read_message(<<"t/backup-retainer/test1">>)
+    ),
+    ?assertMatch(
+        {ok, [#message{payload = <<"Hi 5!!!">>}]},
+        emqx_retainer:read_message(<<"t/backup-retainer/test5">>)
+    ),
+
+    %% verify that messages are re-indexed
+    ?assertMatch(
+        {ok, _, [
+            #message{payload = <<"Hi 5!!!">>},
+            #message{payload = <<"Hi 4!!!">>},
+            #message{payload = <<"Hi 3!!!">>},
+            #message{payload = <<"Hi 2!!!">>},
+            #message{payload = <<"Hi 1!!!">>}
+        ]},
+        emqx_retainer:page_read(<<"t/backup-retainer/#">>, 1, 5)
+    ),
+    %% Export and import again
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)).
+
 t_cluster_hocon_export_import(Config) ->
     RawConfBeforeImport = emqx:get_raw_config([]),
     BootstrapFile = filename:join(?config(data_dir, Config), ?BOOTSTRAP_BACKUP),

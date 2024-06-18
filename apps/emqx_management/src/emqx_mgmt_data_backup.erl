@@ -549,6 +549,8 @@ import_mnesia_tabs(BackupDir, Opts) ->
         )
     ).
 
+-spec import_mnesia_tab(file:filename_all(), module(), mria:table(), map()) ->
+    ok | {ok, no_backup_file} | {error, term()} | no_return().
 import_mnesia_tab(BackupDir, Mod, TabName, Opts) ->
     MnesiaBackupFileName = mnesia_backup_name(BackupDir, TabName),
     case filelib:is_regular(MnesiaBackupFileName) of
@@ -572,7 +574,7 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
                 Restored = mnesia:restore(BackupFile, [{default_op, keep_tables}]),
                 case Restored of
                     {atomic, [TabName]} ->
-                        ok;
+                        on_table_imported(Mod, TabName, Opts);
                     RestoreErr ->
                         ?SLOG(error, #{
                             msg => "failed_to_restore_mnesia_backup",
@@ -596,6 +598,27 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
     after
         %% Cleanup files as soon as they are not needed any more for more efficient disk usage
         _ = file:delete(MnesiaBackupFileName)
+    end.
+
+on_table_imported(Mod, Tab, Opts) ->
+    case erlang:function_exported(Mod, on_backup_table_imported, 2) of
+        true ->
+            try
+                Mod:on_backup_table_imported(Tab, Opts)
+            catch
+                Class:Reason:Stack ->
+                    ?SLOG(error, #{
+                        msg => "post_database_import_callback_failed",
+                        table => Tab,
+                        module => Mod,
+                        exception => Class,
+                        reason => Reason,
+                        stacktrace => Stack
+                    }),
+                    {error, Reason}
+            end;
+        false ->
+            ok
     end.
 
 %% NOTE: if backup file is valid, we keep traversing it, though we only need to validate schema.
