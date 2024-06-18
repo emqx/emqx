@@ -54,11 +54,19 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-        # produces eunit.coverdata
+        # TODO: produces eunit.coverdata
       - run: make eunit
+        env:
+          PROFILE: ${{ matrix.profile }}-test
+          MIX_ENV: ${{ matrix.profile }}-test
+          TEST: 1
 
-        # produces proper.coverdata
+        # TODO produces proper.coverdata
       - run: make proper
+        env:
+          PROFILE: ${{ matrix.profile }}-test
+          MIX_ENV: ${{ matrix.profile }}-test
+          TEST: 1
 
       - run: make cover
 
@@ -113,6 +121,7 @@ jobs:
           ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-sg${{ matrix.suitegroup }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROFILE: ${{ matrix.profile }}-test
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }} --keep-up
 
       - name: make cover
@@ -131,7 +140,7 @@ jobs:
 
       - name: compress logs
         if: failure()
-        run: tar -czf logs.tar.gz _build/test/logs
+        run: tar -czf logs.tar.gz _build/{test,${{ matrix.profile }}-test}/logs
 
       - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
         if: failure()
@@ -174,7 +183,11 @@ jobs:
 
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
       - name: run common tests
-        run: make "${{ matrix.app }}-ct"
+        env:
+          TEST: 1
+          MIX_ENV: ${{ matrix.profile }}-test
+          PROFILE: ${{ matrix.profile }}-test
+        run: make ensure-hex ensure-mix-rebar3 ensure-mix-rebar "${{ matrix.app }}-ct"
 
       - run: make cover
 
@@ -191,7 +204,7 @@ jobs:
 
       - name: compress logs
         if: failure()
-        run: tar -czf logs.tar.gz _build/test/logs
+        run: tar -czf logs.tar.gz _build/{test,${{ matrix.profile }}-test}/logs
 
       - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
         if: failure()
@@ -223,4 +236,3 @@ jobs:
           git-commit: ${{ github.sha }}
 
       - run: echo "All tests passed"
-          
