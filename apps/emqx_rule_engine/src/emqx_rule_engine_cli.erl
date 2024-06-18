@@ -95,6 +95,12 @@ format_action(BridgeChannelId) when is_binary(BridgeChannelId) ->
     io_lib:format("- Name:  ~s\n"
                   "  Type:  data-bridge\n"
                  ,[BridgeChannelId]
+                 );
+format_action({bridge_v2, ActionType, ActionName}) ->
+    io_lib:format("- Name:         ~p\n"
+                  "  Action Type:  ~p\n"
+                  "  Type:         data-bridge\n"
+                 ,[ActionName, ActionType]
                  ).
 
 left_pad(Str) ->
