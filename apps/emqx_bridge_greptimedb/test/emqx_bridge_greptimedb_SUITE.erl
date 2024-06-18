@@ -99,6 +99,8 @@ init_per_group(GreptimedbType, Config0) when
                 #{work_dir => emqx_cth_suite:work_dir(Config0)}
             ),
             {ok, _Api} = emqx_common_test_http:create_default_app(),
+            %% fixme: debugging
+            emqx_logger:set_log_level(debug),
             Config = [{use_tls, UseTLS} | Config0],
             {Name, ConfigString, GreptimedbConfig} = greptimedb_config(
                 grpcv1, GreptimedbHost, GreptimedbPort, Config
