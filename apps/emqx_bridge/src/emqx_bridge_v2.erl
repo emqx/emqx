@@ -164,7 +164,7 @@
 
 -type root_cfg_key() :: ?ROOT_KEY_ACTIONS | ?ROOT_KEY_SOURCES.
 
--export_type([root_cfg_key/0]).
+-export_type([root_cfg_key/0, bridge_v2_type/0, bridge_v2_name/0]).
 
 %%====================================================================
 

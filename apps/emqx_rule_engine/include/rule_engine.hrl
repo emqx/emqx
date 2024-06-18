@@ -42,7 +42,8 @@
         func := builtin_action_func() | atom(),
         args => action_fun_args()
     }
-    | bridge_channel_id().
+    | bridge_channel_id()
+    | {bridge_v2, emqx_bridge_v2:bridge_v2_type(), emqx_bridge_v2:bridge_v2_name()}.
 
 -type rule() ::
     #{
