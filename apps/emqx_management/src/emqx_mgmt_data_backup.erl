@@ -408,9 +408,13 @@ export_mnesia_tab(TarDescriptor, TabName, BackupName, BackupBaseName, Opts) ->
 do_export_mnesia_tab(TabName, BackupName) ->
     Node = node(),
     try
-        {ok, TabName, [Node]} = mnesia:activate_checkpoint(
-            [{name, TabName}, {min, [TabName]}, {allow_remote, false}]
-        ),
+        Opts0 = [{name, TabName}, {min, [TabName]}, {allow_remote, false}],
+        Opts =
+            case mnesia:table_info(TabName, storage_type) of
+                ram_copies -> [{ram_overrides_dump, true} | Opts0];
+                _ -> Opts0
+            end,
+        {ok, TabName, [Node]} = mnesia:activate_checkpoint(Opts),
         MnesiaBackupName = mnesia_backup_name(BackupName, TabName),
         ok = filelib:ensure_dir(MnesiaBackupName),
         ok = mnesia:backup_checkpoint(TabName, MnesiaBackupName),
