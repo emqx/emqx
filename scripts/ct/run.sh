@@ -200,7 +200,8 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-dynamo.yaml' )
             ;;
         rocketmq)
-            FILES+=( '.ci/docker-compose-file/docker-compose-rocketmq.yaml' )
+            FILES+=( '.ci/docker-compose-file/docker-compose-rocketmq.yaml'
+                     '.ci/docker-compose-file/docker-compose-rocketmq-ssl.yaml' )
             ;;
         cassandra)
             FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
