@@ -50,7 +50,19 @@ nested_put(Key, Val, Data) when
     not is_map(Data),
     not is_list(Data)
 ->
-    nested_put(Key, Val, #{});
+    case Key of
+        {path, _Path} ->
+            try emqx_rule_funcs:json_decode(Data) of
+                Map when is_map(Map) ->
+                    nested_put(Key, Val, Map);
+                _ ->
+                    nested_put(Key, Val, #{})
+            catch
+                error:_X -> nested_put(Key, Val, #{})
+            end;
+        _ ->
+            nested_put(Key, Val, #{})
+    end;
 nested_put({var, Key}, Val, Map) ->
     general_map_put({key, Key}, Val, Map, Map);
 nested_put({path, Path}, Val, Map) when is_list(Path) ->
