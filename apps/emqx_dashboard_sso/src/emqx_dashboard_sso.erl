@@ -92,7 +92,8 @@ provider(Backend) ->
 backends() ->
     #{
         ldap => emqx_dashboard_sso_ldap,
-        saml => emqx_dashboard_sso_saml
+        saml => emqx_dashboard_sso_saml,
+        oidc => emqx_dashboard_sso_oidc
     }.
 
 format(Args) ->
