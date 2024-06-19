@@ -566,7 +566,7 @@ install_package(FileName, Bin) ->
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
     put(?fresh_install, true),
     case emqx_plugins:ensure_installed(PackageName) of
-        {error, #{reason := not_found}} = NotFound ->
+        {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
             ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
