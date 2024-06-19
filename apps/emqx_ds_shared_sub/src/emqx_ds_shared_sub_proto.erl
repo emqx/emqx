@@ -37,7 +37,7 @@
     stream_progress/0
 ]).
 
-%% agent messages
+%% agent -> leader messages
 
 -spec agent_connect_leader(leader(), agent(), topic_filter()) -> ok.
 agent_connect_leader(ToLeader, FromAgent, TopicFilter) ->
@@ -51,7 +51,7 @@ agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, Version) ->
 
 %% ...
 
-%% leader messages
+%% leader -> agent messages
 
 -spec leader_lease_streams(agent(), group(), list(stream_progress()), version()) -> ok.
 leader_lease_streams(ToAgent, OfGroup, Streams, Version) ->

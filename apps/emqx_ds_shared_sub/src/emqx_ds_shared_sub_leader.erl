@@ -109,7 +109,7 @@ id(#share{group = Group} = _TopicFilter) ->
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
 
-callback_mode() -> handle_event_function.
+callback_mode() -> [handle_event_function, state_enter].
 
 init([#{topic_filter := #share{group = Group, topic = Topic}} = _Options]) ->
     Data = #{
@@ -117,7 +117,8 @@ init([#{topic_filter := #share{group = Group, topic = Topic}} = _Options]) ->
         topic => Topic,
         router_id => router_id(),
         stream_progresses => #{},
-        stream_assignments => #{}
+        stream_assignments => #{},
+        agent_stream_assignments => #{}
     },
     {ok, ?waiting_registration, Data}.
 
@@ -199,10 +200,15 @@ renew_streams(#{stream_progresses := Progresses, topic := Topic} = Data0) ->
     ),
     %% TODO
     %% Initiate reassigment
+    ?SLOG(info, #{
+        msg => leader_renew_streams,
+        topic_filter => TopicFilter,
+        streams => length(Streams)
+    }),
     Data0#{stream_progresses => NewProgresses}.
 
 %% TODO
-%% This just gives unassigned streams to connecting agent,
+%% This just gives unassigned streams to the connecting agent,
 %% we need to implement actual stream (re)assignment.
 connect_agent(
     #{
@@ -213,6 +219,11 @@ connect_agent(
     } = Data0,
     Agent
 ) ->
+    ?SLOG(info, #{
+        msg => leader_agent_connected,
+        agent => Agent,
+        group => Group
+    }),
     {AgentStreamAssignments, StreamAssignments} =
         case AgentStreamAssignments0 of
             #{Agent := _} ->
@@ -242,6 +253,20 @@ connect_agent(
                     end,
                     UnassignedStreams
                 ),
+                ?SLOG(info, #{
+                    msg => leader_lease_streams,
+                    agent => Agent,
+                    group => Group,
+                    streams => length(StreamLease),
+                    version => Version
+                }),
+                % ct:print("connect_agent: ~p~n", [#{
+                %     msg => leader_lease_streams,
+                %     agent => Agent,
+                %     group => Group,
+                %     streams => length(StreamLease),
+                %     version => Version
+                % }]),
                 ok = emqx_ds_shared_sub_proto:leader_lease_streams(
                     Agent, Group, StreamLease, Version
                 ),

@@ -107,6 +107,7 @@ renew_streams(S0, #{agent := Agent0} = SharedSubS0) ->
                 msg => shared_subs_new_stream_lease_events, stream_lease_events => StreamLeaseEvents
             }
         ),
+    % StreamLeaseEvents =/= [] andalso ct:print("StreamLeaseEvents: ~p~n", [StreamLeaseEvents]),
     S1 = lists:foldl(
         fun
             (#{type := lease} = Event, S) -> accept_stream(Event, S);

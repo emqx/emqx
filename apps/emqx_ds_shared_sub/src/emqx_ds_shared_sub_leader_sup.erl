@@ -9,6 +9,8 @@
 %% API
 -export([
     start_link/0,
+    child_spec/0,
+
     start_leader/1,
     stop_leader/1
 ]).
@@ -23,6 +25,16 @@
 -spec start_link() -> supervisor:startlink_ret().
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+-spec child_spec() -> supervisor:child_spec().
+child_spec() ->
+    #{
+        id => ?MODULE,
+        start => {?MODULE, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => supervisor
+    }.
 
 -spec start_leader(emqx_ds_shared_sub_leader:options()) -> supervisor:startchild_ret().
 start_leader(Options) ->

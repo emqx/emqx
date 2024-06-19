@@ -4,7 +4,6 @@
 
 -module(emqx_ds_shared_sub_agent).
 
--include_lib("emqx/include/emqx_persistent_message.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -22,13 +21,12 @@
     renew_streams/1
 ]).
 
-%% Individual subscription state
-
--define(connecting, connecting).
--define(replaying, replaying).
-% -define(updating, updating).
-
 -behaviour(emqx_persistent_session_ds_shared_subs_agent).
+
+-record(message_to_group_sm, {
+    group :: emqx_types:group(),
+    message :: term()
+}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -41,7 +39,7 @@ open(TopicSubscriptions, Opts) ->
     State0 = init_state(Opts),
     State1 = lists:foldl(
         fun({ShareTopicFilter, #{}}, State) ->
-            add_subscription(State, ShareTopicFilter)
+            add_group_subscription(State, ShareTopicFilter)
         end,
         State0,
         TopicSubscriptions
@@ -49,38 +47,44 @@ open(TopicSubscriptions, Opts) ->
     State1.
 
 on_subscribe(State0, TopicFilter, _SubOpts) ->
-    State1 = add_subscription(State0, TopicFilter),
+    State1 = add_group_subscription(State0, TopicFilter),
     {ok, State1}.
 
 on_unsubscribe(State, TopicFilter) ->
-    delete_subscription(State, TopicFilter).
+    delete_group_subscription(State, TopicFilter).
 
 renew_streams(#{} = State) ->
     fetch_stream_events(State).
 
 on_stream_progress(State, _StreamProgress) ->
+    %% TODO
+    %% Send to leader
     State.
 
 on_info(State, ?leader_lease_streams_match(Group, StreamProgresses, Version)) ->
-    case State of
-        #{subscriptions := #{Group := Sub0} = Subs} ->
-            Sub1 = handle_leader_lease_streams(Sub0, StreamProgresses, Version),
-            State#{subscriptions => Subs#{Group => Sub1}};
-        _ ->
-            %% TODO
-            %% Handle unknown group?
-            State
-    end;
+    ?SLOG(info, #{
+        msg => leader_lease_streams,
+        group => Group,
+        streams => StreamProgresses,
+        version => Version
+    }),
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_leader_lease_streams(GSM, StreamProgresses, Version)
+    end);
 on_info(State, ?leader_renew_stream_lease_match(Group, Version)) ->
-    case State of
-        #{subscriptions := #{Group := Sub0} = Subs} ->
-            Sub1 = handle_leader_renew_stream_lease(Sub0, Version),
-            State#{subscriptions => Subs#{Group => Sub1}};
-        _ ->
-            %% TODO
-            %% Handle unknown group?
-            State
-    end.
+    ?SLOG(info, #{
+        msg => leader_renew_stream_lease,
+        group => Group,
+        version => Version
+    }),
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_leader_renew_stream_lease(GSM, Version)
+    end);
+%% Generic messages sent by group_sm's to themselves (timeouts).
+on_info(State, #message_to_group_sm{group = Group, message = Message}) ->
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_info(GSM, Message)
+    end).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -90,92 +94,65 @@ init_state(Opts) ->
     SessionId = maps:get(session_id, Opts),
     #{
         session_id => SessionId,
-        subscriptions => #{}
+        groups => #{}
     }.
 
-delete_subscription(State, _ShareTopicFilter) ->
+delete_group_subscription(State, _ShareTopicFilter) ->
     %% TODO
     State.
 
-add_subscription(
-    #{subscriptions := Subs0} = State0, ShareTopicFilter
+add_group_subscription(
+    #{groups := Groups0} = State0, ShareTopicFilter
 ) ->
-    #share{topic = TopicFilter, group = Group} = ShareTopicFilter,
-    ok = emqx_ds_shared_sub_registry:lookup_leader(this_agent(), TopicFilter),
-    Subs1 = Subs0#{
-        %% TODO
-        %% State machine is complex, so better move it to a separate module
-        Group => #{
-            state => ?connecting,
+    ?SLOG(info, #{
+        msg => agent_add_group_subscription,
+        topic_filter => ShareTopicFilter
+    }),
+    #share{group = Group} = ShareTopicFilter,
+    Groups1 = Groups0#{
+        Group => emqx_ds_shared_sub_group_sm:new(#{
             topic_filter => ShareTopicFilter,
-            streams => #{},
-            version => undefined,
-            prev_version => undefined,
-            stream_lease_events => []
-        }
+            agent => this_agent(),
+            send_after => send_to_subscription_after(Group)
+        })
     },
-    State1 = State0#{subscriptions => Subs1},
+    State1 = State0#{groups => Groups1},
     State1.
 
-fetch_stream_events(#{subscriptions := Subs0} = State0) ->
-    {Subs1, Events} = lists:foldl(
-        fun(
-            {_Group, #{stream_lease_events := Events0, topic_filter := TopicFilter} = Sub},
-            {SubsAcc, EventsAcc}
-        ) ->
-            Events1 = lists:map(
-                fun(Event) ->
-                    Event#{topic_filter => TopicFilter}
-                end,
-                Events0
-            ),
-            {SubsAcc#{TopicFilter => Sub#{stream_lease_events => []}}, [Events1 | EventsAcc]}
+fetch_stream_events(#{groups := Groups0} = State0) ->
+    {Groups1, Events} = maps:fold(
+        fun(Group, GroupSM0, {GroupsAcc, EventsAcc}) ->
+            {GroupSM1, Events} = emqx_ds_shared_sub_group_sm:fetch_stream_events(GroupSM0),
+            {GroupsAcc#{Group => GroupSM1}, [Events | EventsAcc]}
         end,
-        {Subs0, []},
-        maps:to_list(Subs0)
+        {#{}, []},
+        Groups0
     ),
-    State1 = State0#{subscriptions => Subs1},
+    State1 = State0#{groups => Groups1},
     {lists:concat(Events), State1}.
-
-%%--------------------------------------------------------------------
-%% Handler of leader messages
-%%--------------------------------------------------------------------
-
-handle_leader_lease_streams(#{state := ?connecting} = Sub, StreamProgresses, Version) ->
-    Streams = lists:foldl(
-        fun(#{stream := Stream, iterator := It}, Acc) ->
-            Acc#{Stream => It}
-        end,
-        #{},
-        StreamProgresses
-    ),
-    StreamLeaseEvents = lists:map(
-        fun(#{stream := Stream, iterator := It}) ->
-            #{
-                type => lease,
-                stream => Stream,
-                iterator => It
-            }
-        end,
-        StreamProgresses
-    ),
-    Sub#{
-        state => ?replaying,
-        streams => Streams,
-        stream_lease_events => StreamLeaseEvents,
-        version => Version,
-        last_update_time => erlang:monotonic_time(millisecond)
-    }.
-
-handle_leader_renew_stream_lease(#{state := ?replaying, version := Version} = Sub, Version) ->
-    Sub#{
-        last_update_time => erlang:monotonic_time(millisecond)
-    };
-handle_leader_renew_stream_lease(Sub, _Version) ->
-    Sub.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 this_agent() -> self().
+
+send_to_subscription_after(Group) ->
+    fun(Time, Msg) ->
+        emqx_persistent_session_ds_shared_subs_agent:send_after(
+            Time,
+            self(),
+            #message_to_group_sm{group = Group, message = Msg}
+        )
+    end.
+
+with_group_sm(State, Group, Fun) ->
+    case State of
+        #{groups := #{Group := GSM0} = Groups} ->
+            GSM1 = Fun(GSM0),
+            State#{groups => Groups#{Group => GSM1}};
+        _ ->
+            %% TODO
+            %% Error?
+            State
+    end.

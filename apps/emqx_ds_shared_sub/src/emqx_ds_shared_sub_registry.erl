@@ -6,11 +6,13 @@
 
 -behaviour(gen_server).
 
--include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_ds_shared_sub.hrl").
 
 -export([
     start_link/0,
+    child_spec/0,
+
     init/1,
     handle_call/3,
     handle_cast/2,
@@ -40,6 +42,15 @@ lookup_leader(Agent, TopicFilter) ->
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+child_spec() ->
+    #{
+        id => ?MODULE,
+        start => {?MODULE, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker
+    }.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -86,5 +97,11 @@ do_lookup_leader(Agent, TopicFilter, State) ->
             Pid ->
                 Pid
         end,
+    ?SLOG(info, #{
+        msg => lookup_leader,
+        agent => Agent,
+        topic_filter => TopicFilter,
+        leader => LeaderPid
+    }),
     ok = emqx_ds_shared_sub_proto:agent_connect_leader(LeaderPid, Agent, TopicFilter),
     State.
