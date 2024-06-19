@@ -25,7 +25,7 @@
 ]).
 
 -record(lookup_leader, {
-    agent :: emqx_ds_shared_sub:agent(),
+    agent :: emqx_ds_shared_sub_proto:agent(),
     topic_filter :: emqx_persistent_session_ds:share_topic_filter()
 }).
 
@@ -33,6 +33,9 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec lookup_leader(
+    emqx_ds_shared_sub_proto:agent(), emqx_persistent_session_ds:share_topic_filter()
+) -> ok.
 lookup_leader(Agent, TopicFilter) ->
     gen_server:cast(?MODULE, #lookup_leader{agent = Agent, topic_filter = TopicFilter}).
 

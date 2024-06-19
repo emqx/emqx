@@ -41,7 +41,7 @@ start_leader(Options) ->
     ChildSpec = emqx_ds_shared_sub_leader:child_spec(Options),
     supervisor:start_child(?MODULE, ChildSpec).
 
--spec stop_leader(emqx_ds_shared_sub_leader:topic_filter()) -> ok | {error, term()}.
+-spec stop_leader(emqx_persistent_session_ds:share_topic_filter()) -> ok | {error, term()}.
 stop_leader(TopicFilter) ->
     supervisor:terminate_child(?MODULE, emqx_ds_shared_sub_leader:id(TopicFilter)).
 
