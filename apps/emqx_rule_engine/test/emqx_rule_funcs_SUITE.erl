@@ -1395,6 +1395,8 @@ t_map_to_redis_hset_args(_Config) ->
                 true
         end
     ),
+    ?assertEqual([], Do(<<"not json">>)),
+    ?assertEqual([], Do([<<"not map">>, <<"not json either">>])),
     ok.
 
 %%------------------------------------------------------------------------------
