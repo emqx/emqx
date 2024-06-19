@@ -1,0 +1,21 @@
+emqx_dashboard_sso_oidc {
+
+issuer.desc:
+"""The URL of the OIDC issuer."""
+
+clientid.desc:
+"""The clientId for this backend."""
+
+secret.desc:
+"""The client secret."""
+
+scopes.desc:
+"""The scopes, its default value is `["openid"]`."""
+
+name_var.desc:
+"""A template to map OIDC user information to a DashBoard name, its default value is `${sub}`."""
+
+dashboard_addr.desc:
+"""The address of the EMQX Dashboard."""
+
+}
