@@ -198,12 +198,12 @@ ensure_uninstalled(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
         {ok, #{running_status := RunningSt}} when RunningSt =/= stopped ->
             {error, #{
-                error_msg => "bad_plugin_running_status",
+                msg => "bad_plugin_running_status",
                 hint => "stop_the_plugin_first"
             }};
         {ok, #{config_status := enabled}} ->
             {error, #{
-                error_msg => "bad_plugin_config_status",
+                msg => "bad_plugin_config_status",
                 hint => "disable_the_plugin_first"
             }};
         _ ->
@@ -289,7 +289,7 @@ ensure_started(NameVsn) ->
         ok ->
             ok;
         {error, ReasonMap} ->
-            ?SLOG(alert, ReasonMap#{msg => "failed_to_start_plugin"}),
+            ?SLOG(error, ReasonMap#{msg => "failed_to_start_plugin"}),
             {error, ReasonMap}
     end.
 
@@ -383,7 +383,7 @@ list() ->
                 {ok, Info} ->
                     {true, Info};
                 {error, Reason} ->
-                    ?SLOG(warning, Reason),
+                    ?SLOG(warning, Reason#{msg => "failed_to_read_plugin_info"}),
                     false
             end
         end,
@@ -411,7 +411,10 @@ decode_plugin_config_map(NameVsn, AvroJsonMap) ->
                     do_decode_plugin_config_map(NameVsn, AvroJsonMap)
             end;
         false ->
-            ?SLOG(debug, #{name_vsn => NameVsn, plugin_with_avro_schema => false}),
+            ?SLOG(debug, #{
+                msg => "plugin_without_config_schema",
+                name_vsn => NameVsn
+            }),
             {ok, ?plugin_without_config_schema}
     end.
 
@@ -546,13 +549,13 @@ do_ensure_installed(NameVsn) ->
             end;
         {error, {_, enoent}} ->
             {error, #{
-                error_msg => "failed_to_extract_plugin_package",
+                msg => "failed_to_extract_plugin_package",
                 path => TarGz,
-                reason => not_found
+                reason => plugin_tarball_not_found
             }};
         {error, Reason} ->
             {error, #{
-                error_msg => "bad_plugin_package",
+                msg => "bad_plugin_package",
                 path => TarGz,
                 reason => Reason
             }}
@@ -609,7 +612,7 @@ add_new_configured(Configured, {Action, NameVsn}, Item) ->
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     Rear =:= [] andalso
         throw(#{
-            error_msg => "position_anchor_plugin_not_configured",
+            msg => "position_anchor_plugin_not_configured",
             hint => "maybe_install_and_configure",
             name_vsn => NameVsn
         }),
@@ -675,8 +678,9 @@ do_ensure_started(NameVsn) ->
                     ok = load_code_start_apps(NameVsn, Plugin);
                 {error, #{reason := Reason} = ReasonMap} ->
                     ?SLOG(error, #{
-                        error_msg => string_reason(Reason),
-                        name_vsn => NameVsn
+                        msg => "failed_to_start_plugin",
+                        name_vsn => NameVsn,
+                        reason => Reason
                     }),
                     {error, ReasonMap}
             end
@@ -691,10 +695,12 @@ tryit(WhichOp, F) ->
     try
         F()
     catch
-        throw:ReasonMap ->
+        throw:ReasonMap when is_map(ReasonMap) ->
             %% thrown exceptions are known errors
             %% translate to a return value without stacktrace
             {error, ReasonMap};
+        throw:Reason ->
+            {error, #{reason => Reason}};
         error:Reason:Stacktrace ->
             %% unexpected errors, log stacktrace
             ?SLOG(warning, #{
@@ -778,7 +784,7 @@ do_get_from_cluster(NameVsn) ->
             ok = do_ensure_installed(NameVsn);
         {error, NodeErrors} when Nodes =/= [] ->
             ErrMeta = #{
-                error_msg => "failed_to_copy_plugin_from_other_nodes",
+                msg => "failed_to_copy_plugin_from_other_nodes",
                 name_vsn => NameVsn,
                 node_errors => NodeErrors,
                 reason => plugin_not_found
@@ -787,7 +793,7 @@ do_get_from_cluster(NameVsn) ->
             {error, ErrMeta};
         {error, _} ->
             ErrMeta = #{
-                error_msg => "no_nodes_to_copy_plugin_from",
+                msg => "no_nodes_to_copy_plugin_from",
                 name_vsn => NameVsn,
                 reason => plugin_not_found
             },
@@ -889,7 +895,7 @@ check_plugin(
             catch
                 _:_ ->
                     throw(#{
-                        error_msg => "bad_rel_apps",
+                        msg => "bad_rel_apps",
                         rel_apps => Apps,
                         hint => "A non-empty string list of app_name-app_vsn format"
                     })
@@ -897,7 +903,7 @@ check_plugin(
             Info;
         false ->
             throw(#{
-                error_msg => "name_vsn_mismatch",
+                msg => "name_vsn_mismatch",
                 name_vsn => NameVsn,
                 path => FilePath,
                 name => Name,
@@ -906,7 +912,7 @@ check_plugin(
     end;
 check_plugin(_What, NameVsn, File) ->
     throw(#{
-        error_msg => "bad_info_file_content",
+        msg => "bad_info_file_content",
         mandatory_fields => [rel_vsn, name, rel_apps, description],
         name_vsn => NameVsn,
         path => File
@@ -962,7 +968,7 @@ do_load_plugin_app(AppName, Ebin) ->
                     ok;
                 {error, Reason} ->
                     throw(#{
-                        error_msg => "failed_to_load_plugin_beam",
+                        msg => "failed_to_load_plugin_beam",
                         path => BeamFile,
                         reason => Reason
                     })
@@ -977,7 +983,7 @@ do_load_plugin_app(AppName, Ebin) ->
             ok;
         {error, Reason} ->
             throw(#{
-                error_msg => "failed_to_load_plugin_app",
+                msg => "failed_to_load_plugin_app",
                 name => AppName,
                 reason => Reason
             })
@@ -994,7 +1000,7 @@ start_app(App) ->
             ok;
         {error, {ErrApp, Reason}} ->
             throw(#{
-                error_msg => "failed_to_start_plugin_app",
+                msg => "failed_to_start_plugin_app",
                 app => App,
                 err_app => ErrApp,
                 reason => Reason
@@ -1076,7 +1082,7 @@ stop_app(App) ->
             ?SLOG(debug, #{msg => "plugin_not_started", app => App}),
             ok = unload_moudle_and_app(App);
         {error, Reason} ->
-            throw(#{error_msg => "failed_to_stop_app", app => App, reason => Reason})
+            throw(#{msg => "failed_to_stop_app", app => App, reason => Reason})
     end.
 
 unload_moudle_and_app(App) ->
@@ -1171,7 +1177,7 @@ for_plugins(ActionFun) ->
                 for_plugins_action_error_occurred,
                 ErrMeta
             ),
-            ?SLOG(error, ErrMeta),
+            ?SLOG(error, ErrMeta#{msg => "for_plugins_action_error_occurred"}),
             ok
     end.
 
@@ -1314,6 +1320,11 @@ ensure_config_map(NameVsn) ->
                 true ->
                     do_ensure_config_map(NameVsn, ConfigJsonMap);
                 false ->
+                    ?SLOG(debug, #{
+                        msg => "put_plugin_config_directly",
+                        hint => "plugin_without_config_schema",
+                        name_vsn => NameVsn
+                    }),
                     put_config(NameVsn, ConfigJsonMap, ?plugin_without_config_schema)
             end;
         _ ->
@@ -1398,23 +1409,23 @@ prune_backup_files(Path) ->
         Deletes
     ).
 
-read_file_fun(Path, ErrMsg, #{read_mode := ?RAW_BIN}) ->
+read_file_fun(Path, Msg, #{read_mode := ?RAW_BIN}) ->
     fun() ->
         case file:read_file(Path) of
             {ok, Bin} ->
                 {ok, Bin};
             {error, Reason} ->
-                ErrMeta = #{error_msg => ErrMsg, reason => Reason},
+                ErrMeta = #{msg => Msg, reason => Reason},
                 throw(ErrMeta)
         end
     end;
-read_file_fun(Path, ErrMsg, #{read_mode := ?JSON_MAP}) ->
+read_file_fun(Path, Msg, #{read_mode := ?JSON_MAP}) ->
     fun() ->
         case hocon:load(Path, #{format => richmap}) of
             {ok, RichMap} ->
                 {ok, hocon_maps:ensure_plain(RichMap)};
             {error, Reason} ->
-                ErrMeta = #{error_msg => ErrMsg, reason => Reason},
+                ErrMeta = #{msg => Msg, reason => Reason},
                 throw(ErrMeta)
         end
     end.
@@ -1512,8 +1523,3 @@ bin(B) when is_binary(B) -> B.
 
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).
-
-string_reason(plugin_not_found) ->
-    "plugin_not_found";
-string_reason(_) ->
-    "unexpected_error".
