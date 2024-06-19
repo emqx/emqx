@@ -501,7 +501,18 @@ schema("/bridges_probe") ->
     end.
 
 '/bridges/:id'(get, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
+    ?TRY_PARSE_ID(
+        Id,
+        begin
+            CompatErrorMsg = non_compat_bridge_msg(),
+            case lookup_from_all_nodes(BridgeType, BridgeName, 200) of
+                {400, #{code := 'BAD_REQUEST', message := CompatErrorMsg}} ->
+                    ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+                Res ->
+                    Res
+            end
+        end
+    );
 '/bridges/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
@@ -634,7 +645,7 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {ok, [{error, not_bridge_v1_compatible} | _]} ->
-            ?NOT_FOUND(non_compat_bridge_msg());
+            ?BAD_REQUEST(non_compat_bridge_msg());
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
     end.
