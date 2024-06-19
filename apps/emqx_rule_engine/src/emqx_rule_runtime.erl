@@ -586,7 +586,12 @@ eval({range, {Begin, End}}, _Columns) ->
 eval({get_range, {Begin, End}, Data}, Columns) ->
     range_get(Begin, End, eval(Data, Columns));
 eval({var, _} = Var, Columns) ->
-    nested_get(Var, Columns);
+    Payload = nested_get(Var, Columns),
+    try
+        emqx_rule_funcs:json_decode(Payload)
+    catch
+        error:_X -> Payload
+    end;
 eval({const, Val}, _Columns) ->
     Val;
 %% unary add

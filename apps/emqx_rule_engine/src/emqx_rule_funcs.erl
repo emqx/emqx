@@ -1065,7 +1065,10 @@ json_encode(Data) ->
     emqx_utils_json:encode(Data).
 
 json_decode(Data) ->
-    emqx_utils_json:decode(Data, [return_maps]).
+    case erlang:is_map(Data) orelse erlang:is_list(Data) of
+        true -> Data;
+        false -> emqx_utils_json:decode(Data, [return_maps])
+    end.
 
 term_encode(Term) ->
     erlang:term_to_binary(Term).
