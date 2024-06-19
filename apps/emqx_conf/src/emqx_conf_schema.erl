@@ -71,20 +71,6 @@
     emqx_mgmt_api_key_schema
 ]).
 
--define(AUTH_EXT_SCHEMA_MODS, [emqx_auth_ext_schema]).
-
--if(defined(EMQX_RELEASE_EDITION) andalso ?EMQX_RELEASE_EDITION == ee).
--define(OTHER_INJECTING_CONFIGS, ?AUTH_EXT_SCHEMA_MODS).
--else.
--define(OTHER_INJECTING_CONFIGS, []).
--endif.
-
--define(INJECTING_CONFIGS, [
-    {emqx_authn_schema, ?AUTHN_PROVIDER_SCHEMA_MODS},
-    {emqx_authz_schema, ?AUTHZ_SOURCE_SCHEMA_MODS}
-    | ?OTHER_INJECTING_CONFIGS
-]).
-
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
@@ -108,7 +94,8 @@ tags() ->
     [<<"EMQX">>].
 
 roots() ->
-    ok = emqx_schema_hooks:inject_from_modules(?INJECTING_CONFIGS),
+    Injections = emqx_conf_schema_inject:schemas(),
+    ok = emqx_schema_hooks:inject_from_modules(Injections),
     emqx_schema_high_prio_roots() ++
         [
             {node,
