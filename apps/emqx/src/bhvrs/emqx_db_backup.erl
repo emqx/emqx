@@ -18,6 +18,8 @@
 
 -type traverse_break_reason() :: over | migrate.
 
+-type opts() :: #{print_fun => fun((io:format(), [term()]) -> ok)}.
+
 -callback backup_tables() -> [mria:table()].
 
 %% validate the backup
@@ -31,6 +33,9 @@
 
 -callback migrate_mnesia_backup(tuple()) -> {ok, tuple()} | {error, term()}.
 
--optional_callbacks([validate_mnesia_backup/1, migrate_mnesia_backup/1]).
+%% NOTE: currently, this is called only when the table has been restored successfully.
+-callback on_backup_table_imported(mria:table(), opts()) -> ok | {error, term()}.
+
+-optional_callbacks([validate_mnesia_backup/1, migrate_mnesia_backup/1, on_backup_table_imported/2]).
 
 -export_type([traverse_break_reason/0]).

@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -113,6 +114,64 @@ t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
             ?assertEqual(RawConfAfterImport, emqx:get_raw_config([]))
     end,
     ok.
+
+t_import_retained_messages(Config) ->
+    FName = "emqx-export-ce-retained-msgs-test.tar.gz",
+    BackupFile = filename:join(?config(data_dir, Config), FName),
+    Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(BackupFile)),
+    %% verify that retainer messages are imported
+    ?assertMatch(
+        {ok, [#message{payload = <<"Hi 1!!!">>}]},
+        emqx_retainer:read_message(<<"t/backup-retainer/test1">>)
+    ),
+    ?assertMatch(
+        {ok, [#message{payload = <<"Hi 5!!!">>}]},
+        emqx_retainer:read_message(<<"t/backup-retainer/test5">>)
+    ),
+
+    %% verify that messages are re-indexed
+    ?assertMatch(
+        {ok, _, [
+            #message{payload = <<"Hi 5!!!">>},
+            #message{payload = <<"Hi 4!!!">>},
+            #message{payload = <<"Hi 3!!!">>},
+            #message{payload = <<"Hi 2!!!">>},
+            #message{payload = <<"Hi 1!!!">>}
+        ]},
+        emqx_retainer:page_read(<<"t/backup-retainer/#">>, 1, 5)
+    ),
+    %% Export and import again
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)).
+
+t_export_ram_retained_messages(_Config) ->
+    {ok, _} = emqx_retainer:update_config(
+        #{
+            <<"enable">> => true,
+            <<"backend">> => #{<<"storage_type">> => <<"ram">>}
+        }
+    ),
+    ?assertEqual(ram_copies, mnesia:table_info(emqx_retainer_message, storage_type)),
+    Topic = <<"t/backup_test_export_retained_ram/1">>,
+    Payload = <<"backup_test_retained_ram">>,
+    Msg = emqx_message:make(
+        <<"backup_test">>,
+        ?QOS_0,
+        Topic,
+        Payload,
+        #{retain => true},
+        #{}
+    ),
+    _ = emqx_broker:publish(Msg),
+    {ok, #{filename := BackupFileName}} = emqx_mgmt_data_backup:export(),
+    ok = emqx_retainer:delete(Topic),
+    ?assertEqual({ok, []}, emqx_retainer:read_message(Topic)),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(BackupFileName)
+    ),
+    ?assertMatch({ok, [#message{payload = Payload}]}, emqx_retainer:read_message(Topic)).
 
 t_cluster_hocon_export_import(Config) ->
     RawConfBeforeImport = emqx:get_raw_config([]),
