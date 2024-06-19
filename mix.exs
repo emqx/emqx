@@ -273,6 +273,7 @@ defmodule EMQXUmbrella.MixProject do
       :debug_info,
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
       {:d, :EMQX_RELEASE_EDITION, erlang_edition(edition_type)},
+      {:d, :EMQX_ELIXIR},
       {:d, :snk_kind, :msg}
     ]
   end

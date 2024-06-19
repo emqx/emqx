@@ -97,7 +97,8 @@ tags() ->
     [<<"EMQX">>].
 
 roots() ->
-    ok = emqx_schema_hooks:inject_from_modules(?INJECTING_CONFIGS),
+    Injections = emqx_conf_schema_inject:schemas(),
+    ok = emqx_schema_hooks:inject_from_modules(Injections),
     emqx_schema_high_prio_roots() ++
         [
             {node,

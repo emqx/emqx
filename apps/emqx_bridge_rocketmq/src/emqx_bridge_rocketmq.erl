@@ -178,6 +178,7 @@ fields(action_parameters) ->
         Parameters,
         [
             servers,
+            ssl,
             namespace,
             pool_size,
             auto_reconnect,

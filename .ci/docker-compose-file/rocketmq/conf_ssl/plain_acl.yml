@@ -1,0 +1,12 @@
+globalWhiteRemoteAddresses:
+
+accounts:
+  - accessKey: RocketMQ
+    secretKey: 12345678
+    whiteRemoteAddress:
+    admin: false
+    defaultTopicPerm: DENY
+    defaultGroupPerm: PUB|SUB
+    topicPerms:
+      - TopicTest=PUB|SUB
+      - Topic2=PUB|SUB
