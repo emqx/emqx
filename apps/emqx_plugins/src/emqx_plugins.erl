@@ -39,6 +39,7 @@
 -export([
     ensure_installed/0,
     ensure_installed/1,
+    ensure_installed/2,
     ensure_uninstalled/1,
     ensure_enabled/1,
     ensure_enabled/2,
@@ -169,17 +170,25 @@ ensure_installed(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
         {ok, _} ->
             ok,
-            _ = maybe_ensure_plugin_config(NameVsn);
+            _ = maybe_ensure_plugin_config(NameVsn, ?normal);
         {error, _} ->
             ok = purge(NameVsn),
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
-                    maybe_post_op_after_installed(NameVsn),
-                    _ = maybe_ensure_plugin_config(NameVsn),
+                    maybe_post_op_after_installed(NameVsn, ?normal),
                     ok;
                 {error, _Reason} = Err ->
                     Err
             end
+    end.
+
+ensure_installed(NameVsn, ?fresh_install = Mode) ->
+    case ensure_exists_and_installed(NameVsn) of
+        ok ->
+            maybe_post_op_after_installed(NameVsn, Mode),
+            ok;
+        {error, _Reason} = Err ->
+            Err
     end.
 
 %% @doc Ensure files and directories for the given plugin are being deleted.
@@ -791,6 +800,11 @@ get_plugin_tar_from_any_node([], _NameVsn, Errors) ->
 get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
     case emqx_plugins_proto_v1:get_tar(Node, NameVsn, infinity) of
         {ok, _} = Res ->
+            ?SLOG(debug, #{
+                msg => "get_plugin_tar_from_cluster_successfully",
+                node => Node,
+                name_vsn => NameVsn
+            }),
             Res;
         Err ->
             get_plugin_tar_from_any_node(T, NameVsn, [{Node, Err} | Errors])
@@ -805,6 +819,11 @@ get_plugin_config_from_any_node([Node | T], NameVsn, Errors) ->
         )
     of
         {ok, _} = Res ->
+            ?SLOG(debug, #{
+                msg => "get_plugin_config_from_cluster_successfully",
+                node => Node,
+                name_vsn => NameVsn
+            }),
             Res;
         Err ->
             get_plugin_config_from_any_node(T, NameVsn, [{Node, Err} | Errors])
@@ -1156,9 +1175,9 @@ for_plugins(ActionFun) ->
             ok
     end.
 
-maybe_post_op_after_installed(NameVsn0) ->
+maybe_post_op_after_installed(NameVsn0, Mode) ->
     NameVsn = wrap_to_list(NameVsn0),
-    _ = maybe_load_config_schema(NameVsn),
+    _ = maybe_load_config_schema(NameVsn, Mode),
     ok = maybe_ensure_state(NameVsn).
 
 maybe_ensure_state(NameVsn) ->
@@ -1183,13 +1202,13 @@ maybe_ensure_state(NameVsn) ->
     end,
     ok.
 
-maybe_load_config_schema(NameVsn) ->
+maybe_load_config_schema(NameVsn, Mode) ->
     AvscPath = avsc_file_path(NameVsn),
     _ =
         with_plugin_avsc(NameVsn) andalso
             filelib:is_regular(AvscPath) andalso
             do_load_config_schema(NameVsn, AvscPath),
-    _ = maybe_create_config_dir(NameVsn).
+    _ = maybe_create_config_dir(NameVsn, Mode).
 
 do_load_config_schema(NameVsn, AvscPath) ->
     case emqx_plugins_serde:add_schema(bin(NameVsn), AvscPath) of
@@ -1198,11 +1217,11 @@ do_load_config_schema(NameVsn, AvscPath) ->
         {error, _Reason} -> ok
     end.
 
-maybe_create_config_dir(NameVsn) ->
+maybe_create_config_dir(NameVsn, Mode) ->
     with_plugin_avsc(NameVsn) andalso
-        do_create_config_dir(NameVsn).
+        do_create_config_dir(NameVsn, Mode).
 
-do_create_config_dir(NameVsn) ->
+do_create_config_dir(NameVsn, Mode) ->
     case plugin_config_dir(NameVsn) of
         {error, Reason} ->
             {error, {gen_config_dir_failed, Reason}};
@@ -1210,7 +1229,7 @@ do_create_config_dir(NameVsn) ->
             case filelib:ensure_path(ConfigDir) of
                 ok ->
                     %% get config from other nodes or get from tarball
-                    _ = maybe_ensure_plugin_config(NameVsn),
+                    _ = maybe_ensure_plugin_config(NameVsn, Mode),
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, #{
@@ -1222,29 +1241,25 @@ do_create_config_dir(NameVsn) ->
             end
     end.
 
--spec maybe_ensure_plugin_config(name_vsn()) -> ok.
-maybe_ensure_plugin_config(NameVsn) ->
+-spec maybe_ensure_plugin_config(name_vsn(), ?fresh_install | ?normal) -> ok.
+maybe_ensure_plugin_config(NameVsn, Mode) ->
     maybe
         true ?= with_plugin_avsc(NameVsn),
-        _ = ensure_plugin_config(NameVsn)
+        _ = ensure_plugin_config({NameVsn, Mode})
     else
         _ -> ok
     end.
 
--spec ensure_plugin_config(name_vsn()) -> ok.
-ensure_plugin_config(NameVsn) ->
-    case get(?fresh_install) of
-        true ->
-            ?SLOG(debug, #{
-                msg => "default_plugin_config_used",
-                name_vsn => NameVsn,
-                reason => "fresh_install"
-            }),
-            cp_default_config_file(NameVsn);
-        _ ->
-            %% fetch plugin hocon config from cluster
-            ensure_plugin_config(NameVsn, [N || N <- mria:running_nodes(), N /= node()])
-    end.
+-spec ensure_plugin_config({name_vsn(), ?fresh_install | ?normal}) -> ok.
+ensure_plugin_config({NameVsn, ?normal}) ->
+    ensure_plugin_config(NameVsn, [N || N <- mria:running_nodes(), N /= node()]);
+ensure_plugin_config({NameVsn, ?fresh_install}) ->
+    ?SLOG(debug, #{
+        msg => "default_plugin_config_used",
+        name_vsn => NameVsn,
+        hint => "fresh_install"
+    }),
+    cp_default_config_file(NameVsn).
 
 -spec ensure_plugin_config(name_vsn(), list()) -> ok.
 ensure_plugin_config(NameVsn, []) ->

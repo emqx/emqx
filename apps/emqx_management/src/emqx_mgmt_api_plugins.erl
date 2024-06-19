@@ -564,8 +564,7 @@ install_package(FileName, Bin) ->
     ok = filelib:ensure_dir(File),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
-    put(?fresh_install, true),
-    case emqx_plugins:ensure_installed(PackageName) of
+    case emqx_plugins:ensure_installed(PackageName, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
