@@ -3491,6 +3491,7 @@ mqtt_general() ->
             )},
         {"max_clientid_len",
             sc(
+                %% MQTT-v3.1.1-[MQTT-3.1.3-5], MQTT-v5.0-[MQTT-3.1.3-5]
                 range(23, 65535),
                 #{
                     default => 65535,
