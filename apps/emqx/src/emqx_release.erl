@@ -24,10 +24,17 @@
     version/0,
     version_with_prefix/0,
     vsn_compare/1,
-    vsn_compare/2
+    vsn_compare/2,
+    on_load/0
 ]).
 
+-on_load(on_load/0).
+
 -include("emqx_release.hrl").
+
+-ifndef(EMQX_RELEASE_EDITION).
+-define(EMQX_RELEASE_EDITION, ce).
+-endif.
 
 -define(EMQX_DESCS, #{
     ee => "EMQX Enterprise",
@@ -49,6 +56,11 @@
     ce => "v"
 }).
 
+%% @hidden Initialize edition. Almost static. use persistent_term to trick compiler.
+-spec on_load() -> ok.
+on_load() ->
+    persistent_term:put('EMQX_RELEASE_EDITION', ?EMQX_RELEASE_EDITION).
+
 %% @doc Return EMQX description.
 description() ->
     maps:get(edition(), ?EMQX_DESCS).
@@ -57,11 +69,8 @@ description() ->
 %% Read info from persistent_term at runtime.
 %% Or meck this function to run tests for another edition.
 -spec edition() -> ce | ee.
--ifdef(EMQX_RELEASE_EDITION).
-edition() -> ?EMQX_RELEASE_EDITION.
--else.
-edition() -> ce.
--endif.
+edition() ->
+    persistent_term:get('EMQX_RELEASE_EDITION').
 
 %% @doc Return EMQX version prefix string.
 edition_vsn_prefix() ->

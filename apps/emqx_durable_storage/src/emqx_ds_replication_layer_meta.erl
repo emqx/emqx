@@ -273,7 +273,7 @@ shards(DB) ->
     [Shard || #?SHARD_TAB{shard = {_, Shard}} <- Recs].
 
 -spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    #{replica_set := #{site() => #{status => up | joining}}}
+    #{replica_set := #{site() => #{status => up | down}}}
     | undefined.
 shard_info(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -282,8 +282,13 @@ shard_info(DB, Shard) ->
         [#?SHARD_TAB{replica_set = Replicas}] ->
             ReplicaSet = maps:from_list([
                 begin
-                    %% TODO:
-                    ReplInfo = #{status => up},
+                    Status =
+                        case mria:cluster_status(?MODULE:node(I)) of
+                            running -> up;
+                            stopped -> down;
+                            false -> down
+                        end,
+                    ReplInfo = #{status => Status},
                     {I, ReplInfo}
                 end
              || I <- Replicas

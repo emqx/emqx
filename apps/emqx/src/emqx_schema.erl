@@ -191,8 +191,6 @@
 -define(DEFAULT_MULTIPLIER, 1.5).
 -define(DEFAULT_BACKOFF, 0.75).
 
--define(INJECTING_CONFIGS, [?AUTH_EXT_SCHEMA_MODS]).
-
 namespace() -> emqx.
 
 tags() ->

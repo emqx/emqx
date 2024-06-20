@@ -825,8 +825,21 @@ join_to_string(Sep, List) -> emqx_variform_bif:join_to_string(Sep, List).
 %% - String values are always quoted
 %% - No escape sequence for keys and values
 %% - Float point values are formatted with fixed (6) decimal point compact-formatting
+map_to_redis_hset_args(Payload) when erlang:is_binary(Payload) ->
+    try
+        Map = json_decode(Payload),
+        map_to_redis_hset_args(Map)
+    catch
+        _:_ ->
+            %% Discard invalid JSON
+            [map_to_redis_hset_args]
+    end;
 map_to_redis_hset_args(Map) when erlang:is_map(Map) ->
-    [map_to_redis_hset_args | maps:fold(fun redis_hset_acc/3, [], Map)].
+    Fields = maps:fold(fun redis_hset_acc/3, [], Map),
+    %% Fields can be [], the final template may have other fields for concatenation
+    [map_to_redis_hset_args | Fields];
+map_to_redis_hset_args(_Other) ->
+    [map_to_redis_hset_args].
 
 redis_hset_acc(K, V, IoData) ->
     try
