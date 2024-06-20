@@ -43,7 +43,8 @@
         args => action_fun_args()
     }
     | bridge_channel_id()
-    | {bridge_v2, emqx_bridge_v2:bridge_v2_type(), emqx_bridge_v2:bridge_v2_name()}.
+    | {bridge_v2, emqx_bridge_v2:bridge_v2_type(), emqx_bridge_v2:bridge_v2_name()}
+    | {bridge, emqx_utils_maps:config_key(), emqx_utils_maps:config_key(), bridge_channel_id()}.
 
 -type rule() ::
     #{
