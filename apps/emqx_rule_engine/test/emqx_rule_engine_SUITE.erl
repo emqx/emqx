@@ -44,7 +44,8 @@ all() ->
         {group, metrics_simple},
         {group, metrics_fail},
         {group, metrics_fail_simple},
-        {group, tracing}
+        {group, tracing},
+        {group, command_line}
     ].
 
 suite() ->
@@ -147,6 +148,9 @@ groups() ->
         ]},
         {tracing, [], [
             t_trace_rule_id
+        ]},
+        {command_line, [], [
+            t_command_line_list_print_rule
         ]}
     ].
 
@@ -595,6 +599,26 @@ t_get_rule_ids_by_action(_) ->
     ?assertMatch([ID], emqx_rule_engine:get_rule_ids_by_action(<<"mysql:foo">>)),
     ?assertEqual([], emqx_rule_engine:get_rule_ids_by_action(<<"mysql:not_exists">>)),
     ok = delete_rules_by_ids([<<"t_get_rule_ids_by_action">>]).
+
+%% Check that command line interface don't crash when listing and showing rules
+t_command_line_list_print_rule(_) ->
+    ID = <<"t_command_line">>,
+    Rule1 = #{
+        id => ID,
+        sql => <<"SELECT * FROM \"t\"">>,
+        actions => [
+            #{function => console, args => #{}},
+            #{function => republish, args => #{}},
+            <<"mqtt:my_mqtt_bridge">>,
+            <<"mysql:foo">>
+        ],
+        description => ID,
+        created_at => erlang:system_time(millisecond)
+    },
+    ok = create_rules([Rule1]),
+    ok = emqx_rule_engine_cli:cmd(["list"]),
+    ok = emqx_rule_engine_cli:cmd(["show", binary_to_list(ID)]),
+    ok = delete_rules_by_ids([ID]).
 
 t_ensure_action_removed(_) ->
     Id = <<"t_ensure_action_removed">>,
