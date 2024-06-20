@@ -39,9 +39,9 @@
     topic := emqx_types:topic(),
     %% For ds router, not an actual session_id
     router_id := binary(),
-    %% TODO
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12307
     %% Persist progress
-    %% TODO
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12575
     %% Implement some stats to assign evenly?
     stream_progresses := #{
         emqx_ds:stream() => emqx_ds:iterator()
@@ -74,7 +74,7 @@
 
 %% Constants
 
-%% TODO
+%% TODO https://emqx.atlassian.net/browse/EMQX-12574
 %% Move to settings
 -define(RENEW_LEASE_INTERVAL, 5000).
 -define(RENEW_STREAMS_INTERVAL, 5000).
@@ -181,7 +181,7 @@ renew_streams(#{stream_progresses := Progresses, topic := Topic} = Data0) ->
     {_, Streams} = lists:unzip(
         emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, now_ms())
     ),
-    %% TODO
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
     %% Handle stream removal
     NewProgresses = lists:foldl(
         fun(Stream, ProgressesAcc) ->
@@ -198,7 +198,7 @@ renew_streams(#{stream_progresses := Progresses, topic := Topic} = Data0) ->
         Progresses,
         Streams
     ),
-    %% TODO
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
     %% Initiate reassigment
     ?SLOG(info, #{
         msg => leader_renew_streams,
@@ -207,7 +207,7 @@ renew_streams(#{stream_progresses := Progresses, topic := Topic} = Data0) ->
     }),
     Data0#{stream_progresses => NewProgresses}.
 
-%% TODO
+%% TODO https://emqx.atlassian.net/browse/EMQX-12572
 %% This just gives unassigned streams to the connecting agent,
 %% we need to implement actual stream (re)assignment.
 connect_agent(
@@ -301,7 +301,7 @@ update_agent_stream_states(
     ),
     case AgentVersion == Version orelse AgentPrevVersion == Version of
         false ->
-            %% TODO
+            %% TODO https://emqx.atlassian.net/browse/EMQX-12572
             %% send invalidate to agent
             Data0;
         true ->

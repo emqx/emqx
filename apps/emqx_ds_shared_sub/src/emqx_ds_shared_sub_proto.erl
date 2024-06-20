@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% TODO
+%% TODO https://emqx.atlassian.net/browse/EMQX-12573
 %% This should be wrapped with a proto_v1 module.
 %% For simplicity, send as simple OTP messages for now.
 

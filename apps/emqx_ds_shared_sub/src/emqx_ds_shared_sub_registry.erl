@@ -80,7 +80,7 @@ terminate(_Reason, _State) ->
 %%--------------------------------------------------------------------
 
 do_lookup_leader(Agent, TopicFilter, State) ->
-    %% TODO
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12309
     %% Cluster-wide unique leader election should be implemented
     Id = emqx_ds_shared_sub_leader:id(TopicFilter),
     LeaderPid =

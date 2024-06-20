@@ -57,7 +57,7 @@ renew_streams(#{} = State) ->
     fetch_stream_events(State).
 
 on_stream_progress(State, _StreamProgress) ->
-    %% TODO
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
     %% Send to leader
     State.
 
@@ -98,7 +98,7 @@ init_state(Opts) ->
     }.
 
 delete_group_subscription(State, _ShareTopicFilter) ->
-    %% TODO
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
     State.
 
 add_group_subscription(
