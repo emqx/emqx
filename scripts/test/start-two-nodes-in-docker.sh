@@ -177,6 +177,7 @@ backend emqx_wss_back
     server emqx-2 $NODE2:8083 check-send-proxy send-proxy-v2-ssl-cn
 EOF
 
+HAPROXY_IMAGE='ghcr.io/haproxytech/haproxy-docker-alpine:2.4.27'
 
 haproxy_cid=$(docker run -d --name haproxy \
                      --net "$NET" \
@@ -184,8 +185,8 @@ haproxy_cid=$(docker run -d --name haproxy \
                      -v "$(pwd)/apps/emqx/etc/certs:/usr/local/etc/haproxy/certs" \
                      -w /usr/local/etc/haproxy \
                      "${HAPROXY_PORTS[@]}" \
-                     "public.ecr.aws/docker/library/haproxy:2.4" \
-                     bash -c 'set -euo pipefail;
+                     "${HAPROXY_IMAGE}" \
+                     sh -c 'set -euo pipefail;
                               cat certs/cert.pem certs/key.pem > /tmp/emqx.pem;
                               haproxy -f haproxy.cfg')
 
