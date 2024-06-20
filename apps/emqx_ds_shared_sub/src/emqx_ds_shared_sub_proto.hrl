@@ -3,12 +3,11 @@
 %%--------------------------------------------------------------------
 
 %% @doc Asynchronous messages between shared sub agent and shared sub leader
+%% These messages are instantiated on the receiver's side, so they do not
+%% travel over the network.
 
 -ifndef(EMQX_DS_SHARED_SUB_PROTO_HRL).
 -define(EMQX_DS_SHARED_SUB_PROTO_HRL, true).
-
-%% TODO
-%% Make integer keys on GA
 
 %% NOTE
 %% We do not need any kind of request/response identification,
