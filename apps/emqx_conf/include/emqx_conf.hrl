@@ -59,7 +59,8 @@
     emqx_authn_http_schema,
     emqx_authn_jwt_schema,
     emqx_authn_scram_mnesia_schema,
-    emqx_authn_ldap_schema
+    emqx_authn_ldap_schema,
+    emqx_authn_gssapi_schema
 ]).
 
 -define(EE_AUTHN_PROVIDER_SCHEMA_MODS, [
