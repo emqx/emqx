@@ -25,7 +25,7 @@ schemas(Edition) ->
     auth_ext(Edition) ++
         authn(Edition) ++
         authz() ++
-        customized().
+        customized(Edition).
 
 auth_ext(ce) ->
     [];
@@ -67,5 +67,5 @@ authz_mods() ->
     ].
 
 %% Add more schemas here.
-customized() ->
+customized(_Edition) ->
     [].
