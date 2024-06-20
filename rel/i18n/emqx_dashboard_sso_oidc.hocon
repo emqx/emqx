@@ -18,4 +18,7 @@ name_var.desc:
 dashboard_addr.desc:
 """The address of the EMQX Dashboard."""
 
+session_expiry.desc:
+"""The valid time span for an OIDC `state`, the default is `30s`, if the code response returned by the authorization server exceeds this time span, it will be treated as invalid."""
+
 }

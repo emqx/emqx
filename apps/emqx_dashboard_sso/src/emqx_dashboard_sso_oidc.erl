@@ -26,7 +26,7 @@
     convert_certs/2
 ]).
 
--define(PROVIDER_SVR_NAME, sso_oidc_provider).
+-define(PROVIDER_SVR_NAME, ?MODULE).
 -define(RESPHEADERS, #{
     <<"cache-control">> => <<"no-cache">>,
     <<"pragma">> => <<"no-cache">>,
@@ -79,6 +79,11 @@ fields(oidc) ->
                 ?HOCON(binary(), #{
                     desc => ?DESC(dashboard_addr),
                     default => <<"http://127.0.0.1:18083">>
+                })},
+            {session_expiry,
+                ?HOCON(emqx_schema:timeout_duration_ms(), #{
+                    desc => ?DESC(session_expiry),
+                    default => <<"30s">>
                 })}
         ];
 fields(login) ->
@@ -95,30 +100,32 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(#{issuer := Issuer, name_var := NameVar} = Config) ->
+create(#{name_var := NameVar} = Config) ->
     case
-        oidcc_provider_configuration_worker:start_link(#{
-            issuer => Issuer,
-            name => {local, ?PROVIDER_SVR_NAME}
-        })
+        emqx_dashboard_sso_oidc_session:start(
+            ?PROVIDER_SVR_NAME,
+            Config
+        )
     of
-        {ok, Pid} ->
+        {error, _} = Error ->
+            Error;
+        _ ->
+            %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
+            %% we should use this name in each API calls not the PID,
+            %% or it would backoff to sync calls to the gen_server
             {ok, #{
-                pid => Pid,
+                name => ?PROVIDER_SVR_NAME,
                 config => Config,
                 name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
-            }};
-        {error, _} = Error ->
-            Error
+            }}
     end.
 
 update(Config, State) ->
     destroy(State),
     create(Config).
 
-destroy(#{pid := Pid}) ->
-    _ = catch gen_server:stop(Pid),
-    ok.
+destroy(_) ->
+    emqx_dashboard_sso_oidc_session:stop().
 
 login(
     _Req,
@@ -128,8 +135,12 @@ login(
             secret := Secret,
             scopes := Scopes
         }
-    } = State
+    } = Cfg
 ) ->
+    Nonce = emqx_dashboard_sso_oidc_session:random_bin(),
+    Data = #{nonce => Nonce},
+
+    State = emqx_dashboard_sso_oidc_session:new(Data),
     case
         oidcc:create_redirect_url(
             ?PROVIDER_SVR_NAME,
@@ -137,9 +148,9 @@ login(
             Secret,
             #{
                 scopes => Scopes,
-                state => random_bin(),
-                nonce => random_bin(),
-                redirect_uri => emqx_dashboard_sso_oidc_api:make_callback_url(State)
+                state => State,
+                nonce => Nonce,
+                redirect_uri => emqx_dashboard_sso_oidc_api:make_callback_url(Cfg)
             }
         )
     of
@@ -153,6 +164,3 @@ login(
 
 convert_certs(_Dir, Conf) ->
     Conf.
-
-random_bin() ->
-    emqx_utils_conv:bin(emqx_utils:gen_id(16)).

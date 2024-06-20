@@ -64,66 +64,26 @@ schema("/sso/oidc/callback") ->
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-code_callback(get, #{query_string := #{<<"code">> := Code}}) ->
-    case emqx_dashboard_sso_manager:lookup_state(?BACKEND) of
-        #{pid := Pid, config := #{clientid := ClientId, secret := Secret}} = State ->
-            case
-                oidcc:retrieve_token(
-                    Code,
-                    Pid,
-                    ClientId,
-                    Secret,
-                    #{redirect_uri => make_callback_url(State)}
-                )
-            of
-                {ok, Token} ->
-                    retrieve_userinfo(Token, State);
-                {error, Reason} ->
-                    {401, #{code => ?BAD_USERNAME_OR_PWD, message => reason_to_message(Reason)}}
-            end;
-        _ ->
-            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}}
+code_callback(get, #{query_string := QS}) ->
+    case ensure_sso_state(QS) of
+        {ok, Username, Role, DashboardToken} ->
+            ?SLOG(info, #{
+                msg => "dashboard_sso_login_successful"
+            }),
+            {200, login_meta(Username, Role, DashboardToken)};
+        {error, invalid_backend} ->
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
+        {error, Reason} ->
+            ?SLOG(info, #{
+                msg => "dashboard_sso_login_failed",
+                reason => emqx_utils:redact(Reason)
+            }),
+            {401, #{code => ?BAD_USERNAME_OR_PWD, message => reason_to_message(Reason)}}
     end.
 
 %%--------------------------------------------------------------------
 %% internal
 %%--------------------------------------------------------------------
-retrieve_userinfo(Token, #{
-    pid := Pid,
-    config := #{clientid := ClientId, secret := Secret},
-    name_tokens := NameTks
-}) ->
-    case
-        oidcc:retrieve_userinfo(
-            Token,
-            Pid,
-            ClientId,
-            Secret,
-            #{}
-        )
-    of
-        {ok, UserInfo} ->
-            ?SLOG(debug, #{
-                msg => "sso_oidc_login_user_info",
-                user_info => UserInfo
-            }),
-            Username = emqx_placeholder:proc_tmpl(NameTks, UserInfo),
-            case ensure_user_exists(Username) of
-                {ok, Role, DashboardToken} ->
-                    ?SLOG(info, #{
-                        msg => "dashboard_sso_login_successful"
-                    }),
-                    {200, login_meta(Username, Role, DashboardToken)};
-                {error, Reason} ->
-                    ?SLOG(info, #{
-                        msg => "dashboard_sso_login_failed",
-                        reason => emqx_utils:redact(Reason)
-                    }),
-                    {401, #{code => ?BAD_USERNAME_OR_PWD, message => <<"Auth failed">>}}
-            end;
-        {error, Reason} ->
-            {401, #{code => ?BAD_USERNAME_OR_PWD, message => reason_to_message(Reason)}}
-    end.
 
 response_schema(401) ->
     emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
@@ -135,6 +95,68 @@ reason_to_message(Bin) when is_binary(Bin) ->
 reason_to_message(Term) ->
     erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 
+ensure_sso_state(QS) ->
+    case emqx_dashboard_sso_manager:lookup_state(?BACKEND) of
+        undefined ->
+            {error, invalid_backend};
+        Cfg ->
+            ensure_oidc_state(QS, Cfg)
+    end.
+
+ensure_oidc_state(#{<<"state">> := State} = QS, Cfg) ->
+    case emqx_dashboard_sso_oidc_session:lookup(State) of
+        {ok, Data} ->
+            emqx_dashboard_sso_oidc_session:delete(State),
+            retrieve_token(QS, Cfg, Data);
+        _ ->
+            {error, session_not_exists}
+    end.
+
+retrieve_token(
+    #{<<"code">> := Code},
+    #{name := Name, config := #{clientid := ClientId, secret := Secret}} = Cfg,
+    #{nonce := Nonce} = _Data
+) ->
+    case
+        oidcc:retrieve_token(
+            Code,
+            Name,
+            ClientId,
+            Secret,
+            #{redirect_uri => make_callback_url(Cfg), nonce => Nonce}
+        )
+    of
+        {ok, Token} ->
+            retrieve_userinfo(Token, Cfg);
+        {error, _Reason} = Error ->
+            Error
+    end.
+
+retrieve_userinfo(Token, #{
+    name := Name,
+    config := #{clientid := ClientId, secret := Secret},
+    name_tokens := NameTks
+}) ->
+    case
+        oidcc:retrieve_userinfo(
+            Token,
+            Name,
+            ClientId,
+            Secret,
+            #{}
+        )
+    of
+        {ok, UserInfo} ->
+            ?SLOG(debug, #{
+                msg => "sso_oidc_login_user_info",
+                user_info => UserInfo
+            }),
+            Username = emqx_placeholder:proc_tmpl(NameTks, UserInfo),
+            ensure_user_exists(Username);
+        {error, _Reason} = Error ->
+            Error
+    end.
+
 ensure_user_exists(<<>>) ->
     {error, <<"Username can not be empty">>};
 ensure_user_exists(<<"undefined">>) ->
@@ -142,7 +164,12 @@ ensure_user_exists(<<"undefined">>) ->
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
         [User] ->
-            emqx_dashboard_token:sign(User, <<>>);
+            case emqx_dashboard_token:sign(User, <<>>) of
+                {ok, Role, Token} ->
+                    {ok, Username, Role, Token};
+                Error ->
+                    Error
+            end;
         [] ->
             case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->
