@@ -7,7 +7,6 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_ds_shared_sub.hrl").
 
 -export([
     start_link/0,
@@ -28,6 +27,8 @@
     agent :: emqx_ds_shared_sub_proto:agent(),
     topic_filter :: emqx_persistent_session_ds:share_topic_filter()
 }).
+
+-define(gproc_id(ID), {n, l, ID}).
 
 %%--------------------------------------------------------------------
 %% API
