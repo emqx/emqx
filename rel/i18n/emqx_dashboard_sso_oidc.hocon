@@ -21,4 +21,7 @@ dashboard_addr.desc:
 session_expiry.desc:
 """The valid time span for an OIDC `state`, the default is `30s`, if the code response returned by the authorization server exceeds this time span, it will be treated as invalid."""
 
+require_pkce.desc:
+"""Whether to require PKCE when getting the token."""
+
 }

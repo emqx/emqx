@@ -33,6 +33,7 @@
     <<"content-type">> => <<"text/plain">>
 }).
 -define(REDIRECT_BODY, <<"Redirecting...">>).
+-define(PKCE_VERIFIER_LEN, 60).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -84,6 +85,11 @@ fields(oidc) ->
                 ?HOCON(emqx_schema:timeout_duration_ms(), #{
                     desc => ?DESC(session_expiry),
                     default => <<"30s">>
+                })},
+            {require_pkce,
+                ?HOCON(boolean(), #{
+                    desc => ?DESC(require_pkce),
+                    default => false
                 })}
         ];
 fields(login) ->
@@ -133,25 +139,27 @@ login(
         config := #{
             clientid := ClientId,
             secret := Secret,
-            scopes := Scopes
+            scopes := Scopes,
+            require_pkce := RequirePKCE
         }
     } = Cfg
 ) ->
     Nonce = emqx_dashboard_sso_oidc_session:random_bin(),
-    Data = #{nonce => Nonce},
+    Opts = maybe_require_pkce(RequirePKCE, #{
+        scopes => Scopes,
+        nonce => Nonce,
+        redirect_uri => emqx_dashboard_sso_oidc_api:make_callback_url(Cfg)
+    }),
 
+    Data = maps:with([nonce, require_pkce, pkce_verifier], Opts),
     State = emqx_dashboard_sso_oidc_session:new(Data),
+
     case
         oidcc:create_redirect_url(
             ?PROVIDER_SVR_NAME,
             ClientId,
             Secret,
-            #{
-                scopes => Scopes,
-                state => State,
-                nonce => Nonce,
-                redirect_uri => emqx_dashboard_sso_oidc_api:make_callback_url(Cfg)
-            }
+            Opts#{state => State}
         )
     of
         {ok, [Base, Delimiter, Params]} ->
@@ -164,3 +172,11 @@ login(
 
 convert_certs(_Dir, Conf) ->
     Conf.
+
+maybe_require_pkce(false, Opts) ->
+    Opts;
+maybe_require_pkce(true, Opts) ->
+    Opts#{
+        require_pkce => true,
+        pkce_verifier => emqx_dashboard_sso_oidc_session:random_bin(?PKCE_VERIFIER_LEN)
+    }.

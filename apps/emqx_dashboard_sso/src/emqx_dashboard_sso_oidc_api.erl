@@ -115,7 +115,7 @@ ensure_oidc_state(#{<<"state">> := State} = QS, Cfg) ->
 retrieve_token(
     #{<<"code">> := Code},
     #{name := Name, config := #{clientid := ClientId, secret := Secret}} = Cfg,
-    #{nonce := Nonce} = _Data
+    Data
 ) ->
     case
         oidcc:retrieve_token(
@@ -123,7 +123,7 @@ retrieve_token(
             Name,
             ClientId,
             Secret,
-            #{redirect_uri => make_callback_url(Cfg), nonce => Nonce}
+            Data#{redirect_uri => make_callback_url(Cfg)}
         )
     of
         {ok, Token} ->
