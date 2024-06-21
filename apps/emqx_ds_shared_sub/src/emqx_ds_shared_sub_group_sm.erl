@@ -67,6 +67,7 @@
 %% TODO https://emqx.atlassian.net/browse/EMQX-12574
 %% Move to settings
 -define(FIND_LEADER_TIMEOUT, 1000).
+-define(RENEW_LEASE_TIMEOUT, 2000).
 
 %%-----------------------------------------------------------------------
 %% API
@@ -91,10 +92,7 @@ new(#{
         agent => Agent,
         send_after => SendAfter
     },
-    GSM1 = transition(GSM0, ?connecting, #{}),
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, ShareTopicFilter),
-    GSM2 = ensure_state_timeout(GSM1, find_leader_timeout, ?FIND_LEADER_TIMEOUT, find_leader),
-    GSM2.
+    transition(GSM0, ?connecting, #{}).
 
 fetch_stream_events(
     #{
@@ -125,8 +123,12 @@ fetch_stream_events(GSM) ->
 %%-----------------------------------------------------------------------
 %% Connecting state
 
+handle_connecting(#{agent := Agent, topic_filter := ShareTopicFilter} = GSM) ->
+    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, ShareTopicFilter),
+    ensure_state_timeout(GSM, find_leader_timeout, ?FIND_LEADER_TIMEOUT).
+
 handle_leader_lease_streams(
-    #{state := ?connecting, topic_filter := TopicFilter} = GSM, StreamProgresses, Version
+    #{state := ?connecting, topic_filter := TopicFilter} = GSM0, StreamProgresses, Version
 ) ->
     ?tp(debug, leader_lease_streams, #{topic_filter => TopicFilter}),
     Streams = lists:foldl(
@@ -147,14 +149,13 @@ handle_leader_lease_streams(
         StreamProgresses
     ),
     transition(
-        GSM,
+        GSM0,
         ?replaying,
         #{
             streams => Streams,
             stream_lease_events => StreamLeaseEvents,
             prev_version => undefined,
-            version => Version,
-            last_update_time => erlang:monotonic_time(millisecond)
+            version => Version
         }
     );
 handle_leader_lease_streams(GSM, _StreamProgresses, _Version) ->
@@ -162,23 +163,31 @@ handle_leader_lease_streams(GSM, _StreamProgresses, _Version) ->
 
 handle_find_leader_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM0) ->
     ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, TopicFilter),
-    GSM1 = ensure_state_timeout(GSM0, find_leader_timeout, ?FIND_LEADER_TIMEOUT, find_leader),
+    GSM1 = ensure_state_timeout(GSM0, find_leader_timeout, ?FIND_LEADER_TIMEOUT),
     GSM1.
 
 %%-----------------------------------------------------------------------
 %% Replaying state
 
+handle_replaying(GSM) ->
+    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT).
+
 handle_leader_renew_stream_lease(
-    #{state := ?replaying, state_data := #{version := Version} = Data} = GSM, Version
+    #{state := ?replaying, state_data := #{version := Version}} = GSM, Version
 ) ->
-    GSM#{
-        state_data => Data#{last_update_time => erlang:monotonic_time(millisecond)}
-    };
+    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
 handle_leader_renew_stream_lease(GSM, _Version) ->
     GSM.
 
+handle_renew_lease_timeout(GSM) ->
+    ?tp(debug, renew_lease_timeout, #{}),
+    transition(GSM, ?connecting, #{}).
+
 %%-----------------------------------------------------------------------
 %% Updating state
+
+handle_updating(GSM) ->
+    GSM.
 
 %%-----------------------------------------------------------------------
 %% Internal API
@@ -187,10 +196,16 @@ handle_leader_renew_stream_lease(GSM, _Version) ->
 handle_state_timeout(
     #{state := ?connecting, topic_filter := TopicFilter} = GSM,
     find_leader_timeout,
-    find_leader
+    _Message
 ) ->
     ?tp(debug, find_leader_timeout, #{topic_filter => TopicFilter}),
-    handle_find_leader_timeout(GSM).
+    handle_find_leader_timeout(GSM);
+handle_state_timeout(
+    #{state := ?replaying} = GSM,
+    renew_lease_timeout,
+    _Message
+) ->
+    handle_renew_lease_timeout(GSM).
 
 handle_info(
     #{state_timers := Timers} = GSM, #state_timeout{message = Message, name = Name, id = Id} = _Info
@@ -219,11 +234,15 @@ transition(GSM0, NewState, NewStateData) ->
         GSM0,
         TimerNames
     ),
-    GSM1#{
+    GSM2 = GSM1#{
         state => NewState,
         state_data => NewStateData,
         state_timers => #{}
-    }.
+    },
+    run_enter_callback(GSM2).
+
+ensure_state_timeout(GSM0, Name, Delay) ->
+    ensure_state_timeout(GSM0, Name, Delay, Name).
 
 ensure_state_timeout(GSM0, Name, Delay, Message) ->
     Id = make_ref(),
@@ -254,3 +273,10 @@ cancel_timer(GSM, Name) ->
         _ ->
             GSM
     end.
+
+run_enter_callback(#{state := ?connecting} = GSM) ->
+    handle_connecting(GSM);
+run_enter_callback(#{state := ?replaying} = GSM) ->
+    handle_replaying(GSM);
+run_enter_callback(#{state := ?updating} = GSM) ->
+    handle_updating(GSM).
