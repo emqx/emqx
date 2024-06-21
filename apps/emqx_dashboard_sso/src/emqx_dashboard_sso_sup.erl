@@ -10,17 +10,19 @@
 
 -export([init/1]).
 
--define(CHILD(I, Args), {I, {I, start_link, Args}, permanent, 5000, worker, [I]}).
--define(CHILD(I), ?CHILD(I, [])).
+-define(CHILD(I, Args, Restart), {I, {I, start_link, Args}, Restart, 5000, worker, [I]}).
+-define(CHILD(I), ?CHILD(I, [], permanent)).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 start_child(Mod, Args) ->
-    supervisor:start_child(?MODULE, ?CHILD(Mod, Args)).
+    supervisor:start_child(?MODULE, ?CHILD(Mod, Args, transient)).
 
 stop_child(Mod) ->
-    supervisor:terminate_child(?MODULE, Mod).
+    _ = supervisor:terminate_child(?MODULE, Mod),
+    _ = supervisor:delete_child(?MODULE, Mod),
+    ok.
 
 init([]) ->
     {ok,

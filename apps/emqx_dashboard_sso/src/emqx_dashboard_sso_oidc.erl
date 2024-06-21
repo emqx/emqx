@@ -90,8 +90,27 @@ fields(oidc) ->
                 ?HOCON(boolean(), #{
                     desc => ?DESC(require_pkce),
                     default => false
+                })},
+            {client_jwks,
+                %% TODO: add url JWKS
+                ?HOCON(?UNION([none, ?R_REF(client_file_jwks)]), #{
+                    desc => ?DESC(client_jwks),
+                    default => none
                 })}
         ];
+fields(client_file_jwks) ->
+    [
+        {type,
+            ?HOCON(?ENUM([file]), #{
+                desc => ?DESC(client_file_jwks_type),
+                required => true
+            })},
+        {file,
+            ?HOCON(binary(), #{
+                desc => ?DESC(client_file_jwks_file),
+                required => true
+            })}
+    ];
 fields(login) ->
     [
         emqx_dashboard_sso_schema:backend_schema([oidc])
@@ -119,9 +138,11 @@ create(#{name_var := NameVar} = Config) ->
             %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
             %% we should use this name in each API calls not the PID,
             %% or it would backoff to sync calls to the gen_server
+            ClientJwks = init_client_jwks(Config),
             {ok, #{
                 name => ?PROVIDER_SVR_NAME,
                 config => Config,
+                client_jwks => ClientJwks,
                 name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
             }}
     end.
@@ -130,12 +151,14 @@ update(Config, State) ->
     destroy(State),
     create(Config).
 
-destroy(_) ->
-    emqx_dashboard_sso_oidc_session:stop().
+destroy(State) ->
+    emqx_dashboard_sso_oidc_session:stop(),
+    try_delete_jwks_file(State).
 
 login(
     _Req,
     #{
+        client_jwks := ClientJwks,
         config := #{
             clientid := ClientId,
             secret := Secret,
@@ -159,7 +182,7 @@ login(
             ?PROVIDER_SVR_NAME,
             ClientId,
             Secret,
-            Opts#{state => State}
+            Opts#{state => State, client_jwks => ClientJwks}
         )
     of
         {ok, [Base, Delimiter, Params]} ->
@@ -170,8 +193,48 @@ login(
             Error
     end.
 
+convert_certs(
+    Dir,
+    #{
+        <<"client_jwks">> := #{
+            <<"type">> := file,
+            <<"file">> := Content
+        } = Jwks
+    } = Conf
+) ->
+    case save_jwks_file(Dir, Content) of
+        {ok, Path} ->
+            Conf#{<<"client_jwks">> := Jwks#{<<"file">> := Path}};
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_save_client_jwks", reason => Reason}),
+            throw("Failed to save client jwks")
+    end;
 convert_certs(_Dir, Conf) ->
     Conf.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+save_jwks_file(Dir, Content) ->
+    Path = filename:join([emqx_tls_lib:pem_dir(Dir), "client_jwks"]),
+    case filelib:ensure_dir(Path) of
+        ok ->
+            case file:write_file(Path, Content) of
+                ok ->
+                    {ok, Path};
+                {error, Reason} ->
+                    {error, #{failed_to_write_file => Reason, file_path => Path}}
+            end;
+        {error, Reason} ->
+            {error, #{failed_to_create_dir_for => Path, reason => Reason}}
+    end.
+
+try_delete_jwks_file(#{config := #{client_jwks := #{type := file, file := File}}}) ->
+    _ = file:delete(File),
+    ok;
+try_delete_jwks_file(_) ->
+    ok.
 
 maybe_require_pkce(false, Opts) ->
     Opts;
@@ -180,3 +243,13 @@ maybe_require_pkce(true, Opts) ->
         require_pkce => true,
         pkce_verifier => emqx_dashboard_sso_oidc_session:random_bin(?PKCE_VERIFIER_LEN)
     }.
+
+init_client_jwks(#{client_jwks := #{type := file, file := File}}) ->
+    case jose_jwk:from_file(File) of
+        {error, _} ->
+            none;
+        Jwks ->
+            Jwks
+    end;
+init_client_jwks(_) ->
+    none.

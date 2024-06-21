@@ -24,4 +24,13 @@ session_expiry.desc:
 require_pkce.desc:
 """Whether to require PKCE when getting the token."""
 
+client_jwks.desc:
+"""Set JWK or JWKS here to enable the `private_key_jwt` authorization or the `DPoP` extension."""
+
+client_file_jwks_type.desc:
+"""The JWKS source type."""
+
+client_file_jwks_file.desc:
+"""The content of the JWKS."""
+
 }
