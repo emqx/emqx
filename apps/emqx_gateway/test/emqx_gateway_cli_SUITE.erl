@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(GP(S), begin
     S,
@@ -28,13 +29,6 @@
         O -> O
     end
 end).
-
-%% this parses to #{}, will not cause config cleanup
-%% so we will need call emqx_config:erase
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway {}\n"
->>).
 
 %% The config with json format for mqtt-sn gateway
 -define(CONF_MQTTSN,
@@ -65,13 +59,18 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Conf) ->
     emqx_config:erase(gateway),
     emqx_gateway_test_utils:load_all_gateway_apps(),
-    emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_gateway]),
-    Conf.
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, <<"gateway {}">>},
+            emqx_gateway
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+    ),
+    [{suite_apps, Apps} | Conf].
 
 end_per_suite(Conf) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth, emqx_conf]),
-    Conf.
+    emqx_cth_suite:stop(?config(suite_apps, Conf)),
+    emqx_config:delete_override_conf_files().
 
 init_per_testcase(_, Conf) ->
     Self = self(),
