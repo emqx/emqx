@@ -26,7 +26,7 @@ init_per_suite(Config) ->
                     },
                     <<"durable_storage">> => #{
                         <<"messages">> => #{
-                            <<"backend">> => <<"builtin">>
+                            <<"backend">> => <<"builtin_raft">>
                         }
                     }
                 }

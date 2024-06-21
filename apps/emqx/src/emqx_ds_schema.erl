@@ -263,7 +263,7 @@ common_builtin_fields() ->
             sc(
                 pos_integer(),
                 #{
-                    default => 12,
+                    default => 16,
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(builtin_n_shards)
                 }
