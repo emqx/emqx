@@ -199,20 +199,24 @@ regex_match(Str, RE) ->
 regex_replace(SrcStr, RE, RepStr) ->
     re:replace(SrcStr, RE, RepStr, [global, {return, binary}]).
 
-%% @doc Searches the string Str for patterns specified by Regexp.
+%% @doc Non-global search for specified by regular expression patter in the given string.
 %% If matches are found, it returns a list of all captured groups from these matches.
 %% If no matches are found or there are no groups captured, it returns an empty list.
 %% This function can be used to extract parts of a string based on a regular expression,
 %% excluding the complete match itself.
+%%
 %% Examples:
 %%  ("Number: 12345", "(\\d+)") -> [<<"12345">>]
-%%  ("Hello, world!", "(\\w+)") -> [<<"Hello">>, <<"world">>]
+%%  ("Hello, world!", "(\\w+).*\s(\\w+)") -> [<<"Hello">>, <<"world">>]
 %%  ("No numbers here!", "(\\d+)") -> []
 %%  ("Date: 2021-05-20", "(\\d{4})-(\\d{2})-(\\d{2})") -> [<<"2021">>, <<"05">>, <<"20">>]
+-spec regex_extract(string() | binary(), string() | binary()) -> [binary()].
 regex_extract(Str, Regexp) ->
-    case re:run(Str, Regexp, [{capture, all_but_first, list}]) of
-        {match, [_ | _] = L} -> lists:map(fun erlang:iolist_to_binary/1, L);
-        _ -> []
+    case re:run(Str, Regexp, [{capture, all_but_first, binary}]) of
+        {match, CapturedGroups} ->
+            CapturedGroups;
+        _ ->
+            []
     end.
 
 ascii(Char) when is_binary(Char) ->
