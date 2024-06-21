@@ -43,10 +43,13 @@
 %% API functions
 %%================================================================================
 
+-spec start_top() -> {ok, pid()}.
+start_top() ->
+    supervisor:start_link({local, ?top}, ?MODULE, ?top).
+
 -spec start_db(emqx_ds:db(), emqx_ds_builtin_local:db_opts()) ->
     supervisor:startchild_ret().
 start_db(DB, Opts) ->
-    ensure_top(),
     ChildSpec = #{
         id => DB,
         start => {?databases, start_db, [DB, Opts]},
@@ -81,7 +84,6 @@ stop_db(DB) ->
 %% Chidren are attached dynamically to this one.
 init(?top) ->
     %% Children:
-    MetricsWorker = emqx_ds_builtin_metrics:child_spec(),
     MetadataServer = #{
         id => metadata_server,
         start => {emqx_ds_builtin_local_meta, start_link, []},
@@ -103,7 +105,7 @@ init(?top) ->
         period => 1,
         auto_shutdown => never
     },
-    {ok, {SupFlags, [MetricsWorker, MetadataServer, DBsSup]}};
+    {ok, {SupFlags, [MetadataServer, DBsSup]}};
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
@@ -117,17 +119,9 @@ init(?databases) ->
 %% Internal exports
 %%================================================================================
 
--spec start_top() -> {ok, pid()}.
-start_top() ->
-    supervisor:start_link({local, ?top}, ?MODULE, ?top).
-
 start_databases_sup() ->
     supervisor:start_link({local, ?databases}, ?MODULE, ?databases).
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-ensure_top() ->
-    {ok, _} = emqx_ds_sup:attach_backend(builtin_local, {?MODULE, start_top, []}),
-    ok.

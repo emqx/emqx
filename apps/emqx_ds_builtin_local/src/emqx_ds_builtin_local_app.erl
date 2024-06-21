@@ -27,8 +27,7 @@
 
 start(_StartType, _StartArgs) ->
     emqx_ds:register_backend(builtin_local, emqx_ds_builtin_local),
-    %% TODO: fixme
-    {ok, self()}.
+    emqx_ds_builtin_local_sup:start_top().
 
 %%================================================================================
 %% Internal exports

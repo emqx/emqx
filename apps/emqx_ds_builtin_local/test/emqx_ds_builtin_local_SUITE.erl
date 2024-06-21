@@ -335,12 +335,12 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_TC, Config) ->
-    application:ensure_all_started(emqx_durable_storage),
+    application:ensure_all_started(emqx_ds_builtin_local),
     Config.
 
 end_per_testcase(_TC, _Config) ->
     snabbkaffe:stop(),
-    ok = application:stop(emqx_durable_storage),
+    ok = application:stop(emqx_ds_builtin_local),
     mria:stop(),
     _ = mnesia:delete_schema([node()]),
     ok.

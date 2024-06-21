@@ -8,4 +8,4 @@
 
 start(_Type, _Args) ->
     emqx_ds:register_backend(builtin_raft, emqx_ds_replication_layer),
-    {ok, self()}.
+    emqx_ds_builtin_raft_sup:start_top().

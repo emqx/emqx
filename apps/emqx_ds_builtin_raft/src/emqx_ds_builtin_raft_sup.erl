@@ -10,14 +10,14 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_db/2, stop_db/1]).
+-export([start_top/0, start_db/2, stop_db/1]).
 -export([set_gvar/3, get_gvar/3, clean_gvars/1]).
 
 %% behavior callbacks:
 -export([init/1]).
 
 %% internal exports:
--export([start_top/0, start_databases_sup/0]).
+-export([start_databases_sup/0]).
 
 -export_type([]).
 
@@ -38,10 +38,13 @@
 %% API functions
 %%================================================================================
 
+-spec start_top() -> {ok, pid()}.
+start_top() ->
+    supervisor:start_link({local, ?top}, ?MODULE, ?top).
+
 -spec start_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     supervisor:startchild_ret().
 start_db(DB, Opts) ->
-    ensure_top(),
     ChildSpec = #{
         id => DB,
         start => {emqx_ds_builtin_raft_db_sup, start_db, [DB, Opts]},
@@ -96,7 +99,6 @@ clean_gvars(DB) ->
 %% Chidren are attached dynamically to this one.
 init(?top) ->
     %% Children:
-    MetricsWorker = emqx_ds_builtin_metrics:child_spec(),
     MetadataServer = #{
         id => metadata_server,
         start => {emqx_ds_replication_layer_meta, start_link, []},
@@ -119,7 +121,7 @@ init(?top) ->
         period => 1,
         auto_shutdown => never
     },
-    {ok, {SupFlags, [MetricsWorker, MetadataServer, DBsSup]}};
+    {ok, {SupFlags, [MetadataServer, DBsSup]}};
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
@@ -133,17 +135,9 @@ init(?databases) ->
 %% Internal exports
 %%================================================================================
 
--spec start_top() -> {ok, pid()}.
-start_top() ->
-    supervisor:start_link({local, ?top}, ?MODULE, ?top).
-
 start_databases_sup() ->
     supervisor:start_link({local, ?databases}, ?MODULE, ?databases).
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-ensure_top() ->
-    {ok, _} = emqx_ds_sup:attach_backend(builtin_raft, {?MODULE, start_top, []}),
-    ok.

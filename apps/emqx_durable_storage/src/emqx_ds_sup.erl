@@ -18,7 +18,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/0, attach_backend/2]).
+-export([start_link/0]).
 -export([register_db/2, unregister_db/1, which_dbs/0]).
 
 %% behaviour callbacks:
@@ -39,27 +39,6 @@
 start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, top).
 
-%% @doc Attach a child backend-specific supervisor to the top
-%% application supervisor, if not yet present
--spec attach_backend(_BackendId, {module(), atom(), list()}) ->
-    {ok, pid()} | {error, _}.
-attach_backend(Backend, Start) ->
-    Spec = #{
-        id => Backend,
-        start => Start,
-        significant => false,
-        shutdown => infinity,
-        type => supervisor
-    },
-    case supervisor:start_child(?SUP, Spec) of
-        {ok, Pid} ->
-            {ok, Pid};
-        {error, {already_started, Pid}} ->
-            {ok, Pid};
-        {error, Err} ->
-            {error, Err}
-    end.
-
 register_db(DB, Backend) ->
     ets:insert(?TAB, {DB, Backend}),
     ok.
@@ -77,7 +56,7 @@ which_dbs() ->
 
 init(top) ->
     _ = ets:new(?TAB, [public, set, named_table]),
-    Children = [],
+    Children = [emqx_ds_builtin_metrics:child_spec()],
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,

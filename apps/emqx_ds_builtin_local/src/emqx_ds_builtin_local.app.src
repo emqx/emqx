@@ -5,7 +5,7 @@
     {vsn, "0.1.0"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib, rocksdb, emqx_durable_storage, emqx_utils]},
+    {applications, [kernel, stdlib, gproc, mria, rocksdb, emqx_durable_storage, emqx_utils]},
     {mod, {emqx_ds_builtin_local_app, []}},
     {env, []}
 ]}.
