@@ -33,4 +33,13 @@ client_file_jwks_type.desc:
 client_file_jwks_file.desc:
 """The content of the JWKS."""
 
+preferred_auth_methods.desc:
+"""Set the valid authentication methods and their priority."""
+
+provider.desc:
+"""The OIDC provider."""
+
+fallback_methods.desc:
+"""Some providers do not provide all the method items in the provider configuration, set this value as a fallback for those items."""
+
 }

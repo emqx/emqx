@@ -91,6 +91,38 @@ fields(oidc) ->
                     desc => ?DESC(require_pkce),
                     default => false
                 })},
+            {preferred_auth_methods,
+                ?HOCON(
+                    ?ARRAY(
+                        ?ENUM([
+                            private_key_jwt,
+                            client_secret_jwt,
+                            client_secret_post,
+                            client_secret_basic,
+                            none
+                        ])
+                    ),
+                    #{
+                        desc => ?DESC(preferred_auth_methods),
+                        default => [
+                            client_secret_post,
+                            client_secret_basic,
+                            none
+                        ]
+                    }
+                )},
+            {provider,
+                ?HOCON(?ENUM([okta, generic]), #{
+                    mapping => "oidcc.provider",
+                    desc => ?DESC(provider),
+                    default => generic
+                })},
+            {fallback_methods,
+                ?HOCON(?ARRAY(binary()), #{
+                    mapping => "oidcc.fallback_methods",
+                    desc => ?DESC(fallback_methods),
+                    default => [<<"RS256">>]
+                })},
             {client_jwks,
                 %% TODO: add url JWKS
                 ?HOCON(?UNION([none, ?R_REF(client_file_jwks)]), #{
@@ -155,6 +187,7 @@ destroy(State) ->
     emqx_dashboard_sso_oidc_session:stop(),
     try_delete_jwks_file(State).
 
+-dialyzer({nowarn_function, login/2}).
 login(
     _Req,
     #{
@@ -163,7 +196,8 @@ login(
             clientid := ClientId,
             secret := Secret,
             scopes := Scopes,
-            require_pkce := RequirePKCE
+            require_pkce := RequirePKCE,
+            preferred_auth_methods := AuthMethods
         }
     } = Cfg
 ) ->
@@ -182,7 +216,11 @@ login(
             ?PROVIDER_SVR_NAME,
             ClientId,
             Secret,
-            Opts#{state => State, client_jwks => ClientJwks}
+            Opts#{
+                state => State,
+                client_jwks => ClientJwks,
+                preferred_auth_methods => AuthMethods
+            }
         )
     of
         {ok, [Base, Delimiter, Params]} ->
