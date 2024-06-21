@@ -37,7 +37,7 @@ on_unsubscribe(Agent, _TopicFilter) ->
     Agent.
 
 renew_streams(Agent) ->
-    {[], [], Agent}.
+    {[], Agent}.
 
 on_stream_progress(Agent, _StreamProgress) ->
     Agent.

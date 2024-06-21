@@ -4,9 +4,10 @@
 
 -module(emqx_ds_shared_sub_agent).
 
--include_lib("emqx/include/emqx_persistent_message.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
+
+-include("emqx_ds_shared_sub_proto.hrl").
 
 -export([
     new/1,
@@ -22,6 +23,11 @@
 
 -behaviour(emqx_persistent_session_ds_shared_subs_agent).
 
+-record(message_to_group_sm, {
+    group :: emqx_types:group(),
+    message :: term()
+}).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -32,8 +38,8 @@ new(Opts) ->
 open(TopicSubscriptions, Opts) ->
     State0 = init_state(Opts),
     State1 = lists:foldl(
-        fun({ShareTopicFilter, #{start_time := StartTime}}, State) ->
-            add_subscription(State, ShareTopicFilter, StartTime)
+        fun({ShareTopicFilter, #{}}, State) ->
+            add_group_subscription(State, ShareTopicFilter)
         end,
         State0,
         TopicSubscriptions
@@ -41,23 +47,44 @@ open(TopicSubscriptions, Opts) ->
     State1.
 
 on_subscribe(State0, TopicFilter, _SubOpts) ->
-    StartTime = now_ms(),
-    State1 = add_subscription(State0, TopicFilter, StartTime),
+    State1 = add_group_subscription(State0, TopicFilter),
     {ok, State1}.
 
 on_unsubscribe(State, TopicFilter) ->
-    delete_subscription(State, TopicFilter).
+    delete_group_subscription(State, TopicFilter).
 
-renew_streams(State0) ->
-    State1 = do_renew_streams(State0),
-    {State2, StreamLeases} = stream_leases(State1),
-    {StreamLeases, [], State2}.
+renew_streams(#{} = State) ->
+    fetch_stream_events(State).
 
 on_stream_progress(State, _StreamProgress) ->
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
+    %% Send to leader
     State.
 
-on_info(State, _Info) ->
-    State.
+on_info(State, ?leader_lease_streams_match(Group, StreamProgresses, Version)) ->
+    ?SLOG(info, #{
+        msg => leader_lease_streams,
+        group => Group,
+        streams => StreamProgresses,
+        version => Version
+    }),
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_leader_lease_streams(GSM, StreamProgresses, Version)
+    end);
+on_info(State, ?leader_renew_stream_lease_match(Group, Version)) ->
+    ?SLOG(info, #{
+        msg => leader_renew_stream_lease,
+        group => Group,
+        version => Version
+    }),
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_leader_renew_stream_lease(GSM, Version)
+    end);
+%% Generic messages sent by group_sm's to themselves (timeouts).
+on_info(State, #message_to_group_sm{group = Group, message = Message}) ->
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_info(GSM, Message)
+    end).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -65,92 +92,67 @@ on_info(State, _Info) ->
 
 init_state(Opts) ->
     SessionId = maps:get(session_id, Opts),
-    SendFuns = maps:get(send_funs, Opts),
-    Send = maps:get(send, SendFuns),
-    SendAfter = maps:get(send_after, SendFuns),
     #{
         session_id => SessionId,
-        send => Send,
-        end_after => SendAfter,
-        subscriptions => #{}
+        groups => #{}
     }.
 
-% send(State, Pid, Msg) ->
-%     Send = maps:get(send, State),
-%     Send(Pid, Msg).
+delete_group_subscription(State, _ShareTopicFilter) ->
+    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
+    State.
 
-% send_after(State, Time, Pid, Msg) ->
-%     SendAfter = maps:get(send_after, State),
-%     SendAfter(Time, Pid, Msg).
-
-do_renew_streams(#{subscriptions := Subs0} = State0) ->
-    Subs1 = maps:map(
-        fun(
-            ShareTopicFilter,
-            #{start_time := StartTime, streams := Streams0, stream_leases := StreamLeases} = Sub
-        ) ->
-            #share{topic = TopicFilterRaw} = ShareTopicFilter,
-            TopicFilter = emqx_topic:words(TopicFilterRaw),
-            {_, NewStreams} = lists:unzip(
-                emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime)
-            ),
-            {Streams1, NewLeases} = lists:foldl(
-                fun(Stream, {StreamsAcc, LeasesAcc}) ->
-                    case StreamsAcc of
-                        #{Stream := _} ->
-                            {StreamsAcc, LeasesAcc};
-                        _ ->
-                            {ok, It} = emqx_ds:make_iterator(
-                                ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
-                            ),
-                            StreamLease = #{
-                                topic_filter => ShareTopicFilter,
-                                stream => Stream,
-                                iterator => It
-                            },
-                            {StreamsAcc#{Stream => It}, [StreamLease | LeasesAcc]}
-                    end
-                end,
-                {Streams0, []},
-                NewStreams
-            ),
-            Sub#{streams => Streams1, stream_leases => StreamLeases ++ NewLeases}
-        end,
-        Subs0
-    ),
-    State0#{subscriptions => Subs1}.
-
-delete_subscription(#{session_id := SessionId, subscriptions := Subs0} = State0, ShareTopicFilter) ->
-    #share{topic = TopicFilter} = ShareTopicFilter,
-    ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId),
-    Subs1 = maps:remove(ShareTopicFilter, Subs0),
-    State0#{subscriptions => Subs1}.
-
-stream_leases(#{subscriptions := Subs0} = State0) ->
-    {Subs1, StreamLeases} = lists:foldl(
-        fun({TopicFilter, #{stream_leases := Leases} = Sub}, {SubsAcc, LeasesAcc}) ->
-            {SubsAcc#{TopicFilter => Sub#{stream_leases => []}}, [Leases | LeasesAcc]}
-        end,
-        {Subs0, []},
-        maps:to_list(Subs0)
-    ),
-    State1 = State0#{subscriptions => Subs1},
-    {State1, lists:concat(StreamLeases)}.
-
-now_ms() ->
-    erlang:system_time(millisecond).
-
-add_subscription(
-    #{subscriptions := Subs0, session_id := SessionId} = State0, ShareTopicFilter, StartTime
+add_group_subscription(
+    #{groups := Groups0} = State0, ShareTopicFilter
 ) ->
-    #share{topic = TopicFilter} = ShareTopicFilter,
-    ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, SessionId),
-    Subs1 = Subs0#{
-        ShareTopicFilter => #{
-            start_time => StartTime,
-            streams => #{},
-            stream_leases => []
-        }
+    ?SLOG(info, #{
+        msg => agent_add_group_subscription,
+        topic_filter => ShareTopicFilter
+    }),
+    #share{group = Group} = ShareTopicFilter,
+    Groups1 = Groups0#{
+        Group => emqx_ds_shared_sub_group_sm:new(#{
+            topic_filter => ShareTopicFilter,
+            agent => this_agent(),
+            send_after => send_to_subscription_after(Group)
+        })
     },
-    State1 = State0#{subscriptions => Subs1},
+    State1 = State0#{groups => Groups1},
     State1.
+
+fetch_stream_events(#{groups := Groups0} = State0) ->
+    {Groups1, Events} = maps:fold(
+        fun(Group, GroupSM0, {GroupsAcc, EventsAcc}) ->
+            {GroupSM1, Events} = emqx_ds_shared_sub_group_sm:fetch_stream_events(GroupSM0),
+            {GroupsAcc#{Group => GroupSM1}, [Events | EventsAcc]}
+        end,
+        {#{}, []},
+        Groups0
+    ),
+    State1 = State0#{groups => Groups1},
+    {lists:concat(Events), State1}.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+this_agent() -> self().
+
+send_to_subscription_after(Group) ->
+    fun(Time, Msg) ->
+        emqx_persistent_session_ds_shared_subs_agent:send_after(
+            Time,
+            self(),
+            #message_to_group_sm{group = Group, message = Msg}
+        )
+    end.
+
+with_group_sm(State, Group, Fun) ->
+    case State of
+        #{groups := #{Group := GSM0} = Groups} ->
+            GSM1 = Fun(GSM0),
+            State#{groups => Groups#{Group => GSM1}};
+        _ ->
+            %% TODO
+            %% Error?
+            State
+    end.

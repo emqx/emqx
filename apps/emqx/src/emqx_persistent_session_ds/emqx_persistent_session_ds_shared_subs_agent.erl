@@ -5,6 +5,8 @@
 -module(emqx_persistent_session_ds_shared_subs_agent).
 
 -include("shared_subs_agent.hrl").
+-include("emqx_session.hrl").
+-include("session_internals.hrl").
 
 -type session_id() :: emqx_persistent_session_ds:id().
 
@@ -16,18 +18,15 @@
 -type topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
 
 -type opts() :: #{
-    session_id := session_id(),
-    send_funs := #{
-        send := fun((pid(), term()) -> term()),
-        send_after := fun((non_neg_integer(), pid(), term()) -> reference())
-    }
+    session_id := session_id()
 }.
 
 %% TODO
-%% This records goe through network, we better shrink them
+%% This records go through network, we better shrink them
 %% * use integer keys
 %% * somehow avoid passing stream and topic_filter — they both are part of the iterator
 -type stream_lease() :: #{
+    type => lease,
     %% Used as "external" subscription_id
     topic_filter := topic_filter(),
     stream := emqx_ds:stream(),
@@ -35,9 +34,12 @@
 }.
 
 -type stream_revoke() :: #{
+    type => revoke,
     topic_filter := topic_filter(),
     stream := emqx_ds:stream()
 }.
+
+-type stream_lease_event() :: stream_lease() | stream_revoke().
 
 -type stream_progress() :: #{
     topic_filter := topic_filter(),
@@ -65,6 +67,11 @@
     renew_streams/1
 ]).
 
+-export([
+    send/2,
+    send_after/3
+]).
+
 %%--------------------------------------------------------------------
 %% Behaviour
 %%--------------------------------------------------------------------
@@ -74,7 +81,7 @@
 -callback on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
     {ok, t()} | {error, term()}.
 -callback on_unsubscribe(t(), topic_filter()) -> t().
--callback renew_streams(t()) -> {[stream_lease()], [stream_revoke()], t()}.
+-callback renew_streams(t()) -> {[stream_lease_event()], t()}.
 -callback on_stream_progress(t(), [stream_progress()]) -> t().
 -callback on_info(t(), term()) -> t().
 
@@ -99,7 +106,7 @@ on_subscribe(Agent, TopicFilter, SubOpts) ->
 on_unsubscribe(Agent, TopicFilter) ->
     ?shared_subs_agent:on_unsubscribe(Agent, TopicFilter).
 
--spec renew_streams(t()) -> {[stream_lease()], [stream_revoke()], t()}.
+-spec renew_streams(t()) -> {[stream_lease_event()], t()}.
 renew_streams(Agent) ->
     ?shared_subs_agent:renew_streams(Agent).
 
@@ -110,3 +117,11 @@ on_stream_progress(Agent, StreamProgress) ->
 -spec on_info(t(), term()) -> t().
 on_info(Agent, Info) ->
     ?shared_subs_agent:on_info(Agent, Info).
+
+-spec send(pid(), term()) -> term().
+send(Dest, Msg) ->
+    erlang:send(Dest, ?session_message(?shared_sub_message(Msg))).
+
+-spec send_after(non_neg_integer(), pid(), term()) -> reference().
+send_after(Time, Dest, Msg) ->
+    erlang:send_after(Time, Dest, ?session_message(?shared_sub_message(Msg))).
