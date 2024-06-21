@@ -186,8 +186,8 @@ handle_renew_lease_timeout(GSM) ->
 %%-----------------------------------------------------------------------
 %% Updating state
 
-% handle_updating(GSM) ->
-%     GSM.
+handle_updating(GSM) ->
+    GSM.
 
 %%-----------------------------------------------------------------------
 %% Internal API
@@ -277,6 +277,6 @@ cancel_timer(GSM, Name) ->
 run_enter_callback(#{state := ?connecting} = GSM) ->
     handle_connecting(GSM);
 run_enter_callback(#{state := ?replaying} = GSM) ->
-    handle_replaying(GSM).
-% run_enter_callback(#{state := ?updating} = GSM) ->
-%     handle_updating(GSM).
+    handle_replaying(GSM);
+run_enter_callback(#{state := ?updating} = GSM) ->
+    handle_updating(GSM).
