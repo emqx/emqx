@@ -809,17 +809,18 @@ maybe_stop_resource(#data{status = Status} = Data) when Status =/= ?rm_status_st
 maybe_stop_resource(#data{status = ?rm_status_stopped} = Data) ->
     Data.
 
-stop_resource(#data{state = ResState, id = ResId} = Data) ->
+stop_resource(#data{id = ResId} = Data) ->
     %% We don't care about the return value of `Mod:on_stop/2'.
     %% The callback mod should make sure the resource is stopped after on_stop/2
     %% is returned.
     HasAllocatedResources = emqx_resource:has_allocated_resources(ResId),
     %% Before stop is called we remove all the channels from the resource
     NewData = remove_channels(Data),
-    case ResState =/= undefined orelse HasAllocatedResources of
+    NewResState = NewData#data.state,
+    case NewResState =/= undefined orelse HasAllocatedResources of
         true ->
             %% we clear the allocated resources after stop is successful
-            emqx_resource:call_stop(NewData#data.id, NewData#data.mod, ResState);
+            emqx_resource:call_stop(NewData#data.id, NewData#data.mod, NewResState);
         false ->
             ok
     end,
