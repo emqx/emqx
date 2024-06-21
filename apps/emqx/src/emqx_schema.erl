@@ -3613,9 +3613,17 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_keepalive_multiplier)
                 }
             )},
+        {"keepalive_check_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"30s">>,
+                    desc => ?DESC(mqtt_keepalive_check_interval)
+                }
+            )},
         {"retry_interval",
             sc(
-                duration(),
+                timeout_duration(),
                 #{
                     default => <<"30s">>,
                     desc => ?DESC(mqtt_retry_interval)

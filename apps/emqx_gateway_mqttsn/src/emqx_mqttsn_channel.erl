@@ -430,7 +430,7 @@ ensure_keepalive(Channel = #channel{conninfo = ConnInfo}) ->
 ensure_keepalive_timer(0, Channel) ->
     Channel;
 ensure_keepalive_timer(Interval, Channel) ->
-    Keepalive = emqx_keepalive:init(round(timer:seconds(Interval))),
+    Keepalive = emqx_keepalive:init(Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
 
 %%--------------------------------------------------------------------
@@ -2245,7 +2245,7 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
 interval(keepalive, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(interval, KeepAlive);
+    emqx_keepalive:info(check_interval, KeepAlive);
 interval(retry_delivery, #channel{session = Session}) ->
     emqx_mqttsn_session:info(retry_interval, Session);
 interval(expire_awaiting_rel, #channel{session = Session}) ->
