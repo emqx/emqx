@@ -117,7 +117,11 @@ retrieve_token(
     #{
         name := Name,
         client_jwks := ClientJwks,
-        config := #{clientid := ClientId, secret := Secret}
+        config := #{
+            clientid := ClientId,
+            secret := Secret,
+            preferred_auth_methods := AuthMethods
+        }
     } = Cfg,
     Data
 ) ->
@@ -129,7 +133,8 @@ retrieve_token(
             Secret,
             Data#{
                 redirect_uri => make_callback_url(Cfg),
-                client_jwks => ClientJwks
+                client_jwks => ClientJwks,
+                preferred_auth_methods => AuthMethods
             }
         )
     of
@@ -165,6 +170,7 @@ retrieve_userinfo(Token, #{
             Error
     end.
 
+-dialyzer({nowarn_function, ensure_user_exists/1}).
 ensure_user_exists(<<>>) ->
     {error, <<"Username can not be empty">>};
 ensure_user_exists(<<"undefined">>) ->
