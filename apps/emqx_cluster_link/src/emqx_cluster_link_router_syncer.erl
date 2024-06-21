@@ -519,7 +519,7 @@ cancel_heartbeat(St = #st{heartbeat_timer = TRef}) ->
 %% Responsible for transferring local routing table snapshot to the target
 %% cluster. Does so either during the initial startup or when MQTT connection
 %% is re-established with a clean session. Once bootstrapping is done, it
-%% opens the syncer.
+%% activates the syncer.
 
 run_bootstrap(St = #st{target = TargetCluster, actor = ?PS_ACTOR, link_conf = #{topics := Topics}}) ->
     case mria_config:whoami() of

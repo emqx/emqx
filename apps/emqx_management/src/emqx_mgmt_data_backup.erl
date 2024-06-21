@@ -55,26 +55,27 @@
 -define(META_FILENAME, "META.hocon").
 -define(CLUSTER_HOCON_FILENAME, "cluster.hocon").
 -define(CONF_KEYS, [
-    <<"delayed">>,
-    <<"rewrite">>,
-    <<"retainer">>,
-    <<"mqtt">>,
-    <<"alarm">>,
-    <<"sysmon">>,
-    <<"sys_topics">>,
-    <<"limiter">>,
-    <<"log">>,
-    <<"persistent_session_store">>,
-    <<"durable_sessions">>,
-    <<"prometheus">>,
-    <<"crl_cache">>,
-    <<"conn_congestion">>,
-    <<"force_shutdown">>,
-    <<"flapping_detect">>,
-    <<"broker">>,
-    <<"force_gc">>,
-    <<"zones">>,
-    <<"slow_subs">>
+    [<<"delayed">>],
+    [<<"rewrite">>],
+    [<<"retainer">>],
+    [<<"mqtt">>],
+    [<<"alarm">>],
+    [<<"sysmon">>],
+    [<<"sys_topics">>],
+    [<<"limiter">>],
+    [<<"log">>],
+    [<<"persistent_session_store">>],
+    [<<"durable_sessions">>],
+    [<<"prometheus">>],
+    [<<"crl_cache">>],
+    [<<"conn_congestion">>],
+    [<<"force_shutdown">>],
+    [<<"flapping_detect">>],
+    [<<"broker">>],
+    [<<"force_gc">>],
+    [<<"zones">>],
+    [<<"slow_subs">>],
+    [<<"cluster">>, <<"links">>]
 ]).
 
 %% emqx_bridge_v2 depends on emqx_connector, so connectors need to be imported first
@@ -854,10 +855,10 @@ order(Elem, [_ | T], Order) ->
 
 import_generic_conf(Data) ->
     lists:map(
-        fun(Key) ->
-            case maps:get(Key, Data, undefined) of
-                undefined -> {[Key], ok};
-                Conf -> {[Key], emqx_conf:update([Key], Conf, #{override_to => cluster})}
+        fun(KeyPath) ->
+            case emqx_utils_maps:deep_get(KeyPath, Data, undefined) of
+                undefined -> {[KeyPath], ok};
+                Conf -> {[KeyPath], emqx_conf:update(KeyPath, Conf, #{override_to => cluster})}
             end
         end,
         ?CONF_KEYS
