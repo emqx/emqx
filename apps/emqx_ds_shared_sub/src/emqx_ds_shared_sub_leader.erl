@@ -260,13 +260,6 @@ connect_agent(
                     streams => length(StreamLease),
                     version => Version
                 }),
-                % ct:print("connect_agent: ~p~n", [#{
-                %     msg => leader_lease_streams,
-                %     agent => Agent,
-                %     group => Group,
-                %     streams => length(StreamLease),
-                %     version => Version
-                % }]),
                 ok = emqx_ds_shared_sub_proto:leader_lease_streams(
                     Agent, Group, StreamLease, Version
                 ),
