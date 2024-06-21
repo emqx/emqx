@@ -300,14 +300,19 @@ connect(ClientId, IsPersistent, Opts) ->
 publish(Client, Topic, Payload) ->
     publish(Client, Topic, Payload, _QoS = 0).
 
-publish(Client, Topic, {raw, Payload}, QoS) ->
-    case emqtt:publish(Client, Topic, Payload, QoS) of
+publish(Client, Topic, Payload, QoS) ->
+    publish(Client, Topic, Payload, QoS, _Opts = #{}).
+
+publish(Client, Topic, {raw, Payload}, QoS, Opts) ->
+    Props = maps:get(props, Opts, #{}),
+    case emqtt:publish(Client, Topic, Props, Payload, [{qos, QoS}]) of
         ok -> ok;
         {ok, _} -> ok;
         Err -> Err
     end;
-publish(Client, Topic, Payload, QoS) ->
-    case emqtt:publish(Client, Topic, emqx_utils_json:encode(Payload), QoS) of
+publish(Client, Topic, Payload, QoS, Opts) ->
+    Props = maps:get(props, Opts, #{}),
+    case emqtt:publish(Client, Topic, Props, emqx_utils_json:encode(Payload), [{qos, QoS}]) of
         ok -> ok;
         {ok, _} -> ok;
         Err -> Err
@@ -503,6 +508,7 @@ t_smoke_test(_Config) ->
         operation(topic, <<"concat([topic, '/', payload.t])">>),
         operation(retain, <<"payload.r">>),
         operation(<<"user_property.a">>, <<"payload.u.a">>),
+        operation(<<"user_property.copy">>, <<"user_property.original">>),
         operation(<<"payload">>, <<"payload.p.hello">>)
     ],
     Transformation1 = transformation(Name1, Operations),
@@ -527,7 +533,8 @@ t_smoke_test(_Config) ->
                     t => <<"t">>,
                     u => #{a => <<"b">>}
                 },
-                _QosPub = 0
+                _QosPub = 0,
+                #{props => #{'User-Property' => [{<<"original">>, <<"user_prop">>}]}}
             ),
             ?assertReceive(
                 {publish, #{
@@ -535,7 +542,13 @@ t_smoke_test(_Config) ->
                     qos := QoS,
                     retain := true,
                     topic := <<"t/1/t">>,
-                    properties := #{'User-Property' := [{<<"a">>, <<"b">>}]}
+                    properties := #{
+                        'User-Property' := [
+                            {<<"a">>, <<"b">>},
+                            {<<"copy">>, <<"user_prop">>},
+                            {<<"original">>, <<"user_prop">>}
+                        ]
+                    }
                 }}
             ),
             %% remember to clear retained message
@@ -1534,6 +1547,7 @@ t_dryrun_transformation(_Config) ->
                 operation(topic, <<"concat([topic, '/', payload.t])">>),
                 operation(retain, <<"payload.r">>),
                 operation(<<"user_property.a">>, <<"payload.u.a">>),
+                operation(<<"user_property.copy">>, <<"user_property.original">>),
                 operation(<<"payload">>, <<"payload.p.hello">>)
             ],
             Transformation1 = transformation(Name1, Operations),
@@ -1546,7 +1560,8 @@ t_dryrun_transformation(_Config) ->
                     r => true,
                     t => <<"t">>,
                     u => #{a => <<"b">>}
-                }
+                },
+                user_property => #{<<"original">> => <<"user_prop">>}
             }),
             ?assertMatch(
                 {200, #{
@@ -1554,7 +1569,11 @@ t_dryrun_transformation(_Config) ->
                     <<"qos">> := 1,
                     <<"retain">> := true,
                     <<"topic">> := <<"t/u/v/t">>,
-                    <<"user_property">> := #{<<"a">> := <<"b">>}
+                    <<"user_property">> := #{
+                        <<"a">> := <<"b">>,
+                        <<"original">> := <<"user_prop">>,
+                        <<"copy">> := <<"user_prop">>
+                    }
                 }},
                 dryrun_transformation(Transformation1, Message1)
             ),
