@@ -529,6 +529,68 @@ t_bad_response_content_type(_Config) ->
         end
     ).
 
+%% Checks that we bump the correct metrics when we receive an error response
+t_bad_response(_Config) ->
+    ok = setup_handler_and_config(
+        fun(Req0, State) ->
+            ?assertEqual(
+                <<"/authz/users/">>,
+                cowboy_req:path(Req0)
+            ),
+
+            {ok, _PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+
+            Req = cowboy_req:reply(
+                400,
+                #{<<"content-type">> => <<"application/json">>},
+                "{\"error\":true}",
+                Req1
+            ),
+            {ok, Req, State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{
+                <<"username">> => <<"${username}">>
+            },
+            <<"headers">> => #{}
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        mountpoint => <<"MOUNTPOINT">>,
+        zone => default,
+        listener => {tcp, default},
+        cn => ?PH_CERT_CN_NAME,
+        dn => ?PH_CERT_SUBJECT
+    },
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    ?assertMatch(
+        #{
+            counters := #{
+                total := 1,
+                ignore := 1,
+                nomatch := 0,
+                allow := 0,
+                deny := 0
+            },
+            'authorization.superuser' := 0,
+            'authorization.matched.allow' := 0,
+            'authorization.matched.deny' := 0,
+            'authorization.nomatch' := 1
+        },
+        get_metrics()
+    ),
+    ok.
+
 t_no_value_for_placeholder(_Config) ->
     ok = setup_handler_and_config(
         fun(Req0, State) ->
@@ -729,3 +791,18 @@ start_apps(Apps) ->
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
+
+get_metrics() ->
+    Metrics = emqx_metrics_worker:get_metrics(authz_metrics, http),
+    lists:foldl(
+        fun(Name, Acc) ->
+            Acc#{Name => emqx_metrics:val(Name)}
+        end,
+        Metrics,
+        [
+            'authorization.superuser',
+            'authorization.matched.allow',
+            'authorization.matched.deny',
+            'authorization.nomatch'
+        ]
+    ).
