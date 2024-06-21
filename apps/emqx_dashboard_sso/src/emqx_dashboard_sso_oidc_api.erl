@@ -114,7 +114,11 @@ ensure_oidc_state(#{<<"state">> := State} = QS, Cfg) ->
 
 retrieve_token(
     #{<<"code">> := Code},
-    #{name := Name, config := #{clientid := ClientId, secret := Secret}} = Cfg,
+    #{
+        name := Name,
+        client_jwks := ClientJwks,
+        config := #{clientid := ClientId, secret := Secret}
+    } = Cfg,
     Data
 ) ->
     case
@@ -123,7 +127,10 @@ retrieve_token(
             Name,
             ClientId,
             Secret,
-            Data#{redirect_uri => make_callback_url(Cfg)}
+            Data#{
+                redirect_uri => make_callback_url(Cfg),
+                client_jwks => ClientJwks
+            }
         )
     of
         {ok, Token} ->
@@ -134,6 +141,7 @@ retrieve_token(
 
 retrieve_userinfo(Token, #{
     name := Name,
+    client_jwks := ClientJwks,
     config := #{clientid := ClientId, secret := Secret},
     name_tokens := NameTks
 }) ->
@@ -143,7 +151,7 @@ retrieve_userinfo(Token, #{
             Name,
             ClientId,
             Secret,
-            #{}
+            #{client_jwks => ClientJwks}
         )
     of
         {ok, UserInfo} ->
