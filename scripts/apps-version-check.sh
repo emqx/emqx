@@ -27,21 +27,12 @@ is_allowed_non_strict() {
     local src_file="$1"
     local from="$2"
     local to="$3"
-    case "$(basename "${src_file}" '.app.src')" in
-        emqx_auth_http)
-            case "${from}-${to}" in
-                '0.1.4-0.2.1')
-                    return 0
-                    ;;
-                *)
-                    return 1
-                    ;;
-            esac
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    if [ -f .emqx-platform ]; then
+        log_red "ERROR: $src_file vsn bump from $from to $to"
+        return 1
+    fi
+    log_red "WARN: $src_file vsn bump from $from to $to"
+    return 0
 }
 
 APPS="$(./scripts/find-apps.sh)"
