@@ -17,6 +17,7 @@ NODE1="node1.$NET"
 NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
 IPV6=0
+DASHBOARD_NODES='both'
 
 cleanup() {
     docker rm -f haproxy >/dev/null 2>&1 || true
@@ -32,13 +33,19 @@ show_help() {
     echo "EMQX_IMAGE2 is the same as EMQX_IMAGE1 if not set"
     echo ""
     echo "Options:"
-    echo "  -h, --help  Show this help message and exit."
-    echo "  -P          Add -p options for docker run to expose more HAProxy container ports."
-    echo "  -6          Test with IPv6"
-    echo "  -c          Cleanup: delete docker network, force delete the containers."
+    echo "  -h, --help: Show this help message and exit."
+    echo "  -P: Add -p options for docker run to expose more HAProxy container ports."
+    echo "  -6: Test with IPv6"
+    echo "  -c: Cleanup: delete docker network, force delete the containers."
+    echo "  -d: '1', '2', or 'both' (defualt = 'both')"
+    echo "          1: Only put node 1 behind haproxy"
+    echo "          2: Only put node 2 behind haproxy"
+    echo "       both: This is the default value, which means both nodes serve dashboard"
+    echo "       This is often needed for tests which want to check one dashboard version"
+    echo "       when starting two different versions of EMQX."
 }
 
-while getopts "hc6P:" opt
+while getopts "hc6P:d:" opt
 do
     case $opt in
         # -P option is treated similarly to docker run -P:
@@ -47,6 +54,7 @@ do
         c) cleanup; exit 0;;
         h) show_help; exit 0;;
         6) IPV6=1;;
+        d) DASHBOARD_NODES="$OPTARG";;
         *) ;;
     esac
 done
@@ -54,6 +62,19 @@ shift $((OPTIND - 1))
 
 IMAGE1="${1:-}"
 IMAGE2="${2:-${IMAGE1}}"
+
+DASHBOARD_BACKEND1="server emqx-1 $NODE1:18083"
+DASHBOARD_BACKEND2="server emqx-2 $NODE2:18083"
+case "${DASHBOARD_NODES}" in
+    1)
+        DASHBOARD_BACKEND2=""
+        ;;
+    2)
+        DASHBOARD_BACKEND1=""
+        ;;
+    both)
+        ;;
+esac
 
 if [ -z "${IMAGE1:-}" ] || [ -z "${IMAGE2:-}" ]; then
     show_help
@@ -146,8 +167,8 @@ backend emqx_dashboard_back
     # load randomly will cause the browser fail to GET some chunks (or get bad chunks if names clash)
     balance source
     mode http
-    server emqx-1 $NODE1:18083
-    server emqx-2 $NODE2:18083
+    ${DASHBOARD_BACKEND1}
+    ${DASHBOARD_BACKEND2}
 
 ##----------------------------------------------------------------
 ## TLS
