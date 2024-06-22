@@ -283,6 +283,6 @@ if [ "$DRYRUN" = 'yes' ]; then
 else
     git tag "$TAG"
     logmsg "$TAG is created OK."
-    logwarn "Don't forget to push the tag!"
+    logwarn "Don't forget to push the tag! to both emqx.git and emqx-platform.git"
     echo "git push origin $TAG"
 fi
