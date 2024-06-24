@@ -57,8 +57,6 @@ init_per_group(AuthName, Conf) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            emqx_auth,
-            emqx_auth_http,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
             {emqx_gateway, emqx_gateway_auth_ct:list_gateway_conf()}
@@ -73,6 +71,7 @@ init_per_group(AuthName, Conf) ->
 end_per_group(AuthName, Conf) ->
     ok = emqx_gateway_auth_ct:stop_auth(AuthName),
     _ = emqx_common_test_http:delete_default_app(),
+    emqx_config:delete_override_conf_files(),
     ok = emqx_cth_suite:stop(?config(group_apps, Conf)),
     Conf.
 

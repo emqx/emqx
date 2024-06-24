@@ -48,8 +48,6 @@ init_per_suite(Conf) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            emqx_auth,
-            emqx_auth_mnesia,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
             {emqx_gateway, ?CONF_DEFAULT}
@@ -62,7 +60,8 @@ init_per_suite(Conf) ->
 
 end_per_suite(Conf) ->
     _ = emqx_common_test_http:delete_default_app(),
-    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)).
+    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)),
+    emqx_config:delete_override_conf_files().
 
 init_per_testcase(t_gateway_fail, Config) ->
     meck:expect(
