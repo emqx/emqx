@@ -329,7 +329,7 @@ on_query(
                 action_id => MessageTag,
                 query_mode => sync
             }),
-            {error, invalid_partition_count};
+            {error, {unrecoverable_error, invalid_partition_count}};
         throw:{bad_kafka_header, _} = Error ->
             ?tp(
                 emqx_bridge_kafka_impl_producer_sync_query_failed,
@@ -395,7 +395,7 @@ on_query_async(
                 action_id => MessageTag,
                 query_mode => async
             }),
-            {error, invalid_partition_count};
+            {error, {unrecoverable_error, invalid_partition_count}};
         throw:{bad_kafka_header, _} = Error ->
             ?tp(
                 emqx_bridge_kafka_impl_producer_async_query_failed,
