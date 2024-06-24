@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,56 +13,25 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_ds_sup).
-
--behaviour(supervisor).
+-module(emqx_ds_builtin_local_app).
 
 %% API:
--export([start_link/0]).
--export([register_db/2, unregister_db/1, which_dbs/0]).
+-export([]).
 
-%% behaviour callbacks:
--export([init/1]).
-
-%%================================================================================
-%% Type declarations
-%%================================================================================
-
--define(SUP, ?MODULE).
--define(TAB, ?MODULE).
+%% behavior callbacks:
+-export([start/2]).
 
 %%================================================================================
-%% API functions
+%% behavior callbacks
 %%================================================================================
 
--spec start_link() -> {ok, pid()}.
-start_link() ->
-    supervisor:start_link({local, ?SUP}, ?MODULE, top).
-
-register_db(DB, Backend) ->
-    ets:insert(?TAB, {DB, Backend}),
-    ok.
-
-unregister_db(DB) ->
-    ets:delete(?TAB, DB),
-    ok.
-
-which_dbs() ->
-    ets:tab2list(?TAB).
+start(_StartType, _StartArgs) ->
+    emqx_ds:register_backend(builtin_local, emqx_ds_builtin_local),
+    emqx_ds_builtin_local_sup:start_top().
 
 %%================================================================================
-%% behaviour callbacks
+%% Internal exports
 %%================================================================================
-
-init(top) ->
-    _ = ets:new(?TAB, [public, set, named_table]),
-    Children = [emqx_ds_builtin_metrics:child_spec()],
-    SupFlags = #{
-        strategy => one_for_one,
-        intensity => 10,
-        period => 1
-    },
-    {ok, {SupFlags, Children}}.
 
 %%================================================================================
 %% Internal functions

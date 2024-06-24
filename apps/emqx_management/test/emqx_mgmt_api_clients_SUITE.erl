@@ -52,6 +52,7 @@ persistent_session_testcases() ->
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2
     ].
+
 client_msgs_testcases() ->
     [
         t_inflight_messages,

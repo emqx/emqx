@@ -19,17 +19,17 @@
 %%%% Egress metrics:
 
 %% Number of successfully flushed batches:
--define(DS_EGRESS_BATCHES, emqx_ds_egress_batches).
+-define(DS_BUFFER_BATCHES, emqx_ds_buffer_batches).
 %% Number of batch flush retries:
--define(DS_EGRESS_BATCHES_RETRY, emqx_ds_egress_batches_retry).
+-define(DS_BUFFER_BATCHES_RETRY, emqx_ds_buffer_batches_retry).
 %% Number of batches that weren't flushed due to unrecoverable errors:
--define(DS_EGRESS_BATCHES_FAILED, emqx_ds_egress_batches_failed).
+-define(DS_BUFFER_BATCHES_FAILED, emqx_ds_buffer_batches_failed).
 %% Total number of messages that were successfully committed to the storage:
--define(DS_EGRESS_MESSAGES, emqx_ds_egress_messages).
+-define(DS_BUFFER_MESSAGES, emqx_ds_buffer_messages).
 %% Total size of payloads that were successfully committed to the storage:
--define(DS_EGRESS_BYTES, emqx_ds_egress_bytes).
+-define(DS_BUFFER_BYTES, emqx_ds_buffer_bytes).
 %% Sliding average of flush time (microseconds):
--define(DS_EGRESS_FLUSH_TIME, emqx_ds_egress_flush_time).
+-define(DS_BUFFER_FLUSH_TIME, emqx_ds_buffer_flush_time).
 
 %%%% Storage layer metrics:
 -define(DS_STORE_BATCH_TIME, emqx_ds_store_batch_time).

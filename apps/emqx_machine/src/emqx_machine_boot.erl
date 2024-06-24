@@ -188,6 +188,8 @@ runtime_deps() ->
         {emqx_connector, fun(App) -> lists:prefix("emqx_bridge_", atom_to_list(App)) end},
         %% emqx_fdb is an EE app
         {emqx_durable_storage, emqx_fdb},
+        %% emqx_ds_builtin is an EE app
+        {emqx_ds_backends, emqx_ds_builtin_raft},
         {emqx_dashboard, emqx_license}
     ].
 

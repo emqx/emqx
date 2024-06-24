@@ -16,15 +16,16 @@
 
 %% @doc Main interface module for `emqx_durable_storage' application.
 %%
-%% It takes care of forwarding calls to the underlying DBMS. Currently
-%% only the embedded `emqx_ds_replication_layer' storage is supported,
-%% so all the calls are simply passed through.
+%% It takes care of forwarding calls to the underlying DBMS.
 -module(emqx_ds).
 
 %% Management API:
 -export([
-    base_dir/0,
+    register_backend/2,
+
     open_db/2,
+    close_db/1,
+    which_dbs/0,
     update_db_config/2,
     add_generation/1,
     list_generations_with_lifetimes/1,
@@ -60,7 +61,6 @@
     iterator/0,
     delete_iterator/0,
     iterator_id/0,
-    message_id/0,
     message_key/0,
     message_store_opts/0,
     next_result/1, next_result/0,
@@ -136,7 +136,7 @@
 
 -type ds_specific_delete_stream() :: term().
 
--type make_delete_iterator_result(DeleteIterator) :: {ok, DeleteIterator} | {error, term()}.
+-type make_delete_iterator_result(DeleteIterator) :: {ok, DeleteIterator} | error(_).
 
 -type make_delete_iterator_result() :: make_delete_iterator_result(delete_iterator()).
 
@@ -173,10 +173,7 @@
         _ => _
     }.
 
--type create_db_opts() ::
-    emqx_ds_replication_layer:builtin_db_opts() | generic_db_opts().
-
--type message_id() :: emqx_ds_replication_layer:message_id().
+-type create_db_opts() :: generic_db_opts().
 
 %% An opaque term identifying a generation.  Each implementation will possibly add
 %% information to this term to match its inner structure (e.g.: by embedding the shard id,
@@ -198,6 +195,8 @@
 %%================================================================================
 
 -callback open_db(db(), create_db_opts()) -> ok | {error, _}.
+
+-callback close_db(db()) -> ok.
 
 -callback add_generation(db()) -> ok | {error, _}.
 
@@ -247,21 +246,32 @@
 %% API functions
 %%================================================================================
 
--spec base_dir() -> file:filename().
-base_dir() ->
-    application:get_env(?APP, db_data_dir, emqx:data_dir()).
+%% @doc Register DS backend.
+-spec register_backend(atom(), module()) -> ok.
+register_backend(Name, Module) ->
+    persistent_term:put({emqx_ds_backend_module, Name}, Module).
 
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin orelse Backend =:= fdb ->
-    Module =
-        case Backend of
-            builtin -> emqx_ds_replication_layer;
-            fdb -> emqx_fdb_ds
-        end,
-    persistent_term:put(?persistent_term(DB), Module),
-    ?module(DB):open_db(DB, Opts).
+open_db(DB, Opts = #{backend := Backend}) ->
+    case persistent_term:get({emqx_ds_backend_module, Backend}, undefined) of
+        undefined ->
+            error({no_such_backend, Backend});
+        Module ->
+            persistent_term:put(?persistent_term(DB), Module),
+            emqx_ds_sup:register_db(DB, Backend),
+            ?module(DB):open_db(DB, Opts)
+    end.
+
+-spec close_db(db()) -> ok.
+close_db(DB) ->
+    emqx_ds_sup:unregister_db(DB),
+    ?module(DB):close_db(DB).
+
+-spec which_dbs() -> [{db(), _Backend :: atom()}].
+which_dbs() ->
+    emqx_ds_sup:which_dbs().
 
 -spec add_generation(db()) -> ok.
 add_generation(DB) ->
@@ -286,9 +296,6 @@ drop_generation(DB, GenId) ->
             {error, not_implemented}
     end.
 
-%% @doc TODO: currently if one or a few shards are down, they won't be
-
-%% deleted.
 -spec drop_db(db()) -> ok.
 drop_db(DB) ->
     case persistent_term:get(?persistent_term(DB), undefined) of

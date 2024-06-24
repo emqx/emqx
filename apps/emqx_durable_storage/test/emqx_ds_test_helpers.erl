@@ -26,6 +26,17 @@
     emqx_ds_test_helpers:on(NODE, fun() -> BODY end)
 ).
 
+skip_if_norepl() ->
+    try emqx_release:edition() of
+        ee ->
+            false;
+        _ ->
+            {skip, no_ds_replication}
+    catch
+        error:undef ->
+            {skip, standalone_not_supported}
+    end.
+
 -spec on([node()] | node(), fun(() -> A)) -> A | [A].
 on(Node, Fun) when is_atom(Node) ->
     [Ret] = on([Node], Fun),
@@ -217,9 +228,13 @@ transitions(Node, DB) ->
 
 %% Stream comparison
 
-message_eq(Msg1, {_Key, Msg2}) ->
-    %% Timestamps can be modified by the replication layer, ignore them:
-    Msg1#message{timestamp = 0} =:= Msg2#message{timestamp = 0}.
+message_eq(Fields, {_Key, Msg1 = #message{}}, Msg2) ->
+    message_eq(Fields, Msg1, Msg2);
+message_eq(Fields, Msg1, {_Key, Msg2 = #message{}}) ->
+    message_eq(Fields, Msg1, Msg2);
+message_eq(Fields, Msg1 = #message{}, Msg2 = #message{}) ->
+    maps:with(Fields, emqx_message:to_map(Msg1)) =:=
+        maps:with(Fields, emqx_message:to_map(Msg2)).
 
 %% Consuming streams and iterators
 
@@ -242,17 +257,26 @@ verify_stream_effects(DB, TestCase, Nodes0, L) ->
 -spec verify_stream_effects(atom(), binary(), node(), emqx_types:clientid(), ds_stream()) -> ok.
 verify_stream_effects(DB, TestCase, Node, ClientId, ExpectedStream) ->
     ct:pal("Checking consistency of effects for ~p on ~p", [ClientId, Node]),
-    DiffOpts = #{context => 20, window => 1000, compare_fun => fun message_eq/2},
     ?defer_assert(
         begin
             snabbkaffe_diff:assert_lists_eq(
                 ExpectedStream,
                 ds_topic_stream(DB, ClientId, client_topic(TestCase, ClientId), Node),
-                DiffOpts
+                message_diff_options([id, qos, from, flags, headers, topic, payload, extra])
             ),
             ct:pal("Data for client ~p on ~p is consistent.", [ClientId, Node])
         end
     ).
+
+diff_messages(Fields, Expected, Got) ->
+    snabbkaffe_diff:assert_lists_eq(Expected, Got, message_diff_options(Fields)).
+
+message_diff_options(Fields) ->
+    #{
+        context => 20,
+        window => 1000,
+        compare_fun => fun(M1, M2) -> message_eq(Fields, M1, M2) end
+    }.
 
 %% Create a stream from the topic (wildcards are NOT supported for a
 %% good reason: order of messages is implementation-dependent!).
@@ -297,7 +321,7 @@ nodes_of_clientid(DB, ClientId, Nodes = [N0 | _]) ->
 shard_of_clientid(DB, Node, ClientId) ->
     ?ON(
         Node,
-        emqx_ds_replication_layer:shard_of_message(DB, #message{from = ClientId}, clientid)
+        emqx_ds_buffer:shard_of_message(DB, #message{from = ClientId}, clientid)
     ).
 
 %% Consume eagerly:

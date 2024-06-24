@@ -25,11 +25,16 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    TCApps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{tc_apps, TCApps} | Config].
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            TCApps = emqx_cth_suite:start(
+                app_specs(),
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
+            [{tc_apps, TCApps} | Config];
+        Yes ->
+            Yes
+    end.
 
 end_per_suite(Config) ->
     TCApps = ?config(tc_apps, Config),

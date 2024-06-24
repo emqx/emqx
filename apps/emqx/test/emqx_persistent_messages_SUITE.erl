@@ -32,8 +32,22 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+%% Needed for standalone mode:
+-ifndef(EMQX_RELEASE_EDITION).
+-define(EMQX_RELEASE_EDITION, ce).
+-endif.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+
 init_per_suite(Config) ->
     Config.
+
+-else.
+
+init_per_suite(Config) ->
+    {skip, no_replication}.
+
+-endif.
 
 end_per_suite(_Config) ->
     ok.
@@ -465,7 +479,7 @@ t_metrics_not_dropped(_Config) ->
 t_replication_options(_Config) ->
     ?assertMatch(
         #{
-            backend := builtin,
+            backend := builtin_raft,
             replication_options := #{
                 wal_max_size_bytes := 16000000,
                 wal_max_batch_size := 1024,
@@ -570,7 +584,7 @@ wait_shards_online(Nodes = [Node | _]) ->
     ?retry(500, 10, [?assertEqual(NShards, shards_online(N)) || N <- Nodes]).
 
 shards_online(Node) ->
-    length(erpc:call(Node, emqx_ds_builtin_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
+    length(erpc:call(Node, emqx_ds_builtin_raft_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
 
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),

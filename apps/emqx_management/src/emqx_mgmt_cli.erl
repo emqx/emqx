@@ -848,6 +848,7 @@ ds(CMD) ->
             emqx_ctl:usage([{"ds", "Durable storage is disabled"}])
     end.
 
+-if(?EMQX_RELEASE_EDITION == ee).
 do_ds(["info"]) ->
     emqx_ds_replication_layer_meta:print_status();
 do_ds(["set_replicas", DBStr | SitesStr]) ->
@@ -907,6 +908,10 @@ do_ds(_) ->
         {"ds leave <storage> <site>", "Remove site from the replica set of the storage"},
         {"ds forget <site>", "Forcefully remove a site from the list of known sites"}
     ]).
+-else.
+do_ds(_CMD) ->
+    emqx_ctl:usage([{"ds", "DS CLI is not available in this edition of EMQX"}]).
+-endif.
 
 %%--------------------------------------------------------------------
 %% Dump ETS

@@ -5,15 +5,21 @@ messages.desc:
   """~
   Configuration related to the durable storage of MQTT messages.~"""
 
-builtin.label: "Builtin backend"
-builtin.desc:
+builtin_raft.label: "Builtin backend with Raft replication"
+builtin_raft.desc:
   """~
-  Builtin session storage backend utilizing embedded RocksDB key-value store.~"""
+  Builtin storage backend utilizing embedded RocksDB key-value store.~"""
 
-builtin_backend.label: "Backend type"
-builtin_backend.desc:
+builtin_local.label: "Builtin backend"
+builtin_local.desc:
   """~
-  Built-in backend.~"""
+  Builtin storage backend utilizing embedded RocksDB key-value store.
+  This backend doesn't support clustering.~"""
+
+backend_type.label: "Backend type"
+backend_type.desc:
+  """~
+  Backend type.~"""
 
 builtin_data_dir.label: "Database location"
 builtin_data_dir.desc:
@@ -39,21 +45,21 @@ builtin_n_sites.desc:
   During this phase at least that many sites should come online to distribute shards between them, otherwise message storage will be unavailable until then.
   After the initialization is complete, sites may be offline, which will affect availability depending on the number of offline sites and replication factor.~"""
 
-builtin_local_write_buffer.label: "Local write buffer"
-builtin_local_write_buffer.desc:
+builtin_write_buffer.label: "Local write buffer"
+builtin_write_buffer.desc:
   """~
   Configuration related to the buffering of messages sent from the local node to the shard leader.
 
   EMQX accumulates PUBLISH messages from the local clients in a write buffer before committing them to the durable storage.
   This helps to hide network latency between EMQX nodes and improves write throughput.~"""
 
-builtin_local_write_buffer_max_items.label: "Max items"
-builtin_local_write_buffer_max_items.desc:
+builtin_write_buffer_max_items.label: "Max items"
+builtin_write_buffer_max_items.desc:
   """~
   This configuration parameter defines maximum number of messages stored in the local write buffer.~"""
 
-builtin_local_write_buffer_flush_interval.label: "Flush interval"
-builtin_local_write_buffer_flush_interval.desc:
+builtin_write_buffer_flush_interval.label: "Flush interval"
+builtin_write_buffer_flush_interval.desc:
   """~
   Maximum linger time for the buffered messages.
   Local write buffer will be flushed _at least_ as often as `flush_interval`.

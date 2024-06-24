@@ -81,7 +81,8 @@ init_per_group(persistence_enabled, Config) ->
                 "  heartbeat_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"
                 "  session_gc_interval = 2s\n"
-                "}"},
+                "}\n"
+                "durable_storage.messages.backend = builtin_local"},
         {persistence, ds}
         | Config
     ];

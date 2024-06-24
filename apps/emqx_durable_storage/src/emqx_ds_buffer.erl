@@ -14,23 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Egress servers are responsible for proxing the outcoming
-%% `store_batch' requests towards EMQX DS shards.
-%%
-%% They re-assemble messages from different local processes into
-%% fixed-sized batches, and introduce centralized channels between the
-%% nodes. They are also responsible for maintaining backpressure
-%% towards the local publishers.
-%%
-%% There is (currently) one egress process for each shard running on
-%% each node, but it should be possible to have a pool of egress
-%% servers, if needed.
--module(emqx_ds_replication_layer_egress).
+%% @doc Buffer servers are responsible for collecting batches from the
+%% local processes, sharding and repackaging them.
+-module(emqx_ds_buffer).
 
 -behaviour(gen_server).
 
 %% API:
--export([start_link/2, store_batch/3]).
+-export([start_link/4, store_batch/3, shard_of_message/3]).
+-export([ls/0]).
 
 %% behavior callbacks:
 -export([init/1, format_status/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -47,8 +39,11 @@
 %% Type declarations
 %%================================================================================
 
--define(via(DB, Shard), {via, gproc, {n, l, {?MODULE, DB, Shard}}}).
+-define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
+-define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
 -define(flush, flush).
+
+-define(cbm(DB), {?MODULE, DB}).
 
 -record(enqueue_req, {
     messages :: [emqx_types:message()],
@@ -58,13 +53,29 @@
     payload_bytes :: non_neg_integer()
 }).
 
+-callback init_buffer(emqx_ds:db(), _Shard, _Options) -> {ok, _State}.
+
+-callback flush_buffer(emqx_ds:db(), _Shard, [emqx_types:message()], State) ->
+    {State, ok | {error, recoverable | unrecoverable, _}}.
+
+-callback shard_of_message(emqx_ds:db(), emqx_types:message(), topic | clientid, _Options) ->
+    _Shard.
+
 %%================================================================================
 %% API functions
 %%================================================================================
 
--spec start_link(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> {ok, pid()}.
-start_link(DB, Shard) ->
-    gen_server:start_link(?via(DB, Shard), ?MODULE, [DB, Shard], []).
+-spec ls() -> [{emqx_ds:db(), _Shard}].
+ls() ->
+    MS = {{?name('$1', '$2'), '_', '_'}, [], [{{'$1', '$2'}}]},
+    gproc:select({local, names}, [MS]).
+
+-spec start_link(module(), _CallbackOptions, emqx_ds:db(), _ShardId) ->
+    {ok, pid()}.
+start_link(CallbackModule, CallbackOptions, DB, Shard) ->
+    gen_server:start_link(
+        ?via(DB, Shard), ?MODULE, [CallbackModule, CallbackOptions, DB, Shard], []
+    ).
 
 -spec store_batch(emqx_ds:db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
@@ -95,13 +106,20 @@ store_batch(DB, Messages, Opts) ->
             repackage_messages(DB, Messages, Sync)
     end.
 
+-spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic) -> _Shard.
+shard_of_message(DB, Message, ShardBy) ->
+    {CBM, Options} = persistent_term:get(?cbm(DB)),
+    CBM:shard_of_message(DB, Message, ShardBy, Options).
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
 -record(s, {
+    callback_module :: module(),
+    callback_state :: term(),
     db :: emqx_ds:db(),
-    shard :: emqx_ds_replication_layer:shard_id(),
+    shard :: _ShardId,
     metrics_id :: emqx_ds_builtin_metrics:shard_metrics_id(),
     n_retries = 0 :: non_neg_integer(),
     %% FIXME: Currently max_retries is always 0, because replication
@@ -115,18 +133,22 @@ store_batch(DB, Messages, Opts) ->
     pending_replies = [] :: [gen_server:from()]
 }).
 
-init([DB, Shard]) ->
+init([CBM, CBMOptions, DB, Shard]) ->
     process_flag(trap_exit, true),
     process_flag(message_queue_data, off_heap),
-    logger:update_process_metadata(#{domain => [emqx, ds, egress, DB]}),
+    logger:update_process_metadata(#{domain => [emqx, ds, buffer, DB]}),
     MetricsId = emqx_ds_builtin_metrics:shard_metric_id(DB, Shard),
     ok = emqx_ds_builtin_metrics:init_for_shard(MetricsId),
+    {ok, CallbackS} = CBM:init_buffer(DB, Shard, CBMOptions),
     S = #s{
+        callback_module = CBM,
+        callback_state = CallbackS,
         db = DB,
         shard = Shard,
         metrics_id = MetricsId,
         queue = queue:new()
     },
+    persistent_term:put(?cbm(DB), {CBM, CBMOptions}),
     {ok, S}.
 
 format_status(Status) ->
@@ -179,7 +201,8 @@ handle_info(?flush, S) ->
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, _S) ->
+terminate(_Reason, #s{db = DB}) ->
+    persistent_term:erase(?cbm(DB)),
     ok.
 
 %%================================================================================
@@ -234,7 +257,9 @@ flush(S) ->
 do_flush(S0 = #s{n = 0}) ->
     S0;
 do_flush(
-    S = #s{
+    S0 = #s{
+        callback_module = CBM,
+        callback_state = CallbackS0,
         queue = Q,
         pending_replies = Replies,
         db = DB,
@@ -246,16 +271,17 @@ do_flush(
 ) ->
     Messages = queue:to_list(Q),
     T0 = erlang:monotonic_time(microsecond),
-    Result = emqx_ds_replication_layer:ra_store_batch(DB, Shard, Messages),
+    {CallbackS, Result} = CBM:flush_buffer(DB, Shard, Messages, CallbackS0),
+    S = S0#s{callback_state = CallbackS},
     T1 = erlang:monotonic_time(microsecond),
-    emqx_ds_builtin_metrics:observe_egress_flush_time(Metrics, T1 - T0),
+    emqx_ds_builtin_metrics:observe_buffer_flush_time(Metrics, T1 - T0),
     case Result of
         ok ->
-            emqx_ds_builtin_metrics:inc_egress_batches(Metrics),
-            emqx_ds_builtin_metrics:inc_egress_messages(Metrics, S#s.n),
-            emqx_ds_builtin_metrics:inc_egress_bytes(Metrics, S#s.n_bytes),
+            emqx_ds_builtin_metrics:inc_buffer_batches(Metrics),
+            emqx_ds_builtin_metrics:inc_buffer_messages(Metrics, S#s.n),
+            emqx_ds_builtin_metrics:inc_buffer_bytes(Metrics, S#s.n_bytes),
             ?tp(
-                emqx_ds_replication_layer_egress_flush,
+                emqx_ds_buffer_flush,
                 #{db => DB, shard => Shard, batch => Messages}
             ),
             lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Replies),
@@ -266,7 +292,7 @@ do_flush(
                 queue = queue:new(),
                 pending_replies = []
             };
-        {timeout, ServerId} when Retries < MaxRetries ->
+        {error, recoverable, Err} when Retries < MaxRetries ->
             %% Note: this is a hot loop, so we report error messages
             %% with `debug' level to avoid wiping the logs. Instead,
             %% error the detection must rely on the metrics. Debug
@@ -274,11 +300,11 @@ do_flush(
             %% via logger domain.
             ?tp(
                 debug,
-                emqx_ds_replication_layer_egress_flush_retry,
-                #{db => DB, shard => Shard, reason => timeout, server_id => ServerId}
+                emqx_ds_buffer_flush_retry,
+                #{db => DB, shard => Shard, reason => Err}
             ),
             %% Retry sending the batch:
-            emqx_ds_builtin_metrics:inc_egress_batches_retry(Metrics),
+            emqx_ds_builtin_metrics:inc_buffer_batches_retry(Metrics),
             erlang:garbage_collect(),
             %% We block the gen_server until the next retry.
             BlockTime = ?COOLDOWN_MIN + rand:uniform(?COOLDOWN_MAX - ?COOLDOWN_MIN),
@@ -287,10 +313,10 @@ do_flush(
         Err ->
             ?tp(
                 debug,
-                emqx_ds_replication_layer_egress_flush_failed,
+                emqx_ds_buffer_flush_failed,
                 #{db => DB, shard => Shard, error => Err}
             ),
-            emqx_ds_builtin_metrics:inc_egress_batches_failed(Metrics),
+            emqx_ds_builtin_metrics:inc_buffer_batches_failed(Metrics),
             Reply =
                 case Err of
                     {error, _, _} -> Err;
@@ -311,7 +337,7 @@ do_flush(
     end.
 
 -spec shards_of_batch(emqx_ds:db(), [emqx_types:message()]) ->
-    [{emqx_ds_replication_layer:shard_id(), {NMessages, NBytes}}]
+    [{_ShardId, {NMessages, NBytes}}]
 when
     NMessages :: non_neg_integer(),
     NBytes :: non_neg_integer().
@@ -320,7 +346,7 @@ shards_of_batch(DB, Messages) ->
         lists:foldl(
             fun(Message, Acc) ->
                 %% TODO: sharding strategy must be part of the DS DB schema:
-                Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
+                Shard = shard_of_message(DB, Message, clientid),
                 Size = payload_size(Message),
                 maps:update_with(
                     Shard,
@@ -339,7 +365,7 @@ shards_of_batch(DB, Messages) ->
 repackage_messages(DB, Messages, Sync) ->
     Batches = lists:foldl(
         fun(Message, Acc) ->
-            Shard = emqx_ds_replication_layer:shard_of_message(DB, Message, clientid),
+            Shard = shard_of_message(DB, Message, clientid),
             Size = payload_size(Message),
             maps:update_with(
                 Shard,

@@ -1,35 +1,23 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc This supervisor manages the global worker processes needed for
 %% the functioning of builtin databases, and all builtin database
 %% attach to it.
--module(emqx_ds_builtin_sup).
+-module(emqx_ds_builtin_raft_sup).
 
 -behaviour(supervisor).
 
 %% API:
--export([start_db/2, stop_db/1]).
+-export([start_top/0, start_db/2, stop_db/1]).
 -export([set_gvar/3, get_gvar/3, clean_gvars/1]).
 
 %% behavior callbacks:
 -export([init/1]).
 
 %% internal exports:
--export([start_top/0, start_databases_sup/0]).
+-export([start_databases_sup/0]).
 
 -export_type([]).
 
@@ -39,7 +27,6 @@
 
 -define(top, ?MODULE).
 -define(databases, emqx_ds_builtin_databases_sup).
-
 -define(gvar_tab, emqx_ds_builtin_gvar).
 
 -record(gvar, {
@@ -51,13 +38,16 @@
 %% API functions
 %%================================================================================
 
+-spec start_top() -> {ok, pid()}.
+start_top() ->
+    supervisor:start_link({local, ?top}, ?MODULE, ?top).
+
 -spec start_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     supervisor:startchild_ret().
 start_db(DB, Opts) ->
-    ensure_top(),
     ChildSpec = #{
         id => DB,
-        start => {emqx_ds_builtin_db_sup, start_db, [DB, Opts]},
+        start => {emqx_ds_builtin_raft_db_sup, start_db, [DB, Opts]},
         type => supervisor,
         shutdown => infinity
     },
@@ -109,7 +99,6 @@ clean_gvars(DB) ->
 %% Chidren are attached dynamically to this one.
 init(?top) ->
     %% Children:
-    MetricsWorker = emqx_ds_builtin_metrics:child_spec(),
     MetadataServer = #{
         id => metadata_server,
         start => {emqx_ds_replication_layer_meta, start_link, []},
@@ -132,7 +121,7 @@ init(?top) ->
         period => 1,
         auto_shutdown => never
     },
-    {ok, {SupFlags, [MetricsWorker, MetadataServer, DBsSup]}};
+    {ok, {SupFlags, [MetadataServer, DBsSup]}};
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
@@ -146,17 +135,9 @@ init(?databases) ->
 %% Internal exports
 %%================================================================================
 
--spec start_top() -> {ok, pid()}.
-start_top() ->
-    supervisor:start_link({local, ?top}, ?MODULE, ?top).
-
 start_databases_sup() ->
     supervisor:start_link({local, ?databases}, ?MODULE, ?databases).
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-ensure_top() ->
-    {ok, _} = emqx_ds_sup:attach_backend(builtin, {?MODULE, start_top, []}),
-    ok.

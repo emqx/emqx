@@ -195,7 +195,7 @@ start_snapshot_writer(WS) ->
         msg => "dsrepl_snapshot_write_started",
         shard => ShardId
     }),
-    _ = emqx_ds_builtin_db_sup:terminate_storage(ShardId),
+    _ = emqx_ds_builtin_raft_db_sup:terminate_storage(ShardId),
     {ok, SnapWriter} = emqx_ds_storage_layer:accept_snapshot(ShardId),
     {ok, WS#ws{phase = storage_snapshot, writer = SnapWriter}}.
 
@@ -223,7 +223,7 @@ complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
         duration_ms => erlang:monotonic_time(millisecond) - StartedAt,
         bytes_written => emqx_ds_storage_snapshot:writer_info(bytes_written, SnapWriter)
     }),
-    {ok, _} = emqx_ds_builtin_db_sup:restart_storage(ShardId),
+    {ok, _} = emqx_ds_builtin_raft_db_sup:restart_storage(ShardId),
     write_machine_snapshot(WS).
 
 write_machine_snapshot(#ws{dir = Dir, meta = Meta, state = MachineState}) ->

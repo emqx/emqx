@@ -1,19 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_ds_proto_v4).
+-module(emqx_ds_proto_v3).
 
 -behavior(emqx_bpapi).
 
@@ -27,17 +15,14 @@
     next/5,
     update_iterator/5,
     add_generation/2,
-    list_generations_with_lifetimes/3,
-    drop_generation/4,
 
-    %% introduced in v4
-    get_delete_streams/5,
-    make_delete_iterator/6,
-    delete_next/6
+    %% introduced in v3
+    list_generations_with_lifetimes/3,
+    drop_generation/4
 ]).
 
 %% behavior callbacks:
--export([introduced_in/0]).
+-export([introduced_in/0, deprecated_since/0]).
 
 %%================================================================================
 %% API functions
@@ -55,21 +40,21 @@ drop_db(Node, DB) ->
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    [{integer(), emqx_ds_storage_layer:stream()}].
+    [{integer(), emqx_ds_storage_layer:stream_v1()}].
 get_streams(Node, DB, Shard, TopicFilter, Time) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v2, [DB, Shard, TopicFilter, Time]).
+    erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [DB, Shard, TopicFilter, Time]).
 
 -spec make_iterator(
     node(),
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
-    emqx_ds_storage_layer:stream(),
+    emqx_ds_storage_layer:stream_v1(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    emqx_ds:make_iterator_result().
+    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
 make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v2, [
+    erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v1, [
         DB, Shard, Stream, TopicFilter, StartTime
     ]).
 
@@ -80,7 +65,9 @@ make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:iterator(),
     pos_integer()
 ) ->
-    emqx_rpc:call_result(emqx_ds:next_result()).
+    {ok, emqx_ds_storage_layer:iterator(), [{emqx_ds:message_key(), [emqx_types:message()]}]}
+    | {ok, end_of_stream}
+    | {error, _}.
 next(Node, DB, Shard, Iter, BatchSize) ->
     emqx_rpc:call(Shard, Node, emqx_ds_replication_layer, do_next_v1, [DB, Shard, Iter, BatchSize]).
 
@@ -104,7 +91,7 @@ store_batch(Node, DB, Shard, Batch, Options) ->
     emqx_ds_storage_layer:iterator(),
     emqx_ds:message_key()
 ) ->
-    emqx_ds:make_iterator_result().
+    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
 update_iterator(Node, DB, Shard, OldIter, DSKey) ->
     erpc:call(Node, emqx_ds_replication_layer, do_update_iterator_v2, [
         DB, Shard, OldIter, DSKey
@@ -114,6 +101,10 @@ update_iterator(Node, DB, Shard, OldIter, DSKey) ->
     [{ok, ok} | {error, _}].
 add_generation(Node, DB) ->
     erpc:multicall(Node, emqx_ds_replication_layer, do_add_generation_v2, [DB]).
+
+%%--------------------------------------------------------------------------------
+%% Introduced in V3
+%%--------------------------------------------------------------------------------
 
 -spec list_generations_with_lifetimes(
     node(),
@@ -136,59 +127,12 @@ list_generations_with_lifetimes(Node, DB, Shard) ->
 drop_generation(Node, DB, Shard, GenId) ->
     erpc:call(Node, emqx_ds_replication_layer, do_drop_generation_v3, [DB, Shard, GenId]).
 
-%%--------------------------------------------------------------------------------
-%% Introduced in V4
-%%--------------------------------------------------------------------------------
-
--spec get_delete_streams(
-    node(),
-    emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
-    emqx_ds:topic_filter(),
-    emqx_ds:time()
-) ->
-    [emqx_ds_storage_layer:delete_stream()].
-get_delete_streams(Node, DB, Shard, TopicFilter, Time) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_get_delete_streams_v4, [
-        DB, Shard, TopicFilter, Time
-    ]).
-
--spec make_delete_iterator(
-    node(),
-    emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
-    emqx_ds_storage_layer:delete_stream(),
-    emqx_ds:topic_filter(),
-    emqx_ds:time()
-) ->
-    {ok, emqx_ds_storage_layer:delete_iterator()} | {error, _}.
-make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_make_delete_iterator_v4, [
-        DB, Shard, Stream, TopicFilter, StartTime
-    ]).
-
--spec delete_next(
-    node(),
-    emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
-    emqx_ds_storage_layer:delete_iterator(),
-    emqx_ds:delete_selector(),
-    pos_integer()
-) ->
-    {ok, emqx_ds_storage_layer:delete_iterator(), non_neg_integer()}
-    | {ok, end_of_stream}
-    | {error, _}.
-delete_next(Node, DB, Shard, Iter, Selector, BatchSize) ->
-    erpc:call(
-        Node,
-        emqx_ds_replication_layer,
-        do_delete_next_v4,
-        [DB, Shard, Iter, Selector, BatchSize]
-    ).
-
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
 introduced_in() ->
-    "5.6.0".
+    "5.5.0".
+
+deprecated_since() ->
+    "5.5.1".
