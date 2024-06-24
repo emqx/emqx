@@ -39,6 +39,9 @@
 
 -type serialize_options() :: map().
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 %% Callbacks
 
 %% @doc Initial the frame parser states

@@ -16,6 +16,9 @@
 
 -module(emqx_connector_examples).
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [{connector_examples, 1}]}]).
+
 %% Should return examples for the connector HTTP API. One can use the helper
 %% function emqx_connector_schema:connector_values/3 to generate these
 %% examples. See emqx_bridge_oracle:connector_examples/1 for an example.

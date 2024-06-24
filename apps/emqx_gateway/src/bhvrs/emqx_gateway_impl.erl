@@ -23,6 +23,9 @@
 -type state() :: map().
 -type reason() :: any().
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 %% @doc
 -callback on_gateway_load(
     Gateway :: gateway(),

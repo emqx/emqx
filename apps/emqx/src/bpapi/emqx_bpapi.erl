@@ -50,6 +50,9 @@
 
 -include("emqx_bpapi.hrl").
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 -callback introduced_in() -> string().
 
 -callback deprecated_since() -> string().

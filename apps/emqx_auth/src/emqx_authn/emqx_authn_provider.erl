@@ -22,6 +22,9 @@
 -type extra() :: emqx_authn_chains:extra().
 -type user_info() :: emqx_authn_chains:user_info().
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 -callback create(AuthenticatorID, Config) ->
     {ok, State}
     | {error, term()}

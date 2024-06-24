@@ -57,6 +57,9 @@
 %% Authn Source Schema Behaviour
 %%--------------------------------------------------------------------
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [{fields, 1}, {namespace, 0}]}]).
+
 -type schema_ref() :: ?R_REF(module(), hocon_schema:name()).
 -type shema_kind() ::
     %% api_write: schema for mutating API request validation

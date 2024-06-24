@@ -212,6 +212,9 @@
 %% Generation callbacks
 %%================================================================================
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [{make_iterator, 5}, {make_delete_iterator, 5}, {handle_event, 4}]}]).
+
 %% Create the new schema given generation id and the options.
 %% Create rocksdb column families.
 -callback create(shard_id(), rocksdb:db_handle(), gen_id(), Options :: map()) ->

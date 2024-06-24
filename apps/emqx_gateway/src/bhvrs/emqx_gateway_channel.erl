@@ -24,6 +24,9 @@
 
 -type channel() :: any().
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 %%--------------------------------------------------------------------
 %% Info & Stats
 

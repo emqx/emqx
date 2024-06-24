@@ -27,6 +27,9 @@
     match_result/0
 ]).
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 %% Initialize authz backend.
 %% Populate the passed configuration map with necessary data,
 %% like `ResourceID`s

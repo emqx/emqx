@@ -23,6 +23,9 @@
 
 -type error_result() :: #{root_key => emqx_utils_maps:config_key(), reason => term()}.
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [{import_config, 1}]}]).
+
 -callback import_config(RawConf :: map()) ->
     {ok, ok_result()}
     | {error, error_result()}

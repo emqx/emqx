@@ -18,6 +18,9 @@
 
 -type traverse_break_reason() :: over | migrate.
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 -callback backup_tables() -> [mria:table()].
 
 %% validate the backup

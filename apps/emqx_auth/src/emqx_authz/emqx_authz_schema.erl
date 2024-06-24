@@ -54,6 +54,9 @@
 
 -type schema_ref() :: ?R_REF(module(), hocon_schema:name()).
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [{fields, 1}]}]).
+
 -callback type() -> emqx_authz_source:source_type().
 -callback source_refs() -> [schema_ref()].
 -callback select_union_member(emqx_config:raw_config()) -> schema_ref() | undefined | no_return().

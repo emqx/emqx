@@ -95,6 +95,9 @@
 -define(DEF_EXPIRY_INTERVAL, 0).
 -define(MAX_PAYLOAD_SIZE_CONFIG_PATH, [retainer, max_payload_size]).
 
+% Avoid hank's false-positive because of dispatcher pattern usage..!
+-hank([{unused_callbacks, [{delete_cursor, 2}, {match_messages, 3}]}]).
+
 -callback create(hocon:config()) -> backend_state().
 -callback update(backend_state(), hocon:config()) -> ok | need_recreate.
 -callback close(backend_state()) -> ok.

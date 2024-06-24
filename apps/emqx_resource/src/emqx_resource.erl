@@ -160,6 +160,13 @@
     on_format_query_result/1
 ]).
 
+% Avoid hank's false-positive because of optional callback..!
+-hank([
+    {unused_callbacks, [
+        {on_query, 3}, {on_batch_query, 3}, {on_query_async, 4}, {on_batch_query_async, 4}
+    ]}
+]).
+
 %% when calling emqx_resource:start/1
 -callback on_start(resource_id(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.

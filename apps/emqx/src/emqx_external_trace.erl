@@ -15,6 +15,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_external_trace).
 
+% Avoid hank's false-positives..!
+-hank([{unused_callbacks, [all]}]).
+
 -callback trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     ChannelInfo :: channel_info(),
