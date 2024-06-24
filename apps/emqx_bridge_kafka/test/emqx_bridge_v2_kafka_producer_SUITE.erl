@@ -142,6 +142,9 @@ check_send_message_with_bridge(BridgeName) ->
     check_kafka_message_payload(Offset, Payload).
 
 send_message(ActionName) ->
+    send_message(?TYPE, ActionName).
+
+send_message(Type, ActionName) ->
     %% ######################################
     %% Create Kafka message
     %% ######################################
@@ -157,8 +160,8 @@ send_message(ActionName) ->
     %% ######################################
     %% Send message
     %% ######################################
-    emqx_bridge_v2:send_message(?TYPE, ActionName, Msg, #{}),
-    #{offset => Offset, payload => Payload}.
+    Res = emqx_bridge_v2:send_message(Type, ActionName, Msg, #{}),
+    #{offset => Offset, payload => Payload, result => Res}.
 
 resolve_kafka_offset() ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
@@ -284,6 +287,18 @@ action_api_spec_props_for_get() ->
     } =
         emqx_bridge_v2_testlib:actions_api_spec_schemas(),
     Props.
+
+assert_status_api(Line, Type, Name, Status) ->
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"status">> := Status,
+                <<"node_status">> := [#{<<"status">> := Status}]
+            }}},
+        emqx_bridge_v2_testlib:get_bridge_api(Type, Name),
+        #{line => Line, name => Name, expected_status => Status}
+    ).
+-define(assertStatusAPI(TYPE, NAME, STATUS), assert_status_api(?LINE, TYPE, NAME, STATUS)).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -660,5 +675,79 @@ t_ancient_v1_config_migration_without_local_topic(Config) ->
     ?assertMatch(
         [#{type := <<"kafka_producer">>}],
         erpc:call(Node, fun emqx_bridge_v2:list/0)
+    ),
+    ok.
+
+%% Tests that deleting/disabling an action that share the same Kafka topic with other
+%% actions do not disturb the latter.
+t_multiple_actions_sharing_topic(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionConfig = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ?check_trace(
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionName1 = <<"a1">>,
+            ActionParams1 = [
+                {action_config, ActionConfig},
+                {action_name, ActionName1},
+                {action_type, Type}
+            ],
+            ActionName2 = <<"a2">>,
+            ActionParams2 = [
+                {action_config, ActionConfig},
+                {action_name, ActionName2},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams1),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams2),
+            RuleTopic = <<"t/a2">>,
+            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, Config),
+
+            ?assertStatusAPI(Type, ActionName1, <<"connected">>),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+
+            %% Disabling a1 shouldn't disturb a2.
+            ?assertMatch(
+                {204, _}, emqx_bridge_v2_testlib:disable_kind_api(action, Type, ActionName1)
+            ),
+
+            ?assertStatusAPI(Type, ActionName1, <<"disconnected">>),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+
+            ?assertMatch(#{result := ok}, send_message(Type, ActionName2)),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:enable_kind_api(action, Type, ActionName1)
+            ),
+            ?assertStatusAPI(Type, ActionName1, <<"connected">>),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+            ?assertMatch(#{result := ok}, send_message(Type, ActionName2)),
+
+            %% Deleting also shouldn't disrupt a2.
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:delete_kind_api(action, Type, ActionName1)
+            ),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+            ?assertMatch(#{result := ok}, send_message(Type, ActionName2)),
+
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("kafka_producer_invalid_partition_count", Trace)),
+            ok
+        end
     ),
     ok.

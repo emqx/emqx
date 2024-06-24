@@ -324,6 +324,12 @@ on_query(
         }),
         do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
     catch
+        error:{invalid_partition_count, _Count, _Partitioner} ->
+            ?tp("kafka_producer_invalid_partition_count", #{
+                action_id => MessageTag,
+                query_mode => sync
+            }),
+            {error, invalid_partition_count};
         throw:{bad_kafka_header, _} = Error ->
             ?tp(
                 emqx_bridge_kafka_impl_producer_sync_query_failed,
@@ -385,6 +391,10 @@ on_query_async(
         do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
     catch
         error:{invalid_partition_count, _Count, _Partitioner} ->
+            ?tp("kafka_producer_invalid_partition_count", #{
+                action_id => MessageTag,
+                query_mode => async
+            }),
             {error, invalid_partition_count};
         throw:{bad_kafka_header, _} = Error ->
             ?tp(
@@ -690,6 +700,7 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, BridgeV2Id) ->
         max_batch_bytes => MaxBatchBytes,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,
+        alias => BridgeV2Id,
         telemetry_meta_data => #{bridge_id => BridgeV2Id},
         max_partitions => MaxPartitions
     }.
