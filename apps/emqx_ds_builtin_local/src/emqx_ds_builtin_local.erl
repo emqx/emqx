@@ -155,7 +155,12 @@ list_generations_with_lifetimes(DB) ->
     lists:foldl(
         fun(Shard, Acc) ->
             maps:fold(
-                fun(GenId, Data, Acc1) ->
+                fun(GenId, Data0, Acc1) ->
+                    Data = maps:update_with(
+                        until,
+                        fun timeus_to_timestamp/1,
+                        maps:update_with(since, fun timeus_to_timestamp/1, Data0)
+                    ),
                     Acc1#{{Shard, GenId} => Data}
                 end,
                 Acc,
@@ -370,3 +375,8 @@ current_timestamp(ShardId) ->
 
 timestamp_to_timeus(TimestampMs) ->
     TimestampMs * 1000.
+
+timeus_to_timestamp(undefined) ->
+    undefined;
+timeus_to_timestamp(TimestampUs) ->
+    TimestampUs div 1000.

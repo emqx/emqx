@@ -287,7 +287,6 @@ do_flush(
             lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Replies),
             erlang:garbage_collect(),
             S#s{
-                callback_state = CallbackS,
                 n = 0,
                 n_bytes = 0,
                 queue = queue:new(),

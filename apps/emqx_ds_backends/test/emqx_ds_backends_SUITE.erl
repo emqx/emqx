@@ -135,16 +135,23 @@ t_05_update_iterator(Config) ->
 
 t_06_smoke_add_generation(Config) ->
     DB = ?FUNCTION_NAME,
+    BeginTime = os:system_time(millisecond),
+
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    ?assertMatch(
-        [{_, _}],
-        maps:to_list(emqx_ds:list_generations_with_lifetimes(DB))
+    [{Gen1, #{created_at := Created1, since := Since1, until := undefined}}] = maps:to_list(
+        emqx_ds:list_generations_with_lifetimes(DB)
     ),
+
     ?assertMatch(ok, emqx_ds:add_generation(DB)),
-    ?assertMatch(
-        [{_, _}, {_, _}],
-        maps:to_list(emqx_ds:list_generations_with_lifetimes(DB))
-    ).
+    [
+        {Gen1, #{created_at := Created1, since := Since1, until := Until1}},
+        {Gen2, #{created_at := Created2, since := Since2, until := undefined}}
+    ] = maps:to_list(emqx_ds:list_generations_with_lifetimes(DB)),
+    %% Check units of the return values (+/- 10s from test begin time):
+    ?give_or_take(BeginTime, 10_000, Created1),
+    ?give_or_take(BeginTime, 10_000, Created2),
+    ?give_or_take(BeginTime, 10_000, Since2),
+    ?give_or_take(BeginTime, 10_000, Until1).
 
 t_07_smoke_update_config(Config) ->
     DB = ?FUNCTION_NAME,
