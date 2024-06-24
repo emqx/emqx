@@ -150,6 +150,8 @@ fields(login) ->
 
 desc(oidc) ->
     "OIDC";
+desc(client_file_jwks) ->
+    ?DESC(client_file_jwks);
 desc(_) ->
     undefined.
 
