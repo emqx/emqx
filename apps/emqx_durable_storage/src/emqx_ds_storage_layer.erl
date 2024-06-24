@@ -71,8 +71,7 @@
     options/0,
     prototype/0,
     cooked_batch/0,
-    batch_store_opts/0,
-    db_write_opts/0
+    batch_store_opts/0
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -223,9 +222,6 @@
 %% Generation callbacks
 %%================================================================================
 
-%% See: `rocksdb:write_options()'.
--type db_write_opts() :: [_Option].
-
 %% Create the new schema given generation id and the options.
 %% Create rocksdb column families.
 -callback create(
@@ -248,7 +244,8 @@
 -callback prepare_batch(
     shard_id(),
     generation_data(),
-    [{emqx_ds:time(), emqx_types:message()}, ...]
+    [{emqx_ds:time(), emqx_types:message()}, ...],
+    batch_store_opts()
 ) ->
     {ok, term()} | emqx_ds:error(_).
 
@@ -256,7 +253,7 @@
     shard_id(),
     generation_data(),
     _CookedBatch,
-    db_write_opts()
+    batch_store_opts()
 ) -> ok | emqx_ds:error(_).
 
 -callback get_streams(
@@ -342,7 +339,7 @@ prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
         {GenId, #{module := Mod, data := GenData}} ->
             T0 = erlang:monotonic_time(microsecond),
             Result =
-                case Mod:prepare_batch(Shard, GenData, Messages) of
+                case Mod:prepare_batch(Shard, GenData, Messages, Options) of
                     {ok, CookedBatch} ->
                         {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
                     Error = {error, _, _} ->
@@ -365,9 +362,8 @@ prepare_batch(_Shard, [], _Options) ->
 ) -> emqx_ds:store_batch_result().
 commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, Options) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
-    WriteOptions = mk_write_options(Options),
     T0 = erlang:monotonic_time(microsecond),
-    Result = Mod:commit_batch(Shard, GenData, CookedBatch, WriteOptions),
+    Result = Mod:commit_batch(Shard, GenData, CookedBatch, Options),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result.
@@ -1024,11 +1020,6 @@ handle_event(Shard, Time, Event) ->
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
 
 %%--------------------------------------------------------------------------------
-
-mk_write_options(#{durable := false}) ->
-    [{disable_wal, true}];
-mk_write_options(#{}) ->
-    [].
 
 -spec cf_names(cf_refs()) -> [string()].
 cf_names(CFRefs) ->
