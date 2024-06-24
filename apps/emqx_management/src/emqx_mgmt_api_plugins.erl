@@ -59,7 +59,6 @@
 -define(VSN_WILDCARD, "-*.tar.gz").
 
 -define(CONTENT_PLUGIN, plugin).
--define(CONTENT_CONFIG, config).
 
 namespace() ->
     "plugins".
@@ -411,7 +410,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
     case emqx_plugins:describe(NameVsn) of
-        {error, #{error_msg := "bad_info_file", reason := {enoent, _}}} ->
+        {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
             case emqx_plugins:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
                     AppDir = filename:join(emqx_plugins:install_dir(), AppName),
@@ -467,12 +466,12 @@ do_install_package(FileName, Bin) ->
             ),
             Reason =
                 case hd(Filtered) of
-                    {error, #{error_msg := Reason0}} -> Reason0;
+                    {error, #{msg := Reason0}} -> Reason0;
                     {error, #{reason := Reason0}} -> Reason0
                 end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
-                message => iolist_to_binary([Reason, ": ", FileName])
+                message => iolist_to_binary([bin(Reason), ": ", FileName])
             }}
     end.
 
@@ -565,8 +564,8 @@ install_package(FileName, Bin) ->
     ok = filelib:ensure_dir(File),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
-    case emqx_plugins:ensure_installed(PackageName) of
-        {error, #{reason := not_found}} = NotFound ->
+    case emqx_plugins:ensure_installed(PackageName, ?fresh_install) of
+        {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
             ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
@@ -597,6 +596,9 @@ delete_package(Name) ->
     end.
 
 %% for RPC plugin update
+%% TODO: catch thrown error to return 400
+%% - plugin_not_found
+%% - otp vsn assertion failed
 ensure_action(Name, start) ->
     _ = emqx_plugins:ensure_started(Name),
     _ = emqx_plugins:ensure_enabled(Name),
@@ -625,10 +627,9 @@ do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
 
 return(Code, ok) ->
     {Code};
-return(_, {error, #{error_msg := "bad_info_file", reason := {enoent, _} = Reason}}) ->
-    {404, #{code => 'NOT_FOUND', message => readable_error_msg(Reason)}};
-return(_, {error, #{error_msg := "bad_avro_config_file", reason := {enoent, _} = Reason}}) ->
-    {404, #{code => 'NOT_FOUND', message => readable_error_msg(Reason)}};
+return(_, {error, #{msg := Msg, reason := {enoent, Path} = Reason}}) ->
+    ?SLOG(error, #{msg => Msg, reason => Reason}),
+    {404, #{code => 'NOT_FOUND', message => iolist_to_binary([Path, " does not exist"])}};
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => readable_error_msg(Reason)}}.
 
@@ -727,6 +728,10 @@ try_read_file(Fun) ->
 format_plugin_avsc_and_i18n(_NameVsn) ->
     #{avsc => null, i18n => null}.
 -endif.
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(L) when is_list(L) -> list_to_binary(L);
+bin(B) when is_binary(B) -> B.
 
 % running_status: running loaded, stopped
 %% config_status: not_configured disable enable
