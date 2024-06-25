@@ -359,7 +359,7 @@ do_start_client(
             {error, Reason}
     end.
 
-grpc_config() ->
+grpc_opts() ->
     #{
         sync_start => true,
         connect_timeout => ?CONNECT_TIMEOUT
@@ -378,7 +378,7 @@ client_config(
         {pool, InstId},
         {pool_type, random},
         {auto_reconnect, ?AUTO_RECONNECT_S},
-        {gprc_options, grpc_config()}
+        {grpc_opts, grpc_opts()}
     ] ++ protocol_config(Config).
 
 protocol_config(
