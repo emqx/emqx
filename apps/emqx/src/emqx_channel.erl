@@ -563,29 +563,8 @@ handle_in(
     process_disconnect(ReasonCode, Properties, NChannel);
 handle_in(?AUTH_PACKET(), Channel) ->
     handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
-handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
-    shutdown(shutdown_count(frame_error, Reason), Channel);
-handle_in(
-    {frame_error, #{cause := frame_too_large} = R}, Channel = #channel{conn_state = connecting}
-) ->
-    shutdown(
-        shutdown_count(frame_error, R), ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel
-    );
-handle_in({frame_error, Reason}, Channel = #channel{conn_state = connecting}) ->
-    shutdown(shutdown_count(frame_error, Reason), ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
-handle_in(
-    {frame_error, #{cause := frame_too_large}}, Channel = #channel{conn_state = ConnState}
-) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
-->
-    handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
-handle_in({frame_error, Reason}, Channel = #channel{conn_state = ConnState}) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
-->
-    handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
-handle_in({frame_error, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?SLOG(error, #{msg => "malformed_mqtt_message", reason => Reason}),
-    {ok, Channel};
+handle_in({frame_error, Reason}, Channel) ->
+    handle_frame_error(Reason, Channel);
 handle_in(Packet, Channel) ->
     ?SLOG(error, #{msg => "disconnecting_due_to_unexpected_message", packet => Packet}),
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel).
@@ -1016,6 +995,37 @@ not_nacked({deliver, _Topic, Msg}) ->
         false ->
             true
     end.
+
+%%--------------------------------------------------------------------
+%% Handle Frame Error
+%%--------------------------------------------------------------------
+
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = idle}
+) ->
+    shutdown(shutdown_count(frame_error, Reason), Channel);
+handle_frame_error(
+    #{cause := frame_too_large} = R, Channel = #channel{conn_state = connecting}
+) ->
+    shutdown(
+        shutdown_count(frame_error, R), ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel
+    );
+handle_frame_error(Reason, Channel = #channel{conn_state = connecting}) ->
+    shutdown(shutdown_count(frame_error, Reason), ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
+handle_frame_error(
+    #{cause := frame_too_large}, Channel = #channel{conn_state = ConnState}
+) when
+    ConnState =:= connected orelse ConnState =:= reauthenticating
+->
+    handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
+handle_frame_error(Reason, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= connected orelse ConnState =:= reauthenticating
+->
+    handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
+handle_frame_error(Reason, Channel = #channel{conn_state = disconnected}) ->
+    ?SLOG(error, #{msg => "malformed_mqtt_message", reason => Reason}),
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -2629,8 +2639,7 @@ save_alias(outbound, AliasId, Topic, TopicAliases = #{outbound := Aliases}) ->
     NAliases = maps:put(Topic, AliasId, Aliases),
     TopicAliases#{outbound => NAliases}.
 
--compile({inline, [reply/2, shutdown/2, shutdown/3, sp/1, flag/1]}).
-
+-compile({inline, [reply/2, shutdown/2, shutdown/3]}).
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.
 
