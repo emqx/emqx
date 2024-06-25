@@ -274,7 +274,7 @@ channel_status(#{mode := aggregated, aggreg_id := AggregId, bucket := Bucket}, S
 check_bucket_accessible(Bucket, #{client_config := Config}) ->
     case emqx_s3_client:aws_config(Config) of
         {error, Reason} ->
-            throw({unhealthy_target, Reason});
+            throw({unhealthy_target, map_error_details(Reason)});
         AWSConfig ->
             try erlcloud_s3:list_objects(Bucket, [{max_keys, 1}], AWSConfig) of
                 Props when is_list(Props) ->
@@ -293,8 +293,7 @@ check_aggreg_upload_errors(AggregId) ->
             %% TODO
             %% This approach means that, for example, 3 upload failures will cause
             %% the channel to be marked as unhealthy for 3 consecutive health checks.
-            ErrorMessage = emqx_utils:format(Error),
-            throw({unhealthy_target, ErrorMessage});
+            throw({unhealthy_target, map_error_details(Error)});
         [] ->
             ok
     end.
@@ -399,6 +398,10 @@ map_error_details({socket_error, Reason}) ->
     emqx_utils:format("Socket error: ~s", [emqx_utils:readable_error_msg(Reason)]);
 map_error_details({http_error, _, _, _} = Error) ->
     emqx_utils:format("AWS error: ~s", [map_aws_error_details(Error)]);
+map_error_details({failed_to_obtain_credentials, Error}) ->
+    emqx_utils:format("Unable to obtain AWS credentials: ~s", [map_error_details(Error)]);
+map_error_details({upload_failed, Error}) ->
+    map_error_details(Error);
 map_error_details(Error) ->
     Error.
 
