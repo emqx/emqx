@@ -373,7 +373,7 @@ run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
             ?tp(s3_bridge_aggreg_push_ok, #{instance_id => InstId, name => AggregId}),
             ok;
         {error, Reason} ->
-            {error, {unrecoverable_error, Reason}}
+            {error, {unrecoverable_error, emqx_utils:explain_posix(Reason)}}
     end.
 
 map_error(Error) ->
