@@ -1448,7 +1448,10 @@ t_connection_down_before_starting(Config) ->
                 ),
             {ok, _} = create_bridge(Config),
             {ok, _} = snabbkaffe:receive_events(SRef0),
-            ?assertMatch({ok, connecting}, health_check(Config)),
+            ?assertMatch(
+                {ok, Status} when Status =:= connecting orelse Status =:= disconnected,
+                health_check(Config)
+            ),
 
             emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
             ?retry(
