@@ -160,6 +160,13 @@ t_start_broken_update_restart(Config) ->
         ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ConnectorId))
     ),
     ?assertMatch(
+        {ok,
+            {{_HTTP, 200, _}, _, #{
+                <<"status_reason">> := <<"AWS error: SignatureDoesNotMatch:", _/bytes>>
+            }}},
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ),
+    ?assertMatch(
         {ok, {{_HTTP, 200, _}, _, _}},
         emqx_bridge_v2_testlib:update_connector_api(Name, Type, ConnectorConf)
     ),

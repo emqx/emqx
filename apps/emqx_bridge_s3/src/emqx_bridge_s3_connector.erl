@@ -146,16 +146,14 @@ on_stop(InstId, _State = #{pool_name := PoolName}) ->
 on_get_status(_InstId, State = #{client_config := Config}) ->
     case emqx_s3_client:aws_config(Config) of
         {error, Reason} ->
-            {?status_disconnected, State, Reason};
+            {?status_disconnected, State, map_error_details(Reason)};
         AWSConfig ->
             try erlcloud_s3:list_buckets(AWSConfig) of
                 Props when is_list(Props) ->
                     ?status_connected
             catch
-                error:{aws_error, {http_error, _Code, _, Reason}} ->
-                    {?status_disconnected, State, Reason};
-                error:{aws_error, {socket_error, Reason}} ->
-                    {?status_disconnected, State, Reason}
+                error:Error ->
+                    {?status_disconnected, State, map_error_details(Error)}
             end
     end.
 
@@ -284,8 +282,8 @@ check_bucket_accessible(Bucket, #{client_config := Config}) ->
             catch
                 error:{aws_error, {http_error, 404, _, _Reason}} ->
                     throw({unhealthy_target, "Bucket does not exist"});
-                error:{aws_error, {socket_error, Reason}} ->
-                    throw({unhealthy_target, emqx_utils:format(Reason)})
+                error:Error ->
+                    throw({unhealthy_target, map_error_details(Error)})
             end
     end.
 
@@ -378,13 +376,31 @@ run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
             {error, {unrecoverable_error, Reason}}
     end.
 
-map_error({socket_error, _} = Reason) ->
-    {recoverable_error, Reason};
-map_error(Reason = {aws_error, Status, _, _Body}) when Status >= 500 ->
+map_error(Error) ->
+    {map_error_class(Error), map_error_details(Error)}.
+
+map_error_class({s3_error, _, _}) ->
+    unrecoverable_error;
+map_error_class({aws_error, Error}) ->
+    map_error_class(Error);
+map_error_class({socket_error, _}) ->
+    recoverable_error;
+map_error_class({http_error, Status, _, _}) when Status >= 500 ->
     %% https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html#ErrorCodeList
-    {recoverable_error, Reason};
-map_error(Reason) ->
-    {unrecoverable_error, Reason}.
+    recoverable_error;
+map_error_class(_Error) ->
+    unrecoverable_error.
+
+map_error_details({s3_error, Code, Message}) ->
+    emqx_utils:format("S3 error: ~s ~s", [Code, Message]);
+map_error_details({aws_error, Error}) ->
+    map_error_details(Error);
+map_error_details({socket_error, Reason}) ->
+    emqx_utils:format("Socket error: ~s", [emqx_utils:readable_error_msg(Reason)]);
+map_error_details({http_error, _, _, _} = Error) ->
+    emqx_utils:format("AWS error: ~s", [map_aws_error_details(Error)]);
+map_error_details(Error) ->
+    Error.
 
 render_bucket(Template, Data) ->
     case emqx_template:render(Template, {emqx_jsonish, Data}) of
@@ -406,6 +422,32 @@ render_content(Template, Data) ->
 
 iolist_to_string(IOList) ->
     unicode:characters_to_list(IOList).
+
+%%
+
+-include_lib("xmerl/include/xmerl.hrl").
+
+-spec map_aws_error_details(_AWSError) ->
+    unicode:chardata().
+map_aws_error_details({http_error, _Status, _, Body}) ->
+    try xmerl_scan:string(unicode:characters_to_list(Body), [{quiet, true}]) of
+        {Error = #xmlElement{name = 'Error'}, _} ->
+            map_aws_error_details(Error);
+        _ ->
+            Body
+    catch
+        exit:_ ->
+            Body
+    end;
+map_aws_error_details(#xmlElement{content = Content}) ->
+    Code = extract_xml_text(lists:keyfind('Code', #xmlElement.name, Content)),
+    Message = extract_xml_text(lists:keyfind('Message', #xmlElement.name, Content)),
+    [Code, $:, $\s | Message].
+
+extract_xml_text(#xmlElement{content = Content}) ->
+    [Fragment || #xmlText{value = Fragment} <- Content];
+extract_xml_text(false) ->
+    [].
 
 %% `emqx_connector_aggreg_delivery` APIs
 
