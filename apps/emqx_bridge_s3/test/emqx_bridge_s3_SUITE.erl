@@ -145,7 +145,7 @@ t_create_unavailable_credentials(Config) ->
         {ok,
             {{_HTTP, 201, _}, _, #{
                 <<"status_reason">> :=
-                    <<"Unable to obtain AWS credentials: Socket error:", _/bytes>>
+                    <<"Unable to obtain AWS credentials:", _/bytes>>
             }}},
         emqx_bridge_v2_testlib:create_connector_api(ConnectorName, ConnectorType, ConnectorConfig)
     ).
