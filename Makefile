@@ -8,7 +8,7 @@ BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
 export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-debian12
-export EMQX_DEFAULT_RUNNER = public.ecr.aws/debian/debian:12-slim
+export EMQX_DEFAULT_RUNNER = public.ecr.aws/debian/debian:stable-20240612-slim
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
 ifeq ($(OS),Windows_NT)
