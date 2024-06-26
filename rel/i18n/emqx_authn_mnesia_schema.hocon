@@ -9,4 +9,14 @@ user_id_type.desc:
 user_id_type.label:
 """Authentication ID Type"""
 
+bootstrap_file.desc:
+"""The bootstrap file imports users into the built-in database."""
+
+bootstrap_file.label:
+"""Bootstrap File Path"""
+
+bootstrap_type.desc:
+"""plain: bootstrap_file.cvs should be `user_id,password,is_superuser`.
+hash: bootstrap_file.cvs should be `user_id,password_hash,salt,is_superuser`"""
+
 }

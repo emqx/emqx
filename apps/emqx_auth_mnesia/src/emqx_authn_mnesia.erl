@@ -116,7 +116,7 @@ create(
         user_id_type := Type,
         password_hash_algorithm := Algorithm,
         user_group := UserGroup
-    }
+    } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     State = #{
@@ -124,6 +124,7 @@ create(
         user_id_type => Type,
         password_hash_algorithm => Algorithm
     },
+    ok = boostrap_user_from_file(Config, State),
     {ok, State}.
 
 update(Config, _State) ->
@@ -537,3 +538,24 @@ find_password_hash(_, _, _) ->
 is_superuser(#{<<"is_superuser">> := <<"true">>}) -> true;
 is_superuser(#{<<"is_superuser">> := true}) -> true;
 is_superuser(_) -> false.
+
+boostrap_user_from_file(Config, State) ->
+    case maps:get(boostrap_file, Config, <<>>) of
+        <<>> ->
+            ok;
+        FileName ->
+            #{boostrap_type := Type} = Config,
+            case file:read_file(FileName) of
+                {ok, FileData} ->
+                    %% if there is a key conflict, override with the key which from the bootstrap file
+                    _ = import_users({Type, FileName, FileData}, State),
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "boostrap_authn(built_in_database)_failed",
+                        boostrap_file => FileName,
+                        boostrap_type => Type,
+                        reason => Reason
+                    })
+            end
+    end.
