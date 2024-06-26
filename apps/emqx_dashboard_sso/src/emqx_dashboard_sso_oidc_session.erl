@@ -42,7 +42,7 @@
 start_link(Cfg) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Cfg, []).
 
-start(Name, #{issuer := Issuer, session_expiry := SessionExpiry}) ->
+start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0}) ->
     case
         emqx_dashboard_sso_sup:start_child(
             oidcc_provider_configuration_worker,
@@ -57,6 +57,7 @@ start(Name, #{issuer := Issuer, session_expiry := SessionExpiry}) ->
         {error, _} = Error ->
             Error;
         _ ->
+            SessionExpiry = timer:seconds(SessionExpiry0),
             emqx_dashboard_sso_sup:start_child(?MODULE, [SessionExpiry])
     end.
 

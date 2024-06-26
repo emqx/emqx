@@ -107,7 +107,14 @@ get_backend_status(Backend, _) ->
     end.
 
 update(Backend, Config) ->
-    update_config(Backend, {?FUNCTION_NAME, Backend, Config}).
+    UpdateConf =
+        case emqx:get_raw_config(?MOD_KEY_PATH(Backend), #{}) of
+            RawConf when is_map(RawConf) ->
+                emqx_utils:deobfuscate(Config, RawConf);
+            null ->
+                Config
+        end,
+    update_config(Backend, {?FUNCTION_NAME, Backend, UpdateConf}).
 delete(Backend) ->
     update_config(Backend, {?FUNCTION_NAME, Backend}).
 

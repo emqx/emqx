@@ -273,7 +273,7 @@ is_msie(Headers) ->
     not (binary:match(UA, <<"MSIE">>) =:= nomatch).
 
 login_redirect_target(DashboardAddr, Username, Role, Token) ->
-    LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token),
+    LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token, saml),
     <<DashboardAddr/binary, "/?login_meta=", (base64_login_meta(LoginMeta))/binary>>.
 
 base64_login_meta(LoginMeta) ->

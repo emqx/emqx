@@ -30,6 +30,14 @@
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
+
+-define(RESPHEADERS, #{
+    <<"cache-control">> => <<"no-cache">>,
+    <<"pragma">> => <<"no-cache">>,
+    <<"content-type">> => <<"text/plain">>
+}).
+-define(REDIRECT_BODY, <<"Redirecting...">>).
+
 -define(TAGS, <<"Dashboard Single Sign-On">>).
 -define(BACKEND, oidc).
 -define(BASE_PATH, "/api/v5").
@@ -66,11 +74,12 @@ schema("/sso/oidc/callback") ->
 %%--------------------------------------------------------------------
 code_callback(get, #{query_string := QS}) ->
     case ensure_sso_state(QS) of
-        {ok, Username, Role, DashboardToken} ->
+        {ok, Target} ->
             ?SLOG(info, #{
                 msg => "dashboard_sso_login_successful"
             }),
-            {200, login_meta(Username, Role, DashboardToken)};
+
+            {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY};
         {error, invalid_backend} ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         {error, Reason} ->
@@ -130,7 +139,7 @@ retrieve_token(
             Code,
             Name,
             ClientId,
-            Secret,
+            emqx_secret:unwrap(Secret),
             Data#{
                 redirect_uri => make_callback_url(Cfg),
                 client_jwks => ClientJwks,
@@ -144,18 +153,21 @@ retrieve_token(
             Error
     end.
 
-retrieve_userinfo(Token, #{
-    name := Name,
-    client_jwks := ClientJwks,
-    config := #{clientid := ClientId, secret := Secret},
-    name_tokens := NameTks
-}) ->
+retrieve_userinfo(
+    Token,
+    #{
+        name := Name,
+        client_jwks := ClientJwks,
+        config := #{clientid := ClientId, secret := Secret},
+        name_tokens := NameTks
+    } = Cfg
+) ->
     case
         oidcc:retrieve_userinfo(
             Token,
             Name,
             ClientId,
-            Secret,
+            emqx_secret:unwrap(Secret),
             #{client_jwks => ClientJwks}
         )
     of
@@ -165,29 +177,29 @@ retrieve_userinfo(Token, #{
                 user_info => UserInfo
             }),
             Username = emqx_placeholder:proc_tmpl(NameTks, UserInfo),
-            ensure_user_exists(Username);
+            ensure_user_exists(Cfg, Username);
         {error, _Reason} = Error ->
             Error
     end.
 
--dialyzer({nowarn_function, ensure_user_exists/1}).
-ensure_user_exists(<<>>) ->
+-dialyzer({nowarn_function, ensure_user_exists/2}).
+ensure_user_exists(_Cfg, <<>>) ->
     {error, <<"Username can not be empty">>};
-ensure_user_exists(<<"undefined">>) ->
+ensure_user_exists(_Cfg, <<"undefined">>) ->
     {error, <<"Username can not be undefined">>};
-ensure_user_exists(Username) ->
+ensure_user_exists(Cfg, Username) ->
     case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
         [User] ->
             case emqx_dashboard_token:sign(User, <<>>) of
                 {ok, Role, Token} ->
-                    {ok, Username, Role, Token};
+                    {ok, login_redirect_target(Cfg, Username, Role, Token)};
                 Error ->
                     Error
             end;
         [] ->
             case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->
-                    ensure_user_exists(Username);
+                    ensure_user_exists(Cfg, Username);
                 Error ->
                     Error
             end
@@ -195,3 +207,8 @@ ensure_user_exists(Username) ->
 
 make_callback_url(#{config := #{dashboard_addr := Addr}}) ->
     list_to_binary(binary_to_list(Addr) ++ ?BASE_PATH ++ ?CALLBACK_PATH).
+
+login_redirect_target(#{config := #{dashboard_addr := Addr}}, Username, Role, Token) ->
+    LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token, oidc),
+    MetaBin = base64:encode(emqx_utils_json:encode(LoginMeta)),
+    <<Addr/binary, "/?login_meta=", MetaBin/binary>>.

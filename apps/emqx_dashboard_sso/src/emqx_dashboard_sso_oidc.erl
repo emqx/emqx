@@ -62,9 +62,8 @@ fields(oidc) ->
                     #{desc => ?DESC(clientid), required => true}
                 )},
             {secret,
-                ?HOCON(
-                    binary(),
-                    #{desc => ?DESC(secret), required => true}
+                emqx_schema_secret:mk(
+                    maps:merge(#{desc => ?DESC(secret), required => true}, #{})
                 )},
             {scopes,
                 ?HOCON(
@@ -82,7 +81,7 @@ fields(oidc) ->
                     default => <<"http://127.0.0.1:18083">>
                 })},
             {session_expiry,
-                ?HOCON(emqx_schema:timeout_duration_ms(), #{
+                ?HOCON(emqx_schema:timeout_duration_s(), #{
                     desc => ?DESC(session_expiry),
                     default => <<"30s">>
                 })},
@@ -217,7 +216,7 @@ login(
         oidcc:create_redirect_url(
             ?PROVIDER_SVR_NAME,
             ClientId,
-            Secret,
+            emqx_secret:unwrap(Secret),
             Opts#{
                 state => State,
                 client_jwks => ClientJwks,
