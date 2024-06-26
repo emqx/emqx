@@ -177,6 +177,27 @@ t_create_invalid_config(Config) ->
         )
     ).
 
+t_create_invalid_config_key_template(Config) ->
+    ?assertMatch(
+        {error,
+            {_Status, _, #{
+                <<"code">> := <<"BAD_REQUEST">>,
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> := <<"Template placeholders are disallowed:", _/bytes>>,
+                    <<"path">> := <<"root.parameters.key">>
+                }
+            }}},
+        emqx_bridge_v2_testlib:create_bridge_api(
+            Config,
+            _Overrides = #{
+                <<"parameters">> => #{
+                    <<"key">> => <<"${action}/${foo}:${bar.rfc3339}">>
+                }
+            }
+        )
+    ).
+
 t_update_invalid_config(Config) ->
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
     ?assertMatch(

@@ -945,6 +945,7 @@ t_on_get_status(Config, Opts) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
     FailureStatus = maps:get(failure_status, Opts, disconnected),
+    NormalStatus = maps:get(normal_status, Opts, connected),
     ?assertMatch({ok, _}, create_bridge(Config)),
     ResourceId = resource_id(Config),
     %% Since the connection process is async, we give it some time to
@@ -952,7 +953,7 @@ t_on_get_status(Config, Opts) ->
     ?retry(
         _Sleep = 1_000,
         _Attempts = 20,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+        ?assertEqual({ok, NormalStatus}, emqx_resource_manager:health_check(ResourceId))
     ),
     case ProxyHost of
         undefined ->
@@ -971,7 +972,7 @@ t_on_get_status(Config, Opts) ->
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+                ?assertEqual({ok, NormalStatus}, emqx_resource_manager:health_check(ResourceId))
             )
     end,
     ok.

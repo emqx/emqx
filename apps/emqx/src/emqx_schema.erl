@@ -3491,6 +3491,7 @@ mqtt_general() ->
             )},
         {"max_clientid_len",
             sc(
+                %% MQTT-v3.1.1-[MQTT-3.1.3-5], MQTT-v5.0-[MQTT-3.1.3-5]
                 range(23, 65535),
                 #{
                     default => 65535,
@@ -3612,9 +3613,17 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_keepalive_multiplier)
                 }
             )},
+        {"keepalive_check_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"30s">>,
+                    desc => ?DESC(mqtt_keepalive_check_interval)
+                }
+            )},
         {"retry_interval",
             sc(
-                duration(),
+                timeout_duration(),
                 #{
                     default => <<"30s">>,
                     desc => ?DESC(mqtt_retry_interval)

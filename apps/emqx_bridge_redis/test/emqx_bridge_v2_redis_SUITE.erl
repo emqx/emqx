@@ -19,6 +19,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(BRIDGE_TYPE, redis).
 -define(BRIDGE_TYPE_BIN, <<"redis">>).
@@ -46,6 +47,7 @@ matrix_testcases() ->
         t_start_stop,
         t_create_via_http,
         t_on_get_status,
+        t_on_get_status_no_username_pass,
         t_sync_query,
         t_map_to_redis_hset_args
     ].
@@ -323,6 +325,43 @@ t_on_get_status(matrix) ->
     ]};
 t_on_get_status(Config) when is_list(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
+    ok.
+
+t_on_get_status_no_username_pass(matrix) ->
+    {on_get_status, [
+        [single, tcp],
+        [cluster, tcp],
+        [sentinel, tcp]
+    ]};
+t_on_get_status_no_username_pass(Config0) when is_list(Config0) ->
+    ConnectorConfig0 = ?config(connector_config, Config0),
+    ConnectorConfig1 = emqx_utils_maps:deep_put(
+        [<<"parameters">>, <<"password">>], ConnectorConfig0, <<"">>
+    ),
+    ConnectorConfig2 = emqx_utils_maps:deep_put(
+        [<<"parameters">>, <<"username">>], ConnectorConfig1, <<"">>
+    ),
+    Config1 = proplists:delete(connector_config, Config0),
+    Config2 = [{connector_config, ConnectorConfig2} | Config1],
+    ?check_trace(
+        emqx_bridge_v2_testlib:t_on_get_status(
+            Config2,
+            #{
+                failure_status => disconnected,
+                normal_status => disconnected
+            }
+        ),
+        fun(ok, Trace) ->
+            case ?config(redis_type, Config2) of
+                single ->
+                    ?assertMatch([_ | _], ?of_kind(emqx_redis_auth_required_error, Trace));
+                sentinel ->
+                    ?assertMatch([_ | _], ?of_kind(emqx_redis_auth_required_error, Trace));
+                cluster ->
+                    ok
+            end
+        end
+    ),
     ok.
 
 t_sync_query(matrix) ->

@@ -29,7 +29,10 @@
 ]).
 
 %% Internal exports
--export([convert_actions/2]).
+-export([
+    convert_actions/2,
+    validate_key_template/1
+]).
 
 -define(DEFAULT_AGGREG_BATCH_SIZE, 100).
 -define(DEFAULT_AGGREG_BATCH_TIME, <<"10ms">>).
@@ -137,7 +140,10 @@ fields(s3_aggregated_upload_parameters) ->
                 )}
         ],
         emqx_resource_schema:override(emqx_s3_schema:fields(s3_upload), [
-            {key, #{desc => ?DESC(s3_aggregated_upload_key)}}
+            {key, #{
+                desc => ?DESC(s3_aggregated_upload_key),
+                validator => fun ?MODULE:validate_key_template/1
+            }}
         ]),
         emqx_s3_schema:fields(s3_uploader)
     ]);
@@ -246,23 +252,13 @@ convert_action(Conf = #{<<"parameters">> := Params, <<"resource_opts">> := Resou
             Conf#{<<"resource_opts">> := NResourceOpts}
     end.
 
-%% Interpreting options
-
--spec mk_key_template(_Parameters :: map()) ->
-    {ok, emqx_template:str()} | {error, _Reason}.
-mk_key_template(#{key := Key}) ->
-    Template = emqx_template:parse(Key),
+validate_key_template(Conf) ->
+    Template = emqx_template:parse(Conf),
     case validate_bindings(emqx_template:placeholders(Template)) of
-        UsedBindings when is_list(UsedBindings) ->
-            SuffixTemplate = mk_suffix_template(UsedBindings),
-            case emqx_template:is_const(SuffixTemplate) of
-                true ->
-                    {ok, Template};
-                false ->
-                    {ok, Template ++ SuffixTemplate}
-            end;
-        Error = {error, _} ->
-            Error
+        Bindings when is_list(Bindings) ->
+            ok;
+        {error, {disallowed_placeholders, Disallowed}} ->
+            {error, emqx_utils:format("Template placeholders are disallowed: ~p", [Disallowed])}
     end.
 
 validate_bindings(Bindings) ->
@@ -276,7 +272,22 @@ validate_bindings(Bindings) ->
         [] ->
             Bindings;
         Disallowed ->
-            {error, {invalid_key_template, {disallowed_placeholders, Disallowed}}}
+            {error, {disallowed_placeholders, Disallowed}}
+    end.
+
+%% Interpreting options
+
+-spec mk_key_template(unicode:chardata()) ->
+    emqx_template:str().
+mk_key_template(Key) ->
+    Template = emqx_template:parse(Key),
+    UsedBindings = emqx_template:placeholders(Template),
+    SuffixTemplate = mk_suffix_template(UsedBindings),
+    case emqx_template:is_const(SuffixTemplate) of
+        true ->
+            Template;
+        false ->
+            Template ++ SuffixTemplate
     end.
 
 mk_suffix_template(UsedBindings) ->
