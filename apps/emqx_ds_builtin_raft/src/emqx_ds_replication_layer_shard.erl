@@ -4,6 +4,8 @@
 
 -module(emqx_ds_replication_layer_shard).
 
+-include_lib("snabbkaffe/include/trace.hrl").
+
 %% API:
 -export([start_link/3]).
 
@@ -17,6 +19,12 @@
 %% Dynamic server location API
 -export([
     servers/3
+]).
+
+%% Safe Process Command API
+-export([
+    process_command/3,
+    try_servers/3
 ]).
 
 %% Membership
@@ -36,6 +44,12 @@
 ]).
 
 -type server() :: ra:server_id().
+
+-type server_error() :: server_error(none()).
+-type server_error(Reason) ::
+    {timeout, server()}
+    | {error, server(), Reason}
+    | {error, servers_unreachable}.
 
 -define(MEMBERSHIP_CHANGE_TIMEOUT, 30_000).
 
@@ -146,6 +160,40 @@ local_site() ->
 
 %%
 
+-spec process_command([server()], _Command, timeout()) ->
+    {ok, _Result, _Leader :: server()} | server_error().
+process_command(Servers, Command, Timeout) ->
+    try_servers(Servers, fun ra:process_command/3, [Command, Timeout]).
+
+-spec try_servers([server()], function(), [_Arg]) ->
+    {ok, _Result, _Leader :: server()} | server_error(_Reason).
+try_servers([Server | Rest], Fun, Args) ->
+    case is_server_online(Server) andalso erlang:apply(Fun, [Server | Args]) of
+        {ok, R, Leader} ->
+            {ok, R, Leader};
+        _Online = false ->
+            ?tp(emqx_ds_replshard_try_next_servers, #{server => Server, reason => offline}),
+            try_servers(Rest, Fun, Args);
+        {error, Reason = noproc} ->
+            ?tp(emqx_ds_replshard_try_next_servers, #{server => Server, reason => Reason}),
+            try_servers(Rest, Fun, Args);
+        {error, Reason} when Reason =:= nodedown orelse Reason =:= shutdown ->
+            %% NOTE
+            %% Conceptually, those error conditions basically mean the same as a plain
+            %% timeout: "it's impossible to tell if operation has succeeded or not".
+            ?tp(emqx_ds_replshard_try_servers_timeout, #{server => Server, reason => Reason}),
+            {timeout, Server};
+        {timeout, _} = Timeout ->
+            ?tp(emqx_ds_replshard_try_servers_timeout, #{server => Server, reason => timeout}),
+            Timeout;
+        {error, Reason} ->
+            {error, Server, Reason}
+    end;
+try_servers([], _Fun, _Args) ->
+    {error, servers_unreachable}.
+
+%%
+
 %% @doc Add a local server to the shard cluster.
 %% It's recommended to have the local server running before calling this function.
 %% This function is idempotent.
@@ -174,10 +222,10 @@ add_local_server(DB, Shard) ->
             }
     end,
     Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
-    case ra_try_servers(ShardServers, fun ra:add_member/3, [ServerRecord, Timeout]) of
+    case try_servers(ShardServers, fun ra:add_member/3, [ServerRecord, Timeout]) of
         {ok, _, _Leader} ->
             ok;
-        {error, already_member} ->
+        {error, _Server, already_member} ->
             ok;
         Error ->
             {error, recoverable, Error}
@@ -208,10 +256,10 @@ drop_local_server(DB, Shard) ->
 remove_server(DB, Shard, Server) ->
     ShardServers = shard_servers(DB, Shard),
     Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
-    case ra_try_servers(ShardServers, fun ra:remove_member/3, [Server, Timeout]) of
+    case try_servers(ShardServers, fun ra:remove_member/3, [Server, Timeout]) of
         {ok, _, _Leader} ->
             ok;
-        {error, not_member} ->
+        {error, _Server, not_member} ->
             ok;
         Error ->
             {error, recoverable, Error}
@@ -260,20 +308,6 @@ member_readiness(#{status := Status, voter_status := #{membership := Membership}
     end;
 member_readiness(#{}) ->
     unknown.
-
-%%
-
-ra_try_servers([Server | Rest], Fun, Args) ->
-    case erlang:apply(Fun, [Server | Args]) of
-        {ok, R, Leader} ->
-            {ok, R, Leader};
-        {error, Reason} when Reason == noproc; Reason == nodedown ->
-            ra_try_servers(Rest, Fun, Args);
-        ErrorOrTimeout ->
-            ErrorOrTimeout
-    end;
-ra_try_servers([], _Fun, _Args) ->
-    {error, servers_unreachable}.
 
 ra_overview(Server) ->
     case ra:member_overview(Server) of

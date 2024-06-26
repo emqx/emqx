@@ -63,6 +63,8 @@
     apply/3,
     tick/2,
 
+    state_enter/2,
+
     snapshot_module/0
 ]).
 
@@ -380,7 +382,7 @@ init_buffer(_DB, _Shard, _Options) ->
     {ok, #bs{}}.
 
 -spec flush_buffer(emqx_ds:db(), shard_id(), [emqx_types:message()], egress_state()) ->
-    {egress_state(), ok | {error, recoverable | unrecoverable, _}}.
+    {egress_state(), ok | emqx_ds:error(_)}.
 flush_buffer(DB, Shard, Messages, State) ->
     case ra_store_batch(DB, Shard, Messages) of
         {timeout, ServerId} ->
@@ -623,18 +625,20 @@ list_nodes() ->
 ).
 
 -spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()]) ->
-    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err} | _Err.
+    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err}.
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,
         ?batch_messages => Messages
     },
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
-    case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
+    case emqx_ds_replication_layer_shard:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
-        Error ->
-            Error
+        {timeout, _} = Timeout ->
+            Timeout;
+        {error, Reason = servers_unreachable} ->
+            {error, recoverable, Reason}
     end.
 
 ra_add_generation(DB, Shard) ->
@@ -970,7 +974,19 @@ set_ts({DB, Shard}, TS) ->
 
 %%
 
+-spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
+state_enter(MemberState, #{db_shard := {DB, Shard}, latest := Latest}) ->
+    ?tp(
+        ds_ra_state_enter,
+        #{db => DB, shard => Shard, latest => Latest, state => MemberState}
+    ),
+    [].
+
+%%
+
 approx_message_size(#message{from = ClientID, topic = Topic, payload = Payload}) ->
+    %% NOTE: Overhead here is basically few empty maps + 8-byte message id.
+    %% TODO: Probably need to ask the storage layer about the footprint.
     MinOverhead = 40,
     MinOverhead + clientid_size(ClientID) + byte_size(Topic) + byte_size(Payload).
 
