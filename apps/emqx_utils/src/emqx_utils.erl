@@ -65,6 +65,7 @@
     flattermap/2,
     tcp_keepalive_opts/4,
     format/1,
+    format/2,
     call_first_defined/1,
     ntoa/1,
     foldl_while/3,
@@ -564,6 +565,9 @@ tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
 
 format(Term) ->
     iolist_to_binary(io_lib:format("~0p", [Term])).
+
+format(Fmt, Args) ->
+    unicode:characters_to_binary(io_lib:format(Fmt, Args)).
 
 -spec call_first_defined(list({module(), atom(), list()})) -> term() | no_return().
 call_first_defined([{Module, Function, Args} | Rest]) ->

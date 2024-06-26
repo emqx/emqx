@@ -134,6 +134,22 @@ action_config(Name, ConnectorId) ->
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, s3_bridge_stopped).
 
+t_create_unavailable_credentials(Config) ->
+    ConnectorName = ?config(connector_name, Config),
+    ConnectorType = ?config(connector_type, Config),
+    ConnectorConfig = maps:without(
+        [<<"access_key_id">>, <<"secret_access_key">>],
+        ?config(connector_config, Config)
+    ),
+    ?assertMatch(
+        {ok,
+            {{_HTTP, 201, _}, _, #{
+                <<"status_reason">> :=
+                    <<"Unable to obtain AWS credentials:", _/bytes>>
+            }}},
+        emqx_bridge_v2_testlib:create_connector_api(ConnectorName, ConnectorType, ConnectorConfig)
+    ).
+
 t_ignore_batch_opts(Config) ->
     {ok, {_Status, _, Bridge}} = emqx_bridge_v2_testlib:create_bridge_api(Config),
     ?assertMatch(
@@ -158,6 +174,13 @@ t_start_broken_update_restart(Config) ->
         _Sleep = 1_000,
         _Attempts = 20,
         ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ConnectorId))
+    ),
+    ?assertMatch(
+        {ok,
+            {{_HTTP, 200, _}, _, #{
+                <<"status_reason">> := <<"AWS error: SignatureDoesNotMatch:", _/bytes>>
+            }}},
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
     ),
     ?assertMatch(
         {ok, {{_HTTP, 200, _}, _, _}},
