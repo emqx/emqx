@@ -1,5 +1,5 @@
 ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-debian12
-ARG RUN_FROM=public.ecr.aws/debian/debian:12-slim
+ARG RUN_FROM=public.ecr.aws/debian/debian:stable-20240612-slim
 ARG SOURCE_TYPE=src # tgz
 
 FROM ${BUILD_FROM} as builder_src
