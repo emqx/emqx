@@ -339,8 +339,24 @@ run_fuzzy_filter(
 %%------------------------------------------------------------------------------
 
 insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
-    UserInfoRecord = user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
-    insert_user(UserInfoRecord).
+    UserInfoRecord =
+        #user_info{user_id = DBUserID} =
+        user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+    case mnesia:read(?TAB, DBUserID, write) of
+        [] ->
+            insert_user(UserInfoRecord);
+        [UserInfoRecord] ->
+            ok;
+        [_] ->
+            ?SLOG(warning, #{
+                msg => "bootstrap_authentication_overridden_in_the_built_in_database",
+                user_id => UserID,
+                group_id => UserGroup,
+                suggestion =>
+                    "If you have made changes in other way, remove the user_id from the bootstrap file."
+            }),
+            insert_user(UserInfoRecord)
+    end.
 
 insert_user(#user_info{} = UserInfoRecord) ->
     mnesia:write(?TAB, UserInfoRecord, write).
