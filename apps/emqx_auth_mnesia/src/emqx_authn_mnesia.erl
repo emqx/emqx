@@ -543,8 +543,9 @@ boostrap_user_from_file(Config, State) ->
     case maps:get(boostrap_file, Config, <<>>) of
         <<>> ->
             ok;
-        FileName ->
+        FileName0 ->
             #{boostrap_type := Type} = Config,
+            FileName = emqx_schema:naive_env_interpolation(FileName0),
             case file:read_file(FileName) of
                 {ok, FileData} ->
                     %% if there is a key conflict, override with the key which from the bootstrap file
@@ -552,10 +553,10 @@ boostrap_user_from_file(Config, State) ->
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, #{
-                        msg => "boostrap_authn(built_in_database)_failed",
+                        msg => "boostrap_authn_built_in_database_failed",
                         boostrap_file => FileName,
                         boostrap_type => Type,
-                        reason => Reason
+                        reason => emqx_utils:explain_posix(Reason)
                     })
             end
     end.

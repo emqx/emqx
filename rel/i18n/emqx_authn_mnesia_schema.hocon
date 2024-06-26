@@ -10,13 +10,15 @@ user_id_type.label:
 """Authentication ID Type"""
 
 bootstrap_file.desc:
-"""The bootstrap file imports users into the built-in database."""
+"""The bootstrap file imports users into the built-in database.
+the file content format is determined by `bootstrap_type`."""
 
 bootstrap_file.label:
 """Bootstrap File Path"""
 
 bootstrap_type.desc:
-"""plain: bootstrap_file.cvs should be `user_id,password,is_superuser`.
-hash: bootstrap_file.cvs should be `user_id,password_hash,salt,is_superuser`"""
+"""plain: bootstrap_file.cvs should have lines of format `{user_id},{password},{is_superuser}` where `user_id` can be either clientid or username depending on `user_id_type`.
+hash: bootstrap_file.cvs should have line of format `{user_id},{password_hash},{salt},{is_superuser}.`
+All file format support is the same as `authentication/password_based:built_in_database/import_users` API."""
 
 }
