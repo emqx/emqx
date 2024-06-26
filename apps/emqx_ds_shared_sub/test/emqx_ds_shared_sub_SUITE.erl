@@ -13,7 +13,8 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -51,17 +52,16 @@ end_per_testcase(_TC, _Config) ->
     ok.
 
 t_lease_initial(_Config) ->
-    ConnPub = emqtt_connect_pub(<<"client_pub">>),
-
-    %% Need to pre-create some streams in "topic/#".
-    %% Leader is dummy by far and won't update streams after the first lease to the agent.
-    %% So there should be some streams already when the agent connects.
-    ok = init_streams(ConnPub, <<"topic1/1">>),
-
     ConnShared = emqtt_connect_sub(<<"client_shared">>),
     {ok, _, _} = emqtt:subscribe(ConnShared, <<"$share/gr1/topic1/#">>, 1),
 
-    {ok, _} = emqtt:publish(ConnPub, <<"topic1/1">>, <<"hello2">>, 1),
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    {ok, _} = emqtt:publish(ConnPub, <<"topic1/1">>, <<"hello1">>, 1),
+    ct:sleep(2_000),
+    {ok, _} = emqtt:publish(ConnPub, <<"topic1/2">>, <<"hello2">>, 1),
+
+    ?assertReceive({publish, #{payload := <<"hello1">>}}, 10_000),
     ?assertReceive({publish, #{payload := <<"hello2">>}}, 10_000),
 
     ok = emqtt:disconnect(ConnShared),
@@ -69,11 +69,6 @@ t_lease_initial(_Config) ->
 
 t_lease_reconnect(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
-
-    %% Need to pre-create some streams in "topic/#".
-    %% Leader is dummy by far and won't update streams after the first lease to the agent.
-    %% So there should be some streams already when the agent connects.
-    ok = init_streams(ConnPub, <<"topic2/2">>),
 
     ConnShared = emqtt_connect_sub(<<"client_shared">>),
 
@@ -93,7 +88,6 @@ t_lease_reconnect(_Config) ->
         5_000
     ),
 
-    ct:sleep(1_000),
     {ok, _} = emqtt:publish(ConnPub, <<"topic2/2">>, <<"hello2">>, 1),
 
     ?assertReceive({publish, #{payload := <<"hello2">>}}, 10_000),
@@ -114,7 +108,7 @@ t_renew_lease_timeout(_Config) ->
         ?wait_async_action(
             ok = terminate_leaders(),
             #{?snk_kind := leader_lease_streams},
-            5_000
+            10_000
         ),
         fun(Trace) ->
             ?strict_causality(
@@ -130,15 +124,6 @@ t_renew_lease_timeout(_Config) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-
-init_streams(ConnPub, Topic) ->
-    ConnRegular = emqtt_connect_sub(<<"client_regular">>),
-    {ok, _, _} = emqtt:subscribe(ConnRegular, Topic, 1),
-    {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello1">>, 1),
-
-    ?assertReceive({publish, #{payload := <<"hello1">>}}, 5_000),
-
-    ok = emqtt:disconnect(ConnRegular).
 
 emqtt_connect_sub(ClientId) ->
     {ok, C} = emqtt:start_link([

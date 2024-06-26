@@ -190,7 +190,7 @@ send_to_subscription_after(Group) ->
 with_group_sm(State, Group, Fun) ->
     case State of
         #{groups := #{Group := GSM0} = Groups} ->
-            GSM1 = Fun(GSM0),
+            #{} = GSM1 = Fun(GSM0),
             State#{groups => Groups#{Group => GSM1}};
         _ ->
             %% TODO

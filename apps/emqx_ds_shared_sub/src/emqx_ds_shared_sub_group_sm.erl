@@ -122,7 +122,8 @@
 %% TODO https://emqx.atlassian.net/browse/EMQX-12574
 %% Move to settings
 -define(FIND_LEADER_TIMEOUT, 1000).
--define(RENEW_LEASE_TIMEOUT, 2000).
+-define(RENEW_LEASE_TIMEOUT, 5000).
+-define(MIN_UPDATE_STREAM_STATE_INTERVAL, 500).
 
 %%-----------------------------------------------------------------------
 %% API
@@ -204,8 +205,12 @@ handle_find_leader_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM0
 %%-----------------------------------------------------------------------
 %% Replaying state
 
-handle_replaying(GSM) ->
-    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT).
+handle_replaying(GSM0) ->
+    GSM1 = ensure_state_timeout(GSM0, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT),
+    GSM2 = ensure_state_timeout(
+        GSM1, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL
+    ),
+    GSM2.
 
 handle_renew_lease_timeout(GSM) ->
     ?tp(debug, renew_lease_timeout, #{}),
@@ -214,8 +219,12 @@ handle_renew_lease_timeout(GSM) ->
 %%-----------------------------------------------------------------------
 %% Updating state
 
-handle_updating(GSM) ->
-    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT).
+handle_updating(GSM0) ->
+    GSM1 = ensure_state_timeout(GSM0, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT),
+    GSM2 = ensure_state_timeout(
+        GSM1, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL
+    ),
+    GSM2.
 
 %%-----------------------------------------------------------------------
 %% Common handlers
@@ -223,7 +232,7 @@ handle_updating(GSM) ->
 handle_leader_update_streams(
     #{
         state := ?replaying,
-        stream_data := #{streams := Streams0, version := VersionOld} = StateData
+        state_data := #{streams := Streams0, version := VersionOld} = StateData
     } = GSM,
     VersionOld,
     VersionNew,
@@ -275,14 +284,19 @@ handle_leader_update_streams(
 handle_leader_update_streams(
     #{
         state := ?updating,
-        stream_data := #{version := VersionNew} = _StreamData
+        state_data := #{version := VersionNew} = _StreamData
     } = GSM,
     _VersionOld,
     VersionNew,
     _StreamProgresses
 ) ->
     ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
-handle_leader_update_streams(GSM, _VersionOld, _VersionNew, _StreamProgresses) ->
+handle_leader_update_streams(GSM, VersionOld, VersionNew, _StreamProgresses) ->
+    ?tp(warning, shared_sub_group_sm_unexpected_leader_update_streams, #{
+        gsm => GSM,
+        version_old => VersionOld,
+        version_new => VersionNew
+    }),
     %% Unexpected versions or state
     transition(GSM, ?connecting, #{}).
 
@@ -311,7 +325,13 @@ handle_leader_renew_stream_lease(
     VersionNew
 ) ->
     ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
-handle_leader_renew_stream_lease(GSM, _VersionOld, _VersionNew) ->
+handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew) ->
+    ?tp(warning, shared_sub_group_sm_unexpected_leader_renew_stream_lease, #{
+        gsm => GSM,
+        version_old => VersionOld,
+        version_new => VersionNew
+    }),
+    %% Unexpected versions or state
     transition(GSM, ?connecting, #{}).
 
 handle_stream_progress(#{state := ?connecting} = GSM, _StreamProgresses) ->
@@ -319,32 +339,34 @@ handle_stream_progress(#{state := ?connecting} = GSM, _StreamProgresses) ->
 handle_stream_progress(
     #{
         state := ?replaying,
+        agent := Agent,
         state_data := #{
-            agent := Agent,
             leader := Leader,
             version := Version
         }
-    } = _GSM,
+    } = GSM,
     StreamProgresses
 ) ->
     ok = emqx_ds_shared_sub_proto:agent_update_stream_states(
         Leader, Agent, StreamProgresses, Version
-    );
+    ),
+    ensure_state_timeout(GSM, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL);
 handle_stream_progress(
     #{
         state := ?updating,
+        agent := Agent,
         state_data := #{
-            agent := Agent,
             leader := Leader,
             version := Version,
             prev_version := PrevVersion
         }
-    } = _GSM,
+    } = GSM,
     StreamProgresses
 ) ->
     ok = emqx_ds_shared_sub_proto:agent_update_stream_states(
         Leader, Agent, StreamProgresses, PrevVersion, Version
-    ).
+    ),
+    ensure_state_timeout(GSM, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL).
 
 handle_leader_invalidate(GSM) ->
     transition(GSM, ?connecting, #{}).
@@ -365,7 +387,14 @@ handle_state_timeout(
     renew_lease_timeout,
     _Message
 ) ->
-    handle_renew_lease_timeout(GSM).
+    handle_renew_lease_timeout(GSM);
+handle_state_timeout(
+    GSM,
+    update_stream_state_timeout,
+    _Message
+) ->
+    ?tp(debug, update_stream_state_timeout, #{}),
+    handle_stream_progress(GSM, []).
 
 handle_info(
     #{state_timers := Timers} = GSM, #state_timeout{message = Message, name = Name, id = Id} = _Info
