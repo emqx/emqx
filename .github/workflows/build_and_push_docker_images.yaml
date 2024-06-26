@@ -164,8 +164,9 @@ jobs:
           DOCKER_LATEST: ${{ inputs.latest }}
           DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
+          DOCKER_PLATFORMS: linux/amd64
           DOCKER_LOAD: true
-          EMQX_RUNNER: 'public.ecr.aws/debian/debian:12-slim'
+          EMQX_RUNNER: 'public.ecr.aws/debian/debian:stable-20240612-slim'
           EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
           PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
           EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
@@ -184,7 +185,7 @@ jobs:
         timeout-minutes: 1
         run: |
           for tag in $(cat .emqx_docker_image_tags); do
-            CID=$(docker run -d -P $tag)
+            CID=$(docker run -d -p 18083:18083 $tag)
             HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
             ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
             docker rm -f $CID
@@ -214,7 +215,7 @@ jobs:
           DOCKER_BUILD_NOCACHE: false
           DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: false
-          EMQX_RUNNER: 'public.ecr.aws/debian/debian:12-slim'
+          EMQX_RUNNER: 'public.ecr.aws/debian/debian:stable-20240612-slim'
           EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
           PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
           EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
