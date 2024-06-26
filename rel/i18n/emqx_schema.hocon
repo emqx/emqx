@@ -857,9 +857,9 @@ mqtt_keepalive_multiplier.label:
 
 mqtt_keepalive_check_interval.desc:
 """The frequency of checking for incoming MQTT packets determines how often the server will check for new MQTT packets.
-If a certain amount of time passes without any packets being sent from the client,this time will be added up.
-Once the accumulated time exceeds the keepalive interval * the keepalive multiplier, the connection will be terminated.
-The default is set to 30 seconds, with a minimum value of 1 second and a maximum value of Interval/2."""
+If a certain amount of time passes without any packets being sent from the client, this time will be added up.
+Once the accumulated time exceeds `keepalive-interval * keepalive-multiplier`, the connection will be terminated.
+The default is set to 30 seconds, with a minimum value of 1 second and a maximum value of `keepalive-interval / 2`."""
 
 mqtt_keepalive_check_interval.label:
 """Keep Alive Check Interval"""
