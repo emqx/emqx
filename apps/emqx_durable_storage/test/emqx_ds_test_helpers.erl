@@ -266,14 +266,17 @@ verify_stream_effects(DB, TestCase, Node, ClientId, ExpectedStream) ->
     ct:pal("Checking consistency of effects for ~p on ~p", [ClientId, Node]),
     ?defer_assert(
         begin
-            snabbkaffe_diff:assert_lists_eq(
+            diff_messages(
                 ExpectedStream,
-                ds_topic_stream(DB, ClientId, client_topic(TestCase, ClientId), Node),
-                message_diff_options([id, qos, from, flags, headers, topic, payload, extra])
+                ds_topic_stream(DB, ClientId, client_topic(TestCase, ClientId), Node)
             ),
             ct:pal("Data for client ~p on ~p is consistent.", [ClientId, Node])
         end
     ).
+
+diff_messages(Expected, Got) ->
+    Fields = [id, qos, from, flags, headers, topic, payload, extra],
+    diff_messages(Fields, Expected, Got).
 
 diff_messages(Fields, Expected, Got) ->
     snabbkaffe_diff:assert_lists_eq(Expected, Got, message_diff_options(Fields)).
