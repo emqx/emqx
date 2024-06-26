@@ -555,8 +555,7 @@ handle_info(Info, State) ->
 handle_timeout(TRef, idle_timeout, State = #state{idle_timer = TRef}) ->
     shutdown(idle_timeout, State);
 handle_timeout(TRef, keepalive, State) when is_reference(TRef) ->
-    RecvOct = emqx_pd:get_counter(recv_oct),
-    handle_timeout(TRef, {keepalive, RecvOct}, State);
+    with_channel(handle_timeout, [TRef, keepalive], State);
 handle_timeout(
     TRef,
     emit_stats,

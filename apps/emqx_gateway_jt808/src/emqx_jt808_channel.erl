@@ -616,7 +616,7 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
 interval(alive_timer, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(interval, KeepAlive);
+    emqx_keepalive:info(check_interval, KeepAlive);
 interval(retry_timer, #channel{retx_interval = RetxIntv}) ->
     RetxIntv.
 

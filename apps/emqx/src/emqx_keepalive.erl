@@ -19,10 +19,12 @@
 -export([
     init/1,
     init/2,
+    init/3,
     info/1,
     info/2,
+    check/1,
     check/2,
-    update/2
+    update/3
 ]).
 
 -elvis([{elvis_style, no_if_expression, disable}]).
@@ -30,8 +32,12 @@
 -export_type([keepalive/0]).
 
 -record(keepalive, {
-    interval :: pos_integer(),
-    statval :: non_neg_integer()
+    check_interval :: pos_integer(),
+    %% the received packets since last keepalive check
+    statval :: non_neg_integer(),
+    %% The number of idle intervals allowed before disconnecting the client.
+    idle_milliseconds = 0 :: non_neg_integer(),
+    max_idle_millisecond :: pos_integer()
 }).
 
 -opaque keepalive() :: #keepalive{}.
@@ -39,7 +45,11 @@
 
 %% @doc Init keepalive.
 -spec init(Interval :: non_neg_integer()) -> keepalive().
-init(Interval) -> init(0, Interval).
+init(Interval) -> init(default, 0, Interval).
+
+init(Zone, Interval) ->
+    RecvCnt = emqx_pd:get_counter(recv_pkt),
+    init(Zone, RecvCnt, Interval).
 
 %% from mqtt-v3.1.1 specific
 %% A Keep Alive value of zero (0) has the effect of turning off the keep alive mechanism.
@@ -53,42 +63,88 @@ init(Interval) -> init(0, Interval).
 %% typically this is a few minutes.
 %% The maximum value is (65535s) 18 hours 12 minutes and 15 seconds.
 %% @doc Init keepalive.
--spec init(StatVal :: non_neg_integer(), Interval :: non_neg_integer()) -> keepalive() | undefined.
-init(StatVal, Interval) when Interval > 0 andalso Interval =< ?MAX_INTERVAL ->
-    #keepalive{interval = Interval, statval = StatVal};
-init(_, 0) ->
+-spec init(
+    Zone :: atom(),
+    StatVal :: non_neg_integer(),
+    Second :: non_neg_integer()
+) -> keepalive() | undefined.
+init(Zone, StatVal, Second) when Second > 0 andalso Second =< ?MAX_INTERVAL ->
+    #{keepalive_multiplier := Mul, keepalive_check_interval := CheckInterval} =
+        emqx_config:get_zone_conf(Zone, [mqtt]),
+    MilliSeconds = timer:seconds(Second),
+    Interval = emqx_utils:clamp(CheckInterval, 1000, max(MilliSeconds div 2, 1000)),
+    MaxIdleMs = ceil(MilliSeconds * Mul),
+    #keepalive{
+        check_interval = Interval,
+        statval = StatVal,
+        idle_milliseconds = 0,
+        max_idle_millisecond = MaxIdleMs
+    };
+init(_Zone, _, 0) ->
     undefined;
-init(StatVal, Interval) when Interval > ?MAX_INTERVAL -> init(StatVal, ?MAX_INTERVAL).
+init(Zone, StatVal, Interval) when Interval > ?MAX_INTERVAL -> init(Zone, StatVal, ?MAX_INTERVAL).
 
 %% @doc Get Info of the keepalive.
 -spec info(keepalive()) -> emqx_types:infos().
 info(#keepalive{
-    interval = Interval,
-    statval = StatVal
+    check_interval = Interval,
+    statval = StatVal,
+    idle_milliseconds = IdleIntervals,
+    max_idle_millisecond = MaxMs
 }) ->
     #{
-        interval => Interval,
-        statval => StatVal
+        check_interval => Interval,
+        statval => StatVal,
+        idle_milliseconds => IdleIntervals,
+        max_idle_millisecond => MaxMs
     }.
 
--spec info(interval | statval, keepalive()) ->
+-spec info(check_interval | statval | idle_milliseconds, keepalive()) ->
     non_neg_integer().
-info(interval, #keepalive{interval = Interval}) ->
+info(check_interval, #keepalive{check_interval = Interval}) ->
     Interval;
 info(statval, #keepalive{statval = StatVal}) ->
     StatVal;
-info(interval, undefined) ->
+info(idle_milliseconds, #keepalive{idle_milliseconds = Val}) ->
+    Val;
+info(check_interval, undefined) ->
     0.
+
+check(Keepalive = #keepalive{}) ->
+    RecvCnt = emqx_pd:get_counter(recv_pkt),
+    check(RecvCnt, Keepalive);
+check(Keepalive) ->
+    {ok, Keepalive}.
 
 %% @doc Check keepalive.
 -spec check(non_neg_integer(), keepalive()) ->
     {ok, keepalive()} | {error, timeout}.
-check(Val, #keepalive{statval = Val}) -> {error, timeout};
-check(Val, KeepAlive) -> {ok, KeepAlive#keepalive{statval = Val}}.
+
+check(
+    NewVal,
+    #keepalive{
+        statval = NewVal,
+        idle_milliseconds = IdleAcc,
+        check_interval = Interval,
+        max_idle_millisecond = Max
+    }
+) when IdleAcc + Interval >= Max ->
+    {error, timeout};
+check(
+    NewVal,
+    #keepalive{
+        statval = NewVal,
+        idle_milliseconds = IdleAcc,
+        check_interval = Interval
+    } = KeepAlive
+) ->
+    {ok, KeepAlive#keepalive{statval = NewVal, idle_milliseconds = IdleAcc + Interval}};
+check(NewVal, #keepalive{} = KeepAlive) ->
+    {ok, KeepAlive#keepalive{statval = NewVal, idle_milliseconds = 0}}.
 
 %% @doc Update keepalive.
 %% The statval of the previous keepalive will be used,
 %% and normal checks will begin from the next cycle.
--spec update(non_neg_integer(), keepalive() | undefined) -> keepalive() | undefined.
-update(Interval, undefined) -> init(0, Interval);
-update(Interval, #keepalive{statval = StatVal}) -> init(StatVal, Interval).
+-spec update(atom(), non_neg_integer(), keepalive() | undefined) -> keepalive() | undefined.
+update(Zone, Interval, undefined) -> init(Zone, 0, Interval);
+update(Zone, Interval, #keepalive{statval = StatVal}) -> init(Zone, StatVal, Interval).
