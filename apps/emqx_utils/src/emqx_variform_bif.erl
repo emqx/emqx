@@ -199,7 +199,7 @@ regex_match(Str, RE) ->
 regex_replace(SrcStr, RE, RepStr) ->
     re:replace(SrcStr, RE, RepStr, [global, {return, binary}]).
 
-%% @doc Non-global search for specified by regular expression patter in the given string.
+%% @doc Non-global search for specified regular expression pattern in the given string.
 %% If matches are found, it returns a list of all captured groups from these matches.
 %% If no matches are found or there are no groups captured, it returns an empty list.
 %% This function can be used to extract parts of a string based on a regular expression,
