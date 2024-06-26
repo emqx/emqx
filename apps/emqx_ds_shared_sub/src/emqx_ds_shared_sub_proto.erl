@@ -9,6 +9,7 @@
 -module(emqx_ds_shared_sub_proto).
 
 -include("emqx_ds_shared_sub_proto.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     agent_connect_leader/3,
@@ -47,15 +48,32 @@
     stream_progress/0
 ]).
 
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
 %% agent -> leader messages
 
 -spec agent_connect_leader(leader(), agent(), topic_filter()) -> ok.
 agent_connect_leader(ToLeader, FromAgent, TopicFilter) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => agent_connect_leader,
+        to_leader => ToLeader,
+        from_agent => FromAgent,
+        topic_filter => TopicFilter
+    }),
     _ = erlang:send(ToLeader, ?agent_connect_leader(FromAgent, TopicFilter)),
     ok.
 
 -spec agent_update_stream_states(leader(), agent(), list(agent_stream_progress()), version()) -> ok.
 agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, Version) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => agent_update_stream_states,
+        to_leader => ToLeader,
+        from_agent => FromAgent,
+        stream_progresses => format_streams(StreamProgresses),
+        version => Version
+    }),
     _ = erlang:send(ToLeader, ?agent_update_stream_states(FromAgent, StreamProgresses, Version)),
     ok.
 
@@ -63,6 +81,14 @@ agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, Version) ->
     leader(), agent(), list(agent_stream_progress()), version(), version()
 ) -> ok.
 agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, VersionOld, VersionNew) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => agent_update_stream_states,
+        to_leader => ToLeader,
+        from_agent => FromAgent,
+        stream_progresses => format_streams(StreamProgresses),
+        version_old => VersionOld,
+        version_new => VersionNew
+    }),
     _ = erlang:send(
         ToLeader, ?agent_update_stream_states(FromAgent, StreamProgresses, VersionOld, VersionNew)
     ),
@@ -72,6 +98,14 @@ agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, VersionOld, Ve
 
 -spec leader_lease_streams(agent(), group(), leader(), list(stream_progress()), version()) -> ok.
 leader_lease_streams(ToAgent, OfGroup, Leader, Streams, Version) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => leader_lease_streams,
+        to_agent => ToAgent,
+        of_group => OfGroup,
+        leader => Leader,
+        streams => format_streams(Streams),
+        version => Version
+    }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
         ToAgent,
         ?leader_lease_streams(OfGroup, Leader, Streams, Version)
@@ -80,6 +114,12 @@ leader_lease_streams(ToAgent, OfGroup, Leader, Streams, Version) ->
 
 -spec leader_renew_stream_lease(agent(), group(), version()) -> ok.
 leader_renew_stream_lease(ToAgent, OfGroup, Version) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => leader_renew_stream_lease,
+        to_agent => ToAgent,
+        of_group => OfGroup,
+        version => Version
+    }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
         ToAgent,
         ?leader_renew_stream_lease(OfGroup, Version)
@@ -88,6 +128,13 @@ leader_renew_stream_lease(ToAgent, OfGroup, Version) ->
 
 -spec leader_renew_stream_lease(agent(), group(), version(), version()) -> ok.
 leader_renew_stream_lease(ToAgent, OfGroup, VersionOld, VersionNew) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => leader_renew_stream_lease,
+        to_agent => ToAgent,
+        of_group => OfGroup,
+        version_old => VersionOld,
+        version_new => VersionNew
+    }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
         ToAgent,
         ?leader_renew_stream_lease(OfGroup, VersionOld, VersionNew)
@@ -96,6 +143,14 @@ leader_renew_stream_lease(ToAgent, OfGroup, VersionOld, VersionNew) ->
 
 -spec leader_update_streams(agent(), group(), version(), version(), list(stream_progress())) -> ok.
 leader_update_streams(ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => leader_update_streams,
+        to_agent => ToAgent,
+        of_group => OfGroup,
+        version_old => VersionOld,
+        version_new => VersionNew,
+        streams_new => format_streams(StreamsNew)
+    }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
         ToAgent,
         ?leader_update_streams(OfGroup, VersionOld, VersionNew, StreamsNew)
@@ -104,8 +159,29 @@ leader_update_streams(ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) ->
 
 -spec leader_invalidate(agent(), group()) -> ok.
 leader_invalidate(ToAgent, OfGroup) ->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => leader_invalidate,
+        to_agent => ToAgent,
+        of_group => OfGroup
+    }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
         ToAgent,
         ?leader_invalidate(OfGroup)
     ),
     ok.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+format_opaque(Opaque) ->
+    erlang:phash2(Opaque).
+
+format_streams(Streams) ->
+    lists:map(
+        fun format_stream/1,
+        Streams
+    ).
+
+format_stream(#{stream := Stream, iterator := Iterator} = Value) ->
+    Value#{stream => format_opaque(Stream), iterator => format_opaque(Iterator)}.
