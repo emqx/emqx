@@ -123,10 +123,12 @@ on_streams_replayed(S, #{agent := Agent0} = SharedSubS0) ->
     Progress = fold_shared_stream_states(
         fun(TopicFilter, Stream, SRS, Acc) ->
             #srs{it_begin = BeginIt} = SRS,
+
             StreamProgress = #{
                 topic_filter => TopicFilter,
                 stream => Stream,
-                iterator => BeginIt
+                iterator => BeginIt,
+                use_finished => is_use_finished(S, SRS)
             },
             [StreamProgress | Acc]
         end,
@@ -336,3 +338,6 @@ agent_opts(#{session_id := SessionId}) ->
 -dialyzer({nowarn_function, now_ms/0}).
 now_ms() ->
     erlang:system_time(millisecond).
+
+is_use_finished(S, #srs{unsubscribed = Unsubscribed} = SRS) ->
+    Unsubscribed andalso emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S).
