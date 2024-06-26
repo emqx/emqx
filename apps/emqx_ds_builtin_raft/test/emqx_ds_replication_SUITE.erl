@@ -140,6 +140,7 @@ t_replication_transfers_snapshots(Config) ->
 
             %% Stop the DB on the "offline" node.
             ok = emqx_cth_cluster:stop_node(NodeOffline),
+            _ = ?block_until(#{?snk_kind := ds_ra_state_enter, state := leader}, 500, 0),
 
             %% Fill the storage with messages and few additional generations.
             emqx_ds_test_helpers:apply_stream(?DB, Nodes -- [NodeOffline], Stream),
