@@ -691,10 +691,21 @@ delete_banned(Who) ->
 %%--------------------------------------------------------------------
 
 lookup_running_client(ClientId, FormatFun) ->
-    lists:append([
-        lookup_client(Node, {clientid, ClientId}, FormatFun)
-     || Node <- emqx:running_nodes()
-    ]).
+    case emqx_cm_registry:is_enabled() of
+        false ->
+            lists:append([
+                lookup_client(Node, {clientid, ClientId}, FormatFun)
+             || Node <- emqx:running_nodes()
+            ]);
+        true ->
+            case emqx_cm_registry:lookup_channels(ClientId) of
+                [ChanPid | _] ->
+                    Node = node(ChanPid),
+                    lookup_client(Node, {clientid, ClientId}, FormatFun);
+                [] ->
+                    []
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal Functions.
