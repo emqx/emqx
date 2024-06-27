@@ -19,8 +19,22 @@ bootstrap_file.label:
 """Bootstrap File Path"""
 
 bootstrap_type.desc:
-"""`plain`: bootstrap_file.csv should have lines of format `{user_id},{password},{is_superuser}` where `user_id` can be either clientid or username depending on `user_id_type`.
-`hash`: bootstrap_file.csv should have line of format `{user_id},{password_hash},{salt},{is_superuser}.`
-All file format support is the same as `authentication/password_based:built_in_database/import_users` API."""
+"""- **`plain`**:
+     - Format: `{user_id},{password},{is_superuser}`
+     - `user_id`: Can be `clientid` or `username`, based on `user_id_type`.
+     - `password`: User's plaintext password.
+     - `is_superuser`: Boolean, user's administrative status.
+
+   - **`hash`**:
+     - Format: `{user_id},{password_hash},{salt},{is_superuser}`
+     - Definitions similar to `plain` type, with `password_hash` and `salt` added for security.
+
+All file format support is the same as `authentication/password_based:built_in_database/import_users` API.
+Json file plain format example:`[{"user_id": "my_user","password": "s3cr3tp@ssw0rd","is_superuser": true}]`.
+CSV file hash format example :`user_id,password_hash,salt,is_superuser\nmy_user,b6c743545a7817ae8c8f624371d5f5f0373234bb0ff36b8ffbf19bce0e06ab75,de1024f462fb83910fd13151bd4bd235,true`
+
+Formula for `password_hash`:
+If configured as `password_hash_algorithm {name = sha256, salt_position = suffix}`,
+the Python code to calculate the `password_hash` is `hashlib.sha256(password + salt).hexdigest()`."""
 
 }
