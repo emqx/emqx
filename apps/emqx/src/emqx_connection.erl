@@ -305,11 +305,13 @@ init_state(
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
     Peercert = Transport:ensure_ok_or_exit(peercert, [Socket]),
+    PeerSNI = Transport:ensure_ok_or_exit(peersni, [Socket]),
     ConnInfo = #{
         socktype => Transport:type(Socket),
         peername => Peername,
         sockname => Sockname,
         peercert => Peercert,
+        peersni => PeerSNI,
         conn_mod => ?MODULE
     },
 
