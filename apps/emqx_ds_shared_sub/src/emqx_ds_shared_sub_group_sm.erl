@@ -37,6 +37,7 @@
 ]).
 
 -type options() :: #{
+    session_id := emqx_persistent_session_ds:id(),
     agent := emqx_ds_shared_sub_proto:agent(),
     topic_filter := emqx_persistent_session_ds:share_topic_filter(),
     send_after := fun((non_neg_integer(), term()) -> reference())
@@ -131,6 +132,7 @@
 
 -spec new(options()) -> group_sm().
 new(#{
+    session_id := SessionId,
     agent := Agent,
     topic_filter := ShareTopicFilter,
     send_after := SendAfter
@@ -144,6 +146,7 @@ new(#{
         }
     ),
     GSM0 = #{
+        id => SessionId,
         topic_filter => ShareTopicFilter,
         agent => Agent,
         send_after => SendAfter
@@ -231,6 +234,7 @@ handle_updating(GSM0) ->
 
 handle_leader_update_streams(
     #{
+        id := Id,
         state := ?replaying,
         state_data := #{streams := Streams0, version := VersionOld} = StateData
     } = GSM,
@@ -238,6 +242,12 @@ handle_leader_update_streams(
     VersionNew,
     StreamProgresses
 ) ->
+    ?tp(warning, shared_sub_group_sm_leader_update_streams, #{
+        id => Id,
+        version_old => VersionOld,
+        version_new => VersionNew,
+        stream_progresses => emqx_ds_shared_sub_proto:format_streams(StreamProgresses)
+    }),
     {AddEvents, Streams1} = lists:foldl(
         fun(#{stream := Stream, iterator := It}, {AddEventAcc, StreamsAcc}) ->
             case maps:is_key(Stream, StreamsAcc) of

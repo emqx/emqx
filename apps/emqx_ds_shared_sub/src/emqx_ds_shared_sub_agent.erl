@@ -143,7 +143,7 @@ delete_group_subscription(State, _ShareTopicFilter) ->
     State.
 
 add_group_subscription(
-    #{groups := Groups0} = State0, ShareTopicFilter
+    #{session_id := SessionId, groups := Groups0} = State0, ShareTopicFilter
 ) ->
     ?SLOG(info, #{
         msg => agent_add_group_subscription,
@@ -152,8 +152,9 @@ add_group_subscription(
     #share{group = Group} = ShareTopicFilter,
     Groups1 = Groups0#{
         Group => emqx_ds_shared_sub_group_sm:new(#{
+            session_id => SessionId,
             topic_filter => ShareTopicFilter,
-            agent => this_agent(),
+            agent => this_agent(SessionId),
             send_after => send_to_subscription_after(Group)
         })
     },
@@ -172,11 +173,8 @@ fetch_stream_events(#{groups := Groups0} = State0) ->
     State1 = State0#{groups => Groups1},
     {lists:concat(Events), State1}.
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-this_agent() -> self().
+this_agent(Id) ->
+    emqx_ds_shared_sub_proto:agent(Id, self()).
 
 send_to_subscription_after(Group) ->
     fun(Time, Msg) ->
