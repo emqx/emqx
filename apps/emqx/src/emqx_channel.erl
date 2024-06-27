@@ -1000,18 +1000,18 @@ handle_frame_error(
     Reason = #{proto_ver := ProtoVer},
     Channel = #channel{
         conn_state = idle,
-        clientinfo = ClientInfo
+        conninfo = ConnInfo
     }
 ) when ProtoVer =/= ?MQTT_PROTO_V5 ->
     shutdown(
         shutdown_count(frame_error, Reason),
-        Channel#channel{clientinfo = ClientInfo#{proto_ver => ProtoVer}}
+        Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}}
     );
 handle_frame_error(
     Reason = #{proto_ver := ?MQTT_PROTO_V5},
     Channel = #channel{
         conn_state = ConnState,
-        clientinfo = ClientInfo
+        conninfo = ConnInfo
     }
 ) when
     ConnState == idle orelse
@@ -1020,7 +1020,7 @@ handle_frame_error(
     shutdown(
         shutdown_count(frame_error, Reason),
         ?CONNACK_PACKET(connack_reason_code(Reason)),
-        Channel#channel{clientinfo = ClientInfo#{proto_ver => ?MQTT_PROTO_V5}}
+        Channel#channel{conninfo = ConnInfo#{proto_ver => ?MQTT_PROTO_V5}}
     );
 handle_frame_error(
     Reason,

@@ -21,7 +21,8 @@
 
 -export([
     initial_parse_state/0,
-    initial_parse_state/1
+    initial_parse_state/1,
+    update_parse_state/2
 ]).
 
 -export([
@@ -31,6 +32,7 @@
     serialize_fun/1,
     serialize_opts/0,
     serialize_opts/1,
+    serialize_opts/2,
     serialize_pkt/2,
     serialize/1,
     serialize/2
@@ -116,6 +118,15 @@ initial_parse_state() ->
 -spec initial_parse_state(options()) -> ?NONE(options()).
 initial_parse_state(Options) when is_map(Options) ->
     ?NONE(maps:merge(?DEFAULT_OPTIONS, Options)).
+
+%%--------------------------------------------------------------------
+%% Update Parse State
+%%--------------------------------------------------------------------
+
+update_parse_state(#{proto_ver := ProtoVer}, {ConnState, Opts}) ->
+    {ConnState, Opts#{version => ProtoVer}};
+update_parse_state(_Reason, ParseState) ->
+    ParseState.
 
 %%--------------------------------------------------------------------
 %% Parse MQTT Frame
@@ -756,6 +767,11 @@ serialize_opts() ->
 serialize_opts(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
     #{version => ProtoVer, max_size => MaxSize}.
+
+serialize_opts(_FrameError = #{proto_ver := ProtoVer}, SerializeOpts) ->
+    SerializeOpts#{version => ProtoVer};
+serialize_opts(_FrameError, SerializeOpts) ->
+    SerializeOpts.
 
 serialize_pkt(Packet, #{version := Ver, max_size := MaxSize}) ->
     IoData = serialize(Packet, Ver),

@@ -715,22 +715,38 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             parse_incoming(Rest, [{incoming, Packet} | Packets], NState)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
+            ParseState2 = update_parse_state(Reason, State#state.parse_state),
+            SerializeOpts = serialize_opts(Reason, State#state.serialize),
             ?LOG(info, #{
                 reason => Reason,
-                at_state => emqx_frame:describe_state(ParseState),
+                at_state => emqx_frame:describe_state(ParseState2),
                 input_bytes => Data
             }),
             FrameError = {frame_error, Reason},
-            {[{incoming, FrameError} | Packets], State};
+            {
+                [{incoming, FrameError} | Packets],
+                State#state{
+                    parse_state = ParseState2,
+                    serialize = SerializeOpts
+                }
+            };
         error:Reason:Stacktrace ->
+            ParseState2 = update_parse_state(Reason, State#state.parse_state),
+            SerializeOpts = serialize_opts(Reason, State#state.serialize),
             ?LOG(error, #{
-                at_state => emqx_frame:describe_state(ParseState),
+                at_state => emqx_frame:describe_state(ParseState2),
                 input_bytes => Data,
                 exception => Reason,
                 stacktrace => Stacktrace
             }),
             FrameError = {frame_error, Reason},
-            {[{incoming, FrameError} | Packets], State}
+            {
+                [{incoming, FrameError} | Packets],
+                State#state{
+                    parse_state = ParseState2,
+                    serialize = SerializeOpts
+                }
+            }
     end.
 
 %%--------------------------------------------------------------------
@@ -1055,6 +1071,13 @@ check_max_connection(Type, Listener) ->
                     {denny, Reason}
             end
     end.
+
+update_parse_state(FrameError, ParseState) ->
+    emqx_frame:update_parse_state(FrameError, ParseState).
+
+serialize_opts(FrameError, SerializeOpts) ->
+    emqx_frame:serialize_opts(FrameError, SerializeOpts).
+
 %%--------------------------------------------------------------------
 %% For CT tests
 %%--------------------------------------------------------------------
