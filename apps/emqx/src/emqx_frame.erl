@@ -1158,9 +1158,11 @@ validate_proto_name(ProtoName) ->
     }).
 
 %% MQTT-v3.1.1-[MQTT-3.1.2-3], MQTT-v5.0-[MQTT-3.1.2-3]
+-compile({inline, [validate_connect_reserved/1]}).
 validate_connect_reserved(0) -> ok;
 validate_connect_reserved(1) -> ?PARSE_ERR(reserved_connect_flag).
 
+-compile({inline, [validate_connect_will/3]}).
 %% MQTT-v3.1.1-[MQTT-3.1.2-13], MQTT-v5.0-[MQTT-3.1.2-11]
 validate_connect_will(false, _, WillQoS) when WillQoS > 0 -> ?PARSE_ERR(invalid_will_qos);
 %% MQTT-v3.1.1-[MQTT-3.1.2-14], MQTT-v5.0-[MQTT-3.1.2-12]
@@ -1169,6 +1171,7 @@ validate_connect_will(true, _, WillQoS) when WillQoS > 2 -> ?PARSE_ERR(invalid_w
 validate_connect_will(false, WillRetain, _) when WillRetain -> ?PARSE_ERR(invalid_will_retain);
 validate_connect_will(_, _, _) -> ok.
 
+-compile({inline, [validate_connect_password_flag/4]}).
 %% MQTT-v3.1
 %% Username flag and password flag are not strongly related
 %% https://public.dhe.ibm.com/software/dw/webservices/ws-mqtt/mqtt-v3r1.html#connect
@@ -1183,6 +1186,7 @@ validate_connect_password_flag(true, ?MQTT_PROTO_V5, _, _) ->
 validate_connect_password_flag(_, _, _, _) ->
     ok.
 
+-compile({inline, [bool/1]}).
 bool(0) -> false;
 bool(1) -> true.
 
