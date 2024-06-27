@@ -23,7 +23,21 @@
     leader_invalidate/2
 ]).
 
+-export([
+    format_streams/1,
+    agent/2
+]).
+
+-ifdef(TEST).
+-record(agent, {
+    pid :: pid(),
+    id :: term()
+}).
+-type agent() :: #agent{}.
+-else.
 -type agent() :: pid().
+-endif.
+
 -type leader() :: pid().
 -type topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
 -type group() :: emqx_types:group().
@@ -107,7 +121,7 @@ leader_lease_streams(ToAgent, OfGroup, Leader, Streams, Version) ->
         version => Version
     }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ToAgent,
+        agent_pid(ToAgent),
         ?leader_lease_streams(OfGroup, Leader, Streams, Version)
     ),
     ok.
@@ -121,7 +135,7 @@ leader_renew_stream_lease(ToAgent, OfGroup, Version) ->
         version => Version
     }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ToAgent,
+        agent_pid(ToAgent),
         ?leader_renew_stream_lease(OfGroup, Version)
     ),
     ok.
@@ -136,7 +150,7 @@ leader_renew_stream_lease(ToAgent, OfGroup, VersionOld, VersionNew) ->
         version_new => VersionNew
     }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ToAgent,
+        agent_pid(ToAgent),
         ?leader_renew_stream_lease(OfGroup, VersionOld, VersionNew)
     ),
     ok.
@@ -152,7 +166,7 @@ leader_update_streams(ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) ->
         streams_new => format_streams(StreamsNew)
     }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ToAgent,
+        agent_pid(ToAgent),
         ?leader_update_streams(OfGroup, VersionOld, VersionNew, StreamsNew)
     ),
     ok.
@@ -165,10 +179,35 @@ leader_invalidate(ToAgent, OfGroup) ->
         of_group => OfGroup
     }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ToAgent,
+        agent_pid(ToAgent),
         ?leader_invalidate(OfGroup)
     ),
     ok.
+
+%%--------------------------------------------------------------------
+%% Internal API
+%%--------------------------------------------------------------------
+
+-ifdef(TEST).
+agent(Id, Pid) ->
+    #agent{id = Id, pid = Pid}.
+
+agent_pid(#agent{pid = Pid}) ->
+    Pid.
+
+-else.
+agent(_Id, Pid) ->
+    Pid.
+
+agent_pid(Pid) ->
+    Pid.
+-endif.
+
+format_streams(Streams) ->
+    lists:map(
+        fun format_stream/1,
+        Streams
+    ).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -176,12 +215,6 @@ leader_invalidate(ToAgent, OfGroup) ->
 
 format_opaque(Opaque) ->
     erlang:phash2(Opaque).
-
-format_streams(Streams) ->
-    lists:map(
-        fun format_stream/1,
-        Streams
-    ).
 
 format_stream(#{stream := Stream, iterator := Iterator} = Value) ->
     Value#{stream => format_opaque(Stream), iterator => format_opaque(Iterator)}.
