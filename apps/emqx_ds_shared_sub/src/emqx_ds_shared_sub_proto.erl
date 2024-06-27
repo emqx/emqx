@@ -16,6 +16,7 @@
     agent_connect_leader/4,
     agent_update_stream_states/4,
     agent_update_stream_states/5,
+    agent_disconnect/4,
 
     leader_lease_streams/5,
     leader_renew_stream_lease/3,
@@ -122,6 +123,23 @@ agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, VersionOld, Ve
 agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, VersionOld, VersionNew) ->
     emqx_ds_shared_sub_proto_v1:agent_update_stream_states(
         ?leader_node(ToLeader), ToLeader, FromAgent, StreamProgresses, VersionOld, VersionNew
+    ).
+
+agent_disconnect(ToLeader, FromAgent, StreamProgresses, Version) when
+    ?is_local_leader(ToLeader)
+->
+    ?tp(warning, shared_sub_proto_msg, #{
+        type => agent_disconnect,
+        to_leader => ToLeader,
+        from_agent => FromAgent,
+        stream_progresses => format_streams(StreamProgresses),
+        version => Version
+    }),
+    _ = erlang:send(ToLeader, ?agent_disconnect(FromAgent, StreamProgresses, Version)),
+    ok;
+agent_disconnect(ToLeader, FromAgent, StreamProgresses, Version) ->
+    emqx_ds_shared_sub_proto_v1:agent_disconnect(
+        ?leader_node(ToLeader), ToLeader, FromAgent, StreamProgresses, Version
     ).
 
 %% leader -> agent messages

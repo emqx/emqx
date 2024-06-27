@@ -15,6 +15,7 @@
 
     on_subscribe/3,
     on_unsubscribe/4,
+    on_disconnect/2,
 
     on_streams_replayed/2,
     on_info/3,
@@ -118,28 +119,19 @@ renew_streams(S0, #{agent := Agent0} = SharedSubS0) ->
     t()
 ) -> {emqx_persistent_session_ds_state:t(), t()}.
 on_streams_replayed(S, #{agent := Agent0} = SharedSubS0) ->
-    %% TODO
-    %% Is it sufficient for a report?
-    Progress = fold_shared_stream_states(
-        fun(TopicFilter, Stream, SRS, Acc) ->
-            #srs{it_begin = BeginIt} = SRS,
-
-            StreamProgress = #{
-                topic_filter => TopicFilter,
-                stream => Stream,
-                iterator => BeginIt,
-                use_finished => is_use_finished(S, SRS)
-            },
-            [StreamProgress | Acc]
-        end,
-        [],
-        S
-    ),
+    Progresses = stream_progresses(S),
     Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_stream_progress(
-        Agent0, Progress
+        Agent0, Progresses
     ),
     SharedSubS1 = SharedSubS0#{agent => Agent1},
     {S, SharedSubS1}.
+
+on_disconnect(S0, #{agent := Agent0} = SharedSubS0) ->
+    S1 = revoke_all_streams(S0),
+    Progresses = stream_progresses(S1),
+    Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_disconnect(Agent0, Progresses),
+    SharedSubS1 = SharedSubS0#{agent => Agent1},
+    {S1, SharedSubS1}.
 
 -spec on_info(emqx_persistent_session_ds_state:t(), t(), term()) ->
     {emqx_persistent_session_ds_state:t(), t()}.
@@ -156,6 +148,30 @@ to_map(_S, _SharedSubS) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+stream_progresses(S) ->
+    fold_shared_stream_states(
+        fun(TopicFilter, Stream, SRS, Acc) ->
+            #srs{it_begin = BeginIt} = SRS,
+
+            case is_stream_fully_acked(S, SRS) of
+                true ->
+                    %% TODO
+                    %% Is it sufficient for a report?
+                    StreamProgress = #{
+                        topic_filter => TopicFilter,
+                        stream => Stream,
+                        iterator => BeginIt,
+                        use_finished => is_use_finished(S, SRS)
+                    },
+                    [StreamProgress | Acc];
+                false ->
+                    Acc
+            end
+        end,
+        [],
+        S
+    ).
 
 fold_shared_subs(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(
@@ -322,6 +338,15 @@ revoke_stream(
             end
     end.
 
+revoke_all_streams(S0) ->
+    fold_shared_stream_states(
+        fun(TopicFilter, Stream, _SRS, S) ->
+            revoke_stream(#{topic_filter => TopicFilter, stream => Stream}, S)
+        end,
+        S0,
+        S0
+    ).
+
 -spec to_agent_subscription(
     emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds:subscription()
 ) ->
@@ -339,5 +364,8 @@ agent_opts(#{session_id := SessionId}) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-is_use_finished(S, #srs{unsubscribed = Unsubscribed} = SRS) ->
-    Unsubscribed andalso emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S).
+is_use_finished(S, #srs{unsubscribed = Unsubscribed}) ->
+    Unsubscribed.
+
+is_stream_fully_acked(S, SRS) ->
+    emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S).
