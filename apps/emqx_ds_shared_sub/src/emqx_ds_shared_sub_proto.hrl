@@ -16,6 +16,7 @@
 -define(agent_update_stream_states_msg, agent_update_stream_states).
 -define(agent_connect_leader_timeout_msg, agent_connect_leader_timeout).
 -define(agent_renew_stream_lease_timeout_msg, agent_renew_stream_lease_timeout).
+-define(agent_disconnect_msg, agent_disconnect).
 
 %% Agent messages sent to the leader.
 %% Leader talks to many agents, `agent` field is used to identify the sender.
@@ -61,6 +62,20 @@
     stream_states := StreamStates,
     version_old := VersionOld,
     version_new := VersionNew,
+    agent := Agent
+}).
+
+-define(agent_disconnect(Agent, StreamStates, Version), #{
+    type => ?agent_disconnect_msg,
+    stream_states => StreamStates,
+    version => Version,
+    agent => Agent
+}).
+
+-define(agent_disconnect_match(Agent, StreamStates, Version), #{
+    type := ?agent_disconnect_msg,
+    stream_states := StreamStates,
+    version := Version,
     agent := Agent
 }).
 

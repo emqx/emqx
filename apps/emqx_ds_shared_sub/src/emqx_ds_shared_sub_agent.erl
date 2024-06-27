@@ -17,6 +17,7 @@
     on_unsubscribe/2,
     on_stream_progress/2,
     on_info/2,
+    on_disconnect/2,
 
     renew_streams/1
 ]).
@@ -67,6 +68,19 @@ on_stream_progress(State, StreamProgresses) ->
         State,
         maps:to_list(ProgressesByGroup)
     ).
+
+on_disconnect(#{groups := Groups0} = State, StreamProgresses) ->
+    ProgressesByGroup = stream_progresses_by_group(StreamProgresses),
+    Groups1 = maps:fold(
+        fun(Group, GroupSM0, GroupsAcc) ->
+            GroupProgresses = maps:get(Group, ProgressesByGroup, []),
+            GroupSM1 = emqx_ds_shared_sub_group_sm:handle_disconnect(GroupSM0, GroupProgresses),
+            GroupsAcc#{Group => GroupSM1}
+        end,
+        #{},
+        Groups0
+    ),
+    State#{groups => Groups1}.
 
 on_info(State, ?leader_lease_streams_match(Group, Leader, StreamProgresses, Version)) ->
     ?SLOG(info, #{

@@ -152,6 +152,38 @@ t_stream_revoke(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
+t_graceful_disconnect(_Config) ->
+    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr4/topic7/#">>, 1),
+
+    ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr4/topic7/#">>, 1),
+
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    {ok, _} = emqtt:publish(ConnPub, <<"topic7/1">>, <<"hello1">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"topic7/2">>, <<"hello2">>, 1),
+
+    ?assertReceive({publish, #{payload := <<"hello1">>}}, 2_000),
+    ?assertReceive({publish, #{payload := <<"hello2">>}}, 2_000),
+
+    ?assertWaitEvent(
+        ok = emqtt:disconnect(ConnShared1),
+        #{?snk_kind := shared_sub_leader_disconnect_agent},
+        1_000
+    ),
+
+    {ok, _} = emqtt:publish(ConnPub, <<"topic7/1">>, <<"hello3">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"topic7/2">>, <<"hello4">>, 1),
+
+    %% Since the disconnect is graceful, the streams should rebalance quickly,
+    %% before the timeout.
+    ?assertReceive({publish, #{payload := <<"hello3">>}}, 2_000),
+    ?assertReceive({publish, #{payload := <<"hello4">>}}, 2_000),
+
+    ok = emqtt:disconnect(ConnShared2),
+    ok = emqtt:disconnect(ConnPub).
+
 t_lease_reconnect(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 

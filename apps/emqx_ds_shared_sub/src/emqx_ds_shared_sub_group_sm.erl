@@ -27,7 +27,8 @@
 
     %% API
     fetch_stream_events/1,
-    handle_stream_progress/2
+    handle_stream_progress/2,
+    handle_disconnect/2
 ]).
 
 -export_type([
@@ -72,8 +73,9 @@
 -define(connecting, connecting).
 -define(replaying, replaying).
 -define(updating, updating).
+-define(disconnected, disconnected).
 
--type state() :: ?connecting | ?replaying | ?updating.
+-type state() :: ?connecting | ?replaying | ?updating | ?disconnected.
 
 -type connecting_data() :: #{}.
 -type replaying_data() :: #{
@@ -169,6 +171,18 @@ fetch_stream_events(
     ),
     {GSM#{stream_lease_events => []}, Events1}.
 
+-spec handle_disconnect(group_sm(), emqx_ds_shared_sub_proto:agent_stream_progress()) -> group_sm().
+handle_disconnect(#{state := ?connecting} = GSM, _StreamProgresses) ->
+    transition(GSM, ?disconnected, #{});
+handle_disconnect(
+    #{agent := Agent, state_data := #{leader := Leader, version := Version} = StateData} = GSM,
+    StreamProgresses
+) ->
+    ok = emqx_ds_shared_sub_proto:agent_disconnect(
+        Leader, Agent, StreamProgresses, Version
+    ),
+    transition(GSM, ?disconnected, StateData).
+
 %%-----------------------------------------------------------------------
 %% Event Handlers
 %%-----------------------------------------------------------------------
@@ -228,6 +242,12 @@ handle_updating(GSM0) ->
         GSM1, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL
     ),
     GSM2.
+
+%%-----------------------------------------------------------------------
+%% Disconnected state
+
+handle_disconnected(GSM) ->
+    GSM.
 
 %%-----------------------------------------------------------------------
 %% Common handlers
@@ -301,6 +321,10 @@ handle_leader_update_streams(
     _StreamProgresses
 ) ->
     ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
+handle_leader_update_streams(
+    #{state := ?disconnected} = GSM, _VersionOld, _VersionNew, _StreamProgresses
+) ->
+    GSM;
 handle_leader_update_streams(GSM, VersionOld, VersionNew, _StreamProgresses) ->
     ?tp(warning, shared_sub_group_sm_unexpected_leader_update_streams, #{
         gsm => GSM,
@@ -335,6 +359,10 @@ handle_leader_renew_stream_lease(
     VersionNew
 ) ->
     ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
+handle_leader_renew_stream_lease(
+    #{state := ?disconnected} = GSM, _VersionOld, _VersionNew
+) ->
+    GSM;
 handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew) ->
     ?tp(warning, shared_sub_group_sm_unexpected_leader_renew_stream_lease, #{
         gsm => GSM,
@@ -344,6 +372,8 @@ handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew) ->
     %% Unexpected versions or state
     transition(GSM, ?connecting, #{}).
 
+-spec handle_stream_progress(group_sm(), emqx_ds_shared_sub_proto:agent_stream_progress()) ->
+    group_sm().
 handle_stream_progress(#{state := ?connecting} = GSM, _StreamProgresses) ->
     GSM;
 handle_stream_progress(
@@ -376,7 +406,9 @@ handle_stream_progress(
     ok = emqx_ds_shared_sub_proto:agent_update_stream_states(
         Leader, Agent, StreamProgresses, PrevVersion, Version
     ),
-    ensure_state_timeout(GSM, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL).
+    ensure_state_timeout(GSM, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL);
+handle_stream_progress(#{state := ?disconnected} = GSM, _StreamProgresses) ->
+    GSM.
 
 handle_leader_invalidate(GSM) ->
     transition(GSM, ?connecting, #{}).
@@ -485,7 +517,9 @@ run_enter_callback(#{state := ?connecting} = GSM) ->
 run_enter_callback(#{state := ?replaying} = GSM) ->
     handle_replaying(GSM);
 run_enter_callback(#{state := ?updating} = GSM) ->
-    handle_updating(GSM).
+    handle_updating(GSM);
+run_enter_callback(#{state := ?disconnected} = GSM) ->
+    handle_disconnected(GSM).
 
 progresses_to_lease_events(StreamProgresses) ->
     lists:map(
