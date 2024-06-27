@@ -706,9 +706,15 @@ t_invalid_clientid(_) ->
     ).
 
 %% for regression: `password` must be `undefined`
+%% BUG-FOR-BUG compatible
 t_undefined_password(_) ->
-    Payload = <<16, 19, 0, 4, 77, 81, 84, 84, 4, 130, 0, 60, 0, 2, 97, 49, 0, 3, 97, 97, 97>>,
-    {ok, Packet, <<>>, {none, _}} = emqx_frame:parse(Payload),
+    %% Username Flag = true
+    %% Password Flag = false
+    %% Clean Session = true
+    ConnectFlags = <<2#1000:4, 2#0010:4>>,
+    ConnBin =
+        <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
+    {ok, Packet, <<>>, {none, _}} = emqx_frame:parse(ConnBin),
     Password = undefined,
     ?assertEqual(
         #mqtt_packet{
@@ -732,7 +738,7 @@ t_undefined_password(_) ->
                 will_props = #{},
                 will_topic = undefined,
                 will_payload = undefined,
-                username = <<"aaa">>,
+                username = <<"a">>,
                 password = Password
             },
             payload = undefined
@@ -740,6 +746,25 @@ t_undefined_password(_) ->
         Packet
     ),
     ok.
+
+t_invalid_password_flag(_) ->
+    %% Username Flag = false
+    %% Password Flag = true
+    %% Clean Session = true
+    ConnectFlags = <<2#0100:4, 2#0010:4>>,
+    ConnectBin =
+        <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
+    ?assertMatch(
+        {ok, _, _, _},
+        emqx_frame:parse(ConnectBin)
+    ),
+
+    StrictModeParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    ?assertException(
+        throw,
+        {frame_parse_error, invalid_password_flag},
+        emqx_frame:parse(ConnectBin, StrictModeParseState)
+    ).
 
 t_invalid_will_retain(_) ->
     ConnectFlags = <<2#01100000>>,
