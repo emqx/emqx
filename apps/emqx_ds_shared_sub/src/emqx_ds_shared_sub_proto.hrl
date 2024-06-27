@@ -6,9 +6,6 @@
 %% These messages are instantiated on the receiver's side, so they do not
 %% travel over the network.
 
--ifndef(EMQX_DS_SHARED_SUB_PROTO_HRL).
--define(EMQX_DS_SHARED_SUB_PROTO_HRL, true).
-
 %% NOTE
 %% We do not need any kind of request/response identification,
 %% because the protocol is fully event-based.
@@ -140,4 +137,32 @@
     group := Group
 }).
 
+%% Helpers
+%% In test mode we extend agents with (session) Id to have more
+%% readable traces.
+
+-ifdef(TEST).
+
+-define(agent(Id, Pid), {Id, Pid}).
+
+-define(agent_pid(Agent), element(2, Agent)).
+
+-define(agent_node(Agent), node(element(2, Agent))).
+
+%% -ifdef(TEST).
+-else.
+
+-define(agent(Id, Pid), Pid).
+
+-define(agent_pid(Agent), Agent).
+
+-define(agent_node(Agent), node(Agent)).
+
+%% -ifdef(TEST).
 -endif.
+
+-define(is_local_agent(Agent), (?agent_node(Agent) =:= node())).
+
+-define(leader_node(Leader), node(Leader)).
+
+-define(is_local_leader(Leader), (?leader_node(Leader) =:= node())).
