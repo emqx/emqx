@@ -89,6 +89,8 @@
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
 
+-hank([{unnecessary_function_arguments, [all]}]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -823,7 +825,7 @@ process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Ite
     iter([session, fun process_session/4 | Iter], Result2, Channel).
 
 %% leaf node
-process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
+process_reply(Reply, Result, #channel{session = Session} = Channel, _Iter) ->
     Session2 = emqx_coap_session:set_reply(Reply, Session),
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
@@ -831,7 +833,7 @@ process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
     {ok, [{outgoing, [Reply | Outs2]}] ++ Events, Channel#channel{session = Session2}}.
 
 %% leaf node
-process_shutdown(Reply, _Result, Channel, _) ->
+process_shutdown(Reply, _Result, Channel, _Iter) ->
     %    Outs = maps:get(out, Result, []),
     %   Outs2 = lists:reverse(Outs),
     %  Events = maps:get(events, Result, []),

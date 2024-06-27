@@ -29,6 +29,9 @@
 -define(DEFAULT_BATCH_VALUE_SEPARATOR, <<", ">>).
 -define(CONNECTOR_TYPE, clickhouse).
 -define(ACTION_TYPE, clickhouse).
+
+-hank([{unnecessary_function_arguments, [{values, 2}]}]).
+
 %% -------------------------------------------------------------------------------------------------
 %% Callback used by HTTP API
 %% -------------------------------------------------------------------------------------------------

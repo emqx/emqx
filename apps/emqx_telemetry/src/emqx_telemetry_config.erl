@@ -16,6 +16,8 @@
 
 -module(emqx_telemetry_config).
 
+-behaviour(emqx_config_handler).
+
 %% Public API
 -export([
     set_telemetry_status/1,

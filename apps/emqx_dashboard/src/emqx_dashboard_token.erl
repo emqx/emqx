@@ -51,6 +51,8 @@
     code_change/3
 ]).
 
+-hank([{unnecessary_function_arguments, [{check_rbac, 2}]}]).
+
 %%--------------------------------------------------------------------
 %% jwt function
 -spec sign(User :: dashboard_user(), Password :: binary()) ->

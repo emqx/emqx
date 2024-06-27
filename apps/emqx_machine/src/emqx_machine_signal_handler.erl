@@ -20,6 +20,8 @@
 %% perform graceful shutdown.
 -module(emqx_machine_signal_handler).
 
+-behaviour(emqx_config_handler).
+
 -export([
     start/0,
     init/1,

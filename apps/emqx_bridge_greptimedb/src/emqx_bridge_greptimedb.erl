@@ -29,6 +29,8 @@
 -define(CONNECTOR_TYPE, greptimedb).
 -define(ACTION_TYPE, greptimedb).
 
+-hank([{unnecessary_function_arguments, [{bridge_v1_values, 1}]}]).
+
 %% -------------------------------------------------------------------------------------------------
 %% api
 

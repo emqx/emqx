@@ -66,6 +66,8 @@
     end
 ).
 
+-hank([{unnecessary_function_arguments, [{supported_versions, 1}]}]).
+
 namespace() -> "connector".
 
 api_spec() ->

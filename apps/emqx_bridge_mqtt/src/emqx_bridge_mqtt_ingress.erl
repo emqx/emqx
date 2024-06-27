@@ -258,7 +258,7 @@ handle_publish(
     Matches = emqx_topic_index:matches(Topic, TopicToHandlerIndex, []),
     lists:foreach(
         fun(Match) ->
-            handle_match(TopicToHandlerIndex, Match, MsgIn, Name, Props)
+            handle_match(TopicToHandlerIndex, Match, MsgIn, Props)
         end,
         Matches
     ),
@@ -268,7 +268,6 @@ handle_match(
     TopicToHandlerIndex,
     Match,
     MsgIn,
-    _Name,
     Props
 ) ->
     [ChannelConfig] = emqx_topic_index:get_record(Match, TopicToHandlerIndex),

@@ -26,6 +26,8 @@
 -type t(T) :: option(T).
 -export_type([t/1]).
 
+-hank([{unnecessary_function_arguments, [{crash, 1}]}]).
+
 -spec to_list(option(A)) -> [A].
 to_list(undefined) ->
     [];

@@ -17,6 +17,8 @@
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
 
+-behaviour(emqx_config_handler).
+
 -include("emqx_mqtt.hrl").
 -include("emqx_schema.hrl").
 -include("logger.hrl").
@@ -74,6 +76,8 @@
 -define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 -define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
+
+-hank([{unnecessary_function_arguments, [{console_print, 2}]}]).
 
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.

@@ -67,6 +67,8 @@
 -define(SALT_ROUNDS_MIN, 5).
 -define(SALT_ROUNDS_MAX, 10).
 
+-hank([{unnecessary_function_arguments, [{salt_rounds_converter, 2}]}]).
+
 namespace() -> "authn_hash".
 roots() -> [pbkdf2, bcrypt, bcrypt_rw, bcrypt_rw_api, simple].
 
@@ -271,27 +273,27 @@ union_selector(Kind) ->
     fun
         (all_union_members) -> refs(Kind);
         ({value, #{<<"name">> := <<"bcrypt">>}}) -> [bcrypt_ref(Kind)];
-        ({value, #{<<"name">> := <<"pbkdf2">>}}) -> [pbkdf2_ref(Kind)];
-        ({value, #{<<"name">> := _}}) -> [simple_ref(Kind)];
+        ({value, #{<<"name">> := <<"pbkdf2">>}}) -> [pbkdf2_ref()];
+        ({value, #{<<"name">> := _}}) -> [simple_ref()];
         ({value, _}) -> throw(#{reason => "algorithm_name_missing"})
     end.
 
 refs(Kind) ->
     [
         bcrypt_ref(Kind),
-        pbkdf2_ref(Kind),
-        simple_ref(Kind)
+        pbkdf2_ref(),
+        simple_ref()
     ].
 
-pbkdf2_ref(_) ->
+pbkdf2_ref() ->
     hoconsc:ref(?MODULE, pbkdf2).
 
 bcrypt_ref(rw) ->
     hoconsc:ref(?MODULE, bcrypt_rw);
 bcrypt_ref(api) ->
     hoconsc:ref(?MODULE, bcrypt_rw_api);
-bcrypt_ref(_) ->
+bcrypt_ref(_Kind) ->
     hoconsc:ref(?MODULE, bcrypt).
 
-simple_ref(_) ->
+simple_ref() ->
     hoconsc:ref(?MODULE, simple).

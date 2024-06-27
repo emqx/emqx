@@ -44,6 +44,8 @@
 %%                %%%% more keys?
 %%                }.
 
+-hank([{unnecessary_function_arguments, [{make_data_response, 4}]}]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -205,8 +207,8 @@ coap_to_mqtt(Method, _CoapPayload, _Options, Ref = #{<<"msgType">> := <<"execute
     execute_resp_to_mqtt(Method, Ref);
 coap_to_mqtt(Method, CoapPayload, _Options, Ref = #{<<"msgType">> := <<"discover">>}) ->
     discover_resp_to_mqtt(Method, CoapPayload, Ref);
-coap_to_mqtt(Method, CoapPayload, _Options, Ref = #{<<"msgType">> := <<"write-attr">>}) ->
-    writeattr_resp_to_mqtt(Method, CoapPayload, Ref);
+coap_to_mqtt(Method, _CoapPayload, _Options, Ref = #{<<"msgType">> := <<"write-attr">>}) ->
+    writeattr_resp_to_mqtt(Method, Ref);
 coap_to_mqtt(Method, CoapPayload, Options, Ref = #{<<"msgType">> := <<"observe">>}) ->
     observe_resp_to_mqtt(Method, CoapPayload, data_format(Options), observe_seq(Options), Ref);
 coap_to_mqtt(Method, CoapPayload, Options, Ref = #{<<"msgType">> := <<"cancel-observe">>}) ->
@@ -269,9 +271,9 @@ discover_resp_to_mqtt({ok, content}, CoapPayload, Ref) ->
 discover_resp_to_mqtt({error, Error}, _CoapPayload, Ref) ->
     make_response(Error, Ref).
 
-writeattr_resp_to_mqtt({ok, changed}, _CoapPayload, Ref) ->
+writeattr_resp_to_mqtt({ok, changed}, Ref) ->
     make_response(changed, Ref);
-writeattr_resp_to_mqtt({error, Error}, _CoapPayload, Ref) ->
+writeattr_resp_to_mqtt({error, Error}, Ref) ->
     make_response(Error, Ref).
 
 observe_resp_to_mqtt({error, Error}, _CoapPayload, _Format, _ObserveSeqNum, Ref) ->

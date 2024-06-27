@@ -20,6 +20,8 @@
 -define(CONNECTOR_TYPE, tdengine).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
 
+-hank([{unnecessary_function_arguments, [{values, 1}]}]).
+
 %% -------------------------------------------------------------------------------------------------
 %% v1 examples
 conn_bridge_examples(Method) ->

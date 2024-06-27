@@ -81,6 +81,8 @@
     end
 ).
 
+-hank([{unnecessary_function_arguments, [{emqx_enterprise_bridge_examples, 1}]}]).
+
 namespace() -> "bridge".
 
 api_spec() ->
@@ -1020,14 +1022,14 @@ fill_defaults(Type, RawConf) ->
 pack_bridge_conf(Type, RawConf) ->
     #{<<"bridges">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
 
-filter_raw_conf(_TypeBin, RawConf) ->
+filter_raw_conf(RawConf) ->
     RawConf.
 
 unpack_bridge_conf(Type, PackedConf) ->
     TypeBin = bin(Type),
     #{<<"bridges">> := Bridges} = PackedConf,
     #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
-    filter_raw_conf(TypeBin, RawConf).
+    filter_raw_conf(RawConf).
 
 is_ok(ok) ->
     ok;

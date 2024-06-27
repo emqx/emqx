@@ -16,6 +16,8 @@
 
 -module(emqx_plugins_serde).
 
+-behaviour(gen_server).
+
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 

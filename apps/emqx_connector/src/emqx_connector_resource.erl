@@ -51,6 +51,8 @@
 
 -export([parse_url/1]).
 
+-hank([{unnecessary_function_arguments, [{remove, 4}]}]).
+
 -callback connector_config(ParsedConfig, Context) ->
     ParsedConfig
 when
@@ -119,7 +121,7 @@ create(Type, Name, Conf0, Opts) ->
         msg => "create connector",
         type => Type,
         name => Name,
-        config => redact(Conf0, Type)
+        config => redact(Conf0)
     }),
     TypeBin = bin(Type),
     ResourceId = resource_id(Type, Name),
@@ -157,7 +159,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
                 msg => "update connector",
                 type => Type,
                 name => Name,
-                config => redact(Conf, Type)
+                config => redact(Conf)
             }),
             case recreate(Type, Name, Conf, Opts) of
                 {ok, _} ->
@@ -167,7 +169,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
                         msg => "updating_a_non_existing_connector",
                         type => Type,
                         name => Name,
-                        config => redact(Conf, Type)
+                        config => redact(Conf)
                     }),
                     create(Type, Name, Conf, Opts);
                 {error, Reason} ->
@@ -362,5 +364,5 @@ override_start_after_created(Config, Opts) ->
 set_no_buffer_workers(Opts) ->
     Opts#{spawn_buffer_workers => false}.
 
-redact(Conf, _Type) ->
+redact(Conf) ->
     emqx_utils:redact(Conf).

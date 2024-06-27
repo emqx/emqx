@@ -81,6 +81,8 @@
 -type http_method() :: get | post | put.
 -type schema_example_map() :: #{atom() => term()}.
 
+-hank([{unnecessary_function_arguments, [{common_schema, 2}]}]).
+
 %%======================================================================================
 %% For HTTP APIs
 %%======================================================================================

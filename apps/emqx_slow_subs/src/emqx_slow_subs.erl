@@ -17,6 +17,7 @@
 -module(emqx_slow_subs).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").

@@ -132,6 +132,8 @@
     {elvis_style, invalid_dynamic_call, #{ignore => [emqx_ocpp_connection]}}
 ]).
 
+-hank([{unnecessary_function_arguments, [{terminate, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
@@ -472,7 +474,7 @@ websocket_info({cast, rate_limit}, State) ->
         oct => emqx_pd:reset_counter(incoming_bytes)
     },
     NState = postpone({check_gc, Stats}, State),
-    return(ensure_rate_limit(Stats, NState));
+    return(ensure_rate_limit(NState));
 websocket_info({cast, Msg}, State) ->
     handle_info(Msg, State);
 websocket_info({incoming, Packet}, State) ->
@@ -599,7 +601,7 @@ handle_timeout(TRef, TMsg, State) ->
 %% Ensure rate limit
 %%--------------------------------------------------------------------
 
-ensure_rate_limit(_Stats, State) ->
+ensure_rate_limit(State) ->
     State.
 
 %%--------------------------------------------------------------------

@@ -158,6 +158,11 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {system_continue, 3}, {system_terminate, 4}, {system_code_change, 4}, {handle_call, 3}
+    ]}
+]).
 % The ignore below is due to a hank's false-positive..!
 -hank([{unused_macros, ["ALARM_CONN_INFO_KEYS", "ALARM_SOCK_STATS_KEYS", "ALARM_SOCK_OPTS_KEYS"]}]).
 -define(ALARM_CONN_INFO_KEYS, [
@@ -720,7 +725,7 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
         {shutdown, Reason, Reply, OutPacket, NChannel} ->
             NState = State#state{channel = NChannel},
             ok = handle_outgoing(OutPacket, NState),
-            NState2 = graceful_shutdown_transport(Reason, NState),
+            NState2 = graceful_shutdown_transport(NState),
             shutdown(Reason, Reply, NState2)
     end.
 
@@ -1239,8 +1244,8 @@ set_tcp_keepalive({Type, Id}) ->
             async_set_keepalive(Idle, Interval, Probes)
     end.
 
--spec graceful_shutdown_transport(atom(), state()) -> state().
-graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = Socket}) ->
+-spec graceful_shutdown_transport(state()) -> state().
+graceful_shutdown_transport(S = #state{transport = Transport, socket = Socket}) ->
     %% @TODO Reason is reserved for future use, quic transport
     Transport:shutdown(Socket, read_write),
     S#state{sockstate = closed}.

@@ -25,6 +25,8 @@
     https_converter/2
 ]).
 
+-hank([{unnecessary_function_arguments, [{convert_ssl_layout, 2}]}]).
+
 namespace() -> dashboard.
 roots() -> ["dashboard"].
 

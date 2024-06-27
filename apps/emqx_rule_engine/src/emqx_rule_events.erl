@@ -68,6 +68,12 @@
 
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {apply_event, 3}, {on_message_dropped, 4}, {on_client_connack, 4}, {on_message_publish, 2}
+    ]}
+]).
+
 event_names() ->
     [
         'client.connected',

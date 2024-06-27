@@ -44,6 +44,8 @@
 
 -define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
 
+-hank([{unnecessary_function_arguments, [{resolve_var_value, 3}]}]).
+
 %% @doc Render a variform expression with bindings.
 %% A variform expression is a template string which supports variable substitution
 %% and function calls.
@@ -68,6 +70,7 @@
 render(Expression, Bindings) ->
     render(Expression, Bindings, #{}).
 
+%% _Opts is unused but can be extended in the future. For example, unbound var as 'undefined'
 render(#{form := Form}, Bindings, Opts) ->
     eval_as_string(Form, Bindings, Opts);
 render(Expression, Bindings, Opts) ->
@@ -78,9 +81,9 @@ render(Expression, Bindings, Opts) ->
             {error, Reason}
     end.
 
-eval_as_string(Expr, Bindings, _Opts) ->
+eval_as_string(Expr, Bindings, Opts) ->
     try
-        {ok, return_str(eval(Expr, Bindings, #{}))}
+        {ok, return_str(eval(Expr, Bindings, Opts))}
     catch
         throw:Reason ->
             {error, Reason};
@@ -262,7 +265,7 @@ resolve_func_name(FuncNameStr) ->
             throw(#{reason => invalid_function_reference, function => FuncNameStr})
     end.
 
-%% _Opts can be extended in the future. For example, unbound var as 'undfeined'
+%% _Opts can be extended in the future. For example, unbound var as 'undefined'
 resolve_var_value(VarName, Bindings, _Opts) ->
     case emqx_template:lookup_var(split(VarName), Bindings) of
         {ok, Value} ->

@@ -76,6 +76,8 @@
 -import(emqx_coap_medium, [iter/3]).
 -import(emqx_coap_channel, [metrics_inc/2]).
 
+-hank([{unnecessary_function_arguments, [{process_session, 3}]}]).
+
 %%%-------------------------------------------------------------------
 %%% API
 %%%-------------------------------------------------------------------

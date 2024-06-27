@@ -153,6 +153,8 @@ end).
 
 -export_type([authenticator/0, config/0, state/0, extra/0, user_info/0]).
 
+-hank([{unnecessary_function_arguments, [{authenticate_deny, 2}]}]).
+
 %%------------------------------------------------------------------------------
 %% Authenticate
 %%------------------------------------------------------------------------------

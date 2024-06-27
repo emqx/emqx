@@ -24,6 +24,8 @@
 %% Used in the other log formatters
 -export([evaluate_lazy_values_if_dbg_level/1, evaluate_lazy_values/1]).
 
+-hank([{unnecessary_function_arguments, [{evaluate_lazy_values_kv, 2}]}]).
+
 check_config(X) -> logger_formatter:check_config(maps:without([timestamp_format], X)).
 
 %% Principle here is to delegate the formatting to logger_formatter:format/2

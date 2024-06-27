@@ -306,13 +306,13 @@ safe_do_produce(
 ) ->
     try
         Producers = get_producers(ChannelId, InstanceId, ClientId, TopicKey, ProducerOpts),
-        produce(InstanceId, QueryFunc, Producers, Data, RequestTimeout)
+        produce(QueryFunc, Producers, Data, RequestTimeout)
     catch
         _Type:Reason ->
             {error, {unrecoverable_error, redact(Reason)}}
     end.
 
-produce(_InstanceId, QueryFunc, Producers, Data, RequestTimeout) ->
+produce(QueryFunc, Producers, Data, RequestTimeout) ->
     rocketmq:QueryFunc(Producers, Data, RequestTimeout).
 
 parse_template(Config) ->

@@ -52,6 +52,12 @@
     ]
 ).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {rules_ov_data, 1}, {maybe_collect_family_schema_registry, 1}
+    ]}
+]).
+
 %% Please don't remove this attribute, prometheus uses it to
 %% automatically register collectors.
 -behaviour(prometheus_collector).

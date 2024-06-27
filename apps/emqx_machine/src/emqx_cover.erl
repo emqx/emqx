@@ -41,6 +41,8 @@
 %% compile flag.
 -define(SRC, emqx_cover_module_src).
 
+-hank([{unnecessary_function_arguments, [{modules, 1}]}]).
+
 %% @doc Start cover.
 %% All emqx_ modules will be cover-compiled, this may cause
 %% some excessive RAM consumption and result in warning logs.

@@ -62,6 +62,12 @@
     metrics_inc/3
 ]).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {authenticate, 2}, {connection_expire_interval, 2}, {authorize, 4}
+    ]}
+]).
+
 %%--------------------------------------------------------------------
 %% Authentication circle
 

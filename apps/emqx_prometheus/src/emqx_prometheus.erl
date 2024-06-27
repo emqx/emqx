@@ -78,6 +78,12 @@
     do_stop/0
 ]).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {maybe_license_add_collect_family, 2}, {maybe_license_collect_json_data, 1}
+    ]}
+]).
+
 %%--------------------------------------------------------------------
 %% Macros
 %%--------------------------------------------------------------------

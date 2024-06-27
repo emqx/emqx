@@ -100,6 +100,8 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+-hank([{unnecessary_function_arguments, [all]}]).
+
 -spec childspec(worker | supervisor, Mod :: atom()) ->
     supervisor:child_spec().
 childspec(Type, Mod) ->

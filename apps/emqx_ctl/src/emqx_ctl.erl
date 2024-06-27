@@ -144,7 +144,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
     Duration = erlang:convert_time_unit(erlang:monotonic_time() - Start, native, millisecond),
 
     audit_log(
-        audit_level(Result, Duration),
+        audit_level(Result),
         cli,
         #{duration_ms => Duration, cmd => Cmd, args => Args, node => node()}
     ),
@@ -374,9 +374,9 @@ prune_unnecessary_log(Log) ->
         Log1 -> {ok, Log1}
     end.
 
-audit_level(ok, _Duration) -> info;
-audit_level({ok, _}, _Duration) -> info;
-audit_level(_, _) -> error.
+audit_level(ok) -> info;
+audit_level({ok, _}) -> info;
+audit_level(_Result) -> error.
 
 normalize_audit_log_args(Log = #{args := [Parsed | _] = Exprs, cmd := eval_erl}) when
     is_tuple(Parsed)

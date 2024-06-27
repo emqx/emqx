@@ -67,6 +67,8 @@
 -type subscribe() :: #mqtt_packet_subscribe{}.
 -type unsubscribe() :: #mqtt_packet_unsubscribe{}.
 
+-hank([{unnecessary_function_arguments, [{check_conn_props, 2}, {check_proto_ver, 2}]}]).
+
 %%--------------------------------------------------------------------
 %% MQTT Packet Type and Flags.
 %%--------------------------------------------------------------------

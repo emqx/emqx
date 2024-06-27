@@ -60,6 +60,8 @@
 
 -define(IS_STRING(String), (is_list(String) orelse is_binary(String))).
 
+-hank([{unnecessary_function_arguments, [{report_cb_2, 2}, {report_cb_crash, 2}]}]).
+
 %% @doc Format a list() or map() to JSON object.
 %% This is used for CLI result prints,
 %% or HTTP API result formatting.

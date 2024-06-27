@@ -89,6 +89,8 @@
 -define(ACK(Result), {false, Result}).
 -define(DELAY_ACK, delay).
 
+-hank([{unnecessary_function_arguments, [{on_message_puback, 4}, {on_abort, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% API for app
 %%--------------------------------------------------------------------

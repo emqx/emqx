@@ -93,6 +93,8 @@
     end
 ).
 
+-hank([{unnecessary_function_arguments, [{supported_versions, 1}]}]).
+
 namespace() -> "actions_and_sources".
 
 api_spec() ->

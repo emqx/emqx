@@ -24,6 +24,7 @@
 
 -define(META_FUN, bpapi_meta).
 
+-hank([{unnecessary_function_arguments, [{log, 2}]}]).
 % The ignore below is due to a hank's false-positive..!
 -hank([{unused_macros, ["BACKEND", "IS_RPC"]}]).
 -define(BACKEND(MOD, FUN), {remote, _, {atom, _, MOD}, {atom, _, FUN}}).

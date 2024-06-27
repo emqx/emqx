@@ -26,6 +26,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-behaviour(emqx_config_handler).
+
 -export([
     describe/1,
     plugin_schema_json/1,

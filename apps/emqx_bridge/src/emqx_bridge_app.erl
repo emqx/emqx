@@ -16,6 +16,7 @@
 -module(emqx_bridge_app).
 
 -behaviour(application).
+-behaviour(emqx_config_handler).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -export([start/2, stop/1]).

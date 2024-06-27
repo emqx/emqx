@@ -92,6 +92,7 @@
 
 -define(DEFAULT_KEEPALIVE, 300).
 
+-hank([{unnecessary_function_arguments, [{set_log_meta, 2}]}]).
 % The ignore below is due to a hank's false-positive..!
 -hank([{unused_macros, ["MSG"]}]).
 -define(MSG(MsgId), #{<<"header">> := #{<<"msg_id">> := MsgId}}).
@@ -283,7 +284,7 @@ do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
         {ok, _NFrame, Channel} ->
             case authenticate(Frame, Channel) of
                 true ->
-                    NChannel = process_connect(Frame, ensure_connected(Channel)),
+                    NChannel = process_connect(ensure_connected(Channel)),
                     authack({0, MsgSn, NChannel});
                 false ->
                     authack({1, MsgSn, Channel})
@@ -648,7 +649,6 @@ maybe_fix_mountpoint(ClientInfo = #{mountpoint := Mountpoint}) ->
     ClientInfo#{mountpoint := Mountpoint1}.
 
 process_connect(
-    _Frame,
     Channel = #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
@@ -669,7 +669,7 @@ process_connect(
             NChannel = Channel#channel{session = Session},
             %% Auto subscribe downlink topics
             ok = autosubcribe(NChannel),
-            _ = start_keepalive(?DEFAULT_KEEPALIVE, NChannel),
+            _ = start_keepalive(?DEFAULT_KEEPALIVE),
             _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, #{}]),
             _ = emqx_gateway_ctx:insert_channel_info(
                 Ctx, ClientId, info(NChannel), stats(NChannel)
@@ -997,7 +997,7 @@ autosubcribe(#channel{
         ClientInfo, Topic, ?DN_TOPIC_SUBOPTS#{is_new => true}
     ]).
 
-start_keepalive(Secs, _Channel) when Secs > 0 ->
+start_keepalive(Secs) when Secs > 0 ->
     self() ! {keepalive, start, round(Secs) * 1000}.
 
 run_hooks(Ctx, Name, Args) ->

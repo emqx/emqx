@@ -93,6 +93,8 @@
 
 -define(UNIT_TIME_IN_MS, 1000).
 
+-hank([{unnecessary_function_arguments, [{deprecated_desc, 1}]}]).
+
 namespace() -> limiter.
 
 roots() ->

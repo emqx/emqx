@@ -177,6 +177,8 @@
 
 -define(IMPL(S), (get_impl_mod(S))).
 
+-hank([{unnecessary_function_arguments, [{pubrel, 3}, {pubrec, 3}, {publish, 4}, {disconnect, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% Behaviour
 %% -------------------------------------------------------------------

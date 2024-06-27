@@ -30,6 +30,8 @@
 -define(CONNECTOR_TYPE, mongodb).
 -define(ACTION_TYPE, mongodb).
 
+-hank([{unnecessary_function_arguments, [{bridge_values, 2}]}]).
+
 %%=================================================================================================
 %% hocon_schema API
 %%=================================================================================================

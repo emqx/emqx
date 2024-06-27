@@ -96,6 +96,8 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+-hank([{unnecessary_function_arguments, [{list_authenticator, 3}]}]).
+
 namespace() -> undefined.
 
 api_spec() ->
@@ -903,7 +905,7 @@ list_authenticators(ConfKeyPath) ->
     ],
     {200, NAuthenticators}.
 
-list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
+list_authenticator(_ChainName, ConfKeyPath, AuthenticatorID) ->
     with_authenticator(
         AuthenticatorID,
         ConfKeyPath,

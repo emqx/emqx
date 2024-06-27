@@ -115,6 +115,8 @@
     %% System limit (e.g. number of ports) reached.
     | system_limit.
 
+-hank([{unnecessary_function_arguments, [{read_frag_filemeta, 2}, {read_frag_segmentinfo, 2}]}]).
+
 %% Related resources childspecs
 -spec child_spec(storage()) ->
     [supervisor:child_spec()].

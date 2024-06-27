@@ -27,6 +27,8 @@
 
 -define(INFO(FORMAT, ARGS), io:format("[emqx_relup] " ++ FORMAT ++ "~n", ARGS)).
 
+-hank([{unnecessary_function_arguments, [{post_release_upgrade, 2}, {post_release_downgrade, 2}]}]).
+
 %% What to do after upgraded from an old release vsn.
 post_release_upgrade(FromRelVsn, _) ->
     ?INFO("emqx has been upgraded from ~s to ~s!", [FromRelVsn, emqx_release:version()]),

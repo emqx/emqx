@@ -17,6 +17,7 @@
 -module(emqx_retainer).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").

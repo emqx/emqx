@@ -63,6 +63,8 @@
     emqx_connection, emqx_ws_connection, emqx_quic_connection, emqx_eviction_agent_channel
 ]).
 
+-hank([{unnecessary_function_arguments, [{on_connect, 2}]}]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------

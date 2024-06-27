@@ -38,15 +38,15 @@ start_link() ->
 %% `supervisor' API
 %%--------------------------------------------------------------------------------
 
-init(Opts) ->
+init(_Opts) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            do_init(Opts);
+            do_init();
         false ->
             ignore
     end.
 
-do_init(_Opts) ->
+do_init() ->
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,

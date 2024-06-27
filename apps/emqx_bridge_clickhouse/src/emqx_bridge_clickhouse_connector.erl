@@ -555,8 +555,8 @@ is_recoverable_error_reason(disconnected) ->
 is_recoverable_error_reason(_) ->
     false.
 
-snabbkaffe_log_return(_Result) ->
+snabbkaffe_log_return(Result) ->
     ?tp(
         clickhouse_connector_query_return,
-        #{result => _Result}
+        #{result => Result}
     ).

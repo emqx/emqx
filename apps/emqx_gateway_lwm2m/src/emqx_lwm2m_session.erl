@@ -140,6 +140,12 @@
 
 -import(emqx_coap_medium, [iter/3, reply/2]).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {handle_coap_in, 3}, {timeout, 3}, {send_cmd, 3}, {process_session, 3}
+    ]}
+]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------

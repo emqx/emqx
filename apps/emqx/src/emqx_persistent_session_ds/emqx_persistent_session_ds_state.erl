@@ -182,6 +182,7 @@
     {?awaiting_rel, ?awaiting_rel_tab}
 ]).
 
+-hank([{unnecessary_function_arguments, [{encoder, 3}]}]).
 % The ignore below is due to a hank's false-positive..!
 -hank([{unused_macros, ["set_dirty", "unset_dirty"]}]).
 

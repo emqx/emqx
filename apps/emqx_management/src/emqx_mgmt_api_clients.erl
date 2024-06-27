@@ -1557,7 +1557,7 @@ list_client_msgs(MsgType, ClientID, QString) ->
 pos_decoder(mqueue_msgs) -> fun decode_mqueue_pos/1;
 pos_decoder(inflight_msgs) -> fun decode_msg_pos/1.
 
-encode_msgs_meta(_MsgType, #{start := StartPos, position := Pos}) ->
+encode_msgs_meta(#{start := StartPos, position := Pos}) ->
     #{start => encode_pos(StartPos), position => encode_pos(Pos)}.
 
 encode_pos(none) ->
@@ -1839,7 +1839,7 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
         <<"payload">> := PayloadFmt,
         <<"max_payload_bytes">> := MaxBytes
     } = QString,
-    Meta1 = encode_msgs_meta(MsgType, Meta),
+    Meta1 = encode_msgs_meta(Meta),
     Resp = #{meta => Meta1, data => format_msgs(MsgType, Msgs, PayloadFmt, MaxBytes)},
     %% Make sure minirest won't set another content-type for self-encoded JSON response body
     Headers = #{<<"content-type">> => <<"application/json">>},

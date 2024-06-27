@@ -17,6 +17,7 @@
 -module(emqx_sys_mon).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("types.hrl").
 -include("logger.hrl").

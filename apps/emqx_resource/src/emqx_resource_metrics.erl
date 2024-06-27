@@ -77,6 +77,8 @@
 -define(RES_METRICS, resource_metrics).
 -define(TELEMETRY_PREFIX, emqx, resource).
 
+-hank([{unnecessary_function_arguments, [{handle_telemetry_event, 4}]}]).
+
 -spec events() -> [telemetry:event_name()].
 events() ->
     [

@@ -40,6 +40,8 @@
 
 -define(ORIGINAL_USER_PROPERTIES, original).
 
+-hank([{unnecessary_function_arguments, [{console, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------

@@ -16,6 +16,8 @@
 
 -module(emqx_rewrite).
 
+-behaviour(emqx_config_handler).
+
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").

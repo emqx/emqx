@@ -20,6 +20,7 @@
     is_message/1
 ]).
 
+-hank([{unnecessary_function_arguments, [{decipher, 2}, {encipher, 2}]}]).
 -hank([{unused_macros, ["FLAG"]}]).
 -define(FLAG, 1 / binary).
 -define(BYTE, 8 / big - integer).

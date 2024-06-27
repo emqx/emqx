@@ -65,6 +65,8 @@
 
 -define(ROOT_KEY_ACTIONS, actions).
 
+-hank([{unnecessary_function_arguments, [{bridge_impl_module, 1}, {remove, 4}]}]).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(BridgeType) when is_binary(BridgeType) ->
     bridge_to_resource_type(binary_to_existing_atom(BridgeType, utf8));

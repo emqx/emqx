@@ -264,8 +264,8 @@ do_forward(Ack, Messages, Data) ->
 
 handle_parse_result({ok, Msg}, State, Data) ->
     handle_packet(Msg, State, Data);
-handle_parse_result({error, Reason} = Error, State, Data) ->
-    handle_parse_error(Error, State, #{buffer := _Bin} = Data),
+handle_parse_result({error, Reason}, State, Data) ->
+    handle_parse_error(State, #{buffer := _Bin} = Data),
     ?SLOG(error, #{
         msg => "syskeeper_proxy_server_parse_result_error",
         state => State,
@@ -274,9 +274,9 @@ handle_parse_result({error, Reason} = Error, State, Data) ->
     }),
     {stop, parse_error}.
 
-handle_parse_error(_, handshake, Data) ->
+handle_parse_error(handshake, Data) ->
     ack(Data, false);
-handle_parse_error(_, _, _) ->
+handle_parse_error(_State, _Data) ->
     ok.
 
 handle_packet({FrameState, _Shake}, handshake, Data) ->

@@ -16,7 +16,12 @@
 
 -module(emqx_ds_app).
 
--export([start/2]).
+-behaviour(application).
+
+-export([start/2, stop/1]).
 
 start(_Type, _Args) ->
     emqx_ds_sup:start_link().
+
+stop(_State) ->
+    ok.

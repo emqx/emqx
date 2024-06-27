@@ -130,8 +130,8 @@ handle_info(_Info, State) ->
     {noreply, State, ?TRIGGER_PENDING_TIMEOUT}.
 
 -spec terminate(_Reason, state()) -> _Ok.
-terminate(_Reason, State = #{db := DB, shards := Shards}) ->
-    unsubscribe_db_changes(State),
+terminate(_Reason, #{db := DB, shards := Shards}) ->
+    unsubscribe_db_changes(),
     erase_db_meta(DB),
     erase_shards_meta(DB, Shards);
 terminate(_Reason, #{}) ->
@@ -161,7 +161,7 @@ handle_allocate_shards(State0) ->
 subscribe_db_changes(#{db := DB}) ->
     emqx_ds_replication_layer_meta:subscribe(self(), DB).
 
-unsubscribe_db_changes(_State) ->
+unsubscribe_db_changes() ->
     emqx_ds_replication_layer_meta:unsubscribe(self()).
 
 %%

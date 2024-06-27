@@ -129,6 +129,8 @@
 
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
 
+-hank([{unnecessary_function_arguments, [{terminate, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------

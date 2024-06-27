@@ -26,6 +26,8 @@
 -define(CONNECTOR_TYPE, iotdb).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
 
+-hank([{unnecessary_function_arguments, [{conn_bridge_example, 2}]}]).
+
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
 %%-------------------------------------------------------------------------------------------------

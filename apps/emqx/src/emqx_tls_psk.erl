@@ -25,6 +25,8 @@
 -type psk_identity() :: string().
 -type psk_user_state() :: term().
 
+-hank([{unnecessary_function_arguments, [{lookup, 3}]}]).
+
 -spec lookup(psk, psk_identity(), psk_user_state()) -> {ok, SharedSecret :: binary()} | error.
 lookup(psk, PSKIdentity, _UserState) ->
     try emqx_hooks:run_fold('tls_handshake.psk_lookup', [PSKIdentity], normal) of

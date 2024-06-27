@@ -72,6 +72,7 @@
     namespace => undefined
 }).
 
+-hank([{unnecessary_function_arguments, [{wrap_array_conv, 2}, {unwrap_array_conv, 2}]}]).
 % The ignore below is due to a hank's false-positive..!
 -hank([{unused_macros, ["TO_COMPONENTS_SCHEMA"]}]).
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).

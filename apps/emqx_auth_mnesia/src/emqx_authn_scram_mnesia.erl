@@ -77,6 +77,8 @@
 
 -reflect_type([user_group/0]).
 
+-hank([{unnecessary_function_arguments, [{check_client_first_message, 3}]}]).
+
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------

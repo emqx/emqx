@@ -54,6 +54,8 @@
 -define(NOT_ALLOWED, 'NOT_ALLOWED').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
+-hank([{unnecessary_function_arguments, [{username, 2}, {field_filter, 1}]}]).
+
 namespace() -> "dashboard".
 
 api_spec() ->

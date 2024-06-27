@@ -5,6 +5,7 @@
 -module(emqx_dashboard_sso_manager).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include_lib("emqx/include/logger.hrl").
 

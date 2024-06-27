@@ -17,6 +17,8 @@
 -module(emqx_otel_metrics).
 -include_lib("emqx/include/logger.hrl").
 
+-behaviour(gen_server).
+
 -export([start_otel/1, stop_otel/0]).
 -export([get_cluster_gauge/1, get_stats_gauge/1, get_vm_gauge/1, get_metric_counter/1]).
 -export([start_link/1]).

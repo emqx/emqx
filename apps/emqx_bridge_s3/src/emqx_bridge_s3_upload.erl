@@ -34,6 +34,8 @@
 -define(DEFAULT_AGGREG_BATCH_SIZE, 100).
 -define(DEFAULT_AGGREG_BATCH_TIME, <<"10ms">>).
 
+-hank([{unnecessary_function_arguments, [{convert_action, 2}]}]).
+
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
 %%-------------------------------------------------------------------------------------------------
@@ -236,7 +238,7 @@ convert_actions(Conf = #{}, Opts) ->
 convert_actions(undefined, _) ->
     undefined.
 
-convert_action(Conf = #{<<"parameters">> := Params, <<"resource_opts">> := ResourceOpts}, _) ->
+convert_action(Conf = #{<<"parameters">> := Params, <<"resource_opts">> := ResourceOpts}, _Opts) ->
     case Params of
         #{<<"mode">> := <<"aggregated">>} ->
             Conf;

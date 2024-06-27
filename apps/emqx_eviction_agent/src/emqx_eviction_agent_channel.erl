@@ -5,6 +5,8 @@
 %% MQTT Channel
 -module(emqx_eviction_agent_channel).
 
+-behaviour(gen_server).
+
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_channel.hrl").
 -include_lib("emqx/include/logger.hrl").

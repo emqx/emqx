@@ -334,7 +334,7 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
             ),
             ok = ra:start_server(DB, MutableConfig#{
                 id => LocalServer,
-                uid => server_uid(DB, Shard),
+                uid => server_uid(Shard),
                 cluster_name => ClusterName,
                 initial_members => Servers,
                 machine => Machine,
@@ -363,7 +363,7 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
             ok
     end.
 
-server_uid(_DB, Shard) ->
+server_uid(Shard) ->
     %% NOTE
     %% Each new "instance" of a server should have a unique identifier. Otherwise,
     %% if some server migrates to another node during rebalancing, and then comes

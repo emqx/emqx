@@ -45,6 +45,8 @@
     serialize_opts/0
 ]).
 
+-hank([{unnecessary_function_arguments, [{serialize, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% Initial
 

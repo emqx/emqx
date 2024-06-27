@@ -112,6 +112,11 @@
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {auth_connect, 2}, {set_log_meta, 2}, {fix_mountpoint, 2}, {maybe_assign_clientid, 2}
+    ]}
+]).
 % The ignore below is due to a hank's false-positive..!
 -hank([{unused_macros, ["NEG_QOS_CLIENT_ID", "REGISTER_INFLIGHT"]}]).
 
@@ -681,7 +686,7 @@ handle_in(
         retry_register,
         Channel#channel{register_inflight = undefined}
     ),
-    send_next_register_or_replay_publish(TopicName, NChannel);
+    send_next_register_or_replay_publish(NChannel);
 handle_in(
     ?SN_REGACK_MSG(TopicId, _MsgId, Reason),
     Channel = ?REGISTER_INFLIGHT(TopicId, TopicName)
@@ -704,7 +709,7 @@ handle_in(
                 retry_register,
                 Channel#channel{register_inflight = undefined}
             ),
-            send_next_register_or_replay_publish(TopicName, NChannel)
+            send_next_register_or_replay_publish(NChannel)
     end;
 handle_in(
     ?SN_REGACK_MSG(TopicId, MsgId, Reason),
@@ -1031,7 +1036,6 @@ handle_in(
 after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->
     ok = metrics_inc(Ctx, 'messages.acked'),
     run_hooks_without_metrics(
-        Ctx,
         'message.acked',
         [ClientInfo, emqx_message:set_header(puback_props, #{}, Msg)]
     ).
@@ -1039,16 +1043,10 @@ after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->
 outgoing_and_update(Pkt) ->
     [{outgoing, Pkt}, {event, update}].
 
-send_next_register_or_replay_publish(
-    _TopicName,
-    Channel = #channel{register_awaiting_queue = []}
-) ->
+send_next_register_or_replay_publish(Channel = #channel{register_awaiting_queue = []}) ->
     {Outgoing, NChannel} = resume_or_replay_messages(Channel),
     {ok, Outgoing, NChannel};
-send_next_register_or_replay_publish(
-    _TopicName,
-    Channel = #channel{register_awaiting_queue = RAQueue}
-) ->
+send_next_register_or_replay_publish(Channel = #channel{register_awaiting_queue = RAQueue}) ->
     [RegisterReq | NRAQueue] = RAQueue,
     handle_out(
         register,
@@ -1694,7 +1692,6 @@ do_deliver(
 ) ->
     metrics_inc(Ctx, 'messages.delivered'),
     Msg1 = run_hooks_without_metrics(
-        Ctx,
         'message.delivered',
         [ClientInfo],
         emqx_message:update_expiry(Msg)
@@ -2265,10 +2262,10 @@ run_hooks(Ctx, Name, Args, Acc) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
-run_hooks_without_metrics(_Ctx, Name, Args) ->
+run_hooks_without_metrics(Name, Args) ->
     emqx_hooks:run(Name, Args).
 
-run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
+run_hooks_without_metrics(Name, Args, Acc) ->
     emqx_hooks:run_fold(Name, Args, Acc).
 
 metrics_inc(Ctx, Name) ->

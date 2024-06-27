@@ -33,6 +33,8 @@
 
 -define(POOL_NAME_SUFFIX, "bind_worker").
 
+-hank([{unnecessary_function_arguments, [{on_get_status, 2}, {on_stop, 2}]}]).
+
 %% ===================================================================
 -spec on_start(binary(), hocon:config(), proplists:proplist(), map()) ->
     {ok, binary(), map()} | {error, _}.

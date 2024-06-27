@@ -84,6 +84,8 @@
     socket_receive_paused_by_rate_limit
 ]).
 
+-hank([{unnecessary_function_arguments, [{tr_config_files, 1}, {ensure_file_handlers, 2}]}]).
+
 %% Callback to upgrade config after loaded from config file but before validation.
 upgrade_raw_conf(Raw0) ->
     Raw1 = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(Raw0),

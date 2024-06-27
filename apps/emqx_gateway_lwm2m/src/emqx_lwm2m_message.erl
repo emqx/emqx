@@ -32,16 +32,16 @@ tlv_to_json(BaseName, TlvData) ->
     ObjDefinition = emqx_lwm2m_xml_object:get_obj_def_assertive(ObjectId, true),
     case DecodedTlv of
         [#{tlv_resource_with_value := Id, value := Value}] ->
-            TrueBaseName = basename(BaseName, undefined, undefined, Id, 3),
+            TrueBaseName = basename(BaseName, undefined, Id, 3),
             tlv_single_resource(TrueBaseName, Id, Value, ObjDefinition);
         List1 = [#{tlv_resource_with_value := _Id}, _ | _] ->
-            TrueBaseName = basename(BaseName, undefined, undefined, undefined, 2),
+            TrueBaseName = basename(BaseName, undefined, undefined, 2),
             tlv_level2(TrueBaseName, List1, ObjDefinition, []);
         List2 = [#{tlv_multiple_resource := _Id} | _] ->
-            TrueBaseName = basename(BaseName, undefined, undefined, undefined, 2),
+            TrueBaseName = basename(BaseName, undefined, undefined, 2),
             tlv_level2(TrueBaseName, List2, ObjDefinition, []);
         [#{tlv_object_instance := Id, value := Value}] ->
-            TrueBaseName = basename(BaseName, undefined, Id, undefined, 2),
+            TrueBaseName = basename(BaseName, Id, undefined, 2),
             tlv_level2(TrueBaseName, Value, ObjDefinition, []);
         List3 = [#{tlv_object_instance := _Id}, _ | _] ->
             tlv_level1(integer_to_binary(ObjectId), List3, ObjDefinition, [])
@@ -96,7 +96,7 @@ tlv_single_resource(BaseName, Id, Value, ObjDefinition) ->
     Val = value(Value, Id, ObjDefinition),
     [#{path => BaseName, value => Val}].
 
-basename(OldBaseName, _ObjectId, ObjectInstanceId, ResourceId, 3) ->
+basename(OldBaseName, ObjectInstanceId, ResourceId, 3) ->
     case binary:split(emqx_utils_binary:trim(OldBaseName, $/), [<<$/>>], [global]) of
         [ObjId, ObjInsId, ResId] ->
             <<$/, ObjId/binary, $/, ObjInsId/binary, $/, ResId/binary>>;
@@ -112,13 +112,13 @@ basename(OldBaseName, _ObjectId, ObjectInstanceId, ResourceId, 3) ->
                 (integer_to_binary(ResourceId))/binary
             >>
     end;
-basename(OldBaseName, _ObjectId, ObjectInstanceId, _ResourceId, 2) ->
+basename(OldBaseName, ObjectInstanceId, _ResourceId, 2) ->
     case binary:split(emqx_utils_binary:trim(OldBaseName, $/), [<<$/>>], [global]) of
         [ObjId, ObjInsId, _ResId] -> <<$/, ObjId/binary, $/, ObjInsId/binary>>;
         [ObjId, ObjInsId] -> <<$/, ObjId/binary, $/, ObjInsId/binary>>;
         [ObjId] -> <<$/, ObjId/binary, $/, (integer_to_binary(ObjectInstanceId))/binary>>
     end.
-% basename(OldBaseName, _ObjectId, _ObjectInstanceId, _ResourceId, 1) ->
+% basename(OldBaseName, _ObjectInstanceId, _ResourceId, 1) ->
 %    case binary:split(emqx_utils_binary:trim(OldBaseName, $/), [<<$/>>], [global]) of
 %        [ObjId, _ObjInsId, _ResId]       -> <<$/, ObjId/binary>>;
 %        [ObjId, _ObjInsId]               -> <<$/, ObjId/binary>>;

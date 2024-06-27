@@ -16,6 +16,8 @@
 
 -module(emqx_lwm2m_xml_object_db).
 
+-behaviour(gen_server).
+
 -include("emqx_lwm2m.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 -include_lib("emqx/include/logger.hrl").

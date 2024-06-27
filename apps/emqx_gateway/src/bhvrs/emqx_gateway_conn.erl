@@ -114,6 +114,12 @@
     ]}
 ).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {ensure_rate_limit, 2}, {system_code_change, 4}, {system_terminate, 4}, {system_continue, 3}
+    ]}
+]).
+
 %% udp
 start_link(Socket = {udp, _SockPid, _Sock}, Peername, Options) ->
     Args = [self(), Socket, Peername, Options] ++ callback_modules(Options),

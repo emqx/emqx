@@ -61,6 +61,8 @@
 
 -define(IS_PROFILE_ID(ProfileId), (is_atom(ProfileId) orelse is_binary(ProfileId))).
 
+-hank([{unnecessary_function_arguments, [{pre_config_update, 3}, {post_config_update, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------

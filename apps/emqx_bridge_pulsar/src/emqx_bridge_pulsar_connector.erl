@@ -52,6 +52,17 @@
 
 -define(HEALTH_CHECK_RETRY_TIMEOUT, 4_000).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {query_mode, 1},
+        {on_stop, 2},
+        {on_get_status, 2},
+        {on_get_channel_status, 3},
+        {on_query, 3},
+        {on_query_async, 4}
+    ]}
+]).
+
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------

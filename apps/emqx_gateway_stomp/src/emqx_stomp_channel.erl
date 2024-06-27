@@ -110,6 +110,16 @@
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {auth_connect, 2},
+        {set_log_meta, 2},
+        {fix_mountpoint, 2},
+        {maybe_assign_clientid, 2},
+        {enrich_conninfo, 2}
+    ]}
+]).
+
 %%--------------------------------------------------------------------
 %% Init the channel
 %%--------------------------------------------------------------------
@@ -1044,7 +1054,6 @@ handle_deliver(
                     Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
                     metrics_inc('messages.delivered', Channel),
                     NMessage = run_hooks_without_metrics(
-                        Ctx,
                         'message.delivered',
                         [ClientInfo],
                         Message1
@@ -1374,7 +1383,7 @@ run_hooks(Ctx, Name, Args, Acc) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
-run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
+run_hooks_without_metrics(Name, Args, Acc) ->
     emqx_hooks:run_fold(Name, Args, Acc).
 
 metrics_inc(Name, #channel{ctx = Ctx}) ->

@@ -63,6 +63,8 @@
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 -elvis([{elvis_style, no_if_expression, disable}]).
 
+-hank([{unnecessary_function_arguments, [{until_stop, 3}]}]).
+
 %%--------------------------------------------------------------------
 %% APIs
 

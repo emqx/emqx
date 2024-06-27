@@ -16,6 +16,8 @@
 
 -module(emqx_ft_storage_exporter_s3).
 
+-behaviour(emqx_config_handler).
+
 -include_lib("emqx/include/logger.hrl").
 
 %% Exporter API
@@ -61,6 +63,8 @@
 -define(S3_PROFILE_ID, ?MODULE).
 -define(FILEMETA_VSN, <<"1">>).
 -define(S3_LIST_LIMIT, 500).
+
+-hank([{unnecessary_function_arguments, [{list, 3}]}]).
 
 %%--------------------------------------------------------------------
 %% Exporter behaviour

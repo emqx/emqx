@@ -155,6 +155,18 @@
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {overload_protection, 2},
+        {maybe_username_as_clientid, 2},
+        {set_log_meta, 2},
+        {check_banned, 2},
+        {count_flapping_event, 2},
+        {check_quota_exceeded, 2},
+        {check_subscribe, 2}
+    ]}
+]).
+
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------

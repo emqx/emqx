@@ -59,6 +59,17 @@
 
 -export([reply_delegator/2]).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {query_mode, 1},
+        {on_stop, 2},
+        {on_get_status, 2},
+        {on_add_channel, 4},
+        {on_remove_channel, 3},
+        {on_get_channel_status, 3}
+    ]}
+]).
+
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------

@@ -158,8 +158,8 @@ fields(message) ->
 
 '/messages'(get, Params) ->
     check_backend(get, Params, fun lookup_retained/2);
-'/messages'(delete, Params) ->
-    delete_messages(delete, Params).
+'/messages'(delete, _Params) ->
+    delete_messages(delete).
 
 with_topic_warp(Type, Params) ->
     check_backend(Type, Params, fun with_topic/2).
@@ -228,7 +228,7 @@ with_topic(delete, #{bindings := Bindings}) ->
             {204}
     end.
 
-delete_messages(delete, _) ->
+delete_messages(delete) ->
     emqx_retainer:clean(),
     {204}.
 

@@ -29,6 +29,8 @@
     connector_examples/1
 ]).
 
+-hank([{unnecessary_function_arguments, [{legacy_action_resource_opts_converter, 2}]}]).
+
 %%======================================================================================
 %% Hocon Schema Definitions
 namespace() -> "bridge_http".

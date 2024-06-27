@@ -46,6 +46,8 @@
 
 -type transfer_state() :: term().
 
+-hank([{unnecessary_function_arguments, [{format_status, 2}, {system_terminate, 4}]}]).
+
 %% @doc Initialize the transfer state, such as blob storage path, transfer options, client
 %% credentials, etc. .
 -callback init_transfer_state(buffer(), map()) -> transfer_state().

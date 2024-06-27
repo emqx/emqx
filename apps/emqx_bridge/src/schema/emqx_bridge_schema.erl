@@ -39,6 +39,8 @@
 %% for testing only
 -export([enterprise_api_schemas/1, enterprise_fields_bridges/0]).
 
+-hank([{unnecessary_function_arguments, [{enterprise_api_schemas, 1}, {http_bridge_converter, 2}]}]).
+
 %%======================================================================================
 %% Hocon Schema Definitions
 

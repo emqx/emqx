@@ -80,6 +80,12 @@
 
 -dialyzer({nowarn_function, init/2}).
 
+-hank([
+    {unnecessary_function_arguments, [
+        {enrich_conninfo, 2}, {set_log_meta, 2}, {auth_connect, 2}, {fix_mountpoint, 2}
+    ]}
+]).
+
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------

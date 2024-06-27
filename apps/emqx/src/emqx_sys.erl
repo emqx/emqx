@@ -17,6 +17,7 @@
 -module(emqx_sys).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("types.hrl").

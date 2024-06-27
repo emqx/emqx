@@ -32,6 +32,8 @@
     "values (${id}, ${topic}, ${qos}, ${payload}, FROM_UNIXTIME(${timestamp}/1000))"
 >>).
 
+-hank([{unnecessary_function_arguments, [{values, 1}]}]).
+
 %% -------------------------------------------------------------------------------------------------
 %% api
 

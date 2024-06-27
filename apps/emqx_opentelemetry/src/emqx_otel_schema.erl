@@ -17,12 +17,16 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 
+-behaviour(emqx_config_handler).
+
 -export([
     roots/0,
     fields/1,
     namespace/0,
     desc/1
 ]).
+
+-hank([{unnecessary_function_arguments, [{legacy_metrics_converter, 2}]}]).
 
 namespace() -> opentelemetry.
 
