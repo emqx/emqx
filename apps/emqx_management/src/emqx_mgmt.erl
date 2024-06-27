@@ -626,7 +626,18 @@ do_unsubscribe(ClientId, Topic) ->
 -spec unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe_batch(ClientId, Topics) ->
-    unsubscribe_batch(emqx:running_nodes(), ClientId, Topics).
+    case emqx_cm_registry:is_enabled() of
+        false ->
+            unsubscribe_batch(emqx:running_nodes(), ClientId, Topics);
+        true ->
+            with_client_node(
+                ClientId,
+                {error, channel_not_found},
+                fun(Node) ->
+                    unsubscribe_batch([Node], ClientId, Topics)
+                end
+            )
+    end.
 
 -spec unsubscribe_batch([node()], emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, channel_not_found}.
