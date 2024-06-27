@@ -213,6 +213,19 @@ handle_event(
         update_agent_stream_states(Data0, Agent, StreamProgresses, VersionOld, VersionNew)
     end),
     {keep_state, Data1};
+handle_event(
+    info,
+    ?agent_disconnect_match(Agent, StreamProgresses, Version),
+    ?leader_active,
+    Data0
+) ->
+    % ?tp(warning, shared_sub_leader_disconnect, #{
+    %     agent => Agent, version => Version
+    % }),
+    Data1 = with_agent(Data0, Agent, fun() ->
+        disconnect_agent(Data0, Agent, StreamProgresses, Version)
+    end),
+    {keep_state, Data1};
 %%--------------------------------------------------------------------
 %% fallback
 handle_event(enter, _OldState, _State, _Data) ->
@@ -398,6 +411,28 @@ assign_initial_streams_to_agent(Data, Agent, AgentMetadata, AssignCount) ->
         Data1, Agent, AgentMetadata, InitialStreamsToAssign
     ),
     set_agent_state(Data1, Agent, AgentState).
+
+%%--------------------------------------------------------------------
+%% Disconnect agent gracefully
+
+disconnect_agent(Data0, Agent, AgentStreamProgresses, Version) ->
+    case get_agent_state(Data0, Agent) of
+        #{version := Version} ->
+            ?tp(warning, shared_sub_leader_disconnect_agent, #{
+                agent => Agent,
+                version => Version
+            }),
+            Data1 = update_agent_stream_states(Data0, Agent, AgentStreamProgresses, Version),
+            Data2 = drop_agent(Data1, Agent),
+            Data2;
+        _ ->
+            ?tp(warning, shared_sub_leader_unexpected_disconnect, #{
+                agent => Agent,
+                version => Version
+            }),
+            Data1 = drop_agent(Data0, Agent),
+            Data1
+    end.
 
 %%--------------------------------------------------------------------
 %% Drop agents that stopped reporting progress
@@ -790,6 +825,7 @@ drop_agent(#{agents := Agents} = Data0, Agent) ->
     #{streams := Streams, revoked_streams := RevokedStreams} = AgentState,
     AllStreams = Streams ++ RevokedStreams,
     Data1 = unassign_streams(Data0, AllStreams),
+    ?tp(warning, shared_sub_leader_drop_agent, #{agent => Agent}),
     Data1#{agents => maps:remove(Agent, Agents)}.
 
 invalidate_agent(#{group := Group}, Agent) ->

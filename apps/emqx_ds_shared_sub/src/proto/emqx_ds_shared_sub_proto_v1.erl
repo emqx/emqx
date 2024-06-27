@@ -62,6 +62,18 @@ agent_update_stream_states(Node, ToLeader, FromAgent, StreamProgresses, VersionO
         ToLeader, FromAgent, StreamProgresses, VersionOld, VersionNew
     ]).
 
+-spec agent_disconnect(
+    node(),
+    emqx_ds_shared_sub_proto:leader(),
+    emqx_ds_shared_sub_proto:agent(),
+    list(emqx_ds_shared_sub_proto:agent_stream_progress()),
+    emqx_ds_shared_sub_proto:version()
+) -> ok.
+agent_disconnect(Node, ToLeader, FromAgent, StreamProgresses, Version) ->
+    erpc:cast(Node, emqx_ds_shared_sub_proto, agent_disconnect, [
+        ToLeader, FromAgent, StreamProgresses, Version
+    ]).
+
 %% leader -> agent messages
 
 -spec leader_lease_streams(
