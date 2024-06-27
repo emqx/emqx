@@ -19,12 +19,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--type duration() :: non_neg_integer().
-
--typerefl_from_string({duration/0, emqx_schema, to_duration}).
-
--reflect_type([duration/0]).
-
 %% config schema provides
 -export([namespace/0, fields/1, desc/1]).
 
@@ -34,7 +28,7 @@ fields(coap) ->
     [
         {heartbeat,
             sc(
-                duration(),
+                emqx_schema:duration_s(),
                 #{
                     default => <<"30s">>,
                     desc => ?DESC(coap_heartbeat)

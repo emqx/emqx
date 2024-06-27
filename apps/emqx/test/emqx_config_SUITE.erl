@@ -428,6 +428,7 @@ zone_global_defaults() ->
                 ignore_loop_deliver => false,
                 keepalive_backoff => 0.75,
                 keepalive_multiplier => 1.5,
+                keepalive_check_interval => 30000,
                 max_awaiting_rel => 100,
                 max_clientid_len => 65535,
                 max_inflight => 32,

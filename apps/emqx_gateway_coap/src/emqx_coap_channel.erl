@@ -85,7 +85,7 @@
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
 
--define(DEF_IDLE_TIME, timer:seconds(30)).
+-define(DEF_IDLE_SECONDS, 30).
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
 
@@ -149,7 +149,7 @@ init(
             mountpoint => Mountpoint
         }
     ),
-    Heartbeat = maps:get(heartbeat, Config, ?DEF_IDLE_TIME),
+    Heartbeat = maps:get(heartbeat, Config, ?DEF_IDLE_SECONDS),
     #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
@@ -378,7 +378,7 @@ ensure_keepalive_timer(Channel) ->
     ensure_keepalive_timer(fun ensure_timer/4, Channel).
 
 ensure_keepalive_timer(Fun, #channel{keepalive = KeepAlive} = Channel) ->
-    Heartbeat = emqx_keepalive:info(interval, KeepAlive),
+    Heartbeat = emqx_keepalive:info(check_interval, KeepAlive),
     Fun(keepalive, Heartbeat, keepalive, Channel).
 
 check_auth_state(Msg, #channel{connection_required = false} = Channel) ->
@@ -495,7 +495,7 @@ enrich_conninfo(
 ) ->
     case Queries of
         #{<<"clientid">> := ClientId} ->
-            Interval = maps:get(interval, emqx_keepalive:info(KeepAlive)),
+            Interval = emqx_keepalive:info(check_interval, KeepAlive),
             NConnInfo = ConnInfo#{
                 clientid => ClientId,
                 proto_name => <<"CoAP">>,

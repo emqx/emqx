@@ -55,6 +55,8 @@
 %% only for testing/mocking
 -export([supported_versions/1]).
 
+-export([format_bridge_metrics/1, format_metrics/1]).
+
 -define(BPAPI_NAME, emqx_bridge).
 
 -define(BRIDGE_NOT_ENABLED,
