@@ -11,7 +11,7 @@
 -export([
     introduced_in/0,
 
-    agent_connect_leader/4,
+    agent_connect_leader/5,
     agent_update_stream_states/5,
     agent_update_stream_states/6,
 
@@ -29,11 +29,12 @@ introduced_in() ->
     node(),
     emqx_ds_shared_sub_proto:leader(),
     emqx_ds_shared_sub_proto:agent(),
+    emqx_ds_shared_sub_proto:agent_metadata(),
     emqx_ds_shared_sub_proto:topic_filter()
 ) -> ok.
-agent_connect_leader(Node, ToLeader, FromAgent, TopicFilter) ->
+agent_connect_leader(Node, ToLeader, FromAgent, AgentMetadata, TopicFilter) ->
     erpc:cast(Node, emqx_ds_shared_sub_proto, agent_connect_leader, [
-        ToLeader, FromAgent, TopicFilter
+        ToLeader, FromAgent, AgentMetadata, TopicFilter
     ]).
 
 -spec agent_update_stream_states(

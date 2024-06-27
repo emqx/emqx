@@ -177,7 +177,7 @@ fetch_stream_events(
 %% Connecting state
 
 handle_connecting(#{agent := Agent, topic_filter := ShareTopicFilter} = GSM) ->
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, ShareTopicFilter),
+    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM), ShareTopicFilter),
     ensure_state_timeout(GSM, find_leader_timeout, ?FIND_LEADER_TIMEOUT).
 
 handle_leader_lease_streams(
@@ -201,7 +201,7 @@ handle_leader_lease_streams(GSM, _Leader, _StreamProgresses, _Version) ->
     GSM.
 
 handle_find_leader_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM0) ->
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, TopicFilter),
+    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM0), TopicFilter),
     GSM1 = ensure_state_timeout(GSM0, find_leader_timeout, ?FIND_LEADER_TIMEOUT),
     GSM1.
 
@@ -443,6 +443,9 @@ transition(GSM0, NewState, NewStateData, LeaseEvents) ->
         stream_lease_events => LeaseEvents
     },
     run_enter_callback(GSM2).
+
+agent_metadata(#{id := Id} = _GSM) ->
+    #{id => Id}.
 
 ensure_state_timeout(GSM0, Name, Delay) ->
     ensure_state_timeout(GSM0, Name, Delay, Name).
