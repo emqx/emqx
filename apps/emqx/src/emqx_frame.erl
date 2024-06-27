@@ -279,7 +279,7 @@ parse_connect(FrameBin, StrictMode) ->
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
             ?PARSE_ERR(maps:merge(ReasonM, Meta));
         throw:{?FRAME_PARSE_ERROR, Reason} ->
-            ?PARSE_ERR(Meta#{cause => Reason})
+            ?PARSE_ERR(Meta#{reason => Reason})
     end.
 
 do_parse_connect(

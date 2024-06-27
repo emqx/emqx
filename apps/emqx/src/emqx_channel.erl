@@ -997,29 +997,62 @@ not_nacked({deliver, _Topic, Msg}) ->
 %%--------------------------------------------------------------------
 
 handle_frame_error(
-    Reason,
-    Channel = #channel{conn_state = idle}
-) ->
-    shutdown(shutdown_count(frame_error, Reason), Channel);
+    Reason = #{proto_ver := ProtoVer},
+    Channel = #channel{
+        conn_state = idle,
+        clientinfo = ClientInfo
+    }
+) when ProtoVer =/= ?MQTT_PROTO_V5 ->
+    shutdown(
+        shutdown_count(frame_error, Reason),
+        Channel#channel{clientinfo = ClientInfo#{proto_ver => ProtoVer}}
+    );
 handle_frame_error(
-    #{cause := frame_too_large} = R, Channel = #channel{conn_state = connecting}
+    Reason = #{proto_ver := ?MQTT_PROTO_V5},
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = ClientInfo
+    }
+) when
+    ConnState == idle orelse
+        ConnState == connecting
+->
+    shutdown(
+        shutdown_count(frame_error, Reason),
+        ?CONNACK_PACKET(connack_reason_code(Reason)),
+        Channel#channel{clientinfo = ClientInfo#{proto_ver => ?MQTT_PROTO_V5}}
+    );
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = connecting}
 ) ->
     shutdown(
-        shutdown_count(frame_error, R), ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel
+        shutdown_count(frame_error, Reason),
+        ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
+        Channel
     );
-handle_frame_error(Reason, Channel = #channel{conn_state = connecting}) ->
-    shutdown(shutdown_count(frame_error, Reason), ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
 handle_frame_error(
-    #{cause := frame_too_large}, Channel = #channel{conn_state = ConnState}
+    _Reason = #{cause := frame_too_large},
+    Channel = #channel{conn_state = ConnState}
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
-handle_frame_error(Reason, Channel = #channel{conn_state = ConnState}) when
+    handle_out(
+        disconnect,
+        {?RC_PACKET_TOO_LARGE, frame_too_large},
+        Channel
+    );
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = ConnState}
+) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
-handle_frame_error(Reason, Channel = #channel{conn_state = disconnected}) ->
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = disconnected}
+) ->
     ?SLOG(error, #{msg => "malformed_mqtt_message", reason => Reason}),
     {ok, Channel}.
 
@@ -1126,6 +1159,16 @@ return_connack(AckPacket, Channel) ->
             %% messages.
             {ok, Replies ++ Outgoing, NChannel2}
     end.
+
+%% Only handle CONNACK when CONNECT malformed or with protocol error
+connack_reason_code(#{cause := frame_too_large}) ->
+    ?RC_PACKET_TOO_LARGE;
+connack_reason_code(#{cause := _Any}) ->
+    ?RC_PROTOCOL_ERROR;
+connack_reason_code(#{reason := _Any}) ->
+    ?RC_MALFORMED_PACKET;
+connack_reason_code(_) ->
+    ?RC_MALFORMED_PACKET.
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
@@ -2604,8 +2647,8 @@ prepare_will_message_for_publishing(
 disconnect_reason(?RC_SUCCESS) -> normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
 
-reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
-reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
+disconnect_reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
+disconnect_reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -2674,7 +2717,7 @@ disconnect_and_shutdown(
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     NChannel = ensure_disconnected(Reason, Channel),
-    shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), NChannel);
+    shutdown(Reason, Reply, ?DISCONNECT_PACKET(disconnect_reason_code(Reason)), NChannel);
 %% mqtt v3/v4 connected sessions
 disconnect_and_shutdown(Reason, Reply, Channel = #channel{conn_state = ConnState}) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
