@@ -27,7 +27,7 @@
     %% Data
     store_batch/3,
     prepare_batch/3,
-    commit_batch/2,
+    commit_batch/3,
 
     get_streams/3,
     get_delete_streams/3,
@@ -44,6 +44,7 @@
     drop_generation/2,
 
     %% Snapshotting
+    flush/1,
     take_snapshot/1,
     accept_snapshot/1,
 
@@ -69,7 +70,8 @@
     shard_id/0,
     options/0,
     prototype/0,
-    cooked_batch/0
+    cooked_batch/0,
+    batch_store_opts/0
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -108,9 +110,27 @@
 
 -type shard_id() :: {emqx_ds:db(), binary()}.
 
--type cf_refs() :: [{string(), rocksdb:cf_handle()}].
+-type cf_ref() :: {string(), rocksdb:cf_handle()}.
+-type cf_refs() :: [cf_ref()].
 
 -type gen_id() :: 0..16#ffff.
+
+%% Options affecting how batches should be stored.
+%% See also: `emqx_ds:message_store_opts()'.
+-type batch_store_opts() ::
+    #{
+        %% Whether the whole batch given to `store_batch' should be inserted atomically as
+        %% a unit. Default: `false'.
+        atomic => boolean(),
+        %% Should the storage make sure that the batch is written durably? Non-durable
+        %% writes are in general unsafe but require much less resources, i.e. with RocksDB
+        %% non-durable (WAL-less) writes do not usually involve _any_ disk I/O.
+        %% Default: `true'.
+        durable => boolean()
+    }.
+
+%% Options affecting how batches should be prepared.
+-type batch_prepare_opts() :: #{}.
 
 %% TODO: kept for BPAPI compatibility. Remove me on EMQX v5.6
 -opaque stream_v1() ::
@@ -159,7 +179,7 @@
     %% Module-specific data defined at generation creation time:
     data := Data,
     %% Column families used by this generation
-    cf_refs := cf_refs(),
+    cf_names := [string()],
     %% Time at which this was created.  Might differ from `since', in particular for the
     %% first generation.
     created_at := emqx_message:timestamp(),
@@ -225,14 +245,15 @@
     shard_id(),
     generation_data(),
     [{emqx_ds:time(), emqx_types:message()}, ...],
-    emqx_ds:message_store_opts()
+    batch_store_opts()
 ) ->
     {ok, term()} | emqx_ds:error(_).
 
 -callback commit_batch(
     shard_id(),
     generation_data(),
-    _CookedBatch
+    _CookedBatch,
+    batch_store_opts()
 ) -> ok | emqx_ds:error(_).
 
 -callback get_streams(
@@ -279,6 +300,7 @@
 -record(call_update_config, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
 -record(call_list_generations_with_lifetimes, {}).
 -record(call_drop_generation, {gen_id :: gen_id()}).
+-record(call_flush, {}).
 -record(call_take_snapshot, {}).
 
 -spec drop_shard(shard_id()) -> ok.
@@ -288,16 +310,13 @@ drop_shard(Shard) ->
 -spec store_batch(
     shard_id(),
     [{emqx_ds:time(), emqx_types:message()}],
-    emqx_ds:message_store_opts()
+    batch_store_opts()
 ) ->
     emqx_ds:store_batch_result().
 store_batch(Shard, Messages, Options) ->
-    ?tp(emqx_ds_storage_layer_store_batch, #{
-        shard => Shard, messages => Messages, options => Options
-    }),
-    case prepare_batch(Shard, Messages, Options) of
+    case prepare_batch(Shard, Messages, #{}) of
         {ok, CookedBatch} ->
-            commit_batch(Shard, CookedBatch);
+            commit_batch(Shard, CookedBatch, Options);
         ignore ->
             ok;
         Error = {error, _, _} ->
@@ -307,7 +326,7 @@ store_batch(Shard, Messages, Options) ->
 -spec prepare_batch(
     shard_id(),
     [{emqx_ds:time(), emqx_types:message()}],
-    emqx_ds:message_store_opts()
+    batch_prepare_opts()
 ) -> {ok, cooked_batch()} | ignore | emqx_ds:error(_).
 prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
     %% NOTE
@@ -336,11 +355,15 @@ prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
 prepare_batch(_Shard, [], _Options) ->
     ignore.
 
--spec commit_batch(shard_id(), cooked_batch()) -> emqx_ds:store_batch_result().
-commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
+-spec commit_batch(
+    shard_id(),
+    cooked_batch(),
+    batch_store_opts()
+) -> emqx_ds:store_batch_result().
+commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, Options) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
     T0 = erlang:monotonic_time(microsecond),
-    Result = Mod:commit_batch(Shard, GenData, CookedBatch),
+    Result = Mod:commit_batch(Shard, GenData, CookedBatch, Options),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result.
@@ -539,6 +562,10 @@ shard_info(ShardId, status) ->
         error:badarg -> down
     end.
 
+-spec flush(shard_id()) -> ok | {error, _}.
+flush(ShardId) ->
+    gen_server:call(?REF(ShardId), #call_flush{}, infinity).
+
 -spec take_snapshot(shard_id()) -> {ok, emqx_ds_storage_snapshot:reader()} | {error, _Reason}.
 take_snapshot(ShardId) ->
     case gen_server:call(?REF(ShardId), #call_take_snapshot{}, infinity) of
@@ -566,6 +593,7 @@ start_link(Shard = {_, _}, Options) ->
     shard_id :: shard_id(),
     db :: rocksdb:db_handle(),
     cf_refs :: cf_refs(),
+    cf_need_flush :: gen_id(),
     schema :: shard_schema(),
     shard :: shard()
 }).
@@ -591,10 +619,12 @@ init({ShardId, Options}) ->
                 {Scm, CFRefs0}
         end,
     Shard = open_shard(ShardId, DB, CFRefs, Schema),
+    CurrentGenId = maps:get(current_generation, Schema),
     S = #s{
         shard_id = ShardId,
         db = DB,
         cf_refs = CFRefs,
+        cf_need_flush = CurrentGenId,
         schema = Schema,
         shard = Shard
     },
@@ -634,6 +664,9 @@ handle_call(#call_list_generations_with_lifetimes{}, _From, S) ->
     {reply, Generations, S};
 handle_call(#call_drop_generation{gen_id = GenId}, _From, S0) ->
     {Reply, S} = handle_drop_generation(S0, GenId),
+    {reply, Reply, S};
+handle_call(#call_flush{}, _From, S0) ->
+    {Reply, S} = handle_flush(S0),
     {reply, Reply, S};
 handle_call(#call_take_snapshot{}, _From, S) ->
     Snapshot = handle_take_snapshot(S),
@@ -750,9 +783,9 @@ handle_drop_generation(S0, GenId) ->
     #s{
         shard_id = ShardId,
         db = DB,
-        schema = #{?GEN_KEY(GenId) := GenSchema} = OldSchema,
-        shard = OldShard,
-        cf_refs = OldCFRefs
+        schema = #{?GEN_KEY(GenId) := GenSchema} = Schema0,
+        shard = #{?GEN_KEY(GenId) := #{data := RuntimeData}} = Shard0,
+        cf_refs = CFRefs0
     } = S0,
     %% 1. Commit the metadata first, so other functions are less
     %% likely to see stale data, and replicas don't end up
@@ -761,16 +794,16 @@ handle_drop_generation(S0, GenId) ->
     %%
     %% Note: in theory, this operation may be interrupted in the
     %% middle. This will leave column families hanging.
-    Shard = maps:remove(?GEN_KEY(GenId), OldShard),
-    Schema = maps:remove(?GEN_KEY(GenId), OldSchema),
+    Shard = maps:remove(?GEN_KEY(GenId), Shard0),
+    Schema = maps:remove(?GEN_KEY(GenId), Schema0),
     S1 = S0#s{
         shard = Shard,
         schema = Schema
     },
     commit_metadata(S1),
     %% 2. Now, actually drop the data from RocksDB:
-    #{module := Mod, cf_refs := GenCFRefs} = GenSchema,
-    #{?GEN_KEY(GenId) := #{data := RuntimeData}} = OldShard,
+    #{module := Mod, cf_names := GenCFNames} = GenSchema,
+    GenCFRefs = [cf_ref(Name, CFRefs0) || Name <- GenCFNames],
     try
         Mod:drop(ShardId, DB, GenId, GenCFRefs, RuntimeData)
     catch
@@ -787,7 +820,7 @@ handle_drop_generation(S0, GenId) ->
                 }
             )
     end,
-    CFRefs = OldCFRefs -- GenCFRefs,
+    CFRefs = CFRefs0 -- GenCFRefs,
     S = S1#s{cf_refs = CFRefs},
     {ok, S}.
 
@@ -839,7 +872,7 @@ new_generation(ShardId, DB, Schema0, Shard0, Since) ->
     GenSchema = #{
         module => Mod,
         data => GenData,
-        cf_refs => NewCFRefs,
+        cf_names => cf_names(NewCFRefs),
         created_at => erlang:system_time(millisecond),
         since => Since,
         until => undefined
@@ -866,6 +899,10 @@ rocksdb_open(Shard, Options) ->
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
+        %% NOTE
+        %% With WAL-less writes, it's important to have CFs flushed atomically.
+        %% For example, bitfield-lts backend needs data + trie CFs to be consistent.
+        {atomic_flush, true},
         {enable_write_thread_adaptive_yield, false}
         | maps:get(db_options, Options, [])
     ],
@@ -921,6 +958,34 @@ update_last_until(Schema = #{current_generation := GenId}, Until) ->
             {error, overlaps_existing_generations}
     end.
 
+handle_flush(S = #s{db = DB, cf_refs = CFRefs, cf_need_flush = NeedFlushGenId, shard = Shard}) ->
+    %% NOTE
+    %% There could have been few generations added since the last time `flush/1` was
+    %% called. Strictly speaking, we don't need to flush them all at once as part of
+    %% a single atomic flush, but the error handling is a bit easier this way.
+    CurrentGenId = maps:get(current_generation, Shard),
+    GenIds = lists:seq(NeedFlushGenId, CurrentGenId),
+    CFHandles = lists:flatmap(
+        fun(GenId) ->
+            case Shard of
+                #{?GEN_KEY(GenId) := #{cf_names := CFNames}} ->
+                    [cf_handle(N, CFRefs) || N <- CFNames];
+                #{} ->
+                    %% Generation was probably dropped.
+                    []
+            end
+        end,
+        GenIds
+    ),
+    case rocksdb:flush(DB, CFHandles, [{wait, true}]) of
+        ok ->
+            %% Current generation will always need a flush.
+            ?tp(ds_storage_flush_complete, #{gens => GenIds, cfs => CFHandles}),
+            {ok, S#s{cf_need_flush = CurrentGenId}};
+        {error, _} = Error ->
+            {Error, S}
+    end.
+
 handle_take_snapshot(#s{db = DB, shard_id = ShardId}) ->
     Name = integer_to_list(erlang:system_time(millisecond)),
     Dir = checkpoint_dir(ShardId, Name),
@@ -953,6 +1018,21 @@ handle_event(Shard, Time, ?storage_event(GenId, Event)) ->
 handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
+
+%%--------------------------------------------------------------------------------
+
+-spec cf_names(cf_refs()) -> [string()].
+cf_names(CFRefs) ->
+    {CFNames, _CFHandles} = lists:unzip(CFRefs),
+    CFNames.
+
+-spec cf_ref(_Name :: string(), cf_refs()) -> cf_ref().
+cf_ref(Name, CFRefs) ->
+    lists:keyfind(Name, 1, CFRefs).
+
+-spec cf_handle(_Name :: string(), cf_refs()) -> rocksdb:cf_handle().
+cf_handle(Name, CFRefs) ->
+    element(2, cf_ref(Name, CFRefs)).
 
 %%--------------------------------------------------------------------------------
 %% Schema access
@@ -1041,23 +1121,106 @@ erase_schema_runtime(Shard) ->
 
 -undef(PERSISTENT_TERM).
 
--define(ROCKSDB_SCHEMA_KEY, <<"schema_v1">>).
+-define(ROCKSDB_SCHEMA_KEY(V), <<"schema_", V>>).
+
+-define(ROCKSDB_SCHEMA_KEY, ?ROCKSDB_SCHEMA_KEY("v2")).
+-define(ROCKSDB_SCHEMA_KEYS, [
+    ?ROCKSDB_SCHEMA_KEY,
+    ?ROCKSDB_SCHEMA_KEY("v1")
+]).
 
 -spec get_schema_persistent(rocksdb:db_handle()) -> shard_schema() | not_found.
 get_schema_persistent(DB) ->
-    case rocksdb:get(DB, ?ROCKSDB_SCHEMA_KEY, []) of
+    get_schema_persistent(DB, ?ROCKSDB_SCHEMA_KEYS).
+
+get_schema_persistent(DB, [Key | Rest]) ->
+    case rocksdb:get(DB, Key, []) of
         {ok, Blob} ->
-            Schema = binary_to_term(Blob),
-            %% Sanity check:
-            #{current_generation := _, prototype := _} = Schema,
-            Schema;
+            deserialize_schema(Key, Blob);
         not_found ->
-            not_found
-    end.
+            get_schema_persistent(DB, Rest)
+    end;
+get_schema_persistent(_DB, []) ->
+    not_found.
 
 -spec put_schema_persistent(rocksdb:db_handle(), shard_schema()) -> ok.
 put_schema_persistent(DB, Schema) ->
     Blob = term_to_binary(Schema),
     rocksdb:put(DB, ?ROCKSDB_SCHEMA_KEY, Blob, []).
+
+-spec deserialize_schema(_SchemaVsn :: binary(), binary()) -> shard_schema().
+deserialize_schema(SchemaVsn, Blob) ->
+    %% Sanity check:
+    Schema = #{current_generation := _, prototype := _} = binary_to_term(Blob),
+    decode_schema(SchemaVsn, Schema).
+
+decode_schema(?ROCKSDB_SCHEMA_KEY, Schema) ->
+    Schema;
+decode_schema(?ROCKSDB_SCHEMA_KEY("v1"), Schema) ->
+    maps:map(fun decode_schema_v1/2, Schema).
+
+decode_schema_v1(?GEN_KEY(_), Generation = #{}) ->
+    decode_generation_schema_v1(Generation);
+decode_schema_v1(_, V) ->
+    V.
+
+decode_generation_schema_v1(SchemaV1 = #{cf_refs := CFRefs}) ->
+    %% Drop potentially dead CF references from the time generation was created.
+    Schema = maps:remove(cf_refs, SchemaV1),
+    Schema#{cf_names => cf_names(CFRefs)};
+decode_generation_schema_v1(Schema = #{}) ->
+    Schema.
+
+%%--------------------------------------------------------------------------------
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+decode_schema_v1_test() ->
+    SchemaV1 = #{
+        current_generation => 42,
+        prototype => {emqx_ds_storage_reference, #{}},
+        ?GEN_KEY(41) => #{
+            module => emqx_ds_storage_reference,
+            data => {schema},
+            cf_refs => [{"emqx_ds_storage_reference41", erlang:make_ref()}],
+            created_at => 12345,
+            since => 0,
+            until => 123456
+        },
+        ?GEN_KEY(42) => #{
+            module => emqx_ds_storage_reference,
+            data => {schema},
+            cf_refs => [{"emqx_ds_storage_reference42", erlang:make_ref()}],
+            created_at => 54321,
+            since => 123456,
+            until => undefined
+        }
+    },
+    ?assertEqual(
+        #{
+            current_generation => 42,
+            prototype => {emqx_ds_storage_reference, #{}},
+            ?GEN_KEY(41) => #{
+                module => emqx_ds_storage_reference,
+                data => {schema},
+                cf_names => ["emqx_ds_storage_reference41"],
+                created_at => 12345,
+                since => 0,
+                until => 123456
+            },
+            ?GEN_KEY(42) => #{
+                module => emqx_ds_storage_reference,
+                data => {schema},
+                cf_names => ["emqx_ds_storage_reference42"],
+                created_at => 54321,
+                since => 123456,
+                until => undefined
+            }
+        },
+        deserialize_schema(?ROCKSDB_SCHEMA_KEY("v1"), term_to_binary(SchemaV1))
+    ).
+
+-endif.
 
 -undef(ROCKSDB_SCHEMA_KEY).

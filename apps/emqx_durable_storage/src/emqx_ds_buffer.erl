@@ -314,7 +314,7 @@ do_flush(
             ?tp(
                 debug,
                 emqx_ds_buffer_flush_failed,
-                #{db => DB, shard => Shard, error => Err}
+                #{db => DB, shard => Shard, batch => Messages, error => Err}
             ),
             emqx_ds_builtin_metrics:inc_buffer_batches_failed(Metrics),
             Reply =

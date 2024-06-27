@@ -190,7 +190,7 @@ transpose_tail(S, Tail) ->
 %% @doc Make a stream by concatenating multiple streams.
 -spec chain([stream(X)]) -> stream(X).
 chain(L) ->
-    lists:foldl(fun chain/2, empty(), L).
+    lists:foldr(fun chain/2, empty(), L).
 
 %% @doc Make a stream by chaining (concatenating) two streams.
 %% The second stream begins to produce values only after the first one is exhausted.

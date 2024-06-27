@@ -188,12 +188,14 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
             ?ON(Node, emqx_ds:store_batch(DB, [Msg], #{sync => true})),
             apply_stream(DB, NodeStream, Stream, N + 1);
         [add_generation | Stream] ->
-            %% FIXME:
+            ?tp(notice, test_add_generation, #{}),
             [Node | NodeStream] = emqx_utils_stream:next(NodeStream0),
             ?ON(Node, emqx_ds:add_generation(DB)),
             apply_stream(DB, NodeStream, Stream, N);
         [{Node, Operation, Arg} | Stream] when
-            Operation =:= join_db_site; Operation =:= leave_db_site; Operation =:= assign_db_sites
+            Operation =:= join_db_site;
+            Operation =:= leave_db_site;
+            Operation =:= assign_db_sites
         ->
             ?tp(notice, test_apply_operation, #{node => Node, operation => Operation, arg => Arg}),
             %% Apply the transition.
@@ -207,7 +209,12 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
             %% Give some time for at least one transition to complete.
             Transitions = transitions(Node, DB),
             ct:pal("Transitions after ~p: ~p", [Operation, Transitions]),
-            ?retry(200, 10, ?assertNotEqual(Transitions, transitions(Node, DB))),
+            case Transitions of
+                [_ | _] ->
+                    ?retry(200, 10, ?assertNotEqual(Transitions, transitions(Node, DB)));
+                [] ->
+                    ok
+            end,
             apply_stream(DB, NodeStream0, Stream, N);
         [Fun | Stream] when is_function(Fun) ->
             Fun(),
@@ -259,14 +266,17 @@ verify_stream_effects(DB, TestCase, Node, ClientId, ExpectedStream) ->
     ct:pal("Checking consistency of effects for ~p on ~p", [ClientId, Node]),
     ?defer_assert(
         begin
-            snabbkaffe_diff:assert_lists_eq(
+            diff_messages(
                 ExpectedStream,
-                ds_topic_stream(DB, ClientId, client_topic(TestCase, ClientId), Node),
-                message_diff_options([id, qos, from, flags, headers, topic, payload, extra])
+                ds_topic_stream(DB, ClientId, client_topic(TestCase, ClientId), Node)
             ),
             ct:pal("Data for client ~p on ~p is consistent.", [ClientId, Node])
         end
     ).
+
+diff_messages(Expected, Got) ->
+    Fields = [id, qos, from, flags, headers, topic, payload, extra],
+    diff_messages(Fields, Expected, Got).
 
 diff_messages(Fields, Expected, Got) ->
     snabbkaffe_diff:assert_lists_eq(Expected, Got, message_diff_options(Fields)).

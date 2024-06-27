@@ -140,6 +140,7 @@ t_replication_transfers_snapshots(Config) ->
 
             %% Stop the DB on the "offline" node.
             ok = emqx_cth_cluster:stop_node(NodeOffline),
+            _ = ?block_until(#{?snk_kind := ds_ra_state_enter, state := leader}, 500, 0),
 
             %% Fill the storage with messages and few additional generations.
             emqx_ds_test_helpers:apply_stream(?DB, Nodes -- [NodeOffline], Stream),
@@ -232,14 +233,14 @@ t_rebalance(Config) ->
             ],
             Stream1 = emqx_utils_stream:interleave(
                 [
-                    {10, Stream0},
+                    {20, Stream0},
                     emqx_utils_stream:const(add_generation)
                 ],
                 false
             ),
             Stream = emqx_utils_stream:interleave(
                 [
-                    {50, Stream0},
+                    {50, Stream1},
                     emqx_utils_stream:list(Sequence)
                 ],
                 true
@@ -604,7 +605,7 @@ t_drop_generation(Config) ->
         after
             emqx_cth_cluster:stop(Nodes)
         end,
-        fun(Trace) ->
+        fun(_Trace) ->
             %% TODO: some idempotency errors still happen
             %% ?assertMatch([], ?of_kind(ds_storage_layer_failed_to_drop_generation, Trace)),
             true
@@ -793,6 +794,118 @@ t_store_batch_fail(_Config) ->
             end}
         ]
     ).
+
+t_crash_restart_recover(init, Config) ->
+    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_crash_stop_recover1, #{apps => Apps}},
+            {t_crash_stop_recover2, #{apps => Apps}},
+            {t_crash_stop_recover3, #{apps => Apps}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    [{nodes, Nodes}, {nodespecs, Specs} | Config];
+t_crash_restart_recover('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
+
+t_crash_restart_recover(Config) ->
+    %% This testcase verifies that in the event of abrupt site failure message data is
+    %% correctly preserved.
+    Nodes = [N1, N2, N3] = ?config(nodes, Config),
+    _Specs = [_, NS2, NS3] = ?config(nodespecs, Config),
+    DBOpts = opts(#{n_shards => 16, n_sites => 3, replication_factor => 3}),
+
+    %% Prepare test event stream.
+    NMsgs = 400,
+    NClients = 8,
+    {Stream0, TopicStreams} =
+        emqx_ds_test_helpers:interleaved_topic_messages(?FUNCTION_NAME, NClients, NMsgs),
+    Stream1 = emqx_utils_stream:interleave(
+        [
+            {300, Stream0},
+            emqx_utils_stream:const(add_generation)
+        ],
+        false
+    ),
+    Stream = emqx_utils_stream:interleave(
+        [
+            {1000, Stream1},
+            emqx_utils_stream:list([
+                fun() -> kill_restart_node_async(N2, NS2, DBOpts) end,
+                fun() -> kill_restart_node_async(N3, NS3, DBOpts) end
+            ])
+        ],
+        true
+    ),
+
+    ?check_trace(
+        begin
+            %% Initialize DB on all nodes.
+            ?assertEqual(
+                [{ok, ok} || _ <- Nodes],
+                erpc:multicall(Nodes, emqx_ds, open_db, [?DB, DBOpts])
+            ),
+
+            %% Apply the test events, including simulated node crashes.
+            NodeStream = emqx_utils_stream:const(N1),
+            emqx_ds_test_helpers:apply_stream(?DB, NodeStream, Stream, 0),
+
+            %% It's expected to lose few messages when leaders are abruptly killed.
+            MatchFlushFailed = ?match_event(#{?snk_kind := emqx_ds_buffer_flush_failed}),
+            {ok, SubRef} = snabbkaffe:subscribe(MatchFlushFailed, NMsgs, _Timeout = 5000, infinity),
+            {timeout, Events} = snabbkaffe:receive_events(SubRef),
+            LostMessages = [M || #{batch := Messages} <- Events, M <- Messages],
+            ct:pal("Some messages were lost: ~p", [LostMessages]),
+            ?assert(length(LostMessages) < NMsgs div 20),
+
+            %% Verify that all the successfully persisted messages are there.
+            VerifyClient = fun({ClientId, ExpectedStream}) ->
+                Topic = emqx_ds_test_helpers:client_topic(?FUNCTION_NAME, ClientId),
+                ClientNodes = nodes_of_clientid(ClientId, Nodes),
+                DSStream1 = ds_topic_stream(ClientId, Topic, hd(ClientNodes)),
+                %% Do nodes contain same messages for a client?
+                lists:foreach(
+                    fun(ClientNode) ->
+                        DSStream = ds_topic_stream(ClientId, Topic, ClientNode),
+                        ?defer_assert(emqx_ds_test_helpers:diff_messages(DSStream1, DSStream))
+                    end,
+                    tl(ClientNodes)
+                ),
+                %% Does any messages were lost unexpectedly?
+                {_, DSMessages} = lists:unzip(emqx_utils_stream:consume(DSStream1)),
+                ExpectedMessages = emqx_utils_stream:consume(ExpectedStream),
+                MissingMessages = ExpectedMessages -- DSMessages,
+                ?defer_assert(?assertEqual([], MissingMessages -- LostMessages, DSMessages))
+            end,
+            lists:foreach(VerifyClient, TopicStreams)
+        end,
+        []
+    ).
+
+nodes_of_clientid(ClientId, Nodes) ->
+    emqx_ds_test_helpers:nodes_of_clientid(?DB, ClientId, Nodes).
+
+ds_topic_stream(ClientId, ClientTopic, Node) ->
+    emqx_ds_test_helpers:ds_topic_stream(?DB, ClientId, ClientTopic, Node).
+
+is_message_lost(Message, MessagesLost) ->
+    lists:any(
+        fun(ML) ->
+            emqx_ds_test_helpers:message_eq([clientid, topic, payload], Message, ML)
+        end,
+        MessagesLost
+    ).
+
+kill_restart_node_async(Node, Spec, DBOpts) ->
+    erlang:spawn_link(?MODULE, kill_restart_node, [Node, Spec, DBOpts]).
+
+kill_restart_node(Node, Spec, DBOpts) ->
+    ok = emqx_cth_peer:kill(Node),
+    ?tp(test_cluster_node_killed, #{node => Node}),
+    _ = emqx_cth_cluster:restart(Spec),
+    ok = erpc:call(Node, emqx_ds, open_db, [?DB, DBOpts]).
 
 %%
 

@@ -163,7 +163,7 @@ mk_clientid(Prefix, ID) ->
 
 restart_node(Node, NodeSpec) ->
     ?tp(will_restart_node, #{}),
-    emqx_cth_cluster:restart(Node, NodeSpec),
+    emqx_cth_cluster:restart(NodeSpec),
     wait_nodeup(Node),
     ?tp(restarted_node, #{}),
     ok.

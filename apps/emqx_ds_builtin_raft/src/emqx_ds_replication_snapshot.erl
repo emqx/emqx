@@ -69,6 +69,8 @@ prepare(Index, State) ->
 -spec write(_SnapshotDir :: file:filename(), ra_snapshot:meta(), _State :: ra_state()) ->
     ok | {ok, _BytesWritten :: non_neg_integer()} | {error, ra_snapshot:file_err()}.
 write(Dir, Meta, MachineState) ->
+    ?tp(dsrepl_snapshot_write, #{meta => Meta, state => MachineState}),
+    ok = emqx_ds_storage_layer:flush(shard_id(MachineState)),
     ra_log_snapshot:write(Dir, Meta, MachineState).
 
 %% Reading a snapshot.
@@ -165,6 +167,7 @@ complete_read(RS = #rs{reader = SnapReader, started_at = StartedAt}) ->
 -spec begin_accept(_SnapshotDir :: file:filename(), ra_snapshot:meta()) ->
     {ok, ws()}.
 begin_accept(Dir, Meta) ->
+    ?tp(dsrepl_snapshot_accept_started, #{meta => Meta}),
     WS = #ws{
         phase = machine_state,
         started_at = erlang:monotonic_time(millisecond),
@@ -207,7 +210,7 @@ complete_accept(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0})
             ?tp(dsrepl_snapshot_write_complete, #{writer => SnapWriter}),
             _ = emqx_ds_storage_snapshot:release_writer(SnapWriter),
             Result = complete_accept(WS#ws{writer = SnapWriter}),
-            ?tp(dsrepl_snapshot_accepted, #{shard => shard_id(WS)}),
+            ?tp(dsrepl_snapshot_accepted, #{shard => shard_id(WS), state => WS#ws.state}),
             Result;
         {error, Reason} ->
             ?tp(dsrepl_snapshot_write_error, #{reason => Reason, writer => SnapWriter0}),
@@ -218,7 +221,7 @@ complete_accept(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0})
 complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
     ShardId = shard_id(WS),
     logger:info(#{
-        msg => "dsrepl_snapshot_read_complete",
+        msg => "dsrepl_snapshot_write_complete",
         shard => ShardId,
         duration_ms => erlang:monotonic_time(millisecond) - StartedAt,
         bytes_written => emqx_ds_storage_snapshot:writer_info(bytes_written, SnapWriter)
@@ -227,7 +230,7 @@ complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
     write_machine_snapshot(WS).
 
 write_machine_snapshot(#ws{dir = Dir, meta = Meta, state = MachineState}) ->
-    write(Dir, Meta, MachineState).
+    ra_log_snapshot:write(Dir, Meta, MachineState).
 
 %% Restoring machine state from a snapshot.
 %% This is equivalent to restoring from a log snapshot.

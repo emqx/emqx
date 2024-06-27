@@ -64,7 +64,7 @@ t_iterate(_Config) ->
         {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
-    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, #{}),
     %% Iterate through individual topics:
     [
         begin
@@ -94,7 +94,7 @@ t_delete(_Config) ->
         {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
-    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, #{}),
 
     %% Iterate through topics:
     StartTime = 0,
@@ -125,7 +125,7 @@ t_get_streams(_Config) ->
         {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
-    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, #{}),
     GetStream = fun(Topic) ->
         StartTime = 0,
         emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), StartTime)
@@ -152,7 +152,7 @@ t_get_streams(_Config) ->
         end
      || I <- lists:seq(1, 200)
     ],
-    ok = emqx_ds_storage_layer:store_batch(?SHARD, NewBatch, []),
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, NewBatch, #{}),
     %% Check that "foo/bar/baz" topic now appears in two streams:
     %% "foo/bar/baz" and "foo/bar/+":
     NewStreams = lists:sort(GetStream("foo/bar/baz")),
@@ -180,7 +180,7 @@ t_new_generation_inherit_trie(_Config) ->
              || I <- lists:seq(1, 200),
                 Suffix <- [<<"foo">>, <<"bar">>]
             ],
-            ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch1, []),
+            ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch1, #{}),
             %% Now we create a new generation with the same LTS module.  It should inherit the
             %% learned trie.
             ok = emqx_ds_storage_layer:add_generation(?SHARD, _Since = 1_000),
@@ -194,7 +194,7 @@ t_new_generation_inherit_trie(_Config) ->
              || I <- lists:seq(1, 200),
                 Suffix <- [<<"foo">>, <<"bar">>]
             ],
-            ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch2, []),
+            ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch2, #{}),
             %% We should get only two streams for wildcard query, for "foo" and for "bar".
             ?assertMatch(
                 [_Foo, _Bar],
@@ -217,13 +217,13 @@ t_replay(_Config) ->
         {PublishedAt, make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))}
      || Topic <- Topics, PublishedAt <- Timestamps
     ],
-    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch1, []),
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch1, #{}),
     %% Create wildcard topics `wildcard/+/suffix/foo' and `wildcard/+/suffix/bar':
     Batch2 = [
         {TS, make_message(TS, make_topic([wildcard, I, suffix, Suffix]), bin(TS))}
      || I <- lists:seq(1, 200), TS <- Timestamps, Suffix <- [<<"foo">>, <<"bar">>]
     ],
-    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch2, []),
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch2, #{}),
     %% Check various topic filters:
     Messages = [M || {_TS, M} <- Batch1 ++ Batch2],
     %% Missing topics (no ghost messages):

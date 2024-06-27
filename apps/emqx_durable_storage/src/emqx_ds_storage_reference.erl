@@ -32,7 +32,7 @@
     open/5,
     drop/5,
     prepare_batch/4,
-    commit_batch/3,
+    commit_batch/4,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
@@ -105,7 +105,7 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
 prepare_batch(_ShardId, _Data, Messages, _Options) ->
     {ok, Messages}.
 
-commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages) ->
+commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages, Options) ->
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(
         fun({TS, Msg}) ->
@@ -115,7 +115,7 @@ commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages) ->
         end,
         Messages
     ),
-    Res = rocksdb:write_batch(DB, Batch, _WriteOptions = []),
+    Res = rocksdb:write_batch(DB, Batch, write_batch_opts(Options)),
     rocksdb:release_batch(Batch),
     Res.
 
@@ -284,3 +284,10 @@ do_delete_next(
 -spec data_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
 data_cf(GenId) ->
     "emqx_ds_storage_reference" ++ integer_to_list(GenId).
+
+-spec write_batch_opts(emqx_ds_storage_layer:batch_store_opts()) ->
+    _RocksDBOpts :: [{atom(), _}].
+write_batch_opts(#{durable := false}) ->
+    [{disable_wal, true}];
+write_batch_opts(#{}) ->
+    [].

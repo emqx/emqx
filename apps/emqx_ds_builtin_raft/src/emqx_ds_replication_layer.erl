@@ -57,10 +57,13 @@
     ra_store_batch/3
 ]).
 
+-behaviour(ra_machine).
 -export([
     init/1,
     apply/3,
     tick/2,
+
+    state_enter/2,
 
     snapshot_module/0
 ]).
@@ -143,7 +146,12 @@
 
 %% Core state of the replication, i.e. the state of ra machine.
 -type ra_state() :: #{
+    %% Shard ID.
     db_shard := {emqx_ds:db(), shard_id()},
+
+    %% Unique timestamp tracking real time closely.
+    %% With microsecond granularity it should be nearly impossible for it to run
+    %% too far ahead of the real time clock.
     latest := timestamp_us()
 }.
 
@@ -374,7 +382,7 @@ init_buffer(_DB, _Shard, _Options) ->
     {ok, #bs{}}.
 
 -spec flush_buffer(emqx_ds:db(), shard_id(), [emqx_types:message()], egress_state()) ->
-    {egress_state(), ok | {error, recoverable | unrecoverable, _}}.
+    {egress_state(), ok | emqx_ds:error(_)}.
 flush_buffer(DB, Shard, Messages, State) ->
     case ra_store_batch(DB, Shard, Messages) of
         {timeout, ServerId} ->
@@ -574,6 +582,20 @@ list_nodes() ->
 %% Too large for normal operation, need better backpressure mechanism.
 -define(RA_TIMEOUT, 60 * 1000).
 
+%% How often to release Raft logs?
+%% Each time we written approximately this number of bytes.
+%% Close to the RocksDB's default of 64 MiB.
+-define(RA_RELEASE_LOG_APPROX_SIZE, 50_000_000).
+%% ...Or at least each N log entries.
+-define(RA_RELEASE_LOG_MIN_FREQ, 64_000).
+
+-ifdef(TEST).
+-undef(RA_RELEASE_LOG_APPROX_SIZE).
+-undef(RA_RELEASE_LOG_MIN_FREQ).
+-define(RA_RELEASE_LOG_APPROX_SIZE, 50_000).
+-define(RA_RELEASE_LOG_MIN_FREQ, 1_000).
+-endif.
+
 -define(SAFE_ERPC(EXPR),
     try
         EXPR
@@ -603,18 +625,20 @@ list_nodes() ->
 ).
 
 -spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()]) ->
-    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err} | _Err.
+    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err}.
 ra_store_batch(DB, Shard, Messages) ->
     Command = #{
         ?tag => ?BATCH,
         ?batch_messages => Messages
     },
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
-    case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
+    case emqx_ds_replication_layer_shard:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
-        Error ->
-            Error
+        {timeout, _} = Timeout ->
+            Timeout;
+        {error, Reason = servers_unreachable} ->
+            {error, recoverable, Reason}
     end.
 
 ra_add_generation(DB, Shard) ->
@@ -741,6 +765,9 @@ ra_drop_shard(DB, Shard) ->
 
 %%
 
+-define(pd_ra_idx_need_release, '$emqx_ds_raft_idx_need_release').
+-define(pd_ra_bytes_need_release, '$emqx_ds_raft_bytes_need_release').
+
 -spec init(_Args :: map()) -> ra_state().
 init(#{db := DB, shard := Shard}) ->
     #{db_shard => {DB, Shard}, latest => 0}.
@@ -748,33 +775,29 @@ init(#{db := DB, shard := Shard}) ->
 -spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
     {ra_state(), _Reply, _Effects}.
 apply(
-    #{index := RaftIdx},
+    RaftMeta,
     #{
         ?tag := ?BATCH,
         ?batch_messages := MessagesIn
     },
     #{db_shard := DBShard = {DB, Shard}, latest := Latest0} = State0
 ) ->
-    %% NOTE
-    %% Unique timestamp tracking real time closely.
-    %% With microsecond granularity it should be nearly impossible for it to run
-    %% too far ahead than the real time clock.
-    ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => MessagesIn, ts => Latest0}),
-    {Latest, Messages} = assign_timestamps(Latest0, MessagesIn),
-    Result = emqx_ds_storage_layer:store_batch(DBShard, Messages, #{}),
+    ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => MessagesIn, latest => Latest0}),
+    {Stats, Latest, Messages} = assign_timestamps(Latest0, MessagesIn),
+    Result = emqx_ds_storage_layer:store_batch(DBShard, Messages, #{durable => false}),
     State = State0#{latest := Latest},
     set_ts(DBShard, Latest),
-    %% TODO: Need to measure effects of changing frequency of `release_cursor`.
-    Effect = {release_cursor, RaftIdx, State},
-    {State, Result, Effect};
+    Effects = try_release_log(Stats, RaftMeta, State),
+    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
+    {State, Result, Effects};
 apply(
-    _RaftMeta,
+    RaftMeta,
     #{?tag := add_generation, ?since := Since},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
     ?tp(
         info,
-        ds_replication_layer_add_generation,
+        ds_ra_add_generation,
         #{
             shard => DBShard,
             since => Since
@@ -784,15 +807,17 @@ apply(
     Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
     State = State0#{latest := Latest},
     set_ts(DBShard, Latest),
-    {State, Result};
+    Effects = release_log(RaftMeta, State),
+    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
+    {State, Result, Effects};
 apply(
-    _RaftMeta,
+    RaftMeta,
     #{?tag := update_config, ?since := Since, ?config := Opts},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
     ?tp(
         notice,
-        ds_replication_layer_update_config,
+        ds_ra_update_config,
         #{
             shard => DBShard,
             config => Opts,
@@ -802,7 +827,9 @@ apply(
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:update_config(DBShard, Timestamp, Opts),
     State = State0#{latest := Latest},
-    {State, Result};
+    Effects = release_log(RaftMeta, State),
+    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
+    {State, Result, Effects};
 apply(
     _RaftMeta,
     #{?tag := drop_generation, ?generation := GenId},
@@ -810,7 +837,7 @@ apply(
 ) ->
     ?tp(
         info,
-        ds_replication_layer_drop_generation,
+        ds_ra_drop_generation,
         #{
             shard => DBShard,
             generation => GenId
@@ -827,7 +854,7 @@ apply(
     set_ts(DBShard, Latest),
     ?tp(
         debug,
-        emqx_ds_replication_layer_storage_event,
+        ds_ra_storage_event,
         #{
             shard => DBShard, payload => CustomEvent, latest => Latest
         }
@@ -835,27 +862,83 @@ apply(
     Effects = handle_custom_event(DBShard, Latest, CustomEvent),
     {State#{latest => Latest}, ok, Effects}.
 
+try_release_log({_N, BatchSize}, RaftMeta = #{index := CurrentIdx}, State) ->
+    %% NOTE
+    %% Because cursor release means storage flush (see
+    %% `emqx_ds_replication_snapshot:write/3`), we should do that not too often
+    %% (so the storage is happy with L0 SST sizes) and not too rarely (so we don't
+    %% accumulate huge Raft logs).
+    case inc_bytes_need_release(BatchSize) of
+        AccSize when AccSize > ?RA_RELEASE_LOG_APPROX_SIZE ->
+            release_log(RaftMeta, State);
+        _NotYet ->
+            case get_log_need_release(RaftMeta) of
+                undefined ->
+                    [];
+                PrevIdx when CurrentIdx - PrevIdx > ?RA_RELEASE_LOG_MIN_FREQ ->
+                    %% Release everything up to the last log entry, but only if there were
+                    %% more than %% `?RA_RELEASE_LOG_MIN_FREQ` new entries since the last
+                    %% release.
+                    release_log(RaftMeta, State);
+                _ ->
+                    []
+            end
+    end.
+
+release_log(RaftMeta = #{index := CurrentIdx}, State) ->
+    %% NOTE
+    %% Release everything up to the last log entry. This is important: any log entries
+    %% following `CurrentIdx` should not contribute to `State` (that will be recovered
+    %% from a snapshot).
+    update_log_need_release(RaftMeta),
+    reset_bytes_need_release(),
+    {release_cursor, CurrentIdx, State}.
+
+get_log_need_release(RaftMeta) ->
+    case erlang:get(?pd_ra_idx_need_release) of
+        undefined ->
+            update_log_need_release(RaftMeta),
+            undefined;
+        LastIdx ->
+            LastIdx
+    end.
+
+update_log_need_release(#{index := CurrentIdx}) ->
+    erlang:put(?pd_ra_idx_need_release, CurrentIdx).
+
+get_bytes_need_release() ->
+    emqx_maybe:define(erlang:get(?pd_ra_bytes_need_release), 0).
+
+inc_bytes_need_release(Size) ->
+    Acc = get_bytes_need_release() + Size,
+    erlang:put(?pd_ra_bytes_need_release, Acc),
+    Acc.
+
+reset_bytes_need_release() ->
+    erlang:put(?pd_ra_bytes_need_release, 0).
+
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
     %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
-    ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, ts => Timestamp}),
+    ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, timestamp => Timestamp}),
     handle_custom_event(DBShard, Timestamp, tick).
 
 assign_timestamps(Latest, Messages) ->
-    assign_timestamps(Latest, Messages, []).
+    assign_timestamps(Latest, Messages, [], 0, 0).
 
-assign_timestamps(Latest, [MessageIn | Rest], Acc) ->
-    case emqx_message:timestamp(MessageIn, microsecond) of
-        TimestampUs when TimestampUs > Latest ->
-            Message = assign_timestamp(TimestampUs, MessageIn),
-            assign_timestamps(TimestampUs, Rest, [Message | Acc]);
+assign_timestamps(Latest0, [Message0 | Rest], Acc, N, Sz) ->
+    case emqx_message:timestamp(Message0, microsecond) of
+        TimestampUs when TimestampUs > Latest0 ->
+            Latest = TimestampUs,
+            Message = assign_timestamp(TimestampUs, Message0);
         _Earlier ->
-            Message = assign_timestamp(Latest + 1, MessageIn),
-            assign_timestamps(Latest + 1, Rest, [Message | Acc])
-    end;
-assign_timestamps(Latest, [], Acc) ->
-    {Latest, lists:reverse(Acc)}.
+            Latest = Latest0 + 1,
+            Message = assign_timestamp(Latest, Message0)
+    end,
+    assign_timestamps(Latest, Rest, [Message | Acc], N + 1, Sz + approx_message_size(Message0));
+assign_timestamps(Latest, [], Acc, N, Size) ->
+    {{N, Size}, Latest, lists:reverse(Acc)}.
 
 assign_timestamp(TimestampUs, Message) ->
     {TimestampUs, Message}.
@@ -888,3 +971,26 @@ handle_custom_event(DBShard, Latest, Event) ->
 
 set_ts({DB, Shard}, TS) ->
     emqx_ds_builtin_raft_sup:set_gvar(DB, ?gv_timestamp(Shard), TS).
+
+%%
+
+-spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
+state_enter(MemberState, #{db_shard := {DB, Shard}, latest := Latest}) ->
+    ?tp(
+        ds_ra_state_enter,
+        #{db => DB, shard => Shard, latest => Latest, state => MemberState}
+    ),
+    [].
+
+%%
+
+approx_message_size(#message{from = ClientID, topic = Topic, payload = Payload}) ->
+    %% NOTE: Overhead here is basically few empty maps + 8-byte message id.
+    %% TODO: Probably need to ask the storage layer about the footprint.
+    MinOverhead = 40,
+    MinOverhead + clientid_size(ClientID) + byte_size(Topic) + byte_size(Payload).
+
+clientid_size(ClientID) when is_binary(ClientID) ->
+    byte_size(ClientID);
+clientid_size(ClientID) ->
+    erlang:external_size(ClientID).
