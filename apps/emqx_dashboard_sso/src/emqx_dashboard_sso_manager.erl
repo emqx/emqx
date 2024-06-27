@@ -17,6 +17,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
+    handle_continue/2,
     terminate/2,
     code_change/3,
     format_status/2
@@ -106,7 +107,14 @@ get_backend_status(Backend, _) ->
     end.
 
 update(Backend, Config) ->
-    update_config(Backend, {?FUNCTION_NAME, Backend, Config}).
+    UpdateConf =
+        case emqx:get_raw_config(?MOD_KEY_PATH(Backend), #{}) of
+            RawConf when is_map(RawConf) ->
+                emqx_utils:deobfuscate(Config, RawConf);
+            null ->
+                Config
+        end,
+    update_config(Backend, {?FUNCTION_NAME, Backend, UpdateConf}).
 delete(Backend) ->
     update_config(Backend, {?FUNCTION_NAME, Backend}).
 
@@ -154,8 +162,7 @@ init([]) ->
             {read_concurrency, true}
         ]
     ),
-    start_backend_services(),
-    {ok, #{}}.
+    {ok, #{}, {continue, start_backend_services}}.
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -165,6 +172,12 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info(_Info, State) ->
+    {noreply, State}.
+
+handle_continue(start_backend_services, State) ->
+    start_backend_services(),
+    {noreply, State};
+handle_continue(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->

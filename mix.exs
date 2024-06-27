@@ -68,14 +68,14 @@ defmodule EMQXUmbrella.MixProject do
       {:rulesql, github: "emqx/rulesql", tag: "0.2.1"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"},
-      {:telemetry, "1.1.0"},
+      {:telemetry, "1.1.0", override: true},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.10", override: true},
       {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.1"},
-      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
+      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true},
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.11", override: true},
       # in conflict by emqx_connector and system_monitor

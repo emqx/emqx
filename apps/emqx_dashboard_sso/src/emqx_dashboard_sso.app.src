@@ -1,13 +1,14 @@
 {application, emqx_dashboard_sso, [
     {description, "EMQX Dashboard Single Sign-On"},
-    {vsn, "0.1.4"},
+    {vsn, "0.1.5"},
     {registered, [emqx_dashboard_sso_sup]},
     {applications, [
         kernel,
         stdlib,
         emqx_dashboard,
         emqx_ldap,
-        esaml
+        esaml,
+        oidcc
     ]},
     {mod, {emqx_dashboard_sso_app, []}},
     {env, []},
