@@ -564,12 +564,10 @@ handle_msg({Closed, _Sock}, State) when
 handle_msg({Passive, _Sock}, State) when
     Passive == tcp_passive; Passive == ssl_passive; Passive =:= quic_passive
 ->
-    %% In Stats
     Pubs = emqx_pd:reset_counter(incoming_pubs),
     Bytes = emqx_pd:reset_counter(incoming_bytes),
-    InStats = #{cnt => Pubs, oct => Bytes},
     %% Run GC and Check OOM
-    NState1 = check_oom(run_gc(InStats, State)),
+    NState1 = check_oom(Pubs, Bytes, run_gc(Pubs, Bytes, State)),
     handle_info(activate_socket, NState1);
 handle_msg(
     Deliver = {deliver, _Topic, _Msg},
@@ -899,8 +897,7 @@ sent(#state{listener = {Type, Listener}} = State) ->
         true ->
             Pubs = emqx_pd:reset_counter(outgoing_pubs),
             Bytes = emqx_pd:reset_counter(outgoing_bytes),
-            OutStats = #{cnt => Pubs, oct => Bytes},
-            {ok, check_oom(run_gc(OutStats, State))};
+            {ok, check_oom(Pubs, Bytes, run_gc(Pubs, Bytes, State))};
         false ->
             {ok, State}
     end.
@@ -1080,25 +1077,36 @@ retry_limiter(#state{channel = Channel, limiter = Limiter} = State) ->
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
 
-run_gc(Stats, State = #state{gc_state = GcSt, zone = Zone}) ->
+run_gc(Pubs, Bytes, State = #state{gc_state = GcSt, zone = Zone}) ->
     case
         ?ENABLED(GcSt) andalso not emqx_olp:backoff_gc(Zone) andalso
-            emqx_gc:run(Stats, GcSt)
+            emqx_gc:run(Pubs, Bytes, GcSt)
     of
         false -> State;
         {_IsGC, GcSt1} -> State#state{gc_state = GcSt1}
     end.
 
-check_oom(State = #state{channel = Channel}) ->
+check_oom(Pubs, Bytes, State = #state{channel = Channel}) ->
     ShutdownPolicy = emqx_config:get_zone_conf(
         emqx_channel:info(zone, Channel), [force_shutdown]
     ),
-    ?tp(debug, check_oom, #{policy => ShutdownPolicy}),
     case emqx_utils:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
+            ?tp(warning, check_oom_shutdown, #{
+                policy => ShutdownPolicy,
+                incoming_pubs => Pubs,
+                incoming_bytes => Bytes,
+                shutdown => Reason
+            }),
             erlang:exit({shutdown, Reason});
-        _ ->
+        Result ->
+            ?tp(debug, check_oom_ok, #{
+                policy => ShutdownPolicy,
+                incoming_pubs => Pubs,
+                incoming_bytes => Bytes,
+                result => Result
+            }),
             ok
     end,
     State.

@@ -30,7 +30,6 @@
 
 -export([
     init/1,
-    run/2,
     run/3,
     info/1,
     reset/1
@@ -62,12 +61,7 @@ init(#{count := Count, bytes := Bytes}) ->
     Oct = [{oct, {Bytes, Bytes}} || ?ENABLED(Bytes)],
     ?GCS(maps:from_list(Cnt ++ Oct)).
 
-%% @doc Try to run GC based on reduntions of count or bytes.
--spec run(#{cnt := pos_integer(), oct := pos_integer()}, gc_state()) ->
-    {boolean(), gc_state()}.
-run(#{cnt := Cnt, oct := Oct}, GcSt) ->
-    run(Cnt, Oct, GcSt).
-
+%% @doc Try to run GC based on reductions of count or bytes.
 -spec run(pos_integer(), pos_integer(), gc_state()) ->
     {boolean(), gc_state()}.
 run(Cnt, Oct, ?GCS(St)) ->

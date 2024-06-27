@@ -556,7 +556,7 @@ t_handle_outgoing(_) ->
 t_run_gc(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 100}),
     WsSt = st(#{gc_state => GcSt}),
-    ?ws_conn:run_gc(#{cnt => 100, oct => 10000}, WsSt).
+    ?ws_conn:run_gc(100, 10000, WsSt).
 
 t_enqueue(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_0),
