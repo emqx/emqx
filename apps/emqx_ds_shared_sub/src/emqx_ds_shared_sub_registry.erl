@@ -20,11 +20,12 @@
 ]).
 
 -export([
-    lookup_leader/2
+    lookup_leader/3
 ]).
 
 -record(lookup_leader, {
     agent :: emqx_ds_shared_sub_proto:agent(),
+    agent_metadata :: emqx_ds_shared_sub_proto:agent_metadata(),
     topic_filter :: emqx_persistent_session_ds:share_topic_filter()
 }).
 
@@ -35,10 +36,14 @@
 %%--------------------------------------------------------------------
 
 -spec lookup_leader(
-    emqx_ds_shared_sub_proto:agent(), emqx_persistent_session_ds:share_topic_filter()
+    emqx_ds_shared_sub_proto:agent(),
+    emqx_ds_shared_sub_proto:agent_metadata(),
+    emqx_persistent_session_ds:share_topic_filter()
 ) -> ok.
-lookup_leader(Agent, TopicFilter) ->
-    gen_server:cast(?MODULE, #lookup_leader{agent = Agent, topic_filter = TopicFilter}).
+lookup_leader(Agent, AgentMetadata, TopicFilter) ->
+    gen_server:cast(?MODULE, #lookup_leader{
+        agent = Agent, agent_metadata = AgentMetadata, topic_filter = TopicFilter
+    }).
 
 %%--------------------------------------------------------------------
 %% Internal API
@@ -66,8 +71,10 @@ init([]) ->
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
-handle_cast(#lookup_leader{agent = Agent, topic_filter = TopicFilter}, State) ->
-    State1 = do_lookup_leader(Agent, TopicFilter, State),
+handle_cast(
+    #lookup_leader{agent = Agent, agent_metadata = AgentMetadata, topic_filter = TopicFilter}, State
+) ->
+    State1 = do_lookup_leader(Agent, AgentMetadata, TopicFilter, State),
     {noreply, State1}.
 
 handle_info(_Info, State) ->
@@ -80,7 +87,7 @@ terminate(_Reason, _State) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-do_lookup_leader(Agent, TopicFilter, State) ->
+do_lookup_leader(Agent, AgentMetadata, TopicFilter, State) ->
     %% TODO https://emqx.atlassian.net/browse/EMQX-12309
     %% Cluster-wide unique leader election should be implemented
     Id = emqx_ds_shared_sub_leader:id(TopicFilter),
@@ -107,5 +114,7 @@ do_lookup_leader(Agent, TopicFilter, State) ->
         topic_filter => TopicFilter,
         leader => LeaderPid
     }),
-    ok = emqx_ds_shared_sub_proto:agent_connect_leader(LeaderPid, Agent, TopicFilter),
+    ok = emqx_ds_shared_sub_proto:agent_connect_leader(
+        LeaderPid, Agent, AgentMetadata, TopicFilter
+    ),
     State.

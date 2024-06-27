@@ -20,15 +20,17 @@
 %% Agent messages sent to the leader.
 %% Leader talks to many agents, `agent` field is used to identify the sender.
 
--define(agent_connect_leader(Agent, TopicFilter), #{
+-define(agent_connect_leader(Agent, AgentMetadata, TopicFilter), #{
     type => ?agent_connect_leader_msg,
     topic_filter => TopicFilter,
+    agent_metadata => AgentMetadata,
     agent => Agent
 }).
 
--define(agent_connect_leader_match(Agent, TopicFilter), #{
+-define(agent_connect_leader_match(Agent, AgentMetadata, TopicFilter), #{
     type := ?agent_connect_leader_msg,
     topic_filter := TopicFilter,
+    agent_metadata := AgentMetadata,
     agent := Agent
 }).
 
