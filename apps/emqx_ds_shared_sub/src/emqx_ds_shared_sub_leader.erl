@@ -270,12 +270,12 @@ renew_streams(#{start_time := StartTime, stream_progresses := Progresses, topic 
     Data3 = assign_streams(Data2),
     Data3.
 
-%% We revoke streams from agents that have too many streams (> desired_streams_per_agent).
+%% We revoke streams from agents that have too many streams (> desired_stream_count_per_agent).
 %% We revoke only from replaying agents.
 %% After revoking, no unassigned streams appear. Streams will become unassigned
 %% only after agents report them as acked and unsubscribed.
 revoke_streams(Data0) ->
-    DesiredStreamsPerAgent = desired_streams_per_agent(Data0),
+    DesiredStreamsPerAgent = desired_stream_count_per_agent(Data0),
     Agents = replaying_agents(Data0),
     lists:foldl(
         fun(Agent, DataAcc) ->
@@ -326,10 +326,10 @@ select_streams_for_revoke(
     %% * data locality (agents better preserve streams with data available on the agent's node)
     lists:sublist(shuffle(Streams), RevokeCount).
 
-%% We assign streams to agents that have too few streams (< desired_streams_per_agent).
+%% We assign streams to agents that have too few streams (< desired_stream_count_per_agent).
 %% We assign only to replaying agents.
 assign_streams(Data0) ->
-    DesiredStreamsPerAgent = desired_streams_per_agent(Data0),
+    DesiredStreamsPerAgent = desired_stream_count_per_agent(Data0),
     Agents = replaying_agents(Data0),
     lists:foldl(
         fun(Agent, DataAcc) ->
@@ -384,8 +384,7 @@ connect_agent(
         agent => Agent,
         group => Group
     }),
-    DesiredCount = desired_streams_per_agent(Data),
-    % DesiredCount = desired_streams_for_new_agent(Data),
+    DesiredCount = desired_stream_count_for_new_agent(Data),
     assign_initial_streams_to_agent(Data, Agent, DesiredCount).
 
 assign_initial_streams_to_agent(Data, Agent, AssignCount) ->
@@ -708,13 +707,13 @@ replaying_agents(#{agents := AgentStates}) ->
         maps:to_list(AgentStates)
     ).
 
-desired_streams_per_agent(#{agents := AgentStates} = Data) ->
-    desired_streams_per_agent(Data, maps:size(AgentStates)).
+desired_stream_count_per_agent(#{agents := AgentStates} = Data) ->
+    desired_stream_count_per_agent(Data, maps:size(AgentStates)).
 
-desired_streams_for_new_agent(#{agents := AgentStates} = Data) ->
-    desired_streams_per_agent(Data, maps:size(AgentStates) + 1).
+desired_stream_count_for_new_agent(#{agents := AgentStates} = Data) ->
+    desired_stream_count_per_agent(Data, maps:size(AgentStates) + 1).
 
-desired_streams_per_agent(#{stream_progresses := StreamProgresses}, AgentCount) ->
+desired_stream_count_per_agent(#{stream_progresses := StreamProgresses}, AgentCount) ->
     case AgentCount of
         0 ->
             0;
