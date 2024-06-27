@@ -13,7 +13,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    agent_connect_leader/3,
+    agent_connect_leader/4,
     agent_update_stream_states/4,
     agent_update_stream_states/5,
 
@@ -34,6 +34,9 @@
 -type topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
 -type group() :: emqx_types:group().
 -type version() :: non_neg_integer().
+-type agent_metadata() :: #{
+    id := emqx_persistent_session_ds:id()
+}.
 
 -type stream_progress() :: #{
     stream := emqx_ds:stream(),
@@ -51,7 +54,9 @@
     leader/0,
     group/0,
     version/0,
-    stream_progress/0
+    stream_progress/0,
+    agent_stream_progress/0,
+    agent_metadata/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -60,19 +65,22 @@
 
 %% agent -> leader messages
 
--spec agent_connect_leader(leader(), agent(), topic_filter()) -> ok.
-agent_connect_leader(ToLeader, FromAgent, TopicFilter) when ?is_local_leader(ToLeader) ->
+-spec agent_connect_leader(leader(), agent(), agent_metadata(), topic_filter()) -> ok.
+agent_connect_leader(ToLeader, FromAgent, AgentMetadata, TopicFilter) when
+    ?is_local_leader(ToLeader)
+->
     ?tp(warning, shared_sub_proto_msg, #{
         type => agent_connect_leader,
         to_leader => ToLeader,
         from_agent => FromAgent,
+        agent_metadata => AgentMetadata,
         topic_filter => TopicFilter
     }),
-    _ = erlang:send(ToLeader, ?agent_connect_leader(FromAgent, TopicFilter)),
+    _ = erlang:send(ToLeader, ?agent_connect_leader(FromAgent, AgentMetadata, TopicFilter)),
     ok;
-agent_connect_leader(ToLeader, FromAgent, TopicFilter) ->
+agent_connect_leader(ToLeader, FromAgent, AgentMetadata, TopicFilter) ->
     emqx_ds_shared_sub_proto_v1:agent_connect_leader(
-        ?leader_node(ToLeader), ToLeader, FromAgent, TopicFilter
+        ?leader_node(ToLeader), ToLeader, FromAgent, AgentMetadata, TopicFilter
     ).
 
 -spec agent_update_stream_states(leader(), agent(), list(agent_stream_progress()), version()) -> ok.

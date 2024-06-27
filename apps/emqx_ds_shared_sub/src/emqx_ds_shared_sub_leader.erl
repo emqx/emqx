@@ -43,6 +43,7 @@
     state := emqx_ds_shared_sub_agent:status(),
     prev_version := emqx_maybe:t(emqx_ds_shared_sub_proto:version()),
     version := emqx_ds_shared_sub_proto:version(),
+    agent_metadata := emqx_ds_shared_sub_proto:agent_metadata(),
     streams := list(emqx_ds:stream()),
     revoked_streams := list(emqx_ds:stream())
 }.
@@ -182,9 +183,11 @@ handle_event({timeout, #drop_timeout{}}, #drop_timeout{}, ?leader_active, Data0)
     {keep_state, Data1, {{timeout, #drop_timeout{}}, ?DROP_TIMEOUT_INTERVAL, #drop_timeout{}}};
 %%--------------------------------------------------------------------
 %% agent events
-handle_event(info, ?agent_connect_leader_match(Agent, _TopicFilter), ?leader_active, Data0) ->
+handle_event(
+    info, ?agent_connect_leader_match(Agent, AgentMetadata, _TopicFilter), ?leader_active, Data0
+) ->
     % ?tp(warning, shared_sub_leader_connect_agent, #{agent => Agent}),
-    Data1 = connect_agent(Data0, Agent),
+    Data1 = connect_agent(Data0, Agent, AgentMetadata),
     {keep_state, Data1};
 handle_event(
     info,
@@ -375,7 +378,8 @@ select_streams_for_assign(Data0, _Agent, AssignCount) ->
 
 connect_agent(
     #{group := Group} = Data,
-    Agent
+    Agent,
+    AgentMetadata
 ) ->
     %% TODO
     %% implement graceful reconnection of the same agent
@@ -385,13 +389,13 @@ connect_agent(
         group => Group
     }),
     DesiredCount = desired_stream_count_for_new_agent(Data),
-    assign_initial_streams_to_agent(Data, Agent, DesiredCount).
+    assign_initial_streams_to_agent(Data, Agent, AgentMetadata, DesiredCount).
 
-assign_initial_streams_to_agent(Data, Agent, AssignCount) ->
+assign_initial_streams_to_agent(Data, Agent, AgentMetadata, AssignCount) ->
     InitialStreamsToAssign = select_streams_for_assign(Data, Agent, AssignCount),
     Data1 = set_stream_ownership_to_agent(Data, Agent, InitialStreamsToAssign),
     AgentState = agent_transition_to_initial_waiting_replaying(
-        Data1, Agent, InitialStreamsToAssign
+        Data1, Agent, AgentMetadata, InitialStreamsToAssign
     ),
     set_agent_state(Data1, Agent, AgentState).
 
@@ -639,7 +643,7 @@ agent_transition_to_waiting_replaying(
     }.
 
 agent_transition_to_initial_waiting_replaying(
-    #{group := Group} = Data, Agent, InitialStreams
+    #{group := Group} = Data, Agent, AgentMetadata, InitialStreams
 ) ->
     ?tp(warning, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
@@ -653,6 +657,7 @@ agent_transition_to_initial_waiting_replaying(
         Agent, Group, Leader, StreamProgresses, Version
     ),
     #{
+        metadata => AgentMetadata,
         state => ?waiting_replaying,
         version => Version,
         prev_version => undefined,
