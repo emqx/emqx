@@ -284,28 +284,24 @@ parse_connect(FrameBin, StrictMode) ->
     end,
     parse_connect2(ProtoName, Rest, StrictMode).
 
-% Note: return malformed if reserved flag is not 0.
 parse_connect2(
     ProtoName,
-    <<BridgeTag:4, ProtoVer:4, UsernameFlag:1, PasswordFlag:1, WillRetainB:1, WillQoS:2,
+    <<BridgeTag:4, ProtoVer:4, UsernameFlagB:1, PasswordFlagB:1, WillRetainB:1, WillQoS:2,
         WillFlagB:1, CleanStart:1, Reserved:1, KeepAlive:16/big, Rest2/binary>>,
     StrictMode
 ) ->
-    case Reserved of
-        0 -> ok;
-        1 -> ?PARSE_ERR(reserved_connect_flag)
-    end,
-    WillFlag = bool(WillFlagB),
-    WillRetain = bool(WillRetainB),
-    case WillFlag of
-        %% MQTT-v3.1.1-[MQTT-3.1.2-13], MQTT-v5.0-[MQTT-3.1.2-11]
-        false when WillQoS > 0 -> ?PARSE_ERR(invalid_will_qos);
-        %% MQTT-v3.1.1-[MQTT-3.1.2-14], MQTT-v5.0-[MQTT-3.1.2-12]
-        true when WillQoS > 2 -> ?PARSE_ERR(invalid_will_qos);
-        %% MQTT-v3.1.1-[MQTT-3.1.2-15], MQTT-v5.0-[MQTT-3.1.2-13]
-        false when WillRetain -> ?PARSE_ERR(invalid_will_retain);
-        _ -> ok
-    end,
+    _ = validate_connect_reserved(Reserved),
+    _ = validate_connect_will(
+        WillFlag = bool(WillFlagB),
+        WillRetain = bool(WillRetainB),
+        WillQoS
+    ),
+    _ = validate_connect_password_flag(
+        StrictMode,
+        ProtoVer,
+        UsernameFlag = bool(UsernameFlagB),
+        PasswordFlag = bool(PasswordFlagB)
+    ),
     {Properties, Rest3} = parse_properties(Rest2, ProtoVer, StrictMode),
     {ClientId, Rest4} = parse_utf8_string_with_cause(Rest3, StrictMode, invalid_clientid),
     ConnPacket = #mqtt_packet_connect{
@@ -328,14 +324,14 @@ parse_connect2(
         fun(Bin) ->
             parse_utf8_string_with_cause(Bin, StrictMode, invalid_username)
         end,
-        bool(UsernameFlag)
+        UsernameFlag
     ),
     {Password, Rest7} = parse_optional(
         Rest6,
         fun(Bin) ->
             parse_utf8_string_with_cause(Bin, StrictMode, invalid_password)
         end,
-        bool(PasswordFlag)
+        PasswordFlag
     ),
     case Rest7 of
         <<>> ->
@@ -1132,6 +1128,32 @@ validate_packet_id(_) -> ok.
 validate_subqos([3 | _]) -> ?PARSE_ERR(bad_subqos);
 validate_subqos([_ | T]) -> validate_subqos(T);
 validate_subqos([]) -> ok.
+
+%% MQTT-v3.1.1-[MQTT-3.1.2-3], MQTT-v5.0-[MQTT-3.1.2-3]
+validate_connect_reserved(0) -> ok;
+validate_connect_reserved(1) -> ?PARSE_ERR(reserved_connect_flag).
+
+%% MQTT-v3.1.1-[MQTT-3.1.2-13], MQTT-v5.0-[MQTT-3.1.2-11]
+validate_connect_will(false, _, WillQos) when WillQos > 0 -> ?PARSE_ERR(invalid_will_qos);
+%% MQTT-v3.1.1-[MQTT-3.1.2-14], MQTT-v5.0-[MQTT-3.1.2-12]
+validate_connect_will(true, _, WillQoS) when WillQoS > 2 -> ?PARSE_ERR(invalid_will_qos);
+%% MQTT-v3.1.1-[MQTT-3.1.2-15], MQTT-v5.0-[MQTT-3.1.2-13]
+validate_connect_will(false, WillRetain, _) when WillRetain -> ?PARSE_ERR(invalid_will_retain);
+validate_connect_will(_, _, _) -> ok.
+
+%% MQTT-v3.1
+%% Username flag and password flag are not strongly related
+%% https://public.dhe.ibm.com/software/dw/webservices/ws-mqtt/mqtt-v3r1.html#connect
+validate_connect_password_flag(true, ?MQTT_PROTO_V3, _, _) ->
+    ok;
+%% MQTT-v3.1.1-[MQTT-3.1.2-22]
+validate_connect_password_flag(true, ?MQTT_PROTO_V4, UsernameFlag, PasswordFlag) ->
+    %% BUG-FOR-BUG compatible, only check when `strict-mode`
+    UsernameFlag orelse PasswordFlag andalso ?PARSE_ERR(invalid_password_flag);
+validate_connect_password_flag(true, ?MQTT_PROTO_V5, _, _) ->
+    ok;
+validate_connect_password_flag(_, _, _, _) ->
+    ok.
 
 bool(0) -> false;
 bool(1) -> true.

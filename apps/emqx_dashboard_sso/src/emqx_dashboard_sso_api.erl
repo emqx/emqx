@@ -33,7 +33,7 @@
     backend/2
 ]).
 
--export([sso_parameters/1, login_meta/3]).
+-export([sso_parameters/1, login_meta/4]).
 
 -define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
@@ -168,7 +168,7 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
                         request => emqx_utils:redact(Request)
                     }),
                     Username = maps:get(<<"username">>, Body),
-                    {200, login_meta(Username, Role, Token)};
+                    {200, login_meta(Username, Role, Token, Backend)};
                 {redirect, Redirect} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_redirect",
@@ -286,11 +286,12 @@ to_redacted_json(Data) ->
         end
     ).
 
-login_meta(Username, Role, Token) ->
+login_meta(Username, Role, Token, Backend) ->
     #{
         username => Username,
         role => Role,
         token => Token,
         version => iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
-        license => #{edition => emqx_release:edition()}
+        license => #{edition => emqx_release:edition()},
+        backend => Backend
     }.

@@ -1,0 +1,48 @@
+emqx_dashboard_sso_oidc {
+
+issuer.desc:
+"""The URL of the OIDC issuer."""
+
+clientid.desc:
+"""The clientId for this backend."""
+
+secret.desc:
+"""The client secret."""
+
+scopes.desc:
+"""The scopes, its default value is `["openid"]`."""
+
+name_var.desc:
+"""A template to map OIDC user information to a Dashboard name, its default value is `${sub}`."""
+
+dashboard_addr.desc:
+"""The address of the EMQX Dashboard."""
+
+session_expiry.desc:
+"""The valid time span for an OIDC `state`, the default is `30s`, if the code response returned by the authorization server exceeds this time span, it will be treated as invalid."""
+
+require_pkce.desc:
+"""Whether to require PKCE when getting the token."""
+
+client_jwks.desc:
+"""Set JWK or JWKS here to enable the `private_key_jwt` authorization or the `DPoP` extension."""
+
+client_file_jwks_type.desc:
+"""The JWKS source type."""
+
+client_file_jwks.desc:
+"""Set JWKS from file."""
+
+client_file_jwks_file.desc:
+"""The content of the JWKS."""
+
+preferred_auth_methods.desc:
+"""Set the valid authentication methods and their priority."""
+
+provider.desc:
+"""The OIDC provider."""
+
+fallback_methods.desc:
+"""Some providers do not provide all the method items in the provider configuration, set this value as a fallback for those items."""
+
+}
