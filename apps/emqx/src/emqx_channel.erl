@@ -145,7 +145,9 @@
 -type replies() :: emqx_types:packet() | reply() | [reply()].
 
 -define(IS_MQTT_V5, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}).
-
+-define(IS_CONNECTED_OR_REAUTHENTICATING(ConnState),
+    ((ConnState == connected) orelse (ConnState == reauthenticating))
+).
 -define(IS_COMMON_SESSION_TIMER(N),
     ((N == retry_delivery) orelse (N == expire_awaiting_rel))
 ).
@@ -333,7 +335,7 @@ take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
@@ -1016,11 +1018,11 @@ handle_frame_error(Reason, Channel = #channel{conn_state = connecting}) ->
 handle_frame_error(
     #{cause := frame_too_large}, Channel = #channel{conn_state = ConnState}
 ) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
 handle_frame_error(Reason, Channel = #channel{conn_state = ConnState}) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
 handle_frame_error(Reason, Channel = #channel{conn_state = disconnected}) ->
@@ -1295,7 +1297,7 @@ handle_info(
             session = Session
         }
 ) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel)),
@@ -2675,13 +2677,13 @@ disconnect_and_shutdown(
         ?IS_MQTT_V5 =
         #channel{conn_state = ConnState}
 ) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     NChannel = ensure_disconnected(Reason, Channel),
     shutdown(Reason, Reply, ?DISCONNECT_PACKET(reason_code(Reason)), NChannel);
 %% mqtt v3/v4 connected sessions
 disconnect_and_shutdown(Reason, Reply, Channel = #channel{conn_state = ConnState}) when
-    ConnState =:= connected orelse ConnState =:= reauthenticating
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     NChannel = ensure_disconnected(Reason, Channel),
     shutdown(Reason, Reply, NChannel);
