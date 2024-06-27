@@ -37,6 +37,6 @@ Here is a CSV example: `user_id,password_hash,salt,is_superuser\nmy_user,b6c7435
 
 And JSON content should be decoded into an array of objects, for example: `[{"user_id": "my_user","password": "s3cr3tp@ssw0rd","is_superuser": true}]`.
 
-The hash string for password_hash depends on how password_hash_algorithm is configured for the built-in database authentication mechanism. For example, if it's configured as `password_hash_algorithm {name = sha256, salt_position = suffix}`, then the salt is appended to the password before hashed. Here is the equivalent Python expression: `hashlib.sha256(password + salt).hexdigest()`."""
+The hash string for `password_hash` depends on how `password_hash_algorithm` is configured for the built-in database authentication mechanism. For example, if it's configured as `password_hash_algorithm {name = sha256, salt_position = suffix}`, then the salt is appended to the password before hashed. Here is the equivalent Python expression: `hashlib.sha256(password + salt).hexdigest()`."""
 
 }
