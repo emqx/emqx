@@ -336,8 +336,8 @@ select_streams_for_revoke(
 ) ->
     %% TODO
     %% Some intellectual logic should be used regarding:
-    %% * shard ids (better spread shards across different streams);
-    %% * stream stats (how much data was replayed from stream,
+    %% * shard ids (better do not mix shards in the same agent);
+    %% * stream stats (how much data was replayed from stream),
     %%   heavy streams should be distributed across different agents);
     %% * data locality (agents better preserve streams with data available on the agent's node)
     lists:sublist(shuffle(Streams), RevokeCount).

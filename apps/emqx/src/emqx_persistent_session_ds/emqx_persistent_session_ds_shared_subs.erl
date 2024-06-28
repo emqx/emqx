@@ -17,7 +17,7 @@
     on_unsubscribe/4,
     on_disconnect/2,
 
-    on_streams_replayed/2,
+    on_streams_replay/2,
     on_info/3,
 
     renew_streams/2,
@@ -114,11 +114,11 @@ renew_streams(S0, #{agent := Agent0} = SharedSubS0) ->
     SharedSubS1 = SharedSubS0#{agent => Agent1},
     {S1, SharedSubS1}.
 
--spec on_streams_replayed(
+-spec on_streams_replay(
     emqx_persistent_session_ds_state:t(),
     t()
 ) -> {emqx_persistent_session_ds_state:t(), t()}.
-on_streams_replayed(S, #{agent := Agent0} = SharedSubS0) ->
+on_streams_replay(S, #{agent := Agent0} = SharedSubS0) ->
     Progresses = stream_progresses(S),
     Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_stream_progress(
         Agent0, Progresses

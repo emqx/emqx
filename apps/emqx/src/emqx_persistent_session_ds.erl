@@ -984,12 +984,11 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-fetch_new_messages(Session0 = #{s := S0}, ClientInfo) ->
-    Streams = emqx_persistent_session_ds_stream_scheduler:find_new_streams(S0),
+fetch_new_messages(Session0 = #{s := S0, shared_sub_s := SharedSubS0}, ClientInfo) ->
+    {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replay(S0, SharedSubS0),
+    Streams = emqx_persistent_session_ds_stream_scheduler:find_new_streams(S1),
     Session1 = fetch_new_messages(Streams, Session0, ClientInfo),
-    #{s := S1, shared_sub_s := SharedSubS0} = Session1,
-    {S2, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replayed(S1, SharedSubS0),
-    Session1#{s => S2, shared_sub_s => SharedSubS1}.
+    Session1#{shared_sub_s => SharedSubS1}.
 
 fetch_new_messages([], Session, _ClientInfo) ->
     Session;
