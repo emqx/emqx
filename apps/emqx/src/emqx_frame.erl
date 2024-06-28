@@ -288,9 +288,9 @@ parse_connect(FrameBin, StrictMode) ->
         do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, StrictMode)
     catch
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
-            ?PARSE_ERR(maps:merge(ReasonM, Meta));
+            ?PARSE_ERR((maps:merge(ReasonM, Meta))#{reason_code => ?RC_PROTOCOL_ERROR});
         throw:{?FRAME_PARSE_ERROR, Reason} ->
-            ?PARSE_ERR(Meta#{reason => Reason})
+            ?PARSE_ERR(Meta#{cause => Reason, reason_code => ?RC_MALFORMED_PACKET})
     end.
 
 do_parse_connect(

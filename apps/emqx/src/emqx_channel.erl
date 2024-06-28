@@ -1161,12 +1161,10 @@ return_connack(AckPacket, Channel) ->
     end.
 
 %% Only handle CONNACK when CONNECT malformed or with protocol error
+connack_reason_code(#{reason_code := RC}) ->
+    RC;
 connack_reason_code(#{cause := frame_too_large}) ->
     ?RC_PACKET_TOO_LARGE;
-connack_reason_code(#{cause := _Any}) ->
-    ?RC_PROTOCOL_ERROR;
-connack_reason_code(#{reason := _Any}) ->
-    ?RC_MALFORMED_PACKET;
 connack_reason_code(_) ->
     ?RC_MALFORMED_PACKET.
 
