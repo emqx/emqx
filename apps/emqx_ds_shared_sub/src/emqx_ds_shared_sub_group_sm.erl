@@ -372,7 +372,7 @@ handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew) ->
     %% Unexpected versions or state
     transition(GSM, ?connecting, #{}).
 
--spec handle_stream_progress(group_sm(), emqx_ds_shared_sub_proto:agent_stream_progress()) ->
+-spec handle_stream_progress(group_sm(), list(emqx_ds_shared_sub_proto:agent_stream_progress())) ->
     group_sm().
 handle_stream_progress(#{state := ?connecting} = GSM, _StreamProgresses) ->
     GSM;

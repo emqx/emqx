@@ -14,6 +14,7 @@
     agent_connect_leader/5,
     agent_update_stream_states/5,
     agent_update_stream_states/6,
+    agent_disconnect/5,
 
     leader_lease_streams/6,
     leader_renew_stream_lease/4,
@@ -30,7 +31,7 @@ introduced_in() ->
     emqx_ds_shared_sub_proto:leader(),
     emqx_ds_shared_sub_proto:agent(),
     emqx_ds_shared_sub_proto:agent_metadata(),
-    emqx_ds_shared_sub_proto:topic_filter()
+    emqx_persistent_session_ds:share_topic_filter()
 ) -> ok.
 agent_connect_leader(Node, ToLeader, FromAgent, AgentMetadata, TopicFilter) ->
     erpc:cast(Node, emqx_ds_shared_sub_proto, agent_connect_leader, [
