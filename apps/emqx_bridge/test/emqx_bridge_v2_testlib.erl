@@ -288,6 +288,14 @@ request(Method, Path, Params) ->
             Error
     end.
 
+simplify_result(Res) ->
+    case Res of
+        {error, {{_, Status, _}, _, Body}} ->
+            {Status, Body};
+        {ok, {{_, Status, _}, _, Body}} ->
+            {Status, Body}
+    end.
+
 list_bridges_api() ->
     Params = [],
     Path = emqx_mgmt_api_test_util:api_path(["actions"]),
@@ -321,7 +329,7 @@ get_bridge_api(BridgeKind, BridgeType, BridgeName) ->
     Path = emqx_mgmt_api_test_util:api_path([Root, BridgeId]),
     ct:pal("get bridge ~p (via http)", [{BridgeKind, BridgeType, BridgeName}]),
     Res = request(get, Path, Params),
-    ct:pal("get bridge ~p result: ~p", [{BridgeKind, BridgeType, BridgeName}, Res]),
+    ct:pal("get bridge ~p result:\n  ~p", [{BridgeKind, BridgeType, BridgeName}, Res]),
     Res.
 
 create_bridge_api(Config) ->
@@ -348,6 +356,26 @@ create_kind_api(Config, Overrides) ->
     Res = request(post, Path, Params),
     ct:pal("bridge create (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
+
+enable_kind_api(Kind, ConnectorType, ConnectorName) ->
+    do_enable_disable_kind_api(Kind, ConnectorType, ConnectorName, enable).
+
+disable_kind_api(Kind, ConnectorType, ConnectorName) ->
+    do_enable_disable_kind_api(Kind, ConnectorType, ConnectorName, disable).
+
+do_enable_disable_kind_api(Kind, Type, Name, Op) ->
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    RootBin = api_path_root(Kind),
+    {OpPath, OpStr} =
+        case Op of
+            enable -> {"true", "enable"};
+            disable -> {"false", "disable"}
+        end,
+    Path = emqx_mgmt_api_test_util:api_path([RootBin, BridgeId, "enable", OpPath]),
+    ct:pal(OpStr ++ " ~s ~s (http)", [Kind, BridgeId]),
+    Res = request(put, Path, []),
+    ct:pal(OpStr ++ " ~s ~s (http) result:\n  ~p", [Kind, BridgeId, Res]),
+    simplify_result(Res).
 
 create_connector_api(Config) ->
     create_connector_api(Config, _Overrides = #{}).
@@ -452,6 +480,15 @@ update_bridge_api(Config, Overrides) ->
     Res = request(put, Path, Params),
     ct:pal("update bridge (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
+
+delete_kind_api(Kind, Type, Name) ->
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    PathRoot = api_path_root(Kind),
+    Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId]),
+    ct:pal("deleting bridge (~s, http)", [Kind]),
+    Res = request(delete, Path, _Params = []),
+    ct:pal("delete bridge (~s, http) result:\n  ~p", [Kind, Res]),
+    simplify_result(Res).
 
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
@@ -1054,14 +1091,15 @@ t_on_get_status(Config, Opts) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
     FailureStatus = maps:get(failure_status, Opts, disconnected),
-    ?assertMatch({ok, _}, create_bridge_api(Config)),
+    NormalStatus = maps:get(normal_status, Opts, connected),
+    ?assertMatch({ok, _}, create_bridge(Config)),
     ResourceId = resource_id(Config),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
     ?retry(
         _Sleep = 1_000,
         _Attempts = 20,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+        ?assertEqual({ok, NormalStatus}, emqx_resource_manager:health_check(ResourceId))
     ),
     case ProxyHost of
         undefined ->
@@ -1080,7 +1118,7 @@ t_on_get_status(Config, Opts) ->
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+                ?assertEqual({ok, NormalStatus}, emqx_resource_manager:health_check(ResourceId))
             )
     end,
     ok.

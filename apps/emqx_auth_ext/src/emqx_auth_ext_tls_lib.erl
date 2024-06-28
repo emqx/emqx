@@ -13,10 +13,12 @@
 -include_lib("emqx/include/logger.hrl").
 
 -define(CONST_MOD_V1, emqx_auth_ext_tls_const_v1).
-%% @doc enable TLS partial_chain validation if set.
+%% @doc enable TLS partial_chain validation
 -spec opt_partial_chain(SslOpts :: map()) -> NewSslOpts :: map().
 opt_partial_chain(#{partial_chain := false} = SslOpts) ->
-    maps:remove(partial_chain, SslOpts);
+    %% For config update scenario, we must set it to override
+    %% the 'existing' partial_chain in the listener
+    SslOpts#{partial_chain := fun ?CONST_MOD_V1:default_root_fun/1};
 opt_partial_chain(#{partial_chain := true} = SslOpts) ->
     SslOpts#{partial_chain := rootfun_trusted_ca_from_cacertfile(1, SslOpts)};
 opt_partial_chain(#{partial_chain := cacert_from_cacertfile} = SslOpts) ->

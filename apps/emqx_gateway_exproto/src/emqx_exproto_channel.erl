@@ -715,7 +715,7 @@ ensure_keepalive_timer(Interval, Channel) when Interval =< 0 ->
     Channel;
 ensure_keepalive_timer(Interval, Channel) ->
     StatVal = emqx_gateway_conn:keepalive_stats(recv),
-    Keepalive = emqx_keepalive:init(StatVal, timer:seconds(Interval)),
+    Keepalive = emqx_keepalive:init(default, StatVal, Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
 
 ensure_timer(Name, Channel = #channel{timers = Timers}) ->
@@ -746,7 +746,7 @@ interval(force_close_idle, #channel{conninfo = #{idle_timeout := IdleTimeout}}) 
 interval(force_close, _) ->
     15000;
 interval(keepalive, #channel{keepalive = Keepalive}) ->
-    emqx_keepalive:info(interval, Keepalive).
+    emqx_keepalive:info(check_interval, Keepalive).
 
 %%--------------------------------------------------------------------
 %% Dispatch

@@ -34,12 +34,18 @@
 all() ->
     [
         {group, general},
-        {group, persistent_sessions}
+        {group, persistent_sessions},
+        {group, non_persistent_cluster},
+        {group, msgs_base64_encoding},
+        {group, msgs_plain_encoding}
     ].
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
-    GeneralTCs = AllTCs -- (persistent_session_testcases() ++ client_msgs_testcases()),
+    GeneralTCs =
+        AllTCs --
+            (persistent_session_testcases() ++
+                non_persistent_cluster_testcases() ++ client_msgs_testcases()),
     [
         {general, [
             {group, msgs_base64_encoding},
@@ -47,6 +53,7 @@ groups() ->
             | GeneralTCs
         ]},
         {persistent_sessions, persistent_session_testcases()},
+        {non_persistent_cluster, non_persistent_cluster_testcases()},
         {msgs_base64_encoding, client_msgs_testcases()},
         {msgs_plain_encoding, client_msgs_testcases()}
     ].
@@ -62,7 +69,10 @@ persistent_session_testcases() ->
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2
     ].
-
+non_persistent_cluster_testcases() ->
+    [
+        t_bulk_subscribe
+    ].
 client_msgs_testcases() ->
     [
         t_inflight_messages,
@@ -102,16 +112,29 @@ init_per_group(persistent_sessions, Config) ->
         {emqx_mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
         {emqx_mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
     ],
-    Nodes =
-        [N1 | _] = emqx_cth_cluster:start(
-            Cluster,
-            #{work_dir => emqx_cth_suite:work_dir(Config)}
-        ),
-    [
-        {nodes, Nodes},
-        {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
-        | Config
-    ];
+    Nodes = emqx_cth_cluster:start(
+        Cluster,
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{nodes, Nodes} | Config];
+init_per_group(non_persistent_cluster, Config) ->
+    AppSpecs = [
+        emqx,
+        emqx_conf,
+        emqx_management
+    ],
+    Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(
+        "dashboard.listeners.http { enable = true, bind = 18084 }"
+    ),
+    Cluster = [
+        {mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
+        {mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
+    ],
+    Nodes = emqx_cth_cluster:start(
+        Cluster,
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{nodes, Nodes} | Config];
 init_per_group(msgs_base64_encoding, Config) ->
     [{payload_encoding, base64} | Config];
 init_per_group(msgs_plain_encoding, Config) ->
@@ -119,12 +142,15 @@ init_per_group(msgs_plain_encoding, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
+end_per_group(Group, Config) when
+    Group =:= persistent_sessions;
+    Group =:= non_persistent_cluster
+->
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes);
 end_per_group(general, Config) ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps);
-end_per_group(persistent_sessions, Config) ->
-    Nodes = ?config(nodes, Config),
-    ok = emqx_cth_cluster:stop(Nodes);
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -1518,6 +1544,42 @@ t_subscribe_shared_topic_nl(Config) ->
         request(post, Path, #{topic => Topic, qos => 1, nl => 1, rh => 1}, Config)
     ).
 
+%% Checks that we can use the bulk subscribe API on a different node than the one a client
+%% is connected to.
+t_bulk_subscribe(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    APIPort = 18084,
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+    ?check_trace(
+        begin
+            ClientId1 = <<"bulk-sub1">>,
+            _C1 = connect_client(#{port => Port2, clientid => ClientId1, clean_start => true}),
+            ClientId2 = <<"bulk-sub2">>,
+            C2 = connect_client(#{port => Port1, clientid => ClientId2, clean_start => true}),
+            Topic = <<"testtopic">>,
+            BulkSub = [#{topic => Topic, qos => 1, nl => 1, rh => 1}],
+            ?assertMatch({200, [_]}, bulk_subscribe_request(APIPort, ClientId1, BulkSub)),
+            ?assertMatch(
+                {200, [_]},
+                get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
+            ),
+            {ok, _} = emqtt:publish(C2, Topic, <<"hi1">>, [{qos, 1}]),
+            ?assertReceive({publish, #{topic := Topic, payload := <<"hi1">>}}),
+            BulkUnsub = [#{topic => Topic}],
+            ?assertMatch({204, _}, bulk_unsubscribe_request(APIPort, ClientId1, BulkUnsub)),
+            ?assertMatch(
+                {200, []},
+                get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
+            ),
+            {ok, _} = emqtt:publish(C2, Topic, <<"hi2">>, [{qos, 1}]),
+            ?assertNotReceive({publish, _}),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_list_clients_v2(Config) ->
     [N1, N2] = ?config(nodes, Config),
     Port1 = get_mqtt_port(N1, tcp),
@@ -1883,8 +1945,16 @@ maybe_json_decode(X) ->
     end.
 
 get_subscriptions_request(ClientId, Config) ->
+    get_subscriptions_request(ClientId, Config, _Opts = #{}).
+
+get_subscriptions_request(ClientId, Config, Opts) ->
+    Simplify = maps:get(simplify_result, Opts, false),
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "subscriptions"]),
-    request(get, Path, [], Config).
+    Res = request(get, Path, [], Config),
+    case Simplify of
+        true -> simplify_result(Res);
+        false -> Res
+    end.
 
 get_client_request(ClientId, Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId]),
@@ -1896,6 +1966,24 @@ list_request(Config) ->
 list_request(QueryParams, Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients"]),
     request(get, Path, [], compose_query_string(QueryParams), Config).
+
+bulk_subscribe_request(Config, ClientId, Body) ->
+    Host = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["clients", ClientId, "subscribe", "bulk"]),
+    simplify_result(request(post, Path, Body, Config)).
+
+bulk_unsubscribe_request(Config, ClientId, Body) ->
+    Host = "http://127.0.0.1:" ++ integer_to_list(Port),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["clients", ClientId, "unsubscribe", "bulk"]),
+    simplify_result(request(post, Path, Body, Config)).
+
+simplify_result(Res) ->
+    case Res of
+        {error, {{_, Status, _}, _, Body}} ->
+            {Status, Body};
+        {ok, {{_, Status, _}, _, Body}} ->
+            {Status, Body}
+    end.
 
 list_v2_request(QueryParams, Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients_v2"]),

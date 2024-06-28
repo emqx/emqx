@@ -116,7 +116,7 @@ create(
         user_id_type := Type,
         password_hash_algorithm := Algorithm,
         user_group := UserGroup
-    }
+    } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     State = #{
@@ -124,6 +124,7 @@ create(
         user_id_type => Type,
         password_hash_algorithm => Algorithm
     },
+    ok = boostrap_user_from_file(Config, State),
     {ok, State}.
 
 update(Config, _State) ->
@@ -338,8 +339,24 @@ run_fuzzy_filter(
 %%------------------------------------------------------------------------------
 
 insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
-    UserInfoRecord = user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
-    insert_user(UserInfoRecord).
+    UserInfoRecord =
+        #user_info{user_id = DBUserID} =
+        user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+    case mnesia:read(?TAB, DBUserID, write) of
+        [] ->
+            insert_user(UserInfoRecord);
+        [UserInfoRecord] ->
+            ok;
+        [_] ->
+            ?SLOG(warning, #{
+                msg => "bootstrap_authentication_overridden_in_the_built_in_database",
+                user_id => UserID,
+                group_id => UserGroup,
+                suggestion =>
+                    "If you have made changes in other way, remove the user_id from the bootstrap file."
+            }),
+            insert_user(UserInfoRecord)
+    end.
 
 insert_user(#user_info{} = UserInfoRecord) ->
     mnesia:write(?TAB, UserInfoRecord, write).
@@ -531,3 +548,25 @@ find_password_hash(_, _, _) ->
 is_superuser(#{<<"is_superuser">> := <<"true">>}) -> true;
 is_superuser(#{<<"is_superuser">> := true}) -> true;
 is_superuser(_) -> false.
+
+boostrap_user_from_file(Config, State) ->
+    case maps:get(boostrap_file, Config, <<>>) of
+        <<>> ->
+            ok;
+        FileName0 ->
+            #{boostrap_type := Type} = Config,
+            FileName = emqx_schema:naive_env_interpolation(FileName0),
+            case file:read_file(FileName) of
+                {ok, FileData} ->
+                    %% if there is a key conflict, override with the key which from the bootstrap file
+                    _ = import_users({Type, FileName, FileData}, State),
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "boostrap_authn_built_in_database_failed",
+                        boostrap_file => FileName,
+                        boostrap_type => Type,
+                        reason => emqx_utils:explain_posix(Reason)
+                    })
+            end
+    end.

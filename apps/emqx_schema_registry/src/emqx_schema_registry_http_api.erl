@@ -142,18 +142,26 @@ schema("/schema_registry/:name") ->
         ),
     ?OK(Response);
 '/schema_registry'(post, #{body := Params0 = #{<<"name">> := Name}}) ->
-    Params = maps:without([<<"name">>], Params0),
-    case emqx_schema_registry:get_schema(Name) of
-        {error, not_found} ->
-            case emqx_schema_registry:add_schema(Name, Params) of
-                ok ->
-                    {ok, Res} = emqx_schema_registry:get_schema(Name),
-                    {201, Res#{name => Name}};
-                {error, Error} ->
-                    ?BAD_REQUEST(Error)
-            end;
-        {ok, _} ->
-            ?BAD_REQUEST('ALREADY_EXISTS', <<"Schema already exists">>)
+    try
+        ok = emqx_resource:validate_name(Name),
+        Params = maps:without([<<"name">>], Params0),
+        case emqx_schema_registry:get_schema(Name) of
+            {error, not_found} ->
+                case emqx_schema_registry:add_schema(Name, Params) of
+                    ok ->
+                        {ok, Res} = emqx_schema_registry:get_schema(Name),
+                        {201, Res#{name => Name}};
+                    {error, Error} ->
+                        ?BAD_REQUEST(Error)
+                end;
+            {ok, _} ->
+                ?BAD_REQUEST('ALREADY_EXISTS', <<"Schema already exists">>)
+        end
+    catch
+        throw:#{kind := Kind, reason := Reason} ->
+            Msg0 = ?ERROR_MSG('BAD_REQUEST', Reason),
+            Msg = Msg0#{kind => Kind},
+            {400, Msg}
     end.
 
 '/schema_registry/:name'(get, #{bindings := #{name := Name}}) ->

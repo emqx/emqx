@@ -28,6 +28,7 @@
 ).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -38,12 +39,17 @@ all() ->
 
 init_per_suite(Conf) ->
     emqx_gateway_test_utils:load_all_gateway_apps(),
-    emqx_common_test_helpers:load_config(emqx_gateway_schema, <<"gateway {}">>),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_gateway]),
-    Conf.
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, <<"gateway {}">>},
+            emqx_gateway
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+    ),
+    [{suite_apps, Apps} | Conf].
 
-end_per_suite(_Conf) ->
-    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_auth, emqx_auth_mnesia, emqx_conf]),
+end_per_suite(Conf) ->
+    emqx_cth_suite:stop(?config(suite_apps, Conf)),
     emqx_config:delete_override_conf_files().
 
 init_per_testcase(_CaseName, Conf) ->

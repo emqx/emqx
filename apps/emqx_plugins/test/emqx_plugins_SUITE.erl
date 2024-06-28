@@ -353,7 +353,7 @@ t_enable_disable(Config) ->
     ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()),
     ?assertMatch(
         {error, #{
-            error_msg := "bad_plugin_config_status",
+            msg := "bad_plugin_config_status",
             hint := "disable_the_plugin_first"
         }},
         emqx_plugins:ensure_uninstalled(NameVsn)
@@ -381,7 +381,7 @@ t_bad_tar_gz(Config) ->
     ok = file:write_file(FakeTarTz, "a\n"),
     ?assertMatch(
         {error, #{
-            error_msg := "bad_plugin_package",
+            msg := "bad_plugin_package",
             reason := eof
         }},
         emqx_plugins:ensure_installed("fake-vsn")
@@ -389,8 +389,8 @@ t_bad_tar_gz(Config) ->
     %% the plugin tarball can not be found on any nodes
     ?assertMatch(
         {error, #{
-            error_msg := "no_nodes_to_copy_plugin_from",
-            reason := not_found
+            msg := "no_nodes_to_copy_plugin_from",
+            reason := plugin_not_found
         }},
         emqx_plugins:ensure_installed("nonexisting")
     ),
@@ -463,7 +463,7 @@ t_bad_info_json(Config) ->
     ok = write_info_file(Config, NameVsn, "bad-syntax"),
     ?assertMatch(
         {error, #{
-            error_msg := "bad_info_file",
+            msg := "bad_info_file",
             reason := {parse_error, _}
         }},
         emqx_plugins:describe(NameVsn)
@@ -471,7 +471,7 @@ t_bad_info_json(Config) ->
     ok = write_info_file(Config, NameVsn, "{\"bad\": \"obj\"}"),
     ?assertMatch(
         {error, #{
-            error_msg := "bad_info_file_content",
+            msg := "bad_info_file_content",
             mandatory_fields := _
         }},
         emqx_plugins:describe(NameVsn)
