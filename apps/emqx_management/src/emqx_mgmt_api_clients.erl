@@ -1224,10 +1224,20 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     end.
 
 subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    %% We use emqx_channel instead of emqx_channel_info (used by the emqx_mgmt:lookup_client/2),
-    %% as the emqx_channel_info table will only be populated after the hook `client.connected`
-    %% has returned. So if one want to subscribe topics in this hook, it will fail.
-    case ets:lookup(?CHAN_TAB, ClientID) of
+    %% On the one hand, we first try to use `emqx_channel' instead of `emqx_channel_info'
+    %% (used by the `emqx_mgmt:lookup_client/2'), as the `emqx_channel_info' table will
+    %% only be populated after the hook `client.connected' has returned. So if one want to
+    %% subscribe topics in this hook, it will fail.
+    %% ... On the other hand, using only `emqx_channel' would render this API unusable if
+    %% called from a node that doesn't have hold the targeted client connection, so we
+    %% fall back to `emqx_mgmt:lookup_client/2', which consults the global registry.
+    Result1 = ets:lookup(?CHAN_TAB, ClientID),
+    Result =
+        case Result1 of
+            [] -> emqx_mgmt:lookup_client({clientid, ClientID}, _FormatFn = undefined);
+            _ -> Result1
+        end,
+    case Result of
         [] ->
             {404, ?CLIENTID_NOT_FOUND};
         _ ->
