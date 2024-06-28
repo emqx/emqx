@@ -596,9 +596,6 @@ format_mfal(Data, #{with_mfa := true}) ->
 format_mfal(_, _) ->
     undefined.
 
-format(Fmt, Args) ->
-    unicode:characters_to_binary(io_lib:format(Fmt, Args)).
-
 -spec call_first_defined(list({module(), atom(), list()})) -> term() | no_return().
 call_first_defined([{Module, Function, Args} | Rest]) ->
     try
