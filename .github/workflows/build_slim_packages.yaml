@@ -6,97 +6,50 @@ concurrency:
 
 on:
   workflow_call:
-    inputs:
-      builder:
-        required: true
-        type: string
-      builder_vsn:
-        required: true
-        type: string
-      otp_vsn:
-        required: true
-        type: string
-      elixir_vsn:
-        required: true
-        type: string
-
   workflow_dispatch:
     inputs:
       ref:
         required: false
-      builder:
-        required: false
-        type: string
-        default: 'ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-ubuntu22.04'
-      builder_vsn:
-        required: false
-        type: string
-        default: '5.3-8'
-      otp_vsn:
-        required: false
-        type: string
-        default: '26.2.5-2'
-      elixir_vsn:
-        required: false
-        type: string
-        default: '1.15.7'
 
 permissions:
   contents: read
 
 jobs:
   linux:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.profile[4])) || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.profile[2])) || 'ubuntu-22.04' }}
     env:
-      EMQX_NAME: ${{ matrix.profile[0] }}
+      PROFILE: ${{ matrix.profile[0] }}
+      ELIXIR: ${{ matrix.profile[1] == 'elixir' && 'yes' || 'no' }}
+      ARCH: ${{ matrix.profile[2] == 'x64' && 'amd64' || 'arm64' }}
+      BUILDER_SYSTEM: force_docker
 
     strategy:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "26.2.5-2", "ubuntu22.04", "elixir", "x64"]
-          - ["emqx", "26.2.5-2", "ubuntu22.04", "elixir", "arm64"]
-          - ["emqx-enterprise", "26.2.5-2", "ubuntu22.04", "erlang", "x64"]
-
-    container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
+          - ["emqx", "elixir", "x64"]
+          - ["emqx", "elixir", "arm64"]
+          - ["emqx-enterprise", "erlang", "x64"]
 
     steps:
     - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       with:
         fetch-depth: 0
-    - name: Work around https://github.com/actions/checkout/issues/766
+    - name: build tgz
       run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
-        echo "CODE_PATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-    - name: build and test tgz package
-      if: matrix.profile[3] == 'erlang'
+        ./scripts/buildx.sh --profile $PROFILE --pkgtype tgz --elixir $ELIXIR --arch $ARCH
+    - name: build pkg
       run: |
-        make ${EMQX_NAME}-tgz
-        ./scripts/pkg-tests.sh ${EMQX_NAME}-tgz
-    - name: build and test deb/rpm packages
-      if: matrix.profile[3] == 'erlang'
-      run: |
-        make ${EMQX_NAME}-pkg
-        ./scripts/pkg-tests.sh ${EMQX_NAME}-pkg
-    - name: build and test tgz package (Elixir)
-      if: matrix.profile[3] == 'elixir'
-      run: |
-        make ${EMQX_NAME}-elixir-tgz
-        ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-tgz
-    - name: build and test deb/rpm packages (Elixir)
-      if: matrix.profile[3] == 'elixir'
-      run: |
-        make ${EMQX_NAME}-elixir-pkg
-        ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
+        ./scripts/buildx.sh --profile $PROFILE --pkgtype pkg --elixir $ELIXIR --arch $ARCH
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
-        name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
+        name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
         path: _packages/${{ matrix.profile[0] }}/*
         retention-days: 7
         compression-level: 0
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
-        name: "${{ matrix.profile[0] }}-schema-dump-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
+        name: "${{ matrix.profile[0] }}-schema-dump-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
         path: |
           scripts/spellcheck
           _build/docgen/${{ matrix.profile[0] }}/schema-en.json
@@ -108,10 +61,8 @@ jobs:
       matrix:
         profile:
         - emqx
-        otp:
-        - ${{ inputs.otp_vsn }}
         os:
-        - macos-14
+        - macos-14-arm64
 
     runs-on: ${{ matrix.os }}
     env:
@@ -119,10 +70,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - name: Set up environment
+      id: env
+      run: |
+        source env.sh
+        echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
-        otp: ${{ matrix.otp }}
+        otp: ${{ steps.env.outputs.OTP_VSN }}
         os: ${{ matrix.os }}
         apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}

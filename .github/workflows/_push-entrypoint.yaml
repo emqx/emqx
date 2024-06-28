@@ -18,13 +18,42 @@ on:
       ref:
         required: false
 
+defaults:
+  run:
+    shell: bash
+
 env:
   IS_CI: 'yes'
 
 jobs:
+  init:
+    runs-on: ubuntu-22.04
+    outputs:
+      BUILDER_VSN: ${{ steps.env.outputs.BUILDER_VSN }}
+      OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
+      ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
+      BUILDER: ${{ steps.env.outputs.BUILDER }}
+      BUILD_FROM: ${{ steps.env.outputs.BUILD_FROM }}
+      RUN_FROM: ${{ steps.env.outputs.BUILD_FROM }}
+    steps:
+      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+        with:
+          ref: ${{ github.event.inputs.ref }}
+      - name: Set up environment
+        id: env
+        run: |
+          source env.sh
+          echo "BUILDER_VSN=$EMQX_BUILDER_VSN" >> "$GITHUB_OUTPUT"
+          echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
+          echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
+          echo "BUILDER=$EMQX_BUILDER" >> "$GITHUB_OUTPUT"
+          echo "BUILD_FROM=$EMQX_DOCKER_BUILD_FROM" >> "$GITHUB_OUTPUT"
+          echo "RUN_FROM=$EMQX_DOCKER_RUN_FROM" >> "$GITHUB_OUTPUT"
+
   prepare:
     runs-on: ubuntu-22.04
-    container: 'ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-ubuntu22.04'
+    needs: init
+    container: ${{ needs.init.outputs.BUILDER }}
     outputs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
       release: ${{ steps.parse-git-ref.outputs.release }}
@@ -32,10 +61,6 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-      builder: 'ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-ubuntu22.04'
-      builder_vsn: '5.3-8'
-      otp_vsn: '26.2.5-2'
-      elixir_vsn: '1.15.7'
 
     permissions:
       contents: read
@@ -62,23 +87,9 @@ jobs:
       - name: Build matrix
         id: matrix
         run: |
-          APPS="$(./scripts/find-apps.sh --ci)"
-          MATRIX="$(echo "${APPS}" | jq -c '
-            [
-              (.[] | select(.profile == "emqx") | . + {
-                builder: "5.3-8",
-                otp: "26.2.5-2",
-                elixir: "1.15.7"
-              }),
-              (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.3-8",
-                otp: ["26.2.5-2"][],
-                elixir: "1.15.7"
-              })
-            ]
-          ')"
+          MATRIX="$(./scripts/find-apps.sh --ci)"
           echo "${MATRIX}" | jq
-          CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile, builder, otp, elixir}) | unique')"
+          CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile}) | unique')"
           CT_HOST="$(echo "${MATRIX}"   | jq -c 'map(select(.runner == "host"))')"
           CT_DOCKER="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "docker"))')"
           echo "ct-matrix=${CT_MATRIX}" | tee -a $GITHUB_OUTPUT
@@ -88,46 +99,44 @@ jobs:
   build_packages:
     if: needs.prepare.outputs.release == 'true'
     needs:
+      - init
       - prepare
     uses: ./.github/workflows/build_packages.yaml
     with:
       profile: ${{ needs.prepare.outputs.profile }}
       publish: true
-      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
-      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+      otp_vsn: ${{ needs.init.outputs.OTP_VSN }}
+      elixir_vsn: ${{ needs.init.outputs.ELIXIR_VSN }}
+      builder_vsn: ${{ needs.init.outputs.BUILDER_VSN }}
     secrets: inherit
 
   build_and_push_docker_images:
     if: needs.prepare.outputs.release == 'true'
     needs:
+      - init
       - prepare
     uses: ./.github/workflows/build_and_push_docker_images.yaml
     with:
       profile: ${{ needs.prepare.outputs.profile }}
       publish: true
       latest: ${{ needs.prepare.outputs.latest }}
-      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
-      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+      build_from: ${{ needs.init.outputs.BUILD_FROM }}
+      run_from: ${{ needs.init.outputs.RUN_FROM }}
     secrets: inherit
 
   build_slim_packages:
     if: needs.prepare.outputs.release != 'true'
     needs:
+      - init
       - prepare
     uses: ./.github/workflows/build_slim_packages.yaml
-    with:
-      builder: ${{ needs.prepare.outputs.builder }}
-      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
-      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
 
   compile:
     if: needs.prepare.outputs.release != 'true'
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
-    container: ${{ needs.prepare.outputs.builder }}
+    container: ${{ needs.init.outputs.BUILDER }}
     needs:
+      - init
       - prepare
     strategy:
       matrix:
@@ -163,22 +172,23 @@ jobs:
 
   run_emqx_app_tests:
     needs:
-      - prepare
+      - init
       - compile
     uses: ./.github/workflows/run_emqx_app_tests.yaml
     with:
-      builder: ${{ needs.prepare.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
       before_ref: ${{ github.event.before }}
       after_ref: ${{ github.sha }}
 
   run_test_cases:
     if: needs.prepare.outputs.release != 'true'
     needs:
+      - init
       - prepare
       - compile
     uses: ./.github/workflows/run_test_cases.yaml
     with:
-      builder: ${{ needs.prepare.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
       ct-host: ${{ needs.prepare.outputs.ct-host }}
       ct-docker: ${{ needs.prepare.outputs.ct-docker }}
@@ -186,18 +196,20 @@ jobs:
   run_conf_tests:
     if: needs.prepare.outputs.release != 'true'
     needs:
+      - init
       - prepare
       - compile
     uses: ./.github/workflows/run_conf_tests.yaml
     with:
-      builder: ${{ needs.prepare.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
 
   static_checks:
     if: needs.prepare.outputs.release != 'true'
     needs:
+      - init
       - prepare
       - compile
     uses: ./.github/workflows/static_checks.yaml
     with:
-      builder: ${{ needs.prepare.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}

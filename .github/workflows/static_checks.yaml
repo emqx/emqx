@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(inputs.ct-matrix) }}
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
+    container: "${{ inputs.builder }}"
     steps:
       - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
@@ -39,10 +39,10 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
-          path: "emqx_dialyzer_${{ matrix.otp }}_plt"
-          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}
+          path: "emqx_dialyzer_${{ matrix.profile }}_plt"
+          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}
           restore-keys: |
-            rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-
+            rebar3-dialyzer-plt-${{ matrix.profile }}-
       - run: cat .env | tee -a $GITHUB_ENV
       - name: run static checks
         run: make static_checks
