@@ -9,4 +9,34 @@ user_id_type.desc:
 user_id_type.label:
 """Authentication ID Type"""
 
+bootstrap_file.desc:
+"""The bootstrap file imports users into the built-in database.
+The file content format is determined by `bootstrap_type`.
+Remove the item from the bootstrap file when you have made changes in other way,
+otherwise, after restarting, the bootstrap item will be overridden again."""
+
+bootstrap_file.label:
+"""Bootstrap File Path"""
+
+bootstrap_type.desc:
+"""Specify which type of content the bootstrap file has.
+
+- **`plain`**:
+  - Expected data fields: `user_id`, `password`, `is_superuser`
+  - `user_id`: Can be Client ID or username, depending on built-in database authentication's `user_id_type` config.
+  - `password`: User's plaintext password.
+  - `is_superuser`: Boolean, user's administrative status.
+
+- **`hash`**:
+  - Expected data fields: `user_id`,`password_hash`,`salt`,`is_superuser`
+  - Definitions similar to `plain` type, with `password_hash` and `salt` added for security.
+
+The content can be either in CSV, or JSON format.
+
+Here is a CSV example: `user_id,password_hash,salt,is_superuser\nmy_user,b6c743545a7817ae8c8f624371d5f5f0373234bb0ff36b8ffbf19bce0e06ab75,de1024f462fb83910fd13151bd4bd235,true`
+
+And JSON content should be decoded into an array of objects, for example: `[{"user_id": "my_user","password": "s3cr3tp@ssw0rd","is_superuser": true}]`.
+
+The hash string for `password_hash` depends on how `password_hash_algorithm` is configured for the built-in database authentication mechanism. For example, if it's configured as `password_hash_algorithm {name = sha256, salt_position = suffix}`, then the salt is appended to the password before hashed. Here is the equivalent Python expression: `hashlib.sha256(password + salt).hexdigest()`."""
+
 }
