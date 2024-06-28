@@ -540,7 +540,7 @@ update_stream_progresses(
     }.
 
 clean_revoked_streams(
-    Data0, #{revoked_streams := RevokedStreams0} = AgentState0, ReceivedStreamProgresses
+    Data0, _Agent, #{revoked_streams := RevokedStreams0} = AgentState0, ReceivedStreamProgresses
 ) ->
     FinishedReportedStreams = maps:from_list(
         lists:filtermap(
@@ -569,13 +569,7 @@ clean_revoked_streams(
     {AgentState1, Data1}.
 
 unassign_streams(#{stream_owners := StreamOwners0} = Data, Streams) ->
-    StreamOwners1 = lists:foldl(
-        fun(Stream, StreamOwnersAcc) ->
-            maps:remove(Stream, StreamOwnersAcc)
-        end,
-        StreamOwners0,
-        Streams
-    ),
+    StreamOwners1 = maps:without(Streams, StreamOwners0),
     Data#{
         stream_owners => StreamOwners1
     }.
@@ -591,7 +585,9 @@ update_agent_stream_states(Data0, Agent, AgentStreamProgresses, VersionOld, Vers
             %% Client started updating
             Data1 = update_stream_progresses(Data0, Agent, AgentStreamProgresses),
             AgentState1 = update_agent_timeout(AgentState0),
-            {AgentState2, Data2} = clean_revoked_streams(Data1, AgentState1, AgentStreamProgresses),
+            {AgentState2, Data2} = clean_revoked_streams(
+                Data1, Agent, AgentState1, AgentStreamProgresses
+            ),
             AgentState3 =
                 case AgentState2 of
                     #{revoked_streams := []} ->
@@ -603,7 +599,9 @@ update_agent_stream_states(Data0, Agent, AgentStreamProgresses, VersionOld, Vers
         {?updating, AgentPrevVersion, AgentVersion} ->
             Data1 = update_stream_progresses(Data0, Agent, AgentStreamProgresses),
             AgentState1 = update_agent_timeout(AgentState0),
-            {AgentState2, Data2} = clean_revoked_streams(Data1, AgentState1, AgentStreamProgresses),
+            {AgentState2, Data2} = clean_revoked_streams(
+                Data1, Agent, AgentState1, AgentStreamProgresses
+            ),
             AgentState3 =
                 case AgentState2 of
                     #{revoked_streams := []} ->
