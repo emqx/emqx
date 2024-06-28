@@ -63,6 +63,8 @@
 
 -type emqx_admin() :: #?ADMIN{}.
 
+-define(USERNAME_ALREADY_EXISTS_ERROR, <<"username_already_exists">>).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -214,7 +216,7 @@ add_user_(Username, Password, Role, Desc) ->
                 username => Username,
                 role => Role
             }),
-            mnesia:abort(<<"username_already_exist">>)
+            mnesia:abort(?USERNAME_ALREADY_EXISTS_ERROR)
     end.
 
 -spec remove_user(dashboard_username()) -> {ok, any()} | {error, any()}.
@@ -411,8 +413,16 @@ add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY
     {ok, empty};
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
-        [] -> do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>);
-        _ -> {ok, default_user_exists}
+        [] ->
+            case do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>) of
+                {error, ?USERNAME_ALREADY_EXISTS_ERROR} ->
+                    %% race condition: multiple nodes booting at the same time?
+                    {ok, default_user_exists};
+                Res ->
+                    Res
+            end;
+        _ ->
+            {ok, default_user_exists}
     end.
 
 %% ensure the `role` is correct when it is directly read from the table
