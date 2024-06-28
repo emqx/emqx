@@ -152,7 +152,7 @@ to_map(_S, _SharedSubS) ->
 stream_progresses(S) ->
     fold_shared_stream_states(
         fun(TopicFilter, Stream, SRS, Acc) ->
-            #srs{it_begin = BeginIt} = SRS,
+            #srs{it_end = EndIt} = SRS,
 
             case is_stream_fully_acked(S, SRS) of
                 true ->
@@ -161,7 +161,7 @@ stream_progresses(S) ->
                     StreamProgress = #{
                         topic_filter => TopicFilter,
                         stream => Stream,
-                        iterator => BeginIt,
+                        iterator => EndIt,
                         use_finished => is_use_finished(S, SRS)
                     },
                     [StreamProgress | Acc];

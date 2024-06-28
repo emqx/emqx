@@ -10,7 +10,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
 all() ->
@@ -184,6 +183,89 @@ t_graceful_disconnect(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
+t_intensive_reassign(_Config) ->
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr8/topic8/#">>, 1),
+
+    ct:sleep(1000),
+
+    NPubs = 10_000,
+
+    Topics = [<<"topic8/1">>, <<"topic8/2">>, <<"topic8/3">>],
+    ok = publish_n(ConnPub, Topics, 1, NPubs),
+
+    Self = self(),
+    _ = spawn_link(fun() ->
+        ok = publish_n(ConnPub, Topics, NPubs + 1, 2 * NPubs),
+        Self ! publish_done
+    end),
+
+    ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
+    ConnShared3 = emqtt_connect_sub(<<"client_shared3">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr8/topic8/#">>, 1),
+    {ok, _, _} = emqtt:subscribe(ConnShared3, <<"$share/gr8/topic8/#">>, 1),
+
+    receive
+        publish_done -> ok
+    end,
+
+    Pubs = drain_publishes(),
+
+    ClientByBid = fun(Pid) ->
+        case Pid of
+            ConnShared1 -> <<"client_shared1">>;
+            ConnShared2 -> <<"client_shared2">>;
+            ConnShared3 -> <<"client_shared3">>
+        end
+    end,
+
+    Messages = lists:foldl(
+        fun(#{payload := Payload, client_pid := Pid}, Acc) ->
+            maps:update_with(
+                binary_to_integer(Payload),
+                fun(Clients) ->
+                    [ClientByBid(Pid) | Clients]
+                end,
+                [ClientByBid(Pid)],
+                Acc
+            )
+        end,
+        #{},
+        Pubs
+    ),
+
+    Missing = lists:filter(
+        fun(N) -> not maps:is_key(N, Messages) end,
+        lists:seq(1, 2 * NPubs)
+    ),
+    Duplicate = lists:filtermap(
+        fun(N) ->
+            case Messages of
+                #{N := [_]} -> false;
+                #{N := [_ | _] = Clients} -> {true, {N, Clients}};
+                _ -> false
+            end
+        end,
+        lists:seq(1, 2 * NPubs)
+    ),
+
+    ?assertEqual(
+        [],
+        Missing
+    ),
+
+    ?assertEqual(
+        [],
+        Duplicate
+    ),
+
+    ok = emqtt:disconnect(ConnShared1),
+    ok = emqtt:disconnect(ConnShared2),
+    ok = emqtt:disconnect(ConnShared3),
+    ok = emqtt:disconnect(ConnPub).
+
 t_lease_reconnect(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -265,3 +347,20 @@ terminate_leaders() ->
     ok = supervisor:terminate_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_leader_sup),
     {ok, _} = supervisor:restart_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_leader_sup),
     ok.
+
+publish_n(_Conn, _Topics, From, To) when From > To ->
+    ok;
+publish_n(Conn, [Topic | RestTopics], From, To) ->
+    {ok, _} = emqtt:publish(Conn, Topic, integer_to_binary(From), 1),
+    publish_n(Conn, RestTopics ++ [Topic], From + 1, To).
+
+drain_publishes() ->
+    drain_publishes([]).
+
+drain_publishes(Acc) ->
+    receive
+        {publish, Msg} ->
+            drain_publishes([Msg | Acc])
+    after 5_000 ->
+        lists:reverse(Acc)
+    end.
