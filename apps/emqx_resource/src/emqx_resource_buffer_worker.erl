@@ -1401,16 +1401,26 @@ apply_query_fun(
                 query_opts => QueryOpts,
                 min_query => minimize(Query)
             },
+            IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
             IsRetriable = false,
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
             case pre_query_channel_check(Request, Channels, QueryOpts) of
                 ok ->
-                    Result = Mod:on_query_async(
-                        extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
-                    ),
-                    {async_return, Result};
+                    case
+                        Mod:on_query_async(
+                            extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
+                        )
+                    of
+                        {error, _} = Error when IsSimpleQuery ->
+                            %% If this callback returns error, we assume it won't reply
+                            %% anything else and won't retry.
+                            maybe_reply_to(Error, QueryOpts),
+                            Error;
+                        Result ->
+                            {async_return, Result}
+                    end;
                 Error ->
                     maybe_reply_to(Error, QueryOpts)
             end
@@ -1480,16 +1490,26 @@ apply_query_fun(
             Requests = lists:map(
                 fun(?QUERY(_ReplyTo, Request, _, _ExpireAt, _TraceCtx)) -> Request end, Batch
             ),
+            IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
             IsRetriable = false,
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
             case pre_query_channel_check(FirstRequest, Channels, QueryOpts) of
                 ok ->
-                    Result = Mod:on_batch_query_async(
-                        extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
-                    ),
-                    {async_return, Result};
+                    case
+                        Mod:on_batch_query_async(
+                            extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
+                        )
+                    of
+                        {error, _} = Error when IsSimpleQuery ->
+                            %% If this callback returns error, we assume it won't reply
+                            %% anything else and won't retry.
+                            maybe_reply_to(Error, QueryOpts),
+                            Error;
+                        Result ->
+                            {async_return, Result}
+                    end;
                 Error ->
                     maybe_reply_to(Error, QueryOpts)
             end

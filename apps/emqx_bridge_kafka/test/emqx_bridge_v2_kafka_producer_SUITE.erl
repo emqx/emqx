@@ -142,6 +142,9 @@ check_send_message_with_bridge(BridgeName) ->
     check_kafka_message_payload(Offset, Payload).
 
 send_message(ActionName) ->
+    send_message(?TYPE, ActionName).
+
+send_message(Type, ActionName) ->
     %% ######################################
     %% Create Kafka message
     %% ######################################
@@ -157,8 +160,8 @@ send_message(ActionName) ->
     %% ######################################
     %% Send message
     %% ######################################
-    emqx_bridge_v2:send_message(?TYPE, ActionName, Msg, #{}),
-    #{offset => Offset, payload => Payload}.
+    Res = emqx_bridge_v2:send_message(Type, ActionName, Msg, #{}),
+    #{offset => Offset, payload => Payload, result => Res}.
 
 resolve_kafka_offset() ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
@@ -284,6 +287,21 @@ action_api_spec_props_for_get() ->
     } =
         emqx_bridge_v2_testlib:actions_api_spec_schemas(),
     Props.
+
+assert_status_api(Line, Type, Name, Status) ->
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"status">> := Status,
+                <<"node_status">> := [#{<<"status">> := Status}]
+            }}},
+        emqx_bridge_v2_testlib:get_bridge_api(Type, Name),
+        #{line => Line, name => Name, expected_status => Status}
+    ).
+-define(assertStatusAPI(TYPE, NAME, STATUS), assert_status_api(?LINE, TYPE, NAME, STATUS)).
+
+get_rule_metrics(RuleId) ->
+    emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -660,5 +678,206 @@ t_ancient_v1_config_migration_without_local_topic(Config) ->
     ?assertMatch(
         [#{type := <<"kafka_producer">>}],
         erpc:call(Node, fun emqx_bridge_v2:list/0)
+    ),
+    ok.
+
+%% Checks that, if Kafka raises `invalid_partition_count' error, we bump the corresponding
+%% failure rule action metric.
+t_invalid_partition_count_metrics(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionName = <<"a">>,
+            ActionParams = [
+                {action_config, ActionConfig1},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            RuleTopic = <<"t/a">>,
+            {ok, #{<<"id">> := RuleId}} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+                    {bridge_name, ActionName}
+                ]),
+
+            {ok, C} = emqtt:start_link([]),
+            {ok, _} = emqtt:connect(C),
+
+            %%--------------------------------------------
+            ?tp(notice, "sync", #{}),
+            %%--------------------------------------------
+            %% Artificially force sync query to be used; otherwise, it's only used when the
+            %% resource is blocked and retrying.
+            ok = meck:new(emqx_bridge_kafka_impl_producer, [passthrough, no_history]),
+            on_exit(fun() -> catch meck:unload() end),
+            ok = meck:expect(emqx_bridge_kafka_impl_producer, query_mode, 1, simple_sync),
+
+            %% Simulate `invalid_partition_count'
+            emqx_common_test_helpers:with_mock(
+                wolff,
+                send_sync,
+                fun(_Producers, _Msgs, _Timeout) ->
+                    error({invalid_partition_count, 0, partitioner})
+                end,
+                fun() ->
+                    {{ok, _}, {ok, _}} =
+                        ?wait_async_action(
+                            emqtt:publish(C, RuleTopic, <<"hi">>, 2),
+                            #{
+                                ?snk_kind := "kafka_producer_invalid_partition_count",
+                                query_mode := sync
+                            }
+                        ),
+                    ?assertMatch(
+                        #{
+                            counters := #{
+                                'actions.total' := 1,
+                                'actions.failed' := 1
+                            }
+                        },
+                        get_rule_metrics(RuleId)
+                    ),
+                    ok
+                end
+            ),
+
+            %%--------------------------------------------
+            %% Same thing, but async call
+            ?tp(notice, "async", #{}),
+            %%--------------------------------------------
+            ok = meck:expect(
+                emqx_bridge_kafka_impl_producer,
+                query_mode,
+                fun(Conf) -> meck:passthrough([Conf]) end
+            ),
+            ok = emqx_bridge_v2:remove(actions, Type, ActionName),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(
+                    ActionParams,
+                    #{<<"parameters">> => #{<<"query_mode">> => <<"async">>}}
+                ),
+
+            %% Simulate `invalid_partition_count'
+            emqx_common_test_helpers:with_mock(
+                wolff,
+                send,
+                fun(_Producers, _Msgs, _Timeout) ->
+                    error({invalid_partition_count, 0, partitioner})
+                end,
+                fun() ->
+                    {{ok, _}, {ok, _}} =
+                        ?wait_async_action(
+                            emqtt:publish(C, RuleTopic, <<"hi">>, 2),
+                            #{?snk_kind := "rule_engine_applied_all_rules"}
+                        ),
+                    ?assertMatch(
+                        #{
+                            counters := #{
+                                'actions.total' := 2,
+                                'actions.failed' := 2
+                            }
+                        },
+                        get_rule_metrics(RuleId)
+                    ),
+                    ok
+                end
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{query_mode := sync}, #{query_mode := async} | _],
+                ?of_kind("kafka_producer_invalid_partition_count", Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+%% Tests that deleting/disabling an action that share the same Kafka topic with other
+%% actions do not disturb the latter.
+t_multiple_actions_sharing_topic(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionConfig = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ?check_trace(
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionName1 = <<"a1">>,
+            ActionParams1 = [
+                {action_config, ActionConfig},
+                {action_name, ActionName1},
+                {action_type, Type}
+            ],
+            ActionName2 = <<"a2">>,
+            ActionParams2 = [
+                {action_config, ActionConfig},
+                {action_name, ActionName2},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams1),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams2),
+            RuleTopic = <<"t/a2">>,
+            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, Config),
+
+            ?assertStatusAPI(Type, ActionName1, <<"connected">>),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+
+            %% Disabling a1 shouldn't disturb a2.
+            ?assertMatch(
+                {204, _}, emqx_bridge_v2_testlib:disable_kind_api(action, Type, ActionName1)
+            ),
+
+            ?assertStatusAPI(Type, ActionName1, <<"disconnected">>),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+
+            ?assertMatch(#{result := ok}, send_message(Type, ActionName2)),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:enable_kind_api(action, Type, ActionName1)
+            ),
+            ?assertStatusAPI(Type, ActionName1, <<"connected">>),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+            ?assertMatch(#{result := ok}, send_message(Type, ActionName2)),
+
+            %% Deleting also shouldn't disrupt a2.
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:delete_kind_api(action, Type, ActionName1)
+            ),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+            ?assertMatch(#{result := ok}, send_message(Type, ActionName2)),
+
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("kafka_producer_invalid_partition_count", Trace)),
+            ok
+        end
     ),
     ok.
