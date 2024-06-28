@@ -244,8 +244,9 @@ leader_invalidate(ToAgent, OfGroup) ->
 %% Internal API
 %%--------------------------------------------------------------------
 
-agent(_Id, Pid) ->
-    ?agent(_Id, Pid).
+agent(Id, Pid) ->
+    _ = Id,
+    ?agent(Id, Pid).
 
 format_streams(Streams) ->
     lists:map(

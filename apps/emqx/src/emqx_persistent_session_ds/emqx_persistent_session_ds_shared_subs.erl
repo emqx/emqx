@@ -364,7 +364,7 @@ agent_opts(#{session_id := SessionId}) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-is_use_finished(S, #srs{unsubscribed = Unsubscribed}) ->
+is_use_finished(_S, #srs{unsubscribed = Unsubscribed}) ->
     Unsubscribed.
 
 is_stream_fully_acked(S, SRS) ->
