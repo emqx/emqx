@@ -40,7 +40,7 @@
 -type agent_state() :: #{
     %% Our view of group gm's status
     %% it lags the actual state
-    state := emqx_ds_shared_sub_agent:status(),
+    state := ?waiting_replaying | ?replaying | ?waiting_updating | ?updating,
     prev_version := emqx_maybe:t(emqx_ds_shared_sub_proto:version()),
     version := emqx_ds_shared_sub_proto:version(),
     agent_metadata := emqx_ds_shared_sub_proto:agent_metadata(),
