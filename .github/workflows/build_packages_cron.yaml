@@ -16,18 +16,21 @@ jobs:
   linux:
     if: github.repository_owner == 'emqx'
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
-    container:
-      image: "ghcr.io/emqx/emqx-builder/${{ matrix.profile[2] }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
       matrix:
         profile:
-          - ['emqx', 'master', '5.3-9:1.15.7-26.2.5-3']
-          - ['emqx', 'release-57', '5.3-9:1.15.7-26.2.5-3']
+          - ['emqx', 'master']
+          - ['emqx', 'release-57']
         os:
           - ubuntu22.04
           - amzn2023
+
+    env:
+      PROFILE: ${{ matrix.profile[0] }}
+      OS: ${{ matrix.os }}
+      BUILDER_SYSTEM: force_docker
 
     defaults:
       run:
@@ -38,34 +41,19 @@ jobs:
         with:
           ref: ${{ matrix.profile[1] }}
           fetch-depth: 0
-
-      - name: fix workdir
+      - name: Set up environment
+        id: env
         run: |
-          set -eu
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # Align path for CMake caches
-          if [ ! "$PWD" = "/emqx" ]; then
-            ln -s $PWD /emqx
-            cd /emqx
-          fi
-          echo "pwd is $PWD"
-
-      - name: build emqx packages
-        env:
-          PROFILE: ${{ matrix.profile[0] }}
-          ACLOCAL_PATH: "/usr/share/aclocal:/usr/local/share/aclocal"
+          source env.sh
+          BUILDER="ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-${OTP_VSN}-${OS}"
+          echo "BUILDER=$BUILDER" >> "$GITHUB_ENV"
+      - name: build tgz
         run: |
-          set -eu
-          make "${PROFILE}-tgz"
-          make "${PROFILE}-pkg"
-      - name: test emqx packages
-        env:
-          PROFILE: ${{ matrix.profile[0] }}
+          ./scripts/buildx.sh --profile "$PROFILE" --pkgtype tgz --builder "$BUILDER"
+      - name: build pkg
         run: |
-          set -eu
-          ./scripts/pkg-tests.sh "${PROFILE}-tgz"
-          ./scripts/pkg-tests.sh "${PROFILE}-pkg"
-      - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+          ./scripts/buildx.sh --profile "$PROFILE" --pkgtype pkg --builder "$BUILDER"
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         if: success()
         with:
           name: ${{ matrix.profile[0] }}-${{ matrix.os }}-${{ github.ref_name }}
@@ -91,20 +79,23 @@ jobs:
           - emqx
         branch:
           - master
-        otp:
-          - 26.2.5-3
         os:
-          - macos-12-arm64
+          - macos-14-arm64
 
     steps:
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
         with:
           ref: ${{ matrix.branch }}
           fetch-depth: 0
+      - name: Set up environment
+        id: env
+        run: |
+          source env.sh
+          echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/package-macos
         with:
           profile: ${{ matrix.profile }}
-          otp: ${{ matrix.otp }}
+          otp: ${{ steps.env.outputs.OTP_VSN }}
           os: ${{ matrix.os }}
           apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
           apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}

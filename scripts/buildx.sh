@@ -8,8 +8,7 @@
 ## i.e. will not work if docker command has to be executed with sudo
 
 ## example:
-## ./scripts/buildx.sh --profile emqx --pkgtype tgz --arch arm64 \
-##     --builder ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-debian12
+## ./scripts/buildx.sh --profile emqx --pkgtype tgz
 
 set -euo pipefail
 
@@ -17,14 +16,14 @@ help() {
     echo
     echo "-h|--help:                 To display this usage information"
     echo "--profile <PROFILE>:       EMQX profile to build (emqx|emqx-enterprise)"
-    echo "--pkgtype tgz|pkg:         Specify which package to build, tgz for .tar.gz,"
-    echo "                           pkg for .rpm or .deb"
+    echo "--pkgtype tgz|pkg|rel:     Specify which package to build, tgz for .tar.gz,"
+    echo "                           pkg for .rpm or .deb, rel for release only"
     echo "--elixir:                  Specify if the release should be built with Elixir, "
     echo "                           defaults to 'no'."
     echo "--arch amd64|arm64:        Target arch to build the EMQX package for"
     echo "--src_dir <SRC_DIR>:       EMQX source code in this dir, default to PWD"
-    echo "--builder <BUILDER>:       Builder image to pull"
-    echo "                           E.g. ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-debian12"
+    echo "--builder <BUILDER>:       Docker image to use for building"
+    echo "                           E.g. ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-debian12"
 }
 
 die() {
@@ -33,6 +32,11 @@ die() {
     help
     exit 1
 }
+
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+# shellcheck disable=SC1091
+source ./env.sh
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -53,7 +57,7 @@ while [ "$#" -gt 0 ]; do
         shift 2
         ;;
     --builder)
-        BUILDER="$2"
+        EMQX_BUILDER="$2"
         shift 2
         ;;
     --arch)
@@ -103,11 +107,8 @@ ARCH="${ARCH:-${NATIVE_ARCH:-}}"
 
 [ -z "${PROFILE:-}" ] && die "missing --profile"
 [ -z "${PKGTYPE:-}" ] && die "missing --pkgtype"
-[ -z "${BUILDER:-}" ] && die "missing --builder"
+[ -z "${EMQX_BUILDER:-}" ] && die "missing --builder"
 [ -z "${ARCH:-}" ] && die "missing --arch"
-
-# ensure dir
-cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 set -x
 
@@ -115,12 +116,12 @@ if [ -z "${IS_ELIXIR:-}" ]; then
   IS_ELIXIR=no
 fi
 
-case "$PKGTYPE" in
-  tgz|pkg)
+case "${PKGTYPE:-}" in
+  tgz|pkg|rel)
     true
     ;;
   *)
-    echo "Bad --pkgtype option, should be tgz or pkg"
+    echo "Bad --pkgtype option, should be tgz, pkg or rel"
     exit 1
     ;;
 esac
@@ -135,9 +136,13 @@ else
 fi
 
 HOST_SYSTEM="$(./scripts/get-distro.sh)"
-BUILDER_SYSTEM="${BUILDER_SYSTEM:-$(echo "$BUILDER" | awk -F'-' '{print $NF}')}"
+BUILDER_SYSTEM="${BUILDER_SYSTEM:-$(echo "$EMQX_BUILDER" | awk -F'-' '{print $NF}')}"
 
-CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
+if [ "${PKGTYPE}" != 'rel' ]; then
+  CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
+else
+  CMD_RUN="make ${MAKE_TARGET}"
+fi
 
 IS_NATIVE_SYSTEM='no'
 if [[ "$BUILDER_SYSTEM" != "force_docker" ]]; then
@@ -163,7 +168,7 @@ elif docker info; then
         --workdir /emqx \
         --platform="linux/$ARCH" \
         --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
-        "$BUILDER" \
+        "$EMQX_BUILDER" \
         bash -euc "git config --global --add safe.directory /emqx && $CMD_RUN"
 else
     echo "Error: Docker not available on unsupported platform"

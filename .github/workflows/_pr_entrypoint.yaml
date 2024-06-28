@@ -11,23 +11,42 @@ on:
       ref:
         required: false
 
+defaults:
+  run:
+    shell: bash
+
 env:
   IS_CI: "yes"
 
 jobs:
+  init:
+    runs-on: ubuntu-22.04
+    outputs:
+      BUILDER_VSN: ${{ steps.env.outputs.BUILDER_VSN }}
+      OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
+      ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
+      BUILDER: ${{ steps.env.outputs.BUILDER }}
+    steps:
+      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+        with:
+          ref: ${{ github.event.inputs.ref }}
+      - name: Set up environment
+        id: env
+        run: |
+          source ./env.sh
+          echo "BUILDER_VSN=$EMQX_BUILDER_VSN" | tee -a "$GITHUB_OUTPUT"
+          echo "OTP_VSN=$OTP_VSN" | tee -a "$GITHUB_OUTPUT"
+          echo "ELIXIR_VSN=$ELIXIR_VSN" | tee -a "$GITHUB_OUTPUT"
+          echo "BUILDER=$EMQX_BUILDER" | tee -a "$GITHUB_OUTPUT"
+
   sanity-checks:
     runs-on: ubuntu-22.04
-    container: "ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-ubuntu22.04"
+    needs: init
+    container: ${{ needs.init.outputs.BUILDER }}
     outputs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-      version-emqx: ${{ steps.matrix.outputs.version-emqx }}
-      version-emqx-enterprise: ${{ steps.matrix.outputs.version-emqx-enterprise }}
-      builder: "ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-ubuntu22.04"
-      builder_vsn: "5.3-9"
-      otp_vsn: "26.2.5-3"
-      elixir_vsn: "1.15.7"
 
     permissions:
       contents: read
@@ -92,35 +111,20 @@ jobs:
       - name: Generate CT Matrix
         id: matrix
         run: |
-          APPS="$(./scripts/find-apps.sh --ci)"
-          MATRIX="$(echo "${APPS}" | jq -c '
-            [
-              (.[] | select(.profile == "emqx") | . + {
-                builder: "5.3-9",
-                otp: "26.2.5-3",
-                elixir: "1.15.7"
-              }),
-              (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.3-9",
-                otp: ["26.2.5-3"][],
-                elixir: "1.15.7"
-              })
-            ]
-          ')"
+          MATRIX="$(./scripts/find-apps.sh --ci)"
           echo "${MATRIX}" | jq
-          CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile, builder, otp, elixir}) | unique')"
+          CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile}) | unique')"
           CT_HOST="$(echo "${MATRIX}"   | jq -c 'map(select(.runner == "host"))')"
           CT_DOCKER="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "docker"))')"
           echo "ct-matrix=${CT_MATRIX}" | tee -a $GITHUB_OUTPUT
           echo "ct-host=${CT_HOST}"     | tee -a $GITHUB_OUTPUT
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
-          echo "version-emqx=$(./pkg-vsn.sh emqx)" | tee -a $GITHUB_OUTPUT
-          echo "version-emqx-enterprise=$(./pkg-vsn.sh emqx-enterprise)" | tee -a $GITHUB_OUTPUT
 
   compile:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral-xl","linux","x64"]') }}
-    container: ${{ needs.sanity-checks.outputs.builder }}
+    container: ${{ needs.init.outputs.BUILDER }}
     needs:
+      - init
       - sanity-checks
     strategy:
       matrix:
@@ -156,53 +160,47 @@ jobs:
 
   run_emqx_app_tests:
     needs:
+      - init
       - sanity-checks
       - compile
     uses: ./.github/workflows/run_emqx_app_tests.yaml
     with:
-      builder: ${{ needs.sanity-checks.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
       before_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
       after_ref: ${{ github.sha }}
 
   run_test_cases:
     needs:
+      - init
       - sanity-checks
       - compile
     uses: ./.github/workflows/run_test_cases.yaml
     with:
-      builder: ${{ needs.sanity-checks.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
       ct-host: ${{ needs.sanity-checks.outputs.ct-host }}
       ct-docker: ${{ needs.sanity-checks.outputs.ct-docker }}
 
   static_checks:
     needs:
+      - init
       - sanity-checks
       - compile
     uses: ./.github/workflows/static_checks.yaml
     with:
-      builder: ${{ needs.sanity-checks.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
 
   build_slim_packages:
     needs:
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
-    with:
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-      builder_vsn: ${{ needs.sanity-checks.outputs.builder_vsn }}
-      otp_vsn: ${{ needs.sanity-checks.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.sanity-checks.outputs.elixir_vsn }}
 
   build_docker_for_test:
     needs:
+      - init
       - sanity-checks
     uses: ./.github/workflows/build_docker_for_test.yaml
-    with:
-      otp_vsn: ${{ needs.sanity-checks.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.sanity-checks.outputs.elixir_vsn }}
-      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
-      version-emqx-enterprise: ${{ needs.sanity-checks.outputs.version-emqx-enterprise }}
 
   spellcheck:
     needs:
@@ -212,41 +210,35 @@ jobs:
 
   run_conf_tests:
     needs:
+      - init
       - sanity-checks
       - compile
     uses: ./.github/workflows/run_conf_tests.yaml
     with:
-      builder: ${{ needs.sanity-checks.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
 
   check_deps_integrity:
     needs:
+      - init
       - sanity-checks
     uses: ./.github/workflows/check_deps_integrity.yaml
     with:
-      builder: ${{ needs.sanity-checks.outputs.builder }}
+      builder: ${{ needs.init.outputs.BUILDER }}
 
   run_jmeter_tests:
     needs:
       - sanity-checks
       - build_docker_for_test
     uses: ./.github/workflows/run_jmeter_tests.yaml
-    with:
-      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
 
   run_docker_tests:
     needs:
       - sanity-checks
       - build_docker_for_test
     uses: ./.github/workflows/run_docker_tests.yaml
-    with:
-      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
-      version-emqx-enterprise: ${{ needs.sanity-checks.outputs.version-emqx-enterprise }}
 
   run_helm_tests:
     needs:
       - sanity-checks
       - build_docker_for_test
     uses: ./.github/workflows/run_helm_tests.yaml
-    with:
-      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
-      version-emqx-enterprise: ${{ needs.sanity-checks.outputs.version-emqx-enterprise }}

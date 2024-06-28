@@ -12,11 +12,9 @@ if ! type "yq" > /dev/null; then
     exit 1
 fi
 
-EMQX_BUILDER_VERSION=${EMQX_BUILDER_VERSION:-5.3-9}
-OTP_VSN=${OTP_VSN:-26.2.5-3}
-ELIXIR_VSN=${ELIXIR_VSN:-1.15.7}
-EMQX_BUILDER_PLATFORM=${EMQX_BUILDER_PLATFORM:-ubuntu22.04}
-EMQX_BUILDER=${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VERSION}:${ELIXIR_VSN}-${OTP_VSN}-${EMQX_BUILDER_PLATFORM}}
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+# shellcheck disable=SC1091
+source ./env.sh
 
 commands=$(yq ".jobs.sanity-checks.steps[].run" .github/workflows/_pr_entrypoint.yaml | grep -v null)
 

@@ -2,10 +2,6 @@ name: JMeter integration tests
 
 on:
   workflow_call:
-    inputs:
-      version-emqx:
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -55,10 +51,23 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
-    - uses: ./.github/actions/prepare-jmeter
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - name: Set up environment
+      id: env
+      run: |
+        source env.sh
+        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
+        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
+    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
       with:
-        version-emqx: ${{ inputs.version-emqx }}
+        name: emqx-docker
+        path: /tmp
+    - name: load docker image
+      shell: bash
+      run: |
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+    - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
       timeout-minutes: 5
       run: |
@@ -111,10 +120,23 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
-    - uses: ./.github/actions/prepare-jmeter
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - name: Set up environment
+      id: env
+      run: |
+        source env.sh
+        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
+        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
+    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
       with:
-        version-emqx: ${{ inputs.version-emqx }}
+        name: emqx-docker
+        path: /tmp
+    - name: load docker image
+      shell: bash
+      run: |
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+    - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
       timeout-minutes: 5
       env:
@@ -175,10 +197,23 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
-    - uses: ./.github/actions/prepare-jmeter
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - name: Set up environment
+      id: env
+      run: |
+        source env.sh
+        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
+        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
+    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
       with:
-        version-emqx: ${{ inputs.version-emqx }}
+        name: emqx-docker
+        path: /tmp
+    - name: load docker image
+      shell: bash
+      run: |
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+    - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
       timeout-minutes: 5
       env:
@@ -231,10 +266,23 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
-    - uses: ./.github/actions/prepare-jmeter
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - name: Set up environment
+      id: env
+      run: |
+        source env.sh
+        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
+        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
+    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
       with:
-        version-emqx: ${{ inputs.version-emqx }}
+        name: emqx-docker
+        path: /tmp
+    - name: load docker image
+      shell: bash
+      run: |
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+    - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
       timeout-minutes: 5
       run: |
@@ -284,10 +332,23 @@ jobs:
 
     needs: jmeter_artifact
     steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
-    - uses: ./.github/actions/prepare-jmeter
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - name: Set up environment
+      id: env
+      run: |
+        source env.sh
+        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
+        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
+    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
       with:
-        version-emqx: ${{ inputs.version-emqx }}
+        name: emqx-docker
+        path: /tmp
+    - name: load docker image
+      shell: bash
+      run: |
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+    - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
       timeout-minutes: 5
       run: |
