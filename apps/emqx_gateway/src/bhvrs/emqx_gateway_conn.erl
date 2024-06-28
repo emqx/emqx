@@ -488,14 +488,12 @@ handle_msg({Closed, _Sock}, State) when
 handle_msg({Passive, _Sock}, State) when
     Passive == tcp_passive; Passive == ssl_passive
 ->
-    %% In Stats
     Bytes = emqx_pd:reset_counter(incoming_bytes),
     Pubs = emqx_pd:reset_counter(incoming_pkt),
-    InStats = #{cnt => Pubs, oct => Bytes},
     %% Ensure Rate Limit
-    NState = ensure_rate_limit(InStats, State),
+    NState = ensure_rate_limit(State),
     %% Run GC and Check OOM
-    NState1 = check_oom(run_gc(InStats, NState)),
+    NState1 = check_oom(run_gc(Pubs, Bytes, NState)),
     handle_info(activate_socket, NState1);
 handle_msg(
     Deliver = {deliver, _Topic, _Msg},
@@ -861,8 +859,7 @@ sent(#state{active_n = ActiveN} = State) ->
         true ->
             Pubs = emqx_pd:reset_counter(outgoing_pkt),
             Bytes = emqx_pd:reset_counter(outgoing_bytes),
-            OutStats = #{cnt => Pubs, oct => Bytes},
-            {ok, check_oom(run_gc(OutStats, State))};
+            {ok, check_oom(run_gc(Pubs, Bytes, State))};
         false ->
             {ok, State}
     end.
@@ -917,14 +914,14 @@ handle_info(Info, State) ->
 %% TODO
 %% Why do we need this?
 %% Why not use the esockd connection limiter (based on emqx_htb_limiter) directly?
-ensure_rate_limit(_Stats, State) ->
+ensure_rate_limit(State) ->
     State.
 
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
 
-run_gc(Stats, State = #state{gc_state = GcSt}) ->
-    case ?ENABLED(GcSt) andalso emqx_gc:run(Stats, GcSt) of
+run_gc(Pubs, Bytes, State = #state{gc_state = GcSt}) ->
+    case ?ENABLED(GcSt) andalso emqx_gc:run(Pubs, Bytes, GcSt) of
         false -> State;
         {_IsGC, GcSt1} -> State#state{gc_state = GcSt1}
     end.

@@ -451,8 +451,8 @@ websocket_info({incoming, Packet}, State) ->
     handle_incoming(Packet, State);
 websocket_info({outgoing, Packets}, State) ->
     return(enqueue(Packets, State));
-websocket_info({check_gc, Stats}, State) ->
-    return(check_oom(run_gc(Stats, State)));
+websocket_info({check_gc, Cnt, Oct}, State) ->
+    return(check_oom(run_gc(Cnt, Oct, State)));
 websocket_info(
     Deliver = {deliver, _Topic, _Msg},
     State = #state{listener = {Type, Listener}}
@@ -691,8 +691,8 @@ when_msg_in(Packets, Msgs, State) ->
 %% Run GC, Check OOM
 %%--------------------------------------------------------------------
 
-run_gc(Stats, State = #state{gc_state = GcSt}) ->
-    case ?ENABLED(GcSt) andalso emqx_gc:run(Stats, GcSt) of
+run_gc(Cnt, Oct, State = #state{gc_state = GcSt}) ->
+    case ?ENABLED(GcSt) andalso emqx_gc:run(Cnt, Oct, GcSt) of
         false -> State;
         {_IsGC, GcSt1} -> State#state{gc_state = GcSt1}
     end.
@@ -805,11 +805,9 @@ handle_outgoing(
                 get_active_n(Type, Listener)
         of
             true ->
-                Stats = #{
-                    cnt => emqx_pd:reset_counter(outgoing_pubs),
-                    oct => emqx_pd:reset_counter(outgoing_bytes)
-                },
-                postpone({check_gc, Stats}, State);
+                Cnt = emqx_pd:reset_counter(outgoing_pubs),
+                Oct = emqx_pd:reset_counter(outgoing_bytes),
+                postpone({check_gc, Cnt, Oct}, State);
             false ->
                 State
         end,
