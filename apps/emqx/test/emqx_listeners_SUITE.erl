@@ -593,7 +593,7 @@ t_quic_update_opts_fail(Config) ->
 
         %% THEN: Reload failed but old listener is rollbacked.
         ?assertMatch(
-            {error, {post_config_update, emqx_listeners, {{rollbacked, {error, tls_error}}, _}}},
+            {error, {post_config_update, emqx_listeners, {rollbacked, {error, tls_error}}}},
             UpdateResult1
         ),
 
