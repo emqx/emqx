@@ -56,7 +56,8 @@
     unload_hooks_for_rule/1,
     maybe_add_metrics_for_rule/1,
     clear_metrics_for_rule/1,
-    reset_metrics_for_rule/1
+    reset_metrics_for_rule/1,
+    reset_metrics_for_rule/2
 ]).
 
 %% exported for `emqx_telemetry'
@@ -302,8 +303,13 @@ maybe_add_metrics_for_rule(Id) ->
 clear_metrics_for_rule(Id) ->
     ok = emqx_metrics_worker:clear_metrics(rule_metrics, Id).
 
+%% Tip: Don't delete reset_metrics_for_rule/1, use before v571 rpc
 -spec reset_metrics_for_rule(rule_id()) -> ok.
 reset_metrics_for_rule(Id) ->
+    reset_metrics_for_rule(Id, #{}).
+
+-spec reset_metrics_for_rule(rule_id(), map()) -> ok.
+reset_metrics_for_rule(Id, _Opts) ->
     emqx_metrics_worker:reset_metrics(rule_metrics, Id).
 
 unload_hooks_for_rule(#{id := Id, from := Topics}) ->

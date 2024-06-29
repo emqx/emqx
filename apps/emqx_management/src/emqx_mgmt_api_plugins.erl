@@ -47,8 +47,10 @@
     get_plugins/0,
     install_package/2,
     delete_package/1,
+    delete_package/2,
     describe_package/1,
     ensure_action/2,
+    ensure_action/3,
     do_update_plugin_config/3
 ]).
 
@@ -399,7 +401,7 @@ validate_name(Name) ->
 %% API CallBack Begin
 list_plugins(get, _) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, []} = emqx_mgmt_api_plugins_proto_v2:get_plugins(Nodes),
+    {Plugins, []} = emqx_mgmt_api_plugins_proto_v3:get_plugins(Nodes),
     {200, format_plugins(Plugins)}.
 
 get_plugins() ->
@@ -451,7 +453,7 @@ upload_install(post, #{}) ->
 do_install_package(FileName, Bin) ->
     %% TODO: handle bad nodes
     Nodes = emqx:running_nodes(),
-    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v2:install_package(Nodes, FileName, Bin),
+    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v3:install_package(Nodes, FileName, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] ->
             {204};
@@ -477,17 +479,17 @@ do_install_package(FileName, Bin) ->
 
 plugin(get, #{bindings := #{name := Name}}) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, _} = emqx_mgmt_api_plugins_proto_v2:describe_package(Nodes, Name),
+    {Plugins, _} = emqx_mgmt_api_plugins_proto_v3:describe_package(Nodes, Name),
     case format_plugins(Plugins) of
         [Plugin] -> {200, Plugin};
         [] -> {404, #{code => 'NOT_FOUND', message => Name}}
     end;
 plugin(delete, #{bindings := #{name := Name}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v2:delete_package(Name),
+    Res = emqx_mgmt_api_plugins_proto_v3:delete_package(Name),
     return(204, Res).
 
 update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v2:ensure_action(Name, Action),
+    Res = emqx_mgmt_api_plugins_proto_v3:ensure_action(Name, Action),
     return(204, Res).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
@@ -583,8 +585,12 @@ describe_package(NameVsn) ->
         _ -> {Node, []}
     end.
 
-%% For RPC plugin delete
+%% Tip: Don't delete delete_package/1, use before v571 cluster_rpc
 delete_package(Name) ->
+    delete_package(Name, #{}).
+
+%% For RPC plugin delete
+delete_package(Name, _Opts) ->
     case emqx_plugins:ensure_stopped(Name) of
         ok ->
             _ = emqx_plugins:ensure_disabled(Name),
@@ -595,19 +601,24 @@ delete_package(Name) ->
             Error
     end.
 
+%% Tip: Don't delete ensure_action/2, use before v571 cluster_rpc
+ensure_action(Name, Action) ->
+    ensure_action(Name, Action, #{}).
+
 %% for RPC plugin update
 %% TODO: catch thrown error to return 400
 %% - plugin_not_found
 %% - otp vsn assertion failed
-ensure_action(Name, start) ->
+
+ensure_action(Name, start, _Opts) ->
     _ = emqx_plugins:ensure_started(Name),
     _ = emqx_plugins:ensure_enabled(Name),
     ok;
-ensure_action(Name, stop) ->
+ensure_action(Name, stop, _Opts) ->
     _ = emqx_plugins:ensure_stopped(Name),
     _ = emqx_plugins:ensure_disabled(Name),
     ok;
-ensure_action(Name, restart) ->
+ensure_action(Name, restart, _Opts) ->
     _ = emqx_plugins:ensure_enabled(Name),
     _ = emqx_plugins:restart(Name),
     ok.
