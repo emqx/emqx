@@ -596,7 +596,7 @@ prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Key
             fun
                 ('+') ->
                     any;
-                (TopicLevel) when is_binary(TopicLevel) ->
+                (TopicLevel) when is_binary(TopicLevel); TopicLevel =:= '' ->
                     {'=', hash_topic_level(TopicLevel)}
             end,
             Varying
@@ -831,6 +831,8 @@ threshold_fun(0) ->
 threshold_fun(_) ->
     20.
 
+hash_topic_level('') ->
+    hash_topic_level(<<>>);
 hash_topic_level(TopicLevel) ->
     <<Int:64, _/binary>> = erlang:md5(TopicLevel),
     Int.
