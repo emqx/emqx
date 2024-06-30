@@ -36,7 +36,7 @@
     make_delete_iterator/5,
     update_iterator/4,
     next/6,
-    delete_next/6,
+    delete_next/7,
 
     handle_event/4
 ]).
@@ -495,14 +495,19 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         rocksdb:iterator_close(ITHandle)
     end.
 
-delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize, Now) ->
+delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize, Now, IsCurrent) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
     %% the current time to compute it.
     init_counters(),
-    SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
+    SafeCutoffTime = ?EPOCH(Schema, Now) bsl TSOffset,
     try
-        delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize)
+        case delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize) of
+            {ok, _It, 0, 0} when not IsCurrent ->
+                {ok, end_of_stream};
+            Result ->
+                Result
+        end
     after
         report_counters(Shard)
     end.
