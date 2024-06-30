@@ -64,6 +64,7 @@
 
 -export([work_dir/1]).
 -export([work_dir/2]).
+-export([clean_work_dir/1]).
 
 -export([load_apps/1]).
 -export([start_apps/2]).
@@ -431,6 +432,16 @@ work_dir(CTConfig) ->
 work_dir(TCName, CTConfig) ->
     WorkDir = work_dir(CTConfig),
     filename:join(WorkDir, TCName).
+
+%% @doc Delete contents of the workdir.
+clean_work_dir(WorkDir) ->
+    ct:pal("Cleaning workdir ~p", [WorkDir]),
+    case re:run(WorkDir, "./_build/test/logs/") of
+        {match, _} ->
+            file:del_dir_r(WorkDir);
+        nomatch ->
+            error({unsafe_workdir, WorkDir})
+    end.
 
 %%
 
