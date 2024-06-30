@@ -28,7 +28,7 @@
     unregister_channel/2
 ]).
 
--export([lookup_channels/2]).
+-export([lookup_channels/2, get_connected_client_count/0]).
 
 -export([tabname/1]).
 
@@ -94,6 +94,24 @@ lookup_channels(Name, ClientId) ->
 
 record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.
+
+get_connected_client_count() ->
+    Gatewyas = emqx_gateway_utils:find_gateway_definitions(),
+    Fun = fun(#{name := Name}, Acc) ->
+        Tab = tabname(Name),
+        case ets:whereis(Tab) of
+            undefined ->
+                Acc;
+            _ ->
+                case ets:info(Tab, size) of
+                    undefined ->
+                        Acc;
+                    Size ->
+                        Acc + Size
+                end
+        end
+    end,
+    lists:foldl(Fun, 0, Gatewyas).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
