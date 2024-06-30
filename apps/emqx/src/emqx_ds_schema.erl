@@ -234,6 +234,42 @@ fields(layout_builtin_wildcard_optimized) ->
                 }
             )}
     ];
+fields(layout_builtin_wildcard_optimized_v2) ->
+    [
+        {type,
+            sc(
+                wildcard_optimized_v2,
+                #{
+                    'readOnly' => true,
+                    default => wildcard_optimized_v2,
+                    desc => ?DESC(layout_builtin_wildcard_optimized_type)
+                }
+            )},
+        {bytes_per_topic_level,
+            sc(
+                range(1, 16),
+                #{
+                    default => 8,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {topic_index_bytes,
+            sc(
+                pos_integer(),
+                #{
+                    default => 8,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {serialization_schema,
+            sc(
+                emqx_ds_msg_serializer:schema(),
+                #{
+                    default => v1,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+    ];
 fields(layout_builtin_reference) ->
     [
         {type,
@@ -242,6 +278,7 @@ fields(layout_builtin_reference) ->
                 #{
                     'readOnly' => true,
                     importance => ?IMPORTANCE_LOW,
+                    default => reference,
                     desc => ?DESC(layout_builtin_reference_type)
                 }
             )}
@@ -284,7 +321,7 @@ common_builtin_fields() ->
                     importance => ?IMPORTANCE_MEDIUM,
                     default =>
                         #{
-                            <<"type">> => wildcard_optimized
+                            <<"type">> => wildcard_optimized_v2
                         }
                 }
             )}
@@ -298,6 +335,8 @@ desc(builtin_write_buffer) ->
     ?DESC(builtin_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
     ?DESC(layout_builtin_wildcard_optimized);
+desc(layout_builtin_wildcard_optimized_v2) ->
+    ?DESC(layout_builtin_wildcard_optimized);
 desc(layout_builtin_reference) ->
     ?DESC(layout_builtin_reference);
 desc(_) ->
@@ -307,6 +346,19 @@ desc(_) ->
 %% Internal functions
 %%================================================================================
 
+translate_layout(
+    #{
+        type := wildcard_optimized_v2,
+        bytes_per_topic_level := BytesPerTopicLevel,
+        topic_index_bytes := TopicIndexBytes,
+        serialization_schema := SSchema
+    }
+) ->
+    {emqx_ds_storage_skipstream_lts, #{
+        wildcard_hash_bytes => BytesPerTopicLevel,
+        topic_index_bytes => TopicIndexBytes,
+        serialization_schema => SSchema
+    }};
 translate_layout(
     #{
         type := wildcard_optimized,
@@ -336,7 +388,11 @@ builtin_layouts() ->
     %% suitable for production use. However, it's very simple and
     %% produces a very predictabale replay order, which can be useful
     %% for testing and debugging:
-    [ref(layout_builtin_wildcard_optimized), ref(layout_builtin_reference)].
+    [
+        ref(layout_builtin_wildcard_optimized_v2),
+        ref(layout_builtin_wildcard_optimized),
+        ref(layout_builtin_reference)
+    ].
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
