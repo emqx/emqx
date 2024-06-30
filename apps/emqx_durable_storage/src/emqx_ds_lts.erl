@@ -416,7 +416,11 @@ get_id_for_key(#trie{is_binary_key = IsBin, static_key_size = Size}, State, Toke
     Hash = crypto:hash(sha256, term_to_binary([State | Token])),
     case IsBin of
         false ->
-            <<Int:(Size * 8), _/bytes>> = Hash,
+            %% Note: for backward compatibility with bitstream_lts
+            %% layout we allow the key to be an integer. But this also
+            %% changes the semantics of `static_key_size` from number
+            %% of bytes to bits:
+            <<Int:Size, _/bytes>> = Hash,
             Int;
         true ->
             element(1, erlang:split_binary(Hash, Size))
