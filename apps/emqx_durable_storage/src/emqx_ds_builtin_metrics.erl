@@ -57,9 +57,9 @@
 
 -define(STORAGE_LAYER_METRICS, [
     {slide, ?DS_STORE_BATCH_TIME},
-    {counter, ?DS_LTS_SEEK_COUNTER},
-    {counter, ?DS_LTS_NEXT_COUNTER},
-    {counter, ?DS_LTS_COLLISION_COUNTER}
+    {counter, ?DS_BITFIELD_LTS_SEEK_COUNTER},
+    {counter, ?DS_BITFIELD_LTS_NEXT_COUNTER},
+    {counter, ?DS_BITFIELD_LTS_COLLISION_COUNTER}
 ]).
 
 -define(FETCH_METRICS, [
@@ -150,15 +150,15 @@ observe_next_time(DB, NextTime) ->
 
 -spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->
-    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_LTS_SEEK_COUNTER, Inc).
+    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_SEEK_COUNTER, Inc).
 
 -spec inc_lts_next_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_next_counter({DB, _}, Inc) ->
-    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_LTS_NEXT_COUNTER, Inc).
+    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_NEXT_COUNTER, Inc).
 
 -spec inc_lts_collision_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_collision_counter({DB, _}, Inc) ->
-    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_LTS_COLLISION_COUNTER, Inc).
+    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_COLLISION_COUNTER, Inc).
 
 prometheus_meta() ->
     lists:map(
