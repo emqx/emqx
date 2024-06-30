@@ -905,7 +905,7 @@ restore_trie(TopicIndexBytes, DB, CF) ->
     {ok, IT} = rocksdb:iterator(DB, CF, []),
     try
         Dump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
-        TrieOpts = #{persist_callback => PersistCallback, static_key_size => TopicIndexBytes},
+        TrieOpts = #{persist_callback => PersistCallback, static_key_bits => TopicIndexBytes * 8},
         emqx_ds_lts:trie_restore(TrieOpts, Dump)
     after
         rocksdb:iterator_close(IT)
