@@ -261,6 +261,11 @@
 ) ->
     [_Stream].
 
+-callback get_delete_streams(
+    shard_id(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
+) ->
+    [_Stream].
+
 -callback make_iterator(
     shard_id(), generation_data(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
@@ -282,9 +287,10 @@
     DeleteIterator,
     emqx_ds:delete_selector(),
     pos_integer(),
-    emqx_ds:time()
+    emqx_ds:time(),
+    _IsCurrentGeneration :: boolean()
 ) ->
-    {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()}.
+    {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()} | emqx_ds:error(_).
 
 -callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
@@ -511,15 +517,12 @@ delete_next(
 ) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
-            Current = generation_current(Shard),
-            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize, Now) of
-                {ok, _GenIter, _Deleted = 0, _IteratedOver = 0} when GenId < Current ->
-                    %% This is a past generation. Storage layer won't write
-                    %% any more messages here. The iterator reached the end:
-                    %% the stream has been fully replayed.
-                    {ok, end_of_stream};
+            IsCurrent = GenId =:= generation_current(Shard),
+            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize, Now, IsCurrent) of
                 {ok, GenIter, NumDeleted, _IteratedOver} ->
                     {ok, Iter#{?enc := GenIter}, NumDeleted};
+                EOS = {ok, end_of_stream} ->
+                    EOS;
                 Error = {error, _} ->
                     Error
             end;
