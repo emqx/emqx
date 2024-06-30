@@ -198,7 +198,7 @@ create(_ShardId, DBHandle, GenId, Options, SPrev) ->
     case SPrev of
         #s{trie = TriePrev} ->
             ok = copy_previous_trie(DBHandle, TrieCFHandle, TriePrev),
-            ?tp(bitfield_lts_inherited_trie, #{}),
+            ?tp(layout_inherited_lts_trie, #{}),
             ok;
         undefined ->
             ok
