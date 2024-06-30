@@ -997,31 +997,29 @@ not_nacked({deliver, _Topic, Msg}) ->
 %%--------------------------------------------------------------------
 
 handle_frame_error(
-    Reason = #{proto_ver := ProtoVer},
-    Channel = #channel{
-        conn_state = idle,
-        conninfo = ConnInfo
-    }
-) when ProtoVer =/= ?MQTT_PROTO_V5 ->
-    shutdown(
-        shutdown_count(frame_error, Reason),
-        Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}}
-    );
-handle_frame_error(
-    Reason = #{proto_ver := ?MQTT_PROTO_V5},
+    Reason,
     Channel = #channel{
         conn_state = ConnState,
         conninfo = ConnInfo
     }
 ) when
-    ConnState == idle orelse
-        ConnState == connecting
+    is_map(Reason) andalso
+        (ConnState == idle orelse ConnState == connecting)
 ->
-    shutdown(
-        shutdown_count(frame_error, Reason),
-        ?CONNACK_PACKET(connack_reason_code(Reason)),
-        Channel#channel{conninfo = ConnInfo#{proto_ver => ?MQTT_PROTO_V5}}
-    );
+    ShutdownCount = shutdown_count(frame_error, Reason),
+    case proto_ver(Reason, ConnInfo) of
+        ?MQTT_PROTO_V5 ->
+            shutdown(
+                ShutdownCount,
+                ?CONNACK_PACKET(connack_reason_code(Reason)),
+                Channel#channel{conninfo = ConnInfo#{proto_ver => ?MQTT_PROTO_V5}}
+            );
+        ProtoVer ->
+            shutdown(
+                ShutdownCount,
+                Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}}
+            )
+    end;
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = connecting}
@@ -1032,16 +1030,27 @@ handle_frame_error(
         Channel
     );
 handle_frame_error(
-    _Reason = #{cause := frame_too_large},
-    Channel = #channel{conn_state = ConnState}
+    Reason = #{cause := frame_too_large},
+    Channel = #channel{
+        conn_state = ConnState,
+        conninfo = ConnInfo
+    }
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    handle_out(
-        disconnect,
-        {?RC_PACKET_TOO_LARGE, frame_too_large},
-        Channel
-    );
+    case proto_ver(Reason, ConnInfo) of
+        ?MQTT_PROTO_V5 ->
+            handle_out(
+                disconnect,
+                {?RC_PACKET_TOO_LARGE, frame_too_large},
+                Channel
+            );
+        _ ->
+            shutdown(
+                shutdown_count(frame_error, Reason),
+                Channel
+            )
+    end;
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = ConnState}
@@ -2760,6 +2769,13 @@ is_durable_session(#channel{session = Session}) ->
         _ ->
             false
     end.
+
+proto_ver(#{proto_ver := ProtoVer}, _Channel) ->
+    ProtoVer;
+proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
+    ProtoVer;
+proto_ver(_, _) ->
+    ?MQTT_PROTO_V4.
 
 %%--------------------------------------------------------------------
 %% For CT tests
