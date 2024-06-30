@@ -1,0 +1,31 @@
+DurableMessage DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  From ::= CHOICE {
+    atom UTF8String,
+    binary OCTET STRING
+  }
+
+  MiscFlag ::= SEQUENCE {
+    key UTF8String,
+    value BOOLEAN
+  }
+
+  -- Header ::= CHOICE {
+  --   protoVer INTEGER (1..5),
+  --   protocol ENUMERATION (none(0), mqtt(1), mqtt-sn(2), coap(3), lwm2m(4), stomp(5)),
+  --   peerhost OCTET STRING,
+  -- }
+
+  DurableMessage ::= SEQUENCE {
+    id OCTET STRING,
+    qos INTEGER (0..2),
+    from From,
+    topic OCTET STRING,
+    payload OCTET STRING,
+    timestamp INTEGER,
+    flagSys BOOLEAN,
+    flagDup BOOLEAN,
+    flagRetain BOOLEAN,
+    miscFlags SEQUENCE OF MiscFlag
+  }
+END
