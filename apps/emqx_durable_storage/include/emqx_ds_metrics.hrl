@@ -46,4 +46,13 @@
 %% the value is rejected by the subsequent post-processing:
 -define(DS_BITFIELD_LTS_COLLISION_COUNTER, emqx_ds_storage_bitfield_lts_counter_collision).
 
+%%% Skipstream LTS Storage counters:
+-define(DS_SKIPSTREAM_LTS_SEEK, emqx_ds_storage_skipstream_lts_seek).
+-define(DS_SKIPSTREAM_LTS_NEXT, emqx_ds_storage_skipstream_lts_next).
+-define(DS_SKIPSTREAM_LTS_HASH_COLLISION, emqx_ds_storage_skipstream_lts_hash_collision).
+-define(DS_SKIPSTREAM_LTS_HIT, emqx_ds_storage_skipstream_lts_hit).
+-define(DS_SKIPSTREAM_LTS_MISS, emqx_ds_storage_skipstream_lts_miss).
+-define(DS_SKIPSTREAM_LTS_FUTURE, emqx_ds_storage_skipstream_lts_future).
+-define(DS_SKIPSTREAM_LTS_EOS, emqx_ds_storage_skipstream_lts_end_of_stream).
+
 -endif.
