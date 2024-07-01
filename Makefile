@@ -63,10 +63,8 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 	@mix deps.get
 
 .PHONY: eunit
-eunit: $(REBAR) ${ELIXIR_COMMON_DEPS} merge-config
-	# @$(REBAR) eunit --name eunit@127.0.0.1 -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
-	# TODO: cover compile
-	mix eunit
+eunit: $(REBAR) merge-config
+	@$(REBAR) eunit --name eunit@127.0.0.1 -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
 proper: $(REBAR)

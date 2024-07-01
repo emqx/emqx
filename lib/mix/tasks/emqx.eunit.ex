@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Emqx.Eunit do
   use Mix.Task
 
-  Code.require_file("emqx.ct.ex", __DIR__)
+  # Code.require_file("emqx.ct.ex", __DIR__)
 
   alias Mix.Tasks.Emqx.Ct, as: ECt
 
