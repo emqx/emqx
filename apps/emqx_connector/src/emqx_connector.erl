@@ -352,7 +352,7 @@ convert_certs(ConnectorsConf) ->
                                 name => Name,
                                 reason => Reason
                             }),
-                            throw({bad_ssl_config, Reason});
+                            throw(Reason);
                         {ok, ConnectorConf1} ->
                             ConnectorConf1
                     end
