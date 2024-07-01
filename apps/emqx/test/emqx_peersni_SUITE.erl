@@ -75,7 +75,10 @@ init_per_group(ssl, Config) ->
             host => ?SERVER_NAME,
             port => 8883,
             ssl => true,
-            ssl_opts => [{server_name_indication, binary_to_list(?SERVER_NAME)}]
+            ssl_opts => [
+                {verify, verify_none},
+                {server_name_indication, binary_to_list(?SERVER_NAME)}
+            ]
         },
         {ok, C} = emqtt:start_link(Opts1#{clientid => ClientId}),
         case emqtt:connect(C) of
@@ -93,6 +96,7 @@ init_per_group(wss, Config) ->
                 {transport, tls},
                 {protocols, [http]},
                 {transport_opts, [
+                    {verify, verify_none},
                     {server_name_indication, binary_to_list(?SERVER_NAME)},
                     {customize_hostname_check, []}
                 ]}
