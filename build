@@ -397,12 +397,14 @@ function is_ecr_and_enterprise() {
 
 ## Build the default docker image based on debian 12.
 make_docker() {
-    local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.3-9}"
-    local EMQX_BUILDER_PLATFORM="${EMQX_BUILDER_PLATFORM:-debian12}"
-    local OTP_VSN="${OTP_VSN:-26.2.5-3}"
-    local ELIXIR_VSN="${ELIXIR_VSN:-1.15.7}"
-    local EMQX_BUILDER=${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VERSION}:${ELIXIR_VSN}-${OTP_VSN}-${EMQX_BUILDER_PLATFORM}}
-    local EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
+    # shellcheck disable=SC1091
+    source ./env.sh
+    local BUILD_FROM="${BUILD_FROM:-${EMQX_DOCKER_BUILD_FROM}}"
+    # shellcheck disable=SC2155
+    local OTP_VSN="$(docker run --rm "${BUILD_FROM}" erl -eval '{ok, Version} = file:read_file(filename:join([code:root_dir(), "releases", erlang:system_info(otp_release), "OTP_VERSION"])), io:fwrite(Version), halt().' -noshell)"
+    # shellcheck disable=SC2155
+    local ELIXIR_VSN="$(docker run --rm "${BUILD_FROM}" elixir --short-version)"
+    local RUN_FROM="${RUN_FROM:-${EMQX_DOCKER_RUN_FROM}}"
     local EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
     local EMQX_SOURCE_TYPE="${EMQX_SOURCE_TYPE:-src}"
     # shellcheck disable=SC2155
@@ -446,8 +448,8 @@ make_docker() {
     GIT_REVISION="$(git rev-parse HEAD)"
     export BUILDX_NO_DEFAULT_ATTESTATIONS=1
     local DOCKER_BUILDX_ARGS=(
-       --build-arg BUILD_FROM="${EMQX_BUILDER}" \
-       --build-arg RUN_FROM="${EMQX_RUNNER}" \
+       --build-arg BUILD_FROM="${BUILD_FROM}" \
+       --build-arg RUN_FROM="${RUN_FROM}" \
        --build-arg SOURCE_TYPE="${EMQX_SOURCE_TYPE}" \
        --build-arg PROFILE="${PROFILE%%-elixir}" \
        --build-arg IS_ELIXIR="$([[ "$PROFILE" = *-elixir ]] && echo yes || echo no)" \

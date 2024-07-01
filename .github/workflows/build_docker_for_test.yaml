@@ -6,19 +6,6 @@ concurrency:
 
 on:
   workflow_call:
-    inputs:
-      otp_vsn:
-        required: true
-        type: string
-      elixir_vsn:
-        required: true
-        type: string
-      version-emqx:
-        required: true
-        type: string
-      version-emqx-enterprise:
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -28,9 +15,6 @@ jobs:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     env:
       EMQX_NAME: ${{ matrix.profile }}
-      PKG_VSN: ${{ matrix.profile == 'emqx-enterprise' && inputs.version-emqx-enterprise || inputs.version-emqx }}
-      OTP_VSN: ${{ inputs.otp_vsn }}
-      ELIXIR_VSN: ${{ inputs.elixir_vsn }}
 
     strategy:
       fail-fast: false
@@ -42,7 +26,13 @@ jobs:
           - emqx-enterprise-elixir
 
     steps:
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - name: Set up environment
+        id: env
+        run: |
+          source env.sh
+          PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh "$EMQX_NAME")
+          echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
       - name: build and export to Docker
         id: build
         run: |

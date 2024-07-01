@@ -17,8 +17,6 @@ jobs:
     permissions:
       actions: read
       security-events: write
-    container:
-      image: ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-ubuntu22.04
 
     strategy:
       fail-fast: false
@@ -36,11 +34,6 @@ jobs:
       with:
         ref: ${{ matrix.branch }}
 
-    - name: Ensure git safe dir
-      run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
-        make ensure-rebar3
-
     - name: Initialize CodeQL
       uses: github/codeql-action/init@7e187e1c529d80bac7b87a16e7a792427f65cf02 # v2.15.5
       with:
@@ -51,14 +44,7 @@ jobs:
       env:
         PROFILE: emqx-enterprise
       run: |
-        make emqx-enterprise-compile
-
-    - name: Fetch deps
-      if: matrix.language == 'python'
-      env:
-        PROFILE: emqx-enterprise
-      run: |
-        make deps-emqx-enterprise
+        ./scripts/buildx.sh --profile emqx-enterprise --pkgtype rel
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@7e187e1c529d80bac7b87a16e7a792427f65cf02 # v2.15.5
