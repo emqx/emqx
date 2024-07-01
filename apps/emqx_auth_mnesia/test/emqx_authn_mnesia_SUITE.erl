@@ -54,7 +54,74 @@ t_create(_) ->
     {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config0),
 
     Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
-    {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config1).
+    {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config1),
+    ok.
+t_bootstrap_file(_) ->
+    Config = config(),
+    %% hash to hash
+    HashConfig = Config#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser1">>}, _, _, true},
+            {user_info, {_, <<"myuser2">>}, _, _, false}
+        ],
+        test_bootstrap_file(HashConfig, hash, <<"user-credentials.json">>)
+    ),
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser3">>}, _, _, true},
+            {user_info, {_, <<"myuser4">>}, _, _, false}
+        ],
+        test_bootstrap_file(HashConfig, hash, <<"user-credentials.csv">>)
+    ),
+
+    %% plain to plain
+    PlainConfig = Config#{
+        password_hash_algorithm =>
+            #{name => plain, salt_position => disable}
+    },
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser1">>}, <<"password1">>, _, true},
+            {user_info, {_, <<"myuser2">>}, <<"password2">>, _, false}
+        ],
+        test_bootstrap_file(PlainConfig, plain, <<"user-credentials-plain.json">>)
+    ),
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser3">>}, <<"password3">>, _, true},
+            {user_info, {_, <<"myuser4">>}, <<"password4">>, _, false}
+        ],
+        test_bootstrap_file(PlainConfig, plain, <<"user-credentials-plain.csv">>)
+    ),
+    %% plain to hash
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser1">>}, _, _, true},
+            {user_info, {_, <<"myuser2">>}, _, _, false}
+        ],
+        test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain.json">>)
+    ),
+    ?assertMatch(
+        [
+            {user_info, {_, <<"myuser3">>}, _, _, true},
+            {user_info, {_, <<"myuser4">>}, _, _, false}
+        ],
+        test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain.csv">>)
+    ),
+    ok.
+
+test_bootstrap_file(Config0, Type, File) ->
+    {Type, Filename, _FileData} = sample_filename_and_data(Type, File),
+    Config2 = Config0#{
+        boostrap_file => Filename,
+        boostrap_type => Type
+    },
+    {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config2),
+    Result = ets:tab2list(emqx_authn_mnesia),
+    ok = emqx_authn_mnesia:destroy(State0),
+    ?assertMatch([], ets:tab2list(emqx_authn_mnesia)),
+    Result.
 
 t_update(_) ->
     Config0 = config(),

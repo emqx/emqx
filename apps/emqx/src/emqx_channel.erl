@@ -545,8 +545,10 @@ handle_in(
         {error, ReasonCode} ->
             handle_out(disconnect, ReasonCode, Channel)
     end;
-handle_in(?PACKET(?PINGREQ), Channel) ->
-    {ok, ?PACKET(?PINGRESP), Channel};
+handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = Keepalive}) ->
+    {ok, NKeepalive} = emqx_keepalive:check(Keepalive),
+    NChannel = Channel#channel{keepalive = NKeepalive},
+    {ok, ?PACKET(?PINGRESP), reset_timer(keepalive, NChannel)};
 handle_in(
     ?DISCONNECT_PACKET(ReasonCode, Properties),
     Channel = #channel{conninfo = ConnInfo}
@@ -1230,11 +1232,12 @@ handle_call(
     {keepalive, Interval},
     Channel = #channel{
         keepalive = KeepAlive,
-        conninfo = ConnInfo
+        conninfo = ConnInfo,
+        clientinfo = #{zone := Zone}
     }
 ) ->
     ClientId = info(clientid, Channel),
-    NKeepalive = emqx_keepalive:update(timer:seconds(Interval), KeepAlive),
+    NKeepalive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
@@ -1337,22 +1340,22 @@ die_if_test_compiled() ->
     | {shutdown, Reason :: term(), channel()}.
 handle_timeout(
     _TRef,
-    {keepalive, _StatVal},
+    keepalive,
     Channel = #channel{keepalive = undefined}
 ) ->
     {ok, Channel};
 handle_timeout(
     _TRef,
-    {keepalive, _StatVal},
+    keepalive,
     Channel = #channel{conn_state = disconnected}
 ) ->
     {ok, Channel};
 handle_timeout(
     _TRef,
-    {keepalive, StatVal},
+    keepalive,
     Channel = #channel{keepalive = Keepalive}
 ) ->
-    case emqx_keepalive:check(StatVal, Keepalive) of
+    case emqx_keepalive:check(Keepalive) of
         {ok, NKeepalive} ->
             NChannel = Channel#channel{keepalive = NKeepalive},
             {ok, reset_timer(keepalive, NChannel)};
@@ -1463,10 +1466,16 @@ reset_timer(Name, Time, Channel) ->
     ensure_timer(Name, Time, clean_timer(Name, Channel)).
 
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
-    Channel#channel{timers = maps:remove(Name, Timers)}.
+    case maps:take(Name, Timers) of
+        error ->
+            Channel;
+        {TRef, NTimers} ->
+            ok = emqx_utils:cancel_timer(TRef),
+            Channel#channel{timers = NTimers}
+    end.
 
 interval(keepalive, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(interval, KeepAlive);
+    emqx_keepalive:info(check_interval, KeepAlive);
 interval(retry_delivery, #channel{session = Session}) ->
     emqx_session:info(retry_interval, Session);
 interval(expire_awaiting_rel, #channel{session = Session}) ->
@@ -2324,9 +2333,7 @@ ensure_keepalive_timer(0, Channel) ->
 ensure_keepalive_timer(disabled, Channel) ->
     Channel;
 ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone}}) ->
-    Multiplier = get_mqtt_conf(Zone, keepalive_multiplier),
-    RecvCnt = emqx_pd:get_counter(recv_pkt),
-    Keepalive = emqx_keepalive:init(RecvCnt, round(timer:seconds(Interval) * Multiplier)),
+    Keepalive = emqx_keepalive:init(Zone, Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
 
 clear_keepalive(Channel = #channel{timers = Timers}) ->

@@ -10,7 +10,12 @@
     make_tls_verify_fun/2
 ]).
 
+-export([default_root_fun/1]).
+
 -include_lib("public_key/include/public_key.hrl").
+
+-define(unknown_ca, unknown_ca).
+
 %% @doc Build a root fun for verify TLS partial_chain.
 %% The `InputChain' is composed by OTP SSL with local cert store
 %% AND the cert (chain if any) from the client.
@@ -109,3 +114,8 @@ ext_key_opts(Str) ->
         end,
         Usages
     ).
+
+%% @doc default root fun for partial_chain 'false'
+-spec default_root_fun(_) -> ?unknown_ca.
+default_root_fun(_) ->
+    ?unknown_ca.

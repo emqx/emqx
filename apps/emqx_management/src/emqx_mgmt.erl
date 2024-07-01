@@ -567,7 +567,18 @@ list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
 %%--------------------------------------------------------------------
 
 subscribe(ClientId, TopicTables) ->
-    subscribe(emqx:running_nodes(), ClientId, TopicTables).
+    case emqx_cm_registry:is_enabled() of
+        false ->
+            subscribe(emqx:running_nodes(), ClientId, TopicTables);
+        true ->
+            with_client_node(
+                ClientId,
+                {error, channel_not_found},
+                fun(Node) ->
+                    subscribe([Node], ClientId, TopicTables)
+                end
+            )
+    end.
 
 subscribe([Node | Nodes], ClientId, TopicTables) ->
     case unwrap_rpc(emqx_management_proto_v5:subscribe(Node, ClientId, TopicTables)) of
@@ -615,7 +626,18 @@ do_unsubscribe(ClientId, Topic) ->
 -spec unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe_batch(ClientId, Topics) ->
-    unsubscribe_batch(emqx:running_nodes(), ClientId, Topics).
+    case emqx_cm_registry:is_enabled() of
+        false ->
+            unsubscribe_batch(emqx:running_nodes(), ClientId, Topics);
+        true ->
+            with_client_node(
+                ClientId,
+                {error, channel_not_found},
+                fun(Node) ->
+                    unsubscribe_batch([Node], ClientId, Topics)
+                end
+            )
+    end.
 
 -spec unsubscribe_batch([node()], emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, channel_not_found}.
@@ -691,14 +713,32 @@ delete_banned(Who) ->
 %%--------------------------------------------------------------------
 
 lookup_running_client(ClientId, FormatFun) ->
-    lists:append([
-        lookup_client(Node, {clientid, ClientId}, FormatFun)
-     || Node <- emqx:running_nodes()
-    ]).
+    case emqx_cm_registry:is_enabled() of
+        false ->
+            lists:append([
+                lookup_client(Node, {clientid, ClientId}, FormatFun)
+             || Node <- emqx:running_nodes()
+            ]);
+        true ->
+            with_client_node(
+                ClientId,
+                _WhenNotFound = [],
+                fun(Node) -> lookup_client(Node, {clientid, ClientId}, FormatFun) end
+            )
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal Functions.
 %%--------------------------------------------------------------------
+
+with_client_node(ClientId, WhenNotFound, Fn) ->
+    case emqx_cm_registry:lookup_channels(ClientId) of
+        [ChanPid | _] ->
+            Node = node(ChanPid),
+            Fn(Node);
+        [] ->
+            WhenNotFound
+    end.
 
 unwrap_rpc({badrpc, Reason}) ->
     {error, Reason};

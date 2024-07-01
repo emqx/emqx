@@ -7,7 +7,8 @@
         stdlib,
         emqx_dashboard,
         emqx_ldap,
-        esaml
+        esaml,
+        oidcc
     ]},
     {mod, {emqx_dashboard_sso_app, []}},
     {env, []},

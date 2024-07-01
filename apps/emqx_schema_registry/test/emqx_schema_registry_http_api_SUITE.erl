@@ -399,3 +399,26 @@ t_empty_sparkplug(_Config) ->
         []
     ),
     ok.
+
+%% Tests that we can't create names that are too long and get a decent error message.
+t_name_too_long(Config) ->
+    SerdeType = ?config(serde_type, Config),
+    SourceBin = ?config(schema_source, Config),
+    SerdeTypeBin = atom_to_binary(SerdeType),
+    %% Too long!
+    SchemaName = binary:copy(<<"a">>, 256),
+    Params = #{
+        <<"type">> => SerdeTypeBin,
+        <<"source">> => SourceBin,
+        <<"name">> => SchemaName,
+        <<"description">> => <<"My schema">>
+    },
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"kind">> := <<"validation_error">>,
+            <<"message">> := <<"Name length must be less than 255">>
+        }},
+        request({post, Params})
+    ),
+    ok.

@@ -1,24 +1,8 @@
 name: 'Prepare jmeter'
 
-inputs:
-  version-emqx:
-    required: true
-    type: string
-
 runs:
   using: composite
   steps:
-    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
-      with:
-        name: emqx-docker
-        path: /tmp
-    - name: load docker image
-      shell: bash
-      env:
-        PKG_VSN: ${{ inputs.version-emqx }}
-      run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
-        echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
       with:
         repository: emqx/emqx-fvt

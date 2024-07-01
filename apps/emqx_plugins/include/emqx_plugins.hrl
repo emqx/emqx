@@ -26,6 +26,8 @@
 
 -define(plugin_conf_not_found, plugin_conf_not_found).
 -define(plugin_without_config_schema, plugin_without_config_schema).
+-define(fresh_install, fresh_install).
+-define(normal, normal).
 
 -type schema_name() :: binary().
 -type avsc_path() :: string().

@@ -46,7 +46,7 @@ select_union_member(_Kind, _Value) ->
 fields(builtin_db) ->
     [
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
-    ] ++ common_fields();
+    ] ++ common_fields() ++ bootstrap_fields();
 fields(builtin_db_api) ->
     [
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw_api/1}
@@ -69,3 +69,24 @@ common_fields() ->
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
         {user_id_type, fun user_id_type/1}
     ] ++ emqx_authn_schema:common_fields().
+
+bootstrap_fields() ->
+    [
+        {bootstrap_file,
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(bootstrap_file),
+                    required => false,
+                    default => <<>>
+                }
+            )},
+        {bootstrap_type,
+            ?HOCON(
+                ?ENUM([hash, plain]), #{
+                    desc => ?DESC(bootstrap_type),
+                    required => false,
+                    default => <<"plain">>
+                }
+            )}
+    ].

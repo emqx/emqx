@@ -185,9 +185,14 @@ t_lookup_client(_Config) ->
     ),
     ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, ?FORMATFUN)),
     meck:expect(emqx, running_nodes, 0, [node(), 'fake@nonode']),
-    ?assertMatch(
-        [_ | {error, nodedown}], emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN)
-    ).
+    try
+        emqx:update_config([broker, enable_session_registry], false),
+        ?assertMatch(
+            [_ | {error, nodedown}], emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN)
+        )
+    after
+        emqx:update_config([broker, enable_session_registry], true)
+    end.
 
 t_kickout_client(init, Config) ->
     process_flag(trap_exit, true),

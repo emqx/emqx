@@ -16,13 +16,10 @@ on:
       publish:
         required: true
         type: boolean
-      otp_vsn:
+      build_from:
         required: true
         type: string
-      elixir_vsn:
-        required: true
-        type: string
-      builder_vsn:
+      run_from:
         required: true
         type: string
     secrets:
@@ -50,18 +47,12 @@ on:
         required: false
         type: boolean
         default: false
-      otp_vsn:
+      build_from:
         required: false
         type: string
-        default: '26.2.5-2'
-      elixir_vsn:
-        required: false
-        type: string
-        default: '1.15.7'
-      builder_vsn:
-        required: false
-        type: string
-        default: '5.3-8'
+        default: ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-debian12
+      run_from:
+        default: public.ecr.aws/debian/debian:stable-20240612-slim
 
 permissions:
   contents: read
@@ -69,7 +60,7 @@ permissions:
 jobs:
   build:
     runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.arch)) || 'ubuntu-22.04' }}
-    container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ inputs.otp_vsn }}-debian12"
+    container: ${{ inputs.build_from }}
     outputs:
       PKG_VSN: ${{ steps.build.outputs.PKG_VSN }}
 
@@ -164,13 +155,9 @@ jobs:
           DOCKER_LATEST: ${{ inputs.latest }}
           DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
-          DOCKER_LOAD: true
-          EMQX_RUNNER: 'public.ecr.aws/debian/debian:stable-20240612-slim'
-          EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
+          BUILD_FROM: ${{ inputs.build_from }}
+          RUN_FROM: ${{ inputs.run_from }}
           PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
-          EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
-          OTP_VSN: ${{ inputs.otp_vsn }}
-          ELIXIR_VSN: ${{ inputs.elixir_vsn }}
           EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker
@@ -184,7 +171,7 @@ jobs:
         timeout-minutes: 1
         run: |
           for tag in $(cat .emqx_docker_image_tags); do
-            CID=$(docker run -d -P $tag)
+            CID=$(docker run -d -p 18083:18083 $tag)
             HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
             ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
             docker rm -f $CID
@@ -214,12 +201,9 @@ jobs:
           DOCKER_BUILD_NOCACHE: false
           DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: false
-          EMQX_RUNNER: 'public.ecr.aws/debian/debian:stable-20240612-slim'
-          EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
+          BUILD_FROM: ${{ inputs.build_from }}
+          RUN_FROM: ${{ inputs.run_from }}
           PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
-          EMQX_BUILDER_VERSION: ${{ inputs.builder_vsn }}
-          OTP_VSN: ${{ inputs.otp_vsn }}
-          ELIXIR_VSN: ${{ inputs.elixir_vsn }}
           EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker

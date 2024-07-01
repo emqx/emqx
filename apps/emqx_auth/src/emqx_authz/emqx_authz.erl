@@ -408,7 +408,7 @@ init_metrics(Source) ->
             emqx_metrics_worker:create_metrics(
                 authz_metrics,
                 TypeName,
-                [total, allow, deny, nomatch],
+                [total, allow, deny, nomatch, ignore],
                 [total]
             )
     end.
@@ -510,8 +510,8 @@ do_authorize(
             }),
             do_authorize(Client, PubSub, Topic, Tail);
         ignore ->
-            ?TRACE("AUTHZ", "authorization_ignore", #{
-                authorize_type => Type,
+            emqx_metrics_worker:inc(authz_metrics, Type, ignore),
+            ?TRACE("AUTHZ", "authorization_module_ignore", #{
                 module => Module,
                 username => Username,
                 topic => Topic,
