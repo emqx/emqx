@@ -44,7 +44,8 @@
     pem_cache/1,
     olp/1,
     data/1,
-    ds/1
+    ds/1,
+    cluster_info/0
 ]).
 
 -spec load() -> ok.
@@ -53,7 +54,7 @@ load() ->
     lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
 
 is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, module_info]).
+    not lists:member(Fun, [init, load, module_info, cluster_info]).
 
 %%--------------------------------------------------------------------
 %% @doc Node status
