@@ -100,7 +100,7 @@ init_per_testcase(t_heartbeat, Config) ->
     OldConf = emqx:get_raw_config([gateway, coap]),
     {ok, _} = emqx_gateway_conf:update_gateway(
         coap,
-        OldConf#{<<"heartbeat">> => <<"800ms">>}
+        OldConf#{<<"heartbeat">> => <<"1s">>}
     ),
     [
         {old_conf, OldConf},
@@ -216,8 +216,9 @@ t_heartbeat(Config) ->
             [],
             emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
         ),
-
-        timer:sleep(Heartbeat * 2),
+        %% The minimum timeout time is 1 second.
+        %% 1.5 * Heartbeat + 0.5 * Heartbeat(< 1s) = 1.5 * 1 + 1 = 2.5
+        timer:sleep(Heartbeat * 2 + 1000),
         ?assertEqual(
             [],
             emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)

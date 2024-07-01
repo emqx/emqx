@@ -20,6 +20,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource_errors.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
     apply_rule/3,
@@ -58,6 +59,7 @@
 %%------------------------------------------------------------------------------
 -spec apply_rules(list(rule()), columns(), envs()) -> ok.
 apply_rules([], _Columns, _Envs) ->
+    ?tp("rule_engine_applied_all_rules", #{}),
     ok;
 apply_rules([#{enable := false} | More], Columns, Envs) ->
     apply_rules(More, Columns, Envs);

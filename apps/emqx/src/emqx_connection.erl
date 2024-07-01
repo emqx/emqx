@@ -727,9 +727,7 @@ handle_timeout(
         disconnected ->
             {ok, State};
         _ ->
-            %% recv_pkt: valid MQTT message
-            RecvCnt = emqx_pd:get_counter(recv_pkt),
-            handle_timeout(TRef, {keepalive, RecvCnt}, State)
+            with_channel(handle_timeout, [TRef, keepalive], State)
     end;
 handle_timeout(TRef, Msg, State) ->
     with_channel(handle_timeout, [TRef, Msg], State).

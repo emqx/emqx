@@ -24,7 +24,7 @@
     "\n"
     "    listeners.ssl.auth_ext.bind = 28883\n"
     "    listeners.ssl.auth_ext.enable = true\n"
-    "    listeners.ssl.auth_ext.ssl_options.partial_chain = true\n"
+    "    listeners.ssl.auth_ext.ssl_options.partial_chain = false\n"
     "    listeners.ssl.auth_ext.ssl_options.verify = verify_peer\n"
     "    listeners.ssl.auth_ext.ssl_options.verify_peer_ext_key_usage = \"clientAuth\"\n"
     "    "
@@ -62,5 +62,6 @@ t_conf_check_default(_Config) ->
 t_conf_check_auth_ext(_Config) ->
     Opts = esockd:get_options({'ssl:auth_ext', 28883}),
     SSLOpts = proplists:get_value(ssl_options, Opts),
+    %% Even when partial_chain is set to `false`
     ?assertMatch(Fun when is_function(Fun), proplists:get_value(partial_chain, SSLOpts)),
     ?assertMatch({Fun, _} when is_function(Fun), proplists:get_value(verify_fun, SSLOpts)).

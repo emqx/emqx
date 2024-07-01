@@ -6,19 +6,6 @@ concurrency:
 
 on:
   workflow_call:
-    inputs:
-      otp_vsn:
-        required: true
-        type: string
-      elixir_vsn:
-        required: true
-        type: string
-      version-emqx:
-        required: true
-        type: string
-      version-emqx-enterprise:
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -28,9 +15,6 @@ jobs:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     env:
       EMQX_NAME: ${{ matrix.profile }}
-      PKG_VSN: ${{ matrix.profile == 'emqx-enterprise' && inputs.version-emqx-enterprise || inputs.version-emqx }}
-      OTP_VSN: ${{ inputs.otp_vsn }}
-      ELIXIR_VSN: ${{ inputs.elixir_vsn }}
 
     strategy:
       fail-fast: false
@@ -43,6 +27,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - name: Set up environment
+        id: env
+        run: |
+          source env.sh
+          PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh "$EMQX_NAME")
+          echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
       - name: build and export to Docker
         id: build
         run: |
@@ -52,9 +42,13 @@ jobs:
         run: |
           CID=$(docker run -d --rm -P $_EMQX_DOCKER_IMAGE_TAG)
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
-          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT || {
+            docker logs $CID
+            exit 1
+          }
           docker stop $CID
       - name: export docker image
+        if: always()
         run: |
           docker save $_EMQX_DOCKER_IMAGE_TAG | gzip > $EMQX_NAME-docker-$PKG_VSN.tar.gz
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3

@@ -163,8 +163,13 @@ dump_schema(Dir, SchemaModule) ->
     ),
     emqx_dashboard:save_dispatch_eterm(SchemaModule).
 
-load(emqx_enterprise_schema, emqx_telemetry) -> ignore;
-load(_, Lib) -> ok = application:load(Lib).
+load(emqx_enterprise_schema, emqx_telemetry) ->
+    ignore;
+load(_, Lib) ->
+    case application:load(Lib) of
+        ok -> ok;
+        {error, {already_loaded, _}} -> ok
+    end.
 
 %% for scripts/spellcheck.
 gen_schema_json(Dir, SchemaModule, Lang) ->

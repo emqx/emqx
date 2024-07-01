@@ -6,22 +6,15 @@ endif
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
-export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-debian12
-export EMQX_DEFAULT_RUNNER = public.ecr.aws/debian/debian:stable-20240612-slim
-export EMQX_REL_FORM ?= tgz
-export QUICER_DOWNLOAD_FROM_RELEASE = 1
-ifeq ($(OS),Windows_NT)
-	export REBAR_COLOR=none
-	FIND=/usr/bin/find
-else
-	FIND=find
-endif
+include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.9.1-beta.1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.7.1-beta.1
+export EMQX_DASHBOARD_VERSION ?= v1.9.1
+export EMQX_EE_DASHBOARD_VERSION ?= e1.7.1
+
+export EMQX_RELUP ?= true
+export EMQX_REL_FORM ?= tgz
 
 -include default-profile.mk
 PROFILE ?= emqx
@@ -196,8 +189,8 @@ $(PROFILES:%=clean-%):
 	@if [ -d _build/$(@:clean-%=%) ]; then \
 		rm -f rebar.lock; \
 		rm -rf _build/$(@:clean-%=%)/rel; \
-		$(FIND) _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
-		$(FIND) _build/$(@:clean-%=%) -type l -delete; \
+		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
+		find _build/$(@:clean-%=%) -type l -delete; \
 	fi
 
 .PHONY: clean-all
@@ -317,12 +310,12 @@ $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 
 .PHONY: fmt
 fmt: $(REBAR)
-	@$(FIND) . \( -name '*.app.src' -o \
-				  -name '*.erl' -o \
-				  -name '*.hrl' -o \
-				  -name 'rebar.config' -o \
-				  -name '*.eterm' -o \
-				  -name '*.escript' \) \
+	@find . \( -name '*.app.src' -o \
+						 -name '*.erl' -o \
+					   -name '*.hrl' -o \
+			  		 -name 'rebar.config' -o \
+			  		 -name '*.eterm' -o \
+			  		 -name '*.escript' \) \
 	                          -not -path '*/_build/*' \
 	                          -not -path '*/deps/*' \
 	                          -not -path '*/_checkouts/*' \

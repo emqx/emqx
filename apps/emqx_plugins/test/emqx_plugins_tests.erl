@@ -57,7 +57,7 @@ read_plugin_test() ->
             try
                 ok = write_file(InfoFile, FakeInfo),
                 ?assertMatch(
-                    {error, #{error_msg := "bad_rel_apps"}},
+                    {error, #{msg := "bad_rel_apps"}},
                     emqx_plugins:read_plugin_info(NameVsn, #{})
                 )
             after
