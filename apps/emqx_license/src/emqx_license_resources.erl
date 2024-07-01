@@ -56,7 +56,8 @@ local_connection_count() ->
 
 -spec connection_count() -> non_neg_integer().
 connection_count() ->
-    local_connection_count() + cached_remote_connection_count().
+    local_connection_count() + cached_remote_connection_count() +
+        emqx_gateway_cm_registry:get_connected_client_count().
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks

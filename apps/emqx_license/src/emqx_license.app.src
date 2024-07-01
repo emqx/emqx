@@ -3,6 +3,6 @@
     {vsn, "5.1.0"},
     {modules, []},
     {registered, [emqx_license_sup]},
-    {applications, [kernel, stdlib, emqx_ctl]},
+    {applications, [kernel, stdlib, emqx_ctl, emqx_gateway]},
     {mod, {emqx_license_app, []}}
 ]}.
