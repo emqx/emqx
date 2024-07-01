@@ -970,6 +970,7 @@ list_clients_v2(get, #{query_string := QString0}) ->
     end.
 
 do_list_clients_v2(Nodes, Cursor, QString0) ->
+    %% TODO: `?MAX_ROW_LIMIT' ?
     Limit = maps:get(<<"limit">>, QString0, 100),
     Acc = #{
         rows => [],
@@ -981,28 +982,29 @@ do_list_clients_v2(Nodes, Cursor, QString0) ->
 do_list_clients_v2(_Nodes, Cursor = done, _QString, Acc) ->
     format_results(Acc, Cursor);
 do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
-    {Rows, NewCursor} = do_ets_select(Nodes, QString0, Cursor),
+    #{limit := Limit0} = Acc0,
+    {Rows, NewCursor} = do_ets_select(Nodes, Limit0, QString0, Cursor),
     Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
-    Acc = #{limit := Limit, n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
-    case N >= Limit of
-        true ->
-            format_results(Acc, NewCursor);
-        false ->
-            do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
-    end;
+    Acc = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+    continue_do_list_clients_v2(Nodes, NewCursor, QString0, Acc);
 do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
-    #{limit := Limit} = Acc0,
-    {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
+    #{limit := Limit0} = Acc0,
+    {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit0),
     NewCursor = next_ds_cursor(Iter),
     Rows1 = check_for_live_and_expired(Rows0),
     Rows = maybe_run_fuzzy_filter(Rows1, QString0),
     Acc1 = maps:update_with(rows, fun(Rs) -> [{undefined, Rows} | Rs] end, Acc0),
-    Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
-    case N >= Limit of
+    Acc = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+    continue_do_list_clients_v2(Nodes, NewCursor, QString0, Acc).
+
+continue_do_list_clients_v2(Nodes, NewCursor, QString0, Acc) ->
+    #{n := N, limit := Limit0} = Acc,
+    case N >= Limit0 of
         true ->
             format_results(Acc, NewCursor);
         false ->
-            do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+            Limit = max(Limit0 - N, 0),
+            do_list_clients_v2(Nodes, NewCursor, QString0, Acc#{limit := Limit})
     end.
 
 format_results(Acc, Cursor) ->
@@ -1034,9 +1036,8 @@ format_results(Acc, Cursor) ->
     },
     ?OK(Resp).
 
-do_ets_select(Nodes, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
+do_ets_select(Nodes, Limit, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
     {_, QString1} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
-    Limit = maps:get(<<"limit">>, QString0, 10),
     {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
         QString1, Limit, Node, NodeIdx, Cont
     ),
