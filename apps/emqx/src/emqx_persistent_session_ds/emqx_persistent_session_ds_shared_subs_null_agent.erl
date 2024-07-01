@@ -14,6 +14,7 @@
     on_unsubscribe/2,
     on_stream_progress/2,
     on_info/2,
+    on_disconnect/2,
 
     renew_streams/1
 ]).
@@ -34,6 +35,9 @@ on_subscribe(_Agent, _TopicFilter, _SubOpts) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}.
 
 on_unsubscribe(Agent, _TopicFilter) ->
+    Agent.
+
+on_disconnect(Agent, _) ->
     Agent.
 
 renew_streams(Agent) ->

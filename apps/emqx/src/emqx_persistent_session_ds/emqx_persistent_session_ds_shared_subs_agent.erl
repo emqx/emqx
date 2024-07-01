@@ -44,7 +44,8 @@
 -type stream_progress() :: #{
     topic_filter := topic_filter(),
     stream := emqx_ds:stream(),
-    iterator := emqx_ds:iterator()
+    iterator := emqx_ds:iterator(),
+    use_finished := boolean()
 }.
 
 -export_type([
@@ -63,6 +64,7 @@
     on_unsubscribe/2,
     on_stream_progress/2,
     on_info/2,
+    on_disconnect/2,
 
     renew_streams/1
 ]).
@@ -81,6 +83,7 @@
 -callback on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
     {ok, t()} | {error, term()}.
 -callback on_unsubscribe(t(), topic_filter()) -> t().
+-callback on_disconnect(t(), [stream_progress()]) -> t().
 -callback renew_streams(t()) -> {[stream_lease_event()], t()}.
 -callback on_stream_progress(t(), [stream_progress()]) -> t().
 -callback on_info(t(), term()) -> t().
@@ -105,6 +108,10 @@ on_subscribe(Agent, TopicFilter, SubOpts) ->
 -spec on_unsubscribe(t(), topic_filter()) -> t().
 on_unsubscribe(Agent, TopicFilter) ->
     ?shared_subs_agent:on_unsubscribe(Agent, TopicFilter).
+
+-spec on_disconnect(t(), [stream_progress()]) -> t().
+on_disconnect(Agent, StreamProgresses) ->
+    ?shared_subs_agent:on_disconnect(Agent, StreamProgresses).
 
 -spec renew_streams(t()) -> {[stream_lease_event()], t()}.
 renew_streams(Agent) ->

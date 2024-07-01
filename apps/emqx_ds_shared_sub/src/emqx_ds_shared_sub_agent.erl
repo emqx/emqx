@@ -17,6 +17,7 @@
     on_unsubscribe/2,
     on_stream_progress/2,
     on_info/2,
+    on_disconnect/2,
 
     renew_streams/1
 ]).
@@ -56,20 +57,43 @@ on_unsubscribe(State, TopicFilter) ->
 renew_streams(#{} = State) ->
     fetch_stream_events(State).
 
-on_stream_progress(State, _StreamProgress) ->
-    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
-    %% Send to leader
-    State.
+on_stream_progress(State, StreamProgresses) ->
+    ProgressesByGroup = stream_progresses_by_group(StreamProgresses),
+    lists:foldl(
+        fun({Group, GroupProgresses}, StateAcc) ->
+            with_group_sm(StateAcc, Group, fun(GSM) ->
+                emqx_ds_shared_sub_group_sm:handle_stream_progress(GSM, GroupProgresses)
+            end)
+        end,
+        State,
+        maps:to_list(ProgressesByGroup)
+    ).
 
-on_info(State, ?leader_lease_streams_match(Group, StreamProgresses, Version)) ->
+on_disconnect(#{groups := Groups0} = State, StreamProgresses) ->
+    ProgressesByGroup = stream_progresses_by_group(StreamProgresses),
+    Groups1 = maps:fold(
+        fun(Group, GroupSM0, GroupsAcc) ->
+            GroupProgresses = maps:get(Group, ProgressesByGroup, []),
+            GroupSM1 = emqx_ds_shared_sub_group_sm:handle_disconnect(GroupSM0, GroupProgresses),
+            GroupsAcc#{Group => GroupSM1}
+        end,
+        #{},
+        Groups0
+    ),
+    State#{groups => Groups1}.
+
+on_info(State, ?leader_lease_streams_match(Group, Leader, StreamProgresses, Version)) ->
     ?SLOG(info, #{
         msg => leader_lease_streams,
         group => Group,
         streams => StreamProgresses,
-        version => Version
+        version => Version,
+        leader => Leader
     }),
     with_group_sm(State, Group, fun(GSM) ->
-        emqx_ds_shared_sub_group_sm:handle_leader_lease_streams(GSM, StreamProgresses, Version)
+        emqx_ds_shared_sub_group_sm:handle_leader_lease_streams(
+            GSM, Leader, StreamProgresses, Version
+        )
     end);
 on_info(State, ?leader_renew_stream_lease_match(Group, Version)) ->
     ?SLOG(info, #{
@@ -79,6 +103,37 @@ on_info(State, ?leader_renew_stream_lease_match(Group, Version)) ->
     }),
     with_group_sm(State, Group, fun(GSM) ->
         emqx_ds_shared_sub_group_sm:handle_leader_renew_stream_lease(GSM, Version)
+    end);
+on_info(State, ?leader_renew_stream_lease_match(Group, VersionOld, VersionNew)) ->
+    ?SLOG(info, #{
+        msg => leader_renew_stream_lease,
+        group => Group,
+        version_old => VersionOld,
+        version_new => VersionNew
+    }),
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew)
+    end);
+on_info(State, ?leader_update_streams_match(Group, VersionOld, VersionNew, StreamsNew)) ->
+    ?SLOG(info, #{
+        msg => leader_update_streams,
+        group => Group,
+        version_old => VersionOld,
+        version_new => VersionNew,
+        streams_new => StreamsNew
+    }),
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_leader_update_streams(
+            GSM, VersionOld, VersionNew, StreamsNew
+        )
+    end);
+on_info(State, ?leader_invalidate_match(Group)) ->
+    ?SLOG(info, #{
+        msg => leader_invalidate,
+        group => Group
+    }),
+    with_group_sm(State, Group, fun(GSM) ->
+        emqx_ds_shared_sub_group_sm:handle_leader_invalidate(GSM)
     end);
 %% Generic messages sent by group_sm's to themselves (timeouts).
 on_info(State, #message_to_group_sm{group = Group, message = Message}) ->
@@ -102,7 +157,7 @@ delete_group_subscription(State, _ShareTopicFilter) ->
     State.
 
 add_group_subscription(
-    #{groups := Groups0} = State0, ShareTopicFilter
+    #{session_id := SessionId, groups := Groups0} = State0, ShareTopicFilter
 ) ->
     ?SLOG(info, #{
         msg => agent_add_group_subscription,
@@ -111,8 +166,9 @@ add_group_subscription(
     #share{group = Group} = ShareTopicFilter,
     Groups1 = Groups0#{
         Group => emqx_ds_shared_sub_group_sm:new(#{
+            session_id => SessionId,
             topic_filter => ShareTopicFilter,
-            agent => this_agent(),
+            agent => this_agent(SessionId),
             send_after => send_to_subscription_after(Group)
         })
     },
@@ -131,11 +187,8 @@ fetch_stream_events(#{groups := Groups0} = State0) ->
     State1 = State0#{groups => Groups1},
     {lists:concat(Events), State1}.
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-this_agent() -> self().
+this_agent(Id) ->
+    emqx_ds_shared_sub_proto:agent(Id, self()).
 
 send_to_subscription_after(Group) ->
     fun(Time, Msg) ->
@@ -149,10 +202,27 @@ send_to_subscription_after(Group) ->
 with_group_sm(State, Group, Fun) ->
     case State of
         #{groups := #{Group := GSM0} = Groups} ->
-            GSM1 = Fun(GSM0),
+            #{} = GSM1 = Fun(GSM0),
             State#{groups => Groups#{Group => GSM1}};
         _ ->
             %% TODO
             %% Error?
             State
     end.
+
+stream_progresses_by_group(StreamProgresses) ->
+    lists:foldl(
+        fun(#{topic_filter := #share{group = Group}} = Progress0, Acc) ->
+            Progress1 = maps:remove(topic_filter, Progress0),
+            maps:update_with(
+                Group,
+                fun(GroupStreams0) ->
+                    [Progress1 | GroupStreams0]
+                end,
+                [Progress1],
+                Acc
+            )
+        end,
+        #{},
+        StreamProgresses
+    ).

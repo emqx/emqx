@@ -754,7 +754,7 @@ skip_batch(StreamKey, SRS0, Session = #{s := S0}, ClientInfo, Reason) ->
 %%--------------------------------------------------------------------
 
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
-disconnect(Session = #{id := Id, s := S0}, ConnInfo) ->
+disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo) ->
     S1 = maybe_set_offline_info(S0, Id),
     S2 = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S1),
     S3 =
@@ -764,8 +764,9 @@ disconnect(Session = #{id := Id, s := S0}, ConnInfo) ->
             _ ->
                 S2
         end,
-    S = emqx_persistent_session_ds_state:commit(S3),
-    {shutdown, Session#{s => S}}.
+    {S4, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_disconnect(S3, SharedSubS0),
+    S = emqx_persistent_session_ds_state:commit(S4),
+    {shutdown, Session#{s => S, shared_sub_s => SharedSubS}}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
 terminate(_Reason, Session = #{id := Id, s := S}) ->
@@ -983,12 +984,11 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-fetch_new_messages(Session0 = #{s := S0}, ClientInfo) ->
-    Streams = emqx_persistent_session_ds_stream_scheduler:find_new_streams(S0),
+fetch_new_messages(Session0 = #{s := S0, shared_sub_s := SharedSubS0}, ClientInfo) ->
+    {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replay(S0, SharedSubS0),
+    Streams = emqx_persistent_session_ds_stream_scheduler:find_new_streams(S1),
     Session1 = fetch_new_messages(Streams, Session0, ClientInfo),
-    #{s := S1, shared_sub_s := SharedSubS0} = Session1,
-    {S2, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replayed(S1, SharedSubS0),
-    Session1#{s => S2, shared_sub_s => SharedSubS1}.
+    Session1#{shared_sub_s => SharedSubS1}.
 
 fetch_new_messages([], Session, _ClientInfo) ->
     Session;
