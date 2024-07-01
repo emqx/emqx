@@ -104,7 +104,7 @@ ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
 if [ -f "${WHICH_APP}/BSL.txt" ]; then
-    if [ -n "${PROFILE:-}" ] && ! [[ "${PROFILE}" =~ emqx-enterprise* ]]; then
+    if [ -n "${PROFILE:-}" ] && [ "${PROFILE}" != 'emqx-enterprise' ]; then
         echo "bad_profile: PROFILE=${PROFILE} will not work for app ${WHICH_APP}"
         exit 1
     fi
@@ -327,11 +327,8 @@ else
                     -e SUITEGROUP="${SUITEGROUP:-}" \
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
-                    -e TEST=1 \
-                    -e MIX_ENV="${PROFILE}" \
-                    -e BUILD_WITHOUT_QUIC=1 \
                     -i $TTY "$ERLANG_CONTAINER" \
-                    bash -c "make ensure-hex ensure-mix-rebar3 ensure-mix-rebar; mix do deps.get, deps.compile; make ${WHICH_APP}-ct"
+                    bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
     else
         # this is an ad-hoc run
         docker exec -e IS_CI="$IS_CI" \

@@ -146,12 +146,9 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           ENABLE_COVER_COMPILE: 1
-          TEST: 1
-          MIX_ENV: ${{ matrix.profile }}-test
         run: |
           make ensure-rebar3
-          # make ${PROFILE}-compile test-compile
-          env PROFILE=${PROFILE}-test mix do deps.get, deps.compile
+          make ${PROFILE}-compile test-compile
           echo "PROFILE=${PROFILE}" | tee -a .env
           echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
