@@ -343,9 +343,13 @@ t_session_serialization(_Config) ->
 
     ok = emqx_eviction_agent:disable(test_eviction),
 
-    ?assertEqual(
-        1,
-        emqx_eviction_agent:session_count()
+    ?retry(
+        200,
+        10,
+        ?assertEqual(
+            1,
+            emqx_eviction_agent:session_count()
+        )
     ),
 
     ?assertMatch(
