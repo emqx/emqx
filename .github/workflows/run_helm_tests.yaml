@@ -41,6 +41,9 @@ jobs:
         - tcp
         - ssl1.3
         - ssl1.2
+        envFromConfigMap:
+        - true
+        - false
     steps:
     - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       with:
@@ -90,6 +93,12 @@ jobs:
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.2]"
         EOL
+    - name: Create ConfigMap for testing envFromConfigMap
+      if: matrix.envFromConfigMap == 'true'
+      run: |
+        kubectl create configmap emqx-custom-envs \
+            --from-literal=FROM_CONFIGMAP_KEY1=FROM_CONFIGMAP_VALUE1 \
+            --from-literal=FROM_CONFIGMAP_KEY2=FROM_CONFIGMAP_VALUE2
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'
       working-directory: source
@@ -108,6 +117,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
+            $(if [[ "${{ matrix.envFromConfigMap }}" == "true" ]]; then echo "--set envFromConfigMap=emqx-custom-envs"; fi) \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
@@ -128,6 +138,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
+            $(if [[ "${{ matrix.envFromConfigMap }}" == "true" ]]; then echo "--set envFromConfigMap=emqx-custom-envs"; fi) \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --wait \
@@ -143,6 +154,14 @@ jobs:
           echo "waiting emqx started";
           sleep 10;
         done
+    - name: Verify envFromConfigMap is applied
+      if: matrix.envFromConfigMap == 'true'
+      run: |
+        ENV_FROM=$(kubectl get statefulset ${EMQX_NAME} -o jsonpath='{.spec.template.spec.containers[0].envFrom}')
+        if [[ $ENV_FROM != *"configMapRef"* ]] || [[ $ENV_FROM != *"emqx-custom-envs"* ]]; then
+          echo "envFromConfigMap is not applied correctly"
+          exit 1
+        fi
     - name: Setup 18083 port forwarding
       run: |
         nohup kubectl port-forward service/${EMQX_NAME} 18083:18083 > /dev/null &
