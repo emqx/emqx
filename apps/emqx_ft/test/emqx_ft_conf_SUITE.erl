@@ -238,7 +238,7 @@ t_persist_ssl_certfiles(Config) ->
         list_ssl_certfiles(Config)
     ),
     ?assertMatch(
-        {error, {pre_config_update, _, {bad_ssl_config, #{}}}},
+        {error, {pre_config_update, _, #{reason := <<"bad_ssl_config">>}}},
         emqx_ft_conf:update(
             mk_storage(true, #{
                 <<"s3">> => mk_s3_config(#{

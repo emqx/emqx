@@ -738,7 +738,8 @@ t_create_with_bad_tls_files(Config) ->
                 #{
                     <<"kind">> := <<"validation_error">>,
                     <<"reason">> := <<"bad_ssl_config">>,
-                    <<"file_read_error">> := <<"enoent">>,
+                    <<"details">> :=
+                        <<"Failed to access certificate / key file: No such file or directory">>,
                     <<"bad_fields">> := [[<<"cacertfile">>]]
                 },
                 json(Msg0)

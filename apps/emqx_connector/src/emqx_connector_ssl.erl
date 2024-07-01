@@ -55,7 +55,10 @@ map_bad_ssl_error(#{pem_check := invalid_pem} = TLSLibError) ->
         kind => validation_error,
         reason => <<"bad_ssl_config">>,
         bad_fields => Paths,
-        file_read_error => Reason
+        details => emqx_utils:format(
+            "Failed to access certificate / key file: ~s",
+            [emqx_utils:explain_posix(Reason)]
+        )
     };
 map_bad_ssl_error(#{which_options := Paths, reason := Reason}) ->
     #{
