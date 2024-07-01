@@ -69,7 +69,7 @@ t_add_user(_) ->
     false = maps:is_key(password, NewUser),
 
     %% add again
-    {error, <<"username_already_exist">>} =
+    {error, <<"username_already_exists">>} =
         emqx_dashboard_admin:add_user(AddUser, AddPassword, ?ROLE_SUPERUSER, AddDescription),
 
     %% add bad username
