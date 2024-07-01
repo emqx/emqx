@@ -215,6 +215,7 @@ short_paths_fields(Importance) ->
             ?HOCON(rate_type(), #{
                 desc => ?DESC(Name),
                 required => false,
+                default => infinity,
                 importance => Importance,
                 example => Example
             })}
