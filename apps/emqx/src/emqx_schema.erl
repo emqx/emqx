@@ -319,6 +319,11 @@ roots(low) ->
             sc(
                 ref("crl_cache"),
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {banned,
+            sc(
+                ref("banned"),
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ].
 
@@ -1762,6 +1767,17 @@ fields("client_attrs_init") ->
                 desc => ?DESC("client_attrs_init_set_as_attr"),
                 validator => fun restricted_string/1
             })}
+    ];
+fields("banned") ->
+    [
+        {bootstrap_file,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("banned_bootstrap_file"),
+                    default => <<>>
+                }
+            )}
     ].
 
 compile_variform(undefined, _Opts) ->
@@ -2101,6 +2117,8 @@ desc(durable_storage) ->
     ?DESC(durable_storage);
 desc("client_attrs_init") ->
     ?DESC(client_attrs_init);
+desc("banned") ->
+    "Banned .";
 desc(_) ->
     undefined.
 

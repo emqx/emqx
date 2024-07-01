@@ -1621,4 +1621,23 @@ client_attrs_init_set_as_attr {
     The extracted attribute will be stored in the `client_attrs` property with this name."""
 }
 
+banned_bootstrap_file.desc:
+"""
+The bootstrap file is a CSV file used to batch loading banned data when initializing a single node or cluster.
+
+The delimiter for this file is `,`.
+
+The first line of this file must be a header line. All valid headers are listed here:
+- as :: required
+- who :: required
+- by  :: optional
+- reason :: optional
+- at :: optional
+- until :: optional
+
+See the documentation for details on each field.
+
+Each row in the rest of this file must contain the same number of columns as the header line,
+and column can be omitted then its value will be `undefined`."""
+
 }
