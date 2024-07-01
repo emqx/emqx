@@ -16,7 +16,8 @@
         kernel,
         stdlib,
         jiffy,
-        emqx_http_lib
+        emqx_http_lib,
+        erlang_qq
     ]},
     {env, []},
     {licenses, ["Apache-2.0"]},
