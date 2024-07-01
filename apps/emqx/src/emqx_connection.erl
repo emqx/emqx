@@ -774,22 +774,38 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             parse_incoming(Rest, [Packet | Packets], NState)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
+            ParseState2 = update_parse_state(Reason, State#state.parse_state),
+            SerializeOpts = serialize_opts(Reason, State#state.serialize),
             ?LOG(info, #{
                 reason => Reason,
-                at_state => emqx_frame:describe_state(ParseState),
+                at_state => emqx_frame:describe_state(ParseState2),
                 input_bytes => Data,
                 parsed_packets => Packets
             }),
-            {[{frame_error, Reason} | Packets], State};
+            {
+                [{frame_error, Reason} | Packets],
+                State#state{
+                    parse_state = ParseState2,
+                    serialize = SerializeOpts
+                }
+            };
         error:Reason:Stacktrace ->
+            ParseState2 = update_parse_state(Reason, State#state.parse_state),
+            SerializeOpts = serialize_opts(Reason, State#state.serialize),
             ?LOG(error, #{
-                at_state => emqx_frame:describe_state(ParseState),
+                at_state => emqx_frame:describe_state(ParseState2),
                 input_bytes => Data,
                 parsed_packets => Packets,
                 reason => Reason,
                 stacktrace => Stacktrace
             }),
-            {[{frame_error, Reason} | Packets], State}
+            {
+                [{frame_error, Reason} | Packets],
+                State#state{
+                    parse_state = ParseState2,
+                    serialize = SerializeOpts
+                }
+            }
     end.
 
 %%--------------------------------------------------------------------
@@ -1220,6 +1236,12 @@ graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = 
     %% @TODO Reason is reserved for future use, quic transport
     Transport:shutdown(Socket, read_write),
     S#state{sockstate = closed}.
+
+update_parse_state(FrameError, ParseState) ->
+    emqx_frame:update_parse_state(FrameError, ParseState).
+
+serialize_opts(FrameError, SerializeOpts) ->
+    emqx_frame:serialize_opts(FrameError, SerializeOpts).
 
 %%--------------------------------------------------------------------
 %% For CT tests

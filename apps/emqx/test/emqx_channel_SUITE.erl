@@ -414,30 +414,69 @@ t_handle_in_auth(_) ->
         emqx_channel:handle_in(?AUTH_PACKET(), Channel).
 
 t_handle_in_frame_error(_) ->
-    IdleChannel = channel(#{conn_state => idle}),
-    {shutdown, #{shutdown_count := frame_too_large, cause := frame_too_large}, _Chan} =
-        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, IdleChannel),
-    ConnectingChan = channel(#{conn_state => connecting}),
+    IdleChannelV5 = channel(#{conn_state => idle}),
+    IdleChannelV4 = v4(IdleChannelV5),
+    ?assertMatch(
+        {shutdown,
+            #{
+                shutdown_count := frame_too_large,
+                cause := frame_too_large
+            },
+            _},
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, IdleChannelV4)
+    ),
+
+    ConnectingChanV5 = channel(#{conn_state => connecting}),
+    ConnectingChanV4 = v4(ConnectingChanV5),
     ConnackPacket = ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE),
-    {shutdown,
-        #{
-            shutdown_count := frame_too_large,
-            cause := frame_too_large,
-            limit := 100,
-            received := 101
-        },
-        ConnackPacket,
-        _} =
+    ?assertMatch(
+        {shutdown,
+            #{
+                shutdown_count := frame_too_large,
+                cause := frame_too_large,
+                limit := 100,
+                received := 101
+            },
+            ConnackPacket, _},
         emqx_channel:handle_in(
             {frame_error, #{cause => frame_too_large, received => 101, limit => 100}},
-            ConnectingChan
-        ),
+            ConnectingChanV5
+        )
+    ),
+
+    %% no connack for v4
+    ?assertMatch(
+        {shutdown,
+            #{
+                shutdown_count := frame_too_large,
+                cause := frame_too_large,
+                received := 101,
+                limit := 100
+            },
+            _},
+        emqx_channel:handle_in(
+            {frame_error, #{cause => frame_too_large, received => 101, limit => 100}},
+            ConnectingChanV4
+        )
+    ),
+
     DisconnectPacket = ?DISCONNECT_PACKET(?RC_PACKET_TOO_LARGE),
-    ConnectedChan = channel(#{conn_state => connected}),
+    ConnectedChanV5 = channel(#{conn_state => connected}),
+    ConnectedChanV4 = v4(ConnectedChanV5),
     ?assertMatch(
         {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _},
-        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, ConnectedChan)
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, ConnectedChanV5)
     ),
+    ?assertMatch(
+        {shutdown,
+            #{
+                shutdown_count := frame_too_large,
+                cause := frame_too_large
+            },
+            _},
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, ConnectedChanV4)
+    ),
+
     DisconnectedChan = channel(#{conn_state => disconnected}),
     {ok, DisconnectedChan} =
         emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, DisconnectedChan).
