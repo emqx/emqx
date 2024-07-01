@@ -219,7 +219,7 @@ put_value([<<"user_property">>, Key], Rendered, Context0) ->
     Context = maps:update_with(dirty, fun(D) -> D#{user_property => true} end, Context0),
     maps:update_with(
         user_property,
-        fun(Ps) -> lists:keystore(Key, 1, Ps, {Key, Rendered}) end,
+        fun(Ps) -> maps:put(Key, Rendered, Ps) end,
         Context
     );
 put_value([<<"qos">>], Rendered, Context0) ->
@@ -323,6 +323,12 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
             true -> #{};
             false -> #{payload => true}
         end,
+    UserProperties0 = maps:get(
+        'User-Property',
+        emqx_message:get_header(properties, Message, #{}),
+        []
+    ),
+    UserProperties = maps:from_list(UserProperties0),
     #{
         dirty => Dirty,
         client_attrs => emqx_message:get_header(client_attrs, Message, #{}),
@@ -330,9 +336,7 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
         qos => Message#message.qos,
         retain => emqx_message:get_flag(retain, Message, false),
         topic => Message#message.topic,
-        user_property => maps:get(
-            'User-Property', emqx_message:get_header(properties, Message, #{}), []
-        )
+        user_property => UserProperties
     }.
 
 -spec context_to_message(emqx_types:message(), eval_context(), transformation()) ->
@@ -363,7 +367,9 @@ take_from_context(Context, Message) ->
                 emqx_message:set_flag(retain, maps:get(retain, Context), Acc);
             (user_property, _, Acc) ->
                 Props0 = emqx_message:get_header(properties, Acc, #{}),
-                Props = maps:merge(Props0, #{'User-Property' => maps:get(user_property, Context)}),
+                UserProperties0 = maps:to_list(maps:get(user_property, Context)),
+                UserProperties = lists:keysort(1, UserProperties0),
+                Props = maps:merge(Props0, #{'User-Property' => UserProperties}),
                 emqx_message:set_header(properties, Props, Acc)
         end,
         Message,
