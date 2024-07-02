@@ -338,7 +338,7 @@ remove_local(ResId) ->
             ok
     end.
 
-%% Tip: Don't delete reset_metrics_local/1, use before v571 rpc
+%% Tip: Don't delete reset_metrics_local/1, use before v572 rpc
 -spec reset_metrics_local(resource_id()) -> ok.
 reset_metrics_local(ResId) ->
     reset_metrics_local(ResId, #{}).
