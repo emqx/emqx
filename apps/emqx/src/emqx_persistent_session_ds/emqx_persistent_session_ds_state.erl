@@ -766,7 +766,7 @@ gbt_put(K, V, Cache) ->
     gb_trees:enter(K, V, Cache).
 
 gbt_remove(K, Cache) ->
-    gb_trees:delete(K, Cache).
+    gb_trees:delete_any(K, Cache).
 
 gbt_format(Cache) ->
     gb_trees:to_list(Cache).
