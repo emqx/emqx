@@ -46,7 +46,7 @@ select_union_member(_Kind, _Value) ->
 fields(builtin_db) ->
     [
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
-    ] ++ common_fields().
+    ] ++ common_fields();
 fields(builtin_db_api) ->
     [
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw_api/1}
@@ -79,7 +79,7 @@ bootstrap_fields() ->
                 #{
                     desc => ?DESC(bootstrap_file),
                     required => false,
-                    default => <<>>
+                    default => <<"${EMQX_ETC_DIR}/auth-built-in-db-bootstrap.csv">>
                 }
             )},
         {bootstrap_type,

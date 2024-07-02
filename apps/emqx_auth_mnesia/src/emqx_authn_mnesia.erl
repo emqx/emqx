@@ -181,6 +181,10 @@ import_users({PasswordType, Filename, FileData}, State, Opts) ->
             case do_import_users(Users, Opts#{filename => Filename}) of
                 ok ->
                     ok;
+                %% Do not log empty user entries.
+                %% The default etc/auth-built-in-db.csv file contains an empty user entry.
+                {error, empty_users} ->
+                    {error, empty_users};
                 {error, Reason} ->
                     ?SLOG(
                         warning,
@@ -496,7 +500,7 @@ reader_fn(Filename0, Data) ->
                     error(Reason)
             end;
         <<".csv">> ->
-            %% Example: data/user-credentials.csv
+            %% Example: etc/auth-built-in-db-bootstrap.csv
             emqx_utils_stream:csv(Data);
         <<>> ->
             error(unknown_file_format);
@@ -541,11 +545,11 @@ is_superuser(#{<<"is_superuser">> := true}) -> true;
 is_superuser(_) -> false.
 
 boostrap_user_from_file(Config, State) ->
-    case maps:get(boostrap_file, Config, <<>>) of
+    case maps:get(bootstrap_file, Config, <<>>) of
         <<>> ->
             ok;
         FileName0 ->
-            #{boostrap_type := Type} = Config,
+            #{bootstrap_type := Type} = Config,
             FileName = emqx_schema:naive_env_interpolation(FileName0),
             case file:read_file(FileName) of
                 {ok, FileData} ->

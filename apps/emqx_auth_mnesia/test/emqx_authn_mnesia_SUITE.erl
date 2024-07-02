@@ -124,8 +124,8 @@ test_bootstrap_file(Config0, Type, File) ->
 test_bootstrap_file(Config0, Type, File, Opts) ->
     {Type, Filename, _FileData} = sample_filename_and_data(Type, File),
     Config2 = Config0#{
-        boostrap_file => Filename,
-        boostrap_type => Type
+        bootstrap_file => Filename,
+        bootstrap_type => Type
     },
     {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config2),
     Result = ets:tab2list(emqx_authn_mnesia),
