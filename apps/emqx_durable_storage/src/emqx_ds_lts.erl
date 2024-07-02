@@ -26,7 +26,8 @@
     trie_copy_learned_paths/2,
     topic_key/3,
     match_topics/2,
-    lookup_topic_key/2
+    lookup_topic_key/2,
+    reverse_lookup/2
 ]).
 
 %% Debug:
@@ -43,9 +44,10 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--endif.
 
 -elvis([{elvis_style, variable_naming_convention, disable}]).
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+-endif.
 
 %%================================================================================
 %% Type declarations
@@ -55,15 +57,22 @@
 -define(EOT, []).
 -define(PLUS, '+').
 
--type edge() :: binary() | ?EOT | ?PLUS.
+-type token() :: binary() | ''.
+
+-type edge() :: token() | ?EOT | ?PLUS.
 
 %% Fixed size binary
 -type static_key() :: non_neg_integer().
 
+%% Trie root:
 -define(PREFIX, prefix).
+%% Special prefix root for reverse lookups:
+-define(rlookup, rlookup).
+-define(rlookup(STATIC), {?rlookup, STATIC}).
+
 -type state() :: static_key() | ?PREFIX.
 
--type varying() :: [binary() | ?PLUS].
+-type varying() :: [token() | ?PLUS].
 
 -type msg_storage_key() :: {static_key(), varying()}.
 
@@ -83,15 +92,23 @@
     persist :: persist_callback(),
     static_key_size :: pos_integer(),
     trie :: ets:tid(),
-    stats :: ets:tid()
+    stats :: ets:tid(),
+    rlookups = false :: boolean()
 }).
 
 -opaque trie() :: #trie{}.
 
--record(trans, {
-    key :: {state(), edge()},
-    next :: state()
-}).
+-record(trans, {key, next}).
+
+-type trans() ::
+    #trans{
+        key :: {state(), edge()},
+        next :: state()
+    }
+    | #trans{
+        key :: {?rlookup, static_key()},
+        next :: [token() | ?PLUS]
+    }.
 
 %%================================================================================
 %% API functions
@@ -102,11 +119,13 @@
 trie_create(UserOpts) ->
     Defaults = #{
         persist_callback => fun(_, _) -> ok end,
-        static_key_size => 8
+        static_key_size => 8,
+        reverse_lookups => false
     },
     #{
         persist_callback := Persist,
-        static_key_size := StaticKeySize
+        static_key_size := StaticKeySize,
+        reverse_lookups := Rlookups
     } = maps:merge(Defaults, UserOpts),
     Trie = ets:new(trie, [{keypos, #trans.key}, set, public]),
     Stats = ets:new(stats, [{keypos, 1}, set, public]),
@@ -114,7 +133,8 @@ trie_create(UserOpts) ->
         persist = Persist,
         static_key_size = StaticKeySize,
         trie = Trie,
-        stats = Stats
+        stats = Stats,
+        rlookups = Rlookups
     }.
 
 -spec trie_create() -> trie().
@@ -149,9 +169,21 @@ trie_dump(Trie, Filter) ->
         all ->
             Fun = fun(_) -> true end;
         wildcard ->
-            Fun = fun contains_wildcard/1
+            Fun = fun(L) -> lists:member(?PLUS, L) end
     end,
-    lists:append([P || P <- paths(Trie), Fun(P)]).
+    Paths = lists:filter(
+        fun(Path) ->
+            Fun(tokens_of_path(Path))
+        end,
+        paths(Trie)
+    ),
+    RlookupIdx = lists:filter(
+        fun({_, Tokens}) ->
+            Fun(Tokens)
+        end,
+        all_emanating(Trie, ?rlookup)
+    ),
+    lists:flatten([Paths, RlookupIdx]).
 
 -spec trie_copy_learned_paths(trie(), trie()) -> trie().
 trie_copy_learned_paths(OldTrie, NewTrie) ->
@@ -164,17 +196,17 @@ trie_copy_learned_paths(OldTrie, NewTrie) ->
     NewTrie.
 
 %% @doc Lookup the topic key. Create a new one, if not found.
--spec topic_key(trie(), threshold_fun(), [binary() | '']) -> msg_storage_key().
+-spec topic_key(trie(), threshold_fun(), [token()]) -> msg_storage_key().
 topic_key(Trie, ThresholdFun, Tokens) ->
-    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, []).
+    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, [], []).
 
 %% @doc Return an exisiting topic key if it exists.
--spec lookup_topic_key(trie(), [binary()]) -> {ok, msg_storage_key()} | undefined.
+-spec lookup_topic_key(trie(), [token()]) -> {ok, msg_storage_key()} | undefined.
 lookup_topic_key(Trie, Tokens) ->
     do_lookup_topic_key(Trie, ?PREFIX, Tokens, []).
 
 %% @doc Return list of keys of topics that match a given topic filter
--spec match_topics(trie(), [binary() | '+' | '#']) ->
+-spec match_topics(trie(), [token() | '+' | '#']) ->
     [msg_storage_key()].
 match_topics(Trie, TopicFilter) ->
     do_match_topics(Trie, ?PREFIX, [], TopicFilter).
@@ -225,11 +257,22 @@ dump_to_dot(#trie{trie = Trie, stats = Stats}, Filename) ->
     io:format(FD, "}~n", []),
     file:close(FD).
 
+-spec reverse_lookup(trie(), static_key()) -> {ok, [token() | '+']} | undefined.
+reverse_lookup(#trie{rlookups = false}, _) ->
+    error({badarg, reverse_lookups_disabled});
+reverse_lookup(#trie{trie = Trie}, StaticKey) ->
+    case ets:lookup(Trie, ?rlookup(StaticKey)) of
+        [#trans{next = Next}] ->
+            {ok, Next};
+        [] ->
+            undefined
+    end.
+
 %%================================================================================
 %% Internal exports
 %%================================================================================
 
--spec trie_next(trie(), state(), binary() | ?EOT) -> {Wildcard, state()} | undefined when
+-spec trie_next(trie(), state(), token() | ?EOT) -> {Wildcard, state()} | undefined when
     Wildcard :: boolean().
 trie_next(#trie{trie = Trie}, State, ?EOT) ->
     case ets:lookup(Trie, {State, ?EOT}) of
@@ -261,16 +304,19 @@ trie_insert(Trie, State, Token) ->
 %% Internal functions
 %%================================================================================
 
--spec trie_insert(trie(), state(), edge(), state()) -> {Updated, state()} when
-    NChildren :: non_neg_integer(),
-    Updated :: false | NChildren.
+-spec trie_insert
+    (trie(), state(), edge(), state()) -> {Updated, state()} when
+        NChildren :: non_neg_integer(),
+        Updated :: false | NChildren;
+    (trie(), ?rlookup, static_key(), [token() | '+']) ->
+        {false | non_neg_integer(), state()}.
 trie_insert(#trie{trie = Trie, stats = Stats, persist = Persist}, State, Token, NewState) ->
     Key = {State, Token},
     Rec = #trans{
         key = Key,
         next = NewState
     },
-    case ets:insert_new(Trie, Rec) of
+    case ets_insert_new(Trie, Rec) of
         true ->
             ok = Persist(Key, NewState),
             Inc =
@@ -307,7 +353,7 @@ get_id_for_key(#trie{static_key_size = Size}, State, Token) when Size =< 32 ->
     Int.
 
 %% erlfmt-ignore
--spec do_match_topics(trie(), state(), [binary() | '+'], [binary() | '+' | '#']) ->
+-spec do_match_topics(trie(), state(), [token() | '+'], [token() | '+' | '#']) ->
           list().
 do_match_topics(Trie, State, Varying, []) ->
     case trie_next(Trie, State, ?EOT) of
@@ -341,7 +387,7 @@ do_match_topics(Trie, State, Varying, [Level | Rest]) ->
         Emanating
     ).
 
--spec do_lookup_topic_key(trie(), state(), [binary()], [binary()]) ->
+-spec do_lookup_topic_key(trie(), state(), [token()], [token()]) ->
     {ok, msg_storage_key()} | undefined.
 do_lookup_topic_key(Trie, State, [], Varying) ->
     case trie_next(Trie, State, ?EOT) of
@@ -360,29 +406,42 @@ do_lookup_topic_key(Trie, State, [Tok | Rest], Varying) ->
             undefined
     end.
 
-do_topic_key(Trie, _, _, State, [], Varying) ->
+do_topic_key(Trie, _, _, State, [], Tokens, Varying) ->
     %% We reached the end of topic. Assert: Trie node that corresponds
     %% to EOT cannot be a wildcard.
-    {_, false, Static} = trie_next_(Trie, State, ?EOT),
+    {Updated, false, Static} = trie_next_(Trie, State, ?EOT),
+    _ =
+        case Trie#trie.rlookups andalso Updated of
+            false ->
+                ok;
+            _ ->
+                trie_insert(Trie, rlookup, Static, lists:reverse(Tokens))
+        end,
     {Static, lists:reverse(Varying)};
-do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Varying0) ->
+do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Tokens, Varying0) ->
     % TODO: it's not necessary to call it every time.
     Threshold = ThresholdFun(Depth),
+    {NChildren, IsWildcard, NextState} = trie_next_(Trie, State, Tok),
     Varying =
-        case trie_next_(Trie, State, Tok) of
-            {NChildren, _, NextState} when is_integer(NChildren), NChildren >= Threshold ->
+        case IsWildcard of
+            _ when is_integer(NChildren), NChildren >= Threshold ->
                 %% Number of children for the trie node reached the
                 %% threshold, we need to insert wildcard here.
                 {_, _WildcardState} = trie_insert(Trie, State, ?PLUS),
                 Varying0;
-            {_, false, NextState} ->
+            false ->
                 Varying0;
-            {_, true, NextState} ->
+            true ->
                 %% This topic level is marked as wildcard in the trie,
                 %% we need to add it to the varying part of the key:
                 [Tok | Varying0]
         end,
-    do_topic_key(Trie, ThresholdFun, Depth + 1, NextState, Rest, Varying).
+    TokOrWildcard =
+        case IsWildcard of
+            true -> ?PLUS;
+            false -> Tok
+        end,
+    do_topic_key(Trie, ThresholdFun, Depth + 1, NextState, Rest, [TokOrWildcard | Tokens], Varying).
 
 %% @doc Has side effects! Inserts missing elements
 -spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, Wildcard, state()} when
@@ -450,12 +509,16 @@ follow_path(#trie{} = T, State, Path) ->
         all_emanating(T, State)
     ).
 
-contains_wildcard([{{_State, ?PLUS}, _Next} | _Rest]) ->
-    true;
-contains_wildcard([_ | Rest]) ->
-    contains_wildcard(Rest);
-contains_wildcard([]) ->
-    false.
+tokens_of_path([{{_State, Token}, _Next} | Rest]) ->
+    [Token | tokens_of_path(Rest)];
+tokens_of_path([]) ->
+    [].
+
+%% Wrapper for type checking only:
+-compile({inline, ets_insert_new/2}).
+-spec ets_insert_new(ets:tid(), trans()) -> boolean().
+ets_insert_new(Tid, Trans) ->
+    ets:insert_new(Tid, Trans).
 
 %%================================================================================
 %% Tests
@@ -658,6 +721,43 @@ topic_match_test() ->
         dump_to_dot(T, filename:join("_build", atom_to_list(?FUNCTION_NAME) ++ ".dot"))
     end.
 
+%% erlfmt-ignore
+rlookup_test() ->
+    T = trie_create(#{reverse_lookups => true}),
+    Threshold = 2,
+    ThresholdFun = fun(0) -> 1000;
+                      (_) -> Threshold
+                   end,
+    {S1, []} = test_key(T, ThresholdFun, [1]),
+    {S11, []} = test_key(T, ThresholdFun, [1, 1]),
+    {S12, []} = test_key(T, ThresholdFun, [1, 2]),
+    {S111, []} = test_key(T, ThresholdFun, [1, 1, 1]),
+    {S11e, []} = test_key(T, ThresholdFun, [1, 1, '']),
+    %% Now add learned wildcards:
+    {S21, []} = test_key(T, ThresholdFun, [2, 1]),
+    {S22, []} = test_key(T, ThresholdFun, [2, 2]),
+    {S2_, [<<"3">>]} = test_key(T, ThresholdFun, [2, 3]),
+    {S2_11, [<<"3">>]} = test_key(T, ThresholdFun, [2, 3, 1, 1]),
+    {S2_12, [<<"4">>]} = test_key(T, ThresholdFun, [2, 4, 1, 2]),
+    {S2_1_, [<<"3">>, <<"3">>]} = test_key(T, ThresholdFun, [2, 3, 1, 3]),
+    %% Check reverse matching:
+    ?assertEqual({ok, [<<"1">>]}, reverse_lookup(T, S1)),
+    ?assertEqual({ok, [<<"1">>, <<"1">>]}, reverse_lookup(T, S11)),
+    ?assertEqual({ok, [<<"1">>, <<"2">>]}, reverse_lookup(T, S12)),
+    ?assertEqual({ok, [<<"1">>, <<"1">>, <<"1">>]}, reverse_lookup(T, S111)),
+    ?assertEqual({ok, [<<"1">>, <<"1">>, '']}, reverse_lookup(T, S11e)),
+    ?assertEqual({ok, [<<"2">>, <<"1">>]}, reverse_lookup(T, S21)),
+    ?assertEqual({ok, [<<"2">>, <<"2">>]}, reverse_lookup(T, S22)),
+    ?assertEqual({ok, [<<"2">>, '+']}, reverse_lookup(T, S2_)),
+    ?assertEqual({ok, [<<"2">>, '+', <<"1">>, <<"1">>]}, reverse_lookup(T, S2_11)),
+    ?assertEqual({ok, [<<"2">>, '+', <<"1">>, <<"2">>]}, reverse_lookup(T, S2_12)),
+    ?assertEqual({ok, [<<"2">>, '+', <<"1">>, '+']}, reverse_lookup(T, S2_1_)),
+    %% Dump and restore trie to make sure rlookup still works:
+    T1 = trie_restore(#{reverse_lookups => true}, trie_dump(T, all)),
+    destroy(T),
+    ?assertEqual({ok, [<<"2">>, <<"1">>]}, reverse_lookup(T1, S21)),
+    ?assertEqual({ok, [<<"2">>, '+', <<"1">>, '+']}, reverse_lookup(T1, S2_1_)).
+
 -define(keys_history, topic_key_history).
 
 %% erlfmt-ignore
@@ -773,11 +873,16 @@ paths_test() ->
     ),
 
     %% Test filter function for paths containing wildcards
-    WildcardPaths = lists:filter(fun contains_wildcard/1, Paths),
+    WildcardPaths = lists:filter(
+        fun(Path) ->
+            lists:member(?PLUS, tokens_of_path(Path))
+        end,
+        Paths
+    ),
     FormattedWildcardPaths = lists:map(fun format_path/1, WildcardPaths),
     ?assertEqual(
-        sets:from_list(FormattedWildcardPaths, [{version, 2}]),
         sets:from_list(lists:map(FormatPathSpec, ExpectedWildcardPaths), [{version, 2}]),
+        sets:from_list(FormattedWildcardPaths, [{version, 2}]),
         #{
             expected => ExpectedWildcardPaths,
             wildcards => FormattedWildcardPaths
@@ -795,9 +900,7 @@ paths_test() ->
     #trie{trie = Tab2} = T2,
     Dump1 = sets:from_list(ets:tab2list(Tab1), [{version, 2}]),
     Dump2 = sets:from_list(ets:tab2list(Tab2), [{version, 2}]),
-    ?assertEqual(Dump1, Dump2),
-
-    ok.
+    ?assertEqual(Dump1, Dump2).
 
 format_path([{{_State, Edge}, _Next} | Rest]) ->
     [Edge | format_path(Rest)];
