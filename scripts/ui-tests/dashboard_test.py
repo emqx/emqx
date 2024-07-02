@@ -44,6 +44,7 @@ def login(driver, dashboard_url):
     dest_url = urljoin(dashboard_url, "/#/dashboard/overview")
     driver.get(dest_url)
     ensure_current_url(driver, dest_url)
+    wait_title_text(driver, "Cluster Overview")
 
 def ensure_current_url(driver, url):
     count = 0
@@ -58,10 +59,6 @@ def title(driver):
 
 def wait_title_text(driver, text):
     return WebDriverWait(driver, 10).until(lambda x: title(x).text == text)
-
-def test_basic(driver, login, dashboard_url):
-    driver.get(dashboard_url)
-    wait_title_text(driver, "Cluster Overview")
 
 def test_log(driver, login, dashboard_url):
     dest_url = urljoin(dashboard_url, "/#/log")
