@@ -237,13 +237,18 @@ transitions(Node, DB) ->
 %% Try to eliminate any ambiguity in the message representation.
 message_canonical_form(Msg0 = #message{}) ->
     message_canonical_form(emqx_message:to_map(Msg0));
-message_canonical_form(#{flags := Flags0} = Msg) ->
+message_canonical_form(#{flags := Flags0, headers := Headers0, payload := Payload0} = Msg) ->
     %% Remove flags that are false:
     Flags = maps:filter(
         fun(_Key, Val) -> Val end,
         Flags0
     ),
-    Msg#{flags := Flags}.
+    %% Remove undefined headers:
+    Headers = maps:filter(
+        fun(_Key, Val) -> Val =/= undefined end,
+        Headers0
+    ),
+    Msg#{flags := Flags, headers := Headers, payload := iolist_to_binary(Payload0)}.
 
 sublist(L) ->
     PrintMax = 20,
