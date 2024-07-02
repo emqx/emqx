@@ -356,7 +356,11 @@ init_bootstrap_file(File) ->
             {ok, MP} = re:compile(<<"(\.+):(\.+)(?::(\.+))?$">>, [ungreedy]),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
-            Reason = emqx_utils:explain_posix(Reason0),
+            Reason = io:format(
+                "load API bootstrap file failed, file:~ts, reason:~ts",
+                [File, emqx_utils:explain_posix(Reason0)]
+            ),
+
             ?SLOG(
                 error,
                 #{
@@ -365,6 +369,7 @@ init_bootstrap_file(File) ->
                     reason => Reason
                 }
             ),
+
             {error, Reason}
     end.
 
