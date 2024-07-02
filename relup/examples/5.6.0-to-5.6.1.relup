@@ -1,0 +1,8 @@
+#{
+    target_version => "5.6.1",
+    from_version => "5.6.0",
+    code_changes =>
+        [ {load_module, emqx_broker}
+        ],
+    post_upgrade_callbacks => []
+}.
