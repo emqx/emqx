@@ -98,7 +98,7 @@ validate_rule_topics(RuleRaw) ->
     throw({missing_topic_or_topics, RuleRaw}).
 
 validate_rule_topic(<<"eq ", TopicRaw/binary>>) ->
-    {eq, validate_rule_topic(TopicRaw)};
+    {eq, TopicRaw};
 validate_rule_topic(TopicRaw) when is_binary(TopicRaw) -> TopicRaw.
 
 validate_rule_permission(<<"allow">>) -> allow;
