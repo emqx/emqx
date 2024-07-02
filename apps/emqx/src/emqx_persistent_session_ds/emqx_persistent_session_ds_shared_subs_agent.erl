@@ -59,9 +59,10 @@
 -export([
     new/1,
     open/2,
+    can_subscribe/3,
 
     on_subscribe/3,
-    on_unsubscribe/2,
+    on_unsubscribe/3,
     on_stream_progress/2,
     on_info/2,
     on_disconnect/2,
@@ -80,12 +81,12 @@
 
 -callback new(opts()) -> t().
 -callback open([{topic_filter(), subscription()}], opts()) -> t().
--callback on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
-    {ok, t()} | {error, term()}.
--callback on_unsubscribe(t(), topic_filter()) -> t().
--callback on_disconnect(t(), [stream_progress()]) -> t().
+-callback can_subscribe(t(), topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
+-callback on_subscribe(t(), topic_filter(), emqx_types:subopts()) -> t().
+-callback on_unsubscribe(t(), topic_filter(), [stream_progress()]) -> t().
+-callback on_disconnect(t(), #{emqx_types:group() => [stream_progress()]}) -> t().
 -callback renew_streams(t()) -> {[stream_lease_event()], t()}.
--callback on_stream_progress(t(), [stream_progress()]) -> t().
+-callback on_stream_progress(t(), #{emqx_types:group() => [stream_progress()]}) -> t().
 -callback on_info(t(), term()) -> t().
 
 %%--------------------------------------------------------------------
@@ -100,16 +101,19 @@ new(Opts) ->
 open(Topics, Opts) ->
     ?shared_subs_agent:open(Topics, Opts).
 
--spec on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
-    {ok, t()} | {error, emqx_types:reason_code()}.
+-spec can_subscribe(t(), topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
+can_subscribe(Agent, TopicFilter, SubOpts) ->
+    ?shared_subs_agent:can_subscribe(Agent, TopicFilter, SubOpts).
+
+-spec on_subscribe(t(), topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(Agent, TopicFilter, SubOpts) ->
     ?shared_subs_agent:on_subscribe(Agent, TopicFilter, SubOpts).
 
--spec on_unsubscribe(t(), topic_filter()) -> t().
-on_unsubscribe(Agent, TopicFilter) ->
-    ?shared_subs_agent:on_unsubscribe(Agent, TopicFilter).
+-spec on_unsubscribe(t(), topic_filter(), [stream_progress()]) -> t().
+on_unsubscribe(Agent, TopicFilter, StreamProgresses) ->
+    ?shared_subs_agent:on_unsubscribe(Agent, TopicFilter, StreamProgresses).
 
--spec on_disconnect(t(), [stream_progress()]) -> t().
+-spec on_disconnect(t(), #{emqx_types:group() => [stream_progress()]}) -> t().
 on_disconnect(Agent, StreamProgresses) ->
     ?shared_subs_agent:on_disconnect(Agent, StreamProgresses).
 
@@ -117,7 +121,7 @@ on_disconnect(Agent, StreamProgresses) ->
 renew_streams(Agent) ->
     ?shared_subs_agent:renew_streams(Agent).
 
--spec on_stream_progress(t(), [stream_progress()]) -> t().
+-spec on_stream_progress(t(), #{emqx_types:group() => [stream_progress()]}) -> t().
 on_stream_progress(Agent, StreamProgress) ->
     ?shared_subs_agent:on_stream_progress(Agent, StreamProgress).
 

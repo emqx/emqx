@@ -12,9 +12,10 @@
 -export([
     new/1,
     open/2,
+    can_subscribe/3,
 
     on_subscribe/3,
-    on_unsubscribe/2,
+    on_unsubscribe/3,
     on_stream_progress/2,
     on_info/2,
     on_disconnect/2,
@@ -47,40 +48,38 @@ open(TopicSubscriptions, Opts) ->
     ),
     State1.
 
-on_subscribe(State0, TopicFilter, _SubOpts) ->
-    State1 = add_group_subscription(State0, TopicFilter),
-    {ok, State1}.
+can_subscribe(_State, _TopicFilter, _SubOpts) ->
+    ok.
 
-on_unsubscribe(State, TopicFilter) ->
-    delete_group_subscription(State, TopicFilter).
+on_subscribe(State0, TopicFilter, _SubOpts) ->
+    add_group_subscription(State0, TopicFilter).
+
+on_unsubscribe(State, TopicFilter, GroupProgress) ->
+    delete_group_subscription(State, TopicFilter, GroupProgress).
 
 renew_streams(#{} = State) ->
     fetch_stream_events(State).
 
 on_stream_progress(State, StreamProgresses) ->
-    ProgressesByGroup = stream_progresses_by_group(StreamProgresses),
-    lists:foldl(
-        fun({Group, GroupProgresses}, StateAcc) ->
+    maps:fold(
+        fun(Group, GroupProgresses, StateAcc) ->
             with_group_sm(StateAcc, Group, fun(GSM) ->
                 emqx_ds_shared_sub_group_sm:handle_stream_progress(GSM, GroupProgresses)
             end)
         end,
         State,
-        maps:to_list(ProgressesByGroup)
+        StreamProgresses
     ).
 
 on_disconnect(#{groups := Groups0} = State, StreamProgresses) ->
-    ProgressesByGroup = stream_progresses_by_group(StreamProgresses),
-    Groups1 = maps:fold(
-        fun(Group, GroupSM0, GroupsAcc) ->
-            GroupProgresses = maps:get(Group, ProgressesByGroup, []),
-            GroupSM1 = emqx_ds_shared_sub_group_sm:handle_disconnect(GroupSM0, GroupProgresses),
-            GroupsAcc#{Group => GroupSM1}
+    ok = maps:foreach(
+        fun(Group, GroupSM0) ->
+            GroupProgresses = maps:get(Group, StreamProgresses, []),
+            emqx_ds_shared_sub_group_sm:handle_disconnect(GroupSM0, GroupProgresses)
         end,
-        #{},
         Groups0
     ),
-    State#{groups => Groups1}.
+    State#{groups => #{}}.
 
 on_info(State, ?leader_lease_streams_match(Group, Leader, StreamProgresses, Version)) ->
     ?SLOG(info, #{
@@ -152,9 +151,14 @@ init_state(Opts) ->
         groups => #{}
     }.
 
-delete_group_subscription(State, _ShareTopicFilter) ->
-    %% TODO https://emqx.atlassian.net/browse/EMQX-12572
-    State.
+delete_group_subscription(State, #share{group = Group}, GroupProgress) ->
+    case State of
+        #{groups := #{Group := GSM} = Groups} ->
+            _ = emqx_ds_shared_sub_group_sm:handle_disconnect(GSM, GroupProgress),
+            State#{groups => maps:remove(Group, Groups)};
+        _ ->
+            State
+    end.
 
 add_group_subscription(
     #{session_id := SessionId, groups := Groups0} = State0, ShareTopicFilter
@@ -209,20 +213,3 @@ with_group_sm(State, Group, Fun) ->
             %% Error?
             State
     end.
-
-stream_progresses_by_group(StreamProgresses) ->
-    lists:foldl(
-        fun(#{topic_filter := #share{group = Group}} = Progress0, Acc) ->
-            Progress1 = maps:remove(topic_filter, Progress0),
-            maps:update_with(
-                Group,
-                fun(GroupStreams0) ->
-                    [Progress1 | GroupStreams0]
-                end,
-                [Progress1],
-                Acc
-            )
-        end,
-        #{},
-        StreamProgresses
-    ).
