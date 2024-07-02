@@ -171,65 +171,59 @@ do_destroy(UserGroup) ->
         mnesia:select(?TAB, group_match_spec(UserGroup), write)
     ).
 
-import_users({PasswordType, Filename, FileData}, State) ->
+import_users(ImportSource, State) ->
+    import_users(ImportSource, State, #{override => true}).
+
+import_users({PasswordType, Filename, FileData}, State, Opts) ->
     Convertor = convertor(PasswordType, State),
-    try
-        {_NewUsersCnt, Users} = parse_import_users(Filename, FileData, Convertor),
-        case length(Users) > 0 andalso do_import_users(Users) of
-            false ->
-                error(empty_users);
-            ok ->
-                ok;
-            {error, Reason} ->
-                _ = do_clean_imported_users(Users),
-                error(Reason)
-        end
+    try parse_import_users(Filename, FileData, Convertor) of
+        Users ->
+            case do_import_users(Users, Opts#{filename => Filename}) of
+                ok ->
+                    ok;
+                %% Do not log empty user entries.
+                %% The default etc/auth-built-in-db.csv file contains an empty user entry.
+                {error, empty_users} ->
+                    {error, empty_users};
+                {error, Reason} ->
+                    ?SLOG(
+                        warning,
+                        #{
+                            msg => "import_authn_users_failed",
+                            reason => Reason,
+                            type => PasswordType,
+                            filename => Filename
+                        }
+                    ),
+                    {error, Reason}
+            end
     catch
-        error:Reason1:Stk ->
+        error:Reason:Stk ->
             ?SLOG(
                 warning,
                 #{
-                    msg => "import_users_failed",
-                    reason => Reason1,
+                    msg => "parse_authn_users_failed",
+                    reason => Reason,
                     type => PasswordType,
                     filename => Filename,
                     stacktrace => Stk
                 }
             ),
-            {error, Reason1}
+            {error, Reason}
     end.
 
-do_import_users(Users) ->
+do_import_users([], _Opts) ->
+    {error, empty_users};
+do_import_users(Users, Opts) ->
     trans(
         fun() ->
             lists:foreach(
-                fun(
-                    #{
-                        <<"user_group">> := UserGroup,
-                        <<"user_id">> := UserID,
-                        <<"password_hash">> := PasswordHash,
-                        <<"salt">> := Salt,
-                        <<"is_superuser">> := IsSuperuser
-                    }
-                ) ->
-                    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser)
+                fun(User) ->
+                    insert_user(User, Opts)
                 end,
                 Users
             )
         end
-    ).
-
-do_clean_imported_users(Users) ->
-    lists:foreach(
-        fun(
-            #{
-                <<"user_group">> := UserGroup,
-                <<"user_id">> := UserID
-            }
-        ) ->
-            mria:dirty_delete(?TAB, {UserGroup, UserID})
-        end,
-        Users
     ).
 
 add_user(
@@ -338,7 +332,14 @@ run_fuzzy_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
+insert_user(User, Opts) ->
+    #{
+        <<"user_group">> := UserGroup,
+        <<"user_id">> := UserID,
+        <<"password_hash">> := PasswordHash,
+        <<"salt">> := Salt,
+        <<"is_superuser">> := IsSuperuser
+    } = User,
     UserInfoRecord =
         #user_info{user_id = DBUserID} =
         user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
@@ -348,14 +349,22 @@ insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
         [UserInfoRecord] ->
             ok;
         [_] ->
+            Msg =
+                case maps:get(override, Opts, false) of
+                    true ->
+                        insert_user(UserInfoRecord),
+                        "override_an_exists_userid_into_authentication_database_ok";
+                    false ->
+                        "import_an_exists_userid_into_authentication_database_failed"
+                end,
             ?SLOG(warning, #{
-                msg => "bootstrap_authentication_overridden_in_the_built_in_database",
+                msg => Msg,
                 user_id => UserID,
                 group_id => UserGroup,
+                bootstrap_file => maps:get(filename, Opts),
                 suggestion =>
-                    "If you have made changes in other way, remove the user_id from the bootstrap file."
-            }),
-            insert_user(UserInfoRecord)
+                    "If you've altered it differently, delete the user_id from the bootstrap file."
+            })
     end.
 
 insert_user(#user_info{} = UserInfoRecord) ->
@@ -473,27 +482,7 @@ parse_import_users(Filename, FileData, Convertor) ->
         end
     end,
     ReaderFn = reader_fn(Filename, FileData),
-    Users = Eval(ReaderFn),
-    NewUsersCount =
-        lists:foldl(
-            fun(
-                #{
-                    <<"user_group">> := UserGroup,
-                    <<"user_id">> := UserID
-                },
-                Acc
-            ) ->
-                case ets:member(?TAB, {UserGroup, UserID}) of
-                    true ->
-                        Acc;
-                    false ->
-                        Acc + 1
-                end
-            end,
-            0,
-            Users
-        ),
-    {NewUsersCount, Users}.
+    Eval(ReaderFn).
 
 reader_fn(prepared_user_list, List) when is_list(List) ->
     %% Example: [#{<<"user_id">> => <<>>, ...}]
@@ -511,7 +500,7 @@ reader_fn(Filename0, Data) ->
                     error(Reason)
             end;
         <<".csv">> ->
-            %% Example: data/user-credentials.csv
+            %% Example: etc/auth-built-in-db-bootstrap.csv
             emqx_utils_stream:csv(Data);
         <<>> ->
             error(unknown_file_format);
@@ -556,16 +545,15 @@ is_superuser(#{<<"is_superuser">> := true}) -> true;
 is_superuser(_) -> false.
 
 boostrap_user_from_file(Config, State) ->
-    case maps:get(boostrap_file, Config, <<>>) of
+    case maps:get(bootstrap_file, Config, <<>>) of
         <<>> ->
             ok;
         FileName0 ->
-            #{boostrap_type := Type} = Config,
+            #{bootstrap_type := Type} = Config,
             FileName = emqx_schema:naive_env_interpolation(FileName0),
             case file:read_file(FileName) of
                 {ok, FileData} ->
-                    %% if there is a key conflict, override with the key which from the bootstrap file
-                    _ = import_users({Type, FileName, FileData}, State),
+                    _ = import_users({Type, FileName, FileData}, State, #{override => false}),
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, #{
