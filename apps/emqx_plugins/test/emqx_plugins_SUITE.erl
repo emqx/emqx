@@ -48,6 +48,8 @@
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG, "0.1.0-2").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 all() ->
     [
         {group, copy_plugin},
@@ -139,6 +141,39 @@ get_demo_plugin_package(Dir) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+hookpoints() ->
+    [
+        'client.connect',
+        'client.connack',
+        'client.connected',
+        'client.disconnected',
+        'client.authenticate',
+        'client.authorize',
+        'client.subscribe',
+        'client.unsubscribe',
+        'session.created',
+        'session.subscribed',
+        'session.unsubscribed',
+        'session.resumed',
+        'session.discarded',
+        'session.takenover',
+        'session.terminated',
+        'message.publish',
+        'message.puback',
+        'message.delivered',
+        'message.acked',
+        'message.dropped'
+    ].
+
+get_hook_modules() ->
+    lists:flatmap(
+        fun(HookPoint) ->
+            CBs = emqx_hooks:lookup(HookPoint),
+            [Mod || {callback, {Mod, _Fn, _Args}, _Filter, _Prio} <- CBs]
+        end,
+        hookpoints()
+    ).
 
 t_demo_install_start_stop_uninstall({init, Config}) ->
     Opts = #{package := Package} = get_demo_plugin_package(),
@@ -256,9 +291,18 @@ t_start_restart_and_stop({init, Config}) ->
 t_start_restart_and_stop({'end', _Config}) ->
     ok;
 t_start_restart_and_stop(Config) ->
+    %% pre-condition
+    Hooks0 = get_hook_modules(),
+    ?assertNot(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks0), #{hooks => Hooks0}),
+
     NameVsn = proplists:get_value(name_vsn, Config),
     ok = emqx_plugins:ensure_installed(NameVsn),
     ok = emqx_plugins:ensure_enabled(NameVsn),
+
+    %% Application is not yet started.
+    Hooks1 = get_hook_modules(),
+    ?assertNot(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks1), #{hooks => Hooks1}),
+
     FakeInfo =
         "name=bar, rel_vsn=\"2\", rel_apps=[\"bar-9\"],"
         "description=\"desc bar\"",
@@ -270,6 +314,10 @@ t_start_restart_and_stop(Config) ->
     assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
     ok = emqx_plugins:ensure_started(),
     assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
+
+    %% Should have called the application start callback, which in turn adds hooks.
+    Hooks2 = get_hook_modules(),
+    ?assert(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks2), #{hooks => Hooks2}),
 
     %% fake enable bar-2
     ok = ensure_state(Bar2, rear, true),
@@ -291,6 +339,10 @@ t_start_restart_and_stop(Config) ->
     ok = emqx_plugins:ensure_stopped(),
     assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
     ok = ensure_state(Bar2, rear, false),
+
+    %% Should have called the application stop callback, which removes the hooks.
+    Hooks3 = get_hook_modules(),
+    ?assertNot(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks3), #{hooks => Hooks3}),
 
     ok = emqx_plugins:restart(NameVsn),
     assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
@@ -370,6 +422,15 @@ assert_app_running(Name, true) ->
 assert_app_running(Name, false) ->
     AllApps = application:which_applications(),
     ?assertEqual(false, lists:keyfind(Name, 1, AllApps)).
+
+assert_started_and_hooks_loaded() ->
+    PluginConfig = emqx_plugins:list(),
+    ct:pal("plugin config:\n  ~p", [PluginConfig]),
+    ?assertMatch([_], PluginConfig),
+    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
+    Hooks = get_hook_modules(),
+    ?assert(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks), #{hooks => Hooks}),
+    ok.
 
 t_bad_tar_gz({init, Config}) ->
     Config;
@@ -838,6 +899,95 @@ group_t_cluster_leave(Config) ->
     ?assertMatch(
         {200, [#{running_status := [#{node := N2, status := running}]}]},
         erpc:call(N2, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+    ),
+    ok.
+
+%% Checks that starting a node with a plugin enabled starts it correctly, and that the
+%% hooks added by the plugin's `application:start/2' callback are indeed in place.
+%% See also: https://github.com/emqx/emqx/issues/13378
+t_start_node_with_plugin_enabled({init, Config}) ->
+    #{package := Package, shdir := InstallDir} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    AppSpecs = [
+        emqx,
+        emqx_conf,
+        emqx_ctl,
+        {emqx_plugins, #{
+            config =>
+                #{
+                    plugins =>
+                        #{
+                            install_dir => InstallDir,
+                            states =>
+                                [
+                                    #{
+                                        enable => true,
+                                        name_vsn => NameVsn
+                                    }
+                                ]
+                        }
+                }
+        }}
+    ],
+    Name1 = t_cluster_start_enabled1,
+    Name2 = t_cluster_start_enabled2,
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {Name1, #{role => core, apps => AppSpecs, join_to => undefined}},
+            {Name2, #{role => core, apps => AppSpecs, join_to => undefined}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Names = [Name1, Name2],
+    Nodes = [emqx_cth_cluster:node_name(N) || N <- Names],
+    [
+        {node_specs, Specs},
+        {nodes, Nodes},
+        {name_vsn, NameVsn}
+        | Config
+    ];
+t_start_node_with_plugin_enabled({'end', Config}) ->
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes),
+    ok;
+t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
+    NodeSpecs = ?config(node_specs, Config),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            [N1, N2 | _] = emqx_cth_cluster:start(NodeSpecs),
+            ?ON(N1, assert_started_and_hooks_loaded()),
+            ?ON(N2, assert_started_and_hooks_loaded()),
+            %% Now make them join.
+            %% N.B.: We need to start autocluster so that applications are restarted in
+            %% order, and also we need to override the config loader to emulate what
+            %% `emqx_cth_cluster' does and avoid the node crashing due to lack of config
+            %% keys.
+            ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
+            ?ON(N2, begin
+                StartCallback0 =
+                    case ekka:env({callback, start}) of
+                        {ok, SC0} -> SC0;
+                        _ -> fun() -> ok end
+                    end,
+                StartCallback = fun() ->
+                    ok = emqx_app:set_config_loader(emqx_cth_suite),
+                    StartCallback0()
+                end,
+                ekka:callback(start, StartCallback)
+            end),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    ?ON(N2, ekka:join(N1)),
+                    #{?snk_kind := "emqx_plugins_app_started"}
+                ),
+            ct:pal("checking N1 state"),
+            ?ON(N1, assert_started_and_hooks_loaded()),
+            ct:pal("checking N2 state"),
+            ?ON(N2, assert_started_and_hooks_loaded()),
+            ok
+        end,
+        []
     ),
     ok.
 
