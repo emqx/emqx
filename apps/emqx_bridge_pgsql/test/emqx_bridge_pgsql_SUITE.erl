@@ -10,7 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include("emqx_resource_errors.hrl").
+-include("../../emqx_resource/include/emqx_resource_errors.hrl").
 
 % SQL definitions
 -define(SQL_BRIDGE,

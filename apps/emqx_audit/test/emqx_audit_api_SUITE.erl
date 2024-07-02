@@ -18,6 +18,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     [
@@ -54,18 +55,27 @@ common_tests() ->
 }).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    emqx_config:erase_all(),
-    emqx_mgmt_api_test_util:init_suite([emqx_ctl, emqx_conf, emqx_audit]),
-    ok = emqx_common_test_helpers:load_config(emqx_enterprise_schema, ?CONF_DEFAULT),
-    emqx_config:save_schema_mod_and_names(emqx_enterprise_schema),
-    ok = emqx_config_logger:refresh_config(),
-    application:set_env(emqx, boot_modules, []),
-    emqx_conf_cli:load(),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_ctl,
+            emqx,
+            {emqx_conf, #{
+                config => ?CONF_DEFAULT,
+                schema_mod => emqx_enterprise_schema
+            }},
+            emqx_modules,
+            emqx_audit,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_audit, emqx_conf, emqx_ctl]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
 
 t_http_api(_) ->
     process_flag(trap_exit, true),
@@ -164,6 +174,7 @@ t_cli(_Config) ->
         ],
         Data
     ),
+    [ShowLogEntry] = Data,
     %% check create at is valid
     [#{<<"created_at">> := CreateAtRaw}] = Data,
     CreateAt = calendar:rfc3339_to_system_time(binary_to_list(CreateAtRaw), [{unit, microsecond}]),
@@ -172,7 +183,10 @@ t_cli(_Config) ->
     %% check cli filter
     {ok, Res1} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "from=cli", AuthHeader),
     #{<<"data">> := Data1} = emqx_utils_json:decode(Res1, [return_maps]),
-    ?assertEqual(Data, Data1),
+    ?assertMatch(
+        [ShowLogEntry, #{<<"operation_type">> := <<"emqx">>, <<"args">> := [<<"start">>]}],
+        Data1
+    ),
     {ok, Res2} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "from=erlang_console", AuthHeader
     ),

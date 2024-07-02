@@ -53,12 +53,6 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    delete_all_bridges(),
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_connector_test_helpers:stop_apps([
-        emqx_conf, emqx_bridge, emqx_resource, emqx_rule_engine
-    ]),
-    _ = application:stop(emqx_connector),
     ok.
 
 init_per_group(InfluxDBType, Config0) when
@@ -92,10 +86,18 @@ init_per_group(InfluxDBType, Config0) when
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            ok = start_apps(),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            emqx_mgmt_api_test_util:init_suite(),
-            Config = [{use_tls, UseTLS} | Config0],
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx_conf,
+                    emqx_bridge_influxdb,
+                    emqx_bridge,
+                    emqx_rule_engine,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
+            Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
             {Name, ConfigString, InfluxDBConfig} = influxdb_config(
                 apiv1, InfluxDBHost, InfluxDBPort, Config
             ),
@@ -164,10 +166,18 @@ init_per_group(InfluxDBType, Config0) when
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            ok = start_apps(),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            emqx_mgmt_api_test_util:init_suite(),
-            Config = [{use_tls, UseTLS} | Config0],
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx_conf,
+                    emqx_bridge_influxdb,
+                    emqx_bridge,
+                    emqx_rule_engine,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
+            Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
             {Name, ConfigString, InfluxDBConfig} = influxdb_config(
                 apiv2, InfluxDBHost, InfluxDBPort, Config
             ),
@@ -222,12 +232,13 @@ end_per_group(Group, Config) when
     Group =:= apiv2_tcp;
     Group =:= apiv2_tls
 ->
+    Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     EHttpcPoolName = ?config(ehttpc_pool_name, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ehttpc_sup:stop_pool(EHttpcPoolName),
-    delete_bridge(Config),
+    emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
@@ -249,14 +260,6 @@ end_per_testcase(_Testcase, Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
-
-start_apps() ->
-    %% some configs in emqx_conf app are mandatory
-    %% we want to make sure they are loaded before
-    %% ekka start in emqx_common_test_helpers:start_apps/1
-    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]).
 
 example_write_syntax() ->
     %% N.B.: this single space character is relevant

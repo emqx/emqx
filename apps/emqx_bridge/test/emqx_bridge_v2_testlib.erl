@@ -22,25 +22,22 @@ init_per_suite(Config, Apps) ->
     [{start_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    delete_all_bridges_and_connectors(),
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps(lists:reverse(?config(start_apps, Config))),
-    _ = application:stop(emqx_connector),
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_group(TestGroup, BridgeType, Config) ->
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    application:load(emqx_bridge),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps(?config(start_apps, Config)),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    emqx_mgmt_api_test_util:init_suite(),
+    Apps = emqx_cth_suite:start(
+        ?config(start_apps, Config),
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
     MQTTTopic = <<"mqtt/topic/abc", UniqueNum/binary>>,
     [
+        {apps, Apps},
         {proxy_host, ProxyHost},
         {proxy_port, ProxyPort},
         {mqtt_topic, MQTTTopic},
@@ -50,10 +47,11 @@ init_per_group(TestGroup, BridgeType, Config) ->
     ].
 
 end_per_group(Config) ->
+    Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    %    delete_all_bridges(),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_testcase(TestCase, Config0, BridgeConfigCb) ->

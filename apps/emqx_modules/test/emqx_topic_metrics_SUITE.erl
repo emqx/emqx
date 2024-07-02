@@ -19,21 +19,26 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(TOPIC, #{<<"topic_metrics">> => []}).
-
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?TOPIC),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_modules
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_modules, emqx_conf]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_Case, Config) ->
     emqx_topic_metrics:enable(),
