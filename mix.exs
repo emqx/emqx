@@ -215,7 +215,6 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_license,
       :emqx_s3,
       :emqx_bridge_s3,
-      :emqx_bridge_azure_blob_storage,
       :emqx_schema_registry,
       :emqx_schema_validation,
       :emqx_message_transformation,
@@ -230,10 +229,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_gateway_ocpp,
       :emqx_gateway_jt808,
       :emqx_bridge_syskeeper,
-      :emqx_ds_shared_sub,
-      :emqx_auth_ext,
-      :emqx_cluster_link,
-      :emqx_ds_builtin_raft
+      :emqx_auth_ext
     ])
   end
 

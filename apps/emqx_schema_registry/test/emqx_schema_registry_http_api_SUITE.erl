@@ -36,12 +36,22 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_config:save_schema_mod_and_names(emqx_schema_registry_schema),
-    emqx_mgmt_api_test_util:init_suite(?APPS),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_rule_engine,
+            emqx_schema_registry,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(lists:reverse(?APPS)),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_group(avro, Config) ->
