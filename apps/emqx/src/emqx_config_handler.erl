@@ -852,7 +852,9 @@ assert_callback_function(Mod) ->
     _ = apply(Mod, module_info, []),
     case
         erlang:function_exported(Mod, pre_config_update, 3) orelse
-            erlang:function_exported(Mod, post_config_update, 5)
+            erlang:function_exported(Mod, post_config_update, 5) orelse
+            erlang:function_exported(Mod, pre_config_update, 4) orelse
+            erlang:function_exported(Mod, post_config_update, 6)
     of
         true -> ok;
         false -> error(#{msg => "bad_emqx_config_handler_callback", module => Mod})
@@ -899,6 +901,8 @@ save_handlers(Handlers) ->
 get_function_arity(_Module, _Callback, []) ->
     false;
 get_function_arity(Module, Callback, [Arity | Opts]) ->
+    %% ensure module is loaded
+    Module = Module:module_info(module),
     case erlang:function_exported(Module, Callback, Arity) of
         true -> Arity;
         false -> get_function_arity(Module, Callback, Opts)

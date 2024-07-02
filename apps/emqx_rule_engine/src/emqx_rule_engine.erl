@@ -303,7 +303,7 @@ maybe_add_metrics_for_rule(Id) ->
 clear_metrics_for_rule(Id) ->
     ok = emqx_metrics_worker:clear_metrics(rule_metrics, Id).
 
-%% Tip: Don't delete reset_metrics_for_rule/1, use before v571 rpc
+%% Tip: Don't delete reset_metrics_for_rule/1, use before v572 rpc
 -spec reset_metrics_for_rule(rule_id()) -> ok.
 reset_metrics_for_rule(Id) ->
     reset_metrics_for_rule(Id, #{}).

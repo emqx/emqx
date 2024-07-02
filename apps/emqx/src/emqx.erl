@@ -203,7 +203,7 @@ update_config(KeyPath, UpdateReq) ->
 -spec update_config(
     emqx_utils_maps:config_key_path(),
     emqx_config:update_request(),
-    emqx_config:cluster_rpc_opts()
+    emqx_config:update_opts()
 ) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(KeyPath, UpdateReq, Opts) ->
