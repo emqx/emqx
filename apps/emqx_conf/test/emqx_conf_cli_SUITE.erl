@@ -19,6 +19,7 @@
 -compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_conf.hrl").
 -import(emqx_config_SUITE, [prepare_conf_file/3]).
@@ -27,15 +28,34 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_auth_redis]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_auth_redis,
+            emqx_auth,
+            emqx_management
+        ],
+        #{
+            %% N.B.: This is needed to avoid `emqx_cth_suite' default behavior of setting
+            %% `authorization.sources = []'.
+            emqx_conf_shared_apps => [emqx],
+            work_dir => emqx_cth_suite:work_dir(Config)
+        }
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_auth, emqx_auth_redis]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 t_load_config(Config) ->
     Authz = authorization,
     Conf = emqx_conf:get_raw([Authz]),
+    ?assertEqual(
+        [emqx_authz_schema:default_authz()],
+        maps:get(<<"sources">>, Conf)
+    ),
     %% set sources to []
     ConfBin = hocon_pp:do(#{<<"authorization">> => #{<<"sources">> => []}}, #{}),
     ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),

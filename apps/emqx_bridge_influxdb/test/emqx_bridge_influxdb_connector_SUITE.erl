@@ -27,10 +27,16 @@ init_per_suite(Config) ->
     Servers = [{InfluxDBTCPHost, InfluxDBTCPPort}, {InfluxDBTLSHost, InfluxDBTLSPort}],
     case emqx_common_test_helpers:is_all_tcp_servers_available(Servers) of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx_conf,
+                    emqx_bridge_influxdb,
+                    emqx_bridge
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
             [
+                {apps, Apps},
                 {influxdb_tcp_host, InfluxDBTCPHost},
                 {influxdb_tcp_port, InfluxDBTCPPort},
                 {influxdb_tls_host, InfluxDBTLSHost},
@@ -46,10 +52,10 @@ init_per_suite(Config) ->
             end
     end.
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_, Config) ->
     Config.

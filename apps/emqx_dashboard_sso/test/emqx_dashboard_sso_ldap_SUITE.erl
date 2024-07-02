@@ -7,7 +7,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include("../../emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").

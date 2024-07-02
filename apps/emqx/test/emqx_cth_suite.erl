@@ -71,6 +71,7 @@
 -export([start_app/3]).
 -export([stop_apps/1]).
 
+-export([default_config/2]).
 -export([merge_appspec/2]).
 -export([merge_config/2]).
 
@@ -243,6 +244,7 @@ log_appspec(App, #{}) ->
 
 spec_fmt(fc, config) -> "~n~ts";
 spec_fmt(fc, _) -> "~p";
+spec_fmt(ffun, {config, false}) -> "false (don't inhibit config loader)";
 spec_fmt(ffun, {config, C}) -> render_config(C);
 spec_fmt(ffun, {_, X}) -> X.
 
@@ -349,6 +351,7 @@ default_appspec(emqx_conf, SuiteOpts) ->
             data_dir => unicode:characters_to_binary(maps:get(work_dir, SuiteOpts, "data"))
         }
     },
+    SharedApps = maps:get(emqx_conf_shared_apps, SuiteOpts, [emqx, emqx_auth]),
     % NOTE
     % Since `emqx_conf_schema` manages config for a lot of applications, it's good to include
     % their defaults as well.
@@ -357,10 +360,7 @@ default_appspec(emqx_conf, SuiteOpts) ->
             emqx_utils_maps:deep_merge(Acc, default_config(App, SuiteOpts))
         end,
         Config,
-        [
-            emqx,
-            emqx_auth
-        ]
+        SharedApps
     ),
     #{
         config => SharedConfig,

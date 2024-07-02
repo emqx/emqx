@@ -1397,7 +1397,13 @@ log_handler_common_confs(Handler, Default) ->
                     desc => <<"Recording MFA and line in the log(usefully).">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
-            )}
+            )},
+        {"payload_encode",
+            sc(hoconsc:enum([hex, text, hidden]), #{
+                default => text,
+                importance => ?IMPORTANCE_HIDDEN,
+                desc => ?DESC(emqx_schema, fields_trace_payload_encode)
+            })}
     ].
 
 crash_dump_file_default() ->

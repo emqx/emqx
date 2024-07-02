@@ -21,6 +21,7 @@
 
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("eldap/include/eldap.hrl").
 
@@ -52,18 +53,23 @@ init_per_suite(Config) ->
     Port = port(tcp),
     case emqx_common_test_helpers:is_tcp_server_available(?LDAP_HOST, Port) of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            Config;
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_ldap
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
+            [{apps, Apps} | Config];
         false ->
             {skip, no_ldap}
     end.
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_, Config) ->
     emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
