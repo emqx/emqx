@@ -1,0 +1,87 @@
+-- Note: MQTT standard specifies that certain properties like topic
+-- should be UTF8 strings. Here we represent them as OCTET STRING,
+-- to avoid extra checks.
+
+DurableMessage DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  From ::= CHOICE {
+    atom UTF8String,
+    binary OCTET STRING
+  }
+
+  MiscFlag ::= SEQUENCE {
+    key UTF8String,
+    value BOOLEAN
+  }
+
+  -- Both key and value are interpreted as erlang terms:
+  MiscProperty ::= SEQUENCE {
+    key OCTET STRING,
+    value OCTET STRING
+  }
+
+  -- Data that doesn't comply with the strict schema:
+  Misc ::= CHOICE {
+    flag MiscFlag,
+    header MiscProperty,
+    property MiscProperty,
+    extra MiscProperty
+  }
+
+  -- Both key and value are interpreted as binaries:
+  UserProperty ::= SEQUENCE {
+    key OCTET STRING,
+    value OCTET STRING
+  }
+
+  Property ::= CHOICE {
+    payloadFormatIndicator INTEGER (0..255),
+    messageExpiryInterval INTEGER (0..4294967295),
+    responseTopic OCTET STRING,
+    correlationData OCTET STRING,
+    userProperty SEQUENCE OF UserProperty,
+    contentType OCTET STRING
+  }
+
+  ClientAttr ::= SEQUENCE {
+    key OCTET STRING,
+    value OCTET STRING
+  }
+
+  ProtoVer ::= CHOICE {
+    -- Unknown combination of protocol and version. In this case the
+    -- encoding will fall back to sending data via misc header
+    undefined NULL,
+    mqtt INTEGER(0..8),
+    mqtt-sn INTEGER(0..255),
+    coap INTEGER(0..255)
+  }
+
+  DurableMessage ::= SEQUENCE {
+    id OCTET STRING,
+    from From,
+    topic OCTET STRING,
+    payload OCTET STRING,
+    timestamp INTEGER,
+    qos INTEGER (0..2),
+    -- MQTT PUBLISH flags:
+    flagSys BOOLEAN,
+    flagDup BOOLEAN,
+    flagRetain BOOLEAN,
+    -- Flags that indicate presence of standard headers:
+    hasPeerhost BOOLEAN,
+    hasUsername BOOLEAN,
+    hasPeername BOOLEAN,
+    -- Standard headers (their presence is indicated by has* flag, e.g. hasUsername):
+    protoVer ProtoVer,
+    peerhost OCTET STRING (SIZE(0..16)), -- No peerhost (0 octets) .. IPv6 (16 octets)
+    username OCTET STRING,
+    peername OCTET STRING (SIZE(0..18)), -- No peerhost (0 octets) .. IPv6 (16 octets + 2 octets for (TCP/UDP) port)
+    -- Standard properties:
+    properties SEQUENCE OF Property,
+    -- Client attributes (EMQX-specific data):
+    clientAttrs SEQUENCE OF ClientAttr,
+    -- Miscellaneous, highly EMQX-specific internal data:
+    misc SEQUENCE OF Misc
+  }
+END

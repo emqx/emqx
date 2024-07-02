@@ -36,7 +36,7 @@
     make_delete_iterator/5,
     update_iterator/4,
     next/6,
-    delete_next/6,
+    delete_next/7,
 
     handle_event/4
 ]).
@@ -156,7 +156,9 @@
 -define(DIM_TOPIC, 1).
 -define(DIM_TS, 2).
 
--define(DS_LTS_COUNTERS, [?DS_LTS_SEEK_COUNTER, ?DS_LTS_NEXT_COUNTER, ?DS_LTS_COLLISION_COUNTER]).
+-define(DS_LTS_COUNTERS, [
+    ?DS_BITFIELD_LTS_SEEK_COUNTER, ?DS_BITFIELD_LTS_NEXT_COUNTER, ?DS_BITFIELD_LTS_COLLISION_COUNTER
+]).
 
 %% GVar used for idle detection:
 -define(IDLE_DETECT, idle_detect).
@@ -196,7 +198,7 @@ create(_ShardId, DBHandle, GenId, Options, SPrev) ->
     case SPrev of
         #s{trie = TriePrev} ->
             ok = copy_previous_trie(DBHandle, TrieCFHandle, TriePrev),
-            ?tp(bitfield_lts_inherited_trie, #{}),
+            ?tp(layout_inherited_lts_trie, #{}),
             ok;
         undefined ->
             ok
@@ -495,14 +497,19 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
         rocksdb:iterator_close(ITHandle)
     end.
 
-delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize, Now) ->
+delete_next(Shard, Schema = #s{ts_offset = TSOffset}, It, Selector, BatchSize, Now, IsCurrent) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
     %% the current time to compute it.
     init_counters(),
-    SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
+    SafeCutoffTime = ?EPOCH(Schema, Now) bsl TSOffset,
     try
-        delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize)
+        case delete_next_until(Schema, It, SafeCutoffTime, Selector, BatchSize) of
+            {ok, _It, 0, 0} when not IsCurrent ->
+                {ok, end_of_stream};
+            Result ->
+                Result
+        end
     after
         report_counters(Shard)
     end.
@@ -596,7 +603,7 @@ prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Key
             fun
                 ('+') ->
                     any;
-                (TopicLevel) when is_binary(TopicLevel) ->
+                (TopicLevel) when is_binary(TopicLevel); TopicLevel =:= '' ->
                     {'=', hash_topic_level(TopicLevel)}
             end,
             Varying
@@ -632,7 +639,7 @@ next_loop(ITHandle, KeyMapper, Filter, Cutoff, It0, Acc0, N0) ->
         Key1 ->
             %% assert
             true = Key1 > Key0,
-            inc_counter(?DS_LTS_SEEK_COUNTER),
+            inc_counter(?DS_BITFIELD_LTS_SEEK_COUNTER),
             case rocksdb:iterator_move(ITHandle, {seek, Key1}) of
                 {ok, Key, Val} ->
                     {N, It, Acc} = traverse_interval(
@@ -658,7 +665,7 @@ traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N) -
                     Acc = [{Key, Msg} | Acc0],
                     traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc, N - 1);
                 false ->
-                    inc_counter(?DS_LTS_COLLISION_COUNTER),
+                    inc_counter(?DS_BITFIELD_LTS_COLLISION_COUNTER),
                     traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc0, N)
             end;
         overflow ->
@@ -670,7 +677,7 @@ traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N) -
 traverse_interval(_ITHandle, _KeyMapper, _Filter, _Cutoff, It, Acc, 0) ->
     {0, It, Acc};
 traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc, N) ->
-    inc_counter(?DS_LTS_NEXT_COUNTER),
+    inc_counter(?DS_BITFIELD_LTS_NEXT_COUNTER),
     case rocksdb:iterator_move(ITHandle, next) of
         {ok, Key, Val} ->
             traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It, Acc, N);
@@ -690,7 +697,7 @@ delete_next_loop(LoopContext0) ->
         iterated_over := AccIter0,
         it_handle := ITHandle
     } = LoopContext0,
-    inc_counter(?DS_LTS_SEEK_COUNTER),
+    inc_counter(?DS_BITFIELD_LTS_SEEK_COUNTER),
     #{?tag := ?DELETE_IT, ?last_seen_key := Key0} = It0,
     case emqx_ds_bitmask_keymapper:bin_increment(Filter, Key0) of
         overflow ->
@@ -772,7 +779,7 @@ delete_traverse_interval1(LoopContext0) ->
         iterated_over := AccIter,
         storage_iter := It
     } = LoopContext0,
-    inc_counter(?DS_LTS_NEXT_COUNTER),
+    inc_counter(?DS_BITFIELD_LTS_NEXT_COUNTER),
     case rocksdb:iterator_move(ITHandle, next) of
         {ok, Key, Val} ->
             delete_traverse_interval(LoopContext0#{
@@ -831,6 +838,8 @@ threshold_fun(0) ->
 threshold_fun(_) ->
     20.
 
+hash_topic_level('') ->
+    hash_topic_level(<<>>);
 hash_topic_level(TopicLevel) ->
     <<Int:64, _/binary>> = erlang:md5(TopicLevel),
     Int.
@@ -896,7 +905,7 @@ restore_trie(TopicIndexBytes, DB, CF) ->
     {ok, IT} = rocksdb:iterator(DB, CF, []),
     try
         Dump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
-        TrieOpts = #{persist_callback => PersistCallback, static_key_size => TopicIndexBytes},
+        TrieOpts = #{persist_callback => PersistCallback, static_key_bits => TopicIndexBytes * 8},
         emqx_ds_lts:trie_restore(TrieOpts, Dump)
     after
         rocksdb:iterator_close(IT)
@@ -933,9 +942,11 @@ init_counters() ->
     ok.
 
 report_counters(Shard) ->
-    emqx_ds_builtin_metrics:inc_lts_seek_counter(Shard, get(?DS_LTS_SEEK_COUNTER)),
-    emqx_ds_builtin_metrics:inc_lts_next_counter(Shard, get(?DS_LTS_NEXT_COUNTER)),
-    emqx_ds_builtin_metrics:inc_lts_collision_counter(Shard, get(?DS_LTS_COLLISION_COUNTER)),
+    emqx_ds_builtin_metrics:inc_lts_seek_counter(Shard, get(?DS_BITFIELD_LTS_SEEK_COUNTER)),
+    emqx_ds_builtin_metrics:inc_lts_next_counter(Shard, get(?DS_BITFIELD_LTS_NEXT_COUNTER)),
+    emqx_ds_builtin_metrics:inc_lts_collision_counter(
+        Shard, get(?DS_BITFIELD_LTS_COLLISION_COUNTER)
+    ),
     _ = [erase(I) || I <- ?DS_LTS_COUNTERS],
     ok.
 
