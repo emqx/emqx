@@ -280,7 +280,7 @@ websocket_init([Req, Opts]) ->
     #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener} = ListenerCfg} = Opts,
     case check_max_connection(Type, Listener) of
         allow ->
-            {Peername, PeerCert} = get_peer_info(Type, Listener, Req, Opts),
+            {Peername, PeerCert, PeerSNI} = get_peer_info(Type, Listener, Req, Opts),
             Sockname = cowboy_req:sock(Req),
             WsCookie = get_ws_cookie(Req),
             ConnInfo = #{
@@ -288,6 +288,7 @@ websocket_init([Req, Opts]) ->
                 peername => Peername,
                 sockname => Sockname,
                 peercert => PeerCert,
+                peersni => PeerSNI,
                 ws_cookie => WsCookie,
                 conn_mod => ?MODULE
             },
@@ -376,11 +377,12 @@ get_ws_cookie(Req) ->
     end.
 
 get_peer_info(Type, Listener, Req, Opts) ->
+    Host = maps:get(host, Req, undefined),
     case
         emqx_config:get_listener_conf(Type, Listener, [proxy_protocol]) andalso
             maps:get(proxy_header, Req)
     of
-        #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} ->
+        #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} = ProxyInfo ->
             SourceName = {SrcAddr, SrcPort},
             %% Notice: CN is only available in Proxy Protocol V2 additional info.
             %% `CN` is unsupported in Proxy Protocol V1
@@ -392,12 +394,14 @@ get_peer_info(Type, Listener, Req, Opts) ->
                     undefined -> undefined;
                     CN -> [{pp2_ssl_cn, CN}]
                 end,
-            {SourceName, SourceSSL};
-        #{src_address := SrcAddr, src_port := SrcPort} ->
+            PeerSNI = maps:get(authority, ProxyInfo, Host),
+            {SourceName, SourceSSL, PeerSNI};
+        #{src_address := SrcAddr, src_port := SrcPort} = ProxyInfo ->
+            PeerSNI = maps:get(authority, ProxyInfo, Host),
             SourceName = {SrcAddr, SrcPort},
-            {SourceName, nossl};
+            {SourceName, nossl, PeerSNI};
         _ ->
-            {get_peer(Req, Opts), cowboy_req:cert(Req)}
+            {get_peer(Req, Opts), cowboy_req:cert(Req), Host}
     end.
 
 websocket_handle({binary, Data}, State) when is_list(Data) ->

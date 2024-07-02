@@ -269,7 +269,7 @@ init(
         },
         Zone
     ),
-    {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
+    {NClientInfo, NConnInfo} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
@@ -309,13 +309,19 @@ set_peercert_infos(Peercert, ClientInfo, Zone) ->
     ClientId = PeercetAs(peer_cert_as_clientid),
     ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
 
-take_ws_cookie(ClientInfo, ConnInfo) ->
-    case maps:take(ws_cookie, ConnInfo) of
-        {WsCookie, NConnInfo} ->
-            {ClientInfo#{ws_cookie => WsCookie}, NConnInfo};
-        _ ->
-            {ClientInfo, ConnInfo}
-    end.
+take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
+    lists:foldl(
+        fun(Field, {ClientInfo0, ConnInfo0}) ->
+            case maps:take(Field, ConnInfo0) of
+                {Value, NConnInfo} ->
+                    {ClientInfo0#{Field => Value}, NConnInfo};
+                _ ->
+                    {ClientInfo0, ConnInfo0}
+            end
+        end,
+        {ClientInfo, ConnInfo},
+        Fields
+    ).
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet

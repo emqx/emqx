@@ -39,7 +39,8 @@
     getopts/2,
     peername/1,
     sockname/1,
-    peercert/1
+    peercert/1,
+    peersni/1
 ]).
 -include_lib("quicer/include/quicer.hrl").
 -include_lib("emqx/include/emqx_quic.hrl").
@@ -105,6 +106,10 @@ sockname({quic, Conn, _Stream, _Info}) ->
 peercert(_S) ->
     %% @todo but unsupported by msquic
     nossl.
+
+peersni(_S) ->
+    %% @todo
+    undefined.
 
 getstat({quic, Conn, _Stream, _Info}, Stats) ->
     case quicer:getstat(Conn, Stats) of

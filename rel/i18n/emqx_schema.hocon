@@ -1619,6 +1619,8 @@ client_attrs_init_expression {
     - `clientid`: MQTT Client ID.
     - `username`: MQTT Client's username.
     - `user_property.{NAME}`: User properties in the CONNECT packet.
+    - `zone`: The zone name associated to the listener from which the client connected.
+    - `peersni`: The SNI used by client when connected from TLS/WSS listener or TCP/WS listener with proxy_protocol enabled.
 
     You can read more about variform expressions in EMQX docs."""
 }

@@ -169,7 +169,7 @@ t_header(_) ->
     set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
     set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
     {ok, St, _} = ?ws_conn:websocket_init([
-        req,
+        #{},
         #{
             zone => default,
             limiter => limiter_cfg(),
@@ -573,7 +573,7 @@ t_shutdown(_) ->
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
     {ok, St, _} = ?ws_conn:websocket_init([
-        req,
+        #{},
         #{
             zone => default,
             listener => {ws, default},

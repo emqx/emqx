@@ -84,7 +84,8 @@ init_per_testcase(TestCase, Config) when
         fun
             (peername, [sock]) -> {ok, {{127, 0, 0, 1}, 3456}};
             (sockname, [sock]) -> {ok, {{127, 0, 0, 1}, 1883}};
-            (peercert, [sock]) -> undefined
+            (peercert, [sock]) -> undefined;
+            (peersni, [sock]) -> undefined
         end
     ),
     ok = meck:expect(emqx_transport, setopts, fun(_Sock, _Opts) -> ok end),
