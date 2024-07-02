@@ -198,6 +198,13 @@ t_crud(Config) ->
             <<"code">> := <<"NOT_FOUND">>,
             <<"message">> := <<"Schema not found">>
         }},
+        request({get, <<"some_name_that_is_not_an_atom_yet">>})
+    ),
+    ?assertMatch(
+        {ok, 404, #{
+            <<"code">> := <<"NOT_FOUND">>,
+            <<"message">> := <<"Schema not found">>
+        }},
         request({get, SchemaName})
     ),
     ?assertMatch(
