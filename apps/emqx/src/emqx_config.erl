@@ -118,6 +118,7 @@
     config/0,
     app_envs/0,
     update_opts/0,
+    cluster_rpc_opts/0,
     update_cmd/0,
     update_args/0,
     update_error/0,
@@ -147,6 +148,7 @@
     raw_config => emqx_config:raw_config(),
     post_config_update => #{module() => any()}
 }.
+-type cluster_rpc_opts() :: #{kind => ?KIND_INITIATE | ?KIND_REPLICATE}.
 
 %% raw_config() is the config that is NOT parsed and translated by hocon schema
 -type raw_config() :: #{binary() => term()} | list() | undefined.

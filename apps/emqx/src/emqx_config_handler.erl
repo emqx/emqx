@@ -52,7 +52,6 @@
 -define(WKEY, '?').
 
 -type handler_name() :: module().
--type cluster_rpc_opts() :: map().
 
 -optional_callbacks([
     pre_config_update/3,
@@ -91,11 +90,14 @@
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
 -callback pre_config_update(
-    [atom()], emqx_config:update_request(), emqx_config:raw_config(), cluster_rpc_opts()
+    [atom()], emqx_config:update_request(), emqx_config:raw_config(), emqx_config:cluster_rpc_opts()
 ) ->
     ok | {ok, emqx_config:update_request()} | {error, term()}.
 -callback propagated_pre_config_update(
-    [binary()], emqx_config:update_request(), emqx_config:raw_config(), cluster_rpc_opts()
+    [binary()],
+    emqx_config:update_request(),
+    emqx_config:raw_config(),
+    emqx_config:cluster_rpc_opts()
 ) ->
     ok | {ok, emqx_config:update_request()} | {error, term()}.
 
@@ -105,7 +107,7 @@
     emqx_config:config(),
     emqx_config:config(),
     emqx_config:app_envs(),
-    cluster_rpc_opts()
+    emqx_config:cluster_rpc_opts()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
@@ -115,7 +117,7 @@
     emqx_config:config(),
     emqx_config:config(),
     emqx_config:app_envs(),
-    cluster_rpc_opts()
+    emqx_config:cluster_rpc_opts()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
