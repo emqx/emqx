@@ -16,7 +16,8 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2]).
+-export([iter_next_streams/2, next_stream/1]).
+-export([find_replay_streams/1, is_fully_acked/2]).
 -export([renew_streams/1, on_unsubscribe/2]).
 
 %% behavior callbacks:
@@ -34,6 +35,29 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type stream_key() :: emqx_persistent_session_ds_state:stream_key().
+-type stream_state() :: emqx_persistent_session_ds:stream_state().
+
+%% Restartable iterator with a filter and an iteration limit.
+-record(iter, {
+    limit :: non_neg_integer(),
+    filter,
+    it,
+    it_cont
+}).
+
+-type iter(K, V, IterInner) :: #iter{
+    filter :: fun((K, V) -> boolean()),
+    it :: IterInner,
+    it_cont :: IterInner
+}.
+
+-type iter_stream() :: iter(
+    stream_key(),
+    stream_state(),
+    emqx_persistent_session_ds_state:iter(stream_key(), stream_state())
+).
 
 %%================================================================================
 %% API functions
@@ -70,9 +94,9 @@ find_replay_streams(S) ->
 %%
 %% This function is non-detereministic: it randomizes the order of
 %% streams to ensure fair replay of different topics.
--spec find_new_streams(emqx_persistent_session_ds_state:t()) ->
-    [{emqx_persistent_session_ds_state:stream_key(), emqx_persistent_session_ds:stream_state()}].
-find_new_streams(S) ->
+-spec iter_next_streams(_LastVisited :: stream_key(), emqx_persistent_session_ds_state:t()) ->
+    iter_stream().
+iter_next_streams(LastVisited, S) ->
     %% FIXME: this function is currently very sensitive to the
     %% consistency of the packet IDs on both broker and client side.
     %%
@@ -87,23 +111,41 @@ find_new_streams(S) ->
     %% after timeout?)
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-    shuffle(
-        emqx_persistent_session_ds_state:fold_streams(
-            fun
-                (_Key, #srs{it_end = end_of_stream}, Acc) ->
-                    Acc;
-                (Key, Stream, Acc) ->
-                    case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
-                        true ->
-                            [{Key, Stream} | Acc];
-                        false ->
-                            Acc
-                    end
-            end,
-            [],
-            S
-        )
-    ).
+    Filter = fun(_Key, Stream) -> is_fetchable(Comm1, Comm2, Stream) end,
+    #iter{
+        %% Limit the iteration to one round over all streams:
+        limit = emqx_persistent_session_ds_state:n_streams(S),
+        %% Filter out the streams not eligible for fetching:
+        filter = Filter,
+        %% Start the iteration right after the last visited stream:
+        it = emqx_persistent_session_ds_state:iter_streams(LastVisited, S),
+        %% Restart the iteration from the beginning:
+        it_cont = emqx_persistent_session_ds_state:iter_streams(beginning, S)
+    }.
+
+-spec next_stream(iter_stream()) -> {stream_key(), stream_state(), iter_stream()} | none.
+next_stream(#iter{limit = 0}) ->
+    none;
+next_stream(ItStream0 = #iter{limit = N, filter = Filter, it = It0, it_cont = ItCont}) ->
+    case emqx_persistent_session_ds_state:iterate(It0) of
+        {Key, Stream, It} ->
+            ItStream = ItStream0#iter{it = It, limit = N - 1},
+            case Filter(Key, Stream) of
+                true ->
+                    {Key, Stream, ItStream};
+                false ->
+                    next_stream(ItStream)
+            end;
+        none ->
+            %% Restart the iteration from the beginning:
+            ItStream = ItStream0#iter{it = ItCont},
+            next_stream(ItStream)
+    end.
+
+is_fetchable(_Comm1, _Comm2, #srs{it_end = end_of_stream}) ->
+    false;
+is_fetchable(Comm1, Comm2, #srs{unsubscribed = Unsubscribed} = Stream) ->
+    is_fully_acked(Comm1, Comm2, Stream) andalso not Unsubscribed.
 
 %% @doc This function makes the session aware of the new streams.
 %%
@@ -409,19 +451,6 @@ is_fully_acked(_, _, #srs{
     true;
 is_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
-
--spec shuffle([A]) -> [A].
-shuffle(L0) ->
-    L1 = lists:map(
-        fun(A) ->
-            %% maybe topic/stream prioritization could be introduced here?
-            {rand:uniform(), A}
-        end,
-        L0
-    ),
-    L2 = lists:sort(L1),
-    {_, L} = lists:unzip(L2),
-    L.
 
 fold_proper_subscriptions(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(
