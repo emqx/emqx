@@ -11,9 +11,8 @@ user_id_type.label:
 
 bootstrap_file.desc:
 """The bootstrap file imports users into the built-in database.
-The file content format is determined by `bootstrap_type`.
-Remove the item from the bootstrap file when you have made changes in other way,
-otherwise, after restarting, the bootstrap item will be overridden again."""
+It will not import a user ID that already exists in the database.
+The file content format is determined by `bootstrap_type`."""
 
 bootstrap_file.label:
 """Bootstrap File Path"""

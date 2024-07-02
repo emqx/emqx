@@ -56,6 +56,7 @@ t_create(_) ->
     Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
     {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config1),
     ok.
+
 t_bootstrap_file(_) ->
     Config = config(),
     %% hash to hash
@@ -102,16 +103,25 @@ t_bootstrap_file(_) ->
         ],
         test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain.json">>)
     ),
+    Opts = #{clean => false},
+    Result = test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain.csv">>, Opts),
     ?assertMatch(
         [
             {user_info, {_, <<"myuser3">>}, _, _, true},
             {user_info, {_, <<"myuser4">>}, _, _, false}
         ],
-        test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain.csv">>)
+        Result
+    ),
+    %% Don't override the exist user id.
+    ?assertMatch(
+        Result, test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain_v2.csv">>)
     ),
     ok.
 
 test_bootstrap_file(Config0, Type, File) ->
+    test_bootstrap_file(Config0, Type, File, #{clean => true}).
+
+test_bootstrap_file(Config0, Type, File, Opts) ->
     {Type, Filename, _FileData} = sample_filename_and_data(Type, File),
     Config2 = Config0#{
         boostrap_file => Filename,
@@ -119,8 +129,13 @@ test_bootstrap_file(Config0, Type, File) ->
     },
     {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config2),
     Result = ets:tab2list(emqx_authn_mnesia),
-    ok = emqx_authn_mnesia:destroy(State0),
-    ?assertMatch([], ets:tab2list(emqx_authn_mnesia)),
+    case maps:get(clean, Opts) of
+        true ->
+            ok = emqx_authn_mnesia:destroy(State0),
+            ?assertMatch([], ets:tab2list(emqx_authn_mnesia));
+        _ ->
+            ok
+    end,
     Result.
 
 t_update(_) ->
