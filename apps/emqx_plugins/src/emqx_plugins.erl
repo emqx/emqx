@@ -299,8 +299,10 @@ ensure_stopped() ->
     Fun = fun
         (#{name_vsn := NameVsn, enable := true}) ->
             case ensure_stopped(NameVsn) of
-                ok -> [];
-                {error, Reason} -> [{NameVsn, Reason}]
+                ok ->
+                    [];
+                {error, Reason} ->
+                    [{NameVsn, Reason}]
             end;
         (#{name_vsn := NameVsn, enable := false}) ->
             ?SLOG(debug, #{msg => "plugin_disabled", action => stop_plugin, name_vsn => NameVsn}),
@@ -1077,15 +1079,15 @@ stop_app(App) ->
     case application:stop(App) of
         ok ->
             ?SLOG(debug, #{msg => "stop_plugin_successfully", app => App}),
-            ok = unload_moudle_and_app(App);
+            ok = unload_module_and_app(App);
         {error, {not_started, App}} ->
             ?SLOG(debug, #{msg => "plugin_not_started", app => App}),
-            ok = unload_moudle_and_app(App);
+            ok = unload_module_and_app(App);
         {error, Reason} ->
             throw(#{msg => "failed_to_stop_app", app => App, reason => Reason})
     end.
 
-unload_moudle_and_app(App) ->
+unload_module_and_app(App) ->
     case application:get_key(App, modules) of
         {ok, Modules} ->
             lists:foreach(fun code:soft_purge/1, Modules);
