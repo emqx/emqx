@@ -7,9 +7,9 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(APP, emqx_bridge_clickhouse).
 -define(CLICKHOUSE_HOST, "clickhouse").
 -define(CLICKHOUSE_PORT, "8123").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 %% See comment in
@@ -25,17 +25,26 @@ init_per_suite(Config) ->
     Port = list_to_integer(clickhouse_port()),
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
-            emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource, ?APP]),
-            snabbkaffe:fix_ct_logging(),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_bridge_clickhouse,
+                    emqx_connector,
+                    emqx_bridge,
+                    emqx_rule_engine,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
             %% Create the db table
             Conn = start_clickhouse_connection(),
             % erlang:monitor,sb
             {ok, _, _} = clickhouse:query(Conn, sql_create_database(), #{}),
             {ok, _, _} = clickhouse:query(Conn, sql_create_table(), []),
             clickhouse:query(Conn, sql_find_key(42), []),
-            [{clickhouse_connection, Conn} | Config];
+            [{apps, Apps}, {clickhouse_connection, Conn} | Config];
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
@@ -74,8 +83,9 @@ start_clickhouse_connection() ->
 end_per_suite(Config) ->
     ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
     clickhouse:stop(ClickhouseConnection),
-    ok = emqx_connector_test_helpers:stop_apps([?APP, emqx_resource]),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]).
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_, Config) ->
     reset_table(Config),

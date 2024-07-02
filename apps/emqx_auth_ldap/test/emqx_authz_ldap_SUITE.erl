@@ -33,25 +33,27 @@ groups() ->
     emqx_authz_test_lib:table_groups(t_run_case, cases()).
 
 init_per_suite(Config) ->
-    ok = stop_apps([emqx_resource]),
     case emqx_common_test_helpers:is_tcp_server_available(?LDAP_HOST, ?LDAP_DEFAULT_PORT) of
         true ->
-            ok = emqx_common_test_helpers:start_apps(
-                [emqx_conf, emqx_auth, emqx_auth_ldap],
-                fun set_special_configs/1
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_auth,
+                    emqx_auth_ldap
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            ok = start_apps([emqx_resource]),
             ok = create_ldap_resource(),
-            Config;
+            [{apps, Apps} | Config];
         false ->
             {skip, no_ldap}
     end.
 
-end_per_suite(_Config) ->
-    ok = emqx_authz_test_lib:restore_authorizers(),
-    ok = emqx_resource:remove_local(?LDAP_RESOURCE),
-    ok = stop_apps([emqx_resource]),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_auth, emqx_auth_ldap]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_group(Group, Config) ->
     [{test_case, emqx_authz_test_lib:get_case(Group, cases())} | Config].

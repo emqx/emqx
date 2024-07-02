@@ -13,7 +13,6 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(BRIDGE_TYPE_BIN, <<"oracle">>).
--define(APPS, [emqx_bridge, emqx_resource, emqx_rule_engine, emqx_oracle, emqx_bridge_oracle]).
 -define(SID, "XE").
 -define(RULE_TOPIC, "mqtt/rule").
 
@@ -36,10 +35,6 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps(lists:reverse(?APPS)),
-    _ = application:stop(emqx_connector),
     ok.
 
 init_per_group(plain = Type, Config) ->
@@ -48,7 +43,7 @@ init_per_group(plain = Type, Config) ->
     ProxyName = "oracle",
     case emqx_common_test_helpers:is_tcp_server_available(OracleHost, OraclePort) of
         true ->
-            Config1 = common_init_per_group(),
+            Config1 = common_init_per_group(Config),
             [
                 {proxy_name, ProxyName},
                 {oracle_host, OracleHost},
@@ -71,23 +66,33 @@ end_per_group(Group, Config) when
     Group =:= plain
 ->
     common_end_per_group(Config),
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
 
-common_init_per_group() ->
+common_init_per_group(Config) ->
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     %% Ensure enterprise bridge module is loaded
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
-    _ = emqx_bridge_enterprise:module_info(),
-    ok = emqx_connector_test_helpers:start_apps(?APPS),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    emqx_mgmt_api_test_util:init_suite(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_oracle,
+            emqx_bridge_oracle,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     MQTTTopic = <<"mqtt/topic/", UniqueNum/binary>>,
     [
+        {apps, Apps},
         {proxy_host, ProxyHost},
         {proxy_port, ProxyPort},
         {mqtt_topic, MQTTTopic}

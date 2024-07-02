@@ -22,7 +22,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
 -define(SIMPLE_RULE(NAME_SUFFIX), #{
     <<"description">> => <<"A simple rule">>,
     <<"enable">> => true,
@@ -36,13 +35,19 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, ?CONF_DEFAULT),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_rule_engine
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine]),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_testcase(t_crud_rule_api, Config) ->

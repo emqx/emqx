@@ -248,6 +248,7 @@ render_and_load_app_config(App, Opts) ->
             %% turn throw into error
             error({Conf, E, St})
     end.
+
 do_render_app_config(App, Schema, ConfigFile, Opts) ->
     %% copy acl_conf must run before read_schema_configs
     copy_acl_conf(),

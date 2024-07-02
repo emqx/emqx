@@ -20,11 +20,12 @@
 
 -export([format/2]).
 -export([check_config/1]).
--export([try_format_unicode/1]).
+-export([try_format_unicode/1, try_encode_payload/2]).
 %% Used in the other log formatters
 -export([evaluate_lazy_values_if_dbg_level/1, evaluate_lazy_values/1]).
 
-check_config(X) -> logger_formatter:check_config(maps:without([timestamp_format, with_mfa], X)).
+check_config(X) ->
+    logger_formatter:check_config(maps:without([timestamp_format, with_mfa, payload_encode], X)).
 
 %% Principle here is to delegate the formatting to logger_formatter:format/2
 %% as much as possible, and only enrich the report with clientid, peername, topic, username
@@ -107,9 +108,10 @@ is_list_report_acceptable(#{report_cb := Cb}) ->
 is_list_report_acceptable(_) ->
     false.
 
-enrich_report(ReportRaw, Meta, Config) ->
+enrich_report(ReportRaw0, Meta, Config) ->
     %% clientid and peername always in emqx_conn's process metadata.
     %% topic and username can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
+    ReportRaw = try_encode_payload(ReportRaw0, Config),
     Topic =
         case maps:get(topic, Meta, undefined) of
             undefined -> maps:get(topic, ReportRaw, undefined);
@@ -177,3 +179,15 @@ enrich_topic({Fmt, Args}, #{topic := Topic}) when is_list(Fmt) ->
     {" topic: ~ts" ++ Fmt, [Topic | Args]};
 enrich_topic(Msg, _) ->
     Msg.
+
+try_encode_payload(#{payload := Payload} = Report, #{payload_encode := Encode}) ->
+    Report#{payload := encode_payload(Payload, Encode)};
+try_encode_payload(Report, _Config) ->
+    Report.
+
+encode_payload(Payload, text) ->
+    Payload;
+encode_payload(_Payload, hidden) ->
+    "******";
+encode_payload(Payload, hex) ->
+    binary:encode_hex(Payload).

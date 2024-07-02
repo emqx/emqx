@@ -21,19 +21,22 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(START_APPS, [emqx, emqx_conf, emqx_connector]).
 -define(CONNECTOR, emqx_connector_dummy_impl).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps(?START_APPS),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, emqx_connector],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps(?START_APPS).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase({init, Config}).

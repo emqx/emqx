@@ -1290,7 +1290,12 @@ reason(_) -> internal_error.
 force_to_bin(Bin) when is_binary(Bin) ->
     Bin;
 force_to_bin(Term) ->
-    emqx_utils_conv:bin(io_lib:format("~p", [Term])).
+    try
+        emqx_utils_conv:bin(Term)
+    catch
+        _:_ ->
+            emqx_utils_conv:bin(lists:flatten(io_lib:format("~p", [Term])))
+    end.
 
 ntoa(undefined) ->
     undefined;

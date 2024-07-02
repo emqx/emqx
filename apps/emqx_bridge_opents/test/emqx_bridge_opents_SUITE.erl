@@ -13,7 +13,6 @@
 
 % DB defaults
 -define(BRIDGE_TYPE_BIN, <<"opents">>).
--define(APPS, [opentsdb, emqx_bridge, emqx_resource, emqx_rule_engine, emqx_bridge_opents_SUITE]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -31,7 +30,16 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_bridge_v2_testlib:init_per_suite(Config, ?APPS).
+    emqx_bridge_v2_testlib:init_per_suite(Config, [
+        emqx,
+        emqx_conf,
+        emqx_bridge_opents,
+        emqx_connector,
+        emqx_bridge,
+        emqx_rule_engine,
+        emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard()
+    ]).
 
 end_per_suite(Config) ->
     emqx_bridge_v2_testlib:end_per_suite(Config).

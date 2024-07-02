@@ -21,7 +21,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("emqx/src/bpapi/emqx_bpapi.hrl").
+-include("../src/bpapi/emqx_bpapi.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 

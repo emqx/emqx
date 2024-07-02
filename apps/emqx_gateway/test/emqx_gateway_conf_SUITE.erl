@@ -37,20 +37,17 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Conf) ->
-    emqx_gateway_test_utils:load_all_gateway_apps(),
+init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [
-            {emqx_conf, <<"gateway {}">>},
-            emqx_gateway
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+        [emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_gateway],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{suite_apps, Apps} | Conf].
+    [{apps, Apps} | Config].
 
-end_per_suite(Conf) ->
-    emqx_cth_suite:stop(?config(suite_apps, Conf)),
-    emqx_config:delete_override_conf_files().
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_CaseName, Conf) ->
     _ = emqx_gateway_conf:unload_gateway(stomp),

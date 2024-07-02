@@ -36,7 +36,12 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, ?CONF_DEFAULT},
-            emqx_gateway
+            emqx_resource,
+            emqx_gateway_lwm2m,
+            emqx_gateway,
+            emqx_auth,
+            emqx_auth_redis,
+            emqx_auth_mnesia
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -45,6 +50,21 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_config:delete_override_conf_files(),
+    ok.
+
+init_per_testcase(t_get_basic_usage_info_2, Config) ->
+    DataDir = ?config(data_dir, Config),
+    ok = setup_fake_usage_data(DataDir),
+    Config;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(t_get_basic_usage_info_2, _Config) ->
+    emqx_gateway_cm:unregister_channel(lwm2m, <<"client_id">>),
+    ok = emqx_gateway:unload(lwm2m),
+    {ok, _} = emqx_conf:update([gateway], #{}, #{override_to => cluster}),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -128,18 +148,41 @@ t_get_basic_usage_info_empty(_Config) ->
 
 t_get_basic_usage_info_1(_Config) ->
     {ok, _} = emqx_gateway:load(?GWNAME, #{idle_timeout => 1000}),
-    ?assertEqual(
+    try
+        ?assertEqual(
+            #{
+                mqttsn =>
+                    #{
+                        authn => <<"undefined">>,
+                        listeners => [],
+                        num_clients => 0
+                    }
+            },
+            emqx_gateway:get_basic_usage_info()
+        )
+    after
+        ok = emqx_gateway:unload(?GWNAME)
+    end.
+
+t_get_basic_usage_info_2(_Config) ->
+    ?assertMatch(
         #{
-            mqttsn =>
+            lwm2m :=
                 #{
-                    authn => <<"undefined">>,
-                    listeners => [],
-                    num_clients => 0
+                    authn := <<"password_based:redis">>,
+                    listeners :=
+                        [
+                            #{
+                                authn :=
+                                    <<"password_based:built_in_database">>,
+                                type := udp
+                            }
+                        ],
+                    num_clients := 1
                 }
         },
         emqx_gateway:get_basic_usage_info()
-    ),
-    ok = emqx_gateway:unload(?GWNAME).
+    ).
 
 %%--------------------------------------------------------------------
 %% helper functions
@@ -162,7 +205,7 @@ setup_fake_usage_data(Lwm2mDataDir) ->
     Lwm2mConf = read_lwm2m_conf(Lwm2mDataDir),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, Lwm2mConf),
     emqx_config:put([gateway, lwm2m, xml_dir], XmlDir),
-    {ok, _} = application:ensure_all_started(emqx_gateway),
+    {ok, _} = emqx_gateway:load(lwm2m, emqx_config:get([gateway, lwm2m])),
     %% to simulate a connection
     FakeConnInfo = #{conn_mod => fake_conn_mod},
     FakeChanPid = self(),

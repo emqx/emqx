@@ -20,9 +20,9 @@
 
 -import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
 
--include("emqx/include/emqx.hrl").
--include("emqx/include/emqx_hooks.hrl").
--include("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -214,6 +214,7 @@ t_conf_bridge_authn_password(_) ->
     ).
 
 t_conf_bridge_authn_passfile(Config) ->
+    %% test_server_ctrl:run_test_cases_loop
     DataDir = ?config(data_dir, Config),
     Username2 = <<"user2">>,
     PasswordFilename = filename:join(DataDir, "password"),

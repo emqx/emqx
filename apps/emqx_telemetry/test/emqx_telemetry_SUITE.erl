@@ -52,20 +52,21 @@ apps() ->
         emqx_bridge_http,
         emqx_bridge,
         emqx_rule_engine,
-        emqx_management
+        emqx_gateway,
+        emqx_exhook,
+        emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard()
     ].
 
 init_per_suite(Config) ->
     WorkDir = ?config(priv_dir, Config),
     Apps = emqx_cth_suite:start(apps(), #{work_dir => WorkDir}),
-    emqx_mgmt_api_test_util:init_suite(),
     [{apps, Apps}, {work_dir, WorkDir} | Config].
 
 end_per_suite(Config) ->
     mnesia:clear_table(cluster_rpc_commit),
     mnesia:clear_table(cluster_rpc_mfa),
     Apps = ?config(apps, Config),
-    emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
@@ -103,7 +104,6 @@ init_per_testcase(t_get_telemetry, Config) ->
         "test/emqx_gateway_SUITE_data"
     ),
     ok = emqx_gateway_SUITE:setup_fake_usage_data(Lwm2mDataDir),
-    emqx_common_test_helpers:start_apps([emqx_gateway]),
     Config;
 init_per_testcase(t_advanced_mqtt_features, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -134,24 +134,14 @@ init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
     Config;
 init_per_testcase(t_exhook_info, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    ExhookConf =
-        #{
-            <<"exhook">> =>
-                #{
-                    <<"servers">> =>
-                        [
-                            #{
-                                <<"name">> => "myhook",
-                                <<"url">> => "http://127.0.0.1:9000"
-                            }
-                        ]
-                }
-        },
     {ok, _} = emqx_exhook_demo_svr:start(),
+    ExhookConf = #{
+        <<"name">> => "myhook",
+        <<"url">> => "http://127.0.0.1:9000"
+    },
+    {ok, _} = emqx_exhook_mgr:update_config([exhook, servers], {add, ExhookConf}),
     {ok, Sock} = gen_tcp:connect("localhost", 9000, [], 3000),
     _ = gen_tcp:close(Sock),
-    ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ExhookConf),
-    emqx_common_test_helpers:start_apps([emqx_exhook]),
     Config;
 init_per_testcase(t_cluster_uuid, Config) ->
     Node = start_peer(n1),

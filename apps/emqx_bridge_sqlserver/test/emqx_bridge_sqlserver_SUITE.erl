@@ -7,7 +7,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_bridge_sqlserver/include/emqx_bridge_sqlserver.hrl").
+-include("../include/emqx_bridge_sqlserver.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -122,9 +122,11 @@ init_per_group(_Group, Config) ->
 end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
     connect_and_drop_table(Config),
     connect_and_drop_db(Config),
+    Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
@@ -135,8 +137,6 @@ init_per_suite(Config) ->
     [{sqlserver_passfile, Passfile} | Config].
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -422,16 +422,23 @@ common_init(ConfigT) ->
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            % Ensure enterprise bridge module is loaded
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge, odbc]),
-            _ = emqx_bridge_enterprise:module_info(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx_conf,
+                    emqx_bridge_sqlserver,
+                    emqx_bridge,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
             % Connect to sqlserver directly
             % drop old db and table, and then create new ones
             connect_and_create_db_and_table(Config0),
             {Name, SQLServerConf} = sqlserver_config(BridgeType, Config0),
             Config =
                 [
+                    {apps, Apps},
                     {sqlserver_config, SQLServerConf},
                     {sqlserver_bridge_type, BridgeType},
                     {sqlserver_name, Name},

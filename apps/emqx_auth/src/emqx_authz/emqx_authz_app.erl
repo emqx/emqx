@@ -19,6 +19,8 @@
 %% @end
 %%%-------------------------------------------------------------------
 
+%% TODO: delete this module
+
 -module(emqx_authz_app).
 
 -behaviour(application).

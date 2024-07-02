@@ -640,8 +640,14 @@ on_get_channel_status(
     _ChannelId,
     State
 ) ->
-    %% XXX: Reuse the connector status
-    on_get_status(InstId, State).
+    %% N.B.: `on_get_channel_status' expects a different return value than
+    %% `on_get_status'.
+    case on_get_status(InstId, State, fun default_health_checker/2) of
+        {Status, _State, Reason} ->
+            {Status, Reason};
+        Res ->
+            Res
+    end.
 
 on_format_query_result({ok, Status, Headers, Body}) ->
     #{

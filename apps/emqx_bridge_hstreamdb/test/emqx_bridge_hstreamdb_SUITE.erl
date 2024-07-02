@@ -100,10 +100,12 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
+    Apps = ?config(apps, Config),
     connect_and_delete_stream(Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
@@ -408,11 +410,16 @@ common_init(ConfigT) ->
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            % Ensure EE bridge module is loaded
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_resource, emqx_bridge]),
-            _ = application:ensure_all_started(hstreamdb_erl),
-            _ = emqx_bridge_enterprise:module_info(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx_conf,
+                    emqx_bridge_hstreamdb,
+                    emqx_bridge,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
             % Connect to hstreamdb directly
             % drop old stream and then create new one
             connect_and_delete_stream(Config0),
@@ -420,6 +427,7 @@ common_init(ConfigT) ->
             {Name, HStreamDBConf} = hstreamdb_config(BridgeType, Config0),
             Config =
                 [
+                    {apps, Apps},
                     {hstreamdb_config, HStreamDBConf},
                     {hstreamdb_bridge_type, BridgeType},
                     {hstreamdb_name, Name},

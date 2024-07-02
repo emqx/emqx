@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(REWRITE, #{
     <<"rewrite">> => [
@@ -72,13 +73,19 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, #{}),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_modules
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_modules]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(t_get_basic_usage_info, Config) ->
     ok = emqx_rewrite:update([]),

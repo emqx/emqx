@@ -51,6 +51,7 @@ end_per_testcase(_, Config) ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
+            emqx_ctl,
             emqx,
             emqx_conf,
             emqx_auth,

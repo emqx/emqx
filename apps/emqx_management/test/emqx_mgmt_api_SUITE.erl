@@ -40,7 +40,6 @@ end_per_suite(_) ->
 t_cluster_query(Config) ->
     net_kernel:start(['master@127.0.0.1', longnames]),
     ct:timetrap({seconds, 120}),
-    snabbkaffe:fix_ct_logging(),
     ListenerConf = fun(Port) ->
         io_lib:format(
             "\n listeners.tcp.default.bind = ~p"

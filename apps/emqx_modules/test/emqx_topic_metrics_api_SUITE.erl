@@ -23,10 +23,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(BASE_CONF, #{
-    <<"topic_metrics">> => []
-}).
-
 suite() -> [{timetrap, {seconds, 30}}].
 
 all() ->
@@ -40,23 +36,25 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
-    ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, emqx_modules]
-    ),
-
-    %% When many tests run in an obscure order, it may occur that
-    %% `gen_rpc` started with its default settings before `emqx_conf`.
+    %% For some unknown reason, this test suite depends on
+    %% `gen_rpc` not starting with its default settings before `emqx_conf`.
     %% `gen_rpc` and `emqx_conf` have different default `port_discovery` modes,
     %% so we reinitialize `gen_rpc` explicitly.
-    ok = application:stop(gen_rpc),
-    ok = application:start(gen_rpc),
+    Apps = emqx_cth_suite:start(
+        [
+            {gen_rpc, #{override_env => [{port_discovery, stateless}]}},
+            {emqx_conf, "rpc.port_discovery = stateless"},
+            emqx_modules,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-    Config.
-
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_modules]),
-    application:stop(gen_rpc),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 %%------------------------------------------------------------------------------

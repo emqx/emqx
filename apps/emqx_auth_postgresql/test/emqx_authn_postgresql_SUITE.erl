@@ -19,7 +19,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx_postgresql/include/emqx_postgresql.hrl").
+-include_lib("../../emqx_postgresql/include/emqx_postgresql.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -196,7 +196,7 @@ test_user_auth(#{
         ?GLOBAL
     ).
 
-t_authenticate_disabled_prepared_statements(Config) ->
+t_authenticate_disabled_prepared_statements(_Config) ->
     ResConfig = maps:merge(pgsql_config(), #{disable_prepared_statements => true}),
     {ok, _} = emqx_resource:recreate_local(?PGSQL_RESOURCE, emqx_postgresql, ResConfig),
     on_exit(fun() ->

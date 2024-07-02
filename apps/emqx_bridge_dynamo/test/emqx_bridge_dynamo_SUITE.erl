@@ -69,14 +69,18 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
+    Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(Group, Config) when Group =:= flaky ->
+    Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_cth_suite:stop(Apps),
     timer:sleep(1000),
     ok;
 end_per_group(_Group, _Config) ->
@@ -135,18 +139,23 @@ common_init(ConfigT) ->
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            % Ensure enterprise bridge module is loaded
-            ok = emqx_common_test_helpers:start_apps([
-                emqx_conf, emqx_resource, emqx_bridge, emqx_rule_engine
-            ]),
-            _ = application:ensure_all_started(erlcloud),
-            _ = emqx_bridge_enterprise:module_info(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx_conf,
+                    emqx_bridge_dynamo,
+                    emqx_bridge,
+                    emqx_rule_engine,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
             % setup dynamo
             setup_dynamo(Config0),
             {Name, TDConf} = dynamo_config(BridgeType, Config0),
             Config =
                 [
+                    {apps, Apps},
                     {dynamo_config, TDConf},
                     {dynamo_bridge_type, BridgeType},
                     {dynamo_name, Name},

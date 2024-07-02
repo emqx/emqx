@@ -20,7 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/asserts.hrl").
+-include("../../emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SOCKOPTS, [

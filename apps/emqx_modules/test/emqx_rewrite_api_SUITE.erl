@@ -33,15 +33,20 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
-    ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, emqx_modules]
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            {emqx_modules, #{config => ?BASE_CONF}},
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    [{apps, Apps} | Config].
 
-    Config.
-
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_modules]),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 %%------------------------------------------------------------------------------

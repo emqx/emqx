@@ -7,7 +7,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector.hrl").
+-include("../../emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -43,8 +43,19 @@ init_per_suite(Config) ->
     Port = list_to_integer(emqx_bridge_clickhouse_SUITE:clickhouse_port()),
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource, ?APP]),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_bridge_clickhouse,
+                    emqx_connector,
+                    emqx_bridge,
+                    emqx_rule_engine,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
             %% Create the db table
             {ok, Conn} =
                 clickhouse:start_link([
@@ -55,7 +66,7 @@ init_per_suite(Config) ->
                 ]),
             {ok, _, _} = clickhouse:query(Conn, <<"CREATE DATABASE IF NOT EXISTS mqtt">>, #{}),
             clickhouse:stop(Conn),
-            Config;
+            [{apps, Apps} | Config];
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
@@ -65,9 +76,10 @@ init_per_suite(Config) ->
             end
     end.
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([?APP, emqx_resource]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_, Config) ->
     Config.

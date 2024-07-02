@@ -30,33 +30,30 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, emqx_auth, emqx_dashboard],
-        fun set_special_configs/1
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            {emqx_auth, #{
+                config =>
+                    #{
+                        authorization =>
+                            #{
+                                cache => #{enabled => true},
+                                no_match => allow,
+                                sources => []
+                            }
+                    }
+            }},
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    Config.
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    {ok, _} = emqx:update_config(
-        [authorization],
-        #{
-            <<"no_match">> => <<"allow">>,
-            <<"cache">> => #{<<"enable">> => <<"true">>},
-            <<"sources">> => []
-        }
-    ),
-    ok = stop_apps([emqx_resource]),
-    emqx_mgmt_api_test_util:end_suite([emqx_auth, emqx_conf]),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(emqx_auth) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources], []),
-    ok;
-set_special_configs(_App) ->
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 %%------------------------------------------------------------------------------

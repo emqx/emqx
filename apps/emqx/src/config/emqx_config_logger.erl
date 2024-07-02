@@ -239,8 +239,9 @@ log_formatter(HandlerName, Conf) ->
         end,
     TsFormat = timestamp_format(Conf),
     WithMfa = conf_get("with_mfa", Conf),
+    PayloadEncode = conf_get("payload_encode", Conf, text),
     do_formatter(
-        Format, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa
+        Format, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa, PayloadEncode
     ).
 
 %% auto | epoch | rfc3339
@@ -248,16 +249,17 @@ timestamp_format(Conf) ->
     conf_get("timestamp_format", Conf).
 
 %% helpers
-do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa) ->
+do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa, PayloadEncode) ->
     {emqx_logger_jsonfmt, #{
         chars_limit => CharsLimit,
         single_line => SingleLine,
         time_offset => TimeOffSet,
         depth => Depth,
         timestamp_format => TsFormat,
-        with_mfa => WithMfa
+        with_mfa => WithMfa,
+        payload_encode => PayloadEncode
     }};
-do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa) ->
+do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa, PayloadEncode) ->
     {emqx_logger_textfmt, #{
         template => ["[", level, "] ", msg, "\n"],
         chars_limit => CharsLimit,
@@ -265,7 +267,8 @@ do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth, TsFormat, WithMfa)
         time_offset => TimeOffSet,
         depth => Depth,
         timestamp_format => TsFormat,
-        with_mfa => WithMfa
+        with_mfa => WithMfa,
+        payload_encode => PayloadEncode
     }}.
 
 %% Don't record all logger message

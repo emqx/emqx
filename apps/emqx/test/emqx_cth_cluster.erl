@@ -391,7 +391,14 @@ node_init(#{name := Node, work_dir := WorkDir}) ->
     _ = share_load_module(Node, cthr),
     %% Enable snabbkaffe trace forwarding
     ok = snabbkaffe:forward_trace(Node),
-    when_cover_enabled(fun() -> {ok, _} = cover:start([Node]) end),
+    when_cover_enabled(fun() ->
+        case cover:start([Node]) of
+            {ok, _} ->
+                ok;
+            {error, {already_started, _}} ->
+                ok
+        end
+    end),
     ok.
 
 %% Returns 'true' if this node should appear in running nodes list.
@@ -456,7 +463,7 @@ stop(Nodes) ->
 
 stop_node(Name) ->
     Node = node_name(Name),
-    when_cover_enabled(fun() -> cover:flush([Node]) end),
+    when_cover_enabled(fun() -> ok = cover:flush([Node]) end),
     ok = emqx_cth_peer:stop(Node).
 
 %% Ports

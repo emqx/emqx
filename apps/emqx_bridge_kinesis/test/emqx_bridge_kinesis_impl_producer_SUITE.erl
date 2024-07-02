@@ -42,11 +42,21 @@ init_per_suite(Config) ->
     ProxyName = "kinesis",
     SecretFile = filename:join(?config(priv_dir, Config), "secret"),
     ok = file:write_file(SecretFile, <<?KINESIS_SECRET_KEY>>),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    emqx_mgmt_api_test_util:init_suite(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_kinesis,
+            emqx_connector,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [
+        {apps, Apps},
         {proxy_host, ProxyHost},
         {proxy_port, ProxyPort},
         {kinesis_port, list_to_integer(os:getenv("KINESIS_PORT", integer_to_list(?KINESIS_PORT)))},
@@ -55,11 +65,9 @@ init_per_suite(Config) ->
         | Config
     ].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
-    _ = application:stop(emqx_connector),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_group(with_batch, Config) ->

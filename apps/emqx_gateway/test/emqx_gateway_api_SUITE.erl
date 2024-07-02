@@ -59,9 +59,7 @@ init_per_suite(Conf) ->
     [{suite_apps, Apps} | Conf].
 
 end_per_suite(Conf) ->
-    _ = emqx_common_test_http:delete_default_app(),
-    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)),
-    emqx_config:delete_override_conf_files().
+    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)).
 
 init_per_testcase(t_gateway_fail, Config) ->
     meck:expect(

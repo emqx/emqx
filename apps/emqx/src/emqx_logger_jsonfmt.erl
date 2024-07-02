@@ -55,7 +55,8 @@
     depth => pos_integer() | unlimited,
     report_cb => logger:report_cb(),
     single_line => boolean(),
-    chars_limit => unlimited | pos_integer()
+    chars_limit => unlimited | pos_integer(),
+    payload_encode => text | hidden | hex
 }.
 
 -define(IS_STRING(String), (is_list(String) orelse is_binary(String))).
@@ -103,7 +104,8 @@ format(Msg, Meta, Config) ->
 
 maybe_format_msg(undefined, _Meta, _Config) ->
     #{};
-maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
+maybe_format_msg({report, Report0} = Msg, #{report_cb := Cb} = Meta, Config) ->
+    Report = emqx_logger_textfmt:try_encode_payload(Report0, Config),
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
         true ->
             %% reporting a map without a customised format function

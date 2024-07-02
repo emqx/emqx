@@ -134,7 +134,8 @@ log.file_handlers {
         template => ["[", level, "] ", msg, "\n"],
         time_offset => TimeOffset,
         timestamp_format => auto,
-        with_mfa => false
+        with_mfa => false,
+        payload_encode => text
     }}
 ).
 

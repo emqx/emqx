@@ -87,22 +87,30 @@ common_tests() ->
 
 init_per_group(new_config, Config) ->
     Apps = emqx_cth_suite:start(
-        [
+        lists:flatten([
             %% coverage olp metrics
             {emqx, "overload_protection.enable = true"},
-            {emqx_license, "license.key = default"},
-            {emqx_prometheus, #{config => config(default)}}
-        ],
+            [
+                {emqx_license, "license.key = default"}
+             || emqx_release:edition() == ee
+            ],
+            {emqx_prometheus, #{config => config(default)}},
+            emqx_management
+        ]),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config];
 init_per_group(legacy_config, Config) ->
     Apps = emqx_cth_suite:start(
-        [
+        lists:flatten([
             {emqx, "overload_protection.enable = false"},
-            {emqx_license, "license.key = default"},
-            {emqx_prometheus, #{config => config(legacy)}}
-        ],
+            [
+                {emqx_license, "license.key = default"}
+             || emqx_release:edition() == ee
+            ],
+            {emqx_prometheus, #{config => config(legacy)}},
+            emqx_management
+        ]),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
@@ -204,7 +212,9 @@ t_push_gateway(_) ->
     ok.
 
 start_mock_pushgateway(Port) ->
-    application:ensure_all_started(cowboy),
+    ensure_loaded(cowboy),
+    ensure_loaded(ranch),
+    {ok, _} = application:ensure_all_started(cowboy),
     Dispatch = cowboy_router:compile([{'_', [{'_', ?MODULE, []}]}]),
     {ok, _} = cowboy:start_clear(
         mock_pushgateway_listener,
@@ -212,8 +222,16 @@ start_mock_pushgateway(Port) ->
         #{env => #{dispatch => Dispatch}}
     ).
 
+ensure_loaded(App) ->
+    case application:load(App) of
+        ok -> ok;
+        {error, {already_loaded, _}} -> ok
+    end.
+
 stop_mock_pushgateway() ->
-    cowboy:stop_listener(mock_pushgateway_listener).
+    cowboy:stop_listener(mock_pushgateway_listener),
+    ok = application:stop(cowboy),
+    ok = application:stop(ranch).
 
 init(Req0, Opts) ->
     Method = cowboy_req:method(Req0),

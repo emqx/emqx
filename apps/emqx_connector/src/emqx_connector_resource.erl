@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_resource).
 
--include_lib("emqx_bridge/include/emqx_bridge_resource.hrl").
+-include("../../emqx_bridge/include/emqx_bridge_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 

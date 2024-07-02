@@ -9,16 +9,21 @@
 
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
-init_per_group(tcp, Config) ->
+init_per_group(tcp = Group, Config) ->
     RabbitMQHost = os:getenv("RABBITMQ_PLAIN_HOST", "rabbitmq"),
     RabbitMQPort = list_to_integer(os:getenv("RABBITMQ_PLAIN_PORT", "5672")),
     case emqx_common_test_helpers:is_tcp_server_available(RabbitMQHost, RabbitMQPort) of
         true ->
             Config1 = common_init_per_group(#{
-                host => RabbitMQHost, port => RabbitMQPort, tls => false
+                group => Group,
+                tc_config => Config,
+                host => RabbitMQHost,
+                port => RabbitMQPort,
+                tls => false
             }),
             Config1 ++ Config;
         false ->
@@ -29,13 +34,17 @@ init_per_group(tcp, Config) ->
                     {skip, no_rabbitmq}
             end
     end;
-init_per_group(tls, Config) ->
+init_per_group(tls = Group, Config) ->
     RabbitMQHost = os:getenv("RABBITMQ_TLS_HOST", "rabbitmq"),
     RabbitMQPort = list_to_integer(os:getenv("RABBITMQ_TLS_PORT", "5671")),
     case emqx_common_test_helpers:is_tcp_server_available(RabbitMQHost, RabbitMQPort) of
         true ->
             Config1 = common_init_per_group(#{
-                host => RabbitMQHost, port => RabbitMQPort, tls => true
+                group => Group,
+                tc_config => Config,
+                host => RabbitMQHost,
+                port => RabbitMQPort,
+                tls => true
             }),
             Config1 ++ Config;
         false ->
@@ -50,17 +59,24 @@ init_per_group(_Group, Config) ->
     Config.
 
 common_init_per_group(Opts) ->
-    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([
-        emqx_conf, emqx_bridge, emqx_bridge_rabbitmq, emqx_rule_engine, emqx_modules
-    ]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    {ok, _} = application:ensure_all_started(amqp_client),
-    emqx_mgmt_api_test_util:init_suite(),
+    #{group := Group, tc_config := Config} = Opts,
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge_rabbitmq,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
+    ),
     #{host := Host, port := Port, tls := UseTLS} = Opts,
     ChannelConnection = setup_rabbit_mq_exchange_and_queue(Host, Port, UseTLS),
     [
+        {apps, Apps},
         {channel_connection, ChannelConnection},
         {rabbitmq, #{server => Host, port => Port, tls => UseTLS}}
     ].
@@ -115,13 +131,8 @@ end_per_group(_Group, Config) ->
         channel := Channel
     } = get_channel_connection(Config),
     amqp_channel:call(Channel, #'queue.purge'{queue = rabbit_mq_queue()}),
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([
-        emqx_conf, emqx_bridge_rabbitmq, emqx_rule_engine, emqx_modules
-    ]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector),
-    _ = application:stop(emqx_bridge),
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     %% Close the channel
     ok = amqp_channel:close(Channel),
     %% Close the connection

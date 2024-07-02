@@ -9,7 +9,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include("emqx_bridge_cassandra.hrl").
--include("emqx_connector/include/emqx_connector.hrl").
+-include("../../emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -53,10 +53,24 @@ cassandra_servers(CassandraHost, CassandraPort) ->
     ).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_cassandra,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_group(Group, Config) ->
     {CassandraHost, CassandraPort, AuthOpts} =
@@ -97,11 +111,6 @@ init_per_group(Group, Config) ->
 
 end_per_group(_Group, _Config) ->
     ok.
-
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector).
 
 init_per_testcase(_, Config) ->
     Config.

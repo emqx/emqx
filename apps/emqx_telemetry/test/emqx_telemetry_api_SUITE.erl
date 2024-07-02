@@ -29,27 +29,22 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
-    ok = emqx_common_test_helpers:load_config(emqx_telemetry_schema, ?BASE_CONF),
-    ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, emqx_auth, emqx_management, emqx_telemetry],
-        fun set_special_configs/1
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_auth,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard(),
+            emqx_modules,
+            emqx_telemetry
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    [{apps, Apps} | Config].
 
-    Config.
-
-end_per_suite(_Config) ->
-    {ok, _} = emqx:update_config(
-        [authorization],
-        #{
-            <<"no_match">> => <<"allow">>,
-            <<"cache">> => #{<<"enable">> => <<"true">>},
-            <<"sources">> => []
-        }
-    ),
-    emqx_mgmt_api_test_util:end_suite([
-        emqx_conf, emqx_auth, emqx_management, emqx_telemetry
-    ]),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_testcase(t_status_non_official, Config) ->
