@@ -95,4 +95,10 @@
     until :: integer()
 }).
 
+%%--------------------------------------------------------------------
+%% Configurations
+%%--------------------------------------------------------------------
+-define(KIND_REPLICATE, replicate).
+-define(KIND_INITIATE, initiate).
+
 -endif.
