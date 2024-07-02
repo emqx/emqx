@@ -390,7 +390,7 @@ t_api(_) ->
                 uri(["authorization", "sources", binary_to_list(Type)]),
                 []
             ),
-            {ok, 404, _} = request(
+            {ok, 204, _} = request(
                 delete,
                 uri(["authorization", "sources", binary_to_list(Type)]),
                 []
@@ -399,7 +399,7 @@ t_api(_) ->
         Sources
     ),
 
-    {ok, 404, _TypeMismatch2} = request(
+    {ok, 400, _TypeMismatch2} = request(
         put,
         uri(["authorization", "sources", "file"]),
         #{<<"type">> => <<"built_in_database">>, <<"enable">> => false}

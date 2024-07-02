@@ -287,20 +287,10 @@ source(put, #{bindings := #{type := Type}, body := #{<<"type">> := Type} = Body}
             update_config({?CMD_REPLACE, Type}, Conf)
         end
     );
-source(put, #{bindings := #{type := Type}, body := #{<<"type">> := _OtherType}}) ->
-    with_source(
-        Type,
-        fun(_) ->
-            {400, #{code => <<"BAD_REQUEST">>, message => <<"Type mismatch">>}}
-        end
-    );
+source(put, #{bindings := #{type := _Type}, body := #{<<"type">> := _OtherType}}) ->
+    {400, #{code => <<"BAD_REQUEST">>, message => <<"Type mismatch">>}};
 source(delete, #{bindings := #{type := Type}}) ->
-    with_source(
-        Type,
-        fun(_) ->
-            update_config({?CMD_DELETE, Type}, #{})
-        end
-    ).
+    update_config({?CMD_DELETE, Type}, #{}).
 
 source_status(get, #{bindings := #{type := Type}}) ->
     with_source(
