@@ -50,6 +50,7 @@
     remove_local/1,
     reset_metrics/1,
     reset_metrics_local/1,
+    reset_metrics_local/2,
     %% Create metrics for a resource ID
     create_metrics/1,
     %% Delete metrics for a resource ID
@@ -337,8 +338,13 @@ remove_local(ResId) ->
             ok
     end.
 
+%% Tip: Don't delete reset_metrics_local/1, use before v572 rpc
 -spec reset_metrics_local(resource_id()) -> ok.
 reset_metrics_local(ResId) ->
+    reset_metrics_local(ResId, #{}).
+
+-spec reset_metrics_local(resource_id(), map()) -> ok.
+reset_metrics_local(ResId, _ClusterOpts) ->
     emqx_resource_manager:reset_metrics(ResId).
 
 -spec reset_metrics(resource_id()) -> ok | {error, Reason :: term()}.
