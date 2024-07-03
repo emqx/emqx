@@ -50,12 +50,14 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{}}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
-    emqx_common_test_helpers:stop_apps([]),
-    ok.
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 init_per_group(tcp_ppv2, Config) ->
     ClientFn = emqx_cth_listener:reload_listener_with_ppv2(
