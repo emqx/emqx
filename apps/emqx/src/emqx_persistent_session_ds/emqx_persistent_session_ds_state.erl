@@ -66,7 +66,7 @@
     n_awaiting_rel/1
 ]).
 
--export([iterate/1]).
+-export([iter_next/1]).
 
 -export([make_session_iterator/0, session_iterator_next/2]).
 
@@ -484,6 +484,9 @@ fold_streams(Fun, Acc, Rec) ->
 -spec iter_streams(_StartAfter :: stream_key() | beginning, t()) ->
     iter(stream_key(), emqx_persistent_session_ds:stream_state()).
 iter_streams(After, Rec) ->
+    %% NOTE
+    %% No special handling for `beginning', as it always compares less
+    %% than any `stream_key()'.
     gen_iter_after(?streams, After, Rec).
 
 -spec n_streams(t()) -> non_neg_integer().
@@ -544,8 +547,8 @@ n_awaiting_rel(Rec) ->
 
 %%
 
--spec iterate(iter(K, V)) -> {K, V, iter(K, V)} | none.
-iterate(It0) ->
+-spec iter_next(iter(K, V)) -> {K, V, iter(K, V)} | none.
+iter_next(It0) ->
     gen_iter_next(It0).
 
 %%

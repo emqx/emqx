@@ -127,7 +127,7 @@ iter_next_streams(LastVisited, S) ->
 next_stream(#iter{limit = 0}) ->
     none;
 next_stream(ItStream0 = #iter{limit = N, filter = Filter, it = It0, it_cont = ItCont}) ->
-    case emqx_persistent_session_ds_state:iterate(It0) of
+    case emqx_persistent_session_ds_state:iter_next(It0) of
         {Key, Stream, It} ->
             ItStream = ItStream0#iter{it = It, limit = N - 1},
             case Filter(Key, Stream) of
