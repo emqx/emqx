@@ -327,18 +327,32 @@ do_post_config_update(?ROOT_KEY, _Conf, NewConf) ->
 
 overwrite_entire_sources(Sources) ->
     PrevSources = lookup(),
-    NewSourcesTypes = lists:map(fun type/1, Sources),
-    EnsureDelete = fun(S) ->
-        TypeName = type(S),
-        Opts =
-            case lists:member(TypeName, NewSourcesTypes) of
-                true -> #{clear_metric => false};
-                false -> #{clear_metric => true}
-            end,
-        ensure_deleted(S, Opts)
-    end,
-    lists:foreach(EnsureDelete, PrevSources),
-    create_sources(Sources).
+    #{
+        removed := Removed,
+        added := Added,
+        identical := Identical,
+        changed := Changed
+    } = emqx_utils:diff_lists(Sources, PrevSources, fun type/1),
+    lists:foreach(
+        fun(S) -> ensure_deleted(S, #{clear_metric => true}) end,
+        Removed
+    ),
+    AddedSources = create_sources(Added),
+    ChangedSources = lists:map(
+        fun({Old, New}) ->
+            update_source(type(New), Old, New)
+        end,
+        Changed
+    ),
+    New = Identical ++ AddedSources ++ ChangedSources,
+    lists:map(
+        fun(Type) ->
+            SearchFun = fun(S) -> type(S) =:= type(Type) end,
+            {value, Val} = lists:search(SearchFun, New),
+            Val
+        end,
+        Sources
+    ).
 
 %% @doc do source move
 do_move({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->
