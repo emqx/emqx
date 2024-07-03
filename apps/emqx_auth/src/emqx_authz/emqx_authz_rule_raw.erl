@@ -21,7 +21,7 @@
 
 -module(emqx_authz_rule_raw).
 
--export([parse_rule/1, format_rule/1]).
+-export([parse_rule/1, parse_and_compile_rules/1, format_rule/1]).
 
 -include("emqx_authz.hrl").
 
@@ -30,6 +30,27 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+%% @doc Parse and compile raw ACL rules.
+%% If any bad rule is found, `{bad_acl_rule, ..}' is thrown.
+-spec parse_and_compile_rules([rule_raw()]) -> [emqx_authz_rule:rule()].
+parse_and_compile_rules(Rules) ->
+    lists:map(
+        fun(Rule) ->
+            case parse_rule(Rule) of
+                {ok, {Permission, Action, Topics}} ->
+                    try
+                        emqx_authz_rule:compile({Permission, all, Action, Topics})
+                    catch
+                        throw:Reason ->
+                            throw({bad_acl_rule, Reason})
+                    end;
+                {error, Reason} ->
+                    throw({bad_acl_rule, Reason})
+            end
+        end,
+        Rules
+    ).
 
 -spec parse_rule(rule_raw()) ->
     {ok, {

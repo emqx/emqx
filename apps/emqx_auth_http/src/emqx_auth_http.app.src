@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_auth_http, [
     {description, "EMQX External HTTP API Authentication and Authorization"},
-    {vsn, "0.2.2"},
+    {vsn, "0.3.0"},
     {registered, []},
     {mod, {emqx_auth_http_app, []}},
     {applications, [

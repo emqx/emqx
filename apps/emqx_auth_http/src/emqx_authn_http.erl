@@ -201,19 +201,7 @@ handle_response(Headers, Body) ->
     ContentType = proplists:get_value(<<"content-type">>, Headers),
     case safely_parse_body(ContentType, Body) of
         {ok, NBody} ->
-            case maps:get(<<"result">>, NBody, <<"ignore">>) of
-                <<"allow">> ->
-                    IsSuperuser = emqx_authn_utils:is_superuser(NBody),
-                    Attrs = emqx_authn_utils:client_attrs(NBody),
-                    Result = maps:merge(IsSuperuser, Attrs),
-                    {ok, Result};
-                <<"deny">> ->
-                    {error, not_authorized};
-                <<"ignore">> ->
-                    ignore;
-                _ ->
-                    ignore
-            end;
+            body_to_auth_data(NBody);
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(
                 error,
@@ -222,6 +210,91 @@ handle_response(Headers, Body) ->
             ),
             ignore
     end.
+
+body_to_auth_data(Body) ->
+    case maps:get(<<"result">>, Body, <<"ignore">>) of
+        <<"allow">> ->
+            IsSuperuser = emqx_authn_utils:is_superuser(Body),
+            Attrs = emqx_authn_utils:client_attrs(Body),
+            try
+                ExpireAt = expire_at(Body),
+                ACL = acl(ExpireAt, Body),
+                Result = merge_maps([ExpireAt, IsSuperuser, ACL, Attrs]),
+                {ok, Result}
+            catch
+                throw:{bad_acl_rule, Reason} ->
+                    %% it's a invalid token, so ok to log
+                    ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{http_body => Body}),
+                    {error, bad_username_or_password};
+                throw:Reason ->
+                    ?TRACE_AUTHN_PROVIDER("bad_response_body", Reason#{http_body => Body}),
+                    {error, bad_username_or_password}
+            end;
+        <<"deny">> ->
+            {error, not_authorized};
+        <<"ignore">> ->
+            ignore;
+        _ ->
+            ignore
+    end.
+
+merge_maps([]) -> #{};
+merge_maps([Map | Maps]) -> maps:merge(Map, merge_maps(Maps)).
+
+%% Return either an empty map, or a map with `expire_at` at millisecond precision
+%% Millisecond precision timestamp is required by `auth_expire_at`
+%% emqx_channel:schedule_connection_expire/1
+expire_at(Body) ->
+    case expire_sec(Body) of
+        undefined ->
+            #{};
+        Sec ->
+            #{expire_at => erlang:convert_time_unit(Sec, second, millisecond)}
+    end.
+
+expire_sec(#{<<"expire_at">> := ExpireTime}) when is_integer(ExpireTime) ->
+    Now = erlang:system_time(second),
+    NowMs = erlang:convert_time_unit(Now, second, millisecond),
+    case ExpireTime < Now of
+        true ->
+            throw(#{
+                cause => "'expire_at' is in the past.",
+                system_time => Now,
+                expire_at => ExpireTime
+            });
+        false when ExpireTime > (NowMs div 2) ->
+            throw(#{
+                cause => "'expire_at' does not appear to be a Unix epoch time in seconds.",
+                system_time => Now,
+                expire_at => ExpireTime
+            });
+        false ->
+            ExpireTime
+    end;
+expire_sec(#{<<"expire_at">> := _}) ->
+    throw(#{cause => "'expire_at' is not an integer (Unix epoch time in seconds)."});
+expire_sec(_) ->
+    undefined.
+
+acl(#{expire_at := ExpireTimeMs}, #{<<"acl">> := Rules}) ->
+    #{
+        acl => #{
+            source_for_logging => http,
+            rules => emqx_authz_rule_raw:parse_and_compile_rules(Rules),
+            %% It's seconds level precision (like JWT) for authz
+            %% see emqx_authz_client_info:check/1
+            expire => erlang:convert_time_unit(ExpireTimeMs, millisecond, second)
+        }
+    };
+acl(_NoExpire, #{<<"acl">> := Rules}) ->
+    #{
+        acl => #{
+            source_for_logging => http,
+            rules => emqx_authz_rule_raw:parse_and_compile_rules(Rules)
+        }
+    };
+acl(_, _) ->
+    #{}.
 
 safely_parse_body(ContentType, Body) ->
     try
