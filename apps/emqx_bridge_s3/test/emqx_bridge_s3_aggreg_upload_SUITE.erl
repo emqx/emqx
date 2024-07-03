@@ -252,9 +252,9 @@ t_aggreg_upload(Config) ->
     ?assertMatch(
         {ok, [
             ?CONF_COLUMN_ORDER(_),
-            [TS, <<"C1">>, T1, P1, <<>> | _],
-            [TS, <<"C2">>, T2, P2, <<>> | _],
-            [TS, <<"C3">>, T3, P3, <<>> | _]
+            [_TS1, <<"C1">>, T1, P1, <<>> | _],
+            [_TS2, <<"C2">>, T2, P2, <<>> | _],
+            [_TS3, <<"C3">>, T3, P3, <<>> | _]
         ]},
         erl_csv:decode(Content)
     ).
@@ -330,7 +330,7 @@ t_aggreg_upload_restart(Config) ->
     %% Restart the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
     {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
-    %% Send some more messages.
+    %% Send some more messages (wuth same timestamps though).
     ok = send_messages(BridgeName, MessageEvents),
     {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := AggregId}),
     %% Wait until the delivery is completed.
@@ -341,12 +341,12 @@ t_aggreg_upload_restart(Config) ->
     ?assertMatch(
         {ok, [
             _Header = [_ | _],
-            [TS1, <<"C1">>, T1, P1 | _],
-            [TS1, <<"C2">>, T2, P2 | _],
-            [TS1, <<"C3">>, T3, P3 | _],
-            [TS2, <<"C1">>, T1, P1 | _],
-            [TS2, <<"C2">>, T2, P2 | _],
-            [TS2, <<"C3">>, T3, P3 | _]
+            [_TS1, <<"C1">>, T1, P1 | _],
+            [_TS2, <<"C2">>, T2, P2 | _],
+            [_TS3, <<"C3">>, T3, P3 | _],
+            [_TS1, <<"C1">>, T1, P1 | _],
+            [_TS2, <<"C2">>, T2, P2 | _],
+            [_TS3, <<"C3">>, T3, P3 | _]
         ]},
         erl_csv:decode(Content)
     ).
