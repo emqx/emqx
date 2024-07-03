@@ -27,7 +27,7 @@ jobs:
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
     steps:
-      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Set up environment
@@ -52,7 +52,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
@@ -136,7 +136,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           fetch-depth: 0
       - name: Work around https://github.com/actions/checkout/issues/766
