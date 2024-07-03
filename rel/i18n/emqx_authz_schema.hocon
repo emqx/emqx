@@ -78,6 +78,11 @@ failed.desc:
 failed.label:
 """Failed"""
 
+ignore.desc:
+"""Count of query ignored.  This counter is increased whenever the authorization source attempts to authorize a request, but either it's not applicable, or an error was encountered and the result is undecidable"""
+ignore.label:
+"""Ignored"""
+
 metrics.desc:
 """The metrics of the resource."""
 

@@ -467,7 +467,13 @@ make_result_map(ResList) ->
     lists:foldl(Fun, {maps:new(), maps:new(), maps:new(), maps:new()}, ResList).
 
 restructure_map(#{
-    counters := #{deny := Failed, total := Total, allow := Succ, nomatch := Nomatch},
+    counters := #{
+        ignore := Ignore,
+        deny := Failed,
+        total := Total,
+        allow := Succ,
+        nomatch := Nomatch
+    },
     rate := #{total := #{current := Rate, last5m := Rate5m, max := RateMax}}
 }) ->
     #{
@@ -475,6 +481,7 @@ restructure_map(#{
         allow => Succ,
         deny => Failed,
         nomatch => Nomatch,
+        ignore => Ignore,
         rate => Rate,
         rate_last5m => Rate5m,
         rate_max => RateMax
