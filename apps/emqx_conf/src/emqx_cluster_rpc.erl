@@ -27,6 +27,7 @@
     query/1,
     reset/0,
     status/0,
+    is_initiator/1,
     skip_failed_commit/1,
     fast_forward_to_commit/2,
     on_mria_stop/1,
@@ -66,6 +67,7 @@
 -export_type([tnx_id/0, succeed_num/0]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_conf.hrl").
 
@@ -78,8 +80,6 @@
 -define(INITIATE(MFA), {initiate, MFA}).
 -define(CATCH_UP, catch_up).
 -define(TIMEOUT, timer:minutes(1)).
--define(APPLY_KIND_REPLICATE, replicate).
--define(APPLY_KIND_INITIATE, initiate).
 -define(IS_STATUS(_A_), (_A_ =:= peers_lagging orelse _A_ =:= stopped_nodes)).
 
 -type tnx_id() :: pos_integer().
@@ -223,6 +223,9 @@ reset() -> gen_server:call(?MODULE, reset).
 -spec status() -> {'atomic', [map()]} | {'aborted', Reason :: term()}.
 status() ->
     transaction(fun ?MODULE:trans_status/0, []).
+
+is_initiator(Opts) ->
+    ?KIND_INITIATE =:= maps:get(kind, Opts, ?KIND_INITIATE).
 
 %% DO NOT delete this on_leave_clean/0, It's use when rpc before v560.
 on_leave_clean() ->
@@ -398,7 +401,7 @@ catch_up(#{node := Node, retry_interval := RetryMs, is_leaving := false} = State
             ?tp(cluster_rpc_caught_up, #{}),
             ?TIMEOUT;
         {atomic, {still_lagging, NextId, MFA}} ->
-            {Succeed, _} = apply_mfa(NextId, MFA, ?APPLY_KIND_REPLICATE),
+            {Succeed, _} = apply_mfa(NextId, MFA, ?KIND_REPLICATE),
             case Succeed orelse SkipResult of
                 true ->
                     case transaction(fun ?MODULE:commit/2, [Node, NextId]) of
@@ -520,7 +523,7 @@ init_mfa(Node, MFA) ->
             },
             ok = mnesia:write(?CLUSTER_MFA, MFARec, write),
             ok = commit(Node, TnxId),
-            case apply_mfa(TnxId, MFA, ?APPLY_KIND_INITIATE) of
+            case apply_mfa(TnxId, MFA, ?KIND_INITIATE) of
                 {true, Result} -> {ok, TnxId, Result};
                 {false, Error} -> mnesia:abort(Error)
             end;
@@ -571,23 +574,7 @@ trans_query(TnxId) ->
 apply_mfa(TnxId, {M, F, A}, Kind) ->
     Res =
         try
-            case erlang:apply(M, F, A) of
-                {error, {post_config_update, HandlerName, {Reason0, PostFailureFun}}} when
-                    Kind =/= ?APPLY_KIND_INITIATE
-                ->
-                    ?SLOG(error, #{
-                        msg => "post_config_update_failed",
-                        handler => HandlerName,
-                        reason => Reason0
-                    }),
-                    PostFailureFun();
-                {error, {post_config_update, HandlerName, {Reason0, _Fun}}} when
-                    Kind =:= ?APPLY_KIND_INITIATE
-                ->
-                    {error, {post_config_update, HandlerName, Reason0}};
-                Result ->
-                    Result
-            end
+            erlang:apply(M, F, A ++ [#{kind => Kind}])
         catch
             throw:Reason ->
                 {error, #{reason => Reason}};
@@ -607,7 +594,7 @@ is_success(ok) -> true;
 is_success({ok, _}) -> true;
 is_success(_) -> false.
 
-log_and_alarm(IsSuccess, Res, #{kind := ?APPLY_KIND_INITIATE} = Meta) ->
+log_and_alarm(IsSuccess, Res, #{kind := ?KIND_INITIATE} = Meta) ->
     %% no alarm or error log in case of failure at originating a new cluster-call
     %% because nothing is committed
     case IsSuccess of

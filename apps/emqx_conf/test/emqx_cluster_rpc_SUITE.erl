@@ -234,7 +234,7 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
     {atomic, [_Status | L]} = emqx_cluster_rpc:status(),
     ?assertEqual([], L),
     ets:insert(test, {other_mfa_result, ok}),
-    {ok, 2, ok} = multicall(io, format, ["format:~p~n", [?FUNCTION_NAME]], 1, 1000),
+    {ok, 2, ok} = multicall(?MODULE, format, ["format:~p~n", [?FUNCTION_NAME]], 1, 1000),
     ct:sleep(1000),
     {atomic, NewStatus} = emqx_cluster_rpc:status(),
     ?assertEqual(3, length(NewStatus)),
@@ -251,7 +251,7 @@ t_commit_ok_apply_fail_on_other_node_then_recover(_Config) ->
 
 t_del_stale_mfa(_Config) ->
     {atomic, []} = emqx_cluster_rpc:status(),
-    MFA = {M, F, A} = {io, format, ["format:~p~n", [?FUNCTION_NAME]]},
+    MFA = {M, F, A} = {?MODULE, format, ["format:~p~n", [?FUNCTION_NAME]]},
     Keys = lists:seq(1, 50),
     Keys2 = lists:seq(51, 150),
     Ids =
@@ -292,7 +292,7 @@ t_del_stale_mfa(_Config) ->
 
 t_skip_failed_commit(_Config) ->
     {atomic, []} = emqx_cluster_rpc:status(),
-    {ok, 1, ok} = multicall(io, format, ["format:~p~n", [?FUNCTION_NAME]], all, 1000),
+    {ok, 1, ok} = multicall(?MODULE, format, ["format:~p~n", [?FUNCTION_NAME]], all, 1000),
     ct:sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
@@ -312,7 +312,7 @@ t_skip_failed_commit(_Config) ->
 
 t_fast_forward_commit(_Config) ->
     {atomic, []} = emqx_cluster_rpc:status(),
-    {ok, 1, ok} = multicall(io, format, ["format:~p~n", [?FUNCTION_NAME]], all, 1000),
+    {ok, 1, ok} = multicall(?MODULE, format, ["format:~p~n", [?FUNCTION_NAME]], all, 1000),
     ct:sleep(180),
     {atomic, List1} = emqx_cluster_rpc:status(),
     Node = node(),
@@ -393,22 +393,25 @@ receive_msg(Count, Msg) when Count > 0 ->
         {Msg, flush_msg([])}
     end.
 
-echo(Pid, Msg) ->
+echo(Pid, Msg, _) ->
     erlang:send(Pid, Msg),
     ok.
 
-echo_delay(Pid, Msg) ->
+format(Fmt, Args, _Opts) ->
+    io:format(Fmt, Args).
+
+echo_delay(Pid, Msg, _) ->
     timer:sleep(rand:uniform(150)),
     erlang:send(Pid, {msg, Msg, erlang:system_time(), self()}),
     ok.
 
-failed_on_node(Pid) ->
+failed_on_node(Pid, _) ->
     case Pid =:= self() of
         true -> ok;
         false -> "MFA return not ok"
     end.
 
-failed_on_node_by_odd(Pid) ->
+failed_on_node_by_odd(Pid, _) ->
     case Pid =:= self() of
         true ->
             ok;
@@ -421,7 +424,7 @@ failed_on_node_by_odd(Pid) ->
             end
     end.
 
-failed_on_other_recover_after_retry(Pid) ->
+failed_on_other_recover_after_retry(Pid, _) ->
     case Pid =:= self() of
         true ->
             ok;

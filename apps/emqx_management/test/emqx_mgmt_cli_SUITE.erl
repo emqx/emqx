@@ -97,7 +97,7 @@ t_broker(_Config) ->
 t_cluster(_Config) ->
     SelfNode = node(),
     FakeNode = 'fake@127.0.0.1',
-    MFA = {io, format, [""]},
+    MFA = {?MODULE, format, [""]},
     meck:new(mria_mnesia, [non_strict, passthrough, no_link]),
     meck:expect(mria_mnesia, running_nodes, 0, [SelfNode, FakeNode]),
     {atomic, {ok, TnxId, _}} =
@@ -353,3 +353,5 @@ t_autocluster_leave(Config) ->
             10_000
         )
     ).
+
+format(Str, Opts) -> io:format("str:~s: Opts:~p", [Str, Opts]).
