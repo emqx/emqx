@@ -136,10 +136,13 @@ next_stream(ItStream0 = #iter{limit = N, filter = Filter, it = It0, it_cont = It
                 false ->
                     next_stream(ItStream)
             end;
-        none ->
+        none when It0 =/= ItCont ->
             %% Restart the iteration from the beginning:
             ItStream = ItStream0#iter{it = ItCont},
-            next_stream(ItStream)
+            next_stream(ItStream);
+        none ->
+            %% No point in restarting the iteration, `ItCont` is empty:
+            none
     end.
 
 is_fetchable(_Comm1, _Comm2, #srs{it_end = end_of_stream}) ->
