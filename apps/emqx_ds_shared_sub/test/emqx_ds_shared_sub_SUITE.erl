@@ -223,15 +223,8 @@ t_intensive_reassign(_Config) ->
 
     {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
 
-    ?assertEqual(
-        [],
-        Missing
-    ),
-
-    ?assertEqual(
-        [],
-        Duplicate
-    ),
+    ?assertEqual([], Missing),
+    ?assertEqual([], Duplicate),
 
     ok = emqtt:disconnect(ConnShared1),
     ok = emqtt:disconnect(ConnShared2),
@@ -276,15 +269,54 @@ t_unsubscribe(_Config) ->
 
     {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
 
-    ?assertEqual(
-        [],
-        Missing
-    ),
+    ?assertEqual([], Missing),
+    ?assertEqual([], Duplicate),
 
-    ?assertEqual(
-        [],
-        Duplicate
-    ),
+    ok = emqtt:disconnect(ConnShared1),
+    ok = emqtt:disconnect(ConnShared2),
+    ok = emqtt:disconnect(ConnPub).
+
+t_quick_resubscribe(_Config) ->
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr10/topic10/#">>, 1),
+
+    ct:sleep(1000),
+
+    NPubs = 10_000,
+
+    Topics = [<<"topic10/1">>, <<"topic10/2">>, <<"topic10/3">>],
+    ok = publish_n(ConnPub, Topics, 1, NPubs),
+
+    Self = self(),
+    _ = spawn_link(fun() ->
+        ok = publish_n(ConnPub, Topics, NPubs + 1, 2 * NPubs),
+        Self ! publish_done
+    end),
+
+    ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr10/topic10/#">>, 1),
+    {ok, _, _} = emqtt:unsubscribe(ConnShared1, <<"$share/gr10/topic10/#">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr10/topic10/#">>, 1),
+
+    receive
+        publish_done -> ok
+    end,
+
+    Pubs = drain_publishes(),
+
+    ClientByBid = fun(Pid) ->
+        case Pid of
+            ConnShared1 -> <<"client_shared1">>;
+            ConnShared2 -> <<"client_shared2">>
+        end
+    end,
+
+    {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
+
+    ?assertEqual([], Missing),
+    ?assertEqual([], Duplicate),
 
     ok = emqtt:disconnect(ConnShared1),
     ok = emqtt:disconnect(ConnShared2),

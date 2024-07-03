@@ -390,19 +390,25 @@ select_streams_for_assign(Data0, _Agent, AssignCount) ->
 %% Handle a newly connected agent
 
 connect_agent(
-    #{group := Group} = Data,
+    #{group := Group, agents := Agents} = Data,
     Agent,
     AgentMetadata
 ) ->
-    %% TODO
-    %% implement graceful reconnection of the same agent
     ?SLOG(info, #{
         msg => leader_agent_connected,
         agent => Agent,
         group => Group
     }),
-    DesiredCount = desired_stream_count_for_new_agent(Data),
-    assign_initial_streams_to_agent(Data, Agent, AgentMetadata, DesiredCount).
+    case Agents of
+        #{Agent := AgentState} ->
+            ?tp(warning, shared_sub_leader_agent_already_connected, #{
+                agent => Agent
+            }),
+            reconnect_agent(Data, Agent, AgentMetadata, AgentState);
+        _ ->
+            DesiredCount = desired_stream_count_for_new_agent(Data),
+            assign_initial_streams_to_agent(Data, Agent, AgentMetadata, DesiredCount)
+    end.
 
 assign_initial_streams_to_agent(Data, Agent, AgentMetadata, AssignCount) ->
     InitialStreamsToAssign = select_streams_for_assign(Data, Agent, AssignCount),
@@ -411,6 +417,30 @@ assign_initial_streams_to_agent(Data, Agent, AgentMetadata, AssignCount) ->
         Data1, Agent, AgentMetadata, InitialStreamsToAssign
     ),
     set_agent_state(Data1, Agent, AgentState).
+
+reconnect_agent(
+    Data0,
+    Agent,
+    AgentMetadata,
+    #{streams := OldStreams, revoked_streams := OldRevokedStreams} = _OldAgentState
+) ->
+    ?tp(warning, shared_sub_leader_agent_reconnect, #{
+        agent => Agent,
+        agent_metadata => AgentMetadata,
+        inherited_streams => OldStreams
+    }),
+    AgentState = agent_transition_to_initial_waiting_replaying(
+        Data0, Agent, AgentMetadata, OldStreams
+    ),
+    Data1 = set_agent_state(Data0, Agent, AgentState),
+    %% If client reconnected gracefully then it either had already sent all the final progresses
+    %% for the revoked streams (so `OldRevokedStreams` should be empty) or it had not started
+    %% to replay them (if we revoked streams after it desided to reconnect). So we can safely
+    %% unassign them.
+    %%
+    %% If client reconnects after a crash, then we wouldn't be here (the agent identity will be new).
+    Data2 = unassign_streams(Data1, OldRevokedStreams),
+    Data2.
 
 %%--------------------------------------------------------------------
 %% Disconnect agent gracefully
