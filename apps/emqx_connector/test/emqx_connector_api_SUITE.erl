@@ -697,7 +697,7 @@ t_connectors_probe(Config) ->
     ok.
 
 t_create_with_bad_name(Config) ->
-    ConnectorName = <<"test_哈哈">>,
+    ConnectorName = <<"test_哈哈"/utf8>>,
     Conf0 = ?KAFKA_CONNECTOR(ConnectorName),
     %% Note: must contain SSL options to trigger original bug.
     Cacertfile = emqx_common_test_helpers:app_path(

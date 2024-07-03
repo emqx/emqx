@@ -275,7 +275,7 @@ t_create_with_bad_name_root_path({'end', _Config}) ->
     ok;
 t_create_with_bad_name_root_path(_Config) ->
     Path = [connectors],
-    BadConnectorName = <<"test_哈哈">>,
+    BadConnectorName = <<"test_哈哈"/utf8>>,
     ConnConfig0 = connector_config(),
     %% Note: must contain SSL options to trigger original bug.
     Cacertfile = emqx_common_test_helpers:app_path(
