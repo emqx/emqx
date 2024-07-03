@@ -357,6 +357,11 @@ init_bootstrap_file(File) ->
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
+            FmtReason = emqx_utils:format(
+                "load API bootstrap file failed, file:~ts, reason:~ts",
+                [File, Reason]
+            ),
+
             ?SLOG(
                 error,
                 #{
@@ -365,7 +370,8 @@ init_bootstrap_file(File) ->
                     reason => Reason
                 }
             ),
-            {error, Reason}
+
+            {error, FmtReason}
     end.
 
 init_bootstrap_file(File, Dev, MP) ->

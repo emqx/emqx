@@ -28,7 +28,7 @@ defmodule EMQXAuthJWT.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"}
+      UMP.common_dep(:jose),
     ]
   end
 end

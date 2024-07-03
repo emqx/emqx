@@ -23,7 +23,7 @@ defmodule EMQXPostgresql.MixProject do
 
   def deps() do
     [
-      {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2"},
+      UMP.common_dep(:epgsql),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true}
     ]
