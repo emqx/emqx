@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_message_transformation).
 
+-feature(maybe_expr, enable).
+
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -54,11 +56,18 @@
 
 -type eval_context() :: #{
     client_attrs := map(),
+    clientid := _,
+    flags := _,
+    id := _,
+    node := _,
     payload := _,
+    peername := _,
+    publish_received_at := _,
     qos := _,
     retain := _,
     topic := _,
     user_property := _,
+    username := _,
     dirty := #{
         payload => true,
         qos => true,
@@ -323,20 +332,35 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
             true -> #{};
             false -> #{payload => true}
         end,
-    UserProperties0 = maps:get(
-        'User-Property',
-        emqx_message:get_header(properties, Message, #{}),
-        []
-    ),
+    Flags = emqx_message:get_flags(Message),
+    Props = emqx_message:get_header(properties, Message, #{}),
+    UserProperties0 = maps:get('User-Property', Props, []),
     UserProperties = maps:from_list(UserProperties0),
+    Headers = Message#message.headers,
+    Peername =
+        case maps:get(peername, Headers, undefined) of
+            Peername0 when is_tuple(Peername0) ->
+                iolist_to_binary(emqx_utils:ntoa(Peername0));
+            _ ->
+                undefined
+        end,
+    Username = maps:get(username, Headers, undefined),
     #{
         dirty => Dirty,
+
         client_attrs => emqx_message:get_header(client_attrs, Message, #{}),
+        clientid => Message#message.from,
+        flags => Flags,
+        id => emqx_guid:to_hexstr(Message#message.id),
+        node => node(),
         payload => Payload,
+        peername => Peername,
+        publish_received_at => Message#message.timestamp,
         qos => Message#message.qos,
         retain => emqx_message:get_flag(retain, Message, false),
         topic => Message#message.topic,
-        user_property => UserProperties
+        user_property => UserProperties,
+        username => Username
     }.
 
 -spec context_to_message(emqx_types:message(), eval_context(), transformation()) ->
