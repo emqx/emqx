@@ -26,9 +26,9 @@ defmodule EMQXUtils.MixProject do
 
   def deps() do
     [
-      {:jiffy, github: "emqx/jiffy", tag: "1.0.6"},
-      {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3"},
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.10", override: true},
+      UMP.common_dep(:jiffy),
+      UMP.common_dep(:emqx_http_lib),
+      UMP.common_dep(:snabbkaffe),
     ]
   end
 end

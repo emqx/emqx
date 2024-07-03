@@ -24,6 +24,10 @@ defmodule EMQXAuthMnesia.MixProject do
   end
 
   def deps() do
-    [{:emqx, in_umbrella: true}, {:emqx_auth, in_umbrella: true}]
+    [
+      {:emqx, in_umbrella: true},
+      {:emqx_auth, in_umbrella: true},
+      UMP.common_dep(:esasl),
+    ]
   end
 end

@@ -27,8 +27,8 @@ defmodule EMQXS3.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
-      {:gproc, github: "emqx/gproc", tag: "0.9.0.1"},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.13"},
+      UMP.common_dep(:gproc),
+      UMP.common_dep(:ehttpc),
       {:erlcloud, github: "emqx/erlcloud", tag: "3.7.0.3"},
       {:emqx_bridge_http, in_umbrella: true, runtime: false}
     ]

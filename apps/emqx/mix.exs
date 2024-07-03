@@ -28,7 +28,7 @@ defmodule EMQX.MixProject do
   def application do
     [
       ## FIXME!!! go though emqx.app.src and add missing stuff...
-      extra_applications: [:public_key, :ssl, :os_mon, :logger, :mnesia] ++ UMP.extra_applications(),
+      extra_applications: [:public_key, :ssl, :os_mon, :logger, :mnesia, :sasl] ++ UMP.extra_applications(),
       mod: {:emqx_app, []}
     ]
   end
@@ -37,14 +37,19 @@ defmodule EMQX.MixProject do
     ## FIXME!!! go though emqx.app.src and add missing stuff...
     [
       {:emqx_utils, in_umbrella: true},
-      {:emqx_ds_backends, in_umbrella: true},
+      # {:emqx_ds_backends, in_umbrella: true},
 
-      {:ekka, github: "emqx/ekka", tag: "0.19.3", override: true},
-      {:esockd, github: "emqx/esockd", tag: "5.11.2"},
-      {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true},
-      {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
-      {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true},
+      UMP.common_dep(:gproc),
+      UMP.common_dep(:gen_rpc),
+      UMP.common_dep(:ekka),
+      UMP.common_dep(:esockd),
+      UMP.common_dep(:cowboy),
+      UMP.common_dep(:lc),
+      UMP.common_dep(:hocon),
+      UMP.common_dep(:ranch),
+      UMP.common_dep(:bcrypt),
+      UMP.common_dep(:pbkdf2),
+      UMP.common_dep(:emqx_http_lib),
     ] ++ UMP.quicer_dep()
   end
 

@@ -23,9 +23,9 @@ defmodule EMQXEnterprise.MixProject do
 
   def deps() do
     [
-      {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.10"},
-      {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1"},
-      {:hocon, github: "emqx/hocon", tag: "0.42.2"}
+      UMP.common_dep(:snabbkaffe),
+      UMP.common_dep(:typerefl),
+      UMP.common_dep(:hocon),
     ]
   end
 end

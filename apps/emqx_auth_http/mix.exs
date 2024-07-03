@@ -29,7 +29,7 @@ defmodule EMQXAuthHTTP.MixProject do
       {:emqx_auth, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector, in_umbrella: true},
-      {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true}
+      UMP.common_dep(:hocon)
     ]
   end
 end
