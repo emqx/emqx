@@ -127,6 +127,7 @@ app_specs(CTConfig) ->
             config => DSConfig,
             override_env => [{boot_modules, [broker, listeners]}]
         }},
+        emqx_conf,
         {emqx_retainer, #{
             config =>
                 #{

@@ -37,7 +37,7 @@ end_per_suite(Config) ->
 %%--------------------------------------------------------------------
 
 t_cache_exclude(_) ->
-    ClientId = <<"test-id1">>,
+    ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, Client} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"nocache/+/#">>, 0),
@@ -47,11 +47,12 @@ t_cache_exclude(_) ->
     emqtt:stop(Client).
 
 t_clean_authz_cache(_) ->
-    {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
-    ClientPid = find_client_pid(<<"emqx_c">>),
+    ClientPid = find_client_pid(ClientId),
     Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
@@ -60,11 +61,12 @@ t_clean_authz_cache(_) ->
     emqtt:stop(Client).
 
 t_drain_authz_cache(_) ->
-    {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
-    ClientPid = find_client_pid(<<"emqx_c">>),
+    ClientPid = find_client_pid(ClientId),
     Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),

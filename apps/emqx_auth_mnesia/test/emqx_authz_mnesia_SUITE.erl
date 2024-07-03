@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx_authz.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -253,6 +253,30 @@ t_destroy(_Config) ->
 
     ?assertEqual(
         deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
+t_conf_cli_load(_Config) ->
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+
+    ok = emqx_authz_mnesia:store_rules(
+        {username, <<"username">>},
+        [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>}]
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    PrevRules = ets:tab2list(emqx_acl),
+    Hocon = emqx_conf_cli:get_config("authorization"),
+    Bin = iolist_to_binary(hocon_pp:do(Hocon, #{})),
+    ok = emqx_conf_cli:load_config(Bin, #{mode => merge}),
+    %% ensure emqx_acl table not clear
+    ?assertEqual(PrevRules, ets:tab2list(emqx_acl)),
+    %% still working
+    ?assertEqual(
+        allow,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 

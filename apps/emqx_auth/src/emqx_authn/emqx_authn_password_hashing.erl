@@ -142,7 +142,7 @@ salt_position(desc) -> "Salt position for PLAIN, MD5, SHA, SHA256 and SHA512 alg
 salt_position(_) -> undefined.
 
 dk_length(type) ->
-    integer();
+    pos_integer();
 dk_length(required) ->
     false;
 dk_length(desc) ->

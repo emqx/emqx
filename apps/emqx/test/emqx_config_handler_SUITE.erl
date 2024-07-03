@@ -415,14 +415,7 @@ assert_update_result(FailedPath, Update, Expect) ->
 
 assert_update_result(Paths, UpdatePath, Update, Expect) ->
     with_update_result(Paths, UpdatePath, Update, fun(Old, Result) ->
-        case Expect of
-            {error, {post_config_update, ?MODULE, post_config_update_error}} ->
-                ?assertMatch(
-                    {error, {post_config_update, ?MODULE, {post_config_update_error, _}}}, Result
-                );
-            _ ->
-                ?assertEqual(Expect, Result)
-        end,
+        ?assertEqual(Expect, Result),
         New = emqx:get_raw_config(UpdatePath, undefined),
         ?assertEqual(Old, New)
     end).

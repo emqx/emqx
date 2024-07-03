@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -28,13 +29,20 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Conf) ->
-    emqx_common_test_helpers:load_config(emqx_modules_schema, <<"gateway {}">>),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_modules]),
-    Conf.
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_modules
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Conf) ->
-    emqx_common_test_helpers:stop_apps([emqx_modules, emqx_conf]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_CaseName, Conf) ->
     Conf.

@@ -111,7 +111,6 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
     meck:new(emqx_retainer, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_retainer, retained_count, fun() -> 0 end),
     meck:expect(
@@ -124,7 +123,6 @@ init_per_suite(Config) ->
     ok = emqx_prometheus_SUITE:maybe_meck_license(),
     emqx_prometheus_SUITE:start_mock_pushgateway(9091),
 
-    application:load(emqx_auth),
     Apps = emqx_cth_suite:start(
         lists:flatten([
             emqx,
@@ -142,7 +140,8 @@ init_per_suite(Config) ->
                 {emqx_message_transformation, #{config => message_transformation_config()}}
              || emqx_release:edition() == ee
             ],
-            {emqx_prometheus, emqx_prometheus_SUITE:legacy_conf_default()}
+            {emqx_prometheus, emqx_prometheus_SUITE:legacy_conf_default()},
+            emqx_management
         ]),
         #{
             work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
@@ -155,14 +154,6 @@ end_per_suite(Config) ->
     meck:unload([emqx_retainer]),
     emqx_prometheus_SUITE:maybe_unmeck_license(),
     emqx_prometheus_SUITE:stop_mock_pushgateway(),
-    {ok, _} = emqx:update_config(
-        [authorization],
-        #{
-            <<"no_match">> => <<"allow">>,
-            <<"cache">> => #{<<"enable">> => <<"true">>},
-            <<"sources">> => []
-        }
-    ),
     emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 

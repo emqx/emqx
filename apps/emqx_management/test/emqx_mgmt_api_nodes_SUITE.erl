@@ -131,7 +131,6 @@ t_node_metrics_api(_) ->
 
 t_multiple_nodes_api(Config) ->
     ct:timetrap({seconds, 120}),
-    snabbkaffe:fix_ct_logging(),
     Nodes =
         [Node1, Node2] = emqx_cth_cluster:start(
             [

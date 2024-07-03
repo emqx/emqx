@@ -77,7 +77,7 @@ is_existing_type(SchemaName, Path) ->
 
 -spec get_schema(schema_name()) -> {ok, map()} | {error, not_found}.
 get_schema(SchemaName) ->
-    case
+    try
         emqx_config:get(
             [?CONF_KEY_ROOT, schemas, schema_name_bin_to_atom(SchemaName)], undefined
         )
@@ -86,6 +86,9 @@ get_schema(SchemaName) ->
             {error, not_found};
         Config ->
             {ok, Config}
+    catch
+        throw:not_found ->
+            {error, not_found}
     end.
 
 -spec add_schema(schema_name(), schema()) -> ok | {error, term()}.
@@ -340,7 +343,7 @@ to_bin(A) when is_atom(A) -> atom_to_binary(A);
 to_bin(B) when is_binary(B) -> B.
 
 schema_name_bin_to_atom(Bin) when size(Bin) > 255 ->
-    erlang:throw(
+    throw(
         iolist_to_binary(
             io_lib:format(
                 "Name is is too long."
@@ -351,4 +354,9 @@ schema_name_bin_to_atom(Bin) when size(Bin) > 255 ->
         )
     );
 schema_name_bin_to_atom(Bin) ->
-    binary_to_atom(Bin, utf8).
+    try
+        binary_to_existing_atom(Bin, utf8)
+    catch
+        error:badarg ->
+            throw(not_found)
+    end.

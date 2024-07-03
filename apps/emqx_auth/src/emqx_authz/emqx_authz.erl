@@ -51,7 +51,7 @@
     set_feature_available/2
 ]).
 
--export([post_config_update/5, pre_config_update/3]).
+-export([pre_config_update/4, post_config_update/5]).
 
 -export([
     maybe_read_source_files/1,
@@ -194,8 +194,8 @@ update({?CMD_DELETE, Type}, Sources) ->
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-pre_config_update(Path, Cmd, Sources) ->
-    try do_pre_config_update(Path, Cmd, Sources) of
+pre_config_update(Path, Cmd, Sources, ClusterRpcOpts) ->
+    try do_pre_config_update(Path, Cmd, Sources, ClusterRpcOpts) of
         {error, Reason} -> {error, Reason};
         NSources -> {ok, NSources}
     catch
@@ -215,58 +215,64 @@ pre_config_update(Path, Cmd, Sources) ->
             {error, Reason}
     end.
 
-do_pre_config_update(?CONF_KEY_PATH, Cmd, Sources) ->
-    do_pre_config_update(Cmd, Sources);
-do_pre_config_update(?ROOT_KEY, {?CMD_MERGE, NewConf}, OldConf) ->
-    do_pre_config_merge(NewConf, OldConf);
-do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
-    do_pre_config_replace(NewConf, OldConf).
+do_pre_config_update(?CONF_KEY_PATH, Cmd, Sources, Opts) ->
+    do_pre_config_update(Cmd, Sources, Opts);
+do_pre_config_update(?ROOT_KEY, {?CMD_MERGE, NewConf}, OldConf, Opts) ->
+    do_pre_config_merge(NewConf, OldConf, Opts);
+do_pre_config_update(?ROOT_KEY, NewConf, OldConf, Opts) ->
+    do_pre_config_replace(NewConf, OldConf, Opts).
 
-do_pre_config_merge(NewConf, OldConf) ->
+do_pre_config_merge(NewConf, OldConf, Opts) ->
     MergeConf = emqx_utils_maps:deep_merge(OldConf, NewConf),
     NewSources = merge_sources(OldConf, NewConf),
-    do_pre_config_replace(MergeConf#{<<"sources">> => NewSources}, OldConf).
+    do_pre_config_replace(MergeConf#{<<"sources">> => NewSources}, OldConf, Opts).
 
 %% override the entire config when updating the root key
 %% emqx_conf:update(?ROOT_KEY, Conf);
-do_pre_config_replace(Conf, Conf) ->
+do_pre_config_replace(Conf, Conf, _Opts) ->
     Conf;
-do_pre_config_replace(NewConf, OldConf) ->
+do_pre_config_replace(NewConf, OldConf, Opts) ->
     NewSources = get_sources(NewConf),
     OldSources = get_sources(OldConf),
-    ReplaceSources = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
+    ReplaceSources = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources, Opts),
     NewConf#{<<"sources">> => ReplaceSources}.
 
-do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
+do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources, _Opts) ->
     do_move(Cmd, Sources);
-do_pre_config_update({?CMD_PREPEND, Source}, Sources) ->
+do_pre_config_update({?CMD_PREPEND, Source}, Sources, _Opts) ->
     NSource = maybe_write_source_files(Source),
     NSources = [NSource] ++ Sources,
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({?CMD_APPEND, Source}, Sources) ->
+do_pre_config_update({?CMD_APPEND, Source}, Sources, _Opts) ->
     NSource = maybe_write_source_files(Source),
     NSources = Sources ++ [NSource],
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources) ->
+do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources, _Opts) ->
     NSource = maybe_write_source_files(Source),
     {_Old, Front, Rear} = take(Type, Sources),
     NSources = Front ++ [NSource | Rear],
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources) ->
-    {_Old, Front, Rear} = take(Type, Sources),
-    NSources = Front ++ Rear,
-    NSources;
-do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources) ->
+do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources, Opts) ->
+    case type_take(Type, Sources) of
+        not_found ->
+            case emqx_cluster_rpc:is_initiator(Opts) of
+                true -> throw({not_found_source, Type});
+                false -> Sources
+            end;
+        {_Found, NSources} ->
+            NSources
+    end;
+do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources, _Opts) ->
     %% overwrite the entire config!
     NSources = lists:map(fun maybe_write_source_files/1, Sources),
     ok = check_dup_types(NSources),
     NSources;
-do_pre_config_update({?CMD_REORDER, NewSourcesOrder}, OldSources) ->
+do_pre_config_update({?CMD_REORDER, NewSourcesOrder}, OldSources, _Opts) ->
     reorder_sources(NewSourcesOrder, OldSources);
-do_pre_config_update({Op, Source}, Sources) ->
+do_pre_config_update({Op, Source}, Sources, _Opts) ->
     throw({bad_request, #{op => Op, source => Source, sources => Sources}}).
 
 post_config_update(_, _, undefined, _OldSource, _AppEnvs) ->
@@ -293,9 +299,13 @@ do_post_config_update(?CONF_KEY_PATH, {{?CMD_REPLACE, Type}, RawNewSource}, Sour
     Front ++ [InitedSources] ++ Rear;
 do_post_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
     OldInitedSources = lookup(),
-    {OldSource, Front, Rear} = take(Type, OldInitedSources),
-    ok = ensure_deleted(OldSource, #{clear_metric => true}),
-    Front ++ Rear;
+    case type_take(Type, OldInitedSources) of
+        not_found ->
+            OldInitedSources;
+        {Found, NSources} ->
+            ok = ensure_deleted(Found, #{clear_metric => true}),
+            NSources
+    end;
 do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, _RawNewSources}, Sources) ->
     overwrite_entire_sources(Sources);
 do_post_config_update(?CONF_KEY_PATH, {?CMD_REORDER, NewSourcesOrder}, _Sources) ->
@@ -317,18 +327,32 @@ do_post_config_update(?ROOT_KEY, _Conf, NewConf) ->
 
 overwrite_entire_sources(Sources) ->
     PrevSources = lookup(),
-    NewSourcesTypes = lists:map(fun type/1, Sources),
-    EnsureDelete = fun(S) ->
-        TypeName = type(S),
-        Opts =
-            case lists:member(TypeName, NewSourcesTypes) of
-                true -> #{clear_metric => false};
-                false -> #{clear_metric => true}
-            end,
-        ensure_deleted(S, Opts)
-    end,
-    lists:foreach(EnsureDelete, PrevSources),
-    create_sources(Sources).
+    #{
+        removed := Removed,
+        added := Added,
+        identical := Identical,
+        changed := Changed
+    } = emqx_utils:diff_lists(Sources, PrevSources, fun type/1),
+    lists:foreach(
+        fun(S) -> ensure_deleted(S, #{clear_metric => true}) end,
+        Removed
+    ),
+    AddedSources = create_sources(Added),
+    ChangedSources = lists:map(
+        fun({Old, New}) ->
+            update_source(type(New), Old, New)
+        end,
+        Changed
+    ),
+    New = Identical ++ AddedSources ++ ChangedSources,
+    lists:map(
+        fun(Type) ->
+            SearchFun = fun(S) -> type(S) =:= type(Type) end,
+            {value, Val} = lists:search(SearchFun, New),
+            Val
+        end,
+        Sources
+    ).
 
 %% @doc do source move
 do_move({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->

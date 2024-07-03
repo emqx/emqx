@@ -16,7 +16,7 @@
 
 -module(emqx_ds_message_storage_bitmask_shim).
 
--include_lib("emqx/include/emqx.hrl").
+-include("../../../emqx/include/emqx.hrl").
 
 -export([open/0]).
 -export([close/1]).

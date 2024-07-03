@@ -35,7 +35,7 @@ new_ssl_config(RltvDir, Config, SSL) ->
         {ok, NewSSL} ->
             {ok, new_ssl_config(Config, NewSSL)};
         {error, Reason} ->
-            {error, {bad_ssl_config, Reason}}
+            {error, map_bad_ssl_error(Reason)}
     end.
 
 new_ssl_config(#{connector := Connector} = Config, NewSSL) ->
@@ -48,3 +48,28 @@ new_ssl_config(#{<<"ssl">> := _} = Config, NewSSL) ->
     Config#{<<"ssl">> => NewSSL};
 new_ssl_config(Config, _NewSSL) ->
     Config.
+
+map_bad_ssl_error(#{pem_check := invalid_pem} = TLSLibError) ->
+    #{which_options := Paths, file_read := Reason} = TLSLibError,
+    #{
+        kind => validation_error,
+        reason => <<"bad_ssl_config">>,
+        bad_fields => Paths,
+        details => emqx_utils:format(
+            "Failed to access certificate / key file: ~s",
+            [emqx_utils:explain_posix(Reason)]
+        )
+    };
+map_bad_ssl_error(#{which_options := Paths, reason := Reason}) ->
+    #{
+        kind => validation_error,
+        reason => <<"bad_ssl_config">>,
+        bad_fields => Paths,
+        details => Reason
+    };
+map_bad_ssl_error(TLSLibError) ->
+    #{
+        kind => validation_error,
+        reason => <<"bad_ssl_config">>,
+        details => TLSLibError
+    }.

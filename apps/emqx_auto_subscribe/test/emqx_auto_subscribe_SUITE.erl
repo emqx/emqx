@@ -19,8 +19,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
-
--define(APP, emqx_auto_subscribe).
+-include_lib("common_test/include/ct.hrl").
 
 -define(TOPIC_C, <<"/c/${clientid}">>).
 -define(TOPIC_U, <<"/u/${username}">>).
@@ -44,8 +43,6 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    mria:start(),
-    application:stop(?APP),
     meck:new(emqx_schema, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_schema, fields, fun
         ("auto_subscribe") ->
@@ -60,43 +57,45 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end),
 
-    application:load(emqx_dashboard),
-    application:load(?APP),
-    ok = emqx_common_test_helpers:load_config(
-        emqx_auto_subscribe_schema,
-        <<
-            "auto_subscribe {\n"
-            "            topics = [\n"
-            "                {\n"
-            "                    topic = \"/c/${clientid}\"\n"
-            "                },\n"
-            "                {\n"
-            "                    topic = \"/u/${username}\"\n"
-            "                },\n"
-            "                {\n"
-            "                    topic = \"/h/${host}\"\n"
-            "                },\n"
-            "                {\n"
-            "                    topic = \"/p/${port}\"\n"
-            "                },\n"
-            "                {\n"
-            "                    topic = \"/client/${clientid}/username/${username}/host/${host}/port/${port}\"\n"
-            "                },\n"
-            "                {\n"
-            "                    topic = \"/topic/simple\"\n"
-            "                    qos   = 1\n"
-            "                    rh    = 0\n"
-            "                    rap   = 0\n"
-            "                    nl    = 0\n"
-            "                }\n"
-            "            ]\n"
-            "        }"
-        >>
+    ASCfg = <<
+        "auto_subscribe {\n"
+        "            topics = [\n"
+        "                {\n"
+        "                    topic = \"/c/${clientid}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/u/${username}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/h/${host}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/p/${port}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/client/${clientid}/username/${username}/host/${host}/port/${port}\"\n"
+        "                },\n"
+        "                {\n"
+        "                    topic = \"/topic/simple\"\n"
+        "                    qos   = 1\n"
+        "                    rh    = 0\n"
+        "                    rap   = 0\n"
+        "                    nl    = 0\n"
+        "                }\n"
+        "            ]\n"
+        "        }"
+    >>,
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_auto_subscribe, ASCfg},
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, ?APP]
-    ),
-    Config.
+    [{apps, Apps} | Config].
 
 init_per_testcase(t_get_basic_usage_info, Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
@@ -119,13 +118,10 @@ topic_config(T) ->
         nl => 0
     }.
 
-end_per_suite(_) ->
-    application:unload(emqx_management),
-    application:unload(emqx_conf),
-    application:unload(?APP),
-    meck:unload(emqx_resource),
-    meck:unload(emqx_schema),
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, ?APP]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 t_auto_subscribe(_) ->
     emqx_auto_subscribe:update([#{<<"topic">> => Topic} || Topic <- ?TOPICS]),

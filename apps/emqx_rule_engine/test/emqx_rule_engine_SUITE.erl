@@ -159,17 +159,21 @@ groups() ->
 %%------------------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    %% ensure module loaded
-    emqx_rule_funcs_demo:module_info(),
-    application:load(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_rule_engine, emqx_auth, emqx_bridge],
-        fun set_special_configs/1
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_rule_engine,
+            emqx_auth,
+            emqx_bridge
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    Config.
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine, emqx_auth, emqx_bridge]),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 set_special_configs(emqx_auth) ->

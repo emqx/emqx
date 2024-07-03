@@ -18,9 +18,10 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector/include/emqx_connector.hrl").
+-include("../../emqx_connector/include/emqx_connector.hrl").
 -include_lib("emqx_postgresql/include/emqx_postgresql.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
@@ -36,18 +37,19 @@ groups() ->
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            Config;
+            Apps = emqx_cth_suite:start(
+                [emqx_conf, emqx_connector],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
+            [{apps, Apps} | Config];
         false ->
             {skip, no_pgsql}
     end.
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_, Config) ->
     Config.

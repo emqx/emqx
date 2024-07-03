@@ -62,7 +62,9 @@ init_per_group(_Group, Config) ->
 end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
+    Apps = ?config(apps, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
@@ -71,8 +73,6 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -109,22 +109,24 @@ common_init(ConfigT) ->
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            % Ensure enterprise bridge module is loaded
-            ok = emqx_common_test_helpers:start_apps([
-                emqx_conf, emqx_resource, emqx_bridge, rocketmq
-            ]),
-            _ = emqx_bridge_enterprise:module_info(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_connector,
+                    emqx_bridge_rocketmq,
+                    emqx_bridge,
+                    emqx_rule_engine,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard()
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
             {Name, RocketMQConf} = rocketmq_config(BridgeType, Config0),
-            RocketMQSSLConf = RocketMQConf#{
-                <<"servers">> => <<"rocketmq_namesrv_ssl:9876">>,
-                <<"ssl">> => #{
-                    <<"enable">> => true,
-                    <<"verify">> => verify_none
-                }
-            },
+            RocketMQSSLConf = rocketmq_ssl_config(RocketMQConf, Config0),
             Config =
                 [
+                    {apps, Apps},
                     {rocketmq_config, RocketMQConf},
                     {rocketmq_config_ssl, RocketMQSSLConf},
                     {rocketmq_bridge_type, BridgeType},
@@ -142,6 +144,24 @@ common_init(ConfigT) ->
                     throw(no_rocketmq)
             end
     end.
+
+rocketmq_ssl_config(NonSSLConfig, _TCConfig) ->
+    %% TODO: generate fixed files for server and client to actually test TLS...
+    %% DataDir = ?config(data_dir, TCConfig),
+    %% emqx_test_tls_certs_helper:generate_tls_certs(TCConfig),
+    %% Keyfile = filename:join([DataDir, "client1.key"]),
+    %% Certfile = filename:join([DataDir, "client1.pem"]),
+    %% CACertfile = filename:join([DataDir, "intermediate1.pem"]),
+    NonSSLConfig#{
+        <<"servers">> => <<"rocketmq_namesrv_ssl:9876">>,
+        <<"ssl">> => #{
+            %% <<"keyfile">> => iolist_to_binary(Keyfile),
+            %% <<"certfile">> => iolist_to_binary(Certfile),
+            %% <<"cacertfile">> => iolist_to_binary(CACertfile),
+            <<"enable">> => true,
+            <<"verify">> => <<"verify_none">>
+        }
+    }.
 
 rocketmq_config(BridgeType, Config) ->
     Port = integer_to_list(?GET_CONFIG(port, Config)),
@@ -174,13 +194,7 @@ rocketmq_config(BridgeType, Config) ->
                 QueryMode
             ]
         ),
-    {Name, parse_and_check(ConfigString, BridgeType, Name)}.
-
-parse_and_check(ConfigString, BridgeType, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{BridgeType := #{Name := Config}}} = RawConf,
-    Config.
+    {Name, emqx_bridge_testlib:parse_and_check(BridgeType, Name, ConfigString)}.
 
 create_bridge(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
@@ -192,7 +206,11 @@ create_bridge_ssl(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
     Name = ?GET_CONFIG(rocketmq_name, Config),
     RocketMQConf = ?GET_CONFIG(rocketmq_config_ssl, Config),
-    emqx_bridge:create(BridgeType, Name, RocketMQConf).
+    emqx_bridge_testlib:create_bridge_api([
+        {bridge_type, BridgeType},
+        {bridge_name, Name},
+        {bridge_config, RocketMQConf}
+    ]).
 
 create_bridge_ssl_bad_ssl_opts(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),

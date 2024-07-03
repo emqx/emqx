@@ -18,6 +18,7 @@
 -module(emqx_config_handler).
 
 -include("logger.hrl").
+-include("emqx.hrl").
 -include("emqx_schema.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
 
@@ -30,6 +31,7 @@
     add_handler/2,
     remove_handler/1,
     update_config/3,
+    update_config/4,
     get_raw_cluster_override_conf/0,
     info/0
 ]).
@@ -53,9 +55,13 @@
 
 -optional_callbacks([
     pre_config_update/3,
+    pre_config_update/4,
     propagated_pre_config_update/3,
+    propagated_pre_config_update/4,
     post_config_update/5,
-    propagated_post_config_update/5
+    post_config_update/6,
+    propagated_post_config_update/5,
+    propagated_post_config_update/6
 ]).
 
 -callback pre_config_update([atom()], emqx_config:update_request(), emqx_config:raw_config()) ->
@@ -83,6 +89,38 @@
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
+-callback pre_config_update(
+    [atom()], emqx_config:update_request(), emqx_config:raw_config(), emqx_config:cluster_rpc_opts()
+) ->
+    ok | {ok, emqx_config:update_request()} | {error, term()}.
+-callback propagated_pre_config_update(
+    [binary()],
+    emqx_config:update_request(),
+    emqx_config:raw_config(),
+    emqx_config:cluster_rpc_opts()
+) ->
+    ok | {ok, emqx_config:update_request()} | {error, term()}.
+
+-callback post_config_update(
+    [atom()],
+    emqx_config:update_request(),
+    emqx_config:config(),
+    emqx_config:config(),
+    emqx_config:app_envs(),
+    emqx_config:cluster_rpc_opts()
+) ->
+    ok | {ok, Result :: any()} | {error, Reason :: term()}.
+
+-callback propagated_post_config_update(
+    [atom()],
+    emqx_config:update_request(),
+    emqx_config:config(),
+    emqx_config:config(),
+    emqx_config:app_envs(),
+    emqx_config:cluster_rpc_opts()
+) ->
+    ok | {ok, Result :: any()} | {error, Reason :: term()}.
+
 -type state() :: #{handlers := any()}.
 -type config_key_path() :: emqx_utils_maps:config_key_path().
 
@@ -92,12 +130,17 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
--spec update_config(module(), config_key_path(), emqx_config:update_args()) ->
-    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
+    update_config(SchemaModule, ConfKeyPath, UpdateArgs, #{}).
+
+-spec update_config(module(), config_key_path(), emqx_config:update_args(), map()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
+update_config(SchemaModule, ConfKeyPath, UpdateArgs, ClusterOpts) ->
     %% force convert the path to a list of atoms, as there maybe some wildcard names/ids in the path
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
-    gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}, infinity).
+    gen_server:call(
+        ?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs, ClusterOpts}, infinity
+    ).
 
 -spec add_handler(config_key_path(), handler_name()) ->
     ok | {error, {conflict, list()}}.
@@ -130,11 +173,11 @@ handle_call({add_handler, ConfKeyPath, HandlerName}, _From, State = #{handlers :
         {error, _Reason} = Error -> {reply, Error, State}
     end;
 handle_call(
-    {change_config, SchemaModule, ConfKeyPath, UpdateArgs},
+    {change_config, SchemaModule, ConfKeyPath, UpdateArgs, ClusterRpcOpts},
     _From,
     #{handlers := Handlers} = State
 ) ->
-    Result = handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs),
+    Result = handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs, ClusterRpcOpts),
     {reply, Result, State};
 handle_call(get_raw_cluster_override_conf, _From, State) ->
     Reply = emqx_config:read_override_conf(#{override_to => cluster}),
@@ -203,9 +246,9 @@ filter_top_level_handlers(Handlers) ->
         Handlers
     ).
 
-handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
+handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs, ClusterRpcOpts) ->
     try
-        do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs)
+        do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs, ClusterRpcOpts)
     catch
         throw:Reason ->
             {error, Reason};
@@ -217,13 +260,14 @@ handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
                 update_req => UpdateArgs,
                 module => SchemaModule,
                 key_path => ConfKeyPath,
+                cluster_rpc_opts => ClusterRpcOpts,
                 stacktrace => ST
             }),
             {error, {config_update_crashed, Reason}}
     end.
 
-do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
-    case process_update_request(ConfKeyPath, Handlers, UpdateArgs) of
+do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs, ClusterOpts) ->
+    case process_update_request(ConfKeyPath, Handlers, UpdateArgs, ClusterOpts) of
         {ok, NewRawConf, OverrideConf, Opts} ->
             check_and_save_configs(
                 SchemaModule,
@@ -232,23 +276,24 @@ do_handle_update_request(SchemaModule, ConfKeyPath, Handlers, UpdateArgs) ->
                 NewRawConf,
                 OverrideConf,
                 UpdateArgs,
-                Opts
+                Opts,
+                ClusterOpts
             );
         {error, Result} ->
             {error, Result}
     end.
 
-process_update_request([_], _Handlers, {remove, _Opts}) ->
+process_update_request([_], _Handlers, {remove, _Opts}, _ClusterRpcOpts) ->
     {error, "remove_root_is_forbidden"};
-process_update_request(ConfKeyPath, _Handlers, {remove, Opts}) ->
+process_update_request(ConfKeyPath, _Handlers, {remove, Opts}, _ClusterRpcOpts) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
     BinKeyPath = bin_path(ConfKeyPath),
     NewRawConf = emqx_utils_maps:deep_remove(BinKeyPath, OldRawConf),
     OverrideConf = remove_from_override_config(BinKeyPath, Opts),
     {ok, NewRawConf, OverrideConf, Opts};
-process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
+process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}, ClusterRpcOpts) ->
     OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
-    case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) of
+    case do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq, ClusterRpcOpts) of
         {ok, NewRawConf} ->
             OverrideConf = merge_to_override_config(NewRawConf, Opts),
             {ok, NewRawConf, OverrideConf, Opts};
@@ -256,15 +301,16 @@ process_update_request(ConfKeyPath, Handlers, {{update, UpdateReq}, Opts}) ->
             Error
     end.
 
-do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq) ->
-    do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq, []).
+do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq, ClusterRpcOpts) ->
+    do_update_config(ConfKeyPath, Handlers, OldRawConf, UpdateReq, ClusterRpcOpts, []).
 
-do_update_config([], Handlers, OldRawConf, UpdateReq, ConfKeyPath) ->
+do_update_config([], Handlers, OldRawConf, UpdateReq, ClusterRpcOpts, ConfKeyPath) ->
     call_pre_config_update(#{
         handlers => Handlers,
         old_raw_conf => OldRawConf,
         update_req => UpdateReq,
         conf_key_path => ConfKeyPath,
+        cluster_rpc_opts => ClusterRpcOpts,
         callback => pre_config_update,
         is_propagated => false
     });
@@ -273,13 +319,18 @@ do_update_config(
     Handlers,
     OldRawConf,
     UpdateReq,
+    ClusterRpcOpts,
     ConfKeyPath0
 ) ->
     ConfKeyPath = ConfKeyPath0 ++ [ConfKey],
     ConfKeyBin = bin(ConfKey),
     SubOldRawConf = get_sub_config(ConfKeyBin, OldRawConf),
     SubHandlers = get_sub_handlers(ConfKey, Handlers),
-    case do_update_config(SubConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq, ConfKeyPath) of
+    case
+        do_update_config(
+            SubConfKeyPath, SubHandlers, SubOldRawConf, UpdateReq, ClusterRpcOpts, ConfKeyPath
+        )
+    of
         {ok, NewUpdateReq} ->
             merge_to_old_config(#{ConfKeyBin => NewUpdateReq}, OldRawConf);
         Error ->
@@ -293,12 +344,18 @@ check_and_save_configs(
     NewRawConf,
     OverrideConf,
     UpdateArgs,
-    Opts
+    Opts,
+    ClusterOpts
 ) ->
     Schema = schema(SchemaModule, ConfKeyPath),
+    Kind = maps:get(kind, ClusterOpts, ?KIND_INITIATE),
     {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf),
     OldConf = emqx_config:get_root(ConfKeyPath),
-    case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
+    case
+        do_post_config_update(
+            ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, ClusterOpts, #{}
+        )
+    of
         {ok, Result0} ->
             post_update_ok(
                 AppEnvs,
@@ -310,21 +367,24 @@ check_and_save_configs(
                 UpdateArgs,
                 Result0
             );
-        {error, {post_config_update, HandlerName, Reason}} ->
-            HandlePostFailureFun =
-                fun() ->
-                    post_update_ok(
-                        AppEnvs,
-                        NewConf,
-                        NewRawConf,
-                        OverrideConf,
-                        Opts,
-                        ConfKeyPath,
-                        UpdateArgs,
-                        #{}
-                    )
-                end,
-            {error, {post_config_update, HandlerName, {Reason, HandlePostFailureFun}}}
+        {error, {post_config_update, HandlerName, Reason}} when Kind =/= ?KIND_INITIATE ->
+            ?SLOG(critical, #{
+                msg => "post_config_update_failed_but_save_the_config_anyway",
+                handler => HandlerName,
+                reason => Reason
+            }),
+            post_update_ok(
+                AppEnvs,
+                NewConf,
+                NewRawConf,
+                OverrideConf,
+                Opts,
+                ConfKeyPath,
+                UpdateArgs,
+                #{}
+            );
+        {error, _} = Error ->
+            Error
     end.
 
 post_update_ok(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts, ConfKeyPath, UpdateArgs, Result0) ->
@@ -332,7 +392,9 @@ post_update_ok(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts, ConfKeyPath, Up
     Result1 = return_change_result(ConfKeyPath, UpdateArgs),
     {ok, Result1#{post_config_update => Result0}}.
 
-do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, Result) ->
+do_post_config_update(
+    ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, ClusterOpts, Result
+) ->
     do_post_config_update(
         ConfKeyPath,
         Handlers,
@@ -340,6 +402,7 @@ do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateAr
         NewConf,
         AppEnvs,
         UpdateArgs,
+        ClusterOpts,
         Result,
         []
     ).
@@ -352,6 +415,7 @@ do_post_config_update(
     AppEnvs,
     UpdateArgs,
     Result,
+    ClusterOpts,
     ConfKeyPath
 ) ->
     call_post_config_update(#{
@@ -362,6 +426,7 @@ do_post_config_update(
         update_req => up_req(UpdateArgs),
         result => Result,
         conf_key_path => ConfKeyPath,
+        cluster_rpc_opts => ClusterOpts,
         callback => post_config_update
     });
 do_post_config_update(
@@ -371,6 +436,7 @@ do_post_config_update(
     NewConf,
     AppEnvs,
     UpdateArgs,
+    ClusterOpts,
     Result,
     ConfKeyPath0
 ) ->
@@ -385,6 +451,7 @@ do_post_config_update(
         SubNewConf,
         AppEnvs,
         UpdateArgs,
+        ClusterOpts,
         Result,
         ConfKeyPath
     ).
@@ -428,37 +495,41 @@ call_proper_pre_config_update(
     #{
         handlers := #{?MOD := Module},
         callback := Callback,
-        update_req := UpdateReq,
-        old_raw_conf := OldRawConf
+        update_req := UpdateReq
     } = Ctx
 ) ->
-    case erlang:function_exported(Module, Callback, 3) of
-        true ->
-            case apply_pre_config_update(Module, Ctx) of
-                {ok, NewUpdateReq} ->
-                    {ok, NewUpdateReq};
-                ok ->
-                    {ok, UpdateReq};
-                {error, Reason} ->
-                    {error, {pre_config_update, Module, Reason}}
-            end;
-        false ->
-            merge_to_old_config(UpdateReq, OldRawConf)
+    Arity = get_function_arity(Module, Callback, [3, 4]),
+    case apply_pre_config_update(Module, Callback, Arity, Ctx) of
+        {ok, NewUpdateReq} ->
+            {ok, NewUpdateReq};
+        ok ->
+            {ok, UpdateReq};
+        {error, Reason} ->
+            {error, {pre_config_update, Module, Reason}}
     end;
 call_proper_pre_config_update(
     #{update_req := UpdateReq}
 ) ->
     {ok, UpdateReq}.
 
-apply_pre_config_update(Module, #{
+apply_pre_config_update(Module, Callback, 3, #{
+    conf_key_path := ConfKeyPath,
+    update_req := UpdateReq,
+    old_raw_conf := OldRawConf
+}) ->
+    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf);
+apply_pre_config_update(Module, Callback, 4, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
     old_raw_conf := OldRawConf,
-    callback := Callback
+    cluster_rpc_opts := ClusterRpcOpts
 }) ->
-    Module:Callback(
-        ConfKeyPath, UpdateReq, OldRawConf
-    ).
+    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRpcOpts);
+apply_pre_config_update(_Module, _Callback, false, #{
+    update_req := UpdateReq,
+    old_raw_conf := OldRawConf
+}) ->
+    merge_to_old_config(UpdateReq, OldRawConf).
 
 propagate_pre_config_updates_to_subconf(
     #{handlers := #{?WKEY := _}} = Ctx
@@ -560,28 +631,23 @@ call_proper_post_config_update(
         result := Result
     } = Ctx
 ) ->
-    case erlang:function_exported(Module, Callback, 5) of
-        true ->
-            case apply_post_config_update(Module, Ctx) of
-                ok -> {ok, Result};
-                {ok, Result1} -> {ok, Result#{Module => Result1}};
-                {error, Reason} -> {error, {post_config_update, Module, Reason}}
-            end;
-        false ->
-            {ok, Result}
+    Arity = get_function_arity(Module, Callback, [5, 6]),
+    case apply_post_config_update(Module, Callback, Arity, Ctx) of
+        ok -> {ok, Result};
+        {ok, Result1} -> {ok, Result#{Module => Result1}};
+        {error, Reason} -> {error, {post_config_update, Module, Reason}}
     end;
 call_proper_post_config_update(
     #{result := Result} = _Ctx
 ) ->
     {ok, Result}.
 
-apply_post_config_update(Module, #{
+apply_post_config_update(Module, Callback, 5, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
     new_conf := NewConf,
     old_conf := OldConf,
-    app_envs := AppEnvs,
-    callback := Callback
+    app_envs := AppEnvs
 }) ->
     Module:Callback(
         ConfKeyPath,
@@ -589,7 +655,25 @@ apply_post_config_update(Module, #{
         NewConf,
         OldConf,
         AppEnvs
-    ).
+    );
+apply_post_config_update(Module, Callback, 6, #{
+    conf_key_path := ConfKeyPath,
+    update_req := UpdateReq,
+    cluster_rpc_opts := ClusterRpcOpts,
+    new_conf := NewConf,
+    old_conf := OldConf,
+    app_envs := AppEnvs
+}) ->
+    Module:Callback(
+        ConfKeyPath,
+        UpdateReq,
+        NewConf,
+        OldConf,
+        AppEnvs,
+        ClusterRpcOpts
+    );
+apply_post_config_update(_Module, _Callback, false, _Ctx) ->
+    ok.
 
 propagate_post_config_updates_to_subconf(
     #{handlers := #{?WKEY := _}} = Ctx
@@ -768,7 +852,9 @@ assert_callback_function(Mod) ->
     _ = apply(Mod, module_info, []),
     case
         erlang:function_exported(Mod, pre_config_update, 3) orelse
-            erlang:function_exported(Mod, post_config_update, 5)
+            erlang:function_exported(Mod, post_config_update, 5) orelse
+            erlang:function_exported(Mod, pre_config_update, 4) orelse
+            erlang:function_exported(Mod, post_config_update, 6)
     of
         true -> ok;
         false -> error(#{msg => "bad_emqx_config_handler_callback", module => Mod})
@@ -811,3 +897,13 @@ load_prev_handlers() ->
 
 save_handlers(Handlers) ->
     application:set_env(emqx, ?MODULE, Handlers).
+
+get_function_arity(_Module, _Callback, []) ->
+    false;
+get_function_arity(Module, Callback, [Arity | Opts]) ->
+    %% ensure module is loaded
+    Module = Module:module_info(module),
+    case erlang:function_exported(Module, Callback, Arity) of
+        true -> Arity;
+        false -> get_function_arity(Module, Callback, Opts)
+    end.
