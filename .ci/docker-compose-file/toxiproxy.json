@@ -221,5 +221,11 @@
     "listen": "0.0.0.0:10000",
     "upstream": "azurite:10000",
     "enabled": true
+  },
+  {
+    "name": "couchbase",
+    "listen": "0.0.0.0:8093",
+    "upstream": "couchbase:8093",
+    "enabled": true
   }
 ]

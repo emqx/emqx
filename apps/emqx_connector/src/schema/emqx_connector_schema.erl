@@ -50,6 +50,7 @@
 -export([
     common_resource_opts_subfields/0,
     common_resource_opts_subfields_bin/0,
+    resource_opts/0,
     resource_opts_fields/0,
     resource_opts_fields/1,
     resource_opts_ref/2,
@@ -431,6 +432,8 @@ roots() ->
 
 fields(connectors) ->
     connector_info_fields_connectors();
+fields(resource_opts) ->
+    resource_opts_fields();
 fields("node_status") ->
     [
         node_name(),
@@ -454,6 +457,8 @@ desc(connectors) ->
     ?DESC("desc_connectors");
 desc("node_status") ->
     ?DESC("desc_node_status");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "creation_opts");
 desc(_) ->
     undefined.
 
@@ -547,6 +552,9 @@ common_resource_opts_subfields() ->
 
 common_resource_opts_subfields_bin() ->
     lists:map(fun atom_to_binary/1, common_resource_opts_subfields()).
+
+resource_opts() ->
+    resource_opts_ref(?MODULE, resource_opts).
 
 resource_opts_fields() ->
     resource_opts_fields(_Overrides = []).
