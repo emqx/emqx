@@ -29,8 +29,8 @@ defmodule EMQXDurableStorage.MixProject do
   def deps() do
     [
       {:emqx_utils, in_umbrella: true},
-      {:gproc, github: "emqx/gproc", tag: "0.9.0.1"},
-      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-5"},
+      UMP.common_dep(:rocksdb),
+      UMP.common_dep(:gproc),
       {:ra, "2.7.3"},
     ]
   end

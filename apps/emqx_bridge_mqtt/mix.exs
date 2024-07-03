@@ -27,7 +27,7 @@ defmodule EMQXBridgeMQTT.MixProject do
     [
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      {:emqtt, github: "emqx/emqtt", tag: "1.10.1", system_env: UMP.maybe_no_quic_env()}
+      UMP.common_dep(:emqtt),
     ]
   end
 end

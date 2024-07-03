@@ -78,19 +78,26 @@ t_cluster_topology_api_replicants(Config) ->
             [
                 #{
                     core_node := Core1,
-                    replicant_nodes :=
-                        [#{node := Replicant, streams := _}]
+                    replicant_nodes := _
                 },
                 #{
                     core_node := Core2,
-                    replicant_nodes :=
-                        [#{node := Replicant, streams := _}]
+                    replicant_nodes := _
                 }
             ],
             Resp
         )
      || Resp <- [lists:sort(R) || R <- [Core1Resp, Core2Resp, ReplResp]]
-    ].
+    ],
+    %% Occasionally, the replicant may decide to not connect to one core (seen at tests)...
+    Core1RespReplicants = lists:usort([
+        Rep
+     || R <- [Core1Resp, Core2Resp, ReplResp],
+        #{replicant_nodes := Reps} <- R,
+        #{node := Rep} <- Reps
+    ]),
+    ?assertMatch([Replicant], Core1RespReplicants),
+    ok.
 
 t_cluster_invite_api_timeout(Config) ->
     %% assert the cluster is created
@@ -100,17 +107,22 @@ t_cluster_invite_api_timeout(Config) ->
         [
             #{
                 core_node := Core1,
-                replicant_nodes :=
-                    [#{node := Replicant, streams := _}]
+                replicant_nodes := _
             },
             #{
                 core_node := Core2,
-                replicant_nodes :=
-                    [#{node := Replicant, streams := _}]
+                replicant_nodes := _
             }
         ],
         lists:sort(Core1Resp)
     ),
+    %% Occasionally, the replicant may decide to connect to one core (seen at tests)...
+    Core1RespReplicants = lists:usort([
+        Rep
+     || #{replicant_nodes := Reps} <- Core1Resp,
+        #{node := Rep} <- Reps
+    ]),
+    ?assertMatch([Replicant], Core1RespReplicants),
 
     %% force leave the core2
     {204} = rpc:call(
@@ -181,17 +193,22 @@ t_cluster_invite_async(Config) ->
         [
             #{
                 core_node := Core1,
-                replicant_nodes :=
-                    [#{node := Replicant, streams := _}]
+                replicant_nodes := _
             },
             #{
                 core_node := Core2,
-                replicant_nodes :=
-                    [#{node := Replicant, streams := _}]
+                replicant_nodes := _
             }
         ],
         lists:sort(Core1Resp)
     ),
+    %% Occasionally, the replicant may decide to connect to one core (seen at tests)...
+    Core1RespReplicants = lists:usort([
+        Rep
+     || #{replicant_nodes := Reps} <- Core1Resp,
+        #{node := Rep} <- Reps
+    ]),
+    ?assertMatch([Replicant], Core1RespReplicants),
 
     %% force leave the core2
     {204} = rpc:call(
@@ -206,7 +223,7 @@ t_cluster_invite_async(Config) ->
         [
             #{
                 core_node := Core1,
-                replicant_nodes := [_]
+                replicant_nodes := _
             }
         ],
         lists:sort(Core1Resp2)

@@ -26,10 +26,10 @@ defmodule EMQXResource.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.7"},
-      {:gproc, github: "emqx/gproc", tag: "0.9.0.1"},
-      {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0"},
-      {:telemetry, "1.1.0"}
+      UMP.common_dep(:ecpool),
+      UMP.common_dep(:gproc),
+      UMP.common_dep(:jsx),
+      UMP.common_dep(:telemetry),
     ]
   end
 end

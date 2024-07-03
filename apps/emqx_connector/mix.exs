@@ -33,11 +33,11 @@ defmodule EMQXConnector.MixProject do
     [
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
-      {:ecpool, github: "emqx/ecpool", tag: "0.5.7"},
+      UMP.common_dep(:jose),
+      UMP.common_dep(:ecpool),
       {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.4"},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.13"},
-      {:emqtt, github: "emqx/emqtt", tag: "1.10.1", system_env: UMP.maybe_no_quic_env()}
+      UMP.common_dep(:ehttpc),
+      UMP.common_dep(:emqtt),
     ]
   end
 end

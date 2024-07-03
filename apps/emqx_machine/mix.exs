@@ -29,7 +29,7 @@ defmodule EMQXMachine.MixProject do
       {:emqx_conf, in_umbrella: true, runtime: false},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_management, in_umbrella: true, runtime: false},
-      {:covertool, github: "zmstone/covertool", tag: "2.0.4.1"}
+      UMP.common_dep(:covertool),
     ]
   end
 end
