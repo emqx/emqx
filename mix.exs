@@ -29,106 +29,229 @@ defmodule EMQXUmbrella.MixProject do
       tarball along with the release.
   """
 
+  # TODO: remove once we switch to the new mix build
+  def new_mix_build?() do
+    System.get_env("NEW_MIX_BUILD") == "1"
+  end
+
   def project() do
     profile_info = check_profile!()
     version = pkg_vsn()
 
-    [
-      # TODO: these lines will be uncommented when we switch to using mix as the manager
-      # for all umbrella apps.
-      # apps_path: "apps",
-      # apps: applications(profile_info.release_type, profile_info.edition_type) |> Keyword.keys(),
-
-      app: :emqx_mix,
-      erlc_options: erlc_options(profile_info, version),
-      version: version,
-      deps: deps(profile_info, version),
-      releases: releases(),
-      aliases: aliases()
-    ]
+    if new_mix_build?() do
+      [
+        # TODO: these lines will be uncommented when we switch to using mix as the manager
+        # for all umbrella apps.
+        apps_path: "apps",
+        apps:
+          applications(profile_info.release_type, profile_info.edition_type) |> Keyword.keys(),
+        erlc_options: erlc_options(profile_info, version),
+        version: version,
+        deps: deps(profile_info, version),
+        releases: releases(),
+        aliases: aliases()
+      ]
+    else
+      # TODO: this check and clause will be removed when we switch to using mix as the
+      # manager for all umbrella apps.
+      [
+        app: :emqx_mix,
+        erlc_options: erlc_options(profile_info, version),
+        version: version,
+        deps: deps(profile_info, version),
+        releases: releases(),
+        aliases: aliases()
+      ]
+    end
   end
 
-  defp deps(profile_info, version) do
+  @doc """
+  Please try to add dependencies that used by a single umbrella application in the
+  application's own `mix.exs` file, if possible.  If it's shared by more than one
+  application, or if the dependency requires an `override: true` option, add a new clause
+  to `common_dep/1` so that we centralize versions in this root `mix.exs` file as much as
+  possible.
+
+  Here, transitive dependencies from our app dependencies should be placed when there's a
+  need to override them.  For example, since `jsone` is a dependency to `rocketmq` and to
+  `erlavro`, which are both dependencies and not umbrella apps, we need to add the
+  override here.  Also, there are cases where adding `override: true` to the umbrella
+  application dependency simply won't satisfy mix.  In such cases, it's fine to add it
+  here.
+  """
+  def deps(profile_info, version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
 
-    ## TODO: this should be removed once we migrate the release build to mix
+    if new_mix_build?() do
+      new_deps()
+    else
+      old_deps(profile_info, version)
+    end
+  end
+
+  def new_deps() do
+    quicer_dep() ++
+      jq_dep() ++
+      extra_release_apps() ++
+      overridden_deps()
+  end
+
+  ## TODO: this should be removed once we migrate the release build to mix
+  defp old_deps(profile_info, version) do
     rebar3_umbrella_apps = emqx_apps(profile_info, version) ++ enterprise_deps(profile_info)
 
     common_deps() ++
-      [
-        {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
-        {:redbug, github: "emqx/redbug", tag: "2.0.10"},
-        {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
-        {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-        {:ehttpc, github: "emqx/ehttpc", tag: "0.4.14", override: true},
-        {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
-        {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
-        {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
-        {:esockd, github: "emqx/esockd", tag: "5.11.2", override: true},
-        {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-5", override: true},
-        {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true},
-        {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true},
-        {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
-        {:minirest, github: "emqx/minirest", tag: "1.4.3", override: true},
-        {:ecpool, github: "emqx/ecpool", tag: "0.5.7", override: true},
-        {:replayq, github: "emqx/replayq", tag: "0.3.8", override: true},
-        {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
-        # maybe forbid to fetch quicer
-        {:emqtt,
-         github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()},
-        {:rulesql, github: "emqx/rulesql", tag: "0.2.1"},
-        {:observer_cli, "1.7.1"},
-        {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"},
-        {:telemetry, "1.1.0", override: true},
-        # in conflict by emqtt and hocon
-        {:getopt, "1.0.2", override: true},
-        {
-          :snabbkaffe,
-          ## without this, snabbkaffe is compiled with `-define(snk_kind, '$kind')`, which
-          ## will basically make events in tests never match any predicates.
-          github: "kafka4beam/snabbkaffe",
-          tag: "1.0.10",
-          override: true,
-          system_env: emqx_app_system_env(profile_info, version)
-        },
-        {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true},
-        {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
-        {:esasl, github: "emqx/esasl", tag: "0.2.1"},
-        {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true},
-        # in conflict by ehttpc and emqtt
-        {:gun, github: "emqx/gun", tag: "1.3.11", override: true},
-        # in conflict by emqx_connector and system_monitor
-        {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true},
-        # in conflict by emqx and observer_cli
-        {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
-        {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
-        # in conflict by erlavro and rocketmq
-        {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true},
-        # dependencies of dependencies; we choose specific refs to match
-        # what rebar3 chooses.
-        # in conflict by gun and emqtt
-        {:cowlib,
-         github: "ninenines/cowlib",
-         ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363",
-         override: true},
-        # in conflict by cowboy_swagger and cowboy
-        {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true},
-        # in conflict by grpc and eetcd
-        {:gpb, "4.19.9", override: true, runtime: false},
-        {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
-        # set by hackney (dependency)
-        {:ssl_verify_fun, "1.1.7", override: true},
-        {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
-        {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true},
-        {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
-        {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
-        {:ra, "2.7.3", override: true},
-        {:mimerl, "1.2.0", override: true}
-      ] ++
+      extra_release_apps() ++
+      overridden_deps() ++
       jq_dep() ++
       quicer_dep() ++ rebar3_umbrella_apps
   end
+
+  def overridden_deps() do
+    [
+      common_dep(:lc),
+      common_dep(:covertool),
+      common_dep(:typerefl),
+      common_dep(:ehttpc),
+      common_dep(:gproc),
+      common_dep(:jiffy),
+      common_dep(:cowboy),
+      common_dep(:esockd),
+      common_dep(:rocksdb),
+      common_dep(:ekka),
+      common_dep(:gen_rpc),
+      common_dep(:grpc),
+      common_dep(:minirest),
+      common_dep(:ecpool),
+      common_dep(:replayq),
+      common_dep(:pbkdf2),
+      # maybe forbid to fetch quicer
+      common_dep(:emqtt),
+      common_dep(:rulesql),
+      common_dep(:telemetry),
+      # in conflict by emqtt and hocon
+      common_dep(:getopt),
+      common_dep(:snabbkaffe),
+      common_dep(:hocon),
+      common_dep(:emqx_http_lib),
+      common_dep(:esasl),
+      common_dep(:jose),
+      # in conflict by ehttpc and emqtt
+      common_dep(:gun),
+      # in conflict by emqx_connector and system_monitor
+      common_dep(:epgsql),
+      # in conflict by emqx and observer_cli
+      {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
+      common_dep(:jsx),
+      # in conflict by erlavro and rocketmq
+      common_dep(:jsone),
+      # dependencies of dependencies; we choose specific refs to match
+      # what rebar3 chooses.
+      # in conflict by gun and emqtt
+      common_dep(:cowlib),
+      # in conflict by cowboy_swagger and cowboy
+      common_dep(:ranch),
+      # in conflict by grpc and eetcd
+      common_dep(:gpb),
+      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
+      # set by hackney (dependency)
+      {:ssl_verify_fun, "1.1.7", override: true},
+      common_dep(:rfc3339),
+      common_dep(:bcrypt),
+      {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
+      {:ra, "2.7.3", override: true},
+      {:mimerl, "1.2.0", override: true}
+    ]
+  end
+
+  def extra_release_apps() do
+    [
+      {:redbug, github: "emqx/redbug", tag: "2.0.10"},
+      {:observer_cli, "1.7.1"},
+      {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}
+    ]
+  end
+
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.11.2", override: true}
+  def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.42.2", override: true}
+  def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.2", override: true}
+  # in conflict by ehttpc and emqtt
+  def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
+  # in conflict by cowboy_swagger and cowboy
+  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true}
+  def common_dep(:ehttpc), do: {:ehttpc, github: "emqx/ehttpc", tag: "0.4.14", override: true}
+  def common_dep(:jiffy), do: {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true}
+  def common_dep(:grpc), do: {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true}
+  def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
+  def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
+  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.5.7", override: true}
+  def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.3.8", override: true}
+  def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
+  # in conflict by emqtt and hocon
+  def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
+  def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
+  # in conflict by grpc and eetcd
+  def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
+
+  def common_dep(:covertool),
+    do: {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true}
+
+  # in conflict by emqx_connector and system_monitor
+  def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
+  def common_dep(:esasl), do: {:esasl, github: "emqx/esasl", tag: "0.2.1"}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true}
+
+  def common_dep(:jose),
+    do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
+
+  def common_dep(:rulesql), do: {:rulesql, github: "emqx/rulesql", tag: "0.2.1"}
+
+  def common_dep(:pbkdf2),
+    do: {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true}
+
+  def common_dep(:bcrypt),
+    do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true}
+
+  # hex version 0.2.2 used by `jesse` has buggy mix.exs
+  def common_dep(:rfc3339), do: {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true}
+
+  def common_dep(:minirest),
+    do: {:minirest, github: "emqx/minirest", tag: "1.4.3", override: true}
+
+  # maybe forbid to fetch quicer
+  def common_dep(:emqtt),
+    do:
+      {:emqtt,
+       github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()}
+
+  def common_dep(:typerefl),
+    do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true}
+
+  def common_dep(:rocksdb),
+    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-5", override: true}
+
+  def common_dep(:emqx_http_lib),
+    do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
+
+  def common_dep(:cowlib),
+    do:
+      {:cowlib,
+       github: "ninenines/cowlib", ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363", override: true}
+
+  def common_dep(:snabbkaffe),
+    do: {
+      :snabbkaffe,
+      ## without this, snabbkaffe is compiled with `-define(snk_kind, '$kind')`, which
+      ## will basically make events in tests never match any predicates.
+      github: "kafka4beam/snabbkaffe",
+      tag: "1.0.10",
+      override: true,
+      system_env: emqx_app_system_env(profile_info(), pkg_vsn())
+    }
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK

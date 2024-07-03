@@ -27,7 +27,7 @@ defmodule EMQXBridgeHTTP.MixProject do
     [
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.13"}
+      UMP.common_dep(:ehttpc),
     ]
   end
 end

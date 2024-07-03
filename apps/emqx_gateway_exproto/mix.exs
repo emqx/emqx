@@ -37,7 +37,7 @@ defmodule EMQXGatewayExproto.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_gateway, in_umbrella: true},
-      {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true}
+      UMP.common_dep(:grpc)
     ]
   end
 end

@@ -29,12 +29,8 @@ defmodule EMQXRuleEngine.MixProject do
       {:emqx_modules, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true},
-      {:emqtt,
-       github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()}
+      UMP.common_dep(:rulesql),
+      UMP.common_dep(:emqtt),
     ]
-  end
-
-  defp maybe_no_quic_env() do
-    UMP.maybe_no_quic_env()
   end
 end
