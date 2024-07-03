@@ -182,6 +182,9 @@
     shared_sub_s := shared_sub_state(),
     %% Buffer:
     inflight := emqx_persistent_session_ds_inflight:t(),
+    %% Last fetched stream:
+    %% Used as a continuation point for fair stream scheduling.
+    last_fetched_stream => emqx_persistent_session_ds_state:stream_key(),
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight buffer.
     replay => [{_StreamKey, stream_state()}, ...],
@@ -984,26 +987,32 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %%--------------------------------------------------------------------
 
 fetch_new_messages(Session0 = #{s := S0}, ClientInfo) ->
-    Streams = emqx_persistent_session_ds_stream_scheduler:find_new_streams(S0),
-    Session1 = fetch_new_messages(Streams, Session0, ClientInfo),
+    LFS = maps:get(last_fetched_stream, Session0, beginning),
+    ItStream = emqx_persistent_session_ds_stream_scheduler:iter_next_streams(LFS, S0),
+    BatchSize = get_config(ClientInfo, [batch_size]),
+    Session1 = fetch_new_messages(ItStream, BatchSize, Session0, ClientInfo),
     #{s := S1, shared_sub_s := SharedSubS0} = Session1,
     {S2, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replayed(S1, SharedSubS0),
     Session1#{s => S2, shared_sub_s => SharedSubS1}.
 
-fetch_new_messages([], Session, _ClientInfo) ->
-    Session;
-fetch_new_messages([I | Streams], Session0 = #{inflight := Inflight}, ClientInfo) ->
-    BatchSize = get_config(ClientInfo, [batch_size]),
+fetch_new_messages(ItStream0, BatchSize, Session0, ClientInfo) ->
+    #{inflight := Inflight} = Session0,
     case emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize of
         true ->
             %% Buffer is full:
             Session0;
         false ->
-            Session = new_batch(I, BatchSize, Session0, ClientInfo),
-            fetch_new_messages(Streams, Session, ClientInfo)
+            case emqx_persistent_session_ds_stream_scheduler:next_stream(ItStream0) of
+                {StreamKey, Srs, ItStream} ->
+                    Session1 = new_batch(StreamKey, Srs, BatchSize, Session0, ClientInfo),
+                    Session = Session1#{last_fetched_stream => StreamKey},
+                    fetch_new_messages(ItStream, BatchSize, Session, ClientInfo);
+                none ->
+                    Session0
+            end
     end.
 
-new_batch({StreamKey, Srs0}, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
+new_batch(StreamKey, Srs0, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
     SN1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0),
     SN2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0),
     Srs1 = Srs0#srs{
