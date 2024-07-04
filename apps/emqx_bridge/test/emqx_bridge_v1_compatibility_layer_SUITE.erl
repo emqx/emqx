@@ -604,8 +604,7 @@ deprecated_config() ->
 t_name_too_long(_Config) ->
     LongName = list_to_binary(lists:duplicate(256, $a)),
     ?assertMatch(
-        {error,
-            {{_, 400, _}, _, #{<<"message">> := #{<<"reason">> := <<"Name is too long", _/binary>>}}}},
+        {error, {{_, 400, _}, _, #{<<"message">> := #{<<"reason">> := <<"invalid_map_key">>}}}},
         create_bridge_http_api_v1(#{name => LongName})
     ),
     ok.
@@ -942,7 +941,7 @@ t_scenario_2(Config) ->
     ok.
 
 t_create_with_bad_name(_Config) ->
-    BadBridgeName = <<"test_哈哈">>,
+    BadBridgeName = <<"test_哈哈"/utf8>>,
     %% Note: must contain SSL options to trigger bug.
     Cacertfile = emqx_common_test_helpers:app_path(
         emqx,
@@ -960,7 +959,7 @@ t_create_with_bad_name(_Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> := #{
                 <<"kind">> := <<"validation_error">>,
-                <<"reason">> := <<"Invalid name format.", _/binary>>
+                <<"reason">> := <<"invalid_map_key">>
             }
         }}} = create_bridge_http_api_v1(Opts),
     ok.
