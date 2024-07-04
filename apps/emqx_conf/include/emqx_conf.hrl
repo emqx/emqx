@@ -39,8 +39,8 @@
     lists:flatten(
         io_lib:format(
             "run `./bin/emqx_ctl conf cluster_sync fix`"
-            " on ~p(config leader) to force sync the configs,"
-            "when this node is lagging for more than 3 minutes,",
+            " on ~p(config leader) to force sync the configs, "
+            "if this node has been lagging for more than 3 minutes.",
             [Node]
         )
     )
