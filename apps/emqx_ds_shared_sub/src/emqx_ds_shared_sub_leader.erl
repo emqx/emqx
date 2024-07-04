@@ -71,7 +71,7 @@
     rank_progress := emqx_ds_shared_sub_leader_rank_progress:t(),
 
     %%
-    %% Ephimeral data, should not be persisted
+    %% Ephemeral data, should not be persisted
     %%
     agents := #{
         emqx_ds_shared_sub_proto:agent() => agent_state()
