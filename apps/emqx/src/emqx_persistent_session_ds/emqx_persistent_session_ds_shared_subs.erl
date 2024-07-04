@@ -198,8 +198,16 @@ schedule_subscribe(
             ScheduledActions1 = ScheduledActions0#{
                 TopicFilter => ScheduledAction#{type => {?schedule_subscribe, SubOpts}}
             },
+            ?tp(warning, shared_subs_schedule_subscribe_override, #{
+                topic_filter => TopicFilter,
+                new_type => {?schedule_subscribe, SubOpts},
+                old_action => format_schedule_action(ScheduledAction)
+            }),
             SharedSubS0#{scheduled_actions := ScheduledActions1};
         _ ->
+            ?tp(warning, shared_subs_schedule_subscribe_new, #{
+                topic_filter => TopicFilter, subopts => SubOpts
+            }),
             Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_subscribe(
                 Agent0, TopicFilter, SubOpts
             ),
@@ -237,20 +245,30 @@ schedule_unsubscribe(
     S, #{scheduled_actions := ScheduledActions0} = SharedSubS0, UnsubscridedSubId, TopicFilter
 ) ->
     case ScheduledActions0 of
-        #{TopicFilter := ScheduledAction} ->
+        #{TopicFilter := ScheduledAction0} ->
+            ScheduledAction1 = ScheduledAction0#{type => ?schedule_unsubscribe},
             ScheduledActions1 = ScheduledActions0#{
-                TopicFilter => ScheduledAction#{type => ?schedule_unsubscribe}
+                TopicFilter => ScheduledAction1
             },
+            ?tp(warning, shared_subs_schedule_unsubscribe_override, #{
+                topic_filter => TopicFilter,
+                new_type => ?schedule_unsubscribe,
+                old_action => format_schedule_action(ScheduledAction0)
+            }),
             SharedSubS0#{scheduled_actions := ScheduledActions1};
         _ ->
-            StreamIdsToFinalize = stream_ids_by_sub_id(S, UnsubscridedSubId),
+            StreamKeys = stream_keys_by_sub_id(S, UnsubscridedSubId),
             ScheduledActions1 = ScheduledActions0#{
                 TopicFilter => #{
                     type => ?schedule_unsubscribe,
-                    stream_keys_to_wait => StreamIdsToFinalize,
+                    stream_keys_to_wait => StreamKeys,
                     progresses => []
                 }
             },
+            ?tp(warning, shared_subs_schedule_unsubscribe_new, #{
+                topic_filter => TopicFilter,
+                stream_keys => emqx_ds_shared_sub_proto:format_stream_keys(StreamKeys)
+            }),
             SharedSubS0#{scheduled_actions := ScheduledActions1}
     end.
 
@@ -400,28 +418,43 @@ run_scheduled_actions(S, Agent, ScheduledActions) ->
 
 run_scheduled_action(
     S,
-    Agent,
-    TopicFilter,
+    Agent0,
+    #share{group = Group} = TopicFilter,
     #{type := Type, stream_keys_to_wait := StreamKeysToWait0, progresses := Progresses0} = Action
 ) ->
     StreamKeysToWait1 = filter_unfinished_streams(S, StreamKeysToWait0),
     Progresses1 = stream_progresses(S, StreamKeysToWait0 -- StreamKeysToWait1) ++ Progresses0,
     case StreamKeysToWait1 of
         [] ->
+            ?tp(warning, shared_subs_schedule_action_complete, #{
+                topic_filter => TopicFilter,
+                progresses => emqx_ds_shared_sub_proto:format_streams(Progresses1),
+                type => Type
+            }),
+            %% Regular progress won't se unsubscribed streams, so we need to
+            %% send the progress explicitly.
+            Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_stream_progress(
+                Agent0, #{Group => Progresses1}
+            ),
             case Type of
                 {?schedule_subscribe, SubOpts} ->
                     {ok,
                         emqx_persistent_session_ds_shared_subs_agent:on_subscribe(
-                            Agent, TopicFilter, SubOpts
+                            Agent1, TopicFilter, SubOpts
                         )};
                 ?schedule_unsubscribe ->
                     {ok,
                         emqx_persistent_session_ds_shared_subs_agent:on_unsubscribe(
-                            Agent, TopicFilter, Progresses1
+                            Agent1, TopicFilter, Progresses1
                         )}
             end;
         _ ->
-            {continue, Action#{stream_keys_to_wait => StreamKeysToWait1, progresses => Progresses1}}
+            Action1 = Action#{stream_keys_to_wait => StreamKeysToWait1, progresses => Progresses1},
+            ?tp(warning, shared_subs_schedule_action_continue, #{
+                topic_filter => TopicFilter,
+                new_action => format_schedule_action(Action1)
+            }),
+            {continue, Action1}
     end.
 
 filter_unfinished_streams(S, StreamKeysToWait) ->
@@ -509,14 +542,14 @@ lookup(TopicFilter, S) ->
             undefined
     end.
 
-stream_ids_by_sub_id(S, MatchSubId) ->
+stream_keys_by_sub_id(S, MatchSubId) ->
     emqx_persistent_session_ds_state:fold_streams(
-        fun({SubId, _Stream} = StreamStateId, _SRS, StreamStateIds) ->
+        fun({SubId, _Stream} = StreamKey, _SRS, StreamKeys) ->
             case SubId of
                 MatchSubId ->
-                    [StreamStateId | StreamStateIds];
+                    [StreamKey | StreamKeys];
                 _ ->
-                    StreamStateIds
+                    StreamKeys
             end
         end,
         [],
@@ -580,3 +613,12 @@ is_use_finished(_S, #srs{unsubscribed = Unsubscribed}) ->
 
 is_stream_fully_acked(S, SRS) ->
     emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S).
+
+format_schedule_action(#{
+    type := Type, progresses := Progresses, stream_keys_to_wait := StreamKeysToWait
+}) ->
+    #{
+        type => Type,
+        progresses => emqx_ds_shared_sub_proto:format_streams(Progresses),
+        stream_keys_to_wait => emqx_ds_shared_sub_proto:format_stream_keys(StreamKeysToWait)
+    }.

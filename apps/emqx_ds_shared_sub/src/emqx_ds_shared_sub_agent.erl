@@ -6,6 +6,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_ds_shared_sub_proto.hrl").
 
@@ -41,6 +42,9 @@ open(TopicSubscriptions, Opts) ->
     State0 = init_state(Opts),
     State1 = lists:foldl(
         fun({ShareTopicFilter, #{}}, State) ->
+            ?tp(warning, ds_agent_open_subscription, #{
+                topic_filter => ShareTopicFilter
+            }),
             add_group_subscription(State, ShareTopicFilter)
         end,
         State0,
@@ -52,6 +56,9 @@ can_subscribe(_State, _TopicFilter, _SubOpts) ->
     ok.
 
 on_subscribe(State0, TopicFilter, _SubOpts) ->
+    ?tp(warning, ds_agent_on_subscribe, #{
+        topic_filter => TopicFilter
+    }),
     add_group_subscription(State0, TopicFilter).
 
 on_unsubscribe(State, TopicFilter, GroupProgress) ->

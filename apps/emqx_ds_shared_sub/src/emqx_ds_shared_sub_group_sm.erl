@@ -153,6 +153,10 @@ new(#{
         agent => Agent,
         send_after => SendAfter
     },
+    ?tp(warning, group_sm_new, #{
+        agent => Agent,
+        topic_filter => ShareTopicFilter
+    }),
     transition(GSM0, ?connecting, #{}).
 
 -spec fetch_stream_events(group_sm()) -> {group_sm(), list(external_lease_event())}.
@@ -191,6 +195,10 @@ handle_disconnect(
 %% Connecting state
 
 handle_connecting(#{agent := Agent, topic_filter := ShareTopicFilter} = GSM) ->
+    ?tp(warning, group_sm_enter_connecting, #{
+        agent => Agent,
+        topic_filter => ShareTopicFilter
+    }),
     ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM), ShareTopicFilter),
     ensure_state_timeout(GSM, find_leader_timeout, ?FIND_LEADER_TIMEOUT).
 
@@ -215,6 +223,10 @@ handle_leader_lease_streams(GSM, _Leader, _StreamProgresses, _Version) ->
     GSM.
 
 handle_find_leader_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM0) ->
+    ?tp(warning, group_sm_find_leader_timeout, #{
+        agent => Agent,
+        topic_filter => TopicFilter
+    }),
     ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM0), TopicFilter),
     GSM1 = ensure_state_timeout(GSM0, find_leader_timeout, ?FIND_LEADER_TIMEOUT),
     GSM1.
@@ -229,8 +241,8 @@ handle_replaying(GSM0) ->
     ),
     GSM2.
 
-handle_renew_lease_timeout(GSM) ->
-    ?tp(debug, renew_lease_timeout, #{}),
+handle_renew_lease_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM) ->
+    ?tp(warning, renew_lease_timeout, #{agent => Agent, topic_filter => TopicFilter}),
     transition(GSM, ?connecting, #{}).
 
 %%-----------------------------------------------------------------------
@@ -326,12 +338,12 @@ handle_leader_update_streams(
 ) ->
     GSM;
 handle_leader_update_streams(GSM, VersionOld, VersionNew, _StreamProgresses) ->
+    %% Unexpected versions or state
     ?tp(warning, shared_sub_group_sm_unexpected_leader_update_streams, #{
         gsm => GSM,
         version_old => VersionOld,
         version_new => VersionNew
     }),
-    %% Unexpected versions or state
     transition(GSM, ?connecting, #{}).
 
 handle_leader_renew_stream_lease(
@@ -364,12 +376,12 @@ handle_leader_renew_stream_lease(
 ) ->
     GSM;
 handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew) ->
+    %% Unexpected versions or state
     ?tp(warning, shared_sub_group_sm_unexpected_leader_renew_stream_lease, #{
         gsm => GSM,
         version_old => VersionOld,
         version_new => VersionNew
     }),
-    %% Unexpected versions or state
     transition(GSM, ?connecting, #{}).
 
 -spec handle_stream_progress(group_sm(), list(emqx_ds_shared_sub_proto:agent_stream_progress())) ->
@@ -410,7 +422,11 @@ handle_stream_progress(
 handle_stream_progress(#{state := ?disconnected} = GSM, _StreamProgresses) ->
     GSM.
 
-handle_leader_invalidate(GSM) ->
+handle_leader_invalidate(#{agent := Agent, topic_filter := TopicFilter} = GSM) ->
+    ?tp(warning, shared_sub_group_sm_leader_invalidate, #{
+        agent => Agent,
+        topic_filter => TopicFilter
+    }),
     transition(GSM, ?connecting, #{}).
 
 %%-----------------------------------------------------------------------

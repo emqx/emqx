@@ -2,10 +2,6 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% TODO https://emqx.atlassian.net/browse/EMQX-12573
-%% This should be wrapped with a proto_v1 module.
-%% For simplicity, send as simple OTP messages for now.
-
 -module(emqx_ds_shared_sub_proto).
 
 -include("emqx_ds_shared_sub_proto.hrl").
@@ -27,6 +23,9 @@
 
 -export([
     format_streams/1,
+    format_stream/1,
+    format_stream_key/1,
+    format_stream_keys/1,
     agent/2
 ]).
 
@@ -254,12 +253,21 @@ format_streams(Streams) ->
         Streams
     ).
 
+format_stream(#{stream := Stream, iterator := Iterator} = Value) ->
+    Value#{stream => format_opaque(Stream), iterator => format_opaque(Iterator)}.
+
+format_stream_key({SubId, Stream}) ->
+    {SubId, format_opaque(Stream)}.
+
+format_stream_keys(StreamKeys) ->
+    lists:map(
+        fun format_stream_key/1,
+        StreamKeys
+    ).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
 format_opaque(Opaque) ->
     erlang:phash2(Opaque).
-
-format_stream(#{stream := Stream, iterator := Iterator} = Value) ->
-    Value#{stream => format_opaque(Stream), iterator => format_opaque(Iterator)}.
