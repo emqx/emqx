@@ -78,6 +78,10 @@
     do_stop/0
 ]).
 
+-ifdef(TEST).
+-export([cert_expiry_at_from_path/1]).
+-endif.
+
 %%--------------------------------------------------------------------
 %% Macros
 %%--------------------------------------------------------------------
@@ -943,7 +947,7 @@ cert_expiry_at_from_path(Path0) ->
             {ok, PemBin} ->
                 [CertEntry | _] = public_key:pem_decode(PemBin),
                 Cert = public_key:pem_entry_decode(CertEntry),
-                %% TODO: Not fully tested for all certs type
+                %% XXX: Only pem cert supported by listeners
                 not_after_epoch(Cert);
             {error, Reason} ->
                 ?SLOG(error, #{
