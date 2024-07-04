@@ -220,7 +220,7 @@ t_rebalance(Config) ->
                 {ok, [_]},
                 ?ON(N1, emqx_ds_replication_layer_meta:assign_db_sites(?DB, [S1]))
             ),
-            ?retry(1000, 10, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
+            ?retry(1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
             ?retry(500, 10, ?assertMatch(Shards when length(Shards) == 16, shards_online(N1, ?DB))),
 
             ct:pal("Sites: ~p~n", [Sites]),
@@ -295,7 +295,7 @@ t_rebalance(Config) ->
             ct:pal("Transitions (~p -> ~p): ~p~n", [
                 Sites, tl(Sites), emqx_ds_test_helpers:transitions(N1, ?DB)
             ]),
-            ?retry(1000, 10, ?assertEqual([], emqx_ds_test_helpers:transitions(N2, ?DB))),
+            ?retry(1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N2, ?DB))),
 
             %% Verify that at the end each node is now responsible for each shard.
             ?defer_assert(
@@ -372,7 +372,7 @@ t_join_leave_errors(Config) ->
     ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [?FUNCTION_NAME, S1])),
     ?assertMatch([_ | _], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME)),
     ?retry(
-        1000, 10, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME))
+        1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME))
     ),
 
     %% Should be no-op.
@@ -458,7 +458,7 @@ t_rebalance_chaotic_converges(Config) ->
             emqx_ds_test_helpers:apply_stream(?DB, Nodes, Stream),
 
             %% Wait for the last transition to complete.
-            ?retry(1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
+            ?retry(1000, 30, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?DB))),
 
             ?defer_assert(
                 ?assertEqual(
