@@ -48,7 +48,7 @@ init_per_suite(Config) ->
             emqx_auth,
             emqx_auth_http
         ],
-        #{work_dir => ?config(priv_dir, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
 
@@ -56,12 +56,22 @@ end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     emqx_cth_suite:stop(?config(suite_apps, _Config)).
 
-init_per_testcase(_Case, Config) ->
+init_per_testcase(t_bad_response = TestCase, Config) ->
+    TCApps = emqx_cth_suite:start_apps(
+        [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    init_per_testcase(common, [{tc_apps, TCApps} | Config]);
+init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
     {ok, _} = emqx_authz_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
     Config.
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(t_bad_response, Config) ->
+    TCApps = ?config(tc_apps, Config),
+    emqx_cth_suite:stop_apps(TCApps),
+    end_per_testcase(common, Config);
+end_per_testcase(_TestCase, _Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, true),
     try
         ok = emqx_authz_http_test_server:stop()
@@ -589,6 +599,29 @@ t_bad_response(_Config) ->
         },
         get_metrics()
     ),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"ignore">> := 1,
+                <<"nomatch">> := 0,
+                <<"allow">> := 0,
+                <<"deny">> := 0,
+                <<"total">> := 1
+            },
+            <<"node_metrics">> := [
+                #{
+                    <<"metrics">> := #{
+                        <<"ignore">> := 1,
+                        <<"nomatch">> := 0,
+                        <<"allow">> := 0,
+                        <<"deny">> := 0,
+                        <<"total">> := 1
+                    }
+                }
+            ]
+        }},
+        get_status_api()
+    ),
     ok.
 
 t_no_value_for_placeholder(_Config) ->
@@ -806,3 +839,11 @@ get_metrics() ->
             'authorization.nomatch'
         ]
     ).
+
+get_status_api() ->
+    Path = emqx_mgmt_api_test_util:uri(["authorization", "sources", "http", "status"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    Res0 = emqx_mgmt_api_test_util:request_api(get, Path, _QParams = [], Auth, _Body = [], Opts),
+    {Status, RawBody} = emqx_mgmt_api_test_util:simplify_result(Res0),
+    {Status, emqx_utils_json:decode(RawBody, [return_maps])}.
