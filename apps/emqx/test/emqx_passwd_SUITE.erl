@@ -124,4 +124,18 @@ t_hash(_) ->
     false = emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, BadDKlen}, Pbkdf2, Password),
 
     %% Invalid derived_length, pbkdf2 fails
-    ?assertException(error, _, emqx_passwd:hash({pbkdf2, sha, Pbkdf2Salt, 2, BadDKlen}, Password)).
+    ?assertException(error, _, emqx_passwd:hash({pbkdf2, sha, Pbkdf2Salt, 2, BadDKlen}, Password)),
+
+    %% invalid salt (not binary)
+    ?assertException(
+        error,
+        {salt_not_string, false},
+        emqx_passwd:hash({sha256, false, suffix}, Password)
+    ),
+
+    %% invalid password (not binary)
+    ?assertException(
+        error,
+        {password_not_string, bad_password_type},
+        emqx_passwd:hash({sha256, Salt, suffix}, bad_password_type)
+    ).
