@@ -122,6 +122,7 @@ topic_messages(TestCase, ClientId, N) ->
     fun() ->
         NBin = integer_to_binary(N),
         Msg = #message{
+            id = <<N:128>>,
             from = ClientId,
             topic = client_topic(TestCase, ClientId),
             timestamp = N * 100,
