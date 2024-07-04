@@ -14,7 +14,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("erlazure/include/erlazure.hrl").
--include("emqx_bridge_azure_blob_storage.hrl").
+-include("../src/emqx_bridge_azure_blob_storage.hrl").
 
 -define(ACCOUNT_NAME_BIN, <<"devstoreaccount1">>).
 -define(ACCOUNT_KEY_BIN, <<

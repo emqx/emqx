@@ -48,7 +48,7 @@
 
 -export_type([db_opts/0, shard/0, iterator/0, delete_iterator/0]).
 
--include_lib("emqx_utils/include/emqx_message.hrl").
+-include("../../emqx_utils/include/emqx_message.hrl").
 
 %%================================================================================
 %% Type declarations

@@ -91,7 +91,8 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def new_deps() do
-    quicer_dep() ++
+    common_deps() ++
+      quicer_dep() ++
       jq_dep() ++
       extra_release_apps() ++
       overridden_deps()
@@ -161,7 +162,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:bcrypt),
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
-      {:ra, "2.7.3", override: true},
+      common_dep(:ra),
       {:mimerl, "1.2.0", override: true}
     ]
   end
@@ -196,6 +197,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
+  def common_dep(:ra), do: {:ra, "2.7.3", override: true}
 
   def common_dep(:covertool),
     do: {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true}
