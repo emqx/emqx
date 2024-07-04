@@ -163,6 +163,7 @@ start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 4. Setup isolated mnesia directory
     ok = emqx_common_test_helpers:load(mnesia),
     ok = application:set_env(mnesia, dir, filename:join([WorkDir, mnesia])),
+    ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
     % 5. Start ekka separately.
     % For some reason it's designed to be started in non-regular way, so we have to track
     % applications started in the process manually.
