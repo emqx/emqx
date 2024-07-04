@@ -137,7 +137,7 @@ maybe_badrpc(Delivery) ->
     Delivery.
 
 max_client_num() ->
-    emqx:get_config([rpc, tcp_client_num], ?DefaultClientNum).
+    emqx:get_config([rpc, client_num], ?DefaultClientNum).
 
 -spec unwrap_erpc(emqx_rpc:erpc(A) | [emqx_rpc:erpc(A)]) -> A | {error, _Err} | list().
 unwrap_erpc(Res) when is_list(Res) ->

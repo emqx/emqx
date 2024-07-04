@@ -774,12 +774,13 @@ fields("rpc") ->
                     desc => ?DESC(rpc_ssl_server_port)
                 }
             )},
-        {"tcp_client_num",
+        {"client_num",
             sc(
                 range(1, 256),
                 #{
+                    aliases => [tcp_client_num]
                     default => 10,
-                    desc => ?DESC(rpc_tcp_client_num)
+                    desc => ?DESC(rpc_client_num)
                 }
             )},
         {"connect_timeout",

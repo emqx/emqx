@@ -383,10 +383,10 @@ log_burst_limit_max_count.desc:
 log_burst_limit_max_count.label:
 """Events Number"""
 
-rpc_tcp_client_num.desc:
+rpc_client_num.desc:
 """Set the maximum number of RPC communication channels initiated by this node to each remote node."""
 
-rpc_tcp_client_num.label:
+rpc_client_num.label:
 """RPC TCP Client Num"""
 
 cluster_k8s_address_type.desc:
