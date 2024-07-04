@@ -101,7 +101,9 @@
 
 -record(it, {
     static_index :: emqx_ds_lts:static_key(),
+    %% Minimal timestamp of the next message:
     ts :: ts(),
+    %% Compressed topic filter:
     compressed_tf :: binary()
 }).
 
@@ -555,8 +557,16 @@ next_step(
                             next_step(S, StaticIdx, CompressedTF, Iterators, NextTS, {seek, NextTS})
                     end;
                 NextTS when NextTS > ExpectedTS, N > 0 ->
+                    %% Next index level is not what we expect. Reset
+                    %% search to the first wilcard index, but continue
+                    %% from `NextTS'.
+                    %%
+                    %% Note: if `NextTS > ExpectedTS' and `N =:= 0',
+                    %% it means the upper (replication) level is
+                    %% broken and supplied us NextTS that advenced
+                    %% past the point of time that can be safely read.
+                    %% We don't handle it here.
                     inc_counter(?DS_SKIPSTREAM_LTS_MISS),
-                    %% Next index level is not what we expect.
                     {seek, NextTS}
             end
     end.
