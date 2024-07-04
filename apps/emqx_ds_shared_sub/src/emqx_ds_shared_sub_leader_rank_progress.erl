@@ -34,6 +34,14 @@
     rank_x() => x_progress()
 }.
 
+-export_type([
+    t/0
+]).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
 -spec init() -> t().
 init() -> #{}.
 
@@ -47,8 +55,8 @@ set_replayed({{RankX, RankY}, Stream}, State) ->
         _ ->
             ?SLOG(
                 warning,
-                leader_rank_progress_double_or_invalid_update,
                 #{
+                    msg => leader_rank_progress_double_or_invalid_update,
                     rank_x => RankX,
                     rank_y => RankY,
                     state => State
@@ -57,7 +65,8 @@ set_replayed({{RankX, RankY}, Stream}, State) ->
             State
     end.
 
--spec add_streams([{emqx_ds:stream_rank(), emqx_ds:stream()}], t()) -> false | {true, t()}.
+-spec add_streams([{emqx_ds:stream_rank(), emqx_ds:stream()}], t()) ->
+    {[{emqx_ds:stream_rank(), emqx_ds:stream()}], t()}.
 add_streams(StreamsWithRanks, State) ->
     SortedStreamsWithRanks = lists:sort(
         fun({{_RankX1, RankY1}, _Stream1}, {{_RankX2, RankY2}, _Stream2}) ->

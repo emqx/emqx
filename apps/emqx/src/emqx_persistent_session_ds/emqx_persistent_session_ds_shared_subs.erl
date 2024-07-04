@@ -107,7 +107,7 @@ open(S, Opts) ->
     Agent = emqx_persistent_session_ds_shared_subs_agent:open(
         SharedSubscriptions, agent_opts(Opts)
     ),
-    SharedSubS = #{agent => Agent},
+    SharedSubS = #{agent => Agent, scheduled_actions => #{}},
     {ok, S, SharedSubS}.
 
 %%--------------------------------------------------------------------
@@ -136,6 +136,7 @@ on_subscribe(undefined, TopicFilter, SubOpts, #{props := Props, s := S} = Sessio
 on_subscribe(Subscription, TopicFilter, SubOpts, Session) ->
     update_subscription(Subscription, TopicFilter, SubOpts, Session).
 
+-dialyzer({nowarn_function, create_new_subscription/3}).
 create_new_subscription(TopicFilter, SubOpts, #{
     s := S0,
     shared_sub_s := #{agent := Agent} = SharedSubS0,
@@ -190,6 +191,7 @@ update_subscription(#{current_state := SStateId0, id := SubId} = Sub0, TopicFilt
             {ok, S, SharedSubS}
     end.
 
+-dialyzer({nowarn_function, schedule_subscribe/3}).
 schedule_subscribe(
     #{agent := Agent0, scheduled_actions := ScheduledActions0} = SharedSubS0, TopicFilter, SubOpts
 ) ->
@@ -605,6 +607,7 @@ to_agent_subscription(_S, Subscription) ->
 agent_opts(#{session_id := SessionId}) ->
     #{session_id => SessionId}.
 
+-dialyzer({nowarn_function, now_ms/0}).
 now_ms() ->
     erlang:system_time(millisecond).
 
