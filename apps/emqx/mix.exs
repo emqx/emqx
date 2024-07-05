@@ -53,6 +53,15 @@ defmodule EMQX.MixProject do
     ] ++ UMP.quicer_dep()
   end
 
+  defp erlc_paths() do
+    paths = UMP.erlc_paths()
+    if UMP.test_env?() do
+      ["integration_test" | paths]
+    else
+      paths
+    end
+  end
+
   defp extra_dirs() do
     dirs = ["src", "etc"]
     if UMP.test_env?() do
