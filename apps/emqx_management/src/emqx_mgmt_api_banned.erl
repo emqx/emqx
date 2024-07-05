@@ -171,7 +171,7 @@ banned(post, #{body := Body}) ->
         {error, Reason} ->
             ErrorReason = io_lib:format("~p", [Reason]),
             {400, 'BAD_REQUEST', list_to_binary(ErrorReason)};
-        Ban ->
+        {ok, Ban} ->
             case emqx_banned:create(Ban) of
                 {ok, Banned} ->
                     {200, format(Banned)};
