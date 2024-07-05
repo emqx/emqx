@@ -127,7 +127,7 @@ spec:
   - host: {{ $host }}
     http:
       paths:
-      - path: {{ $.Values.ingress.ws.path | default "/" }}
+      - path: {{ $.Values.ingress.ws.path | default "/mqtt" }}
         {{- if (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
         pathType: {{ $.Values.ingress.ws.pathType | default "ImplementationSpecific" }}
         {{- end }}
