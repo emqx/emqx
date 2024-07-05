@@ -46,6 +46,9 @@ defmodule Mix.Tasks.Compile.Grpc do
     write_manifest(manifest(), manifest_data)
 
     {:noop, []}
+  after
+    Application.unload(:gpb)
+    Application.unload(:syntax_tools)
   end
 
   defp compile_pb(proto_src, context) do
