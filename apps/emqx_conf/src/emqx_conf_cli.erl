@@ -26,7 +26,7 @@
     conf/1,
     audit/3,
     unload/0,
-    mark_fix_log/1
+    mark_fix_log/2
 ]).
 
 -export([keys/0, get_config/0, get_config/1, load_config/2]).
@@ -103,7 +103,8 @@ admins(["fix"]) ->
             #{stopped_nodes := StoppedNodes} = emqx_mgmt_cli:cluster_info(),
             maybe_fix_lagging(Status, #{fix => true}),
             StoppedNodes =/= [] andalso
-                emqx_ctl:warning("Found stopped nodes: ~p~n", [StoppedNodes]);
+                emqx_ctl:warning("Found stopped nodes: ~p~n", [StoppedNodes]),
+            ok;
         Role ->
             Leader = emqx_cluster_rpc:find_leader(),
             emqx_ctl:print("Run fix command on ~p(core) node, but current is ~p~n", [Leader, Role])
@@ -153,8 +154,8 @@ mark_fix_begin(Node, TnxId) ->
     MFA = {?MODULE, mark_fix_log, [Status]},
     emqx_cluster_rpc:update_mfa(Node, MFA, TnxId).
 
-mark_fix_log(Status) ->
-    ?SLOG(warning, #{msg => cluster_fix_log, status => Status}),
+mark_fix_log(Status, Opts) ->
+    ?SLOG(warning, #{msg => cluster_fix_log, status => Status, opts => Opts}),
     ok.
 
 audit(Level, From, Log) ->
@@ -226,11 +227,16 @@ maybe_fix_lagging(Status, #{fix := Fix}) ->
         {inconsistent_tnx_id_key, _ToTnxId, Target, InconsistentKeys} ->
             emqx_ctl:warning("Inconsistent keys: ~p~n", [InconsistentKeys]),
             print_inconsistent_conf(InconsistentKeys, Target, Status, AllConfs);
-        {inconsistent_tnx_id, Target, ToTnxId} when Fix ->
+        {inconsistent_tnx_id, ToTnxId, Target} when Fix ->
             print_tnx_id_status(Status),
-            ok = mark_fix_begin(Target, ToTnxId),
-            emqx_ctl:print("Forward tnxid to ~w successfully~n", [ToTnxId + 1]);
-        {inconsistent_tnx_id, _Target, _ToTnxId} ->
+            case mark_fix_begin(Target, ToTnxId) of
+                ok ->
+                    waiting_for_fix_finish(),
+                    emqx_ctl:print("Forward tnxid to ~w successfully~n", [ToTnxId + 1]);
+                Error ->
+                    Error
+            end;
+        {inconsistent_tnx_id, _ToTnxId, _Target} ->
             print_tnx_id_status(Status),
             Leader = emqx_cluster_rpc:find_leader(),
             emqx_ctl:print(?SUGGESTION(Leader));
