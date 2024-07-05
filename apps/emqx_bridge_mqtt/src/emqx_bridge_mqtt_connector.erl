@@ -514,14 +514,47 @@ connect(Pid, Name) ->
             {ok, Pid};
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(Name),
-            ?SLOG(?LOG_LEVEL(IsDryRun), #{
-                msg => "ingress_client_connect_failed",
-                reason => Reason,
-                resource_id => Name
-            }),
+            log_connect_error_reason(?LOG_LEVEL(IsDryRun), Reason, Name),
             _ = catch emqtt:stop(Pid),
             Error
     end.
+
+log_connect_error_reason(Level, {tcp_closed, _} = Reason, Name) ->
+    ?tp(emqx_bridge_mqtt_connector_tcp_closed, #{}),
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name,
+        explain =>
+            <<
+                "Your MQTT connection attempt was unsuccessful. "
+                "It might be at its maximum capacity for handling new connections. "
+                "To diagnose the issue further, you can check the server logs for "
+                "any specific messages related to the unavailability or connection limits."
+            >>
+    });
+log_connect_error_reason(Level, econnrefused = Reason, Name) ->
+    ?tp(emqx_bridge_mqtt_connector_econnrefused_error, #{}),
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name,
+        explain =>
+            <<
+                "This error indicates that your connection attempt to the MQTT server was rejected. "
+                "In simpler terms, the server you tried to connect to refused your request. "
+                "There can be multiple reasons for this. "
+                "For example, the MQTT server you're trying to connect to might be down or not "
+                "running at all or you might have provided the wrong address "
+                "or port number for the server."
+            >>
+    });
+log_connect_error_reason(Level, Reason, Name) ->
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name
+    }).
 
 handle_disconnect(_Reason) ->
     ok.
