@@ -10,6 +10,7 @@
 -module(emqx_ds_shared_sub_group_sm).
 
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_ds_shared_sub_config.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -119,16 +120,6 @@
 }.
 
 %%-----------------------------------------------------------------------
-%% Constants
-%%-----------------------------------------------------------------------
-
-%% TODO https://emqx.atlassian.net/browse/EMQX-12574
-%% Move to settings
--define(FIND_LEADER_TIMEOUT, 1000).
--define(RENEW_LEASE_TIMEOUT, 5000).
--define(MIN_UPDATE_STREAM_STATE_INTERVAL, 500).
-
-%%-----------------------------------------------------------------------
 %% API
 %%-----------------------------------------------------------------------
 
@@ -200,7 +191,7 @@ handle_connecting(#{agent := Agent, topic_filter := ShareTopicFilter} = GSM) ->
         topic_filter => ShareTopicFilter
     }),
     ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM), ShareTopicFilter),
-    ensure_state_timeout(GSM, find_leader_timeout, ?FIND_LEADER_TIMEOUT).
+    ensure_state_timeout(GSM, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)).
 
 handle_leader_lease_streams(
     #{state := ?connecting, topic_filter := TopicFilter} = GSM0, Leader, StreamProgresses, Version
@@ -228,16 +219,20 @@ handle_find_leader_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM0
         topic_filter => TopicFilter
     }),
     ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM0), TopicFilter),
-    GSM1 = ensure_state_timeout(GSM0, find_leader_timeout, ?FIND_LEADER_TIMEOUT),
+    GSM1 = ensure_state_timeout(
+        GSM0, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)
+    ),
     GSM1.
 
 %%-----------------------------------------------------------------------
 %% Replaying state
 
 handle_replaying(GSM0) ->
-    GSM1 = ensure_state_timeout(GSM0, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT),
+    GSM1 = ensure_state_timeout(
+        GSM0, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms)
+    ),
     GSM2 = ensure_state_timeout(
-        GSM1, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL
+        GSM1, update_stream_state_timeout, ?dq_config(session_min_update_stream_state_interval_ms)
     ),
     GSM2.
 
@@ -249,9 +244,11 @@ handle_renew_lease_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM)
 %% Updating state
 
 handle_updating(GSM0) ->
-    GSM1 = ensure_state_timeout(GSM0, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT),
+    GSM1 = ensure_state_timeout(
+        GSM0, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms)
+    ),
     GSM2 = ensure_state_timeout(
-        GSM1, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL
+        GSM1, update_stream_state_timeout, ?dq_config(session_min_update_stream_state_interval_ms)
     ),
     GSM2.
 
@@ -332,7 +329,7 @@ handle_leader_update_streams(
     VersionNew,
     _StreamProgresses
 ) ->
-    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
+    ensure_state_timeout(GSM, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms));
 handle_leader_update_streams(
     #{state := ?disconnected} = GSM, _VersionOld, _VersionNew, _StreamProgresses
 ) ->
@@ -349,7 +346,7 @@ handle_leader_update_streams(GSM, VersionOld, VersionNew, _StreamProgresses) ->
 handle_leader_renew_stream_lease(
     #{state := ?replaying, state_data := #{version := Version}} = GSM, Version
 ) ->
-    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
+    ensure_state_timeout(GSM, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms));
 handle_leader_renew_stream_lease(
     #{state := ?updating, state_data := #{version := Version} = StateData} = GSM, Version
 ) ->
@@ -364,13 +361,13 @@ handle_leader_renew_stream_lease(GSM, _Version) ->
 handle_leader_renew_stream_lease(
     #{state := ?replaying, state_data := #{version := Version}} = GSM, VersionOld, VersionNew
 ) when VersionOld =:= Version orelse VersionNew =:= Version ->
-    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
+    ensure_state_timeout(GSM, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms));
 handle_leader_renew_stream_lease(
     #{state := ?updating, state_data := #{version := VersionNew, prev_version := VersionOld}} = GSM,
     VersionOld,
     VersionNew
 ) ->
-    ensure_state_timeout(GSM, renew_lease_timeout, ?RENEW_LEASE_TIMEOUT);
+    ensure_state_timeout(GSM, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms));
 handle_leader_renew_stream_lease(
     #{state := ?disconnected} = GSM, _VersionOld, _VersionNew
 ) ->
@@ -402,7 +399,9 @@ handle_stream_progress(
     ok = emqx_ds_shared_sub_proto:agent_update_stream_states(
         Leader, Agent, StreamProgresses, Version
     ),
-    ensure_state_timeout(GSM, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL);
+    ensure_state_timeout(
+        GSM, update_stream_state_timeout, ?dq_config(session_min_update_stream_state_interval_ms)
+    );
 handle_stream_progress(
     #{
         state := ?updating,
@@ -418,7 +417,9 @@ handle_stream_progress(
     ok = emqx_ds_shared_sub_proto:agent_update_stream_states(
         Leader, Agent, StreamProgresses, PrevVersion, Version
     ),
-    ensure_state_timeout(GSM, update_stream_state_timeout, ?MIN_UPDATE_STREAM_STATE_INTERVAL);
+    ensure_state_timeout(
+        GSM, update_stream_state_timeout, ?dq_config(session_min_update_stream_state_interval_ms)
+    );
 handle_stream_progress(#{state := ?disconnected} = GSM, _StreamProgresses) ->
     GSM.
 

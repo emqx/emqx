@@ -15,9 +15,11 @@
 
 -spec start(application:start_type(), term()) -> {ok, pid()}.
 start(_Type, _Args) ->
+    ok = emqx_ds_shared_sub_config:load(),
     {ok, Sup} = emqx_ds_shared_sub_sup:start_link(),
     {ok, Sup}.
 
 -spec stop(term()) -> ok.
 stop(_State) ->
+    ok = emqx_ds_shared_sub_config:unload(),
     ok.

@@ -391,6 +391,8 @@ default_appspec(emqx_schema_validation, _SuiteOpts) ->
     #{schema_mod => emqx_schema_validation_schema, config => #{}};
 default_appspec(emqx_message_transformation, _SuiteOpts) ->
     #{schema_mod => emqx_message_transformation_schema, config => #{}};
+default_appspec(emqx_ds_shared_sub, _SuiteOpts) ->
+    #{schema_mod => emqx_ds_shared_sub_schema, config => #{}};
 default_appspec(_, _) ->
     #{}.
 

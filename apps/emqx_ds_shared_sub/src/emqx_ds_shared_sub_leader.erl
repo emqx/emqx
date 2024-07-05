@@ -7,6 +7,7 @@
 -behaviour(gen_statem).
 
 -include("emqx_ds_shared_sub_proto.hrl").
+-include("emqx_ds_shared_sub_config.hrl").
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -102,15 +103,6 @@
 
 %% Constants
 
-%% TODO https://emqx.atlassian.net/browse/EMQX-12574
-%% Move to settings
--define(RENEW_LEASE_INTERVAL, 1000).
--define(RENEW_STREAMS_INTERVAL, 1000).
--define(DROP_TIMEOUT_INTERVAL, 1000).
-
--define(AGENT_TIMEOUT, 5000).
--define(MAX_NOT_REPLAYING, 5000).
-
 -define(START_TIME_THRESHOLD, 5000).
 
 %%--------------------------------------------------------------------
@@ -176,8 +168,8 @@ handle_event(enter, _OldState, ?leader_active, #{topic := Topic, router_id := Ro
     ok = emqx_persistent_session_ds_router:do_add_route(Topic, RouterId),
     {keep_state_and_data, [
         {{timeout, #renew_streams{}}, 0, #renew_streams{}},
-        {{timeout, #renew_leases{}}, ?RENEW_LEASE_INTERVAL, #renew_leases{}},
-        {{timeout, #drop_timeout{}}, ?DROP_TIMEOUT_INTERVAL, #drop_timeout{}}
+        {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}},
+        {{timeout, #drop_timeout{}}, ?dq_config(leader_drop_timeout_interval_ms), #drop_timeout{}}
     ]};
 %%--------------------------------------------------------------------
 %% timers
@@ -185,17 +177,24 @@ handle_event(enter, _OldState, ?leader_active, #{topic := Topic, router_id := Ro
 handle_event({timeout, #renew_streams{}}, #renew_streams{}, ?leader_active, Data0) ->
     % ?tp(warning, shared_sub_leader_timeout, #{timeout => renew_streams}),
     Data1 = renew_streams(Data0),
-    {keep_state, Data1, {{timeout, #renew_streams{}}, ?RENEW_STREAMS_INTERVAL, #renew_streams{}}};
+    {keep_state, Data1,
+        {
+            {timeout, #renew_streams{}},
+            ?dq_config(leader_renew_streams_interval_ms),
+            #renew_streams{}
+        }};
 %% renew_leases timer
 handle_event({timeout, #renew_leases{}}, #renew_leases{}, ?leader_active, Data0) ->
     % ?tp(warning, shared_sub_leader_timeout, #{timeout => renew_leases}),
     Data1 = renew_leases(Data0),
-    {keep_state, Data1, {{timeout, #renew_leases{}}, ?RENEW_LEASE_INTERVAL, #renew_leases{}}};
+    {keep_state, Data1,
+        {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}}};
 %% drop_timeout timer
 handle_event({timeout, #drop_timeout{}}, #drop_timeout{}, ?leader_active, Data0) ->
     % ?tp(warning, shared_sub_leader_timeout, #{timeout => drop_timeout}),
     Data1 = drop_timeout_agents(Data0),
-    {keep_state, Data1, {{timeout, #drop_timeout{}}, ?DROP_TIMEOUT_INTERVAL, #drop_timeout{}}};
+    {keep_state, Data1,
+        {{timeout, #drop_timeout{}}, ?dq_config(leader_drop_timeout_interval_ms), #drop_timeout{}}};
 %%--------------------------------------------------------------------
 %% agent events
 handle_event(
@@ -860,7 +859,7 @@ agent_transition_to_initial_waiting_replaying(
         prev_version => undefined,
         streams => InitialStreams,
         revoked_streams => [],
-        update_deadline => now_ms_monotonic() + ?AGENT_TIMEOUT
+        update_deadline => now_ms_monotonic() + ?dq_config(leader_session_update_timeout_ms)
     },
     renew_no_replaying_deadline(AgentState).
 
@@ -900,13 +899,15 @@ now_ms_monotonic() ->
 
 renew_no_replaying_deadline(#{not_replaying_deadline := undefined} = AgentState) ->
     AgentState#{
-        not_replaying_deadline => now_ms_monotonic() + ?MAX_NOT_REPLAYING
+        not_replaying_deadline => now_ms_monotonic() +
+            ?dq_config(leader_session_not_replaying_timeout_ms)
     };
 renew_no_replaying_deadline(#{not_replaying_deadline := _Deadline} = AgentState) ->
     AgentState;
 renew_no_replaying_deadline(#{} = AgentState) ->
     AgentState#{
-        not_replaying_deadline => now_ms_monotonic() + ?MAX_NOT_REPLAYING
+        not_replaying_deadline => now_ms_monotonic() +
+            ?dq_config(leader_session_not_replaying_timeout_ms)
     }.
 
 unassigned_streams(#{stream_states := StreamStates, stream_owners := StreamOwners}) ->
@@ -991,7 +992,7 @@ set_agent_state(#{agents := Agents} = Data, Agent, AgentState) ->
 
 update_agent_timeout(AgentState) ->
     AgentState#{
-        update_deadline => now_ms_monotonic() + ?AGENT_TIMEOUT
+        update_deadline => now_ms_monotonic() + ?dq_config(leader_session_update_timeout_ms)
     }.
 
 get_agent_state(#{agents := Agents} = _Data, Agent) ->
