@@ -175,6 +175,16 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
+  def common_dep(dep_name, overrides) do
+    case common_dep(dep_name) do
+      {^dep_name, opts} ->
+        {dep_name, Keyword.merge(opts, overrides)}
+
+      {^dep_name, tag, opts} when is_binary(tag) ->
+        {dep_name, tag, Keyword.merge(opts, overrides)}
+    end
+  end
+
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.11.2", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
