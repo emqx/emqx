@@ -801,7 +801,7 @@ mqtt_max_topic_levels.label:
 """Max Topic Levels"""
 
 force_shutdown_max_heap_size.desc:
-"""Total heap size"""
+"""Total heap size.  Setting this to 0 disables this limitation."""
 
 force_shutdown_max_heap_size.label:
 """Total heap size"""
