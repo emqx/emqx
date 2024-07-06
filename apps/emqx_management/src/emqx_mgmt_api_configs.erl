@@ -364,10 +364,10 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
         {error, _} = Error -> {400, #{code => 'INVALID_ACCEPT', message => ?ERR_MSG(Error)}}
     end;
 configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode} = QS}, _Req) ->
-    IngnoreReadonly = maps:get(<<"ignore_readonly">>, QS, false),
+    IgnoreReadonly = maps:get(<<"ignore_readonly">>, QS, false),
     case
         emqx_conf_cli:load_config(Conf, #{
-            mode => Mode, log => none, ignore_readonly => IngnoreReadonly
+            mode => Mode, log => none, ignore_readonly => IgnoreReadonly
         })
     of
         ok ->

@@ -237,6 +237,12 @@ load_config(Bin, Opts) when is_binary(Bin) ->
     case hocon:binary(Bin) of
         {ok, RawConf} ->
             load_config_from_raw(RawConf, Opts);
+        %% Type is scan_error, parse_error...
+        {error, {Type, Meta = #{reason := Reason}}} ->
+            {error, Meta#{
+                reason => unicode:characters_to_binary(Reason),
+                type => Type
+            }};
         {error, Reason} ->
             {error, Reason}
     end.
