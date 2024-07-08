@@ -35,6 +35,17 @@
     tnx_id :: pos_integer() | '$1'
 }).
 
+-define(SUGGESTION(Node),
+    lists:flatten(
+        io_lib:format(
+            "run `./bin/emqx_ctl conf cluster_sync fix`"
+            " on ~p(config leader) to force sync the configs, "
+            "if this node has been lagging for more than 3 minutes.",
+            [Node]
+        )
+    )
+).
+
 -define(READONLY_KEYS, [cluster, rpc, node]).
 
 -endif.

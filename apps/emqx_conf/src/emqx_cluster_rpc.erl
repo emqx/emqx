@@ -28,12 +28,14 @@
     reset/0,
     status/0,
     is_initiator/1,
+    find_leader/0,
     skip_failed_commit/1,
     fast_forward_to_commit/2,
     on_mria_stop/1,
     force_leave_clean/1,
     wait_for_cluster_rpc/0,
-    maybe_init_tnx_id/2
+    maybe_init_tnx_id/2,
+    update_mfa/3
 ]).
 -export([
     commit/2,
@@ -41,6 +43,7 @@
     get_cluster_tnx_id/0,
     get_node_tnx_id/1,
     init_mfa/2,
+    force_sync_tnx_id/3,
     latest_tnx_id/0,
     make_initiate_call_req/3,
     read_next_mfa/1,
@@ -226,6 +229,17 @@ status() ->
 
 is_initiator(Opts) ->
     ?KIND_INITIATE =:= maps:get(kind, Opts, ?KIND_INITIATE).
+
+find_leader() ->
+    {atomic, Status} = status(),
+    case Status of
+        [#{node := N} | _] ->
+            N;
+        [] ->
+            %% running nodes already sort.
+            [N | _] = emqx:running_nodes(),
+            N
+    end.
 
 %% DO NOT delete this on_leave_clean/0, It's use when rpc before v560.
 on_leave_clean() ->
@@ -500,12 +514,14 @@ do_initiate(MFA, State = #{node := Node}, Count, Failure0) ->
     end.
 
 stale_view_of_cluster_msg(Meta, Count) ->
+    Node = find_leader(),
     Reason = Meta#{
-        msg => stale_view_of_cluster_state,
-        retry_times => Count
+        msg => stale_view_of_cluster,
+        retry_times => Count,
+        suggestion => ?SUGGESTION(Node)
     },
     ?SLOG(warning, Reason),
-    Reason.
+    {error, Reason}.
 
 %% The entry point of a config change transaction.
 init_mfa(Node, MFA) ->
@@ -532,11 +548,41 @@ init_mfa(Node, MFA) ->
             {retry, Meta}
     end.
 
+force_sync_tnx_id(Node, MFA, NodeTnxId) ->
+    mnesia:write_lock_table(?CLUSTER_MFA),
+    case get_node_tnx_id(Node) of
+        NodeTnxId ->
+            TnxId = NodeTnxId + 1,
+            MFARec = #cluster_rpc_mfa{
+                tnx_id = TnxId,
+                mfa = MFA,
+                initiator = Node,
+                created_at = erlang:localtime()
+            },
+            ok = mnesia:write(?CLUSTER_MFA, MFARec, write),
+            lists:foreach(
+                fun(N) ->
+                    ok = emqx_cluster_rpc:commit(N, NodeTnxId)
+                end,
+                mria:running_nodes()
+            );
+        NewTnxId ->
+            Fmt = "aborted_force_sync, tnx_id(~w) is not the latest(~w)",
+            Reason = emqx_utils:format(Fmt, [NodeTnxId, NewTnxId]),
+            mnesia:abort({error, Reason})
+    end.
+
+update_mfa(Node, MFA, LatestId) ->
+    case transaction(fun ?MODULE:force_sync_tnx_id/3, [Node, MFA, LatestId]) of
+        {atomic, ok} -> ok;
+        {aborted, Error} -> Error
+    end.
+
 transaction(Func, Args) ->
     mria:transaction(?CLUSTER_RPC_SHARD, Func, Args).
 
 trans_status() ->
-    mnesia:foldl(
+    List = mnesia:foldl(
         fun(Rec, Acc) ->
             #cluster_rpc_commit{node = Node, tnx_id = TnxId} = Rec,
             case mnesia:read(?CLUSTER_MFA, TnxId) of
@@ -559,7 +605,21 @@ trans_status() ->
         end,
         [],
         ?CLUSTER_COMMIT
+    ),
+    Nodes = mria:running_nodes(),
+    IndexNodes = lists:zip(Nodes, lists:seq(1, length(Nodes))),
+    lists:sort(
+        fun(#{node := NA, tnx_id := IdA}, #{node := NB, tnx_id := IdB}) ->
+            {IdA, index_nodes(NA, IndexNodes)} > {IdB, index_nodes(NB, IndexNodes)}
+        end,
+        List
     ).
+
+index_nodes(Node, IndexNodes) ->
+    case lists:keyfind(Node, 1, IndexNodes) of
+        false -> 0;
+        {_, Index} -> Index
+    end.
 
 trans_query(TnxId) ->
     case mnesia:read(?CLUSTER_MFA, TnxId) of

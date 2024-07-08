@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,13 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_conf_proto_v3).
+-module(emqx_conf_proto_v4).
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
     sync_data_from_node/1,
     get_config/2,
     get_config/3,
@@ -38,13 +37,11 @@
 ]).
 
 -export([get_hocon_config/1, get_hocon_config/2]).
+-export([get_raw_config/2]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "5.1.1".
-
-deprecated_since() ->
     "5.7.1".
 
 -spec sync_data_from_node(node()) -> {ok, binary()} | emqx_rpc:badrpc().
@@ -117,6 +114,10 @@ get_override_config_file(Nodes) ->
 -spec get_hocon_config(node()) -> map() | {badrpc, _}.
 get_hocon_config(Node) ->
     rpc:call(Node, emqx_conf_cli, get_config, []).
+
+-spec get_raw_config(node(), update_config_key_path()) -> map() | {badrpc, _}.
+get_raw_config(Node, KeyPath) ->
+    rpc:call(Node, emqx, get_raw_config, [KeyPath]).
 
 -spec get_hocon_config(node(), binary()) -> map() | {badrpc, _}.
 get_hocon_config(Node, Key) ->
