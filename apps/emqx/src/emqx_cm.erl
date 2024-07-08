@@ -48,19 +48,19 @@
 
 -export([
     open_session/4,
-    discard_session/1,
     discard_session/2,
+    discard_session/3,
     takeover_session_begin/1,
     takeover_session_end/1,
-    kick_session/1,
     kick_session/2,
-    takeover_kick/1
+    kick_session/3,
+    takeover_kick/1,
+    takeover_kick/2
 ]).
 
 -export([
     lookup_channels/1,
     lookup_channels/2,
-    lookup_client/1,
     pick_channel/1
 ]).
 
@@ -88,6 +88,8 @@
 
 %% Internal export
 -export([
+    cid/1,
+    cid/2,
     stats_fun/0,
     clean_down/1,
     mark_channel_connected/1,
@@ -98,13 +100,25 @@
 
 %% RPC targets
 -export([
-    takeover_session/2,
+    lookup_client/2,
+    do_get_chan_stats/3,
+    do_get_chan_info/3,
+    do_get_chann_conn_mod/3,
+    takeover_session/3,
     takeover_finish/2,
-    do_kick_session/3,
-    do_takeover_kick_session_v3/2,
-    do_get_chan_info/2,
+    do_kick_session/4,
+    do_takeover_kick_session_v4/3
+]).
+
+%% @deprecated only used for handle the RPC request from old nodes
+-export([
+    lookup_client/1,
     do_get_chan_stats/2,
-    do_get_chann_conn_mod/2
+    do_get_chan_info/2,
+    do_get_chann_conn_mod/2,
+    takeover_session/2,
+    do_kick_session/3,
+    do_takeover_kick_session_v3/2
 ]).
 
 -export_type([
@@ -117,7 +131,7 @@
 -type chan_pid() :: pid().
 
 -type channel_info() :: {
-    _Chan :: {emqx_types:clientid(), pid()},
+    _Chan :: {emqx_types:cid(), pid()},
     _Info :: emqx_types:infos(),
     _Stats :: emqx_types:stats()
 }.
@@ -140,10 +154,6 @@
 %% Server name
 -define(CM, ?MODULE).
 
--define(IS_CLIENTID(CLIENTID),
-    (is_binary(CLIENTID) orelse (is_atom(CLIENTID) andalso CLIENTID =/= undefined))
-).
-
 %% linting overrides
 -elvis([
     {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}},
@@ -161,14 +171,14 @@ start_link() ->
 
 %% @doc Insert/Update the channel info and stats to emqx_channel table
 -spec insert_channel_info(
-    emqx_types:clientid(),
+    emqx_types:cid(),
     emqx_types:infos(),
     emqx_types:stats()
 ) -> ok.
-insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
-    Chan = {ClientId, self()},
+insert_channel_info(CId, Info, Stats) when ?IS_CID(CId) ->
+    Chan = {CId, self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
-    ?tp(debug, insert_channel_info, #{clientid => ClientId}),
+    ?tp(debug, insert_channel_info, #{clientid => cid2clientid(CId)}),
     ok.
 
 %% @private
@@ -179,10 +189,10 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
 %% the conn_mod first for taking up the clientid access right.
 %%
 %% Note that: It should be called on a lock transaction
-register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
-    is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
+register_channel(CId, ChanPid, #{conn_mod := ConnMod}) when
+    is_pid(ChanPid) andalso ?IS_CID(CId)
 ->
-    Chan = {ClientId, ChanPid},
+    Chan = {CId, ChanPid},
     %% cast (for process monitor) before inserting ets tables
     cast({registered, Chan}),
     true = ets:insert(?CHAN_TAB, Chan),
@@ -192,13 +202,13 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
     ok.
 
 %% @doc Unregister a channel.
--spec unregister_channel(emqx_types:clientid()) -> ok.
-unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
-    true = do_unregister_channel({ClientId, self()}),
+-spec unregister_channel(emqx_types:cid()) -> ok.
+unregister_channel(CId) when ?IS_CID(CId) ->
+    true = do_unregister_channel({CId, self()}),
     ok.
 
 %% @private
-do_unregister_channel({_ClientId, ChanPid} = Chan) ->
+do_unregister_channel({_CId, ChanPid} = Chan) ->
     ok = emqx_cm_registry:unregister_channel(Chan),
     true = ets:delete(?CHAN_CONN_TAB, Chan),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
@@ -207,29 +217,35 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     true.
 
 %% @doc Get info of a channel.
--spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
-get_chan_info(ClientId) ->
-    with_channel(ClientId, fun(ChanPid) -> get_chan_info(ClientId, ChanPid) end).
+-spec get_chan_info(emqx_types:cid()) -> option(emqx_types:infos()).
+get_chan_info(CId) ->
+    with_channel(CId, fun(ChanPid) -> get_chan_info(CId, ChanPid) end).
 
+%% @deprecated only can access the default namespace clients.
 -spec do_get_chan_info(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:infos()).
 do_get_chan_info(ClientId, ChanPid) ->
-    Chan = {ClientId, ChanPid},
+    do_get_chan_info(?DEFAULT_NAMESPACE_NAME, ClientId, ChanPid).
+
+-spec do_get_chan_info(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
+    option(emqx_types:infos()).
+do_get_chan_info(Mtns, ClientId, ChanPid) ->
+    Chan = {cid(Mtns, ClientId), ChanPid},
     try
         ets:lookup_element(?CHAN_INFO_TAB, Chan, 2)
     catch
         error:badarg -> undefined
     end.
 
--spec get_chan_info(emqx_types:clientid(), chan_pid()) ->
+-spec get_chan_info(emqx_types:cid(), chan_pid()) ->
     option(emqx_types:infos()).
-get_chan_info(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_info(ClientId, ChanPid)).
+get_chan_info(CId, ChanPid) ->
+    wrap_rpc(emqx_cm_proto_v2:get_chan_info(CId, ChanPid)).
 
 %% @doc Update infos of the channel.
--spec set_chan_info(emqx_types:clientid(), emqx_types:channel_attrs()) -> boolean().
-set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
-    Chan = {ClientId, self()},
+-spec set_chan_info(emqx_types:cid(), emqx_types:channel_attrs()) -> boolean().
+set_chan_info(CId, Info) when ?IS_CID(CId) ->
+    Chan = {CId, self()},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {2, Info})
     catch
@@ -237,34 +253,41 @@ set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
     end.
 
 %% @doc Get channel's stats.
--spec get_chan_stats(emqx_types:clientid()) -> option(emqx_types:stats()).
-get_chan_stats(ClientId) ->
-    with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
+-spec get_chan_stats(emqx_types:cid()) -> option(emqx_types:stats()).
+get_chan_stats(CId) ->
+    with_channel(CId, fun(ChanPid) -> get_chan_stats(CId, ChanPid) end).
 
+%% @deprecated only can access the default namespace clients.
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
-    Chan = {ClientId, ChanPid},
+    do_get_chan_stats(?DEFAULT_NAMESPACE_NAME, ClientId, ChanPid).
+
+-spec do_get_chan_stats(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
+    option(emqx_types:stats()).
+do_get_chan_stats(Mtns, ClientId, ChanPid) ->
+    CId = cid(Mtns, ClientId),
+    Chan = {CId, ChanPid},
     try
         ets:lookup_element(?CHAN_INFO_TAB, Chan, 3)
     catch
         error:badarg -> undefined
     end.
 
--spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
+-spec get_chan_stats(emqx_types:cid(), chan_pid()) ->
     option(emqx_types:stats()).
-get_chan_stats(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_stats(ClientId, ChanPid)).
+get_chan_stats(CId, ChanPid) ->
+    wrap_rpc(emqx_cm_proto_v2:get_chan_stats(CId, ChanPid)).
 
 %% @doc Set channel's stats.
--spec set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean().
-set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
-    set_chan_stats(ClientId, self(), Stats).
+-spec set_chan_stats(emqx_types:cid(), emqx_types:stats()) -> boolean().
+set_chan_stats(CId, Stats) when ?IS_CID(CId) ->
+    set_chan_stats(CId, self(), Stats).
 
--spec set_chan_stats(emqx_types:clientid(), chan_pid(), emqx_types:stats()) ->
+-spec set_chan_stats(emqx_types:cid(), chan_pid(), emqx_types:stats()) ->
     boolean().
-set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
-    Chan = {ClientId, ChanPid},
+set_chan_stats(CId, ChanPid, Stats) when ?IS_CID(CId) ->
+    Chan = {CId, ChanPid},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats})
     catch
@@ -286,43 +309,47 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     | {error, Reason :: term()}.
 open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
     Self = self(),
-    emqx_cm_locker:trans(ClientId, fun(_) ->
-        ok = discard_session(ClientId),
+    Mtns = mtns(ClientInfo),
+    CId = cid(Mtns, ClientId),
+    emqx_cm_locker:trans(CId, fun(_) ->
+        ok = discard_session(Mtns, ClientId),
         ok = emqx_session:destroy(ClientInfo, ConnInfo),
         create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, Self)
     end);
-open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
+open_session(_CleanStart = false, ClientInfo, ConnInfo, MaybeWillMsg) ->
     Self = self(),
-    emqx_cm_locker:trans(ClientId, fun(_) ->
+    CId = cid(ClientInfo),
+    emqx_cm_locker:trans(CId, fun(_) ->
         case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
             {true, Session, ReplayContext} ->
-                ok = register_channel(ClientId, Self, ConnInfo),
+                ok = register_channel(CId, Self, ConnInfo),
                 {ok, #{session => Session, present => true, replay => ReplayContext}};
             {false, Session} ->
-                ok = register_channel(ClientId, Self, ConnInfo),
+                ok = register_channel(CId, Self, ConnInfo),
                 {ok, #{session => Session, present => false}}
         end
     end).
 
-create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg, ChanPid) ->
+create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, ChanPid) ->
     Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
-    ok = register_channel(ClientId, ChanPid, ConnInfo),
+    CId = cid(ClientInfo),
+    ok = register_channel(CId, ChanPid, ConnInfo),
     {ok, #{session => Session, present => false}}.
 
 %% @doc Try to takeover a session from existing channel.
--spec takeover_session_begin(emqx_types:clientid()) ->
+-spec takeover_session_begin(emqx_types:cid()) ->
     {ok, emqx_session_mem:session(), takeover_state()} | none.
-takeover_session_begin(ClientId) ->
-    takeover_session_begin(ClientId, pick_channel(ClientId)).
+takeover_session_begin(CId) ->
+    takeover_session_begin(CId, pick_channel(CId)).
 
-takeover_session_begin(ClientId, ChanPid) when is_pid(ChanPid) ->
-    case takeover_session(ClientId, ChanPid) of
+takeover_session_begin(CId, ChanPid) when is_pid(ChanPid) ->
+    case takeover_session(CId, ChanPid) of
         {living, ConnMod, ChanPid, Session} ->
             {ok, Session, {ConnMod, ChanPid}};
         _ ->
             none
     end;
-takeover_session_begin(_ClientId, undefined) ->
+takeover_session_begin(_CId, undefined) ->
     none.
 
 %% @doc Conclude the session takeover process.
@@ -336,10 +363,10 @@ takeover_session_end({ConnMod, ChanPid}) ->
             Error
     end.
 
--spec pick_channel(emqx_types:clientid()) ->
+-spec pick_channel(emqx_types:cid()) ->
     option(pid()).
-pick_channel(ClientId) ->
-    case lookup_channels(ClientId) of
+pick_channel(CId) ->
+    case lookup_channels(CId) of
         [] ->
             undefined;
         [ChanPid] ->
@@ -349,7 +376,7 @@ pick_channel(ClientId) ->
             ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(
                 fun(StalePid) ->
-                    catch discard_session(ClientId, StalePid)
+                    catch discard_session(CId, StalePid)
                 end,
                 StalePids
             ),
@@ -359,13 +386,18 @@ pick_channel(ClientId) ->
 %% Used by `emqx_persistent_session_ds'
 -spec takeover_kick(emqx_types:clientid()) -> ok.
 takeover_kick(ClientId) ->
-    case lookup_channels(ClientId) of
+    takeover_kick(?DEFAULT_NAMESPACE_NAME, ClientId).
+
+-spec takeover_kick(emqx_types:mtns(), emqx_types:clientid()) -> ok.
+takeover_kick(Mtns, ClientId) ->
+    CId = cid(Mtns, ClientId),
+    case lookup_channels(CId) of
         [] ->
             ok;
         ChanPids ->
             lists:foreach(
                 fun(Pid) ->
-                    do_takeover_session(ClientId, Pid)
+                    do_takeover_session(Mtns, ClientId, Pid)
                 end,
                 ChanPids
             )
@@ -375,16 +407,16 @@ takeover_kick(ClientId) ->
 %% We stop any running channels with reason `takenover' so that correct reason codes and
 %% will message processing may take place.  For older BPAPI nodes, we don't have much
 %% choice other than calling the old `discard_session' code.
-do_takeover_session(ClientId, Pid) ->
+do_takeover_session(Mtns, ClientId, Pid) ->
     Node = node(Pid),
     case emqx_bpapi:supported_version(Node, ?BPAPI_NAME) of
         undefined ->
             %% Race: node (re)starting? Assume v2.
-            discard_session(ClientId, Pid);
+            discard_session(Mtns, ClientId, Pid);
         Vsn when Vsn =< 2 ->
-            discard_session(ClientId, Pid);
+            discard_session(Mtns, ClientId, Pid);
         _Vsn ->
-            takeover_kick_session(ClientId, Pid)
+            takeover_kick_session(Mtns, ClientId, Pid)
     end.
 
 %% Used only by `emqx_session_mem'
@@ -397,9 +429,20 @@ takeover_finish(ConnMod, ChanPid) ->
 
 %% @doc RPC Target @ emqx_cm_proto_v2:takeover_session/2
 %% Used only by `emqx_session_mem'
+%%
+%% @deprecated
+-spec takeover_session(emqx_types:clientid(), chan_pid()) ->
+    {living, module(), chan_pid(), emqx_session:t()}
+    | none.
 takeover_session(ClientId, Pid) ->
+    takeover_session(?DEFAULT_NAMESPACE_NAME, ClientId, Pid).
+
+-spec takeover_session(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
+    {living, module(), chan_pid(), emqx_session:t()}
+    | none.
+takeover_session(Mtns, ClientId, Pid) ->
     try
-        do_takeover_begin(ClientId, Pid)
+        do_takeover_begin(Mtns, ClientId, Pid)
     catch
         _:R when
             R == noproc;
@@ -413,8 +456,8 @@ takeover_session(ClientId, Pid) ->
             none
     end.
 
-do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
-    case do_get_chann_conn_mod(ClientId, ChanPid) of
+do_takeover_begin(Mtns, ClientId, ChanPid) when node(ChanPid) == node() ->
+    case do_get_chann_conn_mod(Mtns, ClientId, ChanPid) of
         undefined ->
             none;
         ConnMod when is_atom(ConnMod) ->
@@ -425,8 +468,8 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
                     error(Reason)
             end
     end;
-do_takeover_begin(ClientId, ChanPid) ->
-    case wrap_rpc(emqx_cm_proto_v2:takeover_session(ClientId, ChanPid)) of
+do_takeover_begin(Mtns, ClientId, ChanPid) ->
+    case wrap_rpc(emqx_cm_proto_v4:takeover_session(Mtns, ClientId, ChanPid)) of
         %% NOTE: v5.3.0
         {living, ConnMod, Session} ->
             {living, ConnMod, ChanPid, Session};
@@ -435,12 +478,13 @@ do_takeover_begin(ClientId, ChanPid) ->
             Res
     end.
 
-%% @doc Discard all the sessions identified by the ClientId.
--spec discard_session(emqx_types:clientid()) -> ok.
-discard_session(ClientId) when is_binary(ClientId) ->
-    case lookup_channels(ClientId) of
+%% @doc Discard all the sessions identified by the Connection Id
+-spec discard_session(emqx_types:mtns(), emqx_types:clientid()) -> ok.
+discard_session(Mtns, ClientId) ->
+    CId = cid(Mtns, ClientId),
+    case lookup_channels(CId) of
         [] -> ok;
-        ChanPids -> lists:foreach(fun(Pid) -> discard_session(ClientId, Pid) end, ChanPids)
+        ChanPids -> lists:foreach(fun(Pid) -> discard_session(Mtns, ClientId, Pid) end, ChanPids)
     end.
 
 %% @private Kick a local stale session to force it step down.
@@ -516,16 +560,28 @@ force_kill(Pid) ->
 stale_channel_info(Pid) ->
     process_info(Pid, [status, message_queue_len, current_stacktrace]).
 
-discard_session(ClientId, ChanPid) ->
-    kick_session(discard, ClientId, ChanPid).
+discard_session(Mtns, ClientId, ChanPid) ->
+    kick_session(discard, Mtns, ClientId, ChanPid).
 
-kick_session(ClientId, ChanPid) ->
-    kick_session(kick, ClientId, ChanPid).
+-spec kick_session(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) -> ok.
+kick_session(Mtns, ClientId, ChanPid) ->
+    kick_session(kick, Mtns, ClientId, ChanPid).
 
 %% @doc RPC Target @ emqx_cm_proto_v2:kick_session/3
+%% @deprecated
 -spec do_kick_session(kick | discard, emqx_types:clientid(), chan_pid()) -> ok.
 do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
-    case do_get_chann_conn_mod(ClientId, ChanPid) of
+    do_kick_session(Action, ?DEFAULT_NAMESPACE_NAME, ClientId, ChanPid).
+
+%% @doc RPC Target @ emqx_cm_proto_v4:kick_session/4
+-spec do_kick_session(
+    kick | discard,
+    emqx_types:mtns(),
+    emqx_types:clientid(),
+    chan_pid()
+) -> ok.
+do_kick_session(Action, Mtns, ClientId, ChanPid) when node(ChanPid) =:= node() ->
+    case do_get_chann_conn_mod(Mtns, ClientId, ChanPid) of
         undefined ->
             %% already deregistered
             ok;
@@ -534,9 +590,19 @@ do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
     end.
 
 %% @doc RPC Target for emqx_cm_proto_v3:takeover_kick_session/3
+%% @deprecated
 -spec do_takeover_kick_session_v3(emqx_types:clientid(), chan_pid()) -> ok.
 do_takeover_kick_session_v3(ClientId, ChanPid) when node(ChanPid) =:= node() ->
-    case do_get_chann_conn_mod(ClientId, ChanPid) of
+    do_takeover_kick_session_v4(?DEFAULT_NAMESPACE_NAME, ClientId, ChanPid).
+
+%% @doc RPC Target for emqx_cm_proto_v4:takeover_kick_session/4
+-spec do_takeover_kick_session_v4(
+    emqx_types:mtns(),
+    emqx_types:clientid(),
+    chan_pid()
+) -> ok.
+do_takeover_kick_session_v4(Mtns, ClientId, ChanPid) when node(ChanPid) =:= node() ->
+    case do_get_chann_conn_mod(Mtns, ClientId, ChanPid) of
         undefined ->
             %% already deregistered
             ok;
@@ -546,9 +612,9 @@ do_takeover_kick_session_v3(ClientId, ChanPid) when node(ChanPid) =:= node() ->
 
 %% @private This function is shared for session `kick' and `discard' (as the first arg
 %% Action).
-kick_session(Action, ClientId, ChanPid) ->
+kick_session(Action, Mtns, ClientId, ChanPid) ->
     try
-        wrap_rpc(emqx_cm_proto_v2:kick_session(Action, ClientId, ChanPid))
+        wrap_rpc(emqx_cm_proto_v4:kick_session(Action, Mtns, ClientId, ChanPid))
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
@@ -564,13 +630,13 @@ kick_session(Action, ClientId, ChanPid) ->
                     error => Error,
                     reason => Reason
                 },
-                #{clientid => ClientId}
+                #{mtns => Mtns, clientid => ClientId}
             )
     end.
 
-takeover_kick_session(ClientId, ChanPid) ->
+takeover_kick_session(Mtns, ClientId, ChanPid) ->
     try
-        wrap_rpc(emqx_cm_proto_v3:takeover_kick_session(ClientId, ChanPid))
+        wrap_rpc(emqx_cm_proto_v4:takeover_kick_session(Mtns, ClientId, ChanPid))
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
@@ -586,17 +652,19 @@ takeover_kick_session(ClientId, ChanPid) ->
                     error => Error,
                     reason => Reason
                 },
-                #{clientid => ClientId}
+                #{mtns => Mtns, clientid => ClientId}
             )
     end.
 
-kick_session(ClientId) ->
-    case lookup_channels(ClientId) of
+-spec kick_session(emqx_types:mtns(), emqx_types:clientid()) -> ok.
+kick_session(Mtns, ClientId) ->
+    CId = cid(Mtns, ClientId),
+    case lookup_channels(CId) of
         [] ->
             ?SLOG(
                 warning,
                 #{msg => "kicked_an_unknown_session"},
-                #{clientid => ClientId}
+                #{clientid => cid2clientid(CId)}
             ),
             ok;
         ChanPids ->
@@ -608,20 +676,20 @@ kick_session(ClientId) ->
                             msg => "more_than_one_channel_found",
                             chan_pids => ChanPids
                         },
-                        #{clientid => ClientId}
+                        #{clientid => cid2clientid(CId)}
                     );
                 false ->
                     ok
             end,
-            lists:foreach(fun(Pid) -> kick_session(ClientId, Pid) end, ChanPids)
+            lists:foreach(fun(Pid) -> kick_session(Mtns, ClientId, Pid) end, ChanPids)
     end.
 
 %% @doc Is clean start?
 % is_clean_start(#{clean_start := false}) -> false;
 % is_clean_start(_Attrs) -> true.
 
-with_channel(ClientId, Fun) ->
-    case lookup_channels(ClientId) of
+with_channel(CId, Fun) ->
+    case lookup_channels(CId) of
         [] -> undefined;
         [Pid] -> Fun(Pid);
         Pids -> Fun(lists:last(Pids))
@@ -635,15 +703,15 @@ all_channels() ->
 %% @doc Get clientinfo for all clients
 all_channels_table(ConnModuleList) ->
     Ms = ets:fun2ms(
-        fun({{ClientId, _ChanPid}, Info, _Stats}) ->
-            {ClientId, Info}
+        fun({{CId, _ChanPid}, Info, _Stats}) ->
+            {CId, Info}
         end
     ),
     Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
     ConnModules = sets:from_list(ConnModuleList, [{version, 2}]),
     qlc:q([
-        {ClientId, ConnState, ConnInfo, ClientInfo}
-     || {ClientId, #{
+        {CId, ConnState, ConnInfo, ClientInfo}
+     || {CId, #{
             conn_state := ConnState,
             clientinfo := ClientInfo,
             conninfo := #{conn_mod := ConnModule} = ConnInfo
@@ -656,7 +724,7 @@ all_channels_table(ConnModuleList) ->
 live_connection_table(ConnModules) ->
     Ms = lists:map(fun live_connection_ms/1, ConnModules),
     Table = ets:table(?CHAN_CONN_TAB, [{traverse, {select, Ms}}]),
-    qlc:q([{ClientId, ChanPid} || {ClientId, ChanPid} <- Table, is_channel_connected(ChanPid)]).
+    qlc:q([{CId, ChanPid} || {CId, ChanPid} <- Table, is_channel_connected(ChanPid)]).
 
 live_connection_ms(ConnModule) ->
     {{{'$1', '$2'}, ConnModule}, [], [{{'$1', '$2'}}]}.
@@ -672,33 +740,54 @@ all_client_ids() ->
     ets:select(?CHAN_TAB, Pat).
 
 %% @doc Lookup channels.
--spec lookup_channels(emqx_types:clientid()) -> list(chan_pid()).
-lookup_channels(ClientId) ->
-    lookup_channels(global, ClientId).
+-spec lookup_channels(emqx_types:cid() | emqx_types:clientid()) -> list(chan_pid()).
+lookup_channels(CId) when ?IS_CID(CId) ->
+    lookup_channels(global, CId);
+lookup_channels(ClientId) when ?IS_CLIENTID(ClientId) ->
+    lookup_channels(global, cid(?DEFAULT_NAMESPACE_NAME, ClientId)).
 
 %% @doc Lookup local or global channels.
--spec lookup_channels(local | global, emqx_types:clientid()) -> list(chan_pid()).
-lookup_channels(global, ClientId) ->
+-spec lookup_channels(
+    local | global,
+    emqx_types:cid() | emqx_types:clientid()
+) -> list(chan_pid()).
+lookup_channels(Type, ClientId) when ?IS_CLIENTID(ClientId) ->
+    lookup_channels(Type, cid(?DEFAULT_NAMESPACE_NAME, ClientId));
+lookup_channels(global, CId) ->
     case emqx_cm_registry:is_enabled() of
         true ->
-            emqx_cm_registry:lookup_channels(ClientId);
+            emqx_cm_registry:lookup_channels(CId);
         false ->
-            lookup_channels(local, ClientId)
+            lookup_channels(local, CId)
     end;
-lookup_channels(local, ClientId) ->
-    [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
+lookup_channels(local, CId) ->
+    [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, CId)].
 
+%% @deprecated only to access the default namespace clients.
 -spec lookup_client({clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
     [channel_info()].
-lookup_client({username, Username}) ->
+lookup_client(Key) ->
+    lookup_client(?DEFAULT_NAMESPACE_NAME, Key).
+
+%% @doc PRC Target for emqx_cm_proto_v4:lookup_client/3
+-spec lookup_client(
+    emqx_types:mtns(),
+    {clientid, emqx_types:clientid()} | {username, emqx_types:username()}
+) -> [channel_info()].
+lookup_client(Mtns, {username, Username}) ->
     MatchSpec = [
-        {{'_', #{clientinfo => #{username => '$1'}}, '_'}, [{'=:=', '$1', Username}], ['$_']}
+        {
+            {'_', #{clientinfo => #{username => '$1'}, client_attr => #{mtns => '$2'}}, '_'},
+            [{'=:=', '$1', Username}, {'=:=', '$2', Mtns}],
+            ['$_']
+        }
     ],
     ets:select(?CHAN_INFO_TAB, MatchSpec);
-lookup_client({clientid, ClientId}) ->
+lookup_client(Mtns, {clientid, ClientId}) ->
+    CId = cid(Mtns, ClientId),
     [
         Rec
-     || Key <- ets:lookup(?CHAN_TAB, ClientId),
+     || Key <- ets:lookup(?CHAN_TAB, CId),
         Rec <- ets:lookup(?CHAN_INFO_TAB, Key)
     ].
 
@@ -736,8 +825,8 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
-    PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
+handle_cast({registered, {CId, ChanPid}}, State = #{chan_pmon := PMon}) ->
+    PMon1 = emqx_pmon:monitor(ChanPid, CId, PMon),
     {noreply, State#{chan_pmon := PMon1}};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
@@ -770,13 +859,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-clean_down({ChanPid, ClientId}) ->
+clean_down({ChanPid, CId}) ->
     try
-        do_unregister_channel({ClientId, ChanPid})
+        do_unregister_channel({CId, ChanPid})
     catch
         error:badarg -> ok
     end,
-    ok = ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
+    ok = ?tp(debug, emqx_cm_clean_down, #{clientid => cid2clientid(CId)}).
 
 stats_fun() ->
     lists:foreach(fun update_stats/1, ?CHAN_STATS).
@@ -790,7 +879,12 @@ update_stats({Tab, Stat, MaxStat}) ->
 -spec do_get_chann_conn_mod(emqx_types:clientid(), chan_pid()) ->
     module() | undefined.
 do_get_chann_conn_mod(ClientId, ChanPid) ->
-    Chan = {ClientId, ChanPid},
+    do_get_chann_conn_mod(?DEFAULT_NAMESPACE_NAME, ClientId, ChanPid).
+
+-spec do_get_chann_conn_mod(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
+    module() | undefined.
+do_get_chann_conn_mod(Mtns, ClientId, ChanPid) ->
+    Chan = {cid(Mtns, ClientId), ChanPid},
     try
         [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, Chan, 2),
         ConnMod
@@ -814,3 +908,14 @@ get_connected_client_count() ->
         undefined -> 0;
         Size -> Size
     end.
+
+cid(ClientInfo = #{clientid := ClientId}) ->
+    {mtns(ClientInfo), ClientId}.
+
+cid(Mtns, ClientId) ->
+    {Mtns, ClientId}.
+
+mtns(ClientInfo) ->
+    emqx_utils_maps:deep_get([client_attr, mtns], ClientInfo, undefined).
+
+cid2clientid({_, Id}) -> Id.

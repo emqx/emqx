@@ -48,6 +48,7 @@
 %% PubSub Infos
 -export([
     subscriptions/1,
+    subscriptions/2,
     subscriptions_via_topic/1,
     subscribers/1,
     subscribed/2
@@ -448,6 +449,11 @@ subscriptions(SubId) ->
         undefined ->
             []
     end.
+
+-spec subscriptions(emqx_types:mtns(), pid() | emqx_types:subid()) ->
+    [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}].
+subscriptions(_Mtns, _SubId) ->
+    error(todo).
 
 -spec subscriptions_via_topic(emqx_types:topic() | emqx_types:share()) -> [emqx_types:subopts()].
 subscriptions_via_topic(Topic) ->

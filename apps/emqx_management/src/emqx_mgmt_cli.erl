@@ -198,7 +198,7 @@ clients(["list"]) ->
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 clients(["kick", ClientId]) ->
-    ok = emqx_cm:kick_session(bin(ClientId)),
+    ok = emqx_cm:kick_session(_Mtns = undefined, bin(ClientId)),
     emqx_ctl:print("ok~n");
 clients(_) ->
     emqx_ctl:usage([
@@ -763,8 +763,11 @@ authz(["cache-clean", "all"]) ->
     Msg = "Authorization cache drain started on all nodes",
     with_log(fun emqx_mgmt:clean_authz_cache_all/0, Msg);
 authz(["cache-clean", ClientId]) ->
+    %% XXX: Mtns
     Msg = io_lib:format("Drain ~ts authz cache", [ClientId]),
-    with_log(fun() -> emqx_mgmt:clean_authz_cache(iolist_to_binary(ClientId)) end, Msg);
+    with_log(
+        fun() -> emqx_mgmt:clean_authz_cache(_Mtns = undefined, iolist_to_binary(ClientId)) end, Msg
+    );
 authz(_) ->
     emqx_ctl:usage(
         [

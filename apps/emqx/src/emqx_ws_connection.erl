@@ -532,21 +532,21 @@ handle_info({close, Reason}, State) ->
     ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     return(enqueue({close, Reason}, State));
 handle_info({event, connected}, State = #state{channel = Channel}) ->
-    ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    CId = emqx_channel:info(cid, Channel),
+    emqx_cm:insert_channel_info(CId, info(State), stats(State)),
     return(State);
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
-    ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_info(ClientId, info(State)),
+    CId = emqx_channel:info(cid, Channel),
+    emqx_cm:set_chan_info(CId, info(State)),
     return(State);
 handle_info({event, _Other}, State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientId is yet unknown (i.e. connect packet is not received yet)
-        undefined ->
+        {_, undefined} ->
             ok;
-        ClientId ->
-            emqx_cm:set_chan_info(ClientId, info(State)),
-            emqx_cm:set_chan_stats(ClientId, stats(State))
+        CId ->
+            emqx_cm:set_chan_info(CId, info(State)),
+            emqx_cm:set_chan_stats(CId, stats(State))
     end,
     return(State);
 handle_info(Info, State) ->
@@ -568,8 +568,8 @@ handle_timeout(
         stats_timer = TRef
     }
 ) ->
-    ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    CId = emqx_channel:info(cid, Channel),
+    emqx_cm:set_chan_stats(CId, stats(State)),
     return(State#state{stats_timer = undefined});
 handle_timeout(TRef, TMsg, State) ->
     with_channel(handle_timeout, [TRef, TMsg], State).

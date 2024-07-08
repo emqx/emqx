@@ -467,7 +467,8 @@ do_purge_sessions(N) when N > 0 ->
     Channels = take_channels(N),
     ok = lists:foreach(
         fun({ClientId, _ConnInfo, _ClientInfo}) ->
-            emqx_cm:discard_session(ClientId)
+            %% XXX: Mtns
+            emqx_cm:discard_session(_Mtns = undefined, ClientId)
         end,
         Channels
     ).

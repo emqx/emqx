@@ -389,7 +389,8 @@ on_banned(#banned{who = {clientid, ClientId}}) ->
             clientid => ClientId
         }
     ),
-    emqx_cm:kick_session(ClientId),
+    %% XXX: Mtns
+    emqx_cm:kick_session(_Mtns = undefined, ClientId),
     ok;
 on_banned(_) ->
     ok.

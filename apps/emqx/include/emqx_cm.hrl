@@ -32,6 +32,18 @@
 
 -define(CM_POOL, emqx_cm_pool).
 
+-define(IS_CLIENTID(CLIENTID),
+    (is_binary(CLIENTID) orelse (is_atom(CLIENTID) andalso CLIENTID =/= undefined))
+).
+
+-define(IS_CID(CID),
+    (is_tuple(CID) andalso tuple_size(CID) == 2 andalso ?IS_CLIENTID(element(2, CID)))
+).
+
+-define(DEFAULT_NAMESPACE_NAME, undefined).
+
+-define(WITH_EMPTY_MTNS(ClientId), {undefined, ClientId}).
+
 %% Registered sessions.
 -record(channel, {
     chid :: emqx_types:clientid() | '_',

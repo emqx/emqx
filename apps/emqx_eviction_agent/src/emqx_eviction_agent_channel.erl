@@ -255,7 +255,8 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             PendingsAll = emqx_session_mem:dedup(ClientInfo, Pendings, DeliversLocal, Session),
             NSession = emqx_session_mem:enqueue(ClientInfo, PendingsAll, Session),
             NChannel = Channel#{session => NSession},
-            ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
+            CId = emqx_cm:cid(ClientInfo),
+            ok = emqx_cm:insert_channel_info(CId, info(NChannel), stats(NChannel)),
             ?SLOG(
                 info,
                 #{

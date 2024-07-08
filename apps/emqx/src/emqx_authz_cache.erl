@@ -28,7 +28,7 @@
     get_cache_ttl/0,
     is_enabled/1,
     drain_cache/0,
-    drain_cache/1
+    drain_cache/2
 ]).
 
 %% export for test
@@ -181,9 +181,9 @@ drain_cache() ->
     _ = persistent_term:put(drain_k(), time_now()),
     ok.
 
--spec drain_cache(emqx_types:clientid()) -> ok | {error, not_found}.
-drain_cache(ClientId) ->
-    case emqx_cm:lookup_channels(ClientId) of
+-spec drain_cache(emqx_types:mtns(), emqx_types:clientid()) -> ok | {error, not_found}.
+drain_cache(Mtns, ClientId) ->
+    case emqx_cm:lookup_channels({Mtns, ClientId}) of
         [] ->
             {error, not_found};
         Pids when is_list(Pids) ->

@@ -213,8 +213,9 @@ destroy(_Session) ->
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
-open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
-    case emqx_cm:takeover_session_begin(ClientId) of
+open(ClientInfo, ConnInfo, _MaybeWillMsg, Conf) ->
+    CId = emqx_cm:cid(ClientInfo),
+    case emqx_cm:takeover_session_begin(CId) of
         {ok, SessionRemote, TakeoverState} ->
             Session0 = resume(ClientInfo, SessionRemote),
             case emqx_cm:takeover_session_end(TakeoverState) of

@@ -32,30 +32,30 @@ start_link() ->
     ekka_locker:start_link(?MODULE).
 
 -spec trans(
-    option(emqx_types:clientid()),
+    option(emqx_types:cid()),
     fun(([node()]) -> any())
 ) -> any().
 trans(undefined, Fun) ->
     Fun([]);
-trans(ClientId, Fun) ->
-    case lock(ClientId) of
+trans(CId, Fun) ->
+    case lock(CId) of
         {true, Nodes} ->
             try
                 Fun(Nodes)
             after
-                unlock(ClientId)
+                unlock(CId)
             end;
         {false, _Nodes} ->
             {error, client_id_unavailable}
     end.
 
--spec lock(emqx_types:clientid()) -> {boolean(), [node() | {node(), any()}]}.
-lock(ClientId) ->
-    ekka_locker:acquire(?MODULE, ClientId, strategy()).
+-spec lock(emqx_types:cid()) -> {boolean(), [node() | {node(), any()}]}.
+lock(CId) ->
+    ekka_locker:acquire(?MODULE, CId, strategy()).
 
--spec unlock(emqx_types:clientid()) -> {boolean(), [node()]}.
-unlock(ClientId) ->
-    ekka_locker:release(?MODULE, ClientId, strategy()).
+-spec unlock(emqx_types:cid()) -> {boolean(), [node()]}.
+unlock(CId) ->
+    ekka_locker:release(?MODULE, CId, strategy()).
 
 -spec strategy() -> local | leader | quorum | all.
 strategy() ->
