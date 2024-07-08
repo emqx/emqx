@@ -132,10 +132,11 @@ node_name.label:
 """Node Name"""
 
 rpc_port_discovery.desc:
-"""<code>manual</code>: discover ports by <code>tcp_server_port</code>.<br/>
+"""<code>manual</code>: discover ports by <code>server_port</code>.<br/>
 <code>stateless</code>: discover ports in a stateless manner, using the following algorithm.
 If node name is <code>emqxN@127.0.0.1</code>, where the N is an integer,
-then the listening port will be 5370 + N."""
+then the listening port will be 5370 + N.
+NOTE: when `port_discovery` is `manual`, `server_port` configuration has no effect."""
 
 rpc_port_discovery.label:
 """RRC Port Discovery"""
@@ -358,12 +359,12 @@ to <code>rlog</code>."""
 db_role.label:
 """DB Role"""
 
-rpc_tcp_server_port.desc:
+rpc_server_port.desc:
 """Listening port used by RPC local service.<br/>
 Note that this config only takes effect when rpc.port_discovery is set to manual."""
 
-rpc_tcp_server_port.label:
-"""RPC TCP Server Port"""
+rpc_server_port.label:
+"""RPC Server Port"""
 
 desc_console_handler.desc:
 """Log handler that prints log events to the EMQX console."""
@@ -733,14 +734,6 @@ this is where to look."""
 
 desc_rpc.label:
 """RPC"""
-
-rpc_ssl_server_port.desc:
-"""Listening port used by RPC local service.<br/>
-Note that this config only takes effect when rpc.port_discovery is set to manual
-and <code>driver</code> is set to <code>ssl</code>."""
-
-rpc_ssl_server_port.label:
-"""RPC SSL Server Port"""
 
 desc_cluster.desc:
 """EMQX nodes can form a cluster to scale up the total capacity.<br/>
