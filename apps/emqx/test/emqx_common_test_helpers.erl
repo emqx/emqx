@@ -173,11 +173,30 @@
 %%------------------------------------------------------------------------------
 
 all(Suite) ->
-    lists:usort([
+    TestCases = lists:usort([
         F
      || {F, 1} <- Suite:module_info(exports),
         string:substr(atom_to_list(F), 1, 2) == "t_"
-    ]).
+    ]),
+    FlakyTests = flaky_tests(Suite),
+    lists:map(
+        fun(TestCase) ->
+            case maps:find(TestCase, FlakyTests) of
+                {ok, Repetitions} -> {testcase, TestCase, [{flaky, Repetitions}]};
+                error -> TestCase
+            end
+        end,
+        TestCases
+    ).
+
+-spec flaky_tests(module()) -> #{atom() => pos_integer()}.
+flaky_tests(Suite) ->
+    case erlang:function_exported(Suite, flaky_tests, 0) of
+        true ->
+            Suite:flaky_tests();
+        false ->
+            #{}
+    end.
 
 init_per_testcase(Module, TestCase, Config) ->
     case erlang:function_exported(Module, TestCase, 2) of
