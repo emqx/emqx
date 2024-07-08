@@ -155,7 +155,11 @@ mark_fix_begin(Node, TnxId) ->
     emqx_cluster_rpc:update_mfa(Node, MFA, TnxId).
 
 mark_fix_log(Status, Opts) ->
-    ?SLOG(warning, #{msg => cluster_fix_log, status => Status, opts => Opts}),
+    ?SLOG(warning, #{
+        msg => cluster_config_sync_triggered,
+        status => emqx_utils:redact(Status),
+        opts => Opts
+    }),
     ok.
 
 audit(Level, From, Log) ->
