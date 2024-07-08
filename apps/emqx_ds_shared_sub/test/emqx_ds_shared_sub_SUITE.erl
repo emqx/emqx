@@ -183,51 +183,6 @@ t_graceful_disconnect(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
-t_disconnect_no_double_replay(_Config) ->
-    ConnPub = emqtt_connect_pub(<<"client_pub">>),
-
-    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr9/topic9/#">>, 1),
-
-    ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr9/topic9/#">>, 1),
-
-    ct:sleep(1000),
-
-    NPubs = 10_000,
-
-    Topics = [<<"topic9/1">>, <<"topic9/2">>, <<"topic9/3">>],
-    ok = publish_n(ConnPub, Topics, 1, NPubs),
-
-    Self = self(),
-    _ = spawn_link(fun() ->
-        ok = publish_n(ConnPub, Topics, NPubs + 1, 2 * NPubs),
-        Self ! publish_done
-    end),
-
-    ok = emqtt:disconnect(ConnShared2),
-
-    receive
-        publish_done -> ok
-    end,
-
-    Pubs = drain_publishes(),
-
-    ClientByBid = fun(Pid) ->
-        case Pid of
-            ConnShared1 -> <<"client_shared1">>;
-            ConnShared2 -> <<"client_shared2">>
-        end
-    end,
-
-    {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
-
-    ?assertEqual([], Missing),
-    ?assertEqual([], Duplicate),
-
-    ok = emqtt:disconnect(ConnShared1),
-    ok = emqtt:disconnect(ConnPub).
-
 t_intensive_reassign(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -373,6 +328,80 @@ t_quick_resubscribe(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
+t_disconnect_no_double_replay1(_Config) ->
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr11/topic11/#">>, 1),
+
+    ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr11/topic11/#">>, 1),
+
+    ct:sleep(1000),
+
+    NPubs = 10_000,
+
+    Topics = [<<"topic11/1">>, <<"topic11/2">>, <<"topic11/3">>],
+    ok = publish_n(ConnPub, Topics, 1, NPubs),
+
+    Self = self(),
+    _ = spawn_link(fun() ->
+        ok = publish_n(ConnPub, Topics, NPubs + 1, 2 * NPubs),
+        Self ! publish_done
+    end),
+
+    ok = emqtt:disconnect(ConnShared2),
+
+    receive
+        publish_done -> ok
+    end,
+
+    Pubs = drain_publishes(),
+
+    ClientByBid = fun(Pid) ->
+        case Pid of
+            ConnShared1 -> <<"client_shared1">>;
+            ConnShared2 -> <<"client_shared2">>
+        end
+    end,
+
+    {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
+
+    ?assertEqual([], Missing),
+    ?assertEqual([], Duplicate),
+
+    ok = emqtt:disconnect(ConnShared1),
+    ok = emqtt:disconnect(ConnPub).
+
+t_disconnect_no_double_replay2(_Config) ->
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>, [{auto_ack, false}]),
+    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr12/topic12/#">>, 1),
+
+    ct:sleep(1000),
+
+    ok = publish_n(ConnPub, [<<"topic12/1">>], 1, 20),
+
+    receive
+        {publish, #{payload := <<"1">>, packet_id := PacketId1}} ->
+            ok = emqtt:puback(ConnShared1, PacketId1)
+    after 5000 ->
+        ct:fail("No publish received")
+    end,
+
+    ok = emqtt:disconnect(ConnShared1),
+
+    ConnShared12 = emqtt_connect_sub(<<"client_shared12">>),
+    {ok, _, _} = emqtt:subscribe(ConnShared12, <<"$share/gr12/topic12/#">>, 1),
+
+    ?assertNotReceive(
+        {publish, #{payload := <<"1">>}},
+        3000
+    ),
+
+    ok = emqtt:disconnect(ConnShared12).
+
 t_lease_reconnect(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -432,12 +461,17 @@ t_renew_lease_timeout(_Config) ->
 %%--------------------------------------------------------------------
 
 emqtt_connect_sub(ClientId) ->
-    {ok, C} = emqtt:start_link([
-        {clientid, ClientId},
-        {clean_start, true},
-        {proto_ver, v5},
-        {properties, #{'Session-Expiry-Interval' => 7_200}}
-    ]),
+    emqtt_connect_sub(ClientId, []).
+
+emqtt_connect_sub(ClientId, Options) ->
+    {ok, C} = emqtt:start_link(
+        [
+            {clientid, ClientId},
+            {clean_start, true},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 7_200}}
+        ] ++ Options
+    ),
     {ok, _} = emqtt:connect(C),
     C.
 

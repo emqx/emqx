@@ -31,6 +31,8 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("session_internals.hrl").
+
+-include_lib("emqx/include/emqx_persistent_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
@@ -338,10 +340,8 @@ accept_stream(#{topic_filter := TopicFilter} = Event, S, ScheduledActions) ->
             accept_stream(Event, S)
     end.
 
-%% TODO:
-%% handle unacked iterator
 accept_stream(
-    #{topic_filter := TopicFilter, stream := Stream, progress := #{iterator := Iterator}} = _Event,
+    #{topic_filter := TopicFilter, stream := Stream, progress := Progress} = _Event,
     S0
 ) ->
     case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
@@ -361,6 +361,7 @@ accept_stream(
                 end,
             case NeedCreateStream of
                 true ->
+                    Iterator = rewind_iterator(Progress),
                     NewSRS =
                         #srs{
                             rank_x = ?rank_x,
@@ -374,6 +375,52 @@ accept_stream(
                 false ->
                     S0
             end
+    end.
+
+%% Skip acked messages.
+%% This may be a bit inefficient, and it is unclear how to handle errors.
+%%
+%% A better variant would be to wrap the iterator on `emqx_ds` level in a new one,
+%% that will skip acked messages internally in `emqx_ds:next` function.
+%% Unluckily, emqx_ds does not have a wrapping structure around iterators of
+%% the underlying levels, so we cannot wrap it without a risk of confusion.
+
+rewind_iterator(#{iterator := Iterator, acked := true}) ->
+    Iterator;
+rewind_iterator(#{iterator := Iterator0, acked := false, qos1_acked := 0, qos2_acked := 0}) ->
+    Iterator0;
+%% This should not happen, means the DS is consistent
+rewind_iterator(#{iterator := Iterator0, acked := false, qos1_acked := Q1, qos2_acked := Q2}) when
+    Q1 < 0 orelse Q2 < 0
+->
+    Iterator0;
+rewind_iterator(
+    #{iterator := Iterator0, acked := false, qos1_acked := Q1Old, qos2_acked := Q2Old} = Progress
+) ->
+    case emqx_ds:next(?PERSISTENT_MESSAGE_DB, Iterator0, Q1Old + Q2Old) of
+        {ok, Iterator1, Messages} ->
+            {Q1New, Q2New} = update_qos_acked(Q1Old, Q2Old, Messages),
+            rewind_iterator(Progress#{
+                iterator => Iterator1, qos1_acked => Q1New, qos2_acked => Q2New
+            });
+        {ok, end_of_stream} ->
+            end_of_stream;
+        {error, _, _} ->
+            %% What to do here?
+            %% In the wrapping variant we do not have this problem.
+            Iterator0
+    end.
+
+update_qos_acked(Q1, Q2, []) ->
+    {Q1, Q2};
+update_qos_acked(Q1, Q2, [{_Key, Message} | Messages]) ->
+    case emqx_message:qos(Message) of
+        ?QOS_1 ->
+            update_qos_acked(Q1 - 1, Q2, Messages);
+        ?QOS_2 ->
+            update_qos_acked(Q1, Q2 - 1, Messages);
+        _ ->
+            update_qos_acked(Q1, Q2, Messages)
     end.
 
 revoke_stream(
@@ -543,7 +590,7 @@ stream_progresses(S, StreamKeys) ->
 
 on_disconnect(S0, #{agent := Agent0} = SharedSubS0) ->
     S1 = revoke_all_streams(S0),
-    Progresses = all_stream_progresses(S1, Agent0),
+    Progresses = all_stream_progresses(S1, Agent0, _NeedUnacked = true),
     Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_disconnect(Agent0, Progresses),
     SharedSubS1 = SharedSubS0#{agent => Agent1, scheduled_actions => #{}},
     {S1, SharedSubS1}.
