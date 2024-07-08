@@ -993,11 +993,12 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 
 fetch_new_messages(Session0 = #{s := S0, shared_sub_s := SharedSubS0}, ClientInfo) ->
     {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replay(S0, SharedSubS0),
-    LFS = maps:get(last_fetched_stream, Session0, beginning),
+    Session1 = Session0#{s => S1, shared_sub_s => SharedSubS1},
+    LFS = maps:get(last_fetched_stream, Session1, beginning),
     ItStream = emqx_persistent_session_ds_stream_scheduler:iter_next_streams(LFS, S1),
     BatchSize = get_config(ClientInfo, [batch_size]),
-    Session1 = fetch_new_messages(ItStream, BatchSize, Session0, ClientInfo),
-    Session1#{shared_sub_s => SharedSubS1}.
+    Session2 = fetch_new_messages(ItStream, BatchSize, Session1, ClientInfo),
+    Session2#{shared_sub_s => SharedSubS1}.
 
 fetch_new_messages(ItStream0, BatchSize, Session0, ClientInfo) ->
     #{inflight := Inflight} = Session0,

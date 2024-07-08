@@ -48,6 +48,8 @@
     to_map/2
 ]).
 
+-define(EPOCH_BITS, 15).
+
 -define(schedule_subscribe, schedule_subscribe).
 -define(schedule_unsubscribe, schedule_unsubscribe).
 
@@ -58,9 +60,21 @@
 
 -type agent_stream_progress() :: #{
     stream := emqx_ds:stream(),
-    iterator := emqx_ds:iterator(),
+    progress := progress(),
     use_finished := boolean()
 }.
+
+-type progress() ::
+    #{
+        acked := true,
+        iterator := emqx_ds:iterator()
+    }
+    | #{
+        acked := false,
+        iterator := emqx_ds:iterator(),
+        qos1_acked := boolean(),
+        qos2_acked := boolean()
+    }.
 
 -type scheduled_action() :: #{
     type := scheduled_action_type(),
@@ -81,6 +95,11 @@
 
 -define(rank_x, rank_shared).
 -define(rank_y, 0).
+
+-export_type([
+    progress/0,
+    agent_stream_progress/0
+]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -290,7 +309,9 @@ renew_streams(S0, #{agent := Agent0, scheduled_actions := ScheduledActions} = Sh
     {StreamLeaseEvents, Agent1} = emqx_persistent_session_ds_shared_subs_agent:renew_streams(
         Agent0
     ),
-    ?tp(info, shared_subs_new_stream_lease_events, #{stream_lease_events => StreamLeaseEvents}),
+    ?tp(warning, shared_subs_new_stream_lease_events, #{
+        stream_lease_events => format_lease_events(StreamLeaseEvents)
+    }),
     S1 = lists:foldl(
         fun
             (#{type := lease} = Event, S) -> accept_stream(Event, S, ScheduledActions);
@@ -317,8 +338,11 @@ accept_stream(#{topic_filter := TopicFilter} = Event, S, ScheduledActions) ->
             accept_stream(Event, S)
     end.
 
+%% TODO:
+%% handle unacked iterator
 accept_stream(
-    #{topic_filter := TopicFilter, stream := Stream, iterator := Iterator}, S0
+    #{topic_filter := TopicFilter, stream := Stream, progress := #{iterator := Iterator}} = _Event,
+    S0
 ) ->
     case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
         undefined ->
@@ -326,8 +350,17 @@ accept_stream(
             S0;
         #{id := SubId, current_state := SStateId} ->
             Key = {SubId, Stream},
-            case emqx_persistent_session_ds_state:get_stream(Key, S0) of
-                undefined ->
+            NeedCreateStream =
+                case emqx_persistent_session_ds_state:get_stream(Key, S0) of
+                    undefined ->
+                        true;
+                    #srs{unsubscribed = true} ->
+                        true;
+                    _SRS ->
+                        false
+                end,
+            case NeedCreateStream of
+                true ->
                     NewSRS =
                         #srs{
                             rank_x = ?rank_x,
@@ -338,7 +371,7 @@ accept_stream(
                         },
                     S1 = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
                     S1;
-                _SRS ->
+                false ->
                     S0
             end
     end.
@@ -371,22 +404,30 @@ revoke_stream(
     emqx_persistent_session_ds_state:t(),
     t()
 ) -> {emqx_persistent_session_ds_state:t(), t()}.
-on_streams_replay(S, #{agent := Agent0, scheduled_actions := ScheduledActions0} = SharedSubS0) ->
-    Progresses = stream_progresses(S),
+on_streams_replay(S0, SharedSubS0) ->
+    {S1, #{agent := Agent0, scheduled_actions := ScheduledActions0} = SharedSubS1} =
+        renew_streams(S0, SharedSubS0),
+
+    Progresses = all_stream_progresses(S1, Agent0),
     Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_stream_progress(
         Agent0, Progresses
     ),
-    {Agent2, ScheduledActions1} = run_scheduled_actions(S, Agent1, ScheduledActions0),
-    SharedSubS1 = SharedSubS0#{
+    {Agent2, ScheduledActions1} = run_scheduled_actions(S1, Agent1, ScheduledActions0),
+    SharedSubS2 = SharedSubS1#{
         agent => Agent2,
         scheduled_actions => ScheduledActions1
     },
-    {S, SharedSubS1}.
+    {S1, SharedSubS2}.
 
 %%--------------------------------------------------------------------
 %% on_streams_replay internal functions
 
-stream_progresses(S) ->
+all_stream_progresses(S, Agent) ->
+    all_stream_progresses(S, Agent, _NeedUnacked = false).
+
+all_stream_progresses(S, _Agent, NeedUnacked) ->
+    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     fold_shared_stream_states(
         fun(
             #share{group = Group},
@@ -394,9 +435,12 @@ stream_progresses(S) ->
             SRS,
             ProgressesAcc0
         ) ->
-            case is_stream_fully_acked(S, SRS) of
+            case
+                is_stream_started(CommQos1, CommQos2, SRS) and
+                    (NeedUnacked or is_stream_fully_acked(CommQos1, CommQos2, SRS))
+            of
                 true ->
-                    StreamProgress = stream_progress(S, Stream, SRS),
+                    StreamProgress = stream_progress(CommQos1, CommQos2, Stream, SRS),
                     maps:update_with(
                         Group,
                         fun(Progresses) -> [StreamProgress | Progresses] end,
@@ -437,7 +481,7 @@ run_scheduled_action(
         [] ->
             ?tp(warning, shared_subs_schedule_action_complete, #{
                 topic_filter => TopicFilter,
-                progresses => format_streams(Progresses1),
+                progresses => format_stream_progresses(Progresses1),
                 type => Type
             }),
             %% Regular progress won't se unsubscribed streams, so we need to
@@ -467,6 +511,8 @@ run_scheduled_action(
     end.
 
 filter_unfinished_streams(S, StreamKeysToWait) ->
+    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     lists:filter(
         fun(Key) ->
             case emqx_persistent_session_ds_state:get_stream(Key, S) of
@@ -475,21 +521,19 @@ filter_unfinished_streams(S, StreamKeysToWait) ->
                     %% in completed state before deletion
                     true;
                 SRS ->
-                    not is_stream_fully_acked(S, SRS)
+                    not is_stream_fully_acked(CommQos1, CommQos2, SRS)
             end
         end,
         StreamKeysToWait
     ).
 
 stream_progresses(S, StreamKeys) ->
+    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     lists:map(
         fun({_SubId, Stream} = Key) ->
-            #srs{it_end = ItEnd} = SRS = emqx_persistent_session_ds_state:get_stream(Key, S),
-            #{
-                stream => Stream,
-                iterator => ItEnd,
-                use_finished => is_use_finished(S, SRS)
-            }
+            SRS = emqx_persistent_session_ds_state:get_stream(Key, S),
+            stream_progress(CommQos1, CommQos2, Stream, SRS)
         end,
         StreamKeys
     ).
@@ -499,7 +543,7 @@ stream_progresses(S, StreamKeys) ->
 
 on_disconnect(S0, #{agent := Agent0} = SharedSubS0) ->
     S1 = revoke_all_streams(S0),
-    Progresses = stream_progresses(S1),
+    Progresses = all_stream_progresses(S1, Agent0),
     Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_disconnect(Agent0, Progresses),
     SharedSubS1 = SharedSubS0#{agent => Agent1, scheduled_actions => #{}},
     {S1, SharedSubS1}.
@@ -565,12 +609,41 @@ stream_keys_by_sub_id(S, MatchSubId) ->
         S
     ).
 
-stream_progress(S, Stream, #srs{it_end = EndIt} = SRS) ->
-    #{
-        stream => Stream,
-        iterator => EndIt,
-        use_finished => is_use_finished(S, SRS)
-    }.
+stream_progress(
+    CommQos1,
+    CommQos2,
+    Stream,
+    #srs{
+        it_end = EndIt,
+        it_begin = BeginIt,
+        first_seqno_qos1 = StartQos1,
+        first_seqno_qos2 = StartQos2
+    } = SRS
+) ->
+    Qos1Acked = seqno_diff(?QOS_1, CommQos1, StartQos1),
+    Qos2Acked = seqno_diff(?QOS_2, CommQos2, StartQos2),
+    case is_stream_fully_acked(CommQos1, CommQos2, SRS) of
+        true ->
+            #{
+                stream => Stream,
+                progress => #{
+                    acked => true,
+                    iterator => EndIt
+                },
+                use_finished => is_use_finished(SRS)
+            };
+        false ->
+            #{
+                stream => Stream,
+                progress => #{
+                    acked => false,
+                    iterator => BeginIt,
+                    qos1_acked => Qos1Acked,
+                    qos2_acked => Qos2Acked
+                },
+                use_finished => is_use_finished(SRS)
+            }
+    end.
 
 fold_shared_subs(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(
@@ -618,11 +691,30 @@ agent_opts(#{session_id := SessionId}) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-is_use_finished(_S, #srs{unsubscribed = Unsubscribed}) ->
+is_use_finished(#srs{unsubscribed = Unsubscribed}) ->
     Unsubscribed.
 
-is_stream_fully_acked(S, SRS) ->
-    emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S).
+is_stream_started(CommQos1, CommQos2, #srs{first_seqno_qos1 = Q1, last_seqno_qos1 = Q2}) ->
+    (CommQos1 >= Q1) or (CommQos2 >= Q2).
+
+is_stream_fully_acked(_, _, #srs{
+    first_seqno_qos1 = Q1, last_seqno_qos1 = Q1, first_seqno_qos2 = Q2, last_seqno_qos2 = Q2
+}) ->
+    %% Streams where the last chunk doesn't contain any QoS1 and 2
+    %% messages are considered fully acked:
+    true;
+is_stream_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
+    (Comm1 >= S1) andalso (Comm2 >= S2).
+
+-dialyzer({nowarn_function, seqno_diff/3}).
+seqno_diff(?QOS_1, A, B) ->
+    %% For QoS1 messages we skip a seqno every time the epoch changes,
+    %% we need to substract that from the diff:
+    EpochA = A bsr ?EPOCH_BITS,
+    EpochB = B bsr ?EPOCH_BITS,
+    A - B - (EpochA - EpochB);
+seqno_diff(?QOS_2, A, B) ->
+    A - B.
 
 %%--------------------------------------------------------------------
 %% Formatters
@@ -633,27 +725,41 @@ format_schedule_action(#{
 }) ->
     #{
         type => Type,
-        progresses => format_streams(Progresses),
+        progresses => format_stream_progresses(Progresses),
         stream_keys_to_wait => format_stream_keys(StreamKeysToWait)
     }.
 
-format_streams(Streams) ->
+format_stream_progresses(Streams) ->
     lists:map(
-        fun format_stream/1,
+        fun format_stream_progress/1,
         Streams
     ).
 
-format_stream(#{stream := Stream, iterator := Iterator} = Value) ->
-    Value#{stream => format_opaque(Stream), iterator => format_opaque(Iterator)}.
+format_stream_progress(#{stream := Stream, progress := Progress} = Value) ->
+    Value#{stream => format_opaque(Stream), progress => format_progress(Progress)}.
 
-format_stream_key({SubId, Stream}) ->
-    {SubId, format_opaque(Stream)}.
+format_progress(#{iterator := Iterator} = Progress) ->
+    Progress#{iterator => format_opaque(Iterator)}.
+
+format_stream_key(beginning) -> beginning;
+format_stream_key({SubId, Stream}) -> {SubId, format_opaque(Stream)}.
 
 format_stream_keys(StreamKeys) ->
     lists:map(
         fun format_stream_key/1,
         StreamKeys
     ).
+
+format_lease_events(Events) ->
+    lists:map(
+        fun format_lease_event/1,
+        Events
+    ).
+
+format_lease_event(#{stream := Stream, progress := Progress} = Event) ->
+    Event#{stream => format_opaque(Stream), progress => format_progress(Progress)};
+format_lease_event(#{stream := Stream} = Event) ->
+    Event#{stream => format_opaque(Stream)}.
 
 format_opaque(Opaque) ->
     erlang:phash2(Opaque).

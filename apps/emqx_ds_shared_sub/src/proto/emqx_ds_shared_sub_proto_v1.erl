@@ -82,7 +82,7 @@ agent_disconnect(Node, ToLeader, FromAgent, StreamProgresses, Version) ->
     emqx_ds_shared_sub_proto:agent(),
     emqx_ds_shared_sub_proto:group(),
     emqx_ds_shared_sub_proto:leader(),
-    list(emqx_ds_shared_sub_proto:stream_progress()),
+    list(emqx_ds_shared_sub_proto:leader_stream_progress()),
     emqx_ds_shared_sub_proto:version()
 ) -> ok.
 leader_lease_streams(Node, ToAgent, OfGroup, Leader, Streams, Version) ->
@@ -117,7 +117,7 @@ leader_renew_stream_lease(Node, ToAgent, OfGroup, VersionOld, VersionNew) ->
     emqx_ds_shared_sub_proto:group(),
     emqx_ds_shared_sub_proto:version(),
     emqx_ds_shared_sub_proto:version(),
-    list(emqx_ds_shared_sub_proto:stream_progress())
+    list(emqx_ds_shared_sub_proto:leader_stream_progress())
 ) -> ok.
 leader_update_streams(Node, ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) ->
     erpc:cast(Node, emqx_ds_shared_sub_proto, leader_update_streams, [

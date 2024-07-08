@@ -45,11 +45,13 @@
     send_after := fun((non_neg_integer(), term()) -> reference())
 }.
 
+-type progress() :: emqx_persistent_session_ds_shared_subs:progress().
+
 -type stream_lease_event() ::
     #{
         type => lease,
         stream => emqx_ds:stream(),
-        iterator => emqx_ds:iterator()
+        progress => progress()
     }
     | #{
         type => revoke,
@@ -60,7 +62,7 @@
     #{
         type => lease,
         stream => emqx_ds:stream(),
-        iterator => emqx_ds:iterator(),
+        progress => progress(),
         topic_filter => emqx_persistent_session_ds:share_topic_filter()
     }
     | #{
@@ -81,13 +83,13 @@
 -type connecting_data() :: #{}.
 -type replaying_data() :: #{
     leader => emqx_ds_shared_sub_proto:leader(),
-    streams => #{emqx_ds:stream() => emqx_ds:iterator()},
+    streams => #{emqx_ds:stream() => progress()},
     version => emqx_ds_shared_sub_proto:version(),
     prev_version => undefined
 }.
 -type updating_data() :: #{
     leader => emqx_ds_shared_sub_proto:leader(),
-    streams => #{emqx_ds:stream() => emqx_ds:iterator()},
+    streams => #{emqx_ds:stream() => progress()},
     version => emqx_ds_shared_sub_proto:version(),
     prev_version => emqx_ds_shared_sub_proto:version()
 }.
@@ -275,18 +277,18 @@ handle_leader_update_streams(
         id => Id,
         version_old => VersionOld,
         version_new => VersionNew,
-        stream_progresses => emqx_ds_shared_sub_proto:format_streams(StreamProgresses)
+        stream_progresses => emqx_ds_shared_sub_proto:format_stream_progresses(StreamProgresses)
     }),
     {AddEvents, Streams1} = lists:foldl(
-        fun(#{stream := Stream, iterator := It}, {AddEventAcc, StreamsAcc}) ->
+        fun(#{stream := Stream, progress := Progress}, {AddEventAcc, StreamsAcc}) ->
             case maps:is_key(Stream, StreamsAcc) of
                 true ->
                     %% We prefer our own progress
                     {AddEventAcc, StreamsAcc};
                 false ->
                     {
-                        [#{type => lease, stream => Stream, iterator => It} | AddEventAcc],
-                        StreamsAcc#{Stream => It}
+                        [#{type => lease, stream => Stream, progress => Progress} | AddEventAcc],
+                        StreamsAcc#{Stream => Progress}
                     }
             end
         end,
@@ -310,6 +312,10 @@ handle_leader_update_streams(
         maps:keys(Streams1)
     ),
     StreamLeaseEvents = AddEvents ++ RevokeEvents,
+    ?tp(warning, shared_sub_group_sm_leader_update_streams, #{
+        id => Id,
+        stream_lease_events => emqx_ds_shared_sub_proto:format_lease_events(StreamLeaseEvents)
+    }),
     transition(
         GSM,
         ?updating,
@@ -540,11 +546,11 @@ run_enter_callback(#{state := ?disconnected} = GSM) ->
 
 progresses_to_lease_events(StreamProgresses) ->
     lists:map(
-        fun(#{stream := Stream, iterator := It}) ->
+        fun(#{stream := Stream, progress := Progress}) ->
             #{
                 type => lease,
                 stream => Stream,
-                iterator => It
+                progress => Progress
             }
         end,
         StreamProgresses
@@ -552,8 +558,8 @@ progresses_to_lease_events(StreamProgresses) ->
 
 progresses_to_map(StreamProgresses) ->
     lists:foldl(
-        fun(#{stream := Stream, iterator := It}, Acc) ->
-            Acc#{Stream => It}
+        fun(#{stream := Stream, progress := Progress}, Acc) ->
+            Acc#{Stream => Progress}
         end,
         #{},
         StreamProgresses

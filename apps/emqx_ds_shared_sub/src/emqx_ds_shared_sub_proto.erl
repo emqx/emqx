@@ -22,10 +22,12 @@
 ]).
 
 -export([
-    format_streams/1,
-    format_stream/1,
+    format_stream_progresses/1,
+    format_stream_progress/1,
     format_stream_key/1,
     format_stream_keys/1,
+    format_lease_event/1,
+    format_lease_events/1,
     agent/2
 ]).
 
@@ -38,23 +40,19 @@
     id := emqx_persistent_session_ds:id()
 }.
 
--type stream_progress() :: #{
+-type leader_stream_progress() :: #{
     stream := emqx_ds:stream(),
-    iterator := emqx_ds:iterator()
+    progress := emqx_persistent_session_ds_shared_subs:progress()
 }.
 
--type agent_stream_progress() :: #{
-    stream := emqx_ds:stream(),
-    iterator := emqx_ds:iterator(),
-    use_finished := boolean()
-}.
+-type agent_stream_progress() :: emqx_persistent_session_ds_shared_subs:agent_stream_progress().
 
 -export_type([
     agent/0,
     leader/0,
     group/0,
     version/0,
-    stream_progress/0,
+    leader_stream_progress/0,
     agent_stream_progress/0,
     agent_metadata/0
 ]).
@@ -91,7 +89,7 @@ agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, Version) when
         type => agent_update_stream_states,
         to_leader => ToLeader,
         from_agent => FromAgent,
-        stream_progresses => format_streams(StreamProgresses),
+        stream_progresses => format_stream_progresses(StreamProgresses),
         version => Version
     }),
     _ = erlang:send(ToLeader, ?agent_update_stream_states(FromAgent, StreamProgresses, Version)),
@@ -111,7 +109,7 @@ agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, VersionOld, Ve
         type => agent_update_stream_states,
         to_leader => ToLeader,
         from_agent => FromAgent,
-        stream_progresses => format_streams(StreamProgresses),
+        stream_progresses => format_stream_progresses(StreamProgresses),
         version_old => VersionOld,
         version_new => VersionNew
     }),
@@ -131,7 +129,7 @@ agent_disconnect(ToLeader, FromAgent, StreamProgresses, Version) when
         type => agent_disconnect,
         to_leader => ToLeader,
         from_agent => FromAgent,
-        stream_progresses => format_streams(StreamProgresses),
+        stream_progresses => format_stream_progresses(StreamProgresses),
         version => Version
     }),
     _ = erlang:send(ToLeader, ?agent_disconnect(FromAgent, StreamProgresses, Version)),
@@ -143,14 +141,15 @@ agent_disconnect(ToLeader, FromAgent, StreamProgresses, Version) ->
 
 %% leader -> agent messages
 
--spec leader_lease_streams(agent(), group(), leader(), list(stream_progress()), version()) -> ok.
+-spec leader_lease_streams(agent(), group(), leader(), list(leader_stream_progress()), version()) ->
+    ok.
 leader_lease_streams(ToAgent, OfGroup, Leader, Streams, Version) when ?is_local_agent(ToAgent) ->
     ?tp(warning, shared_sub_proto_msg, #{
         type => leader_lease_streams,
         to_agent => ToAgent,
         of_group => OfGroup,
         leader => Leader,
-        streams => format_streams(Streams),
+        streams => format_stream_progresses(Streams),
         version => Version
     }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
@@ -200,7 +199,8 @@ leader_renew_stream_lease(ToAgent, OfGroup, VersionOld, VersionNew) ->
         ?agent_node(ToAgent), ToAgent, OfGroup, VersionOld, VersionNew
     ).
 
--spec leader_update_streams(agent(), group(), version(), version(), list(stream_progress())) -> ok.
+-spec leader_update_streams(agent(), group(), version(), version(), list(leader_stream_progress())) ->
+    ok.
 leader_update_streams(ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) when
     ?is_local_agent(ToAgent)
 ->
@@ -210,7 +210,7 @@ leader_update_streams(ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) when
         of_group => OfGroup,
         version_old => VersionOld,
         version_new => VersionNew,
-        streams_new => format_streams(StreamsNew)
+        streams_new => format_stream_progresses(StreamsNew)
     }),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
         ?agent_pid(ToAgent),
@@ -247,14 +247,17 @@ agent(Id, Pid) ->
     _ = Id,
     ?agent(Id, Pid).
 
-format_streams(Streams) ->
+format_stream_progresses(Streams) ->
     lists:map(
-        fun format_stream/1,
+        fun format_stream_progress/1,
         Streams
     ).
 
-format_stream(#{stream := Stream, iterator := Iterator} = Value) ->
-    Value#{stream => format_opaque(Stream), iterator => format_opaque(Iterator)}.
+format_stream_progress(#{stream := Stream, progress := Progress} = Value) ->
+    Value#{stream => format_opaque(Stream), progress => format_progress(Progress)}.
+
+format_progress(#{iterator := Iterator} = Progress) ->
+    Progress#{iterator => format_opaque(Iterator)}.
 
 format_stream_key({SubId, Stream}) ->
     {SubId, format_opaque(Stream)}.
@@ -264,6 +267,17 @@ format_stream_keys(StreamKeys) ->
         fun format_stream_key/1,
         StreamKeys
     ).
+
+format_lease_events(Events) ->
+    lists:map(
+        fun format_lease_event/1,
+        Events
+    ).
+
+format_lease_event(#{stream := Stream, progress := Progress} = Event) ->
+    Event#{stream => format_opaque(Stream), progress => format_progress(Progress)};
+format_lease_event(#{stream := Stream} = Event) ->
+    Event#{stream => format_opaque(Stream)}.
 
 %%--------------------------------------------------------------------
 %% Helpers

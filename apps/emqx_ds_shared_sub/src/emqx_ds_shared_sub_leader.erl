@@ -49,8 +49,10 @@
     revoked_streams := list(emqx_ds:stream())
 }.
 
+-type progress() :: emqx_persistent_session_ds_shared_subs:progress().
+
 -type stream_state() :: #{
-    iterator => emqx_ds:iterator(),
+    progress => progress(),
     rank => emqx_ds:stream_rank()
 }.
 
@@ -84,7 +86,8 @@
 
 -export_type([
     options/0,
-    data/0
+    data/0,
+    progress/0
 ]).
 
 %% States
@@ -310,8 +313,12 @@ update_progresses(StreamStates, NewStreamsWRanks, TopicFilter, StartTime) ->
                     {ok, It} = emqx_ds:make_iterator(
                         ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
                     ),
+                    Progress = #{
+                        iterator => It,
+                        acked => true
+                    },
                     {
-                        NewStreamStatesAcc#{Stream => #{iterator => It, rank => Rank}},
+                        NewStreamStatesAcc#{Stream => #{progress => Progress, rank => Rank}},
                         OldStreamStatesAcc
                     }
             end
@@ -637,18 +644,18 @@ update_stream_progresses(
     ReceivedStreamProgresses
 ) ->
     {StreamStates1, ReplayedStreams} = lists:foldl(
-        fun(#{stream := Stream, iterator := It}, {StreamStatesAcc, ReplayedStreamsAcc}) ->
+        fun(#{stream := Stream, progress := Progress}, {StreamStatesAcc, ReplayedStreamsAcc}) ->
             case StreamOwners of
                 #{Stream := Agent} ->
                     StreamData0 = maps:get(Stream, StreamStatesAcc),
-                    case It of
-                        end_of_stream ->
+                    case Progress of
+                        #{iterator := end_of_stream} ->
                             Rank = maps:get(rank, StreamData0),
                             {maps:remove(Stream, StreamStatesAcc), ReplayedStreamsAcc#{
                                 Stream => Rank
                             }};
                         _ ->
-                            StreamData1 = StreamData0#{iterator => It},
+                            StreamData1 = StreamData0#{progress => Progress},
                             {StreamStatesAcc#{Stream => StreamData1}, ReplayedStreamsAcc}
                     end;
                 _ ->
@@ -701,6 +708,9 @@ clean_revoked_streams(
                 (
                     #{
                         stream := Stream,
+                        progress := #{
+                            acked := true
+                        },
                         use_finished := true
                     }
                 ) ->
@@ -953,7 +963,7 @@ stream_progresses(#{stream_states := StreamStates} = _Data, Streams) ->
             StreamData = maps:get(Stream, StreamStates),
             #{
                 stream => Stream,
-                iterator => maps:get(iterator, StreamData)
+                progress => maps:get(progress, StreamData)
             }
         end,
         Streams
