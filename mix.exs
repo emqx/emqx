@@ -1297,7 +1297,8 @@ defmodule EMQXUmbrella.MixProject do
     [
       ct: &do_ct/1,
       eunit: &do_eunit/1,
-      proper: &do_proper/1
+      proper: &do_proper/1,
+      dialyzer: &do_dialyzer/1
     ]
   end
 
@@ -1324,6 +1325,11 @@ defmodule EMQXUmbrella.MixProject do
     set_test_env!(true)
     Code.require_file("lib/mix/tasks/emqx.proper.ex")
     Mix.Task.run("emqx.proper", args)
+  end
+
+  defp do_dialyzer(args) do
+    Code.require_file("lib/mix/tasks/emqx.dialyzer.ex")
+    Mix.Task.run("emqx.dialyzer", args)
   end
 
   defp ensure_test_mix_env!() do
