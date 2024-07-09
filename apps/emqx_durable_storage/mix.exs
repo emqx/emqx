@@ -7,9 +7,16 @@ defmodule EMQXDurableStorage.MixProject do
       app: :emqx_durable_storage,
       version: "0.1.0",
       build_path: "../../_build",
-      # config_path: "../../config/config.exs",
+      compilers: [:yecc, :leex, :elixir, :asn1, :erlang, :app],
       erlc_options: UMP.erlc_options(),
-      erlc_paths: UMP.erlc_paths(),
+      erlc_paths: ["gen_src" | UMP.erlc_paths()],
+      # used by our `compile.asn1` compiler
+      asn1_opts: %{
+        out_dir: "gen_src"
+      },
+      asn1_srcs: [
+        "./asn.1/DurableMessage.asn"
+      ],
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
