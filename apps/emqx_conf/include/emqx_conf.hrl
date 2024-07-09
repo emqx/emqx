@@ -46,6 +46,6 @@
     )
 ).
 
--define(READONLY_KEYS, [cluster, rpc, node]).
+-define(READONLY_KEYS, [rpc, node]).
 
 -endif.
