@@ -63,6 +63,7 @@
 -type json_binary() :: binary().
 -type template() :: binary().
 -type template_str() :: string().
+-type binary_kv() :: #{binary() => binary()}.
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -167,7 +168,8 @@
     json_binary/0,
     port_number/0,
     template/0,
-    template_str/0
+    template_str/0,
+    binary_kv/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
