@@ -314,8 +314,7 @@ update_progresses(StreamStates, NewStreamsWRanks, TopicFilter, StartTime) ->
                         ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
                     ),
                     Progress = #{
-                        iterator => It,
-                        acked => true
+                        iterator => It
                     },
                     {
                         NewStreamStatesAcc#{Stream => #{progress => Progress, rank => Rank}},
@@ -708,9 +707,6 @@ clean_revoked_streams(
                 (
                     #{
                         stream := Stream,
-                        progress := #{
-                            acked := true
-                        },
                         use_finished := true
                     }
                 ) ->
