@@ -1,0 +1,30 @@
+version: '3.9'
+
+services:
+  couchbase:
+    container_name: couchbase
+    hostname: couchbase
+    image: ghcr.io/emqx/couchbase:1.0.0
+    restart: always
+    expose:
+      - 8091-8093
+    # ports:
+    #   - "8091-8093:8091-8093"
+    networks:
+      - emqx_bridge
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8093/admin/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 4
+    environment:
+      - CLUSTER=localhost
+      - USER=admin
+      - PASS=public
+      - PORT=8091
+      - RAMSIZEMB=2048
+      - RAMSIZEINDEXMB=512
+      - RAMSIZEFTSMB=512
+      - BUCKETS=mqtt
+      - BUCKETSIZES=100
+      - AUTOREBALANCE=true

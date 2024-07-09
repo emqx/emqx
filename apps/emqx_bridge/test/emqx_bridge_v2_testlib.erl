@@ -807,6 +807,50 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     end,
     ok.
 
+t_rule_action(TCConfig) ->
+    t_rule_action(TCConfig, _Opts = #{}).
+
+%% Similar to `t_sync_query', but using only API functions and rule actions to trigger the
+%% bridge, instead of lower level functions.
+t_rule_action(TCConfig, Opts) ->
+    TraceCheckers = maps:get(trace_checkers, Opts, []),
+    PostPublishFn = maps:get(post_publish_fn, Opts, fun(Context) -> Context end),
+    PrePublishFn = maps:get(pre_publish_fn, Opts, fun(Context) -> Context end),
+    PayloadFn = maps:get(payload_fn, Opts, fun() -> emqx_guid:to_hexstr(emqx_guid:gen()) end),
+    PublishFn = maps:get(
+        publish_fn,
+        Opts,
+        fun(#{rule_topic := RuleTopic, payload_fn := PayloadFnIn} = Context) ->
+            Payload = PayloadFnIn(),
+            {ok, C} = emqtt:start_link(#{clean_start => true}),
+            {ok, _} = emqtt:connect(C),
+            ?assertMatch({ok, _}, emqtt:publish(C, RuleTopic, Payload, [{qos, 2}])),
+            ok = emqtt:stop(C),
+            Context#{payload => Payload}
+        end
+    ),
+    ?check_trace(
+        begin
+            #{type := Type} = get_common_values(TCConfig),
+            ?assertMatch({ok, _}, create_bridge_api(TCConfig)),
+            RuleTopic = emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)]),
+            {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig),
+            ResourceId = resource_id(TCConfig),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+            Context0 = #{rule_topic => RuleTopic, payload_fn => PayloadFn},
+            Context1 = PrePublishFn(Context0),
+            Context2 = PublishFn(Context1),
+            PostPublishFn(Context2),
+            ok
+        end,
+        TraceCheckers
+    ),
+    ok.
+
 %% Like `t_sync_query', but we send the message while the connector is
 %% `?status_disconnected' and test that, after recovery, the buffered message eventually
 %% is sent.
