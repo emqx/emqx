@@ -304,9 +304,10 @@ renew_streams(S0, #{agent := Agent0, scheduled_actions := ScheduledActions} = Sh
     {StreamLeaseEvents, Agent1} = emqx_persistent_session_ds_shared_subs_agent:renew_streams(
         Agent0
     ),
-    ?tp(warning, shared_subs_new_stream_lease_events, #{
-        stream_lease_events => format_lease_events(StreamLeaseEvents)
-    }),
+    StreamLeaseEvents =/= [] andalso
+        ?tp(warning, shared_subs_new_stream_lease_events, #{
+            stream_lease_events => format_lease_events(StreamLeaseEvents)
+        }),
     S1 = lists:foldl(
         fun
             (#{type := lease} = Event, S) -> accept_stream(Event, S, ScheduledActions);
