@@ -195,4 +195,13 @@ Relevant when the EMQX cluster is deployed behind a load-balancer."""
 fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
 
+udp_health_check.desc:
+"""Some Cloud platform use a `request-reply` mechanism to check whether a UDP port is healthy, here can configure this pair."""
+
+udp_health_check_request.desc:
+"""The content of the request."""
+
+udp_health_check_reply.desc:
+"""The content to reply."""
+
 }

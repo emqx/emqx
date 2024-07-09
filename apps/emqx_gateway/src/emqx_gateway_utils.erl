@@ -151,7 +151,12 @@ find_sup_child(Sup, ChildId) ->
     {ok, [pid()]}
     | {error, term()}
 when
-    ModCfg :: #{frame_mod := atom(), chann_mod := atom(), connection_mod => atom()}.
+    ModCfg :: #{
+        frame_mod := atom(),
+        chann_mod := atom(),
+        connection_mod => atom(),
+        esockd_proxy_opts => map()
+    }.
 start_listeners(Listeners, GwName, Ctx, ModCfg) ->
     start_listeners(Listeners, GwName, Ctx, ModCfg, []).
 
@@ -519,7 +524,8 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
             max_connections,
             max_conn_rate,
             proxy_protocol,
-            proxy_protocol_timeout
+            proxy_protocol_timeout,
+            health_check
         ],
         Opts0
     ),

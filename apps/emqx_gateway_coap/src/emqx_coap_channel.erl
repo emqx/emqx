@@ -410,19 +410,6 @@ is_create_connection_request(Msg = #coap_message{method = Method}) when
 is_create_connection_request(_Msg) ->
     false.
 
-is_delete_connection_request(Msg = #coap_message{method = Method}) when
-    is_atom(Method) andalso Method =/= undefined
-->
-    URIPath = emqx_coap_message:get_option(uri_path, Msg, []),
-    case URIPath of
-        [<<"mqtt">>, <<"connection">>] when Method == delete ->
-            true;
-        _ ->
-            false
-    end;
-is_delete_connection_request(_Msg) ->
-    false.
-
 check_token(
     Msg,
     #channel{
@@ -430,7 +417,6 @@ check_token(
         clientinfo = ClientInfo
     } = Channel
 ) ->
-    IsDeleteConn = is_delete_connection_request(Msg),
     #{clientid := ClientId} = ClientInfo,
     case emqx_coap_message:extract_uri_query(Msg) of
         #{
@@ -438,39 +424,10 @@ check_token(
             <<"token">> := Token
         } ->
             call_session(handle_request, Msg, Channel);
-        #{<<"clientid">> := ReqClientId, <<"token">> := ReqToken} ->
-            case emqx_gateway_cm:call(coap, ReqClientId, {check_token, ReqToken}) of
-                undefined when IsDeleteConn ->
-                    Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
-                    {shutdown, normal, Reply, Channel};
-                undefined ->
-                    ?SLOG(info, #{
-                        msg => "remote_connection_not_found",
-                        clientid => ReqClientId,
-                        token => ReqToken
-                    }),
-                    Reply = emqx_coap_message:reset(Msg),
-                    {shutdown, normal, Reply, Channel};
-                false ->
-                    ?SLOG(info, #{
-                        msg => "request_token_invalid", clientid => ReqClientId, token => ReqToken
-                    }),
-                    Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
-                    {shutdown, normal, Reply, Channel};
-                true ->
-                    %% hack: since each message request can spawn a new connection
-                    %% process, we can't rely on the `inc_incoming_stats' call in
-                    %% `emqx_gateway_conn:handle_incoming' to properly keep track of
-                    %% bumping incoming requests for an existing channel.  Since this
-                    %% number is used by keepalive, we have to bump it inside the
-                    %% requested channel/connection pid so heartbeats actually work.
-                    emqx_gateway_cm:cast(coap, ReqClientId, inc_recv_pkt),
-                    call_session(handle_request, Msg, Channel)
-            end;
         _ ->
             ErrMsg = <<"Missing token or clientid in connection mode">>,
             Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-            {shutdown, normal, Reply, Channel}
+            {ok, {outgoing, Reply}, Channel}
     end.
 
 run_conn_hooks(
@@ -785,6 +742,7 @@ process_connection(
 ) when
     ConnState == connected
 ->
+    %% TODO should take over the session here
     Queries = emqx_coap_message:extract_uri_query(Req),
     ErrMsg0 =
         case Queries of
