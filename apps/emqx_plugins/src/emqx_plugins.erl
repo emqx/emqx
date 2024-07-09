@@ -73,6 +73,7 @@
     decode_plugin_config_map/2,
     install_dir/0,
     avsc_file_path/1,
+    md5sum_file/1,
     with_plugin_avsc/1
 ]).
 
@@ -736,7 +737,8 @@ do_read_plugin(NameVsn, InfoFilePath, Options) ->
     {ok, PlainMap} = (read_file_fun(InfoFilePath, "bad_info_file", #{read_mode => ?JSON_MAP}))(),
     Info0 = check_plugin(PlainMap, NameVsn, InfoFilePath),
     Info1 = plugins_readme(NameVsn, Options, Info0),
-    plugin_status(NameVsn, Info1).
+    Info2 = plugins_package_info(NameVsn, Info1),
+    plugin_status(NameVsn, Info2).
 
 read_plugin_avsc(NameVsn) ->
     read_plugin_avsc(NameVsn, #{read_mode => ?JSON_MAP}).
@@ -835,6 +837,12 @@ get_plugin_config_from_any_node([Node | T], NameVsn, Errors) ->
             Res;
         Err ->
             get_plugin_config_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+    end.
+
+plugins_package_info(NameVsn, Info) ->
+    case file:read_file(md5sum_file(NameVsn)) of
+        {ok, MD5} -> Info#{md5sum => MD5};
+        _ -> Info#{md5sum => <<>>}
     end.
 
 plugins_readme(NameVsn, #{fill_readme := true}, Info) ->
@@ -1488,6 +1496,10 @@ default_plugin_config_file(NameVsn) ->
 -spec i18n_file_path(name_vsn()) -> string().
 i18n_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_i18n.json"])).
+
+-spec md5sum_file(name_vsn()) -> string().
+md5sum_file(NameVsn) ->
+    plugin_dir(NameVsn) ++ ".tar.gz.md5sum".
 
 -spec readme_file(name_vsn()) -> string().
 readme_file(NameVsn) ->

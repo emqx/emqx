@@ -211,8 +211,8 @@ make_elixir_rel() {
     assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
-## extract previous version .tar.gz files to _build/$PROFILE/rel/emqx before making relup
 make_relup() {
+    export RELUP_TARGET_VSN="$(./pkg-vsn.sh "$PROFILE" --long)"
     ./rebar3 emqx relup_gen --relup-dir=./relup
     make rel -C _build/default/plugins/emqx_relup
 }

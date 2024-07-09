@@ -566,6 +566,8 @@ install_package(FileName, Bin) ->
     ok = filelib:ensure_dir(File),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
+    MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Bin), lower),
+    ok = file:write_file(emqx_plugins:md5sum_file(PackageName), MD5),
     case emqx_plugins:ensure_installed(PackageName, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
@@ -596,6 +598,7 @@ delete_package(Name, _Opts) ->
             _ = emqx_plugins:ensure_disabled(Name),
             _ = emqx_plugins:ensure_uninstalled(Name),
             _ = emqx_plugins:delete_package(Name),
+            _ = file:delete(emqx_plugins:md5sum_file(Name)),
             ok;
         Error ->
             Error
