@@ -31,19 +31,19 @@
 -export([
     register_channel/3,
     unregister_channel/1,
-    insert_channel_info/3
+    insert_channel_info/4
 ]).
 
 -export([
-    get_chan_info/1,
     get_chan_info/2,
-    set_chan_info/2
+    get_chan_info/3,
+    set_chan_info/3
 ]).
 
 -export([
-    get_chan_stats/1,
     get_chan_stats/2,
-    set_chan_stats/2
+    get_chan_stats/3,
+    set_chan_stats/3
 ]).
 
 -export([
@@ -90,6 +90,7 @@
 -export([
     cid/1,
     cid/2,
+    mtns/1,
     stats_fun/0,
     clean_down/1,
     mark_channel_connected/1,
@@ -171,14 +172,16 @@ start_link() ->
 
 %% @doc Insert/Update the channel info and stats to emqx_channel table
 -spec insert_channel_info(
-    emqx_types:cid(),
+    emqx_types:mtns(),
+    emqx_types:clientid(),
     emqx_types:infos(),
     emqx_types:stats()
 ) -> ok.
-insert_channel_info(CId, Info, Stats) when ?IS_CID(CId) ->
+insert_channel_info(Mtns, ClientId, Info, Stats) ->
+    CId = cid(Mtns, ClientId),
     Chan = {CId, self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
-    ?tp(debug, insert_channel_info, #{clientid => cid2clientid(CId)}),
+    ?tp(debug, insert_channel_info, #{mtns => Mtns, clientid => ClientId}),
     ok.
 
 %% @private
@@ -217,9 +220,15 @@ do_unregister_channel({_CId, ChanPid} = Chan) ->
     true.
 
 %% @doc Get info of a channel.
--spec get_chan_info(emqx_types:cid()) -> option(emqx_types:infos()).
-get_chan_info(CId) ->
-    with_channel(CId, fun(ChanPid) -> get_chan_info(CId, ChanPid) end).
+-spec get_chan_info(emqx_types:mtns(), emqx_types:clientid()) -> option(emqx_types:infos()).
+get_chan_info(Mtns, ClientId) ->
+    CId = cid(Mtns, ClientId),
+    with_channel(CId, fun(ChanPid) -> get_chan_info(Mtns, ClientId, ChanPid) end).
+
+-spec get_chan_info(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
+    option(emqx_types:infos()).
+get_chan_info(Mtns, ClientId, ChanPid) ->
+    wrap_rpc(emqx_cm_proto_v4:get_chan_info(Mtns, ClientId, ChanPid)).
 
 %% @deprecated only can access the default namespace clients.
 -spec do_get_chan_info(emqx_types:clientid(), chan_pid()) ->
@@ -237,14 +246,11 @@ do_get_chan_info(Mtns, ClientId, ChanPid) ->
         error:badarg -> undefined
     end.
 
--spec get_chan_info(emqx_types:cid(), chan_pid()) ->
-    option(emqx_types:infos()).
-get_chan_info(CId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_info(CId, ChanPid)).
-
 %% @doc Update infos of the channel.
--spec set_chan_info(emqx_types:cid(), emqx_types:channel_attrs()) -> boolean().
-set_chan_info(CId, Info) when ?IS_CID(CId) ->
+-spec set_chan_info(emqx_types:mtns(), emqx_types:clientid(), emqx_types:channel_attrs()) ->
+    boolean().
+set_chan_info(Mtns, ClientId, Info) ->
+    CId = cid(Mtns, ClientId),
     Chan = {CId, self()},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {2, Info})
@@ -253,9 +259,15 @@ set_chan_info(CId, Info) when ?IS_CID(CId) ->
     end.
 
 %% @doc Get channel's stats.
--spec get_chan_stats(emqx_types:cid()) -> option(emqx_types:stats()).
-get_chan_stats(CId) ->
-    with_channel(CId, fun(ChanPid) -> get_chan_stats(CId, ChanPid) end).
+-spec get_chan_stats(emqx_types:mtns(), emqx_types:clientid()) -> option(emqx_types:stats()).
+get_chan_stats(Mtns, ClientId) ->
+    CId = cid(Mtns, ClientId),
+    with_channel(CId, fun(ChanPid) -> get_chan_stats(Mtns, ClientId, ChanPid) end).
+
+-spec get_chan_stats(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
+    option(emqx_types:stats()).
+get_chan_stats(Mtns, ClientId, ChanPid) ->
+    wrap_rpc(emqx_cm_proto_v4:get_chan_stats(Mtns, ClientId, ChanPid)).
 
 %% @deprecated only can access the default namespace clients.
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
@@ -274,19 +286,15 @@ do_get_chan_stats(Mtns, ClientId, ChanPid) ->
         error:badarg -> undefined
     end.
 
--spec get_chan_stats(emqx_types:cid(), chan_pid()) ->
-    option(emqx_types:stats()).
-get_chan_stats(CId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_stats(CId, ChanPid)).
-
 %% @doc Set channel's stats.
--spec set_chan_stats(emqx_types:cid(), emqx_types:stats()) -> boolean().
-set_chan_stats(CId, Stats) when ?IS_CID(CId) ->
-    set_chan_stats(CId, self(), Stats).
+-spec set_chan_stats(emqx_types:mtns(), emqx_types:clientid(), emqx_types:stats()) -> boolean().
+set_chan_stats(Mtns, ClientId, Stats) ->
+    set_chan_stats(Mtns, ClientId, self(), Stats).
 
--spec set_chan_stats(emqx_types:cid(), chan_pid(), emqx_types:stats()) ->
+-spec set_chan_stats(emqx_types:mtns(), emqx_types:clientid(), chan_pid(), emqx_types:stats()) ->
     boolean().
-set_chan_stats(CId, ChanPid, Stats) when ?IS_CID(CId) ->
+set_chan_stats(Mtns, ClientId, ChanPid, Stats) ->
+    CId = cid(Mtns, ClientId),
     Chan = {CId, ChanPid},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats})

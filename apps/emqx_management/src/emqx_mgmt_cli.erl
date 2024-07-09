@@ -934,12 +934,12 @@ print({_, []}) ->
     ok;
 print({client, {ClientId, ChanPid}}) ->
     Attrs =
-        case emqx_cm:get_chan_info(ClientId, ChanPid) of
+        case emqx_cm:get_chan_info(_Mtns = undefined, ClientId, ChanPid) of
             undefined -> #{};
             Attrs0 -> Attrs0
         end,
     Stats =
-        case emqx_cm:get_chan_stats(ClientId, ChanPid) of
+        case emqx_cm:get_chan_stats(_Mtns1 = undefined, ClientId, ChanPid) of
             undefined -> #{};
             Stats0 -> maps:from_list(Stats0)
         end,

@@ -540,7 +540,7 @@ do_call_client(Mtns, ClientId, Req) ->
             {error, not_found};
         Pids when is_list(Pids) ->
             Pid = lists:last(Pids),
-            case emqx_cm:get_chan_info({Mtns, ClientId}, Pid) of
+            case emqx_cm:get_chan_info(Mtns, ClientId, Pid) of
                 #{conninfo := #{conn_mod := ConnMod}} ->
                     call_conn(ConnMod, Pid, Req);
                 undefined ->

@@ -29,7 +29,11 @@
     kickout_client/3,
 
     get_chan_stats/2,
+    %% Introduced in v4
+    get_chan_stats/3,
     get_chan_info/2,
+    %% Introduced in v4
+    get_chan_info/3,
     get_chann_conn_mod/2,
 
     takeover_session/2,
@@ -129,6 +133,16 @@ lookup_client(Node, Mtns, Key) ->
 -spec kickout_client(node(), emqx_types:mtns(), emqx_types:clientid()) -> ok | {badrpc, _}.
 kickout_client(Node, Mtns, ClientId) ->
     rpc:call(Node, emqx_cm, kick_session, [Mtns, ClientId]).
+
+-spec get_chan_info(emqx_types:mtns(), emqx_types:clientid(), emqx_cm:chan_pid()) ->
+    emqx_types:infos() | undefined | {badrpc, _}.
+get_chan_info(Mtns, ClientId, ChanPid) ->
+    rpc:call(node(ChanPid), emqx_cm, do_get_chan_info, [Mtns, ClientId, ChanPid], ?T_GET_INFO * 2).
+
+-spec get_chan_stats(emqx_types:mtns(), emqx_types:clientid(), emqx_cm:chan_pid()) ->
+    emqx_types:stats() | undefined | {badrpc, _}.
+get_chan_stats(Mtns, ClientId, ChanPid) ->
+    rpc:call(node(ChanPid), emqx_cm, do_get_chan_stats, [Mtns, ClientId, ChanPid], ?T_GET_INFO * 2).
 
 -spec takeover_session(emqx_types:mtns(), emqx_types:clientid(), emqx_cm:chan_pid()) ->
     none
