@@ -8,7 +8,7 @@ defmodule EMQX.MixProject do
       app: :emqx,
       version: "0.1.0",
       build_path: "../../_build",
-      erlc_paths: UMP.erlc_paths(),
+      erlc_paths: erlc_paths(),
       erlc_options: [
         {:i, "src"}
         | UMP.erlc_options()
@@ -37,7 +37,7 @@ defmodule EMQX.MixProject do
     ## FIXME!!! go though emqx.app.src and add missing stuff...
     [
       {:emqx_utils, in_umbrella: true},
-      # {:emqx_ds_backends, in_umbrella: true},
+      {:emqx_ds_backends, in_umbrella: true},
 
       UMP.common_dep(:gproc),
       UMP.common_dep(:gen_rpc),
