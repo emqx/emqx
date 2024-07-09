@@ -36,6 +36,8 @@
         }
 }).
 
+-define(MTNS, undefined).
+
 -define(WAIT(PATTERN, TIMEOUT, RET),
     fun() ->
         receive
@@ -72,47 +74,47 @@ open_session(CleanStart, ClientInfo, ConnInfo) ->
 
 t_reg_unreg_channel(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, []),
-    ?assertEqual([self()], emqx_cm:lookup_channels(<<"clientid">>)),
-    ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)).
+    ok = emqx_cm:register_channel(?MTNS, <<"clientid">>, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(?MTNS, <<"clientid">>, ?ChanInfo, []),
+    ?assertEqual([self()], emqx_cm:lookup_channels(?MTNS, <<"clientid">>)),
+    ok = emqx_cm:unregister_channel(?MTNS, <<"clientid">>),
+    ?assertEqual([], emqx_cm:lookup_channels(?MTNS, <<"clientid">>)).
 
 t_get_set_chan_info(_) ->
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, []),
+    ok = emqx_cm:register_channel(?MTNS, <<"clientid">>, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(?MTNS, <<"clientid">>, ?ChanInfo, []),
 
-    ?assertEqual(Info, emqx_cm:get_chan_info(<<"clientid">>)),
+    ?assertEqual(Info, emqx_cm:get_chan_info(?MTNS, <<"clientid">>)),
     Info1 = Info#{proto_ver => 5},
-    true = emqx_cm:set_chan_info(<<"clientid">>, Info1),
-    ?assertEqual(Info1, emqx_cm:get_chan_info(<<"clientid">>)),
-    ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ?assertEqual(undefined, emqx_cm:get_chan_info(<<"clientid">>)),
+    true = emqx_cm:set_chan_info(?MTNS, <<"clientid">>, Info1),
+    ?assertEqual(Info1, emqx_cm:get_chan_info(?MTNS, <<"clientid">>)),
+    ok = emqx_cm:unregister_channel(?MTNS, <<"clientid">>),
+    ?assertEqual(undefined, emqx_cm:get_chan_info(?MTNS, <<"clientid">>)),
 
     ?assertError(
         function_clause,
-        emqx_cm:insert_channel_info(undefined, #{}, [])
+        emqx_cm:insert_channel_info(?MTNS, undefined, #{}, [])
     ).
 
 t_get_set_chan_stats(_) ->
     Stats = [{recv_oct, 10}, {send_oct, 8}],
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, Stats),
+    ok = emqx_cm:register_channel(?MTNS, <<"clientid">>, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(?MTNS, <<"clientid">>, Info, Stats),
 
-    ?assertEqual(Stats, emqx_cm:get_chan_stats(<<"clientid">>)),
+    ?assertEqual(Stats, emqx_cm:get_chan_stats(?MTNS, <<"clientid">>)),
     Stats1 = [{recv_oct, 10} | Stats],
-    true = emqx_cm:set_chan_stats(<<"clientid">>, Stats1),
-    ?assertEqual(Stats1, emqx_cm:get_chan_stats(<<"clientid">>)),
+    true = emqx_cm:set_chan_stats(?MTNS, <<"clientid">>, Stats1),
+    ?assertEqual(Stats1, emqx_cm:get_chan_stats(?MTNS, <<"clientid">>)),
 
     ?assertError(
         function_clause,
-        emqx_cm:set_chan_stats(undefined, [])
+        emqx_cm:set_chan_stats(?MTNS, undefined, [])
     ),
 
-    ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
+    ok = emqx_cm:unregister_channel(?MTNS, <<"clientid">>),
+    ?assertEqual(undefined, emqx_cm:get_chan_stats(?MTNS, <<"clientid">>)).
 
 t_open_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
@@ -142,7 +144,7 @@ t_open_session(_) ->
         open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session2)),
 
-    emqx_cm:unregister_channel(<<"clientid">>),
+    emqx_cm:unregister_channel(?MTNS, <<"clientid">>),
     ok = meck:unload(emqx_connection).
 
 rand_client_id() ->
@@ -217,10 +219,10 @@ t_open_session_race_condition(_) ->
         end,
     Winner = WaitForDowns(Pids),
 
-    ?assertMatch([_], ets:lookup(?CHAN_TAB, ClientId)),
-    ?assertEqual([Winner], emqx_cm:lookup_channels(ClientId)),
-    ?assertMatch([_], ets:lookup(?CHAN_CONN_TAB, {ClientId, Winner})),
-    ?assertMatch([_], ets:lookup(?CHAN_REG_TAB, ClientId)),
+    ?assertMatch([_], ets:lookup(?CHAN_TAB, {?MTNS, ClientId})),
+    ?assertEqual([Winner], emqx_cm:lookup_channels(?MTNS, ClientId)),
+    ?assertMatch([_], ets:lookup(?CHAN_CONN_TAB, {{?MTNS, ClientId}, Winner})),
+    ?assertMatch([_], ets:lookup(?CHAN_REG_TAB, {?MTNS, ClientId})),
 
     exit(Winner, kill),
     receive
@@ -229,7 +231,7 @@ t_open_session_race_condition(_) ->
     %% sync
     ignored = gen_server:call(?CM, ignore, infinity),
     ok = emqx_pool:flush_async_tasks(?CM_POOL),
-    ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
+    ?assertEqual([], emqx_cm:lookup_channels(?MTNS, ClientId)).
 
 t_kick_session_discard_normal(_) ->
     test_stepdown_session(discard, normal).
@@ -319,10 +321,10 @@ test_stepdown_session(Action, Reason) ->
         end,
     {Pid1, _} = spawn_monitor(FakeSessionFun),
     {Pid2, _} = spawn_monitor(FakeSessionFun),
-    ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
-    ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
-    ok = emqx_cm:register_channel(ClientId, Pid2, ConnInfo),
-    ?assertEqual(lists:sort([Pid1, Pid2]), lists:sort(emqx_cm:lookup_channels(ClientId))),
+    ok = emqx_cm:register_channel(?MTNS, ClientId, Pid1, ConnInfo),
+    ok = emqx_cm:register_channel(?MTNS, ClientId, Pid1, ConnInfo),
+    ok = emqx_cm:register_channel(?MTNS, ClientId, Pid2, ConnInfo),
+    ?assertEqual(lists:sort([Pid1, Pid2]), lists:sort(emqx_cm:lookup_channels(?MTNS, ClientId))),
     case Reason of
         noproc ->
             exit(Pid1, kill),
@@ -333,11 +335,11 @@ test_stepdown_session(Action, Reason) ->
     ok =
         case Action of
             kick ->
-                emqx_cm:kick_session(ClientId);
+                emqx_cm:kick_session(?MTNS, ClientId);
             discard ->
-                emqx_cm:discard_session(ClientId);
+                emqx_cm:discard_session(?MTNS, ClientId);
             {takeover, _} ->
-                none = emqx_cm:takeover_session_begin(ClientId),
+                none = emqx_cm:takeover_session_begin(?MTNS, ClientId),
                 ok
         end,
     case Reason =:= timeout orelse Reason =:= noproc of
@@ -351,7 +353,7 @@ test_stepdown_session(Action, Reason) ->
     % sync
     ignored = gen_server:call(?CM, ignore, infinity),
     ok = emqx_pool:flush_async_tasks(?CM_POOL),
-    ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
+    ?assertEqual([], emqx_cm:lookup_channels(?MTNS, ClientId)).
 
 t_discard_session_race(_) ->
     ClientId = rand_client_id(),
@@ -365,12 +367,12 @@ t_discard_session_race(_) ->
                     stop -> exit(normal)
                 end
             end),
-            ok = emqx_cm:register_channel(ClientId, Pid, ConnInfo),
+            ok = emqx_cm:register_channel(?MTNS, ClientId, Pid, ConnInfo),
             Pid ! stop,
             receive
                 {'DOWN', Ref, process, Pid, normal} -> ok
             end,
-            ?assertMatch(ok, emqx_cm:discard_session(ClientId))
+            ?assertMatch(ok, emqx_cm:discard_session(?MTNS, ClientId))
         end,
         []
     ).
@@ -378,10 +380,10 @@ t_discard_session_race(_) ->
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     ClientId = <<"clientid">>,
-    none = emqx_cm:takeover_session_begin(ClientId),
+    none = emqx_cm:takeover_session_begin(?MTNS, ClientId),
     Parent = self(),
     ChanPid = erlang:spawn_link(fun() ->
-        ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+        ok = emqx_cm:register_channel(?MTNS, ClientId, self(), ConnInfo),
         Parent ! registered,
         receive
             {'$gen_call', From1, {takeover, 'begin'}} ->
@@ -395,17 +397,19 @@ t_takeover_session(_) ->
     receive
         registered -> ok
     end,
-    {ok, test, State = {emqx_connection, ChanPid}} = emqx_cm:takeover_session_begin(ClientId),
+    {ok, test, State = {emqx_connection, ChanPid}} = emqx_cm:takeover_session_begin(
+        ?MTNS, ClientId
+    ),
     {ok, []} = emqx_cm:takeover_session_end(State),
-    emqx_cm:unregister_channel(ClientId).
+    emqx_cm:unregister_channel(?MTNS, ClientId).
 
 t_takeover_session_process_gone(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     ClientIDTcp = <<"clientidTCP">>,
     ClientIDWs = <<"clientidWs">>,
     ClientIDRpc = <<"clientidRPC">>,
-    none = emqx_cm:takeover_session_begin(ClientIDTcp),
-    none = emqx_cm:takeover_session_begin(ClientIDWs),
+    none = emqx_cm:takeover_session_begin(?MTNS, ClientIDTcp),
+    none = emqx_cm:takeover_session_begin(?MTNS, ClientIDWs),
     meck:new(emqx_connection, [passthrough, no_history]),
     meck:expect(
         emqx_connection,
@@ -417,8 +421,8 @@ t_takeover_session_process_gone(_) ->
                 meck:passthrough([Pid, What, Args])
         end
     ),
-    ok = emqx_cm:register_channel(ClientIDTcp, self(), ConnInfo),
-    none = emqx_cm:takeover_session_begin(ClientIDTcp),
+    ok = emqx_cm:register_channel(?MTNS, ClientIDTcp, self(), ConnInfo),
+    none = emqx_cm:takeover_session_begin(?MTNS, ClientIDTcp),
     meck:expect(
         emqx_connection,
         call,
@@ -429,8 +433,8 @@ t_takeover_session_process_gone(_) ->
                 meck:passthrough([Pid, What, Args])
         end
     ),
-    ok = emqx_cm:register_channel(ClientIDWs, self(), ConnInfo),
-    none = emqx_cm:takeover_session_begin(ClientIDWs),
+    ok = emqx_cm:register_channel(?MTNS, ClientIDWs, self(), ConnInfo),
+    none = emqx_cm:takeover_session_begin(?MTNS, ClientIDWs),
     meck:expect(
         emqx_connection,
         call,
@@ -441,11 +445,11 @@ t_takeover_session_process_gone(_) ->
                 meck:passthrough([Pid, What, Args])
         end
     ),
-    ok = emqx_cm:register_channel(ClientIDRpc, self(), ConnInfo),
-    none = emqx_cm:takeover_session_begin(ClientIDRpc),
-    emqx_cm:unregister_channel(ClientIDTcp),
-    emqx_cm:unregister_channel(ClientIDWs),
-    emqx_cm:unregister_channel(ClientIDRpc),
+    ok = emqx_cm:register_channel(?MTNS, ClientIDRpc, self(), ConnInfo),
+    none = emqx_cm:takeover_session_begin(?MTNS, ClientIDRpc),
+    emqx_cm:unregister_channel(?MTNS, ClientIDTcp),
+    emqx_cm:unregister_channel(?MTNS, ClientIDWs),
+    emqx_cm:unregister_channel(?MTNS, ClientIDRpc),
     meck:unload(emqx_connection).
 
 t_all_channels(_) ->

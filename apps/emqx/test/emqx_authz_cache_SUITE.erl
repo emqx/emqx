@@ -87,7 +87,7 @@ find_client_pid(ClientId) ->
     ?retry(_Inteval = 100, _Attempts = 10, do_find_client_pid(ClientId)).
 
 do_find_client_pid(ClientId) ->
-    case emqx_cm:lookup_channels(ClientId) of
+    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
         Pids when is_list(Pids) ->
             lists:last(Pids);
         _ ->

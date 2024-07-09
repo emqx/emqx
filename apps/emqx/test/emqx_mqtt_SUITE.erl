@@ -199,7 +199,7 @@ with_client(TestFun, _Options) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     timer:sleep(50),
-    case emqx_cm:lookup_channels(ClientId) of
+    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
         [] ->
             ct:fail({client_not_started, ClientId});
         [ChanPid] ->
@@ -242,7 +242,7 @@ do_async_set_keepalive(OptKeepIdle, OptKeepInterval, OptKeepCount) ->
         2000,
         100
     ),
-    [Pid] = emqx_cm:lookup_channels(ClientID),
+    [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientID),
     State = emqx_connection:get_state(Pid),
     Transport = maps:get(transport, State),
     Socket = maps:get(socket, State),

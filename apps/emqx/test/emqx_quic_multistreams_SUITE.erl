@@ -1735,7 +1735,7 @@ t_conn_resume(Config) ->
     ]),
     {ok, _} = emqtt:quic_connect(C),
     Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
+    ct:pal("~p~n", [emqx_cm:get_chan_info(_Mtns = undefined, Cid)]).
 
 t_conn_without_ctrl_stream(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1767,7 +1767,7 @@ t_data_stream_race_ctrl_stream(Config) ->
     ]),
     {ok, _} = emqtt:quic_connect(C),
     Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
+    ct:pal("~p~n", [emqx_cm:get_chan_info(_Mtns = undefined, Cid)]).
 
 t_multi_streams_sub_0_rtt(Config) ->
     PubQos = ?config(pub_qos, Config),

@@ -183,7 +183,7 @@ drain_cache() ->
 
 -spec drain_cache(emqx_types:mtns(), emqx_types:clientid()) -> ok | {error, not_found}.
 drain_cache(Mtns, ClientId) ->
-    case emqx_cm:lookup_channels({Mtns, ClientId}) of
+    case emqx_cm:lookup_channels(Mtns, ClientId) of
         [] ->
             {error, not_found};
         Pids when is_list(Pids) ->

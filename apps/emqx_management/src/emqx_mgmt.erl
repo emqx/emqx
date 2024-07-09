@@ -413,7 +413,7 @@ do_kickout_clients(ClientIds) when is_list(ClientIds) ->
 -spec do_kickout_clients(emqx_types:mtns(), [emqx_types:clientid()]) -> ok.
 do_kickout_clients(Mtns, ClientIds) when is_list(ClientIds) ->
     F = fun(ClientId) ->
-        ChanPids = emqx_cm:lookup_channels(local, {Mtns, ClientId}),
+        ChanPids = emqx_cm:lookup_channels(local, Mtns, ClientId),
         lists:foreach(
             fun(ChanPid) -> emqx_cm:kick_session(Mtns, ClientId, ChanPid) end,
             ChanPids
@@ -535,7 +535,7 @@ call_client_on_all_nodes(Mtns, ClientId, Req) ->
 -spec do_call_client(emqx_types:mtns(), emqx_types:clientid(), term()) -> term().
 do_call_client(Mtns, ClientId, Req) ->
     %% FIXME:
-    case emqx_cm:lookup_channels({Mtns, ClientId}) of
+    case emqx_cm:lookup_channels(Mtns, ClientId) of
         [] ->
             {error, not_found};
         Pids when is_list(Pids) ->

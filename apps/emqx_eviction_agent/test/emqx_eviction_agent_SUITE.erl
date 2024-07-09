@@ -332,7 +332,7 @@ t_session_serialization(_Config) ->
         emqx_eviction_agent:session_count()
     ),
 
-    [ChanPid0] = emqx_cm:lookup_channels(<<"client_with_session">>),
+    [ChanPid0] = emqx_cm:lookup_channels(_Mtns = undefined, <<"client_with_session">>),
     MRef0 = erlang:monitor(process, ChanPid0),
 
     %% Evacuate to the same node
@@ -403,7 +403,7 @@ t_will_msg(_Config) ->
     {ok, C} = emqtt_connect(),
     {ok, _, _} = emqtt:subscribe(C, WillTopic),
 
-    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    [ChanPid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientId),
 
     ChanPid !
         {disconnect, ?RC_USE_ANOTHER_SERVER, use_another_server, #{

@@ -180,11 +180,13 @@ end_per_testcase(TC, _Config) when
 ->
     ok = snabbkaffe:stop(),
     ClientId = atom_to_binary(TC),
-    lists:foreach(fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, ClientId)),
+    lists:foreach(
+        fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, _Mtns = undefined, ClientId)
+    ),
     ok = emqx_common_test_helpers:wait_for(
         ?FUNCTION_NAME,
         ?LINE,
-        fun() -> [] =:= emqx_cm:lookup_channels(local, ClientId) end,
+        fun() -> [] =:= emqx_cm:lookup_channels(local, _Mtns1 = undefined, ClientId) end,
         5000
     ),
     ok = snabbkaffe:stop(),
@@ -749,9 +751,9 @@ t_kickout_clients(Config) ->
         ?LINE,
         fun() ->
             try
-                [_] = emqx_cm:lookup_channels(ClientId1),
-                [_] = emqx_cm:lookup_channels(ClientId2),
-                [_] = emqx_cm:lookup_channels(ClientId3),
+                [_] = emqx_cm:lookup_channels(_Mtns1 = undefined, ClientId1),
+                [_] = emqx_cm:lookup_channels(_Mtns2 = undefined, ClientId2),
+                [_] = emqx_cm:lookup_channels(_Mtns2 = undefined, ClientId3),
                 true
             catch
                 error:badmatch ->
@@ -1100,7 +1102,7 @@ t_keepalive(Config) ->
         username => Username, clientid => ClientId, keepalive => InitKeepalive
     }),
     {ok, _} = emqtt:connect(C1),
-    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
+    [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, list_to_binary(ClientId)),
     %% will reset to max keepalive if keepalive > max keepalive
     #{conninfo := #{keepalive := InitKeepalive}} = emqx_connection:info(Pid),
     ?assertMatch({keepalive, _, _, _, 65536500}, element(5, element(9, sys:get_state(Pid)))),
