@@ -98,3 +98,53 @@ spec:
   {{- end }}
 ---
 {{- end }}
+{{- if .Values.ingress.ws.enabled -}}
+{{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1
+{{- else if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ printf "%s-%s" (include "emqx.fullname" .) "ws" }}
+  labels:
+    app.kubernetes.io/name: {{ include "emqx.name" . }}
+    helm.sh/chart: {{ include "emqx.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- if .Values.ingress.ws.annotations }}
+  annotations:
+    {{- toYaml .Values.ingress.ws.annotations | nindent 4 }}
+  {{- end }}
+spec:
+{{- if and .Values.ingress.ws.ingressClassName (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
+  ingressClassName: {{ .Values.ingress.ws.ingressClassName }}
+{{- end }}
+  rules:
+  {{- range $host := .Values.ingress.ws.hosts }}
+  - host: {{ $host }}
+    http:
+      paths:
+      - path: {{ $.Values.ingress.ws.path | default "/mqtt" }}
+        {{- if (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
+        pathType: {{ $.Values.ingress.ws.pathType | default "ImplementationSpecific" }}
+        {{- end }}
+        backend:
+          {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+          service:
+            name: {{ include "emqx.fullname" $ }}
+            port:
+              number: {{ $.Values.service.ws }}
+          {{- else }}
+          serviceName: {{ include "emqx.fullname" $ }}
+          servicePort: {{ $.Values.service.ws }}
+          {{- end }}
+  {{- end -}}
+  {{- if .Values.ingress.ws.tls }}
+  tls:
+    {{- toYaml .Values.ingress.ws.tls | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
