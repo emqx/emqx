@@ -81,7 +81,11 @@ t_load_config(Config) ->
         Conf#{<<"sources">> => [emqx_authz_schema:default_authz()]},
         emqx_conf:get_raw([Authz])
     ),
-    ?assertEqual({error, empty_hocon_file}, emqx_conf_cli:conf(["load", "non-exist-file"])),
+    ?assertEqual({error, not_found_hocon_file}, emqx_conf_cli:conf(["load", "non-exist-file"])),
+    EmptyFile = "empty_file.conf",
+    ok = file:write_file(EmptyFile, <<>>),
+    ?assertEqual({error, empty_hocon_file}, emqx_conf_cli:conf(["load", EmptyFile])),
+    ok = file:delete(EmptyFile),
     ok.
 
 t_conflict_mix_conf(Config) ->

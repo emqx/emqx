@@ -312,8 +312,14 @@ get_config(Key) ->
 load_config(Path, Opts) when is_list(Path) ->
     case hocon:files([Path]) of
         {ok, RawConf} when RawConf =:= #{} ->
-            emqx_ctl:warning("load ~ts is empty~n", [Path]),
-            {error, empty_hocon_file};
+            case filelib:is_file(Path) of
+                true ->
+                    emqx_ctl:warning("load ~ts is empty~n", [Path]),
+                    {error, empty_hocon_file};
+                false ->
+                    emqx_ctl:warning("~ts is not found~n", [Path]),
+                    {error, not_found_hocon_file}
+            end;
         {ok, RawConf} ->
             load_config_from_raw(RawConf, Opts);
         {error, Reason} ->
