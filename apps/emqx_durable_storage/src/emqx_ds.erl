@@ -401,10 +401,14 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
 
 -spec update_iterator(db(), iterator(), message_key()) ->
     make_iterator_result().
+update_iterator(DB, ?skipping_iterator_match = OldIter, DSKey) ->
+    emqx_ds_skipping_iterator:update_iterator(DB, OldIter, DSKey);
 update_iterator(DB, OldIter, DSKey) ->
     ?module(DB):update_iterator(DB, OldIter, DSKey).
 
 -spec next(db(), iterator(), pos_integer()) -> next_result().
+next(DB, ?skipping_iterator_match = Iter, BatchSize) ->
+    emqx_ds_skipping_iterator:next(DB, Iter, BatchSize);
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
 

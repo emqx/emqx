@@ -341,7 +341,11 @@ accept_stream(#{topic_filter := TopicFilter} = Event, S, ScheduledActions) ->
     end.
 
 accept_stream(
-    #{topic_filter := TopicFilter, stream := Stream, progress := Progress} = _Event,
+    #{
+        topic_filter := TopicFilter,
+        stream := Stream,
+        progress := #{iterator := Iterator} = _Progress
+    } = _Event,
     S0
 ) ->
     case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
@@ -361,7 +365,6 @@ accept_stream(
                 end,
             case NeedCreateStream of
                 true ->
-                    Iterator = rewind_iterator(Progress),
                     NewSRS =
                         #srs{
                             rank_x = ?rank_x,
@@ -375,52 +378,6 @@ accept_stream(
                 false ->
                     S0
             end
-    end.
-
-%% Skip acked messages.
-%% This may be a bit inefficient, and it is unclear how to handle errors.
-%%
-%% A better variant would be to wrap the iterator on `emqx_ds` level in a new one,
-%% that will skip acked messages internally in `emqx_ds:next` function.
-%% Unluckily, emqx_ds does not have a wrapping structure around iterators of
-%% the underlying levels, so we cannot wrap it without a risk of confusion.
-
-rewind_iterator(#{iterator := Iterator, acked := true}) ->
-    Iterator;
-rewind_iterator(#{iterator := Iterator0, acked := false, qos1_acked := 0, qos2_acked := 0}) ->
-    Iterator0;
-%% This should not happen, means the DS is consistent
-rewind_iterator(#{iterator := Iterator0, acked := false, qos1_acked := Q1, qos2_acked := Q2}) when
-    Q1 < 0 orelse Q2 < 0
-->
-    Iterator0;
-rewind_iterator(
-    #{iterator := Iterator0, acked := false, qos1_acked := Q1Old, qos2_acked := Q2Old} = Progress
-) ->
-    case emqx_ds:next(?PERSISTENT_MESSAGE_DB, Iterator0, Q1Old + Q2Old) of
-        {ok, Iterator1, Messages} ->
-            {Q1New, Q2New} = update_qos_acked(Q1Old, Q2Old, Messages),
-            rewind_iterator(Progress#{
-                iterator => Iterator1, qos1_acked => Q1New, qos2_acked => Q2New
-            });
-        {ok, end_of_stream} ->
-            end_of_stream;
-        {error, _, _} ->
-            %% What to do here?
-            %% In the wrapping variant we do not have this problem.
-            Iterator0
-    end.
-
-update_qos_acked(Q1, Q2, []) ->
-    {Q1, Q2};
-update_qos_acked(Q1, Q2, [{_Key, Message} | Messages]) ->
-    case emqx_message:qos(Message) of
-        ?QOS_1 ->
-            update_qos_acked(Q1 - 1, Q2, Messages);
-        ?QOS_2 ->
-            update_qos_acked(Q1, Q2 - 1, Messages);
-        _ ->
-            update_qos_acked(Q1, Q2, Messages)
     end.
 
 revoke_stream(
@@ -667,8 +624,8 @@ stream_progress(
         first_seqno_qos2 = StartQos2
     } = SRS
 ) ->
-    Qos1Acked = seqno_diff(?QOS_1, CommQos1, StartQos1),
-    Qos2Acked = seqno_diff(?QOS_2, CommQos2, StartQos2),
+    Qos1Acked = n_acked(?QOS_1, CommQos1, StartQos1),
+    Qos2Acked = n_acked(?QOS_2, CommQos2, StartQos2),
     case is_stream_fully_acked(CommQos1, CommQos2, SRS) of
         true ->
             #{
@@ -683,10 +640,10 @@ stream_progress(
             #{
                 stream => Stream,
                 progress => #{
-                    acked => false,
-                    iterator => BeginIt,
-                    qos1_acked => Qos1Acked,
-                    qos2_acked => Qos2Acked
+                    acked => true,
+                    iterator => emqx_ds_skipping_iterator:update_or_new(
+                        BeginIt, Qos1Acked, Qos2Acked
+                    )
                 },
                 use_finished => is_use_finished(SRS)
             }
@@ -752,6 +709,9 @@ is_stream_fully_acked(_, _, #srs{
     true;
 is_stream_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
+
+n_acked(Qos, A, B) ->
+    max(seqno_diff(Qos, A, B), 0).
 
 -dialyzer({nowarn_function, seqno_diff/3}).
 seqno_diff(?QOS_1, A, B) ->
