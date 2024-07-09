@@ -50,7 +50,7 @@
     open_session/4,
     discard_session/2,
     discard_session/3,
-    takeover_session_begin/1,
+    takeover_session_begin/2,
     takeover_session_end/1,
     kick_session/2,
     kick_session/3,
@@ -345,19 +345,20 @@ create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, ChanPid) ->
     {ok, #{session => Session, present => false}}.
 
 %% @doc Try to takeover a session from existing channel.
--spec takeover_session_begin(emqx_types:cid()) ->
+-spec takeover_session_begin(emqx_types:mtns(), emqx_types:clientid()) ->
     {ok, emqx_session_mem:session(), takeover_state()} | none.
-takeover_session_begin(CId) ->
-    takeover_session_begin(CId, pick_channel(CId)).
+takeover_session_begin(Mtns, ClientId) ->
+    CId = cid(Mtns, ClientId),
+    takeover_session_begin(Mtns, ClientId, pick_channel(CId)).
 
-takeover_session_begin(CId, ChanPid) when is_pid(ChanPid) ->
-    case takeover_session(CId, ChanPid) of
+takeover_session_begin(Mtns, ClientId, ChanPid) when is_pid(ChanPid) ->
+    case takeover_session(Mtns, ClientId, ChanPid) of
         {living, ConnMod, ChanPid, Session} ->
             {ok, Session, {ConnMod, ChanPid}};
         _ ->
             none
     end;
-takeover_session_begin(_CId, undefined) ->
+takeover_session_begin(_Mtns, _ClientId, undefined) ->
     none.
 
 %% @doc Conclude the session takeover process.
@@ -373,7 +374,7 @@ takeover_session_end({ConnMod, ChanPid}) ->
 
 -spec pick_channel(emqx_types:cid()) ->
     option(pid()).
-pick_channel(CId) ->
+pick_channel(CId) when ?IS_CID(CId) ->
     case lookup_channels(CId) of
         [] ->
             undefined;

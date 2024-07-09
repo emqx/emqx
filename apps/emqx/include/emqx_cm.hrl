@@ -46,7 +46,7 @@
 
 %% Registered sessions.
 -record(channel, {
-    chid :: emqx_types:clientid() | '_',
+    chid :: emqx_types:cid() | '_',
     %% pid field is extended in 5.6.0 to support recording unregistration timestamp.
     pid :: pid() | non_neg_integer() | '$1'
 }).
