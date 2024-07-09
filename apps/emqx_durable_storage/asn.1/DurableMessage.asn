@@ -1,0 +1,90 @@
+-- This schema specifies binary encoding of EMQX's internal
+-- representation of a message.
+--
+-- Note: MQTT standard specifies that certain properties like topic
+-- should be UTF8 strings. Here we represent them as OCTET STRING to
+-- avoid extra checks.
+
+DurableMessage DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  -- Non-standard flag:
+  MiscFlag ::= SEQUENCE {
+    key UTF8String,
+    value BOOLEAN
+  }
+
+  -- Non-standard header or property.
+  -- Both key and value are interpreted as erlang terms:
+  MiscProperty ::= SEQUENCE {
+    key OCTET STRING,
+    value OCTET STRING
+  }
+
+  ClientAttr ::= SEQUENCE {
+    key OCTET STRING,
+    value OCTET STRING
+  }
+
+  -- Wrapper for any data that doesn't comply with the strict schema:
+  Misc ::= CHOICE {
+    flag MiscFlag,
+    header MiscProperty,
+    property MiscProperty,
+    -- Currently these are unused:
+    clientAttr ClientAttr,
+    extra MiscProperty
+  }
+
+  -- Both key and value are interpreted as binaries:
+  UserProperty ::= SEQUENCE {
+    key OCTET STRING,
+    value OCTET STRING
+  }
+
+  -- Common properties that are present in almost any message:
+  StdProperties ::= SEQUENCE {
+    payloadFormatIndicator INTEGER (0..255) OPTIONAL,
+    messageExpiryInterval INTEGER (0..4294967295) OPTIONAL,
+    responseTopic OCTET STRING OPTIONAL,
+    correlationData  OCTET STRING OPTIONAL,
+    contentType OCTET STRING OPTIONAL,
+    userProperty SEQUENCE OF UserProperty
+  }
+
+  ProtoVer ::= CHOICE {
+    mqtt INTEGER(0..255),
+    mqtt-sn INTEGER(0..255),
+    coap INTEGER(0..255)
+  }
+
+  -- Common headers that are present in almost any message:
+  StdHeaders ::= SEQUENCE {
+    protoVer ProtoVer OPTIONAL,
+    peerhost OCTET STRING (SIZE(4..16)) OPTIONAL, -- IPv4 (4 octets) .. IPv6 (16 octets)
+    peername OCTET STRING (SIZE(6..18)) OPTIONAL, -- IPv4 (4 octets) .. IPv6 (16 octets) + 2 octets for (TCP/UDP) port
+    username OCTET STRING OPTIONAL
+  }
+
+  From ::= CHOICE {
+    atom UTF8String,
+    binary OCTET STRING
+  }
+
+  DurableMessage ::= SEQUENCE {
+    id OCTET STRING,
+    from From,
+    topic OCTET STRING,
+    payload OCTET STRING,
+    timestamp INTEGER,
+    qos INTEGER (0..2),
+    -- MQTT PUBLISH flags:
+    sys BOOLEAN,
+    dup BOOLEAN,
+    retain BOOLEAN,
+    -- Headers:
+    headers StdHeaders,
+    properties StdProperties,
+    -- Miscellaneous, highly EMQX-specific internal data:
+    misc SEQUENCE OF Misc OPTIONAL
+  }
+END

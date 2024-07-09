@@ -39,7 +39,7 @@
     make_delete_iterator/5,
     update_iterator/4,
     next/6,
-    delete_next/6
+    delete_next/7
 ]).
 
 %% internal exports:
@@ -169,7 +169,7 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize, _Now, IsCurrent) ->
             {ok, It, lists:reverse(Messages)}
     end.
 
-delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now) ->
+delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now, IsCurrent) ->
     #delete_it{
         topic_filter = TopicFilter,
         start_time = StartTime,
@@ -198,7 +198,12 @@ delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now) ->
     ),
     rocksdb:iterator_close(ITHandle),
     It = It0#delete_it{last_seen_message_key = Key},
-    {ok, It, NumDeleted, NumIterated}.
+    case IsCurrent of
+        false when NumDeleted =:= 0, NumIterated =:= 0 ->
+            {ok, end_of_stream};
+        _ ->
+            {ok, It, NumDeleted, NumIterated}
+    end.
 
 %%================================================================================
 %% Internal functions
