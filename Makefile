@@ -28,6 +28,8 @@ CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
+ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
+
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
@@ -58,17 +60,22 @@ ensure-mix-rebar3: $(REBAR)
 ensure-mix-rebar: $(REBAR)
 	@mix local.rebar --if-missing --force
 
+.PHONY: elixir-common-deps
+elixir-common-deps: $(ELIXIR_COMMON_DEPS)
+
 .PHONY: mix-deps-get
-mix-deps-get: $(ELIXIR_COMMON_DEPS)
+mix-deps-get: elixir-common-deps
 	@mix deps.get
 
 .PHONY: eunit
-eunit: $(REBAR) merge-config
-	@$(REBAR) eunit --name eunit@127.0.0.1 -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
+eunit: $(REBAR) elixir-common-deps merge-config
+	# @$(REBAR) eunit --name eunit@127.0.0.1 -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
+	mix eunit
 
 .PHONY: proper
-proper: $(REBAR)
-	@$(REBAR) proper -d test/props -c
+proper: $(REBAR) elixir-common-deps
+	# @$(REBAR) proper -d test/props -c
+	mix proper
 
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
@@ -112,13 +119,14 @@ define gen-app-ct-target
 $1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-	$(REBAR) ct -v \
-		--readable=$(CT_READABLE) \
-		--name $(CT_NODE_NAME) \
-		$(call cover_args,$1) \
-		--suite $(SUITES) \
-		$(GROUPS_ARG) \
-		$(CASES_ARG)
+	# $(REBAR) ct -v \
+	# 	--readable=$(CT_READABLE) \
+	# 	--name $(CT_NODE_NAME) \
+	# 	$(call cover_args,$1) \
+	# 	--suite $(SUITES) \
+	# 	$(GROUPS_ARG) \
+	# 	$(CASES_ARG)
+	mix ct --suites $(SUITES)
 else
 	@echo 'No suites found for $1'
 endif
