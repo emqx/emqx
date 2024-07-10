@@ -23,6 +23,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -165,6 +166,9 @@ send_message(Type, ActionName) ->
 
 resolve_kafka_offset() ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    resolve_kafka_offset(KafkaTopic).
+
+resolve_kafka_offset(KafkaTopic) ->
     Partition = 0,
     Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
     {ok, Offset0} = emqx_bridge_kafka_impl_producer_SUITE:resolve_kafka_offset(
@@ -174,10 +178,31 @@ resolve_kafka_offset() ->
 
 check_kafka_message_payload(Offset, ExpectedPayload) ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload).
+
+check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload) ->
     Partition = 0,
     Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
     {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
     ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
+
+ensure_kafka_topic(KafkaTopic) ->
+    TopicConfigs = [
+        #{
+            name => KafkaTopic,
+            num_partitions => 1,
+            replication_factor => 1,
+            assignments => [],
+            configs => []
+        }
+    ],
+    RequestConfig = #{timeout => 5_000},
+    ConnConfig = #{},
+    Endpoints = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    case brod:create_topics(Endpoints, TopicConfigs, RequestConfig, ConnConfig) of
+        ok -> ok;
+        {error, topic_already_exists} -> ok
+    end.
 
 action_config(ConnectorName) ->
     action_config(ConnectorName, _Overrides = #{}).
@@ -879,5 +904,199 @@ t_multiple_actions_sharing_topic(Config) ->
             ?assertEqual([], ?of_kind("kafka_producer_invalid_partition_count", Trace)),
             ok
         end
+    ),
+    ok.
+
+%% Smoke tests for using a templated topic and a list of pre-configured kafka topics.
+t_pre_configured_topics(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"pre_configured_topics">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    PreConfigureTopic1 = <<"pct1">>,
+    PreConfigureTopic2 = <<"pct2">>,
+    ensure_kafka_topic(PreConfigureTopic1),
+    ensure_kafka_topic(PreConfigureTopic2),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"topic">> => <<"pct${.payload.n}">>,
+                    <<"message">> => #{
+                        <<"key">> => <<"${.clientid}">>,
+                        <<"value">> => <<"${.payload.p}">>
+                    },
+                    <<"pre_configured_topics">> => [
+                        #{<<"topic">> => PreConfigureTopic1},
+                        #{<<"topic">> => PreConfigureTopic2}
+                    ]
+                }
+            }
+        )
+    ),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            RuleTopic = <<"pct">>,
+            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+                Type,
+                RuleTopic,
+                [
+                    {bridge_name, ActionName}
+                ],
+                #{
+                    sql =>
+                        <<"select *, json_decode(payload) as payload from \"", RuleTopic/binary,
+                            "\" ">>
+                }
+            ),
+            ?assertStatusAPI(Type, ActionName, <<"connected">>),
+
+            HandlerId = ?FUNCTION_NAME,
+            TestPid = self(),
+            telemetry:attach_many(
+                HandlerId,
+                emqx_resource_metrics:events(),
+                fun(EventName, Measurements, Metadata, _Config) ->
+                    Data = #{
+                        name => EventName,
+                        measurements => Measurements,
+                        metadata => Metadata
+                    },
+                    TestPid ! {telemetry, Data},
+                    ok
+                end,
+                unused_config
+            ),
+            on_exit(fun() -> telemetry:detach(HandlerId) end),
+
+            {ok, C} = emqtt:start_link(#{}),
+            {ok, _} = emqtt:connect(C),
+            Payload = fun(Map) -> emqx_utils_json:encode(Map) end,
+            Offset1 = resolve_kafka_offset(PreConfigureTopic1),
+            Offset2 = resolve_kafka_offset(PreConfigureTopic2),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 1, p => <<"p1">>}), [{qos, 1}]),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 2, p => <<"p2">>}), [{qos, 1}]),
+
+            check_kafka_message_payload(PreConfigureTopic1, Offset1, <<"p1">>),
+            check_kafka_message_payload(PreConfigureTopic2, Offset2, <<"p2">>),
+
+            ActionId = emqx_bridge_v2:id(Type, ActionName),
+            ?assertEqual(2, emqx_resource_metrics:matched_get(ActionId)),
+            ?assertEqual(2, emqx_resource_metrics:success_get(ActionId)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId)),
+
+            %% Check that each gauge event is scoped by topic to avoid clobbering
+            ?assertReceive(
+                {telemetry, #{
+                    measurements := #{gauge_set := _},
+                    metadata := #{worker_id := {_Topic, _Partition}}
+                }}
+            ),
+
+            %% If there isn't enough information in the context to resolve to a topic, it
+            %% should be an unrecoverable error.
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{not_enough => <<"info">>}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_failed_to_render_topic"}
+                )
+            ),
+
+            %% If it's possible to render the topic, but it isn't in the pre-configured
+            %% list, it should be an unrecoverable error.
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{n => 99}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that creating an action with templated topic and no pre-configured kafka topics
+%% throws.
+t_templated_topic_and_no_pre_configured_topics(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"bad_pre_configured_topics">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"topic">> => <<"pct${.payload.n}">>,
+                    <<"pre_configured_topics">> => []
+                }
+            }
+        )
+    ),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"status_reason">> :=
+                            <<
+                                "Either the Kafka topic must be fixed (not a template),"
+                                " or at least one pre-defined topic must be set."
+                            >>,
+                        <<"status">> := <<"disconnected">>,
+                        <<"node_status">> := [#{<<"status">> := <<"disconnected">>}]
+                    }}},
+                emqx_bridge_v2_testlib:get_bridge_api(Type, ActionName)
+            ),
+
+            ok
+        end,
+        []
     ),
     ok.
