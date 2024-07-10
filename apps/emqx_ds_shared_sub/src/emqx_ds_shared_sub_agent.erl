@@ -54,14 +54,23 @@
     session_id := emqx_persistent_session_ds:id()
 }.
 
-%% Techinically, group_id and share_topic_filter are the same.
-%% However, we speak in the terms of share_topic_filter in the API,
-%% which is known to the shared subscription handler of persistent session.
+%% We speak in the terms of share_topic_filter in the module API
+%% which is consumed by persistent session.
 %%
-%% And we speak in the terms of group_id internally:
-%% * we keep group_sm's in the state by group_id
-%% * we use group_id to address group_sm's, e.g. when sending messages to them
-%% from leader or from themselves.
+%% We speak in the terms of group_id internally:
+%% * to identfy shared subscription's group_sm in the state;
+%% * to addres agent's group_sm while communicating with leader.
+%% * to identify the leader itself.
+%%
+%% share_topic_filter should be uniquely determined by group_id. See MQTT 5.0 spec:
+%%
+%% > Note that "$share/consumer1//finance" and "$share/consumer1/sport/tennis/+"
+%% > are distinct shared subscriptions, even though they have the same ShareName.
+%% > While they might be related in some way, no specific relationship between them
+%% > is implied by them having the same ShareName.
+%%
+%% So we just use the full share_topic_filter record as group_id.
+
 -define(group_id(ShareTopicFilter), ShareTopicFilter).
 -define(share_topic_filter(GroupId), GroupId).
 
