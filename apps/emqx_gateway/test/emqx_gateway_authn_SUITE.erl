@@ -57,6 +57,7 @@ init_per_group(AuthName, Conf) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
+            emqx_auth_http,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
             {emqx_gateway, emqx_gateway_auth_ct:list_gateway_conf()}
