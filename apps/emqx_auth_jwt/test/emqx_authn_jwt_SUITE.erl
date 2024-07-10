@@ -185,6 +185,7 @@ t_public_key(_) ->
         from => password,
         acl_claim_name => <<"acl">>,
         use_jwks => false,
+        enable => true,
         algorithm => 'public-key',
         public_key => PublicKey,
         verify_claims => [],
@@ -202,6 +203,51 @@ t_public_key(_) ->
     ?assertEqual(
         ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
     ),
+
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+t_bad_public_keys(_) ->
+    BaseConfig = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'public-key',
+        verify_claims => [],
+        disconnect_after_expire => false
+    },
+
+    %% try create with invalid public key
+    ?assertMatch(
+        {error, invalid_public_key},
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{
+            enable => true,
+            public_key => <<"bad_public_key">>
+        })
+    ),
+
+    %% no such file
+    ?assertMatch(
+        {error, invalid_public_key},
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{
+            enable => true,
+            public_key => data_file("bad_flie_path.pem")
+        })
+    ),
+
+    %% bad public key file content
+    ?assertMatch(
+        {error, invalid_public_key},
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{
+            enable => true,
+            public_key => data_file("bad_public_key_file.pem")
+        })
+    ),
+
+    %% assume jwk authenticator is disabled
+    {ok, State} =
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{public_key => <<"bad_public_key">>}),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
