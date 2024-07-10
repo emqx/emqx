@@ -87,7 +87,7 @@
     deliver/3,
     replay/3,
     handle_timeout/3,
-    handle_info/2,
+    handle_info/3,
     disconnect/2,
     terminate/2
 ]).
@@ -602,8 +602,8 @@ handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
 %% Geneic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), session()) -> session().
-handle_info(Msg, Session) ->
+-spec handle_info(term(), session(), clientinfo()) -> session().
+handle_info(Msg, Session, _ClientInfo) ->
     ?SLOG(warning, #{msg => emqx_session_mem_unknown_message, message => Msg}),
     Session.
 
