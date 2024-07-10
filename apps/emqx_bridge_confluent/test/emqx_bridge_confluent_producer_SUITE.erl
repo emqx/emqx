@@ -400,3 +400,37 @@ t_multiple_actions_sharing_topic(Config) ->
         ]
     ),
     ok.
+
+t_pre_configured_topics(Config) ->
+    ActionConfig0 = ?config(action_config, Config),
+    ActionConfig =
+        emqx_utils_maps:deep_merge(
+            ActionConfig0,
+            #{<<"parameters">> => #{<<"query_mode">> => <<"sync">>}}
+        ),
+    ok = emqx_bridge_v2_kafka_producer_SUITE:t_pre_configured_topics(
+        [
+            {type, ?ACTION_TYPE_BIN},
+            {connector_name, ?config(connector_name, Config)},
+            {connector_config, ?config(connector_config, Config)},
+            {action_config, ActionConfig}
+        ]
+    ),
+    ok.
+
+t_templated_topic_and_no_pre_configured_topics(Config) ->
+    ActionConfig0 = ?config(action_config, Config),
+    ActionConfig =
+        emqx_utils_maps:deep_merge(
+            ActionConfig0,
+            #{<<"parameters">> => #{<<"query_mode">> => <<"sync">>}}
+        ),
+    ok = emqx_bridge_v2_kafka_producer_SUITE:t_templated_topic_and_no_pre_configured_topics(
+        [
+            {type, ?ACTION_TYPE_BIN},
+            {connector_name, ?config(connector_name, Config)},
+            {connector_config, ?config(connector_config, Config)},
+            {action_config, ActionConfig}
+        ]
+    ),
+    ok.

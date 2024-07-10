@@ -69,7 +69,7 @@ producer_kafka_opts.label:
 """Azure Event Hubs Producer"""
 
 kafka_topic.desc:
-"""Event Hubs name"""
+"""Event Hubs name.  Supports templates (e.g.: `t-${payload.t}`)."""
 
 kafka_topic.label:
 """Event Hubs Name"""
@@ -349,5 +349,15 @@ Setting this to a value which is greater than the total number of partitions in 
 
 partitions_limit.label:
 """Max Partitions"""
+
+producer_pre_configured_topics.label:
+"""Pre-configured Event Hubs"""
+producer_pre_configured_topics.desc:
+"""A list of pre-configured event hubs to be used when using templates to define outgoing topics.  If the topic template fails to resolve to a value due to missing data in the incoming message, or if it resolves to a topic that is not contained in this list, then publishing will fail."""
+
+pre_configured_topic.label:
+"""Event Hubs Name"""
+pre_configured_topic.desc:
+"""Event Hubs name"""
 
 }

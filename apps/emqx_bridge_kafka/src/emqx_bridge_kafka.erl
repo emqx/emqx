@@ -295,6 +295,7 @@ fields("config_producer") ->
 fields("config_consumer") ->
     fields(kafka_consumer);
 fields(kafka_producer) ->
+    %% Schema used by bridges V1.
     connector_config_fields() ++ producer_opts(v1);
 fields(kafka_producer_action) ->
     [
@@ -306,6 +307,10 @@ fields(kafka_producer_action) ->
         {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()}
     ] ++ producer_opts(action);
+fields(pre_configured_topic) ->
+    [
+        {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})}
+    ];
 fields(kafka_consumer) ->
     connector_config_fields() ++ fields(consumer_opts);
 fields(ssl_client_opts) ->
@@ -364,9 +369,41 @@ fields(socket_opts) ->
                 validator => fun emqx_schema:validate_tcp_keepalive/1
             })}
     ];
+fields(v1_producer_kafka_opts) ->
+    OldSchemaFields =
+        [
+            topic,
+            message,
+            max_batch_bytes,
+            compression,
+            partition_strategy,
+            required_acks,
+            kafka_headers,
+            kafka_ext_headers,
+            kafka_header_value_encode_mode,
+            partition_count_refresh_interval,
+            partitions_limit,
+            max_inflight,
+            buffer,
+            query_mode,
+            sync_query_timeout
+        ],
+    Fields = fields(producer_kafka_opts),
+    lists:filter(
+        fun({K, _V}) -> lists:member(K, OldSchemaFields) end,
+        Fields
+    );
 fields(producer_kafka_opts) ->
     [
         {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},
+        {pre_configured_topics,
+            mk(
+                hoconsc:array(ref(pre_configured_topic)),
+                #{
+                    default => [],
+                    desc => ?DESC("producer_pre_configured_topics")
+                }
+            )},
         {message, mk(ref(kafka_message), #{required => false, desc => ?DESC(kafka_message)})},
         {max_batch_bytes,
             mk(emqx_schema:bytesize(), #{default => <<"896KB">>, desc => ?DESC(max_batch_bytes)})},
@@ -675,15 +712,15 @@ resource_opts() ->
 %% However we need to keep it backward compatible for generated schema json (version 0.1.0)
 %% since schema is data for the 'schemas' API.
 parameters_field(ActionOrBridgeV1) ->
-    {Name, Alias} =
+    {Name, Alias, Ref} =
         case ActionOrBridgeV1 of
             v1 ->
-                {kafka, parameters};
+                {kafka, parameters, v1_producer_kafka_opts};
             action ->
-                {parameters, kafka}
+                {parameters, kafka, producer_kafka_opts}
         end,
     {Name,
-        mk(ref(producer_kafka_opts), #{
+        mk(ref(Ref), #{
             required => true,
             aliases => [Alias],
             desc => ?DESC(producer_kafka_opts),
