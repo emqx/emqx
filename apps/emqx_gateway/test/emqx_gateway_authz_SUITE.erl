@@ -57,6 +57,7 @@ init_per_group(AuthName, Conf) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, "authorization { no_match = deny, cache { enable = false } }"},
+            emqx_auth_http,
             {emqx_gateway, emqx_gateway_auth_ct:list_gateway_conf()}
             | emqx_gateway_test_utils:all_gateway_apps()
         ],
