@@ -52,7 +52,7 @@
     t/0,
     subscription/0,
     session_id/0,
-    stream_lease/0,
+    stream_lease_event/0,
     opts/0
 ]).
 
@@ -84,7 +84,7 @@
 -callback can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
 -callback on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().
 -callback on_unsubscribe(t(), share_topic_filter(), [stream_progress()]) -> t().
--callback on_disconnect(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
+-callback on_disconnect(t(), [stream_progress()]) -> t().
 -callback renew_streams(t()) -> {[stream_lease_event()], t()}.
 -callback on_stream_progress(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
 -callback on_info(t(), term()) -> t().

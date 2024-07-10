@@ -126,7 +126,8 @@ on_subscribe(State0, ShareTopicFilter, _SubOpts) ->
 on_unsubscribe(State, ShareTopicFilter, GroupProgress) ->
     delete_shared_subscription(State, ShareTopicFilter, GroupProgress).
 
--spec renew_streams(t()) -> {[emqx_persistent_session_ds_shared_subs:agent_stream_event()], t()}.
+-spec renew_streams(t()) ->
+    {[emqx_persistent_session_ds_shared_subs_agent:stream_lease_event()], t()}.
 renew_streams(#{} = State) ->
     fetch_stream_events(State).
 

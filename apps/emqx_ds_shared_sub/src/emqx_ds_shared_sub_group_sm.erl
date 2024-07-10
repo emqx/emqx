@@ -33,7 +33,7 @@
 ]).
 
 -export_type([
-    group_sm/0,
+    t/0,
     options/0,
     state/0
 ]).
@@ -97,7 +97,7 @@
 -type timer_name() :: atom().
 -type timer() :: #timer{}.
 
--type group_sm() :: #{
+-type t() :: #{
     share_topic_filter => emqx_persistent_session_ds:share_topic_filter(),
     agent => emqx_ds_shared_sub_proto:agent(),
     send_after => fun((non_neg_integer(), term()) -> reference()),
@@ -112,7 +112,7 @@
 %% API
 %%-----------------------------------------------------------------------
 
--spec new(options()) -> group_sm().
+-spec new(options()) -> t().
 new(#{
     session_id := SessionId,
     agent := Agent,
@@ -139,8 +139,8 @@ new(#{
     }),
     transition(GSM0, ?connecting, #{}).
 
--spec fetch_stream_events(group_sm()) ->
-    {group_sm(), [emqx_ds_shared_sub_agent:external_lease_event()]}.
+-spec fetch_stream_events(t()) ->
+    {t(), [emqx_ds_shared_sub_agent:external_lease_event()]}.
 fetch_stream_events(
     #{
         state := _State,
@@ -156,7 +156,7 @@ fetch_stream_events(
     ),
     {GSM#{stream_lease_events => []}, Events1}.
 
--spec handle_disconnect(group_sm(), emqx_ds_shared_sub_proto:agent_stream_progress()) -> group_sm().
+-spec handle_disconnect(t(), emqx_ds_shared_sub_proto:agent_stream_progress()) -> t().
 handle_disconnect(#{state := ?connecting} = GSM, _StreamProgresses) ->
     transition(GSM, ?disconnected, #{});
 handle_disconnect(
@@ -378,8 +378,8 @@ handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew) ->
     }),
     transition(GSM, ?connecting, #{}).
 
--spec handle_stream_progress(group_sm(), list(emqx_ds_shared_sub_proto:agent_stream_progress())) ->
-    group_sm().
+-spec handle_stream_progress(t(), list(emqx_ds_shared_sub_proto:agent_stream_progress())) ->
+    t().
 handle_stream_progress(#{state := ?connecting} = GSM, _StreamProgresses) ->
     GSM;
 handle_stream_progress(

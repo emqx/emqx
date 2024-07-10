@@ -132,7 +132,7 @@
 %% TODO: Not implemented
 -type iterator_id() :: term().
 
--opaque iterator() :: ds_specific_iterator().
+-type iterator() :: ds_specific_iterator().
 
 -opaque delete_iterator() :: ds_specific_delete_iterator().
 
