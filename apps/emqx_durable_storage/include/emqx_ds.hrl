@@ -16,4 +16,9 @@
 -ifndef(EMQX_DS_HRL).
 -define(EMQX_DS_HRL, true).
 
+-record(ds_async_result, {
+    ref :: reference(),
+    data :: emqx_ds:next_result()
+}).
+
 -endif.
