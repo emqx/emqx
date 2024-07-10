@@ -64,7 +64,7 @@
     deliver/3,
     replay/3,
     handle_timeout/3,
-    handle_info/2,
+    handle_info/3,
     disconnect/2,
     terminate/2
 ]).
@@ -661,10 +661,15 @@ handle_timeout(_ClientInfo, Timeout, Session) ->
 %% Generic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), session()) -> session().
-handle_info(?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := SharedSubS0}) ->
+-spec handle_info(term(), session(), clientinfo()) -> session().
+handle_info(
+    ?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := SharedSubS0}, _ClientInfo
+) ->
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
-    Session#{s => S, shared_sub_s => SharedSubS}.
+    Session#{s => S, shared_sub_s => SharedSubS};
+handle_info(Msg, Session, _ClientInfo) ->
+    ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
+    Session.
 
 %%--------------------------------------------------------------------
 %% Shared subscription outgoing messages
