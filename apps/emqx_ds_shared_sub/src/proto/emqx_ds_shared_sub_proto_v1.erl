@@ -33,9 +33,9 @@ introduced_in() ->
     emqx_ds_shared_sub_proto:agent_metadata(),
     emqx_persistent_session_ds:share_topic_filter()
 ) -> ok.
-agent_connect_leader(Node, ToLeader, FromAgent, AgentMetadata, TopicFilter) ->
+agent_connect_leader(Node, ToLeader, FromAgent, AgentMetadata, ShareTopicFilter) ->
     erpc:cast(Node, emqx_ds_shared_sub_proto, agent_connect_leader, [
-        ToLeader, FromAgent, AgentMetadata, TopicFilter
+        ToLeader, FromAgent, AgentMetadata, ShareTopicFilter
     ]).
 
 -spec agent_update_stream_states(

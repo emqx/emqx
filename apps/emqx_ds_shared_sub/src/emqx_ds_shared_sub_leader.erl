@@ -27,8 +27,12 @@
     terminate/3
 ]).
 
+-type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+
+-type group_id() :: share_topic_filter().
+
 -type options() :: #{
-    topic_filter := emqx_persistent_session_ds:share_topic_filter()
+    share_topic_filter := share_topic_filter()
 }.
 
 %% Agent states
@@ -39,7 +43,7 @@
 -define(updating, updating).
 
 -type agent_state() :: #{
-    %% Our view of group sm's status
+    %% Our view of group_id sm's status
     %% it lags the actual state
     state := ?waiting_replaying | ?replaying | ?waiting_updating | ?updating,
     prev_version := emqx_maybe:t(emqx_ds_shared_sub_proto:version()),
@@ -62,7 +66,7 @@
     %%
     %% Persistent data
     %%
-    group := emqx_types:group(),
+    group_id := group_id(),
     topic := emqx_types:topic(),
     %% For ds router, not an actual session_id
     router_id := binary(),
@@ -119,9 +123,9 @@ register(Pid, Fun) ->
 %% Internal API
 %%--------------------------------------------------------------------
 
-child_spec(#{topic_filter := TopicFilter} = Options) ->
+child_spec(#{share_topic_filter := ShareTopicFilter} = Options) ->
     #{
-        id => id(TopicFilter),
+        id => id(ShareTopicFilter),
         start => {?MODULE, start_link, [Options]},
         restart => temporary,
         shutdown => 5000,
@@ -131,8 +135,8 @@ child_spec(#{topic_filter := TopicFilter} = Options) ->
 start_link(Options) ->
     gen_statem:start_link(?MODULE, [Options], []).
 
-id(#share{group = Group} = _TopicFilter) ->
-    {?MODULE, Group}.
+id(ShareTopicFilter) ->
+    {?MODULE, ShareTopicFilter}.
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
@@ -140,9 +144,9 @@ id(#share{group = Group} = _TopicFilter) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([#{topic_filter := #share{group = Group, topic = Topic}} = _Options]) ->
+init([#{share_topic_filter := #share{topic = Topic} = ShareTopicFilter} = _Options]) ->
     Data = #{
-        group => Group,
+        group_id => ShareTopicFilter,
         topic => Topic,
         router_id => gen_router_id(),
         start_time => now_ms() - ?START_TIME_THRESHOLD,
@@ -463,14 +467,14 @@ select_streams_for_assign(Data0, _Agent, AssignCount) ->
 %% Handle a newly connected agent
 
 connect_agent(
-    #{group := Group, agents := Agents} = Data,
+    #{group_id := GroupId, agents := Agents} = Data,
     Agent,
     AgentMetadata
 ) ->
     ?SLOG(info, #{
         msg => leader_agent_connected,
         agent => Agent,
-        group => Group
+        group_id => GroupId
     }),
     case Agents of
         #{Agent := AgentState} ->
@@ -583,22 +587,22 @@ renew_leases(#{agents := AgentStates} = Data) ->
     ),
     Data.
 
-renew_lease(#{group := Group}, Agent, #{state := ?replaying, version := Version}) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, Group, Version);
-renew_lease(#{group := Group}, Agent, #{state := ?waiting_replaying, version := Version}) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, Group, Version);
-renew_lease(#{group := Group} = Data, Agent, #{
+renew_lease(#{group_id := GroupId}, Agent, #{state := ?replaying, version := Version}) ->
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, Version);
+renew_lease(#{group_id := GroupId}, Agent, #{state := ?waiting_replaying, version := Version}) ->
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, Version);
+renew_lease(#{group_id := GroupId} = Data, Agent, #{
     streams := Streams, state := ?waiting_updating, version := Version, prev_version := PrevVersion
 }) ->
     StreamProgresses = stream_progresses(Data, Streams),
     ok = emqx_ds_shared_sub_proto:leader_update_streams(
-        Agent, Group, PrevVersion, Version, StreamProgresses
+        Agent, GroupId, PrevVersion, Version, StreamProgresses
     ),
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, Group, PrevVersion, Version);
-renew_lease(#{group := Group}, Agent, #{
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, PrevVersion, Version);
+renew_lease(#{group_id := GroupId}, Agent, #{
     state := ?updating, version := Version, prev_version := PrevVersion
 }) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, Group, PrevVersion, Version).
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, PrevVersion, Version).
 
 %%--------------------------------------------------------------------
 %% Handle stream progress updates from agent in replaying state
@@ -802,7 +806,7 @@ update_agent_stream_states(Data0, Agent, AgentStreamProgresses, VersionOld, Vers
 %%--------------------------------------------------------------------
 
 agent_transition_to_waiting_updating(
-    #{group := Group} = Data,
+    #{group_id := GroupId} = Data,
     Agent,
     #{state := OldState, version := Version, prev_version := undefined} = AgentState0,
     Streams,
@@ -825,19 +829,19 @@ agent_transition_to_waiting_updating(
     AgentState2 = renew_no_replaying_deadline(AgentState1),
     StreamProgresses = stream_progresses(Data, Streams),
     ok = emqx_ds_shared_sub_proto:leader_update_streams(
-        Agent, Group, Version, NewVersion, StreamProgresses
+        Agent, GroupId, Version, NewVersion, StreamProgresses
     ),
     AgentState2.
 
 agent_transition_to_waiting_replaying(
-    #{group := Group} = _Data, Agent, #{state := OldState, version := Version} = AgentState0
+    #{group_id := GroupId} = _Data, Agent, #{state := OldState, version := Version} = AgentState0
 ) ->
     ?tp(warning, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
         old_state => OldState,
         new_state => ?waiting_replaying
     }),
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, Group, Version),
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, Version),
     AgentState1 = AgentState0#{
         state => ?waiting_replaying,
         revoked_streams => []
@@ -845,7 +849,7 @@ agent_transition_to_waiting_replaying(
     renew_no_replaying_deadline(AgentState1).
 
 agent_transition_to_initial_waiting_replaying(
-    #{group := Group} = Data, Agent, AgentMetadata, InitialStreams
+    #{group_id := GroupId} = Data, Agent, AgentMetadata, InitialStreams
 ) ->
     ?tp(warning, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
@@ -856,7 +860,7 @@ agent_transition_to_initial_waiting_replaying(
     StreamProgresses = stream_progresses(Data, InitialStreams),
     Leader = this_leader(Data),
     ok = emqx_ds_shared_sub_proto:leader_lease_streams(
-        Agent, Group, Leader, StreamProgresses, Version
+        Agent, GroupId, Leader, StreamProgresses, Version
     ),
     AgentState = #{
         metadata => AgentMetadata,
@@ -1015,8 +1019,8 @@ drop_agent(#{agents := Agents} = Data0, Agent) ->
     ?tp(warning, shared_sub_leader_drop_agent, #{agent => Agent}),
     Data1#{agents => maps:remove(Agent, Agents)}.
 
-invalidate_agent(#{group := Group}, Agent) ->
-    ok = emqx_ds_shared_sub_proto:leader_invalidate(Agent, Group).
+invalidate_agent(#{group_id := GroupId}, Agent) ->
+    ok = emqx_ds_shared_sub_proto:leader_invalidate(Agent, GroupId).
 
 drop_invalidate_agent(Data0, Agent) ->
     Data1 = drop_agent(Data0, Agent),

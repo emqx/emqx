@@ -21,16 +21,16 @@
 %% Agent messages sent to the leader.
 %% Leader talks to many agents, `agent` field is used to identify the sender.
 
--define(agent_connect_leader(Agent, AgentMetadata, TopicFilter), #{
+-define(agent_connect_leader(Agent, AgentMetadata, ShareTopicFilter), #{
     type => ?agent_connect_leader_msg,
-    topic_filter => TopicFilter,
+    share_topic_filter => ShareTopicFilter,
     agent_metadata => AgentMetadata,
     agent => Agent
 }).
 
--define(agent_connect_leader_match(Agent, AgentMetadata, TopicFilter), #{
+-define(agent_connect_leader_match(Agent, AgentMetadata, ShareTopicFilter), #{
     type := ?agent_connect_leader_msg,
-    topic_filter := TopicFilter,
+    share_topic_filter := ShareTopicFilter,
     agent_metadata := AgentMetadata,
     agent := Agent
 }).
@@ -81,77 +81,77 @@
 
 %% leader messages, sent from the leader to the agent
 %% Agent may have several shared subscriptions, so may talk to several leaders
-%% `group` field is used to identify the leader.
+%% `group_id` field is used to identify the leader.
 
 -define(leader_lease_streams_msg, leader_lease_streams).
 -define(leader_renew_stream_lease_msg, leader_renew_stream_lease).
 
--define(leader_lease_streams(Group, Leader, Streams, Version), #{
+-define(leader_lease_streams(GrouId, Leader, Streams, Version), #{
     type => ?leader_lease_streams_msg,
     streams => Streams,
     version => Version,
     leader => Leader,
-    group => Group
+    group_id => GrouId
 }).
 
--define(leader_lease_streams_match(Group, Leader, Streams, Version), #{
+-define(leader_lease_streams_match(GroupId, Leader, Streams, Version), #{
     type := ?leader_lease_streams_msg,
     streams := Streams,
     version := Version,
     leader := Leader,
-    group := Group
+    group_id := GroupId
 }).
 
--define(leader_renew_stream_lease(Group, Version), #{
+-define(leader_renew_stream_lease(GroupId, Version), #{
     type => ?leader_renew_stream_lease_msg,
     version => Version,
-    group => Group
+    group_id => GroupId
 }).
 
--define(leader_renew_stream_lease_match(Group, Version), #{
+-define(leader_renew_stream_lease_match(GroupId, Version), #{
     type := ?leader_renew_stream_lease_msg,
     version := Version,
-    group := Group
+    group_id := GroupId
 }).
 
--define(leader_renew_stream_lease(Group, VersionOld, VersionNew), #{
+-define(leader_renew_stream_lease(GroupId, VersionOld, VersionNew), #{
     type => ?leader_renew_stream_lease_msg,
     version_old => VersionOld,
     version_new => VersionNew,
-    group => Group
+    group_id => GroupId
 }).
 
--define(leader_renew_stream_lease_match(Group, VersionOld, VersionNew), #{
+-define(leader_renew_stream_lease_match(GroupId, VersionOld, VersionNew), #{
     type := ?leader_renew_stream_lease_msg,
     version_old := VersionOld,
     version_new := VersionNew,
-    group := Group
+    group_id := GroupId
 }).
 
--define(leader_update_streams(Group, VersionOld, VersionNew, StreamsNew), #{
+-define(leader_update_streams(GroupId, VersionOld, VersionNew, StreamsNew), #{
     type => leader_update_streams,
     version_old => VersionOld,
     version_new => VersionNew,
     streams_new => StreamsNew,
-    group => Group
+    group_id => GroupId
 }).
 
--define(leader_update_streams_match(Group, VersionOld, VersionNew, StreamsNew), #{
+-define(leader_update_streams_match(GroupId, VersionOld, VersionNew, StreamsNew), #{
     type := leader_update_streams,
     version_old := VersionOld,
     version_new := VersionNew,
     streams_new := StreamsNew,
-    group := Group
+    group_id := GroupId
 }).
 
--define(leader_invalidate(Group), #{
+-define(leader_invalidate(GroupId), #{
     type => leader_invalidate,
-    group => Group
+    group_id => GroupId
 }).
 
--define(leader_invalidate_match(Group), #{
+-define(leader_invalidate_match(GroupId), #{
     type := leader_invalidate,
-    group := Group
+    group_id := GroupId
 }).
 
 %% Helpers

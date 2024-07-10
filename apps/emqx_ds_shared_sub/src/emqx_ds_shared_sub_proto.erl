@@ -33,7 +33,7 @@
 
 -type agent() :: ?agent(emqx_persistent_session_ds:id(), pid()).
 -type leader() :: pid().
--type topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
 -type group() :: emqx_types:group().
 -type version() :: non_neg_integer().
 -type agent_metadata() :: #{
@@ -63,8 +63,8 @@
 
 %% agent -> leader messages
 
--spec agent_connect_leader(leader(), agent(), agent_metadata(), topic_filter()) -> ok.
-agent_connect_leader(ToLeader, FromAgent, AgentMetadata, TopicFilter) when
+-spec agent_connect_leader(leader(), agent(), agent_metadata(), share_topic_filter()) -> ok.
+agent_connect_leader(ToLeader, FromAgent, AgentMetadata, ShareTopicFilter) when
     ?is_local_leader(ToLeader)
 ->
     ?tp(warning, shared_sub_proto_msg, #{
@@ -72,13 +72,13 @@ agent_connect_leader(ToLeader, FromAgent, AgentMetadata, TopicFilter) when
         to_leader => ToLeader,
         from_agent => FromAgent,
         agent_metadata => AgentMetadata,
-        topic_filter => TopicFilter
+        share_topic_filter => ShareTopicFilter
     }),
-    _ = erlang:send(ToLeader, ?agent_connect_leader(FromAgent, AgentMetadata, TopicFilter)),
+    _ = erlang:send(ToLeader, ?agent_connect_leader(FromAgent, AgentMetadata, ShareTopicFilter)),
     ok;
-agent_connect_leader(ToLeader, FromAgent, AgentMetadata, TopicFilter) ->
+agent_connect_leader(ToLeader, FromAgent, AgentMetadata, ShareTopicFilter) ->
     emqx_ds_shared_sub_proto_v1:agent_connect_leader(
-        ?leader_node(ToLeader), ToLeader, FromAgent, AgentMetadata, TopicFilter
+        ?leader_node(ToLeader), ToLeader, FromAgent, AgentMetadata, ShareTopicFilter
     ).
 
 -spec agent_update_stream_states(leader(), agent(), list(agent_stream_progress()), version()) -> ok.

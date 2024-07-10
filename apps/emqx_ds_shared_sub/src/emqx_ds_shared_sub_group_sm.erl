@@ -41,7 +41,7 @@
 -type options() :: #{
     session_id := emqx_persistent_session_ds:id(),
     agent := emqx_ds_shared_sub_proto:agent(),
-    topic_filter := emqx_persistent_session_ds:share_topic_filter(),
+    share_topic_filter := emqx_persistent_session_ds:share_topic_filter(),
     send_after := fun((non_neg_integer(), term()) -> reference())
 }.
 
@@ -56,19 +56,6 @@
     | #{
         type => revoke,
         stream => emqx_ds:stream()
-    }.
-
--type external_lease_event() ::
-    #{
-        type => lease,
-        stream => emqx_ds:stream(),
-        progress => progress(),
-        topic_filter => emqx_persistent_session_ds:share_topic_filter()
-    }
-    | #{
-        type => revoke,
-        stream => emqx_ds:stream(),
-        topic_filter => emqx_persistent_session_ds:share_topic_filter()
     }.
 
 %% GroupSM States
@@ -111,7 +98,7 @@
 -type timer() :: #timer{}.
 
 -type group_sm() :: #{
-    topic_filter => emqx_persistent_session_ds:share_topic_filter(),
+    share_topic_filter => emqx_persistent_session_ds:share_topic_filter(),
     agent => emqx_ds_shared_sub_proto:agent(),
     send_after => fun((non_neg_integer(), term()) -> reference()),
     stream_lease_events => list(stream_lease_event()),
@@ -129,7 +116,7 @@
 new(#{
     session_id := SessionId,
     agent := Agent,
-    topic_filter := ShareTopicFilter,
+    share_topic_filter := ShareTopicFilter,
     send_after := SendAfter
 }) ->
     ?SLOG(
@@ -137,32 +124,33 @@ new(#{
         #{
             msg => group_sm_new,
             agent => Agent,
-            topic_filter => ShareTopicFilter
+            share_topic_filter => ShareTopicFilter
         }
     ),
     GSM0 = #{
         id => SessionId,
-        topic_filter => ShareTopicFilter,
+        share_topic_filter => ShareTopicFilter,
         agent => Agent,
         send_after => SendAfter
     },
     ?tp(warning, group_sm_new, #{
         agent => Agent,
-        topic_filter => ShareTopicFilter
+        share_topic_filter => ShareTopicFilter
     }),
     transition(GSM0, ?connecting, #{}).
 
--spec fetch_stream_events(group_sm()) -> {group_sm(), list(external_lease_event())}.
+-spec fetch_stream_events(group_sm()) ->
+    {group_sm(), [emqx_ds_shared_sub_agent:external_lease_event()]}.
 fetch_stream_events(
     #{
         state := _State,
-        topic_filter := TopicFilter,
+        share_topic_filter := ShareTopicFilter,
         stream_lease_events := Events0
     } = GSM
 ) ->
     Events1 = lists:map(
         fun(Event) ->
-            Event#{topic_filter => TopicFilter}
+            Event#{share_topic_filter => ShareTopicFilter}
         end,
         Events0
     ),
@@ -187,18 +175,21 @@ handle_disconnect(
 %%-----------------------------------------------------------------------
 %% Connecting state
 
-handle_connecting(#{agent := Agent, topic_filter := ShareTopicFilter} = GSM) ->
+handle_connecting(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
     ?tp(warning, group_sm_enter_connecting, #{
         agent => Agent,
-        topic_filter => ShareTopicFilter
+        share_topic_filter => ShareTopicFilter
     }),
     ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM), ShareTopicFilter),
     ensure_state_timeout(GSM, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)).
 
 handle_leader_lease_streams(
-    #{state := ?connecting, topic_filter := TopicFilter} = GSM0, Leader, StreamProgresses, Version
+    #{state := ?connecting, share_topic_filter := ShareTopicFilter} = GSM0,
+    Leader,
+    StreamProgresses,
+    Version
 ) ->
-    ?tp(debug, leader_lease_streams, #{topic_filter => TopicFilter}),
+    ?tp(debug, leader_lease_streams, #{share_topic_filter => ShareTopicFilter}),
     Streams = progresses_to_map(StreamProgresses),
     StreamLeaseEvents = progresses_to_lease_events(StreamProgresses),
     transition(
@@ -215,12 +206,12 @@ handle_leader_lease_streams(
 handle_leader_lease_streams(GSM, _Leader, _StreamProgresses, _Version) ->
     GSM.
 
-handle_find_leader_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM0) ->
+handle_find_leader_timeout(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM0) ->
     ?tp(warning, group_sm_find_leader_timeout, #{
         agent => Agent,
-        topic_filter => TopicFilter
+        share_topic_filter => ShareTopicFilter
     }),
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM0), TopicFilter),
+    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM0), ShareTopicFilter),
     GSM1 = ensure_state_timeout(
         GSM0, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)
     ),
@@ -238,8 +229,8 @@ handle_replaying(GSM0) ->
     ),
     GSM2.
 
-handle_renew_lease_timeout(#{agent := Agent, topic_filter := TopicFilter} = GSM) ->
-    ?tp(warning, renew_lease_timeout, #{agent => Agent, topic_filter => TopicFilter}),
+handle_renew_lease_timeout(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
+    ?tp(warning, renew_lease_timeout, #{agent => Agent, share_topic_filter => ShareTopicFilter}),
     transition(GSM, ?connecting, #{}).
 
 %%-----------------------------------------------------------------------
@@ -429,10 +420,10 @@ handle_stream_progress(
 handle_stream_progress(#{state := ?disconnected} = GSM, _StreamProgresses) ->
     GSM.
 
-handle_leader_invalidate(#{agent := Agent, topic_filter := TopicFilter} = GSM) ->
+handle_leader_invalidate(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
     ?tp(warning, shared_sub_group_sm_leader_invalidate, #{
         agent => Agent,
-        topic_filter => TopicFilter
+        share_topic_filter => ShareTopicFilter
     }),
     transition(GSM, ?connecting, #{}).
 
@@ -441,11 +432,11 @@ handle_leader_invalidate(#{agent := Agent, topic_filter := TopicFilter} = GSM) -
 %%-----------------------------------------------------------------------
 
 handle_state_timeout(
-    #{state := ?connecting, topic_filter := TopicFilter} = GSM,
+    #{state := ?connecting, share_topic_filter := ShareTopicFilter} = GSM,
     find_leader_timeout,
     _Message
 ) ->
-    ?tp(debug, find_leader_timeout, #{topic_filter => TopicFilter}),
+    ?tp(debug, find_leader_timeout, #{share_topic_filter => ShareTopicFilter}),
     handle_find_leader_timeout(GSM);
 handle_state_timeout(
     #{state := ?replaying} = GSM,
