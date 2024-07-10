@@ -452,8 +452,9 @@ subscriptions(SubId) ->
 
 -spec subscriptions(emqx_types:mtns(), pid() | emqx_types:subid()) ->
     [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}].
-subscriptions(_Mtns, _SubId) ->
-    error(todo).
+subscriptions(_Mtns, SubId) ->
+    %% FIXME:
+    subscriptions(SubId).
 
 -spec subscriptions_via_topic(emqx_types:topic() | emqx_types:share()) -> [emqx_types:subopts()].
 subscriptions_via_topic(Topic) ->

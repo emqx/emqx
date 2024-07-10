@@ -206,7 +206,7 @@ register_channel(Mtns, ClientId, ChanPid, #{conn_mod := ConnMod}) when
     ok.
 
 %% @doc Unregister a channel.
--spec unregister_channel(emqx_types:mtns(), emqx_tpyes:clientid()) -> ok.
+-spec unregister_channel(emqx_types:mtns(), emqx_types:clientid()) -> ok.
 unregister_channel(Mtns, ClientId) ->
     CId = cid(Mtns, ClientId),
     true = do_unregister_channel({CId, self()}),
