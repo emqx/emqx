@@ -309,7 +309,7 @@ t_configs_key(_Config) ->
     },
     ReadOnlyBin = iolist_to_binary(hocon_pp:do(ReadOnlyConf, #{})),
     {error, ReadOnlyError} = update_configs_with_binary(ReadOnlyBin),
-    ?assertEqual(<<"{\"errors\":\"Cannot update read-only key 'cluster'.\"}">>, ReadOnlyError),
+    ?assertMatch(<<"{\"errors\":\"Cannot update read-only key 'cluster", _/binary>>, ReadOnlyError),
     ?assertMatch({ok, <<>>}, update_configs_with_binary(ReadOnlyBin, _IgnoreReadonly = true)),
     ok.
 

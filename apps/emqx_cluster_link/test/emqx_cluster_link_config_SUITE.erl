@@ -57,13 +57,16 @@ mk_clusters(NameA, NameB, PortA, PortB, ConfA, ConfB, Config) ->
     {NodesA, NodesB}.
 
 t_config_update_cli('init', Config0) ->
-    Config =
+    Config1 =
         [
-            {update_from, cli},
             {name_prefix, ?FUNCTION_NAME}
-            | lists:keydelete(update_from, 1, Config0)
+            | Config0
         ],
-    t_config_update('init', Config);
+    Config2 = t_config_update('init', Config1),
+    [
+        {update_from, cli}
+        | lists:keydelete(update_from, 1, Config2)
+    ];
 t_config_update_cli('end', Config) ->
     t_config_update('end', Config).
 
@@ -683,8 +686,8 @@ validate_update_cli_failed(Node, Config) ->
             ),
             ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
             ?assertMatch(
-                {error, <<"Cannot update read-only key 'cluster.autoheal'.">>},
-                erpc:call(Node, emqx_cluster_cli, conf, [["load", ConfFile]])
+                {error, <<"Cannot update read-only key 'cluster.autoclean'.">>},
+                erpc:call(Node, emqx_conf_cli, conf, [["load", ConfFile]])
             )
     end.
 
@@ -700,7 +703,10 @@ update_links_from_api(Node, Links, _Config) ->
 update_links_from_cli(Node, Links, Config) ->
     ConfBin = hocon_pp:do(#{<<"cluster">> => #{<<"links">> => Links}}, #{}),
     ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
-    erpc:call(Node, emqx_cluster_cli, conf, [["load", ConfFile]]).
+    case erpc:call(Node, emqx_conf_cli, conf, [["load", ConfFile]]) of
+        ok -> {ok, Links};
+        Error -> Error
+    end.
 
 prepare_conf_file(Name, Content, CTConfig) ->
     Filename = tc_conf_file(Name, CTConfig),
