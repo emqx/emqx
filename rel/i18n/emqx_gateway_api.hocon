@@ -31,7 +31,7 @@ gateway_listeners.desc:
 """The Gateway listeners overview"""
 
 gateway_max_connections.desc:
-"""The Gateway allowed maximum connections/clients"""
+"""The maximum number of concurrent connections allowed by the gateway."""
 
 gateway_name.desc:
 """Gateway Name"""
