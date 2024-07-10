@@ -39,7 +39,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, update_iterator/3, next/3]).
+-export([get_streams/3, make_iterator/4, update_iterator/3, next/3, anext/3]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -263,6 +263,14 @@
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
 
+%% Asynchronous next. Backend must reply to the calling process with
+%% `#ds_async_result{}' message, where `ref' field is equal to the
+%% returned reference.
+%%
+%% Reference is a process alias that can be unalised to ignore the
+%% result.
+-callback anext(db(), _Iterator, pos_integer()) -> {ok, reference()}.
+
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
 -callback make_delete_iterator(db(), ds_specific_delete_stream(), topic_filter(), time()) ->
@@ -280,6 +288,8 @@
     get_delete_streams/3,
     make_delete_iterator/4,
     delete_next/4,
+
+    anext/3,
 
     count/1
 ]).
@@ -413,6 +423,16 @@ update_iterator(DB, OldIter, DSKey) ->
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
+
+-spec anext(db(), iterator(), pos_integer()) -> {ok, reference()}.
+anext(DB, Iter, BatchSize) ->
+    Mod = ?module(DB),
+    case erlang:function_exported(Mod, anext, 3) of
+        true ->
+            Mod:anext(DB, Iter, BatchSize);
+        false ->
+            emqx_ds_lib:anext_helper(Mod, next, [DB, Iter, BatchSize])
+    end.
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->
