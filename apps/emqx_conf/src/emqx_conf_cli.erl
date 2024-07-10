@@ -564,7 +564,9 @@ check_cluster_keys(Conf = #{<<"cluster">> := Cluster}, Opts) ->
             BadKeys = ["cluster." ++ K || K <- Keys],
             BadKeysStr = lists:join(<<",">>, BadKeys),
             {error, ?UPDATE_READONLY_KEYS_PROHIBITED, BadKeysStr}
-    end.
+    end;
+check_cluster_keys(Conf, _Opts) ->
+    {ok, Conf}.
 
 check_config_schema(Conf) ->
     SchemaMod = emqx_conf:schema_module(),
