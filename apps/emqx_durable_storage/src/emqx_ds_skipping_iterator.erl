@@ -17,7 +17,6 @@
 -module(emqx_ds_skipping_iterator).
 
 -include("emqx_ds_skipping_iterator.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 
 -type t() :: ?skipping_iterator(emqx_ds:iterator(), non_neg_integer(), non_neg_integer()).
 

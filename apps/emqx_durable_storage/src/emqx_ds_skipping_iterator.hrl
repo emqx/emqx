@@ -30,3 +30,7 @@
 -define(skipping_iterator(Iterator, Q1Skip, Q2Skip), #{
     ?tag => ?IT, ?it => Iterator, ?qos1_skip => Q1Skip, ?qos2_skip => Q2Skip
 }).
+
+-define(QOS_0, 0).
+-define(QOS_1, 1).
+-define(QOS_2, 2).
