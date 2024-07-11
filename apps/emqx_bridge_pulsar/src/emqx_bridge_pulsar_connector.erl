@@ -255,7 +255,7 @@ format_servers(Servers0) ->
 
 -spec make_client_id(resource_id()) -> pulsar_client_id().
 make_client_id(InstanceId) ->
-    case is_dry_run(InstanceId) of
+    case emqx_resource:is_dry_run(InstanceId) of
         true ->
             pulsar_producer_probe;
         false ->
@@ -267,14 +267,6 @@ make_client_id(InstanceId) ->
                 emqx_utils_conv:bin(node())
             ]),
             binary_to_atom(ClientIdBin)
-    end.
-
--spec is_dry_run(resource_id()) -> boolean().
-is_dry_run(InstanceId) ->
-    TestIdStart = string:find(InstanceId, ?TEST_ID_PREFIX),
-    case TestIdStart of
-        nomatch -> false;
-        _ -> string:equal(TestIdStart, InstanceId)
     end.
 
 conn_opts(#{authentication := none}) ->

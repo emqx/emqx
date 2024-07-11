@@ -137,14 +137,7 @@ create_producers_for_bridge_v2(
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
     MaxPartitions = maps:get(partitions_limit, KafkaConfig, all_partitions),
     #{name := BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
-    TestIdStart = string:find(BridgeV2Id, ?TEST_ID_PREFIX),
-    IsDryRun =
-        case TestIdStart of
-            nomatch ->
-                false;
-            _ ->
-                string:equal(TestIdStart, InstId)
-        end,
+    IsDryRun = emqx_resource:is_dry_run(BridgeV2Id),
     ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
     WolffProducerConfig = producers_config(
         BridgeType, BridgeName, KafkaConfig, IsDryRun, BridgeV2Id

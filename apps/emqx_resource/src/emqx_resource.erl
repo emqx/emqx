@@ -140,6 +140,8 @@
     validate_name/1
 ]).
 
+-export([is_dry_run/1]).
+
 -export_type([
     query_mode/0,
     resource_id/0,
@@ -768,6 +770,13 @@ bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 validate_name(Name) ->
     _ = validate_name(Name, #{atom_name => false}),
     ok.
+
+-spec is_dry_run(resource_id()) -> boolean().
+is_dry_run(ResId) ->
+    case string:find(ResId, ?TEST_ID_PREFIX) of
+        nomatch -> false;
+        TestIdStart -> string:equal(TestIdStart, ResId)
+    end.
 
 validate_name(<<>>, _Opts) ->
     invalid_data("Name cannot be empty string");
