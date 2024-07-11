@@ -572,6 +572,7 @@ defmodule EMQXUmbrella.MixProject do
         } = check_profile!()
 
         base_steps = [
+          &merge_config/1,
           &make_docs/1,
           :assemble,
           &create_RELEASES/1,
@@ -809,6 +810,12 @@ defmodule EMQXUmbrella.MixProject do
   #############################################################################
   #  Custom Steps
   #############################################################################
+
+  # Gathers i18n files and merge them before producing docs and schemas.
+  defp merge_config(release) do
+    {_, 0} = System.cmd("bash", ["-c", "./scripts/merge-config.escript"])
+    release
+  end
 
   defp make_docs(release) do
     profile = System.get_env("MIX_ENV")
