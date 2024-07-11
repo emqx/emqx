@@ -41,8 +41,6 @@ defmodule EMQXUmbrella.MixProject do
     if new_mix_build?() do
       [
         apps_path: "apps",
-        apps:
-          applications(profile_info.release_type, profile_info.edition_type) |> Keyword.keys(),
         erlc_options: erlc_options(profile_info, version),
         version: version,
         deps: deps(profile_info, version),
