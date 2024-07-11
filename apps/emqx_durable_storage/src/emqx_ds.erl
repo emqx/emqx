@@ -169,6 +169,13 @@
 -type generic_db_opts() ::
     #{
         backend := atom(),
+        %% Force strictly monotonic message timestamps.
+        %% Default: `true'.
+        %% Messages are assigned unique, strictly monotonically increasing timestamps.
+        %% Those timestamps form a total order per each serialization key.
+        %% If `false' then message timestamps are respected; timestamp, topic and
+        %% serialization key uniquely identify a message.
+        force_monotonic_timestamps => boolean(),
         serialize_by => clientid | topic,
         _ => _
     }.
