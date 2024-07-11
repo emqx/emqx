@@ -268,7 +268,7 @@ open_db(DB, Opts = #{backend := Backend}) ->
         Module ->
             persistent_term:put(?persistent_term(DB), Module),
             emqx_ds_sup:register_db(DB, Backend),
-            ?module(DB):open_db(DB, Opts)
+            ?module(DB):open_db(DB, set_db_defaults(Opts))
     end.
 
 -spec close_db(db()) -> ok.
@@ -286,7 +286,7 @@ add_generation(DB) ->
 
 -spec update_db_config(db(), create_db_opts()) -> ok.
 update_db_config(DB, Opts) ->
-    ?module(DB):update_db_config(DB, Opts).
+    ?module(DB):update_db_config(DB, set_db_defaults(Opts)).
 
 -spec list_generations_with_lifetimes(db()) -> #{generation_rank() => generation_info()}.
 list_generations_with_lifetimes(DB) ->
@@ -416,6 +416,10 @@ timestamp_us() ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+set_db_defaults(Opts) ->
+    Defaults = #{force_monotonic_timestamps => true},
+    maps:merge(Defaults, Opts).
 
 call_if_implemented(Mod, Fun, Args, Default) ->
     case erlang:function_exported(Mod, Fun, length(Args)) of
