@@ -328,13 +328,13 @@ consume_n_matching(Map, Pred, N, S0, Acc) ->
             end
     end.
 
-persistent_route_to_subscription(#route{topic = Topic, dest = SessionId}) ->
-    case emqx_persistent_session_ds:get_client_subscription(SessionId, Topic) of
+persistent_route_to_subscription(#route{dest = Dest} = Route) ->
+    case get_client_subscription(Route) of
         #{subopts := SubOpts} ->
             #{qos := Qos, nl := Nl, rh := Rh, rap := Rap} = SubOpts,
             #{
-                topic => Topic,
-                clientid => SessionId,
+                topic => format_topic(Route),
+                clientid => session_id(Dest),
                 node => all,
 
                 qos => Qos,
@@ -345,12 +345,25 @@ persistent_route_to_subscription(#route{topic = Topic, dest = SessionId}) ->
             };
         undefined ->
             #{
-                topic => Topic,
-                clientid => SessionId,
+                topic => format_topic(Route),
+                clientid => session_id(Dest),
                 node => all,
                 durable => true
             }
     end.
+
+get_client_subscription(#route{topic = Topic, dest = #share_dest{session_id = SessionId, group = Group}}) ->
+    emqx_persistent_session_ds:get_client_subscription(SessionId, #share{topic = Topic, group = Group});
+get_client_subscription(#route{topic = Topic, dest = SessionId}) ->
+    emqx_persistent_session_ds:get_client_subscription(SessionId, Topic).
+
+session_id(#share_dest{session_id = SessionId}) -> SessionId;
+session_id(SessionId) -> SessionId.
+
+format_topic(#route{topic = Topic, dest = #share_dest{group = Group}}) ->
+    <<"$share/", Group/binary, "/", Topic/binary>>;
+format_topic(#route{topic = Topic}) ->
+    Topic.
 
 %% @private This function merges paginated results from two sources.
 %%

@@ -29,10 +29,10 @@
 -module(emqx_persistent_session_ds_shared_subs).
 
 -include("emqx_mqtt.hrl").
+-include("emqx.hrl").
 -include("logger.hrl").
 -include("session_internals.hrl").
 
--include_lib("emqx/include/emqx_persistent_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
@@ -51,7 +51,10 @@
     to_map/2
 ]).
 
--define(EPOCH_BITS, 15).
+%% Management API:
+-export([
+    cold_get_subscription/2
+]).
 
 -define(schedule_subscribe, schedule_subscribe).
 -define(schedule_unsubscribe, schedule_unsubscribe).
@@ -160,7 +163,7 @@ on_subscribe(Subscription, ShareTopicFilter, SubOpts, Session) ->
     update_subscription(Subscription, ShareTopicFilter, SubOpts, Session).
 
 -dialyzer({nowarn_function, create_new_subscription/3}).
-create_new_subscription(#share{topic = TopicFilter} = ShareTopicFilter, SubOpts, #{
+create_new_subscription(#share{topic = TopicFilter, group = Group} = ShareTopicFilter, SubOpts, #{
     id := SessionId,
     s := S0,
     shared_sub_s := #{agent := Agent} = SharedSubS0,
@@ -172,9 +175,9 @@ create_new_subscription(#share{topic = TopicFilter} = ShareTopicFilter, SubOpts,
         )
     of
         ok ->
-            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, SessionId),
-            _ = emqx_external_broker:add_persistent_route(TopicFilter, SessionId),
-
+            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, #share_dest{
+                session_id = SessionId, group = Group
+            }),
             #{upgrade_qos := UpgradeQoS} = Props,
             {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
             {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
@@ -259,7 +262,9 @@ schedule_subscribe(
 ) ->
     {ok, emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds:subscription()}
     | {error, emqx_types:reason_code()}.
-on_unsubscribe(SessionId, #share{topic = TopicFilter} = ShareTopicFilter, S0, SharedSubS0) ->
+on_unsubscribe(
+    SessionId, #share{topic = TopicFilter, group = Group} = ShareTopicFilter, S0, SharedSubS0
+) ->
     case lookup(ShareTopicFilter, S0) of
         undefined ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED};
@@ -267,8 +272,9 @@ on_unsubscribe(SessionId, #share{topic = TopicFilter} = ShareTopicFilter, S0, Sh
             ?tp(persistent_session_ds_subscription_delete, #{
                 session_id => SessionId, share_topic_filter => ShareTopicFilter
             }),
-            ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId),
-            _ = emqx_external_broker:delete_persistent_route(TopicFilter, SessionId),
+            ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, #share_dest{
+                session_id = SessionId, group = Group
+            }),
             S = emqx_persistent_session_ds_state:del_subscription(ShareTopicFilter, S0),
             SharedSubS = schedule_unsubscribe(S, SharedSubS0, SubId, ShareTopicFilter),
             {ok, S, SharedSubS, Subscription}
@@ -588,9 +594,32 @@ on_info(S, #{agent := Agent0} = SharedSubS0, Info) ->
 %% to_map
 
 -spec to_map(emqx_persistent_session_ds_state:t(), t()) -> map().
-to_map(_S, _SharedSubS) ->
-    %% TODO
-    #{}.
+to_map(S, _SharedSubS) ->
+    fold_shared_subs(
+        fun(ShareTopicFilter, _, Acc) -> Acc#{ShareTopicFilter => lookup(ShareTopicFilter, S)} end,
+        #{},
+        S
+    ).
+
+%%--------------------------------------------------------------------
+%% cold_get_subscription
+
+-spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
+    emqx_persistent_session_ds:subscription() | undefined.
+cold_get_subscription(SessionId, ShareTopicFilter) ->
+    case emqx_persistent_session_ds_state:cold_get_subscription(SessionId, ShareTopicFilter) of
+        [Sub = #{current_state := SStateId}] ->
+            case
+                emqx_persistent_session_ds_state:cold_get_subscription_state(SessionId, SStateId)
+            of
+                [#{subopts := Subopts}] ->
+                    Sub#{subopts => Subopts};
+                _ ->
+                    undefined
+            end;
+        _ ->
+            undefined
+    end.
 
 %%--------------------------------------------------------------------
 %% Generic helpers
@@ -629,21 +658,13 @@ stream_progress(
     Stream,
     #srs{
         it_end = EndIt,
-        it_begin = BeginIt,
-        first_seqno_qos1 = StartQos1,
-        first_seqno_qos2 = StartQos2
+        it_begin = BeginIt
     } = SRS
 ) ->
-    Qos1Acked = n_acked(?QOS_1, CommQos1, StartQos1),
-    Qos2Acked = n_acked(?QOS_2, CommQos2, StartQos2),
     Iterator =
         case is_stream_fully_acked(CommQos1, CommQos2, SRS) of
-            true ->
-                EndIt;
-            false ->
-                emqx_ds_skipping_iterator:update_or_new(
-                    BeginIt, Qos1Acked, Qos2Acked
-                )
+            true -> EndIt;
+            false -> BeginIt
         end,
     #{
         stream => Stream,
@@ -713,19 +734,6 @@ is_stream_fully_acked(_, _, #srs{
     true;
 is_stream_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
-
-n_acked(Qos, A, B) ->
-    max(seqno_diff(Qos, A, B), 0).
-
--dialyzer({nowarn_function, seqno_diff/3}).
-seqno_diff(?QOS_1, A, B) ->
-    %% For QoS1 messages we skip a seqno every time the epoch changes,
-    %% we need to substract that from the diff:
-    EpochA = A bsr ?EPOCH_BITS,
-    EpochB = B bsr ?EPOCH_BITS,
-    A - B - (EpochA - EpochB);
-seqno_diff(?QOS_2, A, B) ->
-    A - B.
 
 %%--------------------------------------------------------------------
 %% Formatters
