@@ -37,6 +37,7 @@ create(Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     {Config, State} = parse_config(Config0),
     {ok, _Data} = emqx_authn_utils:create_resource(
+        mongodb,
         ResourceId,
         emqx_mongodb,
         Config
@@ -45,7 +46,7 @@ create(Config0) ->
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_mongodb, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(mongodb, emqx_mongodb, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

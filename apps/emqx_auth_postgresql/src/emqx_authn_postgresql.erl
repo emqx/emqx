@@ -45,6 +45,7 @@ create(Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     {Config, State} = parse_config(Config0, ResourceId),
     {ok, _Data} = emqx_authn_utils:create_resource(
+        postgresql,
         ResourceId,
         emqx_postgresql,
         Config
@@ -53,7 +54,7 @@ create(Config0) ->
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0, ResourceId),
-    case emqx_authn_utils:update_resource(emqx_postgresql, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(postgresql, emqx_postgresql, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

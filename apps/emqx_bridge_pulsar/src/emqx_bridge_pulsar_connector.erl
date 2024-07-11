@@ -289,7 +289,7 @@ replayq_dir(ClientId) ->
     filename:join([emqx:data_dir(), "pulsar", emqx_utils_conv:bin(ClientId)]).
 
 producer_name(InstanceId, ChannelId) ->
-    case is_dry_run(InstanceId) of
+    case emqx_resource:is_dry_run(InstanceId) of
         %% do not create more atom
         true ->
             pulsar_producer_probe_worker;

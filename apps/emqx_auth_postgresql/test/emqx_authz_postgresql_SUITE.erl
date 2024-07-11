@@ -437,6 +437,7 @@ pgsql_config() ->
 
 create_pgsql_resource() ->
     emqx_resource:create_local(
+        postgresql,
         ?PGSQL_RESOURCE,
         ?AUTHZ_RESOURCE_GROUP,
         emqx_postgresql,

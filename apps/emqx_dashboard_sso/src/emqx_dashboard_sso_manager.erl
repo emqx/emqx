@@ -45,7 +45,7 @@
 -define(MOD_TAB, emqx_dashboard_sso).
 -define(MOD_KEY_PATH, [dashboard, sso]).
 -define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
--define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
+-define(RESOURCE_GROUP, <<"dashboard_sso">>).
 -define(NO_ERROR, <<>>).
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
@@ -132,6 +132,7 @@ make_resource_id(Backend) ->
 
 create_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:create_local(
+        dashboard_sso,
         ResourceId,
         ?RESOURCE_GROUP,
         Module,
@@ -142,7 +143,7 @@ create_resource(ResourceId, Module, Config) ->
 
 update_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:recreate_local(
-        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
+        dashboard_sso, ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
     ),
     start_resource_if_enabled(ResourceId, Result, Config).
 

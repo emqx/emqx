@@ -50,12 +50,12 @@ description() ->
 create(#{cmd := CmdStr} = Source) ->
     CmdTemplate = parse_cmd(CmdStr),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(redis, ResourceId, emqx_redis, Source),
     Source#{annotations => #{id => ResourceId}, cmd_template => CmdTemplate}.
 
 update(#{cmd := CmdStr} = Source) ->
     CmdTemplate = parse_cmd(CmdStr),
-    case emqx_authz_utils:update_resource(emqx_redis, Source) of
+    case emqx_authz_utils:update_resource(redis, emqx_redis, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

@@ -86,6 +86,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         state := #{client := #{pool := ReturnedPoolName}} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
+        influxdb,
         PoolName,
         ?CONNECTOR_RESOURCE_GROUP,
         ?INFLUXDB_RESOURCE_MOD,
@@ -197,6 +198,7 @@ perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
             config := #{ssl := #{enable := SslEnabled}},
             status := Status
         }} = emqx_resource:create_local(
+            influxdb,
             PoolName,
             ?CONNECTOR_RESOURCE_GROUP,
             ?INFLUXDB_RESOURCE_MOD,

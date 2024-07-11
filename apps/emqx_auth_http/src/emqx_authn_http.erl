@@ -40,6 +40,7 @@ create(Config0) ->
         ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
         % {Config, State} = parse_config(Config0),
         {ok, _Data} = emqx_authn_utils:create_resource(
+            http,
             ResourceId,
             emqx_bridge_http_connector,
             Config
@@ -50,7 +51,9 @@ create(Config0) ->
 update(Config0, #{resource_id := ResourceId} = _State) ->
     with_validated_config(Config0, fun(Config, NState) ->
         % {Config, NState} = parse_config(Config0),
-        case emqx_authn_utils:update_resource(emqx_bridge_http_connector, Config, ResourceId) of
+        case
+            emqx_authn_utils:update_resource(http, emqx_bridge_http_connector, Config, ResourceId)
+        of
             {error, Reason} ->
                 error({load_config_error, Reason});
             {ok, _} ->

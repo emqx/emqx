@@ -75,6 +75,7 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
         status := InitialStatus
     }} =
         emqx_resource:create_local(
+            postgresql,
             ResourceId,
             ?CONNECTOR_RESOURCE_GROUP,
             ?PGSQL_RESOURCE_MOD,

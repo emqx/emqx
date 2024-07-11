@@ -37,4 +37,4 @@
     "The " ++ TYPE ++ " default port " ++ DEFAULT_PORT ++ " is used if `[:Port]` is not specified."
 ).
 
--define(CONNECTOR_RESOURCE_GROUP, <<"emqx_connector">>).
+-define(CONNECTOR_RESOURCE_GROUP, <<"connector">>).

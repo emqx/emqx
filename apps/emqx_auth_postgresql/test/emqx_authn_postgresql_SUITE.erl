@@ -79,6 +79,7 @@ init_per_suite(Config) ->
                 work_dir => ?config(priv_dir, Config)
             }),
             {ok, _} = emqx_resource:create_local(
+                postgresql,
                 ?PGSQL_RESOURCE,
                 ?AUTHN_RESOURCE_GROUP,
                 emqx_postgresql,
@@ -198,9 +199,9 @@ test_user_auth(#{
 
 t_authenticate_disabled_prepared_statements(_Config) ->
     ResConfig = maps:merge(pgsql_config(), #{disable_prepared_statements => true}),
-    {ok, _} = emqx_resource:recreate_local(?PGSQL_RESOURCE, emqx_postgresql, ResConfig),
+    {ok, _} = emqx_resource:recreate_local(postgresql, ?PGSQL_RESOURCE, emqx_postgresql, ResConfig),
     on_exit(fun() ->
-        emqx_resource:recreate_local(?PGSQL_RESOURCE, emqx_postgresql, pgsql_config())
+        emqx_resource:recreate_local(postgresql, ?PGSQL_RESOURCE, emqx_postgresql, pgsql_config())
     end),
     ok = lists:foreach(
         fun(Sample0) ->

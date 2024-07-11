@@ -42,6 +42,7 @@ create(Config0) ->
             Res;
         {Config, State} ->
             {ok, _Data} = emqx_authn_utils:create_resource(
+                redis,
                 ResourceId,
                 emqx_redis,
                 Config
@@ -51,7 +52,7 @@ create(Config0) ->
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_redis, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(redis, emqx_redis, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

@@ -39,12 +39,12 @@ create(_AuthenticatorID, Config) ->
 create(Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     {Config, State} = parse_config(Config0),
-    {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_mysql, Config),
+    {ok, _Data} = emqx_authn_utils:create_resource(mysql, ResourceId, emqx_mysql, Config),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_mysql, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(mysql, emqx_mysql, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

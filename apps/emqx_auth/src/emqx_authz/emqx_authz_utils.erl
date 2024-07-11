@@ -25,9 +25,9 @@
 -export([
     cleanup_resources/0,
     make_resource_id/1,
-    create_resource/2,
     create_resource/3,
-    update_resource/2,
+    create_resource/4,
+    update_resource/3,
     remove_resource/1,
     update_config/2,
     parse_deep/2,
@@ -57,12 +57,13 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(Module, Config) ->
+create_resource(Type, Module, Config) ->
     ResourceId = make_resource_id(Module),
-    create_resource(ResourceId, Module, Config).
+    create_resource(Type, ResourceId, Module, Config).
 
-create_resource(ResourceId, Module, Config) ->
+create_resource(Type, ResourceId, Module, Config) ->
     Result = emqx_resource:create_local(
+        Type,
         ResourceId,
         ?AUTHZ_RESOURCE_GROUP,
         Module,
@@ -71,10 +72,11 @@ create_resource(ResourceId, Module, Config) ->
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
-update_resource(Module, #{annotations := #{id := ResourceId}} = Config) ->
+update_resource(Type, Module, #{annotations := #{id := ResourceId}} = Config) ->
     Result =
         case
             emqx_resource:recreate_local(
+                Type,
                 ResourceId,
                 Module,
                 Config,

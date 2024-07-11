@@ -40,12 +40,12 @@ create(_AuthenticatorID, Config) ->
 do_create(Module, Config) ->
     ResourceId = emqx_authn_utils:make_resource_id(Module),
     State = parse_config(Config),
-    {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_ldap, Config),
+    {ok, _Data} = emqx_authn_utils:create_resource(ldap, ResourceId, emqx_ldap, Config),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config, #{resource_id := ResourceId} = _State) ->
     NState = parse_config(Config),
-    case emqx_authn_utils:update_resource(emqx_ldap, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(ldap, emqx_ldap, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

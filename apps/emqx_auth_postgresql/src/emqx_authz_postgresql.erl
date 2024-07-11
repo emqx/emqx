@@ -53,6 +53,7 @@ create(#{query := SQL0} = Source) ->
     {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_postgresql),
     {ok, _Data} = emqx_authz_utils:create_resource(
+        postgresql,
         ResourceID,
         emqx_postgresql,
         Source#{prepare_statement => #{ResourceID => SQL}}
@@ -63,6 +64,7 @@ update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
     {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     case
         emqx_authz_utils:update_resource(
+            postgresql,
             emqx_postgresql,
             Source#{prepare_statement => #{ResourceID => SQL}}
         )

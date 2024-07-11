@@ -66,12 +66,14 @@ description() ->
 create(Config) ->
     NConfig = parse_config(Config),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_bridge_http_connector, NConfig),
+    {ok, _Data} = emqx_authz_utils:create_resource(
+        http, ResourceId, emqx_bridge_http_connector, NConfig
+    ),
     NConfig#{annotations => #{id => ResourceId}}.
 
 update(Config) ->
     NConfig = parse_config(Config),
-    case emqx_authz_utils:update_resource(emqx_bridge_http_connector, NConfig) of
+    case emqx_authz_utils:update_resource(http, emqx_bridge_http_connector, NConfig) of
         {error, Reason} -> error({load_config_error, Reason});
         {ok, Id} -> NConfig#{annotations => #{id => Id}}
     end.

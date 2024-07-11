@@ -384,6 +384,7 @@ stop_apps(Apps) ->
 
 create_redis_resource() ->
     {ok, _} = emqx_resource:create_local(
+        redis,
         ?REDIS_RESOURCE,
         ?AUTHZ_RESOURCE_GROUP,
         emqx_redis,

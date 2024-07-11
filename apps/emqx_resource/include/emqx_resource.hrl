@@ -23,6 +23,7 @@
 %% remind us of that.
 -define(rm_status_stopped, stopped).
 
+-type type() :: atom() | binary().
 -type resource_type() :: module().
 -type resource_id() :: binary().
 -type channel_id() :: binary().

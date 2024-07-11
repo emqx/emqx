@@ -109,6 +109,7 @@ t_start_passfile(Config) ->
     ?assertMatch(
         {ok, #{status := connected}},
         emqx_resource:create_local(
+            clickhouse,
             ResourceID,
             ?CONNECTOR_RESOURCE_GROUP,
             ?CLICKHOUSE_RESOURCE_MOD,
@@ -138,6 +139,7 @@ perform_lifecycle_check(ResourceID, InitialConfig) ->
         status := InitialStatus
     }} =
         emqx_resource:create_local(
+            clickhouse,
             ResourceID,
             ?CONNECTOR_RESOURCE_GROUP,
             ?CLICKHOUSE_RESOURCE_MOD,

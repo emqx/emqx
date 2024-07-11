@@ -18,6 +18,7 @@
 -include("../../emqx_bridge/include/emqx_bridge_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("emqx_connector.hrl").
 
 -export([
     connector_to_resource_type/1,
@@ -125,8 +126,9 @@ create(Type, Name, Conf0, Opts) ->
     ResourceId = resource_id(Type, Name),
     Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
     {ok, _Data} = emqx_resource:create_local(
+        Type,
         ResourceId,
-        <<"emqx_connector">>,
+        ?CONNECTOR_RESOURCE_GROUP,
         ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
@@ -198,6 +200,7 @@ recreate(Type, Name, Conf) ->
 recreate(Type, Name, Conf, Opts) ->
     TypeBin = bin(Type),
     emqx_resource:recreate_local(
+        Type,
         resource_id(Type, Name),
         ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
@@ -234,7 +237,7 @@ create_dry_run(Type, Conf0, Callback) ->
             {ok, ConfNew} ->
                 ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
                 emqx_resource:create_dry_run_local(
-                    TmpName, ?MODULE:connector_to_resource_type(Type), ParseConf, Callback
+                    Type, TmpName, ?MODULE:connector_to_resource_type(Type), ParseConf, Callback
                 )
         end
     catch
