@@ -62,9 +62,11 @@
     node := _,
     payload := _,
     peername := _,
+    pub_props := _,
     publish_received_at := _,
     qos := _,
     retain := _,
+    timestamp := _,
     topic := _,
     user_property := _,
     username := _,
@@ -345,6 +347,7 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
                 undefined
         end,
     Username = maps:get(username, Headers, undefined),
+    Timestamp = erlang:system_time(millisecond),
     #{
         dirty => Dirty,
 
@@ -355,9 +358,11 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
         node => node(),
         payload => Payload,
         peername => Peername,
+        pub_props => Props,
         publish_received_at => Message#message.timestamp,
         qos => Message#message.qos,
         retain => emqx_message:get_flag(retain, Message, false),
+        timestamp => Timestamp,
         topic => Message#message.topic,
         user_property => UserProperties,
         username => Username
