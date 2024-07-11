@@ -242,6 +242,8 @@ who(peerhost_net, CIDR) when is_binary(CIDR) ->
 %%--------------------------------------------------------------------
 init_from_csv(<<>>) ->
     ok;
+init_from_csv([]) ->
+    ok;
 init_from_csv(File) ->
     maybe
         core ?= mria_rlog:role(),
