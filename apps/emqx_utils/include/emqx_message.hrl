@@ -33,7 +33,7 @@
     %% Topic that the message is published to
     topic :: emqx_types:topic(),
     %% Message Payload
-    payload :: emqx_types:payload(),
+    payload,
     %% Timestamp (Unit: millisecond)
     timestamp :: integer(),
     %% Miscellaneous extensions, currently used for OpenTelemetry context propagation

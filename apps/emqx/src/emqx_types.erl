@@ -82,6 +82,7 @@
 -export_type([
     payload/0,
     message/0,
+    message/1,
     flag/0,
     flags/0,
     headers/0
@@ -238,7 +239,8 @@
 -type subscription() :: #subscription{}.
 -type subscriber() :: {pid(), subid()}.
 -type payload() :: binary() | iodata().
--type message() :: #message{}.
+-type message() :: #message{payload :: emqx_types:payload()}.
+-type message(Payload) :: #message{payload :: Payload}.
 -type flag() :: sys | dup | retain | atom().
 -type flags() :: #{flag() := boolean()}.
 -type headers() :: #{
