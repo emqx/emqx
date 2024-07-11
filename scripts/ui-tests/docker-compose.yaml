@@ -1,14 +1,14 @@
-version: '3.9'
-
 services:
   emqx:
     image: ${_EMQX_DOCKER_IMAGE_TAG:-emqx/emqx:latest}
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
+      EMQX_LOG__CONSOLE__LEVEL: debug
 
   selenium:
     shm_size: '2gb'
     image: ghcr.io/emqx/selenium-chrome:1.0.0
+    platform: linux/amd64
     volumes:
       - ./:/app
     depends_on:
