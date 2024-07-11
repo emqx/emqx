@@ -34,6 +34,7 @@ defmodule EMQXGatewayExproto.MixProject do
   def deps() do
     test_deps = if UMP.test_env?(), do: [{:emqx_exhook, in_umbrella: true, runtime: false}], else: []
     test_deps ++ [
+      {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_gateway, in_umbrella: true},

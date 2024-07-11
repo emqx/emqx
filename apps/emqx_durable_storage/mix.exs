@@ -33,6 +33,7 @@ defmodule EMQXDurableStorage.MixProject do
 
   def deps() do
     [
+      {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
       UMP.common_dep(:rocksdb),
       UMP.common_dep(:gproc),

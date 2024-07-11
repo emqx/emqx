@@ -1,8 +1,6 @@
 defmodule Mix.Tasks.Emqx.Proper do
   use Mix.Task
 
-  # Code.require_file("emqx.ct.ex", __DIR__)
-
   alias Mix.Tasks.Emqx.Ct, as: ECt
 
   # todo: invoke the equivalent of `make merge-config` as a requirement...

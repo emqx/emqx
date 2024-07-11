@@ -36,6 +36,7 @@ defmodule EMQX.MixProject do
   def deps() do
     ## FIXME!!! go though emqx.app.src and add missing stuff...
     [
+      {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
       {:emqx_ds_backends, in_umbrella: true},
 

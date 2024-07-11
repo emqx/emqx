@@ -1,12 +1,6 @@
 defmodule Mix.Tasks.Emqx.Eunit do
   use Mix.Task
 
-  alias EMQXUmbrella.MixProject, as: UMP
-
-  if UMP.new_mix_build?() do
-    Code.require_file("emqx.ct.ex", __DIR__)
-  end
-
   alias Mix.Tasks.Emqx.Ct, as: ECt
 
   # todo: invoke the equivalent of `make merge-config` as a requirement...

@@ -40,8 +40,6 @@ defmodule EMQXUmbrella.MixProject do
 
     if new_mix_build?() do
       [
-        # TODO: these lines will be uncommented when we switch to using mix as the manager
-        # for all umbrella apps.
         apps_path: "apps",
         apps:
           applications(profile_info.release_type, profile_info.edition_type) |> Keyword.keys(),
@@ -315,6 +313,7 @@ defmodule EMQXUmbrella.MixProject do
           false
       end
     end)
+    |> Enum.reject(fn {app, _} -> app == :emqx_mix_utils end)
     |> Enum.reject(fn {app, _} -> app in excluded_apps end)
   end
 
@@ -1316,26 +1315,22 @@ defmodule EMQXUmbrella.MixProject do
     ensure_test_mix_env!()
     set_test_env!(true)
 
-    Code.require_file("lib/mix/tasks/emqx.ct.ex")
     Mix.Task.run("emqx.ct", args)
   end
 
   defp do_eunit(args) do
     ensure_test_mix_env!()
     set_test_env!(true)
-    Code.require_file("lib/mix/tasks/emqx.eunit.ex")
     Mix.Task.run("emqx.eunit", args)
   end
 
   defp do_proper(args) do
     ensure_test_mix_env!()
     set_test_env!(true)
-    Code.require_file("lib/mix/tasks/emqx.proper.ex")
     Mix.Task.run("emqx.proper", args)
   end
 
   defp do_dialyzer(args) do
-    Code.require_file("lib/mix/tasks/emqx.dialyzer.ex")
     Mix.Task.run("emqx.dialyzer", args)
   end
 
