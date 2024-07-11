@@ -257,6 +257,21 @@ t_ctx_schema_validation_failed(_) ->
     Expected = check_result([validation], [], Context),
     do_test(SQL, Context, Expected).
 
+t_ctx_message_transformation_failed(_) ->
+    SQL =
+        <<"SELECT transformation FROM \"$events/message_transformation_failed\"">>,
+    Context = #{
+        <<"clientid">> => <<"c_emqx">>,
+        <<"event_type">> => <<"message_transformation_failed">>,
+        <<"payload">> => <<"{\"msg\": \"hello\"}">>,
+        <<"qos">> => 1,
+        <<"topic">> => <<"t/a">>,
+        <<"username">> => <<"u_emqx">>,
+        <<"transformation">> => <<"m">>
+    },
+    Expected = check_result([transformation], [], Context),
+    do_test(SQL, Context, Expected).
+
 t_mongo_date_function_should_return_string_in_test_env(_) ->
     SQL =
         <<"SELECT mongo_date() as mongo_date FROM \"$events/client_check_authz_complete\"">>,
