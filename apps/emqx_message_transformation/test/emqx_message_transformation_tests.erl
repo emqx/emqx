@@ -114,14 +114,9 @@ schema_test_() ->
                     transformation(<<"foo">>, [dummy_operation()])
                 ])
             )},
-        {"operations must be non-empty",
-            ?_assertThrow(
-                {_Schema, [
-                    #{
-                        reason := <<"at least one operation must be defined">>,
-                        kind := validation_error
-                    }
-                ]},
+        {"operations may be empty",
+            ?_assertMatch(
+                [#{<<"operations">> := []}],
                 parse_and_check([
                     transformation(
                         <<"foo">>,
