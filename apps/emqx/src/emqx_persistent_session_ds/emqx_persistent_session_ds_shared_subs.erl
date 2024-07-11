@@ -160,7 +160,8 @@ on_subscribe(Subscription, ShareTopicFilter, SubOpts, Session) ->
     update_subscription(Subscription, ShareTopicFilter, SubOpts, Session).
 
 -dialyzer({nowarn_function, create_new_subscription/3}).
-create_new_subscription(ShareTopicFilter, SubOpts, #{
+create_new_subscription(#share{topic = TopicFilter} = ShareTopicFilter, SubOpts, #{
+    id := SessionId,
     s := S0,
     shared_sub_s := #{agent := Agent} = SharedSubS0,
     props := Props
@@ -171,6 +172,9 @@ create_new_subscription(ShareTopicFilter, SubOpts, #{
         )
     of
         ok ->
+            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, SessionId),
+            _ = emqx_external_broker:add_persistent_route(TopicFilter, SessionId),
+
             #{upgrade_qos := UpgradeQoS} = Props,
             {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
             {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
@@ -188,6 +192,7 @@ create_new_subscription(ShareTopicFilter, SubOpts, #{
             S = emqx_persistent_session_ds_state:put_subscription(
                 ShareTopicFilter, Subscription, S3
             ),
+
             SharedSubS = schedule_subscribe(SharedSubS0, ShareTopicFilter, SubOpts),
             {ok, S, SharedSubS};
         {error, _} = Error ->
@@ -254,7 +259,7 @@ schedule_subscribe(
 ) ->
     {ok, emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds:subscription()}
     | {error, emqx_types:reason_code()}.
-on_unsubscribe(SessionId, ShareTopicFilter, S0, SharedSubS0) ->
+on_unsubscribe(SessionId, #share{topic = TopicFilter} = ShareTopicFilter, S0, SharedSubS0) ->
     case lookup(ShareTopicFilter, S0) of
         undefined ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED};
@@ -262,6 +267,8 @@ on_unsubscribe(SessionId, ShareTopicFilter, S0, SharedSubS0) ->
             ?tp(persistent_session_ds_subscription_delete, #{
                 session_id => SessionId, share_topic_filter => ShareTopicFilter
             }),
+            ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId),
+            _ = emqx_external_broker:delete_persistent_route(TopicFilter, SessionId),
             S = emqx_persistent_session_ds_state:del_subscription(ShareTopicFilter, S0),
             SharedSubS = schedule_unsubscribe(S, SharedSubS0, SubId, ShareTopicFilter),
             {ok, S, SharedSubS, Subscription}

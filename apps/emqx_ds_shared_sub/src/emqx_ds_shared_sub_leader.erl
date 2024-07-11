@@ -68,8 +68,6 @@
     %%
     group_id := group_id(),
     topic := emqx_types:topic(),
-    %% For ds router, not an actual session_id
-    router_id := binary(),
     %% TODO https://emqx.atlassian.net/browse/EMQX-12575
     %% Implement some stats to assign evenly?
     stream_states := #{
@@ -108,10 +106,6 @@
 -record(renew_leases, {}).
 -record(drop_timeout, {}).
 
-%% Constants
-
--define(START_TIME_THRESHOLD, 5000).
-
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -148,8 +142,7 @@ init([#{share_topic_filter := #share{topic = Topic} = ShareTopicFilter} = _Optio
     Data = #{
         group_id => ShareTopicFilter,
         topic => Topic,
-        router_id => gen_router_id(),
-        start_time => now_ms() - ?START_TIME_THRESHOLD,
+        start_time => now_ms(),
         stream_states => #{},
         stream_owners => #{},
         agents => #{},
@@ -170,9 +163,8 @@ handle_event({call, From}, #register{register_fun = Fun}, ?leader_waiting_regist
     end;
 %%--------------------------------------------------------------------
 %% repalying state
-handle_event(enter, _OldState, ?leader_active, #{topic := Topic, router_id := RouterId} = _Data) ->
-    ?tp(warning, shared_sub_leader_enter_actve, #{topic => Topic, router_id => RouterId}),
-    ok = emqx_persistent_session_ds_router:do_add_route(Topic, RouterId),
+handle_event(enter, _OldState, ?leader_active, #{topic := Topic} = _Data) ->
+    ?tp(warning, shared_sub_leader_enter_actve, #{topic => Topic}),
     {keep_state_and_data, [
         {{timeout, #renew_streams{}}, 0, #renew_streams{}},
         {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}},
@@ -251,8 +243,7 @@ handle_event(Event, Content, State, _Data) ->
     }),
     keep_state_and_data.
 
-terminate(_Reason, _State, #{topic := Topic, router_id := RouterId} = _Data) ->
-    ok = emqx_persistent_session_ds_router:do_delete_route(Topic, RouterId),
+terminate(_Reason, _State, _Data) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -888,9 +879,6 @@ agent_transition_to_updating(Agent, #{state := ?waiting_updating} = AgentState0)
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-
-gen_router_id() ->
-    emqx_guid:to_hexstr(emqx_guid:gen()).
 
 now_ms() ->
     erlang:system_time(millisecond).
