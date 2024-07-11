@@ -74,7 +74,7 @@
 -export([lookup_running_client/3]).
 
 %% Internal functions
--export([do_call_client/3]).
+-export([do_call_client/2, do_call_client/3]).
 
 %% Subscriptions
 -export([
@@ -530,6 +530,11 @@ call_client_on_all_nodes(Mtns, ClientId, Req) ->
         [Result | _] ->
             Result
     end.
+
+%% @deprecated
+-spec do_call_client(emqx_types:clientid(), term()) -> term().
+do_call_client(ClientId, Req) ->
+    do_call_client(undefined, ClientId, Req).
 
 %% @private
 -spec do_call_client(emqx_types:mtns(), emqx_types:clientid(), term()) -> term().
