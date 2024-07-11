@@ -3355,6 +3355,8 @@ default_listener(SSLListener) ->
 %% otherwise always return string.
 naive_env_interpolation(undefined) ->
     undefined;
+naive_env_interpolation(<<>>) ->
+    <<>>;
 naive_env_interpolation(Bin) when is_binary(Bin) ->
     naive_env_interpolation(unicode:characters_to_list(Bin, utf8));
 naive_env_interpolation("$" ++ Maybe = Original) ->
