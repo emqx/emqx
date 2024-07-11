@@ -1,6 +1,6 @@
 Definitions.
 %% Define regular expressions for tokens
-IDENTIFIER  = [a-zA-Z][a-zA-Z0-9_.]*
+IDENTIFIER  = [a-zA-Z][-a-zA-Z0-9_.]*
 SQ_STRING   = \'[^\']*\'
 DQ_STRING   = \"[^\"]*\"
 INTEGER     = [+-]?[0-9]+
