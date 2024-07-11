@@ -120,6 +120,7 @@ t_cm(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
+
     ?WAIT(
         #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(
             _Mtns = undefined, ClientId

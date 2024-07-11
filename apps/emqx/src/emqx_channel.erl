@@ -217,7 +217,7 @@ info(impl, #channel{session = Session}) ->
 info(cid, #channel{clientinfo = ClientInfo}) ->
     emqx_cm:cid(ClientInfo);
 info(mtns, #channel{clientinfo = ClientInfo}) ->
-    emqx_cm:cid(ClientInfo).
+    emqx_cm:mtns(ClientInfo).
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.

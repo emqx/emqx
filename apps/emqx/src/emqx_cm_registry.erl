@@ -76,9 +76,10 @@ is_hist_enabled() ->
 
 %% @doc Register a global channel.
 -spec register_channel(
-    emqx_types:cid()
-    | {emqx_types:cid(), pid()}
+    emqx_types:cid() | emqx_types:clientid() | {emqx_types:cid(), pid()}
 ) -> ok.
+register_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
+    register_channel({{?DEFAULT_NAMESPACE_NAME, ClientId}, self()});
 register_channel(CId) when ?IS_CID(CId) ->
     register_channel({CId, self()});
 register_channel({CId, ChanPid}) when ?IS_CID(CId), is_pid(ChanPid) ->
@@ -99,9 +100,10 @@ register_channel2(#channel{chid = CId} = Record) ->
 
 %% @doc Unregister a global channel.
 -spec unregister_channel(
-    emqx_types:cid()
-    | {emqx_types:cid(), pid()}
+    emqx_types:cid() | emqx_types:clientid() | {emqx_types:cid(), pid()}
 ) -> ok.
+unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
+    unregister_channel({{?DEFAULT_NAMESPACE_NAME, ClientId}, self()});
 unregister_channel(CId) when ?IS_CID(CId) ->
     unregister_channel({CId, self()});
 unregister_channel({CId, ChanPid}) when ?IS_CID(CId), is_pid(ChanPid) ->
