@@ -52,6 +52,7 @@
     discard_session/3,
     takeover_session_begin/2,
     takeover_session_end/1,
+    kick_session/1,
     kick_session/2,
     kick_session/3,
     takeover_kick/1,
@@ -665,6 +666,11 @@ takeover_kick_session(Mtns, ClientId, ChanPid) ->
                 #{mtns => Mtns, clientid => ClientId}
             )
     end.
+
+%% @deprecated only used for emqx_cm_proto_v1:kickout_client/2
+-spec kick_session(emqx_types:clientid()) -> ok.
+kick_session(ClientId) ->
+    kick_session(?DEFAULT_NAMESPACE_NAME, ClientId).
 
 -spec kick_session(emqx_types:mtns(), emqx_types:clientid()) -> ok.
 kick_session(Mtns, ClientId) ->
