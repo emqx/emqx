@@ -202,10 +202,10 @@ try_servers([], _Fun, _Args) ->
 add_local_server(DB, Shard) ->
     %% NOTE
     %% Adding local server as "promotable" member to the cluster, which means
-    %% that it will affect quorum until it is promoted to a voter, which in
+    %% that it won't affect quorum until it is promoted to a voter, which in
     %% turn happens when the server has caught up sufficiently with the log.
     %% We also rely on this "membership" to understand when the server's
-    %% readiness.
+    %% ready.
     ShardServers = shard_servers(DB, Shard),
     LocalServer = local_server(DB, Shard),
     case server_info(uid, LocalServer) of
