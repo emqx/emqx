@@ -162,12 +162,12 @@
 
 -type shared_sub_state() :: term().
 
--define(TIMER_PULL, timer_pull).
+-define(TIMER_DEQUEUE, timer_pull).
 -define(TIMER_GET_STREAMS, timer_get_streams).
 -define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 
--type timer() :: ?TIMER_PULL | ?TIMER_GET_STREAMS | ?TIMER_BUMP_LAST_ALIVE_AT | ?TIMER_RETRY_REPLAY.
+-type timer() :: ?TIMER_DEQUEUE | ?TIMER_GET_STREAMS | ?TIMER_BUMP_LAST_ALIVE_AT | ?TIMER_RETRY_REPLAY.
 
 %% TODO: Needs configuration?
 -define(TIMEOUT_RETRY_REPLAY, 1000).
@@ -175,8 +175,7 @@
 -record(pending_next, {
     ref :: reference(),
     stream_key :: emqx_persistent_session_ds_state:stream_key(),
-    it_begin :: emqx_ds:iterator(),
-    is_replay :: boolean()
+    it_begin :: emqx_ds:iterator()
 }).
 
 -type session() :: #{
@@ -538,7 +537,7 @@ do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
 puback(_ClientInfo, PacketId, Session0) ->
     case update_seqno(puback, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], pull_now(Session)};
+            {ok, Msg, [], dequeue_now(Session)};
         Error ->
             Error
     end.
@@ -583,7 +582,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
 pubcomp(_ClientInfo, PacketId, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], pull_now(Session)};
+            {ok, Msg, [], dequeue_now(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -600,7 +599,7 @@ deliver(ClientInfo, Delivers, Session0) ->
     Session = lists:foldl(
         fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
     ),
-    {ok, [], pull_now(Session)}.
+    {ok, [], dequeue_now(Session)}.
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -608,7 +607,7 @@ deliver(ClientInfo, Delivers, Session0) ->
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
-handle_timeout(ClientInfo, ?TIMER_PULL, Session0) ->
+handle_timeout(ClientInfo, ?TIMER_DEQUEUE, Session0) ->
     {Publishes, Session1} =
         case ?IS_REPLAY_ONGOING(Session0) of
             false ->
@@ -623,7 +622,7 @@ handle_timeout(ClientInfo, ?TIMER_PULL, Session0) ->
             [_ | _] ->
                 0
         end,
-    Session = emqx_session:ensure_timer(?TIMER_PULL, Timeout, Session1),
+    Session = emqx_session:ensure_timer(?TIMER_DEQUEUE, Timeout, Session1),
     {ok, Publishes, Session};
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
@@ -720,7 +719,7 @@ replay_streams(Session0 = #{replay := []}, _ClientInfo) ->
     %% Note: we filled the buffer with the historical messages, and
     %% from now on we'll rely on the normal inflight/flow control
     %% mechanisms to replay them:
-    pull_now(Session).
+    dequeue_now(Session).
 
 -spec replay_batch(
     emqx_persistent_session_ds_state:stream_key(), stream_state(), session(), clientinfo()
@@ -1037,8 +1036,8 @@ fetch_new_messages(ItStream0, BatchSize, Session0, ClientInfo) ->
     end.
 
 new_batch(StreamKey, Srs0, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
-    Pending = fetch(false, StreamKey, Srs0, BatchSize),
-    case enqueue_batch(Session0, ClientInfo, Pending, receive_pending(Pending)) of
+    Pending = fetch(StreamKey, Srs0, BatchSize),
+    case enqueue_pending(Session0, ClientInfo, Pending, receive_pending(Pending)) of
         {ok, Srs, Session} ->
             S1 = emqx_persistent_session_ds_state:put_seqno(
                 ?next(?QOS_1),
@@ -1069,33 +1068,25 @@ new_batch(StreamKey, Srs0, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
 %% operation):
 %% --------------------------------------------------------------------
 
-fetch(IsReplay, StreamKey, Srs0, DefaultBatchSize) ->
-    case IsReplay of
-        true ->
-            %% When we do replay we must use the same starting point
-            %% and batch size as initially:
-            BatchSize = Srs0#srs.batch_size,
-            ItBegin = Srs0#srs.it_begin;
-        false ->
-            BatchSize = DefaultBatchSize,
-            ItBegin = Srs0#srs.it_end
-    end,
-    {ok, Ref} = emqx_ds:anext(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize),
+fetch(StreamKey, Srs0, BatchSize) ->
+    ItBegin = Srs0#srs.it_end,
+    {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, ItBegin, #{
+        min => 0, max => BatchSize, timeout => 5_000
+    }),
     #pending_next{
         ref = Ref,
-        is_replay = IsReplay,
         it_begin = ItBegin,
         stream_key = StreamKey
     }.
 
 receive_pending(#pending_next{ref = Ref}) ->
     receive
-        #ds_async_result{ref = Ref, data = Data} -> Data
+        #ds_async_result{ref = Ref, payload = Data} -> Data
     end.
 
-enqueue_batch(Session, ClientInfo, Pending, FetchResult) ->
-    #pending_next{is_replay = IsReplay, stream_key = StreamKey, it_begin = ItBegin} = Pending,
-    enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, ItBegin, FetchResult).
+enqueue_pending(Session, ClientInfo, Pending, FetchResult) ->
+    #pending_next{stream_key = StreamKey, it_begin = ItBegin} = Pending,
+    enqueue_batch(false, Session, ClientInfo, StreamKey, ItBegin, FetchResult).
 
 -spec enqueue_batch(
     boolean(),
@@ -1331,13 +1322,13 @@ do_drain_buffer(Inflight0, S0, Acc) ->
 %% effects. Add `CBM:init' callback to the session behavior?
 -spec ensure_timers(session()) -> session().
 ensure_timers(Session0) ->
-    Session1 = emqx_session:ensure_timer(?TIMER_PULL, 100, Session0),
+    Session1 = emqx_session:ensure_timer(?TIMER_DEQUEUE, 100, Session0),
     Session2 = emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session1),
     emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session2).
 
--spec pull_now(session()) -> session().
-pull_now(Session) ->
-    emqx_session:reset_timer(?TIMER_PULL, 0, Session).
+-spec dequeue_now(session()) -> session().
+dequeue_now(Session) ->
+    emqx_session:reset_timer(?TIMER_DEQUEUE, 0, Session).
 
 -spec receive_maximum(conninfo()) -> pos_integer().
 receive_maximum(ConnInfo) ->
