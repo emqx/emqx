@@ -327,57 +327,64 @@ t_join_leave_errors('end', Config) ->
 t_join_leave_errors(Config) ->
     %% This testcase verifies that logical errors arising during handling of
     %% join/leave operations are reported correctly.
+    DB = ?FUNCTION_NAME,
     [N1, N2] = ?config(nodes, Config),
-
     Opts = opts(Config, #{n_shards => 16, n_sites => 1, replication_factor => 3}),
-    ?assertEqual(ok, erpc:call(N1, emqx_ds, open_db, [?FUNCTION_NAME, Opts])),
-    ?assertEqual(ok, erpc:call(N2, emqx_ds, open_db, [?FUNCTION_NAME, Opts])),
 
-    [S1, S2] = [ds_repl_meta(N, this_site) || N <- [N1, N2]],
+    ?check_trace(
+        begin
+            ?assertEqual(ok, erpc:call(N1, emqx_ds, open_db, [DB, Opts])),
+            ?assertEqual(ok, erpc:call(N2, emqx_ds, open_db, [DB, Opts])),
 
-    ?assertEqual(lists:sort([S1, S2]), lists:sort(ds_repl_meta(N1, db_sites, [?FUNCTION_NAME]))),
+            [S1, S2] = [ds_repl_meta(N, this_site) || N <- [N1, N2]],
 
-    %% Attempts to join a nonexistent DB / site.
-    ?assertEqual(
-        {error, {nonexistent_db, boo}},
-        ds_repl_meta(N1, join_db_site, [_DB = boo, S1])
-    ),
-    ?assertEqual(
-        {error, {nonexistent_sites, [<<"NO-MANS-SITE">>]}},
-        ds_repl_meta(N1, join_db_site, [?FUNCTION_NAME, <<"NO-MANS-SITE">>])
-    ),
-    %% NOTE: Leaving a non-existent site is not an error.
-    ?assertEqual(
-        {ok, unchanged},
-        ds_repl_meta(N1, leave_db_site, [?FUNCTION_NAME, <<"NO-MANS-SITE">>])
-    ),
+            ?assertEqual(
+                lists:sort([S1, S2]), lists:sort(ds_repl_meta(N1, db_sites, [DB]))
+            ),
 
-    %% Should be no-op.
-    ?assertEqual({ok, unchanged}, ds_repl_meta(N1, join_db_site, [?FUNCTION_NAME, S1])),
-    ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME)),
+            %% Attempts to join a nonexistent DB / site.
+            ?assertEqual(
+                {error, {nonexistent_db, boo}},
+                ds_repl_meta(N1, join_db_site, [_DB = boo, S1])
+            ),
+            ?assertEqual(
+                {error, {nonexistent_sites, [<<"NO-MANS-SITE">>]}},
+                ds_repl_meta(N1, join_db_site, [DB, <<"NO-MANS-SITE">>])
+            ),
+            %% NOTE: Leaving a non-existent site is not an error.
+            ?assertEqual(
+                {ok, unchanged},
+                ds_repl_meta(N1, leave_db_site, [DB, <<"NO-MANS-SITE">>])
+            ),
 
-    %% Leave S2:
-    ?assertEqual(
-        {ok, [S1]},
-        ds_repl_meta(N1, leave_db_site, [?FUNCTION_NAME, S2])
-    ),
-    %% Impossible to leave the last site:
-    ?assertEqual(
-        {error, {too_few_sites, []}},
-        ds_repl_meta(N1, leave_db_site, [?FUNCTION_NAME, S1])
-    ),
+            %% Should be no-op.
+            ?assertEqual({ok, unchanged}, ds_repl_meta(N1, join_db_site, [DB, S1])),
+            ?assertEqual([], emqx_ds_test_helpers:transitions(N1, DB)),
 
-    %% "Move" the DB to the other node.
-    ?assertMatch({ok, _}, ds_repl_meta(N1, join_db_site, [?FUNCTION_NAME, S2])),
-    ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [?FUNCTION_NAME, S1])),
-    ?assertMatch([_ | _], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME)),
-    ?retry(
-        1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME))
-    ),
+            %% Leave S2:
+            ?assertEqual(
+                {ok, [S1]},
+                ds_repl_meta(N1, leave_db_site, [DB, S2])
+            ),
+            %% Impossible to leave the last site:
+            ?assertEqual(
+                {error, {too_few_sites, []}},
+                ds_repl_meta(N1, leave_db_site, [DB, S1])
+            ),
 
-    %% Should be no-op.
-    ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [?FUNCTION_NAME, S1])),
-    ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME)).
+            %% "Move" the DB to the other node.
+            ?assertMatch({ok, _}, ds_repl_meta(N1, join_db_site, [DB, S2])),
+            ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [DB, S1])),
+            ?retry(
+                1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, DB))
+            ),
+
+            %% Should be no-op.
+            ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [DB, S1])),
+            ?assertEqual([], emqx_ds_test_helpers:transitions(N1, DB))
+        end,
+        []
+    ).
 
 t_rebalance_chaotic_converges(init, Config) ->
     Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
