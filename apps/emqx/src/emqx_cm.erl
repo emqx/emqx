@@ -674,13 +674,12 @@ kick_session(ClientId) ->
 
 -spec kick_session(emqx_types:mtns(), emqx_types:clientid()) -> ok.
 kick_session(Mtns, ClientId) ->
-    CId = cid(Mtns, ClientId),
     case lookup_channels(Mtns, ClientId) of
         [] ->
             ?SLOG(
                 warning,
                 #{msg => "kicked_an_unknown_session"},
-                #{clientid => cid2clientid(CId)}
+                #{mtns => Mtns, clientid => ClientId}
             ),
             ok;
         ChanPids ->
@@ -692,7 +691,7 @@ kick_session(Mtns, ClientId) ->
                             msg => "more_than_one_channel_found",
                             chan_pids => ChanPids
                         },
-                        #{clientid => cid2clientid(CId)}
+                        #{mtns => Mtns, clientid => ClientId}
                     );
                 false ->
                     ok

@@ -468,8 +468,8 @@ t_handle_info_close(_) ->
     {[{close, _}], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
 
 t_handle_info_event(_) ->
-    ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
-    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_cm, register_channel, fun(_, _, _, _) -> ok end),
+    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _, _) -> ok end),
     {ok, _} = ?ws_conn:handle_info({event, connected}, st()),
     {ok, _} = ?ws_conn:handle_info({event, disconnected}, st()),
     {ok, _} = ?ws_conn:handle_info({event, updated}, st()).
