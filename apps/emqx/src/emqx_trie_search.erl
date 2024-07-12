@@ -356,6 +356,8 @@ match_add(K, first) ->
     throw({first, K}).
 
 -spec filter_words(emqx_types:topic()) -> [word()].
+filter_words(Words) when is_list(Words) ->
+    Words;
 filter_words(Topic) when is_binary(Topic) ->
     % NOTE
     % This is almost identical to `emqx_topic:words/1`, but it doesn't convert empty
@@ -364,6 +366,8 @@ filter_words(Topic) when is_binary(Topic) ->
     [word(W, filter) || W <- emqx_topic:tokens(Topic)].
 
 -spec topic_words(emqx_types:topic()) -> [binary()].
+topic_words(Words) when is_list(Words) ->
+    Words;
 topic_words(Topic) when is_binary(Topic) ->
     [word(W, topic) || W <- emqx_topic:tokens(Topic)].
 

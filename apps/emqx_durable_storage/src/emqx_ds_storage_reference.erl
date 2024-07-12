@@ -42,7 +42,12 @@
     update_iterator/4,
     next/6,
     delete_next/7,
-    lookup_message/3
+    lookup_message/3,
+
+    unpack_iterator/3,
+    scan_stream/8,
+    message_matcher/3,
+    batch_events/2
 ]).
 
 %% internal exports:
@@ -218,6 +223,40 @@ lookup_message(_ShardId, #s{db = DB, cf = CF}, #message_matcher{timestamp = TS})
         {error, Reason} ->
             {error, unrecoverable, Reason}
     end.
+
+unpack_iterator(_Shard, _S, #it{topic_filter = TopicFilter, last_seen_message_key = LSK}) ->
+    Stream = #stream{},
+    case LSK of
+        first -> Timestamp = 0;
+        <<Timestamp:64>> -> ok
+    end,
+    {Stream, TopicFilter, LSK, Timestamp}.
+
+scan_stream(Shard, S, _Stream, TopicFilter, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+    It0 = #it{topic_filter = TopicFilter, start_time = 0, last_seen_message_key = LastSeenKey},
+    case next(Shard, S, It0, BatchSize, TMax, IsCurrent) of
+        {ok, #it{last_seen_message_key = LSK}, Batch} ->
+            {ok, LSK, Batch};
+        Other ->
+            Other
+    end.
+
+message_matcher(_Shard, _S, #it{
+    start_time = StartTime, topic_filter = TF, last_seen_message_key = LSK
+}) ->
+    fun(MsgKey = <<TS:64>>, #message{topic = Topic}) ->
+        MsgKey > LSK andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
+    end.
+
+batch_events(_, Messages) ->
+    Topics = lists:foldl(
+        fun({_TS, #message{topic = Topic}}, Acc) ->
+            Acc#{Topic => 1}
+        end,
+        #{},
+        Messages
+    ),
+    [{#stream{}, T} || T <- maps:keys(Topics)].
 
 %%================================================================================
 %% Internal functions

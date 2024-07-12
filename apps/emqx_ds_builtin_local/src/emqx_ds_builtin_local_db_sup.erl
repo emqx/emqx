@@ -160,7 +160,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_buffer_spec(DB, Shard, Opts),
-        shard_batch_serializer_spec(DB, Shard, Opts)
+        shard_batch_serializer_spec(DB, Shard, Opts),
+        shard_beamformers_spec(DB, Shard, Opts)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -226,6 +227,21 @@ shard_batch_serializer_spec(DB, Shard, Opts) ->
         shutdown => 5_000,
         restart => permanent,
         type => worker
+    }.
+
+shard_beamformers_spec(DB, Shard, _Options) ->
+    %% TODO: don't hardcode value
+    BeamformerOpts = #{
+        n_workers => 5
+    },
+    #{
+        id => {Shard, beamformers},
+        type => supervisor,
+        shutdown => infinity,
+        start =>
+            {emqx_ds_beamformer_sup, start_link, [
+                emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
+            ]}
     }.
 
 ensure_started(Res) ->

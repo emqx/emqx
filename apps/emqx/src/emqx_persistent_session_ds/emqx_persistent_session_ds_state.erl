@@ -39,7 +39,7 @@
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
--export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, iter_streams/2, n_streams/1]).
+-export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
 -export([
@@ -66,16 +66,12 @@
     n_awaiting_rel/1
 ]).
 
--export([iter_next/1]).
-
 -export([make_session_iterator/0, session_iterator_next/2]).
 
 -export_type([
     t/0,
     metadata/0,
-    iter/2,
     seqno_type/0,
-    stream_key/0,
     rank_key/0,
     session_iterator/0,
     protocol/0
@@ -91,8 +87,6 @@
 %%================================================================================
 
 -type message() :: emqx_types:message().
-
--opaque iter(K, V) :: gb_trees:iter(K, V).
 
 -opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
 
@@ -118,7 +112,7 @@
 -type pmap(K, V) ::
     #pmap{
         table :: atom(),
-        cache :: #{K => V} | gb_trees:tree(K, V),
+        cache :: #{K => V},
         dirty :: #{K => dirty | del}
     }.
 
@@ -464,32 +458,26 @@ del_subscription_state(SStateId, Rec) ->
 
 %%
 
--type stream_key() :: {emqx_persistent_session_ds:subscription_id(), _StreamId}.
-
--spec get_stream(stream_key(), t()) ->
+-spec get_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
 get_stream(Key, Rec) ->
     gen_get(?streams, Key, Rec).
 
--spec put_stream(stream_key(), emqx_persistent_session_ds:stream_state(), t()) -> t().
+-spec put_stream(
+    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds:stream_state(),
+    t()
+) -> t().
 put_stream(Key, Val, Rec) ->
     gen_put(?streams, Key, Val, Rec).
 
--spec del_stream(stream_key(), t()) -> t().
+-spec del_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
     gen_del(?streams, Key, Rec).
 
 -spec fold_streams(fun(), Acc, t()) -> Acc.
 fold_streams(Fun, Acc, Rec) ->
     gen_fold(?streams, Fun, Acc, Rec).
-
--spec iter_streams(_StartAfter :: stream_key() | beginning, t()) ->
-    iter(stream_key(), emqx_persistent_session_ds:stream_state()).
-iter_streams(After, Rec) ->
-    %% NOTE
-    %% No special handling for `beginning', as it always compares less
-    %% than any `stream_key()'.
-    gen_iter_after(?streams, After, Rec).
 
 -spec n_streams(t()) -> non_neg_integer().
 n_streams(Rec) ->
@@ -546,12 +534,6 @@ fold_awaiting_rel(Fun, Acc, Rec) ->
 -spec n_awaiting_rel(t()) -> non_neg_integer().
 n_awaiting_rel(Rec) ->
     gen_size(?awaiting_rel, Rec).
-
-%%
-
--spec iter_next(iter(K, V)) -> {K, V, iter(K, V)} | none.
-iter_next(It0) ->
-    gen_iter_next(It0).
 
 %%
 
@@ -621,14 +603,6 @@ gen_del(Field, Key, Rec) ->
 gen_size(Field, Rec) ->
     check_sequence(Rec),
     pmap_size(maps:get(Field, Rec)).
-
-gen_iter_after(Field, After, Rec) ->
-    check_sequence(Rec),
-    pmap_iter_after(After, maps:get(Field, Rec)).
-
-gen_iter_next(It) ->
-    %% NOTE: Currently, gbt iterators is the only type of iterators.
-    gbt_iter_next(It).
 
 -spec update_pmaps(fun((pmap(_K, _V) | undefined, atom()) -> term()), map()) -> map().
 update_pmaps(Fun, Map) ->
@@ -706,102 +680,26 @@ pmap_format(#pmap{table = Table, cache = Cache}) ->
 pmap_size(#pmap{table = Table, cache = Cache}) ->
     cache_size(Table, Cache).
 
-pmap_iter_after(After, #pmap{table = Table, cache = Cache}) ->
-    %% NOTE: Only valid for gbt-backed PMAPs.
-    gbt = cache_data_type(Table),
-    gbt_iter_after(After, Cache).
-
-%%
-
-cache_data_type(?stream_tab) -> gbt;
-cache_data_type(_Table) -> map.
-
-cache_from_list(?stream_tab, L) ->
-    gbt_from_list(L);
 cache_from_list(_Table, L) ->
     maps:from_list(L).
 
-cache_get(?stream_tab, K, Cache) ->
-    gbt_get(K, Cache, undefined);
 cache_get(_Table, K, Cache) ->
     maps:get(K, Cache, undefined).
 
-cache_put(?stream_tab, K, V, Cache) ->
-    gbt_put(K, V, Cache);
 cache_put(_Table, K, V, Cache) ->
     maps:put(K, V, Cache).
 
-cache_remove(?stream_tab, K, Cache) ->
-    gbt_remove(K, Cache);
 cache_remove(_Table, K, Cache) ->
     maps:remove(K, Cache).
 
-cache_fold(?stream_tab, Fun, Acc, Cache) ->
-    gbt_fold(Fun, Acc, Cache);
 cache_fold(_Table, Fun, Acc, Cache) ->
     maps:fold(Fun, Acc, Cache).
 
-cache_format(?stream_tab, Cache) ->
-    gbt_format(Cache);
 cache_format(_Table, Cache) ->
     Cache.
 
-cache_size(?stream_tab, Cache) ->
-    gbt_size(Cache);
 cache_size(_Table, Cache) ->
     maps:size(Cache).
-
-%% PMAP Cache implementation backed by `gb_trees'.
-%% Supports iteration starting from specific key.
-
-gbt_from_list(L) ->
-    lists:foldl(
-        fun({K, V}, Acc) -> gb_trees:insert(K, V, Acc) end,
-        gb_trees:empty(),
-        L
-    ).
-
-gbt_get(K, Cache, undefined) ->
-    case gb_trees:lookup(K, Cache) of
-        none -> undefined;
-        {_, V} -> V
-    end.
-
-gbt_put(K, V, Cache) ->
-    gb_trees:enter(K, V, Cache).
-
-gbt_remove(K, Cache) ->
-    gb_trees:delete_any(K, Cache).
-
-gbt_format(Cache) ->
-    gb_trees:to_list(Cache).
-
-gbt_fold(Fun, Acc, Cache) ->
-    It = gb_trees:iterator(Cache),
-    gbt_fold_iter(Fun, Acc, It).
-
-gbt_fold_iter(Fun, Acc, It0) ->
-    case gb_trees:next(It0) of
-        {K, V, It} ->
-            gbt_fold_iter(Fun, Fun(K, V, Acc), It);
-        _ ->
-            Acc
-    end.
-
-gbt_size(Cache) ->
-    gb_trees:size(Cache).
-
-gbt_iter_after(After, Cache) ->
-    It0 = gb_trees:iterator_from(After, Cache),
-    case gb_trees:next(It0) of
-        {After, _, It} ->
-            It;
-        _ ->
-            It0
-    end.
-
-gbt_iter_next(It) ->
-    gb_trees:next(It).
 
 %% Functions dealing with set tables:
 

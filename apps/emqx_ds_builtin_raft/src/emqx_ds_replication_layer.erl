@@ -25,6 +25,7 @@
     make_delete_iterator/4,
     update_iterator/3,
     next/3,
+    poll/3,
     delete_next/4,
 
     current_timestamp/2,
@@ -381,6 +382,11 @@ next(DB, Iter0, BatchSize) ->
         Other ->
             Other
     end.
+
+-spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) ->
+    {ok, reference()}.
+poll(_DB, _Iterators, _PollOpts) ->
+    error(not_implemented).
 
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(delete_iterator()).

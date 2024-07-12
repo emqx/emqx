@@ -26,8 +26,10 @@
 
     %% Data
     store_batch/3,
+    store_batch/4,
     prepare_batch/3,
     commit_batch/3,
+    dispatch_events/3,
 
     get_streams/3,
     get_delete_streams/3,
@@ -35,6 +37,12 @@
     make_delete_iterator/4,
     update_iterator/3,
     next/4,
+
+    generation/1,
+    unpack_iterator/2,
+    scan_stream/6,
+    message_matcher/2,
+
     delete_next/5,
 
     %% Preconditions
@@ -75,7 +83,9 @@
     options/0,
     prototype/0,
     cooked_batch/0,
-    batch_store_opts/0
+    batch_store_opts/0,
+    poll_iterators/0,
+    event_dispatch_f/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -179,6 +189,8 @@
         ?enc := term()
     }.
 
+-type event_dispatch_f() :: fun(([stream()]) -> ok).
+
 %%%% Generation:
 
 -define(GEN_KEY(GEN_ID), {generation, GEN_ID}).
@@ -227,6 +239,11 @@
 -type shard() :: shard(generation()).
 
 -type options() :: map().
+
+-type poll_iterators() :: [{_UserData, iterator()}].
+
+-define(ERR_GEN_GONE, {error, unrecoverable, generation_not_found}).
+-define(ERR_BUFF_FULL, {error, recoverable, reached_max}).
 
 %%================================================================================
 %% Generation callbacks
@@ -311,7 +328,18 @@
 -callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
 
--optional_callbacks([handle_event/4]).
+%% Stream event API:
+
+-callback batch_events(
+    generation_data(),
+    _CookedBatch
+) -> [_Stream].
+
+-optional_callbacks([
+    handle_event/4,
+    %% FIXME: should be mandatory:
+    batch_events/2
+]).
 
 %%================================================================================
 %% API for the replication layer
@@ -333,10 +361,25 @@ drop_shard(Shard) ->
 %% `commit' operations.
 -spec store_batch(shard_id(), batch(), batch_store_opts()) ->
     emqx_ds:store_batch_result().
-store_batch(Shard, Batch, Options) ->
+store_batch(Shard, Messages, Options) ->
+    DispatchF = fun(_) -> ok end,
+    store_batch(Shard, Messages, Options, DispatchF).
+
+%% @doc This is a convenicence wrapper that combines `prepare',
+%% `commit' and `dispatch_events' operations.
+-spec store_batch(
+    shard_id(),
+    batch(),
+    batch_store_opts(),
+    event_dispatch_f()
+) ->
+    emqx_ds:store_batch_result().
+store_batch(Shard, Batch, Options, DispatchF) ->
     case prepare_batch(Shard, Batch, #{}) of
         {ok, CookedBatch} ->
-            commit_batch(Shard, CookedBatch, Options);
+            Result = commit_batch(Shard, CookedBatch, Options),
+            dispatch_events(Shard, CookedBatch, DispatchF),
+            Result;
         ignore ->
             ok;
         Error = {error, _, _} ->
@@ -408,6 +451,18 @@ commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Cooke
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result.
+
+-spec dispatch_events(
+    shard_id(),
+    cooked_batch(),
+    event_dispatch_f()
+) -> ok.
+dispatch_events(
+    Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, DispatchF
+) ->
+    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
+    Events = Mod:batch_events(GenData, CookedBatch),
+    DispatchF([{?stream_v2(GenId, InnerStream), Topic} || {InnerStream, Topic} <- Events]).
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -517,8 +572,12 @@ update_iterator(
                     {error, unrecoverable, Err}
             end;
         not_found ->
-            {error, unrecoverable, generation_not_found}
+            ?ERR_GEN_GONE
     end.
+
+-spec generation(iterator()) -> gen_id().
+generation(#{?tag := ?IT, ?generation := GenId}) ->
+    GenId.
 
 -spec next(shard_id(), iterator(), pos_integer(), emqx_ds:time()) ->
     emqx_ds:next_result(iterator()).
@@ -536,7 +595,46 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             end;
         not_found ->
             %% generation was possibly dropped by GC
-            {error, unrecoverable, generation_not_found}
+            ?ERR_GEN_GONE
+    end.
+
+%% Internal API for fetching data with multiple iterators in one
+%% sweep. This API does not suppose precise batch size.
+
+%%    When doing multi-next, we group iterators by stream:
+unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            {InnerStream, TopicFilter, Key, TS} = Mod:unpack_iterator(Shard, GenData, Inner),
+            {?stream_v2(GenId, InnerStream), TopicFilter, Key, TS};
+        not_found ->
+            %% generation was possibly dropped by GC
+            ?ERR_GEN_GONE
+    end.
+
+%% @doc This callback is similar in nature to `next'. It is used by
+%% the beamformer module, and it allows to fetch data for multiple
+%% iterators at once.
+scan_stream(
+    Shard, ?stream_v2(GenId, Inner), TopicFilter, Now, StartMsg, BatchSize
+) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            IsCurrent = GenId =:= generation_current(Shard),
+            Mod:scan_stream(
+                Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent
+            );
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+message_matcher(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    %% logger:warning(?MODULE_STRING ++ ":match_message(~p, ~p, ~p)", [Shard, GenId, Inner]),
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:message_matcher(Shard, GenData, Inner);
+        not_found ->
+            false
     end.
 
 -spec delete_next(

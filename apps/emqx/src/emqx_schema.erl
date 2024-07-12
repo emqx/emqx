@@ -1683,14 +1683,20 @@ fields("durable_sessions") ->
                 #{
                     default => 100,
                     desc => ?DESC(session_ds_batch_size),
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => ?IMPORTANCE_MEDIUM,
+                    %% Note: the same value is used for both sync
+                    %% `next' request and async polls. Since poll
+                    %% workers are global for the DS DB, this value is
+                    %% global and it cannot be overridden per
+                    %% listener:
+                    mapping => "emqx_durable_session.poll_batch_size"
                 }
             )},
         {"idle_poll_interval",
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"100ms">>,
+                    default => <<"5s">>,
                     desc => ?DESC(session_ds_idle_poll_interval)
                 }
             )},
