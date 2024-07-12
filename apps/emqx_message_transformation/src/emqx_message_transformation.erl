@@ -467,6 +467,17 @@ decode(
                 }
             },
             {error, TraceFailureContext};
+        throw:{schema_decode_error, ExtraContext} ->
+            TraceFailureContext = #trace_failure_context{
+                transformation = Transformation,
+                tag = "payload_decode_error",
+                context = ExtraContext#{
+                    decoder => protobuf,
+                    schema_name => SerdeName,
+                    message_type => MessageType
+                }
+            },
+            {error, TraceFailureContext};
         Class:Error:Stacktrace ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
