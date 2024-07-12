@@ -1562,17 +1562,25 @@ t_bulk_subscribe(Config) ->
             Topic = <<"testtopic">>,
             BulkSub = [#{topic => Topic, qos => 1, nl => 1, rh => 1}],
             ?assertMatch({200, [_]}, bulk_subscribe_request(ClientId1, Config, BulkSub)),
-            ?assertMatch(
-                {200, [_]},
-                get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
+            ?retry(
+                100,
+                5,
+                ?assertMatch(
+                    {200, [_]},
+                    get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
+                )
             ),
             {ok, _} = emqtt:publish(C2, Topic, <<"hi1">>, [{qos, 1}]),
             ?assertReceive({publish, #{topic := Topic, payload := <<"hi1">>}}),
             BulkUnsub = [#{topic => Topic}],
             ?assertMatch({204, _}, bulk_unsubscribe_request(ClientId1, Config, BulkUnsub)),
-            ?assertMatch(
-                {200, []},
-                get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
+            ?retry(
+                100,
+                5,
+                ?assertMatch(
+                    {200, []},
+                    get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
+                )
             ),
             {ok, _} = emqtt:publish(C2, Topic, <<"hi2">>, [{qos, 1}]),
             ?assertNotReceive({publish, _}),
