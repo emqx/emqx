@@ -1485,7 +1485,7 @@ t_multi_streams_emqx_ctrl_kill(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
+    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {_Mtns = undefined, ClientId}),
     exit(TransPid, kill),
 
     %% Client should be closed
@@ -1538,7 +1538,7 @@ t_multi_streams_emqx_ctrl_exit_normal(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
+    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {_Mtns = undefined, ClientId}),
 
     emqx_connection:stop(TransPid),
     %% Client exit normal.
