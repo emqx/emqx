@@ -293,7 +293,6 @@ start_echo_http_server() ->
         random, HTTPPath, ServerSSLOpts
     ),
     ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler()),
-    HTTPHost = "localhost",
     HostPort = HTTPHost ++ ":" ++ integer_to_list(HTTPPort),
     true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
     {ok, #{
