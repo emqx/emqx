@@ -39,7 +39,12 @@
     delete_next/7,
     lookup_message/3,
 
-    handle_event/4
+    handle_event/4,
+
+    unpack_iterator/3,
+    scan_stream/8,
+    message_matcher/3,
+    batch_events/2
 ]).
 
 %% internal exports:
@@ -626,6 +631,48 @@ handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
 handle_event(_ShardId, _Data, _Time, _Event) ->
     %% `dummy_event' goes here and does nothing. But it forces update
     %% of `Time' in the replication layer.
+    [].
+
+unpack_iterator(_Shard, _S, #{
+    ?tag := ?IT,
+    ?storage_key := Stream,
+    ?topic_filter := TF,
+    ?last_seen_key := <<>>,
+    ?start_time := StartTime
+}) ->
+    {Stream, TF, <<>>, StartTime};
+unpack_iterator(_Shard, #s{keymappers = Keymappers}, #{
+    ?tag := ?IT, ?storage_key := Stream, ?topic_filter := TF, ?last_seen_key := LSK
+}) ->
+    {_, Varying} = Stream,
+    NVarying = length(Varying),
+    Keymapper = array:get(NVarying, Keymappers),
+    Timestamp = emqx_ds_bitmask_keymapper:bin_key_to_coord(Keymapper, LSK, ?DIM_TS),
+    {Stream, TF, LSK, Timestamp}.
+
+scan_stream(Shard, S, Stream, TopicFilter, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+    It = #{
+        ?tag => ?IT,
+        ?topic_filter => TopicFilter,
+        ?start_time => 0,
+        ?storage_key => Stream,
+        ?last_seen_key => LastSeenKey
+    },
+    case next(Shard, S, It, BatchSize, TMax, IsCurrent) of
+        {ok, #{?last_seen_key := LSK}, Batch} ->
+            {ok, LSK, Batch};
+        Other ->
+            Other
+    end.
+
+message_matcher(_Shard, #s{}, #{?tag := ?IT, ?last_seen_key := LSK, ?topic_filter := TF}) ->
+    fun(MsgKey, #message{topic = Topic}) ->
+        MsgKey > LSK andalso emqx_topic:match(emqx_topic:tokens(Topic), TF)
+    end.
+
+batch_events(_S, _CookedBatch) ->
+    %% FIXME: here we rely on the fact that bitfield_lts layout is
+    %% deprecated.
     [].
 
 %%================================================================================

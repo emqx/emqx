@@ -18,7 +18,7 @@
 -include("emqx_ds.hrl").
 
 %% API:
--export([anext_helper/3]).
+-export([with_worker/4]).
 
 %% internal exports:
 -export([]).
@@ -33,9 +33,10 @@
 %% API functions
 %%================================================================================
 
-anext_helper(Mod, Function, Args) ->
+-spec with_worker(_UserData, module(), atom(), list()) -> {ok, reference()}.
+with_worker(UserData, Mod, Function, Args) ->
     ReplyTo = alias([reply]),
-    spawn_opt(
+    _ = spawn_opt(
         fun() ->
             Result =
                 try
@@ -48,7 +49,7 @@ anext_helper(Mod, Function, Args) ->
                             stacktrace => Stack
                         }}
                 end,
-            ReplyTo ! #ds_async_result{ref = ReplyTo, data = Result}
+            ReplyTo ! #poll_reply{userdata = UserData, ref = ReplyTo, payload = Result}
         end,
         [link, {min_heap_size, 10000}]
     ),

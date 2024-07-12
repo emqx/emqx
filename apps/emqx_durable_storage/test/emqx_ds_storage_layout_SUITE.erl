@@ -23,6 +23,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include("emqx_ds.hrl").
 
 -define(assertSameSet(A, B), ?assertEqual(lists:sort(A), lists:sort(B))).
 
@@ -45,6 +46,8 @@ all() ->
 init_per_group(Group, Config) ->
     LayoutConf =
         case Group of
+            reference ->
+                {emqx_ds_storage_reference, #{}};
             skipstream_lts ->
                 {emqx_ds_storage_skipstream_lts, #{with_guid => true}};
             bitfield_lts ->
@@ -289,6 +292,111 @@ t_replay(Config) ->
     ?assert(check(?SHARD, <<"#">>, 0, Messages)),
     ok.
 
+%% This testcase verifies poll functionality that doesn't involve events:
+t_poll(Config) ->
+    ?check_trace(
+        begin
+            Topics = [list_to_binary("t/" ++ integer_to_list(I)) || I <- lists:seq(1, 21)],
+            Values = lists:seq(1, 1_000, 500),
+            Batch1 = [
+                make_message(Val, Topic, bin(Val))
+             || Topic <- Topics, Val <- Values
+            ],
+            BatchSize = 1000,
+            Timeout = 1_000,
+            PollOpts = #{timeout => Timeout},
+            %% 1. Store a batch of data to create streams:
+            ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch1),
+            timer:sleep(1000),
+            %% 2. Create a number of iterators for different topic
+            %% subscriptions. These iterators overlap, so the
+            %% beamformer is likely to group them.
+            Iterators0 =
+                [
+                    begin
+                        {ok, It} = emqx_ds:make_iterator(?FUNCTION_NAME, Stream, TopicFilter, 0),
+                        %% Create a reference to identify poll reply:
+                        {make_ref(), It}
+                    end
+                 || TopicFilter <- lists:map(fun emqx_topic:words/1, [<<"#">> | Topics]),
+                    {_Rank, Stream} <- emqx_ds:get_streams(?FUNCTION_NAME, TopicFilter, 0)
+                ],
+            ?assertMatch([_ | _], Iterators0, "List of iterators should be non-empty"),
+            %% 2. Fetch values via `next' API for reference:
+            Reference1 = [
+                {Ref, emqx_ds:next(?FUNCTION_NAME, It, BatchSize)}
+             || {Ref, It} <- Iterators0
+            ],
+            %% 3. Fetch the same data via poll API (we use initial values of
+            %% the iterator as tags):
+            {ok, Alias1} = emqx_ds:poll(?FUNCTION_NAME, Iterators0, PollOpts),
+            %% Collect the replies:
+            Got1 = collect_poll_replies(Alias1, Timeout),
+            unalias(Alias1),
+            %% 4. Compare data. Everything (batch contents and iterators) should be the same:
+            compare_poll_with_reference(Reference1, Got1),
+            %% 5. Create a new poll request with the new iterators,
+            %% these should be resolved via events:
+            Iterators1 = lists:map(
+                fun({ItRef, {ok, It, _}}) ->
+                    {ItRef, It}
+                end,
+                Got1
+            ),
+            {ok, Alias2} = emqx_ds:poll(?FUNCTION_NAME, Iterators1, PollOpts),
+            %% 5.1 Sleep to make sure poll requests are enqueued
+            %% _before_ the batch is published:
+            timer:sleep(10),
+            %% 6. Add new data and receive results:
+            emqx_ds:store_batch(?FUNCTION_NAME, Batch1),
+            case ?config(layout, Config) of
+                {emqx_ds_storage_bitfield_lts, _} ->
+                    %% Currenty this layout doesn't support events:
+                    ok;
+                _ ->
+                    ?assertMatch(
+                        [{_, {ok, _, [_ | _]}} | _],
+                        collect_poll_replies(Alias2, Timeout),
+                        "Poll reply with non-empty batch should be received after "
+                        "data was published to the topic."
+                    )
+            end
+        end,
+        []
+    ).
+
+compare_poll_with_reference(Reference, PollRepliesL) ->
+    PollReplies = maps:from_list(PollRepliesL),
+    lists:foreach(
+        fun({ItRef, ReferenceReply}) ->
+            case ReferenceReply of
+                {ok, _, []} ->
+                    %% DS doesn't send empty replies back, so skip
+                    %% check here:
+                    ok;
+                _ ->
+                    compare_poll_reply(ReferenceReply, maps:get(ItRef, PollReplies, undefined))
+            end
+        end,
+        Reference
+    ).
+
+compare_poll_reply({ok, ReferenceIterator, BatchRef}, {ok, ReplyIterator, Batch}) ->
+    ?defer_assert(?assertEqual(ReferenceIterator, ReplyIterator, "Iterators should be equal")),
+    ?defer_assert(snabbkaffe_diff:assert_lists_eq(BatchRef, Batch));
+compare_poll_reply(A, B) ->
+    ?defer_assert(?assertEqual(A, B)).
+
+collect_poll_replies(Alias, Timeout) ->
+    receive
+        #poll_reply{payload = poll_timeout, ref = Alias} ->
+            [];
+        #poll_reply{userdata = ItRef, payload = Reply, ref = Alias} ->
+            [{ItRef, Reply} | collect_poll_replies(Alias, Timeout)]
+    after Timeout ->
+        []
+    end.
+
 t_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
@@ -486,6 +594,7 @@ bin(X) ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
+        {reference, TCs},
         {bitfield_lts, TCs},
         {skipstream_lts, TCs}
     ].
@@ -494,8 +603,12 @@ suite() -> [{timetrap, {seconds, 20}}].
 
 init_per_suite(Config) ->
     WorkDir = emqx_cth_suite:work_dir(Config),
+    DSEnv = [{poll_batch_size, 1000}],
     Apps = emqx_cth_suite:start(
-        [emqx_ds_builtin_local],
+        [
+            {emqx_durable_storage, #{override_env => DSEnv}},
+            emqx_ds_builtin_local
+        ],
         #{work_dir => WorkDir}
     ),
     [{apps, Apps}, {work_dir, WorkDir} | Config].
