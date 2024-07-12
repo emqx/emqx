@@ -42,7 +42,8 @@
 
 -record(ds_async_result, {
     ref :: reference(),
-    data :: emqx_ds:next_result()
+    userdata,
+    payload :: emqx_ds:next_result()
 }).
 
 -endif.

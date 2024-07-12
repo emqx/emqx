@@ -39,7 +39,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, update_iterator/3, next/3, anext/3]).
+-export([get_streams/3, make_iterator/4, update_iterator/3, next/3, poll/4]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -211,6 +211,13 @@
 
 -type create_db_opts() :: generic_db_opts().
 
+-type poll_opts() ::
+    #{
+        max := pos_integer(),
+        min := pos_integer(),
+        timeout := pos_integer()
+    }.
+
 %% An opaque term identifying a generation.  Each implementation will possibly add
 %% information to this term to match its inner structure (e.g.: by embedding the shard id,
 %% in the case of `emqx_ds_replication_layer').
@@ -263,7 +270,7 @@
 %%
 %% Reference is a process alias that can be unalised to ignore the
 %% result.
--callback anext(db(), _Iterator, pos_integer()) -> {ok, reference()}.
+-callback poll(db(), _Iterator, _ReplyRef, poll_opts()) -> {ok, reference()}.
 
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
@@ -282,8 +289,6 @@
     get_delete_streams/3,
     make_delete_iterator/4,
     delete_next/4,
-
-    anext/3,
 
     count/1
 ]).
@@ -418,15 +423,12 @@ update_iterator(DB, OldIter, DSKey) ->
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
 
--spec anext(db(), iterator(), pos_integer()) -> {ok, reference()}.
-anext(DB, Iter, BatchSize) ->
+-spec poll(db(), iterator(), _ReplyRef, poll_opts()) -> {ok, reference()}.
+poll(DB, Iter, ReplyRef, PollOpts = #{min := Min, max := Max, timeout := Timeout}) when
+    Min >= 0, Max > 0, Timeout > 0
+->
     Mod = ?module(DB),
-    case erlang:function_exported(Mod, anext, 3) of
-        true ->
-            Mod:anext(DB, Iter, BatchSize);
-        false ->
-            emqx_ds_lib:anext_helper(Mod, next, [DB, Iter, BatchSize])
-    end.
+    Mod:poll(DB, Iter, ReplyRef, PollOpts).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->

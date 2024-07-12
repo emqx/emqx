@@ -38,6 +38,7 @@
     make_delete_iterator/4,
     update_iterator/3,
     next/3,
+    poll/4,
     delete_next/4,
 
     %% `emqx_ds_buffer':
@@ -49,6 +50,7 @@
 %% Internal exports:
 -export([
     do_next/3,
+    longpoll/3,
     do_delete_next/4
 ]).
 
@@ -315,15 +317,15 @@ update_iterator(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter, N) ->
-    {ok, Ref} = anext(DB, Iter, N),
+    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_next, [DB, Iter, N]),
     receive
-        #ds_async_result{ref = Ref, data = Data} ->
+        #ds_async_result{ref = Ref, payload = Data} ->
             Data
     end.
 
--spec anext(emqx_ds:db(), iterator(), pos_integer()) -> {ok, reference()}.
-anext(DB, Iter, N) ->
-    emqx_ds_lib:anext_helper(?MODULE, do_next, [DB, Iter, N]).
+-spec poll(emqx_ds:db(), iterator(), _UserData, emqx_ds:poll_opts()) -> {ok, reference()}.
+poll(DB, Iter, UserData, PollOpts) ->
+    emqx_ds_lib:with_worker(UserData, ?MODULE, longpoll, [DB, Iter, PollOpts]).
 
 -spec get_delete_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [emqx_ds:ds_specific_delete_stream()].
@@ -366,7 +368,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 delete_next(DB, Iter, Selector, N) ->
     {ok, Ref} = emqx_ds_lib:anext_helper(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
-        #ds_async_result{ref = Ref, data = Data} -> Data
+        #ds_async_result{ref = Ref, payload = Data} -> Data
     end.
 
 %%================================================================================
@@ -383,6 +385,20 @@ do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
     Result = emqx_ds_storage_layer:next(ShardId, StorageIter0, N, current_timestamp(ShardId)),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
+    case Result of
+        {ok, StorageIter, Batch} ->
+            Iter = Iter0#{?enc := StorageIter},
+            {ok, Iter, Batch};
+        Other ->
+            Other
+    end.
+
+-spec longpoll(emqx_ds:db(), iterator(), emqx_ds:poll_opts()) -> emqx_ds:next_result(iterator()).
+longpoll(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, PollOpts) ->
+    ShardId = {DB, Shard},
+    Result = emqx_ds_storage_layer:longpoll(
+        ShardId, StorageIter0, PollOpts, fun current_timestamp/1
+    ),
     case Result of
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},

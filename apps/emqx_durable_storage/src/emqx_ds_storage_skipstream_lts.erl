@@ -28,6 +28,7 @@
     prepare_batch/4,
     commit_batch/4,
     batch_events/2,
+    event_dispatch_key/1,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
@@ -242,6 +243,9 @@ batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
         #{},
         Payloads
     ).
+
+event_dispatch_key(#it{static_index = Static}) ->
+    Static.
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).

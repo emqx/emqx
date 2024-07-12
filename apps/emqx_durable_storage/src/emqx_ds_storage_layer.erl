@@ -36,6 +36,7 @@
     make_delete_iterator/4,
     update_iterator/3,
     next/4,
+    longpoll/4,
     delete_next/5,
 
     %% Generations
@@ -170,6 +171,8 @@
         ?enc := term()
     }.
 
+-record(stream_event, {n}).
+
 %%%% Generation:
 
 -define(GEN_KEY(GEN_ID), {generation, GEN_ID}).
@@ -262,6 +265,8 @@
     _CookedBatch
 ) -> #{_EventDispatchKey => pos_integer()}.
 
+-callback event_dispatch_key(iterator()) -> _EventDispatchKey.
+
 -callback get_streams(
     shard_id(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
@@ -303,7 +308,7 @@
 -callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
 
--optional_callbacks([handle_event/4, batch_events/2]).
+-optional_callbacks([handle_event/4, batch_events/2, event_dispatch_key/1]).
 
 %%================================================================================
 %% API for the replication layer
@@ -403,14 +408,17 @@ commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Cooke
     cooked_batch()
 ) -> #{_EventDispatchKey => pos_integer()}.
 dispatch_events(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
-    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
-    _Events =
+    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData, subs := SubsTab}} = get_schema_runtime(
+        Shard
+    ),
+    Events =
         case erlang:function_exported(Mod, batch_events, 2) of
             true ->
                 Mod:batch_events(GenData, CookedBatch);
             false ->
                 #{}
         end,
+    emit_stream_events(SubsTab, Events),
     ok.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -543,6 +551,50 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             {error, unrecoverable, generation_not_found}
     end.
 
+-spec longpoll(shard_id(), iterator(), emqx_ds:poll_opts(), fun((shard_id()) -> emqx_ds:time())) ->
+    emqx_ds:next_result(iterator()).
+longpoll(
+    Shard,
+    Outer = #{?tag := ?IT, ?generation := GenId, ?enc := It0},
+    #{max := NMax, min := _NMin, timeout := Timeout},
+    NowF
+) when
+    is_integer(Timeout)
+->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} = Generation ->
+            IsCurrent = GenId =:= generation_current(Shard),
+            EventSubscription = subscribe_stream_events(Generation, It0),
+            try
+                case Mod:next(Shard, GenData, It0, NMax, NowF(Shard), IsCurrent) of
+                    {ok, It1, []} ->
+                        receive
+                            #stream_event{n = _N} -> ok
+                        after Timeout -> ok
+                        end,
+                        case Mod:next(Shard, GenData, It1, NMax, NowF(Shard), IsCurrent) of
+                            {ok, It, Batch} ->
+                                {ok, Outer#{?enc := It}, Batch};
+                            {ok, end_of_stream} ->
+                                {ok, end_of_stream};
+                            Error = {error, _, _} ->
+                                Error
+                        end;
+                    {ok, It, Batch} ->
+                        {ok, Outer#{?enc := It}, Batch};
+                    {ok, end_of_stream} ->
+                        {ok, end_of_stream};
+                    Error = {error, _, _} ->
+                        Error
+                end
+            after
+                unsubscribe_stream_events(Generation, EventSubscription)
+            end;
+        not_found ->
+            %% generation was possibly dropped by GC
+            {error, unrecoverable, generation_not_found}
+    end.
+
 -spec delete_next(
     shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
 ) ->
@@ -621,6 +673,48 @@ take_snapshot(ShardId) ->
 accept_snapshot(ShardId) ->
     ok = drop_shard(ShardId),
     handle_accept_snapshot(ShardId).
+
+%%================================================================================
+%% Stream events. Very internal API. Not for public use.
+%%================================================================================
+
+-spec make_subs_table() -> ets:tid().
+make_subs_table() ->
+    ets:new(ds_storage_layer_subs, [
+        bag, public, {read_concurrency, false}, {write_concurrency, true}
+    ]).
+
+-spec emit_stream_events(ets:tid(), #{_EventDispatchKey => pos_integer()}) -> ok.
+emit_stream_events(EventSubsTab, Events) ->
+    maps:foreach(
+        fun(DispatchKey, N) ->
+            [
+                Sub ! #stream_event{n = N}
+             || Sub <- ets:lookup_element(EventSubsTab, DispatchKey, 2, [])
+            ],
+            ok
+        end,
+        Events
+    ).
+
+%% Note: there is no automatic cleanup.
+-spec subscribe_stream_events(generation(), iterator()) ->
+    {_EventDispatchKey, reference(), pid()} | undefined.
+subscribe_stream_events(#{module := Mod, subs := SubsTab}, Iterator) ->
+    case erlang:function_exported(Mod, event_dispatch_key, 1) of
+        true ->
+            SubRef = {Mod:event_dispatch_key(Iterator), alias(), self()},
+            ets:insert(SubsTab, SubRef),
+            SubRef;
+        false ->
+            undefined
+    end.
+
+-spec unsubscribe_stream_events(generation(), reference() | undefined) -> ok.
+unsubscribe_stream_events(_Generation, undefined) ->
+    ok;
+unsubscribe_stream_events(#{subs := SubsTab}, Subscription) ->
+    ets:delete_object(SubsTab, Subscription).
 
 %%================================================================================
 %% gen_server for the shard
@@ -872,7 +966,7 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     ?tp(debug, ds_open_generation, #{gen_id => GenId, schema => GenSchema}),
     #{module := Mod, data := Schema} = GenSchema,
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
-    GenSchema#{data => RuntimeData}.
+    GenSchema#{data => RuntimeData, subs => make_subs_table()}.
 
 -spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), prototype()) ->
     {shard_schema(), cf_refs()}.

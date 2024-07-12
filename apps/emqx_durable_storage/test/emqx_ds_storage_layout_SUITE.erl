@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include("emqx_ds.hrl").
 
 -define(FUTURE, (1 bsl 64 - 1)).
 
@@ -263,6 +264,44 @@ t_replay(Config) ->
     ?assert(check(?SHARD, <<"wildcard/100/#">>, 0, Messages)),
     ?assert(check(?SHARD, <<"#">>, 0, Messages)),
     ok.
+
+%% This testcase verifies long poll functionality:
+t_poll(_Config) ->
+    Topics = [<<"foo/bar">>, <<"bar/baz">>],
+    Values = lists:seq(1, 1_000, 100),
+    Batch1 = [
+        make_message(Val, Topic, bin(Val))
+     || Topic <- Topics, Val <- Values
+    ],
+    BatchSize = 1000,
+    Timeout = 100,
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch1),
+    timer:sleep(100),
+    Iterators0 = [_ | _] =
+        lists:map(fun({_Rank, Stream}) ->
+                          {ok, It} = emqx_ds:make_iterator(?FUNCTION_NAME, Stream, ['#'], 0),
+                          It
+                  end,
+                  emqx_ds:get_streams(?FUNCTION_NAME, ['#'], 0)),
+    %% Fetch values normally for reference:
+    Reference1 = [{It, emqx_ds:next(?FUNCTION_NAME, It, BatchSize)} || It <- Iterators0],
+    %% Fetch the same data via poll API:
+    [
+        emqx_ds:poll(?FUNCTION_NAME, It, It, #{min => 0, max => BatchSize, timeout => Timeout})
+     || It <- Iterators0
+    ],
+    %% Collect the replies:
+    Got1 = [
+        receive
+            #ds_async_result{userdata = It, payload = Reply} ->
+                {It, Reply}
+        after Timeout ->
+            error({timeout_for, It})
+        end
+     || It <- Iterators0
+    ],
+    %% Compare data. Everything (batch contents and iterators) should be the same:
+    ?assertEqual(lists:sort(Reference1), lists:sort(Got1)).
 
 t_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,
