@@ -240,7 +240,7 @@ who(peerhost_net, CIDR) when is_binary(CIDR) ->
 %%--------------------------------------------------------------------
 %% Import From CSV
 %%--------------------------------------------------------------------
-init_from_csv(<<>>) ->
+init_from_csv(undefined) ->
     ok;
 init_from_csv(File) ->
     maybe
@@ -365,7 +365,9 @@ init([]) ->
     {ok, ensure_expiry_timer(#{expiry_timer => undefined}), {continue, init_from_csv}}.
 
 handle_continue(init_from_csv, State) ->
-    File = emqx_schema:naive_env_interpolation(emqx:get_config([banned, bootstrap_file], <<>>)),
+    File = emqx_schema:naive_env_interpolation(
+        emqx:get_config([banned, bootstrap_file], undefined)
+    ),
     _ = init_from_csv(File),
     {noreply, State}.
 
