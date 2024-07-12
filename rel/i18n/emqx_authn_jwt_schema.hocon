@@ -152,4 +152,9 @@ disconnect_after_expire.desc:
 disconnect_after_expire.label:
 """Disconnect After Expire"""
 
+jwks_headers.label:
+"""HTTP Headers"""
+jwks_headers.desc:
+"""List of HTTP headers to send with the JWKS request."""
+
 }

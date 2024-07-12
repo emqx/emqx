@@ -102,7 +102,11 @@ hash({SimpleHash, _Salt, disable}, Password) when is_binary(Password) ->
 hash({SimpleHash, Salt, prefix}, Password) when is_binary(Password), is_binary(Salt) ->
     hash_data(SimpleHash, <<Salt/binary, Password/binary>>);
 hash({SimpleHash, Salt, suffix}, Password) when is_binary(Password), is_binary(Salt) ->
-    hash_data(SimpleHash, <<Password/binary, Salt/binary>>).
+    hash_data(SimpleHash, <<Password/binary, Salt/binary>>);
+hash({_SimpleHash, Salt, _SaltPos}, _Password) when not is_binary(Salt) ->
+    error({salt_not_string, Salt});
+hash({_SimpleHash, _Salt, _SaltPos}, Password) when not is_binary(Password) ->
+    error({password_not_string, Password}).
 
 -spec hash_data(hash_type(), binary()) -> binary().
 hash_data(plain, Data) when is_binary(Data) ->

@@ -154,6 +154,14 @@ do_request_api(Method, Request, Opts) ->
             {error, Reason}
     end.
 
+simplify_result(Res) ->
+    case Res of
+        {error, {{_, Status, _}, _, Body}} ->
+            {Status, Body};
+        {ok, {{_, Status, _}, _, Body}} ->
+            {Status, Body}
+    end.
+
 auth_header_() ->
     emqx_common_test_http:default_auth_header().
 

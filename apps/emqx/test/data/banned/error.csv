@@ -1,0 +1,4 @@
+as,who,reason,at,until,by
+clientid,c1,right,2021-10-25T21:53:47+08:00,2025-10-25T21:53:47+08:00,boot
+username,u1,reason 1,abc,2025-10-25T21:53:47+08:00,boot
+usernamx,u2,reason 2,2021-10-25T21:53:47+08:00,2025-10-25T21:53:47+08:00,boot

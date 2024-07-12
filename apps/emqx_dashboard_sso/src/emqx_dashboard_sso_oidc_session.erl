@@ -35,6 +35,8 @@
 
 -define(DEFAULT_RANDOM_LEN, 32).
 -define(NOW, erlang:system_time(millisecond)).
+-define(BACKOFF_MIN, 5000).
+-define(BACKOFF_MAX, 10000).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -49,7 +51,10 @@ start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0}) ->
             [
                 #{
                     issuer => Issuer,
-                    name => {local, Name}
+                    name => {local, Name},
+                    backoff_min => ?BACKOFF_MIN,
+                    backoff_max => ?BACKOFF_MAX,
+                    backoff_type => random
                 }
             ]
         )

@@ -801,7 +801,7 @@ mqtt_max_topic_levels.label:
 """Max Topic Levels"""
 
 force_shutdown_max_heap_size.desc:
-"""Total heap size"""
+"""Total heap size.  Setting this to 0 disables this limitation."""
 
 force_shutdown_max_heap_size.label:
 """Total heap size"""
@@ -1629,5 +1629,23 @@ client_attrs_init_set_as_attr {
     The name of the client attribute extracted from the client data.
     The extracted attribute will be stored in the `client_attrs` property with this name."""
 }
+
+banned_bootstrap_file.desc:
+"""The bootstrap file is a CSV file used to batch loading banned data when initializing a single node or cluster, in other words, the import operation is performed only if there is no data in the database.
+
+The delimiter for this file is `,`.
+
+The first line of this file must be a header line. All valid headers are listed here:
+- as :: required
+- who :: required
+- by  :: optional
+- reason :: optional
+- at :: optional
+- until :: optional
+
+See the documentation for details on each field.
+
+Each row in the rest of this file must contain the same number of columns as the header line,
+and column can be omitted then its value will be `undefined`."""
 
 }

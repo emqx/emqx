@@ -78,6 +78,10 @@
     do_stop/0
 ]).
 
+-ifdef(TEST).
+-export([cert_expiry_at_from_path/1]).
+-endif.
+
 %%--------------------------------------------------------------------
 %% Macros
 %%--------------------------------------------------------------------
@@ -950,10 +954,8 @@ cert_expiry_at_from_path(Path0) ->
             {ok, PemBin} ->
                 [CertEntry | _] = public_key:pem_decode(PemBin),
                 Cert = public_key:pem_entry_decode(CertEntry),
-                %% TODO: Not fully tested for all certs type
-                {'utcTime', NotAfterUtc} =
-                    Cert#'Certificate'.'tbsCertificate'#'TBSCertificate'.validity#'Validity'.'notAfter',
-                utc_time_to_epoch(NotAfterUtc);
+                %% XXX: Only pem cert supported by listeners
+                not_after_epoch(Cert);
             {error, Reason} ->
                 ?SLOG(error, #{
                     msg => "read_cert_file_failed",
@@ -976,21 +978,17 @@ cert_expiry_at_from_path(Path0) ->
             0
     end.
 
-utc_time_to_epoch(UtcTime) ->
-    date_to_expiry_epoch(utc_time_to_datetime(UtcTime)).
-
-utc_time_to_datetime(Str) ->
-    {ok, [Year, Month, Day, Hour, Minute, Second], _} = io_lib:fread(
-        "~2d~2d~2d~2d~2d~2dZ", Str
-    ),
-    %% Always Assuming YY is in 2000
-    {{2000 + Year, Month, Day}, {Hour, Minute, Second}}.
-
 %% 62167219200 =:= calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}).
 -define(EPOCH_START, 62167219200).
--spec date_to_expiry_epoch(calendar:datetime()) -> Seconds :: non_neg_integer().
-date_to_expiry_epoch(DateTime) ->
-    calendar:datetime_to_gregorian_seconds(DateTime) - ?EPOCH_START.
+not_after_epoch(#'Certificate'{
+    'tbsCertificate' = #'TBSCertificate'{
+        validity =
+            #'Validity'{'notAfter' = NotAfter}
+    }
+}) ->
+    pubkey_cert:'time_str_2_gregorian_sec'(NotAfter) - ?EPOCH_START;
+not_after_epoch(_) ->
+    0.
 
 %%========================================
 %% Mria

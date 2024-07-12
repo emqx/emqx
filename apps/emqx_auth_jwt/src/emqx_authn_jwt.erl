@@ -19,6 +19,7 @@
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("jose/include/jose_jwk.hrl").
 
 -export([
     create/2,
@@ -40,7 +41,7 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(#{verify_claims := VerifyClaims} = Config) ->
-    create2(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
+    do_create(Config#{verify_claims => handle_verify_claims(VerifyClaims)}).
 
 update(
     #{use_jwks := false} = Config,
@@ -85,6 +86,7 @@ authenticate(
     }
 ) ->
     JWT = maps:get(From, Credential),
+    %% XXX: Only supports single public key
     JWKs = [JWK],
     VerifyClaims = render_expected(VerifyClaims0, Credential),
     verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire);
@@ -121,7 +123,7 @@ destroy(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-create2(#{
+do_create(#{
     use_jwks := false,
     algorithm := 'hmac-based',
     secret := Secret0,
@@ -144,24 +146,35 @@ create2(#{
                 from => From
             }}
     end;
-create2(#{
-    use_jwks := false,
-    algorithm := 'public-key',
-    public_key := PublicKey,
-    verify_claims := VerifyClaims,
-    disconnect_after_expire := DisconnectAfterExpire,
-    acl_claim_name := AclClaimName,
-    from := From
-}) ->
-    JWK = create_jwk_from_public_key(PublicKey),
-    {ok, #{
-        jwk => JWK,
-        verify_claims => VerifyClaims,
-        disconnect_after_expire => DisconnectAfterExpire,
-        acl_claim_name => AclClaimName,
-        from => From
-    }};
-create2(
+do_create(
+    #{
+        use_jwks := false,
+        algorithm := 'public-key',
+        public_key := PublicKey,
+        verify_claims := VerifyClaims,
+        disconnect_after_expire := DisconnectAfterExpire,
+        acl_claim_name := AclClaimName,
+        from := From
+    } = Config
+) ->
+    case
+        create_jwk_from_public_key(
+            maps:get(enable, Config, false),
+            PublicKey
+        )
+    of
+        {ok, JWK} ->
+            {ok, #{
+                jwk => JWK,
+                verify_claims => VerifyClaims,
+                disconnect_after_expire => DisconnectAfterExpire,
+                acl_claim_name => AclClaimName,
+                from => From
+            }};
+        {error, _Reason} = Err ->
+            Err
+    end;
+do_create(
     #{
         use_jwks := true,
         verify_claims := VerifyClaims,
@@ -185,9 +198,23 @@ create2(
         from => From
     }}.
 
-create_jwk_from_public_key(PublicKey) when
+create_jwk_from_public_key(true, PublicKey) when
     is_binary(PublicKey); is_list(PublicKey)
 ->
+    try do_create_jwk_from_public_key(PublicKey) of
+        %% XXX: Only supports single public key
+        #jose_jwk{} = Res ->
+            {ok, Res};
+        _ ->
+            {error, invalid_public_key}
+    catch
+        _:_ ->
+            {error, invalid_public_key}
+    end;
+create_jwk_from_public_key(false, _PublicKey) ->
+    {ok, []}.
+
+do_create_jwk_from_public_key(PublicKey) ->
     case filelib:is_file(PublicKey) of
         true ->
             jose_jwk:from_pem_file(PublicKey);
@@ -384,20 +411,7 @@ binary_to_number(Bin) ->
 parse_rules(Rules) when is_map(Rules) ->
     Rules;
 parse_rules(Rules) when is_list(Rules) ->
-    lists:map(fun parse_rule/1, Rules).
-
-parse_rule(Rule) ->
-    case emqx_authz_rule_raw:parse_rule(Rule) of
-        {ok, {Permission, Action, Topics}} ->
-            try
-                emqx_authz_rule:compile({Permission, all, Action, Topics})
-            catch
-                throw:Reason ->
-                    throw({bad_acl_rule, Reason})
-            end;
-        {error, Reason} ->
-            throw({bad_acl_rule, Reason})
-    end.
+    emqx_authz_rule_raw:parse_and_compile_rules(Rules).
 
 merge_maps([]) -> #{};
 merge_maps([Map | Maps]) -> maps:merge(Map, merge_maps(Maps)).
