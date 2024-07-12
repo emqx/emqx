@@ -232,8 +232,7 @@ apply_handler(Fun, DB, Shard, Trans) ->
     erlang:apply(Fun, [DB, Shard, Trans]).
 
 trans_add_local(DB, Shard, {add, Site}) ->
-    logger:info(#{
-        msg => "Adding new local shard replica",
+    ?tp(info, "Adding new local shard replica", #{
         site => Site,
         db => DB,
         shard => Shard
@@ -246,8 +245,7 @@ do_add_local(membership = Stage, DB, Shard) ->
         ok ->
             do_add_local(readiness, DB, Shard);
         {error, recoverable, Reason} ->
-            logger:warning(#{
-                msg => "Shard membership change failed",
+            ?tp(warning, "Adding local shard replica failed", #{
                 db => DB,
                 shard => Shard,
                 reason => Reason,
@@ -260,10 +258,9 @@ do_add_local(readiness = Stage, DB, Shard) ->
     LocalServer = emqx_ds_replication_layer_shard:local_server(DB, Shard),
     case emqx_ds_replication_layer_shard:server_info(readiness, LocalServer) of
         ready ->
-            logger:info(#{msg => "Local shard replica ready", db => DB, shard => Shard});
+            ?tp(info, "Local shard replica ready", #{db => DB, shard => Shard});
         Status ->
-            logger:warning(#{
-                msg => "Still waiting for local shard replica to be ready",
+            ?tp(notice, "Still waiting for local shard replica to be ready", #{
                 db => DB,
                 shard => Shard,
                 status => Status,
@@ -274,8 +271,7 @@ do_add_local(readiness = Stage, DB, Shard) ->
     end.
 
 trans_drop_local(DB, Shard, {del, Site}) ->
-    logger:info(#{
-        msg => "Dropping local shard replica",
+    ?tp(notice, "Dropping local shard replica", #{
         site => Site,
         db => DB,
         shard => Shard
@@ -287,10 +283,11 @@ do_drop_local(DB, Shard) ->
         ok ->
             ok = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
             ok = emqx_ds_storage_layer:drop_shard({DB, Shard}),
-            logger:info(#{msg => "Local shard replica dropped"});
+            ?tp(notice, "Local shard replica dropped", #{db => DB, shard => Shard});
         {error, recoverable, Reason} ->
-            logger:warning(#{
-                msg => "Shard membership change failed",
+            ?tp(warning, "Dropping local shard replica failed", #{
+                db => DB,
+                shard => Shard,
                 reason => Reason,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
@@ -299,8 +296,7 @@ do_drop_local(DB, Shard) ->
     end.
 
 trans_rm_unresponsive(DB, Shard, {del, Site}) ->
-    logger:info(#{
-        msg => "Removing unresponsive shard replica",
+    ?tp(notice, "Removing unresponsive shard replica", #{
         site => Site,
         db => DB,
         shard => Shard
@@ -311,10 +307,9 @@ do_rm_unresponsive(DB, Shard, Site) ->
     Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
     case emqx_ds_replication_layer_shard:remove_server(DB, Shard, Server) of
         ok ->
-            logger:info(#{msg => "Unresponsive shard replica removed", db => DB, shard => Shard});
+            ?tp(info, "Unresponsive shard replica removed", #{db => DB, shard => Shard});
         {error, recoverable, Reason} ->
-            logger:warning(#{
-                msg => "Shard membership change failed",
+            ?tp(warning, "Removing shard replica failed", #{
                 db => DB,
                 shard => Shard,
                 reason => Reason,
@@ -376,8 +371,7 @@ handle_transition_exit(Shard, Trans, normal, State = #{db := DB}) ->
 handle_transition_exit(_Shard, _Trans, {shutdown, skipped}, State) ->
     State;
 handle_transition_exit(Shard, Trans, Reason, State = #{db := DB}) ->
-    logger:warning(#{
-        msg => "Shard membership transition failed",
+    ?tp(warning, "Shard membership transition failed", #{
         db => DB,
         shard => Shard,
         transition => Trans,
