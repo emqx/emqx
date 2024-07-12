@@ -47,7 +47,8 @@ groups() ->
     CommonTCs = AllTCs -- persistent_only_tcs(),
     [
         {mem, CommonTCs},
-        %% Shared subscriptions are currently not supported:
+        %% Persistent shared subscriptions are an EE app.
+        %% So they are tested outside emqx_management app which is CE.
         {persistent,
             (CommonTCs -- [t_list_with_shared_sub, t_subscription_api]) ++ persistent_only_tcs()}
     ].

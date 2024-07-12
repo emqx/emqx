@@ -242,20 +242,25 @@ do_subscriptions_query_persistent(#{<<"page">> := Page, <<"limit">> := Limit} = 
     %% TODO: filtering by client ID can be implemented more efficiently:
     FilterTopic = maps:get(<<"topic">>, QString, '_'),
     Stream0 = emqx_persistent_session_ds_router:stream(FilterTopic),
+
     SubPred = fun(Sub) ->
-        compare_optional(<<"topic">>, QString, topic, Sub) andalso
+        compare_optional(<<"topic">>, QString, '_real_topic', Sub) andalso
             compare_optional(<<"clientid">>, QString, clientid, Sub) andalso
             compare_optional(<<"qos">>, QString, qos, Sub) andalso
-            compare_match_topic_optional(<<"match_topic">>, QString, topic, Sub)
+            compare_optional(<<"share_group">>, QString, '_group', Sub) andalso
+            compare_match_topic_optional(<<"match_topic">>, QString, '_real_topic', Sub)
     end,
     NDropped = (Page - 1) * Limit,
     {_, Stream} = consume_n_matching(
         fun persistent_route_to_subscription/1, SubPred, NDropped, Stream0
     ),
-    {Subscriptions, Stream1} = consume_n_matching(
+    {Subscriptions0, Stream1} = consume_n_matching(
         fun persistent_route_to_subscription/1, SubPred, Limit, Stream
     ),
     HasNext = Stream1 =/= [],
+    Subscriptions1 = lists:map(
+        fun remove_temp_match_fields/1, Subscriptions0
+    ),
     Meta =
         case maps:is_key(<<"match_topic">>, QString) orelse maps:is_key(<<"qos">>, QString) of
             true ->
@@ -276,7 +281,7 @@ do_subscriptions_query_persistent(#{<<"page">> := Page, <<"limit">> := Limit} = 
 
     #{
         meta => Meta,
-        data => Subscriptions
+        data => Subscriptions1
     }.
 
 compare_optional(QField, Query, SField, Subscription) ->
@@ -329,36 +334,57 @@ consume_n_matching(Map, Pred, N, S0, Acc) ->
     end.
 
 persistent_route_to_subscription(#route{dest = Dest} = Route) ->
-    case get_client_subscription(Route) of
-        #{subopts := SubOpts} ->
-            #{qos := Qos, nl := Nl, rh := Rh, rap := Rap} = SubOpts,
-            #{
-                topic => format_topic(Route),
-                clientid => session_id(Dest),
-                node => all,
+    Sub =
+        case get_client_subscription(Route) of
+            #{subopts := SubOpts} ->
+                #{qos := Qos, nl := Nl, rh := Rh, rap := Rap} = SubOpts,
+                #{
+                    topic => format_topic(Route),
+                    clientid => session_id(Dest),
+                    node => all,
 
-                qos => Qos,
-                nl => Nl,
-                rh => Rh,
-                rap => Rap,
-                durable => true
-            };
-        undefined ->
-            #{
-                topic => format_topic(Route),
-                clientid => session_id(Dest),
-                node => all,
-                durable => true
-            }
-    end.
+                    qos => Qos,
+                    nl => Nl,
+                    rh => Rh,
+                    rap => Rap,
+                    durable => true
+                };
+            undefined ->
+                #{
+                    topic => format_topic(Route),
+                    clientid => session_id(Dest),
+                    node => all,
+                    durable => true
+                }
+        end,
+    add_temp_match_fields(Route, Sub).
 
-get_client_subscription(#route{topic = Topic, dest = #share_dest{session_id = SessionId, group = Group}}) ->
-    emqx_persistent_session_ds:get_client_subscription(SessionId, #share{topic = Topic, group = Group});
+get_client_subscription(#route{
+    topic = Topic, dest = #share_dest{session_id = SessionId, group = Group}
+}) ->
+    emqx_persistent_session_ds:get_client_subscription(SessionId, #share{
+        topic = Topic, group = Group
+    });
 get_client_subscription(#route{topic = Topic, dest = SessionId}) ->
     emqx_persistent_session_ds:get_client_subscription(SessionId, Topic).
 
 session_id(#share_dest{session_id = SessionId}) -> SessionId;
 session_id(SessionId) -> SessionId.
+
+add_temp_match_fields(Route, Sub) ->
+    add_temp_match_fields(['_real_topic', '_group'], Route, Sub).
+
+add_temp_match_fields([], _Route, Sub) ->
+    Sub;
+add_temp_match_fields(['_real_topic' | Rest], #route{topic = Topic} = Route, Sub) ->
+    add_temp_match_fields(Rest, Route, Sub#{'_real_topic' => Topic});
+add_temp_match_fields(['_group' | Rest], #route{dest = #share_dest{group = Group}} = Route, Sub) ->
+    add_temp_match_fields(Rest, Route, Sub#{'_group' => Group});
+add_temp_match_fields(['_group' | Rest], Route, Sub) ->
+    add_temp_match_fields(Rest, Route, Sub#{'_group' => undefined}).
+
+remove_temp_match_fields(Sub) ->
+    maps:without(['_real_topic', '_group'], Sub).
 
 format_topic(#route{topic = Topic, dest = #share_dest{group = Group}}) ->
     <<"$share/", Group/binary, "/", Topic/binary>>;
