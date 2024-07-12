@@ -52,7 +52,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
       readable: 'true',
       name: node_name,
-      ct_hooks: [:cth_readable_shell],
+      ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
       logdir: to_charlist(logdir)
     )
 
