@@ -28,6 +28,7 @@
     store_batch/3,
     prepare_batch/3,
     commit_batch/3,
+    dispatch_events/2,
 
     get_streams/3,
     get_delete_streams/3,
@@ -256,6 +257,11 @@
     batch_store_opts()
 ) -> ok | emqx_ds:error(_).
 
+-callback batch_events(
+    generation_data(),
+    _CookedBatch
+) -> #{_EventDispatchKey => pos_integer()}.
+
 -callback get_streams(
     shard_id(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
@@ -297,7 +303,7 @@
 -callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
 
--optional_callbacks([handle_event/4]).
+-optional_callbacks([handle_event/4, batch_events/2]).
 
 %%================================================================================
 %% API for the replication layer
@@ -390,6 +396,22 @@ commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Cooke
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result.
+
+%% @doc Emit events after committing the batch.
+-spec dispatch_events(
+    shard_id(),
+    cooked_batch()
+) -> #{_EventDispatchKey => pos_integer()}.
+dispatch_events(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
+    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
+    _Events =
+        case erlang:function_exported(Mod, batch_events, 2) of
+            true ->
+                Mod:batch_events(GenData, CookedBatch);
+            false ->
+                #{}
+        end,
+    ok.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].

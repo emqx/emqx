@@ -27,6 +27,7 @@
     drop/5,
     prepare_batch/4,
     commit_batch/4,
+    batch_events/2,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
@@ -232,6 +233,15 @@ commit_batch(
     after
         rocksdb:release_batch(Batch)
     end.
+
+batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
+    lists:foldl(
+        fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
+            maps:update_with(Static, fun(N) -> N + 1 end, 1, Acc)
+        end,
+        #{},
+        Payloads
+    ).
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
