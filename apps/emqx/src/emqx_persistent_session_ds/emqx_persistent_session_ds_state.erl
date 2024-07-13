@@ -39,7 +39,7 @@
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
--export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, iter_streams/2, n_streams/1]).
+-export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
 -export([
@@ -66,14 +66,11 @@
     n_awaiting_rel/1
 ]).
 
--export([iter_next/1]).
-
 -export([make_session_iterator/0, session_iterator_next/2]).
 
 -export_type([
     t/0,
     metadata/0,
-    iter/2,
     seqno_type/0,
     stream_key/0,
     rank_key/0,
@@ -91,8 +88,6 @@
 %%================================================================================
 
 -type message() :: emqx_types:message().
-
--opaque iter(K, V) :: gb_trees:iter(K, V).
 
 -opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
 
@@ -483,14 +478,6 @@ del_stream(Key, Rec) ->
 fold_streams(Fun, Acc, Rec) ->
     gen_fold(?streams, Fun, Acc, Rec).
 
--spec iter_streams(_StartAfter :: stream_key() | beginning, t()) ->
-    iter(stream_key(), emqx_persistent_session_ds:stream_state()).
-iter_streams(After, Rec) ->
-    %% NOTE
-    %% No special handling for `beginning', as it always compares less
-    %% than any `stream_key()'.
-    gen_iter_after(?streams, After, Rec).
-
 -spec n_streams(t()) -> non_neg_integer().
 n_streams(Rec) ->
     gen_size(?streams, Rec).
@@ -546,12 +533,6 @@ fold_awaiting_rel(Fun, Acc, Rec) ->
 -spec n_awaiting_rel(t()) -> non_neg_integer().
 n_awaiting_rel(Rec) ->
     gen_size(?awaiting_rel, Rec).
-
-%%
-
--spec iter_next(iter(K, V)) -> {K, V, iter(K, V)} | none.
-iter_next(It0) ->
-    gen_iter_next(It0).
 
 %%
 
@@ -621,14 +602,6 @@ gen_del(Field, Key, Rec) ->
 gen_size(Field, Rec) ->
     check_sequence(Rec),
     pmap_size(maps:get(Field, Rec)).
-
-gen_iter_after(Field, After, Rec) ->
-    check_sequence(Rec),
-    pmap_iter_after(After, maps:get(Field, Rec)).
-
-gen_iter_next(It) ->
-    %% NOTE: Currently, gbt iterators is the only type of iterators.
-    gbt_iter_next(It).
 
 -spec update_pmaps(fun((pmap(_K, _V) | undefined, atom()) -> term()), map()) -> map().
 update_pmaps(Fun, Map) ->
@@ -771,7 +744,7 @@ gbt_put(K, V, Cache) ->
     gb_trees:enter(K, V, Cache).
 
 gbt_remove(K, Cache) ->
-    gb_trees:delete_any(K, Cache).
+    gb_trees:delete(K, Cache).
 
 gbt_format(Cache) ->
     gb_trees:to_list(Cache).
