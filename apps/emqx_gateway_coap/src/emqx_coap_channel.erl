@@ -410,6 +410,19 @@ is_create_connection_request(Msg = #coap_message{method = Method}) when
 is_create_connection_request(_Msg) ->
     false.
 
+is_delete_connection_request(Msg = #coap_message{method = Method}) when
+    is_atom(Method) andalso Method =/= undefined
+->
+    URIPath = emqx_coap_message:get_option(uri_path, Msg, []),
+    case URIPath of
+        [<<"mqtt">>, <<"connection">>] when Method == delete ->
+            true;
+        _ ->
+            false
+    end;
+is_delete_connection_request(_Msg) ->
+    false.
+
 check_token(
     Msg,
     #channel{
@@ -424,10 +437,18 @@ check_token(
             <<"token">> := Token
         } ->
             call_session(handle_request, Msg, Channel);
-        _ ->
-            ErrMsg = <<"Missing token or clientid in connection mode">>,
-            Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-            {ok, {outgoing, Reply}, Channel}
+        Any ->
+            %% This channel is create by this DELETE command, so here can safely close this channel
+            case Token =:= undefined andalso is_delete_connection_request(Msg) of
+                true ->
+                    Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
+                    {shutdown, normal, Reply, Channel};
+                false ->
+                    io:format(">>> C1:~p, T1:~p~nC2:~p~n", [ClientId, Token, Any]),
+                    ErrMsg = <<"Missing token or clientid in connection mode">>,
+                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
+                    {ok, {outgoing, Reply}, Channel}
+            end
     end.
 
 run_conn_hooks(

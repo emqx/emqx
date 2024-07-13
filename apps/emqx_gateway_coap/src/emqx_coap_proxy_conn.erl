@@ -20,7 +20,7 @@
 
 -include("emqx_coap.hrl").
 
--export([initialize/1, create/3, get_connection_id/4, dispatch/3, close/2]).
+-export([initialize/1, find_or_create/4, get_connection_id/4, dispatch/3, close/2]).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -28,8 +28,13 @@
 initialize(_Opts) ->
     emqx_coap_frame:initial_parse_state(#{}).
 
-create(Transport, Peer, Opts) ->
-    emqx_gateway_conn:start_link(Transport, Peer, Opts).
+find_or_create(CId, Transport, Peer, Opts) ->
+    case emqx_gateway_cm_registry:lookup_channels(coap, CId) of
+        [Pid] ->
+            {ok, Pid};
+        [] ->
+            emqx_gateway_conn:start_link(Transport, Peer, Opts)
+    end.
 
 get_connection_id(_Transport, _Peer, State, Data) ->
     case parse_incoming(Data, [], State) of
@@ -40,7 +45,10 @@ get_connection_id(_Transport, _Peer, State, Data) ->
                 } ->
                     {ok, ClientId, Packets, NState};
                 _ ->
-                    invalid
+                    ErrMsg = <<"Missing token or clientid in connection mode">>,
+                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
+                    Bin = emqx_coap_frame:serialize_pkt(Reply, emqx_coap_frame:serialize_opts()),
+                    {error, Bin}
             end;
         _Error ->
             invalid

@@ -165,7 +165,8 @@ t_connection(_) ->
             emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
         )
     end,
-    do(Action).
+    do(Action),
+    ok.
 
 t_connection_with_short_param_name(_) ->
     Action = fun(Channel) ->
