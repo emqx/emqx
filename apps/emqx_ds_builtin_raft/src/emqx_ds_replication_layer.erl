@@ -349,8 +349,8 @@ next(DB, Iter0, BatchSize) ->
             Other
     end.
 
--spec poll(emqx_ds:db(), iterator(), _Userdata, emqx_ds:poll_opts()) -> {ok, reference()}.
-poll(_DB, _It, _Userdata, _PollOpts) ->
+-spec poll(emqx_ds:db(), #{_IterKey => iterator()}, _Userdata, emqx_ds:poll_opts()) -> {ok, reference()}.
+poll(_DB, _Iterators, _Userdata, _PollOpts) ->
     error(not_implemented).
 
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->

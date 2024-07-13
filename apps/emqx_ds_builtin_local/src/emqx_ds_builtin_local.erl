@@ -323,8 +323,9 @@ next(DB, Iter, N) ->
             Data
     end.
 
--spec poll(emqx_ds:db(), iterator(), _UserData, emqx_ds:poll_opts()) -> {ok, reference()}.
-poll(DB, Iter, UserData, PollOpts) ->
+-spec poll(emqx_ds:db(), #{_IterKey => iterator()}, emqx_ds:poll_opts()) -> {ok, reference()}.
+poll(DB, Iterators, UserData, PollOpts) ->
+
     emqx_ds_lib:with_worker(UserData, ?MODULE, longpoll, [DB, Iter, PollOpts]).
 
 -spec get_delete_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->

@@ -270,7 +270,7 @@
 %%
 %% Reference is a process alias that can be unalised to ignore the
 %% result.
--callback poll(db(), _Iterator, _ReplyRef, poll_opts()) -> {ok, reference()}.
+-callback poll(db(), #{_IterKey => iterator()}, _Userdata, poll_opts()) -> {ok, reference()}.
 
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
@@ -423,12 +423,12 @@ update_iterator(DB, OldIter, DSKey) ->
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
 
--spec poll(db(), iterator(), _ReplyRef, poll_opts()) -> {ok, reference()}.
-poll(DB, Iter, ReplyRef, PollOpts = #{min := Min, max := Max, timeout := Timeout}) when
+-spec poll(db(), #{_ItKey => iterator()}, _ReplyRef, poll_opts()) -> {ok, reference()}.
+poll(DB, Iterators, ReplyRef, PollOpts = #{min := Min, max := Max, timeout := Timeout}) when
     Min >= 0, Max > 0, Timeout > 0
 ->
     Mod = ?module(DB),
-    Mod:poll(DB, Iter, ReplyRef, PollOpts).
+    Mod:poll(DB, Iterators, ReplyRef, PollOpts).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->
