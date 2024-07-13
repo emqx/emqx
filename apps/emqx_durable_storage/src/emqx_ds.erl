@@ -219,12 +219,11 @@
     #{
         max := pos_integer(),
         timeout := pos_integer(),
-        %% Optionally, send a message with a specified payload when
-        %% the timeout expires:
-        timeout_msg => term(),
-        %% Delay timeout message by this value, to minimize the chance
-        %% of it arriving earlier than the payload messages:
-        timeout_msg_delay => pos_integer()
+        %% Send replies to the supplied process alias instead of
+        %% creating a new one. It must be created with
+        %% `explicit_unalias' flag, or else some replies will get
+        %% lost:
+        reply_to => reference()
     }.
 
 %% An opaque term identifying a generation.  Each implementation will possibly add

@@ -29,11 +29,11 @@
 %% reconstructing by "replaying" the stored SRSes.
 %%
 %% The session logic is implemented as two mostly separate loops
-%% ("circuits") that share a transient message queue, serving as a
-%% buffer.
+%% ("circuits") that operate on a transient message queue, serving as
+%% a buffer.
 %%
 %% - *Push circuit* polls durable storage, and pushes messages to the
-%% queue. It's assisted by the stream scheduler module that decides
+%% queue. It's assisted by the `stream_scheduler' module that decides
 %% which streams are eligible for pull. Push circuit is responsible
 %% for maintaining a size of the queue at the configured limit.
 %%
@@ -200,16 +200,14 @@
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 
 -type timer() ::
-    ?TIMER_PULL | ?TIMER_PUSH | ?TIMER_GET_STREAMS | ?TIMER_BUMP_LAST_ALIVE_AT | ?TIMER_RETRY_REPLAY.
+    ?TIMER_PULL
+    | ?TIMER_PUSH
+    | ?TIMER_GET_STREAMS
+    | ?TIMER_BUMP_LAST_ALIVE_AT
+    | ?TIMER_RETRY_REPLAY.
 
 %% TODO: Needs configuration?
 -define(TIMEOUT_RETRY_REPLAY, 1000).
-
--record(pending_next, {
-    ref :: reference(),
-    stream_key :: emqx_persistent_session_ds_state:stream_key(),
-    it_begin :: emqx_ds:iterator()
-}).
 
 -type session() :: #{
     %% Client ID
@@ -222,9 +220,7 @@
     shared_sub_s := shared_sub_state(),
     %% Buffer:
     inflight := emqx_persistent_session_ds_inflight:t(),
-    %% Last fetched stream:
-    %% Used as a continuation point for fair stream scheduling.
-    last_fetched_stream => emqx_persistent_session_ds_state:stream_key(),
+    stream_scheduler_s := emqx_persistent_session_ds_stream_scheduler:t(),
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight buffer.
     replay => [{_StreamKey, stream_state()}, ...],
@@ -640,23 +636,28 @@ deliver(ClientInfo, Delivers, Session0) ->
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
-handle_timeout(ClientInfo, ?TIMER_PULL, Session0) ->
-    {Publishes, Session1} =
-        case ?IS_REPLAY_ONGOING(Session0) of
-            false ->
-                drain_buffer(fetch_new_messages(Session0, ClientInfo));
-            true ->
-                {[], Session0}
-        end,
-    Timeout =
-        case Publishes of
-            [] ->
-                get_config(ClientInfo, [idle_poll_interval]);
-            [_ | _] ->
-                0
-        end,
-    Session = emqx_session:ensure_timer(?TIMER_PULL, Timeout, Session1),
-    {ok, Publishes, Session};
+handle_timeout(_ClientInfo, ?TIMER_PULL, Session0) ->
+    %% Pull circuit loop:
+    case drain_buffer(Session0) of
+        {[], Session} ->
+            {ok, [], Session};
+        {Publishes, Session} ->
+            {ok, Publishes, push_now(Session)}
+    end;
+handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
+    %% Push circuit loop:
+    #{s := S, stream_scheduler_s := SchedS0, inflight := Inflight} = Session0,
+    BatchSize = get_config(ClientInfo, [batch_size]),
+    IsFull = emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize,
+    case ?IS_REPLAY_ONGOING(Session0) orelse IsFull of
+        true ->
+            {ok, [], Session0};
+        false ->
+            Timeout = get_config(ClientInfo, [idle_poll_interval]),
+            PollOpts = #{max => BatchSize, timeout => Timeout},
+            SchedS = emqx_persistent_session_ds_stream_scheduler:poll(PollOpts, SchedS0, S),
+            {ok, [], Session0#{stream_scheduler_s := SchedS}}
+    end;
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], Session};
@@ -674,7 +675,7 @@ handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0, shared_sub_
         Interval,
         Session0#{s => S, shared_sub_s => SharedSubS}
     ),
-    {ok, [], Session};
+    {ok, [], push_now(Session)};
 handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0 = #{s := S0}) ->
     S = emqx_persistent_session_ds_state:commit(bump_last_alive(S0)),
     Session = emqx_session:ensure_timer(
@@ -702,7 +703,9 @@ handle_info(
     ?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := SharedSubS0}, _ClientInfo
 ) ->
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
-    Session#{s => S, shared_sub_s => SharedSubS};
+    Session#{s := S, shared_sub_s := SharedSubS};
+handle_info(AsyncReply = #ds_async_result{}, Session, ClientInfo) ->
+    handle_ds_reply(AsyncReply, Session, ClientInfo);
 handle_info(Msg, Session, _ClientInfo) ->
     ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
     Session.
@@ -941,12 +944,14 @@ session_open(
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
+                    SSS = emqx_persistent_session_ds_stream_scheduler:init(S),
                     #{
                         id => SessionId,
                         s => S,
                         shared_sub_s => SharedSubS,
                         inflight => Inflight,
-                        props => #{}
+                        props => #{},
+                        stream_scheduler_s => SSS
                     }
             end;
         undefined ->
@@ -994,7 +999,8 @@ session_ensure_new(
         props => Conf,
         s => S,
         shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(Id)),
-        inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo))
+        inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
+        stream_scheduler_s => emqx_persistent_session_ds_stream_scheduler:init(S)
     }.
 
 %% @doc Called when a client reconnects with `clean session=true' or
@@ -1042,84 +1048,48 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-fetch_new_messages(Session0 = #{s := S0, shared_sub_s := SharedSubS0}, ClientInfo) ->
-    {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replay(S0, SharedSubS0),
-    Session1 = Session0#{s => S1, shared_sub_s => SharedSubS1},
-    LFS = maps:get(last_fetched_stream, Session1, beginning),
-    ItStream = emqx_persistent_session_ds_stream_scheduler:iter_next_streams(LFS, S1),
-    BatchSize = get_config(ClientInfo, [batch_size]),
-    Session2 = fetch_new_messages(ItStream, BatchSize, Session1, ClientInfo),
-    Session2#{shared_sub_s => SharedSubS1}.
+push_now(Session) ->
+    emqx_session:reset_timer(?TIMER_PUSH, 0, Session).
 
-fetch_new_messages(ItStream0, BatchSize, Session0, ClientInfo) ->
-    #{inflight := Inflight} = Session0,
-    case emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize of
-        true ->
-            %% Buffer is full:
-            Session0;
-        false ->
-            case emqx_persistent_session_ds_stream_scheduler:next_stream(ItStream0) of
-                {StreamKey, Srs, ItStream} ->
-                    Session1 = new_batch(StreamKey, Srs, BatchSize, Session0, ClientInfo),
-                    Session = Session1#{last_fetched_stream => StreamKey},
-                    fetch_new_messages(ItStream, BatchSize, Session, ClientInfo);
-                none ->
-                    Session0
+handle_ds_reply(AsyncReply, Session0 = #{stream_scheduler_s := SchedS0}, ClientInfo) ->
+    case emqx_persistent_session_ds_stream_scheduler:on_reply(AsyncReply, SchedS0) of
+        {undefined, SchedS} ->
+            push_now(Session0#{stream_scheduler_s := SchedS});
+        {{StreamKey, ItBegin, FetchResult}, SchedS} ->
+            Session1 = Session0#{stream_scheduler_s := SchedS},
+            case enqueue_batch(false, Session1, ClientInfo, StreamKey, ItBegin, FetchResult) of
+                {ignore, _, Session} ->
+                    Session;
+                {ok, Srs, Session = #{s := S0}} ->
+                    S1 = emqx_persistent_session_ds_state:put_seqno(
+                        ?next(?QOS_1),
+                        Srs#srs.last_seqno_qos1,
+                        S0
+                    ),
+                    S2 = emqx_persistent_session_ds_state:put_seqno(
+                        ?next(?QOS_2),
+                        Srs#srs.last_seqno_qos2,
+                        S1
+                    ),
+                    S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S2),
+                    pull_now(push_now(Session#{s => S}));
+                {{error, recoverable, Reason}, _Srs, Session} ->
+                    ?SLOG(debug, #{
+                        msg => "failed_to_fetch_batch",
+                        stream => StreamKey,
+                        reason => Reason,
+                        class => recoverable
+                    }),
+                    push_now(Session);
+                {{error, unrecoverable, Reason}, Srs, Session} ->
+                    push_now(skip_batch(StreamKey, Srs, Session, ClientInfo, Reason))
             end
-    end.
-
-new_batch(StreamKey, Srs0, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
-    Pending = fetch(StreamKey, Srs0, BatchSize),
-    case enqueue_pending(Session0, ClientInfo, Pending, receive_pending(Pending)) of
-        {ok, Srs, Session} ->
-            S1 = emqx_persistent_session_ds_state:put_seqno(
-                ?next(?QOS_1),
-                Srs#srs.last_seqno_qos1,
-                S0
-            ),
-            S2 = emqx_persistent_session_ds_state:put_seqno(
-                ?next(?QOS_2),
-                Srs#srs.last_seqno_qos2,
-                S1
-            ),
-            S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S2),
-            Session#{s => S};
-        {error, recoverable, Reason} ->
-            ?SLOG(debug, #{
-                msg => "failed_to_fetch_batch",
-                stream => StreamKey,
-                reason => Reason,
-                class => recoverable
-            }),
-            Session0;
-        {error, unrecoverable, Reason} ->
-            skip_batch(StreamKey, Srs0, Session0, ClientInfo, Reason)
     end.
 
 %%--------------------------------------------------------------------
 %% Generic functions for fetching messages (during replay or normal
 %% operation):
 %% --------------------------------------------------------------------
-
-fetch(StreamKey, Srs0, BatchSize) ->
-    ItBegin = Srs0#srs.it_end,
-    {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, [{something, ItBegin}], #{
-        max => BatchSize, timeout => 5_000
-    }),
-    #pending_next{
-        ref = Ref,
-        it_begin = ItBegin,
-        stream_key = StreamKey
-    }.
-
-receive_pending(#pending_next{ref = Ref}) ->
-    receive
-        #ds_async_result{ref = Ref, payload = Data} -> Data
-    end.
-
-enqueue_pending(Session, ClientInfo, Pending, FetchResult) ->
-    #pending_next{stream_key = StreamKey, it_begin = ItBegin} = Pending,
-    enqueue_batch(false, Session, ClientInfo, StreamKey, ItBegin, FetchResult).
 
 -spec enqueue_batch(
     boolean(),
@@ -1155,32 +1125,36 @@ enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, Fet
 do_enqueue_batch(IsReplay, Session, ClientInfo, Srs0, ItBegin, FetchResult) ->
     #{s := S0, inflight := Inflight0} = Session,
     #srs{sub_state_id = SubStateId} = Srs0,
+    case IsReplay of
+        false ->
+            %% Normally we assign a new set of sequence
+            %% numbers to messages in the batch:
+            FirstSeqnoQos1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0),
+            FirstSeqnoQos2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0);
+        true ->
+            %% During replay we reuse the original sequence
+            %% numbers:
+            #srs{
+                first_seqno_qos1 = FirstSeqnoQos1,
+                first_seqno_qos2 = FirstSeqnoQos2
+            } = Srs0
+    end,
     case FetchResult of
         {error, _, _} = Error ->
             {Error, Srs0, Session};
         {ok, end_of_stream} ->
             %% No new messages; just update the end iterator:
             Srs = Srs0#srs{
+                first_seqno_qos1 = FirstSeqnoQos1,
+                first_seqno_qos2 = FirstSeqnoQos2,
+                last_seqno_qos1 = FirstSeqnoQos1,
+                last_seqno_qos2 = FirstSeqnoQos2,
                 it_begin = ItBegin,
                 it_end = end_of_stream,
                 batch_size = 0
             },
             {ok, Srs, Session};
         {ok, ItEnd, Messages} ->
-            case IsReplay of
-                false ->
-                    %% Normally we assign a new set of sequence
-                    %% numbers to messages in the batch:
-                    FirstSeqnoQos1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0),
-                    FirstSeqnoQos2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0);
-                true ->
-                    %% During replay we reuse the original sequence
-                    %% numbers:
-                    #srs{
-                        first_seqno_qos1 = FirstSeqnoQos1,
-                        first_seqno_qos2 = FirstSeqnoQos2
-                    } = Srs0
-            end,
             SubState = emqx_persistent_session_ds_state:get_subscription_state(SubStateId, S0),
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
                 IsReplay,
@@ -1356,8 +1330,9 @@ do_drain_buffer(Inflight0, S0, Acc) ->
 -spec ensure_timers(session()) -> session().
 ensure_timers(Session0) ->
     Session1 = emqx_session:ensure_timer(?TIMER_PULL, 100, Session0),
-    Session2 = emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session1),
-    emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session2).
+    Session2 = emqx_session:ensure_timer(?TIMER_PUSH, 100, Session1),
+    Session3 = emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session2),
+    emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session3).
 
 %% This function triggers sending buffered packets to the client
 %% (provided there is something to send and the number of in-flight

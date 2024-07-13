@@ -16,7 +16,7 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([find_new_streams/1, find_replay_streams/1, is_fully_acked/2]).
+-export([init/1, poll/3, on_reply/2, find_replay_streams/1, is_fully_acked/2]).
 -export([renew_streams/1, on_unsubscribe/2]).
 
 %% behavior callbacks:
@@ -25,9 +25,10 @@
 %% internal exports:
 -export([]).
 
--export_type([]).
+-export_type([t/0]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("emqx_mqtt.hrl").
 -include("session_internals.hrl").
 
@@ -35,9 +36,21 @@
 %% Type declarations
 %%================================================================================
 
+-record(s, {
+    %% Map that contains data needed to enqueue received batch for
+    %% each key.
+    pending = #{} :: #{emqx_persistent_session_ds_state:stream_key() => #pending_poll{}}
+}).
+
+-opaque t() :: #s{}.
+
 %%================================================================================
 %% API functions
 %%================================================================================
+
+-spec init(emqx_persistent_session_ds_state:t()) -> t().
+init(_S) ->
+    #s{}.
 
 %% @doc Find the streams that have uncommitted (in-flight) messages.
 %% Return them in the order they were previously replayed.
@@ -61,18 +74,15 @@ find_replay_streams(S) ->
     ),
     lists:sort(fun compare_streams/2, Streams).
 
-%% @doc Find streams from which the new messages can be fetched.
+%% @doc Find streams from which the new messages can be fetched, and
+%% issue a poll.
 %%
-%% Currently it amounts to the streams that don't have any inflight
-%% messages, since for performance reasons we keep only one record of
-%% in-flight messages per stream, and we don't want to overwrite these
-%% records prematurely.
-%%
-%% This function is non-detereministic: it randomizes the order of
-%% streams to ensure fair replay of different topics.
--spec find_new_streams(emqx_persistent_session_ds_state:t()) ->
-    [{emqx_persistent_session_ds_state:stream_key(), emqx_persistent_session_ds:stream_state()}].
-find_new_streams(S) ->
+%% Currently "pollable" amounts to the streams that don't have any
+%% inflight messages, since for performance reasons we keep only one
+%% record of in-flight messages per stream, and we don't want to
+%% overwrite these records prematurely.
+-spec poll(emqx_ds:poll_opts(), t(), emqx_persistent_session_ds_state:t()) -> t().
+poll(PollOpts0 = #{timeout := Timeout}, SchedS0 = #s{pending = Pending0}, S) ->
     %% FIXME: this function is currently very sensitive to the
     %% consistency of the packet IDs on both broker and client side.
     %%
@@ -87,23 +97,77 @@ find_new_streams(S) ->
     %% after timeout?)
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-    shuffle(
-        emqx_persistent_session_ds_state:fold_streams(
-            fun
-                (_Key, #srs{it_end = end_of_stream}, Acc) ->
-                    Acc;
-                (Key, Stream, Acc) ->
-                    case is_fully_acked(Comm1, Comm2, Stream) andalso not Stream#srs.unsubscribed of
-                        true ->
-                            [{Key, Stream} | Acc];
-                        false ->
-                            Acc
-                    end
-            end,
-            [],
-            S
-        )
-    ).
+    Ref = alias([explicit_unalias]),
+    {Iterators, Pending} = emqx_persistent_session_ds_state:fold_streams(
+        fun(Key, SRS, Acc) ->
+            prep_poll(Ref, Pending0, Comm1, Comm2, Key, SRS, Acc)
+        end,
+        {[], Pending0},
+        S
+    ),
+    case Iterators of
+        [] ->
+            %% Nothing to poll:
+            unalias(Ref),
+            SchedS0;
+        _ ->
+            %% Fetch messages:
+            PollOpts = PollOpts0#{reply_to => Ref},
+            {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts),
+            %% Send poll expiry message:
+            TimeoutDelay = 10,
+            erlang:send_after(Timeout + TimeoutDelay, self(), #ds_async_result{
+                ref = Ref, payload = poll_timeout
+            }),
+            SchedS0#s{pending = Pending}
+    end.
+
+prep_poll(_Ref, _AlreadyPending, _Comm1, _Comm2, _Key, #srs{unsubscribed = true}, Acc) ->
+    Acc;
+prep_poll(Ref, AlreadyPending, Comm1, Comm2, Key, SRS, Acc = {AccIt, AccPend}) ->
+    case maps:is_key(Key, AlreadyPending) orelse not is_fully_acked(Comm1, Comm2, SRS) of
+        true ->
+            %% Either stream is already being fetched from, or it has
+            %% inflight messages. Ignore it.
+            Acc;
+        false ->
+            %% Good to go:
+            It = {Key, SRS#srs.it_end},
+            Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
+            {
+                [It | AccIt],
+                maps:put(Key, Pending, AccPend)
+            }
+    end.
+
+on_reply(#ds_async_result{ref = Ref, payload = poll_timeout}, SchedS = #s{pending = P0}) ->
+    %% Process poll timeout by removing all pending streams that
+    %% belong to the poll group, so they can be retried:
+    unalias(Ref),
+    P = maps:filter(
+        fun(_Key, #pending_poll{ref = R}) -> R =:= Ref end,
+        P0
+    ),
+    {undefined, SchedS#s{pending = P}};
+on_reply(
+    #ds_async_result{ref = Ref, userdata = StreamKey, payload = Payload},
+    SchedS0 = #s{pending = Pending0}
+) ->
+    case maps:take(StreamKey, Pending0) of
+        {#pending_poll{ref = Ref, it_begin = ItBegin}, Pending} ->
+            SchedS = SchedS0#s{pending = Pending},
+            {{StreamKey, ItBegin, Payload}, SchedS};
+        _ ->
+            ?SLOG(
+                info,
+                #{
+                    msg => "sessds_unexpected_msg",
+                    userdata => StreamKey,
+                    ref => Ref
+                }
+            ),
+            {undefined, SchedS0}
+    end.
 
 %% @doc This function makes the session aware of the new streams.
 %%
@@ -409,19 +473,6 @@ is_fully_acked(_, _, #srs{
     true;
 is_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
-
--spec shuffle([A]) -> [A].
-shuffle(L0) ->
-    L1 = lists:map(
-        fun(A) ->
-            %% maybe topic/stream prioritization could be introduced here?
-            {rand:uniform(), A}
-        end,
-        L0
-    ),
-    L2 = lists:sort(L1),
-    {_, L} = lists:unzip(L2),
-    L.
 
 fold_proper_subscriptions(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(

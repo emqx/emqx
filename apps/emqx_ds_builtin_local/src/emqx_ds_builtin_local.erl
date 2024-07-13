@@ -324,8 +324,14 @@ next(DB, Iter, N) ->
     end.
 
 -spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
-    ReplyTo = erlang:alias([explicit_unalias]),
+poll(DB, Iterators, PollOpts) ->
+    %% Create a new alias, if not already provided:
+    case PollOpts of
+        #{reply_to := ReplyTo} ->
+            ok;
+        _ ->
+            ReplyTo = erlang:alias([explicit_unalias])
+    end,
     maps:foreach(
         fun({Shard, GenId}, ItGroup) ->
             erlang:spawn_opt(
@@ -337,13 +343,6 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
         end,
         poll_groups(Iterators)
     ),
-    case PollOpts of
-        #{timeout_msg := TimeoutMsg} ->
-            TimeoutDelay = maps:get(timeout_msg_delay, PollOpts, 50),
-            erlang:send_after(Timeout + TimeoutDelay, ReplyTo, #ds_async_result{
-                ref = ReplyTo, payload = TimeoutMsg
-            })
-    end,
     {ok, ReplyTo}.
 
 -spec poll_groups(emqx_ds:poll_iterators()) ->
@@ -402,7 +401,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
 delete_next(DB, Iter, Selector, N) ->
-    {ok, Ref} = emqx_ds_lib:anext_helper(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
+    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
         #ds_async_result{ref = Ref, payload = Data} -> Data
     end.

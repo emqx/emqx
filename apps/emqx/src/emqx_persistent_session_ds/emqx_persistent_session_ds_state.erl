@@ -679,15 +679,15 @@ pmap_format(#pmap{table = Table, cache = Cache}) ->
 pmap_size(#pmap{table = Table, cache = Cache}) ->
     cache_size(Table, Cache).
 
-pmap_iter_after(After, #pmap{table = Table, cache = Cache}) ->
-    %% NOTE: Only valid for gbt-backed PMAPs.
-    gbt = cache_data_type(Table),
-    gbt_iter_after(After, Cache).
+%% pmap_iter_after(After, #pmap{table = Table, cache = Cache}) ->
+%%     %% NOTE: Only valid for gbt-backed PMAPs.
+%%     gbt = cache_data_type(Table),
+%%     gbt_iter_after(After, Cache).
 
 %%
 
-cache_data_type(?stream_tab) -> gbt;
-cache_data_type(_Table) -> map.
+%% cache_data_type(?stream_tab) -> gbt;
+%% cache_data_type(_Table) -> map.
 
 cache_from_list(?stream_tab, L) ->
     gbt_from_list(L);
@@ -764,17 +764,17 @@ gbt_fold_iter(Fun, Acc, It0) ->
 gbt_size(Cache) ->
     gb_trees:size(Cache).
 
-gbt_iter_after(After, Cache) ->
-    It0 = gb_trees:iterator_from(After, Cache),
-    case gb_trees:next(It0) of
-        {After, _, It} ->
-            It;
-        _ ->
-            It0
-    end.
+%% gbt_iter_after(After, Cache) ->
+%%     It0 = gb_trees:iterator_from(After, Cache),
+%%     case gb_trees:next(It0) of
+%%         {After, _, It} ->
+%%             It;
+%%         _ ->
+%%             It0
+%%     end.
 
-gbt_iter_next(It) ->
-    gb_trees:next(It).
+%% gbt_iter_next(It) ->
+%%     gb_trees:next(It).
 
 %% Functions dealing with set tables:
 
