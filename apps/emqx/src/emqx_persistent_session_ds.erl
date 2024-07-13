@@ -14,6 +14,37 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc This module implements an MQTT session that can survive
+%% restart of EMQX node by backing up its state on disk. It consumes
+%% messages from a shared durable storage. This is in contrast to the
+%% regular "mem" sessions that store all recieved messages in their
+%% own memory queues.
+%%
+%% The main challenge of durable session is to replay sent, but
+%% unacked, messages in case of the client reconnect. This
+%% implementation approaches this problem by storing iterators, batch
+%% sizes and sequence numbers of MQTT packets for the consumed
+%% messages as an array of "stream replay state" records (`#srs'), in
+%% such a way, that messages and their corresponging packet IDs can be
+%% reconstructing by "replaying" the stored SRSes.
+%%
+%% The session logic is implemented as two mostly separate loops
+%% ("circuits") that share a transient message queue, serving as a
+%% buffer.
+%%
+%% - *Push circuit* polls durable storage, and pushes messages to the
+%% queue. It's assisted by the stream scheduler module that decides
+%% which streams are eligible for pull. Push circuit is responsible
+%% for maintaining a size of the queue at the configured limit.
+%%
+%% - *Pull circuit* consumes messages from the buffer and publishes
+%% them to the client connection. It's responsible for maintining the
+%% number of inflight packets as close to the negitiated
+%% `Recieve-Maximum' as possible to maximize the throughput.
+%%
+%% These circuites interact simply by notifying each other via
+%% `pull_now' or `push_now' functions.
+
 -module(emqx_persistent_session_ds).
 
 -behaviour(emqx_session).
@@ -162,12 +193,14 @@
 
 -type shared_sub_state() :: term().
 
--define(TIMER_DEQUEUE, timer_pull).
+-define(TIMER_PULL, timer_pull).
+-define(TIMER_PUSH, timer_push).
 -define(TIMER_GET_STREAMS, timer_get_streams).
 -define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 
--type timer() :: ?TIMER_DEQUEUE | ?TIMER_GET_STREAMS | ?TIMER_BUMP_LAST_ALIVE_AT | ?TIMER_RETRY_REPLAY.
+-type timer() ::
+    ?TIMER_PULL | ?TIMER_PUSH | ?TIMER_GET_STREAMS | ?TIMER_BUMP_LAST_ALIVE_AT | ?TIMER_RETRY_REPLAY.
 
 %% TODO: Needs configuration?
 -define(TIMEOUT_RETRY_REPLAY, 1000).
@@ -537,7 +570,7 @@ do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
 puback(_ClientInfo, PacketId, Session0) ->
     case update_seqno(puback, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], dequeue_now(Session)};
+            {ok, Msg, [], pull_now(Session)};
         Error ->
             Error
     end.
@@ -582,7 +615,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
 pubcomp(_ClientInfo, PacketId, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], dequeue_now(Session)};
+            {ok, Msg, [], pull_now(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -599,7 +632,7 @@ deliver(ClientInfo, Delivers, Session0) ->
     Session = lists:foldl(
         fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
     ),
-    {ok, [], dequeue_now(Session)}.
+    {ok, [], pull_now(Session)}.
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -607,7 +640,7 @@ deliver(ClientInfo, Delivers, Session0) ->
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
-handle_timeout(ClientInfo, ?TIMER_DEQUEUE, Session0) ->
+handle_timeout(ClientInfo, ?TIMER_PULL, Session0) ->
     {Publishes, Session1} =
         case ?IS_REPLAY_ONGOING(Session0) of
             false ->
@@ -622,7 +655,7 @@ handle_timeout(ClientInfo, ?TIMER_DEQUEUE, Session0) ->
             [_ | _] ->
                 0
         end,
-    Session = emqx_session:ensure_timer(?TIMER_DEQUEUE, Timeout, Session1),
+    Session = emqx_session:ensure_timer(?TIMER_PULL, Timeout, Session1),
     {ok, Publishes, Session};
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
@@ -719,7 +752,7 @@ replay_streams(Session0 = #{replay := []}, _ClientInfo) ->
     %% Note: we filled the buffer with the historical messages, and
     %% from now on we'll rely on the normal inflight/flow control
     %% mechanisms to replay them:
-    dequeue_now(Session).
+    pull_now(Session).
 
 -spec replay_batch(
     emqx_persistent_session_ds_state:stream_key(), stream_state(), session(), clientinfo()
@@ -1070,8 +1103,8 @@ new_batch(StreamKey, Srs0, BatchSize, Session0 = #{s := S0}, ClientInfo) ->
 
 fetch(StreamKey, Srs0, BatchSize) ->
     ItBegin = Srs0#srs.it_end,
-    {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, ItBegin, #{
-        min => 0, max => BatchSize, timeout => 5_000
+    {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, [{something, ItBegin}], #{
+        max => BatchSize, timeout => 5_000
     }),
     #pending_next{
         ref = Ref,
@@ -1322,13 +1355,21 @@ do_drain_buffer(Inflight0, S0, Acc) ->
 %% effects. Add `CBM:init' callback to the session behavior?
 -spec ensure_timers(session()) -> session().
 ensure_timers(Session0) ->
-    Session1 = emqx_session:ensure_timer(?TIMER_DEQUEUE, 100, Session0),
+    Session1 = emqx_session:ensure_timer(?TIMER_PULL, 100, Session0),
     Session2 = emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session1),
     emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session2).
 
--spec dequeue_now(session()) -> session().
-dequeue_now(Session) ->
-    emqx_session:reset_timer(?TIMER_DEQUEUE, 0, Session).
+%% This function triggers sending buffered packets to the client
+%% (provided there is something to send and the number of in-flight
+%% packets is less than `Recieve-Maximum'). Normally, pull is
+%% triggered when:
+%%
+%% - New messages (durable or transient) are enqueued
+%%
+%% - When the client releases a packet ID (via PUBACK or PUBCOMP)
+-spec pull_now(session()) -> session().
+pull_now(Session) ->
+    emqx_session:reset_timer(?TIMER_PULL, 0, Session).
 
 -spec receive_maximum(conninfo()) -> pos_integer().
 receive_maximum(ConnInfo) ->

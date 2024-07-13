@@ -38,7 +38,7 @@
     make_delete_iterator/4,
     update_iterator/3,
     next/3,
-    poll/4,
+    poll/3,
     delete_next/4,
 
     %% `emqx_ds_buffer':
@@ -50,7 +50,7 @@
 %% Internal exports:
 -export([
     do_next/3,
-    longpoll/3,
+    longpoll/6,
     do_delete_next/4
 ]).
 
@@ -323,10 +323,45 @@ next(DB, Iter, N) ->
             Data
     end.
 
--spec poll(emqx_ds:db(), #{_IterKey => iterator()}, emqx_ds:poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, UserData, PollOpts) ->
+-spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) -> {ok, reference()}.
+poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
+    ReplyTo = erlang:alias([explicit_unalias]),
+    maps:foreach(
+        fun({Shard, GenId}, ItGroup) ->
+            erlang:spawn_opt(
+                ?MODULE,
+                longpoll,
+                [ReplyTo, DB, Shard, GenId, ItGroup, PollOpts],
+                [link, {min_heap_size, 10_000}]
+            )
+        end,
+        poll_groups(Iterators)
+    ),
+    case PollOpts of
+        #{timeout_msg := TimeoutMsg} ->
+            TimeoutDelay = maps:get(timeout_msg_delay, PollOpts, 50),
+            erlang:send_after(Timeout + TimeoutDelay, ReplyTo, #ds_async_result{
+                ref = ReplyTo, payload = TimeoutMsg
+            })
+    end,
+    {ok, ReplyTo}.
 
-    emqx_ds_lib:with_worker(UserData, ?MODULE, longpoll, [DB, Iter, PollOpts]).
+-spec poll_groups(emqx_ds:poll_iterators()) ->
+    #{_PollGroup => [{_UserData, emqx_ds_storage_layer:iterator()}]}.
+poll_groups(Iterators) ->
+    lists:foldl(
+        fun({ItKey, #{?tag := ?IT, ?shard := Shard, ?enc := Enc}}, Acc) ->
+            PollGroup = {Shard, emqx_ds_storage_layer:generation(Enc)},
+            maps:update_with(
+                PollGroup,
+                fun(L) -> [{ItKey, Enc} | L] end,
+                [{ItKey, Enc}],
+                Acc
+            )
+        end,
+        #{},
+        Iterators
+    ).
 
 -spec get_delete_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [emqx_ds:ds_specific_delete_stream()].
@@ -394,19 +429,22 @@ do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
             Other
     end.
 
--spec longpoll(emqx_ds:db(), iterator(), emqx_ds:poll_opts()) -> emqx_ds:next_result(iterator()).
-longpoll(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, PollOpts) ->
+longpoll(ReplyTo, DB, Shard, GenId, StorageIterators, PollOpts) ->
     ShardId = {DB, Shard},
-    Result = emqx_ds_storage_layer:longpoll(
-        ShardId, StorageIter0, PollOpts, fun current_timestamp/1
-    ),
-    case Result of
-        {ok, StorageIter, Batch} ->
-            Iter = Iter0#{?enc := StorageIter},
-            {ok, Iter, Batch};
-        Other ->
-            Other
-    end.
+    Callback = fun(ItKey, Result) ->
+        Payload =
+            case Result of
+                {ok, StorageIter, Batch} ->
+                    Iter = #{?tag => ?IT, ?shard => Shard, ?enc => StorageIter},
+                    {ok, Iter, Batch};
+                Other ->
+                    Other
+            end,
+        ReplyTo ! #ds_async_result{ref = ReplyTo, userdata = ItKey, payload = Payload}
+    end,
+    emqx_ds_storage_layer:longpoll(
+        Callback, ShardId, GenId, StorageIterators, PollOpts, fun current_timestamp/1
+    ).
 
 -spec do_delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).

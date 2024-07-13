@@ -39,7 +39,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, update_iterator/3, next/3, poll/4]).
+-export([get_streams/3, make_iterator/4, update_iterator/3, next/3, poll/3]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -82,7 +82,9 @@
     ds_specific_delete_stream/0,
     ds_specific_delete_iterator/0,
     generation_rank/0,
-    generation_info/0
+    generation_info/0,
+
+    poll_iterators/0
 ]).
 
 %%================================================================================
@@ -174,6 +176,8 @@
 
 -type delete_next_result() :: delete_next_result(delete_iterator()).
 
+-type poll_iterators() :: [{_UserData, iterator()}].
+
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
 %% Timestamp
@@ -214,8 +218,13 @@
 -type poll_opts() ::
     #{
         max := pos_integer(),
-        min := pos_integer(),
-        timeout := pos_integer()
+        timeout := pos_integer(),
+        %% Optionally, send a message with a specified payload when
+        %% the timeout expires:
+        timeout_msg => term(),
+        %% Delay timeout message by this value, to minimize the chance
+        %% of it arriving earlier than the payload messages:
+        timeout_msg_delay => pos_integer()
     }.
 
 %% An opaque term identifying a generation.  Each implementation will possibly add
@@ -264,13 +273,7 @@
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
 
-%% Asynchronous next. Backend must reply to the calling process with
-%% `#ds_async_result{}' message, where `ref' field is equal to the
-%% returned reference.
-%%
-%% Reference is a process alias that can be unalised to ignore the
-%% result.
--callback poll(db(), #{_IterKey => iterator()}, _Userdata, poll_opts()) -> {ok, reference()}.
+-callback poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
 
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
@@ -423,12 +426,43 @@ update_iterator(DB, OldIter, DSKey) ->
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
 
--spec poll(db(), #{_ItKey => iterator()}, _ReplyRef, poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, ReplyRef, PollOpts = #{min := Min, max := Max, timeout := Timeout}) when
-    Min >= 0, Max > 0, Timeout > 0
+%% @doc Schedule asynchrounous long poll of the iterators and return
+%% immediately.
+%%
+%% Arguments:
+%% 1. DS DB
+%% 2. List of tuples, where first element is an arbitrary tag, and the
+%%    second is the DS iterator to poll.
+%% 3. Poll options:
+%%    - `max': Get at most `max' element FOR EACH iterator
+%%    - `timeout': Finite timeout
+%%
+%% Return value: process alias that identifies the replies.
+%%
+%% Data will be sent to the caller process as messages wrapped in
+%% `#ds_async_result' records:
+%% - `ref' field will be equal to the return value.
+%% - `userdata' field will be equal to the iterator tag.
+%% - `payload' will be of type `next_result()'
+%%
+%% There are some important caveats:
+%%
+%% - Replies are sent on a best-effort basis. They may be lost for any
+%% reason. Caller must be designed to tolerate and retry missed poll
+%% replies.
+%%
+%% - If no data is written to the iterator, reply message with empty
+%% batch MAY or MAY NOT arrive.
+%%
+%% - There is no explicit lifetime management for poll workers. When
+%% caller dies, poll workers survive. It's assumed that orphaned
+%% workers will naturally clean themselves by timeout alone.
+%% Therefore, timeout must not be too large.
+-spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
+poll(DB, Iterators, PollOpts = #{max := Max, timeout := Timeout}) when
+    is_integer(Max), Max > 0, is_integer(Timeout), Timeout > 0
 ->
-    Mod = ?module(DB),
-    Mod:poll(DB, Iterators, ReplyRef, PollOpts).
+    ?module(DB):poll(DB, Iterators, PollOpts).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->

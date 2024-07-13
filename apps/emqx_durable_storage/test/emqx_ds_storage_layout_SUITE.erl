@@ -275,25 +275,27 @@ t_poll(_Config) ->
     ],
     BatchSize = 1000,
     Timeout = 100,
+    PollOpts = #{max => BatchSize, timeout => Timeout},
+    %% 1. Store a batch of data to create streams:
     ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch1),
-    timer:sleep(100),
-    Iterators0 = [_ | _] =
-        lists:map(fun({_Rank, Stream}) ->
-                          {ok, It} = emqx_ds:make_iterator(?FUNCTION_NAME, Stream, ['#'], 0),
-                          It
-                  end,
-                  emqx_ds:get_streams(?FUNCTION_NAME, ['#'], 0)),
-    %% Fetch values normally for reference:
+    Iterators0 =
+        [_ | _] =
+        lists:map(
+            fun({_Rank, Stream}) ->
+                {ok, It} = emqx_ds:make_iterator(?FUNCTION_NAME, Stream, ['#'], 0),
+                It
+            end,
+            emqx_ds:get_streams(?FUNCTION_NAME, ['#'], 0)
+        ),
+    %% 2. Fetch values via `next' API for reference:
     Reference1 = [{It, emqx_ds:next(?FUNCTION_NAME, It, BatchSize)} || It <- Iterators0],
-    %% Fetch the same data via poll API:
-    [
-        emqx_ds:poll(?FUNCTION_NAME, It, It, #{min => 0, max => BatchSize, timeout => Timeout})
-     || It <- Iterators0
-    ],
+    %% 3. Fetch the same data via poll API (we use initial values of
+    %% the iterator as tags):
+    {ok, Ref1} = emqx_ds:poll(?FUNCTION_NAME, [{It, It} || It <- Iterators0], PollOpts),
     %% Collect the replies:
     Got1 = [
         receive
-            #ds_async_result{userdata = It, payload = Reply} ->
+            #ds_async_result{userdata = It, payload = Reply, ref = Ref1} ->
                 {It, Reply}
         after Timeout ->
             error({timeout_for, It})

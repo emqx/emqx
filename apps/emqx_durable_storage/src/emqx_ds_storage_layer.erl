@@ -36,7 +36,10 @@
     make_delete_iterator/4,
     update_iterator/3,
     next/4,
-    longpoll/4,
+
+    longpoll/6,
+    generation/1,
+
     delete_next/5,
 
     %% Generations
@@ -73,7 +76,8 @@
     options/0,
     prototype/0,
     cooked_batch/0,
-    batch_store_opts/0
+    batch_store_opts/0,
+    poll_iterators/0
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -171,7 +175,7 @@
         ?enc := term()
     }.
 
--record(stream_event, {n}).
+-record(stream_event, {n, ref}).
 
 %%%% Generation:
 
@@ -221,6 +225,8 @@
 -type shard() :: shard(generation()).
 
 -type options() :: map().
+
+-type poll_iterators() :: [{_UserData, iterator()}].
 
 %%================================================================================
 %% Generation callbacks
@@ -532,6 +538,10 @@ update_iterator(
             {error, unrecoverable, generation_not_found}
     end.
 
+-spec generation(iterator()) -> gen_id().
+generation(#{?tag := ?IT, ?generation := GenId}) ->
+    GenId.
+
 -spec next(shard_id(), iterator(), pos_integer(), emqx_ds:time()) ->
     emqx_ds:next_result(iterator()).
 next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize, Now) ->
@@ -551,49 +561,111 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             {error, unrecoverable, generation_not_found}
     end.
 
--spec longpoll(shard_id(), iterator(), emqx_ds:poll_opts(), fun((shard_id()) -> emqx_ds:time())) ->
+%% Static context of long poll loop:
+-record(lpctx, {callback, shard, generation, is_current, now_f, batch_size}).
+
+lpnext(
+    #lpctx{
+        shard = Shard,
+        generation = #{module := Mod, data := GenData},
+        is_current = IsCurrent,
+        now_f = NowF,
+        batch_size = BatchSize
+    },
+    Outer = #{?tag := ?IT, ?generation := _, ?enc := It0}
+) ->
+    case Mod:next(Shard, GenData, It0, BatchSize, NowF(Shard), IsCurrent) of
+        {ok, It, Batch} ->
+            {ok, Outer#{?enc := It}, Batch};
+        {ok, end_of_stream} = EOS ->
+            EOS;
+        {error, _, _} = Error ->
+            Error
+    end.
+
+-spec longpoll(
+    fun((ItKey, _Result) -> _),
+    shard_id(),
+    gen_id(),
+    [{ItKey, iterator()}],
+    emqx_ds:poll_opts(),
+    fun((shard_id()) -> emqx_ds:time())
+) ->
     emqx_ds:next_result(iterator()).
 longpoll(
+    Callback,
     Shard,
-    Outer = #{?tag := ?IT, ?generation := GenId, ?enc := It0},
-    #{max := NMax, min := _NMin, timeout := Timeout},
+    GenId,
+    Iterators,
+    #{max := NMax, timeout := Timeout},
     NowF
-) when
-    is_integer(Timeout)
-->
+) ->
     case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} = Generation ->
-            IsCurrent = GenId =:= generation_current(Shard),
-            EventSubscription = subscribe_stream_events(Generation, It0),
+        Generation = #{} ->
+            Ctx = #lpctx{
+                callback = Callback,
+                shard = Shard,
+                generation = Generation,
+                is_current = GenId =:= generation_current(Shard),
+                now_f = NowF,
+                batch_size = NMax
+            },
             try
-                case Mod:next(Shard, GenData, It0, NMax, NowF(Shard), IsCurrent) of
-                    {ok, It1, []} ->
-                        receive
-                            #stream_event{n = _N} -> ok
-                        after Timeout -> ok
-                        end,
-                        case Mod:next(Shard, GenData, It1, NMax, NowF(Shard), IsCurrent) of
-                            {ok, It, Batch} ->
-                                {ok, Outer#{?enc := It}, Batch};
-                            {ok, end_of_stream} ->
-                                {ok, end_of_stream};
-                            Error = {error, _, _} ->
-                                Error
-                        end;
-                    {ok, It, Batch} ->
-                        {ok, Outer#{?enc := It}, Batch};
-                    {ok, end_of_stream} ->
-                        {ok, end_of_stream};
-                    Error = {error, _, _} ->
-                        Error
-                end
+                %% 1. Check if data is already there:
+                NWaiting = watch_many(Ctx, Iterators),
+                %% 2. Nwaiting is number of iterators that didn't
+                %% return data immediately. Wait for events for them:
+                wait_storage_events(Ctx, NWaiting, Timeout)
             after
-                unsubscribe_stream_events(Generation, EventSubscription)
+                unsubscribe_stream_events(Generation)
             end;
         not_found ->
             %% generation was possibly dropped by GC
             {error, unrecoverable, generation_not_found}
     end.
+
+wait_storage_events(_Ctx, NWaiting, TimeLeft) when NWaiting =:= 0; TimeLeft =< 0 ->
+    ok;
+wait_storage_events(Ctx, NWaiting, TimeLeft) ->
+    TBefore = erlang:monotonic_time(millisecond),
+    #lpctx{callback = Callback} = Ctx,
+    receive
+        #stream_event{ref = Ref} ->
+            {ItKey, It} = get({it, Ref}),
+            Callback(ItKey, lpnext(Ctx, It)),
+            TNow = erlang:monotonic_time(millisecond),
+            wait_storage_events(Ctx, NWaiting - 1, TimeLeft - (TNow - TBefore))
+    after TimeLeft ->
+        ok
+    end.
+
+watch_many(Ctx, L) ->
+    watch_many(Ctx, L, 0).
+
+watch_many(_Ctx, [], Acc) ->
+    Acc;
+watch_many(Ctx, [{ItKey, It0 = #{?tag := ?IT, ?enc := Inner}} | Rest], Acc0) ->
+    #lpctx{generation = Generation, callback = Callback} = Ctx,
+    %% First, subscribe to the events:
+    Ref = subscribe_stream_events(Generation, Inner),
+    %% Now scan the storage to see if some data can be extracted
+    %% immediately:
+    Acc =
+        case lpnext(Ctx, It0) of
+            {ok, It1, []} ->
+                %% No event. Save subscription and the correspnding
+                %% iterator, so they can be looked up by reference
+                %% when notification arrives:
+                put({it, Ref}, {ItKey, It1}),
+                Acc0 + 1;
+            Result ->
+                %% We already got something. Unsubscribe from events
+                %% and return whatever it is.
+                unsubscribe_stream_events(Generation, Ref),
+                Callback(ItKey, Result),
+                Acc0
+        end,
+    watch_many(Ctx, Rest, Acc).
 
 -spec delete_next(
     shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
@@ -689,7 +761,7 @@ emit_stream_events(EventSubsTab, Events) ->
     maps:foreach(
         fun(DispatchKey, N) ->
             [
-                Sub ! #stream_event{n = N}
+                Sub ! #stream_event{n = N, ref = Sub}
              || Sub <- ets:lookup_element(EventSubsTab, DispatchKey, 2, [])
             ],
             ok
@@ -697,24 +769,45 @@ emit_stream_events(EventSubsTab, Events) ->
         Events
     ).
 
-%% Note: there is no automatic cleanup.
+%% Warning: this function has very little safeguards: there is no
+%% automatic cleanup. The caller must ensure subscriptions don't leak
+%% by calling `unsubscribe_stream_events'.
 -spec subscribe_stream_events(generation(), iterator()) ->
-    {_EventDispatchKey, reference(), pid()} | undefined.
+    reference().
 subscribe_stream_events(#{module := Mod, subs := SubsTab}, Iterator) ->
     case erlang:function_exported(Mod, event_dispatch_key, 1) of
         true ->
-            SubRef = {Mod:event_dispatch_key(Iterator), alias(), self()},
-            ets:insert(SubsTab, SubRef),
-            SubRef;
+            Ref = alias([reply]),
+            DispatchKey = Mod:event_dispatch_key(Iterator),
+            %% Store subscription reference in the process dictionary
+            %% for the cleanup:
+            put({sref, Ref}, DispatchKey),
+            ets:insert(SubsTab, {DispatchKey, Ref}),
+            Ref;
         false ->
             undefined
     end.
 
--spec unsubscribe_stream_events(generation(), reference() | undefined) -> ok.
-unsubscribe_stream_events(_Generation, undefined) ->
+-spec unsubscribe_stream_events(generation()) -> ok.
+unsubscribe_stream_events(Gen) ->
+    [
+        unsubscribe_stream_events(Gen, Ref)
+     || {{sref, Ref}, _} <- get()
+    ],
+    ok.
+
+-spec unsubscribe_stream_events(generation(), reference()) -> ok.
+unsubscribe_stream_events(_, undefined) ->
     ok;
-unsubscribe_stream_events(#{subs := SubsTab}, Subscription) ->
-    ets:delete_object(SubsTab, Subscription).
+unsubscribe_stream_events(#{subs := SubsTab}, Ref) ->
+    erlang:unalias(Ref),
+    receive
+        #stream_event{ref = Ref} -> ok
+    after 0 -> ok
+    end,
+    DispatchKey = erase({sref, Ref}),
+    ets:delete_object(SubsTab, {DispatchKey, Ref}),
+    ok.
 
 %%================================================================================
 %% gen_server for the shard
