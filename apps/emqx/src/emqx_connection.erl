@@ -468,19 +468,17 @@ cancel_stats_timer(State) ->
 process_msg([], State) ->
     {ok, State};
 process_msg([Msg | More], State) ->
-    try
-        case handle_msg(Msg, State) of
-            ok ->
-                process_msg(More, State);
-            {ok, NState} ->
-                process_msg(More, NState);
-            {ok, Msgs, NState} ->
-                process_msg(append_msg(More, Msgs), NState);
-            {stop, Reason, NState} ->
-                {stop, Reason, NState};
-            {stop, Reason} ->
-                {stop, Reason, State}
-        end
+    try handle_msg(Msg, State) of
+        ok ->
+            process_msg(More, State);
+        {ok, NState} ->
+            process_msg(More, NState);
+        {ok, Msgs, NState} ->
+            process_msg(append_msg(More, Msgs), NState);
+        {stop, Reason, NState} ->
+            {stop, Reason, NState};
+        {stop, Reason} ->
+            {stop, Reason, State}
     catch
         exit:normal ->
             {stop, normal, State};
