@@ -217,7 +217,16 @@
 
 -type poll_opts() ::
     #{
+        %% Maximum size of the payload _per iterator_. Warning: DS
+        %% backends MAY run certain poll operations in parallel, and
+        %% there's no global coordination between the poll workers. So
+        %% we only guarantee that the caller can get max * N_iterators
+        %% messages _at most_.
         max := pos_integer(),
+        %% Try to avoid sending batches that are less than `min' in
+        %% size. This value is a hint, not a strong guarantee.
+        min => non_neg_integer(),
+        %% Wait at most this long for the new events.
         timeout := pos_integer(),
         %% Send replies to the supplied process alias instead of
         %% creating a new one. It must be created with
