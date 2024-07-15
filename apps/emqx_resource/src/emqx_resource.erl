@@ -204,6 +204,15 @@
 -callback on_get_channel_status(resource_id(), channel_id(), resource_state()) ->
     channel_status()
     | {channel_status(), Reason :: term()}
+    %% Preferred form: easier to extend
+    | #{
+        status := channel_status(),
+        reason => Reason :: term(),
+        %% Used by actions/sources that need to provide more detailed information for
+        %% troubleshooting.  For example: Kafka Producer may manage multiple producers
+        %% for multiple topics, each one having independent status.
+        detailed_status => map()
+    }
     | {error, term()}.
 
 -callback query_mode(Config :: term()) -> query_mode().

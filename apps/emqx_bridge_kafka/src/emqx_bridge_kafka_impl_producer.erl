@@ -597,12 +597,12 @@ on_get_channel_status(
     [KafkaTopic | _] = maps:keys(TopicsToProducers),
     try
         ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
-        ?status_connected
+        #{status => ?status_connected}
     catch
         throw:{unhealthy_target, Msg} ->
             throw({unhealthy_target, Msg});
         K:E ->
-            {?status_connecting, {K, E}}
+            #{status => ?status_connecting, reason => {K, E}}
     end.
 
 check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions) ->

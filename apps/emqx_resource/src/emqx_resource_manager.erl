@@ -133,7 +133,11 @@
     | ?state_connecting
     | ?state_connected.
 
--define(IS_STATUS(ST),
+-define(IS_RESOURCE_STATUS(ST),
+    ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
+).
+
+-define(IS_CHANNEL_STATUS(ST),
     ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
 ).
 
@@ -1602,11 +1606,11 @@ maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
 maybe_clear_alarm(ResId) ->
     emqx_alarm:safe_deactivate(ResId).
 
-parse_health_check_result(Status, Data) when ?IS_STATUS(Status) ->
+parse_health_check_result(Status, Data) when ?IS_RESOURCE_STATUS(Status) ->
     {Status, Data#data.state, status_to_error(Status)};
-parse_health_check_result({Status, NewState}, _Data) when ?IS_STATUS(Status) ->
+parse_health_check_result({Status, NewState}, _Data) when ?IS_RESOURCE_STATUS(Status) ->
     {Status, NewState, status_to_error(Status)};
-parse_health_check_result({Status, NewState, Error}, _Data) when ?IS_STATUS(Status) ->
+parse_health_check_result({Status, NewState, Error}, _Data) when ?IS_RESOURCE_STATUS(Status) ->
     {Status, NewState, {error, Error}};
 parse_health_check_result({error, Error}, Data) ->
     ?SLOG(
@@ -1705,50 +1709,19 @@ channel_status_new_waiting_for_health_check(ChannelConfig) ->
         config => ChannelConfig
     }.
 
-channel_status({?status_connecting, Error}, ChannelConfig) ->
-    #{
-        status => ?status_connecting,
-        error => Error,
-        config => ChannelConfig
-    };
-channel_status({?status_disconnected, Error}, ChannelConfig) ->
-    #{
-        status => ?status_disconnected,
-        error => Error,
-        config => ChannelConfig
-    };
-channel_status(?status_disconnected, ChannelConfig) ->
-    #{
-        status => ?status_disconnected,
-        error => <<"Disconnected for unknown reason">>,
-        config => ChannelConfig
-    };
-channel_status(?status_connecting, ChannelConfig) ->
-    #{
-        status => ?status_connecting,
-        error => <<"Not connected for unknown reason">>,
-        config => ChannelConfig
-    };
-channel_status(?status_connected, ChannelConfig) ->
-    #{
-        status => ?status_connected,
-        error => undefined,
-        config => ChannelConfig
-    };
-%% Probably not so useful but it is permitted to set an error even when the
-%% status is connected
-channel_status({?status_connected, Error}, ChannelConfig) ->
-    #{
-        status => ?status_connected,
-        error => Error,
+channel_status(#{status := Status} = Context, ChannelConfig) when ?IS_CHANNEL_STATUS(Status) ->
+    Reason = maps:get(reason, Context, default_reason(Status)),
+    Context#{
+        %% Using `error' for legacy reasons, to avoid major refactoring at this point.
+        error => Reason,
         config => ChannelConfig
     };
 channel_status({error, Reason}, ChannelConfig) ->
-    #{
-        status => ?status_disconnected,
-        error => Reason,
-        config => ChannelConfig
-    }.
+    channel_status(#{status => ?status_disconnected, reason => Reason}, ChannelConfig);
+channel_status({Status, Reason}, ChannelConfig) when ?IS_CHANNEL_STATUS(Status) ->
+    channel_status(#{status => Status, reason => Reason}, ChannelConfig);
+channel_status(Status, ChannelConfig) when ?IS_CHANNEL_STATUS(Status) ->
+    channel_status(#{status => Status}, ChannelConfig).
 
 channel_status_is_channel_added(#{
     status := ?status_connected
@@ -1760,6 +1733,13 @@ channel_status_is_channel_added(#{
     true;
 channel_status_is_channel_added(_Status) ->
     false.
+
+default_reason(?status_disconnected) ->
+    <<"Disconnected for unknown reason">>;
+default_reason(?status_connecting) ->
+    <<"Not connected for unknown reason">>;
+default_reason(_) ->
+    undefined.
 
 -spec add_or_update_channel_status(data(), channel_id(), map(), resource_state()) -> data().
 add_or_update_channel_status(Data, ChannelId, ChannelConfig, State) ->
