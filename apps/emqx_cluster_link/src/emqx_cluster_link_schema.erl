@@ -12,7 +12,7 @@
 -export([injected_fields/0]).
 
 %% Used in emqx_cluster_link_api
--export([links_schema/1]).
+-export([links_schema/1, link_schema/0]).
 
 -export([
     roots/0,
@@ -36,6 +36,9 @@ links_schema(Meta) ->
     ?HOCON(?ARRAY(?R_REF("link")), Meta#{
         default => [], validator => fun links_validator/1, desc => ?DESC("links")
     }).
+
+link_schema() ->
+    hoconsc:ref(?MODULE, "link").
 
 fields("link") ->
     [

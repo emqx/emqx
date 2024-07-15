@@ -4,6 +4,8 @@
 
 -module(emqx_cluster_link_config).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_config_handler).
 
 -include_lib("emqx/include/logger.hrl").
@@ -28,11 +30,15 @@
 
 -export([
     %% General
+    create/1,
+    delete/1,
+    update_one_link/1,
     update/1,
     cluster/0,
     enabled_links/0,
     links/0,
     link/1,
+    link_raw/1,
     topic_filters/1,
     %% Connections
     emqtt_options/1,
@@ -55,6 +61,52 @@
 
 %%
 
+create(LinkConfig) ->
+    #{<<"name">> := Name} = LinkConfig,
+    case
+        emqx_conf:update(
+            ?LINKS_PATH,
+            {create, LinkConfig},
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, #{raw_config := NewConfigRows}} ->
+            NewLinkConfig = find_link(Name, NewConfigRows),
+            {ok, NewLinkConfig};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+delete(Name) ->
+    case
+        emqx_conf:update(
+            ?LINKS_PATH,
+            {delete, Name},
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+update_one_link(LinkConfig) ->
+    #{<<"name">> := Name} = LinkConfig,
+    case
+        emqx_conf:update(
+            ?LINKS_PATH,
+            {update, LinkConfig},
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, #{raw_config := NewConfigRows}} ->
+            NewLinkConfig = find_link(Name, NewConfigRows),
+            {ok, NewLinkConfig};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 update(Config) ->
     case
         emqx_conf:update(
@@ -75,11 +127,20 @@ cluster() ->
 links() ->
     emqx:get_config(?LINKS_PATH, []).
 
+links_raw() ->
+    emqx:get_raw_config(?LINKS_PATH, []).
+
 enabled_links() ->
     [L || L = #{enable := true} <- links()].
 
 link(Name) ->
-    case lists:dropwhile(fun(L) -> Name =/= upstream_name(L) end, links()) of
+    find_link(Name, links()).
+
+link_raw(Name) ->
+    find_link(Name, links_raw()).
+
+find_link(Name, Links) ->
+    case lists:dropwhile(fun(L) -> Name =/= upstream_name(L) end, Links) of
         [LinkConf | _] -> LinkConf;
         [] -> undefined
     end.
@@ -133,6 +194,37 @@ remove_handler() ->
 
 pre_config_update(?LINKS_PATH, RawConf, RawConf) ->
     {ok, RawConf};
+pre_config_update(?LINKS_PATH, {create, LinkRawConf}, OldRawConf) ->
+    #{<<"name">> := Name} = LinkRawConf,
+    maybe
+        undefined ?= find_link(Name, OldRawConf),
+        NewRawConf0 = OldRawConf ++ [LinkRawConf],
+        NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
+        {ok, NewRawConf}
+    else
+        _ ->
+            {error, already_exists}
+    end;
+pre_config_update(?LINKS_PATH, {update, LinkRawConf}, OldRawConf) ->
+    #{<<"name">> := Name} = LinkRawConf,
+    maybe
+        {ok, {_Found, Front, Rear}} = safe_take(Name, OldRawConf),
+        NewRawConf0 = Front ++ [LinkRawConf] ++ Rear,
+        NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
+        {ok, NewRawConf}
+    else
+        not_found ->
+            {error, not_found}
+    end;
+pre_config_update(?LINKS_PATH, {delete, Name}, OldRawConf) ->
+    maybe
+        {ok, {_Found, Front, Rear}} = safe_take(Name, OldRawConf),
+        NewRawConf = Front ++ Rear,
+        {ok, NewRawConf}
+    else
+        _ ->
+            {error, not_found}
+    end;
 pre_config_update(?LINKS_PATH, NewRawConf, OldRawConf) ->
     {ok, convert_certs(maybe_increment_ps_actor_incr(NewRawConf, OldRawConf))}.
 
@@ -319,4 +411,12 @@ do_convert_certs(LinkName, SSLOpts) ->
                 }
             ),
             throw({bad_ssl_config, Reason})
+    end.
+
+safe_take(Name, Transformations) ->
+    case lists:splitwith(fun(#{<<"name">> := N}) -> N =/= Name end, Transformations) of
+        {_Front, []} ->
+            not_found;
+        {Front, [Found | Rear]} ->
+            {ok, {Found, Front, Rear}}
     end.

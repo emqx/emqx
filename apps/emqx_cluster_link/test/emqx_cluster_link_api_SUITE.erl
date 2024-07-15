@@ -37,6 +37,10 @@
     "-----END CERTIFICATE-----"
 >>).
 
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -47,7 +51,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            emqx_mgmt_api_test_util:emqx_dashboard(),
             emqx_cluster_link
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -61,8 +65,7 @@ end_per_suite(Config) ->
     ok.
 
 auth_header() ->
-    {ok, API} = emqx_common_test_http:create_default_app(),
-    emqx_common_test_http:auth_header(API).
+    emqx_mgmt_api_test_util:auth_header_().
 
 init_per_testcase(_TC, Config) ->
     {ok, _} = emqx_cluster_link_config:update([]),
@@ -71,62 +74,111 @@ init_per_testcase(_TC, Config) ->
 end_per_testcase(_TC, _Config) ->
     ok.
 
-t_put_get_valid(Config) ->
-    Auth = ?config(auth, Config),
-    Path = ?API_PATH,
-    {ok, Resp} = emqx_mgmt_api_test_util:request_api(get, Path, Auth),
-    ?assertMatch([], emqx_utils_json:decode(Resp)),
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
 
-    Link1 = #{
+api_root() ->
+    <<"cluster/links">>.
+
+list() ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root()]),
+    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = "").
+
+get_link(Name) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), Name]),
+    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = "").
+
+delete_link(Name) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), Name]),
+    emqx_mgmt_api_test_util:simple_request(delete, Path, _Params = "").
+
+update_link(Name, Params) ->
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), Name]),
+    emqx_mgmt_api_test_util:simple_request(put, Path, Params).
+
+create_link(Name, Params0) ->
+    Params = Params0#{<<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path([api_root()]),
+    emqx_mgmt_api_test_util:simple_request(post, Path, Params).
+
+link_params() ->
+    link_params(_Overrides = #{}).
+
+link_params(Overrides) ->
+    Default = #{
+        <<"clientid">> => <<"linkclientid">>,
+        <<"username">> => <<"myusername">>,
         <<"pool_size">> => 1,
         <<"server">> => <<"emqxcl_2.nohost:31883">>,
-        <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"name">> => <<"emqcl_1">>
+        <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>]
     },
-    Link2 = #{
-        <<"pool_size">> => 1,
-        <<"server">> => <<"emqxcl_2.nohost:41883">>,
-        <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"name">> => <<"emqcl_2">>
-    },
-    ?assertMatch({ok, _}, emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, [Link1, Link2])),
+    emqx_utils_maps:deep_merge(Default, Overrides).
 
-    {ok, Resp1} = emqx_mgmt_api_test_util:request_api(get, Path, Auth),
-    ?assertMatch([Link1, Link2], emqx_utils_json:decode(Resp1)),
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
+
+t_put_get_valid(_Config) ->
+    ?assertMatch({200, []}, list()),
+
+    Name1 = <<"emqcl_1">>,
+    Link1 = link_params(#{
+        <<"server">> => <<"emqxcl_2.nohost:31883">>,
+        <<"name">> => Name1
+    }),
+    Name2 = <<"emqcl_2">>,
+    Link2 = link_params(#{
+        <<"server">> => <<"emqxcl_2.nohost:41883">>,
+        <<"name">> => Name2
+    }),
+    ?assertMatch({201, _}, create_link(Name1, Link1)),
+    ?assertMatch({201, _}, create_link(Name2, Link2)),
+    ?assertMatch({200, [_, _]}, list()),
 
     DisabledLink1 = Link1#{<<"enable">> => false},
-    ?assertMatch(
-        {ok, _}, emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, [DisabledLink1, Link2])
-    ),
-
-    {ok, Resp2} = emqx_mgmt_api_test_util:request_api(get, Path, Auth),
-    ?assertMatch([DisabledLink1, Link2], emqx_utils_json:decode(Resp2)),
+    ?assertMatch({200, _}, update_link(Name1, maps:remove(<<"name">>, DisabledLink1))),
+    ?assertMatch({200, #{<<"enable">> := false}}, get_link(Name1)),
+    ?assertMatch({200, #{<<"enable">> := true}}, get_link(Name2)),
 
     SSL = #{<<"enable">> => true, <<"cacertfile">> => ?CACERT},
     SSLLink1 = Link1#{<<"ssl">> => SSL},
+    ?assertMatch({200, _}, update_link(Name1, maps:remove(<<"name">>, SSLLink1))),
     ?assertMatch(
-        {ok, _}, emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, [Link2, SSLLink1])
+        {200, #{<<"ssl">> := #{<<"enable">> := true, <<"cacertfile">> := _Path}}},
+        get_link(Name1)
     ),
-    {ok, Resp3} = emqx_mgmt_api_test_util:request_api(get, Path, Auth),
+    ok.
 
+t_put_invalid(_Config) ->
+    Name = <<"l1">>,
+    {201, _} = create_link(Name, link_params()),
     ?assertMatch(
-        [Link2, #{<<"ssl">> := #{<<"enable">> := true, <<"cacertfile">> := _Path}}],
-        emqx_utils_json:decode(Resp3)
+        {400, _},
+        update_link(Name, maps:remove(<<"server">>, link_params()))
     ).
 
-t_put_invalid(Config) ->
-    Auth = ?config(auth, Config),
-    Path = ?API_PATH,
-    Link = #{
-        <<"pool_size">> => 1,
-        <<"server">> => <<"emqxcl_2.nohost:31883">>,
-        <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>],
-        <<"name">> => <<"emqcl_1">>
-    },
-    ?assertMatch(
-        {error, {_, 400, _}}, emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, [Link, Link])
-    ),
-    ?assertMatch(
-        {error, {_, 400, _}},
-        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, [maps:remove(<<"name">>, Link)])
-    ).
+t_crud(_Config) ->
+    %% No links initially.
+    ?assertMatch({200, []}, list()),
+    NameA = <<"a">>,
+    ?assertMatch({404, _}, get_link(NameA)),
+    ?assertMatch({404, _}, delete_link(NameA)),
+    ?assertMatch({404, _}, update_link(NameA, link_params())),
+
+    Params1 = link_params(),
+    ?assertMatch({201, #{<<"name">> := NameA}}, create_link(NameA, Params1)),
+    ?assertMatch({400, #{<<"code">> := <<"ALREADY_EXISTS">>}}, create_link(NameA, Params1)),
+    ?assertMatch({200, [#{<<"name">> := NameA}]}, list()),
+    ?assertMatch({200, #{<<"name">> := NameA}}, get_link(NameA)),
+
+    Params2 = Params1#{<<"pool_size">> := 2},
+    ?assertMatch({200, #{<<"name">> := NameA}}, update_link(NameA, Params2)),
+
+    ?assertMatch({204, _}, delete_link(NameA)),
+    ?assertMatch({404, _}, delete_link(NameA)),
+    ?assertMatch({404, _}, get_link(NameA)),
+    ?assertMatch({404, _}, update_link(NameA, Params1)),
+    ?assertMatch({200, []}, list()),
+
+    ok.
