@@ -18,6 +18,7 @@
 -define(status_connected, connected).
 -define(status_connecting, connecting).
 -define(status_disconnected, disconnected).
+-define(status_inconsistent, inconsistent).
 %% Note: the `stopped' status can only be emitted by `emqx_resource_manager'...  Modules
 %% implementing `emqx_resource' behavior should not return it.  The `rm_' prefix is to
 %% remind us of that.
@@ -36,7 +37,11 @@
 -type resource_status() ::
     ?status_connected | ?status_disconnected | ?status_connecting | ?rm_status_stopped.
 -type health_check_status() :: ?status_connected | ?status_disconnected | ?status_connecting.
--type channel_status() :: ?status_connected | ?status_connecting | ?status_disconnected.
+-type channel_status() ::
+    ?status_connected
+    | ?status_connecting
+    | ?status_disconnected
+    | ?status_inconsistent.
 -type callback_mode() :: always_sync | async_if_possible.
 -type query_mode() ::
     simple_sync

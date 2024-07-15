@@ -400,6 +400,8 @@ fields(producer_kafka_opts) ->
             mk(
                 hoconsc:array(ref(pre_configured_topic)),
                 #{
+                    %% FIXME: validate that there are no duplicates...  and that contains
+                    %% only valid characters?
                     default => [],
                     desc => ?DESC("producer_pre_configured_topics")
                 }

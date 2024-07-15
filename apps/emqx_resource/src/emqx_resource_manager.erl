@@ -138,7 +138,10 @@
 ).
 
 -define(IS_CHANNEL_STATUS(ST),
-    ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
+    (ST =:= ?status_connected orelse
+        ST =:= ?status_disconnected orelse
+        ST =:= ?status_connecting orelse
+        ST =:= ?status_inconsistent)
 ).
 
 -type add_channel_opts() :: #{

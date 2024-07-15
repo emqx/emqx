@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_producer).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_resource).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -164,8 +166,7 @@ create_producers_for_bridge_v2(
             _ ->
                 string:equal(TestIdStart, ConnResId)
         end,
-    [AKafkaTopic | _] = KafkaTopics,
-    ok = check_topic_and_leader_connections(ClientId, AKafkaTopic, MaxPartitions),
+    #{} = check_topic_and_leader_connections(ClientId, KafkaTopics, MaxPartitions),
     WolffProducerConfig = producers_config(
         BridgeType, BridgeName, KafkaConfig, IsDryRun, ActionResId
     ),
@@ -594,10 +595,10 @@ on_get_channel_status(
         topics_to_producers := TopicsToProducers,
         partitions_limit := MaxPartitions
     } = maps:get(ChannelId, Channels),
-    [KafkaTopic | _] = maps:keys(TopicsToProducers),
-    try
-        ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
-        #{status => ?status_connected}
+    KafkaTopics = maps:keys(TopicsToProducers),
+    try check_topic_and_leader_connections(ClientId, KafkaTopics, MaxPartitions) of
+        PerTopicStatus ->
+            #{status => ?status_connected, detailed_status => PerTopicStatus}
     catch
         throw:{unhealthy_target, Msg} ->
             throw({unhealthy_target, Msg});
@@ -605,23 +606,39 @@ on_get_channel_status(
             #{status => ?status_connecting, reason => {K, E}}
     end.
 
-check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions) ->
+check_topic_and_leader_connections(ClientId, KafkaTopics, MaxPartitions) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
-            ok = check_topic_status(ClientId, Pid, KafkaTopic),
-            ok = check_if_healthy_leaders(ClientId, Pid, KafkaTopic, MaxPartitions);
+            lists:foldl(
+                fun(KafkaTopic, Acc) ->
+                    maps:put(
+                        KafkaTopic,
+                        do_check_topic_and_leader_connections(
+                            ClientId, Pid, KafkaTopic, MaxPartitions
+                        ),
+                        Acc
+                    )
+                end,
+                #{},
+                KafkaTopics
+            );
         {error, #{reason := no_such_client}} ->
             throw(#{
                 reason => cannot_find_kafka_client,
-                kafka_client => ClientId,
-                kafka_topic => KafkaTopic
+                kafka_client => ClientId
             });
         {error, #{reason := client_supervisor_not_initialized}} ->
             throw(#{
                 reason => restarting,
-                kafka_client => ClientId,
-                kafka_topic => KafkaTopic
+                kafka_client => ClientId
             })
+    end.
+
+do_check_topic_and_leader_connections(ClientId, Pid, KafkaTopic, MaxPartitions) ->
+    maybe
+        ok ?= check_topic_status(Pid, KafkaTopic),
+        ok ?= check_if_healthy_leaders(ClientId, Pid, KafkaTopic, MaxPartitions),
+        #{status => ok}
     end.
 
 -spec check_client_connectivity(wolff:client_id()) ->
@@ -653,15 +670,14 @@ check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic, MaxPartitions) when is
             %% Kafka is considered healthy as long as any of the partition leader is reachable.
             case lists:partition(fun({_Partition, Pid}) -> is_alive(Pid) end, Leaders) of
                 {[], Errors} ->
-                    throw(
-                        error_summary(
-                            #{
-                                cause => "no_connected_partition_leader",
-                                kafka_client => ClientId,
-                                kafka_topic => KafkaTopic
-                            },
-                            Errors
-                        )
+                    error_summary(
+                        #{
+                            status => unknown,
+                            reason => "no_connected_partition_leader",
+                            kafka_client => ClientId,
+                            kafka_topic => KafkaTopic
+                        },
+                        Errors
                     );
                 {_, []} ->
                     ok;
@@ -682,27 +698,29 @@ check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic, MaxPartitions) when is
         {error, Reason} ->
             %% If failed to fetch metadata, wolff_client logs a warning level message
             %% which includes the reason for each seed host
-            throw(#{
-                cause => Reason,
+            #{
+                status => unknown,
+                reason => Reason,
                 kafka_client => ClientId,
                 kafka_topic => KafkaTopic
-            })
+            }
     end.
 
-check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->
+check_topic_status(WolffClientPid, KafkaTopic) ->
     case wolff_client:check_topic_exists_with_client_pid(WolffClientPid, KafkaTopic) of
         ok ->
             ok;
         {error, unknown_topic_or_partition} ->
-            Msg = iolist_to_binary([<<"Unknown topic or partition: ">>, KafkaTopic]),
-            throw({unhealthy_target, Msg});
+            #{
+                status => unhealthy,
+                reason => unknown_topic_or_partition
+            };
         {error, Reason} ->
-            throw(#{
-                error => failed_to_check_topic_status,
-                kafka_client_id => ClientId,
-                reason => Reason,
-                kafka_topic => KafkaTopic
-            })
+            #{
+                status => unknown,
+                msg => failed_to_check_topic_status,
+                reason => Reason
+            }
     end.
 
 ssl(#{enable := true} = SSL) ->
@@ -752,7 +770,6 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, BridgeV2Id) ->
         max_batch_bytes => MaxBatchBytes,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,
-        alias => BridgeV2Id,
         telemetry_meta_data => #{bridge_id => BridgeV2Id},
         max_partitions => MaxPartitions
     }.
@@ -762,7 +779,7 @@ start_producers(Context) ->
         kafka_topics := KafkaTopics,
         topic_template := TopicTemplate,
         kafka_client_id := ClientId,
-        wolff_produer_config := WolffProducerConfig,
+        wolff_produer_config := WolffProducerConfig0,
         conn_res_id := ConnResId,
         action_res_id := ActionResId,
         message_template := MessageTemplate,
@@ -772,10 +789,12 @@ start_producers(Context) ->
         headers_val_encode_mode := KafkaHeadersValEncodeMode,
         partitions_limit := MaxPartitions
     } = Context,
-    %% TODO: throw if topic list is empty.
     Res =
         emqx_utils:foldl_while(
-            fun(KafkaTopic, Acc) ->
+            fun({I, KafkaTopic}, Acc) ->
+                WolffProducerConfig = WolffProducerConfig0#{
+                    alias => producer_alias(ActionResId, I)
+                },
                 case
                     start_producer(
                         KafkaTopic, ClientId, WolffProducerConfig, ConnResId, ActionResId
@@ -789,7 +808,7 @@ start_producers(Context) ->
                 end
             end,
             #{},
-            KafkaTopics
+            lists:enumerate(0, KafkaTopics)
         ),
     case Res of
         #{} = TopicsToProducers ->
@@ -1037,6 +1056,9 @@ merge_kafka_headers(HeadersTks, ExtHeaders, Msg) ->
         BadHeaders ->
             throw({bad_kafka_headers, BadHeaders})
     end.
+
+producer_alias(ActionResId, TopicIndex) ->
+    <<ActionResId/binary, (integer_to_binary(TopicIndex))/binary>>.
 
 bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> erlang:list_to_binary(L);

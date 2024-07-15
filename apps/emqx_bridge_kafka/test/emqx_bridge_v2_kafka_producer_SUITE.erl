@@ -1034,6 +1034,108 @@ t_pre_configured_topics(Config) ->
                 )
             ),
 
+            %% We have per-topic detailed status.
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"status">> := <<"connected">>,
+                        <<"node_status">> := [
+                            #{
+                                <<"status">> := <<"connected">>,
+                                <<"resource_status">> := #{
+                                    PreConfigureTopic1 := bah,
+                                    PreConfigureTopic2 := bah
+                                }
+                            }
+                        ],
+                        <<"resource_status">> := #{
+                            PreConfigureTopic1 := bah,
+                            PreConfigureTopic2 := bah
+                        }
+                    }}},
+                emqx_bridge_v2_testlib:get_bridge_api(action, Type, ActionName)
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Verifies that, if a fraction of the pre-configured topics is unhealthy:
+%%   * the API status becomes `inconsistent';
+%%   * healthy topics continue to operate normally.
+t_pre_configured_topics_inconsistent(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"t_pre_configured_topics_inconsistent">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    PreConfigureTopic1 = <<"pct1">>,
+    PreConfigureTopic2 = <<"pct2">>,
+    ensure_kafka_topic(PreConfigureTopic1),
+    ensure_kafka_topic(PreConfigureTopic2),
+    InexistentTopic = <<"inexistent_topic">>,
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"pre_configured_topics">> => [
+                        #{<<"topic">> => PreConfigureTopic1},
+                        #{<<"topic">> => InexistentTopic},
+                        #{<<"topic">> => PreConfigureTopic2}
+                    ]
+                }
+            }
+        )
+    ),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"status">> := <<"inconsistent">>,
+                        <<"node_status">> := [
+                            #{
+                                <<"status">> := <<"inconsistent">>,
+                                <<"resource_status">> := #{
+                                    PreConfigureTopic1 := bah,
+                                    PreConfigureTopic2 := bah,
+                                    InexistentTopic := bah
+                                }
+                            }
+                        ],
+                        <<"resource_status">> := #{
+                            PreConfigureTopic1 := bah,
+                            PreConfigureTopic2 := bah,
+                            InexistentTopic := bah
+                        }
+                    }}},
+                emqx_bridge_v2_testlib:get_bridge_api(action, Type, ActionName)
+            ),
+
+            ct:fail(todo),
             ok
         end,
         []
