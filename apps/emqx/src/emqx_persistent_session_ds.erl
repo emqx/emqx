@@ -767,7 +767,7 @@ replay_streams(Session = #{replay := []}, _ClientInfo) ->
 -spec replay_batch(
     emqx_persistent_session_ds_state:stream_key(), stream_state(), session(), clientinfo()
 ) ->
-    session() | emqx_ds:error(_).
+    {ok | emqx_ds:error(), stream_state(), session()}.
 replay_batch(StreamKey, Srs0, Session0, ClientInfo) ->
     #srs{it_begin = ItBegin, batch_size = BatchSize} = Srs0,
     FetchResult = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize),

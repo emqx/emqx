@@ -36,6 +36,14 @@
 %% Type declarations
 %%================================================================================
 
+%%%%%% Pending poll for the iterator:
+-record(pending_poll, {
+    %% Poll reference:
+    ref :: reference(),
+    %% Iterator at the beginning of poll:
+    it_begin :: emqx_ds:iterator()
+}).
+
 -record(s, {
     %% Map that contains data needed to enqueue received batch for
     %% each key.
@@ -117,7 +125,7 @@ poll(PollOpts0 = #{timeout := Timeout}, SchedS0 = #s{pending = Pending0}, S) ->
             %% Send poll expiry message:
             TimeoutDelay = 10,
             erlang:send_after(Timeout + TimeoutDelay, self(), #ds_async_result{
-                ref = Ref, payload = poll_timeout
+                ref = Ref, userdata = poll_timeout, payload = {error, recoverable, retry}
             }),
             SchedS0#s{pending = Pending}
     end.
@@ -140,7 +148,7 @@ prep_poll(Ref, AlreadyPending, Comm1, Comm2, Key, SRS, Acc = {AccIt, AccPend}) -
             }
     end.
 
-on_reply(#ds_async_result{ref = Ref, payload = poll_timeout}, SchedS = #s{pending = P0}) ->
+on_reply(#ds_async_result{ref = Ref, userdata = poll_timeout}, SchedS = #s{pending = P0}) ->
     %% Process poll timeout by removing all pending streams that
     %% belong to the poll group, so they can be retried:
     unalias(Ref),

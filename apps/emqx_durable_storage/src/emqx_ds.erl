@@ -84,7 +84,8 @@
     generation_rank/0,
     generation_info/0,
 
-    poll_iterators/0
+    poll_iterators/0,
+    poll_opts/0
 ]).
 
 %%================================================================================

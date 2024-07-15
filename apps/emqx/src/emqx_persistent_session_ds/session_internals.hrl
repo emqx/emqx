@@ -71,12 +71,6 @@
     sub_state_id :: emqx_persistent_session_ds_subs:subscription_state_id()
 }).
 
-%%%%%% Pending poll for the iterator:
--record(pending_poll, {
-    ref :: reference(),
-    it_begin :: emqx_ds:iterator()
-}).
-
 %% (Erlang) messages that session should forward to the
 %% shared subscription handler.
 -record(shared_sub_message, {

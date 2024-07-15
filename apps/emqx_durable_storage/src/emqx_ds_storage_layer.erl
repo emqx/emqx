@@ -37,7 +37,7 @@
     update_iterator/3,
     next/4,
 
-    longpoll/6,
+    longpoll/5,
     generation/1,
 
     delete_next/5,
@@ -81,6 +81,7 @@
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_ds_upubsub.hrl").
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
@@ -175,7 +176,7 @@
         ?enc := term()
     }.
 
--record(stream_event, {n, ref}).
+-define(pubsub(SHARD), {?MODULE, SHARD}).
 
 %%%% Generation:
 
@@ -228,6 +229,8 @@
 
 -type poll_iterators() :: [{_UserData, iterator()}].
 
+-define(ERR_GEN_GONE, {error, unrecoverable, generation_not_found}).
+
 %%================================================================================
 %% Generation callbacks
 %%================================================================================
@@ -265,13 +268,6 @@
     _CookedBatch,
     batch_store_opts()
 ) -> ok | emqx_ds:error(_).
-
--callback batch_events(
-    generation_data(),
-    _CookedBatch
-) -> #{_EventDispatchKey => pos_integer()}.
-
--callback event_dispatch_key(iterator()) -> _EventDispatchKey.
 
 -callback get_streams(
     shard_id(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
@@ -314,7 +310,27 @@
 -callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
 
--optional_callbacks([handle_event/4, batch_events/2, event_dispatch_key/1]).
+%% Stream event API:
+
+-type send_event_callback() :: fun((_DispatchKey, _Event) -> ok).
+
+-callback batch_events(
+    generation_data(),
+    _CookedBatch,
+    send_event_callback()
+) -> ok.
+
+-callback event_dispatch_key(generation_data(), iterator()) -> _EventDispatchKey.
+
+-callback match_event(generation_data(), iterator(), _Event) -> boolean().
+
+-optional_callbacks([
+    handle_event/4,
+    %% FIXME: should be mandatory:
+    batch_events/3,
+    event_dispatch_key/2,
+    match_event/3
+]).
 
 %%================================================================================
 %% API for the replication layer
@@ -408,23 +424,17 @@ commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Cooke
     emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
     Result.
 
-%% @doc Emit events after committing the batch.
+%% @doc Emit events after committing the batch. Needed for `poll' to work properly.
 -spec dispatch_events(
     shard_id(),
     cooked_batch()
 ) -> #{_EventDispatchKey => pos_integer()}.
 dispatch_events(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
-    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData, subs := SubsTab}} = get_schema_runtime(
-        Shard
-    ),
-    Events =
-        case erlang:function_exported(Mod, batch_events, 2) of
-            true ->
-                Mod:batch_events(GenData, CookedBatch);
-            false ->
-                #{}
-        end,
-    emit_stream_events(SubsTab, Events),
+    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
+    SendF = fun(DispatchKey, Event) ->
+        emqx_ds_upubsub:pub(?pubsub(Shard), {GenId, DispatchKey}, Event)
+    end,
+    Mod:batch_events(GenData, CookedBatch, SendF),
     ok.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -558,114 +568,112 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             end;
         not_found ->
             %% generation was possibly dropped by GC
-            {error, unrecoverable, generation_not_found}
-    end.
-
-%% Static context of long poll loop:
--record(lpctx, {callback, shard, generation, is_current, now_f, batch_size}).
-
-lpnext(
-    #lpctx{
-        shard = Shard,
-        generation = #{module := Mod, data := GenData},
-        is_current = IsCurrent,
-        now_f = NowF,
-        batch_size = BatchSize
-    },
-    Outer = #{?tag := ?IT, ?generation := _, ?enc := It0}
-) ->
-    case Mod:next(Shard, GenData, It0, BatchSize, NowF(Shard), IsCurrent) of
-        {ok, It, Batch} ->
-            {ok, Outer#{?enc := It}, Batch};
-        {ok, end_of_stream} = EOS ->
-            EOS;
-        {error, _, _} = Error ->
-            Error
+            ?ERR_GEN_GONE
     end.
 
 -spec longpoll(
     fun((ItKey, _Result) -> _),
     shard_id(),
-    gen_id(),
     [{ItKey, iterator()}],
     emqx_ds:poll_opts(),
     fun((shard_id()) -> emqx_ds:time())
 ) ->
     emqx_ds:next_result(iterator()).
 longpoll(
-    Callback,
+    ReplyF,
     Shard,
-    GenId,
     Iterators,
-    #{max := NMax, timeout := Timeout},
+    #{max := Remaining0, timeout := Timeout} = PollOpts,
     NowF
 ) ->
-    case generation_get(Shard, GenId) of
-        Generation = #{} ->
-            Ctx = #lpctx{
-                callback = Callback,
-                shard = Shard,
-                generation = Generation,
-                is_current = GenId =:= generation_current(Shard),
-                now_f = NowF,
-                batch_size = NMax
-            },
-            try
-                %% 1. Check if data is already there:
-                NWaiting = watch_many(Ctx, Iterators),
-                %% 2. Nwaiting is number of iterators that didn't
-                %% return data immediately. Wait for events for them:
-                wait_storage_events(Ctx, NWaiting, Timeout)
-            after
-                unsubscribe_stream_events(Generation)
-            end;
-        not_found ->
-            %% generation was possibly dropped by GC
-            {error, unrecoverable, generation_not_found}
+    Min = maps:get(min, PollOpts, 0),
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    try
+        {Remaining, NWaiting} = watch_many(Shard, NowF(Shard), ReplyF, Remaining0, Min, Iterators),
+        wait_storage_events(Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting),
+        send_timeout_events(ReplyF)
+    after
+        emqx_ds_upubsub:unsub_all(exit)
     end.
 
-wait_storage_events(_Ctx, NWaiting, TimeLeft) when NWaiting =:= 0; TimeLeft =< 0 ->
+watch_many(Shard, Now, ReplyF, Remaining, Min, L) ->
+    watch_many(Shard, Now, ReplyF, Remaining, Min, L, 0).
+
+watch_many(_Shard, _Now, _ReplyF, Remaining, Min, L, _WaitFor) when
+    Remaining =:= 0; Remaining < Min; L =:= []
+->
+    {Remaining, 0};
+watch_many(Shard, Now, ReplyF, Remaining0, Min, [{ItKey, It0} | L], WaitFor0) ->
+    {WaitFor, Remaining} =
+        case event_dispatch_key(Shard, It0) of
+            undefined ->
+                ReplyF(ItKey, ?ERR_GEN_GONE),
+                {WaitFor0, Remaining0};
+            DispatchKey ->
+                Ref = emqx_ds_upubsub:sub(?pubsub(Shard), DispatchKey, #{}),
+                case next(Shard, It0, Remaining0, Now) of
+                    {ok, It1, []} ->
+                        put({waiting, Ref}, {ItKey, It1}),
+                        {WaitFor0 + 1, Remaining0};
+                    Result ->
+                        emqx_ds_upubsub:unsub(Ref),
+                        ReplyF(ItKey, Result),
+                        {WaitFor0, sub_remaining_msgs(Remaining0, Result)}
+                end
+        end,
+    watch_many(Shard, Now, ReplyF, Remaining, Min, L, WaitFor).
+
+wait_storage_events(_Shard, _NowF, _ReplyF, Remaining, Min, _Deadline, NWaiting) when
+    NWaiting =:= 0; Remaining =:= 0; Remaining < Min
+->
     ok;
-wait_storage_events(Ctx, NWaiting, TimeLeft) ->
-    TBefore = erlang:monotonic_time(millisecond),
-    #lpctx{callback = Callback} = Ctx,
+wait_storage_events(Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting) ->
+    Timeout = max(0, Deadline - erlang:monotonic_time(millisecond)),
     receive
-        #stream_event{ref = Ref} ->
-            {ItKey, It} = get({it, Ref}),
-            Callback(ItKey, lpnext(Ctx, It)),
-            TNow = erlang:monotonic_time(millisecond),
-            wait_storage_events(Ctx, NWaiting - 1, TimeLeft - (TNow - TBefore))
-    after TimeLeft ->
+        #upubsub{ref = Ref, val = Event} ->
+            case get({waiting, Ref}) of
+                undefined ->
+                    wait_storage_events(
+                        Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting
+                    );
+                {ItKey, It} ->
+                    case match_event(Shard, It, Event) of
+                        true ->
+                            erase({waitin, Ref}),
+                            Result = next(Shard, It, Remaining, NowF(Shard)),
+                            ReplyF(ItKey, Result),
+                            wait_storage_events(
+                                Shard,
+                                NowF,
+                                ReplyF,
+                                sub_remaining_msgs(Remaining, Result),
+                                Min,
+                                Deadline,
+                                NWaiting - 1
+                            );
+                        false ->
+                            wait_storage_events(
+                                Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting
+                            )
+                    end
+            end
+    after Timeout ->
         ok
     end.
 
-watch_many(Ctx, L) ->
-    watch_many(Ctx, L, 0).
+sub_remaining_msgs(Remaining, {ok, _It, Msgs}) ->
+    Remaining - length(Msgs);
+sub_remaining_msgs(Remaining, {ok, end_of_stream}) ->
+    Remaining;
+sub_remaining_msgs(Remaining, {error, _, _}) ->
+    Remaining.
 
-watch_many(_Ctx, [], Acc) ->
-    Acc;
-watch_many(Ctx, [{ItKey, It0 = #{?tag := ?IT, ?enc := Inner}} | Rest], Acc0) ->
-    #lpctx{generation = Generation, callback = Callback} = Ctx,
-    %% First, subscribe to the events:
-    Ref = subscribe_stream_events(Generation, Inner),
-    %% Now scan the storage to see if some data can be extracted
-    %% immediately:
-    Acc =
-        case lpnext(Ctx, It0) of
-            {ok, It1, []} ->
-                %% No event. Save subscription and the correspnding
-                %% iterator, so they can be looked up by reference
-                %% when notification arrives:
-                put({it, Ref}, {ItKey, It1}),
-                Acc0 + 1;
-            Result ->
-                %% We already got something. Unsubscribe from events
-                %% and return whatever it is.
-                unsubscribe_stream_events(Generation, Ref),
-                Callback(ItKey, Result),
-                Acc0
-        end,
-    watch_many(Ctx, Rest, Acc).
+send_timeout_events(_ReplyF) ->
+    %% [
+    %%     ReplyF(ItKey, {error, recoverable, retry})
+    %%  || {{waiting, _Ref}, {ItKey, _Iterator}} <- get()
+    %% ],
+    ok.
 
 -spec delete_next(
     shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
@@ -747,69 +755,6 @@ accept_snapshot(ShardId) ->
     handle_accept_snapshot(ShardId).
 
 %%================================================================================
-%% Stream events. Very internal API. Not for public use.
-%%================================================================================
-
--spec make_subs_table() -> ets:tid().
-make_subs_table() ->
-    ets:new(ds_storage_layer_subs, [
-        bag, public, {read_concurrency, false}, {write_concurrency, true}
-    ]).
-
--spec emit_stream_events(ets:tid(), #{_EventDispatchKey => pos_integer()}) -> ok.
-emit_stream_events(EventSubsTab, Events) ->
-    maps:foreach(
-        fun(DispatchKey, N) ->
-            [
-                Sub ! #stream_event{n = N, ref = Sub}
-             || Sub <- ets:lookup_element(EventSubsTab, DispatchKey, 2, [])
-            ],
-            ok
-        end,
-        Events
-    ).
-
-%% Warning: this function has very little safeguards: there is no
-%% automatic cleanup. The caller must ensure subscriptions don't leak
-%% by calling `unsubscribe_stream_events'.
--spec subscribe_stream_events(generation(), iterator()) ->
-    reference().
-subscribe_stream_events(#{module := Mod, subs := SubsTab}, Iterator) ->
-    case erlang:function_exported(Mod, event_dispatch_key, 1) of
-        true ->
-            Ref = alias([reply]),
-            DispatchKey = Mod:event_dispatch_key(Iterator),
-            %% Store subscription reference in the process dictionary
-            %% for the cleanup:
-            put({sref, Ref}, DispatchKey),
-            ets:insert(SubsTab, {DispatchKey, Ref}),
-            Ref;
-        false ->
-            undefined
-    end.
-
--spec unsubscribe_stream_events(generation()) -> ok.
-unsubscribe_stream_events(Gen) ->
-    [
-        unsubscribe_stream_events(Gen, Ref)
-     || {{sref, Ref}, _} <- get()
-    ],
-    ok.
-
--spec unsubscribe_stream_events(generation(), reference()) -> ok.
-unsubscribe_stream_events(_, undefined) ->
-    ok;
-unsubscribe_stream_events(#{subs := SubsTab}, Ref) ->
-    erlang:unalias(Ref),
-    receive
-        #stream_event{ref = Ref} -> ok
-    after 0 -> ok
-    end,
-    DispatchKey = erase({sref, Ref}),
-    ets:delete_object(SubsTab, {DispatchKey, Ref}),
-    ok.
-
-%%================================================================================
 %% gen_server for the shard
 %%================================================================================
 
@@ -858,6 +803,7 @@ init({ShardId, Options}) ->
         shard = Shard
     },
     commit_metadata(S),
+    emqx_ds_upubsub:init(?pubsub(ShardId)),
     ?tp(debug, ds_storage_init_state, #{shard => ShardId, s => S}),
     {ok, S}.
 
@@ -911,6 +857,7 @@ handle_info(_Info, S) ->
 
 terminate(_Reason, #s{db = DB, shard_id = ShardId}) ->
     erase_schema_runtime(ShardId),
+    emqx_ds_upubsub:destroy(?pubsub(ShardId)),
     ok = rocksdb:close(DB).
 
 %%================================================================================
@@ -920,6 +867,24 @@ terminate(_Reason, #s{db = DB, shard_id = ShardId}) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+event_dispatch_key(ShardId, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    case generation_get(ShardId, GenId) of
+        #{module := Mod, data := GenData} ->
+            {GenId, Mod:event_dispatch_key(GenData, Inner)};
+        not_found ->
+            undefined
+    end.
+
+match_event(ShardId, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}, Event) ->
+    case generation_get(ShardId, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:match_event(GenData, Inner, Event);
+        not_found ->
+            %% Hack: this should cause poller to run next and get
+            %% `?ERR_GEN_GONE' immediately:
+            true
+    end.
 
 -spec clear_all_checkpoints(shard_id()) -> ok.
 clear_all_checkpoints(ShardId) ->
@@ -1059,7 +1024,7 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     ?tp(debug, ds_open_generation, #{gen_id => GenId, schema => GenSchema}),
     #{module := Mod, data := Schema} = GenSchema,
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
-    GenSchema#{data => RuntimeData, subs => make_subs_table()}.
+    GenSchema#{data => RuntimeData}.
 
 -spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), prototype()) ->
     {shard_schema(), cf_refs()}.

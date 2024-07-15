@@ -50,7 +50,7 @@
 %% Internal exports:
 -export([
     do_next/3,
-    longpoll/6,
+    longpoll/5,
     do_delete_next/4
 ]).
 
@@ -333,11 +333,11 @@ poll(DB, Iterators, PollOpts) ->
             ReplyTo = erlang:alias([explicit_unalias])
     end,
     maps:foreach(
-        fun({Shard, GenId}, ItGroup) ->
+        fun(Shard, ItGroup) ->
             erlang:spawn_opt(
                 ?MODULE,
                 longpoll,
-                [ReplyTo, DB, Shard, GenId, ItGroup, PollOpts],
+                [ReplyTo, DB, Shard, ItGroup, PollOpts],
                 [link, {min_heap_size, 10_000}]
             )
         end,
@@ -346,15 +346,14 @@ poll(DB, Iterators, PollOpts) ->
     {ok, ReplyTo}.
 
 -spec poll_groups(emqx_ds:poll_iterators()) ->
-    #{_PollGroup => [{_UserData, emqx_ds_storage_layer:iterator()}]}.
+    #{shard() => [{_UserData, emqx_ds_storage_layer:iterator()}]}.
 poll_groups(Iterators) ->
     lists:foldl(
-        fun({ItKey, #{?tag := ?IT, ?shard := Shard, ?enc := Enc}}, Acc) ->
-            PollGroup = {Shard, emqx_ds_storage_layer:generation(Enc)},
+        fun({ItKey, #{?tag := ?IT, ?shard := Shard, ?enc := Inner}}, Acc) ->
             maps:update_with(
-                PollGroup,
-                fun(L) -> [{ItKey, Enc} | L] end,
-                [{ItKey, Enc}],
+                Shard,
+                fun(L) -> [{ItKey, Inner} | L] end,
+                [{ItKey, Inner}],
                 Acc
             )
         end,
@@ -428,13 +427,13 @@ do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
             Other
     end.
 
-longpoll(ReplyTo, DB, Shard, GenId, StorageIterators, PollOpts) ->
+longpoll(ReplyTo, DB, Shard, StorageIterators, PollOpts) ->
     ShardId = {DB, Shard},
     Callback = fun(ItKey, Result) ->
         Payload =
             case Result of
-                {ok, StorageIter, Batch} ->
-                    Iter = #{?tag => ?IT, ?shard => Shard, ?enc => StorageIter},
+                {ok, Inner, Batch} ->
+                    Iter = #{?tag => ?IT, ?shard => Shard, ?enc => Inner},
                     {ok, Iter, Batch};
                 Other ->
                     Other
@@ -442,7 +441,7 @@ longpoll(ReplyTo, DB, Shard, GenId, StorageIterators, PollOpts) ->
         ReplyTo ! #ds_async_result{ref = ReplyTo, userdata = ItKey, payload = Payload}
     end,
     emqx_ds_storage_layer:longpoll(
-        Callback, ShardId, GenId, StorageIterators, PollOpts, fun current_timestamp/1
+        Callback, ShardId, StorageIterators, PollOpts, fun current_timestamp/1
     ).
 
 -spec do_delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->

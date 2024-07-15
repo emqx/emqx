@@ -27,15 +27,17 @@
     drop/5,
     prepare_batch/4,
     commit_batch/4,
-    batch_events/2,
-    event_dispatch_key/1,
     get_streams/4,
     get_delete_streams/4,
     make_iterator/5,
     make_delete_iterator/5,
     update_iterator/4,
     next/6,
-    delete_next/7
+    delete_next/7,
+
+    batch_events/3,
+    event_dispatch_key/2,
+    match_event/3
 ]).
 
 %% internal exports:
@@ -235,17 +237,26 @@ commit_batch(
         rocksdb:release_batch(Batch)
     end.
 
-batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
-    lists:foldl(
-        fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
-            maps:update_with(Static, fun(N) -> N + 1 end, 1, Acc)
+batch_events(#s{}, #{?cooked_payloads := Payloads}, SendF) ->
+    lists:foreach(
+        fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob)) ->
+            SendF(Static, 'a!')
         end,
-        #{},
         Payloads
     ).
+%% lists:foldl(
+%%     fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
+%%         maps:update_with(Static, fun(N) -> N + 1 end, 1, Acc)
+%%     end,
+%%     #{},
+%%     Payloads
+%% ).
 
-event_dispatch_key(#it{static_index = Static}) ->
+event_dispatch_key(#s{}, #it{static_index = Static}) ->
     Static.
+
+match_event(#s{}, _It, _Event) ->
+    true.
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
