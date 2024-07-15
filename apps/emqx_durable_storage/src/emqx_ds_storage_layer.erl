@@ -230,6 +230,7 @@
 -type poll_iterators() :: [{_UserData, iterator()}].
 
 -define(ERR_GEN_GONE, {error, unrecoverable, generation_not_found}).
+-define(ERR_BUFF_FULL, {error, recoverable, reached_max}).
 
 %%================================================================================
 %% Generation callbacks
@@ -589,29 +590,28 @@ longpoll(
     Min = maps:get(min, PollOpts, 0),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
     try
-        {Remaining, NWaiting} = watch_many(Shard, NowF(Shard), ReplyF, Remaining0, Min, Iterators),
-        wait_storage_events(Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting),
-        send_timeout_events(ReplyF)
+        watch_many(Shard, NowF, ReplyF, Remaining0, Min, Deadline, Iterators)
     after
         emqx_ds_upubsub:unsub_all(exit)
     end.
 
-watch_many(Shard, Now, ReplyF, Remaining, Min, L) ->
-    watch_many(Shard, Now, ReplyF, Remaining, Min, L, 0).
+watch_many(Shard, NowF, ReplyF, Remaining, Min, Deadline, L) ->
+    watch_many(Shard, NowF, ReplyF, Remaining, Min, Deadline, L, 0).
 
-watch_many(_Shard, _Now, _ReplyF, Remaining, Min, L, _WaitFor) when
-    Remaining =:= 0; Remaining < Min; L =:= []
-->
-    {Remaining, 0};
-watch_many(Shard, Now, ReplyF, Remaining0, Min, [{ItKey, It0} | L], WaitFor0) ->
+watch_many(Shard, NowF, ReplyF, Remaining, Min, Deadline, [], NWaiting) ->
+    wait_storage_events(Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting);
+watch_many(Shard, NowF, ReplyF, Remaining0, Min, Deadline, [{ItKey, It0} | L], WaitFor0) ->
     {WaitFor, Remaining} =
         case event_dispatch_key(Shard, It0) of
             undefined ->
                 ReplyF(ItKey, ?ERR_GEN_GONE),
                 {WaitFor0, Remaining0};
+            _ when Remaining0 =:= 0; Remaining0 =< Min ->
+                put({waiting, dummy_subid}, {ItKey, It0}),
+                {WaitFor0 + 1, Remaining0};
             DispatchKey ->
                 Ref = emqx_ds_upubsub:sub(?pubsub(Shard), DispatchKey, #{}),
-                case next(Shard, It0, Remaining0, Now) of
+                case next(Shard, It0, Remaining0, NowF(Shard)) of
                     {ok, It1, []} ->
                         put({waiting, Ref}, {ItKey, It1}),
                         {WaitFor0 + 1, Remaining0};
@@ -621,11 +621,22 @@ watch_many(Shard, Now, ReplyF, Remaining0, Min, [{ItKey, It0} | L], WaitFor0) ->
                         {WaitFor0, sub_remaining_msgs(Remaining0, Result)}
                 end
         end,
-    watch_many(Shard, Now, ReplyF, Remaining, Min, L, WaitFor).
+    watch_many(Shard, NowF, ReplyF, Remaining, Min, Deadline, L, WaitFor).
 
-wait_storage_events(_Shard, _NowF, _ReplyF, Remaining, Min, _Deadline, NWaiting) when
-    NWaiting =:= 0; Remaining =:= 0; Remaining < Min
+wait_storage_events(_Shard, _NowF, _ReplyF, _Remaining, _Min, _Deadline, 0) ->
+    ok;
+wait_storage_events(_Shard, _NowF, ReplyF, Remaining, Min, _Deadline, _NWaiting) when
+    Remaining =:= 0; Remaining < Min
 ->
+    %% Only notify the caller when the maximum is reached, so it
+    %% doesn't have to wait until poll timeout to retry polling again
+    %% (it flushes the buffer early).
+    %%
+    %% Early poll replies are harmful, because they can create a busy loop.
+    [
+        ReplyF(ItKey, ?ERR_BUFF_FULL)
+     || {{waiting, _Ref}, {ItKey, _Iterator}} <- get()
+    ],
     ok;
 wait_storage_events(Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting) ->
     Timeout = max(0, Deadline - erlang:monotonic_time(millisecond)),
@@ -633,6 +644,7 @@ wait_storage_events(Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting) ->
         #upubsub{ref = Ref, val = Event} ->
             case get({waiting, Ref}) of
                 undefined ->
+                    erlang:display({nomatch, Ref, get()}),
                     wait_storage_events(
                         Shard, NowF, ReplyF, Remaining, Min, Deadline, NWaiting
                     );
@@ -667,13 +679,6 @@ sub_remaining_msgs(Remaining, {ok, end_of_stream}) ->
     Remaining;
 sub_remaining_msgs(Remaining, {error, _, _}) ->
     Remaining.
-
-send_timeout_events(_ReplyF) ->
-    %% [
-    %%     ReplyF(ItKey, {error, recoverable, retry})
-    %%  || {{waiting, _Ref}, {ItKey, _Iterator}} <- get()
-    %% ],
-    ok.
 
 -spec delete_next(
     shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()

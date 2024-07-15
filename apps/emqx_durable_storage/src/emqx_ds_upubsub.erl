@@ -75,7 +75,8 @@ sub(Name, DispatchKey, Opts) ->
     %% Subscriptions are kept in the process dictionary to enable
     %% semi-automatic cleanup:
     put({?MODULE, Alias}, {Tab, DispatchKey}),
-    ets:insert(Tab, {DispatchKey, Alias}).
+    ets:insert(Tab, {DispatchKey, Alias}),
+    Alias.
 
 -spec unsub(reference()) -> boolean().
 unsub(Ref) ->

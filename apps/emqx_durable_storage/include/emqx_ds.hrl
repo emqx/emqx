@@ -40,10 +40,10 @@
     filters = #{}
 }).
 
--record(ds_async_result, {
+-record(poll_reply, {
     ref :: reference(),
     userdata,
-    payload :: emqx_ds:next_result()
+    payload :: emqx_ds:next_result() | poll_timeout
 }).
 
 -endif.

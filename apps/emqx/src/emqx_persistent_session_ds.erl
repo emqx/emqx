@@ -712,8 +712,8 @@ handle_info(
 ) ->
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
     Session#{s := S, shared_sub_s := SharedSubS};
-handle_info(AsyncReply = #ds_async_result{}, Session, ClientInfo) ->
-    handle_ds_reply(AsyncReply, Session, ClientInfo);
+handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
+    pull_now(push_now(handle_ds_reply(AsyncReply, Session, ClientInfo)));
 handle_info(Msg, Session, _ClientInfo) ->
     ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
     Session.
@@ -1073,7 +1073,7 @@ push_now(Session) ->
 handle_ds_reply(AsyncReply, Session0 = #{stream_scheduler_s := SchedS0}, ClientInfo) ->
     case emqx_persistent_session_ds_stream_scheduler:on_reply(AsyncReply, SchedS0) of
         {undefined, SchedS} ->
-            push_now(Session0#{stream_scheduler_s := SchedS});
+            Session0#{stream_scheduler_s := SchedS};
         {{StreamKey, ItBegin, FetchResult}, SchedS} ->
             Session1 = Session0#{stream_scheduler_s := SchedS},
             case enqueue_batch(false, Session1, ClientInfo, StreamKey, ItBegin, FetchResult) of
@@ -1091,7 +1091,7 @@ handle_ds_reply(AsyncReply, Session0 = #{stream_scheduler_s := SchedS0}, ClientI
                         S1
                     ),
                     S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S2),
-                    pull_now(push_now(Session#{s := S}));
+                    pull_now(Session#{s := S});
                 {{error, recoverable, Reason}, _Srs, Session} ->
                     ?SLOG(debug, #{
                         msg => "failed_to_fetch_batch",
@@ -1099,9 +1099,9 @@ handle_ds_reply(AsyncReply, Session0 = #{stream_scheduler_s := SchedS0}, ClientI
                         reason => Reason,
                         class => recoverable
                     }),
-                    push_now(Session);
+                    Session;
                 {{error, unrecoverable, Reason}, Srs, Session} ->
-                    push_now(skip_batch(StreamKey, Srs, Session, ClientInfo, Reason))
+                    skip_batch(StreamKey, Srs, Session, ClientInfo, Reason)
             end
     end.
 

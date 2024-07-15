@@ -50,7 +50,7 @@
 %% Internal exports:
 -export([
     do_next/3,
-    longpoll/5,
+    longpoll/6,
     do_delete_next/4
 ]).
 
@@ -319,29 +319,38 @@ update_iterator(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0
 next(DB, Iter, N) ->
     {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_next, [DB, Iter, N]),
     receive
-        #ds_async_result{ref = Ref, payload = Data} ->
+        #poll_reply{ref = Ref, payload = Data} ->
             Data
     end.
 
 -spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, PollOpts) ->
+poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     %% Create a new alias, if not already provided:
     case PollOpts of
         #{reply_to := ReplyTo} ->
             ok;
         _ ->
-            ReplyTo = erlang:alias([explicit_unalias])
+            ReplyTo = alias([explicit_unalias])
     end,
+    %% Spawn a helper process that will notify the caller when the
+    %% poll times out or when all pollers are done:
+    Completion = spawn_link(
+        fun() ->
+            wait_completion(ReplyTo, Timeout)
+        end
+    ),
+    %% Spawn pollers. Currently we create one per shard:
+    PollGroups = poll_groups(Iterators),
     maps:foreach(
         fun(Shard, ItGroup) ->
             erlang:spawn_opt(
                 ?MODULE,
                 longpoll,
-                [ReplyTo, DB, Shard, ItGroup, PollOpts],
+                [ReplyTo, Completion, DB, Shard, ItGroup, PollOpts],
                 [link, {min_heap_size, 10_000}]
             )
         end,
-        poll_groups(Iterators)
+        PollGroups
     ),
     {ok, ReplyTo}.
 
@@ -402,7 +411,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 delete_next(DB, Iter, Selector, N) ->
     {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
-        #ds_async_result{ref = Ref, payload = Data} -> Data
+        #poll_reply{ref = Ref, payload = Data} -> Data
     end.
 
 %%================================================================================
@@ -427,7 +436,7 @@ do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
             Other
     end.
 
-longpoll(ReplyTo, DB, Shard, StorageIterators, PollOpts) ->
+longpoll(ReplyTo, CompletionPid, DB, Shard, StorageIterators, PollOpts) ->
     ShardId = {DB, Shard},
     Callback = fun(ItKey, Result) ->
         Payload =
@@ -438,11 +447,12 @@ longpoll(ReplyTo, DB, Shard, StorageIterators, PollOpts) ->
                 Other ->
                     Other
             end,
-        ReplyTo ! #ds_async_result{ref = ReplyTo, userdata = ItKey, payload = Payload}
+        ReplyTo ! #poll_reply{ref = ReplyTo, userdata = ItKey, payload = Payload}
     end,
     emqx_ds_storage_layer:longpoll(
         Callback, ShardId, StorageIterators, PollOpts, fun current_timestamp/1
-    ).
+    ),
+    CompletionPid ! {done, Shard}.
 
 -spec do_delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
@@ -474,3 +484,20 @@ timeus_to_timestamp(undefined) ->
     undefined;
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
+
+wait_completion(ReplyTo, Timeout) ->
+    receive
+    after Timeout + 10 ->
+        ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
+    end.
+
+%% do_wait_completion(ReplyTo, _Deadline, []) ->
+%%     ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout};
+%% do_wait_completion(ReplyTo, Deadline, L) ->
+%%     Timeout = max(0, Deadline - erlang:monotonic_time(millisecond)),
+%%     receive
+%%         {done, I} ->
+%%             do_wait_completion(ReplyTo, Deadline, L -- [I])
+%%     after Timeout ->
+%%             ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
+%%     end.

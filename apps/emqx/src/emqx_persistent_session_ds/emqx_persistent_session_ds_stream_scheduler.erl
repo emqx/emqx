@@ -90,7 +90,7 @@ find_replay_streams(S) ->
 %% record of in-flight messages per stream, and we don't want to
 %% overwrite these records prematurely.
 -spec poll(emqx_ds:poll_opts(), t(), emqx_persistent_session_ds_state:t()) -> t().
-poll(PollOpts0 = #{timeout := Timeout}, SchedS0 = #s{pending = Pending0}, S) ->
+poll(PollOpts0, SchedS0 = #s{pending = Pending0}, S) ->
     %% FIXME: this function is currently very sensitive to the
     %% consistency of the packet IDs on both broker and client side.
     %%
@@ -122,11 +122,6 @@ poll(PollOpts0 = #{timeout := Timeout}, SchedS0 = #s{pending = Pending0}, S) ->
             %% Fetch messages:
             PollOpts = PollOpts0#{reply_to => Ref},
             {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts),
-            %% Send poll expiry message:
-            TimeoutDelay = 10,
-            erlang:send_after(Timeout + TimeoutDelay, self(), #ds_async_result{
-                ref = Ref, userdata = poll_timeout, payload = {error, recoverable, retry}
-            }),
             SchedS0#s{pending = Pending}
     end.
 
@@ -148,7 +143,7 @@ prep_poll(Ref, AlreadyPending, Comm1, Comm2, Key, SRS, Acc = {AccIt, AccPend}) -
             }
     end.
 
-on_reply(#ds_async_result{ref = Ref, userdata = poll_timeout}, SchedS = #s{pending = P0}) ->
+on_reply(#poll_reply{ref = Ref, payload = poll_timeout}, SchedS = #s{pending = P0}) ->
     %% Process poll timeout by removing all pending streams that
     %% belong to the poll group, so they can be retried:
     unalias(Ref),
@@ -158,7 +153,7 @@ on_reply(#ds_async_result{ref = Ref, userdata = poll_timeout}, SchedS = #s{pendi
     ),
     {undefined, SchedS#s{pending = P}};
 on_reply(
-    #ds_async_result{ref = Ref, userdata = StreamKey, payload = Payload},
+    #poll_reply{ref = Ref, userdata = StreamKey, payload = Payload},
     SchedS0 = #s{pending = Pending0}
 ) ->
     case maps:take(StreamKey, Pending0) of

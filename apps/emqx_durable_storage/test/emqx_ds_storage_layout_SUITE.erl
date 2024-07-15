@@ -295,7 +295,7 @@ t_poll(_Config) ->
     %% Collect the replies:
     Got1 = [
         receive
-            #ds_async_result{userdata = It, payload = Reply, ref = Ref1} ->
+            #poll_reply{userdata = It, payload = Reply, ref = Ref1} ->
                 {It, Reply}
         after Timeout ->
             error({timeout_for, It})

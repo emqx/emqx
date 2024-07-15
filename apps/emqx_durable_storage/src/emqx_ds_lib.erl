@@ -49,7 +49,7 @@ with_worker(UserData, Mod, Function, Args) ->
                             stacktrace => Stack
                         }}
                 end,
-            ReplyTo ! #ds_async_result{userdata = UserData, ref = ReplyTo, payload = Result}
+            ReplyTo ! #poll_reply{userdata = UserData, ref = ReplyTo, payload = Result}
         end,
         [link, {min_heap_size, 10000}]
     ),

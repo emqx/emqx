@@ -117,6 +117,10 @@
     misc = []
 }).
 
+-record(event, {
+    varying :: emqx_ds_lts:varying()
+}).
+
 %% Level iterator:
 -record(l, {
     n :: non_neg_integer(),
@@ -238,25 +242,34 @@ commit_batch(
     end.
 
 batch_events(#s{}, #{?cooked_payloads := Payloads}, SendF) ->
-    lists:foreach(
-        fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob)) ->
-            SendF(Static, 'a!')
+    %% lists:foreach(
+    %%     fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob)) ->
+    %%         SendF(Static, #event{varying = Varying})
+    %%     end,
+    %%     Payloads
+    %% ).
+    _EventMap = lists:foldl(
+        fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob), Acc) ->
+            maps:put(Static, 1, Acc)
         end,
+        #{},
         Payloads
-    ).
-%% lists:foldl(
-%%     fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
-%%         maps:update_with(Static, fun(N) -> N + 1 end, 1, Acc)
-%%     end,
-%%     #{},
-%%     Payloads
-%% ).
+    ),
+    maps:foreach(
+        fun({Static, Varying}, _) ->
+            SendF(Static, #event{varying = Varying})
+        end,
+        EventMap
+    ),
+    ok.
 
 event_dispatch_key(#s{}, #it{static_index = Static}) ->
     Static.
 
-match_event(#s{}, _It, _Event) ->
-    true.
+match_event(#s{}, #it{compressed_tf = Filter}, #event{varying = Var}) ->
+    Match = emqx_topic:match(Var, words(Filter)),
+    %% io:format(user, "F: ~p V: ~p -> ~p~n", [Filter, Var, Match]),
+    Match.
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
