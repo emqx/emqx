@@ -782,7 +782,8 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
                 input_bytes => Data,
                 parsed_packets => Packets
             }),
-            {[{frame_error, Reason} | Packets], State};
+            NState = enrich_state(Reason, State),
+            {[{frame_error, Reason} | Packets], NState};
         error:Reason:Stacktrace ->
             ?LOG(error, #{
                 at_state => emqx_frame:describe_state(ParseState),
@@ -1203,6 +1204,12 @@ stop(Reason, Reply, State) ->
 inc_counter(Key, Inc) ->
     _ = emqx_pd:inc_counter(Key, Inc),
     ok.
+
+enrich_state(#{parse_state := NParseState}, State) ->
+    Serialize = emqx_frame:serialize_opts(NParseState),
+    State#state{parse_state = NParseState, serialize = Serialize};
+enrich_state(_, State) ->
+    State.
 
 set_tcp_keepalive({quic, _Listener}) ->
     ok;

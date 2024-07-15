@@ -266,20 +266,33 @@ packet(Header, Variable) ->
 packet(Header, Variable, Payload) ->
     #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
-parse_connect(FrameBin, StrictMode) ->
+parse_connect(FrameBin, Options = #{strict_mode := StrictMode}) ->
     {ProtoName, Rest0} = parse_utf8_string_with_cause(FrameBin, StrictMode, invalid_proto_name),
     %% No need to parse and check proto_ver if proto_name is invalid, check it first
     %% And the matching check of `proto_name` and `proto_ver` fields will be done in `emqx_packet:check_proto_ver/2`
     _ = validate_proto_name(ProtoName),
     {IsBridge, ProtoVer, Rest2} = parse_connect_proto_ver(Rest0),
-    Meta = #{proto_name => ProtoName, proto_ver => ProtoVer},
+    NOptions = Options#{version => ProtoVer},
     try
         do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, StrictMode)
     catch
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
-            ?PARSE_ERR(maps:merge(ReasonM, Meta));
+            ?PARSE_ERR(
+                ReasonM#{
+                    proto_ver => ProtoVer,
+                    proto_name => ProtoName,
+                    parse_state => ?NONE(NOptions)
+                }
+            );
         throw:{?FRAME_PARSE_ERROR, Reason} ->
-            ?PARSE_ERR(Meta#{cause => Reason})
+            ?PARSE_ERR(
+                #{
+                    cause => Reason,
+                    proto_ver => ProtoVer,
+                    proto_name => ProtoName,
+                    parse_state => ?NONE(NOptions)
+                }
+            )
     end.
 
 do_parse_connect(
@@ -358,9 +371,9 @@ do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _StrictMode) ->
 parse_packet(
     #mqtt_packet_header{type = ?CONNECT},
     FrameBin,
-    #{strict_mode := StrictMode}
+    Options
 ) ->
-    parse_connect(FrameBin, StrictMode);
+    parse_connect(FrameBin, Options);
 parse_packet(
     #mqtt_packet_header{type = ?CONNACK},
     <<AckFlags:8, ReasonCode:8, Rest/binary>>,
@@ -753,6 +766,8 @@ serialize_fun(#{version := Ver, max_size := MaxSize}) ->
 serialize_opts() ->
     ?DEFAULT_OPTIONS.
 
+serialize_opts(?NONE(Options)) ->
+    maps:merge(?DEFAULT_OPTIONS, Options);
 serialize_opts(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
     #{version => ProtoVer, max_size => MaxSize}.

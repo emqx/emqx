@@ -37,6 +37,7 @@
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
+    set_conninfo_proto_ver/2,
     stats/1,
     caps/1
 ]).
@@ -218,6 +219,9 @@ info(impl, #channel{session = Session}) ->
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
+
+set_conninfo_proto_ver({none, #{version := ProtoVer}}, Channel = #channel{conninfo = ConnInfo}) ->
+    Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}}.
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{session = undefined}) ->
@@ -1003,29 +1007,60 @@ not_nacked({deliver, _Topic, Msg}) ->
 %%--------------------------------------------------------------------
 
 handle_frame_error(
-    Reason,
-    Channel = #channel{conn_state = idle}
-) ->
-    shutdown(shutdown_count(frame_error, Reason), Channel);
-handle_frame_error(
-    #{cause := frame_too_large} = R, Channel = #channel{conn_state = connecting}
-) ->
-    shutdown(
-        shutdown_count(frame_error, R), ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel
-    );
-handle_frame_error(Reason, Channel = #channel{conn_state = connecting}) ->
-    shutdown(shutdown_count(frame_error, Reason), ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
-handle_frame_error(
-    #{cause := frame_too_large}, Channel = #channel{conn_state = ConnState}
+    Reason = #{cause := frame_too_large},
+    Channel = #channel{conn_state = ConnState, conninfo = ConnInfo}
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
-handle_frame_error(Reason, Channel = #channel{conn_state = ConnState}) when
+    ShutdownCount = shutdown_count(frame_error, Reason),
+    case proto_ver(Reason, ConnInfo) of
+        ?MQTT_PROTO_V5 ->
+            handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
+        _ ->
+            shutdown(ShutdownCount, Channel)
+    end;
+%% Only send CONNACK with reason code `frame_too_large` for MQTT-v5.0 when connecting,
+%% otherwise DONOT send any CONNACK or DISCONNECT packet.
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = ConnState, conninfo = ConnInfo}
+) when
+    is_map(Reason) andalso
+        (ConnState == idle orelse ConnState == connecting)
+->
+    ShutdownCount = shutdown_count(frame_error, Reason),
+    ProtoVer = proto_ver(Reason, ConnInfo),
+    NChannel = Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}},
+    case ProtoVer of
+        ?MQTT_PROTO_V5 ->
+            shutdown(ShutdownCount, ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), NChannel);
+        _ ->
+            shutdown(ShutdownCount, NChannel)
+    end;
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = connecting}
+) ->
+    shutdown(
+        shutdown_count(frame_error, Reason),
+        ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
+        Channel
+    );
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = ConnState}
+) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    handle_out(disconnect, {?RC_MALFORMED_PACKET, Reason}, Channel);
-handle_frame_error(Reason, Channel = #channel{conn_state = disconnected}) ->
+    handle_out(
+        disconnect,
+        {?RC_MALFORMED_PACKET, Reason},
+        Channel
+    );
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = disconnected}
+) ->
     ?SLOG(error, #{msg => "malformed_mqtt_message", reason => Reason}),
     {ok, Channel}.
 
@@ -2725,6 +2760,13 @@ is_durable_session(#channel{session = Session}) ->
         _ ->
             false
     end.
+
+proto_ver(#{proto_ver := ProtoVer}, _ConnInfo) ->
+    ProtoVer;
+proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
+    ProtoVer;
+proto_ver(_, _) ->
+    ?MQTT_PROTO_V4.
 
 %%--------------------------------------------------------------------
 %% For CT tests
