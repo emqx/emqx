@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_connector_examples).
 
 -include_lib("typerefl/include/types.hrl").
@@ -34,13 +36,13 @@
     producer_opts/1
 ]).
 
-%% Internal export to be used in v2 schema
--export([consumer_topic_mapping_validator/1]).
-
+%% Internal exports to be used in v2 schema
 -export([
+    consumer_topic_mapping_validator/1,
     kafka_connector_config_fields/0,
     kafka_producer_converter/2,
-    producer_strategy_key_validator/1
+    producer_strategy_key_validator/1,
+    producer_parameters_validation/1
 ]).
 
 -define(CONNECTOR_TYPE, kafka_producer).
@@ -389,7 +391,9 @@ fields(v1_producer_kafka_opts) ->
         Fields
     );
 fields(producer_kafka_opts) ->
+    %% Configuration for "normal" Kafka producer targeting a single topic.
     [
+        {type, mk(static, #{default => static, desc => ?DESC("producer_type")})},
         {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},
         {message, mk(ref(kafka_message), #{required => false, desc => ?DESC(kafka_message)})},
         {max_batch_bytes,
@@ -481,6 +485,13 @@ fields(producer_kafka_opts) ->
                     desc => ?DESC(sync_query_timeout)
                 }
             )}
+    ];
+fields(dynamic_producer_kafka_opts) ->
+    %% Configuration for dynamic Kafka producer that dispatches to other, static producers.
+    [
+        {type, mk(dynamic, #{default => static, desc => ?DESC("producer_type")})},
+        {topic,
+            mk(emqx_schema:template(), #{required => true, desc => ?DESC("kafka_topic_template")})}
     ];
 fields(producer_kafka_ext_headers) ->
     [
@@ -699,19 +710,27 @@ resource_opts() ->
 %% However we need to keep it backward compatible for generated schema json (version 0.1.0)
 %% since schema is data for the 'schemas' API.
 parameters_field(ActionOrBridgeV1) ->
-    {Name, Alias, Ref} =
+    {Name, Alias, Type} =
         case ActionOrBridgeV1 of
             v1 ->
-                {kafka, parameters, v1_producer_kafka_opts};
+                {kafka, parameters, ref(v1_producer_kafka_opts)};
             action ->
-                {parameters, kafka, producer_kafka_opts}
+                {parameters, kafka,
+                    mkunion(
+                        type,
+                        #{
+                            <<"static">> => ref(producer_kafka_opts),
+                            <<"dynamic">> => ref(dynamic_producer_kafka_opts)
+                        },
+                        <<"static">>
+                    )}
         end,
     {Name,
-        mk(ref(Ref), #{
+        mk(Type, #{
             required => true,
             aliases => [Alias],
             desc => ?DESC(producer_kafka_opts),
-            validator => fun producer_strategy_key_validator/1
+            validator => fun producer_parameters_validation/1
         })}.
 
 %% -------------------------------------------------------------------------------------------------
@@ -730,6 +749,26 @@ name_field() ->
 
 ref(Name) ->
     hoconsc:ref(?MODULE, Name).
+
+mkunion(Field, Schemas, Default) ->
+    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Default, Arg) end).
+
+scunion(_Field, Schemas, _Default, all_union_members) ->
+    maps:values(Schemas);
+scunion(Field, Schemas, Default, {value, Value}) ->
+    Selector =
+        case maps:get(emqx_utils_conv:bin(Field), Value, undefined) of
+            undefined ->
+                Default;
+            X ->
+                emqx_utils_conv:bin(X)
+        end,
+    case maps:find(Selector, Schemas) of
+        {ok, Schema} ->
+            [Schema];
+        _Error ->
+            throw(#{field_name => Field, expected => maps:keys(Schemas)})
+    end.
 
 kafka_producer_converter(undefined, _HoconOpts) ->
     undefined;
@@ -770,6 +809,27 @@ consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
         false ->
             {error, "Kafka topics must not be repeated in a bridge"}
     end.
+
+producer_parameters_validation(Conf) ->
+    maybe
+        ok ?= producer_strategy_key_validator(Conf),
+        producer_topic_template_validator(Conf)
+    end.
+
+producer_topic_template_validator(#{type := _} = Conf) ->
+    producer_topic_template_validator(emqx_utils_maps:binary_key_map(Conf));
+producer_topic_template_validator(#{<<"type">> := TypeAtom} = Conf) when is_atom(TypeAtom) ->
+    producer_topic_template_validator(Conf#{<<"type">> := atom_to_binary(TypeAtom)});
+producer_topic_template_validator(#{<<"type">> := <<"static">>, <<"topic">> := Topic}) ->
+    Template = emqx_template:parse(Topic),
+    case emqx_template:placeholders(Template) of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, <<"static producers do not support topic templates">>}
+    end;
+producer_topic_template_validator(_Conf) ->
+    ok.
 
 producer_strategy_key_validator(
     #{

@@ -1,5 +1,15 @@
 emqx_bridge_kafka {
 
+producer_type.label:
+"""Producer Type"""
+producer_type.desc:
+"""~The type of Kafka Producer this represents.
+<ul>
+<li>`static`: Topic names are fixed.</li>
+<li>`dynamic`: Topic are templates and must resolve to topics configured in some static producer.</li>
+</ul>
+~"""
+
 connect_timeout.desc:
 """Maximum wait time for TCP connection establishment (including authentication time if enabled)."""
 
@@ -74,17 +84,26 @@ consumer_topic_mapping.desc:
 consumer_topic_mapping.label:
 """Topic Mapping"""
 
-producer_kafka_opts.desc:
-"""Kafka producer configs."""
-
 producer_kafka_opts.label:
-"""Kafka Producer"""
+"""Static Kafka Producer"""
+producer_kafka_opts.desc:
+"""Static Kafka producer configs."""
+
+dynamic_producer_kafka_opts.label:
+"""Dynamic Kafka Producer"""
+dynamic_producer_kafka_opts.desc:
+"""Dynamic Kafka producer configs."""
 
 kafka_topic.desc:
 """Kafka topic name"""
 
 kafka_topic.label:
 """Kafka Topic Name"""
+
+kafka_topic_template.label:
+"""Kafka Topic Template"""
+kafka_topic_template.desc:
+"""Kafka topic template (e.g.: `t-${.payload.t}`).  If this fails to resolve to a value given the input message, or if it resolves to a topic that does not correspond to any existing static producers, the message will be dropped."""
 
 consumer_kafka_topic.desc:
 """Kafka topic to consume from."""

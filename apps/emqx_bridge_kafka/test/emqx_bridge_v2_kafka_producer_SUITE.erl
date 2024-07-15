@@ -165,6 +165,9 @@ send_message(Type, ActionName) ->
 
 resolve_kafka_offset() ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    resolve_kafka_offset(KafkaTopic).
+
+resolve_kafka_offset(KafkaTopic) ->
     Partition = 0,
     Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
     {ok, Offset0} = emqx_bridge_kafka_impl_producer_SUITE:resolve_kafka_offset(
@@ -174,10 +177,44 @@ resolve_kafka_offset() ->
 
 check_kafka_message_payload(Offset, ExpectedPayload) ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload).
+
+check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload) ->
     Partition = 0,
     Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
     {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
     ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
+
+ensure_kafka_topic(KafkaTopic) ->
+    TopicConfigs = [
+        #{
+            name => KafkaTopic,
+            num_partitions => 1,
+            replication_factor => 1,
+            assignments => [],
+            configs => []
+        }
+    ],
+    RequestConfig = #{timeout => 5_000},
+    ConnConfig = #{},
+    Endpoints = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    case brod:create_topics(Endpoints, TopicConfigs, RequestConfig, ConnConfig) of
+        ok -> ok;
+        {error, topic_already_exists} -> ok
+    end.
+
+delete_kafka_topic(KafkaTopic) ->
+    Timeout = 5_000,
+    ConnConfig = #{},
+    Endpoints = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    case brod:delete_topics(Endpoints, [KafkaTopic], Timeout, ConnConfig) of
+        ok -> ok;
+        {error, unknown_topic_or_partition} -> ok
+    end.
+
+override_and_check(Type, Name, BaseConfig, Overrides) ->
+    Conf = emqx_utils_maps:deep_merge(BaseConfig, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, Type, Name, Conf).
 
 action_config(ConnectorName) ->
     action_config(ConnectorName, _Overrides = #{}).
@@ -879,5 +916,241 @@ t_multiple_actions_sharing_topic(Config) ->
             ?assertEqual([], ?of_kind("kafka_producer_invalid_partition_count", Trace)),
             ok
         end
+    ),
+    ok.
+
+t_templated_topics(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig0 = proplists:get_value(connector_config, Config, connector_config()),
+    ConnectorConfig = emqx_utils_maps:deep_merge(
+        ConnectorConfig0,
+        #{
+            <<"resource_opts">> => #{
+                <<"health_check_interval">> => <<"500ms">>
+            }
+        }
+    ),
+    ActionConfig0 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    Topic1 = <<"t-1">>,
+    Topic2 = <<"t-2">>,
+    ensure_kafka_topic(Topic1),
+    ensure_kafka_topic(Topic2),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionName1 = <<"static1">>,
+            ActionConfig1 = override_and_check(Type, ActionName1, ActionConfig0, #{
+                <<"parameters">> => #{
+                    <<"type">> => <<"static">>,
+                    <<"topic">> => Topic1,
+                    <<"message">> => #{
+                        <<"key">> => <<"${.clientid}">>,
+                        <<"value">> => <<"${.payload.p}">>
+                    }
+                },
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"500ms">>
+                }
+            }),
+            ActionParams1 = [
+                {action_config, ActionConfig1},
+                {action_name, ActionName1},
+                {action_type, Type}
+            ],
+            ActionName2 = <<"static2">>,
+            ActionConfig2 = override_and_check(Type, ActionName2, ActionConfig0, #{
+                <<"parameters">> => #{
+                    <<"type">> => <<"static">>,
+                    <<"topic">> => Topic2,
+                    <<"message">> => #{
+                        <<"key">> => <<"${.clientid}">>,
+                        <<"value">> => <<"${.payload.p}">>
+                    }
+                }
+            }),
+            ActionParams2 = [
+                {action_config, ActionConfig2},
+                {action_name, ActionName2},
+                {action_type, Type}
+            ],
+            ActionName3 = <<"dynamic">>,
+            ActionConfig3 = override_and_check(
+                Type,
+                ActionName3,
+                maps:remove(<<"parameters">>, ActionConfig0),
+                #{
+                    <<"parameters">> => #{
+                        <<"type">> => <<"dynamic">>,
+                        <<"topic">> => <<"t-${.payload.n}">>
+                    }
+                }
+            ),
+            ActionParams3 = [
+                {action_config, ActionConfig3},
+                {action_name, ActionName3},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams1),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams2),
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams3),
+            RuleTopic = <<"t/a2">>,
+            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+                Type,
+                RuleTopic,
+                [
+                    {bridge_name, ActionName3}
+                ],
+                #{
+                    sql =>
+                        <<"select *, json_decode(payload) as payload from \"", RuleTopic/binary,
+                            "\" ">>
+                }
+            ),
+
+            ?assertStatusAPI(Type, ActionName1, <<"connected">>),
+            ?assertStatusAPI(Type, ActionName2, <<"connected">>),
+            ?assertStatusAPI(Type, ActionName3, <<"connected">>),
+
+            {ok, C} = emqtt:start_link(#{}),
+            {ok, _} = emqtt:connect(C),
+            Payload = fun(Map) -> emqx_utils_json:encode(Map) end,
+            Offset1 = resolve_kafka_offset(Topic1),
+            Offset2 = resolve_kafka_offset(Topic2),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 1, p => <<"p1">>}), [{qos, 1}]),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 2, p => <<"p2">>}), [{qos, 1}]),
+
+            check_kafka_message_payload(Topic1, Offset1, <<"p1">>),
+            check_kafka_message_payload(Topic2, Offset2, <<"p2">>),
+
+            ActionId1 = emqx_bridge_v2:id(Type, ActionName1),
+            ActionId2 = emqx_bridge_v2:id(Type, ActionName2),
+            ActionId3 = emqx_bridge_v2:id(Type, ActionName3),
+
+            ?assertEqual(0, emqx_resource_metrics:matched_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:success_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId1)),
+
+            ?assertEqual(0, emqx_resource_metrics:matched_get(ActionId2)),
+            ?assertEqual(0, emqx_resource_metrics:success_get(ActionId2)),
+            ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId2)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId2)),
+
+            ?assertEqual(2, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(2, emqx_resource_metrics:success_get(ActionId3)),
+            ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId3)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId3)),
+
+            %% If there isn't enough information in the context to resolve to a topic, it
+            %% should be an unrecoverable error.
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{not_enough => <<"info">>}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_failed_to_render_topic"}
+                )
+            ),
+            ?assertEqual(3, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(1, emqx_resource_metrics:failed_get(ActionId3)),
+
+            %% If it's possible to render the topic, but it isn't in the pre-configured
+            %% list, it should be an unrecoverable error.
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{n => 99}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
+                )
+            ),
+            ?assertEqual(4, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(2, emqx_resource_metrics:failed_get(ActionId3)),
+
+            %% If we disable a static producer, then messages that previously reached it
+            %% via the dynamic one will now fail.
+            {204, _} = emqx_bridge_v2_testlib:disable_kind_api(action, Type, ActionName1),
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{n => 1}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
+                )
+            ),
+            ?assertEqual(5, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(3, emqx_resource_metrics:failed_get(ActionId3)),
+
+            %% After reenabling it, it should recover.
+            {204, _} = emqx_bridge_v2_testlib:enable_kind_api(action, Type, ActionName1),
+            Offset3 = resolve_kafka_offset(Topic1),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 1, p => <<"p3">>}), [{qos, 1}]),
+            check_kafka_message_payload(Topic1, Offset3, <<"p3">>),
+
+            ?assertEqual(0, emqx_resource_metrics:matched_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:success_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId1)),
+
+            ?assertEqual(6, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(3, emqx_resource_metrics:success_get(ActionId3)),
+            ?assertEqual(3, emqx_resource_metrics:failed_get(ActionId3)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId3)),
+
+            %% If the static producer is unhealthy (i.e.: the topic does not exist),
+            %% messages forwarded to it will be dropped.
+            delete_kafka_topic(Topic1),
+            ?retry(500, 10, ?assertStatusAPI(Type, ActionName1, <<"disconnected">>)),
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{n => 1}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
+                )
+            ),
+            ?assertEqual(7, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(4, emqx_resource_metrics:failed_get(ActionId3)),
+
+            %% Recover
+            ensure_kafka_topic(Topic1),
+            ?retry(500, 10, ?assertStatusAPI(Type, ActionName1, <<"connected">>)),
+            Offset4 = resolve_kafka_offset(Topic1),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 1, p => <<"p4">>}), [{qos, 1}]),
+            check_kafka_message_payload(Topic1, Offset4, <<"p4">>),
+
+            ?assertEqual(0, emqx_resource_metrics:matched_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:success_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId1)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId1)),
+
+            ?assertEqual(8, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(4, emqx_resource_metrics:success_get(ActionId3)),
+            ?assertEqual(4, emqx_resource_metrics:failed_get(ActionId3)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId3)),
+
+            %% If we remove a static producer, then messages that previously reached it
+            %% via the dynamic one will now fail.
+            {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, Type, ActionName1),
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{n => 1}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
+                )
+            ),
+            ?assertEqual(9, emqx_resource_metrics:matched_get(ActionId3)),
+            ?assertEqual(5, emqx_resource_metrics:failed_get(ActionId3)),
+
+            ok
+        end,
+        []
     ),
     ok.

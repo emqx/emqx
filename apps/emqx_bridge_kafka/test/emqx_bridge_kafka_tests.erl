@@ -204,6 +204,58 @@ test_keepalive_validation(Name, Conf) ->
         [?_assertThrow(_, check(C)) || C <- InvalidConfs] ++
         [?_assertThrow(_, check_atom_key(C)) || C <- InvalidConfs].
 
+%% assert compatibility
+bridge_schema_json_test() ->
+    JSON = iolist_to_binary(emqx_dashboard_schema_api:bridge_schema_json()),
+    Map = emqx_utils_json:decode(JSON),
+    Path = [<<"components">>, <<"schemas">>, <<"bridge_kafka.post_producer">>, <<"properties">>],
+    ?assertMatch(#{<<"kafka">> := _}, emqx_utils_maps:deep_get(Path, Map)).
+
+%% If type = static, then topic name must not contain any placeholders.
+topic_template_and_producer_type_validation_test_() ->
+    Name = <<"myaction">>,
+    Config0 = emqx_bridge_v2_kafka_producer_SUITE:action_config(<<"myconnector">>),
+    Check = fun(Type, Parameters) ->
+        Conf = maps:put(<<"parameters">>, Parameters, Config0),
+        emqx_bridge_v2_testlib:parse_and_check(action, Type, Name, Conf)
+    end,
+    Title = fun(Tag, Type) -> iolist_to_binary([Tag, " : ", Type]) end,
+    lists:flatten([
+        [
+            {
+                Title("static with placeholders", Type),
+                ?_assertThrow(
+                    {_SchemaMod, [
+                        #{
+                            reason := <<"static producers do not support topic templates">>,
+                            kind := validation_error
+                        }
+                    ]},
+                    Check(Type, #{<<"type">> => <<"static">>, <<"topic">> => <<"t-${.payload.t}">>})
+                )
+            },
+            {
+                Title("dynamic with placeholders", Type),
+                ?_assertMatch(
+                    #{},
+                    Check(Type, #{<<"type">> => <<"dynamic">>, <<"topic">> => <<"t-${.payload.t}">>})
+                )
+            },
+            {
+                Title("dynamic without placeholders", Type),
+                ?_assertMatch(
+                    #{},
+                    Check(Type, #{<<"type">> => <<"dynamic">>, <<"topic">> => <<"t-static">>})
+                )
+            }
+        ]
+     || Type <- [
+            <<"kafka_producer">>,
+            <<"confluent_producer">>,
+            <<"azure_event_hub_producer">>
+        ]
+    ]).
+
 %%===========================================================================
 %% Helper functions
 %%===========================================================================
@@ -354,10 +406,3 @@ kafka_consumer_hocon() ->
     "\n     health_check_interval = 10s"
     "\n   }"
     "\n }".
-
-%% assert compatibility
-bridge_schema_json_test() ->
-    JSON = iolist_to_binary(emqx_dashboard_schema_api:bridge_schema_json()),
-    Map = emqx_utils_json:decode(JSON),
-    Path = [<<"components">>, <<"schemas">>, <<"bridge_kafka.post_producer">>, <<"properties">>],
-    ?assertMatch(#{<<"kafka">> := _}, emqx_utils_maps:deep_get(Path, Map)).

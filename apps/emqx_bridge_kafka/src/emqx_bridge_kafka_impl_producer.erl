@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_producer).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_resource).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -91,7 +93,8 @@ on_start(InstId, Config) ->
         ok ->
             {ok, #{
                 client_id => ClientId,
-                installed_bridge_v2s => #{}
+                installed_bridge_v2s => #{},
+                topic_index => #{}
             }};
         {error, {find_client, Reason}} ->
             %% Race condition?  Crash?  We just checked it with `ensure_client'...
@@ -114,17 +117,21 @@ on_add_channel(
         InstId, BridgeV2Id, ClientId, BridgeV2Config
     ),
     NewInstalledBridgeV2s = maps:put(BridgeV2Id, BridgeV2State, InstalledBridgeV2s),
+    TopicIndex = reindex_actions_by_topic(NewInstalledBridgeV2s),
     %% Update state
-    NewState = OldState#{installed_bridge_v2s => NewInstalledBridgeV2s},
+    NewState = OldState#{
+        installed_bridge_v2s => NewInstalledBridgeV2s,
+        topic_index => TopicIndex
+    },
     {ok, NewState}.
 
 create_producers_for_bridge_v2(
-    InstId,
-    BridgeV2Id,
+    ConnResId,
+    ActionResId,
     ClientId,
     #{
         bridge_type := BridgeType,
-        parameters := KafkaConfig
+        parameters := #{type := static} = KafkaConfig
     }
 ) ->
     #{
@@ -136,33 +143,36 @@ create_producers_for_bridge_v2(
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
     MaxPartitions = maps:get(partitions_limit, KafkaConfig, all_partitions),
-    #{name := BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
-    TestIdStart = string:find(BridgeV2Id, ?TEST_ID_PREFIX),
+    #{name := BridgeName} = emqx_bridge_v2:parse_id(ActionResId),
+    TestIdStart = string:find(ActionResId, ?TEST_ID_PREFIX),
     IsDryRun =
         case TestIdStart of
             nomatch ->
                 false;
             _ ->
-                string:equal(TestIdStart, InstId)
+                string:equal(TestIdStart, ConnResId)
         end,
     ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
     WolffProducerConfig = producers_config(
-        BridgeType, BridgeName, KafkaConfig, IsDryRun, BridgeV2Id
+        BridgeType, BridgeName, KafkaConfig, IsDryRun, ActionResId
     ),
     case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
         {ok, Producers} ->
-            ok = emqx_resource:allocate_resource(InstId, {?kafka_producers, BridgeV2Id}, Producers),
             ok = emqx_resource:allocate_resource(
-                InstId, {?kafka_telemetry_id, BridgeV2Id}, BridgeV2Id
+                ConnResId, {?kafka_producers, ActionResId}, Producers
             ),
-            _ = maybe_install_wolff_telemetry_handlers(BridgeV2Id),
+            ok = emqx_resource:allocate_resource(
+                ConnResId, {?kafka_telemetry_id, ActionResId}, ActionResId
+            ),
+            _ = maybe_install_wolff_telemetry_handlers(ActionResId),
             {ok, #{
+                type => static,
                 message_template => compile_message_template(MessageTemplate),
                 kafka_client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 producers => Producers,
-                resource_id => BridgeV2Id,
-                connector_resource_id => InstId,
+                resource_id => ActionResId,
+                connector_resource_id => ConnResId,
                 sync_query_timeout => SyncQueryTimeout,
                 kafka_config => KafkaConfig,
                 headers_tokens => KafkaHeadersTokens,
@@ -173,7 +183,7 @@ create_producers_for_bridge_v2(
         {error, Reason2} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_producer",
-                instance_id => InstId,
+                instance_id => ConnResId,
                 kafka_client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 reason => Reason2
@@ -182,7 +192,21 @@ create_producers_for_bridge_v2(
                 "Failed to start Kafka client. Please check the logs for errors and check"
                 " the connection parameters."
             )
-    end.
+    end;
+create_producers_for_bridge_v2(
+    _ConnResId,
+    _ActionResId,
+    _ClientId,
+    #{
+        parameters := #{type := dynamic} = KafkaConfig
+    }
+) ->
+    #{topic := KafkaTopicTemplateStr} = KafkaConfig,
+    KafkaTopicTemplate = preproc_topic(KafkaTopicTemplateStr),
+    {ok, #{
+        type => dynamic,
+        kafka_topic => KafkaTopicTemplate
+    }}.
 
 on_stop(InstanceId, _State) ->
     AllocatedResources = emqx_resource:get_allocated_resources(InstanceId),
@@ -291,65 +315,26 @@ on_remove_channel(
 ) ->
     ok = remove_producers_for_bridge_v2(InstId, BridgeV2Id),
     NewInstalledBridgeV2s = maps:remove(BridgeV2Id, InstalledBridgeV2s),
+    TopicIndex = reindex_actions_by_topic(NewInstalledBridgeV2s),
     %% Update state
-    NewState = OldState#{installed_bridge_v2s => NewInstalledBridgeV2s},
+    NewState = OldState#{
+        installed_bridge_v2s := NewInstalledBridgeV2s,
+        topic_index := TopicIndex
+    },
     {ok, NewState}.
 
 on_query(
     InstId,
     {MessageTag, Message},
-    #{installed_bridge_v2s := BridgeV2Configs} = _ConnectorState
+    #{installed_bridge_v2s := BridgeV2Configs} = ConnState
 ) ->
-    #{
-        message_template := Template,
-        producers := Producers,
-        sync_query_timeout := SyncTimeout,
-        headers_tokens := KafkaHeadersTokens,
-        ext_headers_tokens := KafkaExtHeadersTokens,
-        headers_val_encode_mode := KafkaHeadersValEncodeMode
-    } = maps:get(MessageTag, BridgeV2Configs),
-    KafkaHeaders = #{
-        headers_tokens => KafkaHeadersTokens,
-        ext_headers_tokens => KafkaExtHeadersTokens,
-        headers_val_encode_mode => KafkaHeadersValEncodeMode
-    },
-    try
-        KafkaMessage = render_message(Template, KafkaHeaders, Message),
-        ?tp(
-            emqx_bridge_kafka_impl_producer_sync_query,
-            #{headers_config => KafkaHeaders, instance_id => InstId}
-        ),
-        emqx_trace:rendered_action_template(MessageTag, #{
-            message => KafkaMessage
-        }),
-        do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
-    catch
-        error:{invalid_partition_count, Count, _Partitioner} ->
-            ?tp("kafka_producer_invalid_partition_count", #{
-                action_id => MessageTag,
-                query_mode => sync
-            }),
-            {error, {unrecoverable_error, {invalid_partition_count, Count}}};
-        throw:{bad_kafka_header, _} = Error ->
-            ?tp(
-                emqx_bridge_kafka_impl_producer_sync_query_failed,
-                #{
-                    headers_config => KafkaHeaders,
-                    instance_id => InstId,
-                    reason => Error
-                }
-            ),
-            {error, {unrecoverable_error, Error}};
-        throw:{bad_kafka_headers, _} = Error ->
-            ?tp(
-                emqx_bridge_kafka_impl_producer_sync_query_failed,
-                #{
-                    headers_config => KafkaHeaders,
-                    instance_id => InstId,
-                    reason => Error
-                }
-            ),
-            {error, {unrecoverable_error, Error}}
+    case maps:find(MessageTag, BridgeV2Configs) of
+        {ok, #{type := static} = ActionState} ->
+            static_on_query_sync(InstId, MessageTag, Message, ActionState);
+        {ok, #{type := dynamic} = ActionState} ->
+            dynamic_on_query_sync(InstId, Message, ActionState, ConnState);
+        error ->
+            {error, {unrecoverable_error, {bad_channel_id, MessageTag}}}
     end.
 
 on_get_channels(ResId) ->
@@ -362,60 +347,20 @@ on_get_channels(ResId) ->
 %% E.g. the output of rule-engine process chain
 %% or the direct mapping from an MQTT message.
 on_query_async(
-    InstId,
-    {MessageTag, Message},
-    AsyncReplyFn,
-    #{installed_bridge_v2s := BridgeV2Configs} = _ConnectorState
+    ConnResId,
+    {ActionResId, Message},
+    ReplyFnAndArgs,
+    #{installed_bridge_v2s := BridgeV2Configs} = ConnState
 ) ->
-    #{
-        message_template := Template,
-        producers := Producers,
-        headers_tokens := KafkaHeadersTokens,
-        ext_headers_tokens := KafkaExtHeadersTokens,
-        headers_val_encode_mode := KafkaHeadersValEncodeMode
-    } = maps:get(MessageTag, BridgeV2Configs),
-    KafkaHeaders = #{
-        headers_tokens => KafkaHeadersTokens,
-        ext_headers_tokens => KafkaExtHeadersTokens,
-        headers_val_encode_mode => KafkaHeadersValEncodeMode
-    },
-    try
-        KafkaMessage = render_message(Template, KafkaHeaders, Message),
-        ?tp(
-            emqx_bridge_kafka_impl_producer_async_query,
-            #{headers_config => KafkaHeaders, instance_id => InstId}
-        ),
-        emqx_trace:rendered_action_template(MessageTag, #{
-            message => KafkaMessage
-        }),
-        do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
-    catch
-        error:{invalid_partition_count, Count, _Partitioner} ->
-            ?tp("kafka_producer_invalid_partition_count", #{
-                action_id => MessageTag,
-                query_mode => async
-            }),
-            {error, {unrecoverable_error, {invalid_partition_count, Count}}};
-        throw:{bad_kafka_header, _} = Error ->
-            ?tp(
-                emqx_bridge_kafka_impl_producer_async_query_failed,
-                #{
-                    headers_config => KafkaHeaders,
-                    instance_id => InstId,
-                    reason => Error
-                }
-            ),
-            {error, {unrecoverable_error, Error}};
-        throw:{bad_kafka_headers, _} = Error ->
-            ?tp(
-                emqx_bridge_kafka_impl_producer_async_query_failed,
-                #{
-                    headers_config => KafkaHeaders,
-                    instance_id => InstId,
-                    reason => Error
-                }
-            ),
-            {error, {unrecoverable_error, Error}}
+    case maps:find(ActionResId, BridgeV2Configs) of
+        {ok, #{type := static} = ActionState} ->
+            static_on_query_async(ConnResId, ActionResId, Message, ReplyFnAndArgs, ActionState);
+        {ok, #{type := dynamic} = ActionState} ->
+            dynamic_on_query_async(
+                ConnResId, Message, ReplyFnAndArgs, ActionState, ConnState
+            );
+        error ->
+            {error, {unrecoverable_error, {bad_channel_id, ActionResId}}}
     end.
 
 compile_message_template(T) ->
@@ -430,6 +375,17 @@ compile_message_template(T) ->
 
 preproc_tmpl(Tmpl) ->
     emqx_placeholder:preproc_tmpl(Tmpl).
+
+preproc_topic(Topic) ->
+    emqx_template:parse(Topic).
+
+render_topic(Template, Message) ->
+    try
+        {ok, iolist_to_binary(emqx_template:render_strict(Template, Message))}
+    catch
+        error:_Errors ->
+            {error, bad_topic}
+    end.
 
 render_message(
     #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate},
@@ -471,6 +427,168 @@ render_timestamp(Template, Message) ->
         _:_ ->
             erlang:system_time(millisecond)
     end.
+
+fetch_action_state(TopicIndex, Topic) ->
+    case maps:find(Topic, TopicIndex) of
+        {ok, State} ->
+            {ok, State};
+        error ->
+            {error, {unknown_topic, Topic}}
+    end.
+
+dynamic_on_query_sync(ConnResId, Message, ActionState, ConnState) ->
+    #{topic_index := TopicIndex, installed_bridge_v2s := ActionStates} = ConnState,
+    #{kafka_topic := Template} = ActionState,
+    maybe
+        {ok, Topic} ?= render_topic(Template, Message),
+        {ok, TargetActionResId} ?= fetch_action_state(TopicIndex, Topic),
+        TargetActionState = maps:get(TargetActionResId, ActionStates),
+        static_on_query_sync(ConnResId, TargetActionResId, Message, TargetActionState)
+    else
+        {error, bad_topic} ->
+            ?tp("kafka_producer_failed_to_render_topic", #{}),
+            {error, {unrecoverable_error, failed_to_render_topic}};
+        {error, {unknown_topic, RenderedTopic}} ->
+            ?tp("kafka_producer_resolved_to_unknown_topic", #{}),
+            {error, {unrecoverable_error, {resolved_to_unknown_topic, RenderedTopic}}}
+    end.
+
+static_on_query_sync(ConnResId, ActionResId, Message, ActionState) ->
+    #{
+        message_template := Template,
+        producers := Producers,
+        sync_query_timeout := SyncTimeout,
+        headers_tokens := KafkaHeadersTokens,
+        ext_headers_tokens := KafkaExtHeadersTokens,
+        headers_val_encode_mode := KafkaHeadersValEncodeMode
+    } = ActionState,
+    KafkaHeaders = #{
+        headers_tokens => KafkaHeadersTokens,
+        ext_headers_tokens => KafkaExtHeadersTokens,
+        headers_val_encode_mode => KafkaHeadersValEncodeMode
+    },
+    try
+        KafkaMessage = render_message(Template, KafkaHeaders, Message),
+        ?tp(
+            emqx_bridge_kafka_impl_producer_sync_query,
+            #{headers_config => KafkaHeaders, instance_id => ConnResId}
+        ),
+        emqx_trace:rendered_action_template(ActionResId, #{
+            message => KafkaMessage
+        }),
+        do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
+    catch
+        error:{invalid_partition_count, Count, _Partitioner} ->
+            ?tp("kafka_producer_invalid_partition_count", #{
+                action_id => ActionResId,
+                query_mode => sync
+            }),
+            {error, {unrecoverable_error, {invalid_partition_count, Count}}};
+        throw:{bad_kafka_header, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_sync_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => ConnResId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}};
+        throw:{bad_kafka_headers, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_sync_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => ConnResId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}}
+    end.
+
+dynamic_on_query_async(ConnResId, Message, ReplyFnAndArgs, ActionState, ConnState) ->
+    #{topic_index := TopicIndex, installed_bridge_v2s := ActionStates} = ConnState,
+    #{kafka_topic := Template} = ActionState,
+    maybe
+        {ok, Topic} ?= render_topic(Template, Message),
+        {ok, TargetActionResId} ?= fetch_action_state(TopicIndex, Topic),
+        TargetActionState = maps:get(TargetActionResId, ActionStates),
+        static_on_query_async(
+            ConnResId, TargetActionResId, Message, ReplyFnAndArgs, TargetActionState
+        )
+    else
+        {error, bad_topic} ->
+            ?tp("kafka_producer_failed_to_render_topic", #{}),
+            {error, {unrecoverable_error, failed_to_render_topic}};
+        {error, {unknown_topic, RenderedTopic}} ->
+            ?tp("kafka_producer_resolved_to_unknown_topic", #{}),
+            {error, {unrecoverable_error, {resolved_to_unknown_topic, RenderedTopic}}}
+    end.
+
+static_on_query_async(ConnResId, ActionResId, Message, ReplyFnAndArgs, ActionState) ->
+    #{
+        message_template := Template,
+        producers := Producers,
+        headers_tokens := KafkaHeadersTokens,
+        ext_headers_tokens := KafkaExtHeadersTokens,
+        headers_val_encode_mode := KafkaHeadersValEncodeMode
+    } = ActionState,
+    KafkaHeaders = #{
+        headers_tokens => KafkaHeadersTokens,
+        ext_headers_tokens => KafkaExtHeadersTokens,
+        headers_val_encode_mode => KafkaHeadersValEncodeMode
+    },
+    try
+        KafkaMessage = render_message(Template, KafkaHeaders, Message),
+        ?tp(
+            emqx_bridge_kafka_impl_producer_async_query,
+            #{headers_config => KafkaHeaders, instance_id => ConnResId}
+        ),
+        emqx_trace:rendered_action_template(ActionResId, #{
+            message => KafkaMessage
+        }),
+        do_send_msg(async, KafkaMessage, Producers, ReplyFnAndArgs)
+    catch
+        error:{invalid_partition_count, Count, _Partitioner} ->
+            ?tp("kafka_producer_invalid_partition_count", #{
+                action_id => ActionResId,
+                query_mode => async
+            }),
+            {error, {unrecoverable_error, {invalid_partition_count, Count}}};
+        throw:{bad_kafka_header, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_async_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => ConnResId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}};
+        throw:{bad_kafka_headers, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_async_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => ConnResId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}}
+    end.
+
+reindex_actions_by_topic(ActionStates) ->
+    maps:fold(
+        fun
+            (ActionResId, #{type := static, kafka_topic := Topic}, Acc) ->
+                %% TODO: what to do if multiple actions target the same topic?
+                Acc#{bin(Topic) => ActionResId};
+            (_ActionResId, #{type := _}, Acc) ->
+                Acc
+        end,
+        #{},
+        ActionStates
+    ).
 
 do_send_msg(sync, KafkaMessage, Producers, SyncTimeout) ->
     try
@@ -542,15 +660,21 @@ on_get_channel_status(
     %% `?status_disconnected' will make resource manager try to restart the producers /
     %% connector, thus potentially dropping data held in wolff producer's replayq.  The
     %% only exception is if the topic does not exist ("unhealthy target").
-    #{kafka_topic := KafkaTopic, partitions_limit := MaxPartitions} = maps:get(ChannelId, Channels),
-    try
-        ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
-        ?status_connected
-    catch
-        throw:{unhealthy_target, Msg} ->
-            throw({unhealthy_target, Msg});
-        K:E ->
-            {?status_connecting, {K, E}}
+    case maps:find(ChannelId, Channels) of
+        {ok, #{type := static, kafka_topic := KafkaTopic, partitions_limit := MaxPartitions}} ->
+            try
+                ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
+                ?status_connected
+            catch
+                throw:{unhealthy_target, Msg} ->
+                    throw({unhealthy_target, Msg});
+                K:E ->
+                    {?status_connecting, {K, E}}
+            end;
+        {ok, #{type := dynamic}} ->
+            ?status_connected;
+        error ->
+            ?status_disconnected
     end.
 
 check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions) ->

@@ -108,7 +108,13 @@ fields(ssl_client_opts) ->
 fields(producer_kafka_opts) ->
     Fields = override(
         emqx_bridge_kafka:fields(producer_kafka_opts),
-        kafka_producer_overrides()
+        static_kafka_producer_overrides()
+    ),
+    override_documentations(Fields);
+fields(dynamic_producer_kafka_opts) ->
+    Fields = override(
+        emqx_bridge_kafka:fields(dynamic_producer_kafka_opts),
+        dynamic_kafka_producer_overrides()
     ),
     override_documentations(Fields);
 fields(kafka_message) ->
@@ -165,6 +171,7 @@ struct_names() ->
         auth_username_password,
         kafka_message,
         producer_kafka_opts,
+        dynamic_producer_kafka_opts,
         actions,
         ssl_client_opts
     ].
@@ -424,10 +431,20 @@ producer_overrides() ->
 bridge_v2_overrides() ->
     #{
         parameters =>
-            mk(ref(producer_kafka_opts), #{
-                required => true,
-                validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
-            }),
+            mk(
+                mkunion(
+                    type,
+                    #{
+                        <<"static">> => ref(producer_kafka_opts),
+                        <<"dynamic">> => ref(dynamic_producer_kafka_opts)
+                    },
+                    <<"static">>
+                ),
+                #{
+                    required => true,
+                    validator => fun emqx_bridge_kafka:producer_parameters_validation/1
+                }
+            ),
         ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
         type => mk(
             ?CONNECTOR_TYPE,
@@ -460,7 +477,7 @@ ssl_overrides() ->
         "enable" => mk(true, #{default => true})
     }.
 
-kafka_producer_overrides() ->
+static_kafka_producer_overrides() ->
     #{
         compression =>
             mk(no_compression, #{
@@ -470,6 +487,9 @@ kafka_producer_overrides() ->
         message => mk(ref(kafka_message), #{}),
         required_acks => mk(enum([all_isr, leader_only]), #{default => all_isr})
     }.
+
+dynamic_kafka_producer_overrides() ->
+    #{}.
 
 override_documentations(Fields) ->
     lists:map(
@@ -514,3 +534,23 @@ producer_converter(Opts, _HoconOpts) ->
 
 host_opts() ->
     #{default_port => 9093}.
+
+mkunion(Field, Schemas, Default) ->
+    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Default, Arg) end).
+
+scunion(_Field, Schemas, _Default, all_union_members) ->
+    maps:values(Schemas);
+scunion(Field, Schemas, Default, {value, Value}) ->
+    Selector =
+        case maps:get(emqx_utils_conv:bin(Field), Value, undefined) of
+            undefined ->
+                Default;
+            X ->
+                emqx_utils_conv:bin(X)
+        end,
+    case maps:find(Selector, Schemas) of
+        {ok, Schema} ->
+            [Schema];
+        _Error ->
+            throw(#{field_name => Field, expected => maps:keys(Schemas)})
+    end.

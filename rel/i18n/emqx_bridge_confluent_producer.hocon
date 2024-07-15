@@ -1,5 +1,15 @@
 emqx_bridge_confluent_producer {
 
+producer_type.label:
+"""Producer Type"""
+producer_type.desc:
+"""~The type of Kafka Producer this represents.
+<ul>
+<li>`static`: Topic names are fixed.</li>
+<li>`dynamic`: Topic are templates and must resolve to topics configured in some static producer.</li>
+</ul>
+~"""
+
 connect_timeout.desc:
 """Maximum wait time for TCP connection establishment (including authentication time if enabled)."""
 
@@ -62,6 +72,16 @@ desc_name.desc:
 desc_name.label:
 """Action Name"""
 
+dynamic_producer_kafka_opts.label:
+"""Dynamic Confluent Producer"""
+dynamic_producer_kafka_opts.desc:
+"""Dynamic Confluent producer configs."""
+
+kafka_topic_template.label:
+"""Kafka Topic Template"""
+kafka_topic_template.desc:
+"""Kafka topic template (e.g.: `t-${.payload.t}`).  If this fails to resolve to a value given the input message, or if it resolves to a topic that does not correspond to any existing static producers, the message will be dropped."""
+
 producer_kafka_opts.desc:
 """Confluent producer configs."""
 
@@ -69,10 +89,10 @@ producer_kafka_opts.label:
 """Confluent Producer"""
 
 kafka_topic.desc:
-"""Event Hub name"""
+"""Topic name"""
 
 kafka_topic.label:
-"""Event Hub Name"""
+"""Topic Name"""
 
 kafka_message_timestamp.desc:
 """Which timestamp to use. The timestamp is expected to be a millisecond precision Unix epoch which can be in string format, e.g. <code>1661326462115</code> or <code>'1661326462115'</code>. When the desired data field for this template is not found, or if the found data is not a valid integer, the current system timestamp will be used."""

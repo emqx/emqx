@@ -1,5 +1,15 @@
 emqx_bridge_azure_event_hub {
 
+producer_type.label:
+"""Producer Type"""
+producer_type.desc:
+"""~The type of Azure Event Hub Producer this represents.
+<ul>
+<li>`static`: Event Hub names are fixed.</li>
+<li>`dynamic`: Event Hub are templates and must resolve to event hubs configured in some static producer.</li>
+</ul>
+~"""
+
 connect_timeout.desc:
 """Maximum wait time for TCP connection establishment (including authentication time if enabled)."""
 
@@ -61,6 +71,16 @@ desc_name.desc:
 
 desc_name.label:
 """Bridge Name"""
+
+dynamic_producer_kafka_opts.label:
+"""Dynamic Azure Event Hubs Producer"""
+dynamic_producer_kafka_opts.desc:
+"""Dynamic Azure Event Hubs producer configs."""
+
+kafka_topic_template.label:
+"""Event Hub Name Template"""
+kafka_topic_template.desc:
+"""Event Hub name template (e.g.: `t-${.payload.t}`).  If this fails to resolve to a value given the input message, or if it resolves to an event hub name that does not correspond to any existing static producers, the message will be dropped."""
 
 producer_kafka_opts.desc:
 """Azure Event Hubs producer configs."""
