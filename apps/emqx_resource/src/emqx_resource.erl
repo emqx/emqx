@@ -340,7 +340,7 @@ remove_local(ResId) ->
         Error ->
             %% Only log, the ResId worker is always removed in manager's remove action.
             ?SLOG(warning, #{
-                msg => "remove_local_resource_failed",
+                msg => "remove_resource_failed",
                 error => Error,
                 resource_id => ResId
             }),

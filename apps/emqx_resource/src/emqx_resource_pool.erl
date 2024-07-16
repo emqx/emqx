@@ -26,6 +26,7 @@
 ]).
 
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_resource.hrl").
 
 -ifndef(TEST).
 -define(HEALTH_CHECK_TIMEOUT, 15000).
@@ -44,9 +45,10 @@ start(Name, Mod, Options) ->
             start(Name, Mod, Options);
         {error, Reason} ->
             NReason = parse_reason(Reason),
-            ?SLOG(error, #{
+            IsDryRun = emqx_resource:is_dry_run(Name),
+            ?SLOG(?LOG_LEVEL(IsDryRun), #{
                 msg => "start_ecpool_error",
-                pool_name => Name,
+                resource_id => Name,
                 reason => NReason
             }),
             {error, {start_pool_failed, Name, NReason}}
@@ -59,9 +61,10 @@ stop(Name) ->
         {error, not_found} ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{
+            IsDryRun = emqx_resource:is_dry_run(Name),
+            ?SLOG(?LOG_LEVEL(IsDryRun), #{
                 msg => "stop_ecpool_failed",
-                pool_name => Name,
+                resource_id => Name,
                 reason => Reason
             }),
             error({stop_pool_failed, Name, Reason})

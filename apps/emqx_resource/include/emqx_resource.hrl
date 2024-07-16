@@ -159,5 +159,6 @@
 %% See `hocon_tconf`
 -define(TEST_ID_PREFIX, "t_probe_").
 -define(RES_METRICS, resource_metrics).
+-define(LOG_LEVEL(_L_), case _L_ of true -> info; false -> warning end).
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
