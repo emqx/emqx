@@ -1,0 +1,44 @@
+emqx_bridge_couchbase_connector_schema {
+  config_connector.label:
+  """Couchbase Connector Configuration"""
+  config_connector.desc:
+  """Configuration for a connector to Couchbase service."""
+
+  username.label:
+  """Username"""
+  username.desc:
+  """Username for Couchbase service."""
+
+  password.label:
+  """Password"""
+  password.desc:
+  """Password for Couchbase service."""
+
+  password.label:
+  """Password"""
+  password.desc:
+  """Password for Couchbase service."""
+
+  server.label:
+  """Server Host"""
+  server.desc:
+  """The IPv4 or IPv6 address or the hostname to connect to.<br/>
+  A host entry has the following form: `Host[:Port]`.<br/>
+  The Couchbase default query service port 8093 is used if `[:Port]` is not specified."""
+
+  pipelining.label:
+  """HTTP Pipelining"""
+  pipelining.desc:
+  """A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
+
+  connect_timeout.label:
+  """Connect Timeout"""
+  connect_timeout.desc:
+  """The timeout when connecting to the HTTP server."""
+
+  pool_size.label:
+  """Pool Size"""
+  pool_size.desc:
+  """The pool size."""
+
+}

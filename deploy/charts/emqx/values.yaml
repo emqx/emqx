@@ -230,6 +230,19 @@ ingress:
     hosts:
     - mqtt.emqx.local
     tls: []
+  ws:
+    enabled: false
+    # ingressClassName: haproxy
+    annotations: {}
+      # kubernetes.io/ingress.class: haproxy
+      # kubernetes.io/tls-acme: "true"
+      # haproxy-ingress.github.io/tcp-service-port: "8883"
+      # haproxy-ingress.github.io/proxy-protocol: "v2"
+    path: /mqtt
+    pathType: ImplementationSpecific
+    hosts:
+      - mqtt.emqx.local
+    tls: []
 
 podSecurityContext:
   enabled: true

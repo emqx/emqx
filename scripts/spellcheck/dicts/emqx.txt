@@ -13,6 +13,7 @@ CMD
 CN
 CONNACK
 CoAP
+Couchbase
 CRLs
 Cygwin
 DES

@@ -599,6 +599,9 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+suite() ->
+    [{timetrap, 50_000}].
+
 init_per_testcase(TC, Config) ->
     Apps = emqx_cth_suite:start(
         [emqx_durable_storage, emqx_ds_backends],

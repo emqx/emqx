@@ -121,6 +121,7 @@
             emqx_s3,
             emqx_bridge_s3,
             emqx_bridge_azure_blob_storage,
+            emqx_bridge_couchbase,
             emqx_schema_registry,
             emqx_eviction_agent,
             emqx_node_rebalance,
