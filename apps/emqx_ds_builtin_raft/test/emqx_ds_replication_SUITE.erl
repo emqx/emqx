@@ -51,6 +51,10 @@ appspec(emqx_durable_storage) ->
     {emqx_durable_storage, #{
         before_start => fun snabbkaffe:fix_ct_logging/0,
         override_env => [{egress_flush_interval, 1}]
+    }};
+appspec(emqx_ds_builtin_raft) ->
+    {emqx_ds_builtin_raft, #{
+        after_start => fun() -> logger:set_module_level(ra_server, info) end
     }}.
 
 t_metadata(init, Config) ->
@@ -98,7 +102,7 @@ t_metadata(_Config) ->
     end.
 
 t_replication_transfers_snapshots(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(
         [
             {t_replication_transfers_snapshots1, #{apps => Apps}},
@@ -177,7 +181,7 @@ t_replication_transfers_snapshots(Config) ->
     ).
 
 t_rebalance(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Nodes = emqx_cth_cluster:start(
         [
             {t_rebalance1, #{apps => Apps}},
@@ -310,7 +314,7 @@ t_rebalance(Config) ->
     ).
 
 t_join_leave_errors(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Nodes = emqx_cth_cluster:start(
         [
             {t_join_leave_errors1, #{apps => Apps}},
@@ -385,7 +389,7 @@ t_join_leave_errors(Config) ->
     ).
 
 t_rebalance_chaotic_converges(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Nodes = emqx_cth_cluster:start(
         [
             {t_rebalance_chaotic_converges1, #{apps => Apps}},
@@ -480,7 +484,7 @@ t_rebalance_chaotic_converges(Config) ->
     ).
 
 t_rebalance_offline_restarts(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Specs = emqx_cth_cluster:mk_nodespecs(
         [
             {t_rebalance_offline_restarts1, #{apps => Apps}},
@@ -800,7 +804,7 @@ t_store_batch_fail(Config) ->
     ).
 
 t_crash_restart_recover(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Specs = emqx_cth_cluster:mk_nodespecs(
         [
             {t_crash_stop_recover1, #{apps => Apps}},
