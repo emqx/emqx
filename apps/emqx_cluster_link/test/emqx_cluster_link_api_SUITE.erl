@@ -37,6 +37,8 @@
     "-----END CERTIFICATE-----"
 >>).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -67,10 +69,36 @@ end_per_suite(Config) ->
 auth_header() ->
     emqx_mgmt_api_test_util:auth_header_().
 
+init_per_testcase(t_status = TestCase, Config) ->
+    ok = emqx_cth_suite:stop_apps([emqx_dashboard]),
+    SourceClusterSpec = emqx_cluster_link_SUITE:mk_source_cluster(TestCase, Config),
+    TargetClusterSpec = emqx_cluster_link_SUITE:mk_target_cluster(TestCase, Config),
+    SourceNodes = [SN1 | _] = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    emqx_cluster_link_SUITE:start_cluster_link(SourceNodes ++ TargetNodes, Config),
+    erpc:call(SN1, emqx_cth_suite, start_apps, [
+        [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ]),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ];
 init_per_testcase(_TC, Config) ->
     {ok, _} = emqx_cluster_link_config:update([]),
     Config.
 
+end_per_testcase(t_status, Config) ->
+    SourceNodes = ?config(source_nodes, Config),
+    TargetNodes = ?config(target_nodes, Config),
+    ok = emqx_cth_cluster:stop(SourceNodes),
+    ok = emqx_cth_cluster:stop(TargetNodes),
+    _ = emqx_cth_suite:start_apps(
+        [emqx_mgmt_api_test_util:emqx_dashboard()],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    ok;
 end_per_testcase(_TC, _Config) ->
     ok.
 
@@ -158,6 +186,8 @@ t_put_invalid(_Config) ->
         update_link(Name, maps:remove(<<"server">>, link_params()))
     ).
 
+%% Tests a sequence of CRUD operations and their expected responses, for common use cases
+%% and configuration states.
 t_crud(_Config) ->
     %% No links initially.
     ?assertMatch({200, []}, list()),
@@ -167,18 +197,192 @@ t_crud(_Config) ->
     ?assertMatch({404, _}, update_link(NameA, link_params())),
 
     Params1 = link_params(),
-    ?assertMatch({201, #{<<"name">> := NameA}}, create_link(NameA, Params1)),
+    ?assertMatch(
+        {201, #{
+            <<"name">> := NameA,
+            <<"status">> := _,
+            <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
+        }},
+        create_link(NameA, Params1)
+    ),
     ?assertMatch({400, #{<<"code">> := <<"ALREADY_EXISTS">>}}, create_link(NameA, Params1)),
-    ?assertMatch({200, [#{<<"name">> := NameA}]}, list()),
-    ?assertMatch({200, #{<<"name">> := NameA}}, get_link(NameA)),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"name">> := NameA,
+                <<"status">> := _,
+                <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
+            }
+        ]},
+        list()
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"name">> := NameA,
+            <<"status">> := _,
+            <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
+        }},
+        get_link(NameA)
+    ),
 
     Params2 = Params1#{<<"pool_size">> := 2},
-    ?assertMatch({200, #{<<"name">> := NameA}}, update_link(NameA, Params2)),
+    ?assertMatch(
+        {200, #{
+            <<"name">> := NameA,
+            <<"status">> := _,
+            <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
+        }},
+        update_link(NameA, Params2)
+    ),
 
     ?assertMatch({204, _}, delete_link(NameA)),
     ?assertMatch({404, _}, delete_link(NameA)),
     ?assertMatch({404, _}, get_link(NameA)),
     ?assertMatch({404, _}, update_link(NameA, Params1)),
     ?assertMatch({200, []}, list()),
+
+    ok.
+
+%% Verifies the behavior of reported status under different conditions when listing all
+%% links and when fetching a specific link.
+t_status(Config) ->
+    [SN1 | _] = ?config(source_nodes, Config),
+    Name = <<"cl.target">>,
+    ?assertMatch(
+        {200, [
+            #{
+                <<"status">> := <<"connected">>,
+                <<"node_status">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"connected">>
+                    },
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"connected">>
+                    }
+                ]
+            }
+        ]},
+        list()
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"connected">>,
+            <<"node_status">> := [
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"connected">>
+                },
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"connected">>
+                }
+            ]
+        }},
+        get_link(Name)
+    ),
+
+    %% If one of the nodes reports a different status, the cluster is inconsistent.
+    ProtoMod = emqx_cluster_link_proto_v1,
+    ?ON(SN1, begin
+        ok = meck:new(ProtoMod, [no_link, passthrough, no_history]),
+        meck:expect(ProtoMod, get_all_resources, fun(Nodes) ->
+            [Res1, {ok, Res2A} | Rest] = meck:passthrough([Nodes]),
+            %% Res2A :: #{cluster_name() => emqx_resource:resource_data()}
+            Res2B = maps:map(fun(_, Data) -> Data#{status := disconnected} end, Res2A),
+            [Res1, {ok, Res2B} | Rest]
+        end),
+        meck:expect(ProtoMod, get_resource, fun(Nodes, LinkName) ->
+            [Res1, {ok, {ok, Res2A}} | Rest] = meck:passthrough([Nodes, LinkName]),
+            Res2B = Res2A#{status := disconnected},
+            [Res1, {ok, {ok, Res2B}} | Rest]
+        end)
+    end),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"status">> := <<"inconsistent">>,
+                <<"node_status">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"connected">>
+                    },
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"disconnected">>
+                    }
+                ]
+            }
+        ]},
+        list()
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"inconsistent">>,
+            <<"node_status">> := [
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"connected">>
+                },
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"disconnected">>
+                }
+            ]
+        }},
+        get_link(Name)
+    ),
+
+    %% Simulating erpc failures
+    ?ON(SN1, begin
+        meck:expect(ProtoMod, get_all_resources, fun(Nodes) ->
+            [Res1, _ | Rest] = meck:passthrough([Nodes]),
+            [Res1, {error, {erpc, noconnection}} | Rest]
+        end),
+        meck:expect(ProtoMod, get_resource, fun(Nodes, LinkName) ->
+            [Res1, _ | Rest] = meck:passthrough([Nodes, LinkName]),
+            [Res1, {error, {erpc, noconnection}} | Rest]
+        end)
+    end),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"status">> := <<"inconsistent">>,
+                <<"node_status">> := []
+            }
+        ]},
+        list()
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"inconsistent">>,
+            <<"node_status">> := []
+        }},
+        get_link(Name)
+    ),
+    %% Simulate another inconsistency
+    ?ON(SN1, begin
+        meck:expect(ProtoMod, get_resource, fun(Nodes, LinkName) ->
+            [Res1, _ | Rest] = meck:passthrough([Nodes, LinkName]),
+            [Res1, {ok, {error, not_found}} | Rest]
+        end)
+    end),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"inconsistent">>,
+            <<"node_status">> := [
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"connected">>
+                },
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"disconnected">>
+                }
+            ]
+        }},
+        get_link(Name)
+    ),
 
     ok.

@@ -46,6 +46,16 @@
     forward/2
 ]).
 
+-export([
+    get_all_resources_cluster/0,
+    get_resource_cluster/1
+]).
+%% BpAPI / RPC Targets
+-export([
+    get_resource_local_v1/1,
+    get_all_resources_local_v1/0
+]).
+
 -define(MSG_CLIENTID_SUFFIX, ":msg:").
 
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
@@ -80,6 +90,8 @@
 
 -define(PUB_TIMEOUT, 10_000).
 
+-type cluster_name() :: binary().
+
 -spec ensure_msg_fwd_resource(map()) ->
     {ok, emqx_resource:resource_data() | already_started} | {error, Reason :: term()}.
 ensure_msg_fwd_resource(#{name := Name, resource_opts := ResOpts} = ClusterConf) ->
@@ -89,9 +101,56 @@ ensure_msg_fwd_resource(#{name := Name, resource_opts := ResOpts} = ClusterConf)
     },
     emqx_resource:create_local(?MSG_RES_ID(Name), ?RES_GROUP, ?MODULE, ClusterConf, ResOpts1).
 
--spec remove_msg_fwd_resource(binary() | map()) -> ok | {error, Reason :: term()}.
+-spec remove_msg_fwd_resource(cluster_name()) -> ok | {error, Reason :: term()}.
 remove_msg_fwd_resource(ClusterName) ->
     emqx_resource:remove_local(?MSG_RES_ID(ClusterName)).
+
+-spec get_all_resources_cluster() ->
+    {ok, [{node(), #{cluster_name() => emqx_resource:resource_data()}}]}
+    | {error, [term()]}.
+get_all_resources_cluster() ->
+    Nodes = emqx:running_nodes(),
+    Results = emqx_cluster_link_proto_v1:get_all_resources(Nodes),
+    sequence_multicall_results(Nodes, Results).
+
+-spec get_resource_cluster(cluster_name()) ->
+    {ok, [{node(), {ok, emqx_resource:resource_data()} | {error, not_found}}]}
+    | {error, [term()]}.
+get_resource_cluster(ClusterName) ->
+    Nodes = emqx:running_nodes(),
+    Results = emqx_cluster_link_proto_v1:get_resource(Nodes, ClusterName),
+    sequence_multicall_results(Nodes, Results).
+
+%% RPC Target in `emqx_cluster_link_proto_v1'.
+-spec get_resource_local_v1(cluster_name()) ->
+    {ok, emqx_resource:resource_data()} | {error, not_found}.
+get_resource_local_v1(ClusterName) ->
+    case emqx_resource:get_instance(?MSG_RES_ID(ClusterName)) of
+        {ok, _ResourceGroup, ResourceData} ->
+            {ok, ResourceData};
+        {error, not_found} ->
+            {error, not_found}
+    end.
+
+%% RPC Target in `emqx_cluster_link_proto_v1'.
+-spec get_all_resources_local_v1() -> #{cluster_name() => emqx_resource:resource_data()}.
+get_all_resources_local_v1() ->
+    lists:foldl(
+        fun
+            (?MSG_RES_ID(Name) = Id, Acc) ->
+                case emqx_resource:get_instance(Id) of
+                    {ok, ?RES_GROUP, ResourceData} ->
+                        Acc#{Name => ResourceData};
+                    _ ->
+                        Acc
+                end;
+            (_Id, Acc) ->
+                %% Doesn't follow the naming pattern; manually crafted?
+                Acc
+        end,
+        #{},
+        emqx_resource:list_group_instances(?RES_GROUP)
+    ).
 
 %%--------------------------------------------------------------------
 %% emqx_resource callbacks (message forwarding)
@@ -419,3 +478,16 @@ emqtt_client_opts(ClientIdSuffix, ClusterConf) ->
     #{clientid := BaseClientId} = Opts = emqx_cluster_link_config:mk_emqtt_options(ClusterConf),
     ClientId = emqx_bridge_mqtt_lib:clientid_base([BaseClientId, ClientIdSuffix]),
     Opts#{clientid => ClientId}.
+
+-spec sequence_multicall_results([node()], emqx_rpc:erpc_multicall(term())) ->
+    {ok, [{node(), term()}]} | {error, [term()]}.
+sequence_multicall_results(Nodes, Results) ->
+    case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
+        {OkResults, []} ->
+            {ok, [{Node, Res} || {Node, {ok, Res}} <- OkResults]};
+        {_OkResults, BadResults} ->
+            {error, BadResults}
+    end.
+
+is_ok({_Node, {ok, _}}) -> true;
+is_ok(_) -> false.
