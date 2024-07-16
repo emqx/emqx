@@ -14,7 +14,7 @@
 %% i.e. the _256 part does not start with a-z
 -elvis([
     {elvis_style, atom_naming_convention, #{
-        regex => "^([a-z][a-z0-9]*_?)([a-z0-9]*_?)*$",
+        regex => "(^([a-z][a-z0-9]*_?)([a-z0-9]*_?)*$)|(^$)",
         enclosed_atoms => ".*"
     }}
 ]).
