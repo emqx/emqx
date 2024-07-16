@@ -26,7 +26,8 @@ defmodule EMQXModules.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
-      {:emqx_conf, in_umbrella: true}
+      {:emqx_conf, in_umbrella: true},
+      UMP.common_dep(:observer_cli)
     ]
   end
 end

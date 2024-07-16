@@ -48,6 +48,8 @@ init_per_suite(Conf) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
+            emqx_auth,
+            emqx_auth_mnesia,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
             {emqx_gateway, ?CONF_DEFAULT}

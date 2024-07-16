@@ -40,11 +40,7 @@ defmodule EMQXUmbrella.MixProject do
 
     if new_mix_build?() do
       [
-        # TODO: these lines will be uncommented when we switch to using mix as the manager
-        # for all umbrella apps.
         apps_path: "apps",
-        apps:
-          applications(profile_info.release_type, profile_info.edition_type) |> Keyword.keys(),
         erlc_options: erlc_options(profile_info, version),
         version: version,
         deps: deps(profile_info, version),
@@ -160,7 +156,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:rfc3339),
       common_dep(:bcrypt),
-      {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
+      common_dep(:uuid),
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true}
@@ -169,10 +165,20 @@ defmodule EMQXUmbrella.MixProject do
 
   def extra_release_apps() do
     [
-      {:redbug, github: "emqx/redbug", tag: "2.0.10"},
-      {:observer_cli, "1.7.1"},
-      {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}
+      common_dep(:redbug),
+      common_dep(:observer_cli),
+      common_dep(:system_monitor)
     ]
+  end
+
+  def common_dep(dep_name, overrides) do
+    case common_dep(dep_name) do
+      {^dep_name, opts} ->
+        {dep_name, Keyword.merge(opts, overrides)}
+
+      {^dep_name, tag, opts} when is_binary(tag) ->
+        {dep_name, tag, Keyword.merge(opts, overrides)}
+    end
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true}
@@ -186,7 +192,12 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true}
   def common_dep(:ehttpc), do: {:ehttpc, github: "emqx/ehttpc", tag: "0.4.14", override: true}
   def common_dep(:jiffy), do: {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true}
-  def common_dep(:grpc), do: {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true}
+
+  def common_dep(:grpc),
+    do:
+      {:grpc,
+       github: "emqx/grpc-erl", tag: "0.6.12", override: true, system_env: emqx_app_system_env()}
+
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.5.7", override: true}
@@ -206,6 +217,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
   def common_dep(:esasl), do: {:esasl, github: "emqx/esasl", tag: "0.2.1"}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true}
+
+  def common_dep(:system_monitor),
+    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}
+
+  def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
+  def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
+  def common_dep(:observer_cli), do: {:observer_cli, "1.7.1"}
 
   def common_dep(:jose),
     do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
@@ -252,7 +270,7 @@ defmodule EMQXUmbrella.MixProject do
       github: "kafka4beam/snabbkaffe",
       tag: "1.0.10",
       override: true,
-      system_env: emqx_app_system_env(profile_info(), pkg_vsn())
+      system_env: emqx_app_system_env()
     }
 
   ###############################################################################################
@@ -293,6 +311,7 @@ defmodule EMQXUmbrella.MixProject do
           false
       end
     end)
+    |> Enum.reject(fn {app, _} -> app == :emqx_mix_utils end)
     |> Enum.reject(fn {app, _} -> app in excluded_apps end)
   end
 
@@ -416,15 +435,23 @@ defmodule EMQXUmbrella.MixProject do
     )
   end
 
-  ###############################################################################################
-  # END DEPRECATED FOR MIX BLOCK
-  ###############################################################################################
-
   def emqx_app_system_env(profile_info, version) do
     erlc_options(profile_info, version)
     |> dump_as_erl()
     |> then(&[{"ERL_COMPILER_OPTIONS", &1}])
   end
+
+  def emqx_app_system_env() do
+    k = {__MODULE__, :emqx_app_system_env}
+
+    get_memoized(k, fn ->
+      emqx_app_system_env(profile_info(), pkg_vsn())
+    end)
+  end
+
+  ###############################################################################################
+  # END DEPRECATED FOR MIX BLOCK
+  ###############################################################################################
 
   defp erlc_options(%{edition_type: edition_type}, version) do
     [
@@ -542,6 +569,7 @@ defmodule EMQXUmbrella.MixProject do
         } = check_profile!()
 
         base_steps = [
+          &merge_config/1,
           &make_docs/1,
           :assemble,
           &create_RELEASES/1,
@@ -779,6 +807,12 @@ defmodule EMQXUmbrella.MixProject do
   #############################################################################
   #  Custom Steps
   #############################################################################
+
+  # Gathers i18n files and merge them before producing docs and schemas.
+  defp merge_config(release) do
+    {_, 0} = System.cmd("bash", ["-c", "./scripts/merge-config.escript"])
+    release
+  end
 
   defp make_docs(release) do
     profile = System.get_env("MIX_ENV")
@@ -1104,7 +1138,7 @@ defmodule EMQXUmbrella.MixProject do
   defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
-  defp jq_dep() do
+  def jq_dep() do
     if enable_jq?(),
       do: [{:jq, github: "emqx/jq", tag: "v0.3.12", override: true}],
       else: []
@@ -1267,7 +1301,8 @@ defmodule EMQXUmbrella.MixProject do
     [
       ct: &do_ct/1,
       eunit: &do_eunit/1,
-      proper: &do_proper/1
+      proper: &do_proper/1,
+      dialyzer: &do_dialyzer/1
     ]
   end
 
@@ -1278,22 +1313,23 @@ defmodule EMQXUmbrella.MixProject do
     ensure_test_mix_env!()
     set_test_env!(true)
 
-    Code.require_file("lib/mix/tasks/emqx.ct.ex")
     Mix.Task.run("emqx.ct", args)
   end
 
   defp do_eunit(args) do
     ensure_test_mix_env!()
     set_test_env!(true)
-    Code.require_file("lib/mix/tasks/emqx.eunit.ex")
     Mix.Task.run("emqx.eunit", args)
   end
 
   defp do_proper(args) do
     ensure_test_mix_env!()
     set_test_env!(true)
-    Code.require_file("lib/mix/tasks/emqx.proper.ex")
     Mix.Task.run("emqx.proper", args)
+  end
+
+  defp do_dialyzer(args) do
+    Mix.Task.run("emqx.dialyzer", args)
   end
 
   defp ensure_test_mix_env!() do

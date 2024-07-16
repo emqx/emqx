@@ -26,6 +26,7 @@ defmodule EMQXS3.MixProject do
 
   def deps() do
     [
+      {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
       UMP.common_dep(:gproc),
       UMP.common_dep(:ehttpc),

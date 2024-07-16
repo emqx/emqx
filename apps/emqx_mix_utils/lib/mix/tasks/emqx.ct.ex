@@ -48,10 +48,11 @@ defmodule Mix.Tasks.Emqx.Ct do
       abort_if_missing_suites: true,
       auto_compile: false,
       suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
+      group: opts |> Map.fetch!(:group_paths) |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
       testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
       readable: 'true',
       name: node_name,
-      ct_hooks: [:cth_readable_shell],
+      ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
       logdir: to_charlist(logdir)
     )
 
@@ -198,11 +199,13 @@ defmodule Mix.Tasks.Emqx.Ct do
       args,
       strict: [
         suites: :string,
-        groups: :string,
+        group_paths: :string,
         cases: :string])
-    |> IO.inspect(label: :opts)
     suites = get_name_list(opts, :suites)
-    groups = get_name_list(opts, :groups)
+    group_paths =
+      opts
+      |> get_name_list(:group_paths)
+      |> Enum.map(& String.split(&1, ".", trim: true))
     cases = get_name_list(opts, :cases)
 
     if suites == [] do
@@ -211,7 +214,7 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     %{
       suites: suites,
-      groups: groups,
+      group_paths: group_paths,
       cases: cases
     }
   end

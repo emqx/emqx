@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Compile.Grpc do
   use Mix.Task.Compiler
 
+  alias EMQXUmbrella.MixProject, as: UMP
+
   @recursive true
   @manifest_vsn 1
   @manifest "compile.grpc"
@@ -46,6 +48,9 @@ defmodule Mix.Tasks.Compile.Grpc do
     write_manifest(manifest(), manifest_data)
 
     {:noop, []}
+  after
+    Application.unload(:gpb)
+    Application.unload(:syntax_tools)
   end
 
   defp compile_pb(proto_src, context) do
@@ -95,7 +100,7 @@ defmodule Mix.Tasks.Compile.Grpc do
           :return_errors,
           i: to_charlist(gpb_include_dir),
           outdir: to_charlist(ebin_path)
-        ]
+        ] ++ UMP.erlc_options()
       )
       # todo: error handling & logging
       case compile_res do
