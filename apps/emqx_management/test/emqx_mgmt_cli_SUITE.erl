@@ -110,14 +110,14 @@ t_cluster(_Config) ->
     ?assertMatch(
         {atomic, [
             #{
-                node := FakeNode,
+                node := SelfNode,
                 mfa := MFA,
                 created_at := _,
                 tnx_id := TnxId,
                 initiator := SelfNode
             },
             #{
-                node := SelfNode,
+                node := FakeNode,
                 mfa := MFA,
                 created_at := _,
                 tnx_id := TnxId,
