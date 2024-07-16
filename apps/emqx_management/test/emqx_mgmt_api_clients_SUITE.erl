@@ -266,7 +266,9 @@ t_clients(Config) ->
     SubscribePath = emqx_mgmt_api_test_util:api_path(["clients", ClientId1, "subscribe"]),
     {ok, {?HTTP200, _, _}} = request(post, SubscribePath, SubscribeBody, Config),
     timer:sleep(100),
-    {_, [{AfterSubTopic, #{qos := AfterSubQos}}]} = emqx_mgmt:list_client_subscriptions(ClientId1),
+    {_, [{AfterSubTopic, #{qos := AfterSubQos}}]} = emqx_mgmt:list_client_subscriptions(
+        _Mtns = undefined, ClientId1
+    ),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
@@ -296,7 +298,7 @@ t_clients(Config) ->
         request(post, UnSubscribePath, UnSubscribeBody, Config)
     ),
     timer:sleep(100),
-    ?assertEqual([], emqx_mgmt:list_client_subscriptions(ClientId1)),
+    ?assertEqual([], emqx_mgmt:list_client_subscriptions(undefined, ClientId1)),
 
     %% testcase cleanup, kickout client1
     disconnect_and_destroy_session(C1).
@@ -1555,6 +1557,7 @@ t_bulk_subscribe(Config) ->
     [N1, N2] = ?config(nodes, Config),
     Port1 = get_mqtt_port(N1, tcp),
     Port2 = get_mqtt_port(N2, tcp),
+
     ?check_trace(
         begin
             ClientId1 = <<"bulk-sub1">>,
@@ -1564,10 +1567,15 @@ t_bulk_subscribe(Config) ->
             Topic = <<"testtopic">>,
             BulkSub = [#{topic => Topic, qos => 1, nl => 1, rh => 1}],
             ?assertMatch({200, [_]}, bulk_subscribe_request(ClientId1, Config, BulkSub)),
+
+            %% Due to the subscribe operations are asynchronous
+            timer:sleep(1000),
+
             ?assertMatch(
                 {200, [_]},
                 get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
             ),
+
             {ok, _} = emqtt:publish(C2, Topic, <<"hi1">>, [{qos, 1}]),
             ?assertReceive({publish, #{topic := Topic, payload := <<"hi1">>}}),
             BulkUnsub = [#{topic => Topic}],

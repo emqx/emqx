@@ -28,6 +28,7 @@
     get_cache_ttl/0,
     is_enabled/1,
     drain_cache/0,
+    drain_cache/1,
     drain_cache/2
 ]).
 
@@ -180,6 +181,11 @@ foreach_authz_cache(Fun) ->
 drain_cache() ->
     _ = persistent_term:put(drain_k(), time_now()),
     ok.
+
+%% @deprecated Use `drain_cache/2` instead
+-spec drain_cache(emqx_types:clientid()) -> ok | {error, not_found}.
+drain_cache(ClientId) ->
+    drain_cache(undefined, ClientId).
 
 -spec drain_cache(emqx_types:mtns(), emqx_types:clientid()) -> ok | {error, not_found}.
 drain_cache(Mtns, ClientId) ->

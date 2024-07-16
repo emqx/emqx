@@ -791,13 +791,26 @@ lookup_client(Key) ->
     {clientid, emqx_types:clientid()} | {username, emqx_types:username()}
 ) -> [channel_info()].
 lookup_client(Mtns, {username, Username}) ->
-    MatchSpec = [
-        {
-            {'_', #{clientinfo => #{username => '$1'}, client_attr => #{mtns => '$2'}}, '_'},
-            [{'=:=', '$1', Username}, {'=:=', '$2', Mtns}],
-            ['$_']
-        }
-    ],
+    MatchSpec =
+        case Mtns of
+            undefined ->
+                [
+                    {
+                        {'_', #{clientinfo => #{username => '$1'}}, '_'},
+                        [{'=:=', '$1', Username}],
+                        ['$_']
+                    }
+                ];
+            _ ->
+                [
+                    {
+                        {'_', #{clientinfo => #{username => '$1'}, client_attr => #{mtns => '$2'}},
+                            '_'},
+                        [{'=:=', '$1', Username}, {'=:=', '$2', Mtns}],
+                        ['$_']
+                    }
+                ]
+        end,
     ets:select(?CHAN_INFO_TAB, MatchSpec);
 lookup_client(Mtns, {clientid, ClientId}) ->
     CId = cid(Mtns, ClientId),

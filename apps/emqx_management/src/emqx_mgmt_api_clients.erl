@@ -1231,7 +1231,7 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
     %% ... On the other hand, using only `emqx_channel' would render this API unusable if
     %% called from a node that doesn't have hold the targeted client connection, so we
     %% fall back to `emqx_mgmt:lookup_client/2', which consults the global registry.
-    Result1 = ets:lookup(?CHAN_TAB, ClientID),
+    Result1 = ets:lookup(?CHAN_TAB, {undefined, ClientID}),
     Result =
         case Result1 of
             [] ->
@@ -1241,6 +1241,7 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
             _ ->
                 Result1
         end,
+
     case Result of
         [] ->
             {404, ?CLIENTID_NOT_FOUND};
@@ -1617,7 +1618,7 @@ qs2ms(_Tab, {QString, FuzzyQString}) ->
 -spec qs2ms(list()) -> ets:match_spec().
 qs2ms(Qs) ->
     {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
-    [{{{'$1', '_'}, MtchHead, '_'}, Conds, ['$_']}].
+    [{{{{'_', '$1'}, '_'}, MtchHead, '_'}, Conds, ['$_']}].
 
 qs2ms([], _, {MtchHead, Conds}) ->
     {MtchHead, lists:reverse(Conds)};
