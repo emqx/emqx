@@ -64,6 +64,7 @@
 
 -export([work_dir/1]).
 -export([work_dir/2]).
+-export([clean_work_dir/1]).
 
 -export([load_apps/1]).
 -export([start_apps/2]).
@@ -162,6 +163,7 @@ start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 4. Setup isolated mnesia directory
     ok = emqx_common_test_helpers:load(mnesia),
     ok = application:set_env(mnesia, dir, filename:join([WorkDir, mnesia])),
+    ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
     % 5. Start ekka separately.
     % For some reason it's designed to be started in non-regular way, so we have to track
     % applications started in the process manually.
@@ -431,6 +433,16 @@ work_dir(CTConfig) ->
 work_dir(TCName, CTConfig) ->
     WorkDir = work_dir(CTConfig),
     filename:join(WorkDir, TCName).
+
+%% @doc Delete contents of the workdir.
+clean_work_dir(WorkDir) ->
+    ct:pal("Cleaning workdir ~p", [WorkDir]),
+    case re:run(WorkDir, "./_build/test/logs/") of
+        {match, _} ->
+            file:del_dir_r(WorkDir);
+        nomatch ->
+            error({unsafe_workdir, WorkDir})
+    end.
 
 %%
 

@@ -261,6 +261,11 @@
 ) ->
     [_Stream].
 
+-callback get_delete_streams(
+    shard_id(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
+) ->
+    [_Stream].
+
 -callback make_iterator(
     shard_id(), generation_data(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
@@ -282,9 +287,12 @@
     DeleteIterator,
     emqx_ds:delete_selector(),
     pos_integer(),
-    emqx_ds:time()
+    emqx_ds:time(),
+    _IsCurrentGeneration :: boolean()
 ) ->
-    {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()}.
+    {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()}
+    | {ok, end_of_stream}
+    | emqx_ds:error(_).
 
 -callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
@@ -307,6 +315,8 @@
 drop_shard(Shard) ->
     ok = rocksdb:destroy(db_dir(Shard), []).
 
+%% @doc This is a convenicence wrapper that combines `prepare' and
+%% `commit' operations.
 -spec store_batch(
     shard_id(),
     [{emqx_ds:time(), emqx_types:message()}],
@@ -323,6 +333,15 @@ store_batch(Shard, Messages, Options) ->
             Error
     end.
 
+%% @doc Transform a batch of messages into a "cooked batch" that can
+%% be stored in the transaction log or transfered over the network.
+%%
+%% Important: the caller MUST ensure that timestamps within the shard
+%% form a strictly increasing monotonic sequence through out the whole
+%% lifetime of the shard.
+%%
+%% The underlying storage layout MAY use timestamp as a unique message
+%% ID.
 -spec prepare_batch(
     shard_id(),
     [{emqx_ds:time(), emqx_types:message()}],
@@ -355,6 +374,10 @@ prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
 prepare_batch(_Shard, [], _Options) ->
     ignore.
 
+%% @doc Commit cooked batch to the storage.
+%%
+%% The underlying storage layout must guarantee that this operation is
+%% idempotent.
 -spec commit_batch(
     shard_id(),
     cooked_batch(),
@@ -511,15 +534,12 @@ delete_next(
 ) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
-            Current = generation_current(Shard),
-            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize, Now) of
-                {ok, _GenIter, _Deleted = 0, _IteratedOver = 0} when GenId < Current ->
-                    %% This is a past generation. Storage layer won't write
-                    %% any more messages here. The iterator reached the end:
-                    %% the stream has been fully replayed.
-                    {ok, end_of_stream};
+            IsCurrent = GenId =:= generation_current(Shard),
+            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize, Now, IsCurrent) of
                 {ok, GenIter, NumDeleted, _IteratedOver} ->
                     {ok, Iter#{?enc := GenIter}, NumDeleted};
+                EOS = {ok, end_of_stream} ->
+                    EOS;
                 Error = {error, _} ->
                     Error
             end;

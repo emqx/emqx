@@ -92,7 +92,7 @@ init_per_testcase(TestCase, Config0) ->
     ConnectorConfig = connector_config(Name, Endpoint),
     ContainerName = container_name(Name),
     %% TODO: switch based on test
-    ActionConfig =
+    ActionConfig0 =
         case lists:member(TestCase, direct_action_cases()) of
             true ->
                 direct_action_config(#{
@@ -105,6 +105,7 @@ init_per_testcase(TestCase, Config0) ->
                     parameters => #{container => ContainerName}
                 })
         end,
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(?ACTION_TYPE_BIN, Name, ActionConfig0),
     Client = new_control_driver(Endpoint),
     ct:pal("container name: ~s", [ContainerName]),
     ok = ensure_new_container(ContainerName, Client),
@@ -185,7 +186,7 @@ connector_config(Name, Endpoint) ->
                     <<"start_timeout">> => <<"5s">>
                 }
         },
-    emqx_bridge_v2_testlib:parse_and_check_connector(?ACTION_TYPE_BIN, Name, InnerConfigMap0).
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, Name, InnerConfigMap0).
 
 direct_action_config(Overrides0) ->
     Overrides = emqx_utils_maps:binary_key_map(Overrides0),

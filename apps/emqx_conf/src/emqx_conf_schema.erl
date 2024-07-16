@@ -86,6 +86,8 @@
     external_broker_crashed
 ]).
 
+-define(DEFAULT_RPC_PORT, 5369).
+
 %% Callback to upgrade config after loaded from config file but before validation.
 upgrade_raw_conf(Raw0) ->
     Raw1 = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(Raw0),
@@ -756,30 +758,22 @@ fields("rpc") ->
                     desc => ?DESC(rpc_port_discovery)
                 }
             )},
-        {"tcp_server_port",
+        {"server_port",
             sc(
-                integer(),
+                pos_integer(),
                 #{
-                    mapping => "gen_rpc.tcp_server_port",
-                    default => 5369,
-                    desc => ?DESC(rpc_tcp_server_port)
+                    aliases => [tcp_server_port, ssl_server_port],
+                    default => ?DEFAULT_RPC_PORT,
+                    desc => ?DESC(rpc_server_port)
                 }
             )},
-        {"ssl_server_port",
-            sc(
-                integer(),
-                #{
-                    mapping => "gen_rpc.ssl_server_port",
-                    default => 5369,
-                    desc => ?DESC(rpc_ssl_server_port)
-                }
-            )},
-        {"tcp_client_num",
+        {"client_num",
             sc(
                 range(1, 256),
                 #{
+                    aliases => [tcp_client_num],
                     default => 10,
-                    desc => ?DESC(rpc_tcp_client_num)
+                    desc => ?DESC(rpc_client_num)
                 }
             )},
         {"connect_timeout",
@@ -1139,8 +1133,10 @@ translation("emqx") ->
 translation("gen_rpc") ->
     [
         {"default_client_driver", fun tr_gen_rpc_default_client_driver/1},
-        {"tcp_client_port", fun tr_gen_rpc_tcp_client_port/1},
-        {"ssl_client_port", fun tr_gen_rpc_ssl_client_port/1},
+        {"tcp_server_port", fun tr_gen_rpc_port/1},
+        {"ssl_server_port", fun tr_gen_rpc_port/1},
+        {"tcp_client_port", fun tr_gen_rpc_port/1},
+        {"ssl_client_port", fun tr_gen_rpc_port/1},
         {"ssl_client_options", fun tr_gen_rpc_ssl_options/1},
         {"ssl_server_options", fun tr_gen_rpc_ssl_options/1},
         {"socket_ip", fun(Conf) ->
@@ -1224,11 +1220,8 @@ collector_enabled(disabled, _) -> [].
 tr_gen_rpc_default_client_driver(Conf) ->
     conf_get("rpc.protocol", Conf).
 
-tr_gen_rpc_tcp_client_port(Conf) ->
-    conf_get("rpc.tcp_server_port", Conf).
-
-tr_gen_rpc_ssl_client_port(Conf) ->
-    conf_get("rpc.ssl_server_port", Conf).
+tr_gen_rpc_port(Conf) ->
+    conf_get("rpc.server_port", Conf).
 
 tr_gen_rpc_ssl_options(Conf) ->
     Ciphers = conf_get("rpc.ciphers", Conf),

@@ -253,6 +253,9 @@ for dep in ${CT_DEPS}; do
 	azurite)
 	    FILES+=( '.ci/docker-compose-file/docker-compose-azurite.yaml' )
 	    ;;
+	couchbase)
+	    FILES+=( '.ci/docker-compose-file/docker-compose-couchbase.yaml' )
+	    ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

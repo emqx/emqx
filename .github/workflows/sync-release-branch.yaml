@@ -1,0 +1,88 @@
+name: Sync release branch
+
+concurrency:
+  group: sync-release-branch-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron:  '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create-pr:
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        branch:
+          - release-57
+
+    env:
+      SYNC_BRANCH: ${{ matrix.branch }}
+
+    defaults:
+      run:
+        shell: bash
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+        with:
+          fetch-depth: 0
+
+      - name: create new branch
+        run: |
+          set -euxo pipefail
+          NEW_BRANCH_NAME=sync-${SYNC_BRANCH}-$(date +"%Y%m%d-%H%M%S")
+          echo "NEW_BRANCH_NAME=${NEW_BRANCH_NAME}" >> $GITHUB_ENV
+          git config --global user.name "${GITHUB_ACTOR}"
+          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          git checkout -b ${NEW_BRANCH_NAME}
+          git merge origin/${SYNC_BRANCH} 2>&1 | tee merge.log
+          git push origin ${NEW_BRANCH_NAME}:${NEW_BRANCH_NAME}
+
+      - name: create pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          for pr in $(gh pr list --state open --base master --label sync-release-branch --search "Sync ${SYNC_BRANCH} in:title" --repo ${{ github.repository }} --json number --jq '.[] | .number'); do
+            gh pr close $pr --repo ${{ github.repository }} --delete-branch || true
+          done
+          gh pr create --title "Sync ${SYNC_BRANCH}" --body "Sync ${SYNC_BRANCH}" --base master --head ${NEW_BRANCH_NAME} --label sync-release-branch --repo ${{ github.repository }}
+
+      - name: Send notification to Slack
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          awk '{printf "%s\\n", $0}' merge.log > merge.log.1
+          cat <<EOF > payload.json
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "Automatic sync of ${SYNC_BRANCH} branch failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "\`\`\`$(cat merge.log.1)\`\`\`"
+                }
+              }
+            ]
+          }
+          EOF
+          curl -X POST -H 'Content-type: application/json' --data @payload.json "$SLACK_WEBHOOK_URL"
