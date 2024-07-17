@@ -59,7 +59,6 @@
 {emqx_node_rebalance_api,1}.
 {emqx_node_rebalance_api,2}.
 {emqx_node_rebalance_evacuation,1}.
-{emqx_node_rebalance_purge,1}.
 {emqx_node_rebalance_status,1}.
 {emqx_node_rebalance_status,2}.
 {emqx_persistent_session_ds,1}.
