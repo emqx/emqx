@@ -49,15 +49,18 @@
 
 %% Streams from .csv data
 -export([
-    csv/1
+    csv/1,
+    csv/2
 ]).
 
--export_type([stream/1]).
+-export_type([stream/1, csv_parse_opts/0]).
 
 %% @doc A stream is essentially a lazy list.
 -type stream_tail(T) :: fun(() -> next(T) | []).
 -type stream(T) :: list(T) | nonempty_improper_list(T, stream_tail(T)) | stream_tail(T).
 -type next(T) :: nonempty_improper_list(T, stream_tail(T)).
+
+-type csv_parse_opts() :: #{nullable => boolean(), filter_null => boolean()}.
 
 -dialyzer(no_improper_lists).
 
@@ -325,13 +328,42 @@ ets(Cont, ContF) ->
 %% @doc Make a stream out of a .csv binary, where the .csv binary is loaded in all at once.
 %% The .csv binary is assumed to be in UTF-8 encoding and to have a header row.
 -spec csv(binary()) -> stream(map()).
-csv(Bin) when is_binary(Bin) ->
+csv(Bin) ->
+    csv(Bin, #{}).
+
+-spec csv(binary(), csv_parse_opts()) -> stream(map()).
+csv(Bin, Opts) when is_binary(Bin) ->
+    Liner =
+        case Opts of
+            #{nullable := true} ->
+                fun csv_read_nullable_line/1;
+            _ ->
+                fun csv_read_line/1
+        end,
+    Maper =
+        case Opts of
+            #{filter_null := true} ->
+                fun(Headers, Fields) ->
+                    maps:from_list(
+                        lists:filter(
+                            fun({_, Value}) ->
+                                Value =/= undefined
+                            end,
+                            lists:zip(Headers, Fields)
+                        )
+                    )
+                end;
+            _ ->
+                fun(Headers, Fields) ->
+                    maps:from_list(lists:zip(Headers, Fields))
+                end
+        end,
     Reader = fun _Iter(Headers, Lines) ->
-        case csv_read_line(Lines) of
+        case Liner(Lines) of
             {Fields, Rest} ->
                 case length(Fields) == length(Headers) of
                     true ->
-                        User = maps:from_list(lists:zip(Headers, Fields)),
+                        User = Maper(Headers, Fields),
                         [User | fun() -> _Iter(Headers, Rest) end];
                     false ->
                         error(bad_format)
@@ -353,6 +385,23 @@ csv_read_line([Line | Lines]) ->
     Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
     {Fields, Lines};
 csv_read_line([]) ->
+    eof.
+
+csv_read_nullable_line([Line | Lines]) ->
+    %% XXX: not support ' ' for the field value
+    Fields = lists:map(
+        fun(Bin) ->
+            case string:trim(Bin, both) of
+                <<>> ->
+                    undefined;
+                Any ->
+                    Any
+            end
+        end,
+        binary:split(Line, [<<",">>], [global])
+    ),
+    {Fields, Lines};
+csv_read_nullable_line([]) ->
     eof.
 
 do_interleave(_Cont, _, [], []) ->

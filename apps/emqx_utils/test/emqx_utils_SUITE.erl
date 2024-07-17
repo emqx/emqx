@@ -154,6 +154,22 @@ t_check(_) ->
         emqx_utils:check_oom(Policy)
     ).
 
+t_tune_heap_size(_Config) ->
+    Policy = #{
+        max_mailbox_size => 10,
+        max_heap_size => 1024 * 1024 * 8,
+        enable => true
+    },
+    ?assertEqual(ignore, emqx_utils:tune_heap_size(Policy#{enable := false})),
+    %% Setting it to 0 disables the check.
+    ?assertEqual(ignore, emqx_utils:tune_heap_size(Policy#{max_heap_size := 0})),
+    {max_heap_size, PreviousHeapSize} = process_info(self(), max_heap_size),
+    try
+        ?assertMatch(PreviousHeapSize, emqx_utils:tune_heap_size(Policy))
+    after
+        process_flag(max_heap_size, PreviousHeapSize)
+    end.
+
 t_rand_seed(_) ->
     ?assert(is_tuple(emqx_utils:rand_seed())).
 

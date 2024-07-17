@@ -165,7 +165,8 @@ t_connection(_) ->
             emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
         )
     end,
-    do(Action).
+    do(Action),
+    ok.
 
 t_connection_with_short_param_name(_) ->
     Action = fun(Channel) ->
@@ -330,7 +331,8 @@ t_publish(_) ->
                 ?assertEqual(Payload, Msg#message.payload)
         after 500 ->
             ?assert(false)
-        end
+        end,
+        true
     end,
     with_connection(Topics, Action).
 
@@ -360,7 +362,9 @@ t_publish_with_retain_qos_expiry(_) ->
                 ?assertEqual(Payload, Msg#message.payload)
         after 500 ->
             ?assert(false)
-        end
+        end,
+
+        true
     end,
     with_connection(Topics, Action),
 
@@ -392,7 +396,8 @@ t_subscribe(_) ->
 
         #coap_content{payload = PayloadRecv} = Notify,
 
-        ?assertEqual(Payload, PayloadRecv)
+        ?assertEqual(Payload, PayloadRecv),
+        true
     end,
 
     with_connection(Topics, Fun),
@@ -431,7 +436,8 @@ t_subscribe_with_qos_opt(_) ->
 
         #coap_content{payload = PayloadRecv} = Notify,
 
-        ?assertEqual(Payload, PayloadRecv)
+        ?assertEqual(Payload, PayloadRecv),
+        true
     end,
 
     with_connection(Topics, Fun),
@@ -468,7 +474,8 @@ t_un_subscribe(_) ->
         {ok, nocontent, _} = do_request(Channel, URI, UnReq),
         ?LOGT("un observer topic:~ts~n", [Topic]),
         timer:sleep(100),
-        ?assertEqual([], emqx:subscribers(Topic))
+        ?assertEqual([], emqx:subscribers(Topic)),
+        true
     end,
 
     with_connection(Topics, Fun).
@@ -497,7 +504,8 @@ t_observe_wildcard(_) ->
 
         #coap_content{payload = PayloadRecv} = Notify,
 
-        ?assertEqual(Payload, PayloadRecv)
+        ?assertEqual(Payload, PayloadRecv),
+        true
     end,
 
     with_connection(Fun).
@@ -530,7 +538,8 @@ t_clients_api(_) ->
         {204, _} =
             request(delete, "/gateways/coap/clients/client1"),
         timer:sleep(200),
-        {200, #{data := []}} = request(get, "/gateways/coap/clients")
+        {200, #{data := []}} = request(get, "/gateways/coap/clients"),
+        false
     end,
     with_connection(Fun).
 
@@ -560,7 +569,8 @@ t_clients_subscription_api(_) ->
 
         {204, _} = request(delete, Path ++ "/tx"),
 
-        {200, []} = request(get, Path)
+        {200, []} = request(get, Path),
+        true
     end,
     with_connection(Fun).
 
@@ -578,7 +588,8 @@ t_clients_get_subscription_api(_) ->
 
         observe(Channel, Token, false),
 
-        {200, []} = request(get, Path)
+        {200, []} = request(get, Path),
+        true
     end,
     with_connection(Fun).
 
@@ -773,8 +784,7 @@ with_connection(Action) ->
     Fun = fun(Channel) ->
         Token = connection(Channel),
         timer:sleep(100),
-        Action(Channel, Token),
-        disconnection(Channel, Token),
+        _ = Action(Channel, Token) andalso disconnection(Channel, Token),
         timer:sleep(100)
     end,
     do(Fun).

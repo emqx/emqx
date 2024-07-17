@@ -181,12 +181,16 @@ create(#{name_var := NameVar} = Config) ->
     end.
 
 update(Config, State) ->
-    destroy(State),
+    destroy(State, false),
     create(Config).
 
 destroy(State) ->
+    destroy(State, true).
+
+destroy(State, TryDelete) ->
     emqx_dashboard_sso_oidc_session:stop(),
-    try_delete_jwks_file(State).
+    _ = TryDelete andalso try_delete_jwks_file(State),
+    ok.
 
 -dialyzer({nowarn_function, login/2}).
 login(

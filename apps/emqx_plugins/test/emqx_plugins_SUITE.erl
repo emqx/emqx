@@ -906,7 +906,8 @@ group_t_cluster_leave(Config) ->
 %% hooks added by the plugin's `application:start/2' callback are indeed in place.
 %% See also: https://github.com/emqx/emqx/issues/13378
 t_start_node_with_plugin_enabled({init, Config}) ->
-    #{package := Package, shdir := InstallDir} = get_demo_plugin_package(),
+    #{package := Package} = get_demo_plugin_package(),
+    Basename = filename:basename(Package),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     AppSpecs = [
         emqx,
@@ -917,7 +918,7 @@ t_start_node_with_plugin_enabled({init, Config}) ->
                 #{
                     plugins =>
                         #{
-                            install_dir => InstallDir,
+                            install_dir => <<"plugins">>,
                             states =>
                                 [
                                     #{
@@ -938,6 +939,14 @@ t_start_node_with_plugin_enabled({init, Config}) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
     ),
+    lists:foreach(
+        fun(#{work_dir := WorkDir}) ->
+            Destination = filename:join([WorkDir, "plugins", Basename]),
+            ok = filelib:ensure_dir(Destination),
+            {ok, _} = file:copy(Package, Destination)
+        end,
+        Specs
+    ),
     Names = [Name1, Name2],
     Nodes = [emqx_cth_cluster:node_name(N) || N <- Names],
     [
@@ -955,7 +964,9 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
     ?check_trace(
         #{timetrap => 10_000},
         begin
-            [N1, N2 | _] = emqx_cth_cluster:start(NodeSpecs),
+            %% Hack: we use `restart' here to disable the clean slate verification, as we
+            %% just created and populated the `plugins' directory...
+            [N1, N2 | _] = lists:flatmap(fun emqx_cth_cluster:restart/1, NodeSpecs),
             ?ON(N1, assert_started_and_hooks_loaded()),
             ?ON(N2, assert_started_and_hooks_loaded()),
             %% Now make them join.

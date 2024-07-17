@@ -211,6 +211,16 @@ t_push_gateway(_) ->
 
     ok.
 
+t_cert_expiry_epoch(_) ->
+    Path = some_pem_path(),
+    ?assertEqual(
+        2666082573,
+        emqx_prometheus:cert_expiry_at_from_path(Path)
+    ).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+
 start_mock_pushgateway(Port) ->
     ensure_loaded(cowboy),
     ensure_loaded(ranch),
@@ -249,3 +259,7 @@ init(Req0, Opts) ->
     RespHeader = #{<<"content-type">> => <<"text/plain; charset=utf-8">>},
     Req = cowboy_req:reply(200, RespHeader, <<"OK">>, Req0),
     {ok, Req, Opts}.
+
+some_pem_path() ->
+    Dir = code:lib_dir(emqx_prometheus, test),
+    _Path = filename:join([Dir, "data", "cert.crt"]).
