@@ -202,10 +202,10 @@ try_servers([], _Fun, _Args) ->
 add_local_server(DB, Shard) ->
     %% NOTE
     %% Adding local server as "promotable" member to the cluster, which means
-    %% that it will affect quorum until it is promoted to a voter, which in
+    %% that it won't affect quorum until it is promoted to a voter, which in
     %% turn happens when the server has caught up sufficiently with the log.
     %% We also rely on this "membership" to understand when the server's
-    %% readiness.
+    %% ready.
     ShardServers = shard_servers(DB, Shard),
     LocalServer = local_server(DB, Shard),
     case server_info(uid, LocalServer) of
@@ -266,20 +266,20 @@ remove_server(DB, Shard, Server) ->
     end.
 
 -spec server_info
-    (readiness, server()) -> ready | {unready, _Status, _Membership} | unknown;
+    (readiness, server()) -> ready | {unready, _Details} | unknown;
     (leader, server()) -> server() | unknown;
     (uid, server()) -> _UID :: binary() | unknown.
 server_info(readiness, Server) ->
     %% NOTE
     %% Server is ready if it's either the leader or a follower with voter "membership"
     %% status (meaning it was promoted after catching up with the log).
-    case current_leader(Server) of
-        Server ->
+    case ra:members(Server) of
+        {ok, _Servers, Server} ->
             ready;
-        Leader when Leader /= unknown ->
+        {ok, _Servers, Leader} ->
             member_info(readiness, Server, Leader);
-        unknown ->
-            unknown
+        Error ->
+            {unready, {leader_unavailable, Error}}
     end;
 server_info(leader, Server) ->
     current_leader(Server);
@@ -287,8 +287,13 @@ server_info(uid, Server) ->
     maps:get(uid, ra_overview(Server), unknown).
 
 member_info(readiness, Server, Leader) ->
-    Cluster = maps:get(cluster, ra_overview(Leader), #{}),
-    member_readiness(maps:get(Server, Cluster, #{})).
+    case ra:member_overview(Leader) of
+        {ok, Overview = #{}, _Leader} ->
+            Cluster = maps:get(cluster, Overview, #{}),
+            member_readiness(maps:get(Server, Cluster, #{}));
+        Error ->
+            {unready, {leader_overview_unavailable, Error}}
+    end.
 
 current_leader(Server) ->
     %% NOTE: This call will block until the leader is known, or until the timeout.
@@ -304,7 +309,7 @@ member_readiness(#{status := Status, voter_status := #{membership := Membership}
         normal when Membership =:= voter ->
             ready;
         _Other ->
-            {unready, Status, Membership}
+            {unready, {catching_up, Status, Membership}}
     end;
 member_readiness(#{}) ->
     unknown.
