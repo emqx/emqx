@@ -178,6 +178,7 @@ create_new_subscription(#share{topic = TopicFilter, group = Group} = ShareTopicF
             ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, #share_dest{
                 session_id = SessionId, group = Group
             }),
+            _ = emqx_external_broker:add_persistent_shared_route(TopicFilter, Group, SessionId),
             #{upgrade_qos := UpgradeQoS} = Props,
             {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
             {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
@@ -272,6 +273,7 @@ on_unsubscribe(
             ?tp(persistent_session_ds_subscription_delete, #{
                 session_id => SessionId, share_topic_filter => ShareTopicFilter
             }),
+            _ = emqx_external_broker:delete_persistent_shared_route(TopicFilter, Group, SessionId),
             ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, #share_dest{
                 session_id = SessionId, group = Group
             }),

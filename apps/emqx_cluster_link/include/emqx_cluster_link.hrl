@@ -21,3 +21,6 @@
 -define(METRIC_NAME, cluster_link).
 
 -define(route_metric, 'routes').
+-define(PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID),
+    <<"$sp/", Group/binary, "/", ID/binary, "/", Topic/binary>>
+).

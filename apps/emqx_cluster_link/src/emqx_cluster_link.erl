@@ -16,6 +16,8 @@
     delete_shared_route/2,
     add_persistent_route/2,
     delete_persistent_route/2,
+    add_persistent_shared_route/3,
+    delete_persistent_shared_route/3,
     forward/1
 ]).
 
@@ -70,6 +72,16 @@ add_persistent_route(Topic, ID) ->
 
 delete_persistent_route(Topic, ID) ->
     maybe_push_route_op(delete, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
+
+add_persistent_shared_route(Topic, Group, ID) ->
+    maybe_push_route_op(
+        add, Topic, ?PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID), push_persistent_route
+    ).
+
+delete_persistent_shared_route(Topic, Group, ID) ->
+    maybe_push_route_op(
+        delete, Topic, ?PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID), push_persistent_route
+    ).
 
 forward(#delivery{message = #message{extra = #{link_origin := _}}}) ->
     %% Do not forward any external messages to other links.
