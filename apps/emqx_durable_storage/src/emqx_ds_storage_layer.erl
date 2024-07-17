@@ -572,6 +572,34 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             ?ERR_GEN_GONE
     end.
 
+%% Internal API for fetching data with multiple iterators in one
+%% sweep. This API does not suppose precise batch size.
+
+%% %%    When doing multi-next, we group iterators by stream:
+%% -spec stream_of_iterator(module(), _GenData, _InnerIt) -> term().
+%% stream_of_iterator(Mod, GenData, Inner) ->
+%%     Mod:stream_of_iterator(GenData, Inner).
+
+%% %%    Version of `next' that iterates a stream without additional
+%% %%    filtering.
+%% -spec next_stream(module(), _GenData, _Stream, emqx_ds:message_key(), non_neg_integer()) ->
+%%           {boolean(), [{emqx_ds:message_key(), emqx_types:message()}]}.
+%% next_stream(Mod, GenData, Stream, StartKey, BatchSize) ->
+%%     Mod:next_stream(GenData, Stream, StartKey, BatchSize).
+
+%% %%    Get last visited key for the iterator, so we know when the
+%% %%    iterator can join the group:
+%% -spec it_last_visited_key(module(), _GenData, _InnerIt) -> binary().
+%% it_last_visited_key(Mod, GenData, Inner) ->
+%%     Mod:it_last_seen_key(GenData, Inner).
+
+%% %%    Check if a message matches the iterator
+%% -spec it_match_message(module(), _GenData, _Inner, emqx_types:message()) -> boolean().
+%% it_match_message(Mod, GenData, Inner, Msg) ->
+%%     Mod:it_match_message(GenData, Inner, Msg).
+
+%% -spec multinext(module(), _GenData, _Stream, emqx_ds:message_key(), non_neg_integer(), fun((emqx_ds:message_key()) -> [{_ItKey, iterator()}])) ->
+
 -spec longpoll(
     fun((ItKey, _Result) -> _),
     shard_id(),

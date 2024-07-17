@@ -40,8 +40,12 @@
 init(Name) ->
     _ = destroy(Name),
     Tid = ets:new(ds_upubsub_table, [
-        bag, public, {read_concurrency, false}, {write_concurrency, true}
+        duplicate_bag, public, {read_concurrency, false}, {write_concurrency, true}
     ]),
+    Worker = spawn_link(fun() ->
+        worker_loop(Tid)
+    end),
+    ets:insert(Tid, {'__worker__', Worker}),
     persistent_term:put(?pterm(Name), Tid).
 
 -spec destroy(name()) -> ok.
@@ -50,6 +54,8 @@ destroy(Name) ->
         undefined ->
             ok;
         Tid ->
+            [Pid] = ets:lookup_element(Tid, '__worker__', 2),
+            exit(Pid, normal),
             ets:delete(Tid),
             ok
     end.
@@ -57,12 +63,8 @@ destroy(Name) ->
 -spec pub(name(), dispatch_key(), term()) -> ok.
 pub(Name, DispatchKey, Msg) ->
     Tab = persistent_term:get(?pterm(Name)),
-    lists:foreach(
-        fun(Alias) ->
-            Alias ! #upubsub{ref = Alias, val = Msg}
-        end,
-        ets:lookup_element(Tab, DispatchKey, 2, [])
-    ).
+    [Worker] = ets:lookup_element(Tab, '__worker__', 2),
+    Worker ! {DispatchKey, Msg}.
 
 -spec sub(name(), dispatch_key(), #{oneshot => boolean()}) -> reference().
 sub(Name, DispatchKey, Opts) ->
@@ -112,6 +114,31 @@ unsub_all(exit) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+worker_loop(Tab) ->
+    receive
+        {DispatchKey, Msg} ->
+            %% Flush all previous messages with the same dispatch key
+            %% (in case previous dispatch took too long and we're
+            %% building a long queue):
+            LastMsg = worker_old_message_cleanup(DispatchKey, Msg),
+            %% io:format(user, "Dispatch to ~p (~p -> ~p)~n", [DispatchKey, Msg, LastMsg]),
+            lists:foreach(
+                fun(Alias) ->
+                    Alias ! #upubsub{ref = Alias, val = LastMsg}
+                end,
+                ets:lookup_element(Tab, DispatchKey, 2, [])
+            ),
+            worker_loop(Tab)
+    end.
+
+worker_old_message_cleanup(DispatchKey, Msg) ->
+    receive
+        {DispatchKey, LastMsg} ->
+            worker_old_message_cleanup(DispatchKey, LastMsg)
+    after 0 ->
+        Msg
+    end.
 
 flush(Ref) ->
     receive

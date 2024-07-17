@@ -158,7 +158,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Opts = emqx_ds_builtin_local_meta:db_config(DB),
     Children = [
         shard_storage_spec(DB, Shard, Opts),
-        shard_buffer_spec(DB, Shard, Opts)
+        shard_buffer_spec(DB, Shard, Opts),
+        shard_pollers_spec(DB, Shard, Opts)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -206,6 +207,15 @@ shard_buffer_spec(DB, Shard, Options) ->
         shutdown => 5_000,
         restart => permanent,
         type => worker
+    }.
+
+shard_pollers_spec(DB, Shard, Options) ->
+    NWorkers = maps:get(n_pollers, Options, 1),
+    #{
+        id => {Shard, pollers},
+        type => supervisor,
+        shutdown => infinity,
+        start => {emqx_ds_pollers, start_link, [{DB, Shard}, NWorkers]}
     }.
 
 ensure_started(Res) ->

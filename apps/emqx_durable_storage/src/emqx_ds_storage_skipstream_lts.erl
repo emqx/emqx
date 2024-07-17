@@ -248,9 +248,9 @@ batch_events(#s{}, #{?cooked_payloads := Payloads}, SendF) ->
     %%     end,
     %%     Payloads
     %% ).
-    _EventMap = lists:foldl(
+    EventMap = lists:foldl(
         fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob), Acc) ->
-            maps:put(Static, 1, Acc)
+            maps:put({Static, Varying}, 1, Acc)
         end,
         #{},
         Payloads
