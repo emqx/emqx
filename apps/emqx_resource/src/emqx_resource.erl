@@ -39,12 +39,10 @@
 
 -export([
     %% store the config and start the instance
-    create_local/5,
     create_local/6,
     create_dry_run_local/3,
     create_dry_run_local/4,
     create_dry_run_local/5,
-    recreate_local/4,
     recreate_local/5,
     %% remove the config and stop the instance
     remove_local/1,
@@ -141,6 +139,9 @@
 ]).
 
 -export([is_dry_run/1]).
+
+%% For emqx_resource_proto_v1 rpc only
+-export([create_local/5, recreate_local/4, create_dry_run_local/2]).
 
 -export_type([
     query_mode/0,
@@ -281,12 +282,6 @@ is_resource_mod(Module) ->
 %% =================================================================================
 %% APIs for resource instances
 %% =================================================================================
-
--spec create_local(type(), resource_id(), resource_group(), resource_type(), resource_config()) ->
-    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create_local(Type, ResId, Group, ResourceType, Config) ->
-    create_local(Type, ResId, Group, ResourceType, Config, #{}).
-
 -spec create_local(
     type(),
     resource_id(),
@@ -320,11 +315,6 @@ when
 create_dry_run_local(Type, ResId, ResourceType, Config, OnReadyCallback) ->
     emqx_resource_manager:create_dry_run(Type, ResId, ResourceType, Config, OnReadyCallback).
 
--spec recreate_local(type(), resource_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
-recreate_local(Type, ResId, ResourceType, Config) ->
-    recreate_local(Type, ResId, ResourceType, Config, #{}).
-
 -spec recreate_local(type(), resource_id(), resource_type(), resource_config(), creation_opts()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(Type, ResId, ResourceType, Config, Opts) ->
@@ -339,11 +329,15 @@ remove_local(ResId) ->
             ok;
         Error ->
             %% Only log, the ResId worker is always removed in manager's remove action.
-            ?SLOG(warning, #{
-                msg => "remove_resource_failed",
-                error => Error,
-                resource_id => ResId
-            }),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "remove_resource_failed",
+                    error => Error,
+                    resource_id => ResId
+                },
+                #{tag => ?TAG}
+            ),
             ok
     end.
 
@@ -815,3 +809,18 @@ validate_name(Name, Opts) ->
 
 -spec invalid_data(binary()) -> no_return().
 invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
+
+%% Those functions is only used in the emqx_resource_proto_v1
+%% for versions that are less than version 5.6.0.
+%% begin
+-spec create_local(
+    resource_id(), resource_group(), resource_type(), resource_config(), creation_opts()
+) ->
+    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
+create_local(ResId, Group, ResourceType, Config, Opts) ->
+    create_local(deprecated, ResId, Group, ResourceType, Config, Opts).
+create_dry_run_local(ResourceType, Config) ->
+    create_dry_run_local(deprecated, ResourceType, Config).
+recreate_local(ResId, ResourceType, Config, Opts) ->
+    recreate_local(deprecated, ResId, ResourceType, Config, Opts).
+%% end

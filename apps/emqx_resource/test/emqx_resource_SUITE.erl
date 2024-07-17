@@ -3506,7 +3506,7 @@ gauge_metric_set_fns() ->
     ].
 
 create(Id, Group, Type, Config) ->
-    emqx_resource:create_local(test, Id, Group, Type, Config).
+    emqx_resource:create_local(test, Id, Group, Type, Config, #{}).
 
 create(Id, Group, Type, Config, Opts) ->
     emqx_resource:create_local(test, Id, Group, Type, Config, Opts).

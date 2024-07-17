@@ -187,7 +187,8 @@ do_create(
         ResourceId,
         ?AUTHN_RESOURCE_GROUP,
         emqx_authn_jwks_connector,
-        connector_opts(Config)
+        connector_opts(Config),
+        #{}
     ),
     {ok, #{
         jwk_resource => ResourceId,
