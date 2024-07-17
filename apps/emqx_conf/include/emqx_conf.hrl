@@ -46,6 +46,4 @@
     )
 ).
 
--define(READONLY_KEYS, [rpc, node]).
-
 -endif.

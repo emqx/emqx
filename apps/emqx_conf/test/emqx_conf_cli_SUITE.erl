@@ -21,8 +21,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include("emqx_conf.hrl").
+
 -import(emqx_config_SUITE, [prepare_conf_file/3]).
+
+-define(READONLY_ROOT_KEYS, [rpc, node]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -81,10 +83,10 @@ t_load_config(Config) ->
         Conf#{<<"sources">> => [emqx_authz_schema:default_authz()]},
         emqx_conf:get_raw([Authz])
     ),
-    ?assertEqual({error, not_found_hocon_file}, emqx_conf_cli:conf(["load", "non-exist-file"])),
+    ?assertMatch({error, #{cause := not_a_file}}, emqx_conf_cli:conf(["load", "non-exist-file"])),
     EmptyFile = "empty_file.conf",
     ok = file:write_file(EmptyFile, <<>>),
-    ?assertEqual({error, empty_hocon_file}, emqx_conf_cli:conf(["load", EmptyFile])),
+    ?assertMatch({error, #{cause := empty_hocon_file}}, emqx_conf_cli:conf(["load", EmptyFile])),
     ok = file:delete(EmptyFile),
     ok.
 
@@ -207,7 +209,7 @@ t_load_readonly(Config) ->
             %% Don't update readonly key
             ?assertEqual(Conf, emqx_conf:get_raw([Key]))
         end,
-        ?READONLY_KEYS
+        ?READONLY_ROOT_KEYS
     ),
     ok.
 

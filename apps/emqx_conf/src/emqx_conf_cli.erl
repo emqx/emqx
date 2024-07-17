@@ -45,6 +45,9 @@
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
 -define(TIMEOUT, 30000).
 
+%% All 'cluster.*' keys, except for 'cluster.link', should also be treated as read-only.
+-define(READONLY_ROOT_KEYS, [rpc, node]).
+
 -dialyzer({no_match, [load/0]}).
 
 load() ->
@@ -315,13 +318,13 @@ get_config(Key) ->
 load_config(Path, Opts) when is_list(Path) ->
     case hocon:files([Path]) of
         {ok, RawConf} when RawConf =:= #{} ->
-            case filelib:is_file(Path) of
+            case filelib:is_regular(Path) of
                 true ->
                     emqx_ctl:warning("load ~ts is empty~n", [Path]),
-                    {error, empty_hocon_file};
+                    {error, #{cause => empty_hocon_file, path => Path}};
                 false ->
-                    emqx_ctl:warning("~ts is not found~n", [Path]),
-                    {error, not_found_hocon_file}
+                    emqx_ctl:warning("~ts file is not found~n", [Path]),
+                    {error, #{cause => not_a_file, path => Path}}
             end;
         {ok, RawConf} ->
             load_config_from_raw(RawConf, Opts);
@@ -540,7 +543,7 @@ check_config(Conf0, Opts) ->
 check_keys_is_not_readonly(Conf, Opts) ->
     IgnoreReadonly = maps:get(ignore_readonly, Opts, false),
     Keys = maps:keys(Conf),
-    ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
+    ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_ROOT_KEYS],
     case lists:filter(fun(K) -> lists:member(K, Keys) end, ReadOnlyKeys) of
         [] ->
             {ok, Conf};
@@ -561,7 +564,7 @@ check_cluster_keys(Conf = #{<<"cluster">> := Cluster}, Opts) ->
             ?SLOG(info, #{msg => "readonly_root_keys_ignored", keys => Keys}),
             {ok, Conf#{<<"cluster">> => maps:with([<<"links">>], Cluster)}};
         Keys ->
-            BadKeys = ["cluster." ++ K || K <- Keys],
+            BadKeys = [<<"cluster.", K/binary>> || K <- Keys],
             BadKeysStr = lists:join(<<",">>, BadKeys),
             {error, ?UPDATE_READONLY_KEYS_PROHIBITED, BadKeysStr}
     end;
@@ -626,7 +629,7 @@ filter_readonly_config(Raw) ->
     try
         RawDefault = fill_defaults(Raw),
         _ = emqx_config:check_config(SchemaMod, RawDefault),
-        {ok, maps:without([atom_to_binary(K) || K <- ?READONLY_KEYS], Raw)}
+        {ok, maps:without([atom_to_binary(K) || K <- ?READONLY_ROOT_KEYS], Raw)}
     catch
         throw:Error ->
             ?SLOG(error, #{
@@ -798,7 +801,7 @@ find_running_confs() ->
     lists:map(
         fun(Node) ->
             Conf = emqx_conf_proto_v4:get_config(Node, []),
-            {Node, maps:without(?READONLY_KEYS, Conf)}
+            {Node, maps:without(?READONLY_ROOT_KEYS, Conf)}
         end,
         mria:running_nodes()
     ).
