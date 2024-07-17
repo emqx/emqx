@@ -113,14 +113,15 @@
     | {delete, message(_)}.
 
 %% Precondition.
-%% Fails whole batch if the message in question does not match (`while'), or
-%% does match (`unless'). Here "match" means that it either just exists (when
-%% pattern is '_') or has exactly the same payload, rest of the message fields are
-%% irrelevant. Useful to construct batches with "compare-and-set" semantics.
+%% Fails whole batch if the storage already has the matching message (`if_exists'),
+%% or does not yet have (`unless_exists'). Here "matching" means that it either
+%% just exists (when pattern is '_') or has exactly the same payload, rest of the
+%% message fields are irrelevant.
+%% Useful to construct batches with "compare-and-set" semantics.
 %% Note: backends may not support this, but if they do only DBs with `atomic_batches'
 %% enabled are expected to support preconditions in batches.
 -type precondition() ::
-    {while | unless, message(iodata() | '_')}.
+    {if_exists | unless_exists, message(iodata() | '_')}.
 
 -type rank_x() :: term().
 
