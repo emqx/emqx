@@ -136,7 +136,6 @@ link_params() ->
 link_params(Overrides) ->
     Default = #{
         <<"clientid">> => <<"linkclientid">>,
-        <<"username">> => <<"myusername">>,
         <<"pool_size">> => 1,
         <<"server">> => <<"emqxcl_2.nohost:31883">>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>]
