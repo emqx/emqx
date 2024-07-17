@@ -167,4 +167,12 @@
 ).
 -define(TAG, "RESOURCE").
 
+-define(LOG_LEVEL(_L_),
+    case _L_ of
+        true -> info;
+        false -> warning
+    end
+).
+-define(TAG, "RESOURCE").
+
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
