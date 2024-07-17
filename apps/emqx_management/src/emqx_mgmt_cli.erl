@@ -208,7 +208,7 @@ clients(_) ->
     ]).
 
 if_client(ClientId, Fun) ->
-    case ets:lookup(?CHAN_TAB, (bin(ClientId))) of
+    case ets:lookup(?CHAN_TAB, {_Mtns = undefined, bin(ClientId)}) of
         [] -> emqx_ctl:print("Not Found.~n");
         [Channel] -> Fun({client, Channel})
     end.
@@ -259,7 +259,7 @@ subscriptions(["show", ClientId]) ->
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
-        case ets:lookup(?CHAN_TAB, bin(ClientId)) of
+        case ets:lookup(?CHAN_TAB, {_Mtns = undefined, bin(ClientId)}) of
             [] ->
                 emqx_ctl:print("Error: Channel not found!");
             [{_, Pid}] ->
@@ -269,7 +269,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
         end
     end);
 subscriptions(["del", ClientId, Topic]) ->
-    case ets:lookup(?CHAN_TAB, bin(ClientId)) of
+    case ets:lookup(?CHAN_TAB, {_Mtns = undefined, bin(ClientId)}) of
         [] ->
             emqx_ctl:print("Error: Channel not found!");
         [{_, Pid}] ->
@@ -932,14 +932,14 @@ dump(Table, Tag, Key, Result) ->
 
 print({_, []}) ->
     ok;
-print({client, {ClientId, ChanPid}}) ->
+print({client, {{Mtns, ClientId}, ChanPid}}) ->
     Attrs =
-        case emqx_cm:get_chan_info(_Mtns = undefined, ClientId, ChanPid) of
+        case emqx_cm:get_chan_info(Mtns, ClientId, ChanPid) of
             undefined -> #{};
             Attrs0 -> Attrs0
         end,
     Stats =
-        case emqx_cm:get_chan_stats(_Mtns1 = undefined, ClientId, ChanPid) of
+        case emqx_cm:get_chan_stats(Mtns, ClientId, ChanPid) of
             undefined -> #{};
             Stats0 -> maps:from_list(Stats0)
         end,

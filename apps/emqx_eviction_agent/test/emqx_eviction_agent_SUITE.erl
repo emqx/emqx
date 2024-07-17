@@ -219,7 +219,7 @@ t_explicit_session_takeover(Config) ->
         rpc:call(Node1, emqx_eviction_agent, connection_count, [])
     ),
 
-    [ChanPid] = rpc:call(Node1, emqx_cm, lookup_channels, [<<"client_with_session">>]),
+    [ChanPid] = rpc:call(Node1, emqx_cm, lookup_channels, [undefined, <<"client_with_session">>]),
 
     ok = rpc:call(Node1, emqx_eviction_agent, enable, [test_eviction, undefined]),
 
@@ -377,7 +377,7 @@ t_session_serialization(_Config) ->
 
     ?assertWaitEvent(
         emqx_cm:kick_session(<<"client_with_session">>),
-        #{?snk_kind := emqx_cm_clean_down, client_id := <<"client_with_session">>},
+        #{?snk_kind := emqx_cm_clean_down, clientid := <<"client_with_session">>},
         1000
     ),
 
