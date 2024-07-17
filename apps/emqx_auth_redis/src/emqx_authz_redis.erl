@@ -92,42 +92,28 @@ authorize(
 do_authorize(_Client, _Action, _Topic, []) ->
     nomatch;
 do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
-    try
-        emqx_authz_rule:match(
-            Client,
-            Action,
-            Topic,
-            compile_rule(RuleEncoded, TopicFilterRaw)
-        )
-    of
-        {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, Action, Topic, Tail)
-    catch
-        error:Reason:Stack ->
-            ?SLOG(error, #{
-                msg => "match_rule_error",
-                reason => Reason,
-                rule_encoded => RuleEncoded,
-                topic_filter_raw => TopicFilterRaw,
-                stacktrace => Stack
+    case parse_rule(RuleEncoded) of
+        {ok, RuleMap0} ->
+            RuleMap =
+                maps:merge(
+                    #{
+                        <<"permission">> => <<"allow">>,
+                        <<"topic">> => TopicFilterRaw
+                    },
+                    RuleMap0
+                ),
+            case emqx_authz_utils:do_authorize(redis, Client, Action, Topic, undefined, RuleMap) of
+                nomatch ->
+                    do_authorize(Client, Action, Topic, Tail);
+                {matched, Permission} ->
+                    {matched, Permission}
+            end;
+        {error, Reason} ->
+            ?SLOG(error, Reason#{
+                msg => "parse_rule_error",
+                rule => RuleEncoded
             }),
             do_authorize(Client, Action, Topic, Tail)
-    end.
-
-compile_rule(RuleBin, TopicFilterRaw) ->
-    RuleRaw =
-        maps:merge(
-            #{
-                <<"permission">> => <<"allow">>,
-                <<"topic">> => TopicFilterRaw
-            },
-            parse_rule(RuleBin)
-        ),
-    case emqx_authz_rule_raw:parse_rule(RuleRaw) of
-        {ok, {Permission, Action, Topics}} ->
-            emqx_authz_rule:compile({Permission, all, Action, Topics});
-        {error, Reason} ->
-            error(Reason)
     end.
 
 parse_cmd(Query) ->
@@ -154,17 +140,17 @@ validate_cmd(Cmd) ->
     end.
 
 parse_rule(<<"publish">>) ->
-    #{<<"action">> => <<"publish">>};
+    {ok, #{<<"action">> => <<"publish">>}};
 parse_rule(<<"subscribe">>) ->
-    #{<<"action">> => <<"subscribe">>};
+    {ok, #{<<"action">> => <<"subscribe">>}};
 parse_rule(<<"all">>) ->
-    #{<<"action">> => <<"all">>};
+    {ok, #{<<"action">> => <<"all">>}};
 parse_rule(Bin) when is_binary(Bin) ->
     case emqx_utils_json:safe_decode(Bin, [return_maps]) of
         {ok, Map} when is_map(Map) ->
-            maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map);
+            {ok, maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map)};
         {ok, _} ->
-            error({invalid_topic_rule, Bin, notamap});
-        {error, Error} ->
-            error({invalid_topic_rule, Bin, Error})
+            {error, #{reason => invalid_topic_rule_not_map, value => Bin}};
+        {error, _Error} ->
+            {error, #{reason => invalid_topic_rule_not_json, value => Bin}}
     end.

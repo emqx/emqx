@@ -101,19 +101,9 @@ authorize(
 do_authorize(_Client, _Action, _Topic, _ColumnNames, []) ->
     nomatch;
 do_authorize(Client, Action, Topic, ColumnNames, [Row | Tail]) ->
-    try
-        emqx_authz_rule:match(
-            Client, Action, Topic, emqx_authz_utils:parse_rule_from_row(ColumnNames, Row)
-        )
-    of
-        {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, Action, Topic, ColumnNames, Tail)
-    catch
-        error:Reason ->
-            ?SLOG(error, #{
-                msg => "match_rule_error",
-                reason => Reason,
-                rule => Row
-            }),
-            do_authorize(Client, Action, Topic, ColumnNames, Tail)
+    case emqx_authz_utils:do_authorize(mysql, Client, Action, Topic, ColumnNames, Row) of
+        nomatch ->
+            do_authorize(Client, Action, Topic, ColumnNames, Tail);
+        {matched, Permission} ->
+            {matched, Permission}
     end.
