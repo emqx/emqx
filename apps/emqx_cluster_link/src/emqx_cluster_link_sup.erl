@@ -6,6 +6,8 @@
 
 -behaviour(supervisor).
 
+-include("emqx_cluster_link.hrl").
+
 -export([start_link/1]).
 
 -export([
@@ -27,12 +29,13 @@ init(LinksConf) ->
         intensity => 10,
         period => 5
     },
+    Metrics = emqx_metrics_worker:child_spec(metrics, ?METRIC_NAME),
     ExtrouterGC = extrouter_gc_spec(),
     RouteActors = [
         sup_spec(Name, ?ACTOR_MODULE, [LinkConf])
      || #{name := Name} = LinkConf <- LinksConf
     ],
-    {ok, {SupFlags, [ExtrouterGC | RouteActors]}}.
+    {ok, {SupFlags, [Metrics, ExtrouterGC | RouteActors]}}.
 
 extrouter_gc_spec() ->
     %% NOTE: This one is currently global, not per-link.

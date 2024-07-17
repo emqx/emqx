@@ -10,6 +10,7 @@
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_cluster_link.hrl").
 
 -export([
     api_spec/0,
@@ -21,7 +22,8 @@
 
 -export([
     '/cluster/links'/2,
-    '/cluster/links/:name'/2
+    '/cluster/links/:name'/2,
+    '/cluster/links/:name/metrics'/2
 ]).
 
 -define(CONF_PATH, [cluster, links]).
@@ -37,7 +39,8 @@ api_spec() ->
 paths() ->
     [
         "/cluster/links",
-        "/cluster/links/:name"
+        "/cluster/links/:name",
+        "/cluster/links/:name/metrics"
     ].
 
 schema("/cluster/links") ->
@@ -113,6 +116,23 @@ schema("/cluster/links/:name") ->
                             )
                     }
             }
+    };
+schema("/cluster/links/:name/metrics") ->
+    #{
+        'operationId' => '/cluster/links/:name/metrics',
+        get =>
+            #{
+                description => "Get a cluster link metrics",
+                tags => ?TAGS,
+                parameters => [param_path_name()],
+                responses =>
+                    #{
+                        200 => link_metrics_schema_response(),
+                        404 => emqx_dashboard_swagger:error_codes(
+                            [?NOT_FOUND], <<"Cluster link not found">>
+                        )
+                    }
+            }
     }.
 
 fields(link_config_response) ->
@@ -120,6 +140,24 @@ fields(link_config_response) ->
         {node, hoconsc:mk(binary(), #{desc => ?DESC("node")})},
         {status, hoconsc:mk(status(), #{desc => ?DESC("status")})}
         | emqx_cluster_link_schema:fields("link")
+    ];
+fields(metrics) ->
+    [
+        {metrics, hoconsc:mk(map(), #{desc => ?DESC("metrics")})}
+    ];
+fields(link_metrics_response) ->
+    [
+        {node_metrics,
+            hoconsc:mk(
+                hoconsc:array(hoconsc:ref(?MODULE, node_metrics)),
+                #{desc => ?DESC("node_metrics")}
+            )}
+        | fields(metrics)
+    ];
+fields(node_metrics) ->
+    [
+        {node, hoconsc:mk(atom(), #{desc => ?DESC("node")})}
+        | fields(metrics)
     ].
 
 %%--------------------------------------------------------------------
@@ -154,6 +192,9 @@ fields(link_config_response) ->
         not_found()
     ).
 
+'/cluster/links/:name/metrics'(get, #{bindings := #{name := Name}}) ->
+    with_link(Name, fun() -> handle_metrics(Name) end, not_found()).
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
@@ -184,6 +225,46 @@ handle_create(Name, Params) ->
 
 handle_lookup(Name, Link) ->
     ?OK(add_status(Name, Link)).
+
+handle_metrics(Name) ->
+    case emqx_cluster_link:get_metrics(Name) of
+        {error, BadResults} ->
+            ?SLOG(warning, #{
+                msg => "cluster_link_api_metrics_bad_erpc_results",
+                results => BadResults
+            }),
+            ?OK(#{metrics => #{}, node_metrics => []});
+        {ok, NodeResults} ->
+            NodeMetrics =
+                lists:map(
+                    fun({Node, Metrics}) ->
+                        format_metrics(Node, Metrics)
+                    end,
+                    NodeResults
+                ),
+            AggregatedMetrics = aggregate_metrics(NodeMetrics),
+            Response = #{metrics => AggregatedMetrics, node_metrics => NodeMetrics},
+            ?OK(Response)
+    end.
+
+aggregate_metrics(NodeMetrics) ->
+    ErrorLogger = fun(_) -> ok end,
+    lists:foldl(
+        fun(#{metrics := Metrics}, Acc) ->
+            emqx_utils_maps:best_effort_recursive_sum(Metrics, Acc, ErrorLogger)
+        end,
+        #{},
+        NodeMetrics
+    ).
+
+format_metrics(Node, Metrics) ->
+    Routes = emqx_utils_maps:deep_get([counters, ?route_metric], Metrics, 0),
+    #{
+        node => Node,
+        metrics => #{
+            ?route_metric => Routes
+        }
+    }.
 
 add_status(Name, Link) ->
     NodeResults = get_link_status_cluster(Name),
@@ -330,6 +411,16 @@ link_config_schema_response() ->
         }
     ).
 
+link_metrics_schema_response() ->
+    hoconsc:mk(
+        hoconsc:ref(?MODULE, link_metrics_response),
+        #{
+            examples => #{
+                <<"example">> => link_metrics_response_example()
+            }
+        }
+    ).
+
 status() ->
     hoconsc:enum([?status_connected, ?status_disconnected, ?status_connecting, inconsistent]).
 
@@ -391,6 +482,17 @@ links_config_example() ->
             <<"name">> => <<"emqxcl_c">>
         }
     ].
+
+link_metrics_response_example() ->
+    #{
+        <<"metrics">> => #{<<"routes">> => 10240},
+        <<"node_metrics">> => [
+            #{
+                <<"node">> => <<"emqx1@emqx.net">>,
+                <<"metrics">> => #{<<"routes">> => 10240}
+            }
+        ]
+    }.
 
 with_link(Name, FoundFn, NotFoundFn) ->
     case emqx_cluster_link_config:link_raw(Name) of
