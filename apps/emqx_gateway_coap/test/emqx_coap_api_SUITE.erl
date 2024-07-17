@@ -207,7 +207,8 @@ test_recv_coap_request(UdpSock) ->
 test_send_coap_response(UdpSock, Host, Port, Code, Content, Request) ->
     is_list(Host) orelse error("Host is not a string"),
     {ok, IpAddr} = inet:getaddr(Host, inet),
-    Response = emqx_coap_message:piggyback(Code, Content, Request),
+    Response0 = emqx_coap_message:piggyback(Code, Content, Request),
+    Response = Response0#coap_message{options = #{uri_query => [<<"clientid=client1">>]}},
     ?LOGT("test_send_coap_response Response=~p", [Response]),
     Binary = emqx_coap_frame:serialize_pkt(Response, undefined),
     ok = gen_udp:send(UdpSock, IpAddr, Port, Binary).
