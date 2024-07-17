@@ -689,13 +689,12 @@ handle_event(EventType, EventData, State, Data) ->
         #{
             msg => "ignore_all_other_events",
             resource_id => Data#data.id,
-            group => Data#data.group,
-            type => Data#data.type,
             event_type => EventType,
             event_data => EventData,
             state => State,
             data => emqx_utils:redact(Data)
-        }
+        },
+        #{tag => tag(Data#data.group, Data#data.type)}
     ),
     keep_state_and_data.
 
@@ -770,13 +769,15 @@ start_resource(Data, From) ->
             {next_state, ?state_connecting, update_state(UpdatedData2, Data), Actions};
         {error, Reason} = Err ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
-            ?SLOG(log_level(IsDryRun), #{
-                msg => "start_resource_failed",
-                resource_id => ResId,
-                group => Group,
-                type => Type,
-                reason => Reason
-            }),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "start_resource_failed",
+                    resource_id => ResId,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
             _ = maybe_alarm(?status_disconnected, IsDryRun, ResId, Err, Data#data.error),
             %% Add channels and raise alarms
             NewData1 = channels_health_check(?status_disconnected, add_channels(Data)),
@@ -836,14 +837,16 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
             add_channels_in_list(Rest, NewData);
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
-            ?SLOG(log_level(IsDryRun), #{
-                msg => "add_channel_failed",
-                resource_id => ResId,
-                type => Type,
-                group => Group,
-                channel_id => ChannelID,
-                reason => Reason
-            }),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "add_channel_failed",
+                    resource_id => ResId,
+                    channel_id => ChannelID,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
             AddedChannelsMap = Data#data.added_channels,
             NewAddedChannelsMap = maps:put(
                 ChannelID,
@@ -915,14 +918,18 @@ remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
             },
             remove_channels_in_list(Rest, NewData, KeepInChannelMap);
         {error, Reason} ->
-            ?SLOG(log_level(IsDryRun), #{
-                msg => "remove_channel_failed",
-                resource_id => ResId,
-                group => Group,
-                type => Type,
-                channel_id => ChannelID,
-                reason => Reason
-            }),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "remove_channel_failed",
+                    resource_id => ResId,
+                    group => Group,
+                    type => Type,
+                    channel_id => ChannelID,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
             NewData = Data#data{
                 added_channels = NewAddedChannelsMap
             },
@@ -1043,14 +1050,16 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
             {keep_state, update_state(UpdatedData, Data), [{reply, From, ok}]};
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(Id),
-            ?SLOG(log_level(IsDryRun), #{
-                msg => "remove_channel_failed",
-                resource_id => Id,
-                group => Group,
-                type => Type,
-                channel_id => ChannelId,
-                reason => Reason
-            }),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "remove_channel_failed",
+                    resource_id => Id,
+                    channel_id => ChannelId,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
             {keep_state_and_data, [{reply, From, Error}]}
     end.
 
@@ -1158,13 +1167,15 @@ continue_resource_health_check_connected(NewStatus, Data0) ->
         _ ->
             #data{id = ResId, group = Group, type = Type} = Data0,
             IsDryRun = emqx_resource:is_dry_run(ResId),
-            ?SLOG(log_level(IsDryRun), #{
-                msg => "health_check_failed",
-                resource_id => ResId,
-                group => Group,
-                type => Type,
-                status => NewStatus
-            }),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "health_check_failed",
+                    resource_id => ResId,
+                    status => NewStatus
+                },
+                #{tag => tag(Group, Type)}
+            ),
             %% Note: works because, coincidentally, channel/resource status is a
             %% subset of resource manager state...  But there should be a conversion
             %% between the two here, as resource manager also has `stopped', which is
@@ -1669,10 +1680,9 @@ parse_health_check_result({error, Error}, Data) ->
         #{
             msg => "health_check_exception",
             resource_id => Data#data.id,
-            type => Data#data.type,
-            group => Data#data.group,
             reason => Error
-        }
+        },
+        #{tag => tag(Data#data.group, Data#data.type)}
     ),
     {?status_disconnected, Data#data.state, {error, Error}}.
 
@@ -1835,3 +1845,7 @@ state_to_status(?state_disconnected) -> ?status_disconnected.
 
 log_level(true) -> info;
 log_level(false) -> warning.
+
+tag(Group, Type) ->
+    Str = emqx_utils_conv:str(Group) ++ "/" ++ emqx_utils_conv:str(Type),
+    string:uppercase(Str).
