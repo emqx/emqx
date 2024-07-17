@@ -13,7 +13,9 @@ connect_timeout.label:
 """Connect Timeout"""
 
 enable_pipelining.desc:
-"""A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
+"""The maximum number of HTTP requests that can be sent before an HTTP response is received.
+
+Setting this to 1 is equivalent to turning off HTTP pipelining, and the EMQX must receive a response to the previous HTTP request before sending the next HTTP request."""
 
 enable_pipelining.label:
 """HTTP Pipelining"""

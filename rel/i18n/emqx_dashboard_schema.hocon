@@ -104,7 +104,7 @@ listeners.label:
 """Listeners"""
 
 max_connections.desc:
-"""Maximum number of simultaneous connections."""
+"""The maximum number of concurrent connections allowed by the listener."""
 
 max_connections.label:
 """Maximum connections"""

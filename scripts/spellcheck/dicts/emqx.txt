@@ -55,6 +55,7 @@ PSK
 PSK
 PSKs
 PUBACK
+PUBCOMP
 PUBREL
 PUBLISH
 QoS
@@ -194,6 +195,7 @@ params
 peerhost
 peername
 perf
+pipelining
 powershell
 procmem
 procs
@@ -257,6 +259,7 @@ typerefl
 udp
 uid
 un-acked
+unbusy
 unsub
 uplink
 url
