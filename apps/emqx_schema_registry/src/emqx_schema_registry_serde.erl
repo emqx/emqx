@@ -90,21 +90,7 @@ handle_rule_function(sparkplug_encode, [Term | MoreArgs]) ->
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
     );
 handle_rule_function(schema_decode, [SchemaId, Data | MoreArgs]) ->
-    try
-        decode(SchemaId, Data, MoreArgs)
-    catch
-        error:{gpb_error, {decoding_failure, {_Data, _Schema, {error, function_clause, _Stack}}}} ->
-            throw(
-                {schema_decode_error, #{
-                    error_type => decoding_failure,
-                    schema_id => SchemaId,
-                    data => Data,
-                    more_args => MoreArgs,
-                    explain =>
-                        <<"The given data could not be decoded. Please check the input data and the schema.">>
-                }}
-            )
-    end;
+    decode(SchemaId, Data, MoreArgs);
 handle_rule_function(schema_decode, Args) ->
     error({args_count_error, {schema_decode, Args}});
 handle_rule_function(schema_encode, [SchemaId, Term | MoreArgs]) ->
@@ -162,7 +148,17 @@ encode(SerdeName, Data, VarArgs) when is_list(VarArgs) ->
 with_serde(Name, F) ->
     case emqx_schema_registry:get_serde(Name) of
         {ok, Serde} ->
-            F(Serde);
+            Meta =
+                case logger:get_process_metadata() of
+                    undefined -> #{};
+                    Meta0 -> Meta0
+                end,
+            logger:update_process_metadata(#{schema_name => Name}),
+            try
+                F(Serde)
+            after
+                logger:set_process_metadata(Meta)
+            end;
         {error, not_found} ->
             error({serde_not_found, Name})
     end.
@@ -199,10 +195,39 @@ make_serde(json, Name, Source) ->
 eval_decode(#serde{type = avro, name = Name, eval_context = Store}, [Data]) ->
     Opts = avro:make_decoder_options([{map_type, map}, {record_type, map}]),
     avro_binary_decoder:decode(Data, Name, Store, Opts);
-eval_decode(#serde{type = protobuf, eval_context = SerdeMod}, [EncodedData, MessageName0]) ->
-    MessageName = binary_to_existing_atom(MessageName0, utf8),
-    Decoded = apply(SerdeMod, decode_msg, [EncodedData, MessageName]),
-    emqx_utils_maps:binary_key_map(Decoded);
+eval_decode(#serde{type = protobuf}, [#{} = DecodedData, MessageType]) ->
+    %% Already decoded, so it's an user error.
+    throw(
+        {schema_decode_error, #{
+            error_type => decoding_failure,
+            data => DecodedData,
+            message_type => MessageType,
+            explain =>
+                <<
+                    "Attempted to schema decode an already decoded message."
+                    " Check your rules or transformation pipeline."
+                >>
+        }}
+    );
+eval_decode(#serde{type = protobuf, eval_context = SerdeMod}, [EncodedData, MessageType0]) ->
+    MessageType = binary_to_existing_atom(MessageType0, utf8),
+    try
+        Decoded = apply(SerdeMod, decode_msg, [EncodedData, MessageType]),
+        emqx_utils_maps:binary_key_map(Decoded)
+    catch
+        error:{gpb_error, {decoding_failure, {_Data, _Schema, {error, function_clause, _Stack}}}} ->
+            #{schema_name := SchemaName} = logger:get_process_metadata(),
+            throw(
+                {schema_decode_error, #{
+                    error_type => decoding_failure,
+                    data => EncodedData,
+                    message_type => MessageType,
+                    schema_name => SchemaName,
+                    explain =>
+                        <<"The given data could not be decoded. Please check the input data and the schema.">>
+                }}
+            )
+    end;
 eval_decode(#serde{type = json, name = Name}, [Data]) ->
     true = is_binary(Data),
     Term = json_decode(Data),

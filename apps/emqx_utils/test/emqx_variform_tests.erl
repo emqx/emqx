@@ -23,7 +23,7 @@
 
 -define(SYNTAX_ERROR, {error, "syntax error before:" ++ _}).
 
-redner_test_() ->
+render_test_() ->
     [
         {"direct var reference", fun() -> ?assertEqual({ok, <<"1">>}, render("a", #{a => 1})) end},
         {"concat strings", fun() ->
@@ -31,6 +31,15 @@ redner_test_() ->
         end},
         {"concat empty string", fun() ->
             ?assertEqual({ok, <<"">>}, render("concat([''])", #{}))
+        end},
+        {"identifier with hyphen", fun() ->
+            ?assertEqual(
+                {ok, <<"10">>},
+                render(
+                    "pub_props.Message-Expiry-Interval",
+                    #{pub_props => #{'Message-Expiry-Interval' => 10}}
+                )
+            )
         end},
         {"tokens 1st", fun() ->
             ?assertEqual({ok, <<"a">>}, render("nth(1,tokens(var, ','))", #{var => <<"a,b">>}))
