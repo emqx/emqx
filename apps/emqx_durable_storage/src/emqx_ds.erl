@@ -99,8 +99,8 @@
 
 -type message() :: emqx_types:message().
 
-%% Message pattern.
--type message(Pattern) :: emqx_types:message(Pattern).
+%% Message matcher.
+-type message_matcher(Payload) :: #message_matcher{payload :: Payload}.
 
 %% A batch of storage operations.
 -type batch() :: [operation()] | #dsbatch{}.
@@ -110,7 +110,7 @@
     message()
     %% Delete a message.
     %% Does nothing if the message does not exist.
-    | {delete, message(_)}.
+    | {delete, message_matcher('_')}.
 
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
@@ -121,7 +121,7 @@
 %% Note: backends may not support this, but if they do only DBs with `atomic_batches'
 %% enabled are expected to support preconditions in batches.
 -type precondition() ::
-    {if_exists | unless_exists, message(iodata() | '_')}.
+    {if_exists | unless_exists, message_matcher(iodata() | '_')}.
 
 -type rank_x() :: term().
 
