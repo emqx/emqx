@@ -165,5 +165,6 @@
         false -> warning
     end
 ).
+-define(TAG, "RESOURCE").
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
