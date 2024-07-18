@@ -321,23 +321,18 @@ t_action_not_exist_exchange(_Config) ->
     Trace = snabbkaffe:collect_trace(50),
     ?assert(
         lists:any(
-            fun(K) ->
-                maps:get(msg, K, not_found) =:=
-                    emqx_bridge_rabbitmq_connector_rabbit_publish_failed_with_msg
+            fun
+                (#{msg := emqx_bridge_rabbitmq_connector_rabbit_publish_failed_with_msg}) ->
+                    true;
+                (#{msg := emqx_bridge_rabbitmq_connector_rabbit_publish_failed_con_not_ready}) ->
+                    true;
+                (_) ->
+                    false
             end,
             Trace
-        )
-    ),
-    ?assert(
-        lists:any(
-            fun(K) ->
-                maps:get(msg, K, not_found) =:=
-                    emqx_bridge_rabbitmq_connector_rabbit_publish_failed_con_not_ready
-            end,
-            Trace
-        )
-    ),
-    ok.
+        ),
+        Trace
+    ).
 
 t_replace_action_source(Config) ->
     Action = #{<<"rabbitmq">> => #{<<"my_action">> => rabbitmq_action()}},

@@ -98,7 +98,8 @@ t_case_coap_publish(_) ->
     end,
     Case = fun(Channel, Token) ->
         Fun(Channel, Token, <<"/publish">>, ?checkMatch({ok, changed, _})),
-        Fun(Channel, Token, <<"/badpublish">>, ?checkMatch({error, uauthorized}))
+        Fun(Channel, Token, <<"/badpublish">>, ?checkMatch({error, uauthorized})),
+        true
     end,
     Mod:with_connection(Case).
 
@@ -114,7 +115,8 @@ t_case_coap_subscribe(_) ->
     end,
     Case = fun(Channel, Token) ->
         Fun(Channel, Token, <<"/subscribe">>, ?checkMatch({ok, content, _})),
-        Fun(Channel, Token, <<"/badsubscribe">>, ?checkMatch({error, uauthorized}))
+        Fun(Channel, Token, <<"/badsubscribe">>, ?checkMatch({error, uauthorized})),
+        true
     end,
     Mod:with_connection(Case).
 

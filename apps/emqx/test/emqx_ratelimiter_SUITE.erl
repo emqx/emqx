@@ -816,8 +816,8 @@ t_no_limiter_for_listener(_) ->
     CfgStr = <<>>,
     ok = emqx_common_test_helpers:load_config(emqx_schema, CfgStr),
     ListenerOpt = emqx:get_config([listeners, tcp, default]),
-    ?assertEqual(
-        undefined,
+    ?assertMatch(
+        #{connection := #{rate := infinity}},
         emqx_limiter_utils:get_listener_opts(ListenerOpt)
     ).
 

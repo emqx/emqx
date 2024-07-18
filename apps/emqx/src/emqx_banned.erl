@@ -16,6 +16,8 @@
 
 -module(emqx_banned).
 
+-feature(maybe_expr, enable).
+
 -behaviour(gen_server).
 -behaviour(emqx_db_backup).
 
@@ -49,6 +51,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
+    handle_continue/2,
     terminate/2,
     code_change/3
 ]).
@@ -137,7 +140,7 @@ format(#banned{
         until => to_rfc3339(Until)
     }.
 
--spec parse(map()) -> emqx_types:banned() | {error, term()}.
+-spec parse(map()) -> {ok, emqx_types:banned()} | {error, term()}.
 parse(Params) ->
     case parse_who(Params) of
         {error, Reason} ->
@@ -149,13 +152,13 @@ parse(Params) ->
             Until = maps:get(<<"until">>, Params, At + ?EXPIRATION_TIME),
             case Until > erlang:system_time(second) of
                 true ->
-                    #banned{
+                    {ok, #banned{
                         who = Who,
                         by = By,
                         reason = Reason,
                         at = At,
                         until = Until
-                    };
+                    }};
                 false ->
                     ErrorReason =
                         io_lib:format("Cannot create expired banned, ~p to ~p", [At, Until]),
@@ -240,11 +243,138 @@ who(peerhost_net, CIDR) when is_binary(CIDR) ->
     {peerhost_net, esockd_cidr:parse(binary_to_list(CIDR), true)}.
 
 %%--------------------------------------------------------------------
+%% Import From CSV
+%%--------------------------------------------------------------------
+init_from_csv(undefined) ->
+    ok;
+init_from_csv(File) ->
+    maybe
+        core ?= mria_rlog:role(),
+        '$end_of_table' ?= mnesia:dirty_first(?BANNED_RULE_TAB),
+        '$end_of_table' ?= mnesia:dirty_first(?BANNED_INDIVIDUAL_TAB),
+        {ok, Bin} ?= file:read_file(File),
+        Stream = emqx_utils_stream:csv(Bin, #{nullable => true, filter_null => true}),
+        {ok, List} ?= parse_stream(Stream),
+        import_from_stream(List),
+        ?SLOG(info, #{
+            msg => "load_banned_bootstrap_file_succeeded",
+            file => File
+        })
+    else
+        replicant ->
+            ok;
+        {Name, _} when
+            Name == peerhost;
+            Name == peerhost_net;
+            Name == clientid_re;
+            Name == username_re;
+            Name == clientid;
+            Name == username
+        ->
+            ok;
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "load_banned_bootstrap_file_failed",
+                reason => Reason,
+                file => File
+            }),
+            Error
+    end.
+
+import_from_stream(Stream) ->
+    Groups = maps:groups_from_list(
+        fun(#banned{who = Who}) -> table(Who) end, Stream
+    ),
+    maps:foreach(
+        fun(Tab, Items) ->
+            Trans = fun() ->
+                lists:foreach(
+                    fun(Item) ->
+                        mnesia:write(Tab, Item, write)
+                    end,
+                    Items
+                )
+            end,
+
+            case trans(Trans) of
+                {ok, _} ->
+                    ?SLOG(info, #{
+                        msg => "import_banned_from_stream_succeeded",
+                        items => Items
+                    });
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "import_banned_from_stream_failed",
+                        reason => Reason,
+                        items => Items
+                    })
+            end
+        end,
+        Groups
+    ).
+
+parse_stream(Stream) ->
+    try
+        List = emqx_utils_stream:consume(Stream),
+        parse_stream(List, [], [])
+    catch
+        error:Reason ->
+            {error, Reason}
+    end.
+
+parse_stream([Item | List], Ok, Error) ->
+    maybe
+        {ok, Item1} ?= normalize_parse_item(Item),
+        {ok, Banned} ?= parse(Item1),
+        parse_stream(List, [Banned | Ok], Error)
+    else
+        {error, _} ->
+            parse_stream(List, Ok, [Item | Error])
+    end;
+parse_stream([], Ok, []) ->
+    {ok, Ok};
+parse_stream([], Ok, Error) ->
+    ?SLOG(warning, #{
+        msg => "invalid_banned_items",
+        items => Error
+    }),
+    {ok, Ok}.
+
+normalize_parse_item(#{<<"as">> := As} = Item) ->
+    ParseTime = fun(Name, Input) ->
+        maybe
+            #{Name := Time} ?= Input,
+            {ok, Epoch} ?= emqx_utils_calendar:to_epoch_second(emqx_utils_conv:str(Time)),
+            {ok, Input#{Name := Epoch}}
+        else
+            {error, _} = Error ->
+                Error;
+            NoTime when is_map(NoTime) ->
+                {ok, NoTime}
+        end
+    end,
+
+    maybe
+        {ok, Type} ?= emqx_utils:safe_to_existing_atom(As),
+        {ok, Item1} ?= ParseTime(<<"at">>, Item#{<<"as">> := Type}),
+        ParseTime(<<"until">>, Item1)
+    end;
+normalize_parse_item(_Item) ->
+    {error, invalid_item}.
+
+%%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
+    {ok, ensure_expiry_timer(#{expiry_timer => undefined}), {continue, init_from_csv}}.
+
+handle_continue(init_from_csv, State) ->
+    File = emqx_schema:naive_env_interpolation(
+        emqx:get_config([banned, bootstrap_file], undefined)
+    ),
+    _ = init_from_csv(File),
+    {noreply, State}.
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -255,7 +385,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    _ = mria:transaction(?COMMON_SHARD, fun ?MODULE:expire_banned_items/1, [
+    _ = trans(fun ?MODULE:expire_banned_items/1, [
         erlang:system_time(second)
     ]),
     {noreply, ensure_expiry_timer(State), hibernate};
@@ -396,3 +526,15 @@ on_banned(_) ->
 
 all_rules() ->
     ets:tab2list(?BANNED_RULE_TAB).
+
+trans(Fun) ->
+    case mria:transaction(?COMMON_SHARD, Fun) of
+        {atomic, Res} -> {ok, Res};
+        {aborted, Reason} -> {error, Reason}
+    end.
+
+trans(Fun, Args) ->
+    case mria:transaction(?COMMON_SHARD, Fun, Args) of
+        {atomic, Res} -> {ok, Res};
+        {aborted, Reason} -> {error, Reason}
+    end.

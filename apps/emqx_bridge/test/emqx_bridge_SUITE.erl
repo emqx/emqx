@@ -216,7 +216,7 @@ t_create_with_bad_name(_Config) ->
     ok.
 
 t_create_with_bad_name_root(_Config) ->
-    BadBridgeName = <<"test_哈哈">>,
+    BadBridgeName = <<"test_哈哈"/utf8>>,
     BridgeConf = #{
         <<"bridge_mode">> => false,
         <<"clean_start">> => true,

@@ -117,6 +117,19 @@ schema_test_() ->
                     )
                 ])
             )},
+        {"topics must be non-empty",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"at least one topic filter must be defined", _/binary>>,
+                        value := [],
+                        kind := validation_error
+                    }
+                ]},
+                parse_and_check([
+                    validation(<<"foo">>, [sql_check()], #{<<"topics">> => []})
+                ])
+            )},
         {"foreach expression is not allowed",
             ?_assertThrow(
                 {_Schema, [

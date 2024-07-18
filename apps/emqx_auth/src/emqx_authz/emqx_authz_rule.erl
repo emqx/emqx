@@ -68,7 +68,8 @@
 -export_type([
     permission_resolution/0,
     action_condition/0,
-    topic_condition/0
+    topic_condition/0,
+    rule/0
 ]).
 
 %%--------------------------------------------------------------------

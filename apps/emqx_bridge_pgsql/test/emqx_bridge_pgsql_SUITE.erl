@@ -728,8 +728,8 @@ t_prepared_statement_exists(Config) ->
     emqx_common_test_helpers:on_exit(fun() ->
         meck:unload()
     end),
-    MeckOpts = [passthrough, no_link, no_history, non_strict],
-    meck:new(emqx_postgresql, MeckOpts),
+    MeckOpts = [passthrough, no_link, no_history],
+    meck:new(epgsql, MeckOpts),
     InsertPrepStatementDupAndThenRemoveMeck =
         fun(Conn, Key, SQL, List) ->
             meck:passthrough([Conn, Key, SQL, List]),
@@ -795,6 +795,7 @@ t_prepared_statement_exists(Config) ->
             ok
         end
     ),
+    meck:unload(),
     ok.
 
 t_table_removed(Config) ->

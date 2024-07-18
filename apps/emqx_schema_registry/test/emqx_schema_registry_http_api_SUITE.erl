@@ -407,7 +407,8 @@ t_empty_sparkplug(_Config) ->
     ),
     ok.
 
-%% Tests that we can't create names that are too long and get a decent error message.
+%% Tests that we can't create or lookup names that are too long and get a decent error
+%% message.
 t_name_too_long(Config) ->
     SerdeType = ?config(serde_type, Config),
     SourceBin = ?config(schema_source, Config),
@@ -427,5 +428,12 @@ t_name_too_long(Config) ->
             <<"message">> := <<"Name length must be less than 255">>
         }},
         request({post, Params})
+    ),
+    ?assertMatch(
+        {ok, 404, #{
+            <<"code">> := <<"NOT_FOUND">>,
+            <<"message">> := <<"Schema not found">>
+        }},
+        request({get, SchemaName})
     ),
     ok.

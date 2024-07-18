@@ -100,6 +100,15 @@ fields(jwt_jwks) ->
     [
         {use_jwks, sc(hoconsc:enum([true]), #{required => true, desc => ?DESC(use_jwks)})},
         {endpoint, fun endpoint/1},
+        {headers,
+            sc(
+                typerefl:alias("map", emqx_schema:binary_kv()),
+                #{
+                    default => #{<<"Accept">> => <<"application/json">>},
+                    validator => fun validate_headers/1,
+                    desc => ?DESC("jwks_headers")
+                }
+            )},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {refresh_interval, fun refresh_interval/1},
         {ssl, #{
@@ -235,3 +244,26 @@ to_binary(B) when is_binary(B) ->
     B.
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+validate_headers(undefined) ->
+    ok;
+validate_headers(Headers) ->
+    BadKeys0 =
+        lists:filter(
+            fun(K) ->
+                re:run(K, <<"[^-0-9a-zA-Z_ ]">>, [{capture, none}]) =:= match
+            end,
+            maps:keys(Headers)
+        ),
+    case BadKeys0 of
+        [] ->
+            ok;
+        _ ->
+            BadKeys = lists:join(", ", BadKeys0),
+            Msg0 = io_lib:format(
+                "headers should contain only characters matching [-0-9a-zA-Z_ ]; bad headers: ~s",
+                [BadKeys]
+            ),
+            Msg = iolist_to_binary(Msg0),
+            {error, Msg}
+    end.
