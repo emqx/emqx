@@ -28,6 +28,8 @@ CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
+ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
+
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
@@ -58,8 +60,12 @@ ensure-mix-rebar3: $(REBAR)
 ensure-mix-rebar: $(REBAR)
 	@mix local.rebar --if-missing --force
 
+
+.PHONY: elixir-common-deps
+elixir-common-deps: $(ELIXIR_COMMON_DEPS)
+
 .PHONY: mix-deps-get
-mix-deps-get: $(ELIXIR_COMMON_DEPS)
+mix-deps-get: elixir-common-deps
 	@mix deps.get
 
 .PHONY: eunit

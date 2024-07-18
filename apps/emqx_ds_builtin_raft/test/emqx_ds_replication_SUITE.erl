@@ -51,6 +51,10 @@ appspec(emqx_durable_storage) ->
     {emqx_durable_storage, #{
         before_start => fun snabbkaffe:fix_ct_logging/0,
         override_env => [{egress_flush_interval, 1}]
+    }};
+appspec(emqx_ds_builtin_raft) ->
+    {emqx_ds_builtin_raft, #{
+        after_start => fun() -> logger:set_module_level(ra_server, info) end
     }}.
 
 t_metadata(init, Config) ->
@@ -98,7 +102,7 @@ t_metadata(_Config) ->
     end.
 
 t_replication_transfers_snapshots(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(
         [
             {t_replication_transfers_snapshots1, #{apps => Apps}},
@@ -177,7 +181,7 @@ t_replication_transfers_snapshots(Config) ->
     ).
 
 t_rebalance(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Nodes = emqx_cth_cluster:start(
         [
             {t_rebalance1, #{apps => Apps}},
@@ -209,10 +213,8 @@ t_rebalance(Config) ->
             Sites = [S1, S2 | _] = [ds_repl_meta(N, this_site) || N <- Nodes],
             %% 1. Initialize DB on the first node.
             Opts = opts(Config, #{n_shards => 16, n_sites => 1, replication_factor => 3}),
-            [
-                ?assertEqual(ok, ?ON(Node, emqx_ds:open_db(?DB, Opts)))
-             || Node <- Nodes
-            ],
+            assert_db_open(Nodes, ?DB, Opts),
+            assert_db_stable(Nodes, ?DB),
 
             %% 1.1 Kick all sites except S1 from the replica set as
             %% the initial condition:
@@ -281,7 +283,7 @@ t_rebalance(Config) ->
             %% Verify that the set of shard servers matches the target allocation.
             Allocation = [ds_repl_meta(N, my_shards, [?DB]) || N <- Nodes],
             ShardServers = [
-                shard_server_info(N, ?DB, Shard, Site, readiness)
+                {{Shard, N}, shard_server_info(N, ?DB, Shard, Site, readiness)}
              || {N, Site, Shards} <- lists:zip3(Nodes, Sites, Allocation),
                 Shard <- Shards
             ],
@@ -312,7 +314,7 @@ t_rebalance(Config) ->
     ).
 
 t_join_leave_errors(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Nodes = emqx_cth_cluster:start(
         [
             {t_join_leave_errors1, #{apps => Apps}},
@@ -327,60 +329,67 @@ t_join_leave_errors('end', Config) ->
 t_join_leave_errors(Config) ->
     %% This testcase verifies that logical errors arising during handling of
     %% join/leave operations are reported correctly.
+    DB = ?FUNCTION_NAME,
     [N1, N2] = ?config(nodes, Config),
-
     Opts = opts(Config, #{n_shards => 16, n_sites => 1, replication_factor => 3}),
-    ?assertEqual(ok, erpc:call(N1, emqx_ds, open_db, [?FUNCTION_NAME, Opts])),
-    ?assertEqual(ok, erpc:call(N2, emqx_ds, open_db, [?FUNCTION_NAME, Opts])),
 
-    [S1, S2] = [ds_repl_meta(N, this_site) || N <- [N1, N2]],
+    ?check_trace(
+        begin
+            ?assertEqual(ok, erpc:call(N1, emqx_ds, open_db, [DB, Opts])),
+            ?assertEqual(ok, erpc:call(N2, emqx_ds, open_db, [DB, Opts])),
 
-    ?assertEqual(lists:sort([S1, S2]), lists:sort(ds_repl_meta(N1, db_sites, [?FUNCTION_NAME]))),
+            [S1, S2] = [ds_repl_meta(N, this_site) || N <- [N1, N2]],
 
-    %% Attempts to join a nonexistent DB / site.
-    ?assertEqual(
-        {error, {nonexistent_db, boo}},
-        ds_repl_meta(N1, join_db_site, [_DB = boo, S1])
-    ),
-    ?assertEqual(
-        {error, {nonexistent_sites, [<<"NO-MANS-SITE">>]}},
-        ds_repl_meta(N1, join_db_site, [?FUNCTION_NAME, <<"NO-MANS-SITE">>])
-    ),
-    %% NOTE: Leaving a non-existent site is not an error.
-    ?assertEqual(
-        {ok, unchanged},
-        ds_repl_meta(N1, leave_db_site, [?FUNCTION_NAME, <<"NO-MANS-SITE">>])
-    ),
+            ?assertEqual(
+                lists:sort([S1, S2]), lists:sort(ds_repl_meta(N1, db_sites, [DB]))
+            ),
 
-    %% Should be no-op.
-    ?assertEqual({ok, unchanged}, ds_repl_meta(N1, join_db_site, [?FUNCTION_NAME, S1])),
-    ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME)),
+            %% Attempts to join a nonexistent DB / site.
+            ?assertEqual(
+                {error, {nonexistent_db, boo}},
+                ds_repl_meta(N1, join_db_site, [_DB = boo, S1])
+            ),
+            ?assertEqual(
+                {error, {nonexistent_sites, [<<"NO-MANS-SITE">>]}},
+                ds_repl_meta(N1, join_db_site, [DB, <<"NO-MANS-SITE">>])
+            ),
+            %% NOTE: Leaving a non-existent site is not an error.
+            ?assertEqual(
+                {ok, unchanged},
+                ds_repl_meta(N1, leave_db_site, [DB, <<"NO-MANS-SITE">>])
+            ),
 
-    %% Leave S2:
-    ?assertEqual(
-        {ok, [S1]},
-        ds_repl_meta(N1, leave_db_site, [?FUNCTION_NAME, S2])
-    ),
-    %% Impossible to leave the last site:
-    ?assertEqual(
-        {error, {too_few_sites, []}},
-        ds_repl_meta(N1, leave_db_site, [?FUNCTION_NAME, S1])
-    ),
+            %% Should be no-op.
+            ?assertEqual({ok, unchanged}, ds_repl_meta(N1, join_db_site, [DB, S1])),
+            ?assertEqual([], emqx_ds_test_helpers:transitions(N1, DB)),
 
-    %% "Move" the DB to the other node.
-    ?assertMatch({ok, _}, ds_repl_meta(N1, join_db_site, [?FUNCTION_NAME, S2])),
-    ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [?FUNCTION_NAME, S1])),
-    ?assertMatch([_ | _], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME)),
-    ?retry(
-        1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME))
-    ),
+            %% Leave S2:
+            ?assertEqual(
+                {ok, [S1]},
+                ds_repl_meta(N1, leave_db_site, [DB, S2])
+            ),
+            %% Impossible to leave the last site:
+            ?assertEqual(
+                {error, {too_few_sites, []}},
+                ds_repl_meta(N1, leave_db_site, [DB, S1])
+            ),
 
-    %% Should be no-op.
-    ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [?FUNCTION_NAME, S1])),
-    ?assertEqual([], emqx_ds_test_helpers:transitions(N1, ?FUNCTION_NAME)).
+            %% "Move" the DB to the other node.
+            ?assertMatch({ok, _}, ds_repl_meta(N1, join_db_site, [DB, S2])),
+            ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [DB, S1])),
+            ?retry(
+                1000, 20, ?assertEqual([], emqx_ds_test_helpers:transitions(N1, DB))
+            ),
+
+            %% Should be no-op.
+            ?assertMatch({ok, _}, ds_repl_meta(N2, leave_db_site, [DB, S1])),
+            ?assertEqual([], emqx_ds_test_helpers:transitions(N1, DB))
+        end,
+        []
+    ).
 
 t_rebalance_chaotic_converges(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Nodes = emqx_cth_cluster:start(
         [
             {t_rebalance_chaotic_converges1, #{apps => Apps}},
@@ -416,10 +425,8 @@ t_rebalance_chaotic_converges(Config) ->
             Opts = opts(Config, #{n_shards => 16, n_sites => 2, replication_factor => 3}),
 
             %% Open DB:
-            ?assertEqual(
-                [{ok, ok}, {ok, ok}, {ok, ok}],
-                erpc:multicall([N1, N2, N3], emqx_ds, open_db, [?DB, Opts])
-            ),
+            assert_db_open(Nodes, ?DB, Opts),
+            assert_db_stable(Nodes, ?DB),
 
             %% Kick N3 from the replica set as the initial condition:
             ?assertMatch(
@@ -477,7 +484,7 @@ t_rebalance_chaotic_converges(Config) ->
     ).
 
 t_rebalance_offline_restarts(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Specs = emqx_cth_cluster:mk_nodespecs(
         [
             {t_rebalance_offline_restarts1, #{apps => Apps}},
@@ -501,10 +508,9 @@ t_rebalance_offline_restarts(Config) ->
 
     %% Initialize DB on all 3 nodes.
     Opts = opts(Config, #{n_shards => 8, n_sites => 3, replication_factor => 3}),
-    ?assertEqual(
-        [{ok, ok} || _ <- Nodes],
-        erpc:multicall(Nodes, emqx_ds, open_db, [?DB, Opts])
-    ),
+    assert_db_open(Nodes, ?DB, Opts),
+    assert_db_stable(Nodes, ?DB),
+
     ?retry(
         1000,
         5,
@@ -798,7 +804,7 @@ t_store_batch_fail(Config) ->
     ).
 
 t_crash_restart_recover(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), emqx_ds_builtin_raft],
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Specs = emqx_cth_cluster:mk_nodespecs(
         [
             {t_crash_stop_recover1, #{apps => Apps}},
@@ -922,12 +928,49 @@ kill_restart_node(Node, Spec, DBOpts) ->
 
 %%
 
+assert_db_open(Nodes, DB, Opts) ->
+    ?assertEqual(
+        [{ok, ok} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_ds, open_db, [DB, Opts])
+    ).
+
+assert_db_stable([Node | _], DB) ->
+    Shards = ds_repl_meta(Node, shards, [DB]),
+    ?assertMatch(
+        _Leadership = [_ | _],
+        db_leadership(Node, DB, Shards)
+    ).
+
+%%
+
+db_leadership(Node, DB, Shards) ->
+    Leadership = [{S, shard_leadership(Node, DB, S)} || S <- Shards],
+    Inconsistent = [SL || SL = {_, Leaders} <- Leadership, map_size(Leaders) > 1],
+    case Inconsistent of
+        [] ->
+            Leadership;
+        [_ | _] ->
+            {error, inconsistent, Inconsistent}
+    end.
+
+shard_leadership(Node, DB, Shard) ->
+    ReplicaSet = ds_repl_meta(Node, replica_set, [DB, Shard]),
+    Nodes = [ds_repl_meta(Node, node, [Site]) || Site <- ReplicaSet],
+    lists:foldl(
+        fun({Site, SN}, Acc) -> Acc#{shard_leader(SN, DB, Shard, Site) => SN} end,
+        #{},
+        lists:zip(ReplicaSet, Nodes)
+    ).
+
+shard_leader(Node, DB, Shard, Site) ->
+    shard_server_info(Node, DB, Shard, Site, leader).
+
 shard_server_info(Node, DB, Shard, Site, Info) ->
     ?ON(
         Node,
         begin
             Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
-            {Server, emqx_ds_replication_layer_shard:server_info(Info, Server)}
+            emqx_ds_replication_layer_shard:server_info(Info, Server)
         end
     ).
 
@@ -944,9 +987,6 @@ ds_repl_meta(Node, Fun, Args) ->
             ]),
             error(meta_op_failed)
     end.
-
-shards(Node, DB) ->
-    erpc:call(Node, emqx_ds_replication_layer_meta, shards, [DB]).
 
 shards_online(Node, DB) ->
     erpc:call(Node, emqx_ds_builtin_raft_db_sup, which_shards, [DB]).

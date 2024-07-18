@@ -24,7 +24,8 @@ defmodule EMQXBridgeHstreamdb.MixProject do
   def deps() do
     [
       {:hstreamdb_erl,
-       github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1"},
+       github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1",
+       system_env: UMP.emqx_app_system_env()},
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_connector, in_umbrella: true, runtime: false},
