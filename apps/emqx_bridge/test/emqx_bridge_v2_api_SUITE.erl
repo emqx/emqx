@@ -289,7 +289,8 @@ end_per_testcase(_TestCase, Config) ->
 
 skip_connector_creation_test_cases() ->
     [
-        t_connector_dependencies
+        t_connector_dependencies,
+        t_kind_dependencies
     ].
 
 %%------------------------------------------------------------------------------
@@ -608,6 +609,14 @@ get_connector_api(Type, Name) ->
     Res = emqx_bridge_v2_testlib:get_connector_api(Type, Name),
     emqx_mgmt_api_test_util:simplify_result(Res).
 
+get_source_api(Type, Name) ->
+    Res = emqx_bridge_v2_testlib:get_bridge_api(source, Type, Name),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+get_action_api(Type, Name) ->
+    Res = emqx_bridge_v2_testlib:get_bridge_api(action, Type, Name),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
 create_source_api(Name, Type, Params) ->
     Res = emqx_bridge_v2_testlib:create_kind_api([
         {bridge_kind, source},
@@ -625,6 +634,43 @@ create_action_api(Name, Type, Params) ->
         {action_config, Params}
     ]),
     emqx_mgmt_api_test_util:simplify_result(Res).
+
+list_sources_api() ->
+    Res = emqx_bridge_v2_testlib:list_sources_http_api(),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+list_actions_api() ->
+    Res = emqx_bridge_v2_testlib:list_actions_http_api(),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+create_action_rule(ActionType, ActionName) ->
+    RuleTopic = <<"t/", ActionName/binary>>,
+    Config = [{action_name, ActionName}],
+    emqx_bridge_v2_testlib:create_rule_and_action_http(ActionType, RuleTopic, Config).
+
+create_source_rule1(SourceType, SourceName) ->
+    RuleTopic = <<"t/", SourceName/binary>>,
+    Config = [{action_name, <<"unused">>}],
+    Id = emqx_bridge_resource:bridge_id(SourceType, SourceName),
+    Opts = #{
+        overrides => #{
+            sql => <<"select * from \"$bridges/", Id/binary, "\"">>,
+            actions => []
+        }
+    },
+    emqx_bridge_v2_testlib:create_rule_and_action_http(SourceType, RuleTopic, Config, Opts).
+
+create_source_rule2(SourceType, SourceName) ->
+    RuleTopic = <<"t/", SourceName/binary>>,
+    Config = [{action_name, <<"unused">>}],
+    Id = emqx_bridge_resource:bridge_id(SourceType, SourceName),
+    Opts = #{
+        overrides => #{
+            sql => <<"select * from \"$sources/", Id/binary, "\"">>,
+            actions => []
+        }
+    },
+    emqx_bridge_v2_testlib:create_rule_and_action_http(SourceType, RuleTopic, Config, Opts).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1736,6 +1782,124 @@ t_connector_dependencies(Config) when is_list(Config) ->
                     <<"sources">> := [SourceName1]
                 }},
                 get_connector_api(ConnectorType, ConnectorName)
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Verifies that listing actions/sources return the rules that depend on them.
+t_kind_dependencies(matrix) ->
+    [
+        [single, actions],
+        [single, sources]
+    ];
+t_kind_dependencies(Config) when is_list(Config) ->
+    ?check_trace(
+        begin
+            %% This particular source type happens to serve both actions and sources, a
+            %% nice edge case for this test.
+            ActionType = ?SOURCE_TYPE,
+            SourceType = ?SOURCE_TYPE,
+            ConnectorType = ?SOURCE_CONNECTOR_TYPE,
+            ConnectorName = <<"c">>,
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_connector_api([
+                    {connector_config, source_connector_create_config(#{})},
+                    {connector_name, ConnectorName},
+                    {connector_type, ConnectorType}
+                ]),
+
+            ActionName1 = <<"a1">>,
+            {201, _} = create_action_api(
+                ActionName1,
+                ActionType,
+                mqtt_action_create_config(#{
+                    <<"connector">> => ConnectorName
+                })
+            ),
+            ?assertMatch(
+                {200, [#{<<"rules">> := []}]},
+                list_actions_api()
+            ),
+            ?assertMatch(
+                {200, #{<<"rules">> := []}},
+                get_action_api(ActionType, ActionName1)
+            ),
+
+            {ok, #{<<"id">> := RuleId1}} = create_action_rule(ActionType, ActionName1),
+
+            ?assertMatch(
+                {200, [#{<<"rules">> := [RuleId1]}]},
+                list_actions_api()
+            ),
+            ?assertMatch(
+                {200, #{<<"rules">> := [RuleId1]}},
+                get_action_api(ActionType, ActionName1)
+            ),
+            ?assertMatch(
+                {200, []},
+                list_sources_api()
+            ),
+
+            SourceName1 = <<"s1">>,
+            {201, _} = create_source_api(
+                SourceName1,
+                ?SOURCE_TYPE,
+                source_create_config(#{
+                    <<"connector">> => ConnectorName
+                })
+            ),
+            ?assertMatch(
+                {200, [#{<<"rules">> := []}]},
+                list_sources_api()
+            ),
+            ?assertMatch(
+                {200, #{<<"rules">> := []}},
+                get_source_api(SourceType, SourceName1)
+            ),
+            %% Action remains untouched
+            ?assertMatch(
+                {200, [#{<<"rules">> := [RuleId1]}]},
+                list_actions_api()
+            ),
+            ?assertMatch(
+                {200, #{<<"rules">> := [RuleId1]}},
+                get_action_api(ActionType, ActionName1)
+            ),
+
+            %% using "$bridges/..." hookpoint
+            {ok, #{<<"id">> := RuleId2}} = create_source_rule1(SourceType, SourceName1),
+            ?assertMatch(
+                {200, [#{<<"rules">> := [RuleId2]}]},
+                list_sources_api()
+            ),
+            ?assertMatch(
+                {200, #{<<"rules">> := [RuleId2]}},
+                get_source_api(SourceType, SourceName1)
+            ),
+            %% Action remains untouched
+            ?assertMatch(
+                {200, [#{<<"rules">> := [RuleId1]}]},
+                list_actions_api()
+            ),
+
+            %% using "$sources/..." hookpoint
+            {ok, #{<<"id">> := RuleId3}} = create_source_rule2(SourceType, SourceName1),
+            ?assertMatch(
+                {200, [#{<<"rules">> := [RuleId1]}]},
+                list_actions_api()
+            ),
+            Rules = lists:sort([RuleId2, RuleId3]),
+            ?assertMatch(
+                {200, [#{<<"rules">> := Rules}]},
+                list_sources_api()
+            ),
+            ?assertMatch(
+                {200, #{<<"rules">> := Rules}},
+                get_source_api(SourceType, SourceName1)
             ),
 
             ok

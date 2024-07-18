@@ -415,6 +415,7 @@ common_init(ConfigT) ->
                     emqx_conf,
                     emqx_bridge_hstreamdb,
                     emqx_bridge,
+                    emqx_rule_engine,
                     emqx_management,
                     emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
