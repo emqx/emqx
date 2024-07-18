@@ -30,7 +30,7 @@ defmodule EMQXMachine.MixProject do
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_management, in_umbrella: true, runtime: false},
       UMP.common_dep(:covertool),
-      UMP.common_dep(:system_monitor),
+      UMP.common_dep(:system_monitor, runtime: false),
       UMP.common_dep(:redbug),
     ]
   end
