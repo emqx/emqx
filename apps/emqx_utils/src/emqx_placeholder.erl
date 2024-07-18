@@ -165,7 +165,10 @@ preproc_sql(Sql, Opts) ->
     case re:run(Sql, RE, [{capture, all_but_first, binary}, global]) of
         {match, PlaceHolders} ->
             PhKs = [parse_nested(unwrap(Phld, Strip)) || [Phld | _] <- PlaceHolders],
-            {replace_with(Sql, RE, ReplaceWith), [{var, Phld} || Phld <- PhKs]};
+            {replace_with(Sql, RE, ReplaceWith), [
+                emqx_placeholder_pvars:render({var, Phld})
+             || Phld <- PhKs
+            ]};
         nomatch ->
             {Sql, []}
     end.
@@ -345,7 +348,7 @@ do_preproc_tmpl(Opts, [[Str] | Tokens], Acc) ->
     ).
 
 put_head(_Type, <<>>, List) -> List;
-put_head(Type, Term, List) -> [{Type, Term} | List].
+put_head(Type, Term, List) -> [emqx_placeholder_pvars:render({Type, Term}) | List].
 
 preproc_tmpl_deep_map_key(Key, #{process_keys := true} = Opts) ->
     preproc_tmpl_deep(Key, Opts);

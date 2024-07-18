@@ -1,0 +1,12 @@
+emqx_mgmt_api_predefined_vars {
+
+create_predefined_vars.desc:
+"""Add or update a predefined variable."""
+
+delete_predefined_vars.desc:
+"""Delete a predefined variable."""
+
+list_predefined_vars.desc:
+"""List all currently predefined variables."""
+
+}
