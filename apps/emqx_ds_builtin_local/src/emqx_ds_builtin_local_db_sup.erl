@@ -159,7 +159,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_buffer_spec(DB, Shard, Opts),
-        shard_pollers_spec(DB, Shard, Opts)
+        shard_beamformers_spec(DB, Shard, Opts)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -209,13 +209,13 @@ shard_buffer_spec(DB, Shard, Options) ->
         type => worker
     }.
 
-shard_pollers_spec(DB, Shard, Options) ->
+shard_beamformers_spec(DB, Shard, Options) ->
     NWorkers = maps:get(n_pollers, Options, 1),
     #{
-        id => {Shard, pollers},
+        id => {Shard, beamformers},
         type => supervisor,
         shutdown => infinity,
-        start => {emqx_ds_pollers, start_link, [{DB, Shard}, NWorkers]}
+        start => {emqx_ds_beamformer_sup, start_link, [{DB, Shard}, NWorkers]}
     }.
 
 ensure_started(Res) ->

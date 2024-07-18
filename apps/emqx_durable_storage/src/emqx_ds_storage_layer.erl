@@ -575,10 +575,22 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 %% Internal API for fetching data with multiple iterators in one
 %% sweep. This API does not suppose precise batch size.
 
-%% %%    When doing multi-next, we group iterators by stream:
-%% -spec stream_of_iterator(module(), _GenData, _InnerIt) -> term().
-%% stream_of_iterator(Mod, GenData, Inner) ->
-%%     Mod:stream_of_iterator(GenData, Inner).
+%%    When doing multi-next, we group iterators by stream:
+unpack_iterator(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            case Mod:unpack_iterator(Shard, GenData, GenIter0, BatchSize, Now, IsCurrent) of
+                {ok, GenIter, Batch} ->
+                    {ok, Iter#{?enc := GenIter}, Batch};
+                {ok, end_of_stream} ->
+                    {ok, end_of_stream};
+                Error = {error, _, _} ->
+                    Error
+            end;
+        not_found ->
+            %% generation was possibly dropped by GC
+            ?ERR_GEN_GONE
+    end.
 
 %% %%    Version of `next' that iterates a stream without additional
 %% %%    filtering.

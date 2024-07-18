@@ -108,19 +108,19 @@ form(GetF, MatchF, Messages) ->
     [{ItKey, Iterator}],
     [{emqx_ds:message_key(), emqx_types:message()}] | end_of_stream | emqx_ds:error()
 ) -> beam(ItKey, Iterator).
-pack(_MatchF, Iterators, end_of_stream) ->
+pack(_MatchF, Iterators, {ok, end_of_stream}) ->
     #beam{
         iterators = Iterators,
         pack = end_of_stream,
         misc = #{}
     };
-pack(_MatchF, Iterators, {error, _, _} = Err) ->
+pack(_MatchF, Iterators, {error, unrecoverable, _} = Err) ->
     #beam{
         iterators = Iterators,
         pack = Err,
         misc = #{}
     };
-pack(MatchF, Iterators, Messages) ->
+pack(MatchF, Iterators, {ok, Messages}) ->
     Its = [I || {_, I} <- Iterators],
     Pack = [{Key, mk_mask(MatchF, Msg, Its), Msg} || {Key, Msg} <- Messages],
     #beam{

@@ -32,6 +32,13 @@
 %% Type declarations
 %%================================================================================
 
+-record(req_poll, {
+                   node :: node(),
+                   it :: emqx_ds_storage_layer:iterator(),
+                   opts :: emqx_ds:poll_opts(),
+                   deadline :: integer()
+}).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -40,7 +47,16 @@
 start_link(ShardId, Name) ->
     gen_server:start_link(?MODULE, [ShardId, Name], []).
 
--spec poll() ->
+-spec poll(node(), emqx_ds_beam:return_addr(_ItKey), emqx_ds_storage_layer:shard_id(), emqx_ds_storage_layer:iterator(), emqx_ds:poll_opts()) -> ok.
+poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
+    Req = #req_poll{ node = Node,
+                     it = Iterator,
+                     opts = Opts,
+                     deadline = erlang:monotonic_time(millisecond) + Timeout
+                   },
+    Worker = gproc_pool:pick_worker(emqx_ds_beamformer_sup:pool(Shard), pick(Iterator)),
+    %% Using call to enqueue request for backpressure.
+    gen_server:call(Worker, Req, Timeout).
 
 %%================================================================================
 %% behavior callbacks
@@ -48,23 +64,45 @@ start_link(ShardId, Name) ->
 
 -record(s, {
     shard,
-    name
+    name,
+    pending
+}).
+
+-record(pending, {
+    key, iterator, node, opts, deadline
 }).
 
 init([ShardId, Name]) ->
     process_flag(trap_exit, true),
-    S = #s{shard = ShardId, name = N},
     Pool = emqx_ds_pollers:pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
+    Tab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #pending.key}]),
+    S = #s{shard = ShardId, name = N, pending = Tab},
+    timer:send_interval(50, doit),
     {ok, S}.
 
+handle_call(#req_poll{node = Node, it = It, opts = Opts, deadline = Deadline}, _From, S) ->
+    %% TODO: drop requests past deadline immediately:
+    {Stream, NextKey, _Timestamp} = emqx_ds_storage_layer:unpack_iterator(It),
+    Pending = #pending{
+                 key = {Stream, NextKey},
+                 iterator = It,
+                 node = Node,
+                 opts = Opts,
+                 deadline = Deadline
+                },
+    ets:insert(S#s.pending, Pending),
+    {reply, ok, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
+handle_info(doit, S = #s{shard = Shard, pending = Pending}) ->
+    fulfill_pending(Shard, Pending),
+    {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
@@ -81,3 +119,29 @@ terminate(_Reason, #s{shard = ShardId, name = Name}) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+fulfill_pending(Shard, Pending) ->
+    case ets:first(Pending) of
+        '$end_of_table' ->
+            ok;
+        {Stream, MsgKey} ->
+            %% The function MUST destructively consume all requests
+            %% matching stream and MsgKey to avoid infinite loop:
+            fulfill_pending(Shard, Pending, Stream, MsgKey),
+            fulfill_pending(Shard, Pending)
+    end.
+
+fulfill_pending(Shard, Pending, Stream, MsgKey) ->
+    Batch = emqx_ds_storage_layer:stream_scan(Shard, Stream, MsgKey, 100).
+
+getter(PendingTab, Stream) ->
+    fun(MsgKey) ->
+            Pendings = ets:take(PendingTab, {Stream, MsgKey}),
+            [ || #pending{iterator = It0, node = Node} <- Pendings]
+    end.
+
+pick(Iterator) ->
+    {Stream, _Key, Timestamp} = emqx_ds_storage_layer:unpack_iterator(Iterator),
+    %% Try to maximize likelyhood of sending similar iterators to the
+    %% same worker:
+    {Stream, Timestamp div 10_000}.
