@@ -330,7 +330,7 @@ COMPATIBILITY_CHECK='
     end,
     halt(0).
 '
-[ "$DEBUG" -eq 1 ] && set -x
+[[ "$DEBUG" -gt 0 ]] && set -x
 
 compatiblity_info() {
   # RELEASE_LIB is used by Elixir
@@ -558,7 +558,7 @@ else
     fi
 fi
 logdebug "EMQX_BOOT_CONFIGS: $EMQX_BOOT_CONFIGS"
-[ "$DEBUG" -eq 1 ] && set -x
+[[ "$DEBUG" -gt 0 ]] && set -x
 
 get_boot_config() {
     path_to_value="$1"
@@ -1239,6 +1239,12 @@ case "${COMMAND}" in
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         if [ "$IS_ELIXIR" = no ] || [ "${EMQX_CONSOLE_FLAVOR:-}" = 'erl' ] ; then
+            if [[ "$DEBUG" == 2 ]]; then
+              INIT_DEBUG_ARG="-init_debug"
+            else
+              INIT_DEBUG_ARG=""
+            fi
+
             # pass down RELEASE_LIB so we can switch to IS_ELIXIR=no
             # to boot an Erlang node from the elixir release
             set -- "$BINDIR/erlexec" \
@@ -1249,8 +1255,15 @@ case "${COMMAND}" in
                 -mode "$CODE_LOADING_MODE" \
                 -config "$CONF_FILE" \
                 -args_file "$ARGS_FILE" \
+                $INIT_DEBUG_ARG \
                 $EPMD_ARGS
         else
+            if [[ "$DEBUG" == 2 ]]; then
+              INIT_DEBUG_ARG="--erl -init_debug"
+            else
+              INIT_DEBUG_ARG=""
+            fi
+
             set -- "$REL_DIR/iex" \
                 --boot "$BOOTFILE" \
                 --boot-var RELEASE_LIB "${ERTS_LIB_DIR}" \
@@ -1259,6 +1272,7 @@ case "${COMMAND}" in
                 --erl "$FOREGROUNDOPTIONS" \
                 --erl "-mode $CODE_LOADING_MODE" \
                 --erl "$EPMD_ARGS" \
+                $INIT_DEBUG_ARG \
                 --werl
         fi
 
