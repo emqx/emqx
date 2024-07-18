@@ -252,23 +252,26 @@ init_per_testcase(TestCase, Config) when
         BridgeConfig
         | Config
     ];
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
     case ?config(cluster_nodes, Config) of
         undefined ->
             init_mocks();
         Nodes ->
             [erpc:call(Node, ?MODULE, init_mocks, []) || Node <- Nodes]
     end,
+    ShouldCreateConnector = not lists:member(TestCase, skip_connector_creation_test_cases()),
     case ?config(bridge_kind, Config) of
-        action ->
+        action when ShouldCreateConnector ->
             {ok, 201, _} = request(post, uri(["connectors"]), ?ACTIONS_CONNECTOR, Config);
-        source ->
+        source when ShouldCreateConnector ->
             {ok, 201, _} = request(
                 post,
                 uri(["connectors"]),
                 source_connector_create_config(#{}),
                 Config
-            )
+            );
+        _ ->
+            ok
     end,
     Config.
 
@@ -283,6 +286,11 @@ end_per_testcase(_TestCase, Config) ->
     end,
     ok = emqx_common_test_helpers:call_janitor(),
     ok.
+
+skip_connector_creation_test_cases() ->
+    [
+        t_connector_dependencies
+    ].
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -500,6 +508,23 @@ source_config_base() ->
         }
     }.
 
+mqtt_action_config_base() ->
+    source_config_base().
+
+mqtt_action_create_config(Overrides0) ->
+    Overrides = emqx_utils_maps:binary_key_map(Overrides0),
+    Conf0 = maps:merge(
+        mqtt_action_config_base(),
+        #{
+            <<"enable">> => true,
+            <<"type">> => ?SOURCE_TYPE
+        }
+    ),
+    emqx_utils_maps:deep_merge(
+        Conf0,
+        Overrides
+    ).
+
 source_create_config(Overrides0) ->
     Overrides = emqx_utils_maps:binary_key_map(Overrides0),
     Conf0 = maps:merge(
@@ -574,6 +599,32 @@ maybe_get_other_node(Config) ->
         [OtherNode | _] ->
             OtherNode
     end.
+
+list_connectors_api() ->
+    Res = emqx_bridge_v2_testlib:list_connectors_http_api(),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+get_connector_api(Type, Name) ->
+    Res = emqx_bridge_v2_testlib:get_connector_api(Type, Name),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+create_source_api(Name, Type, Params) ->
+    Res = emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, source},
+        {source_type, Type},
+        {source_name, Name},
+        {source_config, Params}
+    ]),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+create_action_api(Name, Type, Params) ->
+    Res = emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, action},
+        {action_type, Type},
+        {action_name, Name},
+        {action_config, Params}
+    ]),
+    emqx_mgmt_api_test_util:simplify_result(Res).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1597,4 +1648,98 @@ t_start_action_or_source_with_disabled_connector(matrix) ->
     ];
 t_start_action_or_source_with_disabled_connector(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
+    ok.
+
+%% Verifies that listing connectors return the actions and sources that depend on the
+%% connector
+t_connector_dependencies(matrix) ->
+    [
+        [single, actions],
+        [single, sources]
+    ];
+t_connector_dependencies(Config) when is_list(Config) ->
+    ?check_trace(
+        begin
+            %% This particular source type happens to serve both actions and sources, a
+            %% nice edge case for this test.
+            ActionType = ?SOURCE_TYPE,
+            ConnectorType = ?SOURCE_CONNECTOR_TYPE,
+            ConnectorName = <<"c">>,
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_connector_api([
+                    {connector_config, source_connector_create_config(#{})},
+                    {connector_name, ConnectorName},
+                    {connector_type, ConnectorType}
+                ]),
+            ?assertMatch(
+                {200, [
+                    #{
+                        <<"actions">> := [],
+                        <<"sources">> := []
+                    }
+                ]},
+                list_connectors_api()
+            ),
+            ?assertMatch(
+                {200, #{
+                    <<"actions">> := [],
+                    <<"sources">> := []
+                }},
+                get_connector_api(ConnectorType, ConnectorName)
+            ),
+
+            SourceName1 = <<"s1">>,
+            {201, _} = create_source_api(
+                SourceName1,
+                ?SOURCE_TYPE,
+                source_create_config(#{
+                    <<"connector">> => ConnectorName
+                })
+            ),
+            ?assertMatch(
+                {200, [
+                    #{
+                        <<"actions">> := [],
+                        <<"sources">> := [SourceName1]
+                    }
+                ]},
+                list_connectors_api()
+            ),
+            ?assertMatch(
+                {200, #{
+                    <<"actions">> := [],
+                    <<"sources">> := [SourceName1]
+                }},
+                get_connector_api(ConnectorType, ConnectorName)
+            ),
+
+            ActionName1 = <<"a1">>,
+            {201, _} = create_action_api(
+                ActionName1,
+                ActionType,
+                mqtt_action_create_config(#{
+                    <<"connector">> => ConnectorName
+                })
+            ),
+            ?assertMatch(
+                {200, [
+                    #{
+                        <<"actions">> := [ActionName1],
+                        <<"sources">> := [SourceName1]
+                    }
+                ]},
+                list_connectors_api()
+            ),
+            ?assertMatch(
+                {200, #{
+                    <<"actions">> := [ActionName1],
+                    <<"sources">> := [SourceName1]
+                }},
+                get_connector_api(ConnectorType, ConnectorName)
+            ),
+
+            ok
+        end,
+        []
+    ),
     ok.

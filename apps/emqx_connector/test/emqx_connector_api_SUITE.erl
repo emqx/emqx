@@ -109,9 +109,10 @@
     emqx_conf,
     emqx,
     emqx_auth,
-    emqx_management,
-    {emqx_connector, "connectors {}"},
-    {emqx_bridge, "actions {}"}
+    emqx_connector,
+    emqx_bridge,
+    emqx_rule_engine,
+    emqx_management
 ]).
 
 -define(APPSPEC_DASHBOARD,
