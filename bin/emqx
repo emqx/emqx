@@ -69,7 +69,7 @@ if [ -f "$RUNNER_ROOT_DIR/relup/version" ]; then
     TARGET_VSN=$(cat "$RUNNER_ROOT_DIR/relup/version")
     export BASE_RUNNER_ROOT_DIR
     logwarn "Loading emqx from hot upgrade dir: $RUNNER_ROOT_DIR/relup"
-    exec $RUNNER_ROOT_DIR/relup/$TARGET_VSN/bin/emqx "$@"
+    exec "$RUNNER_ROOT_DIR"/relup/"$TARGET_VSN"/bin/emqx "$@"
 else
     logdebug "Loading emqx from $RUNNER_ROOT_DIR"
 fi

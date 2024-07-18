@@ -212,7 +212,8 @@ make_elixir_rel() {
 }
 
 make_relup() {
-    export RELUP_TARGET_VSN="$(./pkg-vsn.sh "$PROFILE" --long)"
+    RELUP_TARGET_VSN="$(./pkg-vsn.sh "$PROFILE" --long)"
+    export RELUP_TARGET_VSN
     ./rebar3 emqx relup_gen --relup-dir=./relup
     make rel -C _build/default/plugins/emqx_relup
 }

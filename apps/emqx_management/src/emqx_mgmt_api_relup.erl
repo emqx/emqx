@@ -40,6 +40,8 @@
     '/relup/upgrade/:node'/2
 ]).
 
+-ignore_xref(emqx_relup_main).
+
 -define(TAGS, [<<"Relup">>]).
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
 -define(CONTENT_PACKAGE, plugin).

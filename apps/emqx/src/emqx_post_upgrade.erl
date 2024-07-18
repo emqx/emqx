@@ -17,21 +17,21 @@
 -module(emqx_post_upgrade).
 
 %% PR#12765
--export([
-    pr12765_update_stats_timer/1,
-    pr12765_revert_stats_timer/1
-]).
+% -export([
+%     pr12765_update_stats_timer/1,
+%     pr12765_revert_stats_timer/1
+% ]).
 
 -include("logger.hrl").
 
 %%------------------------------------------------------------------------------
 %% Hot Upgrade Callback Functions.
 %%------------------------------------------------------------------------------
-pr12765_update_stats_timer(_FromVsn) ->
-    emqx_stats:update_interval(broker_stats, fun emqx_broker_helper:stats_fun/0).
+% pr12765_update_stats_timer(_FromVsn) ->
+%     emqx_stats:update_interval(broker_stats, fun emqx_broker_helper:stats_fun/0).
 
-pr12765_revert_stats_timer(_ToVsn) ->
-    emqx_stats:update_interval(broker_stats, fun emqx_broker:stats_fun/0).
+% pr12765_revert_stats_timer(_ToVsn) ->
+%     emqx_stats:update_interval(broker_stats, fun emqx_broker:stats_fun/0).
 
 %%------------------------------------------------------------------------------
 %% Helper functions

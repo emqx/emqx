@@ -238,7 +238,7 @@ $(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
 ## relup target is to create relup instructions
 .PHONY: $(REL_PROFILES:%=%-relup)
 define gen-relup-target
-$1-relup: $1-relup-downloads $(COMMON_DEPS)
+$1-relup: $(COMMON_DEPS)
 	@$(BUILD) $1 relup
 endef
 ALL_TGZS = $(REL_PROFILES)
@@ -247,7 +247,7 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-relup-target,$(zt))))
 ## tgz target is to create a release package .tar.gz with relup
 .PHONY: $(REL_PROFILES:%=%-tgz)
 define gen-tgz-target
-$1-tgz: $1-relup
+$1-tgz: $(COMMON_DEPS)
 	@$(BUILD) $1 tgz
 endef
 ALL_TGZS = $(REL_PROFILES)
