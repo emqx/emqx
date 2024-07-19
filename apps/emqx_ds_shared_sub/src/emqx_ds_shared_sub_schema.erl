@@ -28,7 +28,7 @@ fields(durable_queues) ->
                 #{
                     required => false,
                     default => true,
-                    desc => ?DESC(durable_queues)
+                    desc => ?DESC(enable)
                 }
             )},
         duration(session_find_leader_timeout_ms, 1000),
