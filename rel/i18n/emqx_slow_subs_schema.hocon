@@ -1,18 +1,25 @@
 emqx_slow_subs_schema {
 
 enable.desc:
-"""Enable this feature"""
+"""Enable Slow Subscriptions"""
 
 expire_interval.desc:
-"""The eviction time of the record, which in the statistics record table"""
+"""The expiration time of the slow subscription record, if the record is not updated within the expiration time, then the record will be deleted."""
 
 stats_type.desc:
-"""The method to calculate the latency"""
+"""Message latency calculation method:
+
+- `whole`: The time from when the message arrives at the EMQX (the EMQX gets the message from the receive-buffer) until the message completes delivery.
+- `internal`: The time from when the message arrives at the EMQX (the EMQX gets the message from the receive-buffer) to when the message begins to be delivered (the EMQX attempts to write the message to the send-buffer).
+- `response`: The time from the start of message delivery to the completion.
+
+Note: The completion delivery time refers to the time when QoS 1 and 2 messages complete the MQTT message response process, i.e., the time when QoS 1 message receives the PUBACK packet and QoS 2 message receives the PUBCOMP packet.
+Since there is no response packet for QoS 0 message, the completion delivery time of the QoS 0 message will be replaced by the time when the message starts to be delivered. Therefore, when using the `response` method to calculate the latency, the latency of a QoS 0 message will always be equal to 0."""
 
 threshold.desc:
-"""The latency threshold for statistics"""
+"""The Client ID and topic of the consumer whose message latency is greater than this threshold will be recorded in the slow subscription list."""
 
 top_k_num.desc:
-"""The maximum number of records in the slow subscription statistics record table"""
+"""The maximum number of slow-subscription records, up to a maximum of 1000."""
 
 }
