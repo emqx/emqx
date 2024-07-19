@@ -64,6 +64,17 @@
 
 -export_type([listener_id/0]).
 
+-dialyzer(
+    {no_unknown, [
+        is_running/3,
+        current_conns/3,
+        do_stop_listener/3,
+        do_start_listener/4,
+        do_update_listener/4,
+        quic_listener_conf_rollback/3
+    ]}
+).
+
 -type listener_id() :: atom() | binary().
 -type listener_type() :: tcp | ssl | ws | wss | quic | dtls.
 
@@ -1018,7 +1029,6 @@ ensure_max_conns(<<"infinity">>) -> <<"infinity">>;
 ensure_max_conns(MaxConn) when is_binary(MaxConn) -> binary_to_integer(MaxConn);
 ensure_max_conns(MaxConn) -> MaxConn.
 
--spec quic_listen_on(X :: any()) -> quicer:listen_on().
 quic_listen_on(Bind) ->
     case Bind of
         {Addr, Port} when tuple_size(Addr) == 4 ->
