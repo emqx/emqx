@@ -606,7 +606,7 @@ to_map(S, _SharedSubS) ->
 %%--------------------------------------------------------------------
 %% cold_get_subscription
 
--spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
+-spec cold_get_subscription(emqx_persistent_session_ds:id(), share_topic_filter()) ->
     emqx_persistent_session_ds:subscription() | undefined.
 cold_get_subscription(SessionId, ShareTopicFilter) ->
     case emqx_persistent_session_ds_state:cold_get_subscription(SessionId, ShareTopicFilter) of

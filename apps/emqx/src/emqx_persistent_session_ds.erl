@@ -821,10 +821,10 @@ list_client_subscriptions(ClientId) ->
             {error, not_found}
     end.
 
--spec get_client_subscription(emqx_types:clientid(), topic_filter()) ->
+-spec get_client_subscription(emqx_types:clientid(), topic_filter() | share_topic_filter()) ->
     subscription() | undefined.
 get_client_subscription(ClientId, #share{} = ShareTopicFilter) ->
-    emqx_persistent_session_ds_subs:cold_get_subscription(ClientId, ShareTopicFilter);
+    emqx_persistent_session_ds_shared_subs:cold_get_subscription(ClientId, ShareTopicFilter);
 get_client_subscription(ClientId, TopicFilter) ->
     emqx_persistent_session_ds_subs:cold_get_subscription(ClientId, TopicFilter).
 

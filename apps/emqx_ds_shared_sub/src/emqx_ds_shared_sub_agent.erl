@@ -9,6 +9,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_ds_shared_sub_proto.hrl").
+-include("emqx_ds_shared_sub_config.hrl").
 
 -export([
     new/1,
@@ -109,9 +110,13 @@ open(TopicSubscriptions, Opts) ->
     ),
     State1.
 
--spec can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok.
+-spec can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) ->
+    ok | {error, emqx_types:reason_code()}.
 can_subscribe(_State, _ShareTopicFilter, _SubOpts) ->
-    ok.
+    case ?dq_config(enable) of
+        true -> ok;
+        false -> {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}
+    end.
 
 -spec on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(State0, ShareTopicFilter, _SubOpts) ->

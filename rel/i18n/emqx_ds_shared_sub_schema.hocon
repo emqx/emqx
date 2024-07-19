@@ -1,5 +1,11 @@
 emqx_ds_shared_sub_schema {
 
+enable.desc:
+"""Enable the shared subscription feature."""
+
+enable.label:
+"""Enable Shared Subscription"""
+
 session_find_leader_timeout_ms.desc:
 """The timeout in milliseconds for the session to find a leader.
 If the session cannot find a leader within this time, the session will retry."""
