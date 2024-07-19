@@ -104,7 +104,6 @@ t_update_listeners(_Config) ->
             id,
             type,
             name,
-            enable,
             enable_authn,
             bind,
             acceptors,
@@ -123,7 +122,6 @@ t_update_listeners(_Config) ->
             id := <<"ocpp:ws:default">>,
             type := <<"ws">>,
             name := <<"default">>,
-            enable := true,
             enable_authn := true,
             bind := <<"0.0.0.0:33033">>,
             websocket := #{path := <<"/ocpp">>}

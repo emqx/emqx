@@ -72,7 +72,6 @@ t_translations(_Config) ->
 
 t_audit_log_conf(_Config) ->
     FileExpect = #{
-        <<"enable">> => true,
         <<"formatter">> => <<"text">>,
         <<"level">> => <<"warning">>,
         <<"rotation_count">> => 10,
@@ -84,7 +83,6 @@ t_audit_log_conf(_Config) ->
     ExpectLog1 = #{
         <<"console">> =>
             #{
-                <<"enable">> => false,
                 <<"formatter">> => <<"text">>,
                 <<"level">> => <<"warning">>,
                 <<"time_offset">> => <<"system">>,

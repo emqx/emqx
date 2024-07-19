@@ -595,13 +595,13 @@ format_status(Key, Node, Listener, Acc) ->
     #{
         <<"id">> := Id,
         <<"type">> := Type,
-        <<"enable">> := Enable,
         <<"running">> := Running,
         <<"max_connections">> := MaxConnections,
         <<"current_connections">> := CurrentConnections,
         <<"acceptors">> := Acceptors,
         <<"bind">> := Bind
     } = Listener,
+    Enable = maps:get(<<"enable">>, Listener, true),
     {ok, #{name := Name}} = emqx_listeners:parse_listener_id(Id),
     GroupKey = maps:get(Key, Listener),
     case maps:find(GroupKey, Acc) of

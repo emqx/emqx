@@ -351,6 +351,7 @@ fields("authz_cache") ->
                 #{
                     default => true,
                     required => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(fields_cache_enable)
                 }
             )},
@@ -387,6 +388,7 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},
@@ -423,6 +425,7 @@ fields("force_shutdown") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(force_shutdown_enable)
                 }
             )},
@@ -452,6 +455,7 @@ fields("overload_protection") ->
                 boolean(),
                 #{
                     desc => ?DESC(overload_protection_enable),
+                    importance => ?IMPORTANCE_HIDDEN,
                     default => false
                 }
             )},
@@ -512,7 +516,11 @@ fields("force_gc") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true, desc => ?DESC(force_gc_enable)}
+                #{
+                    default => true,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(force_gc_enable)
+                }
             )},
         {"count",
             sc(
@@ -1665,6 +1673,7 @@ fields("durable_sessions") ->
             sc(
                 boolean(), #{
                     desc => ?DESC(durable_sessions_enable),
+                    importance => ?IMPORTANCE_HIDDEN,
                     default => false
                 }
             )},
@@ -1888,6 +1897,7 @@ base_listener(Bind) ->
                 #{
                     default => true,
                     aliases => [enabled],
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(fields_listener_enabled)
                 }
             )},
@@ -2416,6 +2426,7 @@ client_ssl_opts_schema(Defaults) ->
                     boolean(),
                     #{
                         default => false,
+                        importance => ?IMPORTANCE_HIDDEN,
                         desc => ?DESC(client_ssl_opts_schema_enable)
                     }
                 )},

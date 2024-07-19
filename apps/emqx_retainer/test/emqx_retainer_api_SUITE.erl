@@ -76,7 +76,6 @@ t_config(_Config) ->
     ?assertMatch(
         #{
             backend := _,
-            enable := _,
             max_payload_size := _,
             msg_clear_interval := _,
             msg_expiry_interval := _
@@ -321,8 +320,7 @@ t_change_storage_type(_Config) ->
             <<"backend">> := #{
                 <<"type">> := <<"built_in_database">>,
                 <<"storage_type">> := <<"ram">>
-            },
-            <<"enable">> := true
+            }
         },
         RawConf
     ),

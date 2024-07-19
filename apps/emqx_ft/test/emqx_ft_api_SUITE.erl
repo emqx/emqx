@@ -293,7 +293,6 @@ test_configure(Uri, Config) ->
                 #{
                     <<"local">> :=
                         #{
-                            <<"enable">> := true,
                             <<"segments">> :=
                                 #{
                                     <<"gc">> :=
@@ -498,12 +497,10 @@ test_configure(Uri, Config) ->
                 #{
                     <<"local">> :=
                         #{
-                            <<"enable">> := true,
                             <<"exporter">> :=
                                 #{
                                     <<"s3">> :=
                                         #{
-                                            <<"enable">> := true,
                                             <<"secret_access_key">> := ?SECRET_ACCESS_KEY
                                         }
                                 }

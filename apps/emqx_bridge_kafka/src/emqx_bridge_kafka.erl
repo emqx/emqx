@@ -297,15 +297,7 @@ fields("config_consumer") ->
 fields(kafka_producer) ->
     connector_config_fields() ++ producer_opts(v1);
 fields(kafka_producer_action) ->
-    [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {connector,
-            mk(binary(), #{
-                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
-            })},
-        {tags, emqx_schema:tags_schema()},
-        {description, emqx_schema:description_schema()}
-    ] ++ producer_opts(action);
+    emqx_bridge_v2_schema:common_fields() ++ producer_opts(action);
 fields(kafka_consumer) ->
     connector_config_fields() ++ fields(consumer_opts);
 fields(ssl_client_opts) ->

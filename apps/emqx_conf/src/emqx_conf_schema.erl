@@ -997,6 +997,7 @@ fields("log_overload_kill") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC("log_overload_kill_enable")
                 }
             )},
@@ -1032,6 +1033,7 @@ fields("log_burst_limit") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC("log_burst_limit_enable")
                 }
             )},
@@ -1285,7 +1287,7 @@ log_handler_common_confs(Handler, Default) ->
                 #{
                     default => Enable,
                     desc => ?DESC("common_handler_enable"),
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"formatter",

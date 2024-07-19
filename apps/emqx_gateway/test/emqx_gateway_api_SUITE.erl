@@ -107,7 +107,7 @@ t_gateway(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
     {200, StompGw} = request(get, "/gateways/stomp"),
     assert_fields_exist(
-        [name, status, enable, created_at, started_at],
+        [name, status, created_at, started_at],
         StompGw
     ),
     {204, _} = request(put, "/gateways/stomp", #{enable => true}),
@@ -127,12 +127,12 @@ t_gateway_fail(_) ->
 
 t_gateway_enable(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
-    {200, #{enable := Enable}} = request(get, "/gateways/stomp"),
+    Enable = emqx_config:get([gateway, stomp, enable]),
     NotEnable = not Enable,
     {204, _} = request(put, "/gateways/stomp/enable/" ++ atom_to_list(NotEnable), undefined),
-    {200, #{enable := NotEnable}} = request(get, "/gateways/stomp"),
+    NotEnable = emqx_config:get([gateway, stomp, enable]),
     {204, _} = request(put, "/gateways/stomp/enable/" ++ atom_to_list(Enable), undefined),
-    {200, #{enable := Enable}} = request(get, "/gateways/stomp"),
+    Enable = emqx_config:get([gateway, stomp, enable]),
     ?assertMatch(
         {400, #{code := <<"BAD_REQUEST">>}},
         request(put, "/gateways/undefined/enable/true", undefined)

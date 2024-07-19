@@ -627,6 +627,13 @@ rules(delete, _) ->
                 message =>
                     <<"'built_in_database' type source must be disabled before purge.">>
             }};
+        [#{}] ->
+            %% Default is enabled
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message =>
+                    <<"'built_in_database' type source must be disabled before purge.">>
+            }};
         [] ->
             {404, #{
                 code => <<"BAD_REQUEST">>,

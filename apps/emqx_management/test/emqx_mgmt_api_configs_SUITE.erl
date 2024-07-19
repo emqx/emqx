@@ -272,7 +272,6 @@ t_configs_key(_Config) ->
         #{
             <<"log">> := #{
                 <<"console">> := #{
-                    <<"enable">> := _,
                     <<"formatter">> := <<"text">>,
                     <<"level">> := <<"warning">>,
                     <<"time_offset">> := <<"system">>

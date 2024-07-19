@@ -72,35 +72,29 @@ fields(action) ->
             }
         )};
 fields("http_action") ->
-    [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable_bridge"), default => true})},
-        {connector,
-            mk(binary(), #{
-                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
-            })},
-        {tags, emqx_schema:tags_schema()},
-        {description, emqx_schema:description_schema()},
-        %% Note: there's an implicit convention in `emqx_bridge' that,
-        %% for egress bridges with this config, the published messages
-        %% will be forwarded to such bridges.
-        {local_topic,
-            mk(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_local_topic"),
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        %% Since e5.3.2, we split the http bridge to two parts: a) connector. b) actions.
-        %% some fields are moved to connector, some fields are moved to actions and composed into the
-        %% `parameters` field.
-        {parameters,
-            mk(ref("parameters_opts"), #{
-                required => true,
-                desc => ?DESC("config_parameters_opts")
-            })}
-    ] ++
+    emqx_bridge_v2_schema:common_fields() ++
+        [
+            %% Note: there's an implicit convention in `emqx_bridge' that,
+            %% for egress bridges with this config, the published messages
+            %% will be forwarded to such bridges.
+            {local_topic,
+                mk(
+                    binary(),
+                    #{
+                        required => false,
+                        desc => ?DESC("config_local_topic"),
+                        importance => ?IMPORTANCE_HIDDEN
+                    }
+                )},
+            %% Since e5.3.2, we split the http bridge to two parts: a) connector. b) actions.
+            %% some fields are moved to connector, some fields are moved to actions and composed into the
+            %% `parameters` field.
+            {parameters,
+                mk(ref("parameters_opts"), #{
+                    required => true,
+                    desc => ?DESC("config_parameters_opts")
+                })}
+        ] ++
         emqx_connector_schema:resource_opts_ref(
             ?MODULE, action_resource_opts, fun legacy_action_resource_opts_converter/2
         );

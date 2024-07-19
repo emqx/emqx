@@ -914,7 +914,7 @@ t_list_disabled_channels(Config) ->
 t_raw_config_response_defaults(Config) ->
     Params = maps:without([<<"enable">>, <<"resource_opts">>], ?KAFKA_CONNECTOR(?CONNECTOR_NAME)),
     ?assertMatch(
-        {ok, 201, #{<<"enable">> := true, <<"resource_opts">> := #{}}},
+        {ok, 201, #{<<"resource_opts">> := #{}}},
         request_json(
             post,
             uri(["connectors"]),
