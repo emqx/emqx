@@ -16,7 +16,6 @@ gateway.exproto {
     ## Configurations for request to ConnectionHandler service
     handler {
         address = "http://127.0.0.1:9001"
-        ssl_options {enable = false}
     }
 
     listeners.tcp.default {

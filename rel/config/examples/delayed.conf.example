@@ -7,8 +7,6 @@
 ##       you should copy and paste the below data into the emqx.conf for working
 
 delayed {
-    enable = true ## false for disabled
-
     ## Maximum number of delayed messages
     ## Default: 0 (0 is no limit)
     max_delayed_messages = 0
