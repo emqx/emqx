@@ -408,33 +408,22 @@ validate_name(Name) ->
 %%==============================================================================
 %% HTTP API CallBacks
 
-'/relup/package/upload'(post, #{body := #{<<"plugin">> := Plugin}} = Params) ->
-    case emqx_plugins:list() of
-        [] ->
-            [{FileName, _Bin}] = maps:to_list(maps:without([type], Plugin)),
-            NameVsn = string:trim(FileName, trailing, ".tar.gz"),
-            %% we install a relup package as a "hidden" plugin
-            case emqx_mgmt_api_plugins:upload_install(post, Params) of
-                {204} ->
-                    case emqx_mgmt_api_plugins_proto_v3:ensure_action(NameVsn, start) of
-                        ok ->
-                            {204};
-                        {error, Reason} ->
-                            %% try our best to clean up if start failed
-                            _ = emqx_mgmt_api_plugins_proto_v3:delete_package(NameVsn),
-                            return_internal_error(Reason)
-                    end;
-                ErrResp ->
-                    ErrResp
+'/relup/package/upload'(post, #{body := #{<<"plugin">> := UploadBody}} = Params) ->
+    case assert_relup_pkg_name(UploadBody) of
+        {ok, NameVsn} ->
+            case get_installed_packages() of
+                [] ->
+                    install_as_hidden_plugin(NameVsn, Params);
+                _ ->
+                    return_bad_request(
+                        <<
+                            "Only one relup package can be installed at a time."
+                            "Please delete the existing package first."
+                        >>
+                    )
             end;
-        _ ->
-            {400, #{
-                code => 'BAD_REQUEST',
-                message => <<
-                    "Only one relup package can be installed at a time."
-                    "Please delete the existing package first."
-                >>
-            }}
+        {error, Reason} ->
+            return_bad_request(Reason)
     end.
 
 '/relup/package'(get, _) ->
@@ -449,40 +438,36 @@ validate_name(Name) ->
     {204}.
 
 '/relup/status'(get, _) ->
-    ?ASSERT_PKG_READY(begin
-        {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_all_nodes(),
-        case
-            lists:filter(
-                fun
-                    (R) when is_map(R) -> false;
-                    (_) -> true
-                end,
-                Res
+    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_all_nodes(),
+    case
+        lists:filter(
+            fun
+                (R) when is_map(R) -> false;
+                (_) -> true
+            end,
+            Res
+        )
+    of
+        [] ->
+            {200, Res};
+        Filtered ->
+            return_internal_error(
+                case hd(Filtered) of
+                    {badrpc, Reason} -> Reason;
+                    Reason -> Reason
+                end
             )
-        of
-            [] ->
-                {200, Res};
-            Filtered ->
-                return_internal_error(
-                    case hd(Filtered) of
-                        {badrpc, Reason} -> Reason;
-                        Reason -> Reason
-                    end
-                )
-        end
-    end).
+    end.
 
 '/relup/status/:node'(get, #{bindings := #{node := NodeNameStr}}) ->
-    ?ASSERT_PKG_READY(
-        emqx_utils_api:with_node(
-            NodeNameStr,
-            fun
-                (Node) when node() =:= Node ->
-                    {200, get_upgrade_status()};
-                (Node) when is_atom(Node) ->
-                    {200, emqx_mgmt_api_relup_proto_v1:get_upgrade_status(Node)}
-            end
-        )
+    emqx_utils_api:with_node(
+        NodeNameStr,
+        fun
+            (Node) when node() =:= Node ->
+                {200, get_upgrade_status()};
+            (Node) when is_atom(Node) ->
+                {200, emqx_mgmt_api_relup_proto_v1:get_upgrade_status(Node)}
+        end
     ).
 
 '/relup/upgrade'(post, _) ->
@@ -511,15 +496,48 @@ validate_name(Name) ->
 %%==============================================================================
 %% Helper functions
 
+install_as_hidden_plugin(NameVsn, Params) ->
+    case emqx_mgmt_api_plugins:upload_install(post, Params) of
+        {204} ->
+            case emqx_mgmt_api_plugins_proto_v3:ensure_action(NameVsn, start) of
+                ok ->
+                    {204};
+                {error, Reason} ->
+                    %% try our best to clean up if start failed
+                    _ = emqx_mgmt_api_plugins_proto_v3:delete_package(NameVsn),
+                    return_internal_error(Reason)
+            end;
+        ErrResp ->
+            ErrResp
+    end.
+
+assert_relup_pkg_name(UploadBody) ->
+    [{FileName, _Bin}] = maps:to_list(maps:without([type], UploadBody)),
+    case string:split(FileName, "-") of
+        [?PLUGIN_NAME, _] ->
+            {ok, string:trim(FileName, trailing, ".tar.gz")};
+        _ ->
+            {error, <<"Invalid relup package name: ", FileName/binary>>}
+    end.
+
 get_upgrade_status() ->
     #{
         node => node(),
         role => mria_rlog:role(),
         live_connections => emqx_cm:get_connected_client_count(),
         current_vsn => list_to_binary(emqx_release:version()),
-        status => emqx_relup_main:get_latest_upgrade_status(),
-        upgrade_history => emqx_relup_main:get_all_upgrade_logs()
+        status => call_emqx_relup_main(get_latest_upgrade_status, [], idle),
+        upgrade_history => call_emqx_relup_main(get_all_upgrade_logs, [], [])
     }.
+
+call_emqx_relup_main(Fun, Args, Default) ->
+    case erlang:function_exported(emqx_relup_main, Fun, length(Args)) of
+        true ->
+            apply(emqx_relup_main, Fun, Args);
+        false ->
+            %% relup package is not installed
+            Default
+    end.
 
 upgrade_with_targe_vsn(Fun) ->
     case get_target_vsn() of
