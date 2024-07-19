@@ -130,15 +130,8 @@ t_replication_transfers_snapshots(Config) ->
         begin
             %% Initialize DB on all nodes and wait for it to be online.
             Opts = opts(Config, #{n_shards => 1, n_sites => 3}),
-            ?assertEqual(
-                [{ok, ok} || _ <- Nodes],
-                erpc:multicall(Nodes, emqx_ds, open_db, [?DB, Opts])
-            ),
-            ?retry(
-                500,
-                10,
-                ?assertMatch([[_], [_], [_]], [shards_online(N, ?DB) || N <- Nodes])
-            ),
+            assert_db_open(Nodes, ?DB, Opts),
+            assert_db_stable(Nodes, ?DB),
 
             %% Stop the DB on the "offline" node.
             ?wait_async_action(
@@ -476,6 +469,7 @@ t_rebalance_chaotic_converges(Config) ->
 
             %% Wait until the LTS timestamp is updated:
             timer:sleep(5000),
+            assert_db_stable(Nodes, ?DB),
 
             %% Check that all messages are still there.
             emqx_ds_test_helpers:verify_stream_effects(?DB, ?FUNCTION_NAME, Nodes, TopicStreams)
