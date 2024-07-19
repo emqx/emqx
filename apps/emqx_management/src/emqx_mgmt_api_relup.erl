@@ -535,7 +535,7 @@ get_upgrade_status() ->
 call_emqx_relup_main(Fun, Args, Default) ->
     case erlang:function_exported(emqx_relup_main, Fun, length(Args)) of
         true ->
-            apply(emqx_relup_main, Fun, Args);
+            erlang:apply(emqx_relup_main, Fun, Args);
         false ->
             %% relup package is not installed
             Default
@@ -567,7 +567,8 @@ run_upgrade_on_nodes(Nodes, TargetVsn) ->
     end.
 
 run_upgrade(TargetVsn) ->
-    case emqx_relup_main:upgrade(TargetVsn) of
+    case call_emqx_relup_main(upgrade, [TargetVsn], no_pkg_installed) of
+        no_pkg_installed -> return_bad_request(<<"No relup package is installed">>);
         ok -> {204};
         {error, Reason} -> upgrade_return(Reason)
     end.
@@ -592,8 +593,8 @@ get_installed_packages() ->
 
 target_vsn_from_rel_vsn(Vsn) ->
     case string:split(binary_to_list(Vsn), "-") of
-        [VsnStr | _] -> VsnStr;
-        _ -> throw({invalid_vsn, Vsn})
+        [_] -> throw({invalid_vsn, Vsn});
+        [VsnStr | _] -> VsnStr
     end.
 
 delete_installed_packages() ->
@@ -608,7 +609,10 @@ delete_installed_packages() ->
 
 format_package_info(PluginInfo) when is_map(PluginInfo) ->
     Vsn = maps_get(rel_vsn, PluginInfo),
-    case emqx_relup_main:get_package_info(target_vsn_from_rel_vsn(Vsn)) of
+    TargetVsn = target_vsn_from_rel_vsn(Vsn),
+    case call_emqx_relup_main(get_package_info, [TargetVsn], no_pkg_installed) of
+        no_pkg_installed ->
+            throw({get_pkg_info_failed, <<"No relup package is installed">>});
         {error, Reason} ->
             throw({get_pkg_info_failed, Reason});
         {ok, #{base_vsns := BaseVsns, change_logs := ChangeLogs}} ->
@@ -656,8 +660,4 @@ return_internal_error(Reason) ->
     }}.
 
 name_vsn(Name, Vsn) ->
-    bin([Name, "-", Vsn]).
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
+    iolist_to_binary([Name, "-", Vsn]).
