@@ -3,9 +3,6 @@
 ## NOTE: This configuration is only applicable in EMQX Enterprise edition 5.1 or later.
 
 file_transfer {
-    ## Enable the File Transfer feature
-    enable = true
-
     ## Storage backend settings
     storage {
         ## Local file system backend setting
