@@ -34,10 +34,12 @@ introduced_in() ->
 
 -spec run_upgrade([node()], string()) -> emqx_rpc:multicall_result().
 run_upgrade(Nodes, TargetVsn) ->
-    rpc:multicall(Nodes, emqx_relup_main, upgrade, [TargetVsn], ?RPC_TIMEOUT_OP).
+    rpc:multicall(Nodes, emqx_mgmt_api_relup, emqx_relup_upgrade, [TargetVsn], ?RPC_TIMEOUT_OP).
 
+-spec get_upgrade_status_from_all_nodes() -> emqx_rpc:multicall_result().
 get_upgrade_status_from_all_nodes() ->
     rpc:multicall(emqx_mgmt_api_relup, get_upgrade_status, [], ?RPC_TIMEOUT_INFO).
 
+-spec get_upgrade_status(node()) -> emqx_rpc:call_result(map()).
 get_upgrade_status(Node) ->
     rpc:call(Node, emqx_mgmt_api_relup, get_upgrade_status, [], ?RPC_TIMEOUT_INFO).

@@ -20,7 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([get_upgrade_status/0]).
+-export([get_upgrade_status/0, emqx_relup_upgrade/1]).
 
 -export([
     api_spec/0,
@@ -55,7 +55,7 @@
 
 -define(ASSERT_PKG_READY(EXPR),
     case code:is_loaded(emqx_relup_main) of
-        false -> return_bad_request(<<"No relup package is installed">>);
+        false -> return_package_not_installed();
         {file, _} -> EXPR
     end
 ).
@@ -546,7 +546,7 @@ upgrade_with_targe_vsn(Fun) ->
         {ok, TargetVsn} ->
             Fun(TargetVsn);
         {error, no_relup_package_installed} ->
-            return_bad_request(<<"No relup package is installed">>);
+            return_package_not_installed();
         {error, multiple_relup_packages_installed} ->
             return_internal_error(<<"Multiple relup package installed">>)
     end.
@@ -557,21 +557,23 @@ run_upgrade_on_nodes(Nodes, TargetVsn) ->
         [] ->
             {204};
         Filtered ->
-            upgrade_return(
-                case hd(Filtered) of
-                    {badrpc, Reason} -> Reason;
-                    {error, Reason} -> Reason;
-                    Reason -> Reason
-                end
-            )
+            case hd(Filtered) of
+                no_pkg_installed -> return_package_not_installed();
+                {badrpc, Reason} -> return_internal_error(Reason);
+                {error, Reason} -> upgrade_return(Reason);
+                Reason -> return_internal_error(Reason)
+            end
     end.
 
 run_upgrade(TargetVsn) ->
-    case call_emqx_relup_main(upgrade, [TargetVsn], no_pkg_installed) of
-        no_pkg_installed -> return_bad_request(<<"No relup package is installed">>);
+    case emqx_relup_upgrade(TargetVsn) of
+        no_pkg_installed -> return_package_not_installed();
         ok -> {204};
         {error, Reason} -> upgrade_return(Reason)
     end.
+
+emqx_relup_upgrade(TargetVsn) ->
+    call_emqx_relup_main(upgrade, [TargetVsn], no_pkg_installed).
 
 get_target_vsn() ->
     case get_installed_packages() of
@@ -646,6 +648,9 @@ return_not_found(Reason) ->
         code => 'NOT_FOUND',
         message => emqx_utils:readable_error_msg(Reason)
     }}.
+
+return_package_not_installed() ->
+    return_bad_request(<<"No relup package is installed">>).
 
 return_bad_request(Reason) ->
     {400, #{
