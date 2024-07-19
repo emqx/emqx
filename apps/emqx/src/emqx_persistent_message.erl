@@ -58,7 +58,7 @@ is_persistence_enabled() ->
 
 -spec is_persistence_enabled(emqx_types:zone()) -> boolean().
 is_persistence_enabled(Zone) ->
-    emqx_config:get_zone_conf(Zone, [durable_sessions, enable]).
+    emqx_config:get_zone_conf(Zone, [durable_sessions, enable], false).
 
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->

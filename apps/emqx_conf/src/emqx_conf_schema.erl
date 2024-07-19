@@ -146,9 +146,11 @@ validations() ->
         lists:flatmap(fun hocon_schema:validations/1, common_apps()).
 
 validate_durable_sessions_strategy(Conf) ->
-    DSEnabled = hocon_maps:get("durable_sessions.enable", Conf),
+    DS = hocon_maps:get("durable_sessions", Conf),
+    DSDefined = is_map(DS),
+    DSEnabled = DSDefined andalso hocon_maps:get("durable_sessions.enable", Conf),
     DiscoveryStrategy = hocon_maps:get("cluster.discovery_strategy", Conf),
-    DSBackend = hocon_maps:get("durable_storage.messages.backend", Conf),
+    DSBackend = DSDefined andalso hocon_maps:get("durable_storage.messages.backend", Conf),
     case {DSEnabled, DSBackend} of
         {true, builtin_local} when DiscoveryStrategy =/= singleton ->
             {error, <<

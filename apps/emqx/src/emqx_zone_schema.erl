@@ -55,7 +55,14 @@ zones_without_default() ->
 
 global_zone_with_default() ->
     lists:map(
-        fun(F) -> {F, ?HOCON(?R_REF(emqx_schema, atom_to_list(F)), #{})} end, roots() -- hidden()
+        fun
+            (durable_sessions = F) ->
+                Sc = ?HOCON(hoconsc:union([disabled, ?R_REF(emqx_schema, atom_to_list(F))]), #{}),
+                {F, Sc};
+            (F) ->
+                {F, ?HOCON(?R_REF(emqx_schema, atom_to_list(F)), #{})}
+        end,
+        roots() -- hidden()
     ).
 
 hidden() ->

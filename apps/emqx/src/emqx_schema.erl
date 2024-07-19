@@ -307,8 +307,9 @@ roots(low) ->
             )},
         {durable_sessions,
             sc(
-                ref("durable_sessions"),
+                hoconsc:union([disabled, ref("durable_sessions")]),
                 #{
+                    default => disabled,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
