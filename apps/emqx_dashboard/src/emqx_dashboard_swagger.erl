@@ -1008,7 +1008,7 @@ parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs
 
 %% return true if the field has 'importance' set to 'hidden'
 is_hidden(Hocon) ->
-    hocon_schema:is_hidden(Hocon, #{include_importance_up_from => ?IMPORTANCE_LOW}).
+    hocon_schema:is_hidden(Hocon, #{include_importance_up_from => ?IMPORTANCE_NO_DOC}).
 
 is_required(Hocon) ->
     hocon_schema:field_schema(Hocon, required) =:= true.

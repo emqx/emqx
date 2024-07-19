@@ -56,6 +56,8 @@ state_fields() ->
             ?HOCON(
                 boolean(),
                 #{
+                    default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(enable),
                     required => true
                 }

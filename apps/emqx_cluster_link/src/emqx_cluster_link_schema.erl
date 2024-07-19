@@ -39,7 +39,12 @@ links_schema(Meta) ->
 
 fields("link") ->
     [
-        {enable, ?HOCON(boolean(), #{default => true, desc => ?DESC(enable)})},
+        {enable,
+            ?HOCON(boolean(), #{
+                default => true,
+                importance => ?IMPORTANCE_NO_DOC,
+                desc => ?DESC(enable)
+            })},
         {name, ?HOCON(binary(), #{required => true, desc => ?DESC(link_name)})},
         {server,
             emqx_schema:servers_sc(#{required => true, desc => ?DESC(server)}, ?MQTT_HOST_OPTS)},

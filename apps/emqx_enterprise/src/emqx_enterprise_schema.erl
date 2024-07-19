@@ -53,7 +53,6 @@ fields("log_audit_handler") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-
         {"path",
             hoconsc:mk(
                 string(),

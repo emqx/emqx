@@ -84,30 +84,16 @@ fields(action) ->
             }
         )};
 fields(config) ->
-    [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {tags, emqx_schema:tags_schema()},
-        {description, emqx_schema:description_schema()},
-        {connector,
-            mk(binary(), #{
-                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
-            })},
-        {parameters,
-            mk(
-                ref(?MODULE, "parameters"),
-                #{required => true, desc => ?DESC("parameters")}
-            )},
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
-            )}
-    ];
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        mk(
+            ref(?MODULE, "parameters"),
+            #{
+                required => true,
+                desc => ?DESC("parameters")
+            }
+        ),
+        #{resource_opts_ref => ref(?MODULE, "creation_opts")}
+    );
 fields("parameters") ->
     [
         {target_topic,

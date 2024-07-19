@@ -116,16 +116,7 @@ fields(actions) ->
         override(
             emqx_bridge_kafka:producer_opts(action),
             bridge_v2_overrides()
-        ) ++
-            [
-                {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-                {connector,
-                    mk(binary(), #{
-                        desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
-                    })},
-                {tags, emqx_schema:tags_schema()},
-                {description, emqx_schema:description_schema()}
-            ],
+        ) ++ emqx_bridge_v2_schema:common_fields(),
     override_documentations(Fields);
 fields(Method) ->
     Fields = emqx_bridge_kafka:fields(Method),
