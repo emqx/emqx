@@ -1,33 +1,43 @@
 emqx_limiter_schema {
 
 max_conn_rate.desc:
-"""Maximum connection rate.<br/>
-This is used to limit the connection rate for this node.
-Once the limit is reached, new connections will be deferred or refused.<br/>
-For example:<br/>
-- <code>1000/s</code> :: Only accepts 1000 connections per second<br/>
-- <code>1000/10s</code> :: Only accepts 1000 connections every 10 seconds."""
+"""Used to limit the rate at which the current listener accepts connections.
+
+Once the limit is reached, EMQX will pause fetching connections from the Accept queue, thereby delaying or rejecting new connections.
+
+For example:
+
+- `1000/s`: Only accepts 1000 connections per second.
+- `1000/10s`: Only accepts 1000 connections every 10 seconds."""
+
 max_conn_rate.label:
 """Maximum Connection Rate"""
 
 messages_rate.desc:
-"""Messages publish rate.<br/>
-This is used to limit the inbound message numbers for this node.
-Once the limit is reached, the restricted client will slow down and even be hung for a while.<br/>
-For example:<br/>
-- <code>500/s</code> :: Only the first 500 messages are sent per second and other messages are buffered.<br/>
-- <code>500/10s</code> :: Only the first 500 messages are sent even 10 second and other messages are buffered."""
+"""Used to limit the number of messages a single client can send to EMQX per second.
+
+Once the limit is reached, EMQX will pause reading data from the receive-buffer, thus slowing down or even temporarily hanging the sender.
+
+For example:
+
+- `500/s`: Only 500 messages will be received per second, and the remaining messages will be delayed.
+- `500/10s`: Only 500 messages will be received every 10 seconds and the remaining messages will be delayed."""
+
 messages_rate.label:
 """Messages Publish Rate"""
 
 bytes_rate.desc:
-"""Data publish rate.<br/>
-This is used to limit the inbound bytes rate for this node.
-Once the limit is reached, the restricted client will slow down and even be hung for a while.<br/>
-The unit of the bytes could be:KB MB GB.<br/>
-For example:<br/>
-- <code>500KB/s</code> :: Only the first 500 kilobytes are sent per second and other messages are buffered.<br/>
-- <code>500MB/10s</code> :: Only the first 500 megabytes are sent even 10 second and other messages are buffered."""
+"""Used to limit the number of bytes a single client can send to EMQX per second.
+
+Once the limit is reached, EMQX will pause reading data from the receive-buffer, thus slowing down or even temporarily hanging the sender.
+
+The unit of the bytes could be: B, KB, MB, GB.
+
+For example:
+
+- `500KB/s`: Only 500 kilobytes per second will be received, and the remaining bytes will be delayed.
+- `500MB/10s`: Only 500 megabytes will be received every 10 seconds, and the remaining bytes will be delayed."""
+
 bytes_rate.label:
 """Data Publish Rate"""
 

@@ -166,8 +166,7 @@ desc_audit_log_handler.label:
 """Audit Log Handler"""
 
 rpc_socket_keepalive_count.desc:
-"""How many times the keepalive probe message can fail to receive a reply
-until the RPC connection is considered lost."""
+"""Corresponds to the `TCP_KEEPCNT` socket option. The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end."""
 
 rpc_socket_keepalive_count.label:
 """RPC Socket Keepalive Count"""
@@ -572,7 +571,7 @@ authorization.label:
 """Authorization"""
 
 rpc_socket_keepalive_idle.desc:
-"""How long the connections between the brokers should remain open after the last message is sent."""
+"""Corresponds to the `TCP_KEEPIDLE` socket option. The time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes."""
 
 rpc_socket_keepalive_idle.label:
 """RPC Socket Keepalive Idle"""
@@ -688,7 +687,7 @@ node_crash_dump_file.label:
 """Crash Dump File"""
 
 rpc_socket_keepalive_interval.desc:
-"""The interval between keepalive messages."""
+"""Corresponds to the `TCP_KEEPINTVL` socket option. The time (in seconds) between individual keepalive probes."""
 
 rpc_socket_keepalive_interval.label:
 """RPC Socket Keepalive Interval"""
