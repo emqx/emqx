@@ -215,7 +215,8 @@ shard_beamformers_spec(DB, Shard, Options) ->
         id => {Shard, beamformers},
         type => supervisor,
         shutdown => infinity,
-        start => {emqx_ds_beamformer_sup, start_link, [{DB, Shard}, NWorkers]}
+        start =>
+            {emqx_ds_beamformer_sup, start_link, [emqx_ds_builtin_local, {DB, Shard}, NWorkers]}
     }.
 
 ensure_started(Res) ->

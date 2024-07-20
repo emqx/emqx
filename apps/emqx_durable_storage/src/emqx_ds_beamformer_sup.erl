@@ -18,13 +18,13 @@
 -behavior(supervisor).
 
 %% API:
--export([start_link/2, pool/1]).
+-export([start_link/3, pool/1, cbm/1]).
 
 %% behavior callbacks:
 -export([init/1]).
 
 %% internal exports:
--export([start_workers/2, init_pool_owner/2]).
+-export([start_workers/3, init_pool_owner/3]).
 
 -export_type([]).
 
@@ -34,33 +34,41 @@
 
 -define(SUP(SHARD), {n, l, {?MODULE, SHARD}}).
 
+-define(cbm(DB), {?MODULE, DB}).
+
 %%================================================================================
 %% API functions
 %%================================================================================
 
+-spec cbm(_Shard) -> module().
+cbm(DB) ->
+    persistent_term:get(?cbm(DB)).
+
 pool(Shard) ->
     {?MODULE, Shard}.
 
--spec start_link(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> supervisor:startlink_ret().
-start_link(ShardId, InitialNWorkers) ->
-    supervisor:start_link({via, gproc, ?SUP(ShardId)}, ?MODULE, {top, ShardId, InitialNWorkers}).
+-spec start_link(module(), _Shard, non_neg_integer()) -> supervisor:startlink_ret().
+start_link(CBM, ShardId, InitialNWorkers) ->
+    supervisor:start_link(
+        {via, gproc, ?SUP(ShardId)}, ?MODULE, {top, CBM, ShardId, InitialNWorkers}
+    ).
 
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
-init({top, ShardId, InitialNWorkers}) ->
+init({top, Module, ShardId, InitialNWorkers}) ->
     Children = [
         #{
             id => pool_owner,
             type => worker,
-            start => {proc_lib, start_link, [?MODULE, init_pool_owner, [self(), ShardId]]}
+            start => {proc_lib, start_link, [?MODULE, init_pool_owner, [self(), ShardId, Module]]}
         },
         #{
             id => workers,
             type => supervisor,
             shutdown => infinity,
-            start => {?MODULE, start_workers, [ShardId, InitialNWorkers]}
+            start => {?MODULE, start_workers, [Module, ShardId, InitialNWorkers]}
         }
     ],
     SupFlags = #{
@@ -69,13 +77,13 @@ init({top, ShardId, InitialNWorkers}) ->
         period => 1
     },
     {ok, {SupFlags, Children}};
-init({workers, ShardId, InitialNWorkers}) ->
+init({workers, Module, ShardId, InitialNWorkers}) ->
     Children = [
         #{
             id => I,
             type => worker,
             shutdown => 1000,
-            start => {emqx_ds_beamformer, start_link, [ShardId, I]}
+            start => {emqx_ds_beamformer, start_link, [Module, ShardId, I]}
         }
      || I <- lists:seq(1, InitialNWorkers)
     ],
@@ -90,21 +98,21 @@ init({workers, ShardId, InitialNWorkers}) ->
 %% Internal exports
 %%================================================================================
 
-start_workers(ShardId, InitialNWorkers) ->
-    supervisor:start_link(?MODULE, {workers, ShardId, InitialNWorkers}).
+start_workers(Module, ShardId, InitialNWorkers) ->
+    supervisor:start_link(?MODULE, {workers, Module, ShardId, InitialNWorkers}).
 
 %% Helper process that automatically destroys gproc pool when
 %% supervisor is stopped:
-init_pool_owner(Parent, ShardId) ->
+init_pool_owner(Parent, ShardId, Module) ->
     process_flag(trap_exit, true),
     gproc_pool:new(pool(ShardId), hash, [{auto_size, true}]),
-    logger:warning("Started poll workers for ~p", [ShardId]),
+    persistent_term:put(?cbm(ShardId), Module),
     proc_lib:init_ack(Parent, {ok, self()}),
     %% Automatic cleanup:
     receive
         {'EXIT', _Pid, Reason} ->
             gproc_pool:delete(pool(ShardId)),
-            logger:warning("Stopped poll workers for ~p", [ShardId]),
+            persistent_term:erase(?cbm(ShardId)),
             exit(Reason)
     end.
 

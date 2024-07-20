@@ -39,6 +39,9 @@
 
     longpoll/5,
     generation/1,
+    unpack_iterator/2,
+    scan_stream/5,
+    match_message/3,
 
     delete_next/5,
 
@@ -431,11 +434,11 @@ commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Cooke
     cooked_batch()
 ) -> #{_EventDispatchKey => pos_integer()}.
 dispatch_events(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
-    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
-    SendF = fun(DispatchKey, Event) ->
-        emqx_ds_upubsub:pub(?pubsub(Shard), {GenId, DispatchKey}, Event)
-    end,
-    Mod:batch_events(GenData, CookedBatch, SendF),
+    %% #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
+    %% SendF = fun(DispatchKey, Event) ->
+    %%     emqx_ds_upubsub:pub(?pubsub(Shard), {GenId, DispatchKey}, Event)
+    %% end,
+    %% Mod:batch_events(GenData, CookedBatch, SendF),
     ok.
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -546,7 +549,7 @@ update_iterator(
                     {error, unrecoverable, Err}
             end;
         not_found ->
-            {error, unrecoverable, generation_not_found}
+            ?ERR_GEN_GONE
     end.
 
 -spec generation(iterator()) -> gen_id().
@@ -576,20 +579,32 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 %% sweep. This API does not suppose precise batch size.
 
 %%    When doing multi-next, we group iterators by stream:
-unpack_iterator(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}) ->
+unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
-            case Mod:unpack_iterator(Shard, GenData, GenIter0, BatchSize, Now, IsCurrent) of
-                {ok, GenIter, Batch} ->
-                    {ok, Iter#{?enc := GenIter}, Batch};
-                {ok, end_of_stream} ->
-                    {ok, end_of_stream};
-                Error = {error, _, _} ->
-                    Error
-            end;
+            Mod:unpack_iterator(Shard, GenData, Inner);
         not_found ->
             %% generation was possibly dropped by GC
+            undefined
+    end.
+
+scan_stream(
+    Shard, #{?tag := ?STREAM, ?generation := GenId, ?enc := Inner}, Now, StartMsg, BatchSize
+) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            IsCurrent = GenId =:= generation_current(Shard),
+            Mod:scan_stream(Shard, GenData, Inner, StartMsg, BatchSize, Now, IsCurrent);
+        not_found ->
             ?ERR_GEN_GONE
+    end.
+
+match_message(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}, Message) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:match_message(Shard, GenData, Inner, Message);
+        not_found ->
+            false
     end.
 
 %% %%    Version of `next' that iterates a stream without additional
