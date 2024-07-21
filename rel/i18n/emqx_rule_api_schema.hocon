@@ -366,6 +366,12 @@ event_validation.desc:
 event_validation.label:
 """Validation"""
 
+event_transformation.desc:
+"""Transformation"""
+
+event_transformation.label:
+"""Transformation"""
+
 root_rule_info.desc:
 """Schema for rule info"""
 

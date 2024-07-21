@@ -72,7 +72,8 @@ desc_name.label:
 """Action Name"""
 
 config_parameters_timestamp.desc:
-"""Timestamp. Placeholders in format of ${var} is supported, the final value can be:</br>
+"""Timestamp. Placeholders in format of ${var} is supported, the final value can be:
+
 - now: use the `now_ms` which is contained in the payload as timestamp
 - now_ms: same as above
 - now_us: use the `now_us` which is contained in the payload as timestamp
@@ -89,8 +90,9 @@ config_parameters_measurement.label:
 """Measurement"""
 
 config_parameters_data_type.desc:
-"""Data Type, an enumerated or a string. </br>
-For string placeholders in format of ${var} is supported, the final value can be:</br>
+"""Data Type, an enumerated or a string.
+For string placeholders in format of ${var} is supported, the final value can be:
+
 - TEXT
 - BOOLEAN
 - INT32
