@@ -104,7 +104,7 @@ schema("/relup/package/upload") ->
             responses => #{
                 204 => <<"Package is uploaded successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['UNEXPECTED_ERROR', 'BAD_PLUGIN_INFO']
+                    ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO']
                 )
             }
         }
@@ -590,7 +590,7 @@ get_installed_packages() ->
                 _ -> false
             end
         end,
-        emqx_plugins:list()
+        emqx_plugins:list(hidden)
     ).
 
 target_vsn_from_rel_vsn(Vsn) ->

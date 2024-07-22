@@ -56,7 +56,8 @@
     ensure_stopped/0,
     ensure_stopped/1,
     restart/1,
-    list/0
+    list/0,
+    list/1
 ]).
 
 %% Plugin config APIs
@@ -378,13 +379,17 @@ restart(NameVsn) ->
 %% Including the ones that are installed, but not enabled in config.
 -spec list() -> [plugin_info()].
 list() ->
+    list(normal).
+
+-spec list(all | normal | hidden) -> [plugin_info()].
+list(Type) ->
     Pattern = filename:join([install_dir(), "*", "release.json"]),
     All = lists:filtermap(
         fun(JsonFilePath) ->
             [_, NameVsn | _] = lists:reverse(filename:split(JsonFilePath)),
             case read_plugin_info(NameVsn, #{}) of
                 {ok, Info} ->
-                    {true, Info};
+                    filter_plugin_of_type(Type, Info);
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_plugin_info"}),
                     false
@@ -393,6 +398,17 @@ list() ->
         filelib:wildcard(Pattern)
     ),
     do_list(configured(), All).
+
+filter_plugin_of_type(all, Info) ->
+    {true, Info};
+filter_plugin_of_type(normal, #{<<"hidden">> := true}) ->
+    false;
+filter_plugin_of_type(normal, Info) ->
+    {true, Info};
+filter_plugin_of_type(hidden, #{<<"hidden">> := true} = Info) ->
+    {true, Info};
+filter_plugin_of_type(hidden, _Info) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% Package utils
@@ -662,10 +678,6 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
     end,
     case lists:splitwith(SplitF, All) of
         {_, []} ->
-            ?SLOG(warning, #{
-                msg => "configured_plugin_not_installed",
-                name_vsn => NameVsn
-            }),
             do_list(Rest, All);
         {Front, [I | Rear]} ->
             [I | do_list(Rest, Front ++ Rear)]
