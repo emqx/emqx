@@ -15,7 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds_beamformer).
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 %% API:
 -export([poll/5, do_dispatch/1]).
@@ -44,17 +44,28 @@
 
 -type return_addr(ItKey) :: {reference(), ItKey}.
 
--record(req_poll, {
-    key :: {_Stream, emqx_ds:key()},
-    %% Node from where the poll request originates
-    node :: node(),
+-record(poll_req, {
+    %% Key can be anything, optimized for whatever lookups are needed.
+    key,
+    %% Node from where the poll request originates:
+    node,
     %% Information about the process that created the request:
-    return_addr :: emqx_ds_beam:return_addr(),
+    return_addr,
     %% Iterator:
-    it :: emqx_ds_storage_layer:iterator(),
-    opts :: emqx_ds:poll_opts(),
-    deadline :: integer()
+    it,
+    opts,
+    deadline
 }).
+
+-type poll_req(ItKey, Iterator) ::
+    #poll_req{
+        key :: term(),
+        node :: node(),
+        return_addr :: return_addr(ItKey),
+        it :: Iterator,
+        opts :: emqx_ds:poll_opts(),
+        deadline :: integer()
+    }.
 
 %% Response:
 
@@ -126,7 +137,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         {Stream, Timestamp div 10_000_000}
     ),
     %% Make request:
-    Req = #req_poll{
+    Req = #poll_req{
         key = {Stream, DSKey},
         node = Node,
         return_addr = ReturnAddr,
@@ -145,8 +156,8 @@ init([CBM, ShardId, Name]) ->
     Pool = emqx_ds_beamformer_sup:pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
-    NewTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #req_poll.key}]),
-    WaitingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #req_poll.key}]),
+    NewTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
+    WaitingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
     S = #s{
         module = CBM,
         shard = ShardId,
@@ -158,7 +169,7 @@ init([CBM, ShardId, Name]) ->
     timer:send_interval(50, doit),
     {ok, S}.
 
-handle_call(Req = #req_poll{}, _From, S) ->
+handle_call(Req = #poll_req{}, _From, S) ->
     %% TODO: drop requests past deadline immediately.
     ets:insert(S#s.new_requests, Req),
     {reply, ok, S};
@@ -218,10 +229,12 @@ fulfill_pending(S = #s{new_requests = PendingTab}) ->
             fulfill_pending(S)
     end.
 
-do_fulfill_pending(S = #s{shard = Shard, module = CBM}, Stream, MsgKey) ->
-    case CBM:scan_stream(Shard, Stream, MsgKey, 100) of
-        {ok, NextKey, Batch} ->
-            Beams = form_beams(S, Stream, MsgKey, NextKey, Batch),
+do_fulfill_pending(S = #s{shard = Shard, module = CBM}, Stream, StartKey) ->
+    case CBM:scan_stream(Shard, Stream, StartKey, 100) of
+        {ok, _EndKey, []} ->
+            move_to_waiting(S, Stream, StartKey);
+        {ok, EndKey, Batch} ->
+            Beams = form_beams(S, Stream, StartKey, EndKey, Batch),
             logger:warning("Beams: ~p~n", [Beams]),
             maps:foreach(
                 fun(_Node, Beam) ->
@@ -238,12 +251,7 @@ req_getter(PendingTab, Stream) ->
         logger:warning("Pending for ~p/~p:~n  ~p~n~p", [
             Stream, MsgKey, Pendings, ets:tab2list(PendingTab)
         ]),
-        lists:map(
-            fun(#req_poll{it = It, node = Node, return_addr = RAddr}) ->
-                {Node, RAddr, It}
-            end,
-            Pendings
-        )
+        Pendings
     end.
 
 mk_message_matcher(#s{module = CBM, shard = Shard}, Iterator) ->
@@ -261,10 +269,10 @@ split(#beam{iterators = Its, pack = Pack}) ->
     {emqx_ds:message_key(), emqx_types:message()}
 ]) ->
     #{node() => beam(_ItKey, _Iterator)}.
-form_beams(S = #s{new_requests = PendingTab}, Stream, FirstKey, LastKey, Messages) ->
+form_beams(S = #s{new_requests = PendingTab}, Stream, StartKey, EndKey, Messages) ->
     GetF = req_getter(PendingTab, Stream),
     %% Find iterators that match the first message of the batch:
-    InitialAcc = update_consumers(GetF, FirstKey, #{}),
+    InitialAcc = update_consumers(GetF, StartKey, #{}),
     %% Assert, or else we get infinite loop:
     true = maps:size(InitialAcc) > 0,
     %% Find additional iterators that can be packed in a beam:
@@ -277,7 +285,7 @@ form_beams(S = #s{new_requests = PendingTab}, Stream, FirstKey, LastKey, Message
     ),
     maps:map(
         fun(_Node, Its) ->
-            pack(S, LastKey, Its, Messages)
+            pack(S, EndKey, Its, Messages)
         end,
         ItGroups
     ).
@@ -335,14 +343,30 @@ mk_mask([Matcher | Rest], Message, Acc) ->
         end,
     mk_mask(Rest, Message, <<Acc/bitstring, Val:1>>).
 
+-spec move_to_waiting(s(), _Stream, emqx_ds:message_key()) -> ok.
+move_to_waiting(#s{new_requests = PendingTab, waiting_requests = WaitingTab}, Stream, StartKey) ->
+    GetF = req_getter(PendingTab, Stream),
+    %% GetF is destructive, it will automatically removes elements
+    %% from the pending tab:
+    ToMove = GetF(StartKey),
+    logger:warning("Moving to waiting ~p/~p~n  ~p", [Stream, StartKey, ToMove]),
+    %% For the waiting polls we want fast lookup on stream:
+    Waiting = lists:map(
+        fun(Req = #poll_req{}) ->
+            Req#poll_req{key = Stream}
+        end,
+        ToMove
+    ),
+    ets:insert(WaitingTab, Waiting).
+
 -spec update_consumers(get_iterators_for_keyf(ItKey, Iterator), emqx_ds:message_key(), Acc) ->
     Acc
 when
-    Acc :: #{node() => [{return_addr(ItKey), Iterator}]}.
+    Acc :: #{node() => [poll_req(ItKey, Iterator)]}.
 update_consumers(GetF, MsgKey, Acc0) ->
     L = GetF(MsgKey),
     lists:foldl(
-        fun({Node, ReturnAddr, It}, Acc) ->
+        fun(#poll_req{node = Node, return_addr = ReturnAddr, it = It}, Acc) ->
             Item = {ReturnAddr, It},
             maps:update_with(
                 Node,
