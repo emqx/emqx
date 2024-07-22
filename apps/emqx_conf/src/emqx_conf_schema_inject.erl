@@ -49,7 +49,10 @@ authn_mods(ce) ->
     ];
 authn_mods(ee) ->
     authn_mods(ce) ++
-        [emqx_gcp_device_authn_schema].
+        [
+            emqx_gcp_device_authn_schema,
+            emqx_authn_scram_http_schema
+        ].
 
 authz() ->
     [{emqx_authz_schema, authz_mods()}].
