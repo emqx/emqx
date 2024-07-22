@@ -22,8 +22,8 @@
 
 -export([
     '/cluster/links'/2,
-    '/cluster/links/:name'/2,
-    '/cluster/links/:name/metrics'/2
+    '/cluster/links/link/:name'/2,
+    '/cluster/links/link/:name/metrics'/2
 ]).
 
 -define(CONF_PATH, [cluster, links]).
@@ -39,8 +39,8 @@ api_spec() ->
 paths() ->
     [
         "/cluster/links",
-        "/cluster/links/:name",
-        "/cluster/links/:name/metrics"
+        "/cluster/links/link/:name",
+        "/cluster/links/link/:name/metrics"
     ].
 
 schema("/cluster/links") ->
@@ -69,9 +69,9 @@ schema("/cluster/links") ->
                     }
             }
     };
-schema("/cluster/links/:name") ->
+schema("/cluster/links/link/:name") ->
     #{
-        'operationId' => '/cluster/links/:name',
+        'operationId' => '/cluster/links/link/:name',
         get =>
             #{
                 description => "Get a cluster link configuration",
@@ -117,9 +117,9 @@ schema("/cluster/links/:name") ->
                     }
             }
     };
-schema("/cluster/links/:name/metrics") ->
+schema("/cluster/links/link/:name/metrics") ->
     #{
-        'operationId' => '/cluster/links/:name/metrics',
+        'operationId' => '/cluster/links/link/:name/metrics',
         get =>
             #{
                 description => "Get a cluster link metrics",
@@ -173,11 +173,11 @@ fields(node_metrics) ->
         fun() -> handle_create(Name, Body) end
     ).
 
-'/cluster/links/:name'(get, #{bindings := #{name := Name}}) ->
+'/cluster/links/link/:name'(get, #{bindings := #{name := Name}}) ->
     with_link(Name, fun(Link) -> handle_lookup(Name, Link) end, not_found());
-'/cluster/links/:name'(put, #{bindings := #{name := Name}, body := Params0}) ->
+'/cluster/links/link/:name'(put, #{bindings := #{name := Name}, body := Params0}) ->
     with_link(Name, fun() -> handle_update(Name, Params0) end, not_found());
-'/cluster/links/:name'(delete, #{bindings := #{name := Name}}) ->
+'/cluster/links/link/:name'(delete, #{bindings := #{name := Name}}) ->
     with_link(
         Name,
         fun() ->
@@ -192,7 +192,7 @@ fields(node_metrics) ->
         not_found()
     ).
 
-'/cluster/links/:name/metrics'(get, #{bindings := #{name := Name}}) ->
+'/cluster/links/link/:name/metrics'(get, #{bindings := #{name := Name}}) ->
     with_link(Name, fun() -> handle_metrics(Name) end, not_found()).
 
 %%--------------------------------------------------------------------

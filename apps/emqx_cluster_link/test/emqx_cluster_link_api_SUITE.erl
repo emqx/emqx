@@ -152,11 +152,11 @@ get_link(Name) ->
 
 get_link(SourceOrTargetCluster, Name) ->
     Host = host(SourceOrTargetCluster),
-    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), Name]),
+    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name]),
     emqx_mgmt_api_test_util:simple_request(get, Path, _Params = "").
 
 delete_link(Name) ->
-    Path = emqx_mgmt_api_test_util:api_path([api_root(), Name]),
+    Path = emqx_mgmt_api_test_util:api_path([api_root(), "link", Name]),
     emqx_mgmt_api_test_util:simple_request(delete, Path, _Params = "").
 
 update_link(Name, Params) ->
@@ -164,7 +164,7 @@ update_link(Name, Params) ->
 
 update_link(SourceOrTargetCluster, Name, Params) ->
     Host = host(SourceOrTargetCluster),
-    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), Name]),
+    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name]),
     emqx_mgmt_api_test_util:simple_request(put, Path, Params).
 
 create_link(Name, Params0) ->
@@ -177,7 +177,7 @@ get_metrics(Name) ->
 
 get_metrics(SourceOrTargetCluster, Name) ->
     Host = host(SourceOrTargetCluster),
-    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), Name, "metrics"]),
+    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name, "metrics"]),
     emqx_mgmt_api_test_util:simple_request(get, Path, _Params = []).
 
 host(source) -> "http://127.0.0.1:18083";
