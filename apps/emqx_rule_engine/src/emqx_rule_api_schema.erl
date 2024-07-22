@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("rule_engine.hrl").
 
 -export([check_params/2]).
 
@@ -36,10 +37,14 @@ check_params(Params, Tag) ->
         #{Tag := Checked} -> {ok, Checked}
     catch
         throw:Reason ->
-            ?SLOG(error, #{
-                msg => "check_rule_params_failed",
-                reason => Reason
-            }),
+            ?SLOG(
+                info,
+                #{
+                    msg => "check_rule_params_failed",
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
             {error, Reason}
     end.
 

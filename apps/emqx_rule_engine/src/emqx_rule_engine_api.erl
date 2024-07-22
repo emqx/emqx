@@ -388,11 +388,15 @@ param_path_id() ->
                         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
                             {201, format_rule_info_resp(Rule)};
                         {error, Reason} ->
-                            ?SLOG(error, #{
-                                msg => "create_rule_failed",
-                                id => Id,
-                                reason => Reason
-                            }),
+                            ?SLOG(
+                                info,
+                                #{
+                                    msg => "create_rule_failed",
+                                    rule_id => Id,
+                                    reason => Reason
+                                },
+                                #{tag => ?TAG}
+                            ),
                             {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
                     end
             end
@@ -448,11 +452,15 @@ param_path_id() ->
         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
             {200, format_rule_info_resp(Rule)};
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "update_rule_failed",
-                id => Id,
-                reason => Reason
-            }),
+            ?SLOG(
+                info,
+                #{
+                    msg => "update_rule_failed",
+                    rule_id => Id,
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
             {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
     end;
 '/rules/:id'(delete, #{bindings := #{id := Id}}) ->
@@ -463,11 +471,15 @@ param_path_id() ->
                 {ok, _} ->
                     {204};
                 {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "delete_rule_failed",
-                        id => Id,
-                        reason => Reason
-                    }),
+                    ?SLOG(
+                        error,
+                        #{
+                            msg => "delete_rule_failed",
+                            rule_id => Id,
+                            reason => Reason
+                        },
+                        #{tag => ?TAG}
+                    ),
                     {500, #{code => 'INTERNAL_ERROR', message => ?ERR_BADARGS(Reason)}}
             end;
         not_found ->
@@ -587,10 +599,15 @@ get_rule_metrics(Id) ->
     NodeMetrics = [format_metrics(Node, Metrics) || {Node, {ok, Metrics}} <- NodeResults],
     NodeErrors = [Result || Result = {_Node, {NOk, _}} <- NodeResults, NOk =/= ok],
     NodeErrors == [] orelse
-        ?SLOG(warning, #{
-            msg => "rpc_get_rule_metrics_errors",
-            errors => NodeErrors
-        }),
+        ?SLOG(
+            warning,
+            #{
+                msg => "rpc_get_rule_metrics_errors",
+                rule_id => Id,
+                errors => NodeErrors
+            },
+            #{tag => ?TAG}
+        ),
     NodeMetrics.
 
 format_metrics(Node, #{
