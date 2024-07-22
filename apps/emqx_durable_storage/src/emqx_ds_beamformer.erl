@@ -85,6 +85,16 @@
     | {ok, end_of_stream}
     | emqx_ds:error().
 
+-record(s, {
+    module :: module(),
+    shard,
+    name,
+    new_requests :: ets:tid(),
+    waiting_requests :: ets:tid()
+}).
+
+-type s() :: #s{}.
+
 %%================================================================================
 %% Callbacks
 %%================================================================================
@@ -130,27 +140,27 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
 %% behavior callbacks
 %%================================================================================
 
--record(s, {
-    module,
-    shard,
-    name,
-    pending
-}).
-
 init([CBM, ShardId, Name]) ->
     process_flag(trap_exit, true),
     Pool = emqx_ds_beamformer_sup:pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
-    Tab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #req_poll.key}]),
-    S = #s{module = CBM, shard = ShardId, name = Name, pending = Tab},
+    NewTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #req_poll.key}]),
+    WaitingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #req_poll.key}]),
+    S = #s{
+        module = CBM,
+        shard = ShardId,
+        name = Name,
+        new_requests = NewTab,
+        waiting_requests = WaitingTab
+    },
     %% FIXME:
     timer:send_interval(50, doit),
     {ok, S}.
 
 handle_call(Req = #req_poll{}, _From, S) ->
     %% TODO: drop requests past deadline immediately.
-    ets:insert(S#s.pending, Req),
+    ets:insert(S#s.new_requests, Req),
     {reply, ok, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
@@ -196,7 +206,7 @@ do_dispatch(Beam = #beam{}) ->
 %% Internal functions
 %%================================================================================
 
-fulfill_pending(S = #s{pending = PendingTab}) ->
+fulfill_pending(S = #s{new_requests = PendingTab}) ->
     case ets:first(PendingTab) of
         '$end_of_table' ->
             ok;
@@ -247,11 +257,11 @@ split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
--spec form_beams(#s{}, _Stream, emqx_ds:message_key(), emqx_ds:message_key(), [
+-spec form_beams(s(), _Stream, emqx_ds:message_key(), emqx_ds:message_key(), [
     {emqx_ds:message_key(), emqx_types:message()}
 ]) ->
     #{node() => beam(_ItKey, _Iterator)}.
-form_beams(S = #s{pending = PendingTab}, Stream, FirstKey, LastKey, Messages) ->
+form_beams(S = #s{new_requests = PendingTab}, Stream, FirstKey, LastKey, Messages) ->
     GetF = req_getter(PendingTab, Stream),
     %% Find iterators that match the first message of the batch:
     InitialAcc = update_consumers(GetF, FirstKey, #{}),
@@ -273,7 +283,7 @@ form_beams(S = #s{pending = PendingTab}, Stream, FirstKey, LastKey, Messages) ->
     ).
 
 -spec pack(
-    #s{},
+    s(),
     emqx_ds:message_key(),
     [{ItKey, Iterator}],
     stream_scan_return()

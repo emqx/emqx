@@ -602,7 +602,7 @@ scan_stream(
     end.
 
 message_matcher(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
-    logger:warning(?MODULE_STRING ++ ":match_message(~p, ~p, ~p)", [Shard, GenId, Inner]),
+    %% logger:warning(?MODULE_STRING ++ ":match_message(~p, ~p, ~p)", [Shard, GenId, Inner]),
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             Mod:message_matcher(Shard, GenData, Inner);
