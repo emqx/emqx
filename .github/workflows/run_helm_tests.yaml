@@ -44,7 +44,7 @@ jobs:
         source env.sh
         PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh "$EMQX_NAME")
         echo "EMQX_TAG=$PKG_VSN" >> "$GITHUB_ENV"
-    - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+    - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: "${{ env.EMQX_NAME }}-docker"
         path: /tmp
