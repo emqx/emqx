@@ -504,7 +504,7 @@ assert_monitor_metrics() ->
         receive
             PATTERN = ____Msg0 -> ____Msg0
         after TIMEOUT ->
-            error({message_not_received, ?LINE})
+            error({message_not_received, {line, ?LINE}})
         end
     end)()
 ).
@@ -608,6 +608,8 @@ t_smoke_test(_Config) ->
 %%   * peername
 %%   * publish_received_at
 %%   * username
+%%   * timestamp
+%%   * pub_props (and specific fields within containing hyphens)
 t_smoke_test_2(_Config) ->
     Name1 = <<"foo">>,
     Operations = [
@@ -617,14 +619,22 @@ t_smoke_test_2(_Config) ->
         operation(<<"payload.peername">>, <<"peername">>),
         operation(<<"payload.publish_received_at">>, <<"publish_received_at">>),
         operation(<<"payload.username">>, <<"username">>),
-        operation(<<"payload.flags">>, <<"flags">>)
+        operation(<<"payload.flags">>, <<"flags">>),
+        operation(<<"payload.timestamp">>, <<"timestamp">>),
+        operation(<<"payload.pub_props">>, <<"pub_props">>),
+        operation(<<"payload.content_type">>, <<"pub_props.Content-Type">>)
     ],
     Transformation1 = transformation(Name1, Operations),
     {201, _} = insert(Transformation1),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     C1 = connect(ClientId),
     {ok, _, [_]} = emqtt:subscribe(C1, <<"t/#">>, [{qos, 2}]),
-    ok = publish(C1, <<"t/1">>, #{}),
+    ok = publish(C1, <<"t/1">>, #{}, _QoS = 0, #{
+        props => #{
+            'Content-Type' => <<"application/json">>,
+            'User-Property' => [{<<"a">>, <<"b">>}]
+        }
+    }),
     {publish, #{payload := Payload0}} = ?assertReceiveReturn({publish, _}, 1_000),
     NodeBin = atom_to_binary(node()),
     ?assertMatch(
@@ -635,7 +645,13 @@ t_smoke_test_2(_Config) ->
             <<"peername">> := <<"127.0.0.1:", _/binary>>,
             <<"publish_received_at">> := PRAt,
             <<"username">> := <<"undefined">>,
-            <<"flags">> := #{<<"dup">> := false, <<"retain">> := false}
+            <<"flags">> := #{<<"dup">> := false, <<"retain">> := false},
+            <<"timestamp">> := _,
+            <<"pub_props">> := #{
+                <<"Content-Type">> := <<"application/json">>,
+                <<"User-Property">> := #{<<"a">> := <<"b">>}
+            },
+            <<"content_type">> := <<"application/json">>
         } when is_integer(PRAt),
         emqx_utils_json:decode(Payload0, [return_maps])
     ),
@@ -644,7 +660,12 @@ t_smoke_test_2(_Config) ->
     Username = <<"myusername">>,
     C2 = connect(ClientId, _IsPersistent = false, #{start_props => #{username => Username}}),
     {ok, _, [_]} = emqtt:subscribe(C2, <<"t/#">>, [{qos, 2}]),
-    ok = publish(C2, <<"t/1">>, #{}),
+    ok = publish(C2, <<"t/1">>, #{}, _QoS = 0, #{
+        props => #{
+            'Content-Type' => <<"application/json">>,
+            'User-Property' => [{<<"a">>, <<"b">>}]
+        }
+    }),
     {publish, #{payload := Payload1}} = ?assertReceiveReturn({publish, _}, 1_000),
     ?assertMatch(
         #{
@@ -654,7 +675,13 @@ t_smoke_test_2(_Config) ->
             <<"peername">> := <<"127.0.0.1:", _/binary>>,
             <<"publish_received_at">> := PRAt,
             <<"username">> := Username,
-            <<"flags">> := #{<<"dup">> := false, <<"retain">> := false}
+            <<"flags">> := #{<<"dup">> := false, <<"retain">> := false},
+            <<"timestamp">> := _,
+            <<"pub_props">> := #{
+                <<"Content-Type">> := <<"application/json">>,
+                <<"User-Property">> := #{<<"a">> := <<"b">>}
+            },
+            <<"content_type">> := <<"application/json">>
         } when is_integer(PRAt),
         emqx_utils_json:decode(Payload1, [return_maps])
     ),
@@ -1365,6 +1392,94 @@ t_protobuf(_Config) ->
         protobuf_valid_payloads(SerdeName, MessageType)
     ),
 
+    ok.
+
+%% Checks what happens if a wrong transformation chain is used.  In this case, the second
+%% transformation attempts to protobuf-decode a message that was already decoded but not
+%% re-encoded by the first transformation.
+t_protobuf_bad_chain(_Config) ->
+    ?check_trace(
+        begin
+            SerdeName = <<"myserde">>,
+            MessageType = <<"Person">>,
+            protobuf_create_serde(SerdeName),
+
+            Name1 = <<"foo">>,
+            PayloadSerde = #{
+                <<"type">> => <<"protobuf">>,
+                <<"schema">> => SerdeName,
+                <<"message_type">> => MessageType
+            },
+            NoneSerde = #{<<"type">> => <<"none">>},
+            JSONSerde = #{<<"type">> => <<"json">>},
+
+            Transformation1 = transformation(Name1, _Ops1 = [], #{
+                <<"payload_decoder">> => PayloadSerde,
+                <<"payload_encoder">> => NoneSerde
+            }),
+            {201, _} = insert(Transformation1),
+
+            %% WRONG: after the first transformation, payload is already decoded, so we
+            %% shouldn't use protobuf again.
+            Name2 = <<"bar">>,
+            Transformation2A = transformation(Name2, [], #{
+                <<"payload_decoder">> => PayloadSerde,
+                <<"payload_encoder">> => JSONSerde
+            }),
+            {201, _} = insert(Transformation2A),
+
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+
+            [Payload | _] = protobuf_valid_payloads(SerdeName, MessageType),
+            ok = publish(C, <<"t/1">>, {raw, Payload}),
+            ?assertNotReceive({publish, _}),
+
+            ok
+        end,
+        fun(Trace) ->
+            ct:pal("trace:\n  ~p", [Trace]),
+            ?assertMatch(
+                [],
+                [
+                    E
+                 || #{
+                        ?snk_kind := message_transformation_failed,
+                        message := "payload_decode_schema_failure",
+                        reason := function_clause
+                    } = E <- Trace
+                ]
+            ),
+            %% No unexpected crashes
+            ?assertMatch(
+                [],
+                [
+                    E
+                 || #{
+                        ?snk_kind := message_transformation_failed,
+                        stacktrace := _
+                    } = E <- Trace
+                ]
+            ),
+            ?assertMatch(
+                [
+                    #{
+                        explain :=
+                            <<"Attempted to schema decode an already decoded message.", _/binary>>
+                    }
+                    | _
+                ],
+                [
+                    E
+                 || #{
+                        ?snk_kind := message_transformation_failed,
+                        message := "payload_decode_error"
+                    } = E <- Trace
+                ]
+            ),
+            ok
+        end
+    ),
     ok.
 
 %% Tests that restoring a backup config works.

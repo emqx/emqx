@@ -108,8 +108,7 @@ fields(transformation) ->
                 hoconsc:array(ref(operation)),
                 #{
                     desc => ?DESC("operation"),
-                    required => true,
-                    validator => fun validate_operations/1
+                    default => []
                 }
             )}
     ];
@@ -252,11 +251,6 @@ validate_unique_topics(Topics) ->
             ]),
             {error, Msg}
     end.
-
-validate_operations([]) ->
-    {error, <<"at least one operation must be defined">>};
-validate_operations([_ | _]) ->
-    ok.
 
 compile_variform(Expression, #{make_serializable := true}) ->
     case is_binary(Expression) of

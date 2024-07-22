@@ -555,8 +555,8 @@ t_decode_fail(_Config) ->
             data := <<"ss">>,
             error_type := decoding_failure,
             explain := _,
-            more_args := [<<"Person">>],
-            schema_id := <<"my_serde">>
+            message_type := 'Person',
+            schema_name := <<"my_serde">>
         }},
         emqx_rule_funcs:schema_decode(<<"my_serde">>, Payload, <<"Person">>)
     ),

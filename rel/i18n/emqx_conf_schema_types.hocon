@@ -1,10 +1,14 @@
 emqx_conf_schema_types {
 
     duration.desc:
-    """A string that represents a time duration, for example: <code>10s</code>, <code>2.5m</code>, <code>1h30m</code>, <code>1W2D</code>, or <code>2345ms</code>, which is the smallest unit. When precision is specified, finer portions of the duration may be ignored: writing <code>1200ms</code> for <code>Duration(s)</code> is equivalent to writing <code>1s</code>. The unit part is case-insensitive."""
+    """A string that represents a time duration, for example: <code>10s</code>, <code>2.5m</code>, <code>1h30m</code>, <code>1W2D</code>, or <code>2345ms</code>, which is the smallest unit. Each configuration item has its own minimum precision. The part of the setting value that exceeds the precision will be ignored.
+
+For example, if a configuration item of type <code>Duration(s)</code> is set to <code>1200ms</code>, the final effective value will be <code>1s</code> instead of <code>1.2s</code>.
+
+`Duration` is equivalent to `Duration(ms)`. The unit part is case-insensitive."""
 
     bytesize.desc:
-    """A string that represents a number of bytes, for example: <code>10B</code>, <code>640kb</code>, <code>4MB</code>, <code>1GB</code>. Units are interpreted as powers of 1024, and the unit part is case-insensitive."""
+    """A string that represents a number of bytes, for example: <code>10B</code>, <code>640kb</code>, <code>4MB</code>, <code>1GB</code>. Units are binary standardized, i.e., 1MB equals 1024KB. units are not case sensitive, i.e., 1kb equals 1KB."""
 
     secret.desc:
     """A string holding some sensitive information, such as a password. When secret starts with <code>file://</code>, the rest of the string is interpreted as a path to a file containing the secret itself: whole content of the file except any trailing whitespace characters is considered a secret value. Note: when clustered, all EMQX nodes should have the same file present before using <code>file://</code> secrets."""
