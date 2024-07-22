@@ -22,7 +22,9 @@ flow_control.desc:
 """Flow control."""
 
 max_payload_size.desc:
-"""Maximum retained message size."""
+"""The maximum size of retained messages allowed to be stored. EMQX will refuse to store retained messages larger than this size and output an Error log with the keyword 'retain_failed_for_payload_size_exceeded_limit'.
+
+0 means unlimited retained message size."""
 
 max_retained_messages.desc:
 """Maximum number of retained messages. 0 means no limit."""
@@ -37,11 +39,14 @@ mnesia_enable.desc:
 """Enable built-in Mnesia backend."""
 
 msg_clear_interval.desc:
-"""Interval for EMQX to scan expired messages and delete them. Never scan if the value is 0."""
+"""The time interval for checking and clearing expired retained messages. This can prevent expired retained messages from being stored for a long time.
+
+If `msg_clear_interval` is set to 0, that is, expired retained messages are not actively checked regularly, EMQX will only check and delete expired retained messages when preparing for delivery."""
 
 msg_expiry_interval.desc:
-"""Message retention time. This config is only applicable for messages without the Message Expiry Interval message property.
-0 means message will never expire."""
+"""Expired retained messages will not be delivered again, and a setting of 0 means that retained messages will never expire.
+
+However, if the `Message-Expiry-Interval` property is specified in the MQTT message, the value of that property prevails."""
 
 stop_publish_clear_msg.desc:
 """When the retained flag of the `PUBLISH` message is set and Payload is empty,
