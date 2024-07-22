@@ -72,7 +72,7 @@
         misc :: #{}
     }.
 
--type match_messagef(Iterator) :: fun((Iterator, emqx_types:message()) -> boolean()).
+-type match_messagef() :: fun((emqx_types:message()) -> boolean()).
 
 -type get_iterators_for_keyf(ItKey, Iterator) :: fun(
     (emqx_ds:message_key()) -> [{node(), return_addr(ItKey), Iterator}]
@@ -81,7 +81,9 @@
 -type beam() :: beam(_ItKey, _Iterator).
 
 -type stream_scan_return() ::
-    {ok, [{emqx_ds:message_key(), emqx_types:message()}] | end_of_stream} | emqx_ds:error().
+    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message()}]}
+    | {ok, end_of_stream}
+    | emqx_ds:error().
 
 %%================================================================================
 %% Callbacks
@@ -90,13 +92,13 @@
 -callback unpack_iterator(_Shard, _Iterator) ->
     {_Stream, emqx_ds:message_key(), emqx_ds:timestamp_us()} | undefined.
 
--callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
-    emqx_ds:make_iterator_result(Iterator).
+%% -callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
+%%     emqx_ds:make_iterator_result(Iterator).
 
 -callback scan_stream(_Shard, _Stream, emqx_ds:message_key(), non_neg_integer()) ->
     stream_scan_return().
 
--callback match_message(_Shard, _Itarator, emqx_types:message()) -> boolean().
+-callback message_matcher(_Shard, _Itarator) -> match_messagef().
 
 %%================================================================================
 %% API functions
@@ -163,7 +165,7 @@ handle_info(_Info, S) ->
     {noreply, S}.
 
 terminate(_Reason, #s{shard = ShardId, name = Name}) ->
-    Pool = emqx_ds_pollers:pool(ShardId),
+    Pool = emqx_ds_beamformer_sup:pool(ShardId),
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
     ok.
@@ -179,12 +181,12 @@ start_link(Mod, ShardId, Name) ->
 %% @doc RPC target: split the beam and dispatch replies to local
 %% consumers.
 -spec do_dispatch(beam()) -> ok.
-do_dispatch(Beam) ->
+do_dispatch(Beam = #beam{}) ->
     %% TODO: optimize by avoiding the intermediate list. Split may be
     %% organized in a fold-like fashion.
     lists:foreach(
-        fun({Addr, Result}) ->
-            {Alias, ItKey} = Addr,
+        fun({{Alias, ItKey}, Result}) ->
+            logger:warning("Beam to ~p:~n~p -> ~p~n", [Alias, ItKey, Result]),
             Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result}
         end,
         split(Beam)
@@ -199,6 +201,7 @@ fulfill_pending(S = #s{pending = PendingTab}) ->
         '$end_of_table' ->
             ok;
         {Stream, MsgKey} ->
+            logger:warning("Fulfilling ~p ~p", [Stream, MsgKey]),
             %% The function MUST destructively consume all requests
             %% matching stream and MsgKey to avoid infinite loop:
             do_fulfill_pending(S, Stream, MsgKey),
@@ -206,28 +209,35 @@ fulfill_pending(S = #s{pending = PendingTab}) ->
     end.
 
 do_fulfill_pending(S = #s{shard = Shard, module = CBM}, Stream, MsgKey) ->
-    Batch = CBM:stream_scan(Shard, Stream, MsgKey, 100),
-    Beams = form_beams(S, Stream, Batch),
-    maps:foreach(
-        fun(Node, Beam) ->
-            emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
-        end,
-        Beams
-    ).
+    case CBM:scan_stream(Shard, Stream, MsgKey, 100) of
+        {ok, NextKey, Batch} ->
+            Beams = form_beams(S, Stream, MsgKey, NextKey, Batch),
+            logger:warning("Beams: ~p~n", [Beams]),
+            maps:foreach(
+                fun(_Node, Beam) ->
+                    do_dispatch(Beam)
+                %% emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
+                end,
+                Beams
+            )
+    end.
 
 req_getter(PendingTab, Stream) ->
     fun(MsgKey) ->
         Pendings = ets:take(PendingTab, {Stream, MsgKey}),
-        [
-            {Node, RAddr, It}
-         || #req_poll{it = It, node = Node, return_addr = RAddr} <- Pendings
-        ]
+        logger:warning("Pending for ~p/~p:~n  ~p~n~p", [
+            Stream, MsgKey, Pendings, ets:tab2list(PendingTab)
+        ]),
+        lists:map(
+            fun(#req_poll{it = It, node = Node, return_addr = RAddr}) ->
+                {Node, RAddr, It}
+            end,
+            Pendings
+        )
     end.
 
-msg_matcher(#s{module = CBM, shard = Shard}) ->
-    fun(Iterator, Message) ->
-        CBM:match_message(Shard, Iterator, Message)
-    end.
+mk_message_matcher(#s{module = CBM, shard = Shard}, Iterator) ->
+    CBM:message_matcher(Shard, Iterator).
 
 -spec split(beam(ItKey, Iterator)) -> [{ItKey, emqx_ds:next_result(Iterator)}].
 split(#beam{iterators = Its, pack = end_of_stream}) ->
@@ -237,43 +247,51 @@ split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
--spec form_beams(#s{}, _Stream, [{emqx_ds:message_key(), emqx_types:message()}]) ->
+-spec form_beams(#s{}, _Stream, emqx_ds:message_key(), emqx_ds:message_key(), [
+    {emqx_ds:message_key(), emqx_types:message()}
+]) ->
     #{node() => beam(_ItKey, _Iterator)}.
-form_beams(S = #s{pending = PendingTab}, Stream, Messages) ->
+form_beams(S = #s{pending = PendingTab}, Stream, FirstKey, LastKey, Messages) ->
     GetF = req_getter(PendingTab, Stream),
-    MatchF = msg_matcher(S),
-    %% Find iterators that can be packed in a beam:
-    Its = lists:foldl(
+    %% Find iterators that match the first message of the batch:
+    InitialAcc = update_consumers(GetF, FirstKey, #{}),
+    %% Assert, or else we get infinite loop:
+    true = maps:size(InitialAcc) > 0,
+    %% Find additional iterators that can be packed in a beam:
+    ItGroups = lists:foldl(
         fun({Key, _Msg}, Acc) ->
             update_consumers(GetF, Key, Acc)
         end,
-        #{},
+        InitialAcc,
         Messages
     ),
-    pack(MatchF, Its, Messages).
+    maps:map(
+        fun(_Node, Its) ->
+            pack(S, LastKey, Its, Messages)
+        end,
+        ItGroups
+    ).
 
 -spec pack(
-    match_messagef(Iterator),
+    #s{},
+    emqx_ds:message_key(),
     [{ItKey, Iterator}],
     stream_scan_return()
 ) -> beam(ItKey, Iterator).
-pack(_MatchF, Iterators, {ok, end_of_stream}) ->
+pack(S, NextKey, Iterators, Messages) ->
+    #s{module = CBM, shard = Shard} = S,
+    Matchers = [mk_message_matcher(S, It) || {_, It} <- Iterators],
+    Pack = [{Key, mk_mask(Matchers, Msg), Msg} || {Key, Msg} <- Messages],
+    UpdatedIterators =
+        lists:map(
+            fun({ItKey, It0}) ->
+                {ok, It} = CBM:update_iterator(Shard, It0, NextKey),
+                {ItKey, It}
+            end,
+            Iterators
+        ),
     #beam{
-        iterators = Iterators,
-        pack = end_of_stream,
-        misc = #{}
-    };
-pack(_MatchF, Iterators, {error, unrecoverable, _} = Err) ->
-    #beam{
-        iterators = Iterators,
-        pack = Err,
-        misc = #{}
-    };
-pack(MatchF, Iterators, {ok, Messages}) ->
-    Its = [I || {_, I} <- Iterators],
-    Pack = [{Key, mk_mask(MatchF, Msg, Its), Msg} || {Key, Msg} <- Messages],
-    #beam{
-        iterators = Iterators,
+        iterators = UpdatedIterators,
         pack = Pack,
         misc = #{}
     }.
@@ -294,18 +312,18 @@ is_member(N, Mask) ->
     <<_:N, Val:1, _/bitstring>> = Mask,
     Val =:= 1.
 
-mk_mask(MatchF, Message, Iterators) ->
-    mk_mask(MatchF, Message, Iterators, <<>>).
+mk_mask(Matchers, Message) ->
+    mk_mask(Matchers, Message, <<>>).
 
-mk_mask(_MatchF, _Message, [], Acc) ->
+mk_mask([], _Message, Acc) ->
     Acc;
-mk_mask(MatchF, Message, [It | Rest], Acc) ->
+mk_mask([Matcher | Rest], Message, Acc) ->
     Val =
-        case MatchF(It, Message) of
+        case Matcher(Message) of
             true -> 1;
             false -> 0
         end,
-    mk_mask(MatchF, Message, Rest, <<Acc/bitstring, Val:1>>).
+    mk_mask(Rest, Message, <<Acc/bitstring, Val:1>>).
 
 -spec update_consumers(get_iterators_for_keyf(ItKey, Iterator), emqx_ds:message_key(), Acc) ->
     Acc
@@ -356,33 +374,33 @@ mk_mask_test_() ->
         ?_assertMatch(<<0:1, 1:1, 0:1, 1:1>>, mk_mask(Even, fake_message, [1, 2, 3, 4]))
     ].
 
-pack_test_() ->
-    Always = fun(_It, _Msg) -> true end,
-    M1 = {<<"1">>, #message{id = <<"1">>}},
-    M2 = {<<"2">>, #message{id = <<"2">>}},
-    Its = [{<<"it1">>, it1}, {<<"it2">>, it2}],
-    [
-        ?_assertMatch(
-            #beam{
-                iterators = [],
-                pack = [
-                    {<<"1">>, <<>>, #message{id = <<"1">>}},
-                    {<<"2">>, <<>>, #message{id = <<"2">>}}
-                ]
-            },
-            pack(Always, [], {ok, [M1, M2]})
-        ),
-        ?_assertMatch(
-            #beam{
-                iterators = Its,
-                pack = [
-                    {<<"1">>, <<1:1, 1:1>>, #message{id = <<"1">>}},
-                    {<<"2">>, <<1:1, 1:1>>, #message{id = <<"2">>}}
-                ]
-            },
-            pack(Always, Its, {ok, [M1, M2]})
-        )
-    ].
+%% pack_test_() ->
+%%     Always = fun(_It, _Msg) -> true end,
+%%     M1 = {<<"1">>, #message{id = <<"1">>}},
+%%     M2 = {<<"2">>, #message{id = <<"2">>}},
+%%     Its = [{<<"it1">>, it1}, {<<"it2">>, it2}],
+%%     [
+%%         ?_assertMatch(
+%%             #beam{
+%%                 iterators = [],
+%%                 pack = [
+%%                     {<<"1">>, <<>>, #message{id = <<"1">>}},
+%%                     {<<"2">>, <<>>, #message{id = <<"2">>}}
+%%                 ]
+%%             },
+%%             pack(Always, [], {ok, [M1, M2]})
+%%         ),
+%%         ?_assertMatch(
+%%             #beam{
+%%                 iterators = Its,
+%%                 pack = [
+%%                     {<<"1">>, <<1:1, 1:1>>, #message{id = <<"1">>}},
+%%                     {<<"2">>, <<1:1, 1:1>>, #message{id = <<"2">>}}
+%%                 ]
+%%             },
+%%             pack(Always, Its, {ok, [M1, M2]})
+%%         )
+%%     ].
 
 split_test_() ->
     Always = fun(_It, _Msg) -> true end,

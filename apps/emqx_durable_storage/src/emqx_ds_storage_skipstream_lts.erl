@@ -35,6 +35,10 @@
     next/6,
     delete_next/7,
 
+    unpack_iterator/3,
+    scan_stream/7,
+    message_matcher/3,
+
     batch_events/3,
     event_dispatch_key/2,
     match_event/3
@@ -288,6 +292,38 @@ make_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, TopicF
         compressed_tf = emqx_topic:join(CompressedTF)
     }}.
 
+message_matcher(_Shard, #s{trie = Trie}, #it{compressed_tf = CompressedTF, static_index = StaticIdx}) ->
+    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+    TF = emqx_ds_lts:decompress_topic(TopicStructure, words(CompressedTF)),
+    fun(#message{topic = Topic}) ->
+        logger:warning("match ~p vs ~p", [Topic, TF]),
+        emqx_topic:match(words(Topic), TF)
+    end.
+
+make_wildcard_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, StartKey) ->
+    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+    CompressedTF = lists:filter(fun(Level) -> Level =:= '+' end, TopicStructure),
+    StartTime = match_key(StaticIdx, 0, <<>>, StartKey),
+    {ok, #it{
+        static_index = StaticIdx,
+        ts = StartTime,
+        compressed_tf = emqx_topic:join(CompressedTF)
+    }}.
+
+unpack_iterator(_Shard, #s{}, #it{static_index = StaticIdx, ts = TS}) ->
+    Stream = #stream{static_index = StaticIdx},
+    StartKey = mk_key(StaticIdx, 0, <<>>, TS),
+    {Stream, StartKey, TS}.
+
+scan_stream(Shard, S, #stream{} = Stream, Key, BatchSize, TMax, IsCurrent) ->
+    {ok, It0} = make_wildcard_iterator(Shard, S, Stream, Key),
+    case next(Shard, S, It0, BatchSize, TMax, IsCurrent) of
+        {ok, #it{ts = TS, static_index = StaticIdx}, Batch} ->
+            {ok, mk_key(StaticIdx, 0, <<>>, TS), Batch};
+        Other ->
+            Other
+    end.
+
 make_delete_iterator(Shard, Data, Stream, TopicFilter, StartTime) ->
     make_iterator(Shard, Data, Stream, TopicFilter, StartTime).
 
@@ -445,6 +481,8 @@ do_delete(CF, Batch, Static, KeyFamily, MsgKey) ->
 
 %%%%%%%% Iteration %%%%%%%%%%
 
+init_iterators(S, #stream{static_index = Static}) ->
+    do_init_iterators(S, Static, [], 1);
 init_iterators(S, #it{static_index = Static, compressed_tf = CompressedTF}) ->
     do_init_iterators(S, Static, words(CompressedTF), 1).
 

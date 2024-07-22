@@ -45,7 +45,7 @@
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/4,
-    match_message/3,
+    message_matcher/2,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -311,10 +311,10 @@ make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
             Error
     end.
 
--spec update_iterator(emqx_ds:db(), emqx_ds:ds_specific_iterator(), emqx_ds:message_key()) ->
+-spec update_iterator(_Shard, emqx_ds:ds_specific_iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
-update_iterator(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, Key) ->
-    case emqx_ds_storage_layer:update_iterator({DB, Shard}, StorageIter0, Key) of
+update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
+    case emqx_ds_storage_layer:update_iterator(ShardId, StorageIter0, Key) of
         {ok, StorageIter} ->
             {ok, Iter0#{?enc => StorageIter}};
         Err = {error, _, _} ->
@@ -340,7 +340,7 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     end,
     %% Spawn a helper process that will notify the caller when the
     %% poll times out or when all pollers are done:
-    Completion = spawn_link(
+    _Completion = spawn_link(
         fun() ->
             wait_completion(ReplyTo, Timeout)
         end
@@ -356,11 +356,11 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     {ok, ReplyTo}.
 
-unpack_iterator(Shard, Iterator) ->
+unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
 
-match_message(Shard, Iterator, Msg) ->
-    emqx_ds_storage_layer:match_message(Shard, Iterator, Msg).
+message_matcher(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:message_matcher(Shard, Iterator).
 
 scan_stream(Shard, Stream, StartMsg, BatchSize) ->
     Now = current_timestamp(Shard),

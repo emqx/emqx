@@ -41,7 +41,7 @@
     generation/1,
     unpack_iterator/2,
     scan_stream/5,
-    match_message/3,
+    message_matcher/2,
 
     delete_next/5,
 
@@ -433,7 +433,8 @@ commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Cooke
     shard_id(),
     cooked_batch()
 ) -> #{_EventDispatchKey => pos_integer()}.
-dispatch_events(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}) ->
+dispatch_events(_Shard, _Batch) ->
+    %% #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch} = Batch,
     %% #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
     %% SendF = fun(DispatchKey, Event) ->
     %%     emqx_ds_upubsub:pub(?pubsub(Shard), {GenId, DispatchKey}, Event)
@@ -582,7 +583,8 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
-            Mod:unpack_iterator(Shard, GenData, Inner);
+            {InnerStream, Key, TS} = Mod:unpack_iterator(Shard, GenData, Inner),
+            {#{?tag => ?STREAM, ?generation => GenId, ?enc => InnerStream}, Key, TS};
         not_found ->
             %% generation was possibly dropped by GC
             undefined
@@ -599,10 +601,11 @@ scan_stream(
             ?ERR_GEN_GONE
     end.
 
-match_message(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}, Message) ->
+message_matcher(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    logger:warning(?MODULE_STRING ++ ":match_message(~p, ~p, ~p)", [Shard, GenId, Inner]),
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
-            Mod:match_message(Shard, GenData, Inner, Message);
+            Mod:message_matcher(Shard, GenData, Inner);
         not_found ->
             false
     end.

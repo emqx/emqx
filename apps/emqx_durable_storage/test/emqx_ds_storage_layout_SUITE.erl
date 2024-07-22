@@ -291,13 +291,14 @@ t_poll(_Config) ->
     Reference1 = [{It, emqx_ds:next(?FUNCTION_NAME, It, BatchSize)} || It <- Iterators0],
     %% 3. Fetch the same data via poll API (we use initial values of
     %% the iterator as tags):
-    {ok, Ref1} = emqx_ds:poll(?FUNCTION_NAME, [{It, It} || It <- Iterators0], PollOpts),
+    {ok, Alias1} = emqx_ds:poll(?FUNCTION_NAME, [{It, It} || It <- Iterators0], PollOpts),
     %% Collect the replies:
     Got1 = [
         receive
-            #poll_reply{userdata = It, payload = Reply, ref = Ref1} ->
+            #poll_reply{userdata = It, payload = Reply, ref = Alias1} ->
                 {It, Reply}
         after Timeout ->
+            [] = flush(),
             error({timeout_for, It})
         end
      || It <- Iterators0
@@ -663,3 +664,11 @@ replay(Shard, Iterators) ->
     Messages1 = lists:flatten(lists:reverse(Messages0)),
     NewIterators1 = lists:reverse(NewIterators0),
     Messages1 ++ replay(Shard, NewIterators1).
+
+flush() ->
+    receive
+        A ->
+            [A | flush()]
+    after 0 ->
+        []
+    end.

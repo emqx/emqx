@@ -82,7 +82,7 @@ init({workers, Module, ShardId, InitialNWorkers}) ->
         #{
             id => I,
             type => worker,
-            shutdown => 1000,
+            shutdown => 5000,
             start => {emqx_ds_beamformer, start_link, [Module, ShardId, I]}
         }
      || I <- lists:seq(1, InitialNWorkers)
