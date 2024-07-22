@@ -147,7 +147,7 @@ stats(#channel{inflight = Inflight, mqueue = Queue}) ->
 -spec init(emqx_types:conninfo(), map()) -> channel().
 init(
     ConnInfo = #{
-        peername := {PeerHost, _Port},
+        peername := {PeerHost, _Port} = PeerName,
         sockname := {_Host, SockPort}
     },
     Options = #{
@@ -171,6 +171,7 @@ init(
             listener => ListenerId,
             protocol => jt808,
             peerhost => PeerHost,
+            peername => PeerName,
             sockport => SockPort,
             clientid => undefined,
             username => undefined,

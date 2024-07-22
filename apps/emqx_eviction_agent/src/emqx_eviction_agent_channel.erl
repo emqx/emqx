@@ -308,6 +308,7 @@ clientinfo(OldClientInfo) ->
             zone,
             protocol,
             peerhost,
+            peername,
             sockport,
             clientid,
             username,

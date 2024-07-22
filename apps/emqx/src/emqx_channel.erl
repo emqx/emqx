@@ -235,7 +235,7 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 -spec init(emqx_types:conninfo(), opts()) -> channel().
 init(
     ConnInfo = #{
-        peername := {PeerHost, PeerPort},
+        peername := {PeerHost, PeerPort} = PeerName,
         sockname := {_Host, SockPort}
     },
     #{
@@ -259,6 +259,9 @@ init(
             listener => ListenerId,
             protocol => Protocol,
             peerhost => PeerHost,
+            %% We copy peername to clientinfo because some event contexts only have access
+            %% to client info (e.g.: authn/authz).
+            peername => PeerName,
             peerport => PeerPort,
             sockport => SockPort,
             clientid => undefined,
