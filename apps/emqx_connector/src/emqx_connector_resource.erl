@@ -351,8 +351,10 @@ safe_atom(Bin) when is_binary(Bin) -> binary_to_existing_atom(Bin, utf8);
 safe_atom(Atom) when is_atom(Atom) -> Atom.
 
 parse_opts(Conf, Opts0) ->
-    Opts1 = override_start_after_created(Conf, Opts0),
-    set_no_buffer_workers(Opts1).
+    Opts1 = emqx_resource:fetch_creation_opts(Conf),
+    Opts2 = maps:merge(Opts1, Opts0),
+    Opts = override_start_after_created(Conf, Opts2),
+    set_no_buffer_workers(Opts).
 
 override_start_after_created(Config, Opts) ->
     Enabled = maps:get(enable, Config, true),
