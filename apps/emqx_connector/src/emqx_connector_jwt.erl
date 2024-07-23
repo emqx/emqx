@@ -45,6 +45,7 @@
     kid := binary(),
     alg := binary()
 }.
+-define(JWT_KEY(RES_ID), {RES_ID, jwt}).
 
 -export_type([jwt_config/0, jwt/0]).
 
@@ -55,8 +56,8 @@ lookup_jwt(ResourceId) ->
 -spec lookup_jwt(ets:table(), resource_id()) -> {ok, jwt()} | {error, not_found}.
 lookup_jwt(TId, ResourceId) ->
     try
-        case ets:lookup(TId, {ResourceId, jwt}) of
-            [{{ResourceId, jwt}, JWT}] ->
+        case ets:lookup(TId, ?JWT_KEY(ResourceId)) of
+            [{?JWT_KEY(ResourceId), JWT}] ->
                 {ok, JWT};
             [] ->
                 {error, not_found}
@@ -69,7 +70,7 @@ lookup_jwt(TId, ResourceId) ->
 -spec delete_jwt(ets:table(), resource_id()) -> ok.
 delete_jwt(TId, ResourceId) ->
     try
-        ets:delete(TId, {ResourceId, jwt}),
+        ets:delete(TId, ?JWT_KEY(ResourceId)),
         ?tp(connector_jwt_deleted, #{}),
         ok
     catch
@@ -83,7 +84,7 @@ delete_jwt(TId, ResourceId) ->
 -spec ensure_jwt(jwt_config()) -> jwt().
 ensure_jwt(JWTConfig) ->
     #{resource_id := ResourceId, table := Table} = JWTConfig,
-    case lookup_jwt(Table, ResourceId) of
+    case lookup_jwt(Table, ?JWT_KEY(ResourceId)) of
         {error, not_found} ->
             JWT = do_generate_jwt(JWTConfig),
             store_jwt(JWTConfig, JWT),
@@ -133,7 +134,7 @@ do_generate_jwt(#{
 
 -spec store_jwt(jwt_config(), jwt()) -> ok.
 store_jwt(#{resource_id := ResourceId, table := TId}, JWT) ->
-    true = ets:insert(TId, {{ResourceId, jwt}, JWT}),
+    true = ets:insert(TId, {?JWT_KEY(ResourceId), JWT}),
     ?tp(emqx_connector_jwt_token_stored, #{resource_id => ResourceId}),
     ok.
 
