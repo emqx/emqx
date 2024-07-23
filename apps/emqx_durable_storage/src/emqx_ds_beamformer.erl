@@ -88,7 +88,7 @@
 -type match_messagef() :: fun((emqx_types:message()) -> boolean()).
 
 -type get_iterators_for_keyf(ItKey, Iterator) :: fun(
-    (emqx_ds:message_key()) -> [{node(), return_addr(ItKey), Iterator}]
+    (emqx_ds:message_key()) -> [poll_req(ItKey, Iterator)]
 ).
 
 -type beam() :: beam(_ItKey, _Iterator).
@@ -141,7 +141,9 @@
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
-    #{stream := Stream, last_seen_key := DSKey, timestamp := Timestamp, matcher := Matcher} = CBM:unpack_iterator(Shard, Iterator),
+    #{stream := Stream, last_seen_key := DSKey, timestamp := Timestamp, matcher := Matcher} = CBM:unpack_iterator(
+        Shard, Iterator
+    ),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
     logger:debug(#{
         msg => poll, shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
@@ -282,14 +284,13 @@ fulfill_pending(S = #s{new_requests = PendingTab}, N) ->
     end.
 
 do_fulfill_pending(
-    S = #s{shard = Shard, module = CBM, new_requests = PendingTab}, Stream, StartKey
+    S = #s{shard = Shard, module = CBM, new_requests = PendingTab, waiting_requests = WaitingTab},
+    Stream,
+    StartKey
 ) ->
     case CBM:scan_stream(Shard, Stream, StartKey, 100) of
-        {ok, _EndKey, []} ->
-            move_to_waiting(S, Stream, StartKey);
         {ok, EndKey, Batch} ->
-            GetF = req_getter(PendingTab, Stream),
-            dispatch_beams(form_beams(S, GetF, StartKey, EndKey, Batch))
+            dispatch_beams(form_beams(S, PendingTab, WaitingTab, Stream, StartKey, EndKey, Batch))
     end.
 
 maybe_fulfill_waiting(S, []) ->
@@ -305,8 +306,9 @@ maybe_fulfill_waiting(
             %% logger:warning("Waiting keys ~p", [WaitingKeys]),
             case CBM:scan_stream(Shard, Stream, StartKey, 1000) of
                 {ok, EndKey, Batch} ->
-                    GetF = req_getter(WaitingTab, Stream),
-                    dispatch_beams(form_beams(S, GetF, StartKey, EndKey, Batch))
+                    dispatch_beams(
+                        form_beams(S, WaitingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
+                    )
             end,
             maybe_fulfill_waiting(S, Rest)
     end.
@@ -320,9 +322,10 @@ oldest_key_for_stream(Tab, Stream) ->
             lists:min(Keys)
     end.
 
-req_getter(PendingTab, Stream) ->
+-spec req_getter(ets:tid(), _Stream) -> get_iterators_for_keyf(_ItKey, _It).
+req_getter(Tab, Stream) ->
     fun(MsgKey) ->
-        ets:take(PendingTab, {Stream, MsgKey})
+        ets:take(Tab, {Stream, MsgKey})
     end.
 
 -spec split(beam(ItKey, Iterator)) -> [{ItKey, emqx_ds:next_result(Iterator)}].
@@ -333,40 +336,66 @@ split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
+%% This function checks pending requests in the `FromTab' and either
+%% dispatches them as a beam or moves them to the `ToTab' if there's
+%% nothing to dispatch.
+%%
+%% So when we process new poll requests, `FromTab' = `new_requests'
+%% and `ToTab' = `waiting_requests'. When we process waiting poll
+%% requests, both `FromTab' and `ToTab' = `waiting_requests' (i.e. we
+%% kick long polls that didn't produce new messages back to the
+%% queue).
 -spec form_beams(
     s(),
-    fun(),
+    ets:tid(),
+    ets:tid(),
+    _Stream,
     emqx_ds:message_key(),
     emqx_ds:message_key(),
     [{emqx_ds:message_key(), emqx_types:message()}]
 ) ->
     #{node() => beam(_ItKey, _Iterator)}.
-form_beams(S = #s{metrics_id = Metrics}, GetF, StartKey, EndKey, Messages) ->
-    %% Find iterators that match the first message of the batch:
-    InitialAcc = update_consumers(GetF, StartKey, #{}),
-    %% Assert, or else we get infinite loop:
-    true = maps:size(InitialAcc) > 0,
-    %% Find additional iterators that can be packed in a beam:
-    ItGroups = lists:foldl(
+form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKey, Batch) ->
+    %% Find iterators that match the start message of the batch (to
+    %% handle iterators freshly created by `emqx_ds:make_iterator'):
+    GetF = req_getter(FromTab, Stream),
+    %% Add iterators with `last_seen_key' equal to any message in the
+    %% batch (fixme: in such cases we need to skip first message?):
+    Candidates0 = GetF(StartKey),
+    Candidates = lists:foldl(
         fun({Key, _Msg}, Acc) ->
-            update_consumers(GetF, Key, Acc)
+            GetF(Key) ++ Acc
         end,
-        InitialAcc,
-        Messages
+        Candidates0,
+        Batch
     ),
-    Sharing = maps:fold(
-        fun(_Node, Reqs, Acc) ->
-            Acc + length(Reqs)
-        end,
-        0,
-        ItGroups
-    ),
+    %% Find what poll requests actually have data in the batch:
+    {MatchReqs, NoMatchReqs} = filter_candidates(Candidates, Batch),
+    %% Report "beam coherence" metric:
+    Sharing = length(MatchReqs),
     emqx_ds_builtin_metrics:observe_sharing(Metrics, Sharing),
+    %% Move unmatched requests to `ToTab':
+    ets:insert(ToTab, NoMatchReqs),
+    %% Split matched requests by node:
+    ReqsByNode =
+        lists:foldl(
+            fun(Req = #poll_req{node = Node}, Acc) ->
+                maps:update_with(
+                    Node,
+                    fun(L) -> [Req | L] end,
+                    [Req],
+                    Acc
+                )
+            end,
+            #{},
+            MatchReqs
+        ),
+    %% Pack requests into beams:
     maps:map(
-        fun(_Node, Its) ->
-            pack(S, EndKey, Its, Messages)
+        fun(_Node, Reqs) ->
+            pack(S, EndKey, Reqs, Batch)
         end,
-        ItGroups
+        ReqsByNode
     ).
 
 -spec pack(
@@ -426,33 +455,26 @@ mk_mask([Matcher | Rest], Message, Acc) ->
         end,
     mk_mask(Rest, Message, <<Acc/bitstring, Val:1>>).
 
--spec move_to_waiting(s(), _Stream, emqx_ds:message_key()) -> ok.
-move_to_waiting(#s{new_requests = PendingTab, waiting_requests = WaitingTab}, Stream, StartKey) ->
-    GetF = req_getter(PendingTab, Stream),
-    %% GetF is destructive, it will automatically removes elements
-    %% from the pending tab:
-    ToMove = GetF(StartKey),
-    logger:debug("Moving to waiting ~p/~p~n  ~p", [Stream, StartKey, ToMove]),
-    ets:insert(WaitingTab, ToMove).
+filter_candidates(Reqs, Batch) ->
+    filter_candidates(Reqs, Batch, {[], []}).
 
--spec update_consumers(get_iterators_for_keyf(ItKey, Iterator), emqx_ds:message_key(), Acc) ->
-    Acc
-when
-    Acc :: #{node() => [poll_req(ItKey, Iterator)]}.
-update_consumers(GetF, MsgKey, Acc0) ->
-    L = GetF(MsgKey),
-    lists:foldl(
-        fun(Req = #poll_req{node = Node}, Acc) ->
-            maps:update_with(
-                Node,
-                fun(Old) -> [Req | Old] end,
-                [Req],
-                Acc
+filter_candidates([], _, Acc) ->
+    Acc;
+filter_candidates([Req = #poll_req{matcher = Matcher} | Rest], Messages, {MatchAcc, NoMatchAcc}) ->
+    case lists:any(fun({_MsgKey, Msg}) -> Matcher(Msg) end, Messages) of
+        true ->
+            filter_candidates(
+                Rest,
+                Messages,
+                {[Req | MatchAcc], NoMatchAcc}
+            );
+        false ->
+            filter_candidates(
+                Rest,
+                Messages,
+                {MatchAcc, [Req | NoMatchAcc]}
             )
-        end,
-        Acc0,
-        L
-    ).
+    end.
 
 dispatch_beams(Beams) ->
     logger:debug("Beams: ~p~n", [Beams]),
