@@ -26,7 +26,7 @@
 %% internal exports:
 -export([start_link/3, do_dispatch/1]).
 
--export_type([beam/2, beam/0, return_addr/1]).
+-export_type([beam/2, beam/0, return_addr/1, unpack_iterator_result/1]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
@@ -63,6 +63,7 @@
         node :: node(),
         return_addr :: return_addr(ItKey),
         it :: Iterator,
+        matcher :: match_messagef()
         opts :: emqx_ds:poll_opts(),
         deadline :: integer()
     }.
@@ -111,20 +112,25 @@
     updated_streams :: list()
 }).
 
+-type unpack_iterator_result(Stream) :: #{
+    stream := Stream,
+    last_seen_key := emqx_ds:message_key(),
+    timestamp := emqx_ds:timestamp_us(),
+    matcher := match_messagef()
+}.
+
 %%================================================================================
 %% Callbacks
 %%================================================================================
 
 -callback unpack_iterator(_Shard, _Iterator) ->
-    {_Stream, emqx_ds:message_key(), emqx_ds:timestamp_us()} | undefined.
+    unpack_iterator_result(_Stream) | undefined.
 
 %% -callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
 %%     emqx_ds:make_iterator_result(Iterator).
 
 -callback scan_stream(_Shard, _Stream, emqx_ds:message_key(), non_neg_integer()) ->
     stream_scan_return().
-
--callback message_matcher(_Shard, _Itarator) -> match_messagef().
 
 %%================================================================================
 %% API functions
@@ -317,9 +323,6 @@ req_getter(PendingTab, Stream) ->
     fun(MsgKey) ->
         ets:take(PendingTab, {Stream, MsgKey})
     end.
-
-mk_message_matcher(#s{module = CBM, shard = Shard}, Iterator) ->
-    CBM:message_matcher(Shard, Iterator).
 
 -spec split(beam(ItKey, Iterator)) -> [{ItKey, emqx_ds:next_result(Iterator)}].
 split(#beam{iterators = Its, pack = end_of_stream}) ->

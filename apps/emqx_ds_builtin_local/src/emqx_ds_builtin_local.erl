@@ -361,10 +361,14 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     {ok, ReplyTo}.
 
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
-
-message_matcher(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    emqx_ds_storage_layer:message_matcher(Shard, Iterator).
+    {Stream, DSKey, TS} = emqx_ds_storage_layer:unpack_iterator(Shard, Iterator),
+    Matcher = emqx_ds_storage_layer:message_matcher(Shard, Iterator),
+    #{
+        stream => Stream,
+        last_seen_key => DSKey,
+        timestamp => TS,
+        matcher => Matcher
+    }.
 
 scan_stream(Shard, Stream, StartMsg, BatchSize) ->
     Now = current_timestamp(Shard),

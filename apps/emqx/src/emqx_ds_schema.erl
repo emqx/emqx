@@ -327,13 +327,14 @@ common_builtin_fields() ->
                         }
                 }
             )},
-         {poll_workers_per_shard,
-          sc(
-            pos_integer(),
-            #{
-              default => 1,
-              importance => ?IMPORTANCE_HIDDEN
-             })}
+        {poll_workers_per_shard,
+            sc(
+                pos_integer(),
+                #{
+                    default => 1,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
     ].
 
 desc(builtin_raft) ->
