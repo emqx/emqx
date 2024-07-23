@@ -34,7 +34,7 @@
 
     observe_next_time/2,
 
-    observe_coherence/2,
+    observe_sharing/2,
     inc_poll_requests/2,
     inc_poll_requests_timeout/2,
 
@@ -93,7 +93,7 @@
 -define(BEAMFORMER_METRICS, [
     {counter, ?DS_POLL_REQUESTS},
     {counter, ?DS_POLL_REQUESTS_TIMEOUT},
-    {slide, ?DS_POLL_REQUEST_COHERENCE}
+    {slide, ?DS_POLL_REQUEST_SHARING}
 ]).
 
 -define(SHARD_METRICS, ?BEAMFORMER_METRICS ++ ?BUFFER_METRICS).
@@ -167,8 +167,8 @@ observe_store_batch_time({DB, _}, StoreTime) ->
 observe_next_time(DB, NextTime) ->
     catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_BUILTIN_NEXT_TIME, NextTime).
 
-observe_coherence(Id, Coherence) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_POLL_REQUEST_COHERENCE, Coherence).
+observe_sharing(Id, Sharing) ->
+    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_POLL_REQUEST_SHARING, Sharing).
 
 inc_poll_requests(Id, NPolls) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS, NPolls).

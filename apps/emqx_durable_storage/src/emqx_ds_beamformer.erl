@@ -353,15 +353,15 @@ form_beams(S = #s{metrics_id = Metrics}, GetF, StartKey, EndKey, Messages) ->
         InitialAcc,
         Messages
     ),
-    Coherence = maps:fold(
+    Sharing = maps:fold(
         fun(_Node, Its, Acc) ->
             Acc + length(Its)
         end,
         0,
         ItGroups
     ),
-    %% logger:warning("Coherence ~p: ~p", [Metrics, Coherence]),
-    emqx_ds_builtin_metrics:observe_coherence(Metrics, Coherence),
+    %% logger:warning("Sharing ~p: ~p", [Metrics, Sharing]),
+    emqx_ds_builtin_metrics:observe_sharing(Metrics, Sharing),
     maps:map(
         fun(_Node, Its) ->
             pack(S, EndKey, Its, Messages)
