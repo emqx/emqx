@@ -232,7 +232,10 @@ flush_buffer(DB, Shard, Messages, S0 = #bs{options = Options}) ->
     ShardId = {DB, Shard},
     ForceMonotonic = maps:get(force_monotonic_timestamps, Options),
     {Latest, Batch} = make_batch(ForceMonotonic, current_timestamp(ShardId), Messages),
-    Result = emqx_ds_storage_layer:store_batch(ShardId, Batch, _Options = #{}),
+    DispatchF = fun(Streams) ->
+        emqx_ds_beamformer:shard_event({DB, Shard}, Streams)
+    end,
+    Result = emqx_ds_storage_layer:store_batch(ShardId, Batch, _Options = #{}, DispatchF),
     emqx_ds_builtin_local_meta:set_current_timestamp(ShardId, Latest),
     {S0, Result}.
 
@@ -350,7 +353,7 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
         fun({ItKey, It = #{?tag := ?IT, ?shard := Shard}}) ->
             ShardId = {DB, Shard},
             ReturnAddr = {ReplyTo, ItKey},
-            ok = emqx_ds_beamformer:poll(node(), ReturnAddr, ShardId, It, PollOpts)
+            catch emqx_ds_beamformer:poll(node(), ReturnAddr, ShardId, It, PollOpts)
         end,
         Iterators
     ),
@@ -484,6 +487,7 @@ timeus_to_timestamp(TimestampUs) ->
 wait_completion(ReplyTo, Timeout) ->
     receive
     after Timeout + 10 ->
+        logger:debug("Timeout for poll ~p", [ReplyTo]),
         ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
     end.
 

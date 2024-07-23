@@ -55,4 +55,7 @@
 -define(DS_SKIPSTREAM_LTS_FUTURE, emqx_ds_storage_skipstream_lts_future).
 -define(DS_SKIPSTREAM_LTS_EOS, emqx_ds_storage_skipstream_lts_end_of_stream).
 
+%%%% Poll metrics:
+-define(DS_POLL_REQUEST_COHERENCE, emqx_ds_poll_request_coherence).
+
 -endif.

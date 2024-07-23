@@ -33,6 +33,7 @@
     observe_store_batch_time/2,
 
     observe_next_time/2,
+    observe_coherence/2,
 
     inc_lts_seek_counter/2,
     inc_lts_next_counter/2,
@@ -86,7 +87,11 @@
     {slide, ?DS_BUFFER_FLUSH_TIME}
 ]).
 
--define(SHARD_METRICS, ?BUFFER_METRICS).
+-define(BEAMFORMER_METRICS, [
+    {slide, ?DS_POLL_REQUEST_COHERENCE}
+]).
+
+-define(SHARD_METRICS, ?BEAMFORMER_METRICS ++ ?BUFFER_METRICS).
 
 -type shard_metrics_id() :: binary().
 
@@ -156,6 +161,9 @@ observe_store_batch_time({DB, _}, StoreTime) ->
 -spec observe_next_time(emqx_ds:db(), non_neg_integer()) -> ok.
 observe_next_time(DB, NextTime) ->
     catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_BUILTIN_NEXT_TIME, NextTime).
+
+observe_coherence(Id, Coherence) ->
+    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_POLL_REQUEST_COHERENCE, Coherence).
 
 -spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->

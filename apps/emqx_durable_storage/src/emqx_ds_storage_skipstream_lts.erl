@@ -39,9 +39,7 @@
     scan_stream/7,
     message_matcher/3,
 
-    batch_events/3,
-    event_dispatch_key/2,
-    match_event/3
+    batch_events/2
 ]).
 
 %% internal exports:
@@ -119,10 +117,6 @@
     %% Compressed topic filter:
     compressed_tf :: binary(),
     misc = []
-}).
-
--record(event, {
-    varying :: emqx_ds_lts:varying()
 }).
 
 %% Level iterator:
@@ -245,35 +239,15 @@ commit_batch(
         rocksdb:release_batch(Batch)
     end.
 
-batch_events(#s{}, #{?cooked_payloads := Payloads}, SendF) ->
-    %% lists:foreach(
-    %%     fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob)) ->
-    %%         SendF(Static, #event{varying = Varying})
-    %%     end,
-    %%     Payloads
-    %% ).
+batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
     EventMap = lists:foldl(
-        fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob), Acc) ->
-            maps:put({Static, Varying}, 1, Acc)
+        fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
+            maps:put(#stream{static_index = Static}, 1, Acc)
         end,
         #{},
         Payloads
     ),
-    maps:foreach(
-        fun({Static, Varying}, _) ->
-            SendF(Static, #event{varying = Varying})
-        end,
-        EventMap
-    ),
-    ok.
-
-event_dispatch_key(#s{}, #it{static_index = Static}) ->
-    Static.
-
-match_event(#s{}, #it{compressed_tf = Filter}, #event{varying = Var}) ->
-    Match = emqx_topic:match(Var, words(Filter)),
-    %% io:format(user, "F: ~p V: ~p -> ~p~n", [Filter, Var, Match]),
-    Match.
+    maps:keys(EventMap).
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
@@ -296,7 +270,6 @@ message_matcher(_Shard, #s{trie = Trie}, #it{compressed_tf = CompressedTF, stati
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     TF = emqx_ds_lts:decompress_topic(TopicStructure, words(CompressedTF)),
     fun(#message{topic = Topic}) ->
-        logger:warning("match ~p vs ~p", [Topic, TF]),
         emqx_topic:match(words(Topic), TF)
     end.
 

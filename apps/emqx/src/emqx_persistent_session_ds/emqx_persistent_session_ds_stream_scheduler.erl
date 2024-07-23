@@ -146,9 +146,10 @@ prep_poll(Ref, AlreadyPending, Comm1, Comm2, Key, SRS, Acc = {AccIt, AccPend}) -
 on_reply(#poll_reply{ref = Ref, payload = poll_timeout}, SchedS = #s{pending = P0}) ->
     %% Process poll timeout by removing all pending streams that
     %% belong to the poll group, so they can be retried:
+    ?SLOG(debug, #{msg => sess_poll_timeout, ref => Ref}),
     unalias(Ref),
     P = maps:filter(
-        fun(_Key, #pending_poll{ref = R}) -> R =:= Ref end,
+        fun(_Key, #pending_poll{ref = R}) -> R =/= Ref end,
         P0
     ),
     {undefined, SchedS#s{pending = P}};
