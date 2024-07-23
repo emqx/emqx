@@ -120,7 +120,7 @@ stats(#channel{session = Session}) ->
 -spec init(map(), map()) -> channel().
 init(
     ConnInfo = #{
-        peername := {PeerHost, _},
+        peername := {PeerHost, _} = PeerName,
         sockname := {_, SockPort}
     },
     #{ctx := Ctx} = Config
@@ -140,6 +140,7 @@ init(
             listener => ListenerId,
             protocol => 'coap',
             peerhost => PeerHost,
+            peername => PeerName,
             sockport => SockPort,
             clientid => emqx_guid:to_base62(emqx_guid:gen()),
             username => undefined,

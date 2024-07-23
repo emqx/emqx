@@ -117,7 +117,7 @@
 %% @doc Init protocol
 init(
     ConnInfo = #{
-        peername := {PeerHost, _},
+        peername := {PeerHost, _} = PeerName,
         sockname := {_, SockPort}
     },
     Option
@@ -137,6 +137,7 @@ init(
             listener => ListenerId,
             protocol => stomp,
             peerhost => PeerHost,
+            peername => PeerName,
             sockport => SockPort,
             clientid => undefined,
             username => undefined,

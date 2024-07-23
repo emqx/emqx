@@ -209,7 +209,7 @@ stats(#channel{mqueue = MQueue}) ->
 -spec init(emqx_types:conninfo(), map()) -> channel().
 init(
     ConnInfo = #{
-        peername := {PeerHost, _Port},
+        peername := {PeerHost, _Port} = PeerName,
         sockname := {_Host, SockPort}
     },
     Options
@@ -230,6 +230,7 @@ init(
             listener => ListenerId,
             protocol => ocpp,
             peerhost => PeerHost,
+            peername => PeerName,
             sockport => SockPort,
             clientid => undefined,
             username => undefined,
@@ -325,9 +326,9 @@ enrich_client(
 
 set_log_meta(#channel{
     clientinfo = #{clientid := ClientId},
-    conninfo = #{peername := Peername}
+    conninfo = #{peername := PeerName}
 }) ->
-    emqx_logger:set_metadata_peername(esockd:format(Peername)),
+    emqx_logger:set_metadata_peername(esockd:format(PeerName)),
     emqx_logger:set_metadata_clientid(ClientId).
 
 run_conn_hooks(_UserInfo, Channel = #channel{conninfo = ConnInfo}) ->
