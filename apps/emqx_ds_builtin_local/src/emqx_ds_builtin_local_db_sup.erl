@@ -210,7 +210,9 @@ shard_buffer_spec(DB, Shard, Options) ->
     }.
 
 shard_beamformers_spec(DB, Shard, Options) ->
-    NWorkers = maps:get(n_pollers, Options, 1),
+    %% TODO: workers should not be stored in the persistent schema:
+    NWorkers = maps:get(poll_workers_per_shard, Options, 1),
+    logger:warning("Starting ~p poll workers for shard ~p", [NWorkers, Shard]),
     #{
         id => {Shard, beamformers},
         type => supervisor,

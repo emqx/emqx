@@ -96,7 +96,8 @@
     #{
         backend := builtin_local,
         storage := emqx_ds_storage_layer:prototype(),
-        n_shards := pos_integer()
+        n_shards := pos_integer(),
+        poll_workers_per_shard => pos_integer()
     }.
 
 -type generation_rank() :: {shard(), emqx_ds_storage_layer:gen_id()}.

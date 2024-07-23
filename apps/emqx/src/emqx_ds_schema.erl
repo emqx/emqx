@@ -70,13 +70,15 @@ translate_builtin_local(
     #{
         backend := builtin_local,
         n_shards := NShards,
-        layout := Layout
+        layout := Layout,
+        poll_workers_per_shard := NPollers
     }
 ) ->
     #{
         backend => builtin_local,
         n_shards => NShards,
-        storage => translate_layout(Layout)
+        storage => translate_layout(Layout),
+        poll_workers_per_shard => NPollers
     }.
 
 %%================================================================================
@@ -324,7 +326,14 @@ common_builtin_fields() ->
                             <<"type">> => wildcard_optimized_v2
                         }
                 }
-            )}
+            )},
+         {poll_workers_per_shard,
+          sc(
+            pos_integer(),
+            #{
+              default => 1,
+              importance => ?IMPORTANCE_HIDDEN
+             })}
     ].
 
 desc(builtin_raft) ->

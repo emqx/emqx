@@ -141,9 +141,10 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     }),
     %% Try to maximize likelyhood of sending similar iterators to the
     %% same worker:
+    Token = {Stream, Timestamp div 10_000_000},
     Worker = gproc_pool:pick_worker(
         emqx_ds_beamformer_sup:pool(Shard),
-        {Stream, Timestamp div 10_000_000}
+        Token
     ),
     %% Make request:
     Req = #poll_req{
@@ -154,6 +155,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         opts = Opts,
         deadline = Deadline
     },
+    emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
     gen_server:call(Worker, Req, Timeout).
 
 shard_event(Shard, Streams) ->
@@ -169,7 +171,7 @@ shard_event(Shard, Streams) ->
 %% behavior callbacks
 %%================================================================================
 
-init([CBM, ShardId = {DB, Shard}, Name]) ->
+init([CBM, ShardId, Name]) ->
     process_flag(trap_exit, true),
     Pool = emqx_ds_beamformer_sup:pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
@@ -179,7 +181,7 @@ init([CBM, ShardId = {DB, Shard}, Name]) ->
     S = #s{
         module = CBM,
         shard = ShardId,
-        metrics_id = emqx_ds_builtin_metrics:shard_metric_id(DB, Shard),
+        metrics_id = shard_metrics_id(ShardId),
         name = Name,
         new_requests = NewTab,
         waiting_requests = WaitingTab
@@ -208,7 +210,7 @@ handle_info(cleanup, S0) ->
     {noreply, S};
 handle_info(doit, S0) ->
     S = fulfill_pending(S0, 10),
-    erlang:send_after(100, self(), doit),
+    erlang:send_after(10, self(), doit),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
@@ -245,17 +247,17 @@ do_dispatch(Beam = #beam{}) ->
 %% Internal functions
 %%================================================================================
 
-cleanup(S = #s{new_requests = PendingTab, waiting_requests = WaitingTab}) ->
-    do_cleanup(PendingTab),
-    do_cleanup(WaitingTab),
+cleanup(S = #s{new_requests = PendingTab, waiting_requests = WaitingTab, metrics_id = Metrics}) ->
+    do_cleanup(Metrics, PendingTab),
+    do_cleanup(Metrics, WaitingTab),
     %% erlang:garbage_collect(),
     S.
 
-do_cleanup(Tab) ->
+do_cleanup(Metrics, Tab) ->
     Now = erlang:monotonic_time(millisecond),
     MS = {#poll_req{_ = '_', deadline = '$1'}, [{'<', '$1', Now}], [true]},
     NDeleted = ets:select_delete(Tab, [MS]),
-    NDeleted > 0 andalso logger:warning("Deleted ~p requests", [NDeleted]).
+    emqx_ds_builtin_metrics:inc_poll_requests_timeout(Metrics, NDeleted).
 
 fulfill_pending(S, 0) ->
     S;
@@ -304,11 +306,10 @@ maybe_fulfill_waiting(
 
 oldest_key_for_stream(Tab, Stream) ->
     MS = {#poll_req{_ = '_', key = {Stream, '$1'}}, [], ['$1']},
-    case ets:select(Tab, [MS]) of
-        [] ->
+    case ets:select(Tab, [MS], 100) of
+        '$end_of_table' ->
             undefined;
-        Keys ->
-            logger:warning("Potential coherence ~p", [length(Keys)]),
+        {Keys, _Cont} ->
             lists:min(Keys)
     end.
 
@@ -397,6 +398,10 @@ split([{ItKey, It} | Rest], Pack, N, Acc0) ->
      || {MsgKey, Mask, Msg} <- Pack,
         is_member(N, Mask)
     ],
+    case Msgs of
+        [] -> logger:warning("Empty batch ~p", [ItKey]);
+        _ -> ok
+    end,
     Acc = [{ItKey, {ok, It, Msgs}} | Acc0],
     split(Rest, Pack, N + 1, Acc).
 
@@ -456,6 +461,9 @@ dispatch_beams(Beams) ->
         end,
         Beams
     ).
+
+shard_metrics_id({DB, Shard}) ->
+    emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).
 
 %%================================================================================
 %% Tests

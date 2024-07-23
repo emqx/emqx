@@ -33,7 +33,10 @@
     observe_store_batch_time/2,
 
     observe_next_time/2,
+
     observe_coherence/2,
+    inc_poll_requests/2,
+    inc_poll_requests_timeout/2,
 
     inc_lts_seek_counter/2,
     inc_lts_next_counter/2,
@@ -88,6 +91,8 @@
 ]).
 
 -define(BEAMFORMER_METRICS, [
+    {counter, ?DS_POLL_REQUESTS},
+    {counter, ?DS_POLL_REQUESTS_TIMEOUT},
     {slide, ?DS_POLL_REQUEST_COHERENCE}
 ]).
 
@@ -164,6 +169,12 @@ observe_next_time(DB, NextTime) ->
 
 observe_coherence(Id, Coherence) ->
     catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_POLL_REQUEST_COHERENCE, Coherence).
+
+inc_poll_requests(Id, NPolls) ->
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS, NPolls).
+
+inc_poll_requests_timeout(Id, NPolls) ->
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS_TIMEOUT, NPolls).
 
 -spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->
