@@ -56,7 +56,8 @@
     ensure_stopped/0,
     ensure_stopped/1,
     restart/1,
-    list/0
+    list/0,
+    list/1
 ]).
 
 %% Plugin config APIs
@@ -73,6 +74,7 @@
     decode_plugin_config_map/2,
     install_dir/0,
     avsc_file_path/1,
+    md5sum_file/1,
     with_plugin_avsc/1
 ]).
 
@@ -377,13 +379,17 @@ restart(NameVsn) ->
 %% Including the ones that are installed, but not enabled in config.
 -spec list() -> [plugin_info()].
 list() ->
+    list(normal).
+
+-spec list(all | normal | hidden) -> [plugin_info()].
+list(Type) ->
     Pattern = filename:join([install_dir(), "*", "release.json"]),
     All = lists:filtermap(
         fun(JsonFilePath) ->
             [_, NameVsn | _] = lists:reverse(filename:split(JsonFilePath)),
             case read_plugin_info(NameVsn, #{}) of
                 {ok, Info} ->
-                    {true, Info};
+                    filter_plugin_of_type(Type, Info);
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_plugin_info"}),
                     false
@@ -392,6 +398,17 @@ list() ->
         filelib:wildcard(Pattern)
     ),
     do_list(configured(), All).
+
+filter_plugin_of_type(all, Info) ->
+    {true, Info};
+filter_plugin_of_type(normal, #{<<"hidden">> := true}) ->
+    false;
+filter_plugin_of_type(normal, Info) ->
+    {true, Info};
+filter_plugin_of_type(hidden, #{<<"hidden">> := true} = Info) ->
+    {true, Info};
+filter_plugin_of_type(hidden, _Info) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% Package utils
@@ -661,10 +678,6 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
     end,
     case lists:splitwith(SplitF, All) of
         {_, []} ->
-            ?SLOG(warning, #{
-                msg => "configured_plugin_not_installed",
-                name_vsn => NameVsn
-            }),
             do_list(Rest, All);
         {Front, [I | Rear]} ->
             [I | do_list(Rest, Front ++ Rear)]
@@ -736,7 +749,8 @@ do_read_plugin(NameVsn, InfoFilePath, Options) ->
     {ok, PlainMap} = (read_file_fun(InfoFilePath, "bad_info_file", #{read_mode => ?JSON_MAP}))(),
     Info0 = check_plugin(PlainMap, NameVsn, InfoFilePath),
     Info1 = plugins_readme(NameVsn, Options, Info0),
-    plugin_status(NameVsn, Info1).
+    Info2 = plugins_package_info(NameVsn, Info1),
+    plugin_status(NameVsn, Info2).
 
 read_plugin_avsc(NameVsn) ->
     read_plugin_avsc(NameVsn, #{read_mode => ?JSON_MAP}).
@@ -835,6 +849,12 @@ get_plugin_config_from_any_node([Node | T], NameVsn, Errors) ->
             Res;
         Err ->
             get_plugin_config_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+    end.
+
+plugins_package_info(NameVsn, Info) ->
+    case file:read_file(md5sum_file(NameVsn)) of
+        {ok, MD5} -> Info#{md5sum => MD5};
+        _ -> Info#{md5sum => <<>>}
     end.
 
 plugins_readme(NameVsn, #{fill_readme := true}, Info) ->
@@ -1488,6 +1508,10 @@ default_plugin_config_file(NameVsn) ->
 -spec i18n_file_path(name_vsn()) -> string().
 i18n_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_i18n.json"])).
+
+-spec md5sum_file(name_vsn()) -> string().
+md5sum_file(NameVsn) ->
+    plugin_dir(NameVsn) ++ ".tar.gz.md5sum".
 
 -spec readme_file(name_vsn()) -> string().
 readme_file(NameVsn) ->

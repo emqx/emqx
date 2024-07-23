@@ -185,7 +185,7 @@ project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
 
 plugins() ->
     [
-        %{relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
+        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.1.1"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.0"}
@@ -393,9 +393,9 @@ overlay_vars_pkg(bin) ->
         {platform_etc_dir, "etc"},
         {platform_plugins_dir, "plugins"},
         {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"},
-        {emqx_etc_dir, "$RUNNER_ROOT_DIR/etc"},
+        {emqx_etc_dir, "$BASE_RUNNER_ROOT_DIR/etc"},
         {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"},
-        {runner_log_dir, "$RUNNER_ROOT_DIR/log"},
+        {runner_log_dir, "$BASE_RUNNER_ROOT_DIR/log"},
         {runner_user, ""},
         {is_elixir, "no"}
     ];
