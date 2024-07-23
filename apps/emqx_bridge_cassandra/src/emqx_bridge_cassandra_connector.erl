@@ -19,6 +19,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -94,6 +95,7 @@ desc("connector") ->
 
 %%--------------------------------------------------------------------
 %% callbacks for emqx_resource
+resource_type() -> cassandra.
 
 callback_mode() -> async_if_possible.
 

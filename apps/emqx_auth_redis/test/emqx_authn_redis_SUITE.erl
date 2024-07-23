@@ -63,7 +63,6 @@ init_per_suite(Config) ->
                 work_dir => ?config(priv_dir, Config)
             }),
             {ok, _} = emqx_resource:create_local(
-                redis,
                 ?REDIS_RESOURCE,
                 ?AUTHN_RESOURCE_GROUP,
                 emqx_redis,

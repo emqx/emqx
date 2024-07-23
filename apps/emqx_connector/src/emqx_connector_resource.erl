@@ -126,7 +126,6 @@ create(Type, Name, Conf0, Opts) ->
     ResourceId = resource_id(Type, Name),
     Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
     {ok, _Data} = emqx_resource:create_local(
-        Type,
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
         ?MODULE:connector_to_resource_type(Type),
@@ -200,7 +199,6 @@ recreate(Type, Name, Conf) ->
 recreate(Type, Name, Conf, Opts) ->
     TypeBin = bin(Type),
     emqx_resource:recreate_local(
-        Type,
         resource_id(Type, Name),
         ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
@@ -211,7 +209,7 @@ create_dry_run(Type, Conf) ->
     create_dry_run(Type, Conf, fun(_) -> ok end).
 
 create_dry_run(Type, Conf0, Callback) ->
-    %% Already typechecked, no need to catch errors
+    %% Already type checked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     %% We use a fixed name here to avoid creating an atom
@@ -237,7 +235,7 @@ create_dry_run(Type, Conf0, Callback) ->
             {ok, ConfNew} ->
                 ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
                 emqx_resource:create_dry_run_local(
-                    Type, TmpName, ?MODULE:connector_to_resource_type(Type), ParseConf, Callback
+                    TmpName, ?MODULE:connector_to_resource_type(Type), ParseConf, Callback
                 )
         end
     catch

@@ -19,16 +19,14 @@
 
 -include("emqx_resource.hrl").
 
--export([ensure_child/6, delete_child/1]).
+-export([ensure_child/5, delete_child/1]).
 
 -export([start_link/0]).
 
 -export([init/1]).
 
-ensure_child(Type, ResId, Group, ResourceType, Config, Opts) ->
-    case
-        supervisor:start_child(?MODULE, child_spec(Type, ResId, Group, ResourceType, Config, Opts))
-    of
+ensure_child(ResId, Group, ResourceType, Config, Opts) ->
+    case supervisor:start_child(?MODULE, child_spec(ResId, Group, ResourceType, Config, Opts)) of
         {error, Reason} ->
             %% This should not happen in production but it can be a huge time sink in
             %% development environments if the error is just silently ignored.
@@ -57,11 +55,11 @@ init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     {ok, {SupFlags, ChildSpecs}}.
 
-child_spec(Type, ResId, Group, ResourceType, Config, Opts) ->
+child_spec(ResId, Group, ResourceType, Config, Opts) ->
     #{
         id => ResId,
         start =>
-            {emqx_resource_manager, start_link, [Type, ResId, Group, ResourceType, Config, Opts]},
+            {emqx_resource_manager, start_link, [ResId, Group, ResourceType, Config, Opts]},
         restart => transient,
         %% never force kill a resource manager.
         %% because otherwise it may lead to release leak,

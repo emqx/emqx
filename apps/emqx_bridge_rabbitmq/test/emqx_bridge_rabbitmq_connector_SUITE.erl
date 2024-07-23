@@ -135,7 +135,6 @@ check_config(Config) ->
 
 create_local_resource(ResourceID, CheckedConfig) ->
     {ok, Bridge} = emqx_resource:create_local(
-        rabbitmq,
         ResourceID,
         ?CONNECTOR_RESOURCE_GROUP,
         emqx_bridge_rabbitmq_connector,

@@ -23,7 +23,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TEST_RESOURCE, emqx_connector_demo).
--define(TYPE, test).
 -define(ID, <<"id">>).
 -define(ID1, <<"id1">>).
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
@@ -91,7 +90,6 @@ t_create_remove(_) ->
             ?assertMatch(
                 {error, _},
                 emqx_resource:check_and_create_local(
-                    ?TYPE,
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -112,7 +110,6 @@ t_create_remove(_) ->
             ?assertMatch(
                 {ok, _},
                 emqx_resource:recreate_local(
-                    ?TYPE,
                     ?ID,
                     ?TEST_RESOURCE,
                     #{name => test_resource},
@@ -138,7 +135,6 @@ t_create_remove_local(_) ->
             ?assertMatch(
                 {error, _},
                 emqx_resource:check_and_create_local(
-                    ?TYPE,
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -157,7 +153,6 @@ t_create_remove_local(_) ->
             ),
 
             emqx_resource:recreate_local(
-                ?TYPE,
                 ?ID,
                 ?TEST_RESOURCE,
                 #{name => test_resource},
@@ -171,7 +166,6 @@ t_create_remove_local(_) ->
             emqx_resource:set_resource_status_connecting(?ID),
 
             emqx_resource:recreate_local(
-                ?TYPE,
                 ?ID,
                 ?TEST_RESOURCE,
                 #{name => test_resource},
@@ -943,7 +937,6 @@ t_stop_start(_) ->
             ?assertMatch(
                 {error, _},
                 emqx_resource:check_and_create_local(
-                    ?TYPE,
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -954,7 +947,6 @@ t_stop_start(_) ->
             ?assertMatch(
                 {ok, _},
                 emqx_resource:check_and_create_local(
-                    ?TYPE,
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -972,7 +964,6 @@ t_stop_start(_) ->
             ?assertMatch(
                 {ok, _},
                 emqx_resource:check_and_recreate_local(
-                    ?TYPE,
                     ?ID,
                     ?TEST_RESOURCE,
                     #{<<"name">> => <<"test_resource">>},
@@ -1022,7 +1013,6 @@ t_stop_start_local(_) ->
             ?assertMatch(
                 {error, _},
                 emqx_resource:check_and_create_local(
-                    ?TYPE,
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -1033,7 +1023,6 @@ t_stop_start_local(_) ->
             ?assertMatch(
                 {ok, _},
                 emqx_resource:check_and_create_local(
-                    ?TYPE,
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
@@ -1044,7 +1033,6 @@ t_stop_start_local(_) ->
             ?assertMatch(
                 {ok, _},
                 emqx_resource:check_and_recreate_local(
-                    ?TYPE,
                     ?ID,
                     ?TEST_RESOURCE,
                     #{<<"name">> => <<"test_resource">>},
@@ -1120,7 +1108,6 @@ create_dry_run_local_succ() ->
     ?assertEqual(
         ok,
         emqx_resource:create_dry_run_local(
-            test,
             ?TEST_RESOURCE,
             #{name => test_resource, register => true}
         )
@@ -1131,7 +1118,6 @@ t_create_dry_run_local_failed(_) ->
     ct:timetrap({seconds, 120}),
     ct:pal("creating with creation error"),
     Res1 = emqx_resource:create_dry_run_local(
-        test,
         ?TEST_RESOURCE,
         #{create_error => true}
     ),
@@ -1139,7 +1125,6 @@ t_create_dry_run_local_failed(_) ->
 
     ct:pal("creating with health check error"),
     Res2 = emqx_resource:create_dry_run_local(
-        test,
         ?TEST_RESOURCE,
         #{name => test_resource, health_check_error => true}
     ),
@@ -1147,7 +1132,6 @@ t_create_dry_run_local_failed(_) ->
 
     ct:pal("creating with stop error"),
     Res3 = emqx_resource:create_dry_run_local(
-        test,
         ?TEST_RESOURCE,
         #{name => test_resource, stop_error => true}
     ),
@@ -3506,10 +3490,10 @@ gauge_metric_set_fns() ->
     ].
 
 create(Id, Group, Type, Config) ->
-    emqx_resource:create_local(test, Id, Group, Type, Config, #{}).
+    emqx_resource:create_local(Id, Group, Type, Config, #{}).
 
 create(Id, Group, Type, Config, Opts) ->
-    emqx_resource:create_local(test, Id, Group, Type, Config, Opts).
+    emqx_resource:create_local(Id, Group, Type, Config, Opts).
 
 log_consistency_prop() ->
     {"check state and cache consistency", fun ?MODULE:log_consistency_prop/1}.

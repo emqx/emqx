@@ -21,8 +21,8 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    create_resource/4,
-    update_resource/4,
+    create_resource/3,
+    update_resource/3,
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
@@ -66,9 +66,8 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(Type, ResourceId, Module, Config) ->
+create_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:create_local(
-        Type,
         ResourceId,
         ?AUTHN_RESOURCE_GROUP,
         Module,
@@ -77,9 +76,9 @@ create_resource(Type, ResourceId, Module, Config) ->
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
-update_resource(Type, Module, Config, ResourceId) ->
+update_resource(Module, Config, ResourceId) ->
     Result = emqx_resource:recreate_local(
-        Type, ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
+        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 

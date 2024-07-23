@@ -1,6 +1,6 @@
 {application, emqx_mysql, [
     {description, "EMQX MySQL Database Connector"},
-    {vsn, "0.1.9"},
+    {vsn, "0.2.0"},
     {registered, []},
     {applications, [
         kernel,

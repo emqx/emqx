@@ -96,7 +96,6 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
         state := #{pool_name := PoolName} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
-        ldap,
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
         ?LDAP_RESOURCE_MOD,
@@ -172,7 +171,6 @@ t_get_status(Config) ->
         ?LDAP_RESOURCE_MOD, ldap_config(Config)
     ),
     {ok, _} = emqx_resource:create_local(
-        ldap,
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
         ?LDAP_RESOURCE_MOD,

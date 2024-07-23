@@ -212,7 +212,6 @@ check_config(Config) ->
 create_local_resource(ResourceId, CheckedConfig) ->
     {ok, Bridge} =
         emqx_resource:create_local(
-            cassandra,
             ResourceId,
             ?CONNECTOR_RESOURCE_GROUP,
             ?CASSANDRA_RESOURCE_MOD,

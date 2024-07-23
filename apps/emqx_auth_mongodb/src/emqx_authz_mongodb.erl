@@ -49,13 +49,13 @@ description() ->
 
 create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
-    {ok, _Data} = emqx_authz_utils:create_resource(mongodb, ResourceId, emqx_mongodb, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
     FilterTemp = emqx_authz_utils:parse_deep(Filter, ?ALLOWED_VARS),
     Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
 
 update(#{filter := Filter} = Source) ->
     FilterTemp = emqx_authz_utils:parse_deep(Filter, ?ALLOWED_VARS),
-    case emqx_authz_utils:update_resource(mongodb, emqx_mongodb, Source) of
+    case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

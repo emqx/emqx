@@ -143,7 +143,6 @@ check_config(Config) ->
 
 create_local_resource(ResourceId, CheckedConfig) ->
     {ok, Bridge} = emqx_resource:create_local(
-        mongodb,
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
         ?MONGO_RESOURCE_MOD,

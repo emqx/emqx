@@ -1110,6 +1110,7 @@ t_query_uses_action_query_mode(_Config) ->
 
             %% ... now we use a quite different query mode for the action
             meck:expect(con_mod(), query_mode, 1, simple_async_internal_buffer),
+            meck:expect(con_mod(), resource_type, 0, dummy),
             meck:expect(con_mod(), callback_mode, 0, async_if_possible),
 
             {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),

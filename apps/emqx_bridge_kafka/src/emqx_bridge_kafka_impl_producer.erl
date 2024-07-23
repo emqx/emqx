@@ -10,6 +10,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     query_mode/1,
     callback_mode/0,
     on_start/2,
@@ -34,6 +35,8 @@
 -define(kafka_telemetry_id, kafka_telemetry_id).
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
+
+resource_type() -> kafka_producer.
 
 query_mode(#{parameters := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;

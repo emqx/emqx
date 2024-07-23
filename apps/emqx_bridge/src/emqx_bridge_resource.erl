@@ -195,7 +195,6 @@ create(Type, Name, Conf0, Opts) ->
     TypeBin = bin(Type),
     Conf = Conf0#{bridge_type => TypeBin, bridge_name => Name},
     {ok, _Data} = emqx_resource:create_local(
-        Type,
         resource_id(Type, Name),
         <<"bridge">>,
         bridge_to_resource_type(Type),
@@ -265,7 +264,6 @@ recreate(Type, Name, Conf0, Opts) ->
     TypeBin = bin(Type),
     Conf = Conf0#{bridge_type => TypeBin, bridge_name => Name},
     emqx_resource:recreate_local(
-        Type,
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
@@ -284,7 +282,7 @@ create_dry_run(Type0, Conf0) ->
 create_dry_run_bridge_v1(Type, Conf0) ->
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     TmpPath = emqx_utils:safe_filename(TmpName),
-    %% Already typechecked, no need to catch errors
+    %% Already type checked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     Conf1 = maps:without([<<"name">>], Conf0),
@@ -302,7 +300,7 @@ create_dry_run_bridge_v1(Type, Conf0) ->
                 {error, Reason};
             {ok, ConfNew} ->
                 ParseConf = parse_confs(TypeBin, TmpName, ConfNew),
-                emqx_resource:create_dry_run_local(Type, bridge_to_resource_type(Type), ParseConf)
+                emqx_resource:create_dry_run_local(bridge_to_resource_type(Type), ParseConf)
         end
     catch
         %% validation errors

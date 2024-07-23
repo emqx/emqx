@@ -7,6 +7,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     query_mode/1,
     on_start/2,
@@ -125,6 +126,7 @@
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
+resource_type() -> kafka_consumer.
 
 callback_mode() ->
     async_if_possible.

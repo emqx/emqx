@@ -83,7 +83,6 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         state := #{client := #{pool := ReturnedPoolName}} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
-        greptimedb,
         PoolName,
         ?CONNECTOR_RESOURCE_GROUP,
         ?GREPTIMEDB_RESOURCE_MOD,

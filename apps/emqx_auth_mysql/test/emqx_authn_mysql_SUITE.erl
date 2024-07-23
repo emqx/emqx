@@ -58,7 +58,6 @@ init_per_suite(Config) ->
                 work_dir => ?config(priv_dir, Config)
             }),
             {ok, _} = emqx_resource:create_local(
-                mysql,
                 ?MYSQL_RESOURCE,
                 ?AUTHN_RESOURCE_GROUP,
                 emqx_mysql,

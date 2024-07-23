@@ -25,12 +25,12 @@
 
 % API
 -export([
-    ensure_resource/6,
-    recreate/5,
+    ensure_resource/5,
+    recreate/4,
     remove/1,
+    create_dry_run/2,
     create_dry_run/3,
     create_dry_run/4,
-    create_dry_run/5,
     restart/2,
     start/2,
     stop/1,
@@ -59,7 +59,7 @@
 ]).
 
 % Server
--export([start_link/6]).
+-export([start_link/5]).
 
 % Behaviour
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
@@ -162,44 +162,45 @@
 %% Triggers the emqx_resource_manager_sup supervisor to actually create
 %% and link the process itself if not already started.
 -spec ensure_resource(
-    type(),
     resource_id(),
     resource_group(),
-    resource_type(),
+    resource_module(),
     resource_config(),
     creation_opts()
 ) -> {ok, resource_data()}.
-ensure_resource(Type, ResId, Group, ResourceType, Config, Opts) ->
+ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
     case lookup(ResId) of
         {ok, _Group, Data} ->
             {ok, Data};
         {error, not_found} ->
-            create_and_return_data(Type, ResId, Group, ResourceType, Config, Opts)
+            create_and_return_data(ResId, Group, ResourceType, Config, Opts)
     end.
 
 %% @doc Called from emqx_resource when recreating a resource which may or may not exist
--spec recreate(type(), resource_id(), resource_type(), resource_config(), creation_opts()) ->
+-spec recreate(
+    resource_id(), resource_module(), resource_config(), creation_opts()
+) ->
     {ok, resource_data()} | {error, not_found} | {error, updating_to_incorrect_resource_type}.
-recreate(Type, ResId, ResourceType, NewConfig, Opts) ->
+recreate(ResId, ResourceType, NewConfig, Opts) ->
     case lookup(ResId) of
         {ok, Group, #{mod := ResourceType, status := _} = _Data} ->
             _ = remove(ResId, false),
-            create_and_return_data(Type, ResId, Group, ResourceType, NewConfig, Opts);
+            create_and_return_data(ResId, Group, ResourceType, NewConfig, Opts);
         {ok, _, #{mod := Mod}} when Mod =/= ResourceType ->
             {error, updating_to_incorrect_resource_type};
         {error, not_found} ->
             {error, not_found}
     end.
 
-create_and_return_data(Type, ResId, Group, ResourceType, Config, Opts) ->
-    _ = create(Type, ResId, Group, ResourceType, Config, Opts),
+create_and_return_data(ResId, Group, ResourceType, Config, Opts) ->
+    _ = create(ResId, Group, ResourceType, Config, Opts),
     {ok, _Group, Data} = lookup(ResId),
     {ok, Data}.
 
 %% @doc Create a resource_manager and wait until it is running
-create(Type, ResId, Group, ResourceType, Config, Opts) ->
+create(ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
-    ok = emqx_resource_manager_sup:ensure_child(Type, ResId, Group, ResourceType, Config, Opts),
+    ok = emqx_resource_manager_sup:ensure_child(ResId, Group, ResourceType, Config, Opts),
     % Create metrics for the resource
     ok = emqx_resource:create_metrics(ResId),
     QueryMode = emqx_resource:query_mode(ResourceType, Config, Opts),
@@ -222,30 +223,32 @@ create(Type, ResId, Group, ResourceType, Config, Opts) ->
 %%
 %% Triggers the `emqx_resource_manager_sup` supervisor to actually create
 %% and link the process itself if not already started, and then immediately stops.
--spec create_dry_run(type(), resource_type(), resource_config()) ->
+-spec create_dry_run(resource_module(), resource_config()) ->
     ok | {error, Reason :: term()}.
-create_dry_run(Type, ResourceType, Config) ->
+create_dry_run(ResourceType, Config) ->
     ResId = make_test_id(),
-    create_dry_run(Type, ResId, ResourceType, Config).
+    create_dry_run(ResId, ResourceType, Config).
 
-create_dry_run(Type, ResId, ResourceType, Config) ->
-    create_dry_run(Type, ResId, ResourceType, Config, fun do_nothing_on_ready/1).
+create_dry_run(ResId, ResourceType, Config) ->
+    create_dry_run(ResId, ResourceType, Config, fun do_nothing_on_ready/1).
 
 do_nothing_on_ready(_ResId) ->
     ok.
 
--spec create_dry_run(type(), resource_id(), resource_type(), resource_config(), OnReadyCallback) ->
+-spec create_dry_run(
+    resource_id(), resource_module(), resource_config(), OnReadyCallback
+) ->
     ok | {error, Reason :: term()}
 when
     OnReadyCallback :: fun((resource_id()) -> ok | {error, Reason :: term()}).
-create_dry_run(Type, ResId, ResourceType, Config, OnReadyCallback) ->
+create_dry_run(ResId, ResourceType, Config, OnReadyCallback) ->
     Opts =
         case is_map(Config) of
             true -> maps:get(resource_opts, Config, #{});
             false -> #{}
         end,
     ok = emqx_resource_manager_sup:ensure_child(
-        Type, ResId, <<"dry_run">>, ResourceType, Config, Opts
+        ResId, <<"dry_run">>, ResourceType, Config, Opts
     ),
     HealthCheckInterval = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
     Timeout = emqx_utils:clamp(HealthCheckInterval, 5_000, 60_000),
@@ -495,7 +498,7 @@ try_clean_allocated_resources(ResId) ->
 %% Server start/stop callbacks
 
 %% @doc Function called from the supervisor to actually start the server
-start_link(Type, ResId, Group, ResourceType, Config, Opts) ->
+start_link(ResId, Group, ResourceType, Config, Opts) ->
     QueryMode = emqx_resource:query_mode(
         ResourceType,
         Config,
@@ -503,7 +506,7 @@ start_link(Type, ResId, Group, ResourceType, Config, Opts) ->
     ),
     Data = #data{
         id = ResId,
-        type = Type,
+        type = emqx_resource:get_resource_type(ResourceType),
         group = Group,
         mod = ResourceType,
         callback_mode = emqx_resource:get_callback_mode(ResourceType),

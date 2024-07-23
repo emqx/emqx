@@ -115,7 +115,6 @@ perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
         state := #{pool_name := PoolName} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
-        redis,
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
         ?REDIS_RESOURCE_MOD,

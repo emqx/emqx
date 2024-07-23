@@ -11,6 +11,7 @@
 %% `emqx_resource' API
 -export([
     on_remove_channel/3,
+    resource_type/0,
     callback_mode/0,
     on_add_channel/4,
     on_get_channel_status/3,
@@ -25,6 +26,7 @@
 %%========================================================================================
 %% `emqx_resource' API
 %%========================================================================================
+resource_type() -> emqx_mongodb:resource_type().
 
 callback_mode() -> emqx_mongodb:callback_mode().
 

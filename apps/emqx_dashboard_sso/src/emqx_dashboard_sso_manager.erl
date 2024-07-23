@@ -132,7 +132,6 @@ make_resource_id(Backend) ->
 
 create_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:create_local(
-        dashboard_sso,
         ResourceId,
         ?RESOURCE_GROUP,
         Module,
@@ -143,7 +142,7 @@ create_resource(ResourceId, Module, Config) ->
 
 update_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:recreate_local(
-        dashboard_sso, ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
+        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
     ),
     start_resource_if_enabled(ResourceId, Result, Config).
 

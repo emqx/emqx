@@ -56,12 +56,12 @@ description() ->
 
 create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ldap, ResourceId, emqx_ldap, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source),
     Annotations = new_annotations(#{id => ResourceId}, Source),
     Source#{annotations => Annotations}.
 
 update(Source) ->
-    case emqx_authz_utils:update_resource(ldap, emqx_ldap, Source) of
+    case emqx_authz_utils:update_resource(emqx_ldap, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

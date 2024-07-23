@@ -19,6 +19,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -140,6 +141,7 @@ connector_example_values() ->
 %%========================================================================================
 %% `emqx_resource' API
 %%========================================================================================
+resource_type() -> tdengine.
 
 callback_mode() -> always_sync.
 

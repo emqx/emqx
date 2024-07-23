@@ -67,7 +67,6 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
         state := #{pool_name := PoolName} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
-        mysql,
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
         ?MYSQL_RESOURCE_MOD,
