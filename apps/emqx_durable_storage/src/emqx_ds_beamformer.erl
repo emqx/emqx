@@ -53,6 +53,7 @@
     return_addr,
     %% Iterator:
     it,
+    matcher,
     opts,
     deadline
 }).
@@ -63,7 +64,7 @@
         node :: node(),
         return_addr :: return_addr(ItKey),
         it :: Iterator,
-        matcher :: match_messagef()
+        matcher :: match_messagef(),
         opts :: emqx_ds:poll_opts(),
         deadline :: integer()
     }.
@@ -140,7 +141,7 @@
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
-    {Stream, DSKey, Timestamp} = CBM:unpack_iterator(Shard, Iterator),
+    #{stream := Stream, last_seen_key := DSKey, timestamp := Timestamp, matcher := Matcher} = CBM:unpack_iterator(Shard, Iterator),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
     logger:debug(#{
         msg => poll, shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
@@ -159,7 +160,8 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         return_addr = ReturnAddr,
         it = Iterator,
         opts = Opts,
-        deadline = Deadline
+        deadline = Deadline,
+        matcher = Matcher
     },
     emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
     gen_server:call(Worker, Req, Timeout).
@@ -243,7 +245,6 @@ do_dispatch(Beam = #beam{}) ->
     %% organized in a fold-like fashion.
     lists:foreach(
         fun({{Alias, ItKey}, Result}) ->
-            logger:debug("Beam to ~p:~n~p -> ~p~n", [Alias, ItKey, Result]),
             Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result}
         end,
         split(Beam)
@@ -354,13 +355,12 @@ form_beams(S = #s{metrics_id = Metrics}, GetF, StartKey, EndKey, Messages) ->
         Messages
     ),
     Sharing = maps:fold(
-        fun(_Node, Its, Acc) ->
-            Acc + length(Its)
+        fun(_Node, Reqs, Acc) ->
+            Acc + length(Reqs)
         end,
         0,
         ItGroups
     ),
-    %% logger:warning("Sharing ~p: ~p", [Metrics, Sharing]),
     emqx_ds_builtin_metrics:observe_sharing(Metrics, Sharing),
     maps:map(
         fun(_Node, Its) ->
@@ -375,17 +375,17 @@ form_beams(S = #s{metrics_id = Metrics}, GetF, StartKey, EndKey, Messages) ->
     [{ItKey, Iterator}],
     stream_scan_return()
 ) -> beam(ItKey, Iterator).
-pack(S, NextKey, Iterators, Messages) ->
+pack(S, NextKey, Reqs, Messages) ->
     #s{module = CBM, shard = Shard} = S,
-    Matchers = [mk_message_matcher(S, It) || {_, It} <- Iterators],
+    Matchers = [I#poll_req.matcher || I <- Reqs],
     Pack = [{Key, mk_mask(Matchers, Msg), Msg} || {Key, Msg} <- Messages],
     UpdatedIterators =
         lists:map(
-            fun({ItKey, It0}) ->
+            fun(#poll_req{it = It0, return_addr = RAddr}) ->
                 {ok, It} = CBM:update_iterator(Shard, It0, NextKey),
-                {ItKey, It}
+                {RAddr, It}
             end,
-            Iterators
+            Reqs
         ),
     #beam{
         iterators = UpdatedIterators,
@@ -442,12 +442,11 @@ when
 update_consumers(GetF, MsgKey, Acc0) ->
     L = GetF(MsgKey),
     lists:foldl(
-        fun(#poll_req{node = Node, return_addr = ReturnAddr, it = It}, Acc) ->
-            Item = {ReturnAddr, It},
+        fun(Req = #poll_req{node = Node}, Acc) ->
             maps:update_with(
                 Node,
-                fun(Old) -> [Item | Old] end,
-                [Item],
+                fun(Old) -> [Req | Old] end,
+                [Req],
                 Acc
             )
         end,

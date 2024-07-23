@@ -45,7 +45,6 @@
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/4,
-    message_matcher/2,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -354,7 +353,7 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
         fun({ItKey, It = #{?tag := ?IT, ?shard := Shard}}) ->
             ShardId = {DB, Shard},
             ReturnAddr = {ReplyTo, ItKey},
-            catch emqx_ds_beamformer:poll(node(), ReturnAddr, ShardId, It, PollOpts)
+            emqx_ds_beamformer:poll(node(), ReturnAddr, ShardId, It, PollOpts)
         end,
         Iterators
     ),
