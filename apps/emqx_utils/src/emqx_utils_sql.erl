@@ -25,6 +25,7 @@
 -export([escape_sql/1]).
 -export([escape_cql/1]).
 -export([escape_mysql/1]).
+-export([escape_snowflake/1]).
 
 -export_type([value/0]).
 
@@ -167,6 +168,11 @@ escape_cql(S) ->
 escape_mysql(S0) ->
     % https://dev.mysql.com/doc/refman/8.0/en/string-literals.html
     [$', escape_mysql(S0, 0, 0, S0), $'].
+
+-spec escape_snowflake(binary()) -> iodata().
+escape_snowflake(S) ->
+    ES = binary:replace(S, <<"\"">>, <<"\"">>, [global, {insert_replaced, 1}]),
+    [$", ES, $"].
 
 %% NOTE
 %% This thing looks more complicated than needed because it's optimized for as few
