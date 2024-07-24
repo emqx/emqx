@@ -55,7 +55,7 @@ schema("/cluster/links") ->
             },
         post =>
             #{
-                description => "Create a cluster link configuration",
+                description => "Create a cluster link",
                 tags => ?TAGS,
                 'requestBody' => link_config_schema(),
                 responses =>
@@ -87,7 +87,7 @@ schema("/cluster/links/link/:name") ->
             },
         delete =>
             #{
-                description => "Delete a cluster link configuration",
+                description => "Delete a cluster link",
                 tags => ?TAGS,
                 parameters => [param_path_name()],
                 responses =>
