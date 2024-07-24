@@ -59,7 +59,7 @@ remove_msg_fwd_resources(LinksConf) ->
 create_metrics(LinksConf) ->
     lists:foreach(
         fun(#{name := ClusterName}) ->
-            ok = emqx_cluster_link:maybe_create_metrics(ClusterName)
+            ok = emqx_cluster_link_metrics:maybe_create_metrics(ClusterName)
         end,
         LinksConf
     ).

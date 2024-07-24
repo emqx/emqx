@@ -282,7 +282,7 @@ apply_operation(ActorID, Entry, MCounter, OpName, Lane) ->
     case MCounter band Marker of
         0 when OpName =:= add ->
             Res = mria:dirty_update_counter(?EXTROUTE_TAB, Entry, Marker),
-            _ = emqx_cluster_link:routes_inc(ClusterName, 1),
+            _ = emqx_cluster_link_metrics:routes_inc(ClusterName, 1),
             ?tp("cluster_link_extrouter_route_added", #{}),
             Res;
         Marker when OpName =:= add ->
@@ -293,7 +293,7 @@ apply_operation(ActorID, Entry, MCounter, OpName, Lane) ->
                 0 ->
                     Record = #extroute{entry = Entry, mcounter = 0},
                     ok = mria:dirty_delete_object(?EXTROUTE_TAB, Record),
-                    _ = emqx_cluster_link:routes_inc(ClusterName, -1),
+                    _ = emqx_cluster_link_metrics:routes_inc(ClusterName, -1),
                     ?tp("cluster_link_extrouter_route_deleted", #{}),
                     0;
                 C ->

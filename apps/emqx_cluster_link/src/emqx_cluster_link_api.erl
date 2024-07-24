@@ -227,7 +227,7 @@ handle_lookup(Name, Link) ->
     ?OK(add_status(Name, Link)).
 
 handle_metrics(Name) ->
-    case emqx_cluster_link:get_metrics(Name) of
+    case emqx_cluster_link_metrics:get_metrics(Name) of
         {error, BadResults} ->
             ?SLOG(warning, #{
                 msg => "cluster_link_api_metrics_bad_erpc_results",

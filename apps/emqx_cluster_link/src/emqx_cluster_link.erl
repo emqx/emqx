@@ -26,28 +26,10 @@
     on_message_publish/1
 ]).
 
-%% metrics API
--export([
-    maybe_create_metrics/1,
-    drop_metrics/1,
-
-    get_metrics/1,
-    routes_inc/2
-]).
-
 -include("emqx_cluster_link.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/logger.hrl").
-
-%%--------------------------------------------------------------------
-%% Type definitions
-%%--------------------------------------------------------------------
-
--define(METRICS, [
-    ?route_metric
-]).
--define(RATE_METRICS, []).
 
 %%--------------------------------------------------------------------
 %% emqx_external_broker API
@@ -149,32 +131,6 @@ put_hook() ->
 
 delete_hook() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish, []}).
-
-%%--------------------------------------------------------------------
-%% metrics API
-%%--------------------------------------------------------------------
-
-get_metrics(ClusterName) ->
-    Nodes = emqx:running_nodes(),
-    Timeout = 15_000,
-    Results = emqx_metrics_proto_v2:get_metrics(Nodes, ?METRIC_NAME, ClusterName, Timeout),
-    sequence_multicall_results(Nodes, Results).
-
-maybe_create_metrics(ClusterName) ->
-    case emqx_metrics_worker:has_metrics(?METRIC_NAME, ClusterName) of
-        true ->
-            ok = emqx_metrics_worker:reset_metrics(?METRIC_NAME, ClusterName);
-        false ->
-            ok = emqx_metrics_worker:create_metrics(
-                ?METRIC_NAME, ClusterName, ?METRICS, ?RATE_METRICS
-            )
-    end.
-
-drop_metrics(ClusterName) ->
-    ok = emqx_metrics_worker:clear_metrics(?METRIC_NAME, ClusterName).
-
-routes_inc(ClusterName, Val) ->
-    catch emqx_metrics_worker:inc(?METRIC_NAME, ClusterName, ?route_metric, Val).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -297,16 +253,3 @@ maybe_filter_incomming_msg(#message{topic = T} = Msg, ClusterName) ->
         true -> with_sender_name(Msg, ClusterName);
         false -> []
     end.
-
--spec sequence_multicall_results([node()], emqx_rpc:erpc_multicall(term())) ->
-    {ok, [{node(), term()}]} | {error, [term()]}.
-sequence_multicall_results(Nodes, Results) ->
-    case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
-        {OkResults, []} ->
-            {ok, [{Node, Res} || {Node, {ok, Res}} <- OkResults]};
-        {_OkResults, BadResults} ->
-            {error, BadResults}
-    end.
-
-is_ok({_Node, {ok, _}}) -> true;
-is_ok(_) -> false.
