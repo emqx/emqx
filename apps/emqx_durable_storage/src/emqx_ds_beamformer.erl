@@ -42,6 +42,8 @@
 
 %% Request:
 
+-type match_messagef() :: fun((emqx_ds:message_key(), emqx_types:message()) -> boolean()).
+
 -type return_addr(ItKey) :: {reference(), ItKey}.
 
 -record(poll_req, {
@@ -84,7 +86,6 @@
         misc :: #{}
     }.
 
--type match_messagef() :: fun((emqx_types:message()) -> boolean()).
 
 -type get_iterators_for_keyf(ItKey, Iterator) :: fun(
     (emqx_ds:message_key()) -> [poll_req(ItKey, Iterator)]
@@ -455,11 +456,11 @@ mk_mask(Reqs, Elem) ->
 
 mk_mask([], _Elem, Acc) ->
     Acc;
-mk_mask([#poll_req{matcher = Matcher} | Rest], {_Key, Message} = Elem, Acc) ->
+mk_mask([#poll_req{matcher = Matcher} | Rest], {Key, Message} = Elem, Acc) ->
     %% FIXME: here we make an implicit assumption that keys form a
     %% monotonic sequence. This should be up to the backend to decide.
     Val =
-        case Matcher(Message) of
+        case Matcher(Key, Message) of
             true -> 1;
             false -> 0
         end,
@@ -471,7 +472,7 @@ filter_candidates(Reqs, Batch) ->
 filter_candidates([], _, Acc) ->
     Acc;
 filter_candidates([Req = #poll_req{matcher = Matcher} | Rest], Messages, {MatchAcc, NoMatchAcc}) ->
-    case lists:any(fun({_MsgKey, Msg}) -> Matcher(Msg) end, Messages) of
+    case lists:any(fun({MsgKey, Msg}) -> Matcher(MsgKey, Msg) end, Messages) of
         true ->
             filter_candidates(
                 Rest,

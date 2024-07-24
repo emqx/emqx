@@ -266,17 +266,22 @@ make_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, TopicF
         compressed_tf = emqx_topic:join(CompressedTF)
     }}.
 
-message_matcher(_Shard, #s{trie = Trie}, #it{compressed_tf = CompressedTF, static_index = StaticIdx}) ->
+message_matcher(_Shard, #s{trie = Trie}, #it{compressed_tf = CompressedTF, static_index = StaticIdx, ts = LastSeenTS}) ->
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     TF = emqx_ds_lts:decompress_topic(TopicStructure, words(CompressedTF)),
-    fun(#message{topic = Topic}) ->
-        emqx_topic:match(words(Topic), TF)
+    fun(MsgKey, #message{topic = Topic}) ->
+        case match_ds_key(StaticIdx, MsgKey) of
+            false ->
+                false;
+            TS ->
+                TS > LastSeenTS andalso emqx_topic:match(words(Topic), TF)
+        end
     end.
 
 make_wildcard_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, StartKey) ->
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     CompressedTF = lists:filter(fun(Level) -> Level =:= '+' end, TopicStructure),
-    StartTime = match_key(StaticIdx, 0, <<>>, StartKey),
+    StartTime = match_ds_key(StaticIdx, StartKey),
     {ok, #it{
         static_index = StaticIdx,
         ts = StartTime,
