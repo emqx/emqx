@@ -24,7 +24,7 @@
 
 -define(MOD_TAB, emqx_dashboard_sso).
 -define(MOD_KEY_PATH, [dashboard, sso, ldap]).
--define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
+-define(RESOURCE_GROUP, <<"dashboard_sso">>).
 
 -import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1, request_api/3]).
 

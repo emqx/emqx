@@ -30,6 +30,6 @@
 
 -type authenticator_id() :: binary().
 
--define(AUTHN_RESOURCE_GROUP, <<"emqx_authn">>).
+-define(AUTHN_RESOURCE_GROUP, <<"authn">>).
 
 -endif.

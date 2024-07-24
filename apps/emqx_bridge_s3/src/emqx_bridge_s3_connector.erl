@@ -13,6 +13,7 @@
 
 -behaviour(emqx_resource).
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -92,6 +93,8 @@
 -define(AGGREG_SUP, emqx_bridge_s3_sup).
 
 %%
+-spec resource_type() -> resource_type().
+resource_type() -> s3.
 
 -spec callback_mode() -> callback_mode().
 callback_mode() ->

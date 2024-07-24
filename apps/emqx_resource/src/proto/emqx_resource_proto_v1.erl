@@ -40,7 +40,7 @@ deprecated_since() ->
 -spec create(
     resource_id(),
     resource_group(),
-    resource_type(),
+    resource_module(),
     resource_config(),
     creation_opts()
 ) ->
@@ -51,7 +51,7 @@ create(ResId, Group, ResourceType, Config, Opts) ->
     ]).
 
 -spec create_dry_run(
-    resource_type(),
+    resource_module(),
     resource_config()
 ) ->
     ok | {error, Reason :: term()}.
@@ -60,7 +60,7 @@ create_dry_run(ResourceType, Config) ->
 
 -spec recreate(
     resource_id(),
-    resource_type(),
+    resource_module(),
     resource_config(),
     creation_opts()
 ) ->

@@ -18,6 +18,7 @@
 -include("../../emqx_bridge/include/emqx_bridge_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("emqx_connector.hrl").
 
 -export([
     connector_to_resource_type/1,
@@ -126,7 +127,7 @@ create(Type, Name, Conf0, Opts) ->
     Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
     {ok, _Data} = emqx_resource:create_local(
         ResourceId,
-        <<"emqx_connector">>,
+        ?CONNECTOR_RESOURCE_GROUP,
         ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
@@ -208,7 +209,7 @@ create_dry_run(Type, Conf) ->
     create_dry_run(Type, Conf, fun(_) -> ok end).
 
 create_dry_run(Type, Conf0, Callback) ->
-    %% Already typechecked, no need to catch errors
+    %% Already type checked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     %% We use a fixed name here to avoid creating an atom

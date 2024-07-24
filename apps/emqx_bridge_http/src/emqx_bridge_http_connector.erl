@@ -26,6 +26,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -183,6 +184,7 @@ sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 %% ===================================================================
+resource_type() -> webhook.
 
 callback_mode() -> async_if_possible.
 
