@@ -28,6 +28,7 @@
 -export_type([t/0]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("emqx_mqtt.hrl").
 -include("session_internals.hrl").
@@ -159,6 +160,7 @@ on_reply(
 ) ->
     case maps:take(StreamKey, Pending0) of
         {#pending_poll{ref = Ref, it_begin = ItBegin}, Pending} ->
+            ?tp(debug, sess_poll_reply, #{ref => Ref, stream_key => StreamKey}),
             SchedS = SchedS0#s{pending = Pending},
             {{StreamKey, ItBegin, Payload}, SchedS};
         _ ->

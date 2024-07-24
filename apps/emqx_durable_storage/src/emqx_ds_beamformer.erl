@@ -45,7 +45,6 @@
 -type return_addr(ItKey) :: {reference(), ItKey}.
 
 -record(poll_req, {
-    %% Key can be anything, optimized for whatever lookups are needed.
     key,
     %% Node from where the poll request originates:
     node,
@@ -60,7 +59,7 @@
 
 -type poll_req(ItKey, Iterator) ::
     #poll_req{
-        key :: term(),
+        key :: {_Stream, emqx_ds:message_key()},
         node :: node(),
         return_addr :: return_addr(ItKey),
         it :: Iterator,
@@ -219,7 +218,7 @@ handle_info(cleanup, S0) ->
     erlang:send_after(1000, self(), cleanup),
     {noreply, S};
 handle_info(doit, S0) ->
-    S = fulfill_pending(S0, 10),
+    S = fulfill_pending(S0, 100),
     erlang:send_after(10, self(), doit),
     {noreply, S};
 handle_info(_Info, S) ->
@@ -271,11 +270,12 @@ do_cleanup(Metrics, Tab) ->
 fulfill_pending(S, 0) ->
     S;
 fulfill_pending(S = #s{new_requests = PendingTab}, N) ->
+    %% debug_pending(S),
     case ets:first(PendingTab) of
         '$end_of_table' ->
             S;
-        {Stream, StartKey} ->
-            %% StartKey = oldest_key_for_stream(PendingTab, Stream),
+        {Stream, _StartKey} ->
+            StartKey = oldest_key_for_stream(PendingTab, Stream),
             logger:debug("Fulfilling ~p ~p", [Stream, StartKey]),
             %% The function MUST destructively consume all requests
             %% matching stream and MsgKey to avoid infinite loop:
@@ -299,6 +299,7 @@ maybe_fulfill_waiting(
     S = #s{waiting_requests = WaitingTab, module = CBM, shard = Shard},
     [Stream | Rest]
 ) ->
+    %% debug_waiting(Stream, S),
     case oldest_key_for_stream(WaitingTab, Stream) of
         undefined ->
             maybe_fulfill_waiting(S, Rest);
@@ -315,7 +316,7 @@ maybe_fulfill_waiting(
 
 oldest_key_for_stream(Tab, Stream) ->
     MS = {#poll_req{_ = '_', key = {Stream, '$1'}}, [], ['$1']},
-    case ets:select(Tab, [MS], 100) of
+    case ets:select(Tab, [MS], 10) of
         '$end_of_table' ->
             undefined;
         {Keys, _Cont} ->
@@ -375,6 +376,14 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
     Sharing = length(MatchReqs),
     emqx_ds_builtin_metrics:observe_sharing(Metrics, Sharing),
     %% Move unmatched requests to `ToTab':
+    %% logger:warning(#{
+    %%     batch => length(Batch),
+    %%     cand0 => length(Candidates0),
+    %%     cand => length(Candidates),
+    %%     match => length(MatchReqs),
+    %%     nomatch => length(NoMatchReqs),
+    %%     '_iswait' => FromTab =:= ToTab
+    %% }),
     ets:insert(ToTab, NoMatchReqs),
     %% Split matched requests by node:
     ReqsByNode =
@@ -404,10 +413,9 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
     [{ItKey, Iterator}],
     stream_scan_return()
 ) -> beam(ItKey, Iterator).
-pack(S, NextKey, Reqs, Messages) ->
+pack(S, NextKey, Reqs, Batch) ->
     #s{module = CBM, shard = Shard} = S,
-    Matchers = [I#poll_req.matcher || I <- Reqs],
-    Pack = [{Key, mk_mask(Matchers, Msg), Msg} || {Key, Msg} <- Messages],
+    Pack = [{Key, mk_mask(Reqs, Elem), Msg} || Elem = {Key, Msg} <- Batch],
     UpdatedIterators =
         lists:map(
             fun(#poll_req{it = It0, return_addr = RAddr}) ->
@@ -442,18 +450,20 @@ is_member(N, Mask) ->
     <<_:N, Val:1, _/bitstring>> = Mask,
     Val =:= 1.
 
-mk_mask(Matchers, Message) ->
-    mk_mask(Matchers, Message, <<>>).
+mk_mask(Reqs, Elem) ->
+    mk_mask(Reqs, Elem, <<>>).
 
-mk_mask([], _Message, Acc) ->
+mk_mask([], _Elem, Acc) ->
     Acc;
-mk_mask([Matcher | Rest], Message, Acc) ->
+mk_mask([#poll_req{matcher = Matcher} | Rest], {_Key, Message} = Elem, Acc) ->
+    %% FIXME: here we make an implicit assumption that keys form a
+    %% monotonic sequence. This should be up to the backend to decide.
     Val =
         case Matcher(Message) of
             true -> 1;
             false -> 0
         end,
-    mk_mask(Rest, Message, <<Acc/bitstring, Val:1>>).
+    mk_mask(Rest, Elem, <<Acc/bitstring, Val:1>>).
 
 filter_candidates(Reqs, Batch) ->
     filter_candidates(Reqs, Batch, {[], []}).
@@ -488,6 +498,20 @@ dispatch_beams(Beams) ->
 
 shard_metrics_id({DB, Shard}) ->
     emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).
+
+-compile({nowarn_unused_function, debug_pending/1}).
+debug_pending(#s{shard = Shard, new_requests = PendingTab}) ->
+    case ets:tab2list(PendingTab) of
+        [] -> ok;
+        L -> logger:warning("Fulfill pending ~p: ~p", [Shard, L])
+    end.
+
+-compile({nowarn_unused_function, debug_waiting/2}).
+debug_waiting(Stream, #s{shard = Shard, waiting_requests = WaitingTab}) ->
+    case ets:tab2list(WaitingTab) of
+        [] -> ok;
+        L -> logger:warning("Fulfill waiting ~p/~p: ~p", [Shard, Stream, L])
+    end.
 
 %%================================================================================
 %% Tests

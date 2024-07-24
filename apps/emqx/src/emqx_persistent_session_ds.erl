@@ -644,15 +644,17 @@ deliver(ClientInfo, Delivers, Session0) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(_ClientInfo, ?TIMER_PULL, Session0) ->
     %% Pull circuit loop:
+    ?tp(debug, sessds_pull, #{}),
     Session1 = Session0#{?TIMER_PULL := undefined},
     case drain_buffer(Session1) of
         {[], Session} ->
-            {ok, [], Session};
+            {ok, [], push_now(Session)};
         {Publishes, Session} ->
             {ok, Publishes, push_now(Session)}
     end;
 handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
     %% Push circuit loop:
+    ?tp(debug, sessds_push, #{}),
     Session1 = Session0#{?TIMER_PUSH := undefined},
     #{s := S, stream_scheduler_s := SchedS0, inflight := Inflight, replay := Replay} = Session0,
     BatchSize = get_config(ClientInfo, [batch_size]),
@@ -670,6 +672,7 @@ handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], Session};
 handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0, shared_sub_s := SharedSubS0}) ->
+    ?tp(debug, sessds_renew_streams, #{}),
     %% `gc` and `renew_streams` methods may drop unsubscribed streams.
     %% Shared subscription handler must have a chance to see unsubscribed streams
     %% in the fully replayed state.
@@ -713,7 +716,7 @@ handle_info(
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
     Session#{s := S, shared_sub_s := SharedSubS};
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
-    pull_now(push_now(handle_ds_reply(AsyncReply, Session, ClientInfo)));
+    push_now(handle_ds_reply(AsyncReply, Session, ClientInfo));
 handle_info(Msg, Session, _ClientInfo) ->
     ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
     Session.
