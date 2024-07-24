@@ -40,6 +40,7 @@
 
 -export([
     publish/1,
+    route_to_subs/1,
     safe_publish/1
 ]).
 
@@ -228,7 +229,7 @@ do_unsubscribe2(#share{group = Group, topic = Topic}, SubPid, _SubOpts) when
 %%--------------------------------------------------------------------
 
 -spec publish(emqx_types:message()) -> emqx_types:publish_result().
-publish(Msg) when is_record(Msg, message) ->
+publish(#message{} = Msg) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
@@ -261,6 +262,11 @@ do_publish(#message{topic = Topic} = Msg) ->
     Delivery = delivery(Msg),
     RouteRes = route(Routes, Delivery, PersistRes),
     do_forward_external(Delivery, RouteRes).
+
+%% @doc Direly route to subscribers. By-passing 'message.publish' hook point.
+%% NOTE: This is only intended for internal message re-publish.
+route_to_subs(Msg) ->
+    do_publish(Msg).
 
 persist_publish(Msg) ->
     case emqx_persistent_message:persist(Msg) of
