@@ -244,6 +244,9 @@
     QueryResult :: term()
 ) -> term().
 
+%% Used for tagging log entries.
+-callback resource_type() -> atom().
+
 -define(SAFE_CALL(EXPR),
     (fun() ->
         try
