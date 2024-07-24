@@ -104,7 +104,8 @@
     shard,
     name,
     new_requests :: ets:tid(),
-    waiting_requests :: ets:tid()
+    waiting_requests :: ets:tid(),
+    is_looping = false :: boolean()
 }).
 
 -type s() :: #s{}.
@@ -119,6 +120,8 @@
     timestamp := emqx_ds:timestamp_us(),
     matcher := match_messagef()
 }.
+
+-define(fulfill_loop, fulfill_loop).
 
 %%================================================================================
 %% Callbacks
@@ -197,14 +200,13 @@ init([CBM, ShardId, Name]) ->
         waiting_requests = WaitingTab
     },
     %% FIXME:
-    self() ! doit,
     self() ! cleanup,
     {ok, S}.
 
 handle_call(Req = #poll_req{}, _From, S) ->
     %% TODO: drop requests past deadline immediately.
     ets:insert(S#s.new_requests, Req),
-    {reply, ok, S};
+    {reply, ok, start_fulfill_loop(S)};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -218,9 +220,9 @@ handle_info(cleanup, S0) ->
     S = cleanup(S0),
     erlang:send_after(1000, self(), cleanup),
     {noreply, S};
-handle_info(doit, S0) ->
-    S = fulfill_pending(S0, 10),
-    erlang:send_after(10, self(), doit),
+handle_info(?fulfill_loop, S0) ->
+    S1 = S0#s{is_looping = false},
+    S = fulfill_pending(S1),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
@@ -256,6 +258,12 @@ do_dispatch(Beam = #beam{}) ->
 %% Internal functions
 %%================================================================================
 
+start_fulfill_loop(S = #s{is_looping = true}) ->
+    S;
+start_fulfill_loop(S = #s{is_looping = false}) ->
+    self() ! ?fulfill_loop,
+    S#s{is_looping = true}.
+
 cleanup(S = #s{new_requests = PendingTab, waiting_requests = WaitingTab, metrics_id = Metrics}) ->
     do_cleanup(Metrics, PendingTab),
     do_cleanup(Metrics, WaitingTab),
@@ -268,9 +276,7 @@ do_cleanup(Metrics, Tab) ->
     NDeleted = ets:select_delete(Tab, [MS]),
     emqx_ds_builtin_metrics:inc_poll_requests_timeout(Metrics, NDeleted).
 
-fulfill_pending(S, 0) ->
-    S;
-fulfill_pending(S = #s{new_requests = PendingTab}, N) ->
+fulfill_pending(S = #s{new_requests = PendingTab}) ->
     %% debug_pending(S),
     case ets:first(PendingTab) of
         '$end_of_table' ->
@@ -281,7 +287,7 @@ fulfill_pending(S = #s{new_requests = PendingTab}, N) ->
             %% The function MUST destructively consume all requests
             %% matching stream and MsgKey to avoid infinite loop:
             do_fulfill_pending(S, Stream, StartKey),
-            fulfill_pending(S, N - 1)
+            start_fulfill_loop(S)
     end.
 
 do_fulfill_pending(
