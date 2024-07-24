@@ -266,7 +266,9 @@ make_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, TopicF
         compressed_tf = emqx_topic:join(CompressedTF)
     }}.
 
-message_matcher(_Shard, #s{trie = Trie}, #it{compressed_tf = CompressedTF, static_index = StaticIdx, ts = LastSeenTS}) ->
+message_matcher(_Shard, #s{trie = Trie}, #it{
+    compressed_tf = CompressedTF, static_index = StaticIdx, ts = LastSeenTS
+}) ->
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     TF = emqx_ds_lts:decompress_topic(TopicStructure, words(CompressedTF)),
     fun(MsgKey, #message{topic = Topic}) ->

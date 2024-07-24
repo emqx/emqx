@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,6 +13,43 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+
+%% @doc This process is responsible for serving async poll requests
+%% from the consumers.
+%%
+%% It serves as a pool for such requests, limiting the number of
+%% queries running in parallel. Additionally, it tries to group
+%% "coherent" poll requests together, so they can be served as a group
+%% ("coherent beam").
+%%
+%% Here, by "coherent" we mean requests to scan overlapping key ranges
+%% of a DS stream. Grouping requests helps to limit the number of
+%% storage queries and conserve throughput of the EMQX backplane
+%% network.
+%%
+%% Beamformer works as following:
+%%
+%% - Initially, requests are added to the "pending" queue.
+%%
+%% - Beamformer process spins in a "fulfill loop" that takes requests
+%% from the pending queue one at a time, and tries to fulfill them
+%% normally by quering the storage.
+%%
+%% - If storage returns a non-empty batch, beamformer then searches
+%% for pending poll requests that may be coherent with the current
+%% one. All matching requests are then packed into "beams" (one per
+%% destination node) and sent out accodingly.
+%%
+%% - If the query returns an empty batch, beamformer moves the request
+%% to the "wait" queue. Poll requests just linger there until they
+%% time out, or until beamformer receives a matching stream event from
+%% the storage.
+%%
+%% Storage event processing logic is following: if beamformer finds
+%% waiting poll requests matching the event, it queries the storage
+%% for a batch of data. If batch is non-empty, requests are served
+%% exactly as described above. If batch is empty again, request is
+%% moved back to the wait queue.
 -module(emqx_ds_beamformer).
 
 -behaviour(gen_server).
@@ -28,6 +65,7 @@
 
 -export_type([opts/0, beam/2, beam/0, return_addr/1, unpack_iterator_result/1]).
 
+-include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include("emqx_ds.hrl").
@@ -41,9 +79,9 @@
 %%================================================================================
 
 -type opts() :: #{
-                  n_workers := non_neg_integer(),
-                  pending_request_limit => non_neg_integer()
-                 }.
+    n_workers := non_neg_integer(),
+    pending_request_limit => non_neg_integer()
+}.
 
 %% Request:
 
@@ -59,7 +97,7 @@
     return_addr,
     %% Iterator:
     it,
-    matcher,
+    msg_matcher,
     opts,
     deadline
 }).
@@ -70,7 +108,7 @@
         node :: node(),
         return_addr :: return_addr(ItKey),
         it :: Iterator,
-        matcher :: match_messagef(),
+        msg_matcher :: match_messagef(),
         opts :: emqx_ds:poll_opts(),
         deadline :: integer()
     }.
@@ -91,7 +129,6 @@
         misc :: #{}
     }.
 
-
 -type get_iterators_for_keyf(ItKey, Iterator) :: fun(
     (emqx_ds:message_key()) -> [poll_req(ItKey, Iterator)]
 ).
@@ -108,10 +145,10 @@
     metrics_id,
     shard,
     name,
-    new_requests :: ets:tid(),
+    pending_queue :: ets:tid(),
     pending_request_limit :: non_neg_integer(),
-    waiting_requests :: ets:tid(),
-    is_looping = false :: boolean()
+    wait_queue :: ets:tid(),
+    is_spinning = false :: boolean()
 }).
 
 -type s() :: #s{}.
@@ -173,13 +210,13 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         it = Iterator,
         opts = Opts,
         deadline = Deadline,
-        matcher = Matcher
+        msg_matcher = Matcher
     },
     emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
     %% Currently we implement pushback by ignoring transient errors
     %% (gen_server timeouts, `too_many_requests'), and just letting
-    %% the poll request expire at the higher level. This will hold
-    %% back the caller from hammering us.
+    %% poll requests expire at the higher level. This should hold back
+    %% the caller.
     try gen_server:call(Worker, Req, Timeout) of
         ok -> ok;
         {error, recoverable, too_many_requests} -> ok
@@ -187,7 +224,6 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         exit:timeout ->
             ok
     end.
-
 
 shard_event(Shard, Streams) ->
     Workers = gproc_pool:active_workers(emqx_ds_beamformer_sup:pool(Shard)),
@@ -207,29 +243,28 @@ init([CBM, ShardId, Name, Opts]) ->
     Pool = emqx_ds_beamformer_sup:pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
-    NewTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
+    PendingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
     WaitingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
     S = #s{
         module = CBM,
         shard = ShardId,
         metrics_id = shard_metrics_id(ShardId),
         name = Name,
-        new_requests = NewTab,
-        waiting_requests = WaitingTab,
+        pending_queue = PendingTab,
+        wait_queue = WaitingTab,
         pending_request_limit = maps:get(pending_request_limit, Opts, 10_000)
     },
-    %% FIXME:
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #poll_req{}, _From, S = #s{new_requests = PendingTab}) ->
+handle_call(Req = #poll_req{}, _From, S = #s{pending_queue = PendingTab}) ->
     %% TODO: drop requests past deadline immediately.
     case ets:info(PendingTab, size) >= S#s.pending_request_limit of
         true ->
             Err = {error, recoverable, too_many_requests},
             {reply, Err, S};
         false ->
-            ets:insert(S#s.new_requests, Req),
+            ets:insert(S#s.pending_queue, Req),
             {reply, ok, start_fulfill_loop(S)}
     end;
 handle_call(_Call, _From, S) ->
@@ -242,7 +277,7 @@ handle_info(#shard_event{updated_streams = Streams}, S) ->
     logger:debug("Stream event ~p", [Streams]),
     {noreply, maybe_fulfill_waiting(S, Streams)};
 handle_info(?fulfill_loop, S0) ->
-    S1 = S0#s{is_looping = false},
+    S1 = S0#s{is_spinning = false},
     S = fulfill_pending(S1),
     {noreply, S};
 handle_info(?housekeeping_loop, S0) ->
@@ -283,13 +318,13 @@ do_dispatch(Beam = #beam{}) ->
 %% Internal functions
 %%================================================================================
 
-start_fulfill_loop(S = #s{is_looping = true}) ->
+start_fulfill_loop(S = #s{is_spinning = true}) ->
     S;
-start_fulfill_loop(S = #s{is_looping = false}) ->
+start_fulfill_loop(S = #s{is_spinning = false}) ->
     self() ! ?fulfill_loop,
-    S#s{is_looping = true}.
+    S#s{is_spinning = true}.
 
-cleanup(S = #s{new_requests = PendingTab, waiting_requests = WaitingTab, metrics_id = Metrics}) ->
+cleanup(S = #s{pending_queue = PendingTab, wait_queue = WaitingTab, metrics_id = Metrics}) ->
     do_cleanup(Metrics, PendingTab),
     do_cleanup(Metrics, WaitingTab),
     %% erlang:garbage_collect(),
@@ -301,7 +336,7 @@ do_cleanup(Metrics, Tab) ->
     NDeleted = ets:select_delete(Tab, [MS]),
     emqx_ds_builtin_metrics:inc_poll_requests_timeout(Metrics, NDeleted).
 
-fulfill_pending(S = #s{new_requests = PendingTab}) ->
+fulfill_pending(S = #s{pending_queue = PendingTab}) ->
     %% debug_pending(S),
     case ets:first(PendingTab) of
         '$end_of_table' ->
@@ -316,19 +351,19 @@ fulfill_pending(S = #s{new_requests = PendingTab}) ->
     end.
 
 do_fulfill_pending(
-    S = #s{shard = Shard, module = CBM, new_requests = PendingTab, waiting_requests = WaitingTab},
+    S = #s{shard = Shard, module = CBM, pending_queue = PendingTab, wait_queue = WaitingTab},
     Stream,
     StartKey
 ) ->
     case CBM:scan_stream(Shard, Stream, StartKey, 100) of
         {ok, EndKey, Batch} ->
-            dispatch_beams(form_beams(S, PendingTab, WaitingTab, Stream, StartKey, EndKey, Batch))
+            form_beams(S, PendingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
     end.
 
 maybe_fulfill_waiting(S, []) ->
     S;
 maybe_fulfill_waiting(
-    S = #s{waiting_requests = WaitingTab, module = CBM, shard = Shard},
+    S = #s{wait_queue = WaitingTab, module = CBM, shard = Shard},
     [Stream | Rest]
 ) ->
     %% debug_waiting(Stream, S),
@@ -339,9 +374,7 @@ maybe_fulfill_waiting(
             %% logger:warning("Waiting keys ~p", [WaitingKeys]),
             case CBM:scan_stream(Shard, Stream, StartKey, 1000) of
                 {ok, EndKey, Batch} ->
-                    dispatch_beams(
-                        form_beams(S, WaitingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
-                    )
+                    form_beams(S, WaitingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
             end,
             maybe_fulfill_waiting(S, Rest)
     end.
@@ -355,12 +388,7 @@ oldest_key_for_stream(Tab, Stream) ->
             lists:min(Keys)
     end.
 
--spec req_getter(ets:tid(), _Stream) -> get_iterators_for_keyf(_ItKey, _It).
-req_getter(Tab, Stream) ->
-    fun(MsgKey) ->
-        ets:take(Tab, {Stream, MsgKey})
-    end.
-
+%% @doc Split beam into individual batches
 -spec split(beam(ItKey, Iterator)) -> [{ItKey, emqx_ds:next_result(Iterator)}].
 split(#beam{iterators = Its, pack = end_of_stream}) ->
     [{ItKey, {ok, end_of_stream}} || {ItKey, _Iter} <- Its];
@@ -389,12 +417,14 @@ split(#beam{iterators = Its, pack = Pack}) ->
 ) ->
     #{node() => beam(_ItKey, _Iterator)}.
 form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKey, Batch) ->
+    GetF = fun(MsgKey) ->
+                   ets:take(FromTab, {Stream, MsgKey})
+           end,
     %% Find iterators that match the start message of the batch (to
     %% handle iterators freshly created by `emqx_ds:make_iterator'):
-    GetF = req_getter(FromTab, Stream),
-    %% Add iterators with `last_seen_key' equal to any message in the
-    %% batch (fixme: in such cases we need to skip first message?):
     Candidates0 = GetF(StartKey),
+    %% Search for iterators where `last_seen_key' is equal to key of
+    %% any message in the batch:
     Candidates = lists:foldl(
         fun({Key, _Msg}, Acc) ->
             GetF(Key) ++ Acc
@@ -402,12 +432,13 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
         Candidates0,
         Batch
     ),
-    %% Find what poll requests actually have data in the batch:
+    %% Find what poll requests _actually_ have data in the batch. We
+    %% should avoid sending empty batches to the consumers, so they
+    %% don't come back immediately:
     {MatchReqs, NoMatchReqs} = filter_candidates(Candidates, Batch),
     %% Report "beam coherence" metric:
     Sharing = length(MatchReqs),
     emqx_ds_builtin_metrics:observe_sharing(Metrics, Sharing),
-    %% Move unmatched requests to `ToTab':
     %% logger:warning(#{
     %%     batch => length(Batch),
     %%     cand0 => length(Candidates0),
@@ -416,6 +447,8 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
     %%     nomatch => length(NoMatchReqs),
     %%     '_iswait' => FromTab =:= ToTab
     %% }),
+
+    %% Move unmatched requests to `ToTab':
     ets:insert(ToTab, NoMatchReqs),
     %% Split matched requests by node:
     ReqsByNode =
@@ -431,10 +464,11 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
             #{},
             MatchReqs
         ),
-    %% Pack requests into beams:
-    maps:map(
-        fun(_Node, Reqs) ->
-            pack(S, EndKey, Reqs, Batch)
+    %% Pack requests into beams and serve them:
+    maps:foreach(
+        fun(Node, Reqs) ->
+            Beam = pack(S, EndKey, Reqs, Batch),
+            send_out(Node, Beam)
         end,
         ReqsByNode
     ).
@@ -487,7 +521,7 @@ mk_mask(Reqs, Elem) ->
 
 mk_mask([], _Elem, Acc) ->
     Acc;
-mk_mask([#poll_req{matcher = Matcher} | Rest], {Key, Message} = Elem, Acc) ->
+mk_mask([#poll_req{msg_matcher = Matcher} | Rest], {Key, Message} = Elem, Acc) ->
     %% FIXME: here we make an implicit assumption that keys form a
     %% monotonic sequence. This should be up to the backend to decide.
     Val =
@@ -502,7 +536,7 @@ filter_candidates(Reqs, Batch) ->
 
 filter_candidates([], _, Acc) ->
     Acc;
-filter_candidates([Req = #poll_req{matcher = Matcher} | Rest], Messages, {MatchAcc, NoMatchAcc}) ->
+filter_candidates([Req = #poll_req{msg_matcher = Matcher} | Rest], Messages, {MatchAcc, NoMatchAcc}) ->
     case lists:any(fun({MsgKey, Msg}) -> Matcher(MsgKey, Msg) end, Messages) of
         true ->
             filter_candidates(
@@ -518,28 +552,28 @@ filter_candidates([Req = #poll_req{matcher = Matcher} | Rest], Messages, {MatchA
             )
     end.
 
-dispatch_beams(Beams) ->
-    logger:debug("Beams: ~p~n", [Beams]),
-    maps:foreach(
-        fun(_Node, Beam) ->
-            do_dispatch(Beam)
-        %% emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
-        end,
-        Beams
-    ).
+send_out(Node, Beam) ->
+    ?tp(debug, beamformer_out, #{
+        dest_node => Node,
+        beam => Beam
+    }),
+    %% FIXME:
+    %% emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
+    do_dispatch(Beam),
+    ok.
 
 shard_metrics_id({DB, Shard}) ->
     emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).
 
 -compile({nowarn_unused_function, debug_pending/1}).
-debug_pending(#s{shard = Shard, new_requests = PendingTab}) ->
+debug_pending(#s{shard = Shard, pending_queue = PendingTab}) ->
     case ets:tab2list(PendingTab) of
         [] -> ok;
         L -> logger:warning("Fulfill pending ~p: ~p", [Shard, L])
     end.
 
 -compile({nowarn_unused_function, debug_waiting/2}).
-debug_waiting(Stream, #s{shard = Shard, waiting_requests = WaitingTab}) ->
+debug_waiting(Stream, #s{shard = Shard, wait_queue = WaitingTab}) ->
     case ets:tab2list(WaitingTab) of
         [] -> ok;
         L -> logger:warning("Fulfill waiting ~p/~p: ~p", [Shard, Stream, L])

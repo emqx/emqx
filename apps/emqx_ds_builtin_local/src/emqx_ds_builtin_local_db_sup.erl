@@ -210,15 +210,18 @@ shard_buffer_spec(DB, Shard, Options) ->
     }.
 
 shard_beamformers_spec(DB, Shard, _Options) ->
-    BeamformerOpts = #{ n_workers => 1,
-                        pending_request_limit => 30_000
-                      },
+    BeamformerOpts = #{
+        n_workers => 1,
+        pending_request_limit => 30_000
+    },
     #{
         id => {Shard, beamformers},
         type => supervisor,
         shutdown => infinity,
         start =>
-            {emqx_ds_beamformer_sup, start_link, [emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts]}
+            {emqx_ds_beamformer_sup, start_link, [
+                emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
+            ]}
     }.
 
 ensure_started(Res) ->
