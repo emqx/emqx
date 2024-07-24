@@ -303,23 +303,27 @@ t_crud(_Config) ->
 t_status(Config) ->
     [SN1 | _] = ?config(source_nodes, Config),
     Name = <<"cl.target">>,
-    ?assertMatch(
-        {200, [
-            #{
-                <<"status">> := <<"connected">>,
-                <<"node_status">> := [
-                    #{
-                        <<"node">> := _,
-                        <<"status">> := <<"connected">>
-                    },
-                    #{
-                        <<"node">> := _,
-                        <<"status">> := <<"connected">>
-                    }
-                ]
-            }
-        ]},
-        list()
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {200, [
+                #{
+                    <<"status">> := <<"connected">>,
+                    <<"node_status">> := [
+                        #{
+                            <<"node">> := _,
+                            <<"status">> := <<"connected">>
+                        },
+                        #{
+                            <<"node">> := _,
+                            <<"status">> := <<"connected">>
+                        }
+                    ]
+                }
+            ]},
+            list()
+        )
     ),
     ?assertMatch(
         {200, #{
