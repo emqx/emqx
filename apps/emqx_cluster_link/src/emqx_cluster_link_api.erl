@@ -181,7 +181,7 @@ fields(node_metrics) ->
     with_link(
         Name,
         fun() ->
-            case emqx_cluster_link_config:delete(Name) of
+            case emqx_cluster_link_config:delete_link(Name) of
                 ok ->
                     ?NO_CONTENT;
                 {error, Reason} ->
@@ -215,7 +215,7 @@ handle_list() ->
     ?OK(Response).
 
 handle_create(Name, Params) ->
-    case emqx_cluster_link_config:create(Params) of
+    case emqx_cluster_link_config:create_link(Params) of
         {ok, Link} ->
             ?CREATED(add_status(Name, Link));
         {error, Reason} ->
@@ -273,7 +273,7 @@ add_status(Name, Link) ->
 
 handle_update(Name, Params0) ->
     Params = Params0#{<<"name">> => Name},
-    case emqx_cluster_link_config:update_one_link(Params) of
+    case emqx_cluster_link_config:update_link(Params) of
         {ok, Link} ->
             ?OK(add_status(Name, Link));
         {error, Reason} ->

@@ -30,9 +30,9 @@
 
 -export([
     %% General
-    create/1,
-    delete/1,
-    update_one_link/1,
+    create_link/1,
+    delete_link/1,
+    update_link/1,
     update/1,
     cluster/0,
     enabled_links/0,
@@ -61,7 +61,7 @@
 
 %%
 
-create(LinkConfig) ->
+create_link(LinkConfig) ->
     #{<<"name">> := Name} = LinkConfig,
     case
         emqx_conf:update(
@@ -77,7 +77,7 @@ create(LinkConfig) ->
             {error, Reason}
     end.
 
-delete(Name) ->
+delete_link(Name) ->
     case
         emqx_conf:update(
             ?LINKS_PATH,
@@ -91,7 +91,7 @@ delete(Name) ->
             {error, Reason}
     end.
 
-update_one_link(LinkConfig) ->
+update_link(LinkConfig) ->
     #{<<"name">> := Name} = LinkConfig,
     case
         emqx_conf:update(
@@ -294,9 +294,9 @@ remove_link(Name) ->
     emqx_cluster_link_metrics:drop_metrics(Name).
 
 update_links(LinksConf) ->
-    [update_link(Link) || Link <- LinksConf].
+    [do_update_link(Link) || Link <- LinksConf].
 
-update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
+do_update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
     case what_is_changed(OldLinkConf, NewLinkConf) of
         both ->
             _ = ensure_actor_stopped(Name),
@@ -309,7 +309,7 @@ update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
         msg_resource ->
             ok = update_msg_fwd_resource(OldLinkConf, NewLinkConf)
     end;
-update_link({_OldLinkConf, #{enable := false, name := Name} = _NewLinkConf}) ->
+do_update_link({_OldLinkConf, #{enable := false, name := Name} = _NewLinkConf}) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
     ensure_actor_stopped(Name).
 
