@@ -24,9 +24,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([start_link/3, do_dispatch/1]).
+-export([start_link/4, do_dispatch/1]).
 
--export_type([beam/2, beam/0, return_addr/1, unpack_iterator_result/1]).
+-export_type([opts/0, beam/2, beam/0, return_addr/1, unpack_iterator_result/1]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
@@ -39,6 +39,11 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type opts() :: #{
+                  n_workers := non_neg_integer(),
+                  pending_request_limit => non_neg_integer()
+                 }.
 
 %% Request:
 
@@ -104,6 +109,7 @@
     shard,
     name,
     new_requests :: ets:tid(),
+    pending_request_limit :: non_neg_integer(),
     waiting_requests :: ets:tid(),
     is_looping = false :: boolean()
 }).
@@ -122,6 +128,7 @@
 }.
 
 -define(fulfill_loop, fulfill_loop).
+-define(housekeeping_loop, housekeeping_loop).
 
 %%================================================================================
 %% Callbacks
@@ -169,7 +176,18 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         matcher = Matcher
     },
     emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
-    gen_server:call(Worker, Req, Timeout).
+    %% Currently we implement pushback by ignoring transient errors
+    %% (gen_server timeouts, `too_many_requests'), and just letting
+    %% the poll request expire at the higher level. This will hold
+    %% back the caller from hammering us.
+    try gen_server:call(Worker, Req, Timeout) of
+        ok -> ok;
+        {error, recoverable, too_many_requests} -> ok
+    catch
+        exit:timeout ->
+            ok
+    end.
+
 
 shard_event(Shard, Streams) ->
     Workers = gproc_pool:active_workers(emqx_ds_beamformer_sup:pool(Shard)),
@@ -184,7 +202,7 @@ shard_event(Shard, Streams) ->
 %% behavior callbacks
 %%================================================================================
 
-init([CBM, ShardId, Name]) ->
+init([CBM, ShardId, Name, Opts]) ->
     process_flag(trap_exit, true),
     Pool = emqx_ds_beamformer_sup:pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
@@ -197,16 +215,23 @@ init([CBM, ShardId, Name]) ->
         metrics_id = shard_metrics_id(ShardId),
         name = Name,
         new_requests = NewTab,
-        waiting_requests = WaitingTab
+        waiting_requests = WaitingTab,
+        pending_request_limit = maps:get(pending_request_limit, Opts, 10_000)
     },
     %% FIXME:
-    self() ! cleanup,
+    self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #poll_req{}, _From, S) ->
+handle_call(Req = #poll_req{}, _From, S = #s{new_requests = PendingTab}) ->
     %% TODO: drop requests past deadline immediately.
-    ets:insert(S#s.new_requests, Req),
-    {reply, ok, start_fulfill_loop(S)};
+    case ets:info(PendingTab, size) >= S#s.pending_request_limit of
+        true ->
+            Err = {error, recoverable, too_many_requests},
+            {reply, Err, S};
+        false ->
+            ets:insert(S#s.new_requests, Req),
+            {reply, ok, start_fulfill_loop(S)}
+    end;
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -216,13 +241,13 @@ handle_cast(_Cast, S) ->
 handle_info(#shard_event{updated_streams = Streams}, S) ->
     logger:debug("Stream event ~p", [Streams]),
     {noreply, maybe_fulfill_waiting(S, Streams)};
-handle_info(cleanup, S0) ->
-    S = cleanup(S0),
-    erlang:send_after(1000, self(), cleanup),
-    {noreply, S};
 handle_info(?fulfill_loop, S0) ->
     S1 = S0#s{is_looping = false},
     S = fulfill_pending(S1),
+    {noreply, S};
+handle_info(?housekeeping_loop, S0) ->
+    S = cleanup(S0),
+    erlang:send_after(1000, self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
@@ -237,9 +262,9 @@ terminate(_Reason, #s{shard = ShardId, name = Name}) ->
 %% Internal exports
 %%================================================================================
 
--spec start_link(module(), _Shard, integer()) -> {ok, pid()}.
-start_link(Mod, ShardId, Name) ->
-    gen_server:start_link(?MODULE, [Mod, ShardId, Name], []).
+-spec start_link(module(), _Shard, integer(), opts()) -> {ok, pid()}.
+start_link(Mod, ShardId, Name, Opts) ->
+    gen_server:start_link(?MODULE, [Mod, ShardId, Name, Opts], []).
 
 %% @doc RPC target: split the beam and dispatch replies to local
 %% consumers.

@@ -209,16 +209,16 @@ shard_buffer_spec(DB, Shard, Options) ->
         type => worker
     }.
 
-shard_beamformers_spec(DB, Shard, Options) ->
-    %% TODO: workers should not be stored in the persistent schema:
-    NWorkers = maps:get(poll_workers_per_shard, Options, 1),
-    logger:warning("Starting ~p poll workers for shard ~p", [NWorkers, Shard]),
+shard_beamformers_spec(DB, Shard, _Options) ->
+    BeamformerOpts = #{ n_workers => 1,
+                        pending_request_limit => 30_000
+                      },
     #{
         id => {Shard, beamformers},
         type => supervisor,
         shutdown => infinity,
         start =>
-            {emqx_ds_beamformer_sup, start_link, [emqx_ds_builtin_local, {DB, Shard}, NWorkers]}
+            {emqx_ds_beamformer_sup, start_link, [emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts]}
     }.
 
 ensure_started(Res) ->

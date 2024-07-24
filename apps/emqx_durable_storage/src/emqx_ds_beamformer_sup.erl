@@ -47,17 +47,17 @@ cbm(DB) ->
 pool(Shard) ->
     {?MODULE, Shard}.
 
--spec start_link(module(), _Shard, non_neg_integer()) -> supervisor:startlink_ret().
-start_link(CBM, ShardId, InitialNWorkers) ->
+-spec start_link(module(), _Shard, emqx_ds_beamformer:opts()) -> supervisor:startlink_ret().
+start_link(CBM, ShardId, Opts) ->
     supervisor:start_link(
-        {via, gproc, ?SUP(ShardId)}, ?MODULE, {top, CBM, ShardId, InitialNWorkers}
+        {via, gproc, ?SUP(ShardId)}, ?MODULE, {top, CBM, ShardId, Opts}
     ).
 
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
-init({top, Module, ShardId, InitialNWorkers}) ->
+init({top, Module, ShardId, Opts}) ->
     Children = [
         #{
             id => pool_owner,
@@ -68,7 +68,7 @@ init({top, Module, ShardId, InitialNWorkers}) ->
             id => workers,
             type => supervisor,
             shutdown => infinity,
-            start => {?MODULE, start_workers, [Module, ShardId, InitialNWorkers]}
+            start => {?MODULE, start_workers, [Module, ShardId, Opts]}
         }
     ],
     SupFlags = #{
@@ -77,13 +77,14 @@ init({top, Module, ShardId, InitialNWorkers}) ->
         period => 1
     },
     {ok, {SupFlags, Children}};
-init({workers, Module, ShardId, InitialNWorkers}) ->
+init({workers, Module, ShardId, Opts}) ->
+    #{n_workers := InitialNWorkers} = Opts,
     Children = [
         #{
             id => I,
             type => worker,
             shutdown => 5000,
-            start => {emqx_ds_beamformer, start_link, [Module, ShardId, I]}
+            start => {emqx_ds_beamformer, start_link, [Module, ShardId, I, Opts]}
         }
      || I <- lists:seq(1, InitialNWorkers)
     ],
@@ -111,6 +112,8 @@ init_pool_owner(Parent, ShardId, Module) ->
     %% Automatic cleanup:
     receive
         {'EXIT', _Pid, Reason} ->
+            %% TODO: clean workers too, otherwise gproc won't release
+            %% pool
             gproc_pool:delete(pool(ShardId)),
             persistent_term:erase(?cbm(ShardId)),
             exit(Reason)
