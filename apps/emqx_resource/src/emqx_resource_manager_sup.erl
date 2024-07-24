@@ -58,10 +58,11 @@ init([]) ->
 child_spec(ResId, Group, ResourceType, Config, Opts) ->
     #{
         id => ResId,
-        start => {emqx_resource_manager, start_link, [ResId, Group, ResourceType, Config, Opts]},
+        start =>
+            {emqx_resource_manager, start_link, [ResId, Group, ResourceType, Config, Opts]},
         restart => transient,
         %% never force kill a resource manager.
-        %% becasue otherwise it may lead to release leak,
+        %% because otherwise it may lead to release leak,
         %% resource_manager's terminate callback calls resource on_stop
         shutdown => infinity,
         type => worker,

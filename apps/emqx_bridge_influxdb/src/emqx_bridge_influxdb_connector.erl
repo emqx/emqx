@@ -16,6 +16,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -70,6 +71,8 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
+resource_type() -> influxdb.
+
 callback_mode() -> async_if_possible.
 
 on_add_channel(

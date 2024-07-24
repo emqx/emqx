@@ -134,7 +134,15 @@ republish(
     },
     _Args
 ) ->
-    ?SLOG(error, #{msg => "recursive_republish_detected", topic => Topic});
+    ?SLOG(
+        error,
+        #{
+            msg => "recursive_republish_detected",
+            topic => Topic,
+            rule_id => RuleId
+        },
+        #{tag => ?TAG}
+    );
 republish(
     Selected,
     #{metadata := #{rule_id := RuleId}} = Env,
@@ -321,6 +329,8 @@ render_pub_props(UserPropertiesTemplate, Selected, Env) ->
             rule_id => emqx_utils_maps:deep_get([metadata, rule_id], ENV, undefined),
             reason => REASON,
             property => K
+        }#{
+            tag => ?TAG
         }
     )
 ).

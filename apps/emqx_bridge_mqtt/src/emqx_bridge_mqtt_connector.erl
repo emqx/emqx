@@ -30,6 +30,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -76,6 +77,8 @@ on_message_received(Msg, HookPoints, ResId) ->
     ok.
 
 %% ===================================================================
+resource_type() -> mqtt.
+
 callback_mode() -> async_if_possible.
 
 on_start(ResourceId, #{server := Server} = Conf) ->
@@ -207,7 +210,7 @@ start_mqtt_clients(ResourceId, Conf) ->
     start_mqtt_clients(ResourceId, Conf, ClientOpts).
 
 start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
-    PoolName = <<ResourceId/binary>>,
+    PoolName = ResourceId,
     #{
         pool_size := PoolSize
     } = StartConf,
@@ -227,7 +230,7 @@ start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
 on_stop(ResourceId, State) ->
     ?SLOG(info, #{
         msg => "stopping_mqtt_connector",
-        connector => ResourceId
+        resource_id => ResourceId
     }),
     %% on_stop can be called with State = undefined
     StateMap =
@@ -271,7 +274,7 @@ on_query(
 on_query(ResourceId, {_ChannelId, Msg}, #{}) ->
     ?SLOG(error, #{
         msg => "forwarding_unavailable",
-        connector => ResourceId,
+        resource_id => ResourceId,
         message => Msg,
         reason => "Egress is not configured"
     }).
@@ -298,7 +301,7 @@ on_query_async(
 on_query_async(ResourceId, {_ChannelId, Msg}, _Callback, #{}) ->
     ?SLOG(error, #{
         msg => "forwarding_unavailable",
-        connector => ResourceId,
+        resource_id => ResourceId,
         message => Msg,
         reason => "Egress is not configured"
     }).
@@ -463,8 +466,10 @@ connect(Options) ->
         {ok, Pid} ->
             connect(Pid, Name);
         {error, Reason} = Error ->
-            ?SLOG(error, #{
+            IsDryRun = emqx_resource:is_dry_run(Name),
+            ?SLOG(?LOG_LEVEL(IsDryRun), #{
                 msg => "client_start_failed",
+                resource_id => Name,
                 config => emqx_utils:redact(ClientOpts),
                 reason => Reason
             }),
@@ -508,10 +513,11 @@ connect(Pid, Name) ->
         {ok, _Props} ->
             {ok, Pid};
         {error, Reason} = Error ->
-            ?SLOG(warning, #{
+            IsDryRun = emqx_resource:is_dry_run(Name),
+            ?SLOG(?LOG_LEVEL(IsDryRun), #{
                 msg => "ingress_client_connect_failed",
                 reason => Reason,
-                name => Name
+                resource_id => Name
             }),
             _ = catch emqtt:stop(Pid),
             Error

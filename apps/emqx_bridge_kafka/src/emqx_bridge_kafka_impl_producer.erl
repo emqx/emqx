@@ -10,6 +10,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     query_mode/1,
     callback_mode/0,
     on_start/2,
@@ -34,6 +35,8 @@
 -define(kafka_telemetry_id, kafka_telemetry_id).
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
+
+resource_type() -> kafka_producer.
 
 query_mode(#{parameters := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
@@ -140,14 +143,7 @@ create_producers_for_bridge_v2(
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
     MaxPartitions = maps:get(partitions_limit, KafkaConfig, all_partitions),
     #{name := BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
-    TestIdStart = string:find(BridgeV2Id, ?TEST_ID_PREFIX),
-    IsDryRun =
-        case TestIdStart of
-            nomatch ->
-                false;
-            _ ->
-                string:equal(TestIdStart, InstId)
-        end,
+    IsDryRun = emqx_resource:is_dry_run(BridgeV2Id),
     ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
     WolffProducerConfig = producers_config(
         BridgeType, BridgeName, KafkaConfig, IsDryRun, BridgeV2Id

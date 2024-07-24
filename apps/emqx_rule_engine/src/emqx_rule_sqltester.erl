@@ -15,6 +15,7 @@
 -module(emqx_rule_sqltester).
 
 -include_lib("emqx/include/logger.hrl").
+-include("rule_engine.hrl").
 
 -export([
     test/1,
@@ -127,10 +128,15 @@ test(#{sql := Sql, context := Context}) ->
                     end
             end;
         {error, Reason} ->
-            ?SLOG(debug, #{
-                msg => "rulesql_parse_error",
-                detail => Reason
-            }),
+            ?SLOG(
+                debug,
+                #{
+                    msg => "rulesql_parse_error",
+                    sql => Sql,
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
             {error, Reason}
     end.
 

@@ -10,6 +10,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     query_mode/1,
     on_start/2,
@@ -55,6 +56,7 @@
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
+resource_type() -> pulsar.
 
 callback_mode() -> async_if_possible.
 
@@ -255,7 +257,7 @@ format_servers(Servers0) ->
 
 -spec make_client_id(resource_id()) -> pulsar_client_id().
 make_client_id(InstanceId) ->
-    case is_dry_run(InstanceId) of
+    case emqx_resource:is_dry_run(InstanceId) of
         true ->
             pulsar_producer_probe;
         false ->
@@ -267,14 +269,6 @@ make_client_id(InstanceId) ->
                 emqx_utils_conv:bin(node())
             ]),
             binary_to_atom(ClientIdBin)
-    end.
-
--spec is_dry_run(resource_id()) -> boolean().
-is_dry_run(InstanceId) ->
-    TestIdStart = string:find(InstanceId, ?TEST_ID_PREFIX),
-    case TestIdStart of
-        nomatch -> false;
-        _ -> string:equal(TestIdStart, InstanceId)
     end.
 
 conn_opts(#{authentication := none}) ->
@@ -297,7 +291,7 @@ replayq_dir(ClientId) ->
     filename:join([emqx:data_dir(), "pulsar", emqx_utils_conv:bin(ClientId)]).
 
 producer_name(InstanceId, ChannelId) ->
-    case is_dry_run(InstanceId) of
+    case emqx_resource:is_dry_run(InstanceId) of
         %% do not create more atom
         true ->
             pulsar_producer_probe_worker;
