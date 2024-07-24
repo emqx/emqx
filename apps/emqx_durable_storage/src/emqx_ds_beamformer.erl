@@ -356,11 +356,10 @@ do_cleanup(Metrics, Tab) ->
 -spec fulfill_pending(s()) -> s().
 fulfill_pending(S = #s{pending_queue = PendingTab}) ->
     %% debug_pending(S),
-    case ets:first(PendingTab) of
-        '$end_of_table' ->
+    case find_older_key(PendingTab, 100) of
+        undefined ->
             S;
-        {Stream, _StartKey} ->
-            StartKey = oldest_key_for_stream(PendingTab, Stream),
+        {Stream, StartKey} ->
             logger:debug("Fulfilling ~p ~p", [Stream, StartKey]),
             %% The function MUST destructively consume all requests
             %% matching stream and MsgKey to avoid infinite loop:
@@ -385,7 +384,7 @@ maybe_fulfill_waiting(
     [Stream | Rest]
 ) ->
     %% debug_waiting(Stream, S),
-    case oldest_key_for_stream(WaitingTab, Stream) of
+    case oldest_key_for_stream(WaitingTab, Stream, 5) of
         undefined ->
             maybe_fulfill_waiting(S, Rest);
         StartKey ->
@@ -397,13 +396,34 @@ maybe_fulfill_waiting(
             maybe_fulfill_waiting(S, Rest)
     end.
 
-oldest_key_for_stream(Tab, Stream) ->
+%% It's always worth to try fulfilling the oldest requests first,
+%% because they have a better chance of producing a batch that
+%% overlaps with other pending requests.
+%%
+%% Below is one very shoddy attempt to find the oldest key for the
+%% stream. It finds the lowest key in a somewhat random sample. But
+%% since we use a `duplicate_bag', it may require a full table scan?
+oldest_key_for_stream(Tab, Stream, SampleSize) ->
     MS = {#poll_req{_ = '_', key = {Stream, '$1'}}, [], ['$1']},
-    case ets:select(Tab, [MS], 10) of
+    case ets:select(Tab, [MS], SampleSize) of
         '$end_of_table' ->
             undefined;
         {Keys, _Cont} ->
             lists:min(Keys)
+    end.
+
+%% Same as above. Heuristic that tries to find a poll request that has
+%% a better chance to overlap with others.
+%%
+%% TODO: This might negatively impact latency, since oldest requests
+%% presumably will be served first.
+find_older_key(Tab, SampleSize) ->
+    MS = #poll_req{_ = '_', key = '$1'},
+    case ets:match(Tab, MS, SampleSize) of
+        '$end_of_table' ->
+            undefined;
+        {L, _Cont} ->
+            hd(lists:min(L))
     end.
 
 %% @doc Split beam into individual batches
@@ -450,29 +470,20 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
         Candidates0,
         Batch
     ),
-    %% Find what poll requests _actually_ have data in the batch. We
-    %% should avoid sending empty batches to the consumers, so they
-    %% don't come back immediately:
+    %% Find what poll requests _actually_ have data in the batch. It's
+    %% important not to send empty batches to the consumers, so they
+    %% don't come back immediately, creating a busy loop:
     {MatchReqs, NoMatchReqs} = filter_candidates(Candidates, Batch),
     %% Report metrics:
-    Fulfilled = length(MatchReqs),
-    Fulfilled > 0 andalso
+    NFulfilled = length(MatchReqs),
+    NFulfilled > 0 andalso
         begin
-            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, Fulfilled),
-            emqx_ds_builtin_metrics:observe_sharing(Metrics, Fulfilled)
+            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
+            emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
         end,
-    %% logger:warning(#{
-    %%     batch => length(Batch),
-    %%     cand0 => length(Candidates0),
-    %%     cand => length(Candidates),
-    %%     match => length(MatchReqs),
-    %%     nomatch => length(NoMatchReqs),
-    %%     '_iswait' => FromTab =:= ToTab
-    %% }),
-
     %% Move unmatched requests to `ToTab':
     ets:insert(ToTab, NoMatchReqs),
-    %% Split matched requests by node:
+    %% Split matched requests by destination node:
     ReqsByNode =
         lists:foldl(
             fun(Req = #poll_req{node = Node}, Acc) ->
