@@ -97,7 +97,9 @@
 -type publish_opts() :: #{
     %% Whether to return a disinguishing value `{blocked, #message{}}' when a hook from
     %% `'message.publish''` returns `allow_publish => false'.  Defaults to `false'.
-    hook_prohibition_as_error => boolean()
+    hook_prohibition_as_error => boolean(),
+    %% do not call message.publish hook point if true
+    bypass_hook => boolean()
 }.
 
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
@@ -243,6 +245,14 @@ publish(#message{} = Msg) ->
 publish(#message{} = Msg, Opts) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
+    case maps:get(bypass_hook, Opts, false) of
+        true ->
+            do_publish(Msg);
+        false ->
+            eval_hook_and_publish(Msg, Opts)
+    end.
+
+eval_hook_and_publish(Msg, Opts) ->
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
         #message{headers = #{should_disconnect := true}, topic = Topic} ->
             ?TRACE("MQTT", "msg_publish_not_allowed_disconnect", #{
