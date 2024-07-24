@@ -790,7 +790,7 @@ handle_list(ConfRootKey) ->
                 [format_resource(ConfRootKey, Data, Node) || Data <- Bridges]
              || {Node, Bridges} <- lists:zip(Nodes, NodeBridges)
             ],
-            ?OK(zip_bridges(AllBridges));
+            ?OK(zip_bridges(ConfRootKey, AllBridges));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
     end.
@@ -987,8 +987,9 @@ lookup_from_all_nodes(ConfRootKey, BridgeType, BridgeName, SuccCode) ->
             )
         )
     of
-        {ok, [{ok, _} | _] = Results} ->
-            {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
+        {ok, [{ok, _} | _] = Results0} ->
+            Results = [R || {ok, R} <- Results0],
+            {SuccCode, format_bridge_info(ConfRootKey, BridgeType, BridgeName, Results)};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, Reason} ->
@@ -1146,11 +1147,11 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
+zip_bridges(ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
     lists:foldl(
         fun(#{type := Type, name := Name}, Acc) ->
             Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
-            [format_bridge_info(Bridges) | Acc]
+            [format_bridge_info(ConfRootKey, Type, Name, Bridges) | Acc]
         end,
         [],
         BridgesFirstNode
@@ -1184,12 +1185,19 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
         BridgesAllNodes
     ).
 
-format_bridge_info([FirstBridge | _] = Bridges) ->
+format_bridge_info(ConfRootKey, Type, Name, [FirstBridge | _] = Bridges) ->
     Res = maps:remove(node, FirstBridge),
     NodeStatus = node_status(Bridges),
+    Id = emqx_bridge_resource:bridge_id(Type, Name),
+    Rules =
+        case ConfRootKey of
+            actions -> emqx_rule_engine:get_rule_ids_by_bridge_action(Id);
+            sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Id)
+        end,
     redact(Res#{
         status => aggregate_status(NodeStatus),
-        node_status => NodeStatus
+        node_status => NodeStatus,
+        rules => lists:sort(Rules)
     }).
 
 node_status(Bridges) ->

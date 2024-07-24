@@ -655,7 +655,22 @@ format_resource_data(error, undefined, Result) ->
 format_resource_data(error, Error, Result) ->
     Result#{status_reason => emqx_utils:readable_error_msg(Error)};
 format_resource_data(channels, Channels, Result) ->
-    Result#{actions => lists:map(fun format_action/1, maps:keys(Channels))};
+    #{
+        actions := Actions,
+        sources := Sources
+    } = lists:foldl(
+        fun(Id, Acc) ->
+            case emqx_bridge_v2:parse_id(Id) of
+                #{kind := source, name := Name} ->
+                    maps:update_with(sources, fun(Ss) -> [Name | Ss] end, Acc);
+                #{name := Name} ->
+                    maps:update_with(actions, fun(As) -> [Name | As] end, Acc)
+            end
+        end,
+        #{actions => [], sources => []},
+        maps:keys(Channels)
+    ),
+    Result#{actions => lists:sort(Actions), sources => lists:sort(Sources)};
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
 
@@ -672,12 +687,6 @@ unpack_connector_conf(Type, PackedConf) ->
     #{<<"connectors">> := Bridges} = PackedConf,
     #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
     RawConf.
-
-format_action(ActionId) ->
-    case emqx_bridge_v2:parse_id(ActionId) of
-        #{name := Name} ->
-            Name
-    end.
 
 is_ok(ok) ->
     ok;

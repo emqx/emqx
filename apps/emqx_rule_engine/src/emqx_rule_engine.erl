@@ -47,6 +47,8 @@
     get_rules_for_topic/1,
     get_rules_with_same_event/1,
     get_rule_ids_by_action/1,
+    get_rule_ids_by_bridge_action/1,
+    get_rule_ids_by_bridge_source/1,
     ensure_action_removed/2,
     get_rules_ordered_by_ts/0
 ]).
@@ -108,6 +110,8 @@
 -define(RATE_METRICS, ['matched']).
 
 -type action_name() :: binary() | #{function := binary()}.
+-type bridge_action_id() :: binary().
+-type bridge_source_id() :: binary().
 
 -spec start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}.
 start_link() ->
@@ -253,6 +257,24 @@ get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
         Id
      || #{actions := Acts, id := Id} <- get_rules(),
         contains_actions(Acts, Mod, Fun)
+    ].
+
+-spec get_rule_ids_by_bridge_action(bridge_action_id()) -> [binary()].
+get_rule_ids_by_bridge_action(ActionId) ->
+    %% ActionId = <<"type:name">>
+    [
+        Id
+     || #{actions := Acts, id := Id} <- get_rules(),
+        forwards_to_bridge(Acts, ActionId)
+    ].
+
+-spec get_rule_ids_by_bridge_source(bridge_source_id()) -> [binary()].
+get_rule_ids_by_bridge_source(SourceId) ->
+    %% SourceId = <<"type:name">>
+    [
+        Id
+     || #{from := Froms, id := Id} <- get_rules(),
+        references_ingress_bridge(Froms, SourceId)
     ].
 
 -spec ensure_action_removed(rule_id(), action_name()) -> ok.

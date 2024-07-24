@@ -132,6 +132,8 @@ bridge_hookpoint(BridgeId) ->
 
 bridge_hookpoint_to_bridge_id(?BRIDGE_HOOKPOINT(BridgeId)) ->
     {ok, BridgeId};
+bridge_hookpoint_to_bridge_id(?SOURCE_HOOKPOINT(BridgeId)) ->
+    {ok, BridgeId};
 bridge_hookpoint_to_bridge_id(_) ->
     {error, bad_bridge_hookpoint}.
 
