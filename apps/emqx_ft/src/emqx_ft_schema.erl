@@ -66,7 +66,7 @@ fields(file_transfer) ->
                 boolean(),
                 #{
                     desc => ?DESC("enable"),
-                    importance => ?IMPORTANCE_NO_DOC,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     required => false,
                     default => false
                 }

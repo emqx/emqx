@@ -72,7 +72,7 @@ fields("otel_metrics") ->
                 boolean(),
                 #{
                     default => false,
-                    importance => ?IMPORTANCE_NO_DOC,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     required => true,
                     desc => ?DESC(enable)
                 }
@@ -105,7 +105,8 @@ fields("otel_logs") ->
                 #{
                     default => false,
                     desc => ?DESC(enable),
-                    importance => ?IMPORTANCE_NO_DOC
+                    %% importance => ?IMPORTANCE_NO_DOC
+                    importance => ?IMPORTANCE_HIGH
                 }
             )},
         {max_queue_size,
@@ -144,7 +145,8 @@ fields("otel_traces") ->
                 #{
                     default => false,
                     desc => ?DESC(enable),
-                    importance => ?IMPORTANCE_NO_DOC
+                    %% importance => ?IMPORTANCE_NO_DOC
+                    importance => ?IMPORTANCE_HIGH
                 }
             )},
         {max_queue_size,

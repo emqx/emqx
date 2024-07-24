@@ -27,7 +27,8 @@ roots() ->
 
 fields("slow_subs") ->
     [
-        {enable, sc(boolean(), false, enable, ?IMPORTANCE_NO_DOC)},
+        %% {enable, sc(boolean(), false, enable, ?IMPORTANCE_NO_DOC)},
+        {enable, sc(boolean(), false, enable)},
         {threshold,
             sc(
                 %% not used in a `receive ... after' block, just timestamp comparison
@@ -67,5 +68,5 @@ desc(_) ->
 sc(Type, Default, Desc) ->
     ?HOCON(Type, #{default => Default, desc => ?DESC(Desc)}).
 
-sc(Type, Default, Desc, Importance) ->
-    ?HOCON(Type, #{default => Default, desc => ?DESC(Desc), importance => Importance}).
+%% sc(Type, Default, Desc, Importance) ->
+%%     ?HOCON(Type, #{default => Default, desc => ?DESC(Desc), importance => Importance}).

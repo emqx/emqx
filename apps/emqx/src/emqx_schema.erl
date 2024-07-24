@@ -388,7 +388,7 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
-                    importance => ?IMPORTANCE_NO_DOC,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},
@@ -455,7 +455,7 @@ fields("overload_protection") ->
                 boolean(),
                 #{
                     desc => ?DESC(overload_protection_enable),
-                    importance => ?IMPORTANCE_NO_DOC,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     default => false
                 }
             )},
@@ -1673,7 +1673,7 @@ fields("durable_sessions") ->
             sc(
                 boolean(), #{
                     desc => ?DESC(durable_sessions_enable),
-                    importance => ?IMPORTANCE_NO_DOC,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     default => false
                 }
             )},
@@ -2426,7 +2426,7 @@ client_ssl_opts_schema(Defaults) ->
                     boolean(),
                     #{
                         default => false,
-                        importance => ?IMPORTANCE_NO_DOC,
+                        %% importance => ?IMPORTANCE_NO_DOC,
                         desc => ?DESC(client_ssl_opts_schema_enable)
                     }
                 )},

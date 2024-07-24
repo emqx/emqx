@@ -42,7 +42,7 @@ fields() ->
     [
         {enable,
             ?HOCON(boolean(), #{
-                importance => ?IMPORTANCE_NO_DOC,
+                %% importance => ?IMPORTANCE_NO_DOC,
                 default => false,
                 require => true,
                 desc => ?DESC(enable)
