@@ -11,7 +11,7 @@
     drop_metrics/1,
 
     get_metrics/1,
-    routes_inc/2
+    routes_set/2
 ]).
 
 %%--------------------------------------------------------------------
@@ -50,8 +50,10 @@ maybe_create_metrics(ClusterName) ->
 drop_metrics(ClusterName) ->
     ok = emqx_metrics_worker:clear_metrics(?METRIC_NAME, ClusterName).
 
-routes_inc(ClusterName, Val) ->
-    catch emqx_metrics_worker:inc(?METRIC_NAME, ClusterName, ?route_metric, Val).
+routes_set(ClusterName, Val) ->
+    catch emqx_metrics_worker:set_gauge(
+        ?METRIC_NAME, ClusterName, <<"singleton">>, ?route_metric, Val
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions

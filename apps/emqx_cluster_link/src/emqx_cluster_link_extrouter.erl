@@ -34,6 +34,9 @@
     apply_actor_operation/5
 ]).
 
+%% Internal export for bookkeeping
+-export([cluster_routes_ms/1, extroute_tab/0]).
+
 %% Strictly monotonically increasing integer.
 -type smint() :: integer().
 
@@ -147,6 +150,18 @@ make_extroute_rec_pat(Entry) ->
         [{1, extroute}, {#extroute.entry, Entry}]
     ).
 
+%% Internal exports for bookkeeping
+cluster_routes_ms(ClusterName) ->
+    TopicPat = '_',
+    RouteIDPat = '_',
+    Pat = make_extroute_rec_pat(
+        emqx_trie_search:make_pat(TopicPat, ?ROUTE_ID(ClusterName, RouteIDPat))
+    ),
+    [{Pat, [], [true]}].
+
+extroute_tab() ->
+    ?EXTROUTE_TAB.
+
 %%
 
 -record(state, {
@@ -256,33 +271,31 @@ actor_apply_operation(
 
 apply_actor_operation(ActorID, Incarnation, Entry, OpName, Lane) ->
     _ = assert_current_incarnation(ActorID, Incarnation),
-    apply_operation(ActorID, Entry, OpName, Lane).
+    apply_operation(Entry, OpName, Lane).
 
-apply_operation(ActorID, Entry, OpName, Lane) ->
+apply_operation(Entry, OpName, Lane) ->
     %% NOTE
     %% This is safe sequence of operations only on core nodes. On replicants,
     %% `mria:dirty_update_counter/3` will be replicated asynchronously, which
     %% means this read can be stale.
     case mnesia:dirty_read(?EXTROUTE_TAB, Entry) of
         [#extroute{mcounter = MCounter}] ->
-            apply_operation(ActorID, Entry, MCounter, OpName, Lane);
+            apply_operation(Entry, MCounter, OpName, Lane);
         [] ->
-            apply_operation(ActorID, Entry, 0, OpName, Lane)
+            apply_operation(Entry, 0, OpName, Lane)
     end.
 
-apply_operation(ActorID, Entry, MCounter, OpName, Lane) ->
+apply_operation(Entry, MCounter, OpName, Lane) ->
     %% NOTE
     %% We are relying on the fact that changes to each individual lane of this
     %% multi-counter are synchronized. Without this, such counter updates would
     %% be unsafe. Instead, we would have to use another, more complex approach,
     %% that runs `ets:lookup/2` + `ets:select_replace/2` in a loop until the
     %% counter is updated accordingly.
-    ?ACTOR_ID(ClusterName, _Actor) = ActorID,
     Marker = 1 bsl Lane,
     case MCounter band Marker of
         0 when OpName =:= add ->
             Res = mria:dirty_update_counter(?EXTROUTE_TAB, Entry, Marker),
-            _ = emqx_cluster_link_metrics:routes_inc(ClusterName, 1),
             ?tp("cluster_link_extrouter_route_added", #{}),
             Res;
         Marker when OpName =:= add ->
@@ -293,7 +306,6 @@ apply_operation(ActorID, Entry, MCounter, OpName, Lane) ->
                 0 ->
                     Record = #extroute{entry = Entry, mcounter = 0},
                     ok = mria:dirty_delete_object(?EXTROUTE_TAB, Record),
-                    _ = emqx_cluster_link_metrics:routes_inc(ClusterName, -1),
                     ?tp("cluster_link_extrouter_route_deleted", #{}),
                     0;
                 C ->
@@ -368,16 +380,16 @@ clean_incarnation(Rec = #actor{id = {Cluster, Actor}}) ->
 mnesia_clean_incarnation(#actor{id = Actor, incarnation = Incarnation, lane = Lane}) ->
     case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of
         [#actor{incarnation = Incarnation}] ->
-            _ = clean_lane(Actor, Lane),
+            _ = clean_lane(Lane),
             mnesia:delete(?EXTROUTE_ACTOR_TAB, Actor, write);
         _Renewed ->
             stale
     end.
 
-clean_lane(ActorID, Lane) ->
+clean_lane(Lane) ->
     ets:foldl(
         fun(#extroute{entry = Entry, mcounter = MCounter}, _) ->
-            apply_operation(ActorID, Entry, MCounter, delete, Lane)
+            apply_operation(Entry, MCounter, delete, Lane)
         end,
         0,
         ?EXTROUTE_TAB

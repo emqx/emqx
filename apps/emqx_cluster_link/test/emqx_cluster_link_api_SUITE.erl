@@ -600,14 +600,22 @@ t_metrics(Config) ->
             #{?snk_kind := clink_route_sync_complete}
         ),
 
-    %% Routes = 2 in source cluster, because the target cluster has some topic filters
-    %% configured and subscribers to them, which were replicated to the source cluster.
-    ?assertMatch(
-        {200, #{
-            <<"metrics">> := #{<<"routes">> := 2},
-            <<"node_metrics">> := _
-        }},
-        get_metrics(source, SourceName)
+    %% Routes = 4 in source cluster, because the target cluster has some topic filters
+    %% configured and subscribers to them, which were replicated to the source cluster,
+    %% and we have 2 nodes with 2 routes each.
+    ?retry(
+        300,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{<<"routes">> := 4},
+                <<"node_metrics">> := [
+                    #{<<"metrics">> := #{<<"routes">> := 2}},
+                    #{<<"metrics">> := #{<<"routes">> := 2}}
+                ]
+            }},
+            get_metrics(source, SourceName)
+        )
     ),
     ?assertMatch(
         {200, #{
@@ -627,12 +635,19 @@ t_metrics(Config) ->
             #{?snk_kind := clink_route_sync_complete}
         ),
 
-    ?assertMatch(
-        {200, #{
-            <<"metrics">> := #{<<"routes">> := 1},
-            <<"node_metrics">> := _
-        }},
-        get_metrics(source, SourceName)
+    ?retry(
+        300,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{<<"routes">> := 2},
+                <<"node_metrics">> := [
+                    #{<<"metrics">> := #{<<"routes">> := 1}},
+                    #{<<"metrics">> := #{<<"routes">> := 1}}
+                ]
+            }},
+            get_metrics(source, SourceName)
+        )
     ),
 
     %% Disabling the link should remove the routes.
@@ -658,12 +673,16 @@ t_metrics(Config) ->
             #{?snk_kind := "cluster_link_extrouter_route_deleted"}
         ),
 
-    ?assertMatch(
-        {200, #{
-            <<"metrics">> := #{<<"routes">> := 0},
-            <<"node_metrics">> := _
-        }},
-        get_metrics(source, SourceName)
+    ?retry(
+        300,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{<<"routes">> := 0},
+                <<"node_metrics">> := _
+            }},
+            get_metrics(source, SourceName)
+        )
     ),
 
     %% Enabling again
@@ -678,7 +697,7 @@ t_metrics(Config) ->
 
     ?assertMatch(
         {200, #{
-            <<"metrics">> := #{<<"routes">> := 1},
+            <<"metrics">> := #{<<"routes">> := 2},
             <<"node_metrics">> := _
         }},
         get_metrics(source, SourceName)

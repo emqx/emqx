@@ -281,7 +281,7 @@ aggregate_metrics(NodeMetrics) ->
 
 format_metrics(Node, RouterMetrics, ResourceMetrics) ->
     Get = fun(Path, Map) -> emqx_utils_maps:deep_get(Path, Map, 0) end,
-    Routes = Get([counters, ?route_metric], RouterMetrics),
+    Routes = Get([gauges, ?route_metric], RouterMetrics),
     #{
         node => Node,
         metrics => #{

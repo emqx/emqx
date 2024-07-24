@@ -30,7 +30,18 @@ namespace() -> "cluster".
 roots() -> [].
 
 injected_fields() ->
-    #{cluster => [{links, links_schema(#{})}]}.
+    #{
+        cluster => [
+            {links, links_schema(#{})},
+            {tally_routes_interval,
+                hoconsc:mk(
+                    emqx_schema:timeout_duration(), #{
+                        default => <<"15s">>,
+                        importance => ?IMPORTANCE_HIDDEN
+                    }
+                )}
+        ]
+    }.
 
 links_schema(Meta) ->
     ?HOCON(?ARRAY(?R_REF("link")), Meta#{
