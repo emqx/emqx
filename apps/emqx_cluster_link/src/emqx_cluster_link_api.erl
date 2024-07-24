@@ -498,13 +498,11 @@ with_link(Name, FoundFn, NotFoundFn) ->
     case emqx_cluster_link_config:link_raw(Name) of
         undefined ->
             NotFoundFn();
-        Link0 = #{} ->
+        Link0 = #{} when is_function(FoundFn, 1) ->
             Link = fill_defaults_single(Link0),
-            {arity, Arity} = erlang:fun_info(FoundFn, arity),
-            case Arity of
-                1 -> FoundFn(Link);
-                0 -> FoundFn()
-            end
+            FoundFn(Link);
+        _Link = #{} when is_function(FoundFn, 0) ->
+            FoundFn()
     end.
 
 fill_defaults_single(Link0) ->
