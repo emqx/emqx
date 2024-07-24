@@ -208,7 +208,7 @@ pre_config_update(?LINKS_PATH, {create, LinkRawConf}, OldRawConf) ->
 pre_config_update(?LINKS_PATH, {update, LinkRawConf}, OldRawConf) ->
     #{<<"name">> := Name} = LinkRawConf,
     maybe
-        {ok, {_Found, Front, Rear}} = safe_take(Name, OldRawConf),
+        {_Found, Front, Rear} ?= safe_take(Name, OldRawConf),
         NewRawConf0 = Front ++ [LinkRawConf] ++ Rear,
         NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
         {ok, NewRawConf}
@@ -218,7 +218,7 @@ pre_config_update(?LINKS_PATH, {update, LinkRawConf}, OldRawConf) ->
     end;
 pre_config_update(?LINKS_PATH, {delete, Name}, OldRawConf) ->
     maybe
-        {ok, {_Found, Front, Rear}} = safe_take(Name, OldRawConf),
+        {_Found, Front, Rear} ?= safe_take(Name, OldRawConf),
         NewRawConf = Front ++ Rear,
         {ok, NewRawConf}
     else
@@ -420,5 +420,5 @@ safe_take(Name, Transformations) ->
         {_Front, []} ->
             not_found;
         {Front, [Found | Rear]} ->
-            {ok, {Found, Front, Rear}}
+            {Found, Front, Rear}
     end.
