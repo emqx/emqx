@@ -31,7 +31,7 @@ get_metrics(ClusterName) ->
     Nodes = emqx:running_nodes(),
     Timeout = 15_000,
     Results = emqx_metrics_proto_v2:get_metrics(Nodes, ?METRIC_NAME, ClusterName, Timeout),
-    sequence_multicall_results(Nodes, Results).
+    lists:zip(Nodes, Results).
 
 maybe_create_metrics(ClusterName) ->
     case emqx_metrics_worker:has_metrics(?METRIC_NAME, ClusterName) of
@@ -52,16 +52,3 @@ routes_inc(ClusterName, Val) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
--spec sequence_multicall_results([node()], emqx_rpc:erpc_multicall(term())) ->
-    {ok, [{node(), term()}]} | {error, [term()]}.
-sequence_multicall_results(Nodes, Results) ->
-    case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
-        {OkResults, []} ->
-            {ok, [{Node, Res} || {Node, {ok, Res}} <- OkResults]};
-        {_OkResults, BadResults} ->
-            {error, BadResults}
-    end.
-
-is_ok({_Node, {ok, _}}) -> true;
-is_ok(_) -> false.

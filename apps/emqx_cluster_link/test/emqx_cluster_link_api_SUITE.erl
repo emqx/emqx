@@ -409,7 +409,17 @@ t_status(Config) ->
         {200, [
             #{
                 <<"status">> := <<"inconsistent">>,
-                <<"node_status">> := []
+                <<"node_status">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"connected">>
+                    },
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"inconsistent">>,
+                        <<"reason">> := _
+                    }
+                ]
             }
         ]},
         list()
@@ -417,7 +427,17 @@ t_status(Config) ->
     ?assertMatch(
         {200, #{
             <<"status">> := <<"inconsistent">>,
-            <<"node_status">> := []
+            <<"node_status">> := [
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"connected">>
+                },
+                #{
+                    <<"node">> := _,
+                    <<"status">> := <<"inconsistent">>,
+                    <<"reason">> := _
+                }
+            ]
         }},
         get_link(Name)
     ),

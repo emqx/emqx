@@ -106,20 +106,18 @@ remove_msg_fwd_resource(ClusterName) ->
     emqx_resource:remove_local(?MSG_RES_ID(ClusterName)).
 
 -spec get_all_resources_cluster() ->
-    {ok, [{node(), #{cluster_name() => emqx_resource:resource_data()}}]}
-    | {error, [term()]}.
+    [{node(), emqx_rpc:erpc(#{cluster_name() => emqx_resource:resource_data()})}].
 get_all_resources_cluster() ->
     Nodes = emqx:running_nodes(),
     Results = emqx_cluster_link_proto_v1:get_all_resources(Nodes),
-    sequence_multicall_results(Nodes, Results).
+    lists:zip(Nodes, Results).
 
 -spec get_resource_cluster(cluster_name()) ->
-    {ok, [{node(), {ok, emqx_resource:resource_data()} | {error, not_found}}]}
-    | {error, [term()]}.
+    [{node(), {ok, {ok, emqx_resource:resource_data()} | {error, not_found}} | _Error}].
 get_resource_cluster(ClusterName) ->
     Nodes = emqx:running_nodes(),
     Results = emqx_cluster_link_proto_v1:get_resource(Nodes, ClusterName),
-    sequence_multicall_results(Nodes, Results).
+    lists:zip(Nodes, Results).
 
 %% RPC Target in `emqx_cluster_link_proto_v1'.
 -spec get_resource_local_v1(cluster_name()) ->
@@ -478,16 +476,3 @@ emqtt_client_opts(ClientIdSuffix, ClusterConf) ->
     #{clientid := BaseClientId} = Opts = emqx_cluster_link_config:mk_emqtt_options(ClusterConf),
     ClientId = emqx_bridge_mqtt_lib:clientid_base([BaseClientId, ClientIdSuffix]),
     Opts#{clientid => ClientId}.
-
--spec sequence_multicall_results([node()], emqx_rpc:erpc_multicall(term())) ->
-    {ok, [{node(), term()}]} | {error, [term()]}.
-sequence_multicall_results(Nodes, Results) ->
-    case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
-        {OkResults, []} ->
-            {ok, [{Node, Res} || {Node, {ok, Res}} <- OkResults]};
-        {_OkResults, BadResults} ->
-            {error, BadResults}
-    end.
-
-is_ok({_Node, {ok, _}}) -> true;
-is_ok(_) -> false.

@@ -201,9 +201,15 @@ fields(node_metrics) ->
 
 handle_list() ->
     Links = get_raw(),
-    NodeResults = get_all_link_status_cluster(),
-    NameToStatus = collect_all_status(NodeResults),
-    EmptyStatus = #{status => inconsistent, node_status => []},
+    NodeRPCResults = emqx_cluster_link_mqtt:get_all_resources_cluster(),
+    {NameToStatus, Errors} = collect_all_status(NodeRPCResults),
+    NodeErrors = lists:map(
+        fun({Node, Error}) ->
+            #{node => Node, status => inconsistent, reason => Error}
+        end,
+        Errors
+    ),
+    EmptyStatus = #{status => inconsistent, node_status => NodeErrors},
     Response =
         lists:map(
             fun(#{<<"name">> := Name} = Link) ->
@@ -227,25 +233,32 @@ handle_lookup(Name, Link) ->
     ?OK(add_status(Name, Link)).
 
 handle_metrics(Name) ->
-    case emqx_cluster_link_metrics:get_metrics(Name) of
-        {error, BadResults} ->
+    Results = emqx_cluster_link_metrics:get_metrics(Name),
+    {NodeMetrics0, NodeErrors} =
+        lists:foldl(
+            fun
+                ({Node, {ok, Metrics}}, {OkAccIn, ErrAccIn}) ->
+                    {[format_metrics(Node, Metrics) | OkAccIn], ErrAccIn};
+                ({Node, Error}, {OkAccIn, ErrAccIn}) ->
+                    {OkAccIn, [{Node, Error} | ErrAccIn]}
+            end,
+            {[], []},
+            Results
+        ),
+    case NodeErrors of
+        [] ->
+            ok;
+        [_ | _] ->
             ?SLOG(warning, #{
                 msg => "cluster_link_api_metrics_bad_erpc_results",
-                results => BadResults
-            }),
-            ?OK(#{metrics => #{}, node_metrics => []});
-        {ok, NodeResults} ->
-            NodeMetrics =
-                lists:map(
-                    fun({Node, Metrics}) ->
-                        format_metrics(Node, Metrics)
-                    end,
-                    NodeResults
-                ),
-            AggregatedMetrics = aggregate_metrics(NodeMetrics),
-            Response = #{metrics => AggregatedMetrics, node_metrics => NodeMetrics},
-            ?OK(Response)
-    end.
+                errors => maps:from_list(NodeErrors)
+            })
+    end,
+    NodeMetrics1 = lists:map(fun({Node, _Error}) -> format_metrics(Node, #{}) end, NodeErrors),
+    NodeMetrics = NodeMetrics1 ++ NodeMetrics0,
+    AggregatedMetrics = aggregate_metrics(NodeMetrics),
+    Response = #{metrics => AggregatedMetrics, node_metrics => NodeMetrics},
+    ?OK(Response).
 
 aggregate_metrics(NodeMetrics) ->
     ErrorLogger = fun(_) -> ok end,
@@ -267,8 +280,8 @@ format_metrics(Node, Metrics) ->
     }.
 
 add_status(Name, Link) ->
-    NodeResults = get_link_status_cluster(Name),
-    Status = collect_single_status(NodeResults),
+    NodeRPCResults = emqx_cluster_link_mqtt:get_resource_cluster(Name),
+    Status = collect_single_status(NodeRPCResults),
     maps:merge(Link, Status).
 
 handle_update(Name, Params0) ->
@@ -289,64 +302,62 @@ get_raw() ->
         ),
     Links.
 
-get_all_link_status_cluster() ->
-    case emqx_cluster_link_mqtt:get_all_resources_cluster() of
-        {error, BadResults} ->
-            ?SLOG(warning, #{
-                msg => "cluster_link_api_all_status_bad_erpc_results",
-                results => BadResults
-            }),
-            [];
-        {ok, NodeResults} ->
-            NodeResults
-    end.
-
-get_link_status_cluster(Name) ->
-    case emqx_cluster_link_mqtt:get_resource_cluster(Name) of
-        {error, BadResults} ->
-            ?SLOG(warning, #{
-                msg => "cluster_link_api_lookup_status_bad_erpc_results",
-                results => BadResults
-            }),
-            [];
-        {ok, NodeResults} ->
-            NodeResults
-    end.
-
--spec collect_all_status([{node(), #{cluster_name() => _}}]) ->
-    #{
+-spec collect_all_status([{node(), {ok, #{cluster_name() => _}} | _Error}]) ->
+    {ClusterToStatus, Errors}
+when
+    ClusterToStatus :: #{
         cluster_name() => #{
             node := node(),
             status := emqx_resource:resource_status() | inconsistent
         }
-    }.
+    },
+    Errors :: [{node(), term()}].
 collect_all_status(NodeResults) ->
-    Reindexed = lists:foldl(
-        fun({Node, AllLinkData}, Acc) ->
-            maps:fold(
-                fun(Name, Data, AccIn) ->
-                    collect_all_status1(Node, Name, Data, AccIn)
-                end,
-                Acc,
-                AllLinkData
-            )
+    {Reindexed, Errors} = lists:foldl(
+        fun
+            ({Node, {ok, AllLinkData}}, {OkAccIn, ErrAccIn}) ->
+                OkAcc = maps:fold(
+                    fun(Name, Data, AccIn) ->
+                        collect_all_status1(Node, Name, Data, AccIn)
+                    end,
+                    OkAccIn,
+                    AllLinkData
+                ),
+                {OkAcc, ErrAccIn};
+            ({Node, Error}, {OkAccIn, ErrAccIn}) ->
+                {OkAccIn, [{Node, Error} | ErrAccIn]}
         end,
-        #{},
+        {#{}, []},
         NodeResults
     ),
-    maps:fold(
+    NoErrors =
+        case Errors of
+            [] ->
+                true;
+            [_ | _] ->
+                ?SLOG(warning, #{
+                    msg => "cluster_link_api_lookup_status_bad_erpc_results",
+                    errors => Errors
+                }),
+                false
+        end,
+    ClusterToStatus = maps:fold(
         fun(Name, NodeToData, Acc) ->
             OnlyStatus = [S || #{status := S} <- maps:values(NodeToData)],
             SummaryStatus =
                 case lists:usort(OnlyStatus) of
-                    [SameStatus] -> SameStatus;
+                    [SameStatus] when NoErrors -> SameStatus;
                     _ -> inconsistent
                 end,
             NodeStatus = lists:map(
-                fun({Node, #{status := S}}) ->
-                    #{node => Node, status => S}
+                fun
+                    ({Node, #{status := S}}) ->
+                        #{node => Node, status => S};
+                    ({Node, Error0}) ->
+                        Error = emqx_logger_jsonfmt:best_effort_json(Error0),
+                        #{node => Node, status => inconsistent, reason => Error}
                 end,
-                maps:to_list(NodeToData)
+                maps:to_list(NodeToData) ++ Errors
             ),
             Acc#{
                 Name => #{
@@ -357,7 +368,8 @@ collect_all_status(NodeResults) ->
         end,
         #{},
         Reindexed
-    ).
+    ),
+    {ClusterToStatus, Errors}.
 
 collect_all_status1(Node, Name, Data, Acc) ->
     maps:update_with(
@@ -371,12 +383,13 @@ collect_single_status(NodeResults) ->
     NodeStatus =
         lists:map(
             fun
-                ({Node, {ok, #{status := S}}}) ->
+                ({Node, {ok, {ok, #{status := S}}}}) ->
                     #{node => Node, status => S};
-                ({Node, {error, _}}) ->
+                ({Node, {ok, {error, _}}}) ->
                     #{node => Node, status => ?status_disconnected};
-                ({Node, _}) ->
-                    #{node => Node, status => inconsistent}
+                ({Node, Error0}) ->
+                    Error = emqx_logger_jsonfmt:best_effort_json(Error0),
+                    #{node => Node, status => inconsistent, reason => Error}
             end,
             NodeResults
         ),
