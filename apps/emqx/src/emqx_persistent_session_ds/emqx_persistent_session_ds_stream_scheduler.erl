@@ -16,8 +16,16 @@
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
--export([init/1, poll/3, on_reply/2, find_replay_streams/1, is_fully_acked/2]).
--export([renew_streams/1, on_unsubscribe/2]).
+-export([
+    init/1,
+    poll/3,
+    on_ds_reply/2,
+    on_enqueue/4,
+    on_seqno_release/3,
+    find_replay_streams/1,
+    is_fully_acked/2
+]).
+-export([renew_streams/2, on_unsubscribe/2]).
 
 %% behavior callbacks:
 -export([]).
@@ -45,10 +53,26 @@
     it_begin :: emqx_ds:iterator()
 }).
 
+-record(block, {
+    id :: emqx_persistent_session_ds_state:stream_key(),
+    last_seqno_qos1 :: emqx_persistent_session_ds:seqno(),
+    last_seqno_qos2 :: emqx_persistent_session_ds:seqno()
+}).
+
+-type block() :: #block{}.
+
+-type blocklist() :: gb_trees:tree(emqx_persistent_session_ds:seqno(), block()).
+
 -record(s, {
     %% Map that contains data needed to enqueue received batch for
     %% each key.
-    pending = #{} :: #{emqx_persistent_session_ds_state:stream_key() => #pending_poll{}}
+    pending = #{} :: #{emqx_persistent_session_ds_state:stream_key() => #pending_poll{}},
+    %% List of stream IDs that can be polled:
+    ready :: #{emqx_persistent_session_ds_state:stream_key() => true},
+    %% Lists of stream IDs that can't be polled because they have
+    %% unacked QoS1 & 2 messages:
+    blocklist_qos1 :: blocklist(),
+    blocklist_qos2 :: blocklist()
 }).
 
 -opaque t() :: #s{}.
@@ -58,8 +82,8 @@
 %%================================================================================
 
 -spec init(emqx_persistent_session_ds_state:t()) -> t().
-init(_S) ->
-    #s{}.
+init(S) ->
+    recalculate_blocklist(S, undefined).
 
 %% @doc Find the streams that have uncommitted (in-flight) messages.
 %% Return them in the order they were previously replayed.
@@ -91,28 +115,27 @@ find_replay_streams(S) ->
 %% record of in-flight messages per stream, and we don't want to
 %% overwrite these records prematurely.
 -spec poll(emqx_ds:poll_opts(), t(), emqx_persistent_session_ds_state:t()) -> t().
-poll(PollOpts0, SchedS0 = #s{pending = Pending0}, S) ->
-    %% FIXME: this function is currently very sensitive to the
-    %% consistency of the packet IDs on both broker and client side.
-    %%
-    %% If the client fails to properly ack packets due to a bug, or a
-    %% network issue, or if the state of streams and seqno tables ever
-    %% become de-synced, then this function will return an empty list,
-    %% and the replay cannot progress.
-    %%
-    %% In other words, this function is not robust, and we should find
-    %% some way to get the replays un-stuck at the cost of potentially
-    %% losing messages during replay (or just kill the stuck channel
-    %% after timeout?)
-    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
-    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+poll(PollOpts0, SchedS0 = #s{pending = Pending0, ready = Ready}, S) ->
     Ref = alias([explicit_unalias]),
-    {Iterators, Pending} = emqx_persistent_session_ds_state:fold_streams(
-        fun(Key, SRS, Acc) ->
-            prep_poll(Ref, Pending0, Comm1, Comm2, Key, SRS, Acc)
+    {Iterators, Pending} = maps:fold(
+        fun(StreamKey, _, {AccIt, AccPending} = Acc) ->
+            case maps:is_key(StreamKey, Pending0) of
+                true ->
+                    %% Already have a pending poll:
+                    Acc;
+                false ->
+                    %% Good to go:
+                    SRS = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
+                    It = {StreamKey, SRS#srs.it_end},
+                    Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
+                    {
+                        [It | AccIt],
+                        maps:put(StreamKey, Pending, AccPending)
+                    }
+            end
         end,
         {[], Pending0},
-        S
+        Ready
     ),
     case Iterators of
         [] ->
@@ -126,25 +149,7 @@ poll(PollOpts0, SchedS0 = #s{pending = Pending0}, S) ->
             SchedS0#s{pending = Pending}
     end.
 
-prep_poll(_Ref, _AlreadyPending, _Comm1, _Comm2, _Key, #srs{unsubscribed = true}, Acc) ->
-    Acc;
-prep_poll(Ref, AlreadyPending, Comm1, Comm2, Key, SRS, Acc = {AccIt, AccPend}) ->
-    case maps:is_key(Key, AlreadyPending) orelse not is_fully_acked(Comm1, Comm2, SRS) of
-        true ->
-            %% Either stream is already being fetched from, or it has
-            %% inflight messages. Ignore it.
-            Acc;
-        false ->
-            %% Good to go:
-            It = {Key, SRS#srs.it_end},
-            Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
-            {
-                [It | AccIt],
-                maps:put(Key, Pending, AccPend)
-            }
-    end.
-
-on_reply(#poll_reply{ref = Ref, payload = poll_timeout}, SchedS = #s{pending = P0}) ->
+on_ds_reply(#poll_reply{ref = Ref, payload = poll_timeout}, SchedS = #s{pending = P0}) ->
     %% Process poll timeout by removing all pending streams that
     %% belong to the poll group, so they can be retried:
     ?SLOG(debug, #{msg => sess_poll_timeout, ref => Ref}),
@@ -154,7 +159,7 @@ on_reply(#poll_reply{ref = Ref, payload = poll_timeout}, SchedS = #s{pending = P
         P0
     ),
     {undefined, SchedS#s{pending = P}};
-on_reply(
+on_ds_reply(
     #poll_reply{ref = Ref, userdata = StreamKey, payload = Payload},
     SchedS0 = #s{pending = Pending0}
 ) ->
@@ -175,6 +180,46 @@ on_reply(
             {undefined, SchedS0}
     end.
 
+on_enqueue(Key, Srs, S, SchedS) ->
+    update_blocklists(Key, Srs, S, SchedS).
+
+on_seqno_release(
+    ?QOS_1, SnQ1, SchedS0 = #s{ready = Ready, blocklist_qos1 = Q1B0, blocklist_qos2 = Q2B}
+) ->
+    case gb_trees:take_any(SnQ1, Q1B0) of
+        error ->
+            SchedS0;
+        {#block{id = Id, last_seqno_qos2 = SnQ2}, Q1B} ->
+            SchedS = SchedS0#s{blocklist_qos1 = Q1B},
+            case gb_trees:is_defined(SnQ2, Q2B) of
+                true ->
+                    %% The stream is still blocked by QoS2 track:
+                    SchedS;
+                false ->
+                    %% The stream is fully unblock now. Mark stream as
+                    %% ready for poll:
+                    SchedS#s{ready = Ready#{Id => true}}
+            end
+    end;
+on_seqno_release(
+    ?QOS_2, SnQ2, SchedS0 = #s{ready = Ready, blocklist_qos1 = Q1B, blocklist_qos2 = Q2B0}
+) ->
+    case gb_trees:take_any(SnQ2, Q2B0) of
+        error ->
+            SchedS0;
+        {#block{id = Id, last_seqno_qos1 = SnQ1}, Q2B} ->
+            SchedS = SchedS0#s{blocklist_qos1 = Q2B},
+            case gb_trees:is_defined(SnQ1, Q1B) of
+                true ->
+                    %% The stream is still blocked by QoS2 track:
+                    SchedS;
+                false ->
+                    %% The stream is fully unblock now. Mark stream as
+                    %% ready for poll:
+                    SchedS#s{ready = Ready#{Id => true}}
+            end
+    end.
+
 %% @doc This function makes the session aware of the new streams.
 %%
 %% It has the following properties:
@@ -192,8 +237,9 @@ on_reply(
 %% with the smallest RankY.
 %%
 %% This way, messages from the same topic/shard are never reordered.
--spec renew_streams(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
-renew_streams(S0) ->
+-spec renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
+    {emqx_persistent_session_ds_state:t(), t()}.
+renew_streams(S0, SchedS0) ->
     S1 = remove_unsubscribed_streams(S0),
     S2 = remove_fully_replayed_streams(S1),
     S3 = update_stream_subscription_state_ids(S2),
@@ -202,7 +248,7 @@ renew_streams(S0) ->
     %% TODO
     %% Move discovery of proper streams
     %% out of the scheduler for complete symmetry?
-    fold_proper_subscriptions(
+    S = fold_proper_subscriptions(
         fun
             (Key, #{start_time := StartTime, id := SubId, current_state := SStateId}, Acc) ->
                 TopicFilter = emqx_topic:words(Key),
@@ -223,7 +269,8 @@ renew_streams(S0) ->
         end,
         S3,
         S3
-    ).
+    ),
+    {S, recalculate_blocklist(S, SchedS0)}.
 
 -spec on_unsubscribe(
     emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds_state:t()
@@ -276,6 +323,70 @@ is_fully_acked(Srs, S) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+recalculate_blocklist(S, Input) ->
+    %% FIXME: this function is currently very sensitive to the
+    %% consistency of the packet IDs on both broker and client side.
+    %%
+    %% If the client fails to properly ack packets due to a bug, or a
+    %% network issue, or if the state of streams and seqno tables ever
+    %% become de-synced, then this function will return an empty list,
+    %% and the replay cannot progress.
+    %%
+    %% In other words, this function is not robust, and we should find
+    %% some way to get the replays un-stuck at the cost of potentially
+    %% losing messages during replay (or just kill the stuck channel
+    %% after timeout?)
+    SchedS0 =
+        case Input of
+            undefined ->
+                #s{
+                    ready = #{},
+                    blocklist_qos1 = gb_trees:empty(),
+                    blocklist_qos2 = gb_trees:empty()
+                };
+            #s{} ->
+                Input#s{
+                    ready = #{},
+                    blocklist_qos1 = gb_trees:empty(),
+                    blocklist_qos2 = gb_trees:empty()
+                }
+        end,
+    emqx_persistent_session_ds_state:fold_streams(
+        fun(Key, SRS, Acc) ->
+            update_blocklists(Key, SRS, S, Acc)
+        end,
+        SchedS0,
+        S
+    ).
+
+update_blocklists(Key, SRS, S, SchedS) ->
+    #s{ready = Ready, blocklist_qos1 = Q1B0, blocklist_qos2 = Q2B0} = SchedS,
+    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+    case {is_track_acked(?QOS_1, Comm1, SRS), is_track_acked(?QOS_2, Comm2, SRS)} of
+        {true, true} ->
+            SchedS#s{
+                ready = Ready#{Key => true}
+            };
+        {AckedQ1, AckedQ2} ->
+            #srs{last_seqno_qos1 = SnQ1, last_seqno_qos2 = SnQ2} = SRS,
+            Block = #block{id = Key, last_seqno_qos1 = SnQ1, last_seqno_qos2 = SnQ2},
+            Q1B =
+                case AckedQ1 of
+                    true -> Q1B0;
+                    false -> gb_trees:insert(SnQ1, Block, Q1B0)
+                end,
+            Q2B =
+                case AckedQ2 of
+                    true -> Q2B0;
+                    false -> gb_trees:insert(SnQ2, Block, Q2B0)
+                end,
+            SchedS#s{
+                blocklist_qos1 = Q1B,
+                blocklist_qos2 = Q2B
+            }
+    end.
 
 ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream}, S) ->
     Key = {SubId, Stream},
@@ -471,14 +582,14 @@ compare_streams(
 is_fully_replayed(Comm1, Comm2, S = #srs{it_end = It}) ->
     It =:= end_of_stream andalso is_fully_acked(Comm1, Comm2, S).
 
-is_fully_acked(_, _, #srs{
-    first_seqno_qos1 = Q1, last_seqno_qos1 = Q1, first_seqno_qos2 = Q2, last_seqno_qos2 = Q2
-}) ->
-    %% Streams where the last chunk doesn't contain any QoS1 and 2
-    %% messages are considered fully acked:
-    true;
-is_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
-    (Comm1 >= S1) andalso (Comm2 >= S2).
+is_fully_acked(Comm1, Comm2, SRS) ->
+    is_track_acked(?QOS_1, Comm1, SRS) andalso
+        is_track_acked(?QOS_2, Comm2, SRS).
+
+is_track_acked(?QOS_1, Committed, #srs{first_seqno_qos1 = First, last_seqno_qos1 = Last}) ->
+    First =:= Last orelse Committed >= Last;
+is_track_acked(?QOS_2, Committed, #srs{first_seqno_qos2 = First, last_seqno_qos2 = Last}) ->
+    First =:= Last orelse Committed >= Last.
 
 fold_proper_subscriptions(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(

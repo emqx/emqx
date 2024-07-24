@@ -671,7 +671,11 @@ handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], Session};
-handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0, shared_sub_s := SharedSubS0}) ->
+handle_timeout(
+    ClientInfo,
+    ?TIMER_GET_STREAMS,
+    Session0 = #{s := S0, shared_sub_s := SharedSubS0, stream_scheduler_s := SchedS0}
+) ->
     ?tp(debug, sessds_renew_streams, #{}),
     %% `gc` and `renew_streams` methods may drop unsubscribed streams.
     %% Shared subscription handler must have a chance to see unsubscribed streams
@@ -684,7 +688,7 @@ handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0, shared_sub_
     Session = set_timer(
         ?TIMER_GET_STREAMS,
         Interval,
-        Session0#{s := S, shared_sub_s := SharedSubS}
+        Session0#{s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS}
     ),
     {ok, [], push_now(Session)};
 handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0 = #{s := S0}) ->
@@ -1074,7 +1078,7 @@ push_now(Session) ->
     ensure_timer(?TIMER_PUSH, 0, Session).
 
 handle_ds_reply(AsyncReply, Session0 = #{stream_scheduler_s := SchedS0}, ClientInfo) ->
-    case emqx_persistent_session_ds_stream_scheduler:on_reply(AsyncReply, SchedS0) of
+    case emqx_persistent_session_ds_stream_scheduler:on_ds_reply(AsyncReply, SchedS0) of
         {undefined, SchedS} ->
             Session0#{stream_scheduler_s := SchedS};
         {{StreamKey, ItBegin, FetchResult}, SchedS} ->
@@ -1141,11 +1145,11 @@ enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, Fet
             }),
             {ignore, undefined, Session};
         Srs ->
-            do_enqueue_batch(IsReplay, Session, ClientInfo, Srs, ItBegin, FetchResult)
+            do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs, ItBegin, FetchResult)
     end.
 
-do_enqueue_batch(IsReplay, Session, ClientInfo, Srs0, ItBegin, FetchResult) ->
-    #{s := S0, inflight := Inflight0} = Session,
+do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchResult) ->
+    #{s := S0, inflight := Inflight0, stream_scheduler_s := SchedS0} = Session,
     #srs{sub_state_id = SubStateId} = Srs0,
     case IsReplay of
         false ->
@@ -1175,7 +1179,10 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, Srs0, ItBegin, FetchResult) ->
                 it_end = end_of_stream,
                 batch_size = 0
             },
-            {ok, Srs, Session};
+            SchedS = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
+                StreamKey, Srs, S0, SchedS0
+            ),
+            {ok, Srs, Session#{stream_scheduler_s := SchedS}};
         {ok, ItEnd, Messages} ->
             SubState = emqx_persistent_session_ds_state:get_subscription_state(SubStateId, S0),
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
@@ -1197,7 +1204,10 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, Srs0, ItBegin, FetchResult) ->
                 last_seqno_qos1 = LastSeqnoQos1,
                 last_seqno_qos2 = LastSeqnoQos2
             },
-            {ok, Srs, Session#{inflight := Inflight}}
+            SchedS = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
+                StreamKey, Srs, S0, SchedS0
+            ),
+            {ok, Srs, Session#{inflight := Inflight, stream_scheduler_s := SchedS}}
     end.
 
 %% key_of_iter(#{3 := #{3 := #{5 := K}}}) ->
@@ -1431,7 +1441,11 @@ maybe_set_offline_info(S, Id) ->
 
 -spec update_seqno(puback | pubrec | pubcomp, emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), session()} | {error, _}.
-update_seqno(Track, PacketId, Session = #{id := SessionId, s := S, inflight := Inflight0}) ->
+update_seqno(
+    Track,
+    PacketId,
+    Session = #{id := SessionId, s := S, inflight := Inflight0, stream_scheduler_s := SchedS0}
+) ->
     SeqNo = packet_id_to_seqno(PacketId, S),
     case Track of
         puback ->
@@ -1448,9 +1462,23 @@ update_seqno(Track, PacketId, Session = #{id := SessionId, s := S, inflight := I
         {ok, Inflight} ->
             %% TODO: we pass a bogus message into the hook:
             Msg = emqx_message:make(SessionId, <<>>, <<>>),
+            SchedS =
+                case Track of
+                    puback ->
+                        emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
+                            ?QOS_1, SeqNo, SchedS0
+                        );
+                    pubcomp ->
+                        emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
+                            ?QOS_2, SeqNo, SchedS0
+                        );
+                    _ ->
+                        SchedS0
+                end,
             {ok, Msg, Session#{
                 s := emqx_persistent_session_ds_state:put_seqno(SeqNoKey, SeqNo, S),
-                inflight := Inflight
+                inflight := Inflight,
+                stream_scheduler_s := SchedS
             }};
         {error, Expected} ->
             ?SLOG(warning, #{

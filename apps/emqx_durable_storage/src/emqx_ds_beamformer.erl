@@ -218,7 +218,7 @@ handle_info(cleanup, S0) ->
     erlang:send_after(1000, self(), cleanup),
     {noreply, S};
 handle_info(doit, S0) ->
-    S = fulfill_pending(S0, 100),
+    S = fulfill_pending(S0, 10),
     erlang:send_after(10, self(), doit),
     {noreply, S};
 handle_info(_Info, S) ->
