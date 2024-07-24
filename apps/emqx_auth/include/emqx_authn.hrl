@@ -28,7 +28,7 @@
 
 -type authenticator_id() :: binary().
 
--define(AUTHN_RESOURCE_GROUP, <<"emqx_authn">>).
+-define(AUTHN_RESOURCE_GROUP, <<"authn">>).
 
 %% VAR_NS_CLIENT_ATTRS is added here because it can be initialized before authn.
 %% NOTE: authn return may add more to (or even overwrite) client_attrs.

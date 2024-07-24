@@ -19,6 +19,7 @@
 %% callbacks of behaviour emqx_resource
 -export([
     callback_mode/0,
+    resource_type/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -98,6 +99,10 @@ remove_msg_fwd_resource(ClusterName) ->
 %%--------------------------------------------------------------------
 
 callback_mode() -> async_if_possible.
+
+-spec resource_type() -> atom().
+resource_type() ->
+    cluster_link_mqtt.
 
 on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
     PoolName = ResourceId,

@@ -18,6 +18,7 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
+    resource_type/0,
 
     on_start/2,
     on_stop/2,
@@ -147,6 +148,10 @@
 -spec callback_mode() -> callback_mode().
 callback_mode() ->
     always_sync.
+
+-spec resource_type() -> atom().
+resource_type() ->
+    azure_blob_storage.
 
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, _Reason}.

@@ -12,6 +12,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_add_channel/4,
     on_remove_channel/3,
@@ -29,7 +30,9 @@
 %% resource callbacks
 %% -------------------------------------------------------------------------------------------------
 
-callback_mode() -> always_sync.
+resource_type() -> emqx_redis:resource_type().
+
+callback_mode() -> emqx_redis:callback_mode().
 
 on_add_channel(
     _InstanceId,

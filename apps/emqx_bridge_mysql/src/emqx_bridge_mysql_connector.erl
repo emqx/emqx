@@ -10,6 +10,7 @@
 %% `emqx_resource' API
 -export([
     on_remove_channel/3,
+    resource_type/0,
     callback_mode/0,
     on_add_channel/4,
     on_batch_query/3,
@@ -24,6 +25,7 @@
 %%========================================================================================
 %% `emqx_resource' API
 %%========================================================================================
+resource_type() -> emqx_mysql:resource_type().
 
 callback_mode() -> emqx_mysql:callback_mode().
 

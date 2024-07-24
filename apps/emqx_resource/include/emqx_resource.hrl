@@ -23,7 +23,8 @@
 %% remind us of that.
 -define(rm_status_stopped, stopped).
 
--type resource_type() :: module().
+-type resource_type() :: atom().
+-type resource_module() :: module().
 -type resource_id() :: binary().
 -type channel_id() :: binary().
 -type raw_resource_config() :: binary() | raw_term_resource_config().
@@ -158,5 +159,12 @@
 %% See `hocon_tconf`
 -define(TEST_ID_PREFIX, "t_probe_").
 -define(RES_METRICS, resource_metrics).
+-define(LOG_LEVEL(_L_),
+    case _L_ of
+        true -> info;
+        false -> warning
+    end
+).
+-define(TAG, "RESOURCE").
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).

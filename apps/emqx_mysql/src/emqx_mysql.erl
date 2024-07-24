@@ -25,6 +25,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -91,6 +92,8 @@ server() ->
     emqx_schema:servers_sc(Meta, ?MYSQL_HOST_OPTIONS).
 
 %% ===================================================================
+resource_type() -> mysql.
+
 callback_mode() -> always_sync.
 
 -spec on_start(binary(), hocon:config()) -> {ok, state()} | {error, _}.

@@ -75,6 +75,7 @@
 -record(data, {
     id,
     group,
+    type,
     mod,
     callback_mode,
     query_mode,
@@ -166,7 +167,7 @@ where(ResId) ->
 -spec ensure_resource(
     resource_id(),
     resource_group(),
-    resource_type(),
+    resource_module(),
     resource_config(),
     creation_opts()
 ) -> {ok, resource_data()}.
@@ -179,7 +180,9 @@ ensure_resource(ResId, Group, ResourceType, Config, Opts) ->
     end.
 
 %% @doc Called from emqx_resource when recreating a resource which may or may not exist
--spec recreate(resource_id(), resource_type(), resource_config(), creation_opts()) ->
+-spec recreate(
+    resource_id(), resource_module(), resource_config(), creation_opts()
+) ->
     {ok, resource_data()} | {error, not_found} | {error, updating_to_incorrect_resource_type}.
 recreate(ResId, ResourceType, NewConfig, Opts) ->
     case lookup(ResId) of
@@ -222,8 +225,8 @@ create(ResId, Group, ResourceType, Config, Opts) ->
 %% @doc Called from `emqx_resource` when doing a dry run for creating a resource instance.
 %%
 %% Triggers the `emqx_resource_manager_sup` supervisor to actually create
-%% and link the process itself if not already started, and then immedately stops.
--spec create_dry_run(resource_type(), resource_config()) ->
+%% and link the process itself if not already started, and then immediately stops.
+-spec create_dry_run(resource_module(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
     ResId = make_test_id(),
@@ -235,7 +238,9 @@ create_dry_run(ResId, ResourceType, Config) ->
 do_nothing_on_ready(_ResId) ->
     ok.
 
--spec create_dry_run(resource_id(), resource_type(), resource_config(), OnReadyCallback) ->
+-spec create_dry_run(
+    resource_id(), resource_module(), resource_config(), OnReadyCallback
+) ->
     ok | {error, Reason :: term()}
 when
     OnReadyCallback :: fun((resource_id()) -> ok | {error, Reason :: term()}).
@@ -245,7 +250,9 @@ create_dry_run(ResId, ResourceType, Config, OnReadyCallback) ->
             true -> maps:get(resource_opts, Config, #{});
             false -> #{}
         end,
-    ok = emqx_resource_manager_sup:ensure_child(ResId, <<"dry_run">>, ResourceType, Config, Opts),
+    ok = emqx_resource_manager_sup:ensure_child(
+        ResId, <<"dry_run">>, ResourceType, Config, Opts
+    ),
     HealthCheckInterval = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
     Timeout = emqx_utils:clamp(HealthCheckInterval, 5_000, 60_000),
     case wait_for_ready(ResId, Timeout) of
@@ -526,6 +533,7 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
     ),
     Data = #data{
         id = ResId,
+        type = emqx_resource:get_resource_type(ResourceType),
         group = Group,
         mod = ResourceType,
         callback_mode = emqx_resource:get_callback_mode(ResourceType),
@@ -710,11 +718,13 @@ handle_event(EventType, EventData, State, Data) ->
         error,
         #{
             msg => "ignore_all_other_events",
+            resource_id => Data#data.id,
             event_type => EventType,
             event_data => EventData,
             state => State,
             data => emqx_utils:redact(Data)
-        }
+        },
+        #{tag => tag(Data#data.group, Data#data.type)}
     ),
     keep_state_and_data.
 
@@ -779,7 +789,8 @@ handle_remove_event(From, ClearMetrics, Data) ->
 
 start_resource(Data, From) ->
     %% in case the emqx_resource:call_start/2 hangs, the lookup/1 can read status from the cache
-    case emqx_resource:call_start(Data#data.id, Data#data.mod, Data#data.config) of
+    #data{id = ResId, mod = Mod, config = Config, group = Group, type = Type} = Data,
+    case emqx_resource:call_start(ResId, Mod, Config) of
         {ok, ResourceState} ->
             UpdatedData1 = Data#data{status = ?status_connecting, state = ResourceState},
             %% Perform an initial health_check immediately before transitioning into a connected state
@@ -787,12 +798,17 @@ start_resource(Data, From) ->
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
             {next_state, ?state_connecting, update_state(UpdatedData2, Data), Actions};
         {error, Reason} = Err ->
-            ?SLOG(warning, #{
-                msg => "start_resource_failed",
-                id => Data#data.id,
-                reason => Reason
-            }),
-            _ = maybe_alarm(?status_disconnected, Data#data.id, Err, Data#data.error),
+            IsDryRun = emqx_resource:is_dry_run(ResId),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "start_resource_failed",
+                    resource_id => ResId,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
+            _ = maybe_alarm(?status_disconnected, IsDryRun, ResId, Err, Data#data.error),
             %% Add channels and raise alarms
             NewData1 = channels_health_check(?status_disconnected, add_channels(Data)),
             %% Keep track of the error reason why the connection did not work
@@ -823,13 +839,20 @@ add_channels(Data) ->
 add_channels_in_list([], Data) ->
     Data;
 add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
+    #data{
+        id = ResId,
+        mod = Mod,
+        state = State,
+        added_channels = AddedChannelsMap,
+        group = Group,
+        type = Type
+    } = Data,
     case
         emqx_resource:call_add_channel(
-            Data#data.id, Data#data.mod, Data#data.state, ChannelID, ChannelConfig
+            ResId, Mod, State, ChannelID, ChannelConfig
         )
     of
         {ok, NewState} ->
-            AddedChannelsMap = Data#data.added_channels,
             %% Set the channel status to connecting to indicate that
             %% we have not yet performed the initial health_check
             NewAddedChannelsMap = maps:put(
@@ -843,12 +866,17 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
             },
             add_channels_in_list(Rest, NewData);
         {error, Reason} = Error ->
-            ?SLOG(warning, #{
-                msg => add_channel_failed,
-                id => Data#data.id,
-                channel_id => ChannelID,
-                reason => Reason
-            }),
+            IsDryRun = emqx_resource:is_dry_run(ResId),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "add_channel_failed",
+                    resource_id => ResId,
+                    channel_id => ChannelID,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
             AddedChannelsMap = Data#data.added_channels,
             NewAddedChannelsMap = maps:put(
                 ChannelID,
@@ -859,7 +887,7 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
                 added_channels = NewAddedChannelsMap
             },
             %% Raise an alarm since the channel could not be added
-            _ = maybe_alarm(?status_disconnected, ChannelID, Error, no_prev_error),
+            _ = maybe_alarm(?status_disconnected, IsDryRun, ChannelID, Error, no_prev_error),
             add_channels_in_list(Rest, NewData)
     end.
 
@@ -883,7 +911,8 @@ stop_resource(#data{id = ResId} = Data) ->
         false ->
             ok
     end,
-    _ = maybe_clear_alarm(ResId),
+    IsDryRun = emqx_resource:is_dry_run(ResId),
+    _ = maybe_clear_alarm(IsDryRun, ResId),
     ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId),
     NewData#data{status = ?rm_status_stopped}.
 
@@ -894,16 +923,24 @@ remove_channels(Data) ->
 remove_channels_in_list([], Data, _KeepInChannelMap) ->
     Data;
 remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
-    AddedChannelsMap = Data#data.added_channels,
+    #data{
+        id = ResId,
+        added_channels = AddedChannelsMap,
+        mod = Mod,
+        state = State,
+        group = Group,
+        type = Type
+    } = Data,
+    IsDryRun = emqx_resource:is_dry_run(ResId),
     NewAddedChannelsMap =
         case KeepInChannelMap of
             true ->
                 AddedChannelsMap;
             false ->
-                _ = maybe_clear_alarm(ChannelID),
+                _ = maybe_clear_alarm(IsDryRun, ChannelID),
                 maps:remove(ChannelID, AddedChannelsMap)
         end,
-    case safe_call_remove_channel(Data#data.id, Data#data.mod, Data#data.state, ChannelID) of
+    case safe_call_remove_channel(ResId, Mod, State, ChannelID) of
         {ok, NewState} ->
             NewData = Data#data{
                 state = NewState,
@@ -911,12 +948,18 @@ remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
             },
             remove_channels_in_list(Rest, NewData, KeepInChannelMap);
         {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => remove_channel_failed,
-                id => Data#data.id,
-                channel_id => ChannelID,
-                reason => Reason
-            }),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "remove_channel_failed",
+                    resource_id => ResId,
+                    group => Group,
+                    type => Type,
+                    channel_id => ChannelID,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
             NewData = Data#data{
                 added_channels = NewAddedChannelsMap
             },
@@ -995,8 +1038,8 @@ handle_not_connected_add_channel(From, ChannelId, ChannelConfig, State, Data) ->
 
 handle_remove_channel(From, ChannelId, Data) ->
     Channels = Data#data.added_channels,
-    %% Deactivate alarm
-    _ = maybe_clear_alarm(ChannelId),
+    IsDryRun = emqx_resource:is_dry_run(Data#data.id),
+    _ = maybe_clear_alarm(IsDryRun, ChannelId),
     case
         channel_status_is_channel_added(
             maps:get(ChannelId, Channels, channel_status_not_added(undefined))
@@ -1017,13 +1060,18 @@ handle_remove_channel(From, ChannelId, Data) ->
     end.
 
 handle_remove_channel_exists(From, ChannelId, Data) ->
+    #data{
+        id = Id,
+        group = Group,
+        type = Type,
+        added_channels = AddedChannelsMap
+    } = Data,
     case
         emqx_resource:call_remove_channel(
-            Data#data.id, Data#data.mod, Data#data.state, ChannelId
+            Id, Data#data.mod, Data#data.state, ChannelId
         )
     of
         {ok, NewState} ->
-            AddedChannelsMap = Data#data.added_channels,
             NewAddedChannelsMap = maps:remove(ChannelId, AddedChannelsMap),
             UpdatedData = Data#data{
                 state = NewState,
@@ -1031,13 +1079,17 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
             },
             {keep_state, update_state(UpdatedData, Data), [{reply, From, ok}]};
         {error, Reason} = Error ->
-            %% Log the error as a warning
-            ?SLOG(warning, #{
-                msg => remove_channel_failed,
-                id => Data#data.id,
-                channel_id => ChannelId,
-                reason => Reason
-            }),
+            IsDryRun = emqx_resource:is_dry_run(Id),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "remove_channel_failed",
+                    resource_id => Id,
+                    channel_id => ChannelId,
+                    reason => Reason
+                },
+                #{tag => tag(Group, Type)}
+            ),
             {keep_state_and_data, [{reply, From, Error}]}
     end.
 
@@ -1048,7 +1100,8 @@ handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data) ->
     Channels = Data#data.added_channels,
     NewChannels = maps:remove(ChannelId, Channels),
     NewData = Data#data{added_channels = NewChannels},
-    _ = maybe_clear_alarm(ChannelId),
+    IsDryRun = emqx_resource:is_dry_run(Data#data.id),
+    _ = maybe_clear_alarm(IsDryRun, ChannelId),
     {keep_state, update_state(NewData, Data), [{reply, From, ok}]}.
 
 handle_manual_resource_health_check(From, Data0 = #data{hc_workers = #{resource := HCWorkers}}) when
@@ -1117,7 +1170,8 @@ continue_with_health_check(#data{} = Data0, CurrentState, HCRes) ->
         error = PrevError
     } = Data0,
     {NewStatus, NewState, Err} = parse_health_check_result(HCRes, Data0),
-    _ = maybe_alarm(NewStatus, ResId, Err, PrevError),
+    IsDryRun = emqx_resource:is_dry_run(ResId),
+    _ = maybe_alarm(NewStatus, IsDryRun, ResId, Err, PrevError),
     ok = maybe_resume_resource_workers(ResId, NewStatus),
     Data1 = Data0#data{
         state = NewState, status = NewStatus, error = Err
@@ -1141,11 +1195,17 @@ continue_resource_health_check_connected(NewStatus, Data0) ->
             Actions = Replies ++ resource_health_check_actions(Data),
             {keep_state, Data, Actions};
         _ ->
-            ?SLOG(warning, #{
-                msg => "health_check_failed",
-                id => Data0#data.id,
-                status => NewStatus
-            }),
+            #data{id = ResId, group = Group, type = Type} = Data0,
+            IsDryRun = emqx_resource:is_dry_run(ResId),
+            ?SLOG(
+                log_level(IsDryRun),
+                #{
+                    msg => "health_check_failed",
+                    resource_id => ResId,
+                    status => NewStatus
+                },
+                #{tag => tag(Group, Type)}
+            ),
             %% Note: works because, coincidentally, channel/resource status is a
             %% subset of resource manager state...  But there should be a conversion
             %% between the two here, as resource manager also has `stopped', which is
@@ -1241,7 +1301,7 @@ channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
 channels_health_check(?status_connecting = _ConnectorStatus, Data0) ->
     %% Whenever the resource is connecting:
     %% 1. Change the status of all added channels to connecting
-    %% 2. Raise alarms (TODO: if it is a probe we should not raise alarms)
+    %% 2. Raise alarms
     Channels = Data0#data.added_channels,
     ChannelsToChangeStatusFor = [
         {ChannelId, Config}
@@ -1267,9 +1327,10 @@ channels_health_check(?status_connecting = _ConnectorStatus, Data0) ->
          || {ChannelId, NewStatus} <- maps:to_list(NewChannels)
         ],
     %% Raise alarms for all channels
+    IsDryRun = emqx_resource:is_dry_run(Data0#data.id),
     lists:foreach(
         fun({ChannelId, Status, PrevStatus}) ->
-            maybe_alarm(?status_connecting, ChannelId, Status, PrevStatus)
+            maybe_alarm(?status_connecting, IsDryRun, ChannelId, Status, PrevStatus)
         end,
         ChannelsWithNewAndPrevErrorStatuses
     ),
@@ -1302,9 +1363,10 @@ channels_health_check(ConnectorStatus, Data0) ->
          || {ChannelId, #{config := Config} = OldStatus} <- maps:to_list(Data1#data.added_channels)
         ],
     %% Raise alarms
+    IsDryRun = emqx_resource:is_dry_run(Data1#data.id),
     _ = lists:foreach(
         fun({ChannelId, OldStatus, NewStatus}) ->
-            _ = maybe_alarm(NewStatus, ChannelId, NewStatus, OldStatus)
+            _ = maybe_alarm(NewStatus, IsDryRun, ChannelId, NewStatus, OldStatus)
         end,
         ChannelsWithNewAndOldStatuses
     ),
@@ -1413,13 +1475,14 @@ continue_channel_health_check_connected_no_update_during_check(ChannelId, OldSta
     NewStatus = maps:get(ChannelId, Data1#data.added_channels),
     ChannelsToRemove = [ChannelId || not channel_status_is_channel_added(NewStatus)],
     Data = remove_channels_in_list(ChannelsToRemove, Data1, true),
+    IsDryRun = emqx_resource:is_dry_run(Data1#data.id),
     %% Raise/clear alarms
     case NewStatus of
         #{status := ?status_connected} ->
-            _ = maybe_clear_alarm(ChannelId),
+            _ = maybe_clear_alarm(IsDryRun, ChannelId),
             ok;
         _ ->
-            _ = maybe_alarm(NewStatus, ChannelId, NewStatus, OldStatus),
+            _ = maybe_alarm(NewStatus, IsDryRun, ChannelId, NewStatus, OldStatus),
             ok
     end,
     Data.
@@ -1583,15 +1646,21 @@ remove_runtime_data(#data{} = Data0) ->
 health_check_interval(Opts) ->
     maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL).
 
--spec maybe_alarm(resource_status(), resource_id(), _Error :: term(), _PrevError :: term()) -> ok.
-maybe_alarm(?status_connected, _ResId, _Error, _PrevError) ->
+-spec maybe_alarm(
+    resource_status(),
+    boolean(),
+    resource_id(),
+    _Error :: term(),
+    _PrevError :: term()
+) -> ok.
+maybe_alarm(?status_connected, _IsDryRun, _ResId, _Error, _PrevError) ->
     ok;
-maybe_alarm(_Status, <<?TEST_ID_PREFIX, _/binary>>, _Error, _PrevError) ->
+maybe_alarm(_Status, true, _ResId, _Error, _PrevError) ->
     ok;
 %% Assume that alarm is already active
-maybe_alarm(_Status, _ResId, Error, Error) ->
+maybe_alarm(_Status, _IsDryRun, _ResId, Error, Error) ->
     ok;
-maybe_alarm(_Status, ResId, Error, _PrevError) ->
+maybe_alarm(_Status, false, ResId, Error, _PrevError) ->
     HrError =
         case Error of
             {error, undefined} ->
@@ -1623,10 +1692,10 @@ maybe_resume_resource_workers(ResId, ?status_connected) ->
 maybe_resume_resource_workers(_, _) ->
     ok.
 
--spec maybe_clear_alarm(resource_id()) -> ok | {error, not_found}.
-maybe_clear_alarm(<<?TEST_ID_PREFIX, _/binary>>) ->
+-spec maybe_clear_alarm(boolean(), resource_id()) -> ok | {error, not_found}.
+maybe_clear_alarm(true, _ResId) ->
     ok;
-maybe_clear_alarm(ResId) ->
+maybe_clear_alarm(false, ResId) ->
     emqx_alarm:safe_deactivate(ResId).
 
 parse_health_check_result(Status, Data) when ?IS_STATUS(Status) ->
@@ -1642,7 +1711,8 @@ parse_health_check_result({error, Error}, Data) ->
             msg => "health_check_exception",
             resource_id => Data#data.id,
             reason => Error
-        }
+        },
+        #{tag => tag(Data#data.group, Data#data.type)}
     ),
     {?status_disconnected, Data#data.state, {error, Error}}.
 
@@ -1794,10 +1864,18 @@ add_or_update_channel_status(Data, ChannelId, ChannelConfig, State) ->
     ChannelStatus = channel_status({error, resource_not_operational}, ChannelConfig),
     NewChannels = maps:put(ChannelId, ChannelStatus, Channels),
     ResStatus = state_to_status(State),
-    maybe_alarm(ResStatus, ChannelId, ChannelStatus, no_prev),
+    IsDryRun = emqx_resource:is_dry_run(ChannelId),
+    maybe_alarm(ResStatus, IsDryRun, ChannelId, ChannelStatus, no_prev),
     Data#data{added_channels = NewChannels}.
 
 state_to_status(?state_stopped) -> ?rm_status_stopped;
 state_to_status(?state_connected) -> ?status_connected;
 state_to_status(?state_connecting) -> ?status_connecting;
 state_to_status(?state_disconnected) -> ?status_disconnected.
+
+log_level(true) -> info;
+log_level(false) -> warning.
+
+tag(Group, Type) ->
+    Str = emqx_utils_conv:str(Group) ++ "/" ++ emqx_utils_conv:str(Type),
+    string:uppercase(Str).
