@@ -45,7 +45,7 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
-resource_type() -> hstreamsdb.
+resource_type() -> hstreamdb.
 
 callback_mode() -> always_sync.
 

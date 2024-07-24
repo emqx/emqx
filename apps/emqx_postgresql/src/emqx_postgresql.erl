@@ -121,7 +121,7 @@ adjust_fields(Fields) ->
     ).
 
 %% ===================================================================
-resource_type() -> postgresql.
+resource_type() -> pgsql.
 
 callback_mode() -> always_sync.
 
