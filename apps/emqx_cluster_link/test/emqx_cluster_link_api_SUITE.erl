@@ -477,15 +477,54 @@ t_metrics(Config) ->
 
     ?assertMatch(
         {200, #{
-            <<"metrics">> := #{<<"routes">> := 0},
+            <<"metrics">> := #{
+                <<"routes">> := 0,
+                <<"matched">> := _,
+                <<"success">> := _,
+                <<"failed">> := _,
+                <<"dropped">> := _,
+                <<"retried">> := _,
+                <<"received">> := _,
+                <<"queuing">> := _,
+                <<"inflight">> := _,
+                <<"rate">> := _,
+                <<"rate_last5m">> := _,
+                <<"rate_max">> := _
+            },
             <<"node_metrics">> := [
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{
+                        <<"routes">> := 0,
+                        <<"matched">> := _,
+                        <<"success">> := _,
+                        <<"failed">> := _,
+                        <<"dropped">> := _,
+                        <<"retried">> := _,
+                        <<"received">> := _,
+                        <<"queuing">> := _,
+                        <<"inflight">> := _,
+                        <<"rate">> := _,
+                        <<"rate_last5m">> := _,
+                        <<"rate_max">> := _
+                    }
                 },
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{
+                        <<"routes">> := 0,
+                        <<"matched">> := _,
+                        <<"success">> := _,
+                        <<"failed">> := _,
+                        <<"dropped">> := _,
+                        <<"retried">> := _,
+                        <<"received">> := _,
+                        <<"queuing">> := _,
+                        <<"inflight">> := _,
+                        <<"rate">> := _,
+                        <<"rate_last5m">> := _,
+                        <<"rate_max">> := _
+                    }
                 }
             ]
         }},

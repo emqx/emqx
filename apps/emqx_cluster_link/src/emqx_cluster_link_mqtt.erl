@@ -9,6 +9,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -behaviour(emqx_resource).
 -behaviour(ecpool_worker).
@@ -27,6 +28,7 @@
 ]).
 
 -export([
+    resource_id/1,
     ensure_msg_fwd_resource/1,
     remove_msg_fwd_resource/1,
     decode_route_op/1,
@@ -91,6 +93,10 @@
 -define(PUB_TIMEOUT, 10_000).
 
 -type cluster_name() :: binary().
+
+-spec resource_id(cluster_name()) -> resource_id().
+resource_id(ClusterName) ->
+    ?MSG_RES_ID(ClusterName).
 
 -spec ensure_msg_fwd_resource(map()) ->
     {ok, emqx_resource:resource_data() | already_started} | {error, Reason :: term()}.

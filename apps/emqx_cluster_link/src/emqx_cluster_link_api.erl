@@ -237,10 +237,19 @@ handle_metrics(Name) ->
     {NodeMetrics0, NodeErrors} =
         lists:foldl(
             fun
-                ({Node, {ok, Metrics}}, {OkAccIn, ErrAccIn}) ->
-                    {[format_metrics(Node, Metrics) | OkAccIn], ErrAccIn};
-                ({Node, Error}, {OkAccIn, ErrAccIn}) ->
-                    {OkAccIn, [{Node, Error} | ErrAccIn]}
+                ({Node, {ok, RouterMetrics}, {ok, ResourceMetrics}}, {OkAccIn, ErrAccIn}) ->
+                    OkAcc = [format_metrics(Node, RouterMetrics, ResourceMetrics) | OkAccIn],
+                    {OkAcc, ErrAccIn};
+                ({Node, {ok, RouterMetrics}, ResError}, {OkAccIn, ErrAccIn}) ->
+                    OkAcc = [format_metrics(Node, RouterMetrics, _ResourceMetrics = #{}) | OkAccIn],
+                    {OkAcc, [{Node, #{resource => ResError}} | ErrAccIn]};
+                ({Node, RouterError, {ok, ResourceMetrics}}, {OkAccIn, ErrAccIn}) ->
+                    OkAcc = [format_metrics(Node, _RouterMetrics = #{}, ResourceMetrics) | OkAccIn],
+                    {OkAcc, [{Node, #{router => RouterError}} | ErrAccIn]};
+                ({Node, RouterError, ResourceError}, {OkAccIn, ErrAccIn}) ->
+                    {OkAccIn, [
+                        {Node, #{router => RouterError, resource => ResourceError}} | ErrAccIn
+                    ]}
             end,
             {[], []},
             Results
@@ -254,7 +263,7 @@ handle_metrics(Name) ->
                 errors => maps:from_list(NodeErrors)
             })
     end,
-    NodeMetrics1 = lists:map(fun({Node, _Error}) -> format_metrics(Node, #{}) end, NodeErrors),
+    NodeMetrics1 = lists:map(fun({Node, _Error}) -> format_metrics(Node, #{}, #{}) end, NodeErrors),
     NodeMetrics = NodeMetrics1 ++ NodeMetrics0,
     AggregatedMetrics = aggregate_metrics(NodeMetrics),
     Response = #{metrics => AggregatedMetrics, node_metrics => NodeMetrics},
@@ -270,12 +279,27 @@ aggregate_metrics(NodeMetrics) ->
         NodeMetrics
     ).
 
-format_metrics(Node, Metrics) ->
-    Routes = emqx_utils_maps:deep_get([counters, ?route_metric], Metrics, 0),
+format_metrics(Node, RouterMetrics, ResourceMetrics) ->
+    Get = fun(Path, Map) -> emqx_utils_maps:deep_get(Path, Map, 0) end,
+    Routes = Get([counters, ?route_metric], RouterMetrics),
     #{
         node => Node,
         metrics => #{
-            ?route_metric => Routes
+            ?route_metric => Routes,
+
+            'matched' => Get([counters, 'matched'], ResourceMetrics),
+            'success' => Get([counters, 'success'], ResourceMetrics),
+            'failed' => Get([counters, 'failed'], ResourceMetrics),
+            'dropped' => Get([counters, 'dropped'], ResourceMetrics),
+            'retried' => Get([counters, 'retried'], ResourceMetrics),
+            'received' => Get([counters, 'received'], ResourceMetrics),
+
+            'queuing' => Get([gauges, 'queuing'], ResourceMetrics),
+            'inflight' => Get([gauges, 'inflight'], ResourceMetrics),
+
+            'rate' => Get([rate, 'matched', current], ResourceMetrics),
+            'rate_last5m' => Get([rate, 'matched', last5m], ResourceMetrics),
+            'rate_max' => Get([rate, 'matched', max], ResourceMetrics)
         }
     }.
 

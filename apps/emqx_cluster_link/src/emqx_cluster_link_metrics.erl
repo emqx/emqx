@@ -30,8 +30,12 @@
 get_metrics(ClusterName) ->
     Nodes = emqx:running_nodes(),
     Timeout = 15_000,
-    Results = emqx_metrics_proto_v2:get_metrics(Nodes, ?METRIC_NAME, ClusterName, Timeout),
-    lists:zip(Nodes, Results).
+    RouterResults = emqx_metrics_proto_v2:get_metrics(Nodes, ?METRIC_NAME, ClusterName, Timeout),
+    ResourceId = emqx_cluster_link_mqtt:resource_id(ClusterName),
+    ResourceResults = emqx_metrics_proto_v2:get_metrics(
+        Nodes, resource_metrics, ResourceId, Timeout
+    ),
+    lists:zip3(Nodes, RouterResults, ResourceResults).
 
 maybe_create_metrics(ClusterName) ->
     case emqx_metrics_worker:has_metrics(?METRIC_NAME, ClusterName) of
