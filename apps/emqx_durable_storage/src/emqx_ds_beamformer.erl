@@ -50,6 +50,23 @@
 %% for a batch of data. If batch is non-empty, requests are served
 %% exactly as described above. If batch is empty again, request is
 %% moved back to the wait queue.
+
+%% WARNING: beamformer makes some implicit assumptions about the
+%% storage layout:
+%%
+%% - There's a bijection between iterator position and the message key
+%%
+%% - Message keys in the stream are monotonic
+%%
+%% - Quering a stream with non-wildcard topic-filter is equivalent to
+%% quering it with a wildcard topic filter and dropping messages in
+%% postprocessing, e.g.:
+%%
+%% ```
+%% next("foo/bar", StartTime) ==
+%%   filter(λ msg. msg.topic == "foo/bar",
+%%         next("#", StartTime))
+%% '''
 -module(emqx_ds_beamformer).
 
 -behaviour(gen_server).
@@ -83,9 +100,9 @@
     pending_request_limit => non_neg_integer()
 }.
 
-%% Request:
-
 -type match_messagef() :: fun((emqx_ds:message_key(), emqx_types:message()) -> boolean()).
+
+%% Request:
 
 -type return_addr(ItKey) :: {reference(), ItKey}.
 
@@ -128,10 +145,6 @@
             | emqx_ds:error(),
         misc :: #{}
     }.
-
--type get_iterators_for_keyf(ItKey, Iterator) :: fun(
-    (emqx_ds:message_key()) -> [poll_req(ItKey, Iterator)]
-).
 
 -type beam() :: beam(_ItKey, _Iterator).
 
@@ -213,10 +226,10 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         msg_matcher = Matcher
     },
     emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
-    %% Currently we implement pushback by ignoring transient errors
-    %% (gen_server timeouts, `too_many_requests'), and just letting
-    %% poll requests expire at the higher level. This should hold back
-    %% the caller.
+    %% Currently we implement backpressure by ignoring transient
+    %% errors (gen_server timeouts, `too_many_requests'), and just
+    %% letting poll requests expire at the higher level. This should
+    %% hold back the caller.
     try gen_server:call(Worker, Req, Timeout) of
         ok -> ok;
         {error, recoverable, too_many_requests} -> ok
@@ -257,12 +270,14 @@ init([CBM, ShardId, Name, Opts]) ->
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #poll_req{}, _From, S = #s{pending_queue = PendingTab}) ->
-    %% TODO: drop requests past deadline immediately.
-    case ets:info(PendingTab, size) >= S#s.pending_request_limit of
+handle_call(Req = #poll_req{}, _From, S = #s{pending_queue = PendingTab, wait_queue = WaitingTab}) ->
+    %% TODO: it should be possible to drop requests past deadline
+    %% immediately.
+    NQueued = ets:info(PendingTab, size) + ets:info(WaitingTab, size),
+    case NQueued >= S#s.pending_request_limit of
         true ->
-            Err = {error, recoverable, too_many_requests},
-            {reply, Err, S};
+            Reply = {error, recoverable, too_many_requests},
+            {reply, Reply, S};
         false ->
             ets:insert(S#s.pending_queue, Req),
             {reply, ok, start_fulfill_loop(S)}
@@ -318,12 +333,14 @@ do_dispatch(Beam = #beam{}) ->
 %% Internal functions
 %%================================================================================
 
+-spec start_fulfill_loop(s()) -> s().
 start_fulfill_loop(S = #s{is_spinning = true}) ->
     S;
 start_fulfill_loop(S = #s{is_spinning = false}) ->
     self() ! ?fulfill_loop,
     S#s{is_spinning = true}.
 
+-spec cleanup(s()) -> s().
 cleanup(S = #s{pending_queue = PendingTab, wait_queue = WaitingTab, metrics_id = Metrics}) ->
     do_cleanup(Metrics, PendingTab),
     do_cleanup(Metrics, WaitingTab),
@@ -334,8 +351,9 @@ do_cleanup(Metrics, Tab) ->
     Now = erlang:monotonic_time(millisecond),
     MS = {#poll_req{_ = '_', deadline = '$1'}, [{'<', '$1', Now}], [true]},
     NDeleted = ets:select_delete(Tab, [MS]),
-    emqx_ds_builtin_metrics:inc_poll_requests_timeout(Metrics, NDeleted).
+    emqx_ds_builtin_metrics:inc_poll_requests_expired(Metrics, NDeleted).
 
+-spec fulfill_pending(s()) -> s().
 fulfill_pending(S = #s{pending_queue = PendingTab}) ->
     %% debug_pending(S),
     case ets:first(PendingTab) of
@@ -404,7 +422,7 @@ split(#beam{iterators = Its, pack = Pack}) ->
 %% So when we process new poll requests, `FromTab' = `new_requests'
 %% and `ToTab' = `waiting_requests'. When we process waiting poll
 %% requests, both `FromTab' and `ToTab' = `waiting_requests' (i.e. we
-%% kick long polls that didn't produce new messages back to the
+%% kick long polls that didn't produce new messages back to the wait
 %% queue).
 -spec form_beams(
     s(),
@@ -418,8 +436,8 @@ split(#beam{iterators = Its, pack = Pack}) ->
     #{node() => beam(_ItKey, _Iterator)}.
 form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKey, Batch) ->
     GetF = fun(MsgKey) ->
-                   ets:take(FromTab, {Stream, MsgKey})
-           end,
+        ets:take(FromTab, {Stream, MsgKey})
+    end,
     %% Find iterators that match the start message of the batch (to
     %% handle iterators freshly created by `emqx_ds:make_iterator'):
     Candidates0 = GetF(StartKey),
@@ -436,9 +454,13 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
     %% should avoid sending empty batches to the consumers, so they
     %% don't come back immediately:
     {MatchReqs, NoMatchReqs} = filter_candidates(Candidates, Batch),
-    %% Report "beam coherence" metric:
-    Sharing = length(MatchReqs),
-    emqx_ds_builtin_metrics:observe_sharing(Metrics, Sharing),
+    %% Report metrics:
+    Fulfilled = length(MatchReqs),
+    Fulfilled > 0 andalso
+        begin
+            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, Fulfilled),
+            emqx_ds_builtin_metrics:observe_sharing(Metrics, Fulfilled)
+        end,
     %% logger:warning(#{
     %%     batch => length(Batch),
     %%     cand0 => length(Candidates0),
@@ -511,11 +533,13 @@ split([{ItKey, It} | Rest], Pack, N, Acc0) ->
     Acc = [{ItKey, {ok, It, Msgs}} | Acc0],
     split(Rest, Pack, N + 1, Acc).
 
--spec is_member(non_neg_integer(), bitstring()) -> boolean().
+-spec is_member(non_neg_integer(), dispatch_mask()) -> boolean().
 is_member(N, Mask) ->
     <<_:N, Val:1, _/bitstring>> = Mask,
     Val =:= 1.
 
+-spec mk_mask([poll_req(_ItKey, _Iterator)], {emqx_ds:message_key(), emqx_types:message()}) ->
+    dispatch_mask().
 mk_mask(Reqs, Elem) ->
     mk_mask(Reqs, Elem, <<>>).
 
@@ -536,7 +560,9 @@ filter_candidates(Reqs, Batch) ->
 
 filter_candidates([], _, Acc) ->
     Acc;
-filter_candidates([Req = #poll_req{msg_matcher = Matcher} | Rest], Messages, {MatchAcc, NoMatchAcc}) ->
+filter_candidates(
+    [Req = #poll_req{msg_matcher = Matcher} | Rest], Messages, {MatchAcc, NoMatchAcc}
+) ->
     case lists:any(fun({MsgKey, Msg}) -> Matcher(MsgKey, Msg) end, Messages) of
         true ->
             filter_candidates(

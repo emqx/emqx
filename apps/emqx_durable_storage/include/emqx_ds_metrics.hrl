@@ -57,7 +57,8 @@
 
 %%%% Poll metrics:
 -define(DS_POLL_REQUESTS, emqx_ds_poll_requests).
--define(DS_POLL_REQUESTS_TIMEOUT, emqx_ds_poll_requests_timeout).
+-define(DS_POLL_REQUESTS_FULFILLED, emqx_ds_poll_requests_fulfilled).
+-define(DS_POLL_REQUESTS_EXPIRED, emqx_ds_poll_requests_expired).
 -define(DS_POLL_REQUEST_SHARING, emqx_ds_poll_request_sharing).
 
 -endif.
