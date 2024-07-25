@@ -41,6 +41,7 @@
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
 -export([do_get_status/1, get_status_with_poolname/1]).
+-export([search/2]).
 
 -define(LDAP_HOST_OPTIONS, #{
     default_port => 389
@@ -273,6 +274,21 @@ on_query(
             Error
     end.
 
+search(Pid, SearchOptions) ->
+    case eldap:search(Pid, SearchOptions) of
+        {error, ldap_closed} ->
+            %% ldap server closing the socket does not result in
+            %% process restart, so we need to kill it and reconnect
+            _ = exit(Pid, kill),
+            {error, ldap_closed};
+        {error, {gen_tcp_error, timeout}} ->
+            %% kill the process to trigger reconnect
+            _ = exit(Pid, kill),
+            {error, timeout_cause_reconnect};
+        Result ->
+            Result
+    end.
+
 do_ldap_query(
     InstId,
     SearchOptions,
@@ -283,7 +299,7 @@ do_ldap_query(
     case
         ecpool:pick_and_do(
             PoolName,
-            {eldap, search, [SearchOptions]},
+            {?MODULE, search, [SearchOptions]},
             handover
         )
     of
@@ -319,7 +335,7 @@ do_ldap_query(
             ?SLOG(
                 error,
                 LogMeta#{
-                    msg => "ldap_connector_do_query_failed",
+                    msg => "ldap_connector_query_failed",
                     reason => emqx_utils:redact(Reason)
                 }
             ),
