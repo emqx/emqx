@@ -236,20 +236,11 @@ handle_metrics(Name) ->
     Results = emqx_cluster_link_metrics:get_metrics(Name),
     {NodeMetrics0, NodeErrors} =
         lists:foldl(
-            fun
-                ({Node, {ok, RouterMetrics}, {ok, ResourceMetrics}}, {OkAccIn, ErrAccIn}) ->
-                    OkAcc = [format_metrics(Node, RouterMetrics, ResourceMetrics) | OkAccIn],
-                    {OkAcc, ErrAccIn};
-                ({Node, {ok, RouterMetrics}, ResError}, {OkAccIn, ErrAccIn}) ->
-                    OkAcc = [format_metrics(Node, RouterMetrics, _ResourceMetrics = #{}) | OkAccIn],
-                    {OkAcc, [{Node, #{resource => ResError}} | ErrAccIn]};
-                ({Node, RouterError, {ok, ResourceMetrics}}, {OkAccIn, ErrAccIn}) ->
-                    OkAcc = [format_metrics(Node, _RouterMetrics = #{}, ResourceMetrics) | OkAccIn],
-                    {OkAcc, [{Node, #{router => RouterError}} | ErrAccIn]};
-                ({Node, RouterError, ResourceError}, {OkAccIn, ErrAccIn}) ->
-                    {OkAccIn, [
-                        {Node, #{router => RouterError, resource => ResourceError}} | ErrAccIn
-                    ]}
+            fun({Node, RouterMetrics0, ResourceMetrics0}, {OkAccIn, ErrAccIn}) ->
+                {RouterMetrics, RouterError} = get_metrics_or_errors(RouterMetrics0),
+                {ResourceMetrics, ResourceError} = get_metrics_or_errors(ResourceMetrics0),
+                ErrAcc = append_errors(RouterError, ResourceError, Node, ErrAccIn),
+                {[format_metrics(Node, RouterMetrics, ResourceMetrics) | OkAccIn], ErrAcc}
             end,
             {[], []},
             Results
@@ -268,6 +259,18 @@ handle_metrics(Name) ->
     AggregatedMetrics = aggregate_metrics(NodeMetrics),
     Response = #{metrics => AggregatedMetrics, node_metrics => NodeMetrics},
     ?OK(Response).
+
+get_metrics_or_errors({ok, Metrics}) ->
+    {Metrics, undefined};
+get_metrics_or_errors(Error) ->
+    {#{}, Error}.
+
+append_errors(undefined, undefined, _Node, Acc) ->
+    Acc;
+append_errors(RouterError, ResourceError, Node, Acc) ->
+    Err0 = emqx_utils_maps:put_if(#{}, router, RouterError, RouterError =/= undefined),
+    Err = emqx_utils_maps:put_if(Err0, resource, ResourceError, ResourceError =/= undefined),
+    [{Node, Err} | Acc].
 
 aggregate_metrics(NodeMetrics) ->
     ErrorLogger = fun(_) -> ok end,

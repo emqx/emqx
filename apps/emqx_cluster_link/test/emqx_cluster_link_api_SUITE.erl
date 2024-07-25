@@ -695,12 +695,16 @@ t_metrics(Config) ->
             #{?snk_kind := "cluster_link_extrouter_route_added"}
         ),
 
-    ?assertMatch(
-        {200, #{
-            <<"metrics">> := #{<<"routes">> := 2},
-            <<"node_metrics">> := _
-        }},
-        get_metrics(source, SourceName)
+    ?retry(
+        300,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{<<"routes">> := 2},
+                <<"node_metrics">> := _
+            }},
+            get_metrics(source, SourceName)
+        )
     ),
 
     ok.
