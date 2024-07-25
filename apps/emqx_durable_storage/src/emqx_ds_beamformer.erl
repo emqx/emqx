@@ -14,16 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc This process is responsible for serving async poll requests
+%% @doc This process is responsible for processing async poll requests
 %% from the consumers.
 %%
 %% It serves as a pool for such requests, limiting the number of
-%% queries running in parallel. Additionally, it tries to group
-%% "coherent" poll requests together, so they can be served as a group
-%% ("coherent beam").
+%% queries running in parallel. In addition, it tries to group
+%% "coherent" poll requests together, so they can be fulfilled as a
+%% group ("coherent beam").
 %%
-%% Here, by "coherent" we mean requests to scan overlapping key ranges
-%% of a DS stream. Grouping requests helps to limit the number of
+%% By "coherent" we mean requests to scan overlapping key ranges of
+%% the same DS stream. Grouping requests helps to reduce the number of
 %% storage queries and conserve throughput of the EMQX backplane
 %% network.
 %%
@@ -100,20 +100,19 @@
     pending_request_limit => non_neg_integer()
 }.
 
--type match_messagef() :: fun((emqx_ds:message_key(), emqx_types:message()) -> boolean()).
-
 %% Request:
 
 -type return_addr(ItKey) :: {reference(), ItKey}.
 
 -record(poll_req, {
     key,
-    %% Node from where the poll request originates:
+    %% Node from which the poll request originates:
     node,
     %% Information about the process that created the request:
     return_addr,
     %% Iterator:
     it,
+    %% Callback that filters messages that belong to the request:
     msg_matcher,
     opts,
     deadline
@@ -170,19 +169,21 @@
     updated_streams :: list()
 }).
 
--type unpack_iterator_result(Stream) :: #{
-    stream := Stream,
-    last_seen_key := emqx_ds:message_key(),
-    timestamp := emqx_ds:timestamp_us(),
-    matcher := match_messagef()
-}.
-
 -define(fulfill_loop, fulfill_loop).
 -define(housekeeping_loop, housekeeping_loop).
 
 %%================================================================================
 %% Callbacks
 %%================================================================================
+
+-type match_messagef() :: fun((emqx_ds:message_key(), emqx_types:message()) -> boolean()).
+
+-type unpack_iterator_result(Stream) :: #{
+    stream := Stream,
+    last_seen_key := emqx_ds:message_key(),
+    timestamp := emqx_ds:timestamp_us(),
+    matcher := match_messagef()
+}.
 
 -callback unpack_iterator(_Shard, _Iterator) ->
     unpack_iterator_result(_Stream) | undefined.
@@ -320,8 +321,6 @@ start_link(Mod, ShardId, Name, Opts) ->
 %% consumers.
 -spec do_dispatch(beam()) -> ok.
 do_dispatch(Beam = #beam{}) ->
-    %% TODO: optimize by avoiding the intermediate list. Split may be
-    %% organized in a fold-like fashion.
     lists:foreach(
         fun({{Alias, ItKey}, Result}) ->
             Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result}

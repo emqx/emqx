@@ -342,7 +342,7 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
             ReplyTo = alias([explicit_unalias])
     end,
     %% Spawn a helper process that will notify the caller when the
-    %% poll times out or when all pollers are done:
+    %% poll times out:
     _Completion = spawn_link(
         fun() ->
             wait_completion(ReplyTo, Timeout)

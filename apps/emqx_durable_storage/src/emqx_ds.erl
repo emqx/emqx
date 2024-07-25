@@ -218,21 +218,12 @@
 
 -type poll_opts() ::
     #{
-        %% Maximum size of the payload _per iterator_. Warning: DS
-        %% backends MAY run certain poll operations in parallel, and
-        %% there's no global coordination between the poll workers. So
-        %% we only guarantee that the caller can get max * N_iterators
-        %% messages _at most_.
-        max := pos_integer(),
-        %% Try to avoid sending batches that are less than `min' in
-        %% size. This value is a hint, not a strong guarantee.
-        min => non_neg_integer(),
-        %% Wait at most this long for the new events.
+        %% Expire poll request after this timeout
         timeout := pos_integer(),
-        %% Send replies to the supplied process alias instead of
-        %% creating a new one. It must be created with
-        %% `explicit_unalias' flag, or else some replies will get
-        %% lost:
+        %% (Optional) Provide an explicit process alias for receiving
+        %% replies. It must be created with `explicit_unalias' flag,
+        %% otherwise replies will get lost. If not specified, DS will
+        %% create a new alias.
         reply_to => reference()
     }.
 
@@ -439,20 +430,18 @@ next(DB, Iter, BatchSize) ->
 %% immediately.
 %%
 %% Arguments:
-%% 1. DS DB
-%% 2. List of tuples, where first element is an arbitrary tag, and the
-%%    second is the DS iterator to poll.
-%% 3. Poll options:
-%%    - `max': Get at most `max' element FOR EACH iterator
-%%    - `timeout': Finite timeout
+%% 1. Name of DS DB
+%% 2. List of tuples, where first element is an arbitrary tag that can
+%%    be used to identify replies, and the second one is iterator.
+%% 3. Poll options
 %%
 %% Return value: process alias that identifies the replies.
 %%
 %% Data will be sent to the caller process as messages wrapped in
-%% `#ds_async_result' records:
-%% - `ref' field will be equal to the return value.
+%% `#poll_reply' record:
+%% - `ref' field will be equal to the returned reference.
 %% - `userdata' field will be equal to the iterator tag.
-%% - `payload' will be of type `next_result()'
+%% - `payload' will be of type `next_result()' or `poll_timeout' atom
 %%
 %% There are some important caveats:
 %%
@@ -460,13 +449,15 @@ next(DB, Iter, BatchSize) ->
 %% reason. Caller must be designed to tolerate and retry missed poll
 %% replies.
 %%
-%% - If no data is written to the iterator, reply message with empty
-%% batch MAY or MAY NOT arrive.
-%%
 %% - There is no explicit lifetime management for poll workers. When
-%% caller dies, poll workers survive. It's assumed that orphaned
-%% workers will naturally clean themselves by timeout alone.
-%% Therefore, timeout must not be too large.
+%% caller dies, its poll requests survive. It's assumed that orphaned
+%% requests will naturally clean themselves out by timeout alone.
+%% Therefore, timeout must not be too long.
+%%
+%% - But not too short either: if no data arrives to the stream before
+%% timeout, the request is usually retried. This should not create a
+%% busy loop. Also DS may silently drop requests due to overload. So
+%% they should not be retried too early.
 -spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
 poll(DB, Iterators, PollOpts = #{max := Max, timeout := Timeout}) when
     is_integer(Max), Max > 0, is_integer(Timeout), Timeout > 0
