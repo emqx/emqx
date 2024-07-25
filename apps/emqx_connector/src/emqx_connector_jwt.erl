@@ -141,5 +141,5 @@ store_jwt(#{resource_id := ResourceId, table := TId}, JWT) ->
 is_about_to_expire(JWT) ->
     #jose_jwt{fields = #{<<"exp">> := Exp}} = jose_jwt:peek(JWT),
     Now = erlang:system_time(seconds),
-    GraceExp = Exp - timer:seconds(5),
+    GraceExp = Exp - 5,
     Now >= GraceExp.
