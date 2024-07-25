@@ -612,15 +612,15 @@ t_metrics(Config) ->
             #{?snk_kind := clink_route_sync_complete}
         ),
 
-    %% Routes = 4 in source cluster, because the target cluster has some topic filters
-    %% configured and subscribers to them, which were replicated to the source cluster,
-    %% and we have 2 nodes with 2 routes each.
+    %% Routes = 2 in source cluster, because the target cluster has some topic filters
+    %% configured and subscribers to them, which were replicated to the source cluster.
+    %% This metric is global (cluster-wide).
     ?retry(
         300,
         10,
         ?assertMatch(
             {200, #{
-                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 4}},
+                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}},
                 <<"node_metrics">> := [
                     #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}}},
                     #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}}}
@@ -652,7 +652,7 @@ t_metrics(Config) ->
         10,
         ?assertMatch(
             {200, #{
-                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}},
+                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}},
                 <<"node_metrics">> := [
                     #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}}},
                     #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}}}
@@ -712,7 +712,7 @@ t_metrics(Config) ->
         10,
         ?assertMatch(
             {200, #{
-                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}},
+                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}},
                 <<"node_metrics">> := _
             }},
             get_metrics(source, SourceName)

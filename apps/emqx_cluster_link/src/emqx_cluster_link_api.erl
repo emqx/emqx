@@ -274,13 +274,41 @@ append_errors(RouterError, ResourceError, Node, Acc) ->
 
 aggregate_metrics(NodeMetrics) ->
     ErrorLogger = fun(_) -> ok end,
-    lists:foldl(
-        fun(#{metrics := Metrics}, Acc) ->
-            emqx_utils_maps:best_effort_recursive_sum(Metrics, Acc, ErrorLogger)
+    #{metrics := #{router := EmptyRouterMetrics}} = format_metrics(node(), #{}, #{}),
+    {RouterMetrics, ResourceMetrics} = lists:foldl(
+        fun(
+            #{metrics := #{router := RMetrics, forwarding := FMetrics}},
+            {RouterAccIn, ResourceAccIn}
+        ) ->
+            ResourceAcc =
+                emqx_utils_maps:best_effort_recursive_sum(FMetrics, ResourceAccIn, ErrorLogger),
+            RouterAcc = merge_cluster_wide_metrics(RMetrics, RouterAccIn),
+            {RouterAcc, ResourceAcc}
         end,
-        #{},
+        {EmptyRouterMetrics, #{}},
         NodeMetrics
-    ).
+    ),
+    #{router => RouterMetrics, forwarding => ResourceMetrics}.
+
+merge_cluster_wide_metrics(Metrics, Acc) ->
+    %% For cluster-wide metrics, all nodes should report the same values, except if the
+    %% RPC to fetch a node's metrics failed, in which case all values will be 0.
+    F =
+        fun(_Key, V1, V2) ->
+            case {erlang:is_map(V1), erlang:is_map(V2)} of
+                {true, true} ->
+                    merge_cluster_wide_metrics(V1, V2);
+                {true, false} ->
+                    merge_cluster_wide_metrics(V1, #{});
+                {false, true} ->
+                    merge_cluster_wide_metrics(V2, #{});
+                {false, false} ->
+                    true = is_number(V1),
+                    true = is_number(V2),
+                    max(V1, V2)
+            end
+        end,
+    maps:merge_with(F, Acc, Metrics).
 
 format_metrics(Node, RouterMetrics, ResourceMetrics) ->
     Get = fun(Path, Map) -> emqx_utils_maps:deep_get(Path, Map, 0) end,
