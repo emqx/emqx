@@ -164,9 +164,11 @@
 
 -type blocklist() :: gb_trees:tree(emqx_persistent_session_ds:seqno(), block()).
 
+-type ready() :: [stream_key()].
+
 -record(s, {
     %% Buckets:
-    ready = #{} :: #{emqx_persistent_session_ds_state:stream_key() => true},
+    ready :: ready(),
     pending = #{} :: #{emqx_persistent_session_ds_state:stream_key() => #pending_poll{}},
     bq1 :: blocklist(),
     bq2 :: blocklist()
@@ -185,6 +187,7 @@ init(S) ->
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     SchedS0 = #s{
+        ready = empty_ready(),
         bq1 = gb_trees:empty(),
         bq2 = gb_trees:empty()
     },
@@ -230,8 +233,8 @@ poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
     %% Create an alias for replies:
     Ref = alias([explicit_unalias]),
     %% Scan ready streams and create poll requests:
-    {Iterators, SchedS} = maps:fold(
-        fun(StreamKey, _, {AccIt, SchedS1}) ->
+    {Iterators, SchedS} = fold_ready(
+        fun(StreamKey, {AccIt, SchedS1}) ->
             SRS = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
             It = {StreamKey, SRS#srs.it_end},
             Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
@@ -253,7 +256,7 @@ poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
             {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts)
     end,
     %% Clean ready bucket at once, since we poll all ready streams at once:
-    SchedS#s{ready = #{}}.
+    SchedS#s{ready = empty_ready()}.
 
 on_ds_reply(#poll_reply{ref = Ref, payload = poll_timeout}, SchedS0 = #s{pending = P0}) ->
     %% Poll request has timed out. All pending streams that match poll
@@ -477,13 +480,16 @@ derive_block_state(Comm1, Comm2, SRS) ->
         {false, false} -> bq12
     end.
 
+%% Note: `to_State' functions must be called from a correct state.
+%% They are NOT idempotent, and they don't do full cleanup.
+
 -spec to_R(stream_key(), t()) -> t().
 to_R(Key, S = #s{ready = R}) ->
     ?tp(sessds_stream_state_trans, #{
         key => Key,
         to => r
     }),
-    S#s{ready = R#{Key => true}}.
+    S#s{ready = push_to_ready(Key, R)}.
 
 -spec to_P(stream_key(), pending(), t()) -> t().
 to_P(Key, Pending, S = #s{pending = P}) ->
@@ -544,6 +550,15 @@ block_of_srs(Key, #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}) ->
 %%--------------------------------------------------------------------------------
 %% Misc.
 %%--------------------------------------------------------------------------------
+
+fold_ready(Fun, Acc, Ready) ->
+    lists:foldl(Fun, Acc, Ready).
+
+empty_ready() ->
+    [].
+
+push_to_ready(K, Ready) ->
+    [K | Ready].
 
 ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream}, {S, SchedS}) ->
     Key = {SubId, Stream},
