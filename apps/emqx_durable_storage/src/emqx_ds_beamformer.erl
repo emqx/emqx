@@ -97,7 +97,9 @@
 
 -type opts() :: #{
     n_workers := non_neg_integer(),
-    pending_request_limit => non_neg_integer()
+    pending_request_limit := non_neg_integer(),
+    batch_size := non_neg_integer(),
+    housekeeping_interval := non_neg_integer()
 }.
 
 %% Request:
@@ -160,7 +162,9 @@
     pending_queue :: ets:tid(),
     pending_request_limit :: non_neg_integer(),
     wait_queue :: ets:tid(),
-    is_spinning = false :: boolean()
+    is_spinning = false :: boolean(),
+    batch_size :: non_neg_integer(),
+    housekeeping_interval :: non_neg_integer()
 }).
 
 -type s() :: #s{}.
@@ -254,6 +258,11 @@ shard_event(Shard, Streams) ->
 
 init([CBM, ShardId, Name, Opts]) ->
     process_flag(trap_exit, true),
+    #{
+        pending_request_limit := Limit,
+        batch_size := BatchSize,
+        housekeeping_interval := HousekeepingInterval
+    } = Opts,
     Pool = emqx_ds_beamformer_sup:pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
@@ -266,14 +275,14 @@ init([CBM, ShardId, Name, Opts]) ->
         name = Name,
         pending_queue = PendingTab,
         wait_queue = WaitingTab,
-        pending_request_limit = maps:get(pending_request_limit, Opts, 10_000)
+        pending_request_limit = Limit,
+        batch_size = BatchSize,
+        housekeeping_interval = HousekeepingInterval
     },
     self() ! ?housekeeping_loop,
     {ok, S}.
 
 handle_call(Req = #poll_req{}, _From, S = #s{pending_queue = PendingTab, wait_queue = WaitingTab}) ->
-    %% TODO: it should be possible to drop requests past deadline
-    %% immediately.
     NQueued = ets:info(PendingTab, size) + ets:info(WaitingTab, size),
     case NQueued >= S#s.pending_request_limit of
         true ->
@@ -296,9 +305,9 @@ handle_info(?fulfill_loop, S0) ->
     S1 = S0#s{is_spinning = false},
     S = fulfill_pending(S1),
     {noreply, S};
-handle_info(?housekeeping_loop, S0) ->
+handle_info(?housekeeping_loop, S0 = #s{housekeeping_interval = SleepTime}) ->
     S = cleanup(S0),
-    erlang:send_after(1000, self(), ?housekeeping_loop),
+    erlang:send_after(SleepTime, self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
@@ -355,7 +364,7 @@ do_cleanup(Metrics, Tab) ->
 -spec fulfill_pending(s()) -> s().
 fulfill_pending(S = #s{pending_queue = PendingTab}) ->
     %% debug_pending(S),
-    case find_older_key(PendingTab, 100) of
+    case find_older_request(PendingTab, 100) of
         undefined ->
             S;
         {Stream, StartKey} ->
@@ -367,11 +376,17 @@ fulfill_pending(S = #s{pending_queue = PendingTab}) ->
     end.
 
 do_fulfill_pending(
-    S = #s{shard = Shard, module = CBM, pending_queue = PendingTab, wait_queue = WaitingTab},
+    S = #s{
+        shard = Shard,
+        module = CBM,
+        pending_queue = PendingTab,
+        wait_queue = WaitingTab,
+        batch_size = BatchSize
+    },
     Stream,
     StartKey
 ) ->
-    case CBM:scan_stream(Shard, Stream, StartKey, 100) of
+    case CBM:scan_stream(Shard, Stream, StartKey, BatchSize) of
         {ok, EndKey, Batch} ->
             form_beams(S, PendingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
     end.
@@ -379,7 +394,7 @@ do_fulfill_pending(
 maybe_fulfill_waiting(S, []) ->
     S;
 maybe_fulfill_waiting(
-    S = #s{wait_queue = WaitingTab, module = CBM, shard = Shard},
+    S = #s{wait_queue = WaitingTab, module = CBM, shard = Shard, batch_size = BatchSize},
     [Stream | Rest]
 ) ->
     %% debug_waiting(Stream, S),
@@ -387,8 +402,7 @@ maybe_fulfill_waiting(
         undefined ->
             maybe_fulfill_waiting(S, Rest);
         StartKey ->
-            %% logger:warning("Waiting keys ~p", [WaitingKeys]),
-            case CBM:scan_stream(Shard, Stream, StartKey, 1000) of
+            case CBM:scan_stream(Shard, Stream, StartKey, BatchSize) of
                 {ok, EndKey, Batch} ->
                     form_beams(S, WaitingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
             end,
@@ -416,13 +430,24 @@ oldest_key_for_stream(Tab, Stream, SampleSize) ->
 %%
 %% TODO: This might negatively impact latency, since oldest requests
 %% presumably will be served first.
-find_older_key(Tab, SampleSize) ->
+find_older_request(Tab, SampleSize) ->
     MS = #poll_req{_ = '_', key = '$1'},
     case ets:match(Tab, MS, SampleSize) of
         '$end_of_table' ->
             undefined;
-        {L, _Cont} ->
-            hd(lists:min(L))
+        {[[Fst] | Rest], _Cont} ->
+            %% Find poll request with the minimal key, while ignoring
+            %% the stream completely:
+            lists:foldl(
+                fun([E = {_, Key}], Acc = {_, Min}) ->
+                    case Key < Min of
+                        true -> E;
+                        false -> Acc
+                    end
+                end,
+                Fst,
+                Rest
+            )
     end.
 
 %% @doc Split beam into individual batches

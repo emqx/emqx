@@ -212,7 +212,9 @@ shard_buffer_spec(DB, Shard, Options) ->
 shard_beamformers_spec(DB, Shard, _Options) ->
     BeamformerOpts = #{
         n_workers => 1,
-        pending_request_limit => 30_000
+        pending_request_limit => 30_000,
+        housekeeping_interval => 1000,
+        batch_size => 100
     },
     #{
         id => {Shard, beamformers},
