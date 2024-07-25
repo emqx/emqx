@@ -282,11 +282,16 @@ init([CBM, ShardId, Name, Opts]) ->
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #poll_req{}, _From, S = #s{pending_queue = PendingTab, wait_queue = WaitingTab}) ->
+handle_call(
+    Req = #poll_req{},
+    _From,
+    S = #s{pending_queue = PendingTab, wait_queue = WaitingTab, metrics_id = Metrics}
+) ->
     NQueued = ets:info(PendingTab, size) + ets:info(WaitingTab, size),
     case NQueued >= S#s.pending_request_limit of
         true ->
             Reply = {error, recoverable, too_many_requests},
+            emqx_ds_metrics:inc_poll_requests_dropped(Metrics, 1),
             {reply, Reply, S};
         false ->
             ets:insert(S#s.pending_queue, Req),

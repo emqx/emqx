@@ -37,6 +37,7 @@
     observe_sharing/2,
     inc_poll_requests/2,
     inc_poll_requests_fulfilled/2,
+    inc_poll_requests_dropped/2,
     inc_poll_requests_expired/2,
 
     inc_lts_seek_counter/2,
@@ -94,6 +95,7 @@
 -define(BEAMFORMER_METRICS, [
     {counter, ?DS_POLL_REQUESTS},
     {counter, ?DS_POLL_REQUESTS_FULFILLED},
+    {counter, ?DS_POLL_REQUESTS_DROPPED},
     {counter, ?DS_POLL_REQUESTS_EXPIRED},
     {slide, ?DS_POLL_REQUEST_SHARING}
 ]).
@@ -180,6 +182,9 @@ inc_poll_requests_fulfilled(Id, NPolls) ->
 
 inc_poll_requests_expired(Id, NPolls) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS_EXPIRED, NPolls).
+
+inc_poll_requests_dropped(Id, N) ->
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS_DROPPED, N).
 
 -spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->
