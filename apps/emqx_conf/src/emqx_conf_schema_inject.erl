@@ -51,12 +51,14 @@ authn_mods(ce) ->
         emqx_authn_http_schema,
         emqx_authn_jwt_schema,
         emqx_authn_scram_mnesia_schema,
-        emqx_authn_ldap_schema,
-        emqx_authn_gssapi_schema
+        emqx_authn_ldap_schema
     ];
 authn_mods(ee) ->
     authn_mods(ce) ++
-        [emqx_gcp_device_authn_schema].
+        [
+            emqx_gcp_device_authn_schema,
+            emqx_authn_gssapi_schema
+        ].
 
 authz() ->
     [{emqx_authz_schema, authz_mods()}].
