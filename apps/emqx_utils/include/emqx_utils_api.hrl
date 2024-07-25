@@ -21,6 +21,8 @@
 
 -define(OK(CONTENT), {200, CONTENT}).
 
+-define(CREATED(CONTENT), {201, CONTENT}).
+
 -define(NO_CONTENT, 204).
 
 -define(BAD_REQUEST(CODE, REASON), {400, ?ERROR_MSG(CODE, REASON)}).

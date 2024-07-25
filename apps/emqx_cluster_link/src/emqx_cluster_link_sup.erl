@@ -6,6 +6,8 @@
 
 -behaviour(supervisor).
 
+-include("emqx_cluster_link.hrl").
+
 -export([start_link/1]).
 
 -export([
@@ -27,12 +29,14 @@ init(LinksConf) ->
         intensity => 10,
         period => 5
     },
+    Metrics = emqx_metrics_worker:child_spec(metrics, ?METRIC_NAME),
+    BookKeeper = bookkeeper_spec(),
     ExtrouterGC = extrouter_gc_spec(),
     RouteActors = [
         sup_spec(Name, ?ACTOR_MODULE, [LinkConf])
      || #{name := Name} = LinkConf <- LinksConf
     ],
-    {ok, {SupFlags, [ExtrouterGC | RouteActors]}}.
+    {ok, {SupFlags, [Metrics, BookKeeper, ExtrouterGC | RouteActors]}}.
 
 extrouter_gc_spec() ->
     %% NOTE: This one is currently global, not per-link.
@@ -51,6 +55,15 @@ sup_spec(Id, Mod, Args) ->
         shutdown => infinity,
         type => supervisor,
         modules => [Mod]
+    }.
+
+bookkeeper_spec() ->
+    #{
+        id => bookkeeper,
+        start => {emqx_cluster_link_bookkeeper, start_link, []},
+        restart => permanent,
+        type => worker,
+        shutdown => 5_000
     }.
 
 ensure_actor(#{name := Name} = LinkConf) ->

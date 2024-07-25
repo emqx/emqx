@@ -12,7 +12,7 @@
 -export([injected_fields/0]).
 
 %% Used in emqx_cluster_link_api
--export([links_schema/1]).
+-export([links_schema/1, link_schema/0]).
 
 -export([
     roots/0,
@@ -30,12 +30,19 @@ namespace() -> "cluster".
 roots() -> [].
 
 injected_fields() ->
-    #{cluster => [{links, links_schema(#{})}]}.
+    #{
+        cluster => [
+            {links, links_schema(#{})}
+        ]
+    }.
 
 links_schema(Meta) ->
     ?HOCON(?ARRAY(?R_REF("link")), Meta#{
         default => [], validator => fun links_validator/1, desc => ?DESC("links")
     }).
+
+link_schema() ->
+    hoconsc:ref(?MODULE, "link").
 
 fields("link") ->
     [
@@ -44,8 +51,8 @@ fields("link") ->
         {server,
             emqx_schema:servers_sc(#{required => true, desc => ?DESC(server)}, ?MQTT_HOST_OPTS)},
         {clientid, ?HOCON(binary(), #{desc => ?DESC(clientid)})},
-        {username, ?HOCON(binary(), #{desc => ?DESC(username)})},
-        {password, emqx_schema_secret:mk(#{desc => ?DESC(password)})},
+        {username, ?HOCON(binary(), #{required => false, desc => ?DESC(username)})},
+        {password, emqx_schema_secret:mk(#{required => false, desc => ?DESC(password)})},
         {ssl, #{
             type => ?R_REF(emqx_schema, "ssl_client_opts"),
             default => #{<<"enable">> => false},

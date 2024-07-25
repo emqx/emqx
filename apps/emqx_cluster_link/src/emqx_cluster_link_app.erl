@@ -22,7 +22,9 @@ start(_StartType, _StartArgs) ->
         _ ->
             ok
     end,
-    emqx_cluster_link_sup:start_link(LinksConf).
+    {ok, Sup} = emqx_cluster_link_sup:start_link(LinksConf),
+    ok = create_metrics(LinksConf),
+    {ok, Sup}.
 
 prep_stop(State) ->
     emqx_cluster_link_config:remove_handler(),
@@ -50,6 +52,14 @@ remove_msg_fwd_resources(LinksConf) ->
     lists:foreach(
         fun(#{name := Name}) ->
             emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name)
+        end,
+        LinksConf
+    ).
+
+create_metrics(LinksConf) ->
+    lists:foreach(
+        fun(#{name := ClusterName}) ->
+            ok = emqx_cluster_link_metrics:maybe_create_metrics(ClusterName)
         end,
         LinksConf
     ).
