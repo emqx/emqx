@@ -54,8 +54,8 @@ t_cleanup_after_retain(_) ->
     end),
     ClientId = <<"clientid">>,
     ClientId2 = <<"clientid2">>,
-    emqx_cm_registry:register_channel({ClientId, Pid}),
-    emqx_cm_registry:register_channel({ClientId2, Pid}),
+    emqx_cm_registry:register_channel({{undefined, ClientId}, Pid}),
+    emqx_cm_registry:register_channel({{undefined, ClientId2}, Pid}),
     ?assertEqual([Pid], emqx_cm_registry:lookup_channels(ClientId)),
     ?assertEqual([Pid], emqx_cm_registry:lookup_channels(ClientId2)),
     ?assertEqual(2, emqx_cm_registry_keeper:count(0)),
@@ -66,8 +66,8 @@ t_cleanup_after_retain(_) ->
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)),
     %% simulate a DOWN message which causes emqx_cm to call clean_down
     %% to clean the channels for real
-    ok = emqx_cm:clean_down({Pid, ClientId}),
-    ok = emqx_cm:clean_down({Pid, ClientId2}),
+    ok = emqx_cm:clean_down({Pid, {undefined, ClientId}}),
+    ok = emqx_cm:clean_down({Pid, {undefined, ClientId2}}),
     ?assertEqual(2, emqx_cm_registry_keeper:count(T0)),
     ?assertEqual(2, emqx_cm_registry_keeper:count(0)),
     ?retry(_Interval = 1000, _Attempts = 4, begin
@@ -81,7 +81,7 @@ t_count_cache(_) ->
     Pid = self(),
     ClientsCount = 999,
     ClientIds = lists:map(fun erlang:integer_to_binary/1, lists:seq(1, ClientsCount)),
-    Channels = lists:map(fun(ClientId) -> {ClientId, Pid} end, ClientIds),
+    Channels = lists:map(fun(ClientId) -> {{undefined, ClientId}, Pid} end, ClientIds),
     lists:foreach(
         fun emqx_cm_registry:register_channel/1,
         Channels
@@ -90,7 +90,7 @@ t_count_cache(_) ->
     ?assertEqual(ClientsCount, emqx_cm_registry_keeper:count(0)),
     ?assertEqual(ClientsCount, emqx_cm_registry_keeper:count(T0)),
     %% insert another one to trigger the cache threshold
-    emqx_cm_registry:register_channel({<<"-1">>, Pid}),
+    emqx_cm_registry:register_channel({{undefined, <<"-1">>}, Pid}),
     ?assertEqual(ClientsCount + 1, emqx_cm_registry_keeper:count(0)),
     ?assertEqual(ClientsCount, emqx_cm_registry_keeper:count(T0)),
     mnesia:clear_table(?CHAN_REG_TAB),

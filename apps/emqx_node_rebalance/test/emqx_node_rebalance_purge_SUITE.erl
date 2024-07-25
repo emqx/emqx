@@ -372,6 +372,7 @@ t_session_purged(Config) ->
         ?match_event(#{?snk_kind := "cluster_purge_done"}),
         15_000
     ),
+
     ok = rpc:call(Node1, emqx_node_rebalance_purge, start, [opts(Config)]),
     {ok, _} = snabbkaffe:receive_events(SRef0),
 
@@ -391,7 +392,7 @@ t_session_purged(Config) ->
             Node1,
             lists:flatmap(
                 fun(ClientId) ->
-                    emqx_mgmt:lookup_client({clientid, ClientId}, FormatFun)
+                    emqx_mgmt:lookup_client(_Mtns = undefined, {clientid, ClientId}, FormatFun)
                 end,
                 AllClientIds
             )
@@ -403,7 +404,7 @@ t_session_purged(Config) ->
             Node2,
             lists:flatmap(
                 fun(ClientId) ->
-                    emqx_mgmt:lookup_client({clientid, ClientId}, FormatFun)
+                    emqx_mgmt:lookup_client(_Mtns = undefined, {clientid, ClientId}, FormatFun)
                 end,
                 AllClientIds
             )

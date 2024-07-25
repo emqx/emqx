@@ -212,7 +212,7 @@ receive_message_loop(Count, Deadline) ->
 
 maybe_kill_connection_process(ClientId, Config) ->
     Persistence = ?config(persistence, Config),
-    case emqx_cm:lookup_channels(ClientId) of
+    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
         [] ->
             ok;
         [ConnectionPid] when Persistence == ds ->
@@ -229,7 +229,7 @@ maybe_kill_connection_process(ClientId, Config) ->
     end.
 
 wait_connection_process_dies(ClientId) ->
-    case emqx_cm:lookup_channels(ClientId) of
+    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
         [] ->
             ok;
         [ConnectionPid] ->
@@ -246,14 +246,14 @@ wait_connection_process_unregistered(ClientId) ->
     ?retry(
         _Timeout = 100,
         _Retries = 20,
-        ?assertEqual([], emqx_cm:lookup_channels(ClientId))
+        ?assertEqual([], emqx_cm:lookup_channels(_Mtns = undefined, ClientId))
     ).
 
 wait_channel_disconnected(ClientId) ->
     ?retry(
         _Timeout = 100,
         _Retries = 20,
-        case emqx_cm:lookup_channels(ClientId) of
+        case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
             [] ->
                 false;
             [ChanPid] ->
@@ -338,7 +338,7 @@ t_choose_impl(Config) ->
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client),
-    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    [ChanPid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientId),
     ?assertEqual(
         case ?config(persistence, Config) of
             false -> emqx_session_mem;
@@ -1143,7 +1143,7 @@ t_transient(Config) ->
         | Config
     ],
     Deliver = fun(Topic, Payload, QoS) ->
-        [Pid] = emqx_cm:lookup_channels(ClientId),
+        [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientId),
         Msg = emqx_message:make(_From = <<"test">>, QoS, Topic, Payload),
         Pid ! {deliver, Topic, Msg}
     end,

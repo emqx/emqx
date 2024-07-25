@@ -466,8 +466,11 @@ disconnect_channel(ChanPid, ServerReference) ->
 do_purge_sessions(N) when N > 0 ->
     Channels = take_channels(N),
     ok = lists:foreach(
-        fun({ClientId, _ConnInfo, _ClientInfo}) ->
-            emqx_cm:discard_session(ClientId)
+        fun
+            ({{Mtns, ClientId}, _ConnInfo, _ClientInfo}) ->
+                emqx_cm:discard_session(Mtns, ClientId);
+            ({ClientId, _ConnInfo, _ClientInfo}) when is_binary(ClientId) ->
+                emqx_cm:discard_session(undefined, ClientId)
         end,
         Channels
     ).

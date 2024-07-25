@@ -270,7 +270,7 @@ t_qos0_only_many_streams(_Config) ->
     ClientId = <<?MODULE_STRING "_sub">>,
     Sub = connect(ClientId, true, 30),
     Pub = connect(<<?MODULE_STRING "_pub">>, true, 0),
-    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    [ConnPid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientId),
     try
         {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, qos1),
 

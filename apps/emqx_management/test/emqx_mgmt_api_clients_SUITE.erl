@@ -180,11 +180,13 @@ end_per_testcase(TC, _Config) when
 ->
     ok = snabbkaffe:stop(),
     ClientId = atom_to_binary(TC),
-    lists:foreach(fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, ClientId)),
+    lists:foreach(
+        fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, _Mtns = undefined, ClientId)
+    ),
     ok = emqx_common_test_helpers:wait_for(
         ?FUNCTION_NAME,
         ?LINE,
-        fun() -> [] =:= emqx_cm:lookup_channels(local, ClientId) end,
+        fun() -> [] =:= emqx_cm:lookup_channels(local, _Mtns1 = undefined, ClientId) end,
         5000
     ),
     ok = snabbkaffe:stop(),
@@ -264,7 +266,9 @@ t_clients(Config) ->
     SubscribePath = emqx_mgmt_api_test_util:api_path(["clients", ClientId1, "subscribe"]),
     {ok, {?HTTP200, _, _}} = request(post, SubscribePath, SubscribeBody, Config),
     timer:sleep(100),
-    {_, [{AfterSubTopic, #{qos := AfterSubQos}}]} = emqx_mgmt:list_client_subscriptions(ClientId1),
+    {_, [{AfterSubTopic, #{qos := AfterSubQos}}]} = emqx_mgmt:list_client_subscriptions(
+        _Mtns = undefined, ClientId1
+    ),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
 
@@ -294,7 +298,7 @@ t_clients(Config) ->
         request(post, UnSubscribePath, UnSubscribeBody, Config)
     ),
     timer:sleep(100),
-    ?assertEqual([], emqx_mgmt:list_client_subscriptions(ClientId1)),
+    ?assertEqual([], emqx_mgmt:list_client_subscriptions(undefined, ClientId1)),
 
     %% testcase cleanup, kickout client1
     disconnect_and_destroy_session(C1).
@@ -749,9 +753,9 @@ t_kickout_clients(Config) ->
         ?LINE,
         fun() ->
             try
-                [_] = emqx_cm:lookup_channels(ClientId1),
-                [_] = emqx_cm:lookup_channels(ClientId2),
-                [_] = emqx_cm:lookup_channels(ClientId3),
+                [_] = emqx_cm:lookup_channels(_Mtns1 = undefined, ClientId1),
+                [_] = emqx_cm:lookup_channels(_Mtns2 = undefined, ClientId2),
+                [_] = emqx_cm:lookup_channels(_Mtns2 = undefined, ClientId3),
                 true
             catch
                 error:badmatch ->
@@ -1100,7 +1104,7 @@ t_keepalive(Config) ->
         username => Username, clientid => ClientId, keepalive => InitKeepalive
     }),
     {ok, _} = emqtt:connect(C1),
-    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
+    [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, list_to_binary(ClientId)),
     %% will reset to max keepalive if keepalive > max keepalive
     #{conninfo := #{keepalive := InitKeepalive}} = emqx_connection:info(Pid),
     ?assertMatch({keepalive, _, _, _, 65536500}, element(5, element(9, sys:get_state(Pid)))),
@@ -1553,6 +1557,7 @@ t_bulk_subscribe(Config) ->
     [N1, N2] = ?config(nodes, Config),
     Port1 = get_mqtt_port(N1, tcp),
     Port2 = get_mqtt_port(N2, tcp),
+
     ?check_trace(
         begin
             ClientId1 = <<"bulk-sub1">>,
@@ -1562,6 +1567,7 @@ t_bulk_subscribe(Config) ->
             Topic = <<"testtopic">>,
             BulkSub = [#{topic => Topic, qos => 1, nl => 1, rh => 1}],
             ?assertMatch({200, [_]}, bulk_subscribe_request(ClientId1, Config, BulkSub)),
+
             ?retry(
                 100,
                 5,
@@ -1570,6 +1576,7 @@ t_bulk_subscribe(Config) ->
                     get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
                 )
             ),
+
             {ok, _} = emqtt:publish(C2, Topic, <<"hi1">>, [{qos, 1}]),
             ?assertReceive({publish, #{topic := Topic, payload := <<"hi1">>}}),
             BulkUnsub = [#{topic => Topic}],

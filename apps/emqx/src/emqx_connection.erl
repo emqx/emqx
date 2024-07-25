@@ -600,17 +600,22 @@ handle_msg(
 ) ->
     QuicConnPid =/= undefined andalso
         emqx_quic_connection:activate_data_streams(QuicConnPid, {PS, Serialize, Channel}),
+    Mtns = emqx_channel:info(mtns, Channel),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State));
+    emqx_cm:insert_channel_info(Mtns, ClientId, info(State), stats(State));
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
+    Mtns = emqx_channel:info(mtns, Channel),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_info(ClientId, info(State)),
+    emqx_cm:set_chan_info(Mtns, ClientId, info(State)),
     {ok, State};
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientId is yet unknown (i.e. connect packet is not received yet)
-        undefined -> ok;
-        ClientId -> emqx_cm:insert_channel_info(ClientId, info(State), stats(State))
+        undefined ->
+            ok;
+        ClientId ->
+            Mtns = emqx_channel:info(mtns, Channel),
+            emqx_cm:insert_channel_info(Mtns, ClientId, info(State), stats(State))
     end,
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
@@ -718,8 +723,9 @@ handle_timeout(
     }
 ) ->
     emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
+    Mtns = emqx_channel:info(mtns, Channel),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    emqx_cm:set_chan_stats(Mtns, ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(
     TRef,

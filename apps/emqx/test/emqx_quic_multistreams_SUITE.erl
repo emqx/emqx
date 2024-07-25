@@ -1485,7 +1485,7 @@ t_multi_streams_emqx_ctrl_kill(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
+    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {_Mtns = undefined, ClientId}),
     exit(TransPid, kill),
 
     %% Client should be closed
@@ -1538,7 +1538,7 @@ t_multi_streams_emqx_ctrl_exit_normal(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
+    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {_Mtns = undefined, ClientId}),
 
     emqx_connection:stop(TransPid),
     %% Client exit normal.
@@ -1735,7 +1735,7 @@ t_conn_resume(Config) ->
     ]),
     {ok, _} = emqtt:quic_connect(C),
     Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
+    ct:pal("~p~n", [emqx_cm:get_chan_info(_Mtns = undefined, Cid)]).
 
 t_conn_without_ctrl_stream(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1767,7 +1767,7 @@ t_data_stream_race_ctrl_stream(Config) ->
     ]),
     {ok, _} = emqtt:quic_connect(C),
     Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
+    ct:pal("~p~n", [emqx_cm:get_chan_info(_Mtns = undefined, Cid)]).
 
 t_multi_streams_sub_0_rtt(Config) ->
     PubQos = ?config(pub_qos, Config),

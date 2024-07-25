@@ -120,11 +120,17 @@ t_cm(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
-    ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
+
+    ?WAIT(
+        #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(
+            _Mtns = undefined, ClientId
+        ),
+        2
+    ),
     emqtt:subscribe(C, <<"mytopic">>, 0),
     ?WAIT(
         begin
-            Stats = emqx_cm:get_chan_stats(ClientId),
+            Stats = emqx_cm:get_chan_stats(_Mtns = undefined, ClientId),
             ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
         end,
         2
@@ -136,11 +142,16 @@ t_idle_timeout_infinity(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
-    ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
+    ?WAIT(
+        #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(
+            _Mtns = undefined, ClientId
+        ),
+        2
+    ),
     emqtt:subscribe(C, <<"mytopic">>, 0),
     ?WAIT(
         begin
-            Stats = emqx_cm:get_chan_stats(ClientId),
+            Stats = emqx_cm:get_chan_stats(_Mtns = undefined, ClientId),
             ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
         end,
         2
@@ -376,7 +387,7 @@ t_username_as_clientid(_) ->
     Username = <<"usera">>,
     {ok, C} = emqtt:start_link([{username, Username}]),
     {ok, _} = emqtt:connect(C),
-    #{clientinfo := #{clientid := Username}} = emqx_cm:get_chan_info(Username),
+    #{clientinfo := #{clientid := Username}} = emqx_cm:get_chan_info(_Mtns = undefined, Username),
     erlang:process_flag(trap_exit, true),
     {ok, C1} = emqtt:start_link([{username, <<>>}]),
     ?assertEqual({error, {client_identifier_not_valid, undefined}}, emqtt:connect(C1)),
@@ -411,7 +422,7 @@ test_cert_extraction_as_alias(Which) ->
     %% assert only two chars are extracted
     ?assertMatch(
         #{clientinfo := #{client_attrs := #{<<"alias">> := <<_, _>>}}},
-        emqx_cm:get_chan_info(ClientId)
+        emqx_cm:get_chan_info(_Mtns = undefined, ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -441,7 +452,7 @@ t_client_attr_from_user_property(_Config) ->
     %% assert only two chars are extracted
     ?assertMatch(
         #{clientinfo := #{client_attrs := #{<<"group">> := <<"g1">>, <<"group2">> := <<"g1">>}}},
-        emqx_cm:get_chan_info(ClientId)
+        emqx_cm:get_chan_info(_Mtns = undefined, ClientId)
     ),
     emqtt:disconnect(Client).
 t_certcn_as_clientid_default_config_tls(_) ->
@@ -476,7 +487,7 @@ t_peercert_preserved_before_connected(_) ->
     {ok, _} = emqtt:connect(Client),
     _ = ?assertReceive({'client.connect', #{peercert := PC}} when is_binary(PC)),
     _ = ?assertReceive({'client.connected', #{peercert := PC}} when is_binary(PC)),
-    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    [ConnPid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientId),
     ?assertMatch(
         #{conninfo := ConnInfo} when not is_map_key(peercert, ConnInfo),
         emqx_connection:info(ConnPid)
@@ -529,6 +540,6 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     SslConf = emqx_common_test_helpers:client_mtls(TLSVsn),
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),
-    #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
+    #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(_Mtns = undefined, CN),
     confirm_tls_version(Client, RequiredTLSVsn),
     emqtt:disconnect(Client).

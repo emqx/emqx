@@ -287,7 +287,7 @@ t_authz(_Config) ->
     {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 1),
-    [Pid] = emqx_cm:lookup_channels(ClientIdBin),
+    [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientIdBin),
     ?assertMatch([_], gen_server:call(Pid, list_authz_cache)),
 
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", ClientId])),

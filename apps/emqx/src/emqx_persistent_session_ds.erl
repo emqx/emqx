@@ -77,7 +77,7 @@
 
 %% Managment APIs:
 -export([
-    list_client_subscriptions/1,
+    list_client_subscriptions/2,
     get_client_subscription/2
 ]).
 
@@ -781,10 +781,11 @@ terminate(_Reason, Session = #{id := Id, s := S}) ->
 %% Management APIs (dashboard)
 %%--------------------------------------------------------------------
 
--spec list_client_subscriptions(emqx_types:clientid()) ->
+-spec list_client_subscriptions(emqx_types:mtns(), emqx_types:clientid()) ->
     {node() | undefined, [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}]}
     | {error, not_found}.
-list_client_subscriptions(ClientId) ->
+list_client_subscriptions(_Mtns, ClientId) ->
+    %% XXX: Mtns
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
             %% TODO: this is not the most optimal implementation, since it
@@ -830,7 +831,7 @@ create_tables() ->
 
 %% @doc Force syncing of the transient state to persistent storage
 sync(ClientId) ->
-    case emqx_cm:lookup_channels(ClientId) of
+    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
         [Pid] ->
             Ref = monitor(process, Pid),
             Pid ! {emqx_session, #req_sync{from = self(), ref = Ref}},
@@ -1272,7 +1273,7 @@ get_config(#{zone := Zone}, Key) ->
 -spec try_get_live_session(emqx_types:clientid()) ->
     {pid(), session()} | not_found | not_persistent.
 try_get_live_session(ClientId) ->
-    case emqx_cm:lookup_channels(local, ClientId) of
+    case emqx_cm:lookup_channels(local, _Mtns = undefined, ClientId) of
         [Pid] ->
             try
                 #{channel := ChanState} = emqx_connection:get_state(Pid),

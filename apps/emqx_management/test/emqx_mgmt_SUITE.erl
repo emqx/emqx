@@ -178,17 +178,19 @@ t_lookup_client('end', Config) ->
     disconnect_clients(Config).
 
 t_lookup_client(_Config) ->
-    [{Chan, Info, Stats}] = emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN),
+    Mtns = undefined,
+    [{Chan, Info, Stats}] = emqx_mgmt:lookup_client(Mtns, {clientid, <<"client1">>}, ?FORMATFUN),
     ?assertEqual(
         [{Chan, Info, Stats}],
-        emqx_mgmt:lookup_client({username, <<"user1">>}, ?FORMATFUN)
+        emqx_mgmt:lookup_client(Mtns, {username, <<"user1">>}, ?FORMATFUN)
     ),
-    ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, ?FORMATFUN)),
+    ?assertEqual([], emqx_mgmt:lookup_client(Mtns, {clientid, <<"notfound">>}, ?FORMATFUN)),
     meck:expect(emqx, running_nodes, 0, [node(), 'fake@nonode']),
     try
         emqx:update_config([broker, enable_session_registry], false),
         ?assertMatch(
-            [_ | {error, nodedown}], emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN)
+            [_ | {error, nodedown}],
+            emqx_mgmt:lookup_client(Mtns, {clientid, <<"client1">>}, ?FORMATFUN)
         )
     after
         emqx:update_config([broker, enable_session_registry], true)
@@ -202,7 +204,7 @@ t_kickout_client('end', _Config) ->
 
 t_kickout_client(Config) ->
     [C | _] = ?config(clients, Config),
-    ok = emqx_mgmt:kickout_client(<<"client1">>),
+    ok = emqx_mgmt:kickout_client(undefined, <<"client1">>),
     receive
         {'EXIT', C, Reason} ->
             ?assertEqual({shutdown, tcp_closed}, Reason);
@@ -211,7 +213,7 @@ t_kickout_client(Config) ->
     after 1000 ->
         error(timeout)
     end,
-    ?assertEqual({error, not_found}, emqx_mgmt:kickout_client(<<"notfound">>)).
+    ?assertEqual({error, not_found}, emqx_mgmt:kickout_client(undefined, <<"notfound">>)).
 
 t_list_authz_cache(init, Config) ->
     setup_clients(Config);
@@ -219,8 +221,8 @@ t_list_authz_cache('end', Config) ->
     disconnect_clients(Config).
 
 t_list_authz_cache(_) ->
-    ?assertNotMatch({error, _}, emqx_mgmt:list_authz_cache(<<"client1">>)),
-    ?assertMatch({error, not_found}, emqx_mgmt:list_authz_cache(<<"notfound">>)).
+    ?assertNotMatch({error, _}, emqx_mgmt:list_authz_cache(undefined, <<"client1">>)),
+    ?assertMatch({error, not_found}, emqx_mgmt:list_authz_cache(undefined, <<"notfound">>)).
 
 t_list_client_subscriptions(init, Config) ->
     setup_clients(Config);
@@ -229,10 +231,14 @@ t_list_client_subscriptions('end', Config) ->
 
 t_list_client_subscriptions(Config) ->
     [Client | _] = ?config(clients, Config),
-    ?assertEqual([], emqx_mgmt:list_client_subscriptions(<<"client1">>)),
+    ?assertEqual([], emqx_mgmt:list_client_subscriptions(undefined, <<"client1">>)),
     emqtt:subscribe(Client, <<"t/#">>),
-    ?assertMatch({_, [{<<"t/#">>, _Opts}]}, emqx_mgmt:list_client_subscriptions(<<"client1">>)),
-    ?assertEqual({error, not_found}, emqx_mgmt:list_client_subscriptions(<<"notfound">>)).
+    ?assertMatch(
+        {_, [{<<"t/#">>, _Opts}]}, emqx_mgmt:list_client_subscriptions(undefined, <<"client1">>)
+    ),
+    ?assertEqual(
+        {error, not_found}, emqx_mgmt:list_client_subscriptions(undefined, <<"notfound">>)
+    ).
 
 t_clean_cache(init, Config) ->
     setup_clients(Config);
@@ -242,7 +248,7 @@ t_clean_cache('end', Config) ->
 t_clean_cache(_Config) ->
     ?assertNotMatch(
         {error, _},
-        emqx_mgmt:clean_authz_cache(<<"client1">>)
+        emqx_mgmt:clean_authz_cache(_Mtns = undefined, <<"client1">>)
     ),
     ?assertNotMatch(
         {error, _},
@@ -271,32 +277,32 @@ t_set_client_props(_Config) ->
     ?assertEqual(
         % [FIXME] not implemented at this point?
         ignored,
-        emqx_mgmt:set_ratelimit_policy(<<"client1">>, foo)
+        emqx_mgmt:set_ratelimit_policy(undefined, <<"client1">>, foo)
     ),
     ?assertEqual(
         {error, not_found},
-        emqx_mgmt:set_ratelimit_policy(<<"notfound">>, foo)
+        emqx_mgmt:set_ratelimit_policy(undefined, <<"notfound">>, foo)
     ),
     ?assertEqual(
         % [FIXME] not implemented at this point?
         ignored,
-        emqx_mgmt:set_quota_policy(<<"client1">>, foo)
+        emqx_mgmt:set_quota_policy(undefined, <<"client1">>, foo)
     ),
     ?assertEqual(
         {error, not_found},
-        emqx_mgmt:set_quota_policy(<<"notfound">>, foo)
+        emqx_mgmt:set_quota_policy(undefined, <<"notfound">>, foo)
     ),
     ?assertEqual(
         ok,
-        emqx_mgmt:set_keepalive(<<"client1">>, 3600)
+        emqx_mgmt:set_keepalive(undefined, <<"client1">>, 3600)
     ),
     ?assertMatch(
         {error, _},
-        emqx_mgmt:set_keepalive(<<"client1">>, true)
+        emqx_mgmt:set_keepalive(undefined, <<"client1">>, true)
     ),
     ?assertEqual(
         {error, not_found},
-        emqx_mgmt:set_keepalive(<<"notfound">>, 3600)
+        emqx_mgmt:set_keepalive(undefined, <<"notfound">>, 3600)
     ),
     ok.
 
@@ -326,7 +332,9 @@ t_pubsub_api(Config) ->
     ?assertEqual([], emqx_mgmt:list_subscriptions_via_topic(<<"t/#">>, ?FORMATFUN)),
     ?assertMatch(
         {subscribe, _, _},
-        emqx_mgmt:subscribe(<<"client1">>, [?TT(<<"t/#">>), ?TT(<<"t1/#">>), ?TT(<<"t2/#">>)])
+        emqx_mgmt:subscribe(undefined, <<"client1">>, [
+            ?TT(<<"t/#">>), ?TT(<<"t1/#">>), ?TT(<<"t2/#">>)
+        ])
     ),
     timer:sleep(100),
     ?assertMatch(
@@ -343,23 +351,27 @@ t_pubsub_api(Config) ->
             timeout
         end,
     ?assertEqual(ok, Recv),
-    ?assertEqual({error, channel_not_found}, emqx_mgmt:subscribe(<<"notfound">>, [?TT(<<"t/#">>)])),
-    ?assertNotMatch({error, _}, emqx_mgmt:unsubscribe(<<"client1">>, <<"t/#">>)),
-    ?assertEqual({error, channel_not_found}, emqx_mgmt:unsubscribe(<<"notfound">>, <<"t/#">>)),
+    ?assertEqual(
+        {error, channel_not_found}, emqx_mgmt:subscribe(undefined, <<"notfound">>, [?TT(<<"t/#">>)])
+    ),
+    ?assertNotMatch({error, _}, emqx_mgmt:unsubscribe(undefined, <<"client1">>, <<"t/#">>)),
+    ?assertEqual(
+        {error, channel_not_found}, emqx_mgmt:unsubscribe(undefined, <<"notfound">>, <<"t/#">>)
+    ),
     Node = node(),
     ?assertMatch(
         {Node, [{<<"t1/#">>, _}, {<<"t2/#">>, _}]},
-        emqx_mgmt:list_client_subscriptions(<<"client1">>)
+        emqx_mgmt:list_client_subscriptions(undefined, <<"client1">>)
     ),
     ?assertMatch(
         {unsubscribe, [{<<"t1/#">>, _}, {<<"t2/#">>, _}]},
-        emqx_mgmt:unsubscribe_batch(<<"client1">>, [<<"t1/#">>, <<"t2/#">>])
+        emqx_mgmt:unsubscribe_batch(undefined, <<"client1">>, [<<"t1/#">>, <<"t2/#">>])
     ),
     timer:sleep(100),
-    ?assertMatch([], emqx_mgmt:list_client_subscriptions(<<"client1">>)),
+    ?assertMatch([], emqx_mgmt:list_client_subscriptions(undefined, <<"client1">>)),
     ?assertEqual(
         {error, channel_not_found},
-        emqx_mgmt:unsubscribe_batch(<<"notfound">>, [<<"t1/#">>, <<"t2/#">>])
+        emqx_mgmt:unsubscribe_batch(undefined, <<"notfound">>, [<<"t1/#">>, <<"t2/#">>])
     ).
 
 t_alarms(init, Config) ->
@@ -441,7 +453,7 @@ t_persist_list_subs(_) ->
     Topics = lists:sort([<<"foo/bar">>, <<"/a/+//+/#">>, <<"foo">>]),
     VerifySubs =
         fun() ->
-            {Node, Ret} = emqx_mgmt:list_client_subscriptions(ClientId),
+            {Node, Ret} = emqx_mgmt:list_client_subscriptions(undefined, ClientId),
             ?assert(Node =:= node() orelse Node =:= undefined, Node),
             {TopicsL, SubProps} = lists:unzip(Ret),
             ?assertEqual(Topics, lists:sort(TopicsL)),
@@ -450,7 +462,7 @@ t_persist_list_subs(_) ->
     %% 0. Verify that management functions work for missing clients:
     ?assertMatch(
         {error, not_found},
-        emqx_mgmt:list_client_subscriptions(ClientId)
+        emqx_mgmt:list_client_subscriptions(undefined, ClientId)
     ),
     %% 1. Connect the client and subscribe to topics:
     {ok, Client} = emqtt:start_link([
@@ -578,7 +590,7 @@ connect_client(Node) ->
     {ok, Client, ClientId}.
 
 client_msgs_args(ClientId) ->
-    [mqueue_msgs, ClientId, #{limit => 10, continuation => none}].
+    [mqueue_msgs, _Mtns = undefined, ClientId, #{limit => 10, continuation => none}].
 
 client_msgs_bad_args(ClientId) ->
-    [mqueue_msgs, ClientId, "bad_page_params"].
+    [mqueue_msgs, _Mtns = undefined, ClientId, "bad_page_params"].

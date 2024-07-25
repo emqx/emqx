@@ -47,32 +47,34 @@
 
 %% Clients, Sessions
 -export([
-    lookup_client/2,
     lookup_client/3,
-    kickout_client/1,
-    kickout_clients/1,
-    list_authz_cache/1,
-    list_client_subscriptions/1,
-    list_client_msgs/3,
-    client_subscriptions/2,
-    clean_authz_cache/1,
+    lookup_client/4,
+    kickout_client/2,
+    kickout_clients/2,
+    list_authz_cache/2,
+    list_client_subscriptions/2,
+    list_client_msgs/4,
+    client_subscriptions/3,
     clean_authz_cache/2,
+    clean_authz_cache/3,
     clean_authz_cache_all/0,
     clean_authz_cache_all/1,
     clean_pem_cache_all/0,
     clean_pem_cache_all/1,
-    set_ratelimit_policy/2,
-    set_quota_policy/2,
-    set_keepalive/2,
+    set_ratelimit_policy/3,
+    set_quota_policy/3,
+    set_keepalive/3,
 
-    do_kickout_clients/1
+    %% @deprecated
+    do_kickout_clients/1,
+    do_kickout_clients/2
 ]).
 
 %% Internal exports
--export([lookup_running_client/2]).
+-export([lookup_running_client/3]).
 
 %% Internal functions
--export([do_call_client/2]).
+-export([do_call_client/2, do_call_client/3]).
 
 %% Subscriptions
 -export([
@@ -85,13 +87,19 @@
 
 %% PubSub
 -export([
-    subscribe/2,
+    subscribe/3,
+    %% @deprecated
     do_subscribe/2,
+    do_subscribe/3,
     publish/1,
-    unsubscribe/2,
+    unsubscribe/3,
+    %% @deprecated
     do_unsubscribe/2,
-    unsubscribe_batch/2,
-    do_unsubscribe_batch/2
+    do_unsubscribe/3,
+    unsubscribe_batch/3,
+    %% @deprecated
+    do_unsubscribe_batch/2,
+    do_unsubscribe_batch/3
 ]).
 
 %% Alarms
@@ -332,9 +340,9 @@ nodes_info_count(PropList) ->
 %% Clients
 %%--------------------------------------------------------------------
 
-lookup_client({clientid, ClientId}, FormatFun) ->
+lookup_client(Mtns, {clientid, ClientId}, FormatFun) ->
     IsPersistenceEnabled = emqx_persistent_message:is_persistence_enabled(),
-    case lookup_running_client(ClientId, FormatFun) of
+    case lookup_running_client(Mtns, ClientId, FormatFun) of
         [] when IsPersistenceEnabled ->
             case emqx_persistent_session_ds_state:print_session(ClientId) of
                 undefined -> [];
@@ -343,14 +351,14 @@ lookup_client({clientid, ClientId}, FormatFun) ->
         Res ->
             Res
     end;
-lookup_client({username, Username}, FormatFun) ->
+lookup_client(Mtns, {username, Username}, FormatFun) ->
     lists:append([
-        lookup_client(Node, {username, Username}, FormatFun)
+        lookup_client(Node, Mtns, {username, Username}, FormatFun)
      || Node <- emqx:running_nodes()
     ]).
 
-lookup_client(Node, Key, FormatFun) ->
-    case unwrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
+lookup_client(Node, Mtns, Key, FormatFun) ->
+    case unwrap_rpc(emqx_cm_proto_v4:lookup_client(Node, Mtns, Key)) of
         {error, Err} ->
             {error, Err};
         L ->
@@ -368,8 +376,8 @@ maybe_format(undefined, A) ->
 maybe_format({M, F}, A) ->
     M:F(A).
 
-kickout_client(ClientId) ->
-    case lookup_client({clientid, ClientId}, undefined) of
+kickout_client(Mtns, ClientId) ->
+    case lookup_client(Mtns, {clientid, ClientId}, undefined) of
         [] ->
             {error, not_found};
         [{ClientId, _}] ->
@@ -377,16 +385,16 @@ kickout_client(ClientId) ->
             %% without channel pid):
             emqx_persistent_session_ds:kick_offline_session(ClientId);
         _ ->
-            Results = [kickout_client(Node, ClientId) || Node <- emqx:running_nodes()],
+            Results = [kickout_client(Node, Mtns, ClientId) || Node <- emqx:running_nodes()],
             check_results(Results)
     end.
 
-kickout_client(Node, ClientId) ->
-    unwrap_rpc(emqx_cm_proto_v1:kickout_client(Node, ClientId)).
+kickout_client(Node, Mtns, ClientId) ->
+    unwrap_rpc(emqx_cm_proto_v4:kickout_client(Node, Mtns, ClientId)).
 
-kickout_clients(ClientIds) when is_list(ClientIds) ->
+kickout_clients(Mtns, ClientIds) when is_list(ClientIds) ->
     F = fun(Node) ->
-        emqx_management_proto_v5:kickout_clients(Node, ClientIds)
+        emqx_management_proto_v6:kickout_clients(Node, Mtns, ClientIds)
     end,
     Results = lists:map(F, emqx:running_nodes()),
     lists:foreach(fun emqx_persistent_session_ds:kick_offline_session/1, ClientIds),
@@ -397,34 +405,40 @@ kickout_clients(ClientIds) when is_list(ClientIds) ->
             unwrap_rpc(Result)
     end.
 
+%% @deprecated Used by emqx_management_proto_v5 and before version
+-spec do_kickout_clients([emqx_types:clientid()]) -> ok.
 do_kickout_clients(ClientIds) when is_list(ClientIds) ->
+    do_kickout_clients(undefined, ClientIds).
+
+-spec do_kickout_clients(emqx_types:mtns(), [emqx_types:clientid()]) -> ok.
+do_kickout_clients(Mtns, ClientIds) when is_list(ClientIds) ->
     F = fun(ClientId) ->
-        ChanPids = emqx_cm:lookup_channels(local, ClientId),
+        ChanPids = emqx_cm:lookup_channels(local, Mtns, ClientId),
         lists:foreach(
-            fun(ChanPid) -> emqx_cm:kick_session(ClientId, ChanPid) end,
+            fun(ChanPid) -> emqx_cm:kick_session(Mtns, ClientId, ChanPid) end,
             ChanPids
         )
     end,
     lists:foreach(F, ClientIds).
 
-list_authz_cache(ClientId) ->
-    call_client(ClientId, list_authz_cache).
+list_authz_cache(Mtns, ClientId) ->
+    call_client(Mtns, ClientId, list_authz_cache).
 
-list_client_subscriptions(ClientId) ->
-    case emqx_persistent_session_ds:list_client_subscriptions(ClientId) of
+list_client_subscriptions(Mtns, ClientId) ->
+    case emqx_persistent_session_ds:list_client_subscriptions(Mtns, ClientId) of
         {error, not_found} ->
-            list_client_subscriptions_mem(ClientId);
+            list_client_subscriptions_mem(Mtns, ClientId);
         Result ->
             Result
     end.
 
 %% List subscriptions of an in-memory session:
-list_client_subscriptions_mem(ClientId) ->
-    case lookup_client({clientid, ClientId}, undefined) of
+list_client_subscriptions_mem(Mtns, ClientId) ->
+    case lookup_client(Mtns, {clientid, ClientId}, undefined) of
         [] ->
             {error, not_found};
         _ ->
-            Results = [client_subscriptions(Node, ClientId) || Node <- emqx:running_nodes()],
+            Results = [client_subscriptions(Node, Mtns, ClientId) || Node <- emqx:running_nodes()],
             Filter =
                 fun
                     ({error, _}) ->
@@ -438,21 +452,21 @@ list_client_subscriptions_mem(ClientId) ->
             end
     end.
 
-list_client_msgs(MsgsType, ClientId, PagerParams) when
+list_client_msgs(MsgsType, Mtns, ClientId, PagerParams) when
     MsgsType =:= inflight_msgs;
     MsgsType =:= mqueue_msgs
 ->
-    call_client(ClientId, {MsgsType, PagerParams}).
+    call_client(Mtns, ClientId, {MsgsType, PagerParams}).
 
-client_subscriptions(Node, ClientId) ->
-    {Node, unwrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId))}.
+client_subscriptions(Node, Mtns, ClientId) ->
+    {Node, unwrap_rpc(emqx_broker_proto_v2:list_client_subscriptions(Node, Mtns, ClientId))}.
 
-clean_authz_cache(ClientId) ->
-    Results = [clean_authz_cache(Node, ClientId) || Node <- emqx:running_nodes()],
+clean_authz_cache(Mtns, ClientId) ->
+    Results = [clean_authz_cache(Node, Mtns, ClientId) || Node <- emqx:running_nodes()],
     check_results(Results).
 
-clean_authz_cache(Node, ClientId) ->
-    unwrap_rpc(emqx_proto_v1:clean_authz_cache(Node, ClientId)).
+clean_authz_cache(Node, Mtns, ClientId) ->
+    unwrap_rpc(emqx_proto_v3:clean_authz_cache_v3(Node, Mtns, ClientId)).
 
 clean_authz_cache_all() ->
     Results = [{Node, clean_authz_cache_all(Node)} || Node <- emqx:running_nodes()],
@@ -469,34 +483,34 @@ wrap_results(Results) ->
     end.
 
 clean_authz_cache_all(Node) ->
-    unwrap_rpc(emqx_proto_v1:clean_authz_cache(Node)).
+    unwrap_rpc(emqx_proto_v2:clean_authz_cache(Node)).
 
 clean_pem_cache_all(Node) ->
-    unwrap_rpc(emqx_proto_v1:clean_pem_cache(Node)).
+    unwrap_rpc(emqx_proto_v2:clean_pem_cache(Node)).
 
-set_ratelimit_policy(ClientId, Policy) ->
-    call_client(ClientId, {ratelimit, Policy}).
+set_ratelimit_policy(Mtns, ClientId, Policy) ->
+    call_client(Mtns, ClientId, {ratelimit, Policy}).
 
-set_quota_policy(ClientId, Policy) ->
-    call_client(ClientId, {quota, Policy}).
+set_quota_policy(Mtns, ClientId, Policy) ->
+    call_client(Mtns, ClientId, {quota, Policy}).
 
-set_keepalive(ClientId, Interval) when Interval >= 0 andalso Interval =< 65535 ->
-    call_client(ClientId, {keepalive, Interval});
-set_keepalive(_ClientId, _Interval) ->
+set_keepalive(Mtns, ClientId, Interval) when Interval >= 0 andalso Interval =< 65535 ->
+    call_client(Mtns, ClientId, {keepalive, Interval});
+set_keepalive(_Mtns, _ClientId, _Interval) ->
     {error, <<"mqtt3.1.1 specification: keepalive must between 0~65535">>}.
 
 %% @private
-call_client(ClientId, Req) ->
+call_client(Mtns, ClientId, Req) ->
     case emqx_cm_registry:is_enabled() of
         true ->
-            do_call_client(ClientId, Req);
+            do_call_client(Mtns, ClientId, Req);
         false ->
-            call_client_on_all_nodes(ClientId, Req)
+            call_client_on_all_nodes(Mtns, ClientId, Req)
     end.
 
-call_client_on_all_nodes(ClientId, Req) ->
+call_client_on_all_nodes(Mtns, ClientId, Req) ->
     Nodes = emqx:running_nodes(),
-    Results = call_client(Nodes, ClientId, Req),
+    Results = call_client(Nodes, Mtns, ClientId, Req),
     {Expected, Errs} = lists:foldr(
         fun
             ({_N, {error, not_found}}, Acc) -> Acc;
@@ -517,15 +531,21 @@ call_client_on_all_nodes(ClientId, Req) ->
             Result
     end.
 
-%% @private
+%% @deprecated
 -spec do_call_client(emqx_types:clientid(), term()) -> term().
 do_call_client(ClientId, Req) ->
-    case emqx_cm:lookup_channels(ClientId) of
+    do_call_client(undefined, ClientId, Req).
+
+%% @private
+-spec do_call_client(emqx_types:mtns(), emqx_types:clientid(), term()) -> term().
+do_call_client(Mtns, ClientId, Req) ->
+    %% FIXME:
+    case emqx_cm:lookup_channels(Mtns, ClientId) of
         [] ->
             {error, not_found};
         Pids when is_list(Pids) ->
             Pid = lists:last(Pids),
-            case emqx_cm:get_chan_info(ClientId, Pid) of
+            case emqx_cm:get_chan_info(Mtns, ClientId, Pid) of
                 #{conninfo := #{conn_mod := ConnMod}} ->
                     call_conn(ConnMod, Pid, Req);
                 undefined ->
@@ -534,8 +554,8 @@ do_call_client(ClientId, Req) ->
     end.
 
 %% @private
-call_client(Nodes, ClientId, Req) ->
-    emqx_rpc:unwrap_erpc(emqx_management_proto_v5:call_client(Nodes, ClientId, Req)).
+call_client(Nodes, Mtns, ClientId, Req) ->
+    emqx_rpc:unwrap_erpc(emqx_management_proto_v6:call_client(Nodes, Mtns, ClientId, Req)).
 
 %%--------------------------------------------------------------------
 %% Subscriptions
@@ -566,32 +586,39 @@ list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
 %% PubSub
 %%--------------------------------------------------------------------
 
-subscribe(ClientId, TopicTables) ->
+subscribe(Mtns, ClientId, TopicTables) ->
     case emqx_cm_registry:is_enabled() of
         false ->
-            subscribe(emqx:running_nodes(), ClientId, TopicTables);
+            subscribe(emqx:running_nodes(), Mtns, ClientId, TopicTables);
         true ->
             with_client_node(
+                Mtns,
                 ClientId,
                 {error, channel_not_found},
                 fun(Node) ->
-                    subscribe([Node], ClientId, TopicTables)
+                    subscribe([Node], Mtns, ClientId, TopicTables)
                 end
             )
     end.
 
-subscribe([Node | Nodes], ClientId, TopicTables) ->
-    case unwrap_rpc(emqx_management_proto_v5:subscribe(Node, ClientId, TopicTables)) of
-        {error, _} -> subscribe(Nodes, ClientId, TopicTables);
+subscribe([Node | Nodes], Mtns, ClientId, TopicTables) ->
+    case unwrap_rpc(emqx_management_proto_v6:subscribe(Node, Mtns, ClientId, TopicTables)) of
+        {error, _} -> subscribe(Nodes, Mtns, ClientId, TopicTables);
         {subscribe, Res} -> {subscribe, Res, Node}
     end;
-subscribe([], _ClientId, _TopicTables) ->
+subscribe([], _Mtns, _ClientId, _TopicTables) ->
     {error, channel_not_found}.
 
+%% @deprecated Used by emqx_management_proto_v5 and before version
 -spec do_subscribe(emqx_types:clientid(), emqx_types:topic_filters()) ->
     {subscribe, _} | {error, atom()}.
 do_subscribe(ClientId, TopicTables) ->
-    case ets:lookup(?CHAN_TAB, ClientId) of
+    do_subscribe(_Mtns = undefined, ClientId, TopicTables).
+
+-spec do_subscribe(emqx_types:mtns(), emqx_types:clientid(), emqx_types:topic_filters()) ->
+    {subscribe, _} | {error, atom()}.
+do_subscribe(Mtns, ClientId, TopicTables) ->
+    case ets:lookup(?CHAN_TAB, {Mtns, ClientId}) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {subscribe, TopicTables}
     end.
@@ -600,59 +627,70 @@ publish(Msg) ->
     emqx_metrics:inc_msg(Msg),
     emqx:publish(Msg).
 
--spec unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
+-spec unsubscribe(emqx_types:mtns(), emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
-unsubscribe(ClientId, Topic) ->
-    unsubscribe(emqx:running_nodes(), ClientId, Topic).
+unsubscribe(Mtns, ClientId, Topic) ->
+    unsubscribe(emqx:running_nodes(), Mtns, ClientId, Topic).
 
--spec unsubscribe([node()], emqx_types:clientid(), emqx_types:topic()) ->
+-spec unsubscribe([node()], emqx_types:mtns(), emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
-unsubscribe([Node | Nodes], ClientId, Topic) ->
-    case unwrap_rpc(emqx_management_proto_v5:unsubscribe(Node, ClientId, Topic)) of
-        {error, _} -> unsubscribe(Nodes, ClientId, Topic);
+unsubscribe([Node | Nodes], Mtns, ClientId, Topic) ->
+    case unwrap_rpc(emqx_management_proto_v6:unsubscribe(Node, Mtns, ClientId, Topic)) of
+        {error, _} -> unsubscribe(Nodes, Mtns, ClientId, Topic);
         Re -> Re
     end;
-unsubscribe([], _ClientId, _Topic) ->
+unsubscribe([], _Mtns, _ClientId, _Topic) ->
     {error, channel_not_found}.
 
 -spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, _}.
 do_unsubscribe(ClientId, Topic) ->
-    case ets:lookup(?CHAN_TAB, ClientId) of
+    do_unsubscribe(_Mtns = undefined, ClientId, Topic).
+
+-spec do_unsubscribe(emqx_types:mtns(), emqx_types:clientid(), emqx_types:topic()) ->
+    {unsubscribe, _} | {error, _}.
+do_unsubscribe(Mtns, ClientId, Topic) ->
+    case ets:lookup(?CHAN_TAB, {Mtns, ClientId}) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
     end.
 
--spec unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
+-spec unsubscribe_batch(emqx_types:mtns(), emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe, _} | {error, channel_not_found}.
-unsubscribe_batch(ClientId, Topics) ->
+unsubscribe_batch(Mtns, ClientId, Topics) ->
     case emqx_cm_registry:is_enabled() of
         false ->
-            unsubscribe_batch(emqx:running_nodes(), ClientId, Topics);
+            unsubscribe_batch(emqx:running_nodes(), Mtns, ClientId, Topics);
         true ->
             with_client_node(
+                Mtns,
                 ClientId,
                 {error, channel_not_found},
                 fun(Node) ->
-                    unsubscribe_batch([Node], ClientId, Topics)
+                    unsubscribe_batch([Node], Mtns, ClientId, Topics)
                 end
             )
     end.
 
--spec unsubscribe_batch([node()], emqx_types:clientid(), [emqx_types:topic()]) ->
+-spec unsubscribe_batch([node()], emqx_types:mtns(), emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, channel_not_found}.
-unsubscribe_batch([Node | Nodes], ClientId, Topics) ->
-    case unwrap_rpc(emqx_management_proto_v5:unsubscribe_batch(Node, ClientId, Topics)) of
-        {error, _} -> unsubscribe_batch(Nodes, ClientId, Topics);
+unsubscribe_batch([Node | Nodes], Mtns, ClientId, Topics) ->
+    case unwrap_rpc(emqx_management_proto_v6:unsubscribe_batch(Node, Mtns, ClientId, Topics)) of
+        {error, _} -> unsubscribe_batch(Nodes, Mtns, ClientId, Topics);
         Re -> Re
     end;
-unsubscribe_batch([], _ClientId, _Topics) ->
+unsubscribe_batch([], _Mtns, _ClientId, _Topics) ->
     {error, channel_not_found}.
 
 -spec do_unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, _}.
 do_unsubscribe_batch(ClientId, Topics) ->
-    case ets:lookup(?CHAN_TAB, ClientId) of
+    do_unsubscribe_batch(_Mtns = undefined, ClientId, Topics).
+
+-spec do_unsubscribe_batch(emqx_types:mtns(), emqx_types:clientid(), [emqx_types:topic()]) ->
+    {unsubscribe_batch, _} | {error, _}.
+do_unsubscribe_batch(Mtns, ClientId, Topics) ->
+    case ets:lookup(?CHAN_TAB, {Mtns, ClientId}) of
         [] -> {error, channel_not_found};
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic) || Topic <- Topics]}
     end.
@@ -712,18 +750,19 @@ delete_banned(Who) ->
 %% Internal exports
 %%--------------------------------------------------------------------
 
-lookup_running_client(ClientId, FormatFun) ->
+lookup_running_client(Mtns, ClientId, FormatFun) ->
     case emqx_cm_registry:is_enabled() of
         false ->
             lists:append([
-                lookup_client(Node, {clientid, ClientId}, FormatFun)
+                lookup_client(Node, Mtns, {clientid, ClientId}, FormatFun)
              || Node <- emqx:running_nodes()
             ]);
         true ->
             with_client_node(
+                Mtns,
                 ClientId,
                 _WhenNotFound = [],
-                fun(Node) -> lookup_client(Node, {clientid, ClientId}, FormatFun) end
+                fun(Node) -> lookup_client(Node, Mtns, {clientid, ClientId}, FormatFun) end
             )
     end.
 
@@ -731,8 +770,8 @@ lookup_running_client(ClientId, FormatFun) ->
 %% Internal Functions.
 %%--------------------------------------------------------------------
 
-with_client_node(ClientId, WhenNotFound, Fn) ->
-    case emqx_cm_registry:lookup_channels(ClientId) of
+with_client_node(Mtns, ClientId, WhenNotFound, Fn) ->
+    case emqx_cm_registry:lookup_channels(Mtns, ClientId) of
         [ChanPid | _] ->
             Node = node(ChanPid),
             Fn(Node);
