@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_scram_http_SUITE).
+-module(emqx_authn_scram_restapi_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -54,11 +54,11 @@ init_per_testcase(_Case, Config) ->
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = emqx_authn_scram_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
+    {ok, _} = emqx_authn_scram_restapi_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok = emqx_authn_scram_http_test_server:stop().
+    ok = emqx_authn_scram_restapi_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -72,7 +72,9 @@ t_create(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    {ok, [#{provider := emqx_authn_scram_http}]} = emqx_authn_chains:list_authenticators(?GLOBAL).
+    {ok, [#{provider := emqx_authn_scram_restapi}]} = emqx_authn_chains:list_authenticators(
+        ?GLOBAL
+    ).
 
 t_create_invalid(_Config) ->
     AuthConfig = raw_config(),
@@ -329,7 +331,7 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
     ClientFirstMessage = esasl_scram:client_first_message(Username),
 
     {continue, ServerFirstMessage, ServerCache} =
-        emqx_authn_scram_http:authenticate(
+        emqx_authn_scram_restapi:authenticate(
             #{
                 auth_method => <<"SCRAM-SHA-512">>,
                 auth_data => ClientFirstMessage,
@@ -349,7 +351,7 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
         ),
 
     {ok, UserInfo1, ServerFinalMessage} =
-        emqx_authn_scram_http:authenticate(
+        emqx_authn_scram_restapi:authenticate(
             #{
                 auth_method => <<"SCRAM-SHA-512">>,
                 auth_data => ClientFinalMessage,
@@ -399,7 +401,7 @@ set_user_handler(Username, Password, IsSuperuser) ->
         ),
         {ok, Req, State}
     end,
-    ok = emqx_authn_scram_http_test_server:set_handler(Handler).
+    ok = emqx_authn_scram_restapi_test_server:set_handler(Handler).
 
 init_auth() ->
     init_auth(raw_config()).

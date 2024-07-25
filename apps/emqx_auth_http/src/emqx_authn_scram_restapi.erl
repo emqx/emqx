@@ -2,7 +2,13 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_scram_http).
+%% Note:
+%% This is not an implementation of the RFC 7804:
+%%   Salted Challenge Response HTTP Authentication Mechanism.
+%% This backend is an implementation of scram,
+%% which uses an external web resource as a source of user information.
+
+-module(emqx_authn_scram_restapi).
 
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -95,7 +101,7 @@ retrieve(
 ) ->
     Request = emqx_authn_http:generate_request(Credential#{username := Username}, State),
     Response = emqx_resource:simple_sync_query(ResourceId, {Method, Request, RequestTimeout}),
-    ?TRACE_AUTHN_PROVIDER("scram_http_response", #{
+    ?TRACE_AUTHN_PROVIDER("scram_restapi_response", #{
         request => emqx_authn_http:request_for_log(Credential, State),
         response => emqx_authn_http:response_for_log(Response),
         resource => ResourceId
@@ -119,7 +125,7 @@ handle_response(Headers, Body) ->
         {error, Reason} = Error ->
             ?TRACE_AUTHN_PROVIDER(
                 error,
-                "parse_scram_http_response_failed",
+                "parse_scram_restapi_response_failed",
                 #{content_type => ContentType, body => Body, reason => Reason}
             ),
             Error

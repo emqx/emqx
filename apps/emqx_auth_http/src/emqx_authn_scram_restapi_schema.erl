@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_scram_http_schema).
+-module(emqx_authn_scram_restapi_schema).
 
 -behaviour(emqx_authn_schema).
 
@@ -22,16 +22,16 @@
 namespace() -> "authn".
 
 refs() ->
-    [?R_REF(scram_http_get), ?R_REF(scram_http_post)].
+    [?R_REF(scram_restapi_get), ?R_REF(scram_restapi_post)].
 
 select_union_member(
     #{<<"mechanism">> := ?AUTHN_MECHANISM_SCRAM_BIN, <<"backend">> := ?AUTHN_BACKEND_BIN} = Value
 ) ->
     case maps:get(<<"method">>, Value, undefined) of
         <<"get">> ->
-            [?R_REF(scram_http_get)];
+            [?R_REF(scram_restapi_get)];
         <<"post">> ->
-            [?R_REF(scramm_http_post)];
+            [?R_REF(scram_restapi_post)];
         Else ->
             throw(#{
                 reason => "unknown_http_method",
@@ -43,20 +43,20 @@ select_union_member(
 select_union_member(_Value) ->
     undefined.
 
-fields(scram_http_get) ->
+fields(scram_restapi_get) ->
     [
         {method, #{type => get, required => true, desc => ?DESC(emqx_authn_http_schema, method)}},
         {headers, fun emqx_authn_http_schema:headers_no_content_type/1}
     ] ++ common_fields();
-fields(scram_http_post) ->
+fields(scram_restapi_post) ->
     [
         {method, #{type => post, required => true, desc => ?DESC(emqx_authn_http_schema, method)}},
         {headers, fun emqx_authn_http_schema:headers/1}
     ] ++ common_fields().
 
-desc(scram_http_get) ->
+desc(scram_restapi_get) ->
     ?DESC(emqx_authn_http_schema, get);
-desc(scram_http_post) ->
+desc(scram_restapi_post) ->
     ?DESC(emqx_authn_http_schema, post);
 desc(_) ->
     undefined.
