@@ -288,21 +288,24 @@ format_metrics(Node, RouterMetrics, ResourceMetrics) ->
     #{
         node => Node,
         metrics => #{
-            ?route_metric => Routes,
+            router => #{
+                ?route_metric => Routes
+            },
+            forwarding => #{
+                'matched' => Get([counters, 'matched'], ResourceMetrics),
+                'success' => Get([counters, 'success'], ResourceMetrics),
+                'failed' => Get([counters, 'failed'], ResourceMetrics),
+                'dropped' => Get([counters, 'dropped'], ResourceMetrics),
+                'retried' => Get([counters, 'retried'], ResourceMetrics),
+                'received' => Get([counters, 'received'], ResourceMetrics),
 
-            'matched' => Get([counters, 'matched'], ResourceMetrics),
-            'success' => Get([counters, 'success'], ResourceMetrics),
-            'failed' => Get([counters, 'failed'], ResourceMetrics),
-            'dropped' => Get([counters, 'dropped'], ResourceMetrics),
-            'retried' => Get([counters, 'retried'], ResourceMetrics),
-            'received' => Get([counters, 'received'], ResourceMetrics),
+                'queuing' => Get([gauges, 'queuing'], ResourceMetrics),
+                'inflight' => Get([gauges, 'inflight'], ResourceMetrics),
 
-            'queuing' => Get([gauges, 'queuing'], ResourceMetrics),
-            'inflight' => Get([gauges, 'inflight'], ResourceMetrics),
-
-            'rate' => Get([rate, 'matched', current], ResourceMetrics),
-            'rate_last5m' => Get([rate, 'matched', last5m], ResourceMetrics),
-            'rate_max' => Get([rate, 'matched', max], ResourceMetrics)
+                'rate' => Get([rate, 'matched', current], ResourceMetrics),
+                'rate_last5m' => Get([rate, 'matched', last5m], ResourceMetrics),
+                'rate_max' => Get([rate, 'matched', max], ResourceMetrics)
+            }
         }
     }.
 

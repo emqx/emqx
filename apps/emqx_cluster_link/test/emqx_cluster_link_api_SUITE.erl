@@ -478,52 +478,64 @@ t_metrics(Config) ->
     ?assertMatch(
         {200, #{
             <<"metrics">> := #{
-                <<"routes">> := 0,
-                <<"matched">> := _,
-                <<"success">> := _,
-                <<"failed">> := _,
-                <<"dropped">> := _,
-                <<"retried">> := _,
-                <<"received">> := _,
-                <<"queuing">> := _,
-                <<"inflight">> := _,
-                <<"rate">> := _,
-                <<"rate_last5m">> := _,
-                <<"rate_max">> := _
+                <<"router">> := #{
+                    <<"routes">> := 0
+                },
+                <<"forwarding">> := #{
+                    <<"matched">> := _,
+                    <<"success">> := _,
+                    <<"failed">> := _,
+                    <<"dropped">> := _,
+                    <<"retried">> := _,
+                    <<"received">> := _,
+                    <<"queuing">> := _,
+                    <<"inflight">> := _,
+                    <<"rate">> := _,
+                    <<"rate_last5m">> := _,
+                    <<"rate_max">> := _
+                }
             },
             <<"node_metrics">> := [
                 #{
                     <<"node">> := _,
                     <<"metrics">> := #{
-                        <<"routes">> := 0,
-                        <<"matched">> := _,
-                        <<"success">> := _,
-                        <<"failed">> := _,
-                        <<"dropped">> := _,
-                        <<"retried">> := _,
-                        <<"received">> := _,
-                        <<"queuing">> := _,
-                        <<"inflight">> := _,
-                        <<"rate">> := _,
-                        <<"rate_last5m">> := _,
-                        <<"rate_max">> := _
+                        <<"router">> := #{
+                            <<"routes">> := 0
+                        },
+                        <<"forwarding">> := #{
+                            <<"matched">> := _,
+                            <<"success">> := _,
+                            <<"failed">> := _,
+                            <<"dropped">> := _,
+                            <<"retried">> := _,
+                            <<"received">> := _,
+                            <<"queuing">> := _,
+                            <<"inflight">> := _,
+                            <<"rate">> := _,
+                            <<"rate_last5m">> := _,
+                            <<"rate_max">> := _
+                        }
                     }
                 },
                 #{
                     <<"node">> := _,
                     <<"metrics">> := #{
-                        <<"routes">> := 0,
-                        <<"matched">> := _,
-                        <<"success">> := _,
-                        <<"failed">> := _,
-                        <<"dropped">> := _,
-                        <<"retried">> := _,
-                        <<"received">> := _,
-                        <<"queuing">> := _,
-                        <<"inflight">> := _,
-                        <<"rate">> := _,
-                        <<"rate_last5m">> := _,
-                        <<"rate_max">> := _
+                        <<"router">> := #{
+                            <<"routes">> := 0
+                        },
+                        <<"forwarding">> := #{
+                            <<"matched">> := _,
+                            <<"success">> := _,
+                            <<"failed">> := _,
+                            <<"dropped">> := _,
+                            <<"retried">> := _,
+                            <<"received">> := _,
+                            <<"queuing">> := _,
+                            <<"inflight">> := _,
+                            <<"rate">> := _,
+                            <<"rate_last5m">> := _,
+                            <<"rate_max">> := _
+                        }
                     }
                 }
             ]
@@ -532,15 +544,15 @@ t_metrics(Config) ->
     ),
     ?assertMatch(
         {200, #{
-            <<"metrics">> := #{<<"routes">> := 0},
+            <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}},
             <<"node_metrics">> := [
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}}
                 },
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}}
                 }
             ]
         }},
@@ -556,15 +568,15 @@ t_metrics(Config) ->
     %% cluster.
     ?assertMatch(
         {200, #{
-            <<"metrics">> := #{<<"routes">> := 0},
+            <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}},
             <<"node_metrics">> := [
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}}
                 },
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}}
                 }
             ]
         }},
@@ -572,15 +584,15 @@ t_metrics(Config) ->
     ),
     ?assertMatch(
         {200, #{
-            <<"metrics">> := #{<<"routes">> := 0},
+            <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}},
             <<"node_metrics">> := [
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}}
                 },
                 #{
                     <<"node">> := _,
-                    <<"metrics">> := #{<<"routes">> := 0}
+                    <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}}
                 }
             ]
         }},
@@ -608,10 +620,10 @@ t_metrics(Config) ->
         10,
         ?assertMatch(
             {200, #{
-                <<"metrics">> := #{<<"routes">> := 4},
+                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 4}},
                 <<"node_metrics">> := [
-                    #{<<"metrics">> := #{<<"routes">> := 2}},
-                    #{<<"metrics">> := #{<<"routes">> := 2}}
+                    #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}}},
+                    #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}}}
                 ]
             }},
             get_metrics(source, SourceName)
@@ -619,7 +631,7 @@ t_metrics(Config) ->
     ),
     ?assertMatch(
         {200, #{
-            <<"metrics">> := #{<<"routes">> := 0},
+            <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}},
             <<"node_metrics">> := _
         }},
         get_metrics(target, TargetName)
@@ -640,10 +652,10 @@ t_metrics(Config) ->
         10,
         ?assertMatch(
             {200, #{
-                <<"metrics">> := #{<<"routes">> := 2},
+                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}},
                 <<"node_metrics">> := [
-                    #{<<"metrics">> := #{<<"routes">> := 1}},
-                    #{<<"metrics">> := #{<<"routes">> := 1}}
+                    #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}}},
+                    #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}}}
                 ]
             }},
             get_metrics(source, SourceName)
@@ -678,7 +690,7 @@ t_metrics(Config) ->
         10,
         ?assertMatch(
             {200, #{
-                <<"metrics">> := #{<<"routes">> := 0},
+                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}},
                 <<"node_metrics">> := _
             }},
             get_metrics(source, SourceName)
@@ -700,7 +712,7 @@ t_metrics(Config) ->
         10,
         ?assertMatch(
             {200, #{
-                <<"metrics">> := #{<<"routes">> := 2},
+                <<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}},
                 <<"node_metrics">> := _
             }},
             get_metrics(source, SourceName)
