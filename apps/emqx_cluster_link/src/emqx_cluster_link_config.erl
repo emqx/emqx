@@ -46,9 +46,7 @@
     %% Actor Lifecycle
     actor_ttl/0,
     actor_gc_interval/0,
-    actor_heartbeat_interval/0,
-    %% Metrics
-    tally_routes_interval/0
+    actor_heartbeat_interval/0
 ]).
 
 -export([
@@ -164,10 +162,6 @@ actor_gc_interval() ->
 -spec actor_heartbeat_interval() -> _Milliseconds :: pos_integer().
 actor_heartbeat_interval() ->
     actor_ttl() div 3.
-
--spec tally_routes_interval() -> _Milliseconds :: timeout().
-tally_routes_interval() ->
-    emqx_config:get([cluster, tally_routes_interval]).
 
 %%
 

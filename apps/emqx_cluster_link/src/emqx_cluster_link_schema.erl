@@ -32,14 +32,7 @@ roots() -> [].
 injected_fields() ->
     #{
         cluster => [
-            {links, links_schema(#{})},
-            {tally_routes_interval,
-                hoconsc:mk(
-                    emqx_schema:timeout_duration(), #{
-                        default => <<"15s">>,
-                        importance => ?IMPORTANCE_HIDDEN
-                    }
-                )}
+            {links, links_schema(#{})}
         ]
     }.
 

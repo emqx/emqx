@@ -53,7 +53,6 @@ mk_source_cluster(BaseName, Config) ->
     SourceConf =
         "cluster {"
         "\n name = cl.source"
-        "\n tally_routes_interval = 300ms"
         "\n links = ["
         "\n   { enable = true"
         "\n     name = cl.target"
@@ -76,7 +75,6 @@ mk_target_cluster(BaseName, Config) ->
     TargetConf =
         "cluster {"
         "\n name = cl.target"
-        "\n tally_routes_interval = 300ms"
         "\n links = ["
         "\n   { enable = true"
         "\n     name = cl.source"

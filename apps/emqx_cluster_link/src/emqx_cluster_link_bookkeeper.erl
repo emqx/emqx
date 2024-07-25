@@ -21,6 +21,14 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-ifdef(TEST).
+%% ms
+-define(TALLY_ROUTES_INTERVAL, 300).
+-else.
+%% ms
+-define(TALLY_ROUTES_INTERVAL, 15_000).
+-endif.
+
 %% call/cast/info events
 -record(tally_routes, {}).
 
@@ -71,7 +79,7 @@ ensure_timer(Event, Timeout) ->
 handle_tally_routes() ->
     ClusterNames = cluster_names(),
     tally_routes(ClusterNames),
-    ensure_timer(#tally_routes{}, emqx_cluster_link_config:tally_routes_interval()),
+    ensure_timer(#tally_routes{}, ?TALLY_ROUTES_INTERVAL),
     ok.
 
 tally_routes([ClusterName | ClusterNames]) ->
