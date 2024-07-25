@@ -1247,7 +1247,7 @@ recv_msgs(Count, Msgs) ->
 start_peer(Name, Port) ->
     {ok, Node} = emqx_cth_peer:start_link(
         Name,
-        ebin_path()
+        emqx_common_test_helpers:ebin_path()
     ),
     pong = net_adm:ping(Node),
     setup_node(Node, Port),
@@ -1260,9 +1260,6 @@ stop_peer(Node) ->
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
     Host.
-
-ebin_path() ->
-    ["-pa" | code:get_path()].
 
 setup_node(Node, Port) ->
     EnvHandler =
