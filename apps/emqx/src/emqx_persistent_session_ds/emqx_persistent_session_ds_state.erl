@@ -72,7 +72,6 @@
     t/0,
     metadata/0,
     seqno_type/0,
-    stream_key/0,
     rank_key/0,
     session_iterator/0,
     protocol/0
@@ -459,18 +458,20 @@ del_subscription_state(SStateId, Rec) ->
 
 %%
 
--type stream_key() :: {emqx_persistent_session_ds:subscription_id(), _StreamId}.
-
--spec get_stream(stream_key(), t()) ->
+-spec get_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
 get_stream(Key, Rec) ->
     gen_get(?streams, Key, Rec).
 
--spec put_stream(stream_key(), emqx_persistent_session_ds:stream_state(), t()) -> t().
+-spec put_stream(
+    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds:stream_state(),
+    t()
+) -> t().
 put_stream(Key, Val, Rec) ->
     gen_put(?streams, Key, Val, Rec).
 
--spec del_stream(stream_key(), t()) -> t().
+-spec del_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
     gen_del(?streams, Key, Rec).
 

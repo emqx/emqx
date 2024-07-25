@@ -241,7 +241,7 @@
     ref :: reference()
 }).
 
--type stream_state() :: #srs{}.
+-type stream_state() :: emqx_persistent_session_ds_stream_scheduler:srs().
 
 -type message() :: emqx_types:message().
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
@@ -449,7 +449,9 @@ subscribe(
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
     #share{} = TopicFilter,
-    Session = #{id := SessionId, s := S0, shared_sub_s := SharedSubS0}
+    Session0 = #{
+        id := SessionId, s := S0, shared_sub_s := SharedSubS0, stream_scheduler_s := SchedS0
+    }
 ) ->
     case
         emqx_persistent_session_ds_shared_subs:on_unsubscribe(
@@ -457,21 +459,27 @@ unsubscribe(
         )
     of
         {ok, S1, SharedSubS1, #{id := SubId, subopts := SubOpts}} ->
-            S2 = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, S1),
+            {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+                SubId, S1, SchedS0
+            ),
             S = emqx_persistent_session_ds_state:commit(S2),
-            {ok, Session#{s := S, shared_sub_s := SharedSubS1}, SubOpts};
+            Session = Session0#{s := S, shared_sub_s := SharedSubS1, stream_scheduler_s := SchedS},
+            {ok, Session, SubOpts};
         Error = {error, _} ->
             Error
     end;
 unsubscribe(
     TopicFilter,
-    Session = #{id := SessionId, s := S0}
+    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
 ) ->
     case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
         {ok, S1, #{id := SubId, subopts := SubOpts}} ->
-            S2 = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, S1),
+            {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+                SubId, S1, SchedS0
+            ),
             S = emqx_persistent_session_ds_state:commit(S2),
-            {ok, Session#{s := S}, SubOpts};
+            Session = Session0#{s := S, stream_scheduler_s := SchedS},
+            {ok, Session, SubOpts};
         Error = {error, _} ->
             Error
     end.
