@@ -83,9 +83,7 @@ handle_tally_routes() ->
     ok.
 
 tally_routes([ClusterName | ClusterNames]) ->
-    Tab = emqx_cluster_link_extrouter:extroute_tab(),
-    Pat = emqx_cluster_link_extrouter:cluster_routes_ms(ClusterName),
-    NumRoutes = ets:select_count(Tab, Pat),
+    NumRoutes = emqx_cluster_link_extrouter:count(ClusterName),
     emqx_cluster_link_metrics:routes_set(ClusterName, NumRoutes),
     tally_routes(ClusterNames);
 tally_routes([]) ->

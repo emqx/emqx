@@ -35,7 +35,7 @@
 ]).
 
 %% Internal export for bookkeeping
--export([cluster_routes_ms/1, extroute_tab/0]).
+-export([count/1]).
 
 %% Strictly monotonically increasing integer.
 -type smint() :: integer().
@@ -151,16 +151,14 @@ make_extroute_rec_pat(Entry) ->
     ).
 
 %% Internal exports for bookkeeping
-cluster_routes_ms(ClusterName) ->
+count(ClusterName) ->
     TopicPat = '_',
     RouteIDPat = '_',
     Pat = make_extroute_rec_pat(
         emqx_trie_search:make_pat(TopicPat, ?ROUTE_ID(ClusterName, RouteIDPat))
     ),
-    [{Pat, [], [true]}].
-
-extroute_tab() ->
-    ?EXTROUTE_TAB.
+    MS = [{Pat, [], [true]}],
+    ets:select_count(?EXTROUTE_TAB, MS).
 
 %%
 
