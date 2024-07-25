@@ -25,7 +25,7 @@
 -export([start_link/0]).
 
 %% throttler API
--export([allow/1]).
+-export([allow/2]).
 
 %% gen_server callbacks
 -export([
@@ -40,23 +40,22 @@
 -define(SEQ_ID(Msg), {?MODULE, Msg}).
 -define(NEW_SEQ, atomics:new(1, [{signed, false}])).
 -define(GET_SEQ(Msg), persistent_term:get(?SEQ_ID(Msg), undefined)).
+-define(ERASE_SEQ(Msg), persistent_term:erase(?SEQ_ID(Msg))).
 -define(RESET_SEQ(SeqRef), atomics:put(SeqRef, 1, 0)).
 -define(INC_SEQ(SeqRef), atomics:add(SeqRef, 1, 1)).
 -define(GET_DROPPED(SeqRef), atomics:get(SeqRef, 1) - 1).
 -define(IS_ALLOWED(SeqRef), atomics:add_get(SeqRef, 1, 1) =:= 1).
 
--define(NEW_THROTTLE(Msg, SeqRef), persistent_term:put(?SEQ_ID(Msg), SeqRef)).
-
 -define(MSGS_LIST, emqx:get_config([log, throttling, msgs], [])).
 -define(TIME_WINDOW_MS, timer:seconds(emqx:get_config([log, throttling, time_window], 60))).
 
--spec allow(atom()) -> boolean().
-allow(Msg) when is_atom(Msg) ->
+-spec allow(atom(), any()) -> boolean().
+allow(Msg, UniqueKey) when is_atom(Msg) ->
     case emqx_logger:get_primary_log_level() of
         debug ->
             true;
         _ ->
-            do_allow(Msg)
+            do_allow(Msg, UniqueKey)
     end.
 
 -spec start_link() -> startlink_ret().
@@ -68,7 +67,8 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = lists:foreach(fun(Msg) -> ?NEW_THROTTLE(Msg, ?NEW_SEQ) end, ?MSGS_LIST),
+    process_flag(trap_exit, true),
+    ok = lists:foreach(fun(Msg) -> new_throttler(Msg) end, ?MSGS_LIST),
     CurrentPeriodMs = ?TIME_WINDOW_MS,
     TimerRef = schedule_refresh(CurrentPeriodMs),
     {ok, #{timer_ref => TimerRef, current_period_ms => CurrentPeriodMs}}.
@@ -88,14 +88,19 @@ handle_info(refresh, #{current_period_ms := PeriodMs} = State) ->
             case ?GET_SEQ(Msg) of
                 %% Should not happen, unless the static ids list is updated at run-time.
                 undefined ->
-                    ?NEW_THROTTLE(Msg, ?NEW_SEQ),
+                    new_throttler(Msg),
                     ?tp(log_throttler_new_msg, #{throttled_msg => Msg}),
                     Acc;
+                SeqMap when is_map(SeqMap) ->
+                    maps:fold(
+                        fun(Key, Ref, Acc0) ->
+                            drop_stats(Ref, emqx_utils:format("~ts:~s", [Msg, Key]), Acc0)
+                        end,
+                        Acc,
+                        SeqMap
+                    );
                 SeqRef ->
-                    Dropped = ?GET_DROPPED(SeqRef),
-                    ok = ?RESET_SEQ(SeqRef),
-                    ?tp(log_throttler_dropped, #{dropped_count => Dropped, throttled_msg => Msg}),
-                    maybe_add_dropped(Msg, Dropped, Acc)
+                    drop_stats(SeqRef, Msg, Acc)
             end
         end,
         #{},
@@ -112,7 +117,34 @@ handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unxpected_info", info => Info}),
     {noreply, State}.
 
+drop_stats(SeqRef, Msg, Acc) ->
+    Dropped = ?GET_DROPPED(SeqRef),
+    ok = ?RESET_SEQ(SeqRef),
+    ?tp(log_throttler_dropped, #{dropped_count => Dropped, throttled_msg => Msg}),
+    maybe_add_dropped(Msg, Dropped, Acc).
+
 terminate(_Reason, _State) ->
+    lists:foreach(
+        fun(Msg) ->
+            case ?GET_SEQ(Msg) of
+                undefined ->
+                    ok;
+                SeqMap when is_map(SeqMap) ->
+                    maps:foreach(
+                        fun(_, Ref) ->
+                            ok = ?RESET_SEQ(Ref)
+                        end,
+                        SeqMap
+                    );
+                SeqRef ->
+                    %% atomics don't have erase API...
+                    %% (if nobody hold the ref, the atomics should erase automatically?)
+                    ok = ?RESET_SEQ(SeqRef)
+            end,
+            ?ERASE_SEQ(Msg)
+        end,
+        ?MSGS_LIST
+    ),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -122,17 +154,27 @@ code_change(_OldVsn, State, _Extra) ->
 %% internal functions
 %%--------------------------------------------------------------------
 
-do_allow(Msg) ->
+do_allow(Msg, UniqueKey) ->
     case persistent_term:get(?SEQ_ID(Msg), undefined) of
         undefined ->
             %% This is either a race condition (emqx_log_throttler is not started yet)
             %% or a developer mistake (msg used in ?SLOG_THROTTLE/2,3 macro is
             %% not added to the default value of `log.throttling.msgs`.
-            ?SLOG(info, #{
-                msg => "missing_log_throttle_sequence",
+            ?SLOG(debug, #{
+                msg => "log_throttle_disabled",
                 throttled_msg => Msg
             }),
             true;
+        %% e.g: unrecoverable msg throttle according resource_id
+        SeqMap when is_map(SeqMap) ->
+            case maps:find(UniqueKey, SeqMap) of
+                {ok, SeqRef} ->
+                    ?IS_ALLOWED(SeqRef);
+                error ->
+                    SeqRef = ?NEW_SEQ,
+                    new_throttler(Msg, SeqMap#{UniqueKey => SeqRef}),
+                    true
+            end;
         SeqRef ->
             ?IS_ALLOWED(SeqRef)
     end.
@@ -154,3 +196,11 @@ maybe_log_dropped(_DroppedStats, _PeriodMs) ->
 schedule_refresh(PeriodMs) ->
     ?tp(log_throttler_sched_refresh, #{new_period_ms => PeriodMs}),
     erlang:send_after(PeriodMs, ?MODULE, refresh).
+
+new_throttler(unrecoverable_resource_error = Msg) ->
+    persistent_term:put(?SEQ_ID(Msg), #{});
+new_throttler(Msg) ->
+    persistent_term:put(?SEQ_ID(Msg), ?NEW_SEQ).
+
+new_throttler(Msg, Map) ->
+    persistent_term:put(?SEQ_ID(Msg), Map).

@@ -981,11 +981,16 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCTX) ->
         true ->
             PostFn =
                 fun() ->
-                    ?SLOG_THROTTLE(error, #{
-                        resource_id => Id,
-                        msg => unrecoverable_resource_error,
-                        reason => Reason
-                    }),
+                    ?SLOG_THROTTLE(
+                        error,
+                        Id,
+                        #{
+                            resource_id => Id,
+                            msg => unrecoverable_resource_error,
+                            reason => Reason
+                        },
+                        #{tag => ?TAG}
+                    ),
                     ok
                 end,
             Counters =
@@ -1025,11 +1030,16 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCT
         true ->
             PostFn =
                 fun() ->
-                    ?SLOG_THROTTLE(error, #{
-                        resource_id => Id,
-                        msg => unrecoverable_resource_error,
-                        reason => Reason
-                    }),
+                    ?SLOG_THROTTLE(
+                        error,
+                        Id,
+                        #{
+                            resource_id => Id,
+                            msg => unrecoverable_resource_error,
+                            reason => Reason
+                        },
+                        #{tag => ?TAG}
+                    ),
                     ok
                 end,
             Counters =
