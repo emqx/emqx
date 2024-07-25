@@ -278,13 +278,14 @@ search(Pid, SearchOptions) ->
     case eldap:search(Pid, SearchOptions) of
         {error, ldap_closed} ->
             %% ldap server closing the socket does not result in
-            %% process restart, so we need to kill it and reconnect
+            %% process restart, so we need to kill it to trigger a quick reconnect
+            %% instead of waiting for the next health-check
             _ = exit(Pid, kill),
             {error, ldap_closed};
-        {error, {gen_tcp_error, timeout}} ->
+        {error, {gen_tcp_error, _} = Reason} ->
             %% kill the process to trigger reconnect
             _ = exit(Pid, kill),
-            {error, timeout_cause_reconnect};
+            {error, Reason};
         Result ->
             Result
     end.
