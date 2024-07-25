@@ -13,6 +13,84 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+
+%% @doc Stream scheduler is a helper module used by durable sessions
+%% to track states of the DS streams (Stream Replay States, or SRS for
+%% short). It has two main duties:
+%%
+%% - During normal operation, it polls DS iterators that are eligible
+%% for poll.
+%%
+%% - During session reconnect, it returns the list of SRS that must be
+%% replayed in order.
+%%
+%% ** Stream state machine
+%%
+%% During normal operation, state of each iterator can be described as
+%% a FSM. Implementation detail: unconventially, iterators' states are
+%% tracked implicitly, by moving SRS ID between different buckets.
+%% This facilitates faster processing of iterators that have a certain
+%% state.
+%%
+%% There are the following stream replay states:
+%%
+%% - *Ready*: stream iterator can be polled. Ready SRS are stored in
+%% `#s.ready' bucket.
+%%
+%% - *Pending*: poll request for the iterator has been sent, and we're
+%% awaiting the response from DS. Such iterators are stored in
+%% `#s.pending' bucket.
+%%
+%% - *Served*: poll reply has been received, and ownership over SRS
+%% has been handed over to the parent session. This state is implicit:
+%% *served* streams are not tracked by the scheduler. It's assumed
+%% that the session will process the batch and immediately hand SRS
+%% back via `on_enqueue' call.
+%%
+%% - *BQ1*, *BQ2* and *BQ12*: these three states correspond to the
+%% situations when stream cannot be polled, because it is blocked by
+%% un-acked QoS1, QoS2 or QoS1&2 messages respectively. Such streams
+%% are stored in `#s.bq1' or `#s.bq2' buckets (or both).
+%%
+%% *** State transitions
+%%
+%% New streams start in the *Ready* state, from which they always
+%% follow one of these paths:
+%%
+%% *Ready* --(`?MODULE:poll')--> *Pending* --(Poll reply)--> *Served*.
+%%
+%% *Ready* --(`?MODULE:poll')--> *Pending* --(Poll timeout)--> *Ready*.
+%%
+%% *Served* streams are returned to the parent session, which assigns
+%% QoS and sequence numbers to the batch messages according to its own
+%% logic, and enqueues batch to the buffer. Then it returns the
+%% updated SRS back to the scheduler, where it can undergo the
+%% following transitions:
+%%
+%%          .--(only QoS0 messages in the batch)--> *Ready*
+%%         /
+%% *Served* --([QoS0] & QoS1 messages)--> *BQ1*
+%%         \
+%%          \--([QoS0] & QoS2 messages)--> *BQ2*
+%%           \
+%%            '--([QoS0] & QoS1 & QoS2) --> *BQ12*
+%%
+%% *BQ1* and *BQ2* are handled similarly. They transition to *Ready*
+%% once session calls `?MODULE:on_seqno_release' for the corresponding
+%% QoS track and sequence number equal to the SRS's last sequence
+%% number for the track:
+%%
+%% *BQX* --(`?MODULE:on_seqno_release(?QOS_X, LastSeqNoX)')--> *Ready*.
+%%
+%% *BQ12* is handled like this:
+%%
+%%        .--(`on_seqno_release(?QOS_1, LastSeqNo1)')--> *BQ2*
+%%       /
+%% *BQ12*
+%%       \
+%%        '---(`on_seqno_release(?QOS_2, LastSeqNo2)')--> *BQ1*
+%%
+%%
 -module(emqx_persistent_session_ds_stream_scheduler).
 
 %% API:
@@ -64,18 +142,16 @@
 -type blocklist() :: gb_trees:tree(emqx_persistent_session_ds:seqno(), block()).
 
 -record(s, {
-    %% Map that contains data needed to enqueue received batch for
-    %% each key.
-    pending = #{} :: #{emqx_persistent_session_ds_state:stream_key() => #pending_poll{}},
-    %% List of stream IDs that can be polled:
+    %% Buckets:
     ready :: #{emqx_persistent_session_ds_state:stream_key() => true},
-    %% Lists of stream IDs that can't be polled because they have
-    %% unacked QoS1 & 2 messages:
-    blocklist_qos1 :: blocklist(),
-    blocklist_qos2 :: blocklist()
+    pending = #{} :: #{emqx_persistent_session_ds_state:stream_key() => #pending_poll{}},
+    bq1 :: blocklist(),
+    bq2 :: blocklist()
 }).
 
 -opaque t() :: #s{}.
+
+-type state() :: ready | pending | bq1 | bq2 | bq12.
 
 %%================================================================================
 %% API functions
