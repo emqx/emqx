@@ -22,23 +22,30 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(AUTHN_ID, <<"mechanism:jwt">>).
 
 -define(JWKS_PORT, 31333).
 -define(JWKS_PATH, "/jwks.json").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_jwt], #{
-        work_dir => ?config(priv_dir, Config)
+        work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -178,6 +185,7 @@ t_public_key(_) ->
         from => password,
         acl_claim_name => <<"acl">>,
         use_jwks => false,
+        enable => true,
         algorithm => 'public-key',
         public_key => PublicKey,
         verify_claims => [],
@@ -195,6 +203,51 @@ t_public_key(_) ->
     ?assertEqual(
         ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
     ),
+
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+t_bad_public_keys(_) ->
+    BaseConfig = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'public-key',
+        verify_claims => [],
+        disconnect_after_expire => false
+    },
+
+    %% try create with invalid public key
+    ?assertMatch(
+        {error, invalid_public_key},
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{
+            enable => true,
+            public_key => <<"bad_public_key">>
+        })
+    ),
+
+    %% no such file
+    ?assertMatch(
+        {error, invalid_public_key},
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{
+            enable => true,
+            public_key => data_file("bad_flie_path.pem")
+        })
+    ),
+
+    %% bad public key file content
+    ?assertMatch(
+        {error, invalid_public_key},
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{
+            enable => true,
+            public_key => data_file("bad_public_key_file.pem")
+        })
+    ),
+
+    %% assume jwk authenticator is disabled
+    {ok, State} =
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{public_key => <<"bad_public_key">>}),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
@@ -276,6 +329,7 @@ t_jwks_renewal(_Config) ->
         disconnect_after_expire => false,
         use_jwks => true,
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
+        headers => #{<<"Accept">> => <<"application/json">>},
         refresh_interval => 1000,
         pool_size => 1
     },
@@ -359,6 +413,102 @@ t_jwks_renewal(_Config) ->
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
     ok = emqx_authn_http_test_server:stop().
+
+t_jwks_custom_headers(_Config) ->
+    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    on_exit(fun() -> ok = emqx_authn_http_test_server:stop() end),
+    ok = emqx_authn_http_test_server:set_handler(jwks_handler_spy()),
+
+    PrivateKey = test_rsa_key(private),
+    Payload = #{
+        <<"username">> => <<"myuser">>,
+        <<"foo">> => <<"myuser">>,
+        <<"exp">> => erlang:system_time(second) + 10
+    },
+    Endpoint = iolist_to_binary("https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH),
+    Config0 = #{
+        <<"mechanism">> => <<"jwt">>,
+        <<"use_jwks">> => true,
+        <<"from">> => <<"password">>,
+        <<"endpoint">> => Endpoint,
+        <<"headers">> => #{
+            <<"Accept">> => <<"application/json">>,
+            <<"Content-Type">> => <<>>,
+            <<"foo">> => <<"bar">>
+        },
+        <<"pool_size">> => 1,
+        <<"refresh_interval">> => 1_000,
+        <<"ssl">> => #{
+            <<"keyfile">> => cert_file("client.key"),
+            <<"certfile">> => cert_file("client.crt"),
+            <<"cacertfile">> => cert_file("ca.crt"),
+            <<"enable">> => true,
+            <<"verify">> => <<"verify_peer">>,
+            <<"server_name_indication">> => <<"authn-server">>
+        },
+        <<"verify_claims">> => #{<<"foo">> => <<"${username}">>}
+    },
+    {ok, Config} = hocon:binary(hocon_pp:do(Config0, #{})),
+    ChainName = 'mqtt:global',
+    AuthenticatorId = <<"jwt">>,
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            %% bad header keys
+            BadConfig1 = emqx_utils_maps:deep_put(
+                [<<"headers">>, <<"ça-va"/utf8>>], Config, <<"bien">>
+            ),
+            ?assertMatch(
+                {error, #{
+                    kind := validation_error,
+                    reason := <<"headers should contain only characters matching ", _/binary>>
+                }},
+                emqx_authn_api:update_config(
+                    [authentication],
+                    {create_authenticator, ChainName, BadConfig1}
+                )
+            ),
+            BadConfig2 = emqx_utils_maps:deep_put(
+                [<<"headers">>, <<"test_哈哈"/utf8>>],
+                Config,
+                <<"test_haha">>
+            ),
+            ?assertMatch(
+                {error, #{
+                    kind := validation_error,
+                    reason := <<"headers should contain only characters matching ", _/binary>>
+                }},
+                emqx_authn_api:update_config(
+                    [authentication],
+                    {create_authenticator, ChainName, BadConfig2}
+                )
+            ),
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(
+                    emqx_authn_api:update_config(
+                        [authentication],
+                        {create_authenticator, ChainName, Config}
+                    ),
+                    #{?snk_kind := jwks_endpoint_response},
+                    5_000
+                ),
+            ?assertReceive(
+                {http_request, #{
+                    headers := #{
+                        <<"accept">> := <<"application/json">>,
+                        <<"foo">> := <<"bar">>
+                    }
+                }}
+            ),
+            {ok, _} = emqx_authn_api:update_config(
+                [authentication],
+                {delete_authenticator, ChainName, AuthenticatorId}
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
 
 t_verify_claims(_) ->
     Secret = <<"abcdef">>,
@@ -612,6 +762,16 @@ jwks_handler(Req0, State) ->
         Req0
     ),
     {ok, Req, State}.
+
+jwks_handler_spy() ->
+    TestPid = self(),
+    fun(Req, State) ->
+        ReqHeaders = cowboy_req:headers(Req),
+        ReqMap = #{headers => ReqHeaders},
+        ct:pal("jwks request:\n  ~p", [ReqMap]),
+        TestPid ! {http_request, ReqMap},
+        jwks_handler(Req, State)
+    end.
 
 test_rsa_key(public) ->
     data_file("public_key.pem");

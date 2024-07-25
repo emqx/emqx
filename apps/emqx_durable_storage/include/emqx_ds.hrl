@@ -16,4 +16,28 @@
 -ifndef(EMQX_DS_HRL).
 -define(EMQX_DS_HRL, true).
 
+-record(dsbatch, {
+    operations :: [emqx_ds:operation()],
+    preconditions = [] :: [emqx_ds:precondition()]
+}).
+
+-record(message_matcher, {
+    %% Fields identifying the message:
+    %% Client identifier
+    from :: binary(),
+    %% Topic that the message is published to
+    topic :: emqx_types:topic(),
+    %% Timestamp (Unit: millisecond)
+    timestamp :: integer(),
+
+    %% Fields the message is matched against:
+    %% Message Payload
+    payload,
+    %% Message headers
+    headers = #{} :: emqx_types:headers(),
+    %% Extra filters
+    %% Reserved for the forward compatibility purposes.
+    filters = #{}
+}).
+
 -endif.

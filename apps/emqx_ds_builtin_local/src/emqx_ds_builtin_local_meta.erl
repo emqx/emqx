@@ -151,7 +151,6 @@ ensure_monotonic_timestamp(ShardId) ->
 %%================================================================================
 
 -record(s, {}).
--define(timer_update, timer_update).
 
 init([]) ->
     process_flag(trap_exit, true),

@@ -452,18 +452,12 @@ ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 mk(Type, Opts) -> hoconsc:mk(Type, Opts).
 array(Type) -> hoconsc:array(Type).
 
-%% FIXME: all examples
 example_input_create() ->
     #{
-        <<"sql_check">> =>
+        <<"message_transformation">> =>
             #{
-                summary => <<"Using a SQL check">>,
-                value => example_transformation([example_sql_check()])
-            },
-        <<"avro_check">> =>
-            #{
-                summary => <<"Using an Avro schema check">>,
-                value => example_transformation([example_avro_check()])
+                summary => <<"Simple message transformation">>,
+                value => example_transformation()
             }
     }.
 
@@ -472,7 +466,7 @@ example_input_update() ->
         <<"update">> =>
             #{
                 summary => <<"Update">>,
-                value => example_transformation([example_sql_check()])
+                value => example_transformation()
             }
     }.
 
@@ -493,20 +487,28 @@ example_input_dryrun_transformation() ->
             #{
                 summary => <<"Test an input against a configuration">>,
                 value => #{
-                    todo => true
+                    message => #{
+                        client_attrs => #{},
+                        payload => <<"{}">>,
+                        qos => 2,
+                        retain => true,
+                        topic => <<"t/u/v">>,
+                        user_property => #{}
+                    },
+                    transformation => example_transformation()
                 }
             }
     }.
 
 example_return_list() ->
-    OtherVal0 = example_transformation([example_avro_check()]),
+    OtherVal0 = example_transformation(),
     OtherVal = OtherVal0#{name => <<"other_transformation">>},
     #{
         <<"list">> =>
             #{
                 summary => <<"List">>,
                 value => [
-                    example_transformation([example_sql_check()]),
+                    example_transformation(),
                     OtherVal
                 ]
             }
@@ -547,29 +549,23 @@ example_return_metrics() ->
             }
     }.
 
-example_transformation(Checks) ->
+example_transformation() ->
     #{
         name => <<"my_transformation">>,
         enable => true,
         description => <<"my transformation">>,
         tags => [<<"transformation">>],
         topics => [<<"t/+">>],
-        strategy => <<"all_pass">>,
         failure_action => <<"drop">>,
         log_failure => #{<<"level">> => <<"info">>},
-        checks => Checks
-    }.
-
-example_sql_check() ->
-    #{
-        type => <<"sql">>,
-        sql => <<"select payload.temp as t where t > 10">>
-    }.
-
-example_avro_check() ->
-    #{
-        type => <<"avro">>,
-        schema => <<"my_avro_schema">>
+        payload_decoder => #{<<"type">> => <<"json">>},
+        payload_encoder => #{<<"type">> => <<"json">>},
+        operations => [
+            #{
+                key => <<"topic">>,
+                value => <<"concat([topic, '/', payload.t])">>
+            }
+        ]
     }.
 
 error_schema(Code, Message) ->

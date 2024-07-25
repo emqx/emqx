@@ -63,6 +63,7 @@
 -type json_binary() :: binary().
 -type template() :: binary().
 -type template_str() :: string().
+-type binary_kv() :: #{binary() => binary()}.
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -167,7 +168,8 @@
     json_binary/0,
     port_number/0,
     template/0,
-    template_str/0
+    template_str/0,
+    binary_kv/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -318,6 +320,11 @@ roots(low) ->
         {crl_cache,
             sc(
                 ref("crl_cache"),
+                #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {banned,
+            sc(
+                ref("banned"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ].
@@ -1762,6 +1769,17 @@ fields("client_attrs_init") ->
                 desc => ?DESC("client_attrs_init_set_as_attr"),
                 validator => fun restricted_string/1
             })}
+    ];
+fields("banned") ->
+    [
+        {bootstrap_file,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("banned_bootstrap_file"),
+                    require => false
+                }
+            )}
     ].
 
 compile_variform(undefined, _Opts) ->
@@ -2101,6 +2119,8 @@ desc(durable_storage) ->
     ?DESC(durable_storage);
 desc("client_attrs_init") ->
     ?DESC(client_attrs_init);
+desc("banned") ->
+    "Banned .";
 desc(_) ->
     undefined.
 

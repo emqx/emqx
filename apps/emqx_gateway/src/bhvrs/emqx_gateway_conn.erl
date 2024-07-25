@@ -57,7 +57,7 @@
 
 -record(state, {
     %% TCP/SSL/UDP/DTLS Wrapped Socket
-    socket :: {esockd_transport, esockd:socket()} | {udp, _, _},
+    socket :: {esockd_transport, esockd:socket()} | {udp, _, _} | {esockd_udp_proxy, _, _},
     %% Peername of the connection
     peername :: emqx_types:peername(),
     %% Sockname of the connection
@@ -122,6 +122,9 @@ start_link(Socket = {udp, _SockPid, _Sock}, Peername, Options) ->
 start_link(esockd_transport, Sock, Options) ->
     Socket = {esockd_transport, Sock},
     Args = [self(), Socket, undefined, Options] ++ callback_modules(Options),
+    {ok, proc_lib:spawn_link(?MODULE, init, Args)};
+start_link(Socket = {esockd_udp_proxy, _ProxyId, _Sock}, Peername, Options) ->
+    Args = [self(), Socket, Peername, Options] ++ callback_modules(Options),
     {ok, proc_lib:spawn_link(?MODULE, init, Args)}.
 
 callback_modules(Options) ->
@@ -196,9 +199,13 @@ esockd_peername({udp, _SockPid, _Sock}, Peername) ->
     Peername;
 esockd_peername({esockd_transport, Sock}, _Peername) ->
     {ok, Peername} = esockd_transport:ensure_ok_or_exit(peername, [Sock]),
+    Peername;
+esockd_peername({esockd_udp_proxy, _ProxyId, _Sock}, Peername) ->
     Peername.
 
 esockd_wait(Socket = {udp, _SockPid, _Sock}) ->
+    {ok, Socket};
+esockd_wait(Socket = {esockd_udp_proxy, _ProxyId, _Sock}) ->
     {ok, Socket};
 esockd_wait({esockd_transport, Sock}) ->
     case esockd_transport:wait(Sock) of
@@ -211,29 +218,41 @@ esockd_close({udp, _SockPid, _Sock}) ->
     %%gen_udp:close(Sock);
     ok;
 esockd_close({esockd_transport, Sock}) ->
-    esockd_transport:fast_close(Sock).
+    esockd_transport:fast_close(Sock);
+esockd_close({esockd_udp_proxy, ProxyId, _Sock}) ->
+    esockd_udp_proxy:close(ProxyId).
 
 esockd_ensure_ok_or_exit(peercert, {udp, _SockPid, _Sock}) ->
     nossl;
 esockd_ensure_ok_or_exit(Fun, {udp, _SockPid, Sock}) ->
     esockd_transport:ensure_ok_or_exit(Fun, [Sock]);
 esockd_ensure_ok_or_exit(Fun, {esockd_transport, Socket}) ->
-    esockd_transport:ensure_ok_or_exit(Fun, [Socket]).
+    esockd_transport:ensure_ok_or_exit(Fun, [Socket]);
+esockd_ensure_ok_or_exit(Fun, {esockd_udp_proxy, _ProxyId, Sock}) ->
+    esockd_transport:ensure_ok_or_exit(Fun, [Sock]).
 
 esockd_type({udp, _, _}) ->
     udp;
 esockd_type({esockd_transport, Socket}) ->
-    esockd_transport:type(Socket).
+    esockd_transport:type(Socket);
+esockd_type({esockd_udp_proxy, _ProxyId, Sock}) when is_port(Sock) ->
+    udp;
+esockd_type({esockd_udp_proxy, _ProxyId, _Sock}) ->
+    ssl.
 
 esockd_setopts({udp, _, _}, _) ->
     ok;
 esockd_setopts({esockd_transport, Socket}, Opts) ->
     %% FIXME: DTLS works??
+    esockd_transport:setopts(Socket, Opts);
+esockd_setopts({esockd_udp_proxy, _ProxyId, Socket}, Opts) ->
     esockd_transport:setopts(Socket, Opts).
 
 esockd_getstat({udp, _SockPid, Sock}, Stats) ->
     inet:getstat(Sock, Stats);
 esockd_getstat({esockd_transport, Sock}, Stats) ->
+    esockd_transport:getstat(Sock, Stats);
+esockd_getstat({esockd_udp_proxy, _ProxyId, Sock}, Stats) ->
     esockd_transport:getstat(Sock, Stats).
 
 esockd_send(Data, #state{
@@ -242,7 +261,9 @@ esockd_send(Data, #state{
 }) ->
     gen_udp:send(Sock, Ip, Port, Data);
 esockd_send(Data, #state{socket = {esockd_transport, Sock}}) ->
-    esockd_transport:send(Sock, Data).
+    esockd_transport:send(Sock, Data);
+esockd_send(Data, #state{socket = {esockd_udp_proxy, ProxyId, _Sock}}) ->
+    esockd_udp_proxy:send(ProxyId, Data).
 
 keepalive_stats(recv) ->
     emqx_pd:get_counter(recv_pkt);
@@ -250,7 +271,8 @@ keepalive_stats(send) ->
     emqx_pd:get_counter(send_pkt).
 
 is_datadram_socket({esockd_transport, _}) -> false;
-is_datadram_socket({udp, _, _}) -> true.
+is_datadram_socket({udp, _, _}) -> true;
+is_datadram_socket({esockd_udp_proxy, _ProxyId, Sock}) -> erlang:is_port(Sock).
 
 %%--------------------------------------------------------------------
 %% callbacks
@@ -461,6 +483,21 @@ handle_msg({'$gen_cast', Req}, State) ->
     with_channel(handle_cast, [Req], State);
 handle_msg({datagram, _SockPid, Data}, State) ->
     parse_incoming(Data, State);
+handle_msg(
+    {{esockd_udp_proxy, _ProxyId, _Socket} = NSock, Data, Packets},
+    State = #state{
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    ?SLOG(debug, #{msg => "RECV_data", data => Data}),
+    Oct = iolist_size(Data),
+    inc_counter(incoming_bytes, Oct),
+    Ctx = ChannMod:info(ctx, Channel),
+    ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
+
+    NState = State#state{socket = NSock},
+    {ok, next_incoming_msgs(Packets), NState};
 handle_msg({Inet, _Sock, Data}, State) when
     Inet == tcp;
     Inet == ssl
@@ -506,6 +543,9 @@ handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_msg({close, Reason}, State) ->
     ?tp(debug, force_socket_close, #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
+handle_msg(udp_proxy_closed, State) ->
+    ?tp(debug, udp_proxy_closed, #{reason => normal}),
+    handle_info({sock_closed, normal}, close_socket(State));
 handle_msg(
     {event, connected},
     State = #state{

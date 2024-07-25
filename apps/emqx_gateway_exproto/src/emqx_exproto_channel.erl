@@ -802,7 +802,7 @@ default_conninfo(ConnInfo) ->
     }.
 
 default_clientinfo(#{
-    peername := {PeerHost, _},
+    peername := {PeerHost, _} = PeerName,
     sockname := {_, SockPort},
     clientid := ClientId
 }) ->
@@ -810,6 +810,7 @@ default_clientinfo(#{
         zone => default,
         protocol => exproto,
         peerhost => PeerHost,
+        peername => PeerName,
         sockport => SockPort,
         clientid => ClientId,
         username => undefined,

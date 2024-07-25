@@ -78,7 +78,7 @@
 %% https://www.erlang.org/doc/man/odbc.html
 
 %% as returned by connect/2
--type connection_reference() :: odbc:connection_reference().
+-type connection_reference() :: term().
 -type time_out() :: milliseconds() | infinity.
 -type sql() :: string() | binary().
 -type milliseconds() :: pos_integer().

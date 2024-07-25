@@ -4,6 +4,7 @@ set -eu
 # shellcheck disable=SC1090,SC1091
 RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
 echo "Running node dump in ${RUNNER_ROOT_DIR}"
+BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
 
 # shellcheck disable=SC1090,SC1091
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars

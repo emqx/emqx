@@ -1,0 +1,44 @@
+%% This file contains instructions for upgrading from the LAST version to
+%% the CURRENT version.
+%%
+%% We only need to write instructions for the changes in the specific pull request,
+%% these files will be automatically merged/aggregated into a complete relup file
+%% before a new version is released.
+%%
+%% Note that we do not support the 'apply' command in the 'code_changes' section.
+%% If any complex operations are needed during the upgrade process, please add
+%% them in the 'post_upgrade_callbacks' section, and implement them in the
+%% 'emqx_post_upgrade' module. We consolidate the hot upgrade callback code into
+%% a single module ('emqx_post_upgrade') is to avoid mixing the hot upgrade-related
+%% code with the main logic code.
+
+ChildSpec = fun(Mod) ->
+        #{
+            id => Mod,
+            start => {Mod, start_link, []},
+            restart => permanent,
+            shutdown => 5000,
+            type => worker,
+            modules => [Mod]
+        }
+    end.
+
+#{
+    target_version => "5.6.1+patch.A",
+    from_version => "5.6.1",
+    code_changes =>
+        %% the 'emqx_release' and 'emqx_post_upgrade' will be automatically added,
+        %% no need to include them here
+        [ {load_module, emqx_broker}
+        , {load_module, emqx_metrics}
+        , {load_module, emqx_ds_replication_shard_allocator}
+        , {update, emqx_ds_replication_layer_egress, {advanced, #{}}}
+        ],
+    post_upgrade_callbacks =>
+        [
+            %% emqx_post_upgrade:pr12765_update_stats_timer/1
+            pr12765_update_stats_timer,
+            %% emqx_post_upgrade:pr20000_ensure_sup_started/3
+            {pr20000_ensure_sup_started, ["5.6.1+patch.A", ChildSpec(some_mod)]}
+        ]
+}.

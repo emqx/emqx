@@ -212,15 +212,28 @@ short_paths_fields() ->
 short_paths_fields(Importance) ->
     [
         {Name,
-            ?HOCON(rate_type(), #{
-                desc => ?DESC(Name),
-                required => false,
-                importance => Importance,
-                example => Example
-            })}
+            ?HOCON(
+                rate_type(),
+                maps:merge(
+                    #{
+                        desc => ?DESC(Name),
+                        required => false,
+                        importance => Importance,
+                        example => Example
+                    },
+                    short_paths_fields_extra(Name)
+                )
+            )}
      || {Name, Example} <-
             lists:zip(short_paths(), [<<"1000/s">>, <<"1000/s">>, <<"100MB/s">>])
     ].
+
+short_paths_fields_extra(max_conn_rate) ->
+    #{
+        default => infinity
+    };
+short_paths_fields_extra(_Name) ->
+    #{}.
 
 desc(limiter) ->
     "Settings for the rate limiter.";

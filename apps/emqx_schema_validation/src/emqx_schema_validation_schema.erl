@@ -259,6 +259,8 @@ do_validate_unique_schema_checks(
 do_validate_unique_schema_checks([_Check | Rest], Seen, Duplicated) ->
     do_validate_unique_schema_checks(Rest, Seen, Duplicated).
 
+validate_unique_topics([]) ->
+    {error, <<"at least one topic filter must be defined">>};
 validate_unique_topics(Topics) ->
     Grouped = maps:groups_from_list(
         fun(T) -> T end,

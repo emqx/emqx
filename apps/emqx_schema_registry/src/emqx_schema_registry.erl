@@ -44,6 +44,12 @@
     get_serde/1
 ]).
 
+%%-------------------------------------------------------------------------------------------------
+%% Type definitions
+%%-------------------------------------------------------------------------------------------------
+
+-define(BAD_SCHEMA_NAME, <<"bad_schema_name">>).
+
 -type schema() :: #{
     type := serde_type(),
     source := binary(),
@@ -87,6 +93,8 @@ get_schema(SchemaName) ->
         Config ->
             {ok, Config}
     catch
+        throw:#{reason := ?BAD_SCHEMA_NAME} ->
+            {error, not_found};
         throw:not_found ->
             {error, not_found}
     end.
@@ -343,16 +351,20 @@ to_bin(A) when is_atom(A) -> atom_to_binary(A);
 to_bin(B) when is_binary(B) -> B.
 
 schema_name_bin_to_atom(Bin) when size(Bin) > 255 ->
-    throw(
-        iolist_to_binary(
-            io_lib:format(
-                "Name is is too long."
-                " Please provide a shorter name (<= 255 bytes)."
-                " The name that is too long: \"~s\"",
-                [Bin]
-            )
+    Msg = iolist_to_binary(
+        io_lib:format(
+            "Name is is too long."
+            " Please provide a shorter name (<= 255 bytes)."
+            " The name that is too long: \"~s\"",
+            [Bin]
         )
-    );
+    ),
+    Reason = #{
+        kind => validation_error,
+        reason => ?BAD_SCHEMA_NAME,
+        hint => Msg
+    },
+    throw(Reason);
 schema_name_bin_to_atom(Bin) ->
     try
         binary_to_existing_atom(Bin, utf8)

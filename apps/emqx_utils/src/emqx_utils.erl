@@ -290,8 +290,10 @@ do_check_oom([{Val, Max, Reason} | Rest]) ->
     end.
 
 tune_heap_size(#{enable := false}) ->
-    ok;
+    ignore;
 %% If the max_heap_size is set to zero, the limit is disabled.
+tune_heap_size(#{max_heap_size := 0}) ->
+    ignore;
 tune_heap_size(#{max_heap_size := MaxHeapSize}) when MaxHeapSize > 0 ->
     MaxSize =
         case erlang:system_info(wordsize) of

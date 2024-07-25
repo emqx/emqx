@@ -60,7 +60,8 @@
     {emqx_statsd, 1},
     {emqx_plugin_libs, 1},
     {emqx_persistent_session, 1},
-    {emqx_ds, 3}
+    {emqx_ds, 3},
+    {emqx_node_rebalance_purge, 1}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").

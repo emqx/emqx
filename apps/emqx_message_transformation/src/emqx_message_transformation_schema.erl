@@ -108,8 +108,7 @@ fields(transformation) ->
                 hoconsc:array(ref(operation)),
                 #{
                     desc => ?DESC("operation"),
-                    required => true,
-                    validator => fun validate_operations/1
+                    default => []
                 }
             )}
     ];
@@ -231,6 +230,8 @@ do_validate_unique_names([#{<<"name">> := Name} | _Rest], Acc) when is_map_key(N
 do_validate_unique_names([#{<<"name">> := Name} | Rest], Acc) ->
     do_validate_unique_names(Rest, Acc#{Name => true}).
 
+validate_unique_topics([]) ->
+    {error, <<"at least one topic filter must be defined">>};
 validate_unique_topics(Topics) ->
     Grouped = maps:groups_from_list(
         fun(T) -> T end,
@@ -250,11 +251,6 @@ validate_unique_topics(Topics) ->
             ]),
             {error, Msg}
     end.
-
-validate_operations([]) ->
-    {error, <<"at least one operation must be defined">>};
-validate_operations([_ | _]) ->
-    ok.
 
 compile_variform(Expression, #{make_serializable := true}) ->
     case is_binary(Expression) of

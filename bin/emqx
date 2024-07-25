@@ -13,53 +13,6 @@ if [ "$DEBUG" -eq 2 ]; then
   export PS4='+(${BASH_SOURCE}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 fi
 
-# We need to find real directory with emqx files on all platforms
-# even when bin/emqx is symlinked on several levels
-# - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
-#   so we can't use it universally.
-# - `stat -f%R` on MacOS does exactly what `readlink -f` does on Linux, but we can't use it
-#   as a universal solution either because GNU stat has different syntax and this argument is invalid.
-#   Also, version of stat which supports this syntax is only available since MacOS 12
-if [ "$(uname -s)" == 'Darwin' ]; then
-    product_version="$(sw_vers -productVersion | cut -d '.' -f 1)"
-    if [ "$product_version" -ge 12 ]; then
-        # if homebrew coreutils package is installed, GNU version of stat can take precedence,
-        # so we use absolute path to ensure we are calling MacOS default
-        RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
-    else
-        # try our best to resolve link on MacOS <= 11
-        RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
-    fi
-else
-    RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
-fi
-
-# shellcheck disable=SC1090,SC1091
-. "$RUNNER_ROOT_DIR"/releases/emqx_vars
-
-# defined in emqx_vars
-export RUNNER_ROOT_DIR
-export EMQX_ETC_DIR
-export REL_VSN
-export SCHEMA_MOD
-export IS_ENTERPRISE
-
-RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
-CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
-REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
-
-WHOAMI=$(whoami 2>/dev/null || id -u)
-
-# hocon try to read environment variables starting with "EMQX_"
-export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
-
-export ERTS_DIR="$RUNNER_ROOT_DIR/erts-$ERTS_VSN"
-export BINDIR="$ERTS_DIR/bin"
-export EMU="beam"
-export PROGNAME="erl"
-export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
-DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
-
 logerr() {
     if [ "${TERM:-dumb}" = dumb ]; then
         echo -e "ERROR: $*" 1>&2
@@ -88,6 +41,64 @@ die() {
     errno=${2:-1}
     exit "$errno"
 }
+
+# We need to find real directory with emqx files on all platforms
+# even when bin/emqx is symlinked on several levels
+# - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
+#   so we can't use it universally.
+# - `stat -f%R` on MacOS does exactly what `readlink -f` does on Linux, but we can't use it
+#   as a universal solution either because GNU stat has different syntax and this argument is invalid.
+#   Also, version of stat which supports this syntax is only available since MacOS 12
+if [ "$(uname -s)" == 'Darwin' ]; then
+    product_version="$(sw_vers -productVersion | cut -d '.' -f 1)"
+    if [ "$product_version" -ge 12 ]; then
+        # if homebrew coreutils package is installed, GNU version of stat can take precedence,
+        # so we use absolute path to ensure we are calling MacOS default
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
+    else
+        # try our best to resolve link on MacOS <= 11
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+    fi
+else
+    RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
+fi
+
+BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
+
+if [ -f "$RUNNER_ROOT_DIR/relup/version" ]; then
+    TARGET_VSN=$(cat "$RUNNER_ROOT_DIR/relup/version")
+    export BASE_RUNNER_ROOT_DIR
+    logwarn "Loading emqx from hot upgrade dir: $RUNNER_ROOT_DIR/relup"
+    exec "$RUNNER_ROOT_DIR"/relup/"$TARGET_VSN"/bin/emqx "$@"
+else
+    logdebug "Loading emqx from $RUNNER_ROOT_DIR"
+fi
+
+# shellcheck disable=SC1090,SC1091
+. "$RUNNER_ROOT_DIR"/releases/emqx_vars
+
+# defined in emqx_vars
+export RUNNER_ROOT_DIR
+export EMQX_ETC_DIR
+export REL_VSN
+export SCHEMA_MOD
+export IS_ENTERPRISE
+
+RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
+CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
+REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
+
+WHOAMI=$(whoami 2>/dev/null || id -u)
+
+# hocon try to read environment variables starting with "EMQX_"
+export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
+
+export ERTS_DIR="$RUNNER_ROOT_DIR/erts-$ERTS_VSN"
+export BINDIR="$ERTS_DIR/bin"
+export EMU="beam"
+export PROGNAME="erl"
+export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
+DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
 
 assert_node_alive() {
     if ! relx_nodetool "ping" > /dev/null; then
@@ -330,7 +341,7 @@ COMPATIBILITY_CHECK='
     end,
     halt(0).
 '
-[ "$DEBUG" -eq 1 ] && set -x
+[[ "$DEBUG" -gt 0 ]] && set -x
 
 compatiblity_info() {
   # RELEASE_LIB is used by Elixir
@@ -558,7 +569,7 @@ else
     fi
 fi
 logdebug "EMQX_BOOT_CONFIGS: $EMQX_BOOT_CONFIGS"
-[ "$DEBUG" -eq 1 ] && set -x
+[[ "$DEBUG" -gt 0 ]] && set -x
 
 get_boot_config() {
     path_to_value="$1"
@@ -598,7 +609,7 @@ DATA_DIR="$(get_boot_config 'node.data_dir')"
 DATA_DIR="${DATA_DIR%/}"
 if [[ $DATA_DIR != /* ]]; then
     # relative path
-    DATA_DIR="${RUNNER_ROOT_DIR}/${DATA_DIR}"
+    DATA_DIR="${BASE_RUNNER_ROOT_DIR}/${DATA_DIR}"
 fi
 CONFIGS_DIR="$DATA_DIR/configs"
 mkdir -p "$CONFIGS_DIR"
@@ -1060,7 +1071,7 @@ nodetool_shutdown() {
     logger -t "${REL_NAME}[${PID}]" "STOP: OK"
 }
 
-cd "$RUNNER_ROOT_DIR"
+cd "$BASE_RUNNER_ROOT_DIR"
 
 case "${COMMAND}" in
     start)
@@ -1239,6 +1250,12 @@ case "${COMMAND}" in
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         if [ "$IS_ELIXIR" = no ] || [ "${EMQX_CONSOLE_FLAVOR:-}" = 'erl' ] ; then
+            if [[ "$DEBUG" == 2 ]]; then
+              INIT_DEBUG_ARG="-init_debug"
+            else
+              INIT_DEBUG_ARG=""
+            fi
+
             # pass down RELEASE_LIB so we can switch to IS_ELIXIR=no
             # to boot an Erlang node from the elixir release
             set -- "$BINDIR/erlexec" \
@@ -1249,8 +1266,15 @@ case "${COMMAND}" in
                 -mode "$CODE_LOADING_MODE" \
                 -config "$CONF_FILE" \
                 -args_file "$ARGS_FILE" \
+                $INIT_DEBUG_ARG \
                 $EPMD_ARGS
         else
+            if [[ "$DEBUG" == 2 ]]; then
+              INIT_DEBUG_ARG="--erl -init_debug"
+            else
+              INIT_DEBUG_ARG=""
+            fi
+
             set -- "$REL_DIR/iex" \
                 --boot "$BOOTFILE" \
                 --boot-var RELEASE_LIB "${ERTS_LIB_DIR}" \
@@ -1259,6 +1283,7 @@ case "${COMMAND}" in
                 --erl "$FOREGROUNDOPTIONS" \
                 --erl "-mode $CODE_LOADING_MODE" \
                 --erl "$EPMD_ARGS" \
+                $INIT_DEBUG_ARG \
                 --werl
         fi
 

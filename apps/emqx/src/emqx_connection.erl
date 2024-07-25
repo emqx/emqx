@@ -173,7 +173,9 @@
         system_code_change/4
     ]}
 ).
+-dialyzer({no_missing_calls, [handle_msg/2]}).
 
+-ifndef(BUILD_WITHOUT_QUIC).
 -spec start_link
     (esockd:transport(), esockd:socket(), emqx_channel:opts()) ->
         {ok, pid()};
@@ -183,6 +185,9 @@
         emqx_quic_connection:cb_state()
     ) ->
         {ok, pid()}.
+-else.
+-spec start_link(esockd:transport(), esockd:socket(), emqx_channel:opts()) -> {ok, pid()}.
+-endif.
 
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
