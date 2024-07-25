@@ -31,4 +31,6 @@
 -define(AUTHN_TYPE, {?AUTHN_MECHANISM, ?AUTHN_BACKEND}).
 -define(AUTHN_TYPE_SCRAM, {?AUTHN_MECHANISM_SCRAM, ?AUTHN_BACKEND}).
 
+-define(AUTHN_DATA_FIELDS, [is_superuser, client_attrs, expire_at, acl]).
+
 -endif.

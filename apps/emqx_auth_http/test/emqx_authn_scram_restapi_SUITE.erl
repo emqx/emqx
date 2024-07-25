@@ -21,6 +21,9 @@
 -define(ALGORITHM_STR, <<"sha512">>).
 -define(ITERATION_COUNT, 4096).
 
+-define(T_ACL_USERNAME, <<"username">>).
+-define(T_ACL_PASSWORD, <<"password">>).
+
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
@@ -120,59 +123,8 @@ t_authenticate(_Config) ->
 
     ok = emqx_config:put([mqtt, idle_timeout], 500),
 
-    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
-
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
-
-    ConnectPacket = ?CONNECT_PACKET(
-        #mqtt_packet_connect{
-            proto_ver = ?MQTT_PROTO_V5,
-            properties = #{
-                'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                'Authentication-Data' => ClientFirstMessage
-            }
-        }
-    ),
-
-    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
-
-    %% Intentional sleep to trigger idle timeout for the connection not yet authenticated
-    ok = ct:sleep(1000),
-
-    ?AUTH_PACKET(
-        ?RC_CONTINUE_AUTHENTICATION,
-        #{'Authentication-Data' := ServerFirstMessage}
-    ) = receive_packet(),
-
-    {continue, ClientFinalMessage, ClientCache} =
-        esasl_scram:check_server_first_message(
-            ServerFirstMessage,
-            #{
-                client_first_message => ClientFirstMessage,
-                password => Password,
-                algorithm => ?ALGORITHM
-            }
-        ),
-
-    AuthContinuePacket = ?AUTH_PACKET(
-        ?RC_CONTINUE_AUTHENTICATION,
-        #{
-            'Authentication-Method' => <<"SCRAM-SHA-512">>,
-            'Authentication-Data' => ClientFinalMessage
-        }
-    ),
-
-    ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
-
-    ?CONNACK_PACKET(
-        ?RC_SUCCESS,
-        _,
-        #{'Authentication-Data' := ServerFinalMessage}
-    ) = receive_packet(),
-
-    ok = esasl_scram:check_server_final_message(
-        ServerFinalMessage, ClientCache#{algorithm => ?ALGORITHM}
-    ).
+    {ok, Pid} = create_connection(Username, Password),
+    emqx_authn_mqtt_test_client:stop(Pid).
 
 t_authenticate_bad_props(_Config) ->
     Username = <<"u">>,
@@ -316,6 +268,47 @@ t_destroy(_Config) ->
         _
     ) = receive_packet().
 
+t_acl(_Config) ->
+    init_auth(),
+
+    ACL = emqx_authn_http_SUITE:acl_rules(),
+    set_user_handler(?T_ACL_USERNAME, ?T_ACL_PASSWORD, #{acl => ACL}),
+    {ok, Pid} = create_connection(?T_ACL_USERNAME, ?T_ACL_PASSWORD),
+
+    Cases = [
+        {allow, <<"http-authn-acl/#">>},
+        {deny, <<"http-authn-acl/1">>},
+        {deny, <<"t/#">>}
+    ],
+
+    try
+        lists:foreach(
+            fun(Case) ->
+                test_acl(Case, Pid)
+            end,
+            Cases
+        )
+    after
+        ok = emqx_authn_mqtt_test_client:stop(Pid)
+    end.
+
+t_auth_expire(_Config) ->
+    init_auth(),
+
+    ExpireSec = 3,
+    WaitTime = timer:seconds(ExpireSec + 1),
+    ACL = emqx_authn_http_SUITE:acl_rules(),
+
+    set_user_handler(?T_ACL_USERNAME, ?T_ACL_PASSWORD, #{
+        acl => ACL,
+        expire_at =>
+            erlang:system_time(second) + ExpireSec
+    }),
+    {ok, Pid} = create_connection(?T_ACL_USERNAME, ?T_ACL_PASSWORD),
+
+    timer:sleep(WaitTime),
+    ?assertEqual(false, erlang:is_process_alive(Pid)).
+
 t_is_superuser() ->
     State = init_auth(),
     ok = test_is_superuser(State, false),
@@ -326,7 +319,7 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
     Username = <<"u">>,
     Password = <<"p">>,
 
-    set_user_handler(Username, Password, ExpectedIsSuperuser),
+    set_user_handler(Username, Password, #{is_superuser => ExpectedIsSuperuser}),
 
     ClientFirstMessage = esasl_scram:client_first_message(Username),
 
@@ -384,19 +377,20 @@ raw_config() ->
     }.
 
 set_user_handler(Username, Password) ->
-    set_user_handler(Username, Password, false).
-set_user_handler(Username, Password, IsSuperuser) ->
+    set_user_handler(Username, Password, #{is_superuser => false}).
+set_user_handler(Username, Password, Extra0) ->
     %% HTTP Server
     Handler = fun(Req0, State) ->
         #{
             username := Username
         } = cowboy_req:match_qs([username], Req0),
 
-        UserInfo = make_user_info(Password, ?ALGORITHM, ?ITERATION_COUNT, IsSuperuser),
+        UserInfo = make_user_info(Password, ?ALGORITHM, ?ITERATION_COUNT),
+        Extra = maps:merge(#{is_superuser => false}, Extra0),
         Req = cowboy_req:reply(
             200,
             #{<<"content-type">> => <<"application/json">>},
-            emqx_utils_json:encode(UserInfo),
+            emqx_utils_json:encode(maps:merge(Extra, UserInfo)),
             Req0
         ),
         {ok, Req, State}
@@ -415,7 +409,7 @@ init_auth(Config) ->
     {ok, [#{state := State}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
     State.
 
-make_user_info(Password, Algorithm, IterationCount, IsSuperuser) ->
+make_user_info(Password, Algorithm, IterationCount) ->
     {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(
         Password,
         #{
@@ -426,8 +420,7 @@ make_user_info(Password, Algorithm, IterationCount, IsSuperuser) ->
     #{
         stored_key => binary:encode_hex(StoredKey),
         server_key => binary:encode_hex(ServerKey),
-        salt => binary:encode_hex(Salt),
-        is_superuser => IsSuperuser
+        salt => binary:encode_hex(Salt)
     }.
 
 receive_packet() ->
@@ -438,3 +431,79 @@ receive_packet() ->
     after 1000 ->
         ct:fail("Deliver timeout")
     end.
+
+create_connection(Username, Password) ->
+    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+
+    ClientFirstMessage = esasl_scram:client_first_message(Username),
+
+    ConnectPacket = ?CONNECT_PACKET(
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ClientFirstMessage
+            }
+        }
+    ),
+
+    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+
+    %% Intentional sleep to trigger idle timeout for the connection not yet authenticated
+    ok = ct:sleep(1000),
+
+    ?AUTH_PACKET(
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{'Authentication-Data' := ServerFirstMessage}
+    ) = receive_packet(),
+
+    {continue, ClientFinalMessage, ClientCache} =
+        esasl_scram:check_server_first_message(
+            ServerFirstMessage,
+            #{
+                client_first_message => ClientFirstMessage,
+                password => Password,
+                algorithm => ?ALGORITHM
+            }
+        ),
+
+    AuthContinuePacket = ?AUTH_PACKET(
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{
+            'Authentication-Method' => <<"SCRAM-SHA-512">>,
+            'Authentication-Data' => ClientFinalMessage
+        }
+    ),
+
+    ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
+
+    ?CONNACK_PACKET(
+        ?RC_SUCCESS,
+        _,
+        #{'Authentication-Data' := ServerFinalMessage}
+    ) = receive_packet(),
+
+    ok = esasl_scram:check_server_final_message(
+        ServerFinalMessage, ClientCache#{algorithm => ?ALGORITHM}
+    ),
+    {ok, Pid}.
+
+test_acl({allow, Topic}, C) ->
+    ?assertMatch(
+        [0],
+        send_subscribe(C, Topic)
+    );
+test_acl({deny, Topic}, C) ->
+    ?assertMatch(
+        [?RC_NOT_AUTHORIZED],
+        send_subscribe(C, Topic)
+    ).
+
+send_subscribe(Client, Topic) ->
+    TopicOpts = #{nl => 0, rap => 0, rh => 0, qos => 0},
+    Packet = ?SUBSCRIBE_PACKET(1, [{Topic, TopicOpts}]),
+    emqx_authn_mqtt_test_client:send(Client, Packet),
+    timer:sleep(200),
+
+    ?SUBACK_PACKET(1, ReasonCode) = receive_packet(),
+    ReasonCode.

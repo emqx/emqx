@@ -10,8 +10,11 @@
 
 -module(emqx_authn_scram_restapi).
 
--include_lib("emqx_auth/include/emqx_authn.hrl").
+-feature(maybe_expr, enable).
+
+-include("emqx_auth_http.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 
 -behaviour(emqx_authn_provider).
 
@@ -26,10 +29,6 @@
     <<"stored_key">>,
     <<"server_key">>,
     <<"salt">>
-]).
-
--define(OPTIONAL_USER_INFO_KEYS, [
-    <<"is_superuser">>
 ]).
 
 %%------------------------------------------------------------------------------
@@ -78,7 +77,9 @@ authenticate(
             reason => Reason
         })
     end,
-    emqx_utils_scram:authenticate(AuthMethod, AuthData, AuthCache, RetrieveFun, OnErrFun, State);
+    emqx_utils_scram:authenticate(
+        AuthMethod, AuthData, AuthCache, State, RetrieveFun, OnErrFun, ?AUTHN_DATA_FIELDS
+    );
 authenticate(_Credential, _State) ->
     ignore.
 
@@ -119,16 +120,11 @@ retrieve(
 
 handle_response(Headers, Body) ->
     ContentType = proplists:get_value(<<"content-type">>, Headers),
-    case safely_parse_body(ContentType, Body) of
-        {ok, NBody} ->
-            body_to_user_info(NBody);
-        {error, Reason} = Error ->
-            ?TRACE_AUTHN_PROVIDER(
-                error,
-                "parse_scram_restapi_response_failed",
-                #{content_type => ContentType, body => Body, reason => Reason}
-            ),
-            Error
+    maybe
+        {ok, NBody} ?= emqx_authn_http:safely_parse_body(ContentType, Body),
+        {ok, UserInfo} ?= body_to_user_info(NBody),
+        {ok, AuthData} ?= emqx_authn_http:extract_auth_data(scram_restapi, NBody),
+        {ok, maps:merge(AuthData, UserInfo)}
     end.
 
 body_to_user_info(Body) ->
@@ -137,24 +133,14 @@ body_to_user_info(Body) ->
         true ->
             case safely_convert_hex(Required0) of
                 {ok, Required} ->
-                    UserInfo0 = maps:merge(Required, maps:with(?OPTIONAL_USER_INFO_KEYS, Body)),
-                    UserInfo1 = emqx_utils_maps:safe_atom_key_map(UserInfo0),
-                    UserInfo = maps:merge(#{is_superuser => false}, UserInfo1),
-                    {ok, UserInfo};
+                    {ok, emqx_utils_maps:safe_atom_key_map(Required)};
                 Error ->
+                    ?TRACE_AUTHN_PROVIDER("decode_keys_failed", #{http_body => Body}),
                     Error
             end;
         _ ->
-            ?TRACE_AUTHN_PROVIDER("bad_response_body", #{http_body => Body}),
+            ?TRACE_AUTHN_PROVIDER("missing_requried_keys", #{http_body => Body}),
             {error, bad_response}
-    end.
-
-safely_parse_body(ContentType, Body) ->
-    try
-        parse_body(ContentType, Body)
-    catch
-        _Class:_Reason ->
-            {error, invalid_body}
     end.
 
 safely_convert_hex(Required) ->
@@ -170,16 +156,6 @@ safely_convert_hex(Required) ->
         _Class:Reason ->
             {error, Reason}
     end.
-
-parse_body(<<"application/json", _/binary>>, Body) ->
-    {ok, emqx_utils_json:decode(Body, [return_maps])};
-parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
-    Flags = ?REQUIRED_USER_INFO_KEYS ++ ?OPTIONAL_USER_INFO_KEYS,
-    RawMap = maps:from_list(cow_qs:parse_qs(Body)),
-    NBody = maps:with(Flags, RawMap),
-    {ok, NBody};
-parse_body(ContentType, _) ->
-    {error, {unsupported_content_type, ContentType}}.
 
 merge_scram_conf(Conf, State) ->
     maps:merge(maps:with([algorithm, iteration_count], Conf), State).
