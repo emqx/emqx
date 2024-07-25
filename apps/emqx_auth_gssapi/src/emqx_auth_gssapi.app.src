@@ -7,7 +7,6 @@
     {applications, [
         kernel,
         stdlib,
-        emqx,
         emqx_auth,
         sasl_auth
     ]},

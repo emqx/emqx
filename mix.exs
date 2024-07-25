@@ -380,6 +380,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_gateway_jt808,
       :emqx_bridge_syskeeper,
       :emqx_ds_shared_sub,
+      :emqx_auth_gssapi,
       :emqx_auth_ext,
       :emqx_cluster_link,
       :emqx_ds_builtin_raft
