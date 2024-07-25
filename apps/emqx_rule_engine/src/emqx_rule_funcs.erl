@@ -136,6 +136,8 @@
     ltrim/1,
     reverse/1,
     rtrim/1,
+    rtrim/2,
+    rm_prefix/2,
     strlen/1,
     substr/2,
     substr/3,
@@ -769,6 +771,10 @@ ltrim(S) -> emqx_variform_bif:ltrim(S).
 reverse(S) -> emqx_variform_bif:reverse(S).
 
 rtrim(S) -> emqx_variform_bif:rtrim(S).
+
+rtrim(S, Chars) -> emqx_variform_bif:rtrim(S, Chars).
+
+rm_prefix(S, Prefix) -> emqx_variform_bif:rm_prefix(S, Prefix).
 
 strlen(S) -> emqx_variform_bif:strlen(S).
 
