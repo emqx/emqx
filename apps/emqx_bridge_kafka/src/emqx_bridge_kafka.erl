@@ -307,10 +307,6 @@ fields(kafka_producer_action) ->
         {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()}
     ] ++ producer_opts(action);
-fields(pre_configured_topic) ->
-    [
-        {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})}
-    ];
 fields(kafka_consumer) ->
     connector_config_fields() ++ fields(consumer_opts);
 fields(ssl_client_opts) ->
@@ -396,14 +392,6 @@ fields(v1_producer_kafka_opts) ->
 fields(producer_kafka_opts) ->
     [
         {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},
-        {pre_configured_topics,
-            mk(
-                hoconsc:array(ref(pre_configured_topic)),
-                #{
-                    default => [],
-                    desc => ?DESC("producer_pre_configured_topics")
-                }
-            )},
         {message, mk(ref(kafka_message), #{required => false, desc => ?DESC(kafka_message)})},
         {max_batch_bytes,
             mk(emqx_schema:bytesize(), #{default => <<"896KB">>, desc => ?DESC(max_batch_bytes)})},

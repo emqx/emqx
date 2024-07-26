@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_producer).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_resource).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -132,37 +134,22 @@ create_producers_for_bridge_v2(
 ) ->
     #{
         message := MessageTemplate,
-        pre_configured_topics := PreConfiguredTopics0,
         topic := KafkaTopic0,
         sync_query_timeout := SyncQueryTimeout
     } = KafkaConfig,
-    TopicTemplate = {TopicType, KafkaTopic} = maybe_preproc_topic(KafkaTopic0),
-    PreConfiguredTopics = [T || #{topic := T} <- PreConfiguredTopics0],
-    KafkaTopics0 =
+    TopicTemplate = {TopicType, TopicOrTemplate} = maybe_preproc_topic(KafkaTopic0),
+    MKafkaTopic =
         case TopicType of
-            fixed ->
-                [KafkaTopic | PreConfiguredTopics];
-            dynamic ->
-                PreConfiguredTopics
+            fixed -> TopicOrTemplate;
+            dynamic -> dynamic
         end,
-    case KafkaTopics0 of
-        [] ->
-            throw(<<
-                "Either the Kafka topic must be fixed (not a template),"
-                " or at least one pre-defined topic must be set."
-            >>);
-        _ ->
-            ok
-    end,
-    KafkaTopics = lists:map(fun bin/1, KafkaTopics0),
     KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
     MaxPartitions = maps:get(partitions_limit, KafkaConfig, all_partitions),
     #{name := BridgeName} = emqx_bridge_v2:parse_id(ActionResId),
     IsDryRun = emqx_resource:is_dry_run(ActionResId),
-    [AKafkaTopic | _] = KafkaTopics,
-    ok = check_topic_and_leader_connections(ActionResId, ClientId, AKafkaTopic, MaxPartitions),
+    ok = check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions),
     WolffProducerConfig = producers_config(
         BridgeType, BridgeName, KafkaConfig, IsDryRun, ActionResId
     ),
@@ -179,7 +166,7 @@ create_producers_for_bridge_v2(
                 message_template => compile_message_template(MessageTemplate),
                 kafka_client_id => ClientId,
                 topic_template => TopicTemplate,
-                pre_configured_topics => KafkaTopics,
+                topic => MKafkaTopic,
                 producers => Producers,
                 resource_id => ActionResId,
                 connector_resource_id => ConnResId,
@@ -195,7 +182,7 @@ create_producers_for_bridge_v2(
                 msg => "failed_to_start_kafka_producer",
                 instance_id => ConnResId,
                 kafka_client_id => ClientId,
-                kafka_topic => KafkaTopic,
+                kafka_topic => MKafkaTopic,
                 reason => Reason2
             }),
             throw(
@@ -326,7 +313,6 @@ on_query(
         message_template := MessageTemplate,
         topic_template := TopicTemplate,
         producers := Producers,
-        pre_configured_topics := PreConfiguredTopics,
         sync_query_timeout := SyncTimeout,
         headers_tokens := KafkaHeadersTokens,
         ext_headers_tokens := KafkaExtHeadersTokens,
@@ -339,12 +325,6 @@ on_query(
     },
     try
         KafkaTopic = render_topic(TopicTemplate, Message),
-        case lists:member(KafkaTopic, PreConfiguredTopics) of
-            false ->
-                throw({unknown_topic, KafkaTopic});
-            true ->
-                ok
-        end,
         KafkaMessage = render_message(MessageTemplate, KafkaHeaders, Message),
         ?tp(
             emqx_bridge_kafka_impl_producer_sync_query,
@@ -358,7 +338,7 @@ on_query(
         throw:bad_topic ->
             ?tp("kafka_producer_failed_to_render_topic", #{}),
             {error, {unrecoverable_error, failed_to_render_topic}};
-        throw:{unknown_topic, Topic} ->
+        throw:#{cause := unknown_topic_or_partition, topic := Topic} ->
             ?tp("kafka_producer_resolved_to_unknown_topic", #{}),
             {error, {unrecoverable_error, {resolved_to_unknown_topic, Topic}}};
         throw:#{cause := invalid_partition_count, count := Count} ->
@@ -408,7 +388,6 @@ on_query_async(
         message_template := Template,
         topic_template := TopicTemplate,
         producers := Producers,
-        pre_configured_topics := PreConfiguredTopics,
         headers_tokens := KafkaHeadersTokens,
         ext_headers_tokens := KafkaExtHeadersTokens,
         headers_val_encode_mode := KafkaHeadersValEncodeMode
@@ -420,12 +399,6 @@ on_query_async(
     },
     try
         KafkaTopic = render_topic(TopicTemplate, Message),
-        case lists:member(KafkaTopic, PreConfiguredTopics) of
-            false ->
-                throw({unknown_topic, KafkaTopic});
-            true ->
-                ok
-        end,
         KafkaMessage = render_message(Template, KafkaHeaders, Message),
         ?tp(
             emqx_bridge_kafka_impl_producer_async_query,
@@ -439,7 +412,7 @@ on_query_async(
         throw:bad_topic ->
             ?tp("kafka_producer_failed_to_render_topic", #{}),
             {error, {unrecoverable_error, failed_to_render_topic}};
-        throw:{unknown_topic, Topic} ->
+        throw:#{cause := unknown_topic_or_partition, topic := Topic} ->
             ?tp("kafka_producer_resolved_to_unknown_topic", #{}),
             {error, {unrecoverable_error, {resolved_to_unknown_topic, Topic}}};
         throw:#{cause := invalid_partition_count, count := Count} ->
@@ -618,12 +591,11 @@ on_get_channel_status(
     %% connector, thus potentially dropping data held in wolff producer's replayq.  The
     %% only exception is if the topic does not exist ("unhealthy target").
     #{
-        pre_configured_topics := PreConfiguredTopics,
+        topic := MKafkaTopic,
         partitions_limit := MaxPartitions
     } = maps:get(ActionResId, Channels),
-    [KafkaTopic | _] = PreConfiguredTopics,
     try
-        ok = check_topic_and_leader_connections(ActionResId, ClientId, KafkaTopic, MaxPartitions),
+        ok = check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions),
         ?status_connected
     catch
         throw:{unhealthy_target, Msg} ->
@@ -632,22 +604,29 @@ on_get_channel_status(
             {?status_connecting, {K, E}}
     end.
 
-check_topic_and_leader_connections(ActionResId, ClientId, KafkaTopic, MaxPartitions) ->
+check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
-            ok = check_topic_status(ClientId, Pid, KafkaTopic),
-            ok = check_if_healthy_leaders(ActionResId, ClientId, Pid, KafkaTopic, MaxPartitions);
+            maybe
+                true ?= is_binary(MKafkaTopic),
+                ok = check_topic_status(ClientId, Pid, MKafkaTopic),
+                ok = check_if_healthy_leaders(
+                    ActionResId, ClientId, Pid, MKafkaTopic, MaxPartitions
+                )
+            else
+                false -> ok
+            end;
         {error, #{reason := no_such_client}} ->
             throw(#{
                 reason => cannot_find_kafka_client,
                 kafka_client => ClientId,
-                kafka_topic => KafkaTopic
+                kafka_topic => MKafkaTopic
             });
         {error, #{reason := client_supervisor_not_initialized}} ->
             throw(#{
                 reason => restarting,
                 kafka_client => ClientId,
-                kafka_topic => KafkaTopic
+                kafka_topic => MKafkaTopic
             })
     end.
 

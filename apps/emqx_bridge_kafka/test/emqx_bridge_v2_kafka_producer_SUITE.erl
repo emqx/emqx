@@ -915,17 +915,17 @@ t_multiple_actions_sharing_topic(Config) ->
     ),
     ok.
 
-%% Smoke tests for using a templated topic and a list of pre-configured kafka topics.
-t_pre_configured_topics(Config) ->
+%% Smoke tests for using a templated topic and adynamic kafka topics.
+t_dynamic_topics(Config) ->
     Type = proplists:get_value(type, Config, ?TYPE),
     ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
     ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
-    ActionName = <<"pre_configured_topics">>,
+    ActionName = <<"dynamic_topics">>,
     ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
-    PreConfigureTopic1 = <<"pct1">>,
-    PreConfigureTopic2 = <<"pct2">>,
-    ensure_kafka_topic(PreConfigureTopic1),
-    ensure_kafka_topic(PreConfigureTopic2),
+    PreConfiguredTopic1 = <<"pct1">>,
+    PreConfiguredTopic2 = <<"pct2">>,
+    ensure_kafka_topic(PreConfiguredTopic1),
+    ensure_kafka_topic(PreConfiguredTopic2),
     ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
         action,
         Type,
@@ -938,11 +938,7 @@ t_pre_configured_topics(Config) ->
                     <<"message">> => #{
                         <<"key">> => <<"${.clientid}">>,
                         <<"value">> => <<"${.payload.p}">>
-                    },
-                    <<"pre_configured_topics">> => [
-                        #{<<"topic">> => PreConfigureTopic1},
-                        #{<<"topic">> => PreConfigureTopic2}
-                    ]
+                    }
                 }
             }
         )
@@ -1001,13 +997,13 @@ t_pre_configured_topics(Config) ->
             {ok, C} = emqtt:start_link(#{}),
             {ok, _} = emqtt:connect(C),
             Payload = fun(Map) -> emqx_utils_json:encode(Map) end,
-            Offset1 = resolve_kafka_offset(PreConfigureTopic1),
-            Offset2 = resolve_kafka_offset(PreConfigureTopic2),
+            Offset1 = resolve_kafka_offset(PreConfiguredTopic1),
+            Offset2 = resolve_kafka_offset(PreConfiguredTopic2),
             {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 1, p => <<"p1">>}), [{qos, 1}]),
             {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 2, p => <<"p2">>}), [{qos, 1}]),
 
-            check_kafka_message_payload(PreConfigureTopic1, Offset1, <<"p1">>),
-            check_kafka_message_payload(PreConfigureTopic2, Offset2, <<"p2">>),
+            check_kafka_message_payload(PreConfiguredTopic1, Offset1, <<"p1">>),
+            check_kafka_message_payload(PreConfiguredTopic2, Offset2, <<"p2">>),
 
             ActionId = emqx_bridge_v2:id(Type, ActionName),
             ?assertEqual(2, emqx_resource_metrics:matched_get(ActionId)),
@@ -1039,67 +1035,6 @@ t_pre_configured_topics(Config) ->
                     emqtt:publish(C, RuleTopic, Payload(#{n => 99}), [{qos, 1}]),
                     #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
                 )
-            ),
-
-            ok
-        end,
-        []
-    ),
-    ok.
-
-%% Checks that creating an action with templated topic and no pre-configured kafka topics
-%% throws.
-t_templated_topic_and_no_pre_configured_topics(Config) ->
-    Type = proplists:get_value(type, Config, ?TYPE),
-    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
-    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
-    ActionName = <<"bad_pre_configured_topics">>,
-    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
-    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
-        action,
-        Type,
-        ActionName,
-        emqx_utils_maps:deep_merge(
-            ActionConfig1,
-            #{
-                <<"parameters">> => #{
-                    <<"topic">> => <<"pct${.payload.n}">>,
-                    <<"pre_configured_topics">> => []
-                }
-            }
-        )
-    ),
-    ?check_trace(
-        #{timetrap => 7_000},
-        begin
-            ConnectorParams = [
-                {connector_config, ConnectorConfig},
-                {connector_name, ConnectorName},
-                {connector_type, Type}
-            ],
-            ActionParams = [
-                {action_config, ActionConfig},
-                {action_name, ActionName},
-                {action_type, Type}
-            ],
-            {ok, {{_, 201, _}, _, #{}}} =
-                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
-
-            {ok, {{_, 201, _}, _, #{}}} =
-                emqx_bridge_v2_testlib:create_action_api(ActionParams),
-
-            ?assertMatch(
-                {ok,
-                    {{_, 200, _}, _, #{
-                        <<"status_reason">> :=
-                            <<
-                                "Either the Kafka topic must be fixed (not a template),"
-                                " or at least one pre-defined topic must be set."
-                            >>,
-                        <<"status">> := <<"disconnected">>,
-                        <<"node_status">> := [#{<<"status">> := <<"disconnected">>}]
-                    }}},
-                emqx_bridge_v2_testlib:get_bridge_api(Type, ActionName)
             ),
 
             ok
