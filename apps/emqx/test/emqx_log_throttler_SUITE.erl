@@ -127,7 +127,7 @@ t_throttle(_Config) ->
 
 t_throttle_recoverable_msg(_Config) ->
     ResourceId = <<"resource_id">>,
-    ThrottledMsg = emqx_utils:format("~ts:~s", [?THROTTLE_UNRECOVERABLE_MSG, ResourceId]),
+    ThrottledMsg = iolist_to_binary([atom_to_list(?THROTTLE_UNRECOVERABLE_MSG), ":", ResourceId]),
     ?check_trace(
         begin
             %% Warm-up and block to increase the probability that next events
@@ -181,10 +181,15 @@ t_throttle_add_new_msg(_Config) ->
 
 t_throttle_no_msg(_Config) ->
     %% Must simply pass with no crashes
+    Pid = erlang:whereis(emqx_log_throttler),
     ?assert(emqx_log_throttler:allow(no_test_throttle_msg, undefined)),
     ?assert(emqx_log_throttler:allow(no_test_throttle_msg, undefined)),
-    timer:sleep(10),
-    ?assert(erlang:is_process_alive(erlang:whereis(emqx_log_throttler))).
+    %% assert process is not restarted
+    ?assertEqual(Pid, erlang:whereis(emqx_log_throttler)),
+    %% make a gen_call to ensure the process is alive
+    %% note: this call result in an 'unexpected_call' error log.
+    ?assertEqual(ignored, gen_server:call(Pid, probe)),
+    ok.
 
 t_update_time_window(_Config) ->
     ?check_trace(
