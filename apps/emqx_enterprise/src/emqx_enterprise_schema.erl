@@ -5,7 +5,6 @@
 -module(emqx_enterprise_schema).
 
 -behaviour(hocon_schema).
--behaviour(emqx_schema_hooks).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
