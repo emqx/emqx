@@ -451,6 +451,7 @@ zone_global_defaults() ->
                 session_expiry_interval => 7200000,
                 shared_subscription => true,
                 shared_subscription_strategy => round_robin,
+                shared_subscription_initial_sticky_pick => random,
                 strict_mode => false,
                 upgrade_qos => false,
                 use_username_as_clientid => false,

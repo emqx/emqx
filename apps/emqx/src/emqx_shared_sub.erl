@@ -54,7 +54,8 @@
 -ifdef(TEST).
 -export([
     subscribers/2,
-    strategy/1
+    strategy/1,
+    initial_sticky_pick/1
 ]).
 -endif.
 
@@ -80,6 +81,14 @@
     | round_robin
     | round_robin_per_group
     | sticky
+    | local
+    | hash_clientid
+    | hash_topic.
+
+-export_type([initial_sticky_pick/0]).
+
+-type initial_sticky_pick() ::
+    random
     | local
     | hash_clientid
     | hash_topic.
@@ -165,6 +174,20 @@ strategy(Group) ->
     catch
         error:badarg ->
             get_default_shared_subscription_strategy()
+    end.
+
+-spec initial_sticky_pick(emqx_types:group()) -> initial_sticky_pick().
+initial_sticky_pick(Group) ->
+    try binary_to_existing_atom(Group) of
+        GroupAtom ->
+            Key = [broker, shared_subscription_group, GroupAtom, initial_sticky_pick],
+            case emqx:get_config(Key, ?CONFIG_NOT_FOUND_MAGIC) of
+                ?CONFIG_NOT_FOUND_MAGIC -> get_default_shared_subscription_initial_sticky_pick();
+                InitialStickyPick -> InitialStickyPick
+            end
+    catch
+        error:badarg ->
+            get_default_shared_subscription_initial_sticky_pick()
     end.
 
 -spec ack_enabled() -> boolean().
@@ -318,9 +341,10 @@ pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
             %% keep using it for sticky strategy
             {fresh, Sub0};
         false ->
-            %% randomly pick one for the first message
+            %% pick the initial subscriber by the configured strategy
+            InitialStrategy = initial_sticky_pick(Group),
             FailedSubs1 = FailedSubs#{Sub0 => ?SUBSCRIBER_DOWN},
-            Res = do_pick(All, random, ClientId, SourceTopic, Group, Topic, FailedSubs1),
+            Res = do_pick(All, InitialStrategy, ClientId, SourceTopic, Group, Topic, FailedSubs1),
             case Res of
                 {_, Sub} ->
                     %% stick to whatever pick result
@@ -556,3 +580,6 @@ delete_route_if_needed({Group, Topic} = GroupTopic) ->
 
 get_default_shared_subscription_strategy() ->
     emqx:get_config([mqtt, shared_subscription_strategy]).
+
+get_default_shared_subscription_initial_sticky_pick() ->
+    emqx:get_config([mqtt, shared_subscription_initial_sticky_pick]).
