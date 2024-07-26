@@ -126,6 +126,12 @@
     hash :: binary()
 }).
 
+-record(poll_thing, {
+    static_index :: emqx_ds_lts:static_key(),
+    varying :: binary()
+}).
+
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -241,8 +247,8 @@ commit_batch(
 
 batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
     EventMap = lists:foldl(
-        fun(?cooked_payload(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
-            maps:put(#stream{static_index = Static}, 1, Acc)
+        fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob), Acc) ->
+            maps:put(#poll_thing{static_index = Static, varying = Varying}, 1, Acc)
         end,
         #{},
         Payloads
@@ -266,38 +272,29 @@ make_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, TopicF
         compressed_tf = emqx_topic:join(CompressedTF)
     }}.
 
-message_matcher(_Shard, #s{trie = Trie}, #it{
-    compressed_tf = CompressedTF, static_index = StaticIdx, ts = LastSeenTS
-}) ->
-    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-    TF = emqx_ds_lts:decompress_topic(TopicStructure, words(CompressedTF)),
-    fun(MsgKey, #message{topic = Topic}) ->
+message_matcher(_Shard, #s{}, #it{static_index = StaticIdx, ts = LastSeenTS}) ->
+    fun(MsgKey, #message{}) ->
         case match_ds_key(StaticIdx, MsgKey) of
             false ->
                 false;
             TS ->
-                TS > LastSeenTS andalso emqx_topic:match(words(Topic), TF)
+                %% Topic must be the same, since our 'poll_thing'
+                %% includes exact topic.
+                TS > LastSeenTS
         end
     end.
 
-make_wildcard_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, StartKey) ->
-    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-    CompressedTF = lists:filter(fun(Level) -> Level =:= '+' end, TopicStructure),
-    StartTime = match_ds_key(StaticIdx, StartKey),
-    {ok, #it{
-        static_index = StaticIdx,
-        ts = StartTime,
-        compressed_tf = emqx_topic:join(CompressedTF)
-    }}.
-
-unpack_iterator(_Shard, #s{}, #it{static_index = StaticIdx, ts = TS}) ->
-    Stream = #stream{static_index = StaticIdx},
+unpack_iterator(_Shard, #s{}, #it{static_index = StaticIdx, compressed_tf = TF, ts = TS}) ->
     StartKey = mk_key(StaticIdx, 0, <<>>, TS),
+    Stream = #poll_thing{
+                static_index = StaticIdx, varying = TF
+               },
     {Stream, StartKey, TS}.
 
-scan_stream(Shard, S, #stream{} = Stream, Key, BatchSize, TMax, IsCurrent) ->
-    {ok, It0} = make_wildcard_iterator(Shard, S, Stream, Key),
-    case next(Shard, S, It0, BatchSize, TMax, IsCurrent) of
+scan_stream(Shard, S, #poll_thing{static_index = StaticIdx, varying = TF}, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+    LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
+    It = #it{static_index = StaticIdx, compressed_tf = TF, ts = LastSeenTS},
+    case next(Shard, S, It, BatchSize, TMax, IsCurrent) of
         {ok, #it{ts = TS, static_index = StaticIdx}, Batch} ->
             {ok, mk_key(StaticIdx, 0, <<>>, TS), Batch};
         Other ->

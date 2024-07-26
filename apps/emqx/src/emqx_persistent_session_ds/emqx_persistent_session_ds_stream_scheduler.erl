@@ -44,8 +44,8 @@
 %% - *(R)eady*: stream iterator can be polled. Ready SRS are stored in
 %% `#s.ready' bucket.
 %%
-%% - *(P)ending*: poll request for the iterator has been sent, and
-%% we're awaiting the response from DS. Such iterators are stored in
+%% - *(P)ending*: poll request for the iterator has been sent to DS,
+%% and we're awaiting the response. Such iterators are stored in
 %% `#s.pending' bucket.
 %%
 %% - *(S)erved*: poll reply has been received, and ownership over SRS
