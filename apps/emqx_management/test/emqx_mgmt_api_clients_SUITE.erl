@@ -107,8 +107,8 @@ init_per_group(persistent_sessions, Config) ->
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
     Cluster = [
-        {emqx_mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
-        {emqx_mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
+        {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+        {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
     ],
     Nodes =
         [N1 | _] = emqx_cth_cluster:start(
@@ -128,8 +128,8 @@ init_per_group(non_persistent_cluster, Config) ->
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
     Cluster = [
-        {mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
-        {mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
+        {mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+        {mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
     ],
     Nodes =
         [N1 | _] = emqx_cth_cluster:start(
