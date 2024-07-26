@@ -62,18 +62,25 @@
 %% - *(U)nsubscribed*: streams for unsubcribed topics can linger in
 %% the session state for a while until all queued messages are acked.
 %% This state is implicit: unsubscribed streams are simply removed
-%% from all buckets.
+%% from all buckets. Unsubscribed streams are ignored by the scheduler
+%% until the moment they can be garbage-collected. So this is a
+%% terminal state. Even if the client resubscribes, it will produce a
+%% new, totally separate set of SRS.
 %%
 %% *** State transitions
 %%
-%% New streams start in the *Ready* state, from which they always
-%% follow one of these paths:
+%% New streams start in the *Ready* state, from which they follow one
+%% of these paths:
 %%
-%% *R* --(`?MODULE:poll')--> *P* --(Poll reply)--> *S*.
-%%
-%% *R* --(`?MODULE:poll')--> *P* --(Poll timeout)--> *R*.
-%%
+%%      .--(`?MODULE:poll')--> *P* --(Poll reply)--> *S* --> ...
+%%     /
 %% *R* --(`?MODULE:on_unsubscribe')--> *U*
+%%  ^  \
+%%  |   `--(`?MODULE:poll')--->---.
+%%  |                              \
+%%  \        Idle longpoll loop    *P*
+%%   \                             ,
+%%    `---<--(Poll timeout)---<---'
 %%
 %% *Served* streams are returned to the parent session, which assigns
 %% QoS and sequence numbers to the batch messages according to its own
@@ -83,30 +90,30 @@
 %%
 %%        .--(`on_unsubscribe')--> *U*
 %%       /
-%%      /--(only QoS0 messages in the batch)--> *R*
+%%      /--(only QoS0 messages in the batch)--> *R* --> ...
 %%     /
-%% *S* --([QoS0] & QoS1 messages)--> *BQ1*
+%% *S* --([QoS0] & QoS1 messages)--> *BQ1* --> ...
 %%    \
-%%     \--([QoS0] & QoS2 messages)--> *BQ2*
+%%     \--([QoS0] & QoS2 messages)--> *BQ2* --> ...
 %%      \
-%%       '--([QoS0] & QoS1 & QoS2)--> *BQ12*
+%%       `--([QoS0] & QoS1 & QoS2)--> *BQ12* --> ...
 %%
 %% *BQ1* and *BQ2* are handled similarly. They transition to *Ready*
 %% once session calls `?MODULE:on_seqno_release' for the corresponding
 %% QoS track and sequence number equal to the SRS's last sequence
 %% number for the track:
 %%
-%% *BQX* --(`?MODULE:on_seqno_release(?QOS_X, LastSeqNoX)')--> *R*.
+%% *BQX* --(`?MODULE:on_seqno_release(?QOS_X, LastSeqNoX)')--> *R* --> ...
 %%      \
-%%       '--(`on_unsubscribe')--> *U*
+%%       `--(`on_unsubscribe')--> *U*
 %%
 %% *BQ12* is handled like this:
 %%
-%%        .--(`on_seqno_release(?QOS_1, LastSeqNo1)')--> *BQ2*
+%%        .--(`on_seqno_release(?QOS_1, LastSeqNo1)')--> *BQ2* --> ...
 %%       /
 %% *BQ12*--(`on_unsubscribe')--> *U*
 %%       \
-%%        '---(`on_seqno_release(?QOS_2, LastSeqNo2)')--> *BQ1*
+%%        `--(`on_seqno_release(?QOS_2, LastSeqNo2)')--> *BQ1* --> ...
 %%
 -module(emqx_persistent_session_ds_stream_scheduler).
 
@@ -239,8 +246,8 @@ poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
             It = {StreamKey, SRS#srs.it_end},
             Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
             {
-              [It | AccIt],
-              to_P(StreamKey, Pending, SchedS1)
+                [It | AccIt],
+                to_P(StreamKey, Pending, SchedS1)
             }
         end,
         {[], SchedS0},
@@ -444,9 +451,7 @@ on_unsubscribe(SubId, S0, SchedS0) ->
                         to_U(Key, Srs, SchedS1)
                     };
                 _ ->
-                    { S1,
-                      SchedS1
-                    }
+                    {S1, SchedS1}
             end
         end,
         {S0, SchedS0},
