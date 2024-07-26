@@ -115,11 +115,13 @@ test(#{sql := Sql, context := Context}) ->
                 true ->
                     %% test if the topic matches the topic filters in the rule
                     case emqx_topic:match_any(InTopic, EventTopics) of
-                        true -> test_rule(Sql, Select, Context, EventTopics);
-                        false -> {error, nomatch}
+                        true ->
+                            test_rule(Sql, Select, Context, EventTopics);
+                        false ->
+                            {error, nomatch}
                     end;
                 false ->
-                    case lists:member(InTopic, EventTopics) of
+                    case emqx_topic:match_any(InTopic, EventTopics) of
                         true ->
                             %% the rule is for both publish and events, test it directly
                             test_rule(Sql, Select, Context, EventTopics);
