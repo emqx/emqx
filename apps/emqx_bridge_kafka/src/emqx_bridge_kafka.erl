@@ -391,7 +391,7 @@ fields(v1_producer_kafka_opts) ->
     );
 fields(producer_kafka_opts) ->
     [
-        {topic, mk(string(), #{required => true, desc => ?DESC(kafka_topic)})},
+        {topic, mk(emqx_schema:template(), #{required => true, desc => ?DESC(kafka_topic)})},
         {message, mk(ref(kafka_message), #{required => false, desc => ?DESC(kafka_message)})},
         {max_batch_bytes,
             mk(emqx_schema:bytesize(), #{default => <<"896KB">>, desc => ?DESC(max_batch_bytes)})},
