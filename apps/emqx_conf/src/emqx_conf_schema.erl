@@ -194,18 +194,6 @@ fields("cluster") ->
                     'readOnly' => true
                 }
             )},
-        {"core_nodes",
-            sc(
-                node_array(),
-                #{
-                    %% This config is nerver needed (since 5.0.0)
-                    importance => ?IMPORTANCE_HIDDEN,
-                    mapping => "mria.core_nodes",
-                    default => [],
-                    'readOnly' => true,
-                    desc => ?DESC(db_core_nodes)
-                }
-            )},
         {"autoclean",
             sc(
                 emqx_schema:duration(),
@@ -600,7 +588,7 @@ fields("node") ->
             )},
         {"role",
             sc(
-                hoconsc:enum([core, replicant]),
+                hoconsc:enum([core] ++ emqx_schema_hooks:injection_point('node.role')),
                 #{
                     mapping => "mria.node_role",
                     default => core,
