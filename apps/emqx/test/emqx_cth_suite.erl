@@ -79,6 +79,8 @@
 %% "Unofficial" `emqx_config_handler' and `emqx_conf' APIs
 -export([schema_module/0, upgrade_raw_conf/1]).
 
+-export([skip_if_oss/0]).
+
 -export_type([appspec/0]).
 -export_type([appspec_opts/0]).
 
