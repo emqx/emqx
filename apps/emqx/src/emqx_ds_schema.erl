@@ -99,7 +99,7 @@ schema() ->
                 importance => ?IMPORTANCE_MEDIUM,
                 desc => ?DESC(messages)
             })}
-    ].
+    ] ++ emqx_schema_hooks:injection_point('durable_storage', []).
 
 storage_schema(ExtraOptions) ->
     Options = #{
