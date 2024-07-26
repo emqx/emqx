@@ -18,7 +18,8 @@
 -module(emqx_ds_schema).
 
 %% API:
--export([schema/0, translate_builtin_raft/1, translate_builtin_local/1]).
+-export([schema/0, storage_schema/1, translate_builtin_raft/1, translate_builtin_local/1]).
+-export([db_config/1]).
 
 %% Behavior callbacks:
 -export([fields/1, desc/1, namespace/0]).
@@ -47,6 +48,11 @@
 %%================================================================================
 %% API
 %%================================================================================
+
+-spec db_config(emqx_config:runtime_config_key_path()) -> emqx_ds:create_db_opts().
+db_config(Path) ->
+    ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
+    apply(Module, Function, [ConfigTree]).
 
 translate_builtin_raft(
     Backend = #{
@@ -89,15 +95,22 @@ namespace() ->
 schema() ->
     [
         {messages,
-            ds_schema(#{
-                default =>
-                    #{
-                        <<"backend">> => ?DEFAULT_BACKEND
-                    },
+            storage_schema(#{
                 importance => ?IMPORTANCE_MEDIUM,
                 desc => ?DESC(messages)
             })}
     ].
+
+storage_schema(ExtraOptions) ->
+    Options = #{
+        default => #{<<"backend">> => ?DEFAULT_BACKEND}
+    },
+    sc(
+        hoconsc:union(
+            ?BUILTIN_BACKENDS ++ emqx_schema_hooks:injection_point('durable_storage.backends', [])
+        ),
+        maps:merge(Options, ExtraOptions)
+    ).
 
 fields(builtin_local) ->
     %% Schema for the builtin_raft backend:
@@ -145,26 +158,25 @@ fields(builtin_raft) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        %% TODO: Deprecate once cluster management and rebalancing is implemented.
-        {"n_sites",
-            sc(
-                pos_integer(),
-                #{
-                    default => 1,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_n_sites)
-                }
-            )},
         {replication_factor,
             sc(
                 pos_integer(),
                 #{
                     default => 3,
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {n_sites,
+            sc(
+                pos_integer(),
+                #{
+                    default => 1,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(builtin_n_sites)
                 }
             )},
         %% TODO: Elaborate.
-        {"replication_options",
+        {replication_options,
             sc(
                 hoconsc:map(name, any()),
                 #{
@@ -374,14 +386,6 @@ translate_layout(
     }};
 translate_layout(#{type := reference}) ->
     {emqx_ds_storage_reference, #{}}.
-
-ds_schema(Options) ->
-    sc(
-        hoconsc:union(
-            ?BUILTIN_BACKENDS ++ emqx_schema_hooks:injection_point('durable_storage.backends', [])
-        ),
-        Options
-    ).
 
 builtin_layouts() ->
     %% Reference layout stores everything in one stream, so it's not
