@@ -180,7 +180,7 @@ handle_connecting(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GS
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM), ShareTopicFilter),
+    ok = emqx_ds_shared_sub_registry:leader_wanted(Agent, agent_metadata(GSM), ShareTopicFilter),
     ensure_state_timeout(GSM, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)).
 
 handle_leader_lease_streams(
@@ -211,7 +211,7 @@ handle_find_leader_timeout(#{agent := Agent, share_topic_filter := ShareTopicFil
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM0), ShareTopicFilter),
+    ok = emqx_ds_shared_sub_registry:leader_wanted(Agent, agent_metadata(GSM0), ShareTopicFilter),
     GSM1 = ensure_state_timeout(
         GSM0, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)
     ),
