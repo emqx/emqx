@@ -56,6 +56,8 @@ t_exclusive_sub(_) ->
     {ok, _} = emqtt:connect(C1),
     ?CHECK_SUB(C1, 0),
 
+    ?CHECK_SUB(C1, 0),
+
     {ok, C2} = emqtt:start_link([
         {clientid, <<"client2">>},
         {clean_start, false},

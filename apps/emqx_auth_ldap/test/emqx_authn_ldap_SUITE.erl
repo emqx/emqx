@@ -21,6 +21,7 @@
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
@@ -46,13 +47,6 @@ init_per_suite(Config) ->
             Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
                 work_dir => ?config(priv_dir, Config)
             }),
-            {ok, _} = emqx_resource:create_local(
-                ?LDAP_RESOURCE,
-                ?AUTHN_RESOURCE_GROUP,
-                emqx_ldap,
-                ldap_config(),
-                #{}
-            ),
             [{apps, Apps} | Config];
         false ->
             {skip, no_ldap}
@@ -63,7 +57,6 @@ end_per_suite(Config) ->
         [authentication],
         ?GLOBAL
     ),
-    ok = emqx_resource:remove_local(?LDAP_RESOURCE),
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 %%------------------------------------------------------------------------------
@@ -127,6 +120,87 @@ t_create_invalid(_Config) ->
         end,
         InvalidConfigs
     ).
+
+t_authenticate_timeout_cause_reconnect(_Config) ->
+    TestPid = self(),
+    meck:new(eldap, [non_strict, no_link, passthrough]),
+    try
+        %% cause eldap process to be killed
+        meck:expect(
+            eldap,
+            search,
+            fun
+                (Pid, [{base, <<"uid=mqttuser0007", _/binary>>} | _]) ->
+                    TestPid ! {eldap_pid, Pid},
+                    {error, {gen_tcp_error, timeout}};
+                (Pid, Args) ->
+                    meck:passthrough([Pid, Args])
+            end
+        ),
+
+        Credentials = fun(Username) ->
+            #{
+                username => Username,
+                password => Username,
+                listener => 'tcp:default',
+                protocol => mqtt
+            }
+        end,
+
+        SpecificConfigParams = #{},
+        Result = {ok, #{is_superuser => true}},
+
+        Timeout = 1000,
+        Config0 = raw_ldap_auth_config(),
+        Config = Config0#{
+            <<"pool_size">> => 1,
+            <<"request_timeout">> => Timeout
+        },
+        AuthConfig = maps:merge(Config, SpecificConfigParams),
+        {ok, _} = emqx:update_config(
+            ?PATH,
+            {create_authenticator, ?GLOBAL, AuthConfig}
+        ),
+
+        %% 0006 is a disabled user
+        ?assertEqual(
+            {error, user_disabled},
+            emqx_access_control:authenticate(Credentials(<<"mqttuser0006">>))
+        ),
+        ?assertEqual(
+            {error, not_authorized},
+            emqx_access_control:authenticate(Credentials(<<"mqttuser0007">>))
+        ),
+        ok = wait_for_ldap_pid(1000),
+        [#{id := ResourceID}] = emqx_resource_manager:list_all(),
+        ?retry(1_000, 10, {ok, connected} = emqx_resource_manager:health_check(ResourceID)),
+        %% turn back to normal
+        meck:expect(
+            eldap,
+            search,
+            2,
+            fun(Pid2, Query) ->
+                meck:passthrough([Pid2, Query])
+            end
+        ),
+        %% expect eldap process to be restarted
+        ?assertEqual(Result, emqx_access_control:authenticate(Credentials(<<"mqttuser0007">>))),
+        emqx_authn_test_lib:delete_authenticators(
+            [authentication],
+            ?GLOBAL
+        )
+    after
+        meck:unload(eldap)
+    end.
+
+wait_for_ldap_pid(After) ->
+    receive
+        {eldap_pid, Pid} ->
+            ?assertNot(is_process_alive(Pid)),
+            ok
+    after After ->
+        error(timeout)
+    end.
 
 t_authenticate(_Config) ->
     ok = lists:foreach(
@@ -300,6 +374,3 @@ user_seeds() ->
 
 ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
-
-ldap_config() ->
-    emqx_ldap_SUITE:ldap_config([]).

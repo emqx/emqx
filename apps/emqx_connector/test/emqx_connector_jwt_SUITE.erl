@@ -125,7 +125,7 @@ t_ensure_jwt(_Config) ->
             JWT0 = emqx_connector_jwt:ensure_jwt(JWTConfig),
             ?assertNot(is_expired(JWT0)),
             %% should refresh 5 s before expiration
-            ct:sleep(Expiration - 5500),
+            ct:sleep(Expiration - 3000),
             JWT1 = emqx_connector_jwt:ensure_jwt(JWTConfig),
             ?assertNot(is_expired(JWT1)),
             %% fully expired
