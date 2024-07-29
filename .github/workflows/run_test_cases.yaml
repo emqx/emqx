@@ -39,6 +39,7 @@ jobs:
 
     env:
       PROFILE: ${{ matrix.profile }}
+      STORE_STATE_IN_DS: 1
       ENABLE_COVER_COMPILE: 1
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}
 
@@ -85,6 +86,7 @@ jobs:
 
     env:
       PROFILE: ${{ matrix.profile }}
+      STORE_STATE_IN_DS: 1
 
     permissions:
       contents: read
@@ -159,6 +161,7 @@ jobs:
 
     env:
       PROFILE: ${{ matrix.profile }}
+      STORE_STATE_IN_DS: 1
       SUITEGROUP: ${{ matrix.suitegroup }}
       ENABLE_COVER_COMPILE: 1
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-sg${{ matrix.suitegroup }}
@@ -223,4 +226,3 @@ jobs:
           git-commit: ${{ github.sha }}
 
       - run: echo "All tests passed"
-          

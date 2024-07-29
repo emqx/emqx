@@ -22,6 +22,7 @@ on:
 
 env:
   IS_CI: "yes"
+  STORE_STATE_IN_DS: 1
 
 permissions:
   contents: read
@@ -76,6 +77,8 @@ jobs:
       with:
         fetch-depth: 0
     - name: run
+      env:
+        STORE_STATE_IN_DS: 1
       run: |
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
         make ensure-rebar3
