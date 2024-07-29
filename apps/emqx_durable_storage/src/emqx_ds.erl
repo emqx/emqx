@@ -112,6 +112,7 @@
 -type operation() ::
     %% Store a message.
     message()
+    | {time(), message()}
     %% Delete a message.
     %% Does nothing if the message does not exist.
     | deletion().

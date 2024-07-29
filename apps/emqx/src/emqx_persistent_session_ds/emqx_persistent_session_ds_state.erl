@@ -27,7 +27,13 @@
 %% for use in the management APIs.
 -module(emqx_persistent_session_ds_state).
 
+-ifdef(STORE_STATE_IN_DS).
+-export([open_db/1]).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 -export([create_tables/0]).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -export([open/1, create_new/1, delete/1, commit/1, format/1, print_session/1, list_sessions/0]).
 -export([get_created_at/1, set_created_at/2]).
@@ -85,10 +91,21 @@
 -include("session_internals.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("stdlib/include/qlc.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
+
+-ifdef(TEST).
+-ifdef(STORE_STATE_IN_DS).
+-export([to_domain_msg/4, from_domain_msg/1]).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
+%% END ifdef(TEST).
+-endif.
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-define(DB, ?DURABLE_SESSION_STATE).
 
 -type message() :: emqx_types:message().
 
@@ -96,9 +113,11 @@
 
 -opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
 
+-ifndef(STORE_STATE_IN_DS).
 %% Generic key-value wrapper that is used for exporting arbitrary
 %% terms to mnesia:
 -record(kv, {k, v}).
+-endif.
 
 %% Persistent map.
 %%
@@ -170,6 +189,83 @@
     ?awaiting_rel := pmap(emqx_types:packet_id(), _Timestamp :: integer())
 }.
 
+-ifdef(STORE_STATE_IN_DS).
+-define(session_topic_ns, <<"session">>).
+-define(metadata_domain, metadata).
+-define(metadata_domain_bin, <<"metadata">>).
+-define(subscription_domain, subscription).
+-define(subscription_domain_bin, <<"subscription">>).
+-define(subscription_state_domain, subscription_state).
+-define(subscription_state_domain_bin, <<"subscription_state">>).
+-define(stream_domain, stream).
+-define(rank_domain, rank).
+-define(seqno_domain, seqno).
+-define(awaiting_rel_domain, awaiting_rel).
+-type domain() ::
+    ?metadata_domain
+    | ?subscription_domain
+    | ?subscription_state_domain
+    | ?stream_domain
+    | ?rank_domain
+    | ?seqno_domain
+    | ?awaiting_rel_domain.
+
+-type sub_id() :: nil().
+-type srs() :: #srs{}.
+-type data() ::
+    #{
+        domain := ?metadata_domain,
+        session_id := emqx_persistent_session_ds:id(),
+        key := any(),
+        val := map()
+    }
+    | #{
+        domain := ?subscription_domain,
+        session_id := emqx_persistent_session_ds:id(),
+        key := {emqx_types:topic(), sub_id()},
+        val := emqx_persistent_session_ds:subscription()
+    }
+    | #{
+        domain := ?subscription_state_domain,
+        session_id := emqx_persistent_session_ds:id(),
+        key := emqx_persistent_session_ds_subs:subscription_state_id(),
+        val := emqx_persistent_session_ds_subs:subscription_state()
+    }
+    | #{
+        domain := ?stream_domain,
+        session_id := emqx_persistent_session_ds:id(),
+        key := {non_neg_integer(), emqx_ds:stream()},
+        val := srs()
+    }
+    | #{
+        domain := ?rank_domain,
+        session_id := emqx_persistent_session_ds:id(),
+        key := rank_key(),
+        val := non_neg_integer()
+    }
+    | #{
+        domain := ?seqno_domain,
+        session_id := emqx_persistent_session_ds:id(),
+        key := seqno_type(),
+        val := non_neg_integer()
+    }
+    | #{
+        domain := ?awaiting_rel_domain,
+        session_id := emqx_persistent_session_ds:id(),
+        key := emqx_types:packet_id(),
+        val := _Timestamp :: integer()
+    }.
+
+-define(pmaps, [
+    {?subscriptions, ?subscription_domain},
+    {?subscription_states, ?subscription_state_domain},
+    {?streams, ?stream_domain},
+    {?seqnos, ?seqno_domain},
+    {?ranks, ?rank_domain},
+    {?awaiting_rel, ?awaiting_rel_domain}
+]).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 -define(session_tab, emqx_ds_session_tab).
 -define(subscription_tab, emqx_ds_session_subscriptions).
 -define(subscription_states_tab, emqx_ds_session_subscription_states).
@@ -186,6 +282,8 @@
     {?ranks, ?rank_tab},
     {?awaiting_rel, ?awaiting_rel_tab}
 ]).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %% Enable this flag if you suspect some code breaks the sequence:
 -ifndef(CHECK_SEQNO).
@@ -200,6 +298,12 @@
 %% API functions
 %%================================================================================
 
+-ifdef(STORE_STATE_IN_DS).
+-spec open_db(emqx_ds:create_db_opts()) -> ok.
+open_db(Config) ->
+    emqx_ds:open_db(?DB, Config).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 -spec create_tables() -> ok.
 create_tables() ->
     ok = mria:create_table(
@@ -215,8 +319,39 @@ create_tables() ->
     {_, PmapTables} = lists:unzip(?pmaps),
     [create_kv_pmap_table(Table) || Table <- PmapTables],
     mria:wait_for_tables([?session_tab | PmapTables]).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | undefined.
+-ifdef(STORE_STATE_IN_DS).
+open(SessionId) ->
+    case session_restore(SessionId) of
+        #{
+            ?metadata_domain := [#{val := Metadata}],
+            ?subscription_domain := Subs,
+            ?subscription_state_domain := SubStates,
+            ?stream_domain := Streams,
+            ?rank_domain := Ranks,
+            ?seqno_domain := Seqnos,
+            ?awaiting_rel_domain := AwaitingRels
+        } ->
+            Rec = #{
+                ?id => SessionId,
+                ?metadata => Metadata,
+                ?subscriptions => pmap_open(?subscription_domain, Subs),
+                ?subscription_states => pmap_open(?subscription_state_domain, SubStates),
+                ?streams => pmap_open(?stream_domain, Streams),
+                ?seqnos => pmap_open(?seqno_domain, Seqnos),
+                ?ranks => pmap_open(?rank_domain, Ranks),
+                ?awaiting_rel => pmap_open(?awaiting_rel_domain, AwaitingRels),
+                ?unset_dirty
+            },
+            {ok, Rec};
+        _ ->
+            undefined
+    end.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 open(SessionId) ->
     ro_transaction(fun() ->
         case kv_restore(?session_tab, SessionId) of
@@ -226,8 +361,8 @@ open(SessionId) ->
                         pmap_open(Table, SessionId)
                     end,
                     #{
-                        id => SessionId,
-                        metadata => Metadata,
+                        ?id => SessionId,
+                        ?metadata => Metadata,
                         ?unset_dirty
                     }
                 ),
@@ -236,6 +371,8 @@ open(SessionId) ->
                 undefined
         end
     end).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec print_session(emqx_persistent_session_ds:id()) -> map() | undefined.
 print_session(SessionId) ->
@@ -256,10 +393,25 @@ format(Rec) ->
     ).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
+-ifdef(STORE_STATE_IN_DS).
+list_sessions() ->
+    lists:map(
+        fun(#{session_id := Id}) -> Id end,
+        read_iterate('+', [?metadata_domain_bin, ?metadata_domain_bin])
+    ).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 list_sessions() ->
     mnesia:dirty_all_keys(?session_tab).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec delete(emqx_persistent_session_ds:id()) -> ok.
+-ifdef(STORE_STATE_IN_DS).
+delete(Id) ->
+    delete_iterate(Id, ['#']).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 delete(Id) ->
     transaction(
         fun() ->
@@ -267,14 +419,67 @@ delete(Id) ->
             mnesia:delete(?session_tab, Id, write)
         end
     ).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec commit(t()) -> t().
+-ifdef(STORE_STATE_IN_DS).
 commit(Rec = #{dirty := false}) ->
     Rec;
 commit(
     Rec = #{
-        id := SessionId,
-        metadata := Metadata
+        ?id := SessionId,
+        ?metadata := Metadata,
+        ?subscriptions := Subs0,
+        ?subscription_states := SubStates0,
+        ?streams := Streams0,
+        ?seqnos := SeqNos0,
+        ?ranks := Ranks0,
+        ?awaiting_rel := AwaitingRels0
+    }
+) ->
+    check_sequence(Rec),
+    MetadataMsg = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, Metadata),
+    {{SubsMsgs, SubsDel}, Subs} = pmap_commit(SessionId, Subs0),
+    {{SubStatesMsgs, SubStatesDel}, SubStates} = pmap_commit(SessionId, SubStates0),
+    {{StreamsMsgs, StreamsDel}, Streams} = pmap_commit(SessionId, Streams0),
+    {{SeqNosMsgs, SeqNosDel}, SeqNos} = pmap_commit(SessionId, SeqNos0),
+    {{RanksMsgs, RanksDel}, Ranks} = pmap_commit(SessionId, Ranks0),
+    {{AwaitingRelsMsgs, AwaitingRelsDel}, AwaitingRels} = pmap_commit(SessionId, AwaitingRels0),
+    delete_specific_keys(SessionId, ?subscription_domain, SubsDel),
+    delete_specific_keys(SessionId, ?subscription_state_domain, SubStatesDel),
+    delete_specific_keys(SessionId, ?stream_domain, StreamsDel),
+    delete_specific_keys(SessionId, ?seqno_domain, SeqNosDel),
+    delete_specific_keys(SessionId, ?rank_domain, RanksDel),
+    delete_specific_keys(SessionId, ?awaiting_rel_domain, AwaitingRelsDel),
+    ok = store_batch(
+        [MetadataMsg] ++
+            SubsMsgs ++
+            SubStatesMsgs ++
+            StreamsMsgs ++
+            SeqNosMsgs ++ RanksMsgs ++ AwaitingRelsMsgs
+    ),
+    Rec#{
+        ?subscriptions := Subs,
+        ?subscription_states := SubStates,
+        ?streams := Streams,
+        ?seqnos := SeqNos,
+        ?ranks := Ranks,
+        ?awaiting_rel := AwaitingRels,
+        ?unset_dirty
+    }.
+
+store_batch(Batch0) ->
+    Batch = [{emqx_message:timestamp(Msg, microsecond), Msg} || Msg <- Batch0],
+    emqx_ds:store_batch(?DB, Batch, #{atomic => true}).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
+commit(Rec = #{dirty := false}) ->
+    Rec;
+commit(
+    Rec = #{
+        ?id := SessionId,
+        ?metadata := Metadata
     }
 ) ->
     check_sequence(Rec),
@@ -287,8 +492,26 @@ commit(
             Rec#{?unset_dirty}
         )
     end).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
+-ifdef(STORE_STATE_IN_DS).
+create_new(SessionId) ->
+    delete(SessionId),
+    #{
+        ?id => SessionId,
+        ?metadata => #{},
+        ?subscriptions => pmap_open(?subscription_domain, []),
+        ?subscription_states => pmap_open(?subscription_state_domain, []),
+        ?streams => pmap_open(?stream_domain, []),
+        ?seqnos => pmap_open(?seqno_domain, []),
+        ?ranks => pmap_open(?rank_domain, []),
+        ?awaiting_rel => pmap_open(?awaiting_rel_domain, []),
+        ?set_dirty
+    }.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 create_new(SessionId) ->
     transaction(fun() ->
         delete(SessionId),
@@ -297,12 +520,14 @@ create_new(SessionId) ->
                 pmap_open(Table, SessionId)
             end,
             #{
-                id => SessionId,
-                metadata => #{},
+                ?id => SessionId,
+                ?metadata => #{},
                 ?set_dirty
             }
         )
     end).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %%
 
@@ -363,6 +588,19 @@ set_will_message(Val, Rec) ->
     set_meta(?will_message, Val, Rec).
 
 -spec clear_will_message_now(emqx_persistent_session_ds:id()) -> ok.
+-ifdef(STORE_STATE_IN_DS).
+clear_will_message_now(SessionId) when is_binary(SessionId) ->
+    case session_restore(SessionId) of
+        #{?metadata_domain := [#{val := Metadata0}]} ->
+            Metadata = Metadata0#{?will_message => undefined},
+            MetadataMsg = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, Metadata),
+            ok = store_batch([MetadataMsg]),
+            ok;
+        _ ->
+            ok
+    end.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 clear_will_message_now(SessionId) when is_binary(SessionId) ->
     transaction(fun() ->
         case kv_restore(?session_tab, SessionId) of
@@ -374,6 +612,8 @@ clear_will_message_now(SessionId) when is_binary(SessionId) ->
                 ok
         end
     end).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec clear_will_message(t()) -> t().
 clear_will_message(Rec) ->
@@ -403,8 +643,18 @@ get_subscription(TopicFilter, Rec) ->
     emqx_persistent_session_ds:id(), emqx_types:topic() | emqx_types:share()
 ) ->
     [emqx_persistent_session_ds_subs:subscription()].
+-ifdef(STORE_STATE_IN_DS).
+cold_get_subscription(SessionId, Topic) ->
+    Data = read_iterate(SessionId, [
+        ?subscription_domain_bin, key_encode(?subscription_domain, Topic)
+    ]),
+    lists:map(fun(#{val := V}) -> V end, Data).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 cold_get_subscription(SessionId, Topic) ->
     kv_pmap_read(?subscription_tab, SessionId, Topic).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec fold_subscriptions(fun(), Acc, t()) -> Acc.
 fold_subscriptions(Fun, Acc, Rec) ->
@@ -415,10 +665,18 @@ n_subscriptions(Rec) ->
     gen_size(?subscriptions, Rec).
 
 -spec total_subscription_count() -> non_neg_integer().
+-ifdef(STORE_STATE_IN_DS).
+total_subscription_count() ->
+    Fun = fun(Data, Acc) -> length(Data) + Acc end,
+    read_fold(Fun, 0, '+', [?subscription_domain_bin, '+']).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 total_subscription_count() ->
     mria:async_dirty(?DS_MRIA_SHARD, fun() ->
         mnesia:foldl(fun(#kv{}, Acc) -> Acc + 1 end, 0, ?subscription_tab)
     end).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec put_subscription(
     emqx_persistent_session_ds:topic_filter(),
@@ -443,8 +701,18 @@ get_subscription_state(SStateId, Rec) ->
     emqx_persistent_session_ds:id(), emqx_persistent_session_ds_subs:subscription_state_id()
 ) ->
     [emqx_persistent_session_ds_subs:subscription_state()].
+-ifdef(STORE_STATE_IN_DS).
+cold_get_subscription_state(SessionId, SStateId) ->
+    Data = read_iterate(SessionId, [
+        ?subscription_state_domain_bin, key_encode(?subscription_state_domain, SStateId)
+    ]),
+    lists:map(fun(#{val := V}) -> V end, Data).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 cold_get_subscription_state(SessionId, SStateId) ->
     kv_pmap_read(?subscription_states_tab, SessionId, SStateId).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec fold_subscription_states(fun(), Acc, t()) -> Acc.
 fold_subscription_states(Fun, Acc, Rec) ->
@@ -556,11 +824,77 @@ iter_next(It0) ->
 %%
 
 -spec make_session_iterator() -> session_iterator().
+-ifdef(STORE_STATE_IN_DS).
+make_session_iterator() ->
+    %% NB. This hides the existence of streams.  Users will need to start iteration
+    %% again to see new streams, if any.
+    %% NB. This is not assumed to be stored permanently anywhere.
+    Time = 0,
+    TopicFilter = [
+        <<"session">>,
+        '+',
+        ?metadata_domain_bin,
+        ?metadata_domain_bin
+    ],
+    Iterators = lists:map(
+        fun({_Rank, Stream}) ->
+            {ok, Iterator} = emqx_ds:make_iterator(?DB, Stream, TopicFilter, Time),
+            Iterator
+        end,
+        emqx_ds:get_streams(?DB, TopicFilter, Time)
+    ),
+    #{its => Iterators}.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 make_session_iterator() ->
     mnesia:dirty_first(?session_tab).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec session_iterator_next(session_iterator(), pos_integer()) ->
     {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
+-ifdef(STORE_STATE_IN_DS).
+session_iterator_next(Cursor, N) ->
+    session_iterator_next(Cursor, N, []).
+
+%% Note: ordering is not respected here.
+session_iterator_next(#{its := [It | Rest]} = Cursor, 0, Acc) ->
+    %% Peek the next item to detect end of table.
+    case emqx_ds:next(?DB, It, 1) of
+        {ok, end_of_stream} ->
+            session_iterator_next(Cursor#{its := Rest}, 0, Acc);
+        {ok, _NewIt, []} ->
+            session_iterator_next(Cursor#{its := Rest}, 0, Acc);
+        {ok, _NewIt, _Batch} ->
+            {Acc, Cursor}
+    end;
+session_iterator_next(_Cursor, 0, Acc) ->
+    {Acc, '$end_of_table'};
+session_iterator_next('$end_of_table', _N, Acc) ->
+    {Acc, '$end_of_table'};
+session_iterator_next(#{its := []}, _N, Acc) ->
+    {Acc, '$end_of_table'};
+session_iterator_next(#{its := [It | Rest]} = Cursor0, N, Acc) ->
+    case emqx_ds:next(?DB, It, N) of
+        {ok, end_of_stream} ->
+            session_iterator_next(Cursor0#{its := Rest}, N, Acc);
+        {ok, _NewIt, []} ->
+            session_iterator_next(Cursor0#{its := Rest}, N, Acc);
+        {ok, NewIt, Batch} ->
+            NumBatch = length(Batch),
+            SessionIds = lists:map(
+                fun({_DSKey, Msg}) ->
+                    #{session_id := Id, val := Val} = from_domain_msg(Msg),
+                    {Id, Val}
+                end,
+                Batch
+            ),
+            session_iterator_next(
+                Cursor0#{its := [NewIt | Rest]}, N - NumBatch, SessionIds ++ Acc
+            )
+    end.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 session_iterator_next(Cursor, 0) ->
     {[], Cursor};
 session_iterator_next('$end_of_table', _N) ->
@@ -572,6 +906,8 @@ session_iterator_next(Cursor0, N) ->
     ],
     {NextVals, Cursor} = session_iterator_next(mnesia:dirty_next(?session_tab, Cursor0), N - 1),
     {ThisVal ++ NextVals, Cursor}.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %%================================================================================
 %% Internal functions
@@ -579,10 +915,58 @@ session_iterator_next(Cursor0, N) ->
 
 %% All mnesia reads and writes are passed through this function.
 %% Backward compatiblity issues can be handled here.
+-ifdef(STORE_STATE_IN_DS).
+val_encode(_Domain, Term) ->
+    term_to_binary(Term).
+
+val_decode(_Domain, Bin) ->
+    binary_to_term(Bin).
+
+-spec key_encode(domain(), term()) -> binary().
+key_encode(?metadata_domain, _Key) ->
+    ?metadata_domain_bin;
+key_encode(?subscription_domain, TopicFilterAndSubId) ->
+    term_to_topic_level(TopicFilterAndSubId);
+key_encode(?subscription_state_domain, SubStateId) ->
+    integer_to_binary(SubStateId);
+key_encode(?stream_domain, StreamKey) ->
+    term_to_topic_level(StreamKey);
+key_encode(?rank_domain, RankKey) ->
+    term_to_topic_level(RankKey);
+key_encode(?seqno_domain, SeqnoType) ->
+    integer_to_binary(SeqnoType);
+key_encode(?awaiting_rel_domain, PacketId) ->
+    integer_to_binary(PacketId).
+
+-spec key_decode(domain(), binary()) -> term().
+key_decode(?metadata_domain, Bin) ->
+    Bin;
+key_decode(?subscription_domain, Bin) ->
+    topic_level_to_term(Bin);
+key_decode(?subscription_state_domain, Bin) ->
+    binary_to_integer(Bin);
+key_decode(?stream_domain, Bin) ->
+    topic_level_to_term(Bin);
+key_decode(?rank_domain, Bin) ->
+    topic_level_to_term(Bin);
+key_decode(?seqno_domain, Bin) ->
+    binary_to_integer(Bin);
+key_decode(?awaiting_rel_domain, Bin) ->
+    binary_to_integer(Bin).
+
+term_to_topic_level(Term) ->
+    base64:encode(term_to_binary(Term), #{mode => urlsafe, padding => false}).
+
+topic_level_to_term(Bin) ->
+    binary_to_term(base64:decode(Bin, #{mode => urlsafe, padding => false})).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 encoder(encode, _Table, Term) ->
     Term;
 encoder(decode, _Table, Term) ->
     Term.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %%
 
@@ -646,6 +1030,18 @@ update_pmaps(Fun, Map) ->
 
 %% @doc Open a PMAP and fill the clean area with the data from DB.
 %% This functtion should be ran in a transaction.
+-ifdef(STORE_STATE_IN_DS).
+-spec pmap_open(domain(), [data()]) -> pmap(_K, _V).
+pmap_open(Domain, Data0) ->
+    Data = lists:map(fun(#{key := K, val := V}) -> {K, V} end, Data0),
+    Clean = cache_from_list(Domain, Data),
+    #pmap{
+        table = Domain,
+        cache = Clean,
+        dirty = #{}
+    }.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 -spec pmap_open(atom(), emqx_persistent_session_ds:id()) -> pmap(_K, _V).
 pmap_open(Table, SessionId) ->
     Clean = cache_from_list(Table, kv_pmap_restore(Table, SessionId)),
@@ -654,6 +1050,8 @@ pmap_open(Table, SessionId) ->
         cache = Clean,
         dirty = #{}
     }.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec pmap_get(K, pmap(K, V)) -> V | undefined.
 pmap_get(K, #pmap{table = Table, cache = Cache}) ->
@@ -680,6 +1078,30 @@ pmap_del(
 pmap_fold(Fun, Acc, #pmap{table = Table, cache = Cache}) ->
     cache_fold(Table, Fun, Acc, Cache).
 
+-ifdef(STORE_STATE_IN_DS).
+-spec pmap_commit(emqx_persistent_session_ds:id(), pmap(K, V)) ->
+    {{[emqx_types:message()], [term()]}, pmap(K, V)}.
+pmap_commit(
+    SessionId, Pmap = #pmap{table = Domain, dirty = Dirty, cache = Cache}
+) ->
+    Out =
+        maps:fold(
+            fun
+                (K, del, {AccPersist, AccDel}) ->
+                    {AccPersist, [K | AccDel]};
+                (K, dirty, {AccPersist, AccDel}) ->
+                    V = cache_get(Domain, K, Cache),
+                    Msg = to_domain_msg(Domain, SessionId, K, V),
+                    {[Msg | AccPersist], AccDel}
+            end,
+            {[], []},
+            Dirty
+        ),
+    {Out, Pmap#pmap{
+        dirty = #{}
+    }}.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 -spec pmap_commit(emqx_persistent_session_ds:id(), pmap(K, V)) -> pmap(K, V).
 pmap_commit(
     SessionId, Pmap = #pmap{table = Tab, dirty = Dirty, cache = Cache}
@@ -697,6 +1119,8 @@ pmap_commit(
     Pmap#pmap{
         dirty = #{}
     }.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec pmap_format(pmap(_K, _V)) -> map().
 pmap_format(#pmap{table = Table, cache = Cache}) ->
@@ -712,6 +1136,10 @@ pmap_iter_after(After, #pmap{table = Table, cache = Cache}) ->
     gbt_iter_after(After, Cache).
 
 %%
+
+-ifdef(STORE_STATE_IN_DS).
+-define(stream_tab, ?stream_domain).
+-endif.
 
 cache_data_type(?stream_tab) -> gbt;
 cache_data_type(_Table) -> map.
@@ -803,6 +1231,30 @@ gbt_iter_after(After, Cache) ->
 gbt_iter_next(It) ->
     gb_trees:next(It).
 
+-ifdef(STORE_STATE_IN_DS).
+session_restore(SessionId) ->
+    Empty = maps:from_keys(
+        [
+            ?metadata_domain,
+            ?subscription_domain,
+            ?subscription_state_domain,
+            ?stream_domain,
+            ?rank_domain,
+            ?seqno_domain,
+            ?awaiting_rel_domain
+        ],
+        []
+    ),
+    Data = maps:groups_from_list(
+        fun(#{domain := Domain}) ->
+            Domain
+        end,
+        read_iterate(SessionId, ['#'])
+    ),
+    maps:merge(Empty, Data).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
+
 %% Functions dealing with set tables:
 
 kv_persist(Tab, SessionId, Val0) ->
@@ -876,7 +1328,144 @@ ro_transaction(Fun) ->
 %%     {atomic, Res} = mria:ro_transaction(?DS_MRIA_SHARD, Fun),
 %%     Res.
 
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
+
 %%
+
+-ifdef(STORE_STATE_IN_DS).
+to_domain_msg(Domain, SessionId, Key, Val) ->
+    #message{
+        %% unused; empty binary to satisfy dialyzer
+        id = <<>>,
+        timestamp = 0,
+        from = SessionId,
+        topic = to_topic(Domain, SessionId, key_encode(Domain, Key)),
+        payload = val_encode(Domain, Val)
+    }.
+
+from_domain_msg(#message{topic = Topic, payload = Bin}) ->
+    #{
+        domain := Domain,
+        session_id := _SessionId,
+        key := _Key
+    } = Data = domain_topic_decode(Topic),
+    Data#{val => val_decode(Domain, Bin)}.
+
+to_topic(Domain, SessionId0, BinKey) when is_binary(BinKey) ->
+    SessionId = emqx_http_lib:uri_encode(SessionId0),
+    emqx_topic:join([
+        ?session_topic_ns,
+        SessionId,
+        atom_to_binary(Domain),
+        BinKey
+    ]).
+
+domain_topic_decode(Topic) ->
+    [<<"session">>, SessionId | Rest] = emqx_topic:tokens(Topic),
+    case parse_domain(Rest) of
+        [Domain, Bin] when
+            Domain =:= ?metadata_domain;
+            Domain =:= ?subscription_domain;
+            Domain =:= ?subscription_state_domain;
+            Domain =:= ?stream_domain;
+            Domain =:= ?rank_domain;
+            Domain =:= ?seqno_domain;
+            Domain =:= ?awaiting_rel_domain
+        ->
+            #{
+                domain => Domain,
+                session_id => emqx_http_lib:uri_decode(SessionId),
+                key => key_decode(Domain, Bin)
+            }
+    end.
+
+parse_domain([DomainBin | Rest]) ->
+    [binary_to_existing_atom(DomainBin) | Rest].
+
+-spec read_iterate(emqx_persistent_session_ds:id() | '#' | '+', emqx_ds:topic_filter()) ->
+    [data()].
+read_iterate(SessionId0, TopicFilterWords0) ->
+    Fun = fun(Data, Acc) -> Data ++ Acc end,
+    Acc = [],
+    read_fold(Fun, Acc, SessionId0, TopicFilterWords0).
+
+read_fold(Fun, Acc, SessionId0, TopicFilterWords0) ->
+    Time = 0,
+    SessionId =
+        case is_binary(SessionId0) of
+            true -> emqx_http_lib:uri_encode(SessionId0);
+            false -> SessionId0
+        end,
+    TopicFilter = [?session_topic_ns, SessionId | TopicFilterWords0],
+    Iterators = lists:map(
+        fun({_Rank, Stream}) ->
+            {ok, Iterator} = emqx_ds:make_iterator(?DB, Stream, TopicFilter, Time),
+            Iterator
+        end,
+        emqx_ds:get_streams(?DB, TopicFilter, Time)
+    ),
+    do_read_fold(Fun, Iterators, Acc).
+
+%% Note: no ordering.
+do_read_fold(_Fun, [], Acc) ->
+    Acc;
+do_read_fold(Fun, [Iterator | Rest], Acc) ->
+    %% TODO: config?
+    BatchSize = 100,
+    case emqx_ds:next(?DB, Iterator, BatchSize) of
+        {ok, end_of_stream} ->
+            do_read_fold(Fun, Rest, Acc);
+        {ok, _NewIterator, []} ->
+            do_read_fold(Fun, Rest, Acc);
+        {ok, NewIterator, Msgs} ->
+            Data = lists:map(
+                fun({_DSKey, Msg}) -> from_domain_msg(Msg) end,
+                Msgs
+            ),
+            do_read_fold(Fun, [NewIterator | Rest], Fun(Data, Acc))
+    end.
+
+delete_specific_keys(SessionId, Domain, Keys) when is_list(Keys) ->
+    lists:foreach(
+        fun(Key) ->
+            delete_specific_key(SessionId, Domain, Key)
+        end,
+        Keys
+    ).
+
+delete_specific_key(SessionId, Domain, Key) ->
+    KeyBin = key_encode(Domain, Key),
+    delete_iterate(SessionId, [atom_to_binary(Domain), KeyBin]).
+
+delete_iterate(SessionId, TopicFilterWords0) ->
+    Time = 0,
+    TopicFilter = [?session_topic_ns, emqx_http_lib:uri_encode(SessionId) | TopicFilterWords0],
+    Iterators = lists:map(
+        fun(Stream) ->
+            {ok, Iterator} = emqx_ds:make_delete_iterator(?DB, Stream, TopicFilter, Time),
+            Iterator
+        end,
+        emqx_ds:get_delete_streams(?DB, TopicFilter, Time)
+    ),
+    Selector = fun(_) -> true end,
+    do_delete_iterate(Iterators, Selector).
+
+do_delete_iterate([], _Selector) ->
+    ok;
+do_delete_iterate([Iterator | Rest], Selector) ->
+    %% TODO: config?
+    BatchSize = 100,
+    case emqx_ds:delete_next(?DB, Iterator, Selector, BatchSize) of
+        {ok, end_of_stream} ->
+            do_delete_iterate(Rest, Selector);
+        {ok, _NewIterator, 0} ->
+            do_delete_iterate(Rest, Selector);
+        {ok, NewIterator, _NDeleted} ->
+            do_delete_iterate([NewIterator | Rest], Selector)
+    end.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -compile({inline, check_sequence/1}).
 

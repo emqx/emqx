@@ -101,6 +101,8 @@
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
 
+-type message() :: emqx_types:message() | {emqx_ds:time(), emqx_types:message()}.
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -274,7 +276,7 @@ make_batch(_ForceMonotonic = true, Latest, Messages) ->
 make_batch(false, Latest, Messages) ->
     assign_operation_timestamps(Latest, Messages, []).
 
-assign_monotonic_timestamps(Latest0, [Message = #message{} | Rest], Acc0) ->
+assign_monotonic_timestamps(Latest0, [#message{} = Message | Rest], Acc0) ->
     case emqx_message:timestamp(Message, microsecond) of
         TimestampUs when TimestampUs > Latest0 ->
             Latest = TimestampUs;
@@ -282,6 +284,15 @@ assign_monotonic_timestamps(Latest0, [Message = #message{} | Rest], Acc0) ->
             Latest = Latest0 + 1
     end,
     Acc = [assign_timestamp(Latest, Message) | Acc0],
+    assign_monotonic_timestamps(Latest, Rest, Acc);
+assign_monotonic_timestamps(Latest0, [{Timestamp, #message{} = Message0} | Rest], Acc0) ->
+    case Timestamp > Latest0 of
+        true ->
+            Latest = Timestamp;
+        false ->
+            Latest = Latest0 + 1
+    end,
+    Acc = [assign_timestamp(Timestamp, Message0) | Acc0],
     assign_monotonic_timestamps(Latest, Rest, Acc);
 assign_monotonic_timestamps(Latest, [Operation | Rest], Acc0) ->
     Acc = [Operation | Acc0],
@@ -294,6 +305,10 @@ assign_operation_timestamps(Latest0, [Message = #message{} | Rest], Acc0) ->
     Latest = max(TimestampUs, Latest0),
     Acc = [assign_timestamp(TimestampUs, Message) | Acc0],
     assign_operation_timestamps(Latest, Rest, Acc);
+assign_operation_timestamps(Latest0, [{Timestamp, #message{} = Message0} | Rest], Acc0) ->
+    Latest = max(Timestamp, Latest0),
+    Acc = [assign_timestamp(Timestamp, Message0) | Acc0],
+    assign_operation_timestamps(Latest, Rest, Acc);
 assign_operation_timestamps(Latest, [Operation | Rest], Acc0) ->
     Acc = [Operation | Acc0],
     assign_operation_timestamps(Latest, Rest, Acc);
@@ -304,6 +319,10 @@ assign_timestamp(TimestampUs, Message) ->
     {TimestampUs, Message}.
 
 -spec shard_of_operation(emqx_ds:db(), emqx_ds:operation(), clientid | topic, _Options) -> shard().
+shard_of_operation(DB, {Timestamp, #message{} = Message}, SerializeBy, Options) when
+    is_integer(Timestamp)
+->
+    shard_of_operation(DB, Message, SerializeBy, Options);
 shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
     case SerializeBy of
         clientid -> Key = From;
