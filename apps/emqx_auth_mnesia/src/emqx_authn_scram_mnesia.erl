@@ -141,7 +141,9 @@ authenticate(
             reason => Reason
         })
     end,
-    emqx_utils_scram:authenticate(AuthMethod, AuthData, AuthCache, RetrieveFun, OnErrFun, State);
+    emqx_utils_scram:authenticate(
+        AuthMethod, AuthData, AuthCache, State, RetrieveFun, OnErrFun, [is_superuser]
+    );
 authenticate(_Credential, _State) ->
     ignore.
 
