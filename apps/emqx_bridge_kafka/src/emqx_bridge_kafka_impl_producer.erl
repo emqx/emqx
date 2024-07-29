@@ -839,7 +839,7 @@ handle_telemetry_event(_EventId, _Metrics, _MetaData, _HandlerConfig) ->
 %% metrics.
 -spec telemetry_handler_id(action_resource_id()) -> binary().
 telemetry_handler_id(ActionResId) ->
-    <<"emqx-bridge-kafka-producer-", ActionResId/binary>>.
+    ActionResId.
 
 uninstall_telemetry_handlers(TelemetryId) ->
     telemetry:detach(TelemetryId).
