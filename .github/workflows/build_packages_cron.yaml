@@ -53,7 +53,7 @@ jobs:
       - name: build pkg
         run: |
           ./scripts/buildx.sh --profile "$PROFILE" --pkgtype pkg --builder "$BUILDER"
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+      - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
         if: success()
         with:
           name: ${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.os }}
@@ -101,7 +101,7 @@ jobs:
           apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
           apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
           apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+      - uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b # v4.3.4
         if: success()
         with:
           name: ${{ matrix.profile }}-${{ matrix.os }}
