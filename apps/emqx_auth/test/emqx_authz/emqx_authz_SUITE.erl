@@ -674,5 +674,77 @@ t_publish_last_will_testament_banned_client_connecting(_Config) ->
 
     ok.
 
+t_sikpped_as_superuser(_Config) ->
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => {tcp, default},
+        is_superuser => true
+    },
+    ?check_trace(
+        begin
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_0), <<"p/t/0">>)
+            ),
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_1), <<"p/t/1">>)
+            ),
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_2), <<"p/t/2">>)
+            ),
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_0), <<"s/t/0">>)
+            ),
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_1), <<"s/t/1">>)
+            ),
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_2), <<"s/t/2">>)
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        reason := client_is_superuser,
+                        action := #{qos := ?QOS_0, action_type := publish}
+                    },
+                    #{
+                        reason := client_is_superuser,
+                        action := #{qos := ?QOS_1, action_type := publish}
+                    },
+                    #{
+                        reason := client_is_superuser,
+                        action := #{qos := ?QOS_2, action_type := publish}
+                    },
+                    #{
+                        reason := client_is_superuser,
+                        action := #{qos := ?QOS_0, action_type := subscribe}
+                    },
+                    #{
+                        reason := client_is_superuser,
+                        action := #{qos := ?QOS_1, action_type := subscribe}
+                    },
+                    #{
+                        reason := client_is_superuser,
+                        action := #{qos := ?QOS_2, action_type := subscribe}
+                    }
+                ],
+                ?of_kind(authz_skipped, Trace)
+            ),
+            ok
+        end
+    ),
+
+    ok = snabbkaffe:stop().
+
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
