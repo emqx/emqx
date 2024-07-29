@@ -11,6 +11,7 @@
 
 -export([namespace/0, roots/0, fields/1, translations/0, translation/1, desc/1, validations/0]).
 -export([upgrade_raw_conf/1]).
+-export([injected_fields/0]).
 
 -define(EE_SCHEMA_MODULES, [
     emqx_license_schema,
@@ -125,6 +126,11 @@ desc(Name) ->
 
 validations() ->
     emqx_conf_schema:validations() ++ emqx_license_schema:validations().
+
+injected_fields() ->
+    #{
+        'node.role' => [replicant]
+    }.
 
 %%------------------------------------------------------------------------------
 %% helpers

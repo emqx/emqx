@@ -22,7 +22,13 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    All = emqx_common_test_helpers:all(?MODULE),
+    case emqx_cth_suite:skip_if_oss() of
+        false ->
+            All;
+        _ ->
+            All -- [t_autocluster_leave]
+    end.
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(

@@ -22,11 +22,17 @@ schemas() ->
     schemas(emqx_release:edition()).
 
 schemas(Edition) ->
-    auth_ext(Edition) ++
+    mria(Edition) ++
+        auth_ext(Edition) ++
         cluster_linking(Edition) ++
         authn(Edition) ++
         authz() ++
         customized(Edition).
+
+mria(ce) ->
+    [];
+mria(ee) ->
+    [emqx_enterprise_schema].
 
 auth_ext(ce) ->
     [];

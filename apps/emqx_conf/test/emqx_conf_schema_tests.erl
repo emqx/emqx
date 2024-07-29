@@ -32,7 +32,6 @@
                 name = emqxcl
                 discovery_strategy = static
                 static.seeds = ~p
-                core_nodes = ~p
              }
     ").
 
@@ -41,7 +40,7 @@ array_nodes_test() ->
     ExpectNodes = ['emqx1@127.0.0.1', 'emqx2@127.0.0.1'],
     lists:foreach(
         fun(Nodes) ->
-            ConfFile = to_bin(?BASE_CONF, [Nodes, Nodes]),
+            ConfFile = to_bin(?BASE_CONF, [Nodes]),
             {ok, Conf} = hocon:binary(ConfFile, #{format => richmap}),
             ConfList = hocon_tconf:generate(emqx_conf_schema, Conf),
             VMArgs = proplists:get_value(vm_args, ConfList),
@@ -56,11 +55,6 @@ array_nodes_test() ->
             ?assertEqual(
                 {static, [{seeds, ExpectNodes}]},
                 ClusterDiscovery,
-                Nodes
-            ),
-            ?assertEqual(
-                ExpectNodes,
-                proplists:get_value(core_nodes, proplists:get_value(mria, ConfList)),
                 Nodes
             )
         end,
@@ -158,7 +152,7 @@ outdated_log_test() ->
 
 validate_log(Conf) ->
     ensure_acl_conf(),
-    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
     Conf0 = <<BaseConf/binary, (list_to_binary(Conf))/binary>>,
     {ok, ConfMap0} = hocon:binary(Conf0, #{format => richmap}),
     ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap0),
@@ -214,7 +208,7 @@ validate_log(Conf) ->
 
 file_log_infinity_rotation_size_test_() ->
     ensure_acl_conf(),
-    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
     Gen = fun(#{count := Count, size := Size}) ->
         Conf0 = to_bin(?FILE_LOG_BASE_CONF, [Count, Size]),
         Conf1 = [BaseConf, Conf0],
@@ -292,7 +286,7 @@ log_rotation_count_limit_test() ->
     rotation_size = \"1024MB\"
     }
     ",
-    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
     lists:foreach(fun({Conf, Count}) ->
         Conf0 = <<BaseConf/binary, Conf/binary>>,
         {ok, ConfMap0} = hocon:binary(Conf0, #{format => richmap}),
@@ -352,7 +346,7 @@ log_rotation_count_limit_test() ->
 
 authn_validations_test() ->
     ensure_acl_conf(),
-    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
 
     OKHttps = to_bin(?BASE_AUTHN_ARRAY, [post, true, <<"https://127.0.0.1:8080">>]),
     Conf0 = <<BaseConf/binary, OKHttps/binary>>,
@@ -410,7 +404,7 @@ authn_validations_test() ->
 
 listeners_test() ->
     ensure_acl_conf(),
-    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
 
     Conf = <<BaseConf/binary, ?LISTENERS>>,
     {ok, ConfMap0} = hocon:binary(Conf, #{format => richmap}),

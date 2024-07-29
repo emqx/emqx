@@ -24,7 +24,12 @@
 -define(APPS, [emqx_conf, emqx_management]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    case emqx_cth_suite:skip_if_oss() of
+        false ->
+            emqx_common_test_helpers:all(?MODULE);
+        True ->
+            True
+    end.
 
 init_per_suite(Config) ->
     Config.
