@@ -469,7 +469,7 @@ render_topic({fixed, KafkaTopic}, _Message) ->
     KafkaTopic;
 render_topic({dynamic, Template}, Message) ->
     try
-        iolist_to_binary(emqx_template:render_strict(Template, Message))
+        iolist_to_binary(emqx_template:render_strict(Template, {emqx_jsonish, Message}))
     catch
         error:_Errors ->
             throw(bad_topic)

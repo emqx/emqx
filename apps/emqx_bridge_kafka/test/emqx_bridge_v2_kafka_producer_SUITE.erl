@@ -967,12 +967,7 @@ t_dynamic_topics(Config) ->
                 RuleTopic,
                 [
                     {bridge_name, ActionName}
-                ],
-                #{
-                    sql =>
-                        <<"select *, json_decode(payload) as payload from \"", RuleTopic/binary,
-                            "\" ">>
-                }
+                ]
             ),
             ?assertStatusAPI(Type, ActionName, <<"connected">>),
 
