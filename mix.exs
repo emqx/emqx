@@ -462,7 +462,12 @@ defmodule EMQXUmbrella.MixProject do
       {:d, :snk_kind, :msg}
     ] ++
       singleton(test_env?(), {:d, :TEST}) ++
-      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC})
+      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
+      singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
+  end
+
+  defp store_state_in_ds?() do
+    "1" == System.get_env("STORE_STATE_IN_DS")
   end
 
   defp singleton(false, _value), do: []

@@ -326,11 +326,8 @@ t_persistent_sessions1(Config) ->
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
             assert_single_client(#{node => N1, clientid => ClientId, status => connected}, Config),
             %% 4) Client disconnects.
-            ok = emqtt:stop(C2),
             %% 5) Session is GC'ed, client is removed from list.
-            ?tp(notice, "gc", #{}),
-            %% simulate GC
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+            disconnect_and_destroy_session(C2),
             ?retry(
                 100,
                 20,
@@ -510,7 +507,7 @@ t_persistent_sessions5(Config) ->
                 list_request(#{limit => 2, page => 1}, Config)
             ),
             %% Disconnect persistent sessions
-            lists:foreach(fun emqtt:stop/1, [C1, C2]),
+            lists:foreach(fun stop_and_commit/1, [C1, C2]),
 
             P3 =
                 ?retry(200, 10, begin

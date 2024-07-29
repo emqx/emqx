@@ -94,6 +94,8 @@
 
 -type shard_id() :: binary().
 
+-type message() :: emqx_types:message() | {emqx_ds:time(), emqx_types:message()}.
+
 -type builtin_db_opts() ::
     #{
         backend := builtin,
@@ -415,7 +417,7 @@ current_timestamp(DB, Shard) ->
 init_buffer(_DB, _Shard, _Options) ->
     {ok, #bs{}}.
 
--spec flush_buffer(emqx_ds:db(), shard_id(), [emqx_types:message()], egress_state()) ->
+-spec flush_buffer(emqx_ds:db(), shard_id(), [message()], egress_state()) ->
     {egress_state(), ok | emqx_ds:error(_)}.
 flush_buffer(DB, Shard, Messages, State) ->
     case ra_store_batch(DB, Shard, Messages) of
@@ -433,6 +435,10 @@ flush_buffer(DB, Shard, Messages, State) ->
     _Options
 ) ->
     emqx_ds_replication_layer:shard_id().
+shard_of_operation(DB, {Timestamp, #message{} = Message}, SerializeBy, Options) when
+    is_integer(Timestamp)
+->
+    shard_of_operation(DB, Message, SerializeBy, Options);
 shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
     case SerializeBy of
         clientid -> Key = From;
@@ -1031,7 +1037,7 @@ tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
     ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, timestamp => Timestamp}),
     handle_custom_event(DBShard, Timestamp, tick).
 
-assign_timestamps(true, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->
+assign_timestamps(true, Latest0, [#message{} = Message0 | Rest], Acc, N, Sz) ->
     case emqx_message:timestamp(Message0, microsecond) of
         TimestampUs when TimestampUs > Latest0 ->
             Latest = TimestampUs,
@@ -1048,6 +1054,11 @@ assign_timestamps(false, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->
     Message = assign_timestamp(TimestampUs, Message0),
     MSize = approx_message_size(Message0),
     assign_timestamps(false, Latest, Rest, [Message | Acc], N + 1, Sz + MSize);
+assign_timestamps(ForceMonotonic, Latest0, [{Timestamp, #message{} = Message0} | Rest], Acc, N, Sz) ->
+    Latest = max(Latest0, Timestamp),
+    Message = assign_timestamp(Timestamp, Message0),
+    MSize = approx_message_size(Message0),
+    assign_timestamps(ForceMonotonic, Latest, Rest, [Message | Acc], N + 1, Sz + MSize);
 assign_timestamps(ForceMonotonic, Latest, [Operation | Rest], Acc, N, Sz) ->
     assign_timestamps(ForceMonotonic, Latest, Rest, [Operation | Acc], N + 1, Sz);
 assign_timestamps(_ForceMonotonic, Latest, [], Acc, N, Size) ->

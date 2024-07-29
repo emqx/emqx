@@ -47,7 +47,7 @@ init() ->
         ?SLOG(notice, #{msg => "Session durability is enabled"}),
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, get_db_config()),
         ok = emqx_persistent_session_ds_router:init_tables(),
-        ok = emqx_persistent_session_ds:create_tables(),
+        ok = initialize_session_ds_state(),
         ok
     end).
 
@@ -68,6 +68,16 @@ get_db_config() ->
 -spec force_ds(emqx_types:zone()) -> boolean().
 force_ds(Zone) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions, force_persistence]).
+
+-ifdef(STORE_STATE_IN_DS).
+initialize_session_ds_state() ->
+    ok = emqx_persistent_session_ds_state:open_db(get_db_config()).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
+initialize_session_ds_state() ->
+    ok = emqx_persistent_session_ds_state:create_tables().
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %%--------------------------------------------------------------------
 

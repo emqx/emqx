@@ -45,6 +45,8 @@
 
 -define(cbm(DB), {?MODULE, DB}).
 
+-type message() :: emqx_types:message() | {emqx_ds:time(), emqx_types:message()}.
+
 -record(enqueue_req, {
     operations :: [emqx_ds:operation()],
     sync :: boolean(),
@@ -416,6 +418,8 @@ cancel_timer(S = #s{tref = TRef}) ->
 
 %% @doc Return approximate size of the MQTT message (it doesn't take
 %% all things into account, for example headers and extras)
+payload_size({_TS, #message{} = Message}) ->
+    payload_size(Message);
 payload_size(#message{payload = P, topic = T}) ->
     size(P) + size(T);
 payload_size({_OpName, _}) ->
