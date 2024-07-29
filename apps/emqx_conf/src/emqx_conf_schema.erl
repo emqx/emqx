@@ -997,6 +997,7 @@ fields("log_overload_kill") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC("log_overload_kill_enable")
                 }
             )},
@@ -1032,6 +1033,7 @@ fields("log_burst_limit") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC("log_burst_limit_enable")
                 }
             )},
@@ -1269,6 +1271,11 @@ log_handler_common_confs(Handler, Default) ->
     EnvValue = os:getenv("EMQX_DEFAULT_LOG_HANDLER"),
     Enable = lists:member(EnvValue, EnableValues),
     LevelDesc = maps:get(level_desc, Default, "common_handler_level"),
+    EnableImportance =
+        case Enable of
+            true -> ?IMPORTANCE_NO_DOC;
+            false -> ?IMPORTANCE_MEDIUM
+        end,
     [
         {"level",
             sc(
@@ -1285,7 +1292,7 @@ log_handler_common_confs(Handler, Default) ->
                 #{
                     default => Enable,
                     desc => ?DESC("common_handler_enable"),
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => EnableImportance
                 }
             )},
         {"formatter",

@@ -1,9 +1,6 @@
 ## Log to file
 
 log.file {
-    ## Enable file log handler
-    enable = true
-
     ## Log level
     ## Type: debug | info | notice | warning | error | critical | alert | emergency
     level = warning

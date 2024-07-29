@@ -7,9 +7,6 @@ exhook.servers = [
         ## Name of the exhook server
         name = "server_1"
 
-        ## Feature switch
-        enable = false
-
         ## URL of gRPC server
         url = "http://127.0.0.1:9090"
 

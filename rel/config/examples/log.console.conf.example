@@ -1,9 +1,6 @@
 ## Log to console
 
 log.console {
-    ## set true to enable this
-    enable = false
-
     ## Log level
     ## Type: debug | info | notice | warning | error | critical | alert | emergency
     level = warning

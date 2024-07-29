@@ -123,6 +123,7 @@ common_bridge_fields() ->
                 boolean(),
                 #{
                     desc => ?DESC("desc_enable"),
+                    importance => ?IMPORTANCE_NO_DOC,
                     default => true
                 }
             )},

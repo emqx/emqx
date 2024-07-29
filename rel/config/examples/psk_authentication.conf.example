@@ -1,9 +1,6 @@
 ## Pre-Shared Keys authentication
 
 psk_authentication {
-    ## Set to false to disable
-    enable = true
-
     ## If init_file is specified, EMQX will import PSKs from the file into the built-in database at startup for use by the runtime
     init_file = "psk"
 
