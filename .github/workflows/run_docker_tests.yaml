@@ -83,7 +83,7 @@ jobs:
         id: env
         run: |
           source env.sh
-          if [ "$EMQX_NAME" = "emqx-interprise" ]; then
+          if [ "$EMQX_NAME" = "emqx-enterprise" ]; then
             _EMQX_TEST_DB_BACKEND='rlog'
           else
             _EMQX_TEST_DB_BACKEND='mnesia'
