@@ -356,13 +356,13 @@ get_config_bin(NameVsn) ->
 %% RPC call from Management API or CLI.
 %% The plugin config Json Map was valid by avro schema
 %% Or: if no and plugin config ALWAYS be valid before calling this function.
-put_config(NameVsn, ConfigJsonMap, AvroValue) when not is_binary(NameVsn) ->
+put_config(NameVsn, ConfigJsonMap, AvroValue) when (not is_binary(NameVsn)) ->
     put_config(bin(NameVsn), ConfigJsonMap, AvroValue);
 put_config(NameVsn, ConfigJsonMap, _AvroValue) ->
     HoconBin = hocon_pp:do(ConfigJsonMap, #{}),
     ok = backup_and_write_hocon_bin(NameVsn, HoconBin),
-    %% TODO: callback in plugin's on_config_changed (config update by mgmt API)
     %% TODO: callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
+    ok = maybe_call_on_config_changed(NameVsn, ConfigJsonMap),
     ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), ConfigJsonMap),
     ok.
 
@@ -371,6 +371,32 @@ restart(NameVsn) ->
     case ensure_stopped(NameVsn) of
         ok -> ensure_started(NameVsn);
         {error, Reason} -> {error, Reason}
+    end.
+
+%% @doc Call plugin's callback on_config_changed/2
+maybe_call_on_config_changed(NameVsn, NewConf) ->
+    FuncName = on_config_changed,
+    maybe
+        {ok, PluginAppModule} ?= app_module_name(NameVsn),
+        true ?= erlang:function_exported(PluginAppModule, FuncName, 2),
+        {ok, OldConf} = get_config(NameVsn),
+        _ = erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf])
+    else
+        {error, Reason} ->
+            ?SLOG(info, #{msg => "failed_to_call_on_config_changed", reason => Reason});
+        false ->
+            ?SLOG(info, #{msg => "on_config_changed_callback_not_exported"});
+        _ ->
+            ok
+    end.
+
+app_module_name(NameVsn) ->
+    case read_plugin_info(NameVsn, #{}) of
+        {ok, #{<<"name">> := Name} = _PluginInfo} ->
+            emqx_utils:safe_to_existing_atom(<<Name/binary, "_app">>);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => "failed_to_read_plugin_info"}),
+            {error, Reason}
     end.
 
 %% @doc List all installed plugins.
