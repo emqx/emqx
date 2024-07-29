@@ -117,6 +117,13 @@ try_subscribe(ClientId, Topic) ->
                 write
             ),
             allow;
+        [#exclusive_subscription{clientid = ClientId, topic = Topic}] ->
+            %% Fixed the issue-13476
+            %% In this feature, the user must manually call `unsubscribe` to release the lock,
+            %% but sometimes the node may go down for some reason,
+            %% then the client will reconnect to this node and resubscribe.
+            %% We need to allow resubscription, otherwise the lock will never be released.
+            allow;
         [_] ->
             deny
     end.
