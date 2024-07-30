@@ -21,6 +21,7 @@
 %% Till full implementation we need to dispach to the null agent.
 %% It will report "not implemented" error for attempts to use shared subscriptions.
 -define(shared_subs_agent, emqx_persistent_session_ds_shared_subs_null_agent).
+% -define(shared_subs_agent, emqx_ds_shared_sub_agent).
 
 %% end of -ifdef(TEST).
 -endif.

@@ -65,9 +65,20 @@
 %% Route
 %%--------------------------------------------------------------------
 
+-record(share_dest, {
+    session_id :: emqx_session:session_id(),
+    group :: emqx_types:group()
+}).
+
 -record(route, {
     topic :: binary(),
-    dest :: node() | {binary(), node()} | emqx_session:session_id() | emqx_external_broker:dest()
+    dest ::
+        node()
+        | {binary(), node()}
+        | emqx_session:session_id()
+        %% One session can also have multiple subscriptions to the same topic through different groups
+        | #share_dest{}
+        | emqx_external_broker:dest()
 }).
 
 %%--------------------------------------------------------------------
