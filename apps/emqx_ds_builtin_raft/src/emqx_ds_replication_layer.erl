@@ -29,7 +29,7 @@
 
     current_timestamp/2,
 
-    shard_of_message/4,
+    shard_of_operation/4,
     flush_buffer/4,
     init_buffer/3
 ]).
@@ -392,15 +392,30 @@ flush_buffer(DB, Shard, Messages, State) ->
     end,
     {State, Result}.
 
--spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic, _Options) ->
+-spec shard_of_operation(
+    emqx_ds:db(),
+    emqx_ds:operation() | emqx_ds:precondition(),
+    clientid | topic,
+    _Options
+) ->
     emqx_ds_replication_layer:shard_id().
-shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key);
+shard_of_operation(DB, {_OpName, Matcher}, SerializeBy, _Options) ->
+    #message_matcher{from = From, topic = Topic} = Matcher,
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key).
+
+shard_of_key(DB, Key) ->
     N = emqx_ds_replication_shard_allocator:n_shards(DB),
-    Hash =
-        case SerializeBy of
-            clientid -> erlang:phash2(From, N);
-            topic -> erlang:phash2(Topic, N)
-        end,
+    Hash = erlang:phash2(Key, N),
     integer_to_binary(Hash).
 
 %%================================================================================

@@ -43,7 +43,7 @@
     %% `emqx_ds_buffer':
     init_buffer/3,
     flush_buffer/4,
-    shard_of_message/4
+    shard_of_operation/4
 ]).
 
 %% Internal exports:
@@ -55,6 +55,7 @@
 -export_type([db_opts/0, shard/0, iterator/0, delete_iterator/0]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -255,14 +256,23 @@ assign_message_timestamps(Latest, [], Acc) ->
 assign_timestamp(TimestampUs, Message) ->
     {TimestampUs, Message}.
 
--spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic, _Options) -> shard().
-shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+-spec shard_of_operation(emqx_ds:db(), emqx_ds:operation(), clientid | topic, _Options) -> shard().
+shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key);
+shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, SerializeBy, _Options) ->
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key).
+
+shard_of_key(DB, Key) ->
     N = emqx_ds_builtin_local_meta:n_shards(DB),
-    Hash =
-        case SerializeBy of
-            clientid -> erlang:phash2(From, N);
-            topic -> erlang:phash2(Topic, N)
-        end,
+    Hash = erlang:phash2(Key, N),
     integer_to_binary(Hash).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
