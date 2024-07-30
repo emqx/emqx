@@ -44,7 +44,6 @@ init_per_suite(Config) ->
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            ok = create_ldap_resource(),
             [{apps, Apps} | Config];
         false ->
             {skip, no_ldap}
@@ -167,21 +166,8 @@ setup_config(SpecialParams) ->
 ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
 
-ldap_config() ->
-    emqx_ldap_SUITE:ldap_config([]).
-
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
-
-create_ldap_resource() ->
-    {ok, _} = emqx_resource:create_local(
-        ?LDAP_RESOURCE,
-        ?AUTHZ_RESOURCE_GROUP,
-        emqx_ldap,
-        ldap_config(),
-        #{}
-    ),
-    ok.

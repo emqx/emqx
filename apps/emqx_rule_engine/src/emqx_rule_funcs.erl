@@ -252,6 +252,9 @@
     timezone_to_offset_seconds/1
 ]).
 
+%% System functions
+-export([getenv/1]).
+
 %% See extra_functions_module/0 and set_extra_functions_module/1 in the
 %% emqx_rule_engine module
 -callback handle_rule_function(atom(), list()) -> any() | {error, no_match_for_function}.
@@ -1262,3 +1265,9 @@ convert_timestamp(MillisecondsTimestamp) ->
 
 uuid_str(UUID, DisplayOpt) ->
     uuid:uuid_to_string(UUID, DisplayOpt).
+
+%%------------------------------------------------------------------------------
+%% System Funcs
+%%------------------------------------------------------------------------------
+getenv(Env) ->
+    emqx_variform_bif:getenv(Env).
