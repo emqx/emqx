@@ -19,7 +19,8 @@
 -define(enc, 3).
 
 %% ?BATCH
--define(batch_messages, 2).
+-define(batch_operations, 2).
+-define(batch_preconditions, 4).
 -define(timestamp, 3).
 
 %% add_generation / update_config

@@ -21,6 +21,8 @@
 %% used for testing.
 -module(emqx_ds_storage_reference).
 
+-include("emqx_ds.hrl").
+
 -behaviour(emqx_ds_storage_layer).
 
 %% API:
@@ -39,7 +41,8 @@
     make_delete_iterator/5,
     update_iterator/4,
     next/6,
-    delete_next/7
+    delete_next/7,
+    lookup_message/3
 ]).
 
 %% internal exports:
@@ -48,6 +51,8 @@
 -export_type([options/0]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
+
+-define(DB_KEY(TIMESTAMP), <<TIMESTAMP:64>>).
 
 %%================================================================================
 %% Type declarations
@@ -102,22 +107,21 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
     ok = rocksdb:drop_column_family(DBHandle, CFHandle),
     ok.
 
-prepare_batch(_ShardId, _Data, Messages, _Options) ->
-    {ok, Messages}.
+prepare_batch(_ShardId, _Data, Batch, _Options) ->
+    {ok, Batch}.
 
-commit_batch(_ShardId, #s{db = DB, cf = CF}, Messages, Options) ->
-    {ok, Batch} = rocksdb:batch(),
-    lists:foreach(
-        fun({TS, Msg}) ->
-            Key = <<TS:64>>,
-            Val = term_to_binary(Msg),
-            rocksdb:batch_put(Batch, CF, Key, Val)
-        end,
-        Messages
-    ),
-    Res = rocksdb:write_batch(DB, Batch, write_batch_opts(Options)),
-    rocksdb:release_batch(Batch),
+commit_batch(_ShardId, S = #s{db = DB}, Batch, Options) ->
+    {ok, BatchHandle} = rocksdb:batch(),
+    lists:foreach(fun(Op) -> process_batch_operation(S, Op, BatchHandle) end, Batch),
+    Res = rocksdb:write_batch(DB, BatchHandle, write_batch_opts(Options)),
+    rocksdb:release_batch(BatchHandle),
     Res.
+
+process_batch_operation(S, {TS, Msg = #message{}}, BatchHandle) ->
+    Val = encode_message(Msg),
+    rocksdb:batch_put(BatchHandle, S#s.cf, ?DB_KEY(TS), Val);
+process_batch_operation(S, {delete, #message_matcher{timestamp = TS}}, BatchHandle) ->
+    rocksdb:batch_delete(BatchHandle, S#s.cf, ?DB_KEY(TS)).
 
 get_streams(_Shard, _Data, _TopicFilter, _StartTime) ->
     [#stream{}].
@@ -205,6 +209,16 @@ delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now, IsCurr
             {ok, It, NumDeleted, NumIterated}
     end.
 
+lookup_message(_ShardId, #s{db = DB, cf = CF}, #message_matcher{timestamp = TS}) ->
+    case rocksdb:get(DB, CF, ?DB_KEY(TS), _ReadOpts = []) of
+        {ok, Val} ->
+            decode_message(Val);
+        not_found ->
+            not_found;
+        {error, Reason} ->
+            {error, unrecoverable, Reason}
+    end.
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -214,7 +228,7 @@ do_next(_, _, _, _, 0, Key, Acc) ->
 do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
     case rocksdb:iterator_move(IT, Action) of
         {ok, Key = <<TS:64>>, Blob} ->
-            Msg = #message{topic = Topic} = binary_to_term(Blob),
+            Msg = #message{topic = Topic} = decode_message(Blob),
             TopicWords = emqx_topic:words(Topic),
             case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
                 true ->
@@ -234,7 +248,7 @@ do_delete_next(
 ) ->
     case rocksdb:iterator_move(IT, Action) of
         {ok, Key, Blob} ->
-            Msg = #message{topic = Topic, timestamp = TS} = binary_to_term(Blob),
+            Msg = #message{topic = Topic, timestamp = TS} = decode_message(Blob),
             TopicWords = emqx_topic:words(Topic),
             case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
                 true ->
@@ -284,6 +298,12 @@ do_delete_next(
         {error, invalid_iterator} ->
             {Key0, {AccDel, AccIter}}
     end.
+
+encode_message(Msg) ->
+    term_to_binary(Msg).
+
+decode_message(Val) ->
+    binary_to_term(Val).
 
 %% @doc Generate a column family ID for the MQTT messages
 -spec data_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
