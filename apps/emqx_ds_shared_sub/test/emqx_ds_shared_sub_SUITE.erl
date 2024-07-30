@@ -18,7 +18,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx, #{
+            {emqx_conf, #{
                 config => #{
                     <<"durable_sessions">> => #{
                         <<"enable">> => true,
@@ -27,10 +27,14 @@ init_per_suite(Config) ->
                     <<"durable_storage">> => #{
                         <<"messages">> => #{
                             <<"backend">> => <<"builtin_raft">>
+                        },
+                        <<"queues">> => #{
+                            <<"backend">> => <<"builtin_raft">>
                         }
                     }
                 }
             }},
+            emqx,
             emqx_ds_shared_sub
         ],
         #{work_dir => ?config(priv_dir, Config)}
@@ -405,7 +409,8 @@ t_disconnect_no_double_replay2(_Config) ->
     %     3000
     % ),
 
-    ok = emqtt:disconnect(ConnShared12).
+    ok = emqtt:disconnect(ConnShared12),
+    ok = emqtt:disconnect(ConnPub).
 
 t_lease_reconnect(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
@@ -490,8 +495,8 @@ emqtt_connect_pub(ClientId) ->
     C.
 
 terminate_leaders() ->
-    ok = supervisor:terminate_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_leader_sup),
-    {ok, _} = supervisor:restart_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_leader_sup),
+    ok = supervisor:terminate_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
+    {ok, _} = supervisor:restart_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
     ok.
 
 publish_n(_Conn, _Topics, From, To) when From > To ->
