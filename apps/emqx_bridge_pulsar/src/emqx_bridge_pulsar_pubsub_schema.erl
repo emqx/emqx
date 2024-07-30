@@ -66,10 +66,8 @@ fields(action_resource_opts) ->
         batch_size,
         batch_time,
         worker_pool_size,
-        request_ttl,
         inflight_window,
-        max_buffer_bytes,
-        query_mode
+        max_buffer_bytes
     ],
     lists:filter(
         fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
