@@ -20,7 +20,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("jose/include/jose_jws.hrl").
--include("emqx_connector_tables.hrl").
+-include("emqx_connector_jwt_tables.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -compile([export_all, nowarn_export_all]).
@@ -33,11 +33,12 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_connector]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx_connector_jwt], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_connector]),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_testcase(_TestCase, Config) ->

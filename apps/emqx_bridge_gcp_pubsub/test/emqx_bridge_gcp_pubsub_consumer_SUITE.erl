@@ -594,7 +594,7 @@ cluster(Config) ->
     Cluster = emqx_common_test_helpers:emqx_cluster(
         [core, core],
         [
-            {apps, [emqx_conf, emqx_rule_engine, emqx_bridge]},
+            {apps, [emqx_conf, emqx_rule_engine, emqx_bridge_gcp_pubsub, emqx_bridge]},
             {listener_ports, []},
             {priv_data_dir, PrivDataDir},
             {load_schema, true},

@@ -1,10 +1,10 @@
-defmodule EMQXBridgeGcpPubsub.MixProject do
+defmodule EMQXConnectorJWT.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_bridge_gcp_pubsub,
+      app: :emqx_connector_jwt,
       version: "0.1.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
@@ -17,17 +17,18 @@ defmodule EMQXBridgeGcpPubsub.MixProject do
     ]
   end
 
+  # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [
+      extra_applications: UMP.extra_applications(),
+      mod: {:emqx_connector_jwt_app, []}
+    ]
   end
 
   def deps() do
     [
-      {:emqx_connector_jwt, in_umbrella: true},
-      {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
-      {:emqx_bridge, in_umbrella: true, runtime: false},
-      {:emqx_bridge_http, in_umbrella: true}
+      UMP.common_dep(:jose),
     ]
   end
 end
