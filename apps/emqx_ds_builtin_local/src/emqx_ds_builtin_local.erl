@@ -231,9 +231,9 @@ flush_buffer(DB, Shard, Messages, S0 = #bs{options = Options}) ->
 make_batch(_ForceMonotonic = true, Latest, Messages) ->
     assign_monotonic_timestamps(Latest, Messages, []);
 make_batch(false, Latest, Messages) ->
-    assign_message_timestamps(Latest, Messages, []).
+    assign_operation_timestamps(Latest, Messages, []).
 
-assign_monotonic_timestamps(Latest0, [Message | Rest], Acc0) ->
+assign_monotonic_timestamps(Latest0, [Message = #message{} | Rest], Acc0) ->
     case emqx_message:timestamp(Message, microsecond) of
         TimestampUs when TimestampUs > Latest0 ->
             Latest = TimestampUs;
@@ -242,15 +242,21 @@ assign_monotonic_timestamps(Latest0, [Message | Rest], Acc0) ->
     end,
     Acc = [assign_timestamp(Latest, Message) | Acc0],
     assign_monotonic_timestamps(Latest, Rest, Acc);
+assign_monotonic_timestamps(Latest, [Operation | Rest], Acc0) ->
+    Acc = [Operation | Acc0],
+    assign_monotonic_timestamps(Latest, Rest, Acc);
 assign_monotonic_timestamps(Latest, [], Acc) ->
     {Latest, lists:reverse(Acc)}.
 
-assign_message_timestamps(Latest0, [Message | Rest], Acc0) ->
-    TimestampUs = emqx_message:timestamp(Message, microsecond),
+assign_operation_timestamps(Latest0, [Message = #message{} | Rest], Acc0) ->
+    TimestampUs = emqx_message:timestamp(Message),
     Latest = max(TimestampUs, Latest0),
     Acc = [assign_timestamp(TimestampUs, Message) | Acc0],
-    assign_message_timestamps(Latest, Rest, Acc);
-assign_message_timestamps(Latest, [], Acc) ->
+    assign_operation_timestamps(Latest, Rest, Acc);
+assign_operation_timestamps(Latest, [Operation | Rest], Acc0) ->
+    Acc = [Operation | Acc0],
+    assign_operation_timestamps(Latest, Rest, Acc);
+assign_operation_timestamps(Latest, [], Acc) ->
     {Latest, lists:reverse(Acc)}.
 
 assign_timestamp(TimestampUs, Message) ->
