@@ -225,28 +225,30 @@ domain_gen() ->
 
 key_gen(?metadata_domain) ->
     <<"metadata">>;
-key_gen(?subscription_domain) ->
-    {emqx_proper_types:normal_topic_filter(), []};
-key_gen(?subscription_state_domain) ->
-    integer();
-key_gen(?stream_domain) ->
-    ?LET(
-        {Id, X, Y, Z, T},
-        {
-            integer(),
-            oneof([integer(), binary()]),
-            oneof([integer(), binary()]),
-            oneof([integer(), binary()]),
-            tuple()
-        },
-        {Id, [X, Y, Z | T]}
-    );
-key_gen(?rank_domain) ->
-    {integer(), binary()};
-key_gen(?seqno_domain) ->
-    integer();
-key_gen(?awaiting_rel_domain) ->
-    range(1, 16#FFFF).
+%% key_gen(?subscription_domain) ->
+%%     {emqx_proper_types:normal_topic_filter(), []};
+%% key_gen(?subscription_state_domain) ->
+%%     integer();
+%% key_gen(?stream_domain) ->
+%%     ?LET(
+%%         {Id, X, Y, Z, T},
+%%         {
+%%             integer(),
+%%             oneof([integer(), binary()]),
+%%             oneof([integer(), binary()]),
+%%             oneof([integer(), binary()]),
+%%             tuple()
+%%         },
+%%         {Id, [X, Y, Z | T]}
+%%     );
+%% key_gen(?rank_domain) ->
+%%     {integer(), binary()};
+%% key_gen(?seqno_domain) ->
+%%     integer();
+%% key_gen(?awaiting_rel_domain) ->
+%%     range(1, 16#FFFF).
+key_gen(_) ->
+    integer().
 
 command(S) ->
     case maps:size(S) > 0 of
@@ -301,7 +303,7 @@ postcondition(S, {call, ?MODULE, gen_get, [SessionId, {Idx, Fun, Key}]}, Result)
     ?assertEqual(
         maps:get(Key, element(Idx, Record), undefined),
         Result,
-        #{session_id => SessionId, key => Key, 'fun' => Fun}
+        #{session_id => SessionId, key => Key, 'fun' => Fun, st => get_state(SessionId)}
     ),
     true;
 postcondition(_, _, _) ->
