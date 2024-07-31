@@ -26,7 +26,12 @@ schema_module() -> emqx_bridge_kafka.
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     BridgeV1Config1 = maps:remove(<<"connector">>, ActionConfig),
     BridgeV1Config2 = emqx_utils_maps:deep_merge(ConnectorConfig, BridgeV1Config1),
-    emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, BridgeV1Config2).
+    BridgeV1Config = emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, BridgeV1Config2),
+    maps:update_with(
+        <<"kafka">>,
+        fun(Params) -> maps:with(v1_parameters(), Params) end,
+        BridgeV1Config
+    ).
 
 bridge_v1_config_to_action_config(BridgeV1Conf0 = #{<<"producer">> := _}, ConnectorName) ->
     %% Ancient v1 config, when `kafka' key was wrapped by `producer'
@@ -50,6 +55,12 @@ bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
 %%------------------------------------------------------------------------------------------
 %% Internal helper functions
 %%------------------------------------------------------------------------------------------
+
+v1_parameters() ->
+    [
+        to_bin(K)
+     || {K, _} <- emqx_bridge_kafka:fields(v1_producer_kafka_opts)
+    ].
 
 producer_action_field_keys() ->
     [

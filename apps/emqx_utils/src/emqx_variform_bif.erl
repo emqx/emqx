@@ -583,7 +583,7 @@ getenv(Bin) when is_binary(Bin) ->
     EnvKey = ?ENV_CACHE(Bin),
     case persistent_term:get(EnvKey, undefined) of
         undefined ->
-            Name = erlang:binary_to_list(Bin),
+            Name = "EMQXVAR_" ++ erlang:binary_to_list(Bin),
             Result =
                 case os:getenv(Name) of
                     false ->

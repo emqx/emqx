@@ -83,7 +83,8 @@
     dropped_msg_due_to_mqueue_is_full,
     socket_receive_paused_by_rate_limit,
     data_bridge_buffer_overflow,
-    external_broker_crashed
+    external_broker_crashed,
+    unrecoverable_resource_error
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).

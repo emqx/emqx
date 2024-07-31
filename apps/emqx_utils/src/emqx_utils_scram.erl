@@ -16,17 +16,17 @@
 
 -module(emqx_utils_scram).
 
--export([authenticate/6]).
+-export([authenticate/7]).
 
 %%------------------------------------------------------------------------------
 %% Authentication
 %%------------------------------------------------------------------------------
-authenticate(AuthMethod, AuthData, AuthCache, RetrieveFun, OnErrFun, Conf) ->
+authenticate(AuthMethod, AuthData, AuthCache, Conf, RetrieveFun, OnErrFun, ResultKeys) ->
     case ensure_auth_method(AuthMethod, AuthData, Conf) of
         true ->
             case AuthCache of
                 #{next_step := client_final} ->
-                    check_client_final_message(AuthData, AuthCache, Conf, OnErrFun);
+                    check_client_final_message(AuthData, AuthCache, Conf, OnErrFun, ResultKeys);
                 _ ->
                     check_client_first_message(AuthData, AuthCache, Conf, RetrieveFun, OnErrFun)
             end;
@@ -64,9 +64,7 @@ check_client_first_message(
             {error, not_authorized}
     end.
 
-check_client_final_message(
-    Bin, #{is_superuser := IsSuperuser} = Cache, #{algorithm := Alg}, OnErrFun
-) ->
+check_client_final_message(Bin, Cache, #{algorithm := Alg}, OnErrFun, ResultKeys) ->
     case
         esasl_scram:check_client_final_message(
             Bin,
@@ -74,7 +72,7 @@ check_client_final_message(
         )
     of
         {ok, ServerFinalMessage} ->
-            {ok, #{is_superuser => IsSuperuser}, ServerFinalMessage};
+            {ok, maps:with(ResultKeys, Cache), ServerFinalMessage};
         {error, Reason} ->
             OnErrFun("check_client_final_message_error", Reason),
             {error, not_authorized}

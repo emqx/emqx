@@ -32,7 +32,9 @@
     with_validated_config/2,
     generate_request/2,
     request_for_log/2,
-    response_for_log/1
+    response_for_log/1,
+    extract_auth_data/2,
+    safely_parse_body/2
 ]).
 
 -define(DEFAULT_CONTENT_TYPE, <<"application/json">>).
@@ -194,40 +196,38 @@ handle_response(Headers, Body) ->
     case safely_parse_body(ContentType, Body) of
         {ok, NBody} ->
             body_to_auth_data(NBody);
-        {error, Reason} ->
-            ?TRACE_AUTHN_PROVIDER(
-                error,
-                "parse_http_response_failed",
-                #{content_type => ContentType, body => Body, reason => Reason}
-            ),
+        {error, _Reason} ->
             ignore
     end.
 
 body_to_auth_data(Body) ->
     case maps:get(<<"result">>, Body, <<"ignore">>) of
         <<"allow">> ->
-            IsSuperuser = emqx_authn_utils:is_superuser(Body),
-            Attrs = emqx_authn_utils:client_attrs(Body),
-            try
-                ExpireAt = expire_at(Body),
-                ACL = acl(ExpireAt, Body),
-                Result = merge_maps([ExpireAt, IsSuperuser, ACL, Attrs]),
-                {ok, Result}
-            catch
-                throw:{bad_acl_rule, Reason} ->
-                    %% it's a invalid token, so ok to log
-                    ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{http_body => Body}),
-                    {error, bad_username_or_password};
-                throw:Reason ->
-                    ?TRACE_AUTHN_PROVIDER("bad_response_body", Reason#{http_body => Body}),
-                    {error, bad_username_or_password}
-            end;
+            extract_auth_data(http, Body);
         <<"deny">> ->
             {error, not_authorized};
         <<"ignore">> ->
             ignore;
         _ ->
             ignore
+    end.
+
+extract_auth_data(Source, Body) ->
+    IsSuperuser = emqx_authn_utils:is_superuser(Body),
+    Attrs = emqx_authn_utils:client_attrs(Body),
+    try
+        ExpireAt = expire_at(Body),
+        ACL = acl(ExpireAt, Source, Body),
+        Result = merge_maps([ExpireAt, IsSuperuser, ACL, Attrs]),
+        {ok, Result}
+    catch
+        throw:{bad_acl_rule, Reason} ->
+            %% it's a invalid token, so ok to log
+            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{http_body => Body}),
+            {error, bad_username_or_password};
+        throw:Reason ->
+            ?TRACE_AUTHN_PROVIDER("bad_response_body", Reason#{http_body => Body}),
+            {error, bad_username_or_password}
     end.
 
 merge_maps([]) -> #{};
@@ -268,40 +268,43 @@ expire_sec(#{<<"expire_at">> := _}) ->
 expire_sec(_) ->
     undefined.
 
-acl(#{expire_at := ExpireTimeMs}, #{<<"acl">> := Rules}) ->
+acl(#{expire_at := ExpireTimeMs}, Source, #{<<"acl">> := Rules}) ->
     #{
         acl => #{
-            source_for_logging => http,
+            source_for_logging => Source,
             rules => emqx_authz_rule_raw:parse_and_compile_rules(Rules),
             %% It's seconds level precision (like JWT) for authz
             %% see emqx_authz_client_info:check/1
             expire => erlang:convert_time_unit(ExpireTimeMs, millisecond, second)
         }
     };
-acl(_NoExpire, #{<<"acl">> := Rules}) ->
+acl(_NoExpire, Source, #{<<"acl">> := Rules}) ->
     #{
         acl => #{
-            source_for_logging => http,
+            source_for_logging => Source,
             rules => emqx_authz_rule_raw:parse_and_compile_rules(Rules)
         }
     };
-acl(_, _) ->
+acl(_, _, _) ->
     #{}.
 
 safely_parse_body(ContentType, Body) ->
     try
         parse_body(ContentType, Body)
     catch
-        _Class:_Reason ->
+        _Class:Reason ->
+            ?TRACE_AUTHN_PROVIDER(
+                error,
+                "parse_http_response_failed",
+                #{content_type => ContentType, body => Body, reason => Reason}
+            ),
             {error, invalid_body}
     end.
 
 parse_body(<<"application/json", _/binary>>, Body) ->
     {ok, emqx_utils_json:decode(Body, [return_maps])};
 parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
-    Flags = [<<"result">>, <<"is_superuser">>],
-    RawMap = maps:from_list(cow_qs:parse_qs(Body)),
-    NBody = maps:with(Flags, RawMap),
+    NBody = maps:from_list(cow_qs:parse_qs(Body)),
     {ok, NBody};
 parse_body(ContentType, _) ->
     {error, {unsupported_content_type, ContentType}}.
