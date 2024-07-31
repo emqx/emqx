@@ -675,7 +675,7 @@ list_nodes() ->
 -define(SHARD_RPC(DB, SHARD, NODE, BODY),
     case
         emqx_ds_replication_layer_shard:servers(
-            DB, SHARD, application:get_env(emqx_durable_storage, reads, leader_preferred)
+            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
         )
     of
         [{_, NODE} | _] ->
