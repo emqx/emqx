@@ -77,5 +77,5 @@ system_test() ->
     EnvName = erlang:atom_to_list(?MODULE),
     EnvVal = erlang:atom_to_list(?FUNCTION_NAME),
     EnvNameBin = erlang:list_to_binary(EnvName),
-    os:putenv(EnvName, EnvVal),
+    os:putenv("EMQXVAR_" ++ EnvName, EnvVal),
     ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)).

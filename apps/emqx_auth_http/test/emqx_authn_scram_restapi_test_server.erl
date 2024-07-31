@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_scram_http_test_server).
+-module(emqx_authn_scram_restapi_test_server).
 
 -behaviour(supervisor).
 -behaviour(cowboy_handler).

@@ -382,12 +382,31 @@ t_multiple_actions_sharing_topic(Config) ->
             ActionConfig0,
             #{<<"parameters">> => #{<<"query_mode">> => <<"sync">>}}
         ),
-    ok = emqx_bridge_v2_kafka_producer_SUITE:t_multiple_actions_sharing_topic(
-        [
-            {type, ?BRIDGE_TYPE_BIN},
-            {connector_name, ?config(connector_name, Config)},
-            {connector_config, ?config(connector_config, Config)},
-            {action_config, ActionConfig}
-        ]
-    ),
+    ok =
+        emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(
+            [
+                {type, ?BRIDGE_TYPE_BIN},
+                {connector_name, ?config(connector_name, Config)},
+                {connector_config, ?config(connector_config, Config)},
+                {action_config, ActionConfig}
+            ]
+        ),
+    ok.
+
+t_dynamic_topics(Config) ->
+    ActionConfig0 = ?config(action_config, Config),
+    ActionConfig =
+        emqx_utils_maps:deep_merge(
+            ActionConfig0,
+            #{<<"parameters">> => #{<<"query_mode">> => <<"sync">>}}
+        ),
+    ok =
+        emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(
+            [
+                {type, ?BRIDGE_TYPE_BIN},
+                {connector_name, ?config(connector_name, Config)},
+                {connector_config, ?config(connector_config, Config)},
+                {action_config, ActionConfig}
+            ]
+        ),
     ok.

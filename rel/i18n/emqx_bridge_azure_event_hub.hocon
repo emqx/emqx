@@ -69,7 +69,7 @@ producer_kafka_opts.label:
 """Azure Event Hubs Producer"""
 
 kafka_topic.desc:
-"""Event Hubs name"""
+"""Event Hubs name.  Supports templates (e.g.: `t-${payload.t}`)."""
 
 kafka_topic.label:
 """Event Hubs Name"""

@@ -25,7 +25,7 @@
 -export([start_link/0]).
 
 %% throttler API
--export([allow/1]).
+-export([allow/2]).
 
 %% gen_server callbacks
 -export([
@@ -40,23 +40,29 @@
 -define(SEQ_ID(Msg), {?MODULE, Msg}).
 -define(NEW_SEQ, atomics:new(1, [{signed, false}])).
 -define(GET_SEQ(Msg), persistent_term:get(?SEQ_ID(Msg), undefined)).
+-define(ERASE_SEQ(Msg), persistent_term:erase(?SEQ_ID(Msg))).
 -define(RESET_SEQ(SeqRef), atomics:put(SeqRef, 1, 0)).
 -define(INC_SEQ(SeqRef), atomics:add(SeqRef, 1, 1)).
 -define(GET_DROPPED(SeqRef), atomics:get(SeqRef, 1) - 1).
 -define(IS_ALLOWED(SeqRef), atomics:add_get(SeqRef, 1, 1) =:= 1).
 
--define(NEW_THROTTLE(Msg, SeqRef), persistent_term:put(?SEQ_ID(Msg), SeqRef)).
-
 -define(MSGS_LIST, emqx:get_config([log, throttling, msgs], [])).
 -define(TIME_WINDOW_MS, timer:seconds(emqx:get_config([log, throttling, time_window], 60))).
 
--spec allow(atom()) -> boolean().
-allow(Msg) when is_atom(Msg) ->
+%% @doc Check if a throttled log message is allowed to pass down to the logger this time.
+%% The Msg has to be an atom, and the second argument `UniqueKey' should be `undefined'
+%% for predefined message IDs.
+%% For relatively static resources created from configurations such as data integration
+%% resource IDs `UniqueKey' should be of `binary()' type.
+-spec allow(atom(), undefined | binary()) -> boolean().
+allow(Msg, UniqueKey) when
+    is_atom(Msg) andalso (is_binary(UniqueKey) orelse UniqueKey =:= undefined)
+->
     case emqx_logger:get_primary_log_level() of
         debug ->
             true;
         _ ->
-            do_allow(Msg)
+            do_allow(Msg, UniqueKey)
     end.
 
 -spec start_link() -> startlink_ret().
@@ -68,7 +74,8 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = lists:foreach(fun(Msg) -> ?NEW_THROTTLE(Msg, ?NEW_SEQ) end, ?MSGS_LIST),
+    process_flag(trap_exit, true),
+    ok = lists:foreach(fun new_throttler/1, ?MSGS_LIST),
     CurrentPeriodMs = ?TIME_WINDOW_MS,
     TimerRef = schedule_refresh(CurrentPeriodMs),
     {ok, #{timer_ref => TimerRef, current_period_ms => CurrentPeriodMs}}.
@@ -86,16 +93,22 @@ handle_info(refresh, #{current_period_ms := PeriodMs} = State) ->
     DroppedStats = lists:foldl(
         fun(Msg, Acc) ->
             case ?GET_SEQ(Msg) of
-                %% Should not happen, unless the static ids list is updated at run-time.
                 undefined ->
-                    ?NEW_THROTTLE(Msg, ?NEW_SEQ),
+                    %% Should not happen, unless the static ids list is updated at run-time.
+                    new_throttler(Msg),
                     ?tp(log_throttler_new_msg, #{throttled_msg => Msg}),
                     Acc;
+                SeqMap when is_map(SeqMap) ->
+                    maps:fold(
+                        fun(Key, Ref, Acc0) ->
+                            ID = iolist_to_binary([atom_to_binary(Msg), $:, Key]),
+                            drop_stats(Ref, ID, Acc0)
+                        end,
+                        Acc,
+                        SeqMap
+                    );
                 SeqRef ->
-                    Dropped = ?GET_DROPPED(SeqRef),
-                    ok = ?RESET_SEQ(SeqRef),
-                    ?tp(log_throttler_dropped, #{dropped_count => Dropped, throttled_msg => Msg}),
-                    maybe_add_dropped(Msg, Dropped, Acc)
+                    drop_stats(SeqRef, Msg, Acc)
             end
         end,
         #{},
@@ -112,7 +125,16 @@ handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unxpected_info", info => Info}),
     {noreply, State}.
 
+drop_stats(SeqRef, Msg, Acc) ->
+    Dropped = ?GET_DROPPED(SeqRef),
+    ok = ?RESET_SEQ(SeqRef),
+    ?tp(log_throttler_dropped, #{dropped_count => Dropped, throttled_msg => Msg}),
+    maybe_add_dropped(Msg, Dropped, Acc).
+
 terminate(_Reason, _State) ->
+    %% atomics do not have delete/remove/release/deallocate API
+    %% after the reference is garbage-collected the resource is released
+    lists:foreach(fun(Msg) -> ?ERASE_SEQ(Msg) end, ?MSGS_LIST),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -122,17 +144,27 @@ code_change(_OldVsn, State, _Extra) ->
 %% internal functions
 %%--------------------------------------------------------------------
 
-do_allow(Msg) ->
+do_allow(Msg, UniqueKey) ->
     case persistent_term:get(?SEQ_ID(Msg), undefined) of
         undefined ->
             %% This is either a race condition (emqx_log_throttler is not started yet)
             %% or a developer mistake (msg used in ?SLOG_THROTTLE/2,3 macro is
             %% not added to the default value of `log.throttling.msgs`.
-            ?SLOG(info, #{
-                msg => "missing_log_throttle_sequence",
+            ?SLOG(debug, #{
+                msg => "log_throttle_disabled",
                 throttled_msg => Msg
             }),
             true;
+        %% e.g: unrecoverable msg throttle according resource_id
+        SeqMap when is_map(SeqMap) ->
+            case maps:find(UniqueKey, SeqMap) of
+                {ok, SeqRef} ->
+                    ?IS_ALLOWED(SeqRef);
+                error ->
+                    SeqRef = ?NEW_SEQ,
+                    new_throttler(Msg, SeqMap#{UniqueKey => SeqRef}),
+                    true
+            end;
         SeqRef ->
             ?IS_ALLOWED(SeqRef)
     end.
@@ -154,3 +186,11 @@ maybe_log_dropped(_DroppedStats, _PeriodMs) ->
 schedule_refresh(PeriodMs) ->
     ?tp(log_throttler_sched_refresh, #{new_period_ms => PeriodMs}),
     erlang:send_after(PeriodMs, ?MODULE, refresh).
+
+new_throttler(unrecoverable_resource_error = Msg) ->
+    new_throttler(Msg, #{});
+new_throttler(Msg) ->
+    new_throttler(Msg, ?NEW_SEQ).
+
+new_throttler(Msg, AtomicOrEmptyMap) ->
+    persistent_term:put(?SEQ_ID(Msg), AtomicOrEmptyMap).

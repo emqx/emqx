@@ -400,6 +400,38 @@ t_rule_test_smoke(_Config) ->
                     <<"context">> =>
                         #{
                             <<"clientid">> => <<"c_emqx">>,
+                            <<"event_type">> => <<"message_publish">>,
+                            <<"qos">> => 1,
+                            <<"topic">> => <<"t/a">>,
+                            <<"username">> => <<"u_emqx">>
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"t/#\", \"$bridges/mqtt:source\" ">>
+                }
+        },
+        #{
+            expected => #{code => 200},
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"clientid">> => <<"c_emqx">>,
+                            <<"event_type">> => <<"message_publish">>,
+                            <<"qos">> => 1,
+                            <<"topic">> => <<"t/a">>,
+                            <<"username">> => <<"u_emqx">>
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"t/#\", \"$sources/mqtt:source\" ">>
+                }
+        },
+        #{
+            expected => #{code => 200},
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"clientid">> => <<"c_emqx">>,
                             <<"event_type">> => <<"session_unsubscribed">>,
                             <<"qos">> => 1,
                             <<"topic">> => <<"t/a">>,
@@ -488,6 +520,7 @@ do_t_rule_test_smoke(#{input := Input, expected := #{code := ExpectedCode}} = Ca
             {true, #{
                 expected => ExpectedCode,
                 hint => maps:get(hint, Case, <<>>),
+                input => Input,
                 got => Code,
                 resp_body => Body
             }}
