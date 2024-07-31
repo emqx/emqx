@@ -1539,7 +1539,7 @@ run_with_timeout(Module, Function, Args, Timeout) ->
     TimerRef = erlang:send_after(Timeout, self(), {timeout, Pid}),
     receive
         {Pid, Result} ->
-            erlang:cancel_timer(TimerRef),
+            _ = erlang:cancel_timer(TimerRef),
             {ok, Result};
         {timeout, Pid} ->
             exit(Pid, kill),
