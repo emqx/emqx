@@ -87,7 +87,8 @@ schema("/ds/sites") ->
                 tags => ?TAGS,
                 responses =>
                     #{
-                        200 => mk(array(binary()), #{desc => <<"List sites">>})
+                        200 => mk(array(binary()), #{desc => <<"List sites">>}),
+                        404 => disabled_schema()
                     }
             }
     };
@@ -115,7 +116,8 @@ schema("/ds/storages") ->
                 tags => ?TAGS,
                 responses =>
                     #{
-                        200 => mk(array(atom()), #{desc => <<"List durable storages">>})
+                        200 => mk(array(atom()), #{desc => <<"List durable storages">>}),
+                        404 => disabled_schema()
                     }
             }
     };
@@ -130,7 +132,8 @@ schema("/ds/storages/:ds") ->
                 responses =>
                     #{
                         200 => mk(ref(db), #{desc => <<"Get information about a durable storage">>}),
-                        400 => not_found(<<"Durable storage">>)
+                        400 => not_found(<<"Durable storage">>),
+                        404 => disabled_schema()
                     }
             }
     };
@@ -148,7 +151,8 @@ schema("/ds/storages/:ds/replicas") ->
                         200 => mk(array(binary()), #{
                             desc => <<"List sites that contain replicas of the durable storage">>
                         }),
-                        400 => not_found(<<"Durable storage">>)
+                        400 => not_found(<<"Durable storage">>),
+                        404 => disabled_schema()
                     }
             },
         put =>
@@ -159,7 +163,8 @@ schema("/ds/storages/:ds/replicas") ->
                 responses =>
                     #{
                         202 => mk(array(binary()), #{}),
-                        400 => bad_request()
+                        400 => bad_request(),
+                        404 => disabled_schema()
                     },
                 'requestBody' => mk(array(binary()), #{desc => <<"New list of sites">>})
             }
@@ -296,10 +301,15 @@ fields(db_site) ->
 %%================================================================================
 
 list_sites(get, _Params) ->
-    {200, emqx_ds_replication_layer_meta:sites()}.
+    case is_enabled() of
+        true ->
+            {200, emqx_ds_replication_layer_meta:sites()};
+        false ->
+            err_disabled()
+    end.
 
 get_site(get, #{bindings := #{site := Site}}) ->
-    case lists:member(Site, emqx_ds_replication_layer_meta:sites()) of
+    case is_enabled() andalso lists:member(Site, emqx_ds_replication_layer_meta:sites()) of
         false ->
             ?NOT_FOUND(<<"Site not found: ", Site/binary>>);
         true ->
@@ -314,40 +324,70 @@ get_site(get, #{bindings := #{site := Site}}) ->
     end.
 
 list_dbs(get, _Params) ->
-    ?OK(dbs()).
+    case is_enabled() of
+        true ->
+            ?OK(dbs());
+        false ->
+            err_disabled()
+    end.
 
 get_db(get, #{bindings := #{ds := DB}}) ->
-    ?OK(#{
-        name => DB,
-        shards => list_shards(DB)
-    }).
+    case is_enabled() of
+        true ->
+            ?OK(#{
+                name => DB,
+                shards => list_shards(DB)
+            });
+        false ->
+            err_disabled()
+    end.
 
 db_replicas(get, #{bindings := #{ds := DB}}) ->
-    Replicas = emqx_ds_replication_layer_meta:db_sites(DB),
-    ?OK(Replicas);
+    case is_enabled() of
+        true ->
+            Replicas = emqx_ds_replication_layer_meta:db_sites(DB),
+            ?OK(Replicas);
+        false ->
+            err_disabled()
+    end;
 db_replicas(put, #{bindings := #{ds := DB}, body := Sites}) ->
-    case update_db_sites(DB, Sites, rest) of
-        {ok, _} ->
-            {202, <<"OK">>};
-        {error, Description} ->
-            ?BAD_REQUEST(400, Description)
+    case is_enabled() of
+        true ->
+            case update_db_sites(DB, Sites, rest) of
+                {ok, _} ->
+                    {202, <<"OK">>};
+                {error, Description} ->
+                    ?BAD_REQUEST(400, Description)
+            end;
+        false ->
+            err_disabled()
     end.
 
 db_replica(put, #{bindings := #{ds := DB, site := Site}}) ->
-    case join(DB, Site, rest) of
-        {ok, _} ->
-            {202, <<"OK">>};
-        {error, Description} ->
-            ?BAD_REQUEST(400, Description)
+    case is_enabled() of
+        true ->
+            case join(DB, Site, rest) of
+                {ok, _} ->
+                    {202, <<"OK">>};
+                {error, Description} ->
+                    ?BAD_REQUEST(400, Description)
+            end;
+        false ->
+            err_disabled()
     end;
 db_replica(delete, #{bindings := #{ds := DB, site := Site}}) ->
-    case leave(DB, Site, rest) of
-        {ok, Sites} when is_list(Sites) ->
-            {202, <<"OK">>};
-        {ok, unchanged} ->
-            ?NOT_FOUND(<<"Site is not part of replica set">>);
-        {error, Description} ->
-            ?BAD_REQUEST(400, Description)
+    case is_enabled() of
+        true ->
+            case leave(DB, Site, rest) of
+                {ok, Sites} when is_list(Sites) ->
+                    {202, <<"OK">>};
+                {ok, unchanged} ->
+                    ?NOT_FOUND(<<"Site is not part of replica set">>);
+                {error, Description} ->
+                    ?BAD_REQUEST(400, Description)
+            end;
+        false ->
+            err_disabled()
     end.
 
 -spec update_db_sites(emqx_ds:db(), [emqx_ds_replication_layer_meta:site()], rest | cli) ->
@@ -390,6 +430,9 @@ forget(Site, Via) ->
 
 %% site_info(Site) ->
 %%     #{}.
+
+disabled_schema() ->
+    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Durable storage is disabled">>).
 
 not_found(What) ->
     emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<What/binary, " not found">>).
@@ -491,5 +534,11 @@ meta_result_to_binary({error, {member_of_replica_sets, DBNames}}) ->
 meta_result_to_binary({error, Err}) ->
     IOList = io_lib:format("Error: ~p", [Err]),
     {error, iolist_to_binary(IOList)}.
+
+is_enabled() ->
+    emqx_persistent_message:is_persistence_enabled().
+
+err_disabled() ->
+    ?NOT_FOUND(<<"Durable storage is disabled">>).
 
 -endif.
