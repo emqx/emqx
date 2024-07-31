@@ -206,6 +206,14 @@ force_last_alive_at(ClientId, Time) ->
     _ = emqx_persistent_session_ds_state:commit(S),
     ok.
 
+stop_and_commit(Client) ->
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqtt:stop(Client),
+            #{?snk_kind := persistent_session_ds_terminate}
+        ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -327,7 +335,7 @@ t_session_unsubscription_idempotency(Config) ->
                     15_000
                 ),
 
-            ok = emqtt:stop(Client1),
+            ok = stop_and_commit(Client1),
 
             ok
         end,

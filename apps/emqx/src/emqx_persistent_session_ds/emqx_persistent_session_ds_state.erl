@@ -132,13 +132,24 @@
 %% the data, and `dirty' contains information about dirty and deleted
 %% keys. When `commit/1' is called, dirty keys are dumped to the
 %% tables, and deleted keys are removed from the tables.
--record(pmap, {table, cache, dirty}).
+%%
+%% `key_mapping' is used only when the feature flag to store session data in DS is
+%% enabled.  It maps external keys to unique integers, which are internally used in the
+%% topic level structure to avoid costly encodings of arbitrary key terms.
+-record(pmap, {table, key_mapping = #{}, cache, dirty}).
+
+-ifdef(STORE_STATE_IN_DS).
+-type internal_key(_K) :: integer().
+-else.
+-type internal_key(K) :: K.
+-endif.
 
 -type pmap(K, V) ::
     #pmap{
         table :: atom(),
-        cache :: #{K => V} | gb_trees:tree(K, V),
-        dirty :: #{K => dirty | del}
+        key_mapping :: #{K => internal_key(K)},
+        cache :: #{internal_key(K) => V} | gb_trees:tree(internal_key(K), V),
+        dirty :: #{internal_key(K) => dirty | del}
     }.
 
 -type protocol() :: {binary(), emqx_types:proto_ver()}.
@@ -301,7 +312,10 @@
 -ifdef(STORE_STATE_IN_DS).
 -spec open_db(emqx_ds:create_db_opts()) -> ok.
 open_db(Config) ->
-    emqx_ds:open_db(?DB, Config).
+    emqx_ds:open_db(?DB, Config#{
+        atomic_batches => true,
+        force_monotonic_timestamps => false
+    }).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 -spec create_tables() -> ok.
@@ -327,7 +341,7 @@ create_tables() ->
 open(SessionId) ->
     case session_restore(SessionId) of
         #{
-            ?metadata_domain := [#{val := Metadata}],
+            ?metadata_domain := [#{val := #{metadata := Metadata, key_mappings := KeyMappings}}],
             ?subscription_domain := Subs,
             ?subscription_state_domain := SubStates,
             ?stream_domain := Streams,
@@ -335,15 +349,19 @@ open(SessionId) ->
             ?seqno_domain := Seqnos,
             ?awaiting_rel_domain := AwaitingRels
         } ->
+            PmapOpen = fun(Domain, Data) ->
+                KeyMapping = maps:get(Domain, KeyMappings, #{}),
+                pmap_open(Domain, Data, KeyMapping)
+            end,
             Rec = #{
                 ?id => SessionId,
                 ?metadata => Metadata,
-                ?subscriptions => pmap_open(?subscription_domain, Subs),
-                ?subscription_states => pmap_open(?subscription_state_domain, SubStates),
-                ?streams => pmap_open(?stream_domain, Streams),
-                ?seqnos => pmap_open(?seqno_domain, Seqnos),
-                ?ranks => pmap_open(?rank_domain, Ranks),
-                ?awaiting_rel => pmap_open(?awaiting_rel_domain, AwaitingRels),
+                ?subscriptions => PmapOpen(?subscription_domain, Subs),
+                ?subscription_states => PmapOpen(?subscription_state_domain, SubStates),
+                ?streams => PmapOpen(?stream_domain, Streams),
+                ?seqnos => PmapOpen(?seqno_domain, Seqnos),
+                ?ranks => PmapOpen(?rank_domain, Ranks),
+                ?awaiting_rel => PmapOpen(?awaiting_rel_domain, AwaitingRels),
                 ?unset_dirty
             },
             {ok, Rec};
@@ -427,7 +445,7 @@ delete(Id) ->
 commit(Rec = #{dirty := false}) ->
     Rec;
 commit(
-    Rec = #{
+    Rec0 = #{
         ?id := SessionId,
         ?metadata := Metadata,
         ?subscriptions := Subs0,
@@ -438,14 +456,24 @@ commit(
         ?awaiting_rel := AwaitingRels0
     }
 ) ->
-    check_sequence(Rec),
-    MetadataMsg = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, Metadata),
+    check_sequence(Rec0),
     {{SubsMsgs, SubsDel}, Subs} = pmap_commit(SessionId, Subs0),
     {{SubStatesMsgs, SubStatesDel}, SubStates} = pmap_commit(SessionId, SubStates0),
     {{StreamsMsgs, StreamsDel}, Streams} = pmap_commit(SessionId, Streams0),
     {{SeqNosMsgs, SeqNosDel}, SeqNos} = pmap_commit(SessionId, SeqNos0),
     {{RanksMsgs, RanksDel}, Ranks} = pmap_commit(SessionId, Ranks0),
     {{AwaitingRelsMsgs, AwaitingRelsDel}, AwaitingRels} = pmap_commit(SessionId, AwaitingRels0),
+    Rec = Rec0#{
+        ?subscriptions := Subs,
+        ?subscription_states := SubStates,
+        ?streams := Streams,
+        ?seqnos := SeqNos,
+        ?ranks := Ranks,
+        ?awaiting_rel := AwaitingRels,
+        ?unset_dirty
+    },
+    MetadataVal = #{metadata => Metadata, key_mappings => key_mappings(Rec)},
+    MetadataMsg = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, MetadataVal),
     delete_specific_keys(SessionId, ?subscription_domain, SubsDel),
     delete_specific_keys(SessionId, ?subscription_state_domain, SubStatesDel),
     delete_specific_keys(SessionId, ?stream_domain, StreamsDel),
@@ -459,19 +487,21 @@ commit(
             StreamsMsgs ++
             SeqNosMsgs ++ RanksMsgs ++ AwaitingRelsMsgs
     ),
-    Rec#{
-        ?subscriptions := Subs,
-        ?subscription_states := SubStates,
-        ?streams := Streams,
-        ?seqnos := SeqNos,
-        ?ranks := Ranks,
-        ?awaiting_rel := AwaitingRels,
-        ?unset_dirty
-    }.
+    Rec.
+
+key_mappings(Rec) ->
+    lists:foldl(
+        fun({Field, Domain}, Acc) ->
+            #pmap{key_mapping = KM} = maps:get(Field, Rec),
+            Acc#{Domain => KM}
+        end,
+        #{},
+        ?pmaps
+    ).
 
 store_batch(Batch0) ->
     Batch = [{emqx_message:timestamp(Msg, microsecond), Msg} || Msg <- Batch0],
-    emqx_ds:store_batch(?DB, Batch, #{atomic => true}).
+    emqx_ds:store_batch(?DB, Batch, #{atomic => true, sync => true}).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 commit(Rec = #{dirty := false}) ->
@@ -502,12 +532,12 @@ create_new(SessionId) ->
     #{
         ?id => SessionId,
         ?metadata => #{},
-        ?subscriptions => pmap_open(?subscription_domain, []),
-        ?subscription_states => pmap_open(?subscription_state_domain, []),
-        ?streams => pmap_open(?stream_domain, []),
-        ?seqnos => pmap_open(?seqno_domain, []),
-        ?ranks => pmap_open(?rank_domain, []),
-        ?awaiting_rel => pmap_open(?awaiting_rel_domain, []),
+        ?subscriptions => pmap_open(?subscription_domain, [], #{}),
+        ?subscription_states => pmap_open(?subscription_state_domain, [], #{}),
+        ?streams => pmap_open(?stream_domain, [], #{}),
+        ?seqnos => pmap_open(?seqno_domain, [], #{}),
+        ?ranks => pmap_open(?rank_domain, [], #{}),
+        ?awaiting_rel => pmap_open(?awaiting_rel_domain, [], #{}),
         ?set_dirty
     }.
 %% ELSE ifdef(STORE_STATE_IN_DS).
@@ -884,7 +914,8 @@ session_iterator_next(#{its := [It | Rest]} = Cursor0, N, Acc) ->
             NumBatch = length(Batch),
             SessionIds = lists:map(
                 fun({_DSKey, Msg}) ->
-                    #{session_id := Id, val := Val} = from_domain_msg(Msg),
+                    #{session_id := Id} = Data = from_domain_msg(Msg),
+                    Val = unwrap_value(Data),
                     {Id, Val}
                 end,
                 Batch
@@ -893,6 +924,11 @@ session_iterator_next(#{its := [It | Rest]} = Cursor0, N, Acc) ->
                 Cursor0#{its := [NewIt | Rest]}, N - NumBatch, SessionIds ++ Acc
             )
     end.
+
+unwrap_value(#{domain := ?metadata_domain, val := #{metadata := Metadata}}) ->
+    Metadata;
+unwrap_value(#{val := Val}) ->
+    Val.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 session_iterator_next(Cursor, 0) ->
@@ -925,40 +961,14 @@ val_decode(_Domain, Bin) ->
 -spec key_encode(domain(), term()) -> binary().
 key_encode(?metadata_domain, _Key) ->
     ?metadata_domain_bin;
-key_encode(?subscription_domain, TopicFilterAndSubId) ->
-    term_to_topic_level(TopicFilterAndSubId);
-key_encode(?subscription_state_domain, SubStateId) ->
-    integer_to_binary(SubStateId);
-key_encode(?stream_domain, StreamKey) ->
-    term_to_topic_level(StreamKey);
-key_encode(?rank_domain, RankKey) ->
-    term_to_topic_level(RankKey);
-key_encode(?seqno_domain, SeqnoType) ->
-    integer_to_binary(SeqnoType);
-key_encode(?awaiting_rel_domain, PacketId) ->
-    integer_to_binary(PacketId).
+key_encode(_Domain, Key) ->
+    integer_to_binary(Key).
 
 -spec key_decode(domain(), binary()) -> term().
 key_decode(?metadata_domain, Bin) ->
     Bin;
-key_decode(?subscription_domain, Bin) ->
-    topic_level_to_term(Bin);
-key_decode(?subscription_state_domain, Bin) ->
-    binary_to_integer(Bin);
-key_decode(?stream_domain, Bin) ->
-    topic_level_to_term(Bin);
-key_decode(?rank_domain, Bin) ->
-    topic_level_to_term(Bin);
-key_decode(?seqno_domain, Bin) ->
-    binary_to_integer(Bin);
-key_decode(?awaiting_rel_domain, Bin) ->
+key_decode(_Domain, Bin) ->
     binary_to_integer(Bin).
-
-term_to_topic_level(Term) ->
-    base64:encode(term_to_binary(Term), #{mode => urlsafe, padding => false}).
-
-topic_level_to_term(Bin) ->
-    binary_to_term(base64:decode(Bin, #{mode => urlsafe, padding => false})).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 encoder(encode, _Table, Term) ->
@@ -1031,12 +1041,24 @@ update_pmaps(Fun, Map) ->
 %% @doc Open a PMAP and fill the clean area with the data from DB.
 %% This functtion should be ran in a transaction.
 -ifdef(STORE_STATE_IN_DS).
--spec pmap_open(domain(), [data()]) -> pmap(_K, _V).
-pmap_open(Domain, Data0) ->
-    Data = lists:map(fun(#{key := K, val := V}) -> {K, V} end, Data0),
+-spec pmap_open(domain(), [data()], #{K => internal_key(K)}) -> pmap(K, _V).
+pmap_open(Domain, Data0, KeyMapping0) ->
+    InvKeyMapping = maps:fold(fun(K, IntK, AccIn) -> AccIn#{IntK => K} end, #{}, KeyMapping0),
+    {Data, KeyMapping} =
+        lists:mapfoldl(
+            fun(#{key := IntK, val := V}, AccIn) ->
+                %% Drop keys that are no longer used.
+                K = maps:get(IntK, InvKeyMapping),
+                Acc = AccIn#{K => IntK},
+                {{IntK, V}, Acc}
+            end,
+            #{},
+            Data0
+        ),
     Clean = cache_from_list(Domain, Data),
     #pmap{
         table = Domain,
+        key_mapping = KeyMapping,
         cache = Clean,
         dirty = #{}
     }.
@@ -1054,17 +1076,73 @@ pmap_open(Table, SessionId) ->
 -endif.
 
 -spec pmap_get(K, pmap(K, V)) -> V | undefined.
+-ifdef(STORE_STATE_IN_DS).
+pmap_get(K, #pmap{table = Table, key_mapping = KeyMapping, cache = Cache}) when
+    is_map_key(K, KeyMapping)
+->
+    IntK = maps:get(K, KeyMapping),
+    cache_get(Table, IntK, Cache);
+pmap_get(_K, _Pmap) ->
+    undefined.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 pmap_get(K, #pmap{table = Table, cache = Cache}) ->
     cache_get(Table, K, Cache).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec pmap_put(K, V, pmap(K, V)) -> pmap(K, V).
+-ifdef(STORE_STATE_IN_DS).
+pmap_put(
+    K, V, Pmap = #pmap{table = Table, key_mapping = KeyMapping0, dirty = Dirty, cache = Cache}
+) ->
+    {IntK, KeyMapping} = get_or_gen_internal_key(K, KeyMapping0, Table, Cache),
+    Pmap#pmap{
+        key_mapping = KeyMapping,
+        cache = cache_put(Table, IntK, V, Cache),
+        dirty = Dirty#{IntK => dirty}
+    }.
+
+get_or_gen_internal_key(K, KeyMapping, _Domain, _Cache) when
+    is_map_key(K, KeyMapping)
+->
+    IntK = maps:get(K, KeyMapping),
+    {IntK, KeyMapping};
+get_or_gen_internal_key(K, KeyMapping0, Domain, Cache) ->
+    IntK = erlang:unique_integer(),
+    case cache_has_key(Domain, IntK, Cache) of
+        true ->
+            %% collision (node restarted?); just try again
+            get_or_gen_internal_key(K, KeyMapping0, Domain, Cache);
+        false ->
+            KeyMapping = KeyMapping0#{K => IntK},
+            {IntK, KeyMapping}
+    end.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 pmap_put(K, V, Pmap = #pmap{table = Table, dirty = Dirty, cache = Cache}) ->
     Pmap#pmap{
         cache = cache_put(Table, K, V, Cache),
         dirty = Dirty#{K => dirty}
     }.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec pmap_del(K, pmap(K, V)) -> pmap(K, V).
+-ifdef(STORE_STATE_IN_DS).
+pmap_del(
+    Key,
+    Pmap = #pmap{table = Table, key_mapping = KeyMapping, dirty = Dirty, cache = Cache}
+) when is_map_key(Key, KeyMapping) ->
+    IntK = maps:get(Key, KeyMapping),
+    Pmap#pmap{
+        cache = cache_remove(Table, IntK, Cache),
+        dirty = Dirty#{IntK => del}
+    };
+pmap_del(_Key, Pmap) ->
+    Pmap.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 pmap_del(
     Key,
     Pmap = #pmap{table = Table, dirty = Dirty, cache = Cache}
@@ -1073,10 +1151,19 @@ pmap_del(
         cache = cache_remove(Table, Key, Cache),
         dirty = Dirty#{Key => del}
     }.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -spec pmap_fold(fun((K, V, A) -> A), A, pmap(K, V)) -> A.
+-ifdef(STORE_STATE_IN_DS).
+pmap_fold(Fun, Acc, #pmap{table = Table, key_mapping = KeyMapping, cache = Cache}) ->
+    cache_fold(Table, Fun, Acc, KeyMapping, Cache).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 pmap_fold(Fun, Acc, #pmap{table = Table, cache = Cache}) ->
     cache_fold(Table, Fun, Acc, Cache).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -ifdef(STORE_STATE_IN_DS).
 -spec pmap_commit(emqx_persistent_session_ds:id(), pmap(K, V)) ->
@@ -1164,10 +1251,29 @@ cache_remove(?stream_tab, K, Cache) ->
 cache_remove(_Table, K, Cache) ->
     maps:remove(K, Cache).
 
+-ifdef(STORE_STATE_IN_DS).
+cache_fold(?stream_tab, Fun, Acc, KeyMapping, Cache) ->
+    gbt_fold(Fun, Acc, KeyMapping, Cache);
+cache_fold(_Table, FunIn, Acc, KeyMapping, Cache) ->
+    InvKeyMapping = maps:fold(fun(K, IntK, AccIn) -> AccIn#{IntK => K} end, #{}, KeyMapping),
+    Fun = fun(IntK, V, AccIn) ->
+        K = maps:get(IntK, InvKeyMapping),
+        FunIn(K, V, AccIn)
+    end,
+    maps:fold(Fun, Acc, Cache).
+
+cache_has_key(?stream_tab, Key, Cache) ->
+    gb_trees:is_defined(Key, Cache);
+cache_has_key(_Domain, Key, Cache) ->
+    is_map_key(Key, Cache).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 cache_fold(?stream_tab, Fun, Acc, Cache) ->
     gbt_fold(Fun, Acc, Cache);
 cache_fold(_Table, Fun, Acc, Cache) ->
     maps:fold(Fun, Acc, Cache).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 cache_format(?stream_tab, Cache) ->
     gbt_format(Cache);
@@ -1204,6 +1310,22 @@ gbt_remove(K, Cache) ->
 gbt_format(Cache) ->
     gb_trees:to_list(Cache).
 
+-ifdef(STORE_STATE_IN_DS).
+gbt_fold(Fun, Acc, KeyMapping, Cache) ->
+    InvKeyMapping = maps:fold(fun(K, IntK, AccIn) -> AccIn#{IntK => K} end, #{}, KeyMapping),
+    It = gb_trees:iterator(Cache),
+    gbt_fold_iter(Fun, Acc, InvKeyMapping, It).
+
+gbt_fold_iter(Fun, Acc, InvKeyMapping, It0) ->
+    case gb_trees:next(It0) of
+        {IntK, V, It} ->
+            K = maps:get(IntK, InvKeyMapping),
+            gbt_fold_iter(Fun, Fun(K, V, Acc), InvKeyMapping, It);
+        _ ->
+            Acc
+    end.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 gbt_fold(Fun, Acc, Cache) ->
     It = gb_trees:iterator(Cache),
     gbt_fold_iter(Fun, Acc, It).
@@ -1215,6 +1337,8 @@ gbt_fold_iter(Fun, Acc, It0) ->
         _ ->
             Acc
     end.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 gbt_size(Cache) ->
     gb_trees:size(Cache).
@@ -1334,13 +1458,13 @@ ro_transaction(Fun) ->
 %%
 
 -ifdef(STORE_STATE_IN_DS).
-to_domain_msg(Domain, SessionId, Key, Val) ->
+to_domain_msg(Domain, SessionId, IntKey, Val) ->
     #message{
         %% unused; empty binary to satisfy dialyzer
         id = <<>>,
         timestamp = 0,
         from = SessionId,
-        topic = to_topic(Domain, SessionId, key_encode(Domain, Key)),
+        topic = to_topic(Domain, SessionId, key_encode(Domain, IntKey)),
         payload = val_encode(Domain, Val)
     }.
 
