@@ -34,7 +34,7 @@
     type :: serde_type(),
     eval_context :: term(),
     %% for future use
-    extra = []
+    extra = #{}
 }).
 -type serde() :: #serde{}.
 
