@@ -1036,9 +1036,9 @@ assign_timestamps(true, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->
     MSize = approx_message_size(Message0),
     assign_timestamps(true, Latest, Rest, [Message | Acc], N + 1, Sz + MSize);
 assign_timestamps(false, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->
-    Timestamp = emqx_message:timestamp(Message0),
-    Latest = max(Latest0, Timestamp),
-    Message = assign_timestamp(Timestamp, Message0),
+    TimestampUs = emqx_message:timestamp(Message0),
+    Latest = max(Latest0, TimestampUs),
+    Message = assign_timestamp(TimestampUs, Message0),
     MSize = approx_message_size(Message0),
     assign_timestamps(false, Latest, Rest, [Message | Acc], N + 1, Sz + MSize);
 assign_timestamps(ForceMonotonic, Latest, [Operation | Rest], Acc, N, Sz) ->
