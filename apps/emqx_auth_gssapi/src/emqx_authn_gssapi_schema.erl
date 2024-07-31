@@ -42,12 +42,12 @@ fields(gssapi) ->
             {principal,
                 ?HOCON(binary(), #{
                     required => true,
-                    desc => ?DESC(emqx_bridge_kafka, auth_kerberos_principal)
+                    desc => ?DESC(principal)
                 })},
             {keytab_file,
                 ?HOCON(binary(), #{
                     required => true,
-                    desc => ?DESC(emqx_bridge_kafka, auth_kerberos_keytab_file)
+                    desc => ?DESC(keytab_file)
                 })}
         ].
 
