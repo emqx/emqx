@@ -4,8 +4,6 @@
 
 -module(emqx_ds_shared_sub_registry).
 
--behaviour(supervisor).
-
 %% API
 -export([
     start_link/0,
@@ -17,7 +15,7 @@
     start_elector/2
 ]).
 
-%% supervisor behaviour callbacks
+-behaviour(supervisor).
 -export([init/1]).
 
 %%------------------------------------------------------------------------------
@@ -76,7 +74,7 @@ init([]) ->
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,
-        period => 10
+        period => 1
     },
     ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.
