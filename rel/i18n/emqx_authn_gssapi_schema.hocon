@@ -1,0 +1,18 @@
+emqx_authn_gssapi_schema {
+
+principal {
+    label: "Kerberos Principal"
+    desc: """~
+        SASL GSSAPI authentication Kerberos principal.
+        For example <code>mqtt/node1.example.com@MY_REALM.EXAMPLE.COM</code>.
+        NOTE: The realm in use has to be configured in /etc/krb5.conf in EMQX nodes.~"""
+}
+
+keytab_file {
+    label: "keytab file"
+    desc: """~
+        SASL GSSAPI authentication Kerberos keytab file path.
+        NOTE: This file has to be placed in EMQX nodes.~"""
+}
+
+}
