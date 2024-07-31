@@ -101,7 +101,10 @@
         n_shards => pos_integer(),
         n_sites => pos_integer(),
         replication_factor => pos_integer(),
-        replication_options => _TODO :: #{}
+        replication_options => _TODO :: #{},
+        %% Inherited from `emqx_ds:generic_db_opts()`.
+        force_monotonic_timestamps => boolean(),
+        atomic_batches => boolean()
     }.
 
 %% This enapsulates the stream entity from the replication level.
