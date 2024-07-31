@@ -64,6 +64,7 @@
 -export_type([
     gen_id/0,
     generation/0,
+    batch/0,
     cf_refs/0,
     stream/0,
     delete_stream/0,
