@@ -380,7 +380,18 @@ maybe_call_on_config_changed(NameVsn, NewConf) ->
         {ok, PluginAppModule} ?= app_module_name(NameVsn),
         true ?= erlang:function_exported(PluginAppModule, FuncName, 2),
         {ok, OldConf} = get_config(NameVsn),
-        _ = erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf])
+        try erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf]) of
+            _ -> ok
+        catch
+            Class:CatchReason:Stacktrace ->
+                ?SLOG(error, #{
+                    msg => "failed_to_call_on_config_changed",
+                    exception => Class,
+                    reason => CatchReason,
+                    stacktrace => Stacktrace
+                }),
+                ok
+        end
     else
         {error, Reason} ->
             ?SLOG(info, #{msg => "failed_to_call_on_config_changed", reason => Reason});
