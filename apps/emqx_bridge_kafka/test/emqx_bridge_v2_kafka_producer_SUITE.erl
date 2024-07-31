@@ -740,6 +740,21 @@ t_connector_health_check_topic(_Config) ->
                 emqx_bridge_v2_testlib:update_connector_api(Name, Type, ConnectorConfig1)
             ),
 
+            %% By providing an inexistent health check topic, we should detect it's
+            %% disconnected without the need for an action.
+            ConnectorConfig2 = connector_config(#{
+                <<"bootstrap_hosts">> => iolist_to_binary(kafka_hosts_string()),
+                <<"health_check_topic">> => <<"i-dont-exist-999">>
+            }),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"status">> := <<"disconnected">>,
+                        <<"status_reason">> := <<"Unknown topic or partition", _/binary>>
+                    }}},
+                emqx_bridge_v2_testlib:update_connector_api(Name, Type, ConnectorConfig2)
+            ),
+
             ok
         end,
         []
