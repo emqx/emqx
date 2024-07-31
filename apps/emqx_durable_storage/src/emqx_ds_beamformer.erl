@@ -122,7 +122,7 @@
 
 -type poll_req(ItKey, Iterator) ::
     #poll_req{
-        key :: {_Stream, emqx_ds:message_key()},
+        key :: {_Stream, _TopicFilter, emqx_ds:message_key()},
         node :: node(),
         return_addr :: return_addr(ItKey),
         it :: Iterator,
@@ -170,7 +170,7 @@
 -type s() :: #s{}.
 
 -record(shard_event, {
-    updated_streams :: list()
+    events :: [{_Stream, _Topic}]
 }).
 
 -define(fulfill_loop, fulfill_loop).
@@ -184,6 +184,7 @@
 
 -type unpack_iterator_result(Stream) :: #{
     stream := Stream,
+    topic_filter := _,
     last_seen_key := emqx_ds:message_key(),
     timestamp := emqx_ds:timestamp_us(),
     matcher := match_messagef()
@@ -195,7 +196,7 @@
 %% -callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
 %%     emqx_ds:make_iterator_result(Iterator).
 
--callback scan_stream(_Shard, _Stream, emqx_ds:message_key(), non_neg_integer()) ->
+-callback scan_stream(_Shard, _Stream, _TopicFilter, emqx_ds:message_key(), non_neg_integer()) ->
     stream_scan_return().
 
 %%================================================================================
@@ -206,7 +207,7 @@
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
-    #{stream := Stream, last_seen_key := DSKey, timestamp := Timestamp, matcher := Matcher} = CBM:unpack_iterator(
+    #{stream := Stream, topic_filter := TF, last_seen_key := DSKey, timestamp := Timestamp, matcher := Matcher} = CBM:unpack_iterator(
         Shard, Iterator
     ),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
@@ -222,7 +223,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     ),
     %% Make request:
     Req = #poll_req{
-        key = {Stream, DSKey},
+        key = {Stream, TF, DSKey},
         node = Node,
         return_addr = ReturnAddr,
         it = Iterator,
@@ -243,11 +244,11 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
             ok
     end.
 
-shard_event(Shard, Streams) ->
+shard_event(Shard, Events) ->
     Workers = gproc_pool:active_workers(emqx_ds_beamformer_sup:pool(Shard)),
     lists:foreach(
         fun({_, Pid}) ->
-            Pid ! #shard_event{updated_streams = Streams}
+            Pid ! #shard_event{events = Events}
         end,
         Workers
     ).
@@ -303,9 +304,9 @@ handle_call(_Call, _From, S) ->
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
-handle_info(#shard_event{updated_streams = Streams}, S) ->
-    logger:debug("Stream event ~p", [Streams]),
-    {noreply, maybe_fulfill_waiting(S, Streams)};
+handle_info(#shard_event{events = Events}, S) ->
+    logger:debug("Stream events ~p", [Events]),
+    {noreply, maybe_fulfill_waiting(S, Events)};
 handle_info(?fulfill_loop, S0) ->
     S1 = S0#s{is_spinning = false},
     S = fulfill_pending(S1),
@@ -372,11 +373,11 @@ fulfill_pending(S = #s{pending_queue = PendingTab}) ->
     case find_older_request(PendingTab, 100) of
         undefined ->
             S;
-        {Stream, StartKey} ->
+        {Stream, TopicFilter, StartKey} ->
             logger:debug("Fulfilling ~p ~p", [Stream, StartKey]),
             %% The function MUST destructively consume all requests
             %% matching stream and MsgKey to avoid infinite loop:
-            do_fulfill_pending(S, Stream, StartKey),
+            do_fulfill_pending(S, Stream, TopicFilter, StartKey),
             start_fulfill_loop(S)
     end.
 
@@ -385,33 +386,40 @@ do_fulfill_pending(
         shard = Shard,
         module = CBM,
         pending_queue = PendingTab,
-        wait_queue = WaitingTab,
         batch_size = BatchSize
     },
     Stream,
+    TopicFilter,
     StartKey
 ) ->
-    case CBM:scan_stream(Shard, Stream, StartKey, BatchSize) of
+    OnMatch = fun(_) -> ok end,
+    case CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize) of
         {ok, EndKey, Batch} ->
-            form_beams(S, PendingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
+            form_beams(S, PendingTab, OnMatch, move_to_waiting(S), Stream, TopicFilter, StartKey, EndKey, Batch)
     end.
 
 maybe_fulfill_waiting(S, []) ->
     S;
 maybe_fulfill_waiting(
     S = #s{wait_queue = WaitingTab, module = CBM, shard = Shard, batch_size = BatchSize},
-    [Stream | Rest]
+    [{Stream, TopicFilter} | Rest]
 ) ->
     %% debug_waiting(Stream, S),
+    OnMatch = fun(_) -> ok end,
     case oldest_key_for_stream(WaitingTab, Stream, 5) of
         undefined ->
             maybe_fulfill_waiting(S, Rest);
         StartKey ->
             case CBM:scan_stream(Shard, Stream, StartKey, BatchSize) of
                 {ok, EndKey, Batch} ->
-                    form_beams(S, WaitingTab, WaitingTab, Stream, StartKey, EndKey, Batch)
+                    form_beams(S, WaitingTab, OnMatch, move_to_waiting(S), Stream, TopicFilter, StartKey, EndKey, Batch)
             end,
             maybe_fulfill_waiting(S, Rest)
+    end.
+
+move_to_waiting(#s{wait_queue = WaitingTab}) ->
+    fun(NoMatch) ->
+            ets:insert(WaitingTab, NoMatch)
     end.
 
 %% It's always worth to try fulfilling the oldest requests first,
@@ -465,27 +473,23 @@ split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
 %% This function checks pending requests in the `FromTab' and either
-%% dispatches them as a beam or moves them to the `ToTab' if there's
-%% nothing to dispatch.
-%%
-%% So when we process new poll requests, `FromTab' = `new_requests'
-%% and `ToTab' = `waiting_requests'. When we process waiting poll
-%% requests, both `FromTab' and `ToTab' = `waiting_requests' (i.e. we
-%% kick long polls that didn't produce new messages back to the wait
-%% queue).
+%% dispatches them as a beam or passes them to `OnNomatch' callback if
+%% there's nothing to dispatch.
 -spec form_beams(
     s(),
     ets:tid(),
-    ets:tid(),
+    fun(([poll_req(_, _)]) -> _),
+    fun(([poll_req(_, _)]) -> _),
     _Stream,
+    _TopicFilter,
     emqx_ds:message_key(),
     emqx_ds:message_key(),
     [{emqx_ds:message_key(), emqx_types:message()}]
 ) ->
     #{node() => beam(_ItKey, _Iterator)}.
-form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKey, Batch) ->
+form_beams(S = #s{metrics_id = Metrics}, FromTab, OnMatch, OnNomatch, Stream, TopicFilter, StartKey, EndKey, Batch) ->
     GetF = fun(MsgKey) ->
-        ets:take(FromTab, {Stream, MsgKey})
+        ets:take(FromTab, {Stream, TopicFilter, MsgKey})
     end,
     %% Find iterators that match the start message of the batch (to
     %% handle iterators freshly created by `emqx_ds:make_iterator'):
@@ -510,8 +514,9 @@ form_beams(S = #s{metrics_id = Metrics}, FromTab, ToTab, Stream, StartKey, EndKe
             emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
             emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
         end,
-    %% Move unmatched requests to `ToTab':
-    ets:insert(ToTab, NoMatchReqs),
+    %% Execute callbacks:
+    OnMatch(MatchReqs),
+    OnNomatch(NoMatchReqs),
     %% Split matched requests by destination node:
     ReqsByNode =
         lists:foldl(

@@ -44,7 +44,7 @@
 
     %% `beamformer':
     unpack_iterator/2,
-    scan_stream/4,
+    scan_stream/5,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -232,8 +232,8 @@ flush_buffer(DB, Shard, Messages, S0 = #bs{options = Options}) ->
     ShardId = {DB, Shard},
     ForceMonotonic = maps:get(force_monotonic_timestamps, Options),
     {Latest, Batch} = make_batch(ForceMonotonic, current_timestamp(ShardId), Messages),
-    DispatchF = fun(Streams) ->
-        emqx_ds_beamformer:shard_event({DB, Shard}, Streams)
+    DispatchF = fun(Events) ->
+        emqx_ds_beamformer:shard_event({DB, Shard}, Events)
     end,
     Result = emqx_ds_storage_layer:store_batch(ShardId, Batch, _Options = #{}, DispatchF),
     emqx_ds_builtin_local_meta:set_current_timestamp(ShardId, Latest),
@@ -360,18 +360,19 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     {ok, ReplyTo}.
 
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    {Stream, DSKey, TS} = emqx_ds_storage_layer:unpack_iterator(Shard, Iterator),
+    {Stream, TopicFilter, DSKey, TS} = emqx_ds_storage_layer:unpack_iterator(Shard, Iterator),
     Matcher = emqx_ds_storage_layer:message_matcher(Shard, Iterator),
     #{
         stream => Stream,
+        topic_filter => TopicFilter,
         last_seen_key => DSKey,
         timestamp => TS,
         matcher => Matcher
     }.
 
-scan_stream(Shard, Stream, StartMsg, BatchSize) ->
+scan_stream(Shard, Stream, TopicFilter, StartMsg, BatchSize) ->
     Now = current_timestamp(Shard),
-    emqx_ds_storage_layer:scan_stream(Shard, Stream, Now, StartMsg, BatchSize).
+    emqx_ds_storage_layer:scan_stream(Shard, Stream, TopicFilter, Now, StartMsg, BatchSize).
 
 -spec get_delete_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [emqx_ds:ds_specific_delete_stream()].

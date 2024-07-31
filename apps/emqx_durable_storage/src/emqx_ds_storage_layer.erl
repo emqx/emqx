@@ -40,7 +40,7 @@
 
     generation/1,
     unpack_iterator/2,
-    scan_stream/5,
+    scan_stream/6,
     message_matcher/2,
 
     delete_next/5,
@@ -443,8 +443,8 @@ dispatch_events(
     Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, DispatchF
 ) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
-    Streams = Mod:batch_events(GenData, CookedBatch),
-    DispatchF([?stream_v2(GenId, Inner) || Inner <- Streams]).
+    Events = Mod:batch_events(GenData, CookedBatch),
+    DispatchF([{?stream_v2(GenId, InnerStream), Topic} || {InnerStream, Topic} <- Events]).
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -587,20 +587,20 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
-            {InnerStream, Key, TS} = Mod:unpack_iterator(Shard, GenData, Inner),
-            {?stream_v2(GenId, InnerStream), Key, TS};
+            {InnerStream, TopicFilter, Key, TS} = Mod:unpack_iterator(Shard, GenData, Inner),
+            {?stream_v2(GenId, InnerStream), TopicFilter, Key, TS};
         not_found ->
             %% generation was possibly dropped by GC
             undefined
     end.
 
 scan_stream(
-    Shard, ?stream_v2(GenId, Inner), Now, StartMsg, BatchSize
+    Shard, ?stream_v2(GenId, Inner), TopicFilter, Now, StartMsg, BatchSize
 ) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             IsCurrent = GenId =:= generation_current(Shard),
-            Mod:scan_stream(Shard, GenData, Inner, StartMsg, BatchSize, Now, IsCurrent);
+            Mod:scan_stream(Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent);
         not_found ->
             ?ERR_GEN_GONE
     end.

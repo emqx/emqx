@@ -36,7 +36,7 @@
     delete_next/7,
 
     unpack_iterator/3,
-    scan_stream/7,
+    scan_stream/8,
     message_matcher/3,
 
     batch_events/2
@@ -125,12 +125,6 @@
     handle :: rocksdb:itr_handle(),
     hash :: binary()
 }).
-
--record(poll_thing, {
-    static_index :: emqx_ds_lts:static_key(),
-    varying :: binary()
-}).
-
 
 %%================================================================================
 %% API functions
@@ -248,7 +242,7 @@ commit_batch(
 batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
     EventMap = lists:foldl(
         fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob), Acc) ->
-            maps:put(#poll_thing{static_index = Static, varying = Varying}, 1, Acc)
+            maps:put({Static, Varying}, 1, Acc)
         end,
         #{},
         Payloads
@@ -278,22 +272,17 @@ message_matcher(_Shard, #s{}, #it{static_index = StaticIdx, ts = LastSeenTS}) ->
             false ->
                 false;
             TS ->
-                %% Topic must be the same, since our 'poll_thing'
-                %% includes exact topic.
                 TS > LastSeenTS
         end
     end.
 
-unpack_iterator(_Shard, #s{}, #it{static_index = StaticIdx, compressed_tf = TF, ts = TS}) ->
-    StartKey = mk_key(StaticIdx, 0, <<>>, TS),
-    Stream = #poll_thing{
-                static_index = StaticIdx, varying = TF
-               },
-    {Stream, StartKey, TS}.
+unpack_iterator(_Shard, #s{}, #it{static_index = Stream, compressed_tf = TF, ts = TS}) ->
+    StartKey = mk_key(Stream, 0, <<>>, TS),
+    {Stream, TF, StartKey, TS}.
 
-scan_stream(Shard, S, #poll_thing{static_index = StaticIdx, varying = TF}, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
     LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
-    It = #it{static_index = StaticIdx, compressed_tf = TF, ts = LastSeenTS},
+    It = #it{static_index = StaticIdx, compressed_tf = Varying, ts = LastSeenTS},
     case next(Shard, S, It, BatchSize, TMax, IsCurrent) of
         {ok, #it{ts = TS, static_index = StaticIdx}, Batch} ->
             {ok, mk_key(StaticIdx, 0, <<>>, TS), Batch};
