@@ -12,17 +12,17 @@ auth_basic.desc:
 auth_basic.label:
 """Basic auth params"""
 
-config_auth_basic_username.desc:
-"""The username as configured at the IoTDB REST interface"""
+config_auth_username.desc:
+"""The username as configured at the IoTDB REST/Thrift interface"""
 
-config_auth_basic_username.label:
-  """HTTP Basic Auth Username"""
+config_auth_username.label:
+  """Auth Username"""
 
-config_auth_basic_password.desc:
-"""The password as configured at the IoTDB REST interface"""
+config_auth_password.desc:
+"""The password as configured at the IoTDB/Thrift REST interface"""
 
-config_auth_basic_password.label:
-"""HTTP Basic Auth Password"""
+config_auth_password.label:
+"""Auth Password"""
 
 config_base_url.desc:
 """The base URL of the external IoTDB service's REST interface."""
@@ -40,5 +40,22 @@ desc_config.desc:
 
 desc_config.label:
 """IoTDB Bridge Configuration"""
+
+config_driver.desc:
+"""The drivers for IoTDB connector, can be:
+- rest
+- thrift"""
+
+server.desc:
+"""The address of the IoTDB Thrift server (host:port)"""
+
+config_protocol_version.desc:
+"""The version of IoTDB Thrift protocol"""
+
+config_zoneId.desc:
+"""Timezone for IoTDB Thrift session"""
+
+pool_size.desc:
+"""Size for the IoTDB Thrift connection pool"""
 
 }

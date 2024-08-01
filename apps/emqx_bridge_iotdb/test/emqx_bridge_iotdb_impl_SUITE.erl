@@ -21,15 +21,25 @@ all() ->
     [
         {group, iotdb110},
         {group, iotdb130},
-        {group, legacy}
+        {group, legacy},
+        {group, thrift}
     ].
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
+    Async = [
+        t_async_device_id_missing,
+        t_async_invalid_template,
+        t_async_query,
+        t_extract_device_id_from_rule_engine_message,
+        %%todo
+        t_sync_query_aggregated
+    ],
     [
         {iotdb110, AllTCs},
         {iotdb130, AllTCs},
-        {legacy, AllTCs}
+        {legacy, AllTCs},
+        {thrift, AllTCs -- Async}
     ].
 
 init_per_suite(Config) ->
@@ -65,6 +75,7 @@ init_per_group(Type, Config0) when Type =:= iotdb110 orelse Type =:= iotdb130 ->
             [
                 {bridge_host, Host},
                 {bridge_port, Port},
+                {rest_port, Port},
                 {proxy_name, ProxyName},
                 {iotdb_version, IotDbVersion},
                 {iotdb_rest_prefix, <<"/rest/v2/">>}
@@ -88,9 +99,34 @@ init_per_group(legacy = Type, Config0) ->
             [
                 {bridge_host, Host},
                 {bridge_port, Port},
+                {rest_port, Port},
                 {proxy_name, ProxyName},
                 {iotdb_version, ?VSN_0_13_X},
                 {iotdb_rest_prefix, <<"/rest/v1/">>}
+                | Config
+            ];
+        false ->
+            case os:getenv("IS_CI") of
+                "yes" ->
+                    throw(no_iotdb);
+                _ ->
+                    {skip, no_iotdb}
+            end
+    end;
+init_per_group(thrift = Type, Config0) ->
+    Host = os:getenv("IOTDB_THRIFT_HOST", "toxiproxy.emqx.net"),
+    Port = list_to_integer(os:getenv("IOTDB_THRIFT_PORT", "46667")),
+    ProxyName = "iotdb_thrift",
+    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
+        true ->
+            Config = emqx_bridge_v2_testlib:init_per_group(Type, ?BRIDGE_TYPE_BIN, Config0),
+            [
+                {bridge_host, Host},
+                {bridge_port, Port},
+                {rest_port, 48080},
+                {proxy_name, ProxyName},
+                {iotdb_version, ?PROTOCOL_V3},
+                {iotdb_rest_prefix, <<"/rest/v2/">>}
                 | Config
             ];
         false ->
@@ -121,6 +157,7 @@ init_per_testcase(TestCase, Config0) ->
         (atom_to_binary(TestCase))/binary, UniqueNum/binary
     >>,
     {_ConfigString, ConnectorConfig} = connector_config(Name, Config0),
+
     {_, ActionConfig} = action_config(Name, Config0),
     Config = [
         {connector_type, Type},
@@ -229,16 +266,14 @@ iotdb_request(Config, Path, Body) ->
     iotdb_request(Config, Path, Body, #{}).
 
 iotdb_request(Config, Path, Body, Opts) ->
-    _BridgeConfig =
-        #{
-            <<"base_url">> := BaseURL,
-            <<"authentication">> := #{
-                <<"username">> := Username,
-                <<"password">> := Password
-            }
-        } =
-        ?config(connector_config, Config),
-    ct:pal("bridge config: ~p", [_BridgeConfig]),
+    BridgeConfig = ?config(connector_config, Config),
+    Host = ?config(bridge_host, Config),
+    Port = ?config(rest_port, Config),
+    Username = <<"root">>,
+    Password = <<"root">>,
+    BaseURL = iotdb_server_url(Host, Port),
+
+    ct:pal("bridge config: ~p", [BridgeConfig]),
     URL = <<BaseURL/binary, Path/binary>>,
     BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
     Headers = [
@@ -265,6 +300,8 @@ iotdb_query(Config, Query) ->
 
 is_success_check({ok, 200, _, Body}) ->
     ?assert(is_code(200, emqx_utils_json:decode(Body)));
+is_success_check({ok, _}) ->
+    ok;
 is_success_check(Other) ->
     throw(Other).
 
@@ -303,23 +340,46 @@ connector_config(Name, Config) ->
     Version = ?config(iotdb_version, Config),
     ServerURL = iotdb_server_url(Host, Port),
     ConfigString =
-        io_lib:format(
-            "connectors.~s.~s {\n"
-            "  enable = true\n"
-            "  base_url = \"~s\"\n"
-            "  iotdb_version = \"~s\"\n"
-            "  authentication = {\n"
-            "     username = \"root\"\n"
-            "     password = \"root\"\n"
-            "  }\n"
-            "}\n",
-            [
-                Type,
-                Name,
-                ServerURL,
-                Version
-            ]
-        ),
+        case ?config(test_group, Config) of
+            thrift ->
+                io_lib:format(
+                    "connectors.~s.~s {\n"
+                    "  enable = true\n"
+                    "  driver = \"thrift\"\n"
+                    "  server = \"~s:~p\"\n"
+                    "  protocol_version = \"~p\"\n"
+                    "  username = \"root\"\n"
+                    "  password = \"root\"\n"
+                    "  zoneId = \"Asia/Shanghai\"\n"
+                    "  ssl.enable = false\n"
+                    "}\n",
+                    [
+                        Type,
+                        Name,
+                        Host,
+                        Port,
+                        Version
+                    ]
+                );
+            _ ->
+                io_lib:format(
+                    "connectors.~s.~s {\n"
+                    "  enable = true\n"
+                    "  base_url = \"~s\"\n"
+                    "  iotdb_version = \"~s\"\n"
+                    "  authentication = {\n"
+                    "     username = \"root\"\n"
+                    "     password = \"root\"\n"
+                    "  }\n"
+                    "}\n",
+                    [
+                        Type,
+                        Name,
+                        ServerURL,
+                        Version
+                    ]
+                )
+        end,
     ct:pal("ConnectorConfig:~ts~n", [ConfigString]),
     {ConfigString, parse_connector_and_check(ConfigString, Type, Name)}.
 
@@ -556,7 +616,10 @@ t_async_invalid_template(Config) ->
     ).
 
 t_create_via_http(Config) ->
-    emqx_bridge_v2_testlib:t_create_via_http(Config).
+    emqx_bridge_v2_testlib:t_create_via_http(
+        Config,
+        thrift =:= ?config(test_group, Config)
+    ).
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, iotdb_bridge_stopped).
