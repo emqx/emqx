@@ -401,48 +401,6 @@ t_mqtt_conn_bridge_ingress_shared_subscription(_) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     ok.
 
-t_connect_with_more_clients_than_the_broker_accepts(_) ->
-    PoolSize = 100,
-    OrgConf = emqx_mgmt_listeners_conf:get_raw(tcp, default),
-    on_exit(fun() ->
-        emqx_mgmt_listeners_conf:update(tcp, default, OrgConf)
-    end),
-    NewConf = OrgConf#{<<"max_connections">> => 3},
-    {ok, _} = emqx_mgmt_listeners_conf:update(tcp, default, NewConf),
-    BridgeName = atom_to_binary(?FUNCTION_NAME),
-    ?check_trace(
-        #{timetrap => 10_000},
-        begin
-            BridgeID = create_bridge(
-                ?SERVER_CONF#{
-                    <<"name">> => BridgeName,
-                    <<"ingress">> => #{
-                        <<"pool_size">> => PoolSize,
-                        <<"remote">> => #{
-                            <<"topic">> => <<"$share/ingress/", ?INGRESS_REMOTE_TOPIC, "/#">>,
-                            <<"qos">> => 1
-                        },
-                        <<"local">> => #{
-                            <<"topic">> => <<?INGRESS_LOCAL_TOPIC, "/${topic}">>,
-                            <<"qos">> => <<"${qos}">>,
-                            <<"payload">> => <<"${clientid}">>,
-                            <<"retain">> => <<"${retain}">>
-                        }
-                    }
-                }
-            ),
-            ?block_until(#{?snk_kind := emqx_bridge_mqtt_connector_tcp_closed}),
-            {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
-            ok
-        end,
-        fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(emqx_bridge_mqtt_connector_tcp_closed, Trace)),
-            ok
-        end
-    ),
-
-    ok.
-
 t_mqtt_egress_bridge_warns_clean_start(_) ->
     BridgeName = atom_to_binary(?FUNCTION_NAME),
     Action = fun() ->

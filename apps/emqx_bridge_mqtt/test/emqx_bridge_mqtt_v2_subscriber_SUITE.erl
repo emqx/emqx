@@ -246,3 +246,28 @@ t_receive_via_rule(Config) ->
         end
     ),
     ok.
+
+t_connect_with_more_clients_than_the_broker_accepts(Config0) ->
+    OrgConf = emqx_mgmt_listeners_conf:get_raw(tcp, default),
+    on_exit(fun() ->
+        emqx_mgmt_listeners_conf:update(tcp, default, OrgConf)
+    end),
+    NewConf = OrgConf#{<<"max_connections">> => 3},
+    {ok, _} = emqx_mgmt_listeners_conf:update(tcp, default, NewConf),
+    ConnectorConfig0 = ?config(connector_config, Config0),
+    ConnectorConfig = ConnectorConfig0#{<<"pool_size">> := 100},
+    Config = emqx_utils:merge_opts(Config0, [{connector_config, ConnectorConfig}]),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
+            ?block_until(#{?snk_kind := emqx_bridge_mqtt_connector_tcp_closed}),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(emqx_bridge_mqtt_connector_tcp_closed, Trace)),
+            ok
+        end
+    ),
+
+    ok.
