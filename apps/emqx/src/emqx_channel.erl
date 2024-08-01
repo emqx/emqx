@@ -37,7 +37,6 @@
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
-    set_conninfo_proto_ver/2,
     stats/1,
     caps/1
 ]).
@@ -219,9 +218,6 @@ info(impl, #channel{session = Session}) ->
 
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
-
-set_conninfo_proto_ver({none, #{version := ProtoVer}}, Channel = #channel{conninfo = ConnInfo}) ->
-    Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}}.
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{session = undefined}) ->
