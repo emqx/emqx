@@ -1029,19 +1029,22 @@ do_load_plugin_app(AppName, Ebin) ->
     end.
 
 start_app(App) ->
-    case application:ensure_all_started(App) of
-        {ok, Started} ->
+    case run_with_timeout(application, ensure_all_started, [App], 10_000) of
+        {ok, {ok, Started}} ->
             case Started =/= [] of
                 true -> ?SLOG(debug, #{msg => "started_plugin_apps", apps => Started});
                 false -> ok
-            end,
-            ?SLOG(debug, #{msg => "started_plugin_app", app => App}),
-            ok;
-        {error, {ErrApp, Reason}} ->
+            end;
+        {ok, {error, Reason}} ->
+            throw(#{
+                msg => "failed_to_start_app",
+                app => App,
+                reason => Reason
+            });
+        {error, Reason} ->
             throw(#{
                 msg => "failed_to_start_plugin_app",
                 app => App,
-                err_app => ErrApp,
                 reason => Reason
             })
     end.
@@ -1562,3 +1565,20 @@ bin(B) when is_binary(B) -> B.
 
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).
+
+run_with_timeout(Module, Function, Args, Timeout) ->
+    Self = self(),
+    Fun = fun() ->
+        Result = apply(Module, Function, Args),
+        Self ! {self(), Result}
+    end,
+    Pid = spawn(Fun),
+    TimerRef = erlang:send_after(Timeout, self(), {timeout, Pid}),
+    receive
+        {Pid, Result} ->
+            _ = erlang:cancel_timer(TimerRef),
+            {ok, Result};
+        {timeout, Pid} ->
+            exit(Pid, kill),
+            {error, timeout}
+    end.
