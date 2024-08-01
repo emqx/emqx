@@ -200,7 +200,7 @@ on_get_channel_status(
     } = _State
 ) when is_map_key(ChannelId, Channels) ->
     %% The channel should be ok as long as the MQTT client is ok
-    connected.
+    ?status_connected.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -359,7 +359,7 @@ on_get_status(_ResourceId, State) ->
             combine_status(Statuses)
     catch
         exit:timeout ->
-            connecting
+            ?status_connecting
     end.
 
 get_status({_Pool, Worker}) ->
@@ -367,7 +367,7 @@ get_status({_Pool, Worker}) ->
         {ok, Client} ->
             emqx_bridge_mqtt_ingress:status(Client);
         {error, _} ->
-            disconnected
+            ?status_disconnected
     end.
 
 combine_status(Statuses) ->
@@ -379,7 +379,7 @@ combine_status(Statuses) ->
         [Status | _] ->
             Status;
         [] ->
-            disconnected
+            ?status_disconnected
     end.
 
 mk_ingress_config(
