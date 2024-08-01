@@ -16,7 +16,7 @@
 
 -module(emqx_connector_jwt).
 
--include_lib("emqx_connector/include/emqx_connector_tables.hrl").
+-include("emqx_connector_jwt_tables.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("jose/include/jose_jwt.hrl").
@@ -37,7 +37,7 @@
 -type jwt_config() :: #{
     expiration := duration(),
     resource_id := resource_id(),
-    table := ets:table(),
+    table => ets:table(),
     jwk := wrapped_jwk() | jwk(),
     iss := binary(),
     sub := binary(),
@@ -82,7 +82,8 @@ delete_jwt(TId, ResourceId) ->
 %% one.
 -spec ensure_jwt(jwt_config()) -> jwt().
 ensure_jwt(JWTConfig) ->
-    #{resource_id := ResourceId, table := Table} = JWTConfig,
+    #{resource_id := ResourceId} = JWTConfig,
+    Table = maps:get(table, JWTConfig, ?JWT_TABLE),
     case lookup_jwt(Table, ResourceId) of
         {error, not_found} ->
             JWT = do_generate_jwt(JWTConfig),
@@ -132,8 +133,9 @@ do_generate_jwt(#{
     JWT.
 
 -spec store_jwt(jwt_config(), jwt()) -> ok.
-store_jwt(#{resource_id := ResourceId, table := TId}, JWT) ->
-    true = ets:insert(TId, {{ResourceId, jwt}, JWT}),
+store_jwt(#{resource_id := ResourceId} = JWTConfig, JWT) ->
+    Table = maps:get(table, JWTConfig, ?JWT_TABLE),
+    true = ets:insert(Table, {{ResourceId, jwt}, JWT}),
     ?tp(emqx_connector_jwt_token_stored, #{resource_id => ResourceId}),
     ok.
 

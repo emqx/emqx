@@ -33,6 +33,7 @@ defmodule EMQXConnector.MixProject do
     [
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
+      {:emqx_connector_jwt, in_umbrella: true},
       UMP.common_dep(:jose),
       UMP.common_dep(:ecpool),
       {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.4"},

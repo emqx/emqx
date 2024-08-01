@@ -1,0 +1,16 @@
+%% -*- mode: erlang -*-
+{application, emqx_connector_jwt, [
+    {description, "EMQX JWT Connector Utility"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {modules, []},
+    {mod, {emqx_connector_jwt_app, []}},
+
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.
