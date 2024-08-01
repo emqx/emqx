@@ -843,7 +843,8 @@ do_t_send_with_failure(Config, FailureType) ->
                         ?wait_async_action(
                             emqx:publish(Message0),
                             #{
-                                ?snk_kind := pulsar_producer_on_query_async,
+                                ?snk_kind := "pulsar_producer_query_enter",
+                                mode := async,
                                 ?snk_span := {complete, _}
                             },
                             5_000
@@ -970,7 +971,11 @@ t_producer_process_crash(Config) ->
             {_, {ok, _}} =
                 ?wait_async_action(
                     emqx:publish(Message0),
-                    #{?snk_kind := pulsar_producer_on_query_async, ?snk_span := {complete, _}},
+                    #{
+                        ?snk_kind := "pulsar_producer_query_enter",
+                        mode := async,
+                        ?snk_span := {complete, _}
+                    },
                     5_000
                 ),
             Data0 = receive_consumed(20_000),
