@@ -690,7 +690,7 @@ handle_timeout(
     %% in the fully replayed state.
     {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:pre_renew_streams(S0, SharedSubS0),
     S2 = emqx_persistent_session_ds_subs:gc(S1),
-    S3 = emqx_persistent_session_ds_stream_scheduler:renew_streams(S2),
+    {S3, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(S2, SchedS0),
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:renew_streams(S3, SharedSubS1),
     Interval = get_config(ClientInfo, [renew_streams_interval]),
     Session = set_timer(
