@@ -135,7 +135,7 @@
 %% internal exports:
 -export([]).
 
--export_type([t/0, stream_key/0]).
+-export_type([t/0, stream_key/0, srs/0]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -162,7 +162,7 @@
 -type pending() :: #pending_poll{}.
 
 -record(block, {
-    id :: emqx_persistent_session_ds_state:stream_key(),
+    id :: stream_key(),
     last_seqno_qos1 :: emqx_persistent_session_ds:seqno(),
     last_seqno_qos2 :: emqx_persistent_session_ds:seqno()
 }).
@@ -176,7 +176,7 @@
 -record(s, {
     %% Buckets:
     ready :: ready(),
-    pending = #{} :: #{emqx_persistent_session_ds_state:stream_key() => #pending_poll{}},
+    pending = #{} :: #{stream_key() => #pending_poll{}},
     bq1 :: blocklist(),
     bq2 :: blocklist()
 }).
@@ -214,7 +214,7 @@ init(S) ->
 %% @doc Find the streams that have uncommitted (in-flight) messages.
 %% Return them in the order they were previously replayed.
 -spec find_replay_streams(emqx_persistent_session_ds_state:t()) ->
-    [{emqx_persistent_session_ds_state:stream_key(), emqx_persistent_session_ds:stream_state()}].
+    [{stream_key(), emqx_persistent_session_ds:stream_state()}].
 find_replay_streams(S) ->
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
@@ -256,11 +256,13 @@ poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
     case Iterators of
         [] ->
             %% Nothing to poll:
-            unalias(Ref);
+            unalias(Ref),
+            ok;
         _ ->
             %% Send poll request:
             PollOpts = PollOpts0#{reply_to => Ref},
-            {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts)
+            {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts),
+            ok
     end,
     %% Clean ready bucket at once, since we poll all ready streams at once:
     SchedS#s{ready = empty_ready()}.
@@ -522,7 +524,7 @@ to_BQ2(Key, SRS, S = #s{bq2 = BQ2}) ->
     Block = #block{last_seqno_qos2 = SN2} = block_of_srs(Key, SRS),
     S#s{bq2 = gb_trees:insert(SN2, Block, BQ2)}.
 
--spec to_BQ12(t(), stream_key(), srs()) -> t().
+-spec to_BQ12(stream_key(), srs(), t()) -> t().
 to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
     ?tp(sessds_stream_state_trans, #{
         key => Key,
@@ -542,7 +544,7 @@ to_U(
         to => u
     }),
     S#s{
-        ready = maps:remove(Key, R),
+        ready = del_ready(Key, R),
         pending = maps:remove(Key, P),
         bq1 = gb_trees:delete_any(SN1, BQ1),
         bq2 = gb_trees:delete_any(SN2, BQ2)
@@ -564,6 +566,9 @@ empty_ready() ->
 
 push_to_ready(K, Ready) ->
     [K | Ready].
+
+del_ready(K, Ready) ->
+    Ready -- [K].
 
 ensure_iterator(TopicFilter, StartTime, SubId, SStateId, {{RankX, RankY}, Stream}, {S, SchedS}) ->
     Key = {SubId, Stream},

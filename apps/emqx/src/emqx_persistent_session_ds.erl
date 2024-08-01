@@ -672,7 +672,7 @@ handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
             {ok, [], Session1};
         false ->
             Timeout = get_config(ClientInfo, [idle_poll_interval]),
-            PollOpts = #{max => BatchSize, timeout => Timeout},
+            PollOpts = #{timeout => Timeout},
             SchedS = emqx_persistent_session_ds_stream_scheduler:poll(PollOpts, SchedS0, S),
             {ok, [], Session1#{stream_scheduler_s := SchedS}}
     end;
@@ -780,9 +780,12 @@ replay_streams(Session = #{replay := []}, _ClientInfo) ->
     pull_now(Session#{replay := undefined}).
 
 -spec replay_batch(
-    emqx_persistent_session_ds_state:stream_key(), stream_state(), session(), clientinfo()
+    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    stream_state(),
+    session(),
+    clientinfo()
 ) ->
-    {ok | emqx_ds:error(), stream_state(), session()}.
+    {ok, stream_state(), session()} | emqx_ds:error(_).
 replay_batch(StreamKey, Srs0, Session0, ClientInfo) ->
     #srs{it_begin = ItBegin, batch_size = BatchSize} = Srs0,
     FetchResult = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize),
@@ -1129,11 +1132,11 @@ handle_ds_reply(AsyncReply, Session0 = #{stream_scheduler_s := SchedS0}, ClientI
     boolean(),
     session(),
     clientinfo(),
-    emqx_persistent_session_ds_state:stream_key(),
+    emqx_persistent_session_ds_stream_scheduler:stream_key(),
     emqx_ds:iterator(),
     emqx_ds:next_result()
 ) ->
-    {ok | emqx_ds:error(), #srs{}, session()}
+    {ok | emqx_ds:error(_), #srs{}, session()}
     | {ignore, undefined, session()}.
 enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, FetchResult) ->
     case emqx_persistent_session_ds_state:get_stream(StreamKey, S) of

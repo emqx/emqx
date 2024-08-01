@@ -36,7 +36,7 @@
 -spec with_worker(_UserData, module(), atom(), list()) -> {ok, reference()}.
 with_worker(UserData, Mod, Function, Args) ->
     ReplyTo = alias([reply]),
-    spawn_opt(
+    _ = spawn_opt(
         fun() ->
             Result =
                 try

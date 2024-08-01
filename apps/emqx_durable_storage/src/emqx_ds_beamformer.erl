@@ -143,7 +143,7 @@
         pack ::
             [{emqx_ds:message_key(), dispatch_mask(), emqx_types:message()}]
             | end_of_stream
-            | emqx_ds:error(),
+            | emqx_ds:error(_),
         misc :: #{}
     }.
 
@@ -152,7 +152,7 @@
 -type stream_scan_return() ::
     {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message()}]}
     | {ok, end_of_stream}
-    | emqx_ds:error().
+    | emqx_ds:error(_).
 
 -record(s, {
     module :: module(),
@@ -186,7 +186,7 @@
     stream := Stream,
     topic_filter := _,
     last_seen_key := emqx_ds:message_key(),
-    timestamp := emqx_ds:timestamp_us(),
+    timestamp := emqx_ds:time(),
     message_matcher := match_messagef()
 }.
 
@@ -213,9 +213,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         last_seen_key := DSKey,
         timestamp := Timestamp,
         message_matcher := MsgMatcher
-    } = CBM:unpack_iterator(
-        Shard, Iterator
-    ),
+    } = CBM:unpack_iterator(Shard, Iterator),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
     logger:debug(#{
         msg => poll, shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
@@ -298,7 +296,7 @@ handle_call(
     case NQueued >= S#s.pending_request_limit of
         true ->
             Reply = {error, recoverable, too_many_requests},
-            emqx_ds_metrics:inc_poll_requests_dropped(Metrics, 1),
+            emqx_ds_builtin_metrics:inc_poll_requests_dropped(Metrics, 1),
             {reply, Reply, S};
         false ->
             ets:insert(S#s.pending_queue, Req),
@@ -404,7 +402,6 @@ do_fulfill_pending(
     end,
     case CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize) of
         {ok, EndKey, Batch} ->
-            %% logger:warning("Batch ~p ~p ~p ~p", [Stream, TopicFilter, StartKey, length(Batch)]),
             form_beams(S, GetF, OnMatch, move_to_waiting(S), StartKey, EndKey, Batch)
     end.
 
@@ -434,9 +431,6 @@ maybe_fulfill_waiting(
             end,
             case CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize) of
                 {ok, EndKey, Batch} ->
-                    %% logger:warning("Batch ~p ~p ~p ~p", [
-                    %%     Stream, TopicFilter, StartKey, length(Batch)
-                    %% ]),
                     form_beams(S, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch)
             end,
             maybe_fulfill_waiting(S, Rest)
@@ -536,18 +530,15 @@ split(#beam{iterators = Its, pack = Pack}) ->
 %% This function checks pending requests in the `FromTab' and either
 %% dispatches them as a beam or passes them to `OnNomatch' callback if
 %% there's nothing to dispatch.
-%% -spec form_beams(
-%%     s(),
-%%     ets:tid(),
-%%     fun(([poll_req(_, _)]) -> _),
-%%     fun(([poll_req(_, _)]) -> _),
-%%     _Stream,
-%%     _TopicFilter,
-%%     emqx_ds:message_key(),
-%%     emqx_ds:message_key(),
-%%     [{emqx_ds:message_key(), emqx_types:message()}]
-%% ) ->
-%%     #{node() => beam(_ItKey, _Iterator)}.
+-spec form_beams(
+    s(),
+    fun((emqx_ds:message_key()) -> [Req]),
+    fun(([Req]) -> _),
+    fun(([Req]) -> _),
+    emqx_ds:message_key(),
+    emqx_ds:message_key(),
+    [{emqx_ds:message_key(), emqx_types:message()}]
+) -> boolean() when Req :: poll_req(_ItKey, _It).
 form_beams(S = #s{metrics_id = Metrics}, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch) ->
     %% Find iterators that match the start message of the batch (to
     %% handle iterators freshly created by `emqx_ds:make_iterator'):
@@ -596,7 +587,8 @@ form_beams(S = #s{metrics_id = Metrics}, GetF, OnMatch, OnNomatch, StartKey, End
             send_out(Node, Beam)
         end,
         ReqsByNode
-    ).
+    ),
+    NFulfilled > 0.
 
 -spec pack(
     s(),
@@ -604,8 +596,7 @@ form_beams(S = #s{metrics_id = Metrics}, GetF, OnMatch, OnNomatch, StartKey, End
     [{ItKey, Iterator}],
     stream_scan_return()
 ) -> beam(ItKey, Iterator).
-pack(S, NextKey, Reqs, Batch) ->
-    #s{module = CBM, shard = Shard} = S,
+pack(#s{module = CBM, shard = Shard}, NextKey, Reqs, Batch) ->
     Pack = [{Key, mk_mask(Reqs, Elem), Msg} || Elem = {Key, Msg} <- Batch],
     UpdatedIterators =
         lists:map(
@@ -693,20 +684,6 @@ send_out(Node, Beam) ->
 
 shard_metrics_id({DB, Shard}) ->
     emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).
-
--compile({nowarn_unused_function, debug_pending/1}).
-debug_pending(#s{shard = Shard, pending_queue = PendingTab}) ->
-    case ets:tab2list(PendingTab) of
-        [] -> ok;
-        L -> logger:warning("Fulfill pending ~p: ~p", [Shard, L])
-    end.
-
--compile({nowarn_unused_function, debug_waiting/3}).
-debug_waiting(Stream, TopicFilter, #s{shard = Shard, wait_queue = WaitingTab}) ->
-    case ets:tab2list(WaitingTab) of
-        [] -> ok;
-        L -> logger:warning("Fulfill waiting ~p/~p/~p:~n   ~p", [Shard, Stream, TopicFilter, L])
-    end.
 
 %%================================================================================
 %% Tests
