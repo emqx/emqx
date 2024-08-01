@@ -274,7 +274,7 @@ init([CBM, ShardId, Name, Opts]) ->
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
     PendingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
-    WaitingTab = emqx_ds_event_trie:new(),
+    WaitingTab = emqx_ds_beamformer_waitq:new(),
     S = #s{
         module = CBM,
         shard = ShardId,
@@ -416,16 +416,18 @@ maybe_fulfill_waiting(
 ) ->
     case find_waiting(Stream, UpdatedTopic, WaitingTab) of
         undefined ->
-            %% logger:warning(#{stream => Stream, topic => Topic, candidates => none}),
+            %% logger:warning(#{stream => Stream, candidates => none}),
             maybe_fulfill_waiting(S, Rest);
         {Candidates, TopicFilter, StartKey} ->
-            %% logger:warning(#{stream => Stream, topic => UpdatedTopic, tf => TopicFilter}),
+            %% logger:warning(#{
+            %%     stream => Stream, tf => TopicFilter, candidates => Candidates
+            %% }),
             GetF = fun(Key) -> maps:get(Key, Candidates, []) end,
             OnNomatch = fun(_) -> ok end,
             OnMatch = fun(Reqs) ->
                 lists:foreach(
                     fun(#poll_req{key = {Str, TF, _}, return_addr = Id}) ->
-                        emqx_ds_event_trie:delete(Str, TF, Id, WaitingTab)
+                        emqx_ds_beamformer_waitq:delete(Str, TF, Id, WaitingTab)
                     end,
                     Reqs
                 )
@@ -444,14 +446,14 @@ move_to_waiting(#s{wait_queue = WaitingTab}) ->
     fun(NoMatch) ->
         lists:foreach(
             fun(Req = #poll_req{key = {Stream, TopicFilter, _Key}, return_addr = Id}) ->
-                emqx_ds_event_trie:insert(Stream, TopicFilter, Id, Req, WaitingTab)
+                emqx_ds_beamformer_waitq:insert(Stream, TopicFilter, Id, Req, WaitingTab)
             end,
             NoMatch
         )
     end.
 
 find_waiting(Stream, Topic, Tab) ->
-    case emqx_ds_event_trie:matches(Stream, Topic, Tab) of
+    case emqx_ds_beamformer_waitq:matches(Stream, Topic, Tab) of
         [] ->
             undefined;
         [Fst | _] = Matches ->
