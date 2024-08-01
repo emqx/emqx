@@ -563,6 +563,7 @@ log_connect_error_reason(Level, Reason, Name) ->
 
 explain_error(econnrefused) ->
     <<
+        "Connection refused. "
         "This error indicates that your connection attempt to the MQTT server was rejected. "
         "In simpler terms, the server you tried to connect to refused your request. "
         "There can be multiple reasons for this. "
