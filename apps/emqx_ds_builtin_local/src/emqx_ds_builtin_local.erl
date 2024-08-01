@@ -44,7 +44,7 @@
 
     %% `beamformer':
     unpack_iterator/2,
-    scan_stream/3,
+    scan_stream/5,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -370,9 +370,9 @@ unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
         message_matcher => MsgMatcher
     }.
 
-scan_stream(Shard, #{?tag := ?IT, ?enc := Inner}, BatchSize) ->
+scan_stream(Shard, Stream, TopicFilter, StartMsg, BatchSize) ->
     Now = current_timestamp(Shard),
-    emqx_ds_storage_layer:scan_stream(Shard, Inner, Now, BatchSize).
+    emqx_ds_storage_layer:scan_stream(Shard, Stream, TopicFilter, Now, StartMsg, BatchSize).
 
 -spec get_delete_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [emqx_ds:ds_specific_delete_stream()].

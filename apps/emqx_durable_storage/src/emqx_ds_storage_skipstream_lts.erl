@@ -36,7 +36,7 @@
     delete_next/7,
 
     unpack_iterator/3,
-    scan_stream/6,
+    scan_stream/8,
     message_matcher/3,
 
     batch_events/2
@@ -239,7 +239,7 @@ commit_batch(
         rocksdb:release_batch(Batch)
     end.
 
-batch_events(#s{trie = Trie}, #{?cooked_payloads := Payloads}) ->
+batch_events(#s{trie = _Trie}, #{?cooked_payloads := Payloads}) ->
     EventMap = lists:foldl(
         fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob), Acc) ->
             maps:put({Static, Varying}, 1, Acc)
@@ -247,14 +247,15 @@ batch_events(#s{trie = Trie}, #{?cooked_payloads := Payloads}) ->
         #{},
         Payloads
     ),
-    maps:fold(
-        fun({Stream, CompressedTopic}, _, Acc) ->
-            Structure = get_topic_structure(Trie, Stream),
-            [{Stream, emqx_ds_lts:decompress_topic(Structure, CompressedTopic)} | Acc]
-        end,
-        [],
-        EventMap
-    ).
+    maps:keys(EventMap).
+%% maps:fold(
+%%     fun({Stream, CompressedTopic}, _, Acc) ->
+%%         Structure = get_topic_structure(Trie, Stream),
+%%         [{Stream, emqx_ds_lts:decompress_topic(Structure, CompressedTopic)} | Acc]
+%%     end,
+%%     [],
+%%     EventMap
+%% ).
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
@@ -283,13 +284,16 @@ message_matcher(_Shard, #s{}, #it{static_index = StaticIdx, ts = LastSeenTS}) ->
         end
     end.
 
-unpack_iterator(_Shard, #s{trie = Trie}, #it{static_index = StaticIdx, compressed_tf = CTF, ts = TS}) ->
+unpack_iterator(_Shard, #s{trie = _Trie}, #it{
+    static_index = StaticIdx, compressed_tf = CTF, ts = TS
+}) ->
     StartKey = mk_key(StaticIdx, 0, <<>>, TS),
-    Structure = get_topic_structure(Trie, StaticIdx),
-    TF = emqx_ds_lts:decompress_topic(Structure, words(CTF)),
-    {StaticIdx, TF, StartKey, TS}.
+    %% Structure = get_topic_structure(Trie, StaticIdx),
+    {StaticIdx, words(CTF), StartKey, TS}.
 
-scan_stream(Shard, S, It, BatchSize, TMax, IsCurrent) ->
+scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+    LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
+    It = #it{static_index = StaticIdx, compressed_tf = emqx_topic:join(Varying), ts = LastSeenTS},
     case next(Shard, S, It, BatchSize, TMax, IsCurrent) of
         {ok, #it{ts = TS, static_index = StaticIdx}, Batch} ->
             {ok, mk_key(StaticIdx, 0, <<>>, TS), Batch};
@@ -760,10 +764,9 @@ trie_cf(GenId) ->
 
 %%%%%%%% Topic encoding %%%%%%%%%%
 
-words(<<>>) ->
-    [];
-words(Bin) ->
-    emqx_topic:words(Bin).
+% words(L) when is_list(L) -> L;
+words(<<>>) -> [];
+words(Bin) -> emqx_topic:words(Bin).
 
 %%%%%%%% Counters %%%%%%%%%%
 

@@ -196,7 +196,7 @@
 %% -callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
 %%     emqx_ds:make_iterator_result(Iterator).
 
--callback scan_stream(_Shard, _It, non_neg_integer()) ->
+-callback scan_stream(_Shard, _Stream, _TopicFilter, _StartKey, non_neg_integer()) ->
     stream_scan_return().
 
 %%================================================================================
@@ -394,14 +394,17 @@ do_fulfill_pending(
         pending_queue = PendingTab,
         batch_size = BatchSize
     },
-    #poll_req{key = {Stream, TopicFilter, StartKey}, it = It}
+    #poll_req{key = {Stream, TopicFilter, StartKey}}
 ) ->
     OnMatch = fun(_) -> ok end,
+    %% Here we only group requests with exact match of the topic
+    %% filter:
     GetF = fun(MsgKey) ->
         ets:take(PendingTab, {Stream, TopicFilter, MsgKey})
     end,
-    case CBM:scan_stream(Shard, It, BatchSize) of
+    case CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize) of
         {ok, EndKey, Batch} ->
+            %% logger:warning("Batch ~p ~p ~p ~p", [Stream, TopicFilter, StartKey, length(Batch)]),
             form_beams(S, GetF, OnMatch, move_to_waiting(S), StartKey, EndKey, Batch)
     end.
 
@@ -415,26 +418,23 @@ maybe_fulfill_waiting(
         undefined ->
             %% logger:warning(#{stream => Stream, topic => Topic, candidates => none}),
             maybe_fulfill_waiting(S, Rest);
-        {_Master = #poll_req{key = {_, _, StartKey}, it = It}, Candidates} ->
-            logger:warning(#{
-                stream => Stream,
-                topic => UpdatedTopic,
-                it => It,
-                candidates => Candidates,
-                master => _Master
-            }),
+        {Candidates, TopicFilter, StartKey} ->
+            %% logger:warning(#{stream => Stream, topic => UpdatedTopic, tf => TopicFilter}),
             GetF = fun(Key) -> maps:get(Key, Candidates, []) end,
             OnNomatch = fun(_) -> ok end,
             OnMatch = fun(Reqs) ->
                 lists:foreach(
-                    fun(#poll_req{key = {_, TopicFilter, _}, return_addr = Id}) ->
-                        emqx_ds_event_trie:delete(Stream, TopicFilter, Id, WaitingTab)
+                    fun(#poll_req{key = {Str, TF, _}, return_addr = Id}) ->
+                        emqx_ds_event_trie:delete(Str, TF, Id, WaitingTab)
                     end,
                     Reqs
                 )
             end,
-            case CBM:scan_stream(Shard, It, BatchSize) of
+            case CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize) of
                 {ok, EndKey, Batch} ->
+                    %% logger:warning("Batch ~p ~p ~p ~p", [
+                    %%     Stream, TopicFilter, StartKey, length(Batch)
+                    %% ]),
                     form_beams(S, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch)
             end,
             maybe_fulfill_waiting(S, Rest)
@@ -450,22 +450,6 @@ move_to_waiting(#s{wait_queue = WaitingTab}) ->
         )
     end.
 
-%% %% It's always worth to try fulfilling the oldest requests first,
-%% %% because they have a better chance of producing a batch that
-%% %% overlaps with other pending requests.
-%% %%
-%% %% Below is one very shoddy attempt to find the oldest key for the
-%% %% stream. It finds the lowest key in a somewhat random sample. But
-%% %% since we use a `duplicate_bag', it may require a full table scan?
-%% oldest_key_for_stream(Tab, Stream, SampleSize) ->
-%%     MS = {#poll_req{_ = '_', key = {Stream, '$1'}}, [], ['$1']},
-%%     case ets:select(Tab, [MS], SampleSize) of
-%%         '$end_of_table' ->
-%%             undefined;
-%%         {Keys, _Cont} ->
-%%             lists:min(Keys)
-%%     end.
-
 find_waiting(Stream, Topic, Tab) ->
     case emqx_ds_event_trie:matches(Stream, Topic, Tab) of
         [] ->
@@ -474,32 +458,19 @@ find_waiting(Stream, Topic, Tab) ->
             %% 1. Find all poll requests that match the topic of the
             %% event
             %%
-            %% 2. Find the poll request that has the least specific
-            %% topic filter and the smallest key, that will be used as
-            %% the origin for the stream scan.
+            %% 2. Find most common topic filter for all these events
+            %%
+            %% 3. Find the smallest DS key
             lists:foldl(
-                fun(Req, {Min0, Acc0}) ->
-                    MinKey0 = ds_key_of_poll(Min0),
+                fun(Req, {Acc, AccTopic, AccKey}) ->
                     ReqKey = ds_key_of_poll(Req),
-                    Acc = map_pushl(ReqKey, Req, Acc0),
-                    case
-                        {
-                            topic_selectiveness(topic_of_poll(Req)),
-                            topic_selectiveness(topic_of_poll(Min0))
-                        }
-                    of
-                        {N1, N2} when N1 < N2 ->
-                            {Req, Acc};
-                        {N1, N1} ->
-                            case ReqKey < MinKey0 of
-                                true -> {Req, Acc};
-                                false -> {Min0, Acc}
-                            end;
-                        _ ->
-                            {Min0, Acc}
-                    end
+                    {
+                        map_pushl(ReqKey, Req, Acc),
+                        common_topic_filter(AccTopic, topic_of_poll(Req)),
+                        min(AccKey, ReqKey)
+                    }
                 end,
-                {Fst, #{}},
+                {#{}, topic_of_poll(Fst), ds_key_of_poll(Fst)},
                 Matches
             )
     end.
@@ -508,10 +479,18 @@ ds_key_of_poll(#poll_req{key = {_, _, Key}}) -> Key.
 
 topic_of_poll(#poll_req{key = {_, Topic, _}}) -> Topic.
 
-topic_selectiveness([]) -> 1;
-topic_selectiveness(['#']) -> 0;
-topic_selectiveness([Bin | Rest]) when is_binary(Bin) -> 1 + topic_selectiveness(Rest);
-topic_selectiveness([_ | Rest]) -> topic_selectiveness(Rest).
+common_topic_filter([], []) ->
+    [];
+common_topic_filter(['#'], _) ->
+    ['#'];
+common_topic_filter(_, ['#']) ->
+    ['#'];
+common_topic_filter(['+' | L1], [_ | L2]) ->
+    ['+' | common_topic_filter(L1, L2)];
+common_topic_filter([_ | L1], ['+' | L2]) ->
+    ['+' | common_topic_filter(L1, L2)];
+common_topic_filter([A | L1], [A | L2]) ->
+    [A | common_topic_filter(L1, L2)].
 
 map_pushl(Key, Elem, Map) ->
     maps:update_with(Key, fun(L) -> [Elem | L] end, [Elem], Map).
