@@ -36,7 +36,7 @@
     delete_next/7,
 
     unpack_iterator/3,
-    scan_stream/8,
+    scan_stream/6,
     message_matcher/3,
 
     batch_events/2
@@ -239,7 +239,7 @@ commit_batch(
         rocksdb:release_batch(Batch)
     end.
 
-batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
+batch_events(#s{trie = Trie}, #{?cooked_payloads := Payloads}) ->
     EventMap = lists:foldl(
         fun(?cooked_payload(_Timestamp, Static, Varying, _ValBlob), Acc) ->
             maps:put({Static, Varying}, 1, Acc)
@@ -247,7 +247,14 @@ batch_events(#s{}, #{?cooked_payloads := Payloads}) ->
         #{},
         Payloads
     ),
-    maps:keys(EventMap).
+    maps:fold(
+      fun({Stream, CompressedTopic}, _, Acc) ->
+              Structure = get_topic_structure(Trie, Stream),
+              [{Stream, emqx_ds_lts:decompress_topic(Structure, CompressedTopic)} | Acc]
+      end,
+      [],
+      EventMap
+     ).
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
@@ -276,13 +283,13 @@ message_matcher(_Shard, #s{}, #it{static_index = StaticIdx, ts = LastSeenTS}) ->
         end
     end.
 
-unpack_iterator(_Shard, #s{}, #it{static_index = Stream, compressed_tf = TF, ts = TS}) ->
-    StartKey = mk_key(Stream, 0, <<>>, TS),
-    {Stream, TF, StartKey, TS}.
+unpack_iterator(_Shard, #s{trie = Trie}, #it{static_index = StaticIdx, compressed_tf = CTF, ts = TS}) ->
+    StartKey = mk_key(StaticIdx, 0, <<>>, TS),
+    Structure = get_topic_structure(Trie, StaticIdx),
+    TF = emqx_ds_lts:decompress_topic(Structure, words(CTF)),
+    {StaticIdx, TF, StartKey, TS}.
 
-scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
-    LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
-    It = #it{static_index = StaticIdx, compressed_tf = Varying, ts = LastSeenTS},
+scan_stream(Shard, S, It, BatchSize, TMax, IsCurrent) ->
     case next(Shard, S, It, BatchSize, TMax, IsCurrent) of
         {ok, #it{ts = TS, static_index = StaticIdx}, Batch} ->
             {ok, mk_key(StaticIdx, 0, <<>>, TS), Batch};
@@ -487,16 +494,7 @@ next_loop(
     BatchSize,
     TMax
 ) ->
-    TopicStructure =
-        case emqx_ds_lts:reverse_lookup(Trie, StaticIdx) of
-            {ok, Rev} ->
-                Rev;
-            undefined ->
-                throw(#{
-                    msg => "LTS trie missing key",
-                    key => StaticIdx
-                })
-        end,
+    TopicStructure = get_topic_structure(Trie, StaticIdx),
     Ctx = #ctx{
         shard = Shard,
         s = S,
@@ -506,6 +504,17 @@ next_loop(
         tmax = TMax
     },
     next_loop(Ctx, It, BatchSize, {seek, inc_ts(LastTS)}, []).
+
+get_topic_structure(Trie, StaticIdx) ->
+    case emqx_ds_lts:reverse_lookup(Trie, StaticIdx) of
+            {ok, Rev} ->
+                Rev;
+            undefined ->
+                throw(#{
+                    msg => "LTS trie missing key",
+                    key => StaticIdx
+                })
+        end.
 
 next_loop(_Ctx, It, 0, _Op, Acc) ->
     finalize_loop(It, Acc);

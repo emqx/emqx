@@ -40,7 +40,7 @@
 
     generation/1,
     unpack_iterator/2,
-    scan_stream/6,
+    scan_stream/4,
     message_matcher/2,
 
     delete_next/5,
@@ -595,12 +595,12 @@ unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     end.
 
 scan_stream(
-    Shard, ?stream_v2(GenId, Inner), TopicFilter, Now, StartMsg, BatchSize
+    Shard, #{?tag := ?IT, ?generation := GenId, ?enc := InnerIt}, Now, BatchSize
 ) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             IsCurrent = GenId =:= generation_current(Shard),
-            Mod:scan_stream(Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent);
+            Mod:scan_stream(Shard, GenData, InnerIt, BatchSize, Now, IsCurrent);
         not_found ->
             ?ERR_GEN_GONE
     end.
