@@ -207,7 +207,13 @@
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
-    #{stream := Stream, topic_filter := TF, last_seen_key := DSKey, timestamp := Timestamp, message_matcher := MsgMatcher} = CBM:unpack_iterator(
+    #{
+        stream := Stream,
+        topic_filter := TF,
+        last_seen_key := DSKey,
+        timestamp := Timestamp,
+        message_matcher := MsgMatcher
+    } = CBM:unpack_iterator(
         Shard, Iterator
     ),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
@@ -268,7 +274,7 @@ init([CBM, ShardId, Name, Opts]) ->
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
     PendingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
-    WaitingTab = emqx_topic_index:new([private]),
+    WaitingTab = emqx_ds_event_trie:new(),
     S = #s{
         module = CBM,
         shard = ShardId,
@@ -403,23 +409,30 @@ maybe_fulfill_waiting(S, []) ->
     S;
 maybe_fulfill_waiting(
     S = #s{wait_queue = WaitingTab, module = CBM, shard = Shard, batch_size = BatchSize},
-    [{_Stream, UpdatedTopic} | Rest]
+    [{Stream, UpdatedTopic} | Rest]
 ) ->
-    case find_waiting(WaitingTab, UpdatedTopic) of
+    case find_waiting(Stream, UpdatedTopic, WaitingTab) of
         undefined ->
             %% logger:warning(#{stream => Stream, topic => Topic, candidates => none}),
             maybe_fulfill_waiting(S, Rest);
-        {#poll_req{key = {_, _, StartKey}, it = It}, Candidates} ->
-            logger:warning(#{stream => _Stream, topic => UpdatedTopic, it => It, candidates => Candidates}),
+        {_Master = #poll_req{key = {_, _, StartKey}, it = It}, Candidates} ->
+            logger:warning(#{
+                stream => Stream,
+                topic => UpdatedTopic,
+                it => It,
+                candidates => Candidates,
+                master => _Master
+            }),
             GetF = fun(Key) -> maps:get(Key, Candidates, []) end,
             OnNomatch = fun(_) -> ok end,
             OnMatch = fun(Reqs) ->
-                              lists:foreach(
-                                fun(#poll_req{key = {_, TopicFilter, _}, return_addr = Id}) ->
-                                        emqx_topic_index:delete(TopicFilter, Id, WaitingTab)
-                                end,
-                                Reqs)
-                      end,
+                lists:foreach(
+                    fun(#poll_req{key = {_, TopicFilter, _}, return_addr = Id}) ->
+                        emqx_ds_event_trie:delete(Stream, TopicFilter, Id, WaitingTab)
+                    end,
+                    Reqs
+                )
+            end,
             case CBM:scan_stream(Shard, It, BatchSize) of
                 {ok, EndKey, Batch} ->
                     form_beams(S, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch)
@@ -429,12 +442,12 @@ maybe_fulfill_waiting(
 
 move_to_waiting(#s{wait_queue = WaitingTab}) ->
     fun(NoMatch) ->
-            lists:foreach(
-              fun(Req = #poll_req{key = {_Stream, TopicFilter, _Key}, return_addr = Id}) ->
-                      emqx_topic_index:insert(TopicFilter, Id, Req, WaitingTab)
-              end,
-              NoMatch
-             )
+        lists:foreach(
+            fun(Req = #poll_req{key = {Stream, TopicFilter, _Key}, return_addr = Id}) ->
+                emqx_ds_event_trie:insert(Stream, TopicFilter, Id, Req, WaitingTab)
+            end,
+            NoMatch
+        )
     end.
 
 %% %% It's always worth to try fulfilling the oldest requests first,
@@ -453,51 +466,74 @@ move_to_waiting(#s{wait_queue = WaitingTab}) ->
 %%             lists:min(Keys)
 %%     end.
 
-find_waiting(Tab, Topic) ->
-    case emqx_topic_index:matches(Topic, Tab, []) of
+find_waiting(Stream, Topic, Tab) ->
+    case emqx_ds_event_trie:matches(Stream, Topic, Tab) of
         [] ->
             undefined;
-        [FstId | _] = Matches ->
-            [Fst] = emqx_topic_index:get_record(FstId, Tab),
+        [Fst | _] = Matches ->
+            %% 1. Find all poll requests that match the topic of the
+            %% event
+            %%
+            %% 2. Find the poll request that has the least specific
+            %% topic filter and the smallest key, that will be used as
+            %% the origin for the stream scan.
             lists:foldl(
-              fun(Id, {Min0, Acc0}) ->
-                      [Req] = emqx_topic_index:get_record(Id, Tab),
-                      MinKey0 = ds_key_of_poll(Min0),
-                      ReqKey = ds_key_of_poll(Req),
-                      Acc = map_pushl(ReqKey, Req, Acc0),
-                      case ReqKey < MinKey0 of
-                          true ->
-                              {Req, Acc};
-                          false ->
-                              {Min0, Acc}
-                      end
-              end,
-              {Fst, #{}},
-              Matches
-             )
+                fun(Req, {Min0, Acc0}) ->
+                    MinKey0 = ds_key_of_poll(Min0),
+                    ReqKey = ds_key_of_poll(Req),
+                    Acc = map_pushl(ReqKey, Req, Acc0),
+                    case
+                        {
+                            topic_selectiveness(topic_of_poll(Req)),
+                            topic_selectiveness(topic_of_poll(Min0))
+                        }
+                    of
+                        {N1, N2} when N1 < N2 ->
+                            {Req, Acc};
+                        {N1, N1} ->
+                            case ReqKey < MinKey0 of
+                                true -> {Req, Acc};
+                                false -> {Min0, Acc}
+                            end;
+                        _ ->
+                            {Min0, Acc}
+                    end
+                end,
+                {Fst, #{}},
+                Matches
+            )
     end.
 
 ds_key_of_poll(#poll_req{key = {_, _, Key}}) -> Key.
 
+topic_of_poll(#poll_req{key = {_, Topic, _}}) -> Topic.
+
+topic_selectiveness([]) -> 1;
+topic_selectiveness(['#']) -> 0;
+topic_selectiveness([Bin | Rest]) when is_binary(Bin) -> 1 + topic_selectiveness(Rest);
+topic_selectiveness([_ | Rest]) -> topic_selectiveness(Rest).
+
 map_pushl(Key, Elem, Map) ->
     maps:update_with(Key, fun(L) -> [Elem | L] end, [Elem], Map).
 
-%% Same as above. Heuristic that tries to find a poll request that has
-%% a better chance to overlap with others.
+%% It's always worth trying to fulfill the oldest requests first,
+%% because they have a better chance of producing a batch that
+%% overlaps with other pending requests.
 %%
-%% TODO: This might negatively impact latency, since oldest requests
-%% presumably will be served first.
+%% This function implements a heuristic that tries to find such poll
+%% request. It simply compares the keys (and nothing else) within a
+%% small sample of pending polls, and picks request with the smallest
+%% key as the starting point.
 find_older_request(Tab, SampleSize) ->
     MS = {'_', [], ['$_']},
     case ets:select(Tab, [MS], SampleSize) of
         '$end_of_table' ->
             undefined;
         {[Fst | Rest], _Cont} ->
-            %% Find poll request with the minimal key, while ignoring
-            %% the stream completely:
+            %% Find poll request with the minimal key:
             lists:foldl(
-                fun(E = #poll_req{key = {_, _, Key}}, Acc = #poll_req{key = {_, _, Min}}) ->
-                    case Key < Min of
+                fun(E, Acc) ->
+                    case ds_key_of_poll(E) < ds_key_of_poll(Acc) of
                         true -> E;
                         false -> Acc
                     end

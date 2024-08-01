@@ -248,13 +248,13 @@ batch_events(#s{trie = Trie}, #{?cooked_payloads := Payloads}) ->
         Payloads
     ),
     maps:fold(
-      fun({Stream, CompressedTopic}, _, Acc) ->
-              Structure = get_topic_structure(Trie, Stream),
-              [{Stream, emqx_ds_lts:decompress_topic(Structure, CompressedTopic)} | Acc]
-      end,
-      [],
-      EventMap
-     ).
+        fun({Stream, CompressedTopic}, _, Acc) ->
+            Structure = get_topic_structure(Trie, Stream),
+            [{Stream, emqx_ds_lts:decompress_topic(Structure, CompressedTopic)} | Acc]
+        end,
+        [],
+        EventMap
+    ).
 
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
@@ -507,14 +507,14 @@ next_loop(
 
 get_topic_structure(Trie, StaticIdx) ->
     case emqx_ds_lts:reverse_lookup(Trie, StaticIdx) of
-            {ok, Rev} ->
-                Rev;
-            undefined ->
-                throw(#{
-                    msg => "LTS trie missing key",
-                    key => StaticIdx
-                })
-        end.
+        {ok, Rev} ->
+            Rev;
+        undefined ->
+            throw(#{
+                msg => "LTS trie missing key",
+                key => StaticIdx
+            })
+    end.
 
 next_loop(_Ctx, It, 0, _Op, Acc) ->
     finalize_loop(It, Acc);
