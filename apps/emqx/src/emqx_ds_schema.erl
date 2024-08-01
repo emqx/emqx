@@ -163,7 +163,8 @@ fields(builtin_raft) ->
                 pos_integer(),
                 #{
                     default => 3,
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_raft_replication_factor)
                 }
             )},
         {n_sites,
@@ -172,7 +173,7 @@ fields(builtin_raft) ->
                 #{
                     default => 1,
                     importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(builtin_n_sites)
+                    desc => ?DESC(builtin_raft_n_sites)
                 }
             )},
         %% TODO: Elaborate.
