@@ -135,7 +135,7 @@
 
 -type dispatch_mask() :: bitstring().
 
--record(beam, {iterators, pack, misc}).
+-record(beam, {iterators, pack, misc = #{}}).
 
 -opaque beam(ItKey, Iterator) ::
     #beam{
@@ -625,7 +625,7 @@ do_form_beams(S = #s{metrics_id = Metrics}, GetF, OnMatch, OnNomatch, StartKey, 
     s(),
     emqx_ds:message_key(),
     [{ItKey, Iterator}],
-    stream_scan_return()
+    [{emqx_ds:message_key(), emqx_types:message()}]
 ) -> beam(ItKey, Iterator).
 pack(#s{module = CBM, shard = Shard}, NextKey, Reqs, Batch) ->
     Pack = [{Key, mk_mask(Reqs, Elem), Msg} || Elem = {Key, Msg} <- Batch],

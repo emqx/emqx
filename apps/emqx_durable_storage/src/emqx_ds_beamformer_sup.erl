@@ -104,6 +104,7 @@ start_workers(Module, ShardId, InitialNWorkers) ->
 
 %% Helper process that automatically destroys gproc pool when
 %% supervisor is stopped:
+-spec init_pool_owner(pid(), _Shard, module()) -> no_return().
 init_pool_owner(Parent, ShardId, Module) ->
     process_flag(trap_exit, true),
     gproc_pool:new(pool(ShardId), hash, [{auto_size, true}]),
@@ -112,9 +113,7 @@ init_pool_owner(Parent, ShardId, Module) ->
     %% Automatic cleanup:
     receive
         {'EXIT', _Pid, Reason} ->
-            %% TODO: clean workers too, otherwise gproc won't release
-            %% pool
-            gproc_pool:delete(pool(ShardId)),
+            gproc_pool:force_delete(pool(ShardId)),
             persistent_term:erase(?cbm(ShardId)),
             exit(Reason)
     end.

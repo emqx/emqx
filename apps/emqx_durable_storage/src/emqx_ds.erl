@@ -268,7 +268,7 @@
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
     make_iterator_result(ds_specific_iterator()).
 
--callback update_iterator(db(), ds_specific_iterator(), message_key()) ->
+-callback update_iterator(_DBShard, ds_specific_iterator(), message_key()) ->
     make_iterator_result(ds_specific_iterator()).
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
@@ -459,9 +459,7 @@ next(DB, Iter, BatchSize) ->
 %% busy loop. Also DS may silently drop requests due to overload. So
 %% they should not be retried too early.
 -spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, PollOpts = #{max := Max, timeout := Timeout}) when
-    is_integer(Max), Max > 0, is_integer(Timeout), Timeout > 0
-->
+poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
     ?module(DB):poll(DB, Iterators, PollOpts).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
