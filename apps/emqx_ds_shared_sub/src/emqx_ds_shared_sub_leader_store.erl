@@ -45,7 +45,6 @@ close() ->
 db_config() ->
     Config = emqx_ds_schema:db_config([durable_storage, queues]),
     Config#{
-        atomic_batches => true,
         force_monotonic_timestamps => false
     }.
 
@@ -112,17 +111,20 @@ heartbeat_interval(_) ->
 %%
 
 try_replace_leader(Group, LeaderClaim, ExistingClaim) ->
-    ds_store_batch(#dsbatch{
-        preconditions = [mk_precondition(Group, ExistingClaim)],
-        operations = [encode_leader_claim(Group, LeaderClaim)]
-    }).
+    ds_store_batch(
+        #dsbatch{
+            preconditions = [mk_precondition(Group, ExistingClaim)],
+            operations = [encode_leader_claim(Group, LeaderClaim)]
+        },
+        #{sync => true}
+    ).
 
 try_delete_leader(Group, LeaderClaim) ->
     {_Cond, Matcher} = mk_precondition(Group, LeaderClaim),
-    ds_store_batch(#dsbatch{operations = [{delete, Matcher}]}).
+    ds_store_batch(#dsbatch{operations = [{delete, Matcher}]}, #{sync => false}).
 
-ds_store_batch(Batch) ->
-    case emqx_ds:store_batch(?DS_DB, Batch) of
+ds_store_batch(Batch, Opts) ->
+    case emqx_ds:store_batch(?DS_DB, Batch, Opts) of
         ok ->
             ok;
         {error, unrecoverable, {precondition_failed, Mismatch}} ->
