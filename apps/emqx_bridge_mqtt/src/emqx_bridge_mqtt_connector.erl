@@ -98,7 +98,7 @@ on_start(ResourceId, #{server := Server} = Conf) ->
                 server => Server
             }};
         {error, Reason} ->
-            {error, Reason}
+            {error, emqx_maybe:define(explain_error(Reason), Reason)}
     end.
 
 on_add_channel(
@@ -356,7 +356,12 @@ on_get_status(_ResourceId, State) ->
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
     try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
         Statuses ->
-            combine_status(Statuses)
+            case combine_status(Statuses) of
+                {Status, Msg} ->
+                    {Status, State, Msg};
+                Status ->
+                    Status
+            end
     catch
         exit:timeout ->
             ?status_connecting
@@ -375,7 +380,21 @@ combine_status(Statuses) ->
     %% Natural order of statuses: [connected, connecting, disconnected]
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
-    case lists:reverse(lists:usort(Statuses)) of
+    ToStatus = fun
+        ({S, _Reason}) -> S;
+        (S) when is_atom(S) -> S
+    end,
+    CompareFn = fun(S1A, S2A) ->
+        S1 = ToStatus(S1A),
+        S2 = ToStatus(S2A),
+        S1 > S2
+    end,
+    case lists:usort(CompareFn, Statuses) of
+        [{Status, Reason} | _] ->
+            case explain_error(Reason) of
+                undefined -> Status;
+                Msg -> {Status, Msg}
+            end;
         [Status | _] ->
             Status;
         [] ->
@@ -525,13 +544,7 @@ log_connect_error_reason(Level, {tcp_closed, _} = Reason, Name) ->
         msg => "ingress_client_connect_failed",
         reason => Reason,
         name => Name,
-        explain =>
-            <<
-                "Your MQTT connection attempt was unsuccessful. "
-                "It might be at its maximum capacity for handling new connections. "
-                "To diagnose the issue further, you can check the server logs for "
-                "any specific messages related to the unavailability or connection limits."
-            >>
+        explain => explain_error(Reason)
     });
 log_connect_error_reason(Level, econnrefused = Reason, Name) ->
     ?tp(emqx_bridge_mqtt_connector_econnrefused_error, #{}),
@@ -539,15 +552,7 @@ log_connect_error_reason(Level, econnrefused = Reason, Name) ->
         msg => "ingress_client_connect_failed",
         reason => Reason,
         name => Name,
-        explain =>
-            <<
-                "This error indicates that your connection attempt to the MQTT server was rejected. "
-                "In simpler terms, the server you tried to connect to refused your request. "
-                "There can be multiple reasons for this. "
-                "For example, the MQTT server you're trying to connect to might be down or not "
-                "running at all or you might have provided the wrong address "
-                "or port number for the server."
-            >>
+        explain => explain_error(Reason)
     });
 log_connect_error_reason(Level, Reason, Name) ->
     ?SLOG(Level, #{
@@ -555,6 +560,25 @@ log_connect_error_reason(Level, Reason, Name) ->
         reason => Reason,
         name => Name
     }).
+
+explain_error(econnrefused) ->
+    <<
+        "This error indicates that your connection attempt to the MQTT server was rejected. "
+        "In simpler terms, the server you tried to connect to refused your request. "
+        "There can be multiple reasons for this. "
+        "For example, the MQTT server you're trying to connect to might be down or not "
+        "running at all or you might have provided the wrong address "
+        "or port number for the server."
+    >>;
+explain_error({tcp_closed, _}) ->
+    <<
+        "Your MQTT connection attempt was unsuccessful. "
+        "It might be at its maximum capacity for handling new connections. "
+        "To diagnose the issue further, you can check the server logs for "
+        "any specific messages related to the unavailability or connection limits."
+    >>;
+explain_error(_Reason) ->
+    undefined.
 
 handle_disconnect(_Reason) ->
     ok.
