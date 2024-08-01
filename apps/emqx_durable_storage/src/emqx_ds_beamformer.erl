@@ -400,10 +400,8 @@ do_fulfill_pending(
     GetF = fun(MsgKey) ->
         ets:take(PendingTab, {Stream, TopicFilter, MsgKey})
     end,
-    case CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize) of
-        {ok, EndKey, Batch} ->
-            form_beams(S, GetF, OnMatch, move_to_waiting(S), StartKey, EndKey, Batch)
-    end.
+    Result = CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize),
+    form_beams(S, GetF, OnMatch, move_to_waiting(S), StartKey, Result).
 
 maybe_fulfill_waiting(S, []) ->
     S;
@@ -429,10 +427,8 @@ maybe_fulfill_waiting(
                     Reqs
                 )
             end,
-            case CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize) of
-                {ok, EndKey, Batch} ->
-                    form_beams(S, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch)
-            end,
+            Result = CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize),
+            form_beams(S, GetF, OnMatch, OnNomatch, StartKey, Result),
             maybe_fulfill_waiting(S, Rest)
     end.
 
@@ -536,10 +532,57 @@ split(#beam{iterators = Its, pack = Pack}) ->
     fun(([Req]) -> _),
     fun(([Req]) -> _),
     emqx_ds:message_key(),
+    stream_scan_return()
+) -> boolean() when Req :: poll_req(_ItKey, _It).
+form_beams(S, GetF, OnMatch, OnNomatch, StartKey, {ok, EndKey, Batch}) ->
+    do_form_beams(S, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch);
+form_beams(#s{metrics_id = Metrics}, GetF, OnMatch, _OnNomatch, StartKey, Result) ->
+    Pack =
+        case Result of
+            Err = {error, _, _} -> Err;
+            {ok, end_of_stream} -> end_of_stream
+        end,
+    MatchReqs = GetF(StartKey),
+    %% Report metrics:
+    NFulfilled = length(MatchReqs),
+    NFulfilled > 0 andalso
+        begin
+            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
+            emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
+        end,
+    %% Execute callbacks:
+    OnMatch(MatchReqs),
+    %% Split matched requests by destination node:
+    ReqsByNode = maps:groups_from_list(
+        fun(#poll_req{node = Node}) -> Node end,
+        fun(#poll_req{return_addr = RAddr, it = It}) ->
+            {RAddr, It}
+        end,
+        MatchReqs
+    ),
+    %% Pack requests into beams and serve them:
+    maps:foreach(
+        fun(Node, Its) ->
+            Beam = #beam{
+                pack = Pack,
+                iterators = Its
+            },
+            send_out(Node, Beam)
+        end,
+        ReqsByNode
+    ),
+    NFulfilled > 0.
+
+-spec do_form_beams(
+    s(),
+    fun((emqx_ds:message_key()) -> [Req]),
+    fun(([Req]) -> _),
+    fun(([Req]) -> _),
+    emqx_ds:message_key(),
     emqx_ds:message_key(),
     [{emqx_ds:message_key(), emqx_types:message()}]
 ) -> boolean() when Req :: poll_req(_ItKey, _It).
-form_beams(S = #s{metrics_id = Metrics}, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch) ->
+do_form_beams(S = #s{metrics_id = Metrics}, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch) ->
     %% Find iterators that match the start message of the batch (to
     %% handle iterators freshly created by `emqx_ds:make_iterator'):
     Candidates0 = GetF(StartKey),
@@ -567,19 +610,7 @@ form_beams(S = #s{metrics_id = Metrics}, GetF, OnMatch, OnNomatch, StartKey, End
     OnMatch(MatchReqs),
     OnNomatch(NoMatchReqs),
     %% Split matched requests by destination node:
-    ReqsByNode =
-        lists:foldl(
-            fun(Req = #poll_req{node = Node}, Acc) ->
-                maps:update_with(
-                    Node,
-                    fun(L) -> [Req | L] end,
-                    [Req],
-                    Acc
-                )
-            end,
-            #{},
-            MatchReqs
-        ),
+    ReqsByNode = maps:groups_from_list(fun(#poll_req{node = Node}) -> Node end, MatchReqs),
     %% Pack requests into beams and serve them:
     maps:foreach(
         fun(Node, Reqs) ->
