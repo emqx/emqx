@@ -192,7 +192,8 @@ handle_info(?flush, S) ->
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, #s{db = DB}) ->
+terminate(_Reason, S = #s{db = DB}) ->
+    _ = flush(S),
     persistent_term:erase(?cbm(DB)),
     ok.
 
