@@ -8,8 +8,21 @@ principal {
         NOTE: The realm in use has to be configured in /etc/krb5.conf in EMQX nodes.~"""
 }
 
+server_fqdn {
+    label: "Server FQDN"
+    desc: """~
+        This is typically the network access point of the service, such as the DNS record of the load balancer endpoint.
+        However, it is not strictly necessary for it to be an accessible network address.
+        Important considerations include:
+
+        - It must match the FQDN used in the server's Kerberos principal, e.g., `mqtt/${SERVER_FQDN}@EXAMPLE.COM`.
+        - The client must use this exact value to request authentication services.
+
+        This ensures that the client and server agree on the identity being authenticated.~"""
+}
+
 keytab_file {
-    label: "keytab file"
+    label: "Keytab File"
     desc: """~
         SASL GSSAPI authentication Kerberos keytab file path.
         NOTE: This file has to be placed in EMQX nodes.~"""
