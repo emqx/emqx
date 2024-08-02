@@ -55,7 +55,7 @@ set_replayed({{RankX, RankY}, Stream}, State) ->
             State#{RankX => #{min_y => MinY, ys => Ys2}};
         _ ->
             ?SLOG(
-                warning,
+                debug,
                 #{
                     msg => leader_rank_progress_double_or_invalid_update,
                     rank_x => RankX,

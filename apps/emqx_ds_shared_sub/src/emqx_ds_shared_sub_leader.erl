@@ -164,7 +164,7 @@ handle_event({call, From}, #register{register_fun = Fun}, ?leader_waiting_regist
 %%--------------------------------------------------------------------
 %% repalying state
 handle_event(enter, _OldState, ?leader_active, #{topic := Topic} = _Data) ->
-    ?tp(warning, shared_sub_leader_enter_actve, #{topic => Topic}),
+    ?tp(debug, shared_sub_leader_enter_actve, #{topic => Topic}),
     {keep_state_and_data, [
         {{timeout, #renew_streams{}}, 0, #renew_streams{}},
         {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}},
@@ -174,7 +174,7 @@ handle_event(enter, _OldState, ?leader_active, #{topic := Topic} = _Data) ->
 %% timers
 %% renew_streams timer
 handle_event({timeout, #renew_streams{}}, #renew_streams{}, ?leader_active, Data0) ->
-    % ?tp(warning, shared_sub_leader_timeout, #{timeout => renew_streams}),
+    ?tp(debug, shared_sub_leader_timeout, #{timeout => renew_streams}),
     Data1 = renew_streams(Data0),
     {keep_state, Data1,
         {
@@ -184,7 +184,7 @@ handle_event({timeout, #renew_streams{}}, #renew_streams{}, ?leader_active, Data
         }};
 %% renew_leases timer
 handle_event({timeout, #renew_leases{}}, #renew_leases{}, ?leader_active, Data0) ->
-    % ?tp(warning, shared_sub_leader_timeout, #{timeout => renew_leases}),
+    ?tp(debug, shared_sub_leader_timeout, #{timeout => renew_leases}),
     Data1 = renew_leases(Data0),
     {keep_state, Data1,
         {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}}};
@@ -279,7 +279,7 @@ renew_streams(
     Data2 = Data1#{stream_states => NewStreamStates, rank_progress => RankProgress1},
     Data3 = revoke_streams(Data2),
     Data4 = assign_streams(Data3),
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_renew_streams,
         topic_filter => TopicFilter,
         new_streams => length(NewStreamsWRanks)
@@ -368,7 +368,7 @@ revoke_excess_streams_from_agent(Data0, Agent, DesiredCount) ->
             false ->
                 AgentState0;
             true ->
-                ?tp(warning, shared_sub_leader_revoke_streams, #{
+                ?tp(debug, shared_sub_leader_revoke_streams, #{
                     agent => Agent,
                     agent_stream_count => length(Streams0),
                     revoke_count => RevokeCount,
@@ -421,7 +421,7 @@ assign_lacking_streams(Data0, Agent, DesiredCount) ->
         false ->
             Data0;
         true ->
-            ?tp(warning, shared_sub_leader_assign_streams, #{
+            ?tp(debug, shared_sub_leader_assign_streams, #{
                 agent => Agent,
                 agent_stream_count => length(Streams0),
                 assign_count => AssignCount,
@@ -449,7 +449,7 @@ select_streams_for_assign(Data0, _Agent, AssignCount) ->
 %% renew_leases - send lease confirmations to agents
 
 renew_leases(#{agents := AgentStates} = Data) ->
-    ?tp(warning, shared_sub_leader_renew_leases, #{agents => maps:keys(AgentStates)}),
+    ?tp(debug, shared_sub_leader_renew_leases, #{agents => maps:keys(AgentStates)}),
     ok = lists:foreach(
         fun({Agent, AgentState}) ->
             renew_lease(Data, Agent, AgentState)
@@ -492,7 +492,7 @@ drop_timeout_agents(#{agents := Agents} = Data) ->
                     (is_integer(NoReplayingDeadline) andalso NoReplayingDeadline < Now)
             of
                 true ->
-                    ?SLOG(info, #{
+                    ?SLOG(debug, #{
                         msg => leader_agent_timeout,
                         now => Now,
                         update_deadline => UpdateDeadline,
@@ -516,14 +516,14 @@ connect_agent(
     Agent,
     AgentMetadata
 ) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_agent_connected,
         agent => Agent,
         group_id => GroupId
     }),
     case Agents of
         #{Agent := AgentState} ->
-            ?tp(warning, shared_sub_leader_agent_already_connected, #{
+            ?tp(debug, shared_sub_leader_agent_already_connected, #{
                 agent => Agent
             }),
             reconnect_agent(Data, Agent, AgentMetadata, AgentState);
@@ -546,7 +546,7 @@ reconnect_agent(
     AgentMetadata,
     #{streams := OldStreams, revoked_streams := OldRevokedStreams} = _OldAgentState
 ) ->
-    ?tp(warning, shared_sub_leader_agent_reconnect, #{
+    ?tp(debug, shared_sub_leader_agent_reconnect, #{
         agent => Agent,
         agent_metadata => AgentMetadata,
         inherited_streams => OldStreams
@@ -767,7 +767,7 @@ update_agent_stream_states(Data0, Agent, AgentStreamProgresses, VersionOld, Vers
 disconnect_agent(Data0, Agent, AgentStreamProgresses, Version) ->
     case get_agent_state(Data0, Agent) of
         #{version := Version} ->
-            ?tp(warning, shared_sub_leader_disconnect_agent, #{
+            ?tp(debug, shared_sub_leader_disconnect_agent, #{
                 agent => Agent,
                 version => Version
             }),
@@ -794,7 +794,7 @@ agent_transition_to_waiting_updating(
     Streams,
     RevokedStreams
 ) ->
-    ?tp(warning, shared_sub_leader_agent_state_transition, #{
+    ?tp(debug, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
         old_state => OldState,
         new_state => ?waiting_updating
@@ -818,7 +818,7 @@ agent_transition_to_waiting_updating(
 agent_transition_to_waiting_replaying(
     #{group_id := GroupId} = _Data, Agent, #{state := OldState, version := Version} = AgentState0
 ) ->
-    ?tp(warning, shared_sub_leader_agent_state_transition, #{
+    ?tp(debug, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
         old_state => OldState,
         new_state => ?waiting_replaying
@@ -833,7 +833,7 @@ agent_transition_to_waiting_replaying(
 agent_transition_to_initial_waiting_replaying(
     #{group_id := GroupId} = Data, Agent, AgentMetadata, InitialStreams
 ) ->
-    ?tp(warning, shared_sub_leader_agent_state_transition, #{
+    ?tp(debug, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
         old_state => none,
         new_state => ?waiting_replaying
@@ -856,7 +856,7 @@ agent_transition_to_initial_waiting_replaying(
     renew_no_replaying_deadline(AgentState).
 
 agent_transition_to_replaying(Agent, #{state := ?waiting_replaying} = AgentState) ->
-    ?tp(warning, shared_sub_leader_agent_state_transition, #{
+    ?tp(debug, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
         old_state => ?waiting_replaying,
         new_state => ?replaying
@@ -868,7 +868,7 @@ agent_transition_to_replaying(Agent, #{state := ?waiting_replaying} = AgentState
     }.
 
 agent_transition_to_updating(Agent, #{state := ?waiting_updating} = AgentState0) ->
-    ?tp(warning, shared_sub_leader_agent_state_transition, #{
+    ?tp(debug, shared_sub_leader_agent_state_transition, #{
         agent => Agent,
         old_state => ?waiting_updating,
         new_state => ?updating
@@ -995,7 +995,7 @@ drop_agent(#{agents := Agents} = Data0, Agent) ->
     #{streams := Streams, revoked_streams := RevokedStreams} = AgentState,
     AllStreams = Streams ++ RevokedStreams,
     Data1 = unassign_streams(Data0, AllStreams),
-    ?tp(warning, shared_sub_leader_drop_agent, #{agent => Agent}),
+    ?tp(debug, shared_sub_leader_drop_agent, #{agent => Agent}),
     Data1#{agents => maps:remove(Agent, Agents)}.
 
 invalidate_agent(#{group_id := GroupId}, Agent) ->

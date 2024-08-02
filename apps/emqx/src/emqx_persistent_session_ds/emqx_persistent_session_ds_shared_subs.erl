@@ -241,14 +241,14 @@ schedule_subscribe(
             ScheduledActions1 = ScheduledActions0#{
                 ShareTopicFilter => ScheduledAction#{type => {?schedule_subscribe, SubOpts}}
             },
-            ?tp(warning, shared_subs_schedule_subscribe_override, #{
+            ?tp(debug, shared_subs_schedule_subscribe_override, #{
                 share_topic_filter => ShareTopicFilter,
                 new_type => {?schedule_subscribe, SubOpts},
                 old_action => format_schedule_action(ScheduledAction)
             }),
             SharedSubS0#{scheduled_actions := ScheduledActions1};
         _ ->
-            ?tp(warning, shared_subs_schedule_subscribe_new, #{
+            ?tp(debug, shared_subs_schedule_subscribe_new, #{
                 share_topic_filter => ShareTopicFilter, subopts => SubOpts
             }),
             Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_subscribe(
@@ -299,7 +299,7 @@ schedule_unsubscribe(
             ScheduledActions1 = ScheduledActions0#{
                 ShareTopicFilter => ScheduledAction1
             },
-            ?tp(warning, shared_subs_schedule_unsubscribe_override, #{
+            ?tp(debug, shared_subs_schedule_unsubscribe_override, #{
                 share_topic_filter => ShareTopicFilter,
                 new_type => ?schedule_unsubscribe,
                 old_action => format_schedule_action(ScheduledAction0)
@@ -314,7 +314,7 @@ schedule_unsubscribe(
                     progresses => []
                 }
             },
-            ?tp(warning, shared_subs_schedule_unsubscribe_new, #{
+            ?tp(debug, shared_subs_schedule_unsubscribe_new, #{
                 share_topic_filter => ShareTopicFilter,
                 stream_keys => format_stream_keys(StreamKeys)
             }),
@@ -339,7 +339,7 @@ renew_streams(S0, #{agent := Agent0, scheduled_actions := ScheduledActions} = Sh
         Agent0
     ),
     StreamLeaseEvents =/= [] andalso
-        ?tp(warning, shared_subs_new_stream_lease_events, #{
+        ?tp(debug, shared_subs_new_stream_lease_events, #{
             stream_lease_events => format_lease_events(StreamLeaseEvents)
         }),
     S1 = lists:foldl(
@@ -506,7 +506,7 @@ run_scheduled_action(
     Progresses1 = stream_progresses(S, StreamKeysToWait0 -- StreamKeysToWait1) ++ Progresses0,
     case StreamKeysToWait1 of
         [] ->
-            ?tp(warning, shared_subs_schedule_action_complete, #{
+            ?tp(debug, shared_subs_schedule_action_complete, #{
                 share_topic_filter => ShareTopicFilter,
                 progresses => format_stream_progresses(Progresses1),
                 type => Type
@@ -530,7 +530,7 @@ run_scheduled_action(
             end;
         _ ->
             Action1 = Action#{stream_keys_to_wait => StreamKeysToWait1, progresses => Progresses1},
-            ?tp(warning, shared_subs_schedule_action_continue, #{
+            ?tp(debug, shared_subs_schedule_action_continue, #{
                 share_topic_filter => ShareTopicFilter,
                 new_action => format_schedule_action(Action1)
             }),

@@ -113,7 +113,7 @@ do_lookup_leader(Agent, AgentMetadata, ShareTopicFilter, State) ->
             Pid ->
                 Pid
         end,
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => lookup_leader,
         agent => Agent,
         share_topic_filter => ShareTopicFilter,

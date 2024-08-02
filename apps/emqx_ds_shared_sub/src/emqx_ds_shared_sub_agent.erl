@@ -100,7 +100,7 @@ open(TopicSubscriptions, Opts) ->
     State0 = init_state(Opts),
     State1 = lists:foldl(
         fun({ShareTopicFilter, #{}}, State) ->
-            ?tp(warning, ds_agent_open_subscription, #{
+            ?tp(debug, ds_agent_open_subscription, #{
                 topic_filter => ShareTopicFilter
             }),
             add_shared_subscription(State, ShareTopicFilter)
@@ -120,7 +120,7 @@ can_subscribe(_State, _ShareTopicFilter, _SubOpts) ->
 
 -spec on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(State0, ShareTopicFilter, _SubOpts) ->
-    ?tp(warning, ds_agent_on_subscribe, #{
+    ?tp(debug, ds_agent_on_subscribe, #{
         share_topic_filter => ShareTopicFilter
     }),
     add_shared_subscription(State0, ShareTopicFilter).
@@ -163,7 +163,7 @@ on_disconnect(#{groups := Groups0} = State, StreamProgresses) ->
 
 -spec on_info(t(), term()) -> t().
 on_info(State, ?leader_lease_streams_match(GroupId, Leader, StreamProgresses, Version)) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_lease_streams,
         group_id => GroupId,
         streams => StreamProgresses,
@@ -176,7 +176,7 @@ on_info(State, ?leader_lease_streams_match(GroupId, Leader, StreamProgresses, Ve
         )
     end);
 on_info(State, ?leader_renew_stream_lease_match(GroupId, Version)) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_renew_stream_lease,
         group_id => GroupId,
         version => Version
@@ -185,7 +185,7 @@ on_info(State, ?leader_renew_stream_lease_match(GroupId, Version)) ->
         emqx_ds_shared_sub_group_sm:handle_leader_renew_stream_lease(GSM, Version)
     end);
 on_info(State, ?leader_renew_stream_lease_match(GroupId, VersionOld, VersionNew)) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_renew_stream_lease,
         group_id => GroupId,
         version_old => VersionOld,
@@ -195,7 +195,7 @@ on_info(State, ?leader_renew_stream_lease_match(GroupId, VersionOld, VersionNew)
         emqx_ds_shared_sub_group_sm:handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew)
     end);
 on_info(State, ?leader_update_streams_match(GroupId, VersionOld, VersionNew, StreamsNew)) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_update_streams,
         group_id => GroupId,
         version_old => VersionOld,
@@ -208,7 +208,7 @@ on_info(State, ?leader_update_streams_match(GroupId, VersionOld, VersionNew, Str
         )
     end);
 on_info(State, ?leader_invalidate_match(GroupId)) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_invalidate,
         group_id => GroupId
     }),
@@ -245,7 +245,7 @@ delete_shared_subscription(State, ShareTopicFilter, GroupProgress) ->
 add_shared_subscription(
     #{session_id := SessionId, groups := Groups0} = State0, ShareTopicFilter
 ) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => agent_add_shared_subscription,
         share_topic_filter => ShareTopicFilter
     }),
