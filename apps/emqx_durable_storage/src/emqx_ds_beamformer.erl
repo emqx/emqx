@@ -428,7 +428,10 @@ maybe_fulfill_waiting(
                 )
             end,
             Result = CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize),
-            form_beams(S, GetF, OnMatch, OnNomatch, StartKey, Result),
+            case form_beams(S, GetF, OnMatch, OnNomatch, StartKey, Result) of
+                true -> maybe_fulfill_waiting(S, [{Stream, UpdatedTopic} | Rest]);
+                false -> ok
+            end,
             maybe_fulfill_waiting(S, Rest)
     end.
 
