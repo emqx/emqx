@@ -55,6 +55,8 @@
 
 -define(MEMBERSHIP_CHANGE_TIMEOUT, 30_000).
 
+-define(PTERM(DB, SHARD, KEY), {?MODULE, DB, SHARD, KEY}).
+
 %%
 
 start_link(DB, Shard, Opts) ->
@@ -164,7 +166,7 @@ local_site() ->
 
 -spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), _Info) -> _Value.
 shard_info(DB, Shard, ready) ->
-    persistent_term:get({?MODULE, DB, Shard}, false).
+    get_shard_info(DB, Shard, ready, false).
 
 %%
 
@@ -372,8 +374,8 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 terminate(_Reason, {DB, Shard}) ->
-    %% FIXME
-    persistent_term:erase({?MODULE, DB, Shard}),
+    %% NOTE: Mark as not ready right away.
+    ok = erase_shard_info(DB, Shard),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
     catch prep_stop_server(DB, Shard),
     LocalServer = get_local_server(DB, Shard),
@@ -457,8 +459,7 @@ trigger_election(Server) ->
     end.
 
 announce_shard_ready(DB, Shard) ->
-    %% FIXME
-    persistent_term:put({?MODULE, DB, Shard}, true).
+    set_shard_info(DB, Shard, ready, true).
 
 server_uid(_DB, Shard) ->
     %% NOTE
@@ -469,6 +470,22 @@ server_uid(_DB, Shard) ->
     %% in the filesystem / logs / etc.
     Ts = integer_to_binary(erlang:system_time(microsecond)),
     <<Shard/binary, "_", Ts/binary>>.
+
+%%
+
+get_shard_info(DB, Shard, K, Default) ->
+    persistent_term:get(?PTERM(DB, Shard, K), Default).
+
+set_shard_info(DB, Shard, K, V) ->
+    persistent_term:put(?PTERM(DB, Shard, K), V).
+
+erase_shard_info(DB, Shard) ->
+    lists:foreach(fun(K) -> erase_shard_info(DB, Shard, K) end, [
+        ready
+    ]).
+
+erase_shard_info(DB, Shard, K) ->
+    persistent_term:erase(?PTERM(DB, Shard, K)).
 
 %%
 
