@@ -44,9 +44,16 @@ fields(gssapi) ->
                     required => true,
                     desc => ?DESC(principal)
                 })},
-            {keytab_file,
+            {server_fqdn,
                 ?HOCON(binary(), #{
                     required => true,
+                    desc => ?DESC(server_fqdn)
+                })},
+            {keytab_file,
+                ?HOCON(binary(), #{
+                    required => false,
+                    %% This is hidden for now because it has to be /etc/krb5.keytab
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(keytab_file)
                 })}
         ].
