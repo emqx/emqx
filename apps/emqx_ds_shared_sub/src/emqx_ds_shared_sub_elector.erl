@@ -51,7 +51,9 @@ start_link(ShareTopic, StartTime) ->
 }).
 
 init(Elect = {elect, _ShareTopic, _StartTime}) ->
-    %% FIXME
+    %% NOTE
+    %% Important to have it here, because this process can become
+    %% `emqx_ds_shared_sub_leader`, which has `terminate/2` logic.
     _ = erlang:process_flag(trap_exit, true),
     {ok, #{}, {continue, Elect}}.
 
@@ -65,6 +67,7 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info(?agent_connect_leader_match(Agent, AgentMetadata, _ShareTopic), State) ->
+    %% NOTE: Redirecting to the known leader.
     ok = connect_leader(Agent, AgentMetadata, State),
     {noreply, State};
 handle_info({timeout, _TRef, invalidate}, State) ->
