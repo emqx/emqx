@@ -244,7 +244,9 @@ handle_event(Event, Content, State, _Data) ->
     keep_state_and_data.
 
 terminate(_Reason, _State, #{group_id := ShareTopicFilter, leader_claim := LeaderClaim}) ->
-    %% FIXME
+    %% NOTE
+    %% Call to `disown_leadership/1` should be non-blocking, hence registry supervisor
+    %% should not be overwhelmed with stopping leader processes for too long.
     Group = group_name(ShareTopicFilter),
     emqx_ds_shared_sub_leader_store:disown_leadership(Group, LeaderClaim).
 
