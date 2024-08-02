@@ -59,12 +59,19 @@ fields(http_post) ->
         [
             {method, method(post)},
             {headers, fun headers/1}
-        ].
+        ];
+fields(header) ->
+    [
+        {name, ?HOCON(binary(), #{required => true, desc => ?DESC(header_name)})},
+        {value, ?HOCON(binary(), #{required => true, desc => ?DESC(header_value)})}
+    ].
 
 desc(http_get) ->
     ?DESC(http_get);
 desc(http_post) ->
     ?DESC(http_post);
+desc(header) ->
+    ?DESC(header);
 desc(_) ->
     undefined.
 
@@ -108,38 +115,63 @@ http_common_fields() ->
         ).
 
 headers(type) ->
-    typerefl:alias("map", list({binary(), binary()}), #{}, [binary(), binary()]);
+    hoconsc:union([map(), hoconsc:array(?R_REF(header))]);
 headers(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers(converter) ->
-    fun(Headers) ->
-        maps:to_list(transform_header_name(Headers))
+    fun
+        (Headers, _) when is_map(Headers) ->
+            emqx_auth_http_utils:convert_headers(Headers);
+        (Headers, _) when is_list(Headers) ->
+            HeaderMap = maps:from_list(
+                lists:map(
+                    fun(
+                        #{
+                            <<"name">> := Name, <<"value">> := Value
+                        }
+                    ) ->
+                        {Name, Value}
+                    end,
+                    Headers
+                )
+            ),
+            emqx_auth_http_utils:convert_headers(HeaderMap)
     end;
 headers(default) ->
-    default_headers();
+    emqx_auth_http_utils:default_headers();
 headers(_) ->
     undefined.
 
 headers_no_content_type(type) ->
-    typerefl:alias("map", list({binary(), binary()}), #{}, [binary(), binary()]);
+    hoconsc:union([map(), hoconsc:array(?R_REF(header))]);
 headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
-    fun(Headers) ->
-        maps:to_list(
-            maps:without(
-                [<<"content-type">>],
-                transform_header_name(Headers)
-            )
-        )
+    fun
+        (Headers, _) when is_map(Headers) ->
+            emqx_auth_http_utils:convert_headers_no_content_type(Headers);
+        (Headers, _) when is_list(Headers) ->
+            HeaderMap = maps:from_list(
+                lists:map(
+                    fun(
+                        #{
+                            <<"name">> := Name, <<"value">> := Value
+                        }
+                    ) ->
+                        {Name, Value}
+                    end,
+                    Headers
+                )
+            ),
+            emqx_auth_http_utils:convert_headers_no_content_type(HeaderMap)
     end;
 headers_no_content_type(default) ->
-    default_headers_no_content_type();
+    emqx_auth_http_utils:default_headers_no_content_type();
 headers_no_content_type(validator) ->
     fun(Headers) ->
-        case lists:keyfind(<<"content-type">>, 1, Headers) of
-            false -> ok;
-            _ -> {error, do_not_include_content_type}
+        case Headers of
+            #{<<"content-type">> := _} -> {error, do_not_include_content_type};
+            _ -> ok
         end
     end;
 headers_no_content_type(_) ->
@@ -150,33 +182,3 @@ url(desc) -> ?DESC(?FUNCTION_NAME);
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
-
-default_headers() ->
-    maps:put(
-        <<"content-type">>,
-        <<"application/json">>,
-        default_headers_no_content_type()
-    ).
-
-default_headers_no_content_type() ->
-    #{
-        <<"accept">> => <<"application/json">>,
-        <<"cache-control">> => <<"no-cache">>,
-        <<"connection">> => <<"keep-alive">>,
-        <<"keep-alive">> => <<"timeout=30, max=1000">>
-    }.
-
-transform_header_name(Headers) ->
-    maps:fold(
-        fun(K0, V, Acc) ->
-            K = list_to_binary(string:to_lower(to_list(K0))),
-            maps:put(K, V, Acc)
-        end,
-        #{},
-        Headers
-    ).
-
-to_list(A) when is_atom(A) ->
-    atom_to_list(A);
-to_list(B) when is_binary(B) ->
-    binary_to_list(B).

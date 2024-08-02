@@ -523,10 +523,10 @@ get_raw_sources() ->
     Schema = emqx_hocon:make_schema(emqx_authz_schema:authz_fields()),
     Conf = #{<<"sources">> => RawSources},
     #{<<"sources">> := Sources} = hocon_tconf:make_serializable(Schema, Conf, #{}),
-    merge_defaults(Sources).
+    format_for_api(Sources).
 
-merge_defaults(Sources) ->
-    lists:map(fun emqx_authz:merge_defaults/1, Sources).
+format_for_api(Sources) ->
+    lists:map(fun emqx_authz:format_for_api/1, Sources).
 
 get_raw_source(Type) ->
     lists:filter(

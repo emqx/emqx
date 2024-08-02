@@ -48,4 +48,22 @@ http_get.desc:
 http_get.label:
 """http_get"""
 
+header_name.desc:
+"""HTTP header name."""
+
+header_name.label:
+"""Header Name"""
+
+header_value.desc:
+"""HTTP header value."""
+
+header_value.label:
+"""Header Value"""
+
+header.desc:
+"""HTTP header added to the request."""
+
+header.label:
+"""Header"""
+
 }

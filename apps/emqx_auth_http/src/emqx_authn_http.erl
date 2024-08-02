@@ -147,7 +147,7 @@ parse_config(
     State = #{
         method => Method,
         path => Path,
-        headers => ensure_header_name_type(Headers),
+        headers => emqx_auth_http_utils:transform_header_name(Headers),
         base_path_template => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(Query)
@@ -165,24 +165,23 @@ parse_config(
 
 generate_request(Credential, #{
     method := Method,
-    headers := Headers0,
+    headers := Headers,
     base_path_template := BasePathTemplate,
     base_query_template := BaseQueryTemplate,
     body_template := BodyTemplate
 }) ->
-    Headers = maps:to_list(Headers0),
     Path = emqx_authn_utils:render_urlencoded_str(BasePathTemplate, Credential),
     Query = emqx_authn_utils:render_deep(BaseQueryTemplate, Credential),
     Body = emqx_authn_utils:render_deep(BodyTemplate, Credential),
     case Method of
         get ->
             NPathQuery = append_query(to_list(Path), to_list(Query) ++ maps:to_list(Body)),
-            {NPathQuery, Headers};
+            {NPathQuery, maps:to_list(Headers)};
         post ->
             NPathQuery = append_query(to_list(Path), to_list(Query)),
-            ContentType = proplists:get_value(<<"content-type">>, Headers),
+            ContentType = maps:get(<<"content-type">>, Headers, undefined),
             NBody = serialize_body(ContentType, Body),
-            {NPathQuery, Headers, NBody}
+            {NPathQuery, maps:to_list(Headers), NBody}
     end.
 
 append_query(Path, []) ->
@@ -360,14 +359,3 @@ to_list(B) when is_binary(B) ->
     binary_to_list(B);
 to_list(L) when is_list(L) ->
     L.
-
-ensure_header_name_type(Headers) ->
-    Fun = fun
-        (Key, _Val, Acc) when is_binary(Key) ->
-            Acc;
-        (Key, Val, Acc) when is_atom(Key) ->
-            Acc2 = maps:remove(Key, Acc),
-            BinKey = erlang:atom_to_binary(Key),
-            Acc2#{BinKey => Val}
-    end,
-    maps:fold(Fun, Headers, Headers).

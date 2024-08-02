@@ -32,7 +32,7 @@
     register_metrics/0,
     init/0,
     deinit/0,
-    merge_defaults/1,
+    format_for_api/1,
     lookup/0,
     lookup/1,
     move/2,
@@ -679,11 +679,11 @@ type(#{<<"type">> := Type}) ->
 type(Type) when is_atom(Type) orelse is_binary(Type) ->
     emqx_authz_source_registry:get(Type).
 
-merge_defaults(Source) ->
+format_for_api(Source) ->
     Type = type(Source),
     Mod = authz_module(Type),
     try
-        Mod:merge_defaults(Source)
+        Mod:format_for_api(Source)
     catch
         error:undef ->
             Source
