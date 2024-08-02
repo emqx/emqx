@@ -62,7 +62,7 @@
     streams := [{pid(), quicer:stream_handle()}],
     %% New stream opts
     stream_opts := map(),
-    %% If conneciton is resumed from session ticket
+    %% If connection is resumed from session ticket
     is_resumed => boolean(),
     %% mqtt message serializer config
     serialize => undefined,
@@ -70,8 +70,8 @@
 }.
 -type cb_ret() :: quicer_lib:cb_ret().
 
-%% @doc  Data streams initializions are started in parallel with control streams, data streams are blocked
-%%       for the activation from control stream after it is accepted as a legit conneciton.
+%% @doc  Data streams initializations are started in parallel with control streams, data streams are blocked
+%%       for the activation from control stream after it is accepted as a legit connection.
 %%       For security, the initial number of allowed data streams from client should be limited by
 %%       'peer_bidi_stream_count` & 'peer_unidi_stream_count`
 -spec activate_data_streams(pid(), {
@@ -80,7 +80,7 @@
 activate_data_streams(ConnOwner, {PS, Serialize, Channel}) ->
     gen_server:call(ConnOwner, {activate_data_streams, {PS, Serialize, Channel}}, infinity).
 
-%% @doc conneciton owner init callback
+%% @doc connection owner init callback
 -spec init(map()) -> {ok, cb_state()}.
 init(#{stream_opts := SOpts} = S) when is_list(SOpts) ->
     init(S#{stream_opts := maps:from_list(SOpts)});
