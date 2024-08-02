@@ -56,6 +56,11 @@
     cold_get_subscription/2
 ]).
 
+-export([
+    format_lease_events/1,
+    format_stream_progresses/1
+]).
+
 -define(schedule_subscribe, schedule_subscribe).
 -define(schedule_unsubscribe, schedule_unsubscribe).
 
