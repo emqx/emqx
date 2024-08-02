@@ -57,7 +57,7 @@ authn_mods(ee) ->
     authn_mods(ce) ++
         [
             emqx_gcp_device_authn_schema,
-            emqx_authn_gssapi_schema
+            emqx_authn_kerberos_schema
         ].
 
 authz() ->

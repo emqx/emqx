@@ -2,9 +2,9 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_gssapi).
+-module(emqx_authn_kerberos).
 
--include("emqx_auth_gssapi.hrl").
+-include("emqx_auth_kerberos.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("typerefl/include/types.hrl").
 
@@ -44,7 +44,7 @@ destroy(_) ->
 
 authenticate(
     #{
-        auth_method := <<"GSSAPI">>,
+        auth_method := <<"GSSAPI-KERBEROS">>,
         auth_data := AuthData,
         auth_cache := AuthCache
     },
@@ -71,7 +71,7 @@ auth_new(Principal) ->
         {ok, SaslConn} ->
             {ok, SaslConn};
         Error ->
-            ?TRACE_AUTHN_PROVIDER("sasl_gssapi_new_failed", #{
+            ?TRACE_AUTHN_PROVIDER("sasl_kerberos_new_failed", #{
                 reason => Error,
                 sasl_function => "server_server_new"
             }),
@@ -86,7 +86,7 @@ auth_begin(SaslConn, ClientToken) ->
             sasl_auth:server_done(SaslConn),
             {ok, #{}, ServerToken};
         Reason ->
-            ?TRACE_AUTHN_PROVIDER("sasl_gssapi_start_failed", #{
+            ?TRACE_AUTHN_PROVIDER("sasl_kerberos_start_failed", #{
                 reason => Reason,
                 sasl_function => "server_server_start"
             }),
@@ -102,7 +102,7 @@ auth_continue(SaslConn, ClientToken) ->
             sasl_auth:server_done(SaslConn),
             {ok, #{}, ServerToken};
         Reason ->
-            ?TRACE_AUTHN_PROVIDER("sasl_gssapi_step_failed", #{
+            ?TRACE_AUTHN_PROVIDER("sasl_kerberos_step_failed", #{
                 reason => Reason,
                 sasl_function => "server_server_step"
             }),
