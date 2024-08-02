@@ -159,6 +159,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:uuid),
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       common_dep(:ra),
+      common_dep(:sasl_auth),
       {:mimerl, "1.2.0", override: true}
     ]
   end
@@ -209,6 +210,9 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, "2.7.3", override: true}
+
+  def common_dep(:sasl_auth),
+    do: {:sasl_auth, github: "kafka4beam/sasl_auth", tag: "v2.1.0", override: true}
 
   def common_dep(:covertool),
     do: {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true}
@@ -376,6 +380,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_gateway_jt808,
       :emqx_bridge_syskeeper,
       :emqx_ds_shared_sub,
+      :emqx_auth_gssapi,
       :emqx_auth_ext,
       :emqx_cluster_link,
       :emqx_ds_builtin_raft
