@@ -66,8 +66,16 @@ authenticate(_Credential, _State) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+%% @private Parse server principal to get server FQDN.
+%% The principal format is validated by config schema, so it can be assertive here.
+get_server_fqdn(Principal) ->
+    Pattern = "^([a-zA-Z0-9._-]+)/([a-zA-Z0-9.-]+)@",
+    {match, [_, FQDN]} = re:run(Principal, Pattern, [{capture, all_but_first, binary}]),
+    FQDN.
+
 auth_new(Principal) ->
-    case sasl_auth:server_new(<<"emqx">>, Principal) of
+    ServerFQDN = get_server_fqdn(Principal),
+    case sasl_auth:server_new(<<"emqx">>, Principal, ServerFQDN) of
         {ok, SaslConn} ->
             {ok, SaslConn};
         Error ->

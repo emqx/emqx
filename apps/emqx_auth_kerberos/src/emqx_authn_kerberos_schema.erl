@@ -42,12 +42,8 @@ fields(kerberos) ->
             {principal,
                 ?HOCON(binary(), #{
                     required => true,
-                    desc => ?DESC(principal)
-                })},
-            {server_fqdn,
-                ?HOCON(binary(), #{
-                    required => true,
-                    desc => ?DESC(server_fqdn)
+                    desc => ?DESC(principal),
+                    validator => fun validate_principal/1
                 })},
             {keytab_file,
                 ?HOCON(binary(), #{
@@ -62,3 +58,10 @@ desc(kerberos) ->
     "Settings for Kerberos authentication.";
 desc(_) ->
     undefined.
+
+validate_principal(S) ->
+    P = <<"^([a-zA-Z0-9\\._-]+)/([a-zA-Z0-9\\.-]+)(?:@([A-Z0-9\\.-]+))?$">>,
+    case re:run(S, P) of
+        nomatch -> {error, invalid_server_principal_string};
+        {match, _} -> ok
+    end.
