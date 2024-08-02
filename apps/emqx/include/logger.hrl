@@ -88,7 +88,7 @@
     ?_DO_TRACE(Tag, Msg, Meta),
     ?SLOG(
         Level,
-        (emqx_trace_formatter:format_meta_map(Meta))#{msg => Msg, tag => Tag},
+        (Meta)#{msg => Msg, tag => Tag},
         #{is_trace => false}
     )
 end).

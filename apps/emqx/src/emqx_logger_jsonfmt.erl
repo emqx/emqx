@@ -105,7 +105,7 @@ format(Msg, Meta, Config) ->
 maybe_format_msg(undefined, _Meta, _Config) ->
     #{};
 maybe_format_msg({report, Report0} = Msg, #{report_cb := Cb} = Meta, Config) ->
-    Report = emqx_logger_textfmt:try_encode_payload(Report0, Config),
+    Report = emqx_logger_textfmt:try_encode_meta(Report0, Config),
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
         true ->
             %% reporting a map without a customised format function
