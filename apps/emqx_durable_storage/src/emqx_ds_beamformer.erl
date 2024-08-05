@@ -196,7 +196,7 @@
 %% -callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
 %%     emqx_ds:make_iterator_result(Iterator).
 
--callback scan_stream(_Shard, _Stream, _TopicFilter, _StartKey, non_neg_integer()) ->
+-callback scan_stream(_Shard, _Stream, _TopicFilter, _StartKey, _BatchSize :: non_neg_integer()) ->
     stream_scan_return().
 
 %%================================================================================
@@ -430,9 +430,8 @@ maybe_fulfill_waiting(
             Result = CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize),
             case form_beams(S, GetF, OnMatch, OnNomatch, StartKey, Result) of
                 true -> maybe_fulfill_waiting(S, [{Stream, UpdatedTopic} | Rest]);
-                false -> ok
-            end,
-            maybe_fulfill_waiting(S, Rest)
+                false -> maybe_fulfill_waiting(S, Rest)
+            end.
     end.
 
 move_to_waiting(#s{wait_queue = WaitingTab}) ->
@@ -683,28 +682,16 @@ mk_mask([#poll_req{msg_matcher = Matcher} | Rest], {Key, Message} = Elem, Acc) -
         end,
     mk_mask(Rest, Elem, <<Acc/bitstring, Val:1>>).
 
-filter_candidates(Reqs, Batch) ->
-    filter_candidates(Reqs, Batch, {[], []}).
-
-filter_candidates([], _, Acc) ->
-    Acc;
-filter_candidates(
-    [Req = #poll_req{msg_matcher = Matcher} | Rest], Messages, {MatchAcc, NoMatchAcc}
-) ->
-    case lists:any(fun({MsgKey, Msg}) -> Matcher(MsgKey, Msg) end, Messages) of
-        true ->
-            filter_candidates(
-                Rest,
-                Messages,
-                {[Req | MatchAcc], NoMatchAcc}
-            );
-        false ->
-            filter_candidates(
-                Rest,
-                Messages,
-                {MatchAcc, [Req | NoMatchAcc]}
+filter_candidates(Reqs, Messages) ->
+    lists:partition(
+        fun(#poll_req{msg_matcher = Matcher}) ->
+            lists:any(
+                fun({MsgKey, Msg}) -> Matcher(MsgKey, Msg) end, 
+                Messages
             )
-    end.
+        end,
+        Reqs
+    ).
 
 send_out(Node, Beam) ->
     ?tp(debug, beamformer_out, #{

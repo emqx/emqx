@@ -591,7 +591,7 @@ unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
             {?stream_v2(GenId, InnerStream), TopicFilter, Key, TS};
         not_found ->
             %% generation was possibly dropped by GC
-            undefined
+            ?ERR_GEN_GONE
     end.
 
 scan_stream(

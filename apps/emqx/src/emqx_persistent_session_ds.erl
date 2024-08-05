@@ -654,12 +654,8 @@ handle_timeout(_ClientInfo, ?TIMER_PULL, Session0) ->
     %% Pull circuit loop:
     ?tp(debug, sessds_pull, #{}),
     Session1 = Session0#{?TIMER_PULL := undefined},
-    case drain_buffer(Session1) of
-        {[], Session} ->
-            {ok, [], push_now(Session)};
-        {Publishes, Session} ->
-            {ok, Publishes, push_now(Session)}
-    end;
+    {Publishes, Session} = drain_buffer(Session1),
+    {ok, Publishes, push_now(Session)};
 handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
     %% Push circuit loop:
     ?tp(debug, sessds_push, #{}),
