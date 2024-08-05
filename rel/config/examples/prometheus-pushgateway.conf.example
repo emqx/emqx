@@ -5,9 +5,6 @@
 ## If you want to use push-gateway
 
 prometheus {
-    ## Set to true to make EMQX send metrics to push-gateway
-    enable = false
-
     ## URL of push-gateway server
     push_gateway_server = "http://127.0.0.1:9091"
 

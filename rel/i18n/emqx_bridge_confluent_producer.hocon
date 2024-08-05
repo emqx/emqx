@@ -69,10 +69,10 @@ producer_kafka_opts.label:
 """Confluent Producer"""
 
 kafka_topic.desc:
-"""Event Hub name"""
+"""Kafka topic name.  Supports templates (e.g.: `t-${payload.t}`)."""
 
 kafka_topic.label:
-"""Event Hub Name"""
+"""Kafka Topic Name"""
 
 kafka_message_timestamp.desc:
 """Which timestamp to use. The timestamp is expected to be a millisecond precision Unix epoch which can be in string format, e.g. <code>1661326462115</code> or <code>'1661326462115'</code>. When the desired data field for this template is not found, or if the found data is not a valid integer, the current system timestamp will be used."""

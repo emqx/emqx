@@ -65,6 +65,7 @@
 -export([
     make_producer_action_schema/1, make_producer_action_schema/2,
     make_consumer_action_schema/1, make_consumer_action_schema/2,
+    common_fields/0,
     top_level_common_action_keys/0,
     top_level_common_source_keys/0,
     project_to_actions_resource_opts/1,
@@ -507,16 +508,26 @@ make_consumer_action_schema(ParametersRef, Opts) ->
                 })}
         ].
 
-common_schema(ParametersRef, _Opts) ->
+common_fields() ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {enable,
+            mk(boolean(), #{
+                desc => ?DESC("config_enable"),
+                importance => ?IMPORTANCE_NO_DOC,
+                default => true
+            })},
         {connector,
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
         {tags, emqx_schema:tags_schema()},
-        {description, emqx_schema:description_schema()},
+        {description, emqx_schema:description_schema()}
+    ].
+
+common_schema(ParametersRef, _Opts) ->
+    [
         {parameters, ParametersRef}
+        | common_fields()
     ].
 
 project_to_actions_resource_opts(OldResourceOpts) ->

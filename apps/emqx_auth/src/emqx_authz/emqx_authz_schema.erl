@@ -170,7 +170,12 @@ api_authz_refs() ->
 authz_common_fields(Type) ->
     [
         {type, ?HOCON(Type, #{required => true, desc => ?DESC(type)})},
-        {enable, ?HOCON(boolean(), #{default => true, desc => ?DESC(enable)})}
+        {enable,
+            ?HOCON(boolean(), #{
+                default => true,
+                importance => ?IMPORTANCE_NO_DOC,
+                desc => ?DESC(enable)
+            })}
     ].
 
 source_types() ->

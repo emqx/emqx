@@ -34,6 +34,9 @@
     apply_actor_operation/5
 ]).
 
+%% Internal export for bookkeeping
+-export([count/1]).
+
 %% Strictly monotonically increasing integer.
 -type smint() :: integer().
 
@@ -146,6 +149,16 @@ make_extroute_rec_pat(Entry) ->
         '_',
         [{1, extroute}, {#extroute.entry, Entry}]
     ).
+
+%% Internal exports for bookkeeping
+count(ClusterName) ->
+    TopicPat = '_',
+    RouteIDPat = '_',
+    Pat = make_extroute_rec_pat(
+        emqx_trie_search:make_pat(TopicPat, ?ROUTE_ID(ClusterName, RouteIDPat))
+    ),
+    MS = [{Pat, [], [true]}],
+    ets:select_count(?EXTROUTE_TAB, MS).
 
 %%
 
@@ -280,7 +293,9 @@ apply_operation(Entry, MCounter, OpName, Lane) ->
     Marker = 1 bsl Lane,
     case MCounter band Marker of
         0 when OpName =:= add ->
-            mria:dirty_update_counter(?EXTROUTE_TAB, Entry, Marker);
+            Res = mria:dirty_update_counter(?EXTROUTE_TAB, Entry, Marker),
+            ?tp("cluster_link_extrouter_route_added", #{}),
+            Res;
         Marker when OpName =:= add ->
             %% Already added.
             MCounter;
@@ -289,6 +304,7 @@ apply_operation(Entry, MCounter, OpName, Lane) ->
                 0 ->
                     Record = #extroute{entry = Entry, mcounter = 0},
                     ok = mria:dirty_delete_object(?EXTROUTE_TAB, Record),
+                    ?tp("cluster_link_extrouter_route_deleted", #{}),
                     0;
                 C ->
                     C

@@ -9,8 +9,6 @@ plugins {
             ##     Format: {name}-{version}
             ##     Note: name and version should be what it is in the plugin application
             name_vsn = "my_acl-0.1.0",
-
-            enable = true ## enable this plugin
         },
         {name_vsn = "my_rule-0.1.1", enable = false}
     ]

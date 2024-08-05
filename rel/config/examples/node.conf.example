@@ -11,11 +11,11 @@ node {
     ## Secret cookie is a random string that should be the same on all nodes in the cluster, but unique per EMQX cluster
     cookie = "Yzc0NGExM2Rj"
 
-    ## Select a node role
+    ## Select a node role (Enterprise Edition feature)
     ## Possible values:
     ##   - core: This is a core node which provides durability of the client states, and takes care of writes
     ##   - replicant: This is a stateless worker node
-    role = core
+    ## role = core
 
     ## Maximum number of simultaneously existing processes for this Erlang system
     process_limit = 2097152

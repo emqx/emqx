@@ -399,7 +399,9 @@ new_id(Rec) ->
 get_subscription(TopicFilter, Rec) ->
     gen_get(?subscriptions, TopicFilter, Rec).
 
--spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
+-spec cold_get_subscription(
+    emqx_persistent_session_ds:id(), emqx_types:topic() | emqx_types:share()
+) ->
     [emqx_persistent_session_ds_subs:subscription()].
 cold_get_subscription(SessionId, Topic) ->
     kv_pmap_read(?subscription_tab, SessionId, Topic).

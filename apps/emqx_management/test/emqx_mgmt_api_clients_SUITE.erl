@@ -107,8 +107,8 @@ init_per_group(persistent_sessions, Config) ->
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
     Cluster = [
-        {emqx_mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
-        {emqx_mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
+        {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+        {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
     ],
     Nodes =
         [N1 | _] = emqx_cth_cluster:start(
@@ -128,8 +128,8 @@ init_per_group(non_persistent_cluster, Config) ->
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
     Cluster = [
-        {mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
-        {mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
+        {mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+        {mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
     ],
     Nodes =
         [N1 | _] = emqx_cth_cluster:start(
@@ -550,13 +550,10 @@ t_persistent_sessions5(Config) ->
                 lists:sort(lists:map(fun(#{<<"clientid">> := CId}) -> CId end, R3 ++ R4))
             ),
 
-            lists:foreach(fun emqtt:stop/1, [C3, C4]),
-            lists:foreach(
-                fun(ClientId) ->
-                    ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
-                end,
-                ClientIds
-            ),
+            lists:foreach(fun disconnect_and_destroy_session/1, [C3, C4]),
+            C1B = connect_client(#{port => Port1, clientid => ClientId1}),
+            C2B = connect_client(#{port => Port2, clientid => ClientId2}),
+            lists:foreach(fun disconnect_and_destroy_session/1, [C1B, C2B]),
 
             ok
         end,
@@ -1623,8 +1620,7 @@ t_list_clients_v2(Config) ->
                 port => Port2, clientid => ClientId6, expiry => 0, clean_start => true
             }),
             %% offline persistent clients
-            ok = emqtt:stop(C3),
-            ok = emqtt:stop(C4),
+            lists:foreach(fun stop_and_commit/1, [C3, C4]),
 
             %% one by one
             QueryParams1 = #{limit => "1"},
@@ -2143,3 +2139,16 @@ do_traverse_in_reverse_v2(QueryParams0, Config, [Cursor | Rest], DirectOrderClie
 
 disconnect_and_destroy_session(Client) ->
     ok = emqtt:disconnect(Client, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0}).
+
+%% To avoid a race condition where we try to delete the session while it's terminating and
+%% committing.  This shouldn't happen realistically, because we have a safe grace period
+%% before attempting to GC a session.
+%% Also, we need to wait until offline metadata is committed before checking the v2 client
+%% list, to avoid flaky batch results.
+stop_and_commit(Client) ->
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqtt:stop(Client),
+            #{?snk_kind := persistent_session_ds_terminate}
+        ),
+    ok.

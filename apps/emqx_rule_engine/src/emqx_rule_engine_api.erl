@@ -131,6 +131,8 @@ end).
     {<<"like_id">>, binary},
     {<<"like_from">>, binary},
     {<<"match_from">>, binary},
+    {<<"action">>, binary},
+    {<<"source">>, binary},
     {<<"like_description">>, binary}
 ]).
 
@@ -194,6 +196,10 @@ schema("/rules") ->
                     })},
                 {match_from,
                     mk(binary(), #{desc => ?DESC("api1_match_from"), in => query, required => false})},
+                {action,
+                    mk(hoconsc:array(binary()), #{in => query, desc => ?DESC("api1_qs_action")})},
+                {source,
+                    mk(hoconsc:array(binary()), #{in => query, desc => ?DESC("api1_qs_source")})},
                 ref(emqx_dashboard_swagger, page),
                 ref(emqx_dashboard_swagger, limit)
             ],
@@ -390,11 +396,15 @@ param_path_id() ->
                         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
                             {201, format_rule_info_resp(Rule)};
                         {error, Reason} ->
-                            ?SLOG(error, #{
-                                msg => "create_rule_failed",
-                                id => Id,
-                                reason => Reason
-                            }),
+                            ?SLOG(
+                                info,
+                                #{
+                                    msg => "create_rule_failed",
+                                    rule_id => Id,
+                                    reason => Reason
+                                },
+                                #{tag => ?TAG}
+                            ),
                             {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
                     end
             end
@@ -450,11 +460,15 @@ param_path_id() ->
         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
             {200, format_rule_info_resp(Rule)};
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "update_rule_failed",
-                id => Id,
-                reason => Reason
-            }),
+            ?SLOG(
+                info,
+                #{
+                    msg => "update_rule_failed",
+                    rule_id => Id,
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
             {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
     end;
 '/rules/:id'(delete, #{bindings := #{id := Id}}) ->
@@ -465,11 +479,15 @@ param_path_id() ->
                 {ok, _} ->
                     {204};
                 {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "delete_rule_failed",
-                        id => Id,
-                        reason => Reason
-                    }),
+                    ?SLOG(
+                        error,
+                        #{
+                            msg => "delete_rule_failed",
+                            rule_id => Id,
+                            reason => Reason
+                        },
+                        #{tag => ?TAG}
+                    ),
                     {500, #{code => 'INTERNAL_ERROR', message => ?ERR_BADARGS(Reason)}}
             end;
         not_found ->
@@ -589,10 +607,15 @@ get_rule_metrics(Id) ->
     NodeMetrics = [format_metrics(Node, Metrics) || {Node, {ok, Metrics}} <- NodeResults],
     NodeErrors = [Result || Result = {_Node, {NOk, _}} <- NodeResults, NOk =/= ok],
     NodeErrors == [] orelse
-        ?SLOG(warning, #{
-            msg => "rpc_get_rule_metrics_errors",
-            errors => NodeErrors
-        }),
+        ?SLOG(
+            warning,
+            #{
+                msg => "rpc_get_rule_metrics_errors",
+                rule_id => Id,
+                errors => NodeErrors
+            },
+            #{tag => ?TAG}
+        ),
     NodeMetrics.
 
 format_metrics(Node, #{
@@ -731,7 +754,8 @@ filter_out_request_body(Conf) ->
     maps:without(ExtraConfs, Conf).
 
 -spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
-qs2ms(_Tab, {Qs, Fuzzy}) ->
+qs2ms(_Tab, {Qs0, Fuzzy0}) ->
+    {Qs, Fuzzy} = adapt_custom_filters(Qs0, Fuzzy0),
     case lists:keytake(from, 1, Qs) of
         false ->
             #{match_spec => generate_match_spec(Qs), fuzzy_fun => fuzzy_match_fun(Fuzzy)};
@@ -741,6 +765,38 @@ qs2ms(_Tab, {Qs, Fuzzy}) ->
                 fuzzy_fun => fuzzy_match_fun([{from, '=:=', From} | Fuzzy])
             }
     end.
+
+%% Some filters are run as fuzzy filters because they cannot be expressed as simple ETS
+%% match specs.
+-spec adapt_custom_filters(Qs, Fuzzy) -> {Qs, Fuzzy}.
+adapt_custom_filters(Qs, Fuzzy) ->
+    lists:foldl(
+        fun
+            ({action, '=:=', X}, {QsAcc, FuzzyAcc}) ->
+                ActionIds = wrap(X),
+                Parsed = lists:map(fun emqx_rule_actions:parse_action/1, ActionIds),
+                {QsAcc, [{action, in, Parsed} | FuzzyAcc]};
+            ({source, '=:=', X}, {QsAcc, FuzzyAcc}) ->
+                SourceIds = wrap(X),
+                Parsed = lists:flatmap(
+                    fun(SourceId) ->
+                        [
+                            emqx_bridge_resource:bridge_hookpoint(SourceId),
+                            emqx_bridge_v2:source_hookpoint(SourceId)
+                        ]
+                    end,
+                    SourceIds
+                ),
+                {QsAcc, [{source, in, Parsed} | FuzzyAcc]};
+            (Clause, {QsAcc, FuzzyAcc}) ->
+                {[Clause | QsAcc], FuzzyAcc}
+        end,
+        {[], Fuzzy},
+        Qs
+    ).
+
+wrap(Xs) when is_list(Xs) -> Xs;
+wrap(X) -> [X].
 
 generate_match_spec(Qs) ->
     {MtchHead, Conds} = generate_match_spec(Qs, 2, {#{}, []}),
@@ -778,6 +834,12 @@ run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, match, Pattern} | Fuzzy]) 
         run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, like, Pattern} | Fuzzy]) ->
     lists:any(fun(For) -> binary:match(For, Pattern) /= nomatch end, Topics) andalso
+        run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = {_Id, #{actions := Actions}}, [{action, in, ActionIds} | Fuzzy]) ->
+    lists:any(fun(AId) -> lists:member(AId, Actions) end, ActionIds) andalso
+        run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = {_Id, #{from := Froms}}, [{source, in, SourceIds} | Fuzzy]) ->
+    lists:any(fun(SId) -> lists:member(SId, Froms) end, SourceIds) andalso
         run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E, [_ | Fuzzy]) ->
     run_fuzzy_match(E, Fuzzy).

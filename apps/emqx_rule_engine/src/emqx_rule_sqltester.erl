@@ -15,6 +15,7 @@
 -module(emqx_rule_sqltester).
 
 -include_lib("emqx/include/logger.hrl").
+-include("rule_engine.hrl").
 
 -export([
     test/1,
@@ -114,11 +115,13 @@ test(#{sql := Sql, context := Context}) ->
                 true ->
                     %% test if the topic matches the topic filters in the rule
                     case emqx_topic:match_any(InTopic, EventTopics) of
-                        true -> test_rule(Sql, Select, Context, EventTopics);
-                        false -> {error, nomatch}
+                        true ->
+                            test_rule(Sql, Select, Context, EventTopics);
+                        false ->
+                            {error, nomatch}
                     end;
                 false ->
-                    case lists:member(InTopic, EventTopics) of
+                    case emqx_topic:match_any(InTopic, EventTopics) of
                         true ->
                             %% the rule is for both publish and events, test it directly
                             test_rule(Sql, Select, Context, EventTopics);
@@ -127,10 +130,15 @@ test(#{sql := Sql, context := Context}) ->
                     end
             end;
         {error, Reason} ->
-            ?SLOG(debug, #{
-                msg => "rulesql_parse_error",
-                detail => Reason
-            }),
+            ?SLOG(
+                debug,
+                #{
+                    msg => "rulesql_parse_error",
+                    sql => Sql,
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
             {error, Reason}
     end.
 

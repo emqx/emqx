@@ -16,6 +16,9 @@
 
 -module(emqx_authz_utils).
 
+-feature(maybe_expr, enable).
+
+-include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authz.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -28,7 +31,7 @@
     remove_resource/1,
     update_config/2,
     vars_for_rule_query/2,
-    parse_rule_from_row/2
+    do_authorize/6
 ]).
 
 -export([
@@ -133,14 +136,18 @@ content_type(Headers) when is_list(Headers) ->
 
 -define(RAW_RULE_KEYS, [<<"permission">>, <<"action">>, <<"topic">>, <<"qos">>, <<"retain">>]).
 
-parse_rule_from_row(ColumnNames, Row) ->
-    RuleRaw = maps:with(?RAW_RULE_KEYS, maps:from_list(lists:zip(ColumnNames, to_list(Row)))),
-    case emqx_authz_rule_raw:parse_rule(RuleRaw) of
+-spec parse_rule_from_row([binary()], [binary()] | map()) ->
+    {ok, emqx_authz_rule:rule()} | {error, term()}.
+parse_rule_from_row(_ColumnNames, RuleMap = #{}) ->
+    case emqx_authz_rule_raw:parse_rule(RuleMap) of
         {ok, {Permission, Action, Topics}} ->
-            emqx_authz_rule:compile({Permission, all, Action, Topics});
+            {ok, emqx_authz_rule:compile({Permission, all, Action, Topics})};
         {error, Reason} ->
-            error(Reason)
-    end.
+            {error, Reason}
+    end;
+parse_rule_from_row(ColumnNames, Row) ->
+    RuleMap = maps:with(?RAW_RULE_KEYS, maps:from_list(lists:zip(ColumnNames, to_list(Row)))),
+    parse_rule_from_row(ColumnNames, RuleMap).
 
 vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
     Client#{
@@ -157,3 +164,39 @@ to_list(Tuple) when is_tuple(Tuple) ->
     tuple_to_list(Tuple);
 to_list(List) when is_list(List) ->
     List.
+
+do_authorize(Type, Client, Action, Topic, ColumnNames, Row) ->
+    try
+        maybe
+            {ok, Rule} ?= parse_rule_from_row(ColumnNames, Row),
+            {matched, Permission} ?= emqx_authz_rule:match(Client, Action, Topic, Rule),
+            {matched, Permission}
+        else
+            nomatch ->
+                nomatch;
+            {error, Reason0} ->
+                log_match_rule_error(Type, Row, Reason0),
+                nomatch
+        end
+    catch
+        throw:Reason1 ->
+            log_match_rule_error(Type, Row, Reason1),
+            nomatch
+    end.
+
+log_match_rule_error(Type, Row, Reason0) ->
+    Msg0 = #{
+        msg => "match_rule_error",
+        rule => Row,
+        type => Type
+    },
+    Msg1 =
+        case is_map(Reason0) of
+            true -> maps:merge(Msg0, Reason0);
+            false -> Msg0#{reason => Reason0}
+        end,
+    ?SLOG(
+        error,
+        Msg1,
+        #{tag => "AUTHZ"}
+    ).

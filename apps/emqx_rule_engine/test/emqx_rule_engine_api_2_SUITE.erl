@@ -33,7 +33,6 @@ init_per_suite(Config) ->
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_common_test_http:create_default_app(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -46,7 +45,7 @@ app_specs() ->
         emqx_conf,
         emqx_rule_engine,
         emqx_management,
-        {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        emqx_mgmt_api_test_util:emqx_dashboard()
     ].
 
 %%------------------------------------------------------------------------------
@@ -64,8 +63,12 @@ request(Method, Path, Params) ->
     request(Method, Path, Params, Opts).
 
 request(Method, Path, Params, Opts) ->
+    request(Method, Path, Params, _QueryParams = [], Opts).
+
+request(Method, Path, Params, QueryParams0, Opts) when is_list(QueryParams0) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(Method, Path, "", AuthHeader, Params, Opts) of
+    QueryParams = uri_string:compose_query(QueryParams0, [{encoding, utf8}]),
+    case emqx_mgmt_api_test_util:request_api(Method, Path, QueryParams, AuthHeader, Params, Opts) of
         {ok, {Status, Headers, Body0}} ->
             Body = maybe_json_decode(Body0),
             {ok, {Status, Headers, Body}};
@@ -92,6 +95,45 @@ sql_test_api(Params) ->
     Res = request(Method, Path, Params),
     ct:pal("sql test (http) result:\n  ~p", [Res]),
     Res.
+
+list_rules(QueryParams) when is_list(QueryParams) ->
+    Method = get,
+    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
+    Opts = #{return_all => true},
+    Res = request(Method, Path, _Body = [], QueryParams, Opts),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+list_rules_just_ids(QueryParams) when is_list(QueryParams) ->
+    case list_rules(QueryParams) of
+        {200, #{<<"data">> := Results0}} ->
+            Results = lists:sort([Id || #{<<"id">> := Id} <- Results0]),
+            {200, Results};
+        Res ->
+            Res
+    end.
+
+create_rule() ->
+    create_rule(_Overrides = #{}).
+
+create_rule(Overrides) ->
+    Params0 = #{
+        <<"enable">> => true,
+        <<"sql">> => <<"select true from t">>
+    },
+    Params = emqx_utils_maps:deep_merge(Params0, Overrides),
+    Method = post,
+    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
+    Res = request(Method, Path, Params),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+sources_sql(Sources) ->
+    Froms = iolist_to_binary(lists:join(<<", ">>, lists:map(fun source_from/1, Sources))),
+    <<"select * from ", Froms/binary>>.
+
+source_from({v1, Id}) ->
+    <<"\"$bridges/", Id/binary, "\" ">>;
+source_from({v2, Id}) ->
+    <<"\"$sources/", Id/binary, "\" ">>.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -358,6 +400,38 @@ t_rule_test_smoke(_Config) ->
                     <<"context">> =>
                         #{
                             <<"clientid">> => <<"c_emqx">>,
+                            <<"event_type">> => <<"message_publish">>,
+                            <<"qos">> => 1,
+                            <<"topic">> => <<"t/a">>,
+                            <<"username">> => <<"u_emqx">>
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"t/#\", \"$bridges/mqtt:source\" ">>
+                }
+        },
+        #{
+            expected => #{code => 200},
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"clientid">> => <<"c_emqx">>,
+                            <<"event_type">> => <<"message_publish">>,
+                            <<"qos">> => 1,
+                            <<"topic">> => <<"t/a">>,
+                            <<"username">> => <<"u_emqx">>
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"t/#\", \"$sources/mqtt:source\" ">>
+                }
+        },
+        #{
+            expected => #{code => 200},
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"clientid">> => <<"c_emqx">>,
                             <<"event_type">> => <<"session_unsubscribed">>,
                             <<"qos">> => 1,
                             <<"topic">> => <<"t/a">>,
@@ -446,7 +520,69 @@ do_t_rule_test_smoke(#{input := Input, expected := #{code := ExpectedCode}} = Ca
             {true, #{
                 expected => ExpectedCode,
                 hint => maps:get(hint, Case, <<>>),
+                input => Input,
                 got => Code,
                 resp_body => Body
             }}
     end.
+
+%% Tests filtering the rule list by used actions and/or sources.
+t_filter_by_source_and_action(_Config) ->
+    ?assertMatch(
+        {200, #{<<"data">> := []}},
+        list_rules([])
+    ),
+
+    ActionId1 = <<"mqtt:a1">>,
+    ActionId2 = <<"mqtt:a2">>,
+    SourceId1 = <<"mqtt:s1">>,
+    SourceId2 = <<"mqtt:s2">>,
+    {201, #{<<"id">> := Id1}} = create_rule(#{<<"actions">> => [ActionId1]}),
+    {201, #{<<"id">> := Id2}} = create_rule(#{<<"actions">> => [ActionId2]}),
+    {201, #{<<"id">> := Id3}} = create_rule(#{<<"actions">> => [ActionId2, ActionId1]}),
+    {201, #{<<"id">> := Id4}} = create_rule(#{<<"sql">> => sources_sql([{v1, SourceId1}])}),
+    {201, #{<<"id">> := Id5}} = create_rule(#{<<"sql">> => sources_sql([{v2, SourceId2}])}),
+    {201, #{<<"id">> := Id6}} = create_rule(#{
+        <<"sql">> => sources_sql([{v2, SourceId1}, {v2, SourceId1}])
+    }),
+    {201, #{<<"id">> := Id7}} = create_rule(#{
+        <<"sql">> => sources_sql([{v2, SourceId1}]),
+        <<"actions">> => [ActionId1]
+    }),
+
+    ?assertMatch(
+        {200, [_, _, _, _, _, _, _]},
+        list_rules_just_ids([])
+    ),
+
+    ?assertEqual(
+        {200, lists:sort([Id1, Id3, Id7])},
+        list_rules_just_ids([{<<"action">>, ActionId1}])
+    ),
+
+    ?assertEqual(
+        {200, lists:sort([Id1, Id2, Id3, Id7])},
+        list_rules_just_ids([{<<"action">>, ActionId1}, {<<"action">>, ActionId2}])
+    ),
+
+    ?assertEqual(
+        {200, lists:sort([Id4, Id6, Id7])},
+        list_rules_just_ids([{<<"source">>, SourceId1}])
+    ),
+
+    ?assertEqual(
+        {200, lists:sort([Id4, Id5, Id6, Id7])},
+        list_rules_just_ids([{<<"source">>, SourceId1}, {<<"source">>, SourceId2}])
+    ),
+
+    %% When mixing source and action id filters, we use AND.
+    ?assertEqual(
+        {200, lists:sort([])},
+        list_rules_just_ids([{<<"source">>, SourceId2}, {<<"action">>, ActionId2}])
+    ),
+    ?assertEqual(
+        {200, lists:sort([Id7])},
+        list_rules_just_ids([{<<"source">>, SourceId1}, {<<"action">>, ActionId1}])
+    ),
+
+    ok.

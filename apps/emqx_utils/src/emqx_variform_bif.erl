@@ -79,6 +79,12 @@
 %% Number compare functions
 -export([num_comp/2, num_eq/2, num_lt/2, num_lte/2, num_gt/2, num_gte/2]).
 
+%% System
+-export([getenv/1]).
+
+-define(CACHE(Key), {?MODULE, Key}).
+-define(ENV_CACHE(Env), ?CACHE({env, Env})).
+
 %%------------------------------------------------------------------------------
 %% String Funcs
 %%------------------------------------------------------------------------------
@@ -569,3 +575,24 @@ num_lte(A, B) ->
 num_gte(A, B) ->
     R = num_comp(A, B),
     R =:= gt orelse R =:= eq.
+
+%%------------------------------------------------------------------------------
+%% System
+%%------------------------------------------------------------------------------
+getenv(Bin) when is_binary(Bin) ->
+    EnvKey = ?ENV_CACHE(Bin),
+    case persistent_term:get(EnvKey, undefined) of
+        undefined ->
+            Name = "EMQXVAR_" ++ erlang:binary_to_list(Bin),
+            Result =
+                case os:getenv(Name) of
+                    false ->
+                        <<>>;
+                    Value ->
+                        erlang:list_to_binary(Value)
+                end,
+            persistent_term:put(EnvKey, Result),
+            Result;
+        Result ->
+            Result
+    end.

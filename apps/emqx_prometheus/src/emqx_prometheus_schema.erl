@@ -78,6 +78,7 @@ fields(push_gateway) ->
                 #{
                     default => false,
                     required => true,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(push_gateway_enable)
                 }
             )},
@@ -229,6 +230,7 @@ fields(legacy_deprecated_setting) ->
                 #{
                     default => false,
                     required => true,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(legacy_enable)
                 }
             )},

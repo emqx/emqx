@@ -18,6 +18,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -113,6 +114,8 @@ connector_example_values() ->
 %%========================================================================================
 
 -define(HTTP_CONNECT_TIMEOUT, 1000).
+
+resource_type() -> opents.
 
 callback_mode() -> always_sync.
 

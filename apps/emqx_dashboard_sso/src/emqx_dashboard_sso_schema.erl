@@ -47,6 +47,7 @@ common_backend_schema(Backend) ->
             mk(
                 boolean(), #{
                     desc => ?DESC(backend_enable),
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     required => false,
                     default => false
                 }

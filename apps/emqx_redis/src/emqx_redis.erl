@@ -28,6 +28,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -118,6 +119,8 @@ redis_type(Type) ->
         required => false,
         desc => ?DESC(Type)
     }}.
+
+resource_type() -> redis.
 
 callback_mode() -> always_sync.
 

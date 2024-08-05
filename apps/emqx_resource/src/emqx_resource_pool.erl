@@ -26,6 +26,7 @@
 ]).
 
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_resource.hrl").
 
 -ifndef(TEST).
 -define(HEALTH_CHECK_TIMEOUT, 15000).
@@ -37,33 +38,43 @@
 start(Name, Mod, Options) ->
     case ecpool:start_sup_pool(Name, Mod, Options) of
         {ok, _} ->
-            ?SLOG(info, #{msg => "start_ecpool_ok", pool_name => Name}),
+            ?SLOG(info, #{msg => "start_ecpool_ok", pool_name => Name}, #{tag => ?TAG}),
             ok;
         {error, {already_started, _Pid}} ->
             stop(Name),
             start(Name, Mod, Options);
         {error, Reason} ->
             NReason = parse_reason(Reason),
-            ?SLOG(error, #{
-                msg => "start_ecpool_error",
-                pool_name => Name,
-                reason => NReason
-            }),
+            IsDryRun = emqx_resource:is_dry_run(Name),
+            ?SLOG(
+                ?LOG_LEVEL(IsDryRun),
+                #{
+                    msg => "start_ecpool_error",
+                    resource_id => Name,
+                    reason => NReason
+                },
+                #{tag => ?TAG}
+            ),
             {error, {start_pool_failed, Name, NReason}}
     end.
 
 stop(Name) ->
     case ecpool:stop_sup_pool(Name) of
         ok ->
-            ?SLOG(info, #{msg => "stop_ecpool_ok", pool_name => Name});
+            ?SLOG(info, #{msg => "stop_ecpool_ok", pool_name => Name}, #{tag => ?TAG});
         {error, not_found} ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "stop_ecpool_failed",
-                pool_name => Name,
-                reason => Reason
-            }),
+            IsDryRun = emqx_resource:is_dry_run(Name),
+            ?SLOG(
+                ?LOG_LEVEL(IsDryRun),
+                #{
+                    msg => "stop_ecpool_failed",
+                    resource_id => Name,
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
             error({stop_pool_failed, Name, Reason})
     end.
 

@@ -39,12 +39,10 @@
 
 -export([
     %% store the config and start the instance
-    create_local/4,
     create_local/5,
     create_dry_run_local/2,
     create_dry_run_local/3,
     create_dry_run_local/4,
-    recreate_local/3,
     recreate_local/4,
     %% remove the config and stop the instance
     remove_local/1,
@@ -98,6 +96,7 @@
 -export([
     %% get the callback mode of a specific module
     get_callback_mode/1,
+    get_resource_type/1,
     %% start the instance
     call_start/3,
     %% verify if the resource is working normally
@@ -139,6 +138,8 @@
     validate_type/1,
     validate_name/1
 ]).
+
+-export([is_dry_run/1]).
 
 -export_type([
     query_mode/0,
@@ -243,6 +244,9 @@
     QueryResult :: term()
 ) -> term().
 
+%% Used for tagging log entries.
+-callback resource_type() -> atom().
+
 -define(SAFE_CALL(EXPR),
     (fun() ->
         try
@@ -279,16 +283,10 @@ is_resource_mod(Module) ->
 %% =================================================================================
 %% APIs for resource instances
 %% =================================================================================
-
--spec create_local(resource_id(), resource_group(), resource_type(), resource_config()) ->
-    {ok, resource_data() | 'already_created'} | {error, Reason :: term()}.
-create_local(ResId, Group, ResourceType, Config) ->
-    create_local(ResId, Group, ResourceType, Config, #{}).
-
 -spec create_local(
     resource_id(),
     resource_group(),
-    resource_type(),
+    resource_module(),
     resource_config(),
     creation_opts()
 ) ->
@@ -296,7 +294,7 @@ create_local(ResId, Group, ResourceType, Config) ->
 create_local(ResId, Group, ResourceType, Config, Opts) ->
     emqx_resource_manager:ensure_resource(ResId, Group, ResourceType, Config, Opts).
 
--spec create_dry_run_local(resource_type(), resource_config()) ->
+-spec create_dry_run_local(resource_module(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run_local(ResourceType, Config) ->
     emqx_resource_manager:create_dry_run(ResourceType, Config).
@@ -304,19 +302,21 @@ create_dry_run_local(ResourceType, Config) ->
 create_dry_run_local(ResId, ResourceType, Config) ->
     emqx_resource_manager:create_dry_run(ResId, ResourceType, Config).
 
--spec create_dry_run_local(resource_id(), resource_type(), resource_config(), OnReadyCallback) ->
+-spec create_dry_run_local(
+    resource_id(),
+    resource_module(),
+    resource_config(),
+    OnReadyCallback
+) ->
     ok | {error, Reason :: term()}
 when
     OnReadyCallback :: fun((resource_id()) -> ok | {error, Reason :: term()}).
 create_dry_run_local(ResId, ResourceType, Config, OnReadyCallback) ->
     emqx_resource_manager:create_dry_run(ResId, ResourceType, Config, OnReadyCallback).
 
--spec recreate_local(resource_id(), resource_type(), resource_config()) ->
-    {ok, resource_data()} | {error, Reason :: term()}.
-recreate_local(ResId, ResourceType, Config) ->
-    recreate_local(ResId, ResourceType, Config, #{}).
-
--spec recreate_local(resource_id(), resource_type(), resource_config(), creation_opts()) ->
+-spec recreate_local(
+    resource_id(), resource_module(), resource_config(), creation_opts()
+) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate_local(ResId, ResourceType, Config, Opts) ->
     emqx_resource_manager:recreate(ResId, ResourceType, Config, Opts).
@@ -330,11 +330,15 @@ remove_local(ResId) ->
             ok;
         Error ->
             %% Only log, the ResId worker is always removed in manager's remove action.
-            ?SLOG(warning, #{
-                msg => "remove_local_resource_failed",
-                error => Error,
-                resource_id => ResId
-            }),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "remove_resource_failed",
+                    error => Error,
+                    resource_id => ResId
+                },
+                #{tag => ?TAG}
+            ),
             ok
     end.
 
@@ -487,6 +491,10 @@ list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
 get_callback_mode(Mod) ->
     Mod:callback_mode().
 
+-spec get_resource_type(module()) -> resource_type().
+get_resource_type(Mod) ->
+    Mod:resource_type().
+
 -spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 call_start(ResId, Mod, Config) ->
@@ -599,7 +607,7 @@ query_mode(Mod, Config, Opts) ->
             maps:get(query_mode, Opts, sync)
     end.
 
--spec check_config(resource_type(), raw_resource_config()) ->
+-spec check_config(resource_module(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.
 check_config(ResourceType, Conf) ->
     emqx_hocon:check(ResourceType, Conf).
@@ -607,7 +615,7 @@ check_config(ResourceType, Conf) ->
 -spec check_and_create_local(
     resource_id(),
     resource_group(),
-    resource_type(),
+    resource_module(),
     raw_resource_config()
 ) ->
     {ok, resource_data()} | {error, term()}.
@@ -617,7 +625,7 @@ check_and_create_local(ResId, Group, ResourceType, RawConfig) ->
 -spec check_and_create_local(
     resource_id(),
     resource_group(),
-    resource_type(),
+    resource_module(),
     raw_resource_config(),
     creation_opts()
 ) -> {ok, resource_data()} | {error, term()}.
@@ -630,7 +638,7 @@ check_and_create_local(ResId, Group, ResourceType, RawConfig, Opts) ->
 
 -spec check_and_recreate_local(
     resource_id(),
-    resource_type(),
+    resource_module(),
     raw_resource_config(),
     creation_opts()
 ) ->
@@ -768,6 +776,13 @@ bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 validate_name(Name) ->
     _ = validate_name(Name, #{atom_name => false}),
     ok.
+
+-spec is_dry_run(resource_id()) -> boolean().
+is_dry_run(ResId) ->
+    case string:find(ResId, ?TEST_ID_PREFIX) of
+        nomatch -> false;
+        TestIdStart -> string:equal(TestIdStart, ResId)
+    end.
 
 validate_name(<<>>, _Opts) ->
     invalid_data("Name cannot be empty string");

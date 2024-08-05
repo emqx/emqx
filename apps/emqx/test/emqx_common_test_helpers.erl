@@ -78,6 +78,7 @@
     start_epmd/0,
     start_peer/2,
     stop_peer/1,
+    ebin_path/0,
     listener_port/2
 ]).
 

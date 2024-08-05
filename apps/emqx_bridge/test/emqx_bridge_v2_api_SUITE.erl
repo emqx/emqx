@@ -302,6 +302,7 @@ init_mocks() ->
     meck:new(emqx_connector_resource, [passthrough, no_link]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
     meck:new(?CONNECTOR_IMPL, [non_strict, no_link]),
+    meck:expect(?CONNECTOR_IMPL, resource_type, 0, dummy),
     meck:expect(?CONNECTOR_IMPL, callback_mode, 0, async_if_possible),
     meck:expect(
         ?CONNECTOR_IMPL,

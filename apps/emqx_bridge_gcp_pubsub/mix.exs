@@ -23,6 +23,7 @@ defmodule EMQXBridgeGcpPubsub.MixProject do
 
   def deps() do
     [
+      {:emqx_connector_jwt, in_umbrella: true},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},

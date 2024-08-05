@@ -29,6 +29,7 @@
 
 %% callbacks for behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -128,6 +129,7 @@ values(_) ->
 %% ===================================================================
 %% Callbacks defined in emqx_resource
 %% ===================================================================
+resource_type() -> clickhouse.
 
 callback_mode() -> always_sync.
 

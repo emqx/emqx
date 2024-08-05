@@ -81,7 +81,7 @@ producer_kafka_opts.label:
 """Kafka Producer"""
 
 kafka_topic.desc:
-"""Kafka topic name"""
+"""Kafka topic name.  Supports templates (e.g.: `t-${payload.t}`)."""
 
 kafka_topic.label:
 """Kafka Topic Name"""

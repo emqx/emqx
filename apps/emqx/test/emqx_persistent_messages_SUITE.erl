@@ -573,7 +573,7 @@ app_specs(Opts) ->
 
 cluster() ->
     ExtraConf = "\n durable_storage.messages.n_sites = 2",
-    Spec = #{role => core, apps => app_specs(#{extra_emqx_conf => ExtraConf})},
+    Spec = #{apps => app_specs(#{extra_emqx_conf => ExtraConf})},
     [
         {persistent_messages_SUITE1, Spec},
         {persistent_messages_SUITE2, Spec}

@@ -240,6 +240,7 @@ gateway_common_options() ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(gateway_common_enable)
                 }
             )},
@@ -413,6 +414,7 @@ common_listener_opts() ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(gateway_common_listener_enable)
                 }
             )},

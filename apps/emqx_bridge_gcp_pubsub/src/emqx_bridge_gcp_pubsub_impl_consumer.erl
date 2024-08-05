@@ -8,6 +8,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     query_mode/1,
     on_start/2,
@@ -84,6 +85,8 @@
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
+-spec resource_type() -> resource_type().
+resource_type() -> gcp_pubsub_consumer.
 
 -spec callback_mode() -> callback_mode().
 callback_mode() -> async_if_possible.

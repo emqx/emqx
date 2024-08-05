@@ -29,6 +29,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -120,6 +121,8 @@ adjust_fields(Fields) ->
     ).
 
 %% ===================================================================
+resource_type() -> pgsql.
+
 callback_mode() -> always_sync.
 
 -spec on_start(binary(), hocon:config()) -> {ok, state()} | {error, _}.

@@ -27,6 +27,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -40,6 +41,7 @@
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
 -export([do_get_status/1, get_status_with_poolname/1]).
+-export([search/2]).
 
 -define(LDAP_HOST_OPTIONS, #{
     default_port => 389
@@ -129,6 +131,8 @@ ensure_username(Field) ->
     emqx_connector_schema_lib:username(Field).
 
 %% ===================================================================
+resource_type() -> ldap.
+
 callback_mode() -> always_sync.
 
 -spec on_start(binary(), hocon:config()) -> {ok, state()} | {error, _}.
@@ -270,6 +274,22 @@ on_query(
             Error
     end.
 
+search(Pid, SearchOptions) ->
+    case eldap:search(Pid, SearchOptions) of
+        {error, ldap_closed} ->
+            %% ldap server closing the socket does not result in
+            %% process restart, so we need to kill it to trigger a quick reconnect
+            %% instead of waiting for the next health-check
+            _ = exit(Pid, kill),
+            {error, ldap_closed};
+        {error, {gen_tcp_error, _} = Reason} ->
+            %% kill the process to trigger reconnect
+            _ = exit(Pid, kill),
+            {error, Reason};
+        Result ->
+            Result
+    end.
+
 do_ldap_query(
     InstId,
     SearchOptions,
@@ -280,7 +300,7 @@ do_ldap_query(
     case
         ecpool:pick_and_do(
             PoolName,
-            {eldap, search, [SearchOptions]},
+            {?MODULE, search, [SearchOptions]},
             handover
         )
     of
@@ -316,7 +336,7 @@ do_ldap_query(
             ?SLOG(
                 error,
                 LogMeta#{
-                    msg => "ldap_connector_do_query_failed",
+                    msg => "ldap_connector_query_failed",
                     reason => emqx_utils:redact(Reason)
                 }
             ),

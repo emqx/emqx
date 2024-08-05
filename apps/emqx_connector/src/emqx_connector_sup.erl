@@ -32,17 +32,5 @@ init([]) ->
         intensity => 5,
         period => 20
     },
-    ChildSpecs = [
-        child_spec(emqx_connector_jwt_sup)
-    ],
+    ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.
-
-child_spec(Mod) ->
-    #{
-        id => Mod,
-        start => {Mod, start_link, []},
-        restart => permanent,
-        shutdown => 3000,
-        type => supervisor,
-        modules => [Mod]
-    }.
