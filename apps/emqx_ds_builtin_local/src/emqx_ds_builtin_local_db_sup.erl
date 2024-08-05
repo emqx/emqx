@@ -158,7 +158,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Opts = emqx_ds_builtin_local_meta:db_config(DB),
     Children = [
         shard_storage_spec(DB, Shard, Opts),
-        shard_buffer_spec(DB, Shard, Opts)
+        shard_buffer_spec(DB, Shard, Opts),
+        shard_beamformers_spec(DB, Shard, Opts)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -206,6 +207,23 @@ shard_buffer_spec(DB, Shard, Options) ->
         shutdown => 5_000,
         restart => permanent,
         type => worker
+    }.
+
+shard_beamformers_spec(DB, Shard, _Options) ->
+    BeamformerOpts = #{
+        n_workers => 1,
+        pending_request_limit => 300_000,
+        housekeeping_interval => 1000,
+        batch_size => 100
+    },
+    #{
+        id => {Shard, beamformers},
+        type => supervisor,
+        shutdown => infinity,
+        start =>
+            {emqx_ds_beamformer_sup, start_link, [
+                emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
+            ]}
     }.
 
 ensure_started(Res) ->

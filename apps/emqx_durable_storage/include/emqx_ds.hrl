@@ -40,4 +40,10 @@
     filters = #{}
 }).
 
+-record(poll_reply, {
+    ref :: reference(),
+    userdata,
+    payload :: emqx_ds:next_result() | poll_timeout
+}).
+
 -endif.

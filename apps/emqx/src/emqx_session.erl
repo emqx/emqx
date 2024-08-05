@@ -83,7 +83,7 @@
 
 -export([
     deliver/3,
-    handle_info/2,
+    handle_info/3,
     handle_timeout/3,
     disconnect/3,
     terminate/3
@@ -192,7 +192,7 @@
 -callback handle_timeout(clientinfo(), common_timer_name() | custom_timer_name(), t()) ->
     {ok, replies(), t()}
     | {ok, replies(), timeout(), t()}.
--callback handle_info(term(), t()) -> t().
+-callback handle_info(term(), t(), clientinfo()) -> t().
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -493,9 +493,9 @@ handle_timeout(ClientInfo, Timer, Session) ->
 %% Generic Messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), t()) -> t().
-handle_info(Info, Session) ->
-    ?IMPL(Session):handle_info(Info, Session).
+-spec handle_info(term(), t(), clientinfo()) -> t().
+handle_info(Info, Session, ClientInfo) ->
+    ?IMPL(Session):handle_info(Info, Session, ClientInfo).
 
 %%--------------------------------------------------------------------
 

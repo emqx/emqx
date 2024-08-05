@@ -22,9 +22,6 @@
 
 %% (Erlang) messages that a connection process should forward to the
 %% session handler.
--record(session_message, {
-    message :: term()
-}).
--define(session_message(MSG), #session_message{message = MSG}).
+-define(session_message(MSG), MSG).
 
 -endif.

@@ -18,7 +18,7 @@
 
 -module(emqx_topic_index).
 
--export([new/0]).
+-export([new/0, new/1]).
 -export([insert/4]).
 -export([delete/3]).
 -export([match/2]).
@@ -37,11 +37,15 @@
 -type match(ID) :: key(ID).
 -type words() :: emqx_trie_search:words().
 
-%% @doc Create a new ETS table suitable for topic index.
-%% Usable mostly for testing purposes.
 -spec new() -> ets:table().
 new() ->
-    ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]).
+    new([public, {read_concurrency, true}]).
+
+%% @doc Create a new ETS table suitable for topic index.
+%% Usable mostly for testing purposes.
+-spec new(list()) -> ets:table().
+new(Options) ->
+    ets:new(?MODULE, [ordered_set | Options]).
 
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose

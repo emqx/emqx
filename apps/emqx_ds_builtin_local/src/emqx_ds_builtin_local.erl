@@ -17,6 +17,7 @@
 
 -behaviour(emqx_ds).
 -behaviour(emqx_ds_buffer).
+-behaviour(emqx_ds_beamformer).
 
 %% API:
 -export([]).
@@ -38,7 +39,12 @@
     make_delete_iterator/4,
     update_iterator/3,
     next/3,
+    poll/3,
     delete_next/4,
+
+    %% `beamformer':
+    unpack_iterator/2,
+    scan_stream/5,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -49,12 +55,14 @@
 %% Internal exports:
 -export([
     do_next/3,
+    %% longpoll/6,
     do_delete_next/4
 ]).
 
 -export_type([db_opts/0, shard/0, iterator/0, delete_iterator/0]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -87,7 +95,8 @@
     #{
         backend := builtin_local,
         storage := emqx_ds_storage_layer:prototype(),
-        n_shards := pos_integer()
+        n_shards := pos_integer(),
+        poll_workers_per_shard => pos_integer()
     }.
 
 -type generation_rank() :: {shard(), emqx_ds_storage_layer:gen_id()}.
@@ -223,7 +232,10 @@ flush_buffer(DB, Shard, Messages, S0 = #bs{options = Options}) ->
     ShardId = {DB, Shard},
     ForceMonotonic = maps:get(force_monotonic_timestamps, Options),
     {Latest, Batch} = make_batch(ForceMonotonic, current_timestamp(ShardId), Messages),
-    Result = emqx_ds_storage_layer:store_batch(ShardId, Batch, _Options = #{}),
+    DispatchF = fun(Events) ->
+        emqx_ds_beamformer:shard_event({DB, Shard}, Events)
+    end,
+    Result = emqx_ds_storage_layer:store_batch(ShardId, Batch, _Options = #{}, DispatchF),
     emqx_ds_builtin_local_meta:set_current_timestamp(ShardId, Latest),
     {S0, Result}.
 
@@ -302,10 +314,10 @@ make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
             Error
     end.
 
--spec update_iterator(emqx_ds:db(), emqx_ds:ds_specific_iterator(), emqx_ds:message_key()) ->
+-spec update_iterator(_Shard, emqx_ds:ds_specific_iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
-update_iterator(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, Key) ->
-    case emqx_ds_storage_layer:update_iterator({DB, Shard}, StorageIter0, Key) of
+update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
+    case emqx_ds_storage_layer:update_iterator(ShardId, StorageIter0, Key) of
         {ok, StorageIter} ->
             {ok, Iter0#{?enc => StorageIter}};
         Err = {error, _, _} ->
@@ -314,7 +326,53 @@ update_iterator(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter, N) ->
-    with_worker(do_next, [DB, Iter, N]).
+    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_next, [DB, Iter, N]),
+    receive
+        #poll_reply{ref = Ref, payload = Data} ->
+            Data
+    end.
+
+-spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) -> {ok, reference()}.
+poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
+    %% Create a new alias, if not already provided:
+    case PollOpts of
+        #{reply_to := ReplyTo} ->
+            ok;
+        _ ->
+            ReplyTo = alias([explicit_unalias])
+    end,
+    %% Spawn a helper process that will notify the caller when the
+    %% poll times out:
+    _Completion = spawn_link(
+        fun() ->
+            wait_completion(ReplyTo, Timeout)
+        end
+    ),
+    %% Submit poll jobs:
+    lists:foreach(
+        fun({ItKey, It = #{?tag := ?IT, ?shard := Shard}}) ->
+            ShardId = {DB, Shard},
+            ReturnAddr = {ReplyTo, ItKey},
+            emqx_ds_beamformer:poll(node(), ReturnAddr, ShardId, It, PollOpts)
+        end,
+        Iterators
+    ),
+    {ok, ReplyTo}.
+
+unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
+    {Stream, TopicFilter, DSKey, TS} = emqx_ds_storage_layer:unpack_iterator(Shard, Iterator),
+    MsgMatcher = emqx_ds_storage_layer:message_matcher(Shard, Iterator),
+    #{
+        stream => Stream,
+        topic_filter => TopicFilter,
+        last_seen_key => DSKey,
+        timestamp => TS,
+        message_matcher => MsgMatcher
+    }.
+
+scan_stream(Shard, Stream, TopicFilter, StartMsg, BatchSize) ->
+    Now = current_timestamp(Shard),
+    emqx_ds_storage_layer:scan_stream(Shard, Stream, TopicFilter, Now, StartMsg, BatchSize).
 
 -spec get_delete_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [emqx_ds:ds_specific_delete_stream()].
@@ -355,7 +413,10 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
 delete_next(DB, Iter, Selector, N) ->
-    with_worker(do_delete_next, [DB, Iter, Selector, N]).
+    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_delete_next, [DB, Iter, Selector, N]),
+    receive
+        #poll_reply{ref = Ref, payload = Data} -> Data
+    end.
 
 %%================================================================================
 %% Internal exports
@@ -378,6 +439,24 @@ do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
         Other ->
             Other
     end.
+
+%% longpoll(ReplyTo, CompletionPid, DB, Shard, StorageIterators, PollOpts) ->
+%%     ShardId = {DB, Shard},
+%%     Callback = fun(ItKey, Result) ->
+%%         Payload =
+%%             case Result of
+%%                 {ok, Inner, Batch} ->
+%%                     Iter = #{?tag => ?IT, ?shard => Shard, ?enc => Inner},
+%%                     {ok, Iter, Batch};
+%%                 Other ->
+%%                     Other
+%%             end,
+%%         ReplyTo ! #poll_reply{ref = ReplyTo, userdata = ItKey, payload = Payload}
+%%     end,
+%%     emqx_ds_storage_layer:longpoll(
+%%         Callback, ShardId, StorageIterators, PollOpts, fun current_timestamp/1
+%%     ),
+%%     CompletionPid ! {done, Shard}.
 
 -spec do_delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
@@ -410,19 +489,20 @@ timeus_to_timestamp(undefined) ->
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
 
-with_worker(F, A) ->
-    Parent = self(),
-    Ref = make_ref(),
-    {_Pid, MRef} = spawn_opt(
-        fun() ->
-            Parent ! {Ref, apply(?MODULE, F, A)}
-        end,
-        [monitor, {min_heap_size, 10000}]
-    ),
+wait_completion(ReplyTo, Timeout) ->
     receive
-        {Ref, Result} ->
-            erlang:demonitor(MRef, [flush]),
-            Result;
-        {'DOWN', MRef, _, _, _, Info} ->
-            {error, unrecoverable, Info}
+    after Timeout + 10 ->
+        logger:debug("Timeout for poll ~p", [ReplyTo]),
+        ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
     end.
+
+%% do_wait_completion(ReplyTo, _Deadline, []) ->
+%%     ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout};
+%% do_wait_completion(ReplyTo, Deadline, L) ->
+%%     Timeout = max(0, Deadline - erlang:monotonic_time(millisecond)),
+%%     receive
+%%         {done, I} ->
+%%             do_wait_completion(ReplyTo, Deadline, L -- [I])
+%%     after Timeout ->
+%%             ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
+%%     end.

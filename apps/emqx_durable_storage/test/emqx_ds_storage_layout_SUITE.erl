@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include("emqx_ds.hrl").
 
 -define(FUTURE, (1 bsl 64 - 1)).
 
@@ -263,6 +264,47 @@ t_replay(Config) ->
     ?assert(check(?SHARD, <<"wildcard/100/#">>, 0, Messages)),
     ?assert(check(?SHARD, <<"#">>, 0, Messages)),
     ok.
+
+%% This testcase verifies long poll functionality:
+t_poll(_Config) ->
+    Topics = [<<"foo/bar">>, <<"bar/baz">>],
+    Values = lists:seq(1, 1_000, 100),
+    Batch1 = [
+        make_message(Val, Topic, bin(Val))
+     || Topic <- Topics, Val <- Values
+    ],
+    BatchSize = 1000,
+    Timeout = 100,
+    PollOpts = #{max => BatchSize, timeout => Timeout},
+    %% 1. Store a batch of data to create streams:
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch1),
+    Iterators0 =
+        [_ | _] =
+        lists:map(
+            fun({_Rank, Stream}) ->
+                {ok, It} = emqx_ds:make_iterator(?FUNCTION_NAME, Stream, ['#'], 0),
+                It
+            end,
+            emqx_ds:get_streams(?FUNCTION_NAME, ['#'], 0)
+        ),
+    %% 2. Fetch values via `next' API for reference:
+    Reference1 = [{It, emqx_ds:next(?FUNCTION_NAME, It, BatchSize)} || It <- Iterators0],
+    %% 3. Fetch the same data via poll API (we use initial values of
+    %% the iterator as tags):
+    {ok, Alias1} = emqx_ds:poll(?FUNCTION_NAME, [{It, It} || It <- Iterators0], PollOpts),
+    %% Collect the replies:
+    Got1 = [
+        receive
+            #poll_reply{userdata = It, payload = Reply, ref = Alias1} ->
+                {It, Reply}
+        after Timeout ->
+            [] = flush(),
+            error({timeout_for, It})
+        end
+     || It <- Iterators0
+    ],
+    %% Compare data. Everything (batch contents and iterators) should be the same:
+    ?assertEqual(lists:sort(Reference1), lists:sort(Got1)).
 
 t_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,
@@ -622,3 +664,11 @@ replay(Shard, Iterators) ->
     Messages1 = lists:flatten(lists:reverse(Messages0)),
     NewIterators1 = lists:reverse(NewIterators0),
     Messages1 ++ replay(Shard, NewIterators1).
+
+flush() ->
+    receive
+        A ->
+            [A | flush()]
+    after 0 ->
+        []
+    end.

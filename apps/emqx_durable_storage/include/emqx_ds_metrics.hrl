@@ -55,4 +55,17 @@
 -define(DS_SKIPSTREAM_LTS_FUTURE, emqx_ds_storage_skipstream_lts_future).
 -define(DS_SKIPSTREAM_LTS_EOS, emqx_ds_storage_skipstream_lts_end_of_stream).
 
+%%%% Poll metrics:
+%% Total number of incoming poll requests:
+-define(DS_POLL_REQUESTS, emqx_ds_poll_requests).
+%% Number of fulfilled requests:
+-define(DS_POLL_REQUESTS_FULFILLED, emqx_ds_poll_requests_fulfilled).
+%% Number of requests dropped due to OLP:
+-define(DS_POLL_REQUESTS_DROPPED, emqx_ds_poll_requests_dropped).
+%% Number of requests that expired while waiting for new messages:
+-define(DS_POLL_REQUESTS_EXPIRED, emqx_ds_poll_requests_expired).
+%% Measure of "beam coherence": average number of requests fulfilled
+%% by a single beam:
+-define(DS_POLL_REQUEST_SHARING, emqx_ds_poll_request_sharing).
+
 -endif.

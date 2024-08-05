@@ -34,6 +34,12 @@
 
     observe_next_time/2,
 
+    observe_sharing/2,
+    inc_poll_requests/2,
+    inc_poll_requests_fulfilled/2,
+    inc_poll_requests_dropped/2,
+    inc_poll_requests_expired/2,
+
     inc_lts_seek_counter/2,
     inc_lts_next_counter/2,
     inc_lts_collision_counter/2,
@@ -86,7 +92,15 @@
     {slide, ?DS_BUFFER_FLUSH_TIME}
 ]).
 
--define(SHARD_METRICS, ?BUFFER_METRICS).
+-define(BEAMFORMER_METRICS, [
+    {counter, ?DS_POLL_REQUESTS},
+    {counter, ?DS_POLL_REQUESTS_FULFILLED},
+    {counter, ?DS_POLL_REQUESTS_DROPPED},
+    {counter, ?DS_POLL_REQUESTS_EXPIRED},
+    {slide, ?DS_POLL_REQUEST_SHARING}
+]).
+
+-define(SHARD_METRICS, ?BEAMFORMER_METRICS ++ ?BUFFER_METRICS).
 
 -type shard_metrics_id() :: binary().
 
@@ -156,6 +170,21 @@ observe_store_batch_time({DB, _}, StoreTime) ->
 -spec observe_next_time(emqx_ds:db(), non_neg_integer()) -> ok.
 observe_next_time(DB, NextTime) ->
     catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_BUILTIN_NEXT_TIME, NextTime).
+
+observe_sharing(Id, Sharing) ->
+    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_POLL_REQUEST_SHARING, Sharing).
+
+inc_poll_requests(Id, NPolls) ->
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS, NPolls).
+
+inc_poll_requests_fulfilled(Id, NPolls) ->
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS_FULFILLED, NPolls).
+
+inc_poll_requests_expired(Id, NPolls) ->
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS_EXPIRED, NPolls).
+
+inc_poll_requests_dropped(Id, N) ->
+    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS_DROPPED, N).
 
 -spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->
