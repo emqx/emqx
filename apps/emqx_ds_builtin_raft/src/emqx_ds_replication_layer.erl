@@ -140,7 +140,7 @@
     }.
 
 %% Write batch.
-%% Instances of this type currently form the mojority of the Raft log.
+%% Instances of this type currently form the majority of the Raft log.
 -type batch() :: #{
     ?tag := ?BATCH,
     ?batch_operations := [emqx_ds:operation()],
@@ -281,7 +281,7 @@ store_batch_atomic(DB, Batch, _Opts) ->
         [] ->
             ok;
         [_ | _] ->
-            {error, unrecoverable, nonatomic_batch_spans_multiple_storages}
+            {error, unrecoverable, atomic_batch_spans_multiple_shards}
     end.
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
