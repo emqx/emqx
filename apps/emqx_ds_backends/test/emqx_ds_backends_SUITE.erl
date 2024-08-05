@@ -327,9 +327,8 @@ t_11_batch_preconditions(Config) ->
             ?assertEqual(
                 ok,
                 emqx_ds:store_batch(DB, Batch1)
-            )
-        end,
-        fun(_Trace) ->
+            ),
+
             %% Wait at least until current epoch ends.
             ct:sleep(1000),
             %% There's no messages in the DB.
@@ -337,7 +336,8 @@ t_11_batch_preconditions(Config) ->
                 [],
                 emqx_ds_test_helpers:consume(DB, emqx_topic:words(<<"t/#">>))
             )
-        end
+        end,
+        []
     ).
 
 t_12_batch_precondition_conflicts(Config) ->
