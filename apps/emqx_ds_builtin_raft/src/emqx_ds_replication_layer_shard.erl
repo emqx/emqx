@@ -42,6 +42,7 @@
     handle_continue/2,
     handle_call/3,
     handle_cast/2,
+    handle_info/2,
     terminate/2
 ]).
 
@@ -54,6 +55,7 @@
     | {error, servers_unreachable}.
 
 -define(MEMBERSHIP_CHANGE_TIMEOUT, 30_000).
+-define(MAX_BOOSTRAP_RETRY_TIMEOUT, 1_000).
 
 -define(PTERM(DB, SHARD, KEY), {?MODULE, DB, SHARD, KEY}).
 
@@ -359,12 +361,17 @@ init({DB, Shard, Opts}) ->
     },
     {ok, St, {continue, bootstrap}}.
 
+handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
+    {noreply, St};
 handle_continue(bootstrap, St0) ->
     case bootstrap(St0) of
         St = #st{bootstrapped = true} ->
             {noreply, St};
         St = #st{bootstrapped = false} ->
-            {noreply, St, {continue, bootstrap}}
+            {noreply, St, {continue, bootstrap}};
+        {retry, Timeout, St} ->
+            _TRef = erlang:start_timer(Timeout, self(), bootstrap),
+            {noreply, St}
     end.
 
 handle_call(_Call, _From, State) ->
@@ -372,6 +379,9 @@ handle_call(_Call, _From, State) ->
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info({timeout, _TRef, bootstrap}, St) ->
+    {noreply, St, {continue, bootstrap}}.
 
 terminate(_Reason, {DB, Shard}) ->
     %% NOTE: Mark as not ready right away.
@@ -401,12 +411,18 @@ bootstrap(St = #st{stage = {wait_log, Leader}}) ->
             St#st{stage = wait_leader}
     end;
 bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, server = Server}) ->
-    case ra_overview(Server) of
-        #{commit_index := RaftIdx} ->
+    Overview = ra_overview(Server),
+    case maps:get(last_applied, Overview, 0) of
+        LastApplied when LastApplied >= RaftIdx ->
             ok = announce_shard_ready(DB, Shard),
             St#st{bootstrapped = true, stage = undefined};
-        #{} ->
-            St
+        LastApplied ->
+            %% NOTE
+            %% Blunt estimate of time shard needs to catch up. If this proves to be too long in
+            %% practice, it's could be augmented with handling `recover` -> `follower` Ra
+            %% member state transition.
+            Timeout = min(RaftIdx - LastApplied, ?MAX_BOOSTRAP_RETRY_TIMEOUT),
+            {retry, Timeout, St}
     end.
 
 %%
