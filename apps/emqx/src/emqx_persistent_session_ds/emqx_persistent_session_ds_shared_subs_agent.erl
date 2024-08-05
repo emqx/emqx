@@ -15,7 +15,7 @@
 }.
 
 -type t() :: term().
--type topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
 
 -type opts() :: #{
     session_id := session_id()
@@ -28,41 +28,44 @@
 -type stream_lease() :: #{
     type => lease,
     %% Used as "external" subscription_id
-    topic_filter := topic_filter(),
+    share_topic_filter := share_topic_filter(),
     stream := emqx_ds:stream(),
     iterator := emqx_ds:iterator()
 }.
 
 -type stream_revoke() :: #{
     type => revoke,
-    topic_filter := topic_filter(),
+    share_topic_filter := share_topic_filter(),
     stream := emqx_ds:stream()
 }.
 
 -type stream_lease_event() :: stream_lease() | stream_revoke().
 
 -type stream_progress() :: #{
-    topic_filter := topic_filter(),
+    share_topic_filter := share_topic_filter(),
     stream := emqx_ds:stream(),
-    iterator := emqx_ds:iterator()
+    iterator := emqx_ds:iterator(),
+    use_finished := boolean()
 }.
 
 -export_type([
     t/0,
     subscription/0,
     session_id/0,
-    stream_lease/0,
+    stream_lease_event/0,
     opts/0
 ]).
 
 -export([
     new/1,
     open/2,
+    can_subscribe/3,
 
     on_subscribe/3,
-    on_unsubscribe/2,
+    on_unsubscribe/3,
     on_stream_progress/2,
     on_info/2,
+    on_disconnect/2,
 
     renew_streams/1
 ]).
@@ -77,12 +80,13 @@
 %%--------------------------------------------------------------------
 
 -callback new(opts()) -> t().
--callback open([{topic_filter(), subscription()}], opts()) -> t().
--callback on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
-    {ok, t()} | {error, term()}.
--callback on_unsubscribe(t(), topic_filter()) -> t().
+-callback open([{share_topic_filter(), subscription()}], opts()) -> t().
+-callback can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
+-callback on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().
+-callback on_unsubscribe(t(), share_topic_filter(), [stream_progress()]) -> t().
+-callback on_disconnect(t(), [stream_progress()]) -> t().
 -callback renew_streams(t()) -> {[stream_lease_event()], t()}.
--callback on_stream_progress(t(), [stream_progress()]) -> t().
+-callback on_stream_progress(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
 -callback on_info(t(), term()) -> t().
 
 %%--------------------------------------------------------------------
@@ -93,24 +97,31 @@
 new(Opts) ->
     ?shared_subs_agent:new(Opts).
 
--spec open([{topic_filter(), subscription()}], opts()) -> t().
+-spec open([{share_topic_filter(), subscription()}], opts()) -> t().
 open(Topics, Opts) ->
     ?shared_subs_agent:open(Topics, Opts).
 
--spec on_subscribe(t(), topic_filter(), emqx_types:subopts()) ->
-    {ok, t()} | {error, emqx_types:reason_code()}.
-on_subscribe(Agent, TopicFilter, SubOpts) ->
-    ?shared_subs_agent:on_subscribe(Agent, TopicFilter, SubOpts).
+-spec can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
+can_subscribe(Agent, ShareTopicFilter, SubOpts) ->
+    ?shared_subs_agent:can_subscribe(Agent, ShareTopicFilter, SubOpts).
 
--spec on_unsubscribe(t(), topic_filter()) -> t().
-on_unsubscribe(Agent, TopicFilter) ->
-    ?shared_subs_agent:on_unsubscribe(Agent, TopicFilter).
+-spec on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().
+on_subscribe(Agent, ShareTopicFilter, SubOpts) ->
+    ?shared_subs_agent:on_subscribe(Agent, ShareTopicFilter, SubOpts).
+
+-spec on_unsubscribe(t(), share_topic_filter(), [stream_progress()]) -> t().
+on_unsubscribe(Agent, ShareTopicFilter, StreamProgresses) ->
+    ?shared_subs_agent:on_unsubscribe(Agent, ShareTopicFilter, StreamProgresses).
+
+-spec on_disconnect(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
+on_disconnect(Agent, StreamProgresses) ->
+    ?shared_subs_agent:on_disconnect(Agent, StreamProgresses).
 
 -spec renew_streams(t()) -> {[stream_lease_event()], t()}.
 renew_streams(Agent) ->
     ?shared_subs_agent:renew_streams(Agent).
 
--spec on_stream_progress(t(), [stream_progress()]) -> t().
+-spec on_stream_progress(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
 on_stream_progress(Agent, StreamProgress) ->
     ?shared_subs_agent:on_stream_progress(Agent, StreamProgress).
 

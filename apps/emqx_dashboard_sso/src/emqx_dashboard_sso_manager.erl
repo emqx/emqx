@@ -45,7 +45,7 @@
 -define(MOD_TAB, emqx_dashboard_sso).
 -define(MOD_KEY_PATH, [dashboard, sso]).
 -define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
--define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
+-define(RESOURCE_GROUP, <<"dashboard_sso">>).
 -define(NO_ERROR, <<>>).
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false

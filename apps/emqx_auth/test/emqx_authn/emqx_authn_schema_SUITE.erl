@@ -122,14 +122,6 @@ t_union_member_selector(_) ->
         },
         check(BadMechanism)
     ),
-    BadCombination = Base#{<<"mechanism">> => <<"scram">>, <<"backend">> => <<"http">>},
-    ?assertThrow(
-        #{
-            reason := "unknown_mechanism",
-            expected := "password_based"
-        },
-        check(BadCombination)
-    ),
     ok.
 
 t_http_auth_selector(_) ->

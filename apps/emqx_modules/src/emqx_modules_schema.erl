@@ -79,7 +79,12 @@ rewrite_validator(Rules) ->
 
 fields("delayed") ->
     [
-        {enable, ?HOCON(boolean(), #{default => true, desc => ?DESC(enable)})},
+        {enable,
+            ?HOCON(boolean(), #{
+                default => true,
+                importance => ?IMPORTANCE_NO_DOC,
+                desc => ?DESC(enable)
+            })},
         {max_delayed_messages,
             ?HOCON(integer(), #{desc => ?DESC(max_delayed_messages), default => 0})}
     ];

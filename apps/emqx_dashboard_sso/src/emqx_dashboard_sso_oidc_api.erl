@@ -28,6 +28,7 @@
 
 -export([code_callback/2, make_callback_url/1]).
 
+-define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
 
@@ -62,6 +63,7 @@ schema("/sso/oidc/callback") ->
             desc => ?DESC(code_callback),
             responses => #{
                 200 => emqx_dashboard_api:fields([token, version, license]),
+                400 => response_schema(400),
                 401 => response_schema(401),
                 404 => response_schema(404)
             },
@@ -78,8 +80,9 @@ code_callback(get, #{query_string := QS}) ->
             ?SLOG(info, #{
                 msg => "dashboard_sso_login_successful"
             }),
-
             {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY};
+        {error, invalid_query_string_param} ->
+            {400, #{code => ?BAD_REQUEST, message => <<"Invalid query string">>}};
         {error, invalid_backend} ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         {error, Reason} ->
@@ -93,11 +96,14 @@ code_callback(get, #{query_string := QS}) ->
 %%--------------------------------------------------------------------
 %% internal
 %%--------------------------------------------------------------------
-
+response_schema(400) ->
+    emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>);
 response_schema(401) ->
-    emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
+    emqx_dashboard_swagger:error_codes(
+        [?BAD_USERNAME_OR_PWD], ?DESC(emqx_dashboard_api, login_failed401)
+    );
 response_schema(404) ->
-    emqx_dashboard_swagger:error_codes([?BACKEND_NOT_FOUND], ?DESC(backend_not_found)).
+    emqx_dashboard_swagger:error_codes([?BACKEND_NOT_FOUND], <<"Backend not found">>).
 
 reason_to_message(Bin) when is_binary(Bin) ->
     Bin;
@@ -119,7 +125,9 @@ ensure_oidc_state(#{<<"state">> := State} = QS, Cfg) ->
             retrieve_token(QS, Cfg, Data);
         _ ->
             {error, session_not_exists}
-    end.
+    end;
+ensure_oidc_state(_, _Cfg) ->
+    {error, invalid_query_string_param}.
 
 retrieve_token(
     #{<<"code">> := Code},

@@ -12,6 +12,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     query_mode/1,
     on_start/2,
     on_stop/2,
@@ -40,6 +41,8 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% emqx_resource
+resource_type() ->
+    syskeeper_proxy_server.
 
 query_mode(_) ->
     no_queries.

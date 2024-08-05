@@ -20,12 +20,13 @@
 ]).
 
 -export([
-    lookup_leader/2
+    lookup_leader/3
 ]).
 
 -record(lookup_leader, {
     agent :: emqx_ds_shared_sub_proto:agent(),
-    topic_filter :: emqx_persistent_session_ds:share_topic_filter()
+    agent_metadata :: emqx_ds_shared_sub_proto:agent_metadata(),
+    share_topic_filter :: emqx_persistent_session_ds:share_topic_filter()
 }).
 
 -define(gproc_id(ID), {n, l, ID}).
@@ -35,10 +36,14 @@
 %%--------------------------------------------------------------------
 
 -spec lookup_leader(
-    emqx_ds_shared_sub_proto:agent(), emqx_persistent_session_ds:share_topic_filter()
+    emqx_ds_shared_sub_proto:agent(),
+    emqx_ds_shared_sub_proto:agent_metadata(),
+    emqx_persistent_session_ds:share_topic_filter()
 ) -> ok.
-lookup_leader(Agent, TopicFilter) ->
-    gen_server:cast(?MODULE, #lookup_leader{agent = Agent, topic_filter = TopicFilter}).
+lookup_leader(Agent, AgentMetadata, ShareTopicFilter) ->
+    gen_server:cast(?MODULE, #lookup_leader{
+        agent = Agent, agent_metadata = AgentMetadata, share_topic_filter = ShareTopicFilter
+    }).
 
 %%--------------------------------------------------------------------
 %% Internal API
@@ -66,8 +71,15 @@ init([]) ->
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
-handle_cast(#lookup_leader{agent = Agent, topic_filter = TopicFilter}, State) ->
-    State1 = do_lookup_leader(Agent, TopicFilter, State),
+handle_cast(
+    #lookup_leader{
+        agent = Agent,
+        agent_metadata = AgentMetadata,
+        share_topic_filter = ShareTopicFilter
+    },
+    State
+) ->
+    State1 = do_lookup_leader(Agent, AgentMetadata, ShareTopicFilter, State),
     {noreply, State1}.
 
 handle_info(_Info, State) ->
@@ -80,15 +92,15 @@ terminate(_Reason, _State) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-do_lookup_leader(Agent, TopicFilter, State) ->
+do_lookup_leader(Agent, AgentMetadata, ShareTopicFilter, State) ->
     %% TODO https://emqx.atlassian.net/browse/EMQX-12309
     %% Cluster-wide unique leader election should be implemented
-    Id = emqx_ds_shared_sub_leader:id(TopicFilter),
+    Id = emqx_ds_shared_sub_leader:id(ShareTopicFilter),
     LeaderPid =
         case gproc:where(?gproc_id(Id)) of
             undefined ->
                 {ok, Pid} = emqx_ds_shared_sub_leader_sup:start_leader(#{
-                    topic_filter => TopicFilter
+                    share_topic_filter => ShareTopicFilter
                 }),
                 {ok, NewLeaderPid} = emqx_ds_shared_sub_leader:register(
                     Pid,
@@ -104,8 +116,10 @@ do_lookup_leader(Agent, TopicFilter, State) ->
     ?SLOG(info, #{
         msg => lookup_leader,
         agent => Agent,
-        topic_filter => TopicFilter,
+        share_topic_filter => ShareTopicFilter,
         leader => LeaderPid
     }),
-    ok = emqx_ds_shared_sub_proto:agent_connect_leader(LeaderPid, Agent, TopicFilter),
+    ok = emqx_ds_shared_sub_proto:agent_connect_leader(
+        LeaderPid, Agent, AgentMetadata, ShareTopicFilter
+    ),
     State.

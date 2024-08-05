@@ -54,6 +54,7 @@ fields(server) ->
         {enable,
             ?HOCON(boolean(), #{
                 default => true,
+                importance => ?IMPORTANCE_NO_DOC,
                 desc => ?DESC(enable)
             })},
         {url,

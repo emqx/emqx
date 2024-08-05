@@ -7,6 +7,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     query_mode/1,
     on_start/2,
@@ -126,6 +127,7 @@
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
+resource_type() -> kafka_consumer.
 
 callback_mode() ->
     async_if_possible.
@@ -631,16 +633,6 @@ consumer_group_id(_ConsumerParams, BridgeName0) ->
     BridgeName = to_bin(BridgeName0),
     <<"emqx-kafka-consumer-", BridgeName/binary>>.
 
--spec is_dry_run(connector_resource_id()) -> boolean().
-is_dry_run(ConnectorResId) ->
-    TestIdStart = string:find(ConnectorResId, ?TEST_ID_PREFIX),
-    case TestIdStart of
-        nomatch ->
-            false;
-        _ ->
-            string:equal(TestIdStart, ConnectorResId)
-    end.
-
 -spec check_client_connectivity(pid()) ->
     ?status_connected
     | ?status_disconnected
@@ -676,7 +668,7 @@ maybe_clean_error(Reason) ->
 
 -spec make_client_id(connector_resource_id(), binary(), atom() | binary()) -> atom().
 make_client_id(ConnectorResId, BridgeType, BridgeName) ->
-    case is_dry_run(ConnectorResId) of
+    case emqx_resource:is_dry_run(ConnectorResId) of
         false ->
             ClientID0 = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
             binary_to_atom(ClientID0);

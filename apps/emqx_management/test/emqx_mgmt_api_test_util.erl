@@ -293,3 +293,30 @@ format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
         FileNames
     ),
     erlang:iolist_to_binary([WithPaths, StartBoundary, <<"--">>, LineSeparator]).
+
+maybe_json_decode(X) ->
+    case emqx_utils_json:safe_decode(X, [return_maps]) of
+        {ok, Decoded} -> Decoded;
+        {error, _} -> X
+    end.
+
+simple_request(Method, Path, Params) ->
+    AuthHeader = auth_header_(),
+    Opts = #{return_all => true},
+    case request_api(Method, Path, "", AuthHeader, Params, Opts) of
+        {ok, {{_, Status, _}, _Headers, Body0}} ->
+            Body = maybe_json_decode(Body0),
+            {Status, Body};
+        {error, {{_, Status, _}, _Headers, Body0}} ->
+            Body =
+                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                    {ok, Decoded0 = #{<<"message">> := Msg0}} ->
+                        Msg = maybe_json_decode(Msg0),
+                        Decoded0#{<<"message">> := Msg};
+                    {ok, Decoded0} ->
+                        Decoded0;
+                    {error, _} ->
+                        Body0
+                end,
+            {Status, Body}
+    end.

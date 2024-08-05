@@ -459,15 +459,15 @@ handle_call({delete_rule, Rule}, _From, State) ->
     ok = do_delete_rule(Rule),
     {reply, ok, State};
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", request => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", request => Req}, #{tag => ?TAG}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", request => Msg}),
+    ?SLOG(error, #{msg => "unexpected_cast", request => Msg}, #{tag => ?TAG}),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", request => Info}),
+    ?SLOG(error, #{msg => "unexpected_info", request => Info}, #{tag => ?TAG}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

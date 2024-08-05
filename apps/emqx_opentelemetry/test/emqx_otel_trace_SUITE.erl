@@ -414,9 +414,9 @@ mqtt_host_port(Node) ->
 cluster(TC, Config) ->
     Nodes = emqx_cth_cluster:start(
         [
-            {otel_trace_core1, #{role => core, apps => apps_spec()}},
-            {otel_trace_core2, #{role => core, apps => apps_spec()}},
-            {otel_trace_replicant, #{role => replicant, apps => apps_spec()}}
+            {otel_trace_node1, #{apps => apps_spec()}},
+            {otel_trace_node2, #{apps => apps_spec()}},
+            {otel_trace_node3, #{apps => apps_spec()}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),

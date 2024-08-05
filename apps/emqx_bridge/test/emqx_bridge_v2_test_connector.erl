@@ -19,6 +19,7 @@
 
 -export([
     query_mode/1,
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -33,6 +34,8 @@
 
 query_mode(_Config) ->
     sync.
+
+resource_type() -> test_connector.
 
 callback_mode() ->
     always_sync.

@@ -79,6 +79,8 @@
 %% "Unofficial" `emqx_config_handler' and `emqx_conf' APIs
 -export([schema_module/0, upgrade_raw_conf/1]).
 
+-export([skip_if_oss/0]).
+
 -export_type([appspec/0]).
 -export_type([appspec_opts/0]).
 
@@ -389,6 +391,8 @@ default_appspec(emqx_schema_validation, _SuiteOpts) ->
     #{schema_mod => emqx_schema_validation_schema, config => #{}};
 default_appspec(emqx_message_transformation, _SuiteOpts) ->
     #{schema_mod => emqx_message_transformation_schema, config => #{}};
+default_appspec(emqx_ds_shared_sub, _SuiteOpts) ->
+    #{schema_mod => emqx_ds_shared_sub_schema, config => #{}};
 default_appspec(_, _) ->
     #{}.
 
@@ -518,4 +522,15 @@ upgrade_raw_conf(Conf) ->
             emqx_enterprise_schema:upgrade_raw_conf(Conf);
         ce ->
             emqx_conf_schema:upgrade_raw_conf(Conf)
+    end.
+
+skip_if_oss() ->
+    try emqx_release:edition() of
+        ee ->
+            false;
+        _ ->
+            {skip, not_supported_in_oss}
+    catch
+        error:undef ->
+            {skip, standalone_not_supported}
     end.

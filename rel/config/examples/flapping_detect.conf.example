@@ -3,9 +3,6 @@
 ## Ban the client when the times of connections exceed the limit in the configured time window
 
 flapping_detect {
-    ## use 'true' to enable this feature
-    enable = false
-
     ## Time window for flapping detection
     window_time = 1m
 

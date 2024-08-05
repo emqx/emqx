@@ -17,6 +17,7 @@
 -module(emqx_resource_metrics).
 
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_resource.hrl").
 
 -export([
     events/0,
@@ -74,7 +75,6 @@
     success_get/1
 ]).
 
--define(RES_METRICS, resource_metrics).
 -define(TELEMETRY_PREFIX, emqx, resource).
 
 -spec events() -> [telemetry:event_name()].
@@ -127,15 +127,19 @@ handle_telemetry_event(
             %% We catch errors to avoid detaching the telemetry handler function.
             %% When restarting a resource while it's under load, there might be transient
             %% failures while the metrics are not yet created.
-            ?SLOG(warning, #{
-                msg => "handle_resource_metrics_failed",
-                hint => "transient failures may occur when restarting a resource",
-                kind => Kind,
-                reason => Reason,
-                stacktrace => Stacktrace,
-                resource_id => ID,
-                event => Event
-            }),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "handle_resource_metrics_failed",
+                    hint => "transient failures may occur when restarting a resource",
+                    kind => Kind,
+                    reason => Reason,
+                    stacktrace => Stacktrace,
+                    resource_id => ID,
+                    event => Event
+                },
+                #{tag => ?TAG}
+            ),
             ok
     end;
 handle_telemetry_event(
@@ -151,15 +155,19 @@ handle_telemetry_event(
             %% We catch errors to avoid detaching the telemetry handler function.
             %% When restarting a resource while it's under load, there might be transient
             %% failures while the metrics are not yet created.
-            ?SLOG(warning, #{
-                msg => "handle_resource_metrics_failed",
-                hint => "transient failures may occur when restarting a resource",
-                kind => Kind,
-                reason => Reason,
-                stacktrace => Stacktrace,
-                resource_id => ID,
-                event => Event
-            }),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "handle_resource_metrics_failed",
+                    hint => "transient failures may occur when restarting a resource",
+                    kind => Kind,
+                    reason => Reason,
+                    stacktrace => Stacktrace,
+                    resource_id => ID,
+                    event => Event
+                },
+                #{tag => ?TAG}
+            ),
             ok
     end;
 handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->

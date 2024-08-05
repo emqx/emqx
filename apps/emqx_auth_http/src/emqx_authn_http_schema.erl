@@ -27,6 +27,8 @@
     namespace/0
 ]).
 
+-export([url/1, headers/1, headers_no_content_type/1, request_timeout/1]).
+
 -include("emqx_auth_http.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -61,12 +63,6 @@ select_union_member(
                 got => Else
             })
     end;
-select_union_member(#{<<"backend">> := ?AUTHN_BACKEND_BIN}) ->
-    throw(#{
-        reason => "unknown_mechanism",
-        expected => "password_based",
-        got => undefined
-    });
 select_union_member(_Value) ->
     undefined.
 

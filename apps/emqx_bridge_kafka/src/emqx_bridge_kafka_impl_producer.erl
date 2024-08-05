@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_producer).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_resource).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -10,6 +12,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     query_mode/1,
     callback_mode/0,
     on_start/2,
@@ -34,6 +37,8 @@
 -define(kafka_telemetry_id, kafka_telemetry_id).
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
+
+resource_type() -> kafka_producer.
 
 query_mode(#{parameters := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
@@ -122,8 +127,8 @@ on_add_channel(
     {ok, NewState}.
 
 create_producers_for_bridge_v2(
-    InstId,
-    BridgeV2Id,
+    ConnResId,
+    ActionResId,
     ClientId,
     #{
         bridge_type := BridgeType,
@@ -132,40 +137,42 @@ create_producers_for_bridge_v2(
 ) ->
     #{
         message := MessageTemplate,
-        topic := KafkaTopic,
+        topic := KafkaTopic0,
         sync_query_timeout := SyncQueryTimeout
     } = KafkaConfig,
+    TopicTemplate = {TopicType, TopicOrTemplate} = maybe_preproc_topic(KafkaTopic0),
+    MKafkaTopic =
+        case TopicType of
+            fixed -> TopicOrTemplate;
+            dynamic -> dynamic
+        end,
     KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
     MaxPartitions = maps:get(partitions_limit, KafkaConfig, all_partitions),
-    #{name := BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
-    TestIdStart = string:find(BridgeV2Id, ?TEST_ID_PREFIX),
-    IsDryRun =
-        case TestIdStart of
-            nomatch ->
-                false;
-            _ ->
-                string:equal(TestIdStart, InstId)
-        end,
-    ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
+    #{name := BridgeName} = emqx_bridge_v2:parse_id(ActionResId),
+    IsDryRun = emqx_resource:is_dry_run(ActionResId),
+    ok = check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions),
     WolffProducerConfig = producers_config(
-        BridgeType, BridgeName, KafkaConfig, IsDryRun, BridgeV2Id
+        BridgeType, BridgeName, KafkaConfig, IsDryRun, ActionResId
     ),
-    case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
+    case wolff:ensure_supervised_dynamic_producers(ClientId, WolffProducerConfig) of
         {ok, Producers} ->
-            ok = emqx_resource:allocate_resource(InstId, {?kafka_producers, BridgeV2Id}, Producers),
             ok = emqx_resource:allocate_resource(
-                InstId, {?kafka_telemetry_id, BridgeV2Id}, BridgeV2Id
+                ConnResId, {?kafka_producers, ActionResId}, Producers
             ),
-            _ = maybe_install_wolff_telemetry_handlers(BridgeV2Id),
+            ok = emqx_resource:allocate_resource(
+                ConnResId, {?kafka_telemetry_id, ActionResId}, ActionResId
+            ),
+            _ = maybe_install_wolff_telemetry_handlers(ActionResId),
             {ok, #{
                 message_template => compile_message_template(MessageTemplate),
                 kafka_client_id => ClientId,
-                kafka_topic => KafkaTopic,
+                topic_template => TopicTemplate,
+                topic => MKafkaTopic,
                 producers => Producers,
-                resource_id => BridgeV2Id,
-                connector_resource_id => InstId,
+                resource_id => ActionResId,
+                connector_resource_id => ConnResId,
                 sync_query_timeout => SyncQueryTimeout,
                 kafka_config => KafkaConfig,
                 headers_tokens => KafkaHeadersTokens,
@@ -176,9 +183,9 @@ create_producers_for_bridge_v2(
         {error, Reason2} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_producer",
-                instance_id => InstId,
+                instance_id => ConnResId,
                 kafka_client_id => ClientId,
-                kafka_topic => KafkaTopic,
+                kafka_topic => MKafkaTopic,
                 reason => Reason2
             }),
             throw(
@@ -271,7 +278,9 @@ remove_producers_for_bridge_v2(
     ClientId = maps:get(?kafka_client_id, AllocatedResources, no_client_id),
     maps:foreach(
         fun
-            ({?kafka_producers, BridgeV2IdCheck}, Producers) when BridgeV2IdCheck =:= BridgeV2Id ->
+            ({?kafka_producers, BridgeV2IdCheck}, Producers) when
+                BridgeV2IdCheck =:= BridgeV2Id
+            ->
                 deallocate_producers(ClientId, Producers);
             ({?kafka_telemetry_id, BridgeV2IdCheck}, TelemetryId) when
                 BridgeV2IdCheck =:= BridgeV2Id
@@ -304,7 +313,8 @@ on_query(
     #{installed_bridge_v2s := BridgeV2Configs} = _ConnectorState
 ) ->
     #{
-        message_template := Template,
+        message_template := MessageTemplate,
+        topic_template := TopicTemplate,
         producers := Producers,
         sync_query_timeout := SyncTimeout,
         headers_tokens := KafkaHeadersTokens,
@@ -317,7 +327,8 @@ on_query(
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
     try
-        KafkaMessage = render_message(Template, KafkaHeaders, Message),
+        KafkaTopic = render_topic(TopicTemplate, Message),
+        KafkaMessage = render_message(MessageTemplate, KafkaHeaders, Message),
         ?tp(
             emqx_bridge_kafka_impl_producer_sync_query,
             #{headers_config => KafkaHeaders, instance_id => InstId}
@@ -325,9 +336,15 @@ on_query(
         emqx_trace:rendered_action_template(MessageTag, #{
             message => KafkaMessage
         }),
-        do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
+        do_send_msg(sync, KafkaTopic, KafkaMessage, Producers, SyncTimeout)
     catch
-        error:{invalid_partition_count, Count, _Partitioner} ->
+        throw:bad_topic ->
+            ?tp("kafka_producer_failed_to_render_topic", #{}),
+            {error, {unrecoverable_error, failed_to_render_topic}};
+        throw:#{cause := unknown_topic_or_partition, topic := Topic} ->
+            ?tp("kafka_producer_resolved_to_unknown_topic", #{}),
+            {error, {unrecoverable_error, {resolved_to_unknown_topic, Topic}}};
+        throw:#{cause := invalid_partition_count, count := Count} ->
             ?tp("kafka_producer_invalid_partition_count", #{
                 action_id => MessageTag,
                 query_mode => sync
@@ -372,6 +389,7 @@ on_query_async(
 ) ->
     #{
         message_template := Template,
+        topic_template := TopicTemplate,
         producers := Producers,
         headers_tokens := KafkaHeadersTokens,
         ext_headers_tokens := KafkaExtHeadersTokens,
@@ -383,6 +401,7 @@ on_query_async(
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
     try
+        KafkaTopic = render_topic(TopicTemplate, Message),
         KafkaMessage = render_message(Template, KafkaHeaders, Message),
         ?tp(
             emqx_bridge_kafka_impl_producer_async_query,
@@ -391,9 +410,15 @@ on_query_async(
         emqx_trace:rendered_action_template(MessageTag, #{
             message => KafkaMessage
         }),
-        do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
+        do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn)
     catch
-        error:{invalid_partition_count, Count, _Partitioner} ->
+        throw:bad_topic ->
+            ?tp("kafka_producer_failed_to_render_topic", #{}),
+            {error, {unrecoverable_error, failed_to_render_topic}};
+        throw:#{cause := unknown_topic_or_partition, topic := Topic} ->
+            ?tp("kafka_producer_resolved_to_unknown_topic", #{}),
+            {error, {unrecoverable_error, {resolved_to_unknown_topic, Topic}}};
+        throw:#{cause := invalid_partition_count, count := Count} ->
             ?tp("kafka_producer_invalid_partition_count", #{
                 action_id => MessageTag,
                 query_mode => async
@@ -431,8 +456,27 @@ compile_message_template(T) ->
         timestamp => preproc_tmpl(TimestampTemplate)
     }.
 
+maybe_preproc_topic(Topic) ->
+    Template = emqx_template:parse(Topic),
+    case emqx_template:placeholders(Template) of
+        [] ->
+            {fixed, bin(Topic)};
+        [_ | _] ->
+            {dynamic, Template}
+    end.
+
 preproc_tmpl(Tmpl) ->
     emqx_placeholder:preproc_tmpl(Tmpl).
+
+render_topic({fixed, KafkaTopic}, _Message) ->
+    KafkaTopic;
+render_topic({dynamic, Template}, Message) ->
+    try
+        iolist_to_binary(emqx_template:render_strict(Template, {emqx_jsonish, Message}))
+    catch
+        error:_Errors ->
+            throw(bad_topic)
+    end.
 
 render_message(
     #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate},
@@ -475,9 +519,11 @@ render_timestamp(Template, Message) ->
             erlang:system_time(millisecond)
     end.
 
-do_send_msg(sync, KafkaMessage, Producers, SyncTimeout) ->
+do_send_msg(sync, KafkaTopic, KafkaMessage, Producers, SyncTimeout) ->
     try
-        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
+        {_Partition, _Offset} = wolff:send_sync2(
+            Producers, KafkaTopic, [KafkaMessage], SyncTimeout
+        ),
         ok
     catch
         error:{producer_down, _} = Reason ->
@@ -485,7 +531,7 @@ do_send_msg(sync, KafkaMessage, Producers, SyncTimeout) ->
         error:timeout ->
             {error, timeout}
     end;
-do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn) ->
+do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn) ->
     %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
     %% * Must be a single element batch because wolff books calls, but not batch sizes
     %%   for counters and gauges.
@@ -493,7 +539,9 @@ do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn) ->
     %% The retuned information is discarded here.
     %% If the producer process is down when sending, this function would
     %% raise an error exception which is to be caught by the caller of this callback
-    {_Partition, Pid} = wolff:send(Producers, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}),
+    {_Partition, Pid} = wolff:send2(
+        Producers, KafkaTopic, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}
+    ),
     %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
     {ok, Pid}.
 
@@ -516,7 +564,7 @@ on_kafka_ack(_Partition, message_too_large, {ReplyFn, Args}) ->
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
 %% `emqx_resource_manager' will kill the wolff producers and messages might be lost.
 on_get_status(
-    _InstId,
+    ConnResId,
     #{client_id := ClientId} = State
 ) ->
     %% Note: we must avoid returning `?status_disconnected' here if the connector ever was
@@ -526,7 +574,7 @@ on_get_status(
     %% held in wolff producer's replayq.
     case check_client_connectivity(ClientId) of
         ok ->
-            maybe_check_health_check_topic(State);
+            maybe_check_health_check_topic(ConnResId, State);
         {error, {find_client, _Error}} ->
             ?status_connecting;
         {error, {connectivity, Error}} ->
@@ -534,20 +582,23 @@ on_get_status(
     end.
 
 on_get_channel_status(
-    _ResId,
-    ChannelId,
+    _ConnResId,
+    ActionResId,
     #{
         client_id := ClientId,
         installed_bridge_v2s := Channels
-    } = _State
+    } = _ConnState
 ) ->
     %% Note: we must avoid returning `?status_disconnected' here. Returning
     %% `?status_disconnected' will make resource manager try to restart the producers /
     %% connector, thus potentially dropping data held in wolff producer's replayq.  The
     %% only exception is if the topic does not exist ("unhealthy target").
-    #{kafka_topic := KafkaTopic, partitions_limit := MaxPartitions} = maps:get(ChannelId, Channels),
+    #{
+        topic := MKafkaTopic,
+        partitions_limit := MaxPartitions
+    } = maps:get(ActionResId, Channels),
     try
-        ok = check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions),
+        ok = check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions),
         ?status_connected
     catch
         throw:{unhealthy_target, Msg} ->
@@ -556,22 +607,29 @@ on_get_channel_status(
             {?status_connecting, {K, E}}
     end.
 
-check_topic_and_leader_connections(ClientId, KafkaTopic, MaxPartitions) ->
+check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
-            ok = check_topic_status(ClientId, Pid, KafkaTopic),
-            ok = check_if_healthy_leaders(ClientId, Pid, KafkaTopic, MaxPartitions);
+            maybe
+                true ?= is_binary(MKafkaTopic),
+                ok = check_topic_status(ClientId, Pid, MKafkaTopic),
+                ok = check_if_healthy_leaders(
+                    ActionResId, ClientId, Pid, MKafkaTopic, MaxPartitions
+                )
+            else
+                false -> ok
+            end;
         {error, #{reason := no_such_client}} ->
             throw(#{
                 reason => cannot_find_kafka_client,
                 kafka_client => ClientId,
-                kafka_topic => KafkaTopic
+                kafka_topic => MKafkaTopic
             });
         {error, #{reason := client_supervisor_not_initialized}} ->
             throw(#{
                 reason => restarting,
                 kafka_client => ClientId,
-                kafka_topic => KafkaTopic
+                kafka_topic => MKafkaTopic
             })
     end.
 
@@ -590,21 +648,23 @@ check_client_connectivity(ClientId) ->
             {error, {find_client, Reason}}
     end.
 
-maybe_check_health_check_topic(#{health_check_topic := Topic} = ConnectorState) when
+maybe_check_health_check_topic(ConnResId, #{health_check_topic := Topic} = ConnectorState) when
     is_binary(Topic)
 ->
     #{client_id := ClientId} = ConnectorState,
     MaxPartitions = all_partitions,
-    try check_topic_and_leader_connections(ClientId, Topic, MaxPartitions) of
+    try check_topic_and_leader_connections(ConnResId, ClientId, Topic, MaxPartitions) of
         ok ->
             ?status_connected
     catch
+        throw:{unhealthy_target, Msg} ->
+            {?status_disconnected, ConnectorState, Msg};
         throw:#{reason := {connection_down, _} = Reason} ->
             {?status_disconnected, ConnectorState, Reason};
         throw:#{reason := Reason} ->
             {?status_connecting, ConnectorState, Reason}
     end;
-maybe_check_health_check_topic(_) ->
+maybe_check_health_check_topic(_ConnResId, _ConnState) ->
     %% Cannot infer further information.  Maybe upgraded from older version.
     ?status_connected.
 
@@ -616,8 +676,10 @@ error_summary(Map, [Error]) ->
 error_summary(Map, [Error | More]) ->
     Map#{first_error => Error, total_errors => length(More) + 1}.
 
-check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic, MaxPartitions) when is_pid(ClientPid) ->
-    case wolff_client:get_leader_connections(ClientPid, KafkaTopic, MaxPartitions) of
+check_if_healthy_leaders(ActionResId, ClientId, ClientPid, KafkaTopic, MaxPartitions) when
+    is_pid(ClientPid)
+->
+    case wolff_client:get_leader_connections(ClientPid, ActionResId, KafkaTopic, MaxPartitions) of
         {ok, Leaders} ->
             %% Kafka is considered healthy as long as any of the partition leader is reachable.
             case lists:partition(fun({_Partition, Pid}) -> is_alive(Pid) end, Leaders) of
@@ -679,7 +741,7 @@ ssl(#{enable := true} = SSL) ->
 ssl(_) ->
     false.
 
-producers_config(BridgeType, BridgeName, Input, IsDryRun, BridgeV2Id) ->
+producers_config(BridgeType, BridgeName, Input, IsDryRun, ActionResId) ->
     #{
         max_batch_bytes := MaxBatchBytes,
         compression := Compression,
@@ -721,8 +783,8 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, BridgeV2Id) ->
         max_batch_bytes => MaxBatchBytes,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,
-        alias => BridgeV2Id,
-        telemetry_meta_data => #{bridge_id => BridgeV2Id},
+        group => ActionResId,
+        telemetry_meta_data => #{bridge_id => ActionResId},
         max_partitions => MaxPartitions
     }.
 
@@ -798,20 +860,19 @@ handle_telemetry_event(_EventId, _Metrics, _MetaData, _HandlerConfig) ->
 %% Note: don't use the instance/manager ID, as that changes everytime
 %% the bridge is recreated, and will lead to multiplication of
 %% metrics.
--spec telemetry_handler_id(resource_id()) -> binary().
-telemetry_handler_id(ResourceID) ->
-    <<"emqx-bridge-kafka-producer-", ResourceID/binary>>.
+-spec telemetry_handler_id(action_resource_id()) -> binary().
+telemetry_handler_id(ActionResId) ->
+    ActionResId.
 
-uninstall_telemetry_handlers(ResourceID) ->
-    HandlerID = telemetry_handler_id(ResourceID),
-    telemetry:detach(HandlerID).
+uninstall_telemetry_handlers(TelemetryId) ->
+    telemetry:detach(TelemetryId).
 
-maybe_install_wolff_telemetry_handlers(ResourceID) ->
+maybe_install_wolff_telemetry_handlers(TelemetryId) ->
     %% Attach event handlers for Kafka telemetry events. If a handler with the
     %% handler id already exists, the attach_many function does nothing
     telemetry:attach_many(
         %% unique handler id
-        telemetry_handler_id(ResourceID),
+        telemetry_handler_id(TelemetryId),
         [
             [wolff, dropped_queue_full],
             [wolff, queuing],
@@ -823,7 +884,7 @@ maybe_install_wolff_telemetry_handlers(ResourceID) ->
         %% wolff producers; otherwise, multiple kafka producer bridges
         %% will install multiple handlers to the same wolff events,
         %% multiplying the metric counts...
-        #{bridge_id => ResourceID}
+        #{bridge_id => TelemetryId}
     ).
 
 preproc_kafka_headers(HeadersTmpl) when HeadersTmpl =:= <<>>; HeadersTmpl =:= undefined ->

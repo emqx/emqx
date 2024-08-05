@@ -621,9 +621,13 @@ handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], Session};
 handle_timeout(ClientInfo, ?TIMER_GET_STREAMS, Session0 = #{s := S0, shared_sub_s := SharedSubS0}) ->
-    S1 = emqx_persistent_session_ds_subs:gc(S0),
-    S2 = emqx_persistent_session_ds_stream_scheduler:renew_streams(S1),
-    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:renew_streams(S2, SharedSubS0),
+    %% `gc` and `renew_streams` methods may drop unsubscribed streams.
+    %% Shared subscription handler must have a chance to see unsubscribed streams
+    %% in the fully replayed state.
+    {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:pre_renew_streams(S0, SharedSubS0),
+    S2 = emqx_persistent_session_ds_subs:gc(S1),
+    S3 = emqx_persistent_session_ds_stream_scheduler:renew_streams(S2),
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:renew_streams(S3, SharedSubS1),
     Interval = get_config(ClientInfo, [renew_streams_interval]),
     Session = emqx_session:ensure_timer(
         ?TIMER_GET_STREAMS,
@@ -757,7 +761,7 @@ skip_batch(StreamKey, SRS0, Session = #{s := S0}, ClientInfo, Reason) ->
 %%--------------------------------------------------------------------
 
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
-disconnect(Session = #{id := Id, s := S0}, ConnInfo) ->
+disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo) ->
     S1 = maybe_set_offline_info(S0, Id),
     S2 = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S1),
     S3 =
@@ -767,8 +771,9 @@ disconnect(Session = #{id := Id, s := S0}, ConnInfo) ->
             _ ->
                 S2
         end,
-    S = emqx_persistent_session_ds_state:commit(S3),
-    {shutdown, Session#{s => S}}.
+    {S4, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_disconnect(S3, SharedSubS0),
+    S = emqx_persistent_session_ds_state:commit(S4),
+    {shutdown, Session#{s => S, shared_sub_s => SharedSubS}}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
 terminate(_Reason, Session = #{id := Id, s := S}) ->
@@ -816,10 +821,12 @@ list_client_subscriptions(ClientId) ->
             {error, not_found}
     end.
 
--spec get_client_subscription(emqx_types:clientid(), emqx_types:topic()) ->
+-spec get_client_subscription(emqx_types:clientid(), topic_filter() | share_topic_filter()) ->
     subscription() | undefined.
-get_client_subscription(ClientId, Topic) ->
-    emqx_persistent_session_ds_subs:cold_get_subscription(ClientId, Topic).
+get_client_subscription(ClientId, #share{} = ShareTopicFilter) ->
+    emqx_persistent_session_ds_shared_subs:cold_get_subscription(ClientId, ShareTopicFilter);
+get_client_subscription(ClientId, TopicFilter) ->
+    emqx_persistent_session_ds_subs:cold_get_subscription(ClientId, TopicFilter).
 
 %%--------------------------------------------------------------------
 %% Session tables operations
@@ -986,14 +993,14 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-fetch_new_messages(Session0 = #{s := S0}, ClientInfo) ->
-    LFS = maps:get(last_fetched_stream, Session0, beginning),
-    ItStream = emqx_persistent_session_ds_stream_scheduler:iter_next_streams(LFS, S0),
+fetch_new_messages(Session0 = #{s := S0, shared_sub_s := SharedSubS0}, ClientInfo) ->
+    {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replay(S0, SharedSubS0),
+    Session1 = Session0#{s => S1, shared_sub_s => SharedSubS1},
+    LFS = maps:get(last_fetched_stream, Session1, beginning),
+    ItStream = emqx_persistent_session_ds_stream_scheduler:iter_next_streams(LFS, S1),
     BatchSize = get_config(ClientInfo, [batch_size]),
-    Session1 = fetch_new_messages(ItStream, BatchSize, Session0, ClientInfo),
-    #{s := S1, shared_sub_s := SharedSubS0} = Session1,
-    {S2, SharedSubS1} = emqx_persistent_session_ds_shared_subs:on_streams_replayed(S1, SharedSubS0),
-    Session1#{s => S2, shared_sub_s => SharedSubS1}.
+    Session2 = fetch_new_messages(ItStream, BatchSize, Session1, ClientInfo),
+    Session2#{shared_sub_s => SharedSubS1}.
 
 fetch_new_messages(ItStream0, BatchSize, Session0, ClientInfo) ->
     #{inflight := Inflight} = Session0,

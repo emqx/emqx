@@ -30,7 +30,7 @@ t_copy_conf_override_on_restarts(Config) ->
     ct:timetrap({seconds, 120}),
     Cluster = cluster(
         ?FUNCTION_NAME,
-        [cluster_spec({core, 1}), cluster_spec({core, 2}), cluster_spec({core, 3})],
+        [cluster_spec(1), cluster_spec(2), cluster_spec(3)],
         Config
     ),
 
@@ -59,7 +59,7 @@ t_copy_new_data_dir(Config) ->
     ct:timetrap({seconds, 120}),
     Cluster = cluster(
         ?FUNCTION_NAME,
-        [cluster_spec({core, 4}), cluster_spec({core, 5}), cluster_spec({core, 6})],
+        [cluster_spec(4), cluster_spec(5), cluster_spec(6)],
         Config
     ),
 
@@ -84,7 +84,7 @@ t_copy_deprecated_data_dir(Config) ->
     ct:timetrap({seconds, 120}),
     Cluster = cluster(
         ?FUNCTION_NAME,
-        [cluster_spec({core, 7}), cluster_spec({core, 8}), cluster_spec({core, 9})],
+        [cluster_spec(7), cluster_spec(8), cluster_spec(9)],
         Config
     ),
 
@@ -109,7 +109,7 @@ t_no_copy_from_newer_version_node(Config) ->
     ct:timetrap({seconds, 120}),
     Cluster = cluster(
         ?FUNCTION_NAME,
-        [cluster_spec({core, 10}), cluster_spec({core, 11}), cluster_spec({core, 12})],
+        [cluster_spec(10), cluster_spec(11), cluster_spec(12)],
         Config
     ),
     OKs = [ok, ok, ok],
@@ -242,12 +242,12 @@ cluster(TC, Specs, Config) ->
         {emqx_conf, #{}}
     ],
     emqx_cth_cluster:mk_nodespecs(
-        [{Name, #{role => Role, apps => Apps}} || {Role, Name} <- Specs],
+        [{Name, #{apps => Apps}} || Name <- Specs],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ).
 
-cluster_spec({Type, Num}) ->
-    {Type, list_to_atom(atom_to_list(?MODULE) ++ integer_to_list(Num))}.
+cluster_spec(Num) ->
+    list_to_atom(atom_to_list(?MODULE) ++ integer_to_list(Num)).
 
 sort_highest_uptime(Nodes) ->
     Ranking = lists:sort([{-get_node_uptime(N), N} || N <- Nodes]),

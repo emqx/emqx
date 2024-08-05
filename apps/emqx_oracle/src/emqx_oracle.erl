@@ -21,6 +21,7 @@
 
 %% callbacks for behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -66,6 +67,8 @@
         params_tokens := params_tokens(),
         batch_params_tokens := params_tokens()
     }.
+
+resource_type() -> oracle.
 
 % As ecpool is not monitoring the worker's PID when doing a handover_async, the
 % request can be lost if worker crashes. Thus, it's better to force requests to

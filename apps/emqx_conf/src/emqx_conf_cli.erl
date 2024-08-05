@@ -302,8 +302,6 @@ hidden_roots() ->
         <<"trace">>,
         <<"stats">>,
         <<"broker">>,
-        <<"persistent_session_store">>,
-        <<"durable_sessions">>,
         <<"plugins">>,
         <<"zones">>
     ].

@@ -133,17 +133,17 @@ authenticate(
     },
     State
 ) ->
-    case ensure_auth_method(AuthMethod, AuthData, State) of
-        true ->
-            case AuthCache of
-                #{next_step := client_final} ->
-                    check_client_final_message(AuthData, AuthCache, State);
-                _ ->
-                    check_client_first_message(AuthData, AuthCache, State)
-            end;
-        false ->
-            ignore
-    end;
+    RetrieveFun = fun(Username) ->
+        retrieve(Username, State)
+    end,
+    OnErrFun = fun(Msg, Reason) ->
+        ?TRACE_AUTHN_PROVIDER(Msg, #{
+            reason => Reason
+        })
+    end,
+    emqx_utils_scram:authenticate(
+        AuthMethod, AuthData, AuthCache, State, RetrieveFun, OnErrFun, [is_superuser]
+    );
 authenticate(_Credential, _State) ->
     ignore.
 
@@ -256,55 +256,6 @@ run_fuzzy_filter(
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-ensure_auth_method(_AuthMethod, undefined, _State) ->
-    false;
-ensure_auth_method(<<"SCRAM-SHA-256">>, _AuthData, #{algorithm := sha256}) ->
-    true;
-ensure_auth_method(<<"SCRAM-SHA-512">>, _AuthData, #{algorithm := sha512}) ->
-    true;
-ensure_auth_method(_AuthMethod, _AuthData, _State) ->
-    false.
-
-check_client_first_message(Bin, _Cache, #{iteration_count := IterationCount} = State) ->
-    RetrieveFun = fun(Username) ->
-        retrieve(Username, State)
-    end,
-    case
-        esasl_scram:check_client_first_message(
-            Bin,
-            #{
-                iteration_count => IterationCount,
-                retrieve => RetrieveFun
-            }
-        )
-    of
-        {continue, ServerFirstMessage, Cache} ->
-            {continue, ServerFirstMessage, Cache};
-        ignore ->
-            ignore;
-        {error, Reason} ->
-            ?TRACE_AUTHN_PROVIDER("check_client_first_message_error", #{
-                reason => Reason
-            }),
-            {error, not_authorized}
-    end.
-
-check_client_final_message(Bin, #{is_superuser := IsSuperuser} = Cache, #{algorithm := Alg}) ->
-    case
-        esasl_scram:check_client_final_message(
-            Bin,
-            Cache#{algorithm => Alg}
-        )
-    of
-        {ok, ServerFinalMessage} ->
-            {ok, #{is_superuser => IsSuperuser}, ServerFinalMessage};
-        {error, Reason} ->
-            ?TRACE_AUTHN_PROVIDER("check_client_final_message_error", #{
-                reason => Reason
-            }),
-            {error, not_authorized}
-    end.
 
 user_info_record(
     #{

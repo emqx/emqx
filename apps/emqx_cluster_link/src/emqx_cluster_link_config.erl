@@ -4,6 +4,8 @@
 
 -module(emqx_cluster_link_config).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_config_handler).
 
 -include_lib("emqx/include/logger.hrl").
@@ -28,11 +30,15 @@
 
 -export([
     %% General
+    create_link/1,
+    delete_link/1,
+    update_link/1,
     update/1,
     cluster/0,
     enabled_links/0,
     links/0,
     link/1,
+    link_raw/1,
     topic_filters/1,
     %% Connections
     emqtt_options/1,
@@ -55,6 +61,52 @@
 
 %%
 
+create_link(LinkConfig) ->
+    #{<<"name">> := Name} = LinkConfig,
+    case
+        emqx_conf:update(
+            ?LINKS_PATH,
+            {create, LinkConfig},
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, #{raw_config := NewConfigRows}} ->
+            NewLinkConfig = find_link(Name, NewConfigRows),
+            {ok, NewLinkConfig};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+delete_link(Name) ->
+    case
+        emqx_conf:update(
+            ?LINKS_PATH,
+            {delete, Name},
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+update_link(LinkConfig) ->
+    #{<<"name">> := Name} = LinkConfig,
+    case
+        emqx_conf:update(
+            ?LINKS_PATH,
+            {update, LinkConfig},
+            #{rawconf_with_defaults => true, override_to => cluster}
+        )
+    of
+        {ok, #{raw_config := NewConfigRows}} ->
+            NewLinkConfig = find_link(Name, NewConfigRows),
+            {ok, NewLinkConfig};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 update(Config) ->
     case
         emqx_conf:update(
@@ -75,11 +127,20 @@ cluster() ->
 links() ->
     emqx:get_config(?LINKS_PATH, []).
 
+links_raw() ->
+    emqx:get_raw_config(?LINKS_PATH, []).
+
 enabled_links() ->
     [L || L = #{enable := true} <- links()].
 
 link(Name) ->
-    case lists:dropwhile(fun(L) -> Name =/= upstream_name(L) end, links()) of
+    find_link(Name, links()).
+
+link_raw(Name) ->
+    find_link(Name, links_raw()).
+
+find_link(Name, Links) ->
+    case lists:dropwhile(fun(L) -> Name =/= upstream_name(L) end, Links) of
         [LinkConf | _] -> LinkConf;
         [] -> undefined
     end.
@@ -133,6 +194,37 @@ remove_handler() ->
 
 pre_config_update(?LINKS_PATH, RawConf, RawConf) ->
     {ok, RawConf};
+pre_config_update(?LINKS_PATH, {create, LinkRawConf}, OldRawConf) ->
+    #{<<"name">> := Name} = LinkRawConf,
+    maybe
+        undefined ?= find_link(Name, OldRawConf),
+        NewRawConf0 = OldRawConf ++ [LinkRawConf],
+        NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
+        {ok, NewRawConf}
+    else
+        _ ->
+            {error, already_exists}
+    end;
+pre_config_update(?LINKS_PATH, {update, LinkRawConf}, OldRawConf) ->
+    #{<<"name">> := Name} = LinkRawConf,
+    maybe
+        {_Found, Front, Rear} ?= safe_take(Name, OldRawConf),
+        NewRawConf0 = Front ++ [LinkRawConf] ++ Rear,
+        NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
+        {ok, NewRawConf}
+    else
+        not_found ->
+            {error, not_found}
+    end;
+pre_config_update(?LINKS_PATH, {delete, Name}, OldRawConf) ->
+    maybe
+        {_Found, Front, Rear} ?= safe_take(Name, OldRawConf),
+        NewRawConf = Front ++ Rear,
+        {ok, NewRawConf}
+    else
+        _ ->
+            {error, not_found}
+    end;
 pre_config_update(?LINKS_PATH, NewRawConf, OldRawConf) ->
     {ok, convert_certs(maybe_increment_ps_actor_incr(NewRawConf, OldRawConf))}.
 
@@ -185,9 +277,10 @@ all_ok(Results) ->
 add_links(LinksConf) ->
     [add_link(Link) || Link <- LinksConf].
 
-add_link(#{enable := true} = LinkConf) ->
+add_link(#{name := ClusterName, enable := true} = LinkConf) ->
     {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(LinkConf),
     {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
+    ok = emqx_cluster_link_metrics:maybe_create_metrics(ClusterName),
     ok;
 add_link(_DisabledLinkConf) ->
     ok.
@@ -197,12 +290,13 @@ remove_links(LinksConf) ->
 
 remove_link(Name) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
-    ensure_actor_stopped(Name).
+    _ = ensure_actor_stopped(Name),
+    emqx_cluster_link_metrics:drop_metrics(Name).
 
 update_links(LinksConf) ->
-    [update_link(Link) || Link <- LinksConf].
+    [do_update_link(Link) || Link <- LinksConf].
 
-update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
+do_update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
     case what_is_changed(OldLinkConf, NewLinkConf) of
         both ->
             _ = ensure_actor_stopped(Name),
@@ -215,7 +309,7 @@ update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
         msg_resource ->
             ok = update_msg_fwd_resource(OldLinkConf, NewLinkConf)
     end;
-update_link({_OldLinkConf, #{enable := false, name := Name} = _NewLinkConf}) ->
+do_update_link({_OldLinkConf, #{enable := false, name := Name} = _NewLinkConf}) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
     ensure_actor_stopped(Name).
 
@@ -319,4 +413,12 @@ do_convert_certs(LinkName, SSLOpts) ->
                 }
             ),
             throw({bad_ssl_config, Reason})
+    end.
+
+safe_take(Name, Transformations) ->
+    case lists:splitwith(fun(#{<<"name">> := N}) -> N =/= Name end, Transformations) of
+        {_Front, []} ->
+            not_found;
+        {Front, [Found | Rear]} ->
+            {Found, Front, Rear}
     end.

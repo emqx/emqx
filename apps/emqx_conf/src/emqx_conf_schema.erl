@@ -83,7 +83,8 @@
     dropped_msg_due_to_mqueue_is_full,
     socket_receive_paused_by_rate_limit,
     data_bridge_buffer_overflow,
-    external_broker_crashed
+    external_broker_crashed,
+    unrecoverable_resource_error
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).
@@ -192,18 +193,6 @@ fields("cluster") ->
                     default => manual,
                     desc => ?DESC(cluster_discovery_strategy),
                     'readOnly' => true
-                }
-            )},
-        {"core_nodes",
-            sc(
-                node_array(),
-                #{
-                    %% This config is nerver needed (since 5.0.0)
-                    importance => ?IMPORTANCE_HIDDEN,
-                    mapping => "mria.core_nodes",
-                    default => [],
-                    'readOnly' => true,
-                    desc => ?DESC(db_core_nodes)
                 }
             )},
         {"autoclean",
@@ -600,7 +589,7 @@ fields("node") ->
             )},
         {"role",
             sc(
-                hoconsc:enum([core, replicant]),
+                hoconsc:enum([core] ++ emqx_schema_hooks:injection_point('node.role')),
                 #{
                     mapping => "mria.node_role",
                     default => core,
@@ -997,6 +986,7 @@ fields("log_overload_kill") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC("log_overload_kill_enable")
                 }
             )},
@@ -1032,6 +1022,7 @@ fields("log_burst_limit") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC("log_burst_limit_enable")
                 }
             )},
@@ -1269,6 +1260,11 @@ log_handler_common_confs(Handler, Default) ->
     EnvValue = os:getenv("EMQX_DEFAULT_LOG_HANDLER"),
     Enable = lists:member(EnvValue, EnableValues),
     LevelDesc = maps:get(level_desc, Default, "common_handler_level"),
+    EnableImportance =
+        case Enable of
+            true -> ?IMPORTANCE_NO_DOC;
+            false -> ?IMPORTANCE_MEDIUM
+        end,
     [
         {"level",
             sc(
@@ -1285,7 +1281,7 @@ log_handler_common_confs(Handler, Default) ->
                 #{
                     default => Enable,
                     desc => ?DESC("common_handler_enable"),
-                    importance => ?IMPORTANCE_MEDIUM
+                    importance => EnableImportance
                 }
             )},
         {"formatter",

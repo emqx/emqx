@@ -3,7 +3,6 @@
 listeners.ssl.my_ssl_listener_name {
     ## Port or Address to listen on, 0 means disable
     bind = 8883 ## or with an IP e.g. "127.0.0.1:8883"
-    enabled = true
     acceptors = 16
     enable_authn = true
     max_connections = infinity

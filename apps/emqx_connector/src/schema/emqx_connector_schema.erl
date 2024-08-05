@@ -489,7 +489,12 @@ api_fields("put_connector", _Type, Fields) ->
 
 common_fields() ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {enable,
+            mk(boolean(), #{
+                desc => ?DESC("config_enable"),
+                importance => ?IMPORTANCE_NO_DOC,
+                default => true
+            })},
         {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()}
     ].

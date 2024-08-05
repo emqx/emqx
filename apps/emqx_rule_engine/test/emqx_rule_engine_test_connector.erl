@@ -25,6 +25,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -40,6 +41,8 @@
 ]).
 
 %% ===================================================================
+resource_type() -> test_connector.
+
 callback_mode() -> always_sync.
 
 on_start(
