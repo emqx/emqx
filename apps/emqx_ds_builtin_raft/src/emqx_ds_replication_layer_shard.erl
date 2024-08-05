@@ -363,9 +363,11 @@ init({DB, Shard, Opts}) ->
 
 handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
     {noreply, St};
-handle_continue(bootstrap, St0) ->
+handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, stage = Stage}) ->
+    ?tp(emqx_ds_replshard_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
     case bootstrap(St0) of
         St = #st{bootstrapped = true} ->
+            ?tp(emqx_ds_replshard_bootstrapped, #{db => DB, shard => Shard}),
             {noreply, St};
         St = #st{bootstrapped = false} ->
             {noreply, St, {continue, bootstrap}};
