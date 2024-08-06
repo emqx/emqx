@@ -29,7 +29,7 @@
 
     current_timestamp/2,
 
-    shard_of_message/4,
+    shard_of_operation/4,
     flush_buffer/4,
     init_buffer/3
 ]).
@@ -83,6 +83,7 @@
     ra_state/0
 ]).
 
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds_replication_layer.hrl").
@@ -100,7 +101,10 @@
         n_shards => pos_integer(),
         n_sites => pos_integer(),
         replication_factor => pos_integer(),
-        replication_options => _TODO :: #{}
+        replication_options => _TODO :: #{},
+        %% Inherited from `emqx_ds:generic_db_opts()`.
+        force_monotonic_timestamps => boolean(),
+        atomic_batches => boolean()
     }.
 
 %% This enapsulates the stream entity from the replication level.
@@ -135,11 +139,12 @@
         ?enc := emqx_ds_storage_layer:delete_iterator()
     }.
 
-%% TODO: this type is obsolete and is kept only for compatibility with
-%% BPAPIs. Remove it when emqx_ds_proto_v4 is gone (EMQX 5.6)
+%% Write batch.
+%% Instances of this type currently form the majority of the Raft log.
 -type batch() :: #{
     ?tag := ?BATCH,
-    ?batch_messages := [emqx_types:message()]
+    ?batch_operations := [emqx_ds:operation()],
+    ?batch_preconditions => [emqx_ds:precondition()]
 }.
 
 -type generation_rank() :: {shard_id(), term()}.
@@ -240,14 +245,43 @@ drop_db(DB) ->
     _ = emqx_ds_proto_v4:drop_db(list_nodes(), DB),
     emqx_ds_replication_layer_meta:drop_db(DB).
 
--spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
+-spec store_batch(emqx_ds:db(), emqx_ds:batch(), emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
-store_batch(DB, Messages, Opts) ->
+store_batch(DB, Batch = #dsbatch{preconditions = [_ | _]}, Opts) ->
+    %% NOTE: Atomic batch is implied, will not check with DB config.
+    store_batch_atomic(DB, Batch, Opts);
+store_batch(DB, Batch, Opts) ->
+    case emqx_ds_replication_layer_meta:db_config(DB) of
+        #{atomic_batches := true} ->
+            store_batch_atomic(DB, Batch, Opts);
+        #{} ->
+            store_batch_buffered(DB, Batch, Opts)
+    end.
+
+store_batch_buffered(DB, #dsbatch{operations = Operations}, Opts) ->
+    store_batch_buffered(DB, Operations, Opts);
+store_batch_buffered(DB, Batch, Opts) ->
     try
-        emqx_ds_buffer:store_batch(DB, Messages, Opts)
+        emqx_ds_buffer:store_batch(DB, Batch, Opts)
     catch
         error:{Reason, _Call} when Reason == timeout; Reason == noproc ->
             {error, recoverable, Reason}
+    end.
+
+store_batch_atomic(DB, Batch, _Opts) ->
+    Shards = shards_of_batch(DB, Batch),
+    case Shards of
+        [Shard] ->
+            case ra_store_batch(DB, Shard, Batch) of
+                {timeout, ServerId} ->
+                    {error, recoverable, {timeout, ServerId}};
+                Result ->
+                    Result
+            end;
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, unrecoverable, atomic_batch_spans_multiple_shards}
     end.
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -392,16 +426,48 @@ flush_buffer(DB, Shard, Messages, State) ->
     end,
     {State, Result}.
 
--spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic, _Options) ->
+-spec shard_of_operation(
+    emqx_ds:db(),
+    emqx_ds:operation() | emqx_ds:precondition(),
+    clientid | topic,
+    _Options
+) ->
     emqx_ds_replication_layer:shard_id().
-shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key);
+shard_of_operation(DB, {_OpName, Matcher}, SerializeBy, _Options) ->
+    #message_matcher{from = From, topic = Topic} = Matcher,
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key).
+
+shard_of_key(DB, Key) ->
     N = emqx_ds_replication_shard_allocator:n_shards(DB),
-    Hash =
-        case SerializeBy of
-            clientid -> erlang:phash2(From, N);
-            topic -> erlang:phash2(Topic, N)
-        end,
+    Hash = erlang:phash2(Key, N),
     integer_to_binary(Hash).
+
+shards_of_batch(DB, #dsbatch{operations = Operations, preconditions = Preconditions}) ->
+    shards_of_batch(DB, Preconditions, shards_of_batch(DB, Operations, []));
+shards_of_batch(DB, Operations) ->
+    shards_of_batch(DB, Operations, []).
+
+shards_of_batch(DB, [Operation | Rest], Acc) ->
+    case shard_of_operation(DB, Operation, clientid, #{}) of
+        Shard when Shard =:= hd(Acc) ->
+            shards_of_batch(DB, Rest, Acc);
+        Shard when Acc =:= [] ->
+            shards_of_batch(DB, Rest, [Shard]);
+        ShardAnother ->
+            [ShardAnother | Acc]
+    end;
+shards_of_batch(_DB, [], Acc) ->
+    Acc.
 
 %%================================================================================
 %% Internal exports (RPC targets)
@@ -612,7 +678,7 @@ list_nodes() ->
 -define(SHARD_RPC(DB, SHARD, NODE, BODY),
     case
         emqx_ds_replication_layer_shard:servers(
-            DB, SHARD, application:get_env(emqx_durable_storage, reads, leader_preferred)
+            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
         )
     of
         [{_, NODE} | _] ->
@@ -624,13 +690,22 @@ list_nodes() ->
     end
 ).
 
--spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()]) ->
-    ok | {timeout, _} | {error, recoverable | unrecoverable, _Err}.
-ra_store_batch(DB, Shard, Messages) ->
-    Command = #{
-        ?tag => ?BATCH,
-        ?batch_messages => Messages
-    },
+-spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:batch()) ->
+    ok | {timeout, _} | emqx_ds:error(_).
+ra_store_batch(DB, Shard, Batch) ->
+    case Batch of
+        #dsbatch{operations = Operations, preconditions = Preconditions} ->
+            Command = #{
+                ?tag => ?BATCH,
+                ?batch_operations => Operations,
+                ?batch_preconditions => Preconditions
+            };
+        Operations ->
+            Command = #{
+                ?tag => ?BATCH,
+                ?batch_operations => Operations
+            }
+    end,
     Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
     case emqx_ds_replication_layer_shard:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
@@ -767,6 +842,7 @@ ra_drop_shard(DB, Shard) ->
 
 -define(pd_ra_idx_need_release, '$emqx_ds_raft_idx_need_release').
 -define(pd_ra_bytes_need_release, '$emqx_ds_raft_bytes_need_release').
+-define(pd_ra_force_monotonic, '$emqx_ds_raft_force_monotonic').
 
 -spec init(_Args :: map()) -> ra_state().
 init(#{db := DB, shard := Shard}) ->
@@ -776,18 +852,30 @@ init(#{db := DB, shard := Shard}) ->
     {ra_state(), _Reply, _Effects}.
 apply(
     RaftMeta,
-    #{
+    Command = #{
         ?tag := ?BATCH,
-        ?batch_messages := MessagesIn
+        ?batch_operations := OperationsIn
     },
     #{db_shard := DBShard = {DB, Shard}, latest := Latest0} = State0
 ) ->
-    ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => MessagesIn, latest => Latest0}),
-    {Stats, Latest, Messages} = assign_timestamps(Latest0, MessagesIn),
-    Result = emqx_ds_storage_layer:store_batch(DBShard, Messages, #{durable => false}),
-    State = State0#{latest := Latest},
-    set_ts(DBShard, Latest),
-    Effects = try_release_log(Stats, RaftMeta, State),
+    ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => OperationsIn, latest => Latest0}),
+    Preconditions = maps:get(?batch_preconditions, Command, []),
+    {Stats, Latest, Operations} = assign_timestamps(DB, Latest0, OperationsIn),
+    %% FIXME
+    case emqx_ds_precondition:verify(emqx_ds_storage_layer, DBShard, Preconditions) of
+        ok ->
+            Result = emqx_ds_storage_layer:store_batch(DBShard, Operations, #{durable => false}),
+            State = State0#{latest := Latest},
+            set_ts(DBShard, Latest),
+            Effects = try_release_log(Stats, RaftMeta, State);
+        PreconditionFailed = {precondition_failed, _} ->
+            Result = {error, unrecoverable, PreconditionFailed},
+            State = State0,
+            Effects = [];
+        Result ->
+            State = State0,
+            Effects = []
+    end,
     Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
@@ -862,6 +950,21 @@ apply(
     Effects = handle_custom_event(DBShard, Latest, CustomEvent),
     {State#{latest => Latest}, ok, Effects}.
 
+assign_timestamps(DB, Latest, Messages) ->
+    ForceMonotonic = force_monotonic_timestamps(DB),
+    assign_timestamps(ForceMonotonic, Latest, Messages, [], 0, 0).
+
+force_monotonic_timestamps(DB) ->
+    case erlang:get(?pd_ra_force_monotonic) of
+        undefined ->
+            DBConfig = emqx_ds_replication_layer_meta:db_config(DB),
+            Flag = maps:get(force_monotonic_timestamps, DBConfig),
+            erlang:put(?pd_ra_force_monotonic, Flag);
+        Flag ->
+            ok
+    end,
+    Flag.
+
 try_release_log({_N, BatchSize}, RaftMeta = #{index := CurrentIdx}, State) ->
     %% NOTE
     %% Because cursor release means storage flush (see
@@ -924,10 +1027,7 @@ tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
     ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, timestamp => Timestamp}),
     handle_custom_event(DBShard, Timestamp, tick).
 
-assign_timestamps(Latest, Messages) ->
-    assign_timestamps(Latest, Messages, [], 0, 0).
-
-assign_timestamps(Latest0, [Message0 | Rest], Acc, N, Sz) ->
+assign_timestamps(true, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->
     case emqx_message:timestamp(Message0, microsecond) of
         TimestampUs when TimestampUs > Latest0 ->
             Latest = TimestampUs,
@@ -936,8 +1036,17 @@ assign_timestamps(Latest0, [Message0 | Rest], Acc, N, Sz) ->
             Latest = Latest0 + 1,
             Message = assign_timestamp(Latest, Message0)
     end,
-    assign_timestamps(Latest, Rest, [Message | Acc], N + 1, Sz + approx_message_size(Message0));
-assign_timestamps(Latest, [], Acc, N, Size) ->
+    MSize = approx_message_size(Message0),
+    assign_timestamps(true, Latest, Rest, [Message | Acc], N + 1, Sz + MSize);
+assign_timestamps(false, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->
+    TimestampUs = emqx_message:timestamp(Message0),
+    Latest = max(Latest0, TimestampUs),
+    Message = assign_timestamp(TimestampUs, Message0),
+    MSize = approx_message_size(Message0),
+    assign_timestamps(false, Latest, Rest, [Message | Acc], N + 1, Sz + MSize);
+assign_timestamps(ForceMonotonic, Latest, [Operation | Rest], Acc, N, Sz) ->
+    assign_timestamps(ForceMonotonic, Latest, Rest, [Operation | Acc], N + 1, Sz);
+assign_timestamps(_ForceMonotonic, Latest, [], Acc, N, Size) ->
     {{N, Size}, Latest, lists:reverse(Acc)}.
 
 assign_timestamp(TimestampUs, Message) ->
