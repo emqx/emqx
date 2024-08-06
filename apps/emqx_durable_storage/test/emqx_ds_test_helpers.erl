@@ -377,7 +377,7 @@ nodes_of_clientid(DB, ClientId, Nodes = [N0 | _]) ->
 shard_of_clientid(DB, Node, ClientId) ->
     ?ON(
         Node,
-        emqx_ds_buffer:shard_of_message(DB, #message{from = ClientId}, clientid)
+        emqx_ds_buffer:shard_of_operation(DB, #message{from = ClientId}, clientid)
     ).
 
 %% Consume eagerly:
