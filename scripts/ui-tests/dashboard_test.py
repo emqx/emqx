@@ -112,19 +112,23 @@ def fetch_version(url):
     version_str = info['rel_vsn']
     return parse_version(version_str)
 
+def find_element_by_xpath_retrying(xpath, on_error, retries=5):
+    for _ in range(5):
+        try:
+            el = driver.find_element(By.XPATH, xpath)
+            return el
+        except NoSuchElementException:
+            time.sleep(1)
+    else:
+        raise AssertionError(on_error)
+
+
 def test_docs_link(driver, dashboard_url):
     login(driver, dashboard_url)
     logger.info(f"Current URL: {driver.current_url}")
     xpath_link_help = "//div[@id='app']//div[@class='nav-header']//a[contains(@class, 'link-help')]"
     # retry up to 5 times
-    for _ in range(5):
-        try:
-            link_help = driver.find_element(By.XPATH, xpath_link_help)
-            break
-        except NoSuchElementException:
-            time.sleep(1)
-    else:
-        raise AssertionError("Cannot find the help link")
+    link_help = find_element_by_xpath_retrying(xpath_link_help, "Cannot find the help link", retries=5)
     driver.execute_script("arguments[0].click();", link_help)
 
     prefix, emqx_version = fetch_version(dashboard_url)
@@ -139,7 +143,5 @@ def test_docs_link(driver, dashboard_url):
     docs_url = f"{docs_base_url}/{emqx_version}"
     xpath = f"//div[@id='app']//div[@class='nav-header']//a[@href[starts-with(.,'{docs_url}')]]"
 
-    try:
-        driver.find_element(By.XPATH, xpath)
-    except NoSuchElementException:
-        raise AssertionError(f"Cannot find the doc URL for version {emqx_version}, please make sure the dashboard package is up to date.")
+    on_error = f"Cannot find the doc URL for version {emqx_version}, please make sure the dashboard package is up to date."
+    find_element_by_xpath_retrying(xpath, on_error, retries=5)
