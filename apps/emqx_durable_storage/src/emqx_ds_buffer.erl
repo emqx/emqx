@@ -45,8 +45,6 @@
 
 -define(cbm(DB), {?MODULE, DB}).
 
--type message() :: emqx_types:message() | {emqx_ds:time(), emqx_types:message()}.
-
 -record(enqueue_req, {
     operations :: [emqx_ds:operation()],
     sync :: boolean(),

@@ -101,8 +101,6 @@
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
 
--type message() :: emqx_types:message() | {emqx_ds:time(), emqx_types:message()}.
-
 %%================================================================================
 %% API functions
 %%================================================================================
