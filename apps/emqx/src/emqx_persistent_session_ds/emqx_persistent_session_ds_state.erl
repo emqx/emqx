@@ -27,6 +27,8 @@
 %% for use in the management APIs.
 -module(emqx_persistent_session_ds_state).
 
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+
 -ifdef(STORE_STATE_IN_DS).
 -export([open_db/1]).
 %% ELSE ifdef(STORE_STATE_IN_DS).
@@ -106,6 +108,7 @@
 %%================================================================================
 
 -define(DB, ?DURABLE_SESSION_STATE).
+-define(TS, 0).
 
 -type message() :: emqx_types:message().
 
@@ -427,7 +430,19 @@ list_sessions() ->
 -spec delete(emqx_persistent_session_ds:id()) -> ok.
 -ifdef(STORE_STATE_IN_DS).
 delete(Id) ->
-    delete_iterate(Id, ['#']).
+    Fun = fun(Data, Acc) ->
+        DeleteOps =
+            lists:map(
+                fun(#{key := K, domain := D}) ->
+                    {delete, matcher(Id, D, K)}
+                end,
+                Data
+            ),
+        DeleteOps ++ Acc
+    end,
+    DeleteOps = read_fold(Fun, [], Id, ['#']),
+    store_batch(DeleteOps).
+
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 delete(Id) ->
@@ -457,12 +472,12 @@ commit(
     }
 ) ->
     check_sequence(Rec0),
-    {{SubsMsgs, SubsDel}, Subs} = pmap_commit(SessionId, Subs0),
-    {{SubStatesMsgs, SubStatesDel}, SubStates} = pmap_commit(SessionId, SubStates0),
-    {{StreamsMsgs, StreamsDel}, Streams} = pmap_commit(SessionId, Streams0),
-    {{SeqNosMsgs, SeqNosDel}, SeqNos} = pmap_commit(SessionId, SeqNos0),
-    {{RanksMsgs, RanksDel}, Ranks} = pmap_commit(SessionId, Ranks0),
-    {{AwaitingRelsMsgs, AwaitingRelsDel}, AwaitingRels} = pmap_commit(SessionId, AwaitingRels0),
+    {SubsOps, Subs} = pmap_commit(SessionId, Subs0),
+    {SubStatesOps, SubStates} = pmap_commit(SessionId, SubStates0),
+    {StreamsOps, Streams} = pmap_commit(SessionId, Streams0),
+    {SeqNosOps, SeqNos} = pmap_commit(SessionId, SeqNos0),
+    {RanksOps, Ranks} = pmap_commit(SessionId, Ranks0),
+    {AwaitingRelsOps, AwaitingRels} = pmap_commit(SessionId, AwaitingRels0),
     Rec = Rec0#{
         ?subscriptions := Subs,
         ?subscription_states := SubStates,
@@ -473,19 +488,17 @@ commit(
         ?unset_dirty
     },
     MetadataVal = #{metadata => Metadata, key_mappings => key_mappings(Rec)},
-    MetadataMsg = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, MetadataVal),
-    delete_specific_keys(SessionId, ?subscription_domain, SubsDel),
-    delete_specific_keys(SessionId, ?subscription_state_domain, SubStatesDel),
-    delete_specific_keys(SessionId, ?stream_domain, StreamsDel),
-    delete_specific_keys(SessionId, ?seqno_domain, SeqNosDel),
-    delete_specific_keys(SessionId, ?rank_domain, RanksDel),
-    delete_specific_keys(SessionId, ?awaiting_rel_domain, AwaitingRelsDel),
+    MetadataOp = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, MetadataVal),
     ok = store_batch(
-        [MetadataMsg] ++
-            SubsMsgs ++
-            SubStatesMsgs ++
-            StreamsMsgs ++
-            SeqNosMsgs ++ RanksMsgs ++ AwaitingRelsMsgs
+        lists:flatten([
+            {?TS, MetadataOp},
+            SubsOps,
+            SubStatesOps,
+            StreamsOps,
+            SeqNosOps,
+            RanksOps,
+            AwaitingRelsOps
+        ])
     ),
     Rec.
 
@@ -499,8 +512,7 @@ key_mappings(Rec) ->
         ?pmaps
     ).
 
-store_batch(Batch0) ->
-    Batch = [{emqx_message:timestamp(Msg, microsecond), Msg} || Msg <- Batch0],
+store_batch(Batch) ->
     emqx_ds:store_batch(?DB, Batch, #{atomic => true, sync => true}).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
@@ -859,7 +871,7 @@ make_session_iterator() ->
     %% NB. This hides the existence of streams.  Users will need to start iteration
     %% again to see new streams, if any.
     %% NB. This is not assumed to be stored permanently anywhere.
-    Time = 0,
+    Time = ?TS,
     TopicFilter = [
         <<"session">>,
         '+',
@@ -1167,26 +1179,34 @@ pmap_fold(Fun, Acc, #pmap{table = Table, cache = Cache}) ->
 
 -ifdef(STORE_STATE_IN_DS).
 -spec pmap_commit(emqx_persistent_session_ds:id(), pmap(K, V)) ->
-    {{[emqx_types:message()], [term()]}, pmap(K, V)}.
+    {[emqx_ds:operation()], pmap(K, V)}.
 pmap_commit(
     SessionId, Pmap = #pmap{table = Domain, dirty = Dirty, cache = Cache}
 ) ->
     Out =
         maps:fold(
             fun
-                (K, del, {AccPersist, AccDel}) ->
-                    {AccPersist, [K | AccDel]};
-                (K, dirty, {AccPersist, AccDel}) ->
+                (K, del, Acc) ->
+                    [{delete, matcher(SessionId, Domain, K)} | Acc];
+                (K, dirty, Acc) ->
                     V = cache_get(Domain, K, Cache),
                     Msg = to_domain_msg(Domain, SessionId, K, V),
-                    {[Msg | AccPersist], AccDel}
+                    [{?TS, Msg} | Acc]
             end,
-            {[], []},
+            [],
             Dirty
         ),
     {Out, Pmap#pmap{
         dirty = #{}
     }}.
+
+matcher(SessionId, Domain, Key) ->
+    #message_matcher{
+        from = SessionId,
+        topic = to_topic(Domain, SessionId, key_encode(Domain, Key)),
+        payload = '_',
+        timestamp = ?TS
+    }.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 -spec pmap_commit(emqx_persistent_session_ds:id(), pmap(K, V)) -> pmap(K, V).
@@ -1462,7 +1482,7 @@ to_domain_msg(Domain, SessionId, IntKey, Val) ->
     #message{
         %% unused; empty binary to satisfy dialyzer
         id = <<>>,
-        timestamp = 0,
+        timestamp = ?TS,
         from = SessionId,
         topic = to_topic(Domain, SessionId, key_encode(Domain, IntKey)),
         payload = val_encode(Domain, Val)
@@ -1515,7 +1535,7 @@ read_iterate(SessionId0, TopicFilterWords0) ->
     read_fold(Fun, Acc, SessionId0, TopicFilterWords0).
 
 read_fold(Fun, Acc, SessionId0, TopicFilterWords0) ->
-    Time = 0,
+    Time = ?TS,
     SessionId =
         case is_binary(SessionId0) of
             true -> emqx_http_lib:uri_encode(SessionId0);
@@ -1550,20 +1570,8 @@ do_read_fold(Fun, [Iterator | Rest], Acc) ->
             do_read_fold(Fun, [NewIterator | Rest], Fun(Data, Acc))
     end.
 
-delete_specific_keys(SessionId, Domain, Keys) when is_list(Keys) ->
-    lists:foreach(
-        fun(Key) ->
-            delete_specific_key(SessionId, Domain, Key)
-        end,
-        Keys
-    ).
-
-delete_specific_key(SessionId, Domain, Key) ->
-    KeyBin = key_encode(Domain, Key),
-    delete_iterate(SessionId, [atom_to_binary(Domain), KeyBin]).
-
 delete_iterate(SessionId, TopicFilterWords0) ->
-    Time = 0,
+    Time = ?TS,
     TopicFilter = [?session_topic_ns, emqx_http_lib:uri_encode(SessionId) | TopicFilterWords0],
     Iterators = lists:map(
         fun(Stream) ->
