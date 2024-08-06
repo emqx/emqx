@@ -383,9 +383,11 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, _TRef, bootstrap}, St) ->
-    {noreply, St, {continue, bootstrap}}.
+    {noreply, St, {continue, bootstrap}};
+handle_info(_Info, State) ->
+    {noreply, State}.
 
-terminate(_Reason, {DB, Shard}) ->
+terminate(_Reason, #st{db = DB, shard = Shard}) ->
     %% NOTE: Mark as not ready right away.
     ok = erase_shard_info(DB, Shard),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
