@@ -20,6 +20,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 
 -behaviour(minirest_api).
 
@@ -385,16 +386,16 @@ param_path_id() ->
     case maps:get(<<"id">>, Params0, list_to_binary(emqx_utils:gen_id(8))) of
         <<>> ->
             {400, #{code => 'BAD_REQUEST', message => <<"empty rule id is not allowed">>}};
-        Id ->
+        Id when is_binary(Id) ->
             Params = filter_out_request_body(add_metadata(Params0)),
             case emqx_rule_engine:get_rule(Id) of
                 {ok, _Rule} ->
-                    {400, #{code => 'BAD_REQUEST', message => <<"rule id already exists">>}};
+                    ?BAD_REQUEST(<<"rule id already exists">>);
                 not_found ->
                     ConfPath = ?RULE_PATH(Id),
                     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
                         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
-                            {201, format_rule_info_resp(Rule)};
+                            ?CREATED(format_rule_info_resp(Rule));
                         {error, Reason} ->
                             ?SLOG(
                                 info,
@@ -405,9 +406,11 @@ param_path_id() ->
                                 },
                                 #{tag => ?TAG}
                             ),
-                            {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
+                            ?BAD_REQUEST(?ERR_BADARGS(Reason))
                     end
-            end
+            end;
+        _BadId ->
+            ?BAD_REQUEST(<<"rule id must be a string">>)
     end.
 
 '/rule_test'(post, #{body := Params}) ->
