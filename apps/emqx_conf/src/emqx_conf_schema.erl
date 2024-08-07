@@ -68,7 +68,8 @@
     emqx_limiter_schema,
     emqx_slow_subs_schema,
     emqx_otel_schema,
-    emqx_mgmt_api_key_schema
+    emqx_mgmt_api_key_schema,
+    emqx_predefined_vars
 ]).
 
 %% 1 million default ports counter

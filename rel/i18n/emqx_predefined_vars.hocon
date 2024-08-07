@@ -1,0 +1,22 @@
+emqx_predefined_vars {
+
+bootstrap.desc:
+"""`bootstrap` is a list that should be small and is used to load predefined variables when initializing a single node or cluster, in other words, the import operation is performed only when there is no data in the database."""
+
+name.desc:
+"""The variable name."""
+
+source_type.desc:
+"""The type to indicate where the runtime value from:
+- plain :: the runtime value is equals to the `source_value`
+- env :: the runtime value is loaded from the environment variable whose name is the `source_value`
+- builtin :: like the `env`, but they are builtin."""
+
+source_value.desc:
+"""The source value of the variable."""
+
+sensitive.desc:
+"""If the value is sensitive, it will be redacted when displayed."""
+
+
+}

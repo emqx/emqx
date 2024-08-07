@@ -30,6 +30,7 @@ init([]) ->
         {one_for_one, 10, 100},
         %% always start emqx_config_handler first to load the emqx.conf to emqx_config
         [
+            child_spec(emqx_predefined_vars, worker),
             child_spec(emqx_config_handler, worker),
             child_spec(emqx_pool_sup, supervisor, [
                 emqx:get_config([node, generic_pool_size], emqx_vm:schedulers())

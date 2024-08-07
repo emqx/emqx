@@ -16,7 +16,7 @@
 
 -module(emqx_utils_redact).
 
--export([redact/1, redact/2, redact_headers/1, is_redacted/2, is_redacted/3]).
+-export([redact/1, redact/2, redact_headers/1, is_redacted/2, is_redacted/3, redact_value/0]).
 -export([deobfuscate/2]).
 
 -define(REDACT_VAL, "******").
@@ -198,6 +198,9 @@ do_is_redacted(K, WrappedFun, Fun) when is_function(WrappedFun, 0) ->
     do_is_redacted(K, WrappedFun(), Fun);
 do_is_redacted(_K, _V, _Fun) ->
     false.
+
+redact_value() ->
+    ?REDACT_VAL.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
