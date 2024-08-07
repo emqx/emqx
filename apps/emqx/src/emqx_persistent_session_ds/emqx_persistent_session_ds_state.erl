@@ -37,7 +37,9 @@
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
 
--export([open/1, create_new/1, delete/1, commit/1, format/1, print_session/1, list_sessions/0]).
+-export([
+    open/1, create_new/1, delete/1, commit/1, commit/2, format/1, print_session/1, list_sessions/0
+]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
@@ -441,7 +443,7 @@ delete(Id) ->
         DeleteOps ++ Acc
     end,
     DeleteOps = read_fold(Fun, [], Id, ['#']),
-    store_batch(DeleteOps).
+    store_batch(Id, DeleteOps).
 
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
@@ -457,7 +459,10 @@ delete(Id) ->
 
 -spec commit(t()) -> t().
 -ifdef(STORE_STATE_IN_DS).
-commit(Rec = #{dirty := false}) ->
+commit(Rec) ->
+    commit(Rec, _Opts = #{}).
+
+commit(Rec = #{dirty := false}, _Opts) ->
     Rec;
 commit(
     Rec0 = #{
@@ -469,7 +474,8 @@ commit(
         ?seqnos := SeqNos0,
         ?ranks := Ranks0,
         ?awaiting_rel := AwaitingRels0
-    }
+    },
+    Opts
 ) ->
     check_sequence(Rec0),
     {SubsOps, Subs} = pmap_commit(SessionId, Subs0),
@@ -489,7 +495,8 @@ commit(
     },
     MetadataVal = #{metadata => Metadata, key_mappings => key_mappings(Rec)},
     MetadataOp = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, MetadataVal),
-    ok = store_batch(
+    Res = store_batch(
+        SessionId,
         lists:flatten([
             {?TS, MetadataOp},
             SubsOps,
@@ -498,9 +505,16 @@ commit(
             SeqNosOps,
             RanksOps,
             AwaitingRelsOps
-        ])
+        ]),
+        Opts
     ),
-    Rec.
+    case Res of
+        {error, unrecoverable, {precondition_failed, _Msg}} ->
+            %% Race: the session already exists.
+            throw(session_already_exists);
+        ok ->
+            Rec
+    end.
 
 key_mappings(Rec) ->
     lists:foldl(
@@ -512,17 +526,37 @@ key_mappings(Rec) ->
         ?pmaps
     ).
 
-store_batch(Batch) ->
+store_batch(SessionId, Batch) ->
+    store_batch(SessionId, Batch, _Opts = #{}).
+
+store_batch(SessionId, Batch0, Opts) ->
+    EnsureNew = maps:get(ensure_new, Opts, false),
+    Batch =
+        case EnsureNew of
+            true ->
+                #dsbatch{
+                    operations = Batch0,
+                    preconditions = [
+                        {unless_exists, matcher(SessionId, ?metadata_domain, ?metadata_domain_bin)}
+                    ]
+                };
+            false ->
+                Batch0
+        end,
     emqx_ds:store_batch(?DB, Batch, #{atomic => true, sync => true}).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
-commit(Rec = #{dirty := false}) ->
+commit(Rec) ->
+    commit(Rec, _Opts = #{}).
+
+commit(Rec = #{dirty := false}, _Opts) ->
     Rec;
 commit(
     Rec = #{
         ?id := SessionId,
         ?metadata := Metadata
-    }
+    },
+    _Opts
 ) ->
     check_sequence(Rec),
     transaction(fun() ->
@@ -636,7 +670,7 @@ clear_will_message_now(SessionId) when is_binary(SessionId) ->
         #{?metadata_domain := [#{val := Metadata0}]} ->
             Metadata = Metadata0#{?will_message => undefined},
             MetadataMsg = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, Metadata),
-            ok = store_batch([MetadataMsg]),
+            ok = store_batch(SessionId, [MetadataMsg]),
             ok;
         _ ->
             ok
@@ -1568,33 +1602,6 @@ do_read_fold(Fun, [Iterator | Rest], Acc) ->
                 Msgs
             ),
             do_read_fold(Fun, [NewIterator | Rest], Fun(Data, Acc))
-    end.
-
-delete_iterate(SessionId, TopicFilterWords0) ->
-    Time = ?TS,
-    TopicFilter = [?session_topic_ns, emqx_http_lib:uri_encode(SessionId) | TopicFilterWords0],
-    Iterators = lists:map(
-        fun(Stream) ->
-            {ok, Iterator} = emqx_ds:make_delete_iterator(?DB, Stream, TopicFilter, Time),
-            Iterator
-        end,
-        emqx_ds:get_delete_streams(?DB, TopicFilter, Time)
-    ),
-    Selector = fun(_) -> true end,
-    do_delete_iterate(Iterators, Selector).
-
-do_delete_iterate([], _Selector) ->
-    ok;
-do_delete_iterate([Iterator | Rest], Selector) ->
-    %% TODO: config?
-    BatchSize = 100,
-    case emqx_ds:delete_next(?DB, Iterator, Selector, BatchSize) of
-        {ok, end_of_stream} ->
-            do_delete_iterate(Rest, Selector);
-        {ok, _NewIterator, 0} ->
-            do_delete_iterate(Rest, Selector);
-        {ok, NewIterator, _NDeleted} ->
-            do_delete_iterate([NewIterator | Rest], Selector)
     end.
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.

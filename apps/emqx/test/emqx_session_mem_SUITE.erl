@@ -65,7 +65,7 @@ end_per_suite(Config) ->
 t_session_init(_) ->
     ClientInfo = #{zone => default, clientid => <<"fake-test">>},
     ConnInfo = #{receive_maximum => 64, expiry_interval => 0},
-    Session = emqx_session_mem:create(
+    {ok, Session} = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
         _WillMsg = undefined,
@@ -605,7 +605,7 @@ session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->
     ClientInfo = #{zone => default, clientid => <<"fake-test">>},
     ConnInfo = #{receive_maximum => 0, expiry_interval => 0},
-    Session = emqx_session_mem:create(
+    {ok, Session} = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
         _WillMsg = undefined,

@@ -296,6 +296,9 @@ get_streams(DB, TopicFilter, StartTime) ->
                 Streams when is_list(Streams) ->
                     ok;
                 {error, _Class, _Reason} ->
+                    ?tp(ds_get_streams_failed, #{
+                        db => DB, shard => Shard, class => _Class, reason => _Reason
+                    }),
                     %% TODO: log error
                     Streams = []
             end,

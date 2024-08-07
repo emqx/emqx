@@ -611,7 +611,7 @@ channel(InitFields) ->
         is_superuser => false,
         mountpoint => undefined
     },
-    Session = emqx_session:create(
+    {ok, Session} = emqx_session:create(
         ClientInfo,
         #{receive_maximum => 0, expiry_interval => 0},
         _WillMsg = undefined
