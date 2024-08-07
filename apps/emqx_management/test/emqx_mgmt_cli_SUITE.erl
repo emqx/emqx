@@ -360,4 +360,9 @@ t_autocluster_leave(Config) ->
         )
     ).
 
+t_exclusive(_Config) ->
+    emqx_ctl:run_command(["exclusive", "list"]),
+    emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
+    ok.
+
 format(Str, Opts) -> io:format("str:~s: Opts:~p", [Str, Opts]).

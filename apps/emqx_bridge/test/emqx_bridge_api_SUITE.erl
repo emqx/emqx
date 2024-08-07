@@ -1154,7 +1154,7 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         {ok, 400, #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"Connection refused">>
+            <<"message">> := <<"Connection refused", _/binary>>
         }},
         request_json(
             post,

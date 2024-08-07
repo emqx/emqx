@@ -889,7 +889,8 @@ t_sync_query_down(Config, Opts) ->
             ),
 
             ?force_ordering(
-                #{?snk_kind := call_query},
+                #{?snk_kind := SNKKind} when
+                    SNKKind =:= call_query orelse SNKKind =:= simple_query_enter,
                 #{?snk_kind := cut_connection, ?snk_span := start}
             ),
             %% Note: order of arguments here is reversed compared to `?force_ordering'.
@@ -913,6 +914,7 @@ t_sync_query_down(Config, Opts) ->
                     emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort)
                 )
             end),
+            ?tp("publishing_message", #{}),
             try
                 {_, {ok, _}} =
                     snabbkaffe:wait_async_action(
@@ -921,6 +923,7 @@ t_sync_query_down(Config, Opts) ->
                         infinity
                     )
             after
+                ?tp("healing_failure", #{}),
                 emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort)
             end,
             {ok, _} = snabbkaffe:block_until(SuccessTPFilter, infinity),

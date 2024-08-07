@@ -1025,31 +1025,39 @@ t_mqtt_conn_bridge_egress_async_reconnect(_) ->
     ct:sleep(1000),
 
     %% stop the listener 1883 to make the bridge disconnected
-    ok = emqx_listeners:stop_listener('tcp:default'),
-    ct:sleep(1500),
-    ?assertMatch(
-        #{<<"status">> := Status} when
-            Status == <<"connecting">> orelse Status == <<"disconnected">>,
-        request_bridge(BridgeIDEgress)
+    ?check_trace(
+        begin
+            ok = emqx_listeners:stop_listener('tcp:default'),
+            ct:sleep(1500),
+            ?assertMatch(
+                #{<<"status">> := Status} when
+                    Status == <<"connecting">> orelse Status == <<"disconnected">>,
+                request_bridge(BridgeIDEgress)
+            ),
+
+            %% start the listener 1883 to make the bridge reconnected
+            ok = emqx_listeners:start_listener('tcp:default'),
+            timer:sleep(1500),
+            ?assertMatch(
+                #{<<"status">> := <<"connected">>},
+                request_bridge(BridgeIDEgress)
+            ),
+
+            N = stop_publisher(Publisher),
+
+            %% all those messages should eventually be delivered
+            [
+                assert_mqtt_msg_received(RemoteTopic, Payload)
+             || I <- lists:seq(1, N),
+                Payload <- [integer_to_binary(I)]
+            ],
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(emqx_bridge_mqtt_connector_econnrefused_error, Trace)),
+            ok
+        end
     ),
-
-    %% start the listener 1883 to make the bridge reconnected
-    ok = emqx_listeners:start_listener('tcp:default'),
-    timer:sleep(1500),
-    ?assertMatch(
-        #{<<"status">> := <<"connected">>},
-        request_bridge(BridgeIDEgress)
-    ),
-
-    N = stop_publisher(Publisher),
-
-    %% all those messages should eventually be delivered
-    [
-        assert_mqtt_msg_received(RemoteTopic, Payload)
-     || I <- lists:seq(1, N),
-        Payload <- [integer_to_binary(I)]
-    ],
-
     ok.
 
 start_publisher(Topic, Interval, CtrlPid) ->

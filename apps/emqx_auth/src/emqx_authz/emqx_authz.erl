@@ -477,9 +477,15 @@ authorize_deny(
     sources()
 ) ->
     authz_result().
-authorize(Client, PubSub, Topic, _DefaultResult, Sources) ->
+authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, Sources) ->
     case maps:get(is_superuser, Client, false) of
         true ->
+            ?tp(authz_skipped, #{reason => client_is_superuser, action => PubSub}),
+            ?TRACE("AUTHZ", "authorization_skipped_as_superuser", #{
+                username => Username,
+                topic => Topic,
+                action => emqx_access_control:format_action(PubSub)
+            }),
             emqx_metrics:inc(?METRIC_SUPERUSER),
             {stop, #{result => allow, from => superuser}};
         false ->

@@ -135,6 +135,12 @@ rel_branch() {
         e5.7.*)
             echo 'release-57'
             ;;
+        v5.8.*)
+            echo 'release-58'
+            ;;
+        e5.8.*)
+            echo 'release-58'
+            ;;
         *)
             logerr "Unsupported version tag $TAG"
             exit 1
