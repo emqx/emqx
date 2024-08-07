@@ -1332,6 +1332,19 @@ fields("shared_subscription_group") ->
                     default => random,
                     desc => ?DESC(shared_subscription_strategy_enum)
                 }
+            )},
+        {"initial_sticky_pick",
+            sc(
+                hoconsc:enum([
+                    random,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
+                #{
+                    default => random,
+                    desc => ?DESC(shared_subscription_initial_sticky_pick_enum)
+                }
             )}
     ];
 fields("broker_perf") ->
@@ -3579,6 +3592,19 @@ mqtt_general() ->
                 #{
                     default => round_robin,
                     desc => ?DESC(mqtt_shared_subscription_strategy)
+                }
+            )},
+        {"shared_subscription_initial_sticky_pick",
+            sc(
+                hoconsc:enum([
+                    random,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
+                #{
+                    default => random,
+                    desc => ?DESC(mqtt_shared_subscription_initial_sticky_pick)
                 }
             )},
         {"exclusive_subscription",

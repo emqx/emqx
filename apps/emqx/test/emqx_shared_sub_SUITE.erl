@@ -346,6 +346,14 @@ t_sticky(Config) when is_list(Config) ->
     ok = ensure_config(sticky, true),
     test_two_messages(sticky).
 
+t_sticky_initial_pick_hash_clientid(Config) when is_list(Config) ->
+    ok = ensure_config(sticky, hash_clientid, false),
+    test_two_messages(sticky).
+
+t_sticky_initial_pick_hash_topic(Config) when is_list(Config) ->
+    ok = ensure_config(sticky, hash_topic, false),
+    test_two_messages(sticky).
+
 %% two subscribers in one shared group
 %% one unsubscribe after receiving a message
 %% the other one in the group should receive the next message
@@ -531,6 +539,8 @@ t_per_group_config(Config) when is_list(Config) ->
         <<"local_group">> => local,
         <<"round_robin_group">> => round_robin,
         <<"sticky_group">> => sticky,
+        <<"sticky_group_initial_pick_hash_clientid">> => {sticky, hash_clientid},
+        <<"sticky_group_initial_pick_hash_topic">> => {sticky, hash_topic},
         <<"round_robin_per_group_group">> => round_robin_per_group
     }),
     %% Each test is repeated 4 times because random strategy may technically pass the test
@@ -538,10 +548,18 @@ t_per_group_config(Config) when is_list(Config) ->
 
     test_two_messages(sticky, <<"sticky_group">>),
     test_two_messages(sticky, <<"sticky_group">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_clientid">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_clientid">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_topic">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_topic">>),
     test_two_messages(round_robin, <<"round_robin_group">>),
     test_two_messages(round_robin, <<"round_robin_group">>),
     test_two_messages(sticky, <<"sticky_group">>),
     test_two_messages(sticky, <<"sticky_group">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_clientid">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_clientid">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_topic">>),
+    test_two_messages(sticky, <<"sticky_group_initial_pick_hash_topic">>),
     test_two_messages(round_robin, <<"round_robin_group">>),
     test_two_messages(round_robin, <<"round_robin_group">>),
     test_two_messages(round_robin_per_group, <<"round_robin_per_group_group">>),
@@ -1182,10 +1200,14 @@ collect_msgs(Acc, Timeout) ->
     end.
 
 ensure_config(Strategy) ->
-    ensure_config(Strategy, _AckEnabled = true).
+    ensure_config(Strategy, _InitialStickyPick = random, _AckEnabled = true).
 
-ensure_config(Strategy, AckEnabled) ->
+ensure_config(Strategy, AckEnabled) when is_boolean(AckEnabled) ->
+    ensure_config(Strategy, _InitialStickyPick = random, AckEnabled).
+
+ensure_config(Strategy, InitialStickyPick, AckEnabled) ->
     emqx_config:put([mqtt, shared_subscription_strategy], Strategy),
+    emqx_config:put([mqtt, shared_subscription_initial_sticky_pick], InitialStickyPick),
     emqx_config:put([broker, shared_dispatch_ack_enabled], AckEnabled),
     ok.
 
@@ -1195,9 +1217,24 @@ ensure_node_config(Node, Strategy) ->
 ensure_group_config(Group2Strategy) ->
     lists:foreach(
         fun({Group, Strategy}) ->
-            emqx_config:force_put(
-                [broker, shared_subscription_group, Group, strategy], Strategy, unsafe
-            )
+            if
+                is_tuple(Strategy) ->
+                    {PrimaryStrategy, InitialStickyPick} = Strategy,
+                    emqx_config:force_put(
+                        [broker, shared_subscription_group, Group, strategy],
+                        PrimaryStrategy,
+                        unsafe
+                    ),
+                    emqx_config:force_put(
+                        [broker, shared_subscription_group, Group, initial_sticky_pick],
+                        InitialStickyPick,
+                        unsafe
+                    );
+                true ->
+                    emqx_config:force_put(
+                        [broker, shared_subscription_group, Group, strategy], Strategy, unsafe
+                    )
+            end
         end,
         maps:to_list(Group2Strategy)
     ).
