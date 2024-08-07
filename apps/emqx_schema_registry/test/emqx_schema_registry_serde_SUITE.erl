@@ -57,7 +57,15 @@ end_per_testcase(_TestCase, _Config) ->
 clear_schemas() ->
     maps:foreach(
         fun(Name, _Schema) ->
-            ok = emqx_schema_registry:delete_schema(Name)
+            NameBin = emqx_utils_conv:bin(Name),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_schema_registry:delete_schema(Name),
+                    #{
+                        ?snk_kind := "schema_registry_serde_deleted",
+                        name := NameBin
+                    }
+                )
         end,
         emqx_schema_registry:list_schemas()
     ).
