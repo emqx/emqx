@@ -10,7 +10,7 @@ services:
       nofile: 1024
     image: openldap
     #ports:
-    #  - 389:389
+    #  - "389:389"
     volumes:
       - ./certs/ca.crt:/etc/certs/ca.crt
     restart: always

@@ -267,28 +267,50 @@ packet(Header, Variable) ->
 packet(Header, Variable, Payload) ->
     #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
-parse_connect(FrameBin, StrictMode) ->
-    {ProtoName, Rest} = parse_utf8_string_with_cause(FrameBin, StrictMode, invalid_proto_name),
-    case ProtoName of
-        <<"MQTT">> ->
-            ok;
-        <<"MQIsdp">> ->
-            ok;
-        _ ->
-            %% from spec: the server MAY send disconnect with reason code 0x84
-            %% we chose to close socket because the client is likely not talking MQTT anyway
-            ?PARSE_ERR(#{
-                cause => invalid_proto_name,
-                expected => <<"'MQTT' or 'MQIsdp'">>,
-                received => ProtoName
-            })
-    end,
-    parse_connect2(ProtoName, Rest, StrictMode).
+parse_connect(FrameBin, Options = #{strict_mode := StrictMode}) ->
+    {ProtoName, Rest0} = parse_utf8_string_with_cause(FrameBin, StrictMode, invalid_proto_name),
+    %% No need to parse and check proto_ver if proto_name is invalid, check it first
+    %% And the matching check of `proto_name` and `proto_ver` fields will be done in `emqx_packet:check_proto_ver/2`
+    _ = validate_proto_name(ProtoName),
+    {IsBridge, ProtoVer, Rest2} = parse_connect_proto_ver(Rest0),
+    NOptions = Options#{version => ProtoVer},
+    try
+        do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, StrictMode)
+    catch
+        throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
+            ?PARSE_ERR(
+                ReasonM#{
+                    proto_ver => ProtoVer,
+                    proto_name => ProtoName,
+                    parse_state => ?NONE(NOptions)
+                }
+            );
+        throw:{?FRAME_PARSE_ERROR, Reason} ->
+            ?PARSE_ERR(
+                #{
+                    cause => Reason,
+                    proto_ver => ProtoVer,
+                    proto_name => ProtoName,
+                    parse_state => ?NONE(NOptions)
+                }
+            )
+    end.
 
-parse_connect2(
+do_parse_connect(
     ProtoName,
-    <<BridgeTag:4, ProtoVer:4, UsernameFlagB:1, PasswordFlagB:1, WillRetainB:1, WillQoS:2,
-        WillFlagB:1, CleanStart:1, Reserved:1, KeepAlive:16/big, Rest2/binary>>,
+    IsBridge,
+    ProtoVer,
+    <<
+        UsernameFlagB:1,
+        PasswordFlagB:1,
+        WillRetainB:1,
+        WillQoS:2,
+        WillFlagB:1,
+        CleanStart:1,
+        Reserved:1,
+        KeepAlive:16/big,
+        Rest/binary
+    >>,
     StrictMode
 ) ->
     _ = validate_connect_reserved(Reserved),
@@ -303,14 +325,14 @@ parse_connect2(
         UsernameFlag = bool(UsernameFlagB),
         PasswordFlag = bool(PasswordFlagB)
     ),
-    {Properties, Rest3} = parse_properties(Rest2, ProtoVer, StrictMode),
+    {Properties, Rest3} = parse_properties(Rest, ProtoVer, StrictMode),
     {ClientId, Rest4} = parse_utf8_string_with_cause(Rest3, StrictMode, invalid_clientid),
     ConnPacket = #mqtt_packet_connect{
         proto_name = ProtoName,
         proto_ver = ProtoVer,
         %% For bridge mode, non-standard implementation
         %% Invented by mosquitto, named 'try_private': https://mosquitto.org/man/mosquitto-conf-5.html
-        is_bridge = (BridgeTag =:= 8),
+        is_bridge = IsBridge,
         clean_start = bool(CleanStart),
         will_flag = WillFlag,
         will_qos = WillQoS,
@@ -343,16 +365,16 @@ parse_connect2(
                 unexpected_trailing_bytes => size(Rest7)
             })
     end;
-parse_connect2(_ProtoName, Bin, _StrictMode) ->
-    %% sent less than 32 bytes
+do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _StrictMode) ->
+    %% sent less than 24 bytes
     ?PARSE_ERR(#{cause => malformed_connect, header_bytes => Bin}).
 
 parse_packet(
     #mqtt_packet_header{type = ?CONNECT},
     FrameBin,
-    #{strict_mode := StrictMode}
+    Options
 ) ->
-    parse_connect(FrameBin, StrictMode);
+    parse_connect(FrameBin, Options);
 parse_packet(
     #mqtt_packet_header{type = ?CONNACK},
     <<AckFlags:8, ReasonCode:8, Rest/binary>>,
@@ -515,6 +537,12 @@ parse_packet_id(<<PacketId:16/big, Rest/binary>>) ->
     {PacketId, Rest};
 parse_packet_id(_) ->
     ?PARSE_ERR(invalid_packet_id).
+
+parse_connect_proto_ver(<<BridgeTag:4, ProtoVer:4, Rest/binary>>) ->
+    {_IsBridge = (BridgeTag =:= 8), ProtoVer, Rest};
+parse_connect_proto_ver(Bin) ->
+    %% sent less than 1 bytes or empty
+    ?PARSE_ERR(#{cause => malformed_connect, header_bytes => Bin}).
 
 parse_properties(Bin, Ver, _StrictMode) when Ver =/= ?MQTT_PROTO_V5 ->
     {#{}, Bin};
@@ -739,6 +767,8 @@ serialize_fun(#{version := Ver, max_size := MaxSize, strict_mode := StrictMode})
 initial_serialize_opts(Opts) ->
     maps:merge(?DEFAULT_OPTIONS, Opts).
 
+serialize_opts(?NONE(Options)) ->
+    maps:merge(?DEFAULT_OPTIONS, Options);
 serialize_opts(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
     #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.
@@ -1157,18 +1187,34 @@ validate_subqos([3 | _]) -> ?PARSE_ERR(bad_subqos);
 validate_subqos([_ | T]) -> validate_subqos(T);
 validate_subqos([]) -> ok.
 
+%% from spec: the server MAY send disconnect with reason code 0x84
+%% we chose to close socket because the client is likely not talking MQTT anyway
+validate_proto_name(<<"MQTT">>) ->
+    ok;
+validate_proto_name(<<"MQIsdp">>) ->
+    ok;
+validate_proto_name(ProtoName) ->
+    ?PARSE_ERR(#{
+        cause => invalid_proto_name,
+        expected => <<"'MQTT' or 'MQIsdp'">>,
+        received => ProtoName
+    }).
+
 %% MQTT-v3.1.1-[MQTT-3.1.2-3], MQTT-v5.0-[MQTT-3.1.2-3]
+-compile({inline, [validate_connect_reserved/1]}).
 validate_connect_reserved(0) -> ok;
 validate_connect_reserved(1) -> ?PARSE_ERR(reserved_connect_flag).
 
+-compile({inline, [validate_connect_will/3]}).
 %% MQTT-v3.1.1-[MQTT-3.1.2-13], MQTT-v5.0-[MQTT-3.1.2-11]
-validate_connect_will(false, _, WillQos) when WillQos > 0 -> ?PARSE_ERR(invalid_will_qos);
+validate_connect_will(false, _, WillQoS) when WillQoS > 0 -> ?PARSE_ERR(invalid_will_qos);
 %% MQTT-v3.1.1-[MQTT-3.1.2-14], MQTT-v5.0-[MQTT-3.1.2-12]
 validate_connect_will(true, _, WillQoS) when WillQoS > 2 -> ?PARSE_ERR(invalid_will_qos);
 %% MQTT-v3.1.1-[MQTT-3.1.2-15], MQTT-v5.0-[MQTT-3.1.2-13]
 validate_connect_will(false, WillRetain, _) when WillRetain -> ?PARSE_ERR(invalid_will_retain);
 validate_connect_will(_, _, _) -> ok.
 
+-compile({inline, [validate_connect_password_flag/4]}).
 %% MQTT-v3.1
 %% Username flag and password flag are not strongly related
 %% https://public.dhe.ibm.com/software/dw/webservices/ws-mqtt/mqtt-v3r1.html#connect
@@ -1183,6 +1229,7 @@ validate_connect_password_flag(true, ?MQTT_PROTO_V5, _, _) ->
 validate_connect_password_flag(_, _, _, _) ->
     ok.
 
+-compile({inline, [bool/1]}).
 bool(0) -> false;
 bool(1) -> true.
 

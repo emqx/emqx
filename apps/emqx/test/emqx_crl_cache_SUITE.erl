@@ -138,13 +138,14 @@ init_per_testcase(t_refresh_config = TestCase, Config) ->
     ];
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_update_listener;
+    TestCase =:= t_update_listener_enable_disable;
     TestCase =:= t_validations
 ->
     ct:timetrap({seconds, 30}),
     ok = snabbkaffe:start_trace(),
     %% when running emqx standalone tests, we can't use those
     %% features.
-    case does_module_exist(emqx_management) of
+    case does_module_exist(emqx_mgmt) of
         true ->
             DataDir = ?config(data_dir, Config),
             CRLFile = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
@@ -165,7 +166,7 @@ init_per_testcase(TestCase, Config) when
                     {emqx_conf, #{config => #{listeners => #{ssl => #{default => ListenerConf}}}}},
                     emqx,
                     emqx_management,
-                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                    emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
             ),
@@ -206,6 +207,7 @@ read_crl(Filename) ->
 
 end_per_testcase(TestCase, Config) when
     TestCase =:= t_update_listener;
+    TestCase =:= t_update_listener_enable_disable;
     TestCase =:= t_validations
 ->
     Skip = proplists:get_bool(skip_does_not_apply, Config),
@@ -1055,5 +1057,106 @@ do_t_validations(_Config) ->
         },
         emqx_utils_json:decode(MsgRaw1, [return_maps])
     ),
+
+    ok.
+
+%% Checks that if CRL is ever enabled and then disabled, clients can connect, even if they
+%% would otherwise not have their corresponding CRLs cached and fail with `{bad_crls,
+%% no_relevant_crls}`.
+t_update_listener_enable_disable(Config) ->
+    case proplists:get_bool(skip_does_not_apply, Config) of
+        true ->
+            ct:pal("skipping as this test does not apply in this profile"),
+            ok;
+        false ->
+            do_t_update_listener_enable_disable(Config)
+    end.
+
+do_t_update_listener_enable_disable(Config) ->
+    DataDir = ?config(data_dir, Config),
+    Keyfile = filename:join([DataDir, "server.key.pem"]),
+    Certfile = filename:join([DataDir, "server.cert.pem"]),
+    Cacertfile = filename:join([DataDir, "ca-chain.cert.pem"]),
+    ClientCert = filename:join(DataDir, "client.cert.pem"),
+    ClientKey = filename:join(DataDir, "client.key.pem"),
+
+    ListenerId = "ssl:default",
+    %% Enable CRL
+    {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
+    CRLConfig0 =
+        #{
+            <<"ssl_options">> =>
+                #{
+                    <<"keyfile">> => Keyfile,
+                    <<"certfile">> => Certfile,
+                    <<"cacertfile">> => Cacertfile,
+                    <<"enable_crl_check">> => true,
+                    <<"fail_if_no_peer_cert">> => true
+                }
+        },
+    ListenerData1 = emqx_utils_maps:deep_merge(ListenerData0, CRLConfig0),
+    {ok, {_, _, ListenerData2}} = update_listener_via_api(ListenerId, ListenerData1),
+    ?assertMatch(
+        #{
+            <<"ssl_options">> :=
+                #{
+                    <<"enable_crl_check">> := true,
+                    <<"verify">> := <<"verify_peer">>,
+                    <<"fail_if_no_peer_cert">> := true
+                }
+        },
+        ListenerData2
+    ),
+
+    %% Disable CRL
+    CRLConfig1 =
+        #{
+            <<"ssl_options">> =>
+                #{
+                    <<"keyfile">> => Keyfile,
+                    <<"certfile">> => Certfile,
+                    <<"cacertfile">> => Cacertfile,
+                    <<"enable_crl_check">> => false,
+                    <<"fail_if_no_peer_cert">> => true
+                }
+        },
+    ListenerData3 = emqx_utils_maps:deep_merge(ListenerData2, CRLConfig1),
+    redbug:start(
+        [
+            "esockd_server:get_listener_prop -> return",
+            "esockd_server:set_listener_prop -> return",
+            "esockd:merge_opts -> return",
+            "esockd_listener_sup:set_options -> return",
+            "emqx_listeners:inject_crl_config -> return"
+        ],
+        [{msgs, 100}]
+    ),
+    {ok, {_, _, ListenerData4}} = update_listener_via_api(ListenerId, ListenerData3),
+    ?assertMatch(
+        #{
+            <<"ssl_options">> :=
+                #{
+                    <<"enable_crl_check">> := false,
+                    <<"verify">> := <<"verify_peer">>,
+                    <<"fail_if_no_peer_cert">> := true
+                }
+        },
+        ListenerData4
+    ),
+
+    %% Now the client that would be blocked tries to connect and should now be allowed.
+    {ok, C} = emqtt:start_link([
+        {ssl, true},
+        {ssl_opts, [
+            {certfile, ClientCert},
+            {keyfile, ClientKey},
+            {verify, verify_none}
+        ]},
+        {port, 8883}
+    ]),
+    ?assertMatch({ok, _}, emqtt:connect(C)),
+    emqtt:stop(C),
+
+    ?assertNotReceive({http_get, _}),
 
     ok.

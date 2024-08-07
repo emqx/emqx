@@ -125,6 +125,7 @@ create(Type, Name, Conf0, Opts) ->
     TypeBin = bin(Type),
     ResourceId = resource_id(Type, Name),
     Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
+    _ = emqx_alarm:ensure_deactivated(ResourceId),
     {ok, _Data} = emqx_resource:create_local(
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
@@ -132,7 +133,6 @@ create(Type, Name, Conf0, Opts) ->
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
     ),
-    _ = emqx_alarm:ensure_deactivated(ResourceId),
     ok.
 
 update(ConnectorId, {OldConf, Conf}) ->

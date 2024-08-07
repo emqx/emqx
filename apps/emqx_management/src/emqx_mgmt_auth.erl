@@ -32,7 +32,7 @@
     update/5,
     delete/1,
     list/0,
-    init_bootstrap_file/0,
+    try_init_bootstrap_file/0,
     format/1
 ]).
 
@@ -52,6 +52,7 @@
 -ifdef(TEST).
 -export([create/7]).
 -export([trans/2, force_create_app/1]).
+-export([init_bootstrap_file/1]).
 -endif.
 
 -define(APP, emqx_app).
@@ -114,11 +115,12 @@ post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
     end,
     ok.
 
--spec init_bootstrap_file() -> ok | {error, _}.
-init_bootstrap_file() ->
+-spec try_init_bootstrap_file() -> ok | {error, _}.
+try_init_bootstrap_file() ->
     File = bootstrap_file(),
     ?SLOG(debug, #{msg => "init_bootstrap_api_keys_from_file", file => File}),
-    init_bootstrap_file(File).
+    _ = init_bootstrap_file(File),
+    ok.
 
 create(Name, Enable, ExpiredAt, Desc, Role) ->
     ApiKey = generate_unique_api_key(Name),
@@ -357,10 +359,6 @@ init_bootstrap_file(File) ->
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
-            FmtReason = emqx_utils:format(
-                "load API bootstrap file failed, file:~ts, reason:~ts",
-                [File, Reason]
-            ),
 
             ?SLOG(
                 error,
@@ -371,7 +369,7 @@ init_bootstrap_file(File) ->
                 }
             ),
 
-            {error, FmtReason}
+            {error, Reason}
     end.
 
 init_bootstrap_file(File, Dev, MP) ->
