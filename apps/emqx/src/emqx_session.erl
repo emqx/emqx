@@ -198,7 +198,8 @@
 %% Create a Session
 %%--------------------------------------------------------------------
 
--spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) -> {ok, t()} | {error, term()}.
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
+    {ok, t()} | {error, recoverable | unrecoverable, term()}.
 create(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
     % FIXME error conditions

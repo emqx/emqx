@@ -116,7 +116,13 @@
 
 -opaque iter(K, V) :: gb_trees:iter(K, V).
 
+-ifdef(STORE_STATE_IN_DS).
+-opaque session_iterator() :: #{its := [emqx_ds:iterator()]} | '$end_of_table'.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
 -opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 -ifndef(STORE_STATE_IN_DS).
 %% Generic key-value wrapper that is used for exporting arbitrary
@@ -462,6 +468,7 @@ delete(Id) ->
 commit(Rec) ->
     commit(Rec, _Opts = #{}).
 
+-spec commit(t(), #{ensure_new => boolean()}) -> t().
 commit(Rec = #{dirty := false}, _Opts) ->
     Rec;
 commit(
@@ -543,12 +550,13 @@ store_batch(SessionId, Batch0, Opts) ->
             false ->
                 Batch0
         end,
-    emqx_ds:store_batch(?DB, Batch, #{atomic => true, sync => true}).
+    emqx_ds:store_batch(?DB, Batch, #{sync => true}).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 commit(Rec) ->
     commit(Rec, _Opts = #{}).
 
+-spec commit(t(), #{ensure_new => boolean()}) -> t().
 commit(Rec = #{dirty := false}, _Opts) ->
     Rec;
 commit(
