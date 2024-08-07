@@ -17,7 +17,6 @@
 -include("emqx_mqtt.hrl").
 
 -export([format/2]).
--export([format_meta_map/1]).
 
 %% logger_formatter:config/0 is not exported.
 -type config() :: map().
@@ -42,10 +41,6 @@ format(
     [Time, " [", Tag1, "] ", ClientId, "@", Peername, " msg: ", Msg1, ", ", MetaBin, "\n"];
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
-
-format_meta_map(Meta) ->
-    Encode = emqx_trace_handler:payload_encode(),
-    format_meta_map(Meta, Encode).
 
 format_meta_map(Meta, Encode) ->
     format_meta_map(Meta, Encode, [

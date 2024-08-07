@@ -1918,13 +1918,14 @@ t_node_joins_existing_cluster(Config) ->
                 _Attempts2 = 50,
                 [] =/= erpc:call(N2, emqx_router, lookup_routes, [MQTTTopic])
             ),
+            NumMsgs = 50 * NPartitions,
             {ok, SRef1} =
                 snabbkaffe:subscribe(
                     ?match_event(#{
                         ?snk_kind := kafka_consumer_handle_message,
                         ?snk_span := {complete, _}
                     }),
-                    NPartitions,
+                    NumMsgs,
                     20_000
                 ),
             lists:foreach(
@@ -1933,7 +1934,7 @@ t_node_joins_existing_cluster(Config) ->
                     Val = <<"v", (integer_to_binary(N))/binary>>,
                     publish(Config, KafkaTopic, [#{key => Key, value => Val}])
                 end,
-                lists:seq(1, 10 * NPartitions)
+                lists:seq(1, NumMsgs)
             ),
             {ok, _} = snabbkaffe:receive_events(SRef1),
 

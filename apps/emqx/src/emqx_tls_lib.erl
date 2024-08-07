@@ -589,6 +589,14 @@ ensure_valid_options(Options, Versions) ->
 
 ensure_valid_options([], _, Acc) ->
     lists:reverse(Acc);
+ensure_valid_options([{K, undefined} | T], Versions, Acc) when
+    K =:= crl_check;
+    K =:= crl_cache
+->
+    %% Note: we must set crl options to `undefined' to unset them.  Otherwise,
+    %% `esockd' will retain such options when `esockd:merge_opts/2' is called and the SSL
+    %% options were previously enabled.
+    ensure_valid_options(T, Versions, [{K, undefined} | Acc]);
 ensure_valid_options([{_, undefined} | T], Versions, Acc) ->
     ensure_valid_options(T, Versions, Acc);
 ensure_valid_options([{_, ""} | T], Versions, Acc) ->

@@ -198,6 +198,9 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
         QueryOpts = #{timeout := Timeout} = maps:merge(simple_query_opts(), QueryOpts1),
         case simple_async_query(Id, Request, QueryOpts) of
             {error, _} = Error ->
+                ?tp("resource_simple_sync_internal_buffer_query_error", #{
+                    id => Id, request => Request
+                }),
                 Error;
             {async_return, {error, _} = Error} ->
                 Error;
@@ -210,7 +213,11 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
                     receive
                         {ReplyAlias, Response} ->
                             Response
-                    after 0 -> {error, timeout}
+                    after 0 ->
+                        ?tp("resource_simple_sync_internal_buffer_query_timeout", #{
+                            id => Id, request => Request
+                        }),
+                        {error, timeout}
                     end
                 end
         end
@@ -1324,6 +1331,7 @@ do_call_query(QM, Id, Index, Ref, Query, #{query_mode := ReqQM} = QueryOpts, Res
     ?tp(simple_query_override, #{query_mode => ReqQM}),
     #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
     CallMode = call_mode(QM, CBM),
+    ?tp(simple_query_enter, #{}),
     apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
     ResQM =:= simple_sync_internal_buffer; ResQM =:= simple_async_internal_buffer
@@ -1331,6 +1339,7 @@ do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Res
     %% The connector supports buffer, send even in disconnected state
     #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
     CallMode = call_mode(QM, CBM),
+    ?tp(simple_query_enter, #{}),
     apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{status := connected} = Resource) ->
     %% when calling from the buffer worker or other simple queries,
@@ -2327,6 +2336,7 @@ reply_call(Alias, Response) ->
 %% Used by `simple_sync_internal_buffer_query' to reply and chain existing `reply_to'
 %% callbacks.
 reply_call_internal_buffer(ReplyAlias, MaybeReplyTo, Response) ->
+    ?tp("reply_call_internal_buffer", #{}),
     ?MODULE:reply_call(ReplyAlias, Response),
     do_reply_caller(MaybeReplyTo, Response).
 

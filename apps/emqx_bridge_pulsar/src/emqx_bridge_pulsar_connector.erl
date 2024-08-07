@@ -60,6 +60,8 @@ resource_type() -> pulsar.
 
 callback_mode() -> async_if_possible.
 
+query_mode(#{resource_opts := #{query_mode := sync}}) ->
+    simple_sync_internal_buffer;
 query_mode(_Config) ->
     simple_async_internal_buffer.
 
@@ -204,12 +206,17 @@ on_query(_InstanceId, {ChannelId, Message}, State) ->
                 sync_timeout => SyncTimeout,
                 is_async => false
             }),
-            try
-                pulsar:send_sync(Producers, [PulsarMessage], SyncTimeout)
-            catch
-                error:timeout ->
-                    {error, timeout}
-            end
+            ?tp_span(
+                "pulsar_producer_query_enter",
+                #{instance_id => _InstanceId, message => Message, mode => sync},
+                try
+                    ?tp("pulsar_producer_send", #{msg => PulsarMessage, mode => sync}),
+                    pulsar:send_sync(Producers, [PulsarMessage], SyncTimeout)
+                catch
+                    error:timeout ->
+                        {error, timeout}
+                end
+            )
     end.
 
 -spec on_query_async(
@@ -220,11 +227,11 @@ on_query_async(_InstanceId, {ChannelId, Message}, AsyncReplyFn, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         error ->
-            {error, channel_not_found};
+            {error, {unrecoverable_error, channel_not_found}};
         {ok, #{message := MessageTmpl, producers := Producers}} ->
             ?tp_span(
-                pulsar_producer_on_query_async,
-                #{instance_id => _InstanceId, message => Message},
+                "pulsar_producer_query_enter",
+                #{instance_id => _InstanceId, message => Message, mode => async},
                 on_query_async2(ChannelId, Producers, Message, MessageTmpl, AsyncReplyFn)
             )
     end.
@@ -235,6 +242,7 @@ on_query_async2(ChannelId, Producers, Message, MessageTmpl, AsyncReplyFn) ->
         message => PulsarMessage,
         is_async => true
     }),
+    ?tp("pulsar_producer_send", #{msg => PulsarMessage, mode => async}),
     pulsar:send(Producers, [PulsarMessage], #{callback_fn => AsyncReplyFn}).
 
 on_format_query_result({ok, Info}) ->

@@ -2,7 +2,7 @@
 {application, emqx_dashboard, [
     {description, "EMQX Web Dashboard"},
     % strict semver, bump manually!
-    {vsn, "5.1.3"},
+    {vsn, "5.1.4"},
     {modules, []},
     {registered, [emqx_dashboard_sup]},
     {applications, [

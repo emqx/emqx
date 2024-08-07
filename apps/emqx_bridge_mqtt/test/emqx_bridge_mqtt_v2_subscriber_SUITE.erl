@@ -131,6 +131,9 @@ hookpoint(Config) ->
     BridgeId = bridge_id(Config),
     emqx_bridge_resource:bridge_hookpoint(BridgeId).
 
+simplify_result(Res) ->
+    emqx_bridge_v2_testlib:simplify_result(Res).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -245,4 +248,47 @@ t_receive_via_rule(Config) ->
             ok
         end
     ),
+    ok.
+
+t_connect_with_more_clients_than_the_broker_accepts(Config) ->
+    Name = ?config(connector_name, Config),
+    OrgConf = emqx_mgmt_listeners_conf:get_raw(tcp, default),
+    on_exit(fun() ->
+        emqx_mgmt_listeners_conf:update(tcp, default, OrgConf)
+    end),
+    NewConf = OrgConf#{<<"max_connections">> => 3},
+    {ok, _} = emqx_mgmt_listeners_conf:update(tcp, default, NewConf),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> :=
+                        <<"Your MQTT connection attempt was unsuccessful", _/binary>>
+                }},
+                simplify_result(
+                    emqx_bridge_v2_testlib:create_connector_api(
+                        Config,
+                        #{<<"pool_size">> => 100}
+                    )
+                )
+            ),
+            ?block_until(#{?snk_kind := emqx_bridge_mqtt_connector_tcp_closed}),
+            ?assertMatch(
+                {200, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> :=
+                        <<"Your MQTT connection attempt was unsuccessful", _/binary>>
+                }},
+                simplify_result(emqx_bridge_v2_testlib:get_connector_api(mqtt, Name))
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(emqx_bridge_mqtt_connector_tcp_closed, Trace)),
+            ok
+        end
+    ),
+
     ok.

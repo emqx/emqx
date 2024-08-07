@@ -63,6 +63,7 @@ groups() ->
             t_parse_malformed_properties,
             t_malformed_connect_header,
             t_malformed_connect_data,
+            t_malformed_connect_data_proto_ver,
             t_reserved_connect_flag,
             t_invalid_clientid,
             t_undefined_password,
@@ -166,6 +167,8 @@ t_parse_malformed_utf8_string(_) ->
             98, 108, 105, 99>>,
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
+
+%% TODO: parse v3 with 0 length clientid
 
 t_serialize_parse_v3_connect(_) ->
     Bin =
@@ -324,7 +327,7 @@ t_serialize_parse_bridge_connect(_) ->
         header = #mqtt_packet_header{type = ?CONNECT},
         variable = #mqtt_packet_connect{
             clientid = <<"C_00:0C:29:2B:77:52">>,
-            proto_ver = 16#03,
+            proto_ver = ?MQTT_PROTO_V3,
             proto_name = <<"MQIsdp">>,
             is_bridge = true,
             will_retain = true,
@@ -686,15 +689,36 @@ t_malformed_connect_header(_) ->
     ).
 
 t_malformed_connect_data(_) ->
+    ProtoNameWithLen = <<0, 6, "MQIsdp">>,
+    ConnectFlags = <<2#00000000>>,
+    ClientIdwithLen = <<0, 1, "a">>,
+    UnexpectedRestBin = <<0, 1, 2>>,
     ?ASSERT_FRAME_THROW(
-        #{cause := malformed_connect, unexpected_trailing_bytes := _},
-        emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 0, 0, 0, 0, 0, 0>>)
+        #{cause := malformed_connect, unexpected_trailing_bytes := 3},
+        emqx_frame:parse(
+            <<16, 18, ProtoNameWithLen/binary, ?MQTT_PROTO_V3, ConnectFlags/binary, 0, 0,
+                ClientIdwithLen/binary, UnexpectedRestBin/binary>>
+        )
+    ).
+
+t_malformed_connect_data_proto_ver(_) ->
+    Proto3NameWithLen = <<0, 6, "MQIsdp">>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := malformed_connect, header_bytes := <<>>},
+        emqx_frame:parse(<<16, 8, Proto3NameWithLen/binary>>)
+    ),
+    ProtoNameWithLen = <<0, 4, "MQTT">>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := malformed_connect, header_bytes := <<>>},
+        emqx_frame:parse(<<16, 6, ProtoNameWithLen/binary>>)
     ).
 
 t_reserved_connect_flag(_) ->
     ?assertException(
         throw,
-        {frame_parse_error, reserved_connect_flag},
+        {frame_parse_error, #{
+            cause := reserved_connect_flag, proto_ver := ?MQTT_PROTO_V3, proto_name := <<"MQIsdp">>
+        }},
         emqx_frame:parse(<<16, 15, 0, 6, 77, 81, 73, 115, 100, 112, 3, 1, 0, 0, 1, 0, 0>>)
     ).
 
@@ -726,7 +750,7 @@ t_undefined_password(_) ->
             },
             variable = #mqtt_packet_connect{
                 proto_name = <<"MQTT">>,
-                proto_ver = 4,
+                proto_ver = ?MQTT_PROTO_V4,
                 is_bridge = false,
                 clean_start = true,
                 will_flag = false,
@@ -774,7 +798,9 @@ t_invalid_will_retain(_) ->
             54, 75, 78, 112, 57, 0, 6, 68, 103, 55, 87, 87, 87>>,
     ?assertException(
         throw,
-        {frame_parse_error, invalid_will_retain},
+        {frame_parse_error, #{
+            cause := invalid_will_retain, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
+        }},
         emqx_frame:parse(ConnectBin)
     ),
     ok.
@@ -796,22 +822,30 @@ t_invalid_will_qos(_) ->
     ),
     ?assertException(
         throw,
-        {frame_parse_error, invalid_will_qos},
+        {frame_parse_error, #{
+            cause := invalid_will_qos, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
+        }},
         emqx_frame:parse(ConnectBinFun(Will_F_WillQoS1))
     ),
     ?assertException(
         throw,
-        {frame_parse_error, invalid_will_qos},
+        {frame_parse_error, #{
+            cause := invalid_will_qos, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
+        }},
         emqx_frame:parse(ConnectBinFun(Will_F_WillQoS2))
     ),
     ?assertException(
         throw,
-        {frame_parse_error, invalid_will_qos},
+        {frame_parse_error, #{
+            cause := invalid_will_qos, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
+        }},
         emqx_frame:parse(ConnectBinFun(Will_F_WillQoS3))
     ),
     ?assertException(
         throw,
-        {frame_parse_error, invalid_will_qos},
+        {frame_parse_error, #{
+            cause := invalid_will_qos, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
+        }},
         emqx_frame:parse(ConnectBinFun(Will_T_WillQoS3))
     ),
     ok.

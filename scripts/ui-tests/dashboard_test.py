@@ -131,10 +131,7 @@ def test_docs_link(driver, dashboard_url):
     # it's v5.x in the url
     emqx_version = 'v' + emqx_version
 
-    if prefix == 'e':
-        docs_base_url = "https://docs.emqx.com/en/enterprise"
-    else:
-        docs_base_url = "https://docs.emqx.com/en/emqx"
+    docs_base_url = "https://docs.emqx.com/en/emqx"
 
     docs_url = f"{docs_base_url}/{emqx_version}"
     xpath = f"//div[@id='app']//div[@class='nav-header']//a[@href[starts-with(.,'{docs_url}')]]"
