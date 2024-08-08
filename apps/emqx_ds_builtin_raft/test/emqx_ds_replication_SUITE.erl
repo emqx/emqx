@@ -839,6 +839,7 @@ t_crash_restart_recover(Config) ->
     ),
 
     ?check_trace(
+        #{timetrap => 50_000},
         begin
             %% Initialize DB on all nodes.
             assert_db_open(Nodes, ?DB, DBOpts),
