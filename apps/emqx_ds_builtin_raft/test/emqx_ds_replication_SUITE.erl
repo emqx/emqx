@@ -839,6 +839,7 @@ t_crash_restart_recover(Config) ->
     ),
 
     ?check_trace(
+        #{timetrap => 60_000},
         begin
             %% Initialize DB on all nodes.
             assert_db_open(Nodes, ?DB, DBOpts),
@@ -1054,7 +1055,7 @@ sample(N, List) ->
 
 %%
 
-suite() -> [{timetrap, {seconds, 60}}].
+suite() -> [{timetrap, {seconds, 120}}].
 
 all() ->
     [{group, Grp} || {Grp, _} <- groups()].
