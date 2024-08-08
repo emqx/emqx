@@ -44,7 +44,7 @@ destroy(_) ->
 
 authenticate(
     #{
-        auth_method := <<"GSSAPI-KERBEROS">>,
+        auth_method := ?AUTHN_METHOD,
         auth_data := AuthData,
         auth_cache := AuthCache
     },
@@ -55,8 +55,10 @@ authenticate(
             auth_continue(SaslConn, AuthData);
         _ ->
             case auth_new(Principal) of
-                {ok, SaslConn} -> auth_begin(SaslConn, AuthData);
-                Error -> Error
+                {ok, SaslConn} ->
+                    auth_begin(SaslConn, AuthData);
+                Error ->
+                    Error
             end
     end;
 authenticate(_Credential, _State) ->

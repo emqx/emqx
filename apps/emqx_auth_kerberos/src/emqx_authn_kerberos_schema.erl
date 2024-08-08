@@ -47,9 +47,7 @@ fields(kerberos) ->
                 })},
             {keytab_file,
                 ?HOCON(binary(), #{
-                    required => false,
-                    %% This is hidden for now because it has to be /etc/krb5.keytab
-                    importance => ?IMPORTANCE_HIDDEN,
+                    default => <<"/etc/krb5.keytab">>,
                     desc => ?DESC(keytab_file)
                 })}
         ].
