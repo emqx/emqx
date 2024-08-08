@@ -293,8 +293,13 @@ get_streams(DB, TopicFilter, StartTime) ->
             case ra_get_streams(DB, Shard, TopicFilter, StartTime) of
                 Streams when is_list(Streams) ->
                     ok;
-                {error, _Class, _Reason} ->
-                    %% TODO: log error
+                {error, Class, Reason} ->
+                    ?tp(debug, ds_repl_get_streams_failed, #{
+                        db => DB,
+                        shard => Shard,
+                        class => Class,
+                        reason => Reason
+                    }),
                     Streams = []
             end,
             lists:map(
