@@ -49,7 +49,9 @@
 %% Internal exports:
 -export([
     do_next/3,
-    do_delete_next/4
+    do_delete_next/4,
+    %% Used by batch serializer
+    make_batch/3
 ]).
 
 -export_type([db_opts/0, shard/0, iterator/0, delete_iterator/0]).
@@ -88,7 +90,10 @@
     #{
         backend := builtin_local,
         storage := emqx_ds_storage_layer:prototype(),
-        n_shards := pos_integer()
+        n_shards := pos_integer(),
+        %% Inherited from `emqx_ds:generic_db_opts()`.
+        force_monotonic_timestamps => boolean(),
+        atomic_batches => boolean()
     }.
 
 -type generation_rank() :: {shard(), emqx_ds_storage_layer:gen_id()}.
@@ -193,15 +198,51 @@ drop_db(DB) ->
     ),
     emqx_ds_builtin_local_meta:drop_db(DB).
 
--spec store_batch(emqx_ds:db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
+-spec store_batch(emqx_ds:db(), emqx_ds:batch(), emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
-store_batch(DB, Messages, Opts) ->
+store_batch(DB, Batch, Opts) ->
+    case emqx_ds_builtin_local_meta:db_config(DB) of
+        #{atomic_batches := true} ->
+            store_batch_atomic(DB, Batch, Opts);
+        _ ->
+            store_batch_buffered(DB, Batch, Opts)
+    end.
+
+store_batch_buffered(DB, Messages, Opts) ->
     try
         emqx_ds_buffer:store_batch(DB, Messages, Opts)
     catch
         error:{Reason, _Call} when Reason == timeout; Reason == noproc ->
             {error, recoverable, Reason}
     end.
+
+store_batch_atomic(DB, Batch, Opts) ->
+    Shards = shards_of_batch(DB, Batch),
+    case Shards of
+        [Shard] ->
+            emqx_ds_builtin_local_batch_serializer:store_batch_atomic(DB, Shard, Batch, Opts);
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, unrecoverable, atomic_batch_spans_multiple_shards}
+    end.
+
+shards_of_batch(DB, #dsbatch{operations = Operations, preconditions = Preconditions}) ->
+    shards_of_batch(DB, Preconditions, shards_of_batch(DB, Operations, []));
+shards_of_batch(DB, Operations) ->
+    shards_of_batch(DB, Operations, []).
+
+shards_of_batch(DB, [Operation | Rest], Acc) ->
+    case shard_of_operation(DB, Operation, clientid, #{}) of
+        Shard when Shard =:= hd(Acc) ->
+            shards_of_batch(DB, Rest, Acc);
+        Shard when Acc =:= [] ->
+            shards_of_batch(DB, Rest, [Shard]);
+        ShardAnother ->
+            [ShardAnother | Acc]
+    end;
+shards_of_batch(_DB, [], Acc) ->
+    Acc.
 
 -record(bs, {options :: emqx_ds:create_db_opts()}).
 -type buffer_state() :: #bs{}.
