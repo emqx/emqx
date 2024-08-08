@@ -34,11 +34,7 @@
     cleanup_resources/0,
     make_resource_id/1,
     without_password/1,
-    to_bool/1,
-    convert_headers/1,
-    convert_headers_no_content_type/1,
-    default_headers/0,
-    default_headers_no_content_type/0
+    to_bool/1
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS, #{
@@ -184,30 +180,6 @@ to_bool(MaybeBinInt) when is_binary(MaybeBinInt) ->
 to_bool(_) ->
     false.
 
-convert_headers(Headers) ->
-    transform_header_name(Headers).
-
-convert_headers_no_content_type(Headers) ->
-    maps:without(
-        [<<"content-type">>],
-        transform_header_name(Headers)
-    ).
-
-default_headers() ->
-    maps:put(
-        <<"content-type">>,
-        <<"application/json">>,
-        default_headers_no_content_type()
-    ).
-
-default_headers_no_content_type() ->
-    #{
-        <<"accept">> => <<"application/json">>,
-        <<"cache-control">> => <<"no-cache">>,
-        <<"connection">> => <<"keep-alive">>,
-        <<"keep-alive">> => <<"timeout=30, max=1000">>
-    }.
-
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -221,20 +193,3 @@ without_password(Credential, [Name | Rest]) ->
         false ->
             without_password(Credential, Rest)
     end.
-
-transform_header_name(Headers) ->
-    maps:fold(
-        fun(K0, V, Acc) ->
-            K = list_to_binary(string:to_lower(to_list(K0))),
-            maps:put(K, V, Acc)
-        end,
-        #{},
-        Headers
-    ).
-
-to_list(A) when is_atom(A) ->
-    atom_to_list(A);
-to_list(B) when is_binary(B) ->
-    binary_to_list(B);
-to_list(L) when is_list(L) ->
-    L.
