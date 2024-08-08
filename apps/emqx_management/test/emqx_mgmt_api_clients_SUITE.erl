@@ -103,27 +103,32 @@ init_per_group(general, Config) ->
         | Config
     ];
 init_per_group(persistent_sessions, Config) ->
-    AppSpecs = [
-        {emqx,
-            "durable_sessions.enable = true\n"
-            "durable_sessions.disconnected_session_count_refresh_interval = 100ms"},
-        emqx_management
-    ],
-    Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
-    Cluster = [
-        {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
-        {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
-    ],
-    Nodes =
-        [N1 | _] = emqx_cth_cluster:start(
-            Cluster,
-            #{work_dir => emqx_cth_suite:work_dir(Config)}
-        ),
-    [
-        {nodes, Nodes},
-        {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
-        | Config
-    ];
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            AppSpecs = [
+                {emqx,
+                    "durable_sessions.enable = true\n"
+                    "durable_sessions.disconnected_session_count_refresh_interval = 100ms"},
+                emqx_management
+            ],
+            Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
+            Cluster = [
+                {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+                {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
+            ],
+            Nodes =
+                [N1 | _] = emqx_cth_cluster:start(
+                    Cluster,
+                    #{work_dir => emqx_cth_suite:work_dir(Config)}
+                ),
+            [
+                {nodes, Nodes},
+                {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
+                | Config
+            ];
+        Yes ->
+            Yes
+    end;
 init_per_group(non_persistent_cluster, Config) ->
     AppSpecs = [
         emqx,
