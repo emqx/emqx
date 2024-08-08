@@ -13,4 +13,8 @@
 
 -define(AUTHN_TYPE_KERBEROS, {?AUTHN_MECHANISM_GSSAPI, ?AUTHN_BACKEND}).
 
+-define(AUTHN_METHOD, <<"GSSAPI-KERBEROS">>).
+
+-define(SERVICE, <<"mqtt">>).
+
 -endif.

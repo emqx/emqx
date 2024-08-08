@@ -44,7 +44,7 @@ destroy(_) ->
 
 authenticate(
     #{
-        auth_method := <<"GSSAPI-KERBEROS">>,
+        auth_method := ?AUTHN_METHOD,
         auth_data := AuthData,
         auth_cache := AuthCache
     },
@@ -55,8 +55,10 @@ authenticate(
             auth_continue(SaslConn, AuthData);
         _ ->
             case auth_new(Principal) of
-                {ok, SaslConn} -> auth_begin(SaslConn, AuthData);
-                Error -> Error
+                {ok, SaslConn} ->
+                    auth_begin(SaslConn, AuthData);
+                Error ->
+                    Error
             end
     end;
 authenticate(_Credential, _State) ->
@@ -75,7 +77,7 @@ get_server_fqdn(Principal) ->
 
 auth_new(Principal) ->
     ServerFQDN = get_server_fqdn(Principal),
-    case sasl_auth:server_new(<<"emqx">>, Principal, ServerFQDN) of
+    case sasl_auth:server_new(?SERVICE, Principal, ServerFQDN) of
         {ok, SaslConn} ->
             {ok, SaslConn};
         Error ->

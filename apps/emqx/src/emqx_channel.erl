@@ -397,15 +397,7 @@ handle_in(
                     connecting ->
                         process_connect(NProperties, NChannel);
                     reauthenticating ->
-                        {ok, Auth, NChannel1} =
-                            handle_out(
-                                auth,
-                                {?RC_SUCCESS, NProperties},
-                                NChannel#channel{conn_state = connected}
-                            ),
-                        {ok, Replies, NChannel2} =
-                            process_connect(NProperties, NChannel1),
-                        {ok, [?REPLY_OUTGOING(Auth) | Replies], NChannel2};
+                        process_connect(NProperties, NChannel);
                     _ ->
                         handle_out(
                             auth,
