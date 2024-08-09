@@ -25,7 +25,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx, #{
+            {emqx_conf, #{
                 config => #{
                     <<"durable_sessions">> => #{
                         <<"enable">> => true,
@@ -34,10 +34,14 @@ init_per_suite(Config) ->
                     <<"durable_storage">> => #{
                         <<"messages">> => #{
                             <<"backend">> => <<"builtin_raft">>
+                        },
+                        <<"queues">> => #{
+                            <<"backend">> => <<"builtin_raft">>
                         }
                     }
                 }
             }},
+            emqx,
             emqx_ds_shared_sub,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -135,6 +139,6 @@ api(Method, Path, Data) ->
     end.
 
 terminate_leaders() ->
-    ok = supervisor:terminate_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_leader_sup),
-    {ok, _} = supervisor:restart_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_leader_sup),
+    ok = supervisor:terminate_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
+    {ok, _} = supervisor:restart_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
     ok.

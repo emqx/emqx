@@ -45,8 +45,7 @@ init() ->
     persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
     ?WITH_DURABILITY_ENABLED(begin
         ?SLOG(notice, #{msg => "Session durability is enabled"}),
-        Backend = storage_backend(),
-        ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, Backend),
+        ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, get_db_config()),
         ok = emqx_persistent_session_ds_router:init_tables(),
         ok = emqx_persistent_session_ds:create_tables(),
         ok
@@ -60,19 +59,15 @@ is_persistence_enabled() ->
 is_persistence_enabled(Zone) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions, enable]).
 
--spec storage_backend() -> emqx_ds:create_db_opts().
-storage_backend() ->
-    storage_backend([durable_storage, messages]).
+-spec get_db_config() -> emqx_ds:create_db_opts().
+get_db_config() ->
+    emqx_ds_schema:db_config([durable_storage, messages]).
 
 %% Dev-only option: force all messages to go through
 %% `emqx_persistent_session_ds':
 -spec force_ds(emqx_types:zone()) -> boolean().
 force_ds(Zone) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions, force_persistence]).
-
-storage_backend(Path) ->
-    ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
-    apply(Module, Function, [ConfigTree]).
 
 %%--------------------------------------------------------------------
 
