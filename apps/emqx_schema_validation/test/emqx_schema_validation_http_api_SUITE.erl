@@ -1499,7 +1499,8 @@ t_republish_action_failure(_Config) ->
                                 <<"qos">> => 0,
                                 <<"retain">> => false,
                                 <<"topic">> => <<"t/republished">>,
-                                <<"user_properties">> => <<>>
+                                <<"user_properties">> => <<>>,
+                                <<"direct_dispatch">> => false
                             }
                     }
                 ]

@@ -3968,7 +3968,8 @@ republish_action(Topic, Payload, UserProperties, MQTTProperties) ->
             qos => 0,
             retain => false,
             mqtt_properties => MQTTProperties,
-            user_properties => UserProperties
+            user_properties => UserProperties,
+            direct_dispatch => false
         }
     }.
 
