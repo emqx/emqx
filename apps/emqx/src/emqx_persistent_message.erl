@@ -48,7 +48,7 @@ init() ->
         Backend = storage_backend(),
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, Backend),
         ok = emqx_persistent_session_ds_router:init_tables(),
-        ok = emqx_persistent_session_ds:create_tables(),
+        ok = initialize_session_ds_state(),
         ok
     end).
 
@@ -73,6 +73,16 @@ force_ds(Zone) ->
 storage_backend(Path) ->
     ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
     apply(Module, Function, [ConfigTree]).
+
+-ifdef(STORE_STATE_IN_DS).
+initialize_session_ds_state() ->
+    ok = emqx_persistent_session_ds_state:open_db(storage_backend()).
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
+initialize_session_ds_state() ->
+    ok = emqx_persistent_session_ds_state:create_tables().
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 %%--------------------------------------------------------------------
 

@@ -46,3 +46,5 @@ jobs:
       - run: cat .env | tee -a $GITHUB_ENV
       - name: run static checks
         run: make static_checks
+        env:
+          STORE_STATE_IN_DS: 1

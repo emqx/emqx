@@ -145,6 +145,7 @@ jobs:
       - id: compile
         env:
           PROFILE: ${{ matrix.profile }}
+          STORE_STATE_IN_DS: 1
           ENABLE_COVER_COMPILE: 1
         run: |
           make ensure-rebar3

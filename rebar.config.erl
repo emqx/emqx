@@ -222,6 +222,7 @@ common_compile_opts(Edition, _RelType, Vsn) ->
         {d, 'EMQX_RELEASE_EDITION', Edition}
     ] ++
         [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
+        [{d, 'STORE_STATE_IN_DS'} || os:getenv("STORE_STATE_IN_DS") =:= "1"] ++
         [{d, 'BUILD_WITHOUT_QUIC'} || not is_quicer_supported()].
 
 warn_profile_env() ->
