@@ -1332,7 +1332,7 @@ ensure_plugin_config({NameVsn, ?fresh_install}) ->
 -spec ensure_plugin_config(name_vsn(), list()) -> ok.
 ensure_plugin_config(NameVsn, []) ->
     ?SLOG(debug, #{
-        msg => "default_plugin_config_used",
+        msg => "local_plugin_config_used",
         name_vsn => NameVsn,
         reason => "no_other_running_nodes"
     }),
@@ -1358,7 +1358,13 @@ cp_default_config_file(NameVsn) ->
     maybe
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
-        true ?= (not filelib:is_regular(Destination)),
+        false ?=
+            case filelib:is_regular(Destination) of
+                true ->
+                    ?SLOG(debug, #{msg => "plugin_config_file_already_existed", name_vsn => NameVsn});
+                false ->
+                    false
+            end,
         ok = filelib:ensure_dir(Destination),
         case file:copy(Source, Destination) of
             {ok, _} ->
