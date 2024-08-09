@@ -69,6 +69,13 @@
 -define(STORE_BATCH_SIZE, 500).
 -define(STORE_TOMBSTONE, '$tombstone').
 
+-ifdef(TEST).
+-undef(LEADER_TTL).
+-undef(LEADER_HEARTBEAT_INTERVAL).
+-define(LEADER_TTL, 3_000).
+-define(LEADER_HEARTBEAT_INTERVAL, 1_000).
+-endif.
+
 %%
 
 open() ->
