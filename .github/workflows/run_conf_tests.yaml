@@ -32,7 +32,6 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: cat .env | tee -a $GITHUB_ENV
       - run: make ${{ matrix.profile }}
       - run: ./scripts/test/check-example-configs.sh
       - run: ./scripts/conf-test/run.sh

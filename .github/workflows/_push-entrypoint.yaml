@@ -32,8 +32,6 @@ jobs:
       OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
-      BUILD_FROM: ${{ steps.env.outputs.BUILD_FROM }}
-      RUN_FROM: ${{ steps.env.outputs.BUILD_FROM }}
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
@@ -46,8 +44,6 @@ jobs:
           echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
           echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
           echo "BUILDER=$EMQX_BUILDER" >> "$GITHUB_OUTPUT"
-          echo "BUILD_FROM=$EMQX_DOCKER_BUILD_FROM" >> "$GITHUB_OUTPUT"
-          echo "RUN_FROM=$EMQX_DOCKER_RUN_FROM" >> "$GITHUB_OUTPUT"
 
   prepare:
     runs-on: ubuntu-22.04
@@ -119,8 +115,6 @@ jobs:
       profile: ${{ needs.prepare.outputs.profile }}
       publish: true
       latest: ${{ needs.prepare.outputs.latest }}
-      build_from: ${{ needs.init.outputs.BUILD_FROM }}
-      run_from: ${{ needs.init.outputs.RUN_FROM }}
     secrets: inherit
 
   build_slim_packages:
@@ -160,14 +154,71 @@ jobs:
           ENABLE_COVER_COMPILE: 1
         run: |
           make $PROFILE
-          echo "PROFILE=${PROFILE}" | tee -a .env
-          echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
+          echo "export PROFILE=${PROFILE}" | tee -a env.sh
+          echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
+          make ${PROFILE}-rel
       - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
-          retention-days: 1
+          retention-days: 7
+      - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+        with:
+          name: "${{ matrix.profile }}-schema-dump"
+          path: |
+            env.sh
+            _build/docgen/${{ matrix.profile }}/*.json
+            _build/docgen/${{ matrix.profile }}/*.hocon
+          retention-days: 7
+
+  update_emqx_i18n:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - prepare
+      - compile
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    steps:
+      - name: Extract version from tag
+        id: extract_version
+        run: echo "version=${GITHUB_REF_NAME#e}" | tee -a $GITHUB_OUTPUT
+
+      - name: Create PR in emqx/emqx-i18n
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
+          repository: emqx/emqx-i18n
+          event-type: release
+          client-payload: |
+            {
+              "version": "${{ steps.extract_version.outputs.version }}",
+              "repository": "${{ github.repository }}",
+              "run-id": "${{ github.run_id }}"
+            }
+
+  update_emqx_docs:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - prepare
+      - compile
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    steps:
+      - name: Extract version from tag
+        id: extract_version
+        run: echo "version=${GITHUB_REF_NAME#e}" | tee -a $GITHUB_OUTPUT
+
+      - name: Create PR in emqx/emqx-docs
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
+          repository: emqx/emqx-docs
+          event-type: release
+          client-payload: |
+            {
+              "version": "${{ steps.extract_version.outputs.version }}",
+              "repository": "${{ github.repository }}",
+              "run-id": "${{ github.run_id }}"
+            }
 
   run_emqx_app_tests:
     needs:

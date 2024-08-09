@@ -52,20 +52,13 @@ jobs:
     needs: jmeter_artifact
     steps:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-    - name: Set up environment
-      id: env
-      run: |
-        source env.sh
-        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
-        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
     - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: emqx-docker
-        path: /tmp
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -121,20 +114,13 @@ jobs:
     needs: jmeter_artifact
     steps:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-    - name: Set up environment
-      id: env
-      run: |
-        source env.sh
-        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
-        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
     - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: emqx-docker
-        path: /tmp
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -198,20 +184,13 @@ jobs:
     needs: jmeter_artifact
     steps:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-    - name: Set up environment
-      id: env
-      run: |
-        source env.sh
-        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
-        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
     - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: emqx-docker
-        path: /tmp
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -267,20 +246,13 @@ jobs:
     needs: jmeter_artifact
     steps:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-    - name: Set up environment
-      id: env
-      run: |
-        source env.sh
-        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
-        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
     - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: emqx-docker
-        path: /tmp
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -333,20 +305,13 @@ jobs:
     needs: jmeter_artifact
     steps:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-    - name: Set up environment
-      id: env
-      run: |
-        source env.sh
-        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh emqx)
-        echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_ENV"
     - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: emqx-docker
-        path: /tmp
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up

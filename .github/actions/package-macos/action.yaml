@@ -1,4 +1,5 @@
 name: 'Create MacOS package'
+description: 'Build MacOS package for emqx or emqx-enterprise'
 inputs:
   profile: # emqx, emqx-enterprise
     required: true
