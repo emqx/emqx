@@ -256,6 +256,9 @@ for dep in ${CT_DEPS}; do
 	couchbase)
 	    FILES+=( '.ci/docker-compose-file/docker-compose-couchbase.yaml' )
 	    ;;
+	kdc)
+	    FILES+=( '.ci/docker-compose-file/docker-compose-kdc.yaml' )
+	    ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

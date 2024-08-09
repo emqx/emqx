@@ -16,15 +16,15 @@
 
 -define(PATH, [authentication]).
 
--define(INVALID_SVR_PRINCIPAL, <<"not-exists/emqx-full.test@KDC.EMQX.NET">>).
+-define(INVALID_SVR_PRINCIPAL, <<"not-exists/erlang.emqx.nett@KDC.EMQX.NET">>).
 
--define(SVR_HOST, "emqx.emqx.net").
--define(SVR_PRINCIPAL, <<"emqx/emqx.emqx.net@KDC.EMQX.NET">>).
--define(SVR_KEYTAB_FILE, <<"/home/firest/server.keytab">>).
+-define(SVR_HOST, "erlang.emqx.net").
+-define(SVR_PRINCIPAL, <<"emqx/erlang.emqx.net@KDC.EMQX.NET">>).
+-define(SVR_KEYTAB_FILE, <<"/var/lib/secret/erlang.keytab">>).
 
--define(CLI_NAME, "client").
--define(CLI_PRINCIPAL, <<"client@KDC.EMQX.NET">>).
--define(CLI_KEYTAB_FILE, <<"/home/firest/client.keytab">>).
+-define(CLI_NAME, "krb_authn_cli").
+-define(CLI_PRINCIPAL, <<"krb_authn_cli@KDC.EMQX.NET">>).
+-define(CLI_KEYTAB_FILE, <<"/var/lib/secret/krb_authn_cli.keytab">>).
 
 -define(HOST, "127.0.0.1").
 -define(PORT, 1883).
