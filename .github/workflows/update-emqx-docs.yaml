@@ -1,0 +1,84 @@
+name: Update i18n
+
+concurrency:
+  group: update-i18n-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  emqx-docs:
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+
+    permissions:
+      pull-requests: write
+
+    env:
+      PROFILE: ${{ inputs.profile }}
+
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          repository: emqx/emqx-docs
+
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          pattern: "emqx-*-schema-dump"
+          merge-multiple: true
+
+      - name: Create PR to update api docs and config manual in emqx-docs
+        env:
+          GITHUB_TOKEN: ${{ secrets.CI_GIT_TOKEN }}
+        run: |
+          set -euxo pipefail
+          source .github_env
+          git config --global user.name "${GITHUB_ACTOR}"
+          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          BASE_BRANCH="$(echo release-$(echo $PKG_VSN | cut -d '.' -f 1-2))"
+          git fetch origin
+          git checkout ${BASE_BRANCH}
+          NEW_BRANCH="update-api-cfg-${PKG_VSN}"
+          git checkout -b ${NEW_BRANCH}
+
+          case "${PROFILE}" in
+            emqx)
+              EDITION=ce
+              EDITION_UPPER=CE
+              ;;
+            emqx-enterprise)
+              EDITION=ee
+              EDITION_UPPER=EE
+              ;;
+          esac
+
+          VERSION=$(echo "${PKG_VSN}" | cut -d '-' -f 1)
+          MINOR_VERSION=$(echo "${PKG_VSN}" | cut -d '.' -f 1-2)
+          sed -i "s/${EDITION_UPPER}_VERSION=.*/${EDITION_UPPER}_VERSION=${VERSION}/" ./current-version.env
+          sed -i "s/${EDITION_UPPER}_MINOR_VERSION=.*/${EDITION_UPPER}_MINOR_VERSION=${MINOR_VERSION}/" ./current-version.env
+          git add current-version.env
+
+          for lang in en zh; do
+            docker run -d --name emqx -p 18083:18083 -e EMQX_dashboard__i18n_lang=${lang} "emqx/${PROFILE}:${PKG_VSN}"
+            curl -fsS -m 10 --retry 10 --retry-all-errors -o /dev/null http://localhost:18083/api-docs/swagger.json
+            ./rewrite-swagger.sh ${EDITION} ${lang}
+            docker logs emqx
+            docker rm -f emqx
+            cp "_build/docgen/${PROFILE}/schema-v2-${lang}.json" "hocon/hocon-${EDITION}-v${VERSION}-${lang}.json"
+            git add "redocly/${EDITION}-${lang}.json"
+            git add "hocon/hocon-${EDITION}-v${VERSION}-${lang}.json"
+          done
+
+          git commit -m "chore($VERSION): update api and cfg manual"
+          git push origin ${NEW_BRANCH}:${NEW_BRANCH}
+          for pr in $(gh pr list --state open --base ${BASE_BRANCH} --label update-api-cfg --search "update api and cfg manual ${VERSION} in:title" --repo emqx/emqx-docs --json number --jq '.[] | .number'); do
+            gh pr close $pr --repo emqx/emqx-docs --delete-branch || true
+          done
+          gh pr create --title "update api and cfg manual ${VERSION}" --body '' --base ${BASE_BRANCH} --head ${NEW_BRANCH} --label update-api-cfg --repo emqx/emqx-docs

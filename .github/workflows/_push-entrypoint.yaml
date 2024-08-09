@@ -160,14 +160,22 @@ jobs:
           ENABLE_COVER_COMPILE: 1
         run: |
           make $PROFILE
-          echo "PROFILE=${PROFILE}" | tee -a .env
-          echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
+          echo "PROFILE=${PROFILE}" | tee -a .github_env
+          echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .github_env
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
+          make ${PROFILE}-rel
       - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
-          retention-days: 1
+          retention-days: 7
+      - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+        with:
+          name: "${{ matrix.profile }}-schema-dump"
+          path: |
+            _build/docgen/${{ matrix.profile }}/*.json
+            _build/docgen/${{ matrix.profile }}/*.hocon
+          retention-days: 7
 
   run_emqx_app_tests:
     needs:
@@ -212,3 +220,20 @@ jobs:
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
+
+  update_i18n:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - prepare
+      - compile
+    uses: ./.github/workflows/update-emqx-i18n.yaml
+
+  update_emqx_docs:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - prepare
+      - compile
+      - build_and_push_docker_images
+    uses: ./.github/workflows/update-emqx-docs.yaml
+    with:
+      profile: ${{ needs.prepare.outputs.profile }}
