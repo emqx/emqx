@@ -55,6 +55,7 @@
     topic_filter/0,
     topic/0,
     batch/0,
+    dsbatch/0,
     operation/0,
     deletion/0,
     precondition/0,
@@ -104,7 +105,9 @@
 -type message_matcher(Payload) :: #message_matcher{payload :: Payload}.
 
 %% A batch of storage operations.
--type batch() :: [operation()] | #dsbatch{}.
+-type batch() :: [operation()] | dsbatch().
+
+-type dsbatch() :: #dsbatch{}.
 
 -type operation() ::
     %% Store a message.
