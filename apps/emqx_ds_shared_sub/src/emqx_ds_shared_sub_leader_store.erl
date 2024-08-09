@@ -234,7 +234,7 @@ mk_leader_topic(GroupName) ->
     %% General.
     group := group(),
     %% Spaces and variables: most up-to-date in-memory state.
-    stream := #{emqx_ds:stream() => _StreamState},
+    stream := #{emqx_ds:stream() => stream_state()},
     start_time => _SubsriptionStartTime :: emqx_message:timestamp(),
     rank_progress => _RankProgress,
     %% Internal _sequence number_ variable.
@@ -243,6 +243,11 @@ mk_leader_topic(GroupName) ->
     seqmap := #{space_key() => _SeqNum :: integer()},
     %% Stage: uncommitted changes.
     stage := #{space_key() | var_name() => _Value}
+}.
+
+-type stream_state() :: #{
+    progress => emqx_persistent_session_ds_shared_subs:progress(),
+    rank => emqx_ds:stream_rank()
 }.
 
 -spec init(group()) -> t().

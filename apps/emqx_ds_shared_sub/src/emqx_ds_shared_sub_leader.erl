@@ -55,14 +55,6 @@
     revoked_streams := list(emqx_ds:stream())
 }.
 
--type progress() :: emqx_persistent_session_ds_shared_subs:progress().
-
--type stream_state() :: #{
-    progress => progress(),
-    rank => emqx_ds:stream_rank()
-}.
-
-%% TODO https://emqx.atlassian.net/browse/EMQX-12307
 %% Some data should be persisted
 -type data() :: #{
     %%
@@ -71,10 +63,6 @@
     group_id := group_id(),
     topic := emqx_types:topic(),
     %% Implement some stats to assign evenly?
-    %% stream_states := #{
-    %%     emqx_ds:stream() => stream_state()
-    %% },
-    %% rank_progress := emqx_ds_shared_sub_leader_rank_progress:t(),
     store := emqx_ds_shared_sub_leader_store:t(),
 
     %%
@@ -90,8 +78,7 @@
 
 -export_type([
     options/0,
-    data/0,
-    progress/0
+    data/0
 ]).
 
 %% States
