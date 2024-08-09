@@ -102,7 +102,12 @@ start_link(Options) ->
 become(ShareTopicFilter, StartTime, Claim) ->
     Data0 = init_data(ShareTopicFilter, StartTime),
     Data1 = attach_claim(Claim, Data0),
-    Actions = init_claim_renewal(Data1),
+    case store_is_dirty(Data1) of
+        true ->
+            Actions = force_claim_renewal(Data1);
+        false ->
+            Actions = init_claim_renewal(Data1)
+    end,
     gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, Actions).
 
 %%--------------------------------------------------------------------
@@ -146,6 +151,9 @@ init_data(#share{topic = Topic} = ShareTopicFilter, StartTime) ->
 
 attach_claim(Claim, Data) ->
     Data#{leader_claim => Claim}.
+
+force_claim_renewal(_Data = #{}) ->
+    [{{timeout, #renew_leader_claim{}}, 0, #renew_leader_claim{}}].
 
 init_claim_renewal(_Data = #{leader_claim := Claim}) ->
     Interval = emqx_ds_shared_sub_leader_store:heartbeat_interval(Claim),
@@ -1067,6 +1075,9 @@ make_iterator(Stream, TopicFilter, StartTime) ->
     emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime).
 
 %% Leader store
+
+store_is_dirty(#{store := Store}) ->
+    emqx_ds_shared_sub_leader_store:dirty(Store).
 
 store_get_stream(#{store := Store}, ID) ->
     emqx_ds_shared_sub_leader_store:get(stream, ID, Store).
