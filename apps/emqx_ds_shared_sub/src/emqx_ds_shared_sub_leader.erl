@@ -267,7 +267,7 @@ renew_leader_claim(Data = #{group_id := ShareTopicFilter, leader_claim := Claim}
                 claim => Claim,
                 renewed => RenewedClaim
             }),
-            attach_claim(Claim, Data);
+            attach_claim(RenewedClaim, Data);
         {exists, UnexpectedClaim} ->
             ?tp(warning, "Shared subscription leadership lost unexpectedly", #{
                 id => ShareTopicFilter,
