@@ -160,7 +160,11 @@
 -record(pmap, {table, key_mapping = #{}, cache, dirty}).
 
 -ifdef(STORE_STATE_IN_DS).
--type internal_key(_K) :: integer().
+-type internal_key(_K) ::
+    %% `?stream_domain'
+    binary()
+    %% other domains
+    | integer().
 -else.
 -type internal_key(K) :: K.
 -endif.
@@ -1061,11 +1065,15 @@ val_decode(_Domain, Bin) ->
 -spec key_encode(domain(), term()) -> binary().
 key_encode(?metadata_domain, _Key) ->
     ?metadata_domain_bin;
+key_encode(?stream_domain, Key) ->
+    Key;
 key_encode(_Domain, Key) ->
     integer_to_binary(Key).
 
 -spec key_decode(domain(), binary()) -> term().
 key_decode(?metadata_domain, Bin) ->
+    Bin;
+key_decode(?stream_domain, Bin) ->
     Bin;
 key_decode(_Domain, Bin) ->
     binary_to_integer(Bin).
@@ -1212,7 +1220,7 @@ get_or_gen_internal_key(K, KeyMapping, _Domain, _Cache) when
     IntK = maps:get(K, KeyMapping),
     {IntK, KeyMapping};
 get_or_gen_internal_key(K, KeyMapping0, Domain, Cache) ->
-    IntK = erlang:unique_integer(),
+    IntK = gen_internal_key(Domain, K),
     case cache_has_key(Domain, IntK, Cache) of
         true ->
             %% collision (node restarted?); just try again
@@ -1221,6 +1229,12 @@ get_or_gen_internal_key(K, KeyMapping0, Domain, Cache) ->
             KeyMapping = KeyMapping0#{K => IntK},
             {IntK, KeyMapping}
     end.
+
+gen_internal_key(?stream_domain, {Rank, _Stream}) ->
+    LSB = erlang:unique_integer(),
+    <<Rank:64, LSB:64>>;
+gen_internal_key(_Domain, _K) ->
+    erlang:unique_integer().
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 pmap_put(K, V, Pmap = #pmap{table = Table, dirty = Dirty, cache = Cache}) ->
