@@ -131,7 +131,8 @@ init({#?db_sup{db = DB}, DefaultOpts}) ->
     emqx_ds_builtin_metrics:init_for_db(DB),
     Opts = emqx_ds_builtin_local_meta:open_db(DB, DefaultOpts),
     Children = [
-        sup_spec(#?shards_sup{db = DB}, Opts)
+        sup_spec(#?shards_sup{db = DB}, Opts),
+        meta_spec(DB)
     ],
     SupFlags = #{
         strategy => one_for_all,
@@ -173,6 +174,15 @@ start_link_sup(Id, Options) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+meta_spec(DB) ->
+    #{
+        id => meta_worker,
+        start => {emqx_ds_builtin_local_meta_worker, start_link, [DB]},
+        shutdown => 5_000,
+        restart => permanent,
+        type => worker
+    }.
 
 sup_spec(Id, Options) ->
     #{
