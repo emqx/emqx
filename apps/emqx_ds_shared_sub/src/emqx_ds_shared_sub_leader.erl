@@ -121,8 +121,9 @@ become(ShareTopicFilter, StartTime, Claim) ->
 %%--------------------------------------------------------------------
 
 group_name(#share{group = ShareGroup, topic = Topic}) ->
+    %% NOTE: Should not contain `/`s.
     %% TODO: More observable encoding.
-    emqx_topic:join([ShareGroup, binary:encode_hex(Topic)]).
+    iolist_to_binary([ShareGroup, $:, binary:encode_hex(Topic)]).
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
