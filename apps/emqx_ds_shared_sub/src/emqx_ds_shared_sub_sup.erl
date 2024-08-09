@@ -30,7 +30,6 @@ init([]) ->
         period => 10
     },
     ChildSpecs = [
-        emqx_ds_shared_sub_registry:child_spec(),
-        emqx_ds_shared_sub_leader_sup:child_spec()
+        emqx_ds_shared_sub_registry:child_spec()
     ],
     {ok, {SupFlags, ChildSpecs}}.
