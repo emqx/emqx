@@ -289,7 +289,7 @@ renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leade
                 claim => Claim,
                 renewed => RenewedClaim
             }),
-            attach_claim(Claim, Data#{store := CommittedStore});
+            attach_claim(RenewedClaim, Data#{store := CommittedStore});
         {error, Class, Reason} = Error ->
             ?tp(warning, "Shared subscription leader store commit failed", #{
                 id => ShareTopicFilter,
