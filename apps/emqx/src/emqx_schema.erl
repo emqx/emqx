@@ -1696,7 +1696,7 @@ fields("durable_sessions") ->
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"5s">>,
+                    default => <<"10s">>,
                     desc => ?DESC(session_ds_idle_poll_interval)
                 }
             )},

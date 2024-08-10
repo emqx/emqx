@@ -471,7 +471,7 @@ zone_global_defaults() ->
                 enable => false,
                 batch_size => 100,
                 force_persistence => false,
-                idle_poll_interval => 100,
+                idle_poll_interval => 10_000,
                 heartbeat_interval => 5000,
                 message_retention_period => 86400000,
                 renew_streams_interval => 1000,
