@@ -18,7 +18,7 @@
 -include("emqx_ds.hrl").
 
 %% API:
--export([with_worker/4]).
+-export([with_worker/4, send_poll_timeout/2]).
 
 %% internal exports:
 -export([]).
@@ -54,6 +54,19 @@ with_worker(UserData, Mod, Function, Args) ->
         [link, {min_heap_size, 10000}]
     ),
     {ok, ReplyTo}.
+
+-spec send_poll_timeout(reference(), timeout()) -> ok.
+send_poll_timeout(ReplyTo, Timeout) ->
+    _ = spawn_link(
+        fun() ->
+            receive
+            after Timeout + 10 ->
+                logger:debug("Timeout for poll ~p", [ReplyTo]),
+                ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
+            end
+        end
+    ),
+    ok.
 
 %%================================================================================
 %% Internal exports

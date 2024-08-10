@@ -23,7 +23,6 @@
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
-    update_iterator/3,
     next/3,
     poll/3,
     delete_next/4,
@@ -48,6 +47,7 @@
     do_get_delete_streams_v4/4,
     do_make_delete_iterator_v4/5,
     do_delete_next_v4/5,
+    do_poll_v1/5,
     %% Obsolete:
     do_store_batch_v1/4,
     do_make_iterator_v1/5,
@@ -68,6 +68,15 @@
 
     snapshot_module/0
 ]).
+
+-behaviour(emqx_ds_beamformer).
+-export(
+    [
+        unpack_iterator/2,
+        scan_stream/5,
+        update_iterator/3
+    ]
+).
 
 -export_type([
     shard_id/0,
@@ -349,17 +358,6 @@ make_delete_iterator(DB, Stream, TopicFilter, StartTime) ->
             Error
     end.
 
--spec update_iterator(emqx_ds:db(), iterator(), emqx_ds:message_key()) ->
-    emqx_ds:make_iterator_result(iterator()).
-update_iterator(DB, OldIter, DSKey) ->
-    #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
-    case ra_update_iterator(DB, Shard, StorageIter, DSKey) of
-        {ok, Iter} ->
-            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
-        Error = {error, _, _} ->
-            Error
-    end.
-
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter0, BatchSize) ->
     #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0} = Iter0,
@@ -385,8 +383,34 @@ next(DB, Iter0, BatchSize) ->
 
 -spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) ->
     {ok, reference()}.
-poll(_DB, _Iterators, _PollOpts) ->
-    error(not_implemented).
+poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
+    %% Create a new alias, if not already provided:
+    case PollOpts of
+        #{reply_to := ReplyTo} ->
+            ok;
+        _ ->
+            ReplyTo = alias([explicit_unalias])
+    end,
+    %% Spawn a helper process that will notify the caller when the
+    %% poll times out:
+    _Completion = emqx_ds_lib:send_poll_timeout(ReplyTo, Timeout),
+    %% Submit poll jobs:
+    Groups = maps:groups_from_list(
+        fun({_Token, #{?tag := ?IT, ?shard := Shard}}) -> Shard end,
+        Iterators
+    ),
+    maps:foreach(
+        fun(Shard, ShardIts) ->
+            ok = ra_poll(
+                DB,
+                Shard,
+                [{{ReplyTo, Token}, It} || {Token, It} <- ShardIts],
+                PollOpts
+            )
+        end,
+        Groups
+    ),
+    {ok, ReplyTo}.
 
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(delete_iterator()).
@@ -647,6 +671,24 @@ do_drop_generation_v3(_DB, _ShardId, _GenId) ->
 do_get_delete_streams_v4(DB, Shard, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:get_delete_streams({DB, Shard}, TopicFilter, StartTime).
 
+-spec do_poll_v1(
+    node(),
+    emqx_ds:db(),
+    shard_id(),
+    [{emqx_ds_beamformer:return_addr(_), emqx_ds_storage_layer:iterator()}],
+    emqx_ds:poll_opts()
+) ->
+    ok.
+do_poll_v1(SourceNode, DB, Shard, Iterators, PollOpts) ->
+    ShardId = {DB, Shard},
+    ?tp(ds_raft_do_poll, #{shard => ShardId, iterators => Iterators}),
+    lists:foreach(
+        fun({RAddr, It}) ->
+            emqx_ds_beamformer:poll(SourceNode, RAddr, ShardId, It, PollOpts)
+        end,
+        Iterators
+    ).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -794,13 +836,13 @@ ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
         )
     ).
 
-ra_update_iterator(DB, Shard, Iter, DSKey) ->
-    ?SHARD_RPC(
-        DB,
-        Shard,
-        Node,
-        ?SAFE_ERPC(emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey))
-    ).
+%% ra_update_iterator(DB, Shard, Iter, DSKey) ->
+%%     ?SHARD_RPC(
+%%         DB,
+%%         Shard,
+%%         Node,
+%%         ?SAFE_ERPC(emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey))
+%%     ).
 
 ra_next(DB, Shard, Iter, BatchSize) ->
     ?SHARD_RPC(
@@ -813,6 +855,14 @@ ra_next(DB, Shard, Iter, BatchSize) ->
             Ret ->
                 Ret
         end
+    ).
+
+ra_poll(DB, Shard, Iterators, PollOpts) ->
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        DestNode,
+        ?SAFE_ERPC(emqx_ds_proto_v5:poll(DestNode, node(), DB, Shard, Iterators, PollOpts))
     ).
 
 ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
@@ -1075,6 +1125,33 @@ timeus_to_timestamp(TimestampUs) ->
 
 snapshot_module() ->
     emqx_ds_replication_snapshot.
+
+unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
+
+scan_stream(ShardId, Stream, TopicFilter, StartMsg, BatchSize) ->
+    {DB, Shard} = ShardId,
+    ?IF_SHARD_READY(
+        DB,
+        Shard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            emqx_ds_storage_layer:scan_stream(
+                ShardId, Stream, TopicFilter, Now, StartMsg, BatchSize
+            )
+        end
+    ).
+
+-spec update_iterator(emqx_ds_storage_layer:shard_id(), iterator(), emqx_ds:message_key()) ->
+    emqx_ds:make_iterator_result(iterator()).
+update_iterator(ShardId, OldIter, DSKey) ->
+    #{?tag := ?IT, ?enc := Inner0} = OldIter,
+    case emqx_ds_storage_layer:update_iterator(ShardId, Inner0, DSKey) of
+        {ok, Inner} ->
+            {ok, OldIter#{?enc => Inner}};
+        Err = {error, _, _} ->
+            Err
+    end.
 
 handle_custom_event(DBShard, Latest, Event) ->
     try

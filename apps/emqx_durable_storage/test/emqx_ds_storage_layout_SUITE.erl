@@ -331,7 +331,7 @@ t_poll(Config) ->
             %% the iterator as tags):
             {ok, Alias1} = emqx_ds:poll(?FUNCTION_NAME, Iterators0, PollOpts),
             %% Collect the replies:
-            Got1 = collect_poll_replies(Alias1, Timeout),
+            Got1 = emqx_ds_test_helpers:collect_poll_replies(Alias1, Timeout),
             unalias(Alias1),
             %% 4. Compare data. Everything (batch contents and iterators) should be the same:
             compare_poll_with_reference(Reference1, Got1),
@@ -356,7 +356,7 @@ t_poll(Config) ->
                 _ ->
                     ?assertMatch(
                         [{_, {ok, _, [_ | _]}} | _],
-                        collect_poll_replies(Alias2, Timeout),
+                        emqx_ds_test_helpers:collect_poll_replies(Alias2, Timeout),
                         "Poll reply with non-empty batch should be received after "
                         "data was published to the topic."
                     )
@@ -386,16 +386,6 @@ compare_poll_reply({ok, ReferenceIterator, BatchRef}, {ok, ReplyIterator, Batch}
     ?defer_assert(snabbkaffe_diff:assert_lists_eq(BatchRef, Batch));
 compare_poll_reply(A, B) ->
     ?defer_assert(?assertEqual(A, B)).
-
-collect_poll_replies(Alias, Timeout) ->
-    receive
-        #poll_reply{payload = poll_timeout, ref = Alias} ->
-            [];
-        #poll_reply{userdata = ItRef, payload = Reply, ref = Alias} ->
-            [{ItRef, Reply} | collect_poll_replies(Alias, Timeout)]
-    after Timeout ->
-        []
-    end.
 
 t_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,

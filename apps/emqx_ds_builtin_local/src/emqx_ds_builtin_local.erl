@@ -398,11 +398,7 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     end,
     %% Spawn a helper process that will notify the caller when the
     %% poll times out:
-    _Completion = spawn_link(
-        fun() ->
-            send_poll_timeout(ReplyTo, Timeout)
-        end
-    ),
+    emqx_ds_lib:send_poll_timeout(ReplyTo, Timeout),
     %% Submit poll jobs:
     lists:foreach(
         fun({ItKey, It = #{?tag := ?IT, ?shard := Shard}}) ->
@@ -415,15 +411,7 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     {ok, ReplyTo}.
 
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    {Stream, TopicFilter, DSKey, TS} = emqx_ds_storage_layer:unpack_iterator(Shard, Iterator),
-    MsgMatcher = emqx_ds_storage_layer:message_matcher(Shard, Iterator),
-    #{
-        stream => Stream,
-        topic_filter => TopicFilter,
-        last_seen_key => DSKey,
-        timestamp => TS,
-        message_matcher => MsgMatcher
-    }.
+    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
 
 scan_stream(ShardId, Stream, TopicFilter, StartMsg, BatchSize) ->
     {DB, _} = ShardId,
@@ -532,10 +520,3 @@ timeus_to_timestamp(undefined) ->
     undefined;
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
-
-send_poll_timeout(ReplyTo, Timeout) ->
-    receive
-    after Timeout + 10 ->
-        logger:debug("Timeout for poll ~p", [ReplyTo]),
-        ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
-    end.

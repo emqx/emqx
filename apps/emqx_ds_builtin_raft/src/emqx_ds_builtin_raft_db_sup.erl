@@ -180,7 +180,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Opts = emqx_ds_replication_layer_meta:db_config(DB),
     Children = [
         shard_storage_spec(DB, Shard, Opts),
-        shard_replication_spec(DB, Shard, Opts)
+        shard_replication_spec(DB, Shard, Opts),
+        shard_beamformers_spec(DB, Shard)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -274,6 +275,21 @@ egress_spec(DB, Shard) ->
         shutdown => 5_000,
         restart => permanent,
         type => worker
+    }.
+
+shard_beamformers_spec(DB, Shard) ->
+    %% TODO: don't hardcode value
+    BeamformerOpts = #{
+        n_workers => 5
+    },
+    #{
+        id => {Shard, beamformers},
+        type => supervisor,
+        shutdown => infinity,
+        start =>
+            {emqx_ds_beamformer_sup, start_link, [
+                emqx_ds_replication_layer, {DB, Shard}, BeamformerOpts
+            ]}
     }.
 
 ensure_started(Res) ->
