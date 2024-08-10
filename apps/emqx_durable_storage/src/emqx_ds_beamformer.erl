@@ -25,7 +25,8 @@
 %% By "coherent" we mean requests to scan overlapping key ranges of
 %% the same DS stream. Grouping requests helps to reduce the number of
 %% storage queries and conserve throughput of the EMQX backplane
-%% network.
+%% network. This should help in the situations when the majority of
+%% clients are up to date and simply wait for the new data.
 %%
 %% Beamformer works as following:
 %%
@@ -55,9 +56,8 @@
 %% WARNING: beamformer makes some implicit assumptions about the
 %% storage layout:
 %%
-%% - There's a bijection between iterator position and the message key
-%%
-%% - Message keys in the stream are monotonic
+%% - For each topic filter and stream, there's a bijection between
+%% iterator and the message key
 %%
 %% - Quering a stream with non-wildcard topic-filter is equivalent to
 %% quering it with a wildcard topic filter and dropping messages in

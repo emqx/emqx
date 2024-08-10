@@ -41,7 +41,6 @@
     generation/1,
     unpack_iterator/2,
     scan_stream/6,
-    message_matcher/2,
 
     delete_next/5,
 
@@ -606,7 +605,13 @@ unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             {InnerStream, TopicFilter, Key, TS} = Mod:unpack_iterator(Shard, GenData, Inner),
-            {?stream_v2(GenId, InnerStream), TopicFilter, Key, TS};
+            #{
+                stream => ?stream_v2(GenId, InnerStream),
+                topic_filter => TopicFilter,
+                last_seen_key => Key,
+                timestamp => TS,
+                message_matcher => Mod:message_matcher(Shard, GenData, Inner)
+            };
         not_found ->
             %% generation was possibly dropped by GC
             ?ERR_GEN_GONE
@@ -626,15 +631,6 @@ scan_stream(
             );
         not_found ->
             ?ERR_GEN_GONE
-    end.
-
-message_matcher(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
-    %% logger:warning(?MODULE_STRING ++ ":match_message(~p, ~p, ~p)", [Shard, GenId, Inner]),
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            Mod:message_matcher(Shard, GenData, Inner);
-        not_found ->
-            false
     end.
 
 -spec delete_next(
