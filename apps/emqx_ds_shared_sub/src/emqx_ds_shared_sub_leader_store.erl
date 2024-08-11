@@ -93,9 +93,33 @@ close() ->
 
 db_config() ->
     Config = emqx_ds_schema:db_config([durable_storage, queues]),
-    Config#{
+    tune_db_config(Config).
+
+tune_db_config(Config0 = #{backend := Backend}) ->
+    Config = Config0#{
+        %% We need total control over timestamp assignment.
         force_monotonic_timestamps => false
-    }.
+    },
+    case Backend of
+        B when B == builtin_raft; B == builtin_local ->
+            tune_db_storage_layout(Config);
+        _ ->
+            Config
+    end.
+
+tune_db_storage_layout(Config = #{storage := {Layout, Opts0}}) when
+    Layout == emqx_ds_storage_skipstream_lts;
+    Layout == emqx_ds_storage_bitfield_lts
+->
+    Opts = Opts0#{
+        %% Since these layouts impose somewhat strict requirements on message
+        %% timestamp uniqueness, we need to additionally ensure that LTS always
+        %% keeps different groups under separate indices.
+        lts_threshold_spec => {simple, {inf, inf, inf, 0}}
+    },
+    Config#{storage := {Layout, Opts}};
+tune_db_storage_layout(Config = #{storage := _}) ->
+    Config.
 
 %%
 
