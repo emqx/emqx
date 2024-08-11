@@ -1290,7 +1290,7 @@ maybe_create_config_dir(NameVsn, Mode) ->
         do_create_config_dir(NameVsn, Mode).
 
 do_create_config_dir(NameVsn, Mode) ->
-    case plugin_config_dir(NameVsn) of
+    case plugin_data_dir(NameVsn) of
         {error, Reason} ->
             {error, {gen_config_dir_failed, Reason}};
         ConfigDir ->
@@ -1515,8 +1515,8 @@ plugin_priv_dir(NameVsn) ->
         _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
     end.
 
--spec plugin_config_dir(name_vsn()) -> string() | {error, Reason :: string()}.
-plugin_config_dir(NameVsn) ->
+-spec plugin_data_dir(name_vsn()) -> string() | {error, Reason :: string()}.
+plugin_data_dir(NameVsn) ->
     case parse_name_vsn(NameVsn) of
         {ok, NameAtom, _Vsn} ->
             wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
@@ -1544,7 +1544,7 @@ avsc_file_path(NameVsn) ->
 
 -spec plugin_config_file(name_vsn()) -> string().
 plugin_config_file(NameVsn) ->
-    wrap_to_list(filename:join([plugin_config_dir(NameVsn), "config.hocon"])).
+    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "config.hocon"])).
 
 %% should only used when plugin installing
 -spec default_plugin_config_file(name_vsn()) -> string().
