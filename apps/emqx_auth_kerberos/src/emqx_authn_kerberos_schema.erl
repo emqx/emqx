@@ -2,9 +2,9 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_gssapi_schema).
+-module(emqx_authn_kerberos_schema).
 
--include("emqx_auth_gssapi.hrl").
+-include("emqx_auth_kerberos.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(emqx_authn_schema).
@@ -20,7 +20,7 @@
 namespace() -> "authn".
 
 refs() ->
-    [?R_REF(gssapi)].
+    [?R_REF(kerberos)].
 
 select_union_member(#{
     <<"mechanism">> := ?AUTHN_MECHANISM_GSSAPI_BIN, <<"backend">> := ?AUTHN_BACKEND_BIN
@@ -34,7 +34,7 @@ select_union_member(#{<<"mechanism">> := ?AUTHN_MECHANISM_GSSAPI_BIN}) ->
 select_union_member(_) ->
     undefined.
 
-fields(gssapi) ->
+fields(kerberos) ->
     emqx_authn_schema:common_fields() ++
         [
             {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM_GSSAPI)},
@@ -58,7 +58,7 @@ fields(gssapi) ->
                 })}
         ].
 
-desc(gssapi) ->
-    "Settings for GSSAPI authentication.";
+desc(kerberos) ->
+    "Settings for Kerberos authentication.";
 desc(_) ->
     undefined.

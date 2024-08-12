@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_gssapi_sup).
+-module(emqx_auth_kerberos_sup).
 
 -behaviour(supervisor).
 

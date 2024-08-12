@@ -1,9 +1,9 @@
 %% -*- mode: erlang -*-
-{application, emqx_auth_gssapi, [
-    {description, "EMQX gssapi Authentication"},
+{application, emqx_auth_kerberos, [
+    {description, "EMQX Kerberos Authentication"},
     {vsn, "0.1.0"},
     {registered, []},
-    {mod, {emqx_auth_gssapi_app, []}},
+    {mod, {emqx_auth_kerberos_app, []}},
     {applications, [
         kernel,
         stdlib,

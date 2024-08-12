@@ -2,19 +2,19 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_gssapi_app).
+-module(emqx_auth_kerberos_app).
 
--include("emqx_auth_gssapi.hrl").
+-include("emqx_auth_kerberos.hrl").
 
 -behaviour(application).
 
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    ok = emqx_authn:register_provider(?AUTHN_TYPE_GSSAPI, emqx_authn_gssapi),
-    {ok, Sup} = emqx_auth_gssapi_sup:start_link(),
+    ok = emqx_authn:register_provider(?AUTHN_TYPE_KERBEROS, emqx_authn_kerberos),
+    {ok, Sup} = emqx_auth_kerberos_sup:start_link(),
     {ok, Sup}.
 
 stop(_State) ->
-    ok = emqx_authn:deregister_provider(?AUTHN_TYPE_GSSAPI),
+    ok = emqx_authn:deregister_provider(?AUTHN_TYPE_KERBEROS),
     ok.
