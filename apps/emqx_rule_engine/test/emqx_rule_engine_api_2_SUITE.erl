@@ -21,6 +21,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -47,6 +49,13 @@ app_specs() ->
         emqx_management,
         emqx_mgmt_api_test_util:emqx_dashboard()
     ].
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -124,7 +133,13 @@ create_rule(Overrides) ->
     Method = post,
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     Res = request(Method, Path, Params),
-    emqx_mgmt_api_test_util:simplify_result(Res).
+    case emqx_mgmt_api_test_util:simplify_result(Res) of
+        {201, #{<<"id">> := RuleId}} = SRes ->
+            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            SRes;
+        SRes ->
+            SRes
+    end.
 
 sources_sql(Sources) ->
     Froms = iolist_to_binary(lists:join(<<", ">>, lists:map(fun source_from/1, Sources))),
@@ -585,4 +600,22 @@ t_filter_by_source_and_action(_Config) ->
         list_rules_just_ids([{<<"source">>, SourceId1}, {<<"action">>, ActionId1}])
     ),
 
+    ok.
+
+%% Checks that creating a rule with a `null' JSON value id is forbidden.
+t_create_rule_with_null_id(_Config) ->
+    ?assertMatch(
+        {400, #{<<"message">> := <<"rule id must be a string">>}},
+        create_rule(#{<<"id">> => null})
+    ),
+    %% The string `"null"' should be fine.
+    ?assertMatch(
+        {201, _},
+        create_rule(#{<<"id">> => <<"null">>})
+    ),
+    ?assertMatch({201, _}, create_rule(#{})),
+    ?assertMatch(
+        {200, #{<<"data">> := [_, _]}},
+        list_rules([])
+    ),
     ok.

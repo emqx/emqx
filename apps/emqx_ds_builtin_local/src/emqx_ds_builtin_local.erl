@@ -43,18 +43,21 @@
     %% `emqx_ds_buffer':
     init_buffer/3,
     flush_buffer/4,
-    shard_of_message/4
+    shard_of_operation/4
 ]).
 
 %% Internal exports:
 -export([
     do_next/3,
-    do_delete_next/4
+    do_delete_next/4,
+    %% Used by batch serializer
+    make_batch/3
 ]).
 
 -export_type([db_opts/0, shard/0, iterator/0, delete_iterator/0]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -87,7 +90,10 @@
     #{
         backend := builtin_local,
         storage := emqx_ds_storage_layer:prototype(),
-        n_shards := pos_integer()
+        n_shards := pos_integer(),
+        %% Inherited from `emqx_ds:generic_db_opts()`.
+        force_monotonic_timestamps => boolean(),
+        atomic_batches => boolean()
     }.
 
 -type generation_rank() :: {shard(), emqx_ds_storage_layer:gen_id()}.
@@ -192,15 +198,51 @@ drop_db(DB) ->
     ),
     emqx_ds_builtin_local_meta:drop_db(DB).
 
--spec store_batch(emqx_ds:db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
+-spec store_batch(emqx_ds:db(), emqx_ds:batch(), emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
-store_batch(DB, Messages, Opts) ->
+store_batch(DB, Batch, Opts) ->
+    case emqx_ds_builtin_local_meta:db_config(DB) of
+        #{atomic_batches := true} ->
+            store_batch_atomic(DB, Batch, Opts);
+        _ ->
+            store_batch_buffered(DB, Batch, Opts)
+    end.
+
+store_batch_buffered(DB, Messages, Opts) ->
     try
         emqx_ds_buffer:store_batch(DB, Messages, Opts)
     catch
         error:{Reason, _Call} when Reason == timeout; Reason == noproc ->
             {error, recoverable, Reason}
     end.
+
+store_batch_atomic(DB, Batch, Opts) ->
+    Shards = shards_of_batch(DB, Batch),
+    case Shards of
+        [Shard] ->
+            emqx_ds_builtin_local_batch_serializer:store_batch_atomic(DB, Shard, Batch, Opts);
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, unrecoverable, atomic_batch_spans_multiple_shards}
+    end.
+
+shards_of_batch(DB, #dsbatch{operations = Operations, preconditions = Preconditions}) ->
+    shards_of_batch(DB, Preconditions, shards_of_batch(DB, Operations, []));
+shards_of_batch(DB, Operations) ->
+    shards_of_batch(DB, Operations, []).
+
+shards_of_batch(DB, [Operation | Rest], Acc) ->
+    case shard_of_operation(DB, Operation, clientid, #{}) of
+        Shard when Shard =:= hd(Acc) ->
+            shards_of_batch(DB, Rest, Acc);
+        Shard when Acc =:= [] ->
+            shards_of_batch(DB, Rest, [Shard]);
+        ShardAnother ->
+            [ShardAnother | Acc]
+    end;
+shards_of_batch(_DB, [], Acc) ->
+    Acc.
 
 -record(bs, {options :: emqx_ds:create_db_opts()}).
 -type buffer_state() :: #bs{}.
@@ -230,9 +272,9 @@ flush_buffer(DB, Shard, Messages, S0 = #bs{options = Options}) ->
 make_batch(_ForceMonotonic = true, Latest, Messages) ->
     assign_monotonic_timestamps(Latest, Messages, []);
 make_batch(false, Latest, Messages) ->
-    assign_message_timestamps(Latest, Messages, []).
+    assign_operation_timestamps(Latest, Messages, []).
 
-assign_monotonic_timestamps(Latest0, [Message | Rest], Acc0) ->
+assign_monotonic_timestamps(Latest0, [Message = #message{} | Rest], Acc0) ->
     case emqx_message:timestamp(Message, microsecond) of
         TimestampUs when TimestampUs > Latest0 ->
             Latest = TimestampUs;
@@ -241,28 +283,43 @@ assign_monotonic_timestamps(Latest0, [Message | Rest], Acc0) ->
     end,
     Acc = [assign_timestamp(Latest, Message) | Acc0],
     assign_monotonic_timestamps(Latest, Rest, Acc);
+assign_monotonic_timestamps(Latest, [Operation | Rest], Acc0) ->
+    Acc = [Operation | Acc0],
+    assign_monotonic_timestamps(Latest, Rest, Acc);
 assign_monotonic_timestamps(Latest, [], Acc) ->
     {Latest, lists:reverse(Acc)}.
 
-assign_message_timestamps(Latest0, [Message | Rest], Acc0) ->
-    TimestampUs = emqx_message:timestamp(Message, microsecond),
+assign_operation_timestamps(Latest0, [Message = #message{} | Rest], Acc0) ->
+    TimestampUs = emqx_message:timestamp(Message),
     Latest = max(TimestampUs, Latest0),
     Acc = [assign_timestamp(TimestampUs, Message) | Acc0],
-    assign_message_timestamps(Latest, Rest, Acc);
-assign_message_timestamps(Latest, [], Acc) ->
+    assign_operation_timestamps(Latest, Rest, Acc);
+assign_operation_timestamps(Latest, [Operation | Rest], Acc0) ->
+    Acc = [Operation | Acc0],
+    assign_operation_timestamps(Latest, Rest, Acc);
+assign_operation_timestamps(Latest, [], Acc) ->
     {Latest, lists:reverse(Acc)}.
 
 assign_timestamp(TimestampUs, Message) ->
     {TimestampUs, Message}.
 
--spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic, _Options) -> shard().
-shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+-spec shard_of_operation(emqx_ds:db(), emqx_ds:operation(), clientid | topic, _Options) -> shard().
+shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key);
+shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, SerializeBy, _Options) ->
+    case SerializeBy of
+        clientid -> Key = From;
+        topic -> Key = Topic
+    end,
+    shard_of_key(DB, Key).
+
+shard_of_key(DB, Key) ->
     N = emqx_ds_builtin_local_meta:n_shards(DB),
-    Hash =
-        case SerializeBy of
-            clientid -> erlang:phash2(From, N);
-            topic -> erlang:phash2(Topic, N)
-        end,
+    Hash = erlang:phash2(Key, N),
     integer_to_binary(Hash).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -288,7 +345,7 @@ get_streams(DB, TopicFilter, StartTime) ->
 -spec make_iterator(
     emqx_ds:db(), emqx_ds:ds_specific_stream(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
-    emqx_ds:make_iterator_result(emqx_ds:ds_specific_iterator()).
+    emqx_ds:make_iterator_result(iterator()).
 make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
     case
@@ -302,7 +359,7 @@ make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
             Error
     end.
 
--spec update_iterator(emqx_ds:db(), emqx_ds:ds_specific_iterator(), emqx_ds:message_key()) ->
+-spec update_iterator(emqx_ds:db(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, Key) ->
     case emqx_ds_storage_layer:update_iterator({DB, Shard}, StorageIter0, Key) of
@@ -380,7 +437,7 @@ do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
     end.
 
 -spec do_delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
-    emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
+    emqx_ds:delete_next_result(delete_iterator()).
 do_delete_next(
     DB, Iter = #{?tag := ?DELETE_IT, ?shard := Shard, ?enc := StorageIter0}, Selector, N
 ) ->

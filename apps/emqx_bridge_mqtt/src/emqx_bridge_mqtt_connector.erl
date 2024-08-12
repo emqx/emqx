@@ -98,7 +98,7 @@ on_start(ResourceId, #{server := Server} = Conf) ->
                 server => Server
             }};
         {error, Reason} ->
-            {error, Reason}
+            {error, emqx_maybe:define(explain_error(Reason), Reason)}
     end.
 
 on_add_channel(
@@ -200,7 +200,7 @@ on_get_channel_status(
     } = _State
 ) when is_map_key(ChannelId, Channels) ->
     %% The channel should be ok as long as the MQTT client is ok
-    connected.
+    ?status_connected.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -356,10 +356,15 @@ on_get_status(_ResourceId, State) ->
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
     try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
         Statuses ->
-            combine_status(Statuses)
+            case combine_status(Statuses) of
+                {Status, Msg} ->
+                    {Status, State, Msg};
+                Status ->
+                    Status
+            end
     catch
         exit:timeout ->
-            connecting
+            ?status_connecting
     end.
 
 get_status({_Pool, Worker}) ->
@@ -367,7 +372,7 @@ get_status({_Pool, Worker}) ->
         {ok, Client} ->
             emqx_bridge_mqtt_ingress:status(Client);
         {error, _} ->
-            disconnected
+            ?status_disconnected
     end.
 
 combine_status(Statuses) ->
@@ -375,11 +380,25 @@ combine_status(Statuses) ->
     %% Natural order of statuses: [connected, connecting, disconnected]
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
-    case lists:reverse(lists:usort(Statuses)) of
+    ToStatus = fun
+        ({S, _Reason}) -> S;
+        (S) when is_atom(S) -> S
+    end,
+    CompareFn = fun(S1A, S2A) ->
+        S1 = ToStatus(S1A),
+        S2 = ToStatus(S2A),
+        S1 > S2
+    end,
+    case lists:usort(CompareFn, Statuses) of
+        [{Status, Reason} | _] ->
+            case explain_error(Reason) of
+                undefined -> Status;
+                Msg -> {Status, Msg}
+            end;
         [Status | _] ->
             Status;
         [] ->
-            disconnected
+            ?status_disconnected
     end.
 
 mk_ingress_config(
@@ -514,14 +533,53 @@ connect(Pid, Name) ->
             {ok, Pid};
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(Name),
-            ?SLOG(?LOG_LEVEL(IsDryRun), #{
-                msg => "ingress_client_connect_failed",
-                reason => Reason,
-                resource_id => Name
-            }),
+            log_connect_error_reason(?LOG_LEVEL(IsDryRun), Reason, Name),
             _ = catch emqtt:stop(Pid),
             Error
     end.
+
+log_connect_error_reason(Level, {tcp_closed, _} = Reason, Name) ->
+    ?tp(emqx_bridge_mqtt_connector_tcp_closed, #{}),
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name,
+        explain => explain_error(Reason)
+    });
+log_connect_error_reason(Level, econnrefused = Reason, Name) ->
+    ?tp(emqx_bridge_mqtt_connector_econnrefused_error, #{}),
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name,
+        explain => explain_error(Reason)
+    });
+log_connect_error_reason(Level, Reason, Name) ->
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name
+    }).
+
+explain_error(econnrefused) ->
+    <<
+        "Connection refused. "
+        "This error indicates that your connection attempt to the MQTT server was rejected. "
+        "In simpler terms, the server you tried to connect to refused your request. "
+        "There can be multiple reasons for this. "
+        "For example, the MQTT server you're trying to connect to might be down or not "
+        "running at all or you might have provided the wrong address "
+        "or port number for the server."
+    >>;
+explain_error({tcp_closed, _}) ->
+    <<
+        "Your MQTT connection attempt was unsuccessful. "
+        "It might be at its maximum capacity for handling new connections. "
+        "To diagnose the issue further, you can check the server logs for "
+        "any specific messages related to the unavailability or connection limits."
+    >>;
+explain_error(_Reason) ->
+    undefined.
 
 handle_disconnect(_Reason) ->
     ok.

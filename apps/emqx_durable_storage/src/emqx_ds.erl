@@ -55,7 +55,9 @@
     topic_filter/0,
     topic/0,
     batch/0,
+    dsbatch/0,
     operation/0,
+    deletion/0,
     precondition/0,
     stream/0,
     delete_stream/0,
@@ -103,14 +105,18 @@
 -type message_matcher(Payload) :: #message_matcher{payload :: Payload}.
 
 %% A batch of storage operations.
--type batch() :: [operation()] | #dsbatch{}.
+-type batch() :: [operation()] | dsbatch().
+
+-type dsbatch() :: #dsbatch{}.
 
 -type operation() ::
     %% Store a message.
     message()
     %% Delete a message.
     %% Does nothing if the message does not exist.
-    | {delete, message_matcher('_')}.
+    | deletion().
+
+-type deletion() :: {delete, message_matcher('_')}.
 
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
