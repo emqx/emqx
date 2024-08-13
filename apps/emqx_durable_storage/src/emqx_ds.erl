@@ -251,7 +251,7 @@
 
 -callback drop_db(db()) -> ok | {error, _}.
 
--callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
+-callback store_batch(db(), batch(), message_store_opts()) -> store_batch_result().
 
 -callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), ds_specific_stream()}].
 

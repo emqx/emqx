@@ -68,6 +68,7 @@ t_02_smoke_get_streams_start_iter(Config) ->
 %% A simple smoke test that verifies that it's possible to iterate
 %% over messages.
 t_03_smoke_iterate(Config) ->
+    OrderFn = order_fun(Config),
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
     StartTime = 0,
@@ -75,13 +76,13 @@ t_03_smoke_iterate(Config) ->
     Msgs = [
         message(<<"foo/bar">>, <<"1">>, 0),
         message(<<"foo">>, <<"2">>, 1),
-        message(<<"bar/bar">>, <<"3">>, 2)
+        message(<<"foo/baz">>, <<"3">>, 2)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
+    ?assertEqual(OrderFn(Msgs), OrderFn(Batch), {Iter0, Iter}).
 
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
@@ -89,6 +90,7 @@ t_03_smoke_iterate(Config) ->
 %% should always be able to continue replaying the topics from where
 %% they are left off.
 t_04_restart(Config) ->
+    OrderFn = order_fun(Config),
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
     TopicFilter = ['#'],
@@ -96,7 +98,7 @@ t_04_restart(Config) ->
     Msgs = [
         message(<<"foo/bar">>, <<"1">>, 0),
         message(<<"foo">>, <<"2">>, 1),
-        message(<<"bar/bar">>, <<"3">>, 2)
+        message(<<"foo/baz">>, <<"3">>, 2)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -108,10 +110,11 @@ t_04_restart(Config) ->
     ok = emqx_ds:open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
+    ?assertEqual(OrderFn(Msgs), OrderFn(Batch), {Iter0, Iter}).
 
 %% Check that we can create iterators directly from DS keys.
 t_05_update_iterator(Config) ->
+    OrderFn = order_fun(Config),
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
     TopicFilter = ['#'],
@@ -119,7 +122,7 @@ t_05_update_iterator(Config) ->
     Msgs = [
         message(<<"foo/bar">>, <<"1">>, 0),
         message(<<"foo">>, <<"2">>, 1),
-        message(<<"bar/bar">>, <<"3">>, 2)
+        message(<<"foo/baz">>, <<"3">>, 2)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -131,7 +134,7 @@ t_05_update_iterator(Config) ->
     ?assertMatch({ok, _Iter1}, Res1),
     {ok, Iter1} = Res1,
     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
-    ?assertEqual(Msgs, [Msg0 | Batch], #{from_key => Iter1, final_iter => Iter}),
+    ?assertEqual(OrderFn(Msgs), OrderFn([Msg0 | Batch]), #{from_key => Iter1, final_iter => Iter}),
     ok.
 
 t_06_smoke_add_generation(Config) ->
@@ -341,6 +344,7 @@ t_11_batch_preconditions(Config) ->
     ).
 
 t_12_batch_precondition_conflicts(Config) ->
+    OrderFn = order_fun(Config),
     DB = ?FUNCTION_NAME,
     NBatches = 50,
     NMessages = 10,
@@ -396,14 +400,49 @@ t_12_batch_precondition_conflicts(Config) ->
             BatchMessages = lists:sort(WinnerBatch#dsbatch.operations),
             DBMessages = emqx_ds_test_helpers:consume(DB, emqx_topic:words(<<"t/#">>)),
             ?assertEqual(
-                BatchMessages,
-                DBMessages
+                OrderFn(BatchMessages),
+                OrderFn(DBMessages)
             )
         end,
         []
     ).
 
+%% Smoke tests for using delete operations without `#dsbatch{}'
+t_13_smoke_delete_operation(Config) ->
+    OrderFn = order_fun(Config),
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            DBOpts = (opts(Config))#{
+                atomic_batches => true,
+                force_monotonic_timestamps => false
+            },
+            ?assertMatch(ok, emqx_ds:open_db(DB, DBOpts)),
+            ClientId = <<"myclientid">>,
+            Msgs =
+                [Msg1, _, Msg3] = [
+                    message(ClientId, <<"foo/1">>, <<"1">>, 0),
+                    message(ClientId, <<"foo/2">>, <<"2">>, 1),
+                    message(ClientId, <<"foo/3">>, <<"3">>, 2)
+                ],
+            ?assertEqual(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
+            Read1 = emqx_ds_test_helpers:consume(DB, emqx_topic:words(<<"foo/+">>)),
+            ?assertEqual(OrderFn(Msgs), OrderFn(Read1)),
+
+            Ops = [{delete, matcher(ClientId, <<"foo/2">>, '_', 1)}],
+            ?assertEqual(ok, emqx_ds:store_batch(DB, Ops, #{sync => true})),
+            Read2 = emqx_ds_test_helpers:consume(DB, emqx_topic:words(<<"foo/+">>)),
+            ?assertEqual(OrderFn([Msg1, Msg3]), OrderFn(Read2)),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_smoke_delete_next(Config) ->
+    SupportsGeneration = proplists:get_value(supports_generation, Config, true),
+    OrderFn = order_fun(Config),
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
@@ -425,18 +464,18 @@ t_smoke_delete_next(Config) ->
                 Topic == <<"foo">>
             end,
             {ok, DIter1, NumDeleted1} = delete(DB, DIter0, Selector, 1),
-            ?assertEqual(0, NumDeleted1),
             {ok, DIter2, NumDeleted2} = delete(DB, DIter1, Selector, 1),
-            ?assertEqual(1, NumDeleted2),
+            ?assertEqual(1, NumDeleted1 + NumDeleted2),
 
             TopicFilterHash = ['#'],
-            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilterHash, StartTime),
-            Batch = emqx_ds_test_helpers:consume_stream(DB, Stream, TopicFilterHash, StartTime),
-            ?assertEqual([Msg1, Msg3], Batch),
+            Batch = emqx_ds_test_helpers:consume(DB, TopicFilterHash, StartTime),
+            ?assertEqual(OrderFn([Msg1, Msg3]), OrderFn(Batch)),
 
-            ok = emqx_ds:add_generation(DB),
-
-            ?assertMatch({ok, end_of_stream}, emqx_ds:delete_next(DB, DIter2, Selector, 1)),
+            SupportsGeneration andalso
+                begin
+                    ok = emqx_ds:add_generation(DB),
+                    ?assertMatch({ok, end_of_stream}, emqx_ds:delete_next(DB, DIter2, Selector, 1))
+                end,
 
             ok
         end,
@@ -675,12 +714,17 @@ delete(DB, It0, Selector, BatchSize, Acc) ->
         {ok, It, 0} ->
             {ok, It, Acc};
         {ok, It, NumDeleted} ->
-            delete(DB, It, BatchSize, Selector, Acc + NumDeleted);
+            delete(DB, It, Selector, BatchSize, Acc + NumDeleted);
         {ok, end_of_stream} ->
             {ok, end_of_stream, Acc};
         Ret ->
             Ret
     end.
+
+order_fun(CTConfig) ->
+    proplists:get_value(order_fun, CTConfig, fun id/1).
+
+id(X) -> X.
 
 %% CT callbacks
 
@@ -689,9 +733,25 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
+    MnesiaSkipTCs = [
+        %% streams only appear after insertion
+        t_02_smoke_get_streams_start_iter,
+        %% there are no generations for this backend
+        t_06_smoke_add_generation,
+        t_07_smoke_update_config,
+        t_08_smoke_list_drop_generation,
+        t_drop_generation_update_iterator,
+        t_drop_generation_with_never_used_iterator,
+        t_drop_generation_with_used_once_iterator,
+        t_get_streams_concurrently_with_drop_generation,
+        t_make_iterator_stale_stream,
+        %% this backend does not use buffer
+        t_10_non_atomic_store_batch
+    ],
     [
         {builtin_local, TCs},
-        {builtin_raft, TCs}
+        {builtin_raft, TCs},
+        {builtin_mnesia, TCs -- MnesiaSkipTCs}
     ].
 
 init_per_group(builtin_local, Config) ->
@@ -715,7 +775,17 @@ init_per_group(builtin_raft, Config) ->
             [{ds_conf, Conf} | Config];
         Yes ->
             Yes
-    end.
+    end;
+init_per_group(builtin_mnesia, Config) ->
+    Conf = #{
+        backend => builtin_mnesia
+    },
+    [
+        {ds_conf, Conf},
+        {supports_generation, false},
+        {order_fun, fun lists:sort/1}
+        | Config
+    ].
 
 end_per_group(_Group, Config) ->
     Config.

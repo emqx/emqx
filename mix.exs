@@ -618,6 +618,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_durable_storage,
             :emqx_ds_builtin_local,
             :emqx_ds_builtin_raft,
+            :emqx_ds_builtin_mnesia,
             :rabbit_common,
             :emqx_eviction_agent,
             :emqx_node_rebalance
