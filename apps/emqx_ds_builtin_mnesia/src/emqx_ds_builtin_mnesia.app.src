@@ -1,0 +1,11 @@
+%% -*- mode: erlang -*-
+{application, emqx_ds_builtin_mnesia, [
+    {description, "A DS backend that stores all data in mnesia and in compact form."},
+    % strict semver, bump manually!
+    {vsn, "0.1.0"},
+    {modules, []},
+    {registered, [emqx_ds_builtin_mnesia_sup, emqx_ds_builtin_mnesia_db_sup]},
+    {applications, [kernel, stdlib, gproc, mria, emqx_durable_storage, emqx_utils]},
+    {mod, {emqx_ds_builtin_mnesia_app, []}},
+    {env, []}
+]}.

@@ -13,11 +13,11 @@ Profile = case os:getenv("PROFILE") of
 
 Backends = case Profile of
              ce ->
-               [emqx_ds_builtin_local];
+               [emqx_ds_builtin_local, emqx_ds_builtin_mnesia];
              ee ->
-               [emqx_ds_builtin_local, emqx_ds_builtin_raft];
+               [emqx_ds_builtin_local, emqx_ds_builtin_mnesia, emqx_ds_builtin_raft];
              platform ->
-               [emqx_ds_builtin_local, emqx_ds_builtin_raft, emqx_fdb_ds]
+               [emqx_ds_builtin_local, emqx_ds_builtin_mnesia, emqx_ds_builtin_raft, emqx_fdb_ds]
            end,
 
 io:format(user, "DS backends available for this release (~p): ~p~n", [Profile, Backends]),

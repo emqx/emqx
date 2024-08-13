@@ -459,3 +459,38 @@ consume_iter_with(NextFun, It0, Opts) ->
         {error, Class, Reason} ->
             error({error, Class, Reason})
     end.
+
+delete(DB, TopicFilter) ->
+    delete(DB, TopicFilter, _StartTime = 0).
+
+delete(DB, TopicFilter, StartTime) ->
+    SelectorFn = fun(_Msg) -> true end,
+    delete(DB, TopicFilter, StartTime, SelectorFn).
+
+delete(DB, TopicFilter, StartTime, SelectorFn) ->
+    delete(DB, TopicFilter, StartTime, SelectorFn, _BatchSize = 5).
+
+delete(DB, TopicFilter, StartTime, SelectorFn, BatchSize) ->
+    DeleteStreams = emqx_ds:get_delete_streams(DB, TopicFilter, StartTime),
+    lists:foldl(
+        fun(DeleteStream, Acc) ->
+            {ok, DeleteIter} = emqx_ds:make_delete_iterator(
+                DB, DeleteStream, TopicFilter, StartTime
+            ),
+            consume_delete_iter(DB, DeleteIter, SelectorFn, BatchSize, Acc)
+        end,
+        0,
+        DeleteStreams
+    ).
+
+consume_delete_iter(DB, It0, SelectorFn, BatchSize, Acc) ->
+    case emqx_ds:delete_next(DB, It0, SelectorFn, BatchSize) of
+        {ok, _It, 0} ->
+            Acc;
+        {ok, It, NumDeleted} ->
+            consume_delete_iter(DB, It, SelectorFn, BatchSize, Acc + NumDeleted);
+        {ok, end_of_stream} ->
+            Acc;
+        Error ->
+            error({delete_next_error, Error})
+    end.
