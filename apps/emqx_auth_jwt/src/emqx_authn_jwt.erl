@@ -309,7 +309,7 @@ do_verify(JWT, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWT) of
         {true, Payload, _JWT} ->
             Claims0 = emqx_utils_json:decode(Payload, [return_maps]),
-            Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"iat">>, <<"nbf">>]),
+            Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"nbf">>]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->
                     {ok, Claims};
@@ -330,9 +330,6 @@ verify_claims(Claims, VerifyClaims0) ->
         [
             {<<"exp">>, fun(ExpireTime) ->
                 is_number(ExpireTime) andalso Now < ExpireTime
-            end},
-            {<<"iat">>, fun(IssueAt) ->
-                is_number(IssueAt) andalso IssueAt =< Now
             end},
             {<<"nbf">>, fun(NotBefore) ->
                 is_number(NotBefore) andalso NotBefore =< Now
