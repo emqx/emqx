@@ -3,6 +3,8 @@
 set -euo pipefail
 
 cd -P -- "$(dirname -- "$0")/../.."
+# shellcheck disable=SC1091
+source ./env.sh
 
 PROFILE="${PROFILE:-emqx}"
 DIR_NAME='examples'

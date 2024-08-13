@@ -1,7 +1,7 @@
 name: Build and push docker images
 
 concurrency:
-  group: docker-build-${{ github.event_name }}-${{ github.ref }}
+  group: docker-build-${{ github.event_name }}-${{ inputs.profile }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:
@@ -11,17 +11,13 @@ on:
         required: true
         type: string
       latest:
-        required: true
+        required: false
         type: string
+        default: false
       publish:
-        required: true
+        required: false
         type: boolean
-      build_from:
-        required: true
-        type: string
-      run_from:
-        required: true
-        type: string
+        default: false
     secrets:
       DOCKER_HUB_USER:
         required: true
@@ -47,12 +43,6 @@ on:
         required: false
         type: boolean
         default: false
-      build_from:
-        required: false
-        type: string
-        default: ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-debian12
-      run_from:
-        default: public.ecr.aws/debian/debian:stable-20240612-slim
 
 permissions:
   contents: read
@@ -60,7 +50,6 @@ permissions:
 jobs:
   build:
     runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.arch)) || 'ubuntu-22.04' }}
-    container: ${{ inputs.build_from }}
     outputs:
       PKG_VSN: ${{ steps.build.outputs.PKG_VSN }}
 
@@ -78,14 +67,18 @@ jobs:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ github.event.inputs.ref }}
-      - run: git config --global --add safe.directory "$PWD"
       - name: build release tarball
         id: build
+        env:
+          BUILDER_SYSTEM: force_docker
         run: |
-          make ${{ matrix.profile }}-tgz
+          source ./env.sh
+          ./scripts/buildx.sh --profile ${{ matrix.profile }} --pkgtype tgz --builder "$EMQX_DOCKER_BUILD_FROM"
+          PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_DOCKER_BUILD_FROM" ./pkg-vsn.sh "${{ matrix.profile }}")
+          echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
-          name: "${{ matrix.profile }}-${{ matrix.arch }}.tar.gz"
+          name: "${{ matrix.profile }}-${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }}.tar.gz"
           path: "_packages/emqx*/emqx-*.tar.gz"
           retention-days: 7
           overwrite: true
@@ -105,6 +98,14 @@ jobs:
         profile:
           - ["${{ inputs.profile }}", "${{ inputs.profile == 'emqx' && 'docker.io,public.ecr.aws' || 'docker.io' }}"]
           - ["${{ inputs.profile }}-elixir", "${{ inputs.profile == 'emqx' && 'docker.io,public.ecr.aws' || 'docker.io' }}"]
+
+    env:
+      PROFILE: ${{ matrix.profile[0] }}
+      DOCKER_REGISTRY: ${{ matrix.profile[1] }}
+      DOCKER_ORG: ${{ github.repository_owner }}
+      DOCKER_LATEST: ${{ inputs.latest }}
+      PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
+      EMQX_SOURCE_TYPE: tgz
 
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -148,18 +149,10 @@ jobs:
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ecr: true
 
-      - name: Build docker image for smoke test
+      - name: Build docker image
         env:
-          PROFILE: ${{ matrix.profile[0] }}
-          DOCKER_REGISTRY: ${{ matrix.profile[1] }}
-          DOCKER_ORG: ${{ github.repository_owner }}
-          DOCKER_LATEST: ${{ inputs.latest }}
           DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
-          BUILD_FROM: ${{ inputs.build_from }}
-          RUN_FROM: ${{ inputs.run_from }}
-          PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
-          EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker
           echo "Built tags:"
@@ -167,6 +160,10 @@ jobs:
           cat .emqx_docker_image_tags
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
+
+      - name: Verify that size of docker image is less than 300 MB
+        run: |
+          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 300000000
 
       - name: smoke test
         timeout-minutes: 1
@@ -177,6 +174,7 @@ jobs:
             ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
             docker rm -f $CID
           done
+
       - name: dashboard tests
         working-directory: ./scripts/ui-tests
         timeout-minutes: 5
@@ -184,6 +182,7 @@ jobs:
           set -eu
           docker compose up --abort-on-container-exit --exit-code-from selenium
           docker compose rm -fsv
+
       - name: test node_dump
         run: |
           CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
@@ -191,20 +190,22 @@ jobs:
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
 
-      - name: Build and push docker image
+      - name: export docker image
+        run: |
+          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip > $PROFILE-docker-$PKG_VSN.tar.gz
+
+      - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+        with:
+          name: "${{ env.PROFILE }}-docker"
+          path: "${{ env.PROFILE }}-docker-${{ env.PKG_VSN }}.tar.gz"
+          retention-days: 7
+
+      - name: Publish docker image
         if: inputs.publish || github.repository_owner != 'emqx'
         env:
-          PROFILE: ${{ matrix.profile[0] }}
-          DOCKER_REGISTRY: ${{ matrix.profile[1] }}
-          DOCKER_ORG: ${{ github.repository_owner }}
-          DOCKER_LATEST: ${{ inputs.latest }}
           DOCKER_PUSH: true
           DOCKER_BUILD_NOCACHE: false
           DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: false
-          BUILD_FROM: ${{ inputs.build_from }}
-          RUN_FROM: ${{ inputs.run_from }}
-          PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
-          EMQX_SOURCE_TYPE: tgz
         run: |
           ./build ${PROFILE} docker

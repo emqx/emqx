@@ -21,8 +21,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          pattern: "${{ matrix.profile }}-schema-dump-*-x64"
-          merge-multiple: true
+          name: "${{ matrix.profile }}-schema-dump"
       - name: Run spellcheck
         run: |
           bash scripts/spellcheck/spellcheck.sh _build/docgen/${{ matrix.profile }}/schema-en.json
