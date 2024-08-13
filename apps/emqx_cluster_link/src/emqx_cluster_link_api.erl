@@ -60,7 +60,7 @@ schema("/cluster/links") ->
                 'requestBody' => link_config_schema(),
                 responses =>
                     #{
-                        200 => link_config_schema_response(),
+                        201 => link_config_schema_response(),
                         400 =>
                             emqx_dashboard_swagger:error_codes(
                                 [?BAD_REQUEST, ?ALREADY_EXISTS],
