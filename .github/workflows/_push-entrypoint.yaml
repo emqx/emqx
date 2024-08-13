@@ -177,48 +177,26 @@ jobs:
     needs:
       - prepare
       - compile
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04'
     steps:
-      - name: Extract version from tag
-        id: extract_version
-        run: echo "version=${GITHUB_REF_NAME#e}" | tee -a $GITHUB_OUTPUT
-
       - name: Create PR in emqx/emqx-i18n
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
-          repository: emqx/emqx-i18n
-          event-type: release
-          client-payload: |
-            {
-              "version": "${{ steps.extract_version.outputs.version }}",
-              "repository": "${{ github.repository }}",
-              "run-id": "${{ github.run_id }}"
-            }
+        env:
+          GH_TOKEN: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
+        run: |
+          gh --repo emqx/emqx-i18n workflow run sync-en-doc.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
 
   update_emqx_docs:
     if: needs.prepare.outputs.release == 'true'
     needs:
       - prepare
       - compile
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     steps:
-      - name: Extract version from tag
-        id: extract_version
-        run: echo "version=${GITHUB_REF_NAME#e}" | tee -a $GITHUB_OUTPUT
-
       - name: Create PR in emqx/emqx-docs
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
-          repository: emqx/emqx-docs
-          event-type: release
-          client-payload: |
-            {
-              "version": "${{ steps.extract_version.outputs.version }}",
-              "repository": "${{ github.repository }}",
-              "run-id": "${{ github.run_id }}"
-            }
+        env:
+          GH_TOKEN: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
+        run: |
+          gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
 
   run_emqx_app_tests:
     needs:
