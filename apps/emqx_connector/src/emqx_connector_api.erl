@@ -389,7 +389,7 @@ schema("/connectors_probe") ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason0} ->
                     Reason = redact(Reason0),
-                    ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
+                    ?BAD_REQUEST('TEST_FAILED', emqx_utils_maps:to_json(Reason));
                 {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
                     Reason1 =
                         case Reason0 of
@@ -449,7 +449,7 @@ create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) -
             ok = emqx_resource:validate_name(ConnectorName)
         catch
             throw:Error ->
-                ?BAD_REQUEST(map_to_json(Error))
+                ?BAD_REQUEST(emqx_utils_maps:to_json(Error))
         end,
     case Check of
         ok ->
@@ -466,9 +466,9 @@ do_create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode
             PreOrPostConfigUpdate =:= pre_config_update;
             PreOrPostConfigUpdate =:= post_config_update
         ->
-            ?BAD_REQUEST(map_to_json(redact(Reason)));
+            ?BAD_REQUEST(emqx_utils_maps:to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
-            ?BAD_REQUEST(map_to_json(redact(Reason)))
+            ?BAD_REQUEST(emqx_utils_maps:to_json(redact(Reason)))
     end.
 
 '/connectors/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
@@ -803,16 +803,3 @@ maybe_unwrap(RpcMulticallResult) ->
 
 redact(Term) ->
     emqx_utils:redact(Term).
-
-map_to_json(M0) ->
-    %% When dealing with Hocon validation errors, `value' might contain non-serializable
-    %% values (e.g.: user_lookup_fun), so we try again without that key if serialization
-    %% fails as a best effort.
-    M1 = emqx_utils_maps:jsonable_map(M0, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end),
-    try
-        emqx_utils_json:encode(M1)
-    catch
-        error:_ ->
-            M2 = maps:without([value, <<"value">>], M1),
-            emqx_utils_json:encode(M2)
-    end.
