@@ -100,14 +100,9 @@ info(Session) ->
 info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(subscriptions, #session{observe_manager = OM}) ->
-    Topics = emqx_coap_observe_res:subscriptions(OM),
-    lists:foldl(
-        fun(T, Acc) -> Acc#{T => emqx_gateway_utils:default_subopts()} end,
-        #{},
-        Topics
-    );
+    emqx_coap_observe_res:subscriptions(OM);
 info(subscriptions_cnt, #session{observe_manager = OM}) ->
-    erlang:length(emqx_coap_observe_res:subscriptions(OM));
+    maps:size(emqx_coap_observe_res:subscriptions(OM));
 info(subscriptions_max, _) ->
     infinity;
 info(upgrade_qos, _) ->
@@ -229,8 +224,10 @@ process_subscribe(
     case Sub of
         undefined ->
             Result;
-        {Topic, Token} ->
-            {SeqId, OM2} = emqx_coap_observe_res:insert(Topic, Token, OM),
+        #{
+            topic := _Topic
+        } = SubData ->
+            {SeqId, OM2} = emqx_coap_observe_res:insert(SubData, OM),
             Replay = emqx_coap_message:piggyback({ok, content}, Msg),
             Replay2 = Replay#coap_message{options = #{observe => SeqId}},
             Result#{
