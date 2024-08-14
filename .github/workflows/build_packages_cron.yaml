@@ -22,7 +22,6 @@ jobs:
       matrix:
         profile:
           - ['emqx', 'master']
-          - ['emqx', 'release-57']
           - ['emqx', 'release-58']
         os:
           - ubuntu22.04
