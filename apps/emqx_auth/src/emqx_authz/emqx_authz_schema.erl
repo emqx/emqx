@@ -138,9 +138,17 @@ authz_fields() ->
     AllTypes = lists:concat([Mod:source_refs() || Mod <- AuthzSchemaMods]),
     UnionMemberSelector =
         fun
-            (all_union_members) -> AllTypes;
+            (all_union_members) ->
+                AllTypes;
             %% must return list
-            ({value, Value}) -> [select_union_member(Value, AuthzSchemaMods)]
+            ({value, Value}) ->
+                [
+                    select_union_member(
+                        Value,
+                        AuthzSchemaMods,
+                        fun(_, Member) -> Member end
+                    )
+                ]
         end,
     [
         {sources,
@@ -162,10 +170,23 @@ api_authz_fields() ->
     [{sources, ?HOCON(?ARRAY(api_source_type()), #{desc => ?DESC(sources)})}].
 
 api_source_type() ->
-    hoconsc:union(api_authz_refs()).
-
-api_authz_refs() ->
-    lists:concat([api_source_refs(Mod) || Mod <- source_schema_mods()]).
+    AuthzSchemaMods = source_schema_mods(),
+    AllTypes = lists:concat([api_source_refs(Mod) || Mod <- AuthzSchemaMods]),
+    UnionMemberSelector =
+        fun
+            (all_union_members) ->
+                AllTypes;
+            %% must return list
+            ({value, Value}) ->
+                select_union_member(
+                    Value,
+                    AuthzSchemaMods,
+                    fun(Mod, _) ->
+                        api_source_refs(Mod)
+                    end
+                )
+        end,
+    hoconsc:union(UnionMemberSelector).
 
 authz_common_fields(Type) ->
     [
@@ -186,10 +207,10 @@ source_types() ->
 %%--------------------------------------------------------------------
 
 api_source_refs(Mod) ->
-    try
-        Mod:api_source_refs()
-    catch
-        error:undef ->
+    case erlang:function_exported(Mod, api_source_refs, 0) of
+        true ->
+            Mod:api_source_refs();
+        _ ->
             Mod:source_refs()
     end.
 
@@ -217,19 +238,19 @@ array(Ref) -> array(Ref, Ref).
 array(Ref, DescId) ->
     ?HOCON(?ARRAY(?R_REF(Ref)), #{desc => ?DESC(DescId)}).
 
-select_union_member(#{<<"type">> := Type}, []) ->
+select_union_member(#{<<"type">> := Type}, [], _Func) ->
     throw(#{
         reason => "unknown_authz_type",
         got => Type
     });
-select_union_member(#{<<"type">> := _} = Value, [Mod | Mods]) ->
+select_union_member(#{<<"type">> := _} = Value, [Mod | Mods], Func) ->
     case Mod:select_union_member(Value) of
         undefined ->
-            select_union_member(Value, Mods);
+            select_union_member(Value, Mods, Func);
         Member ->
-            Member
+            Func(Mod, Member)
     end;
-select_union_member(_Value, _Mods) ->
+select_union_member(_Value, _Mods, _Func) ->
     throw("missing_type_field").
 
 default_authz() ->
