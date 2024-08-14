@@ -1750,6 +1750,55 @@ t_final_payload_must_be_binary(_Config) ->
     ),
     ok.
 
+%% Checks that an input value that does not respect the declared encoding bumps the
+%% failure metric as expected.  Also, such a crash does not lead to the message continuing
+%% the publication process.
+t_bad_decoded_value_failure_metric(_Config) ->
+    ?check_trace(
+        begin
+            Name = <<"bar">>,
+            Operations = [operation(<<"payload.msg">>, <<"payload">>)],
+            Transformation = transformation(Name, Operations, #{
+                <<"payload_decoder">> => #{<<"type">> => <<"none">>},
+                <<"payload_encoder">> => #{<<"type">> => <<"json">>}
+            }),
+            {201, _} = insert(Transformation),
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+            ok = publish(C, <<"t/1">>, {raw, <<"aaa">>}),
+            ?assertNotReceive({publish, _}),
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> :=
+                            #{
+                                <<"matched">> := 1,
+                                <<"succeeded">> := 0,
+                                <<"failed">> := 1
+                            },
+                        <<"node_metrics">> :=
+                            [
+                                #{
+                                    <<"node">> := _,
+                                    <<"metrics">> := #{
+                                        <<"matched">> := 1,
+                                        <<"succeeded">> := 0,
+                                        <<"failed">> := 1
+                                    }
+                                }
+                            ]
+                    }},
+                    get_metrics(Name)
+                )
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %% Smoke test for the `json_encode' and `json_decode' BIFs.
 t_json_encode_decode_smoke_test(_Config) ->
     ?check_trace(

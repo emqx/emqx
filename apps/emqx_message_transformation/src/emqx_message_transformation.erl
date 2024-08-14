@@ -29,7 +29,7 @@
 ]).
 
 %% Internal exports
--export([run_transformation/2, trace_failure_context_to_map/1]).
+-export([run_transformation/2, trace_failure_context_to_map/1, prettify_operation/1]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -173,6 +173,19 @@ run_transformation(Transformation, MessageIn) ->
             {FailureAction, TraceFailureContext}
     end.
 
+prettify_operation(Operation0) ->
+    %% TODO: remove injected bif module
+    Operation = maps:update_with(
+        value,
+        fun(V) -> iolist_to_binary(emqx_variform:decompile(V)) end,
+        Operation0
+    ),
+    maps:update_with(
+        key,
+        fun(Path) -> iolist_to_binary(lists:join(".", Path)) end,
+        Operation
+    ).
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
@@ -181,17 +194,32 @@ run_transformation(Transformation, MessageIn) ->
     {ok, eval_context()} | {error, trace_failure_context()}.
 eval_operation(Operation, Transformation, Context) ->
     #{key := K, value := V} = Operation,
-    case eval_variform(K, V, Context) of
-        {error, Reason} ->
-            FailureContext = #trace_failure_context{
+    try
+        case eval_variform(K, V, Context) of
+            {error, Reason} ->
+                FailureContext = #trace_failure_context{
+                    transformation = Transformation,
+                    tag = "transformation_eval_operation_failure",
+                    context = #{reason => Reason}
+                },
+                {error, FailureContext};
+            {ok, Rendered} ->
+                NewContext = put_value(K, Rendered, Context),
+                {ok, NewContext}
+        end
+    catch
+        Class:Error:Stacktrace ->
+            FailureContext1 = #trace_failure_context{
                 transformation = Transformation,
-                tag = "transformation_eval_operation_failure",
-                context = #{reason => Reason}
+                tag = "transformation_eval_operation_exception",
+                context = #{
+                    kind => Class,
+                    reason => Error,
+                    stacktrace => Stacktrace,
+                    operation => prettify_operation(Operation)
+                }
             },
-            {error, FailureContext};
-        {ok, Rendered} ->
-            NewContext = put_value(K, Rendered, Context),
-            {ok, NewContext}
+            {error, FailureContext1}
     end.
 
 -spec eval_variform([binary(), ...], _, eval_context()) ->

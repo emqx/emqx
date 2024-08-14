@@ -715,17 +715,7 @@ transformation_out(Transformation) ->
     ).
 
 operation_out(Operation0) ->
-    %% TODO: remove injected bif module
-    Operation = maps:update_with(
-        value,
-        fun(V) -> iolist_to_binary(emqx_variform:decompile(V)) end,
-        Operation0
-    ),
-    maps:update_with(
-        key,
-        fun(Path) -> iolist_to_binary(lists:join(".", Path)) end,
-        Operation
-    ).
+    emqx_message_transformation:prettify_operation(Operation0).
 
 dryrun_input_message_in(Params) ->
     %% We already check the params against the schema at the API boundary, so we can
