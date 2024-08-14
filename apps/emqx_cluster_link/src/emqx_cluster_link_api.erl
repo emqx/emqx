@@ -60,7 +60,7 @@ schema("/cluster/links") ->
                 'requestBody' => link_config_schema(),
                 responses =>
                     #{
-                        200 => link_config_schema_response(),
+                        201 => link_config_schema_response(),
                         400 =>
                             emqx_dashboard_swagger:error_codes(
                                 [?BAD_REQUEST, ?ALREADY_EXISTS],
@@ -221,6 +221,21 @@ handle_list() ->
     ?OK(Response).
 
 handle_create(Name, Params) ->
+    Check =
+        try
+            ok = emqx_resource:validate_name(Name)
+        catch
+            throw:Error ->
+                ?BAD_REQUEST(emqx_utils_maps:to_json(Error))
+        end,
+    case Check of
+        ok ->
+            do_create(Name, Params);
+        BadRequest ->
+            BadRequest
+    end.
+
+do_create(Name, Params) ->
     case emqx_cluster_link_config:create_link(Params) of
         {ok, Link} ->
             ?CREATED(add_status(Name, Link));

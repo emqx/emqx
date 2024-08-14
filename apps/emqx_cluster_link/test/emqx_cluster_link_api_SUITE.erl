@@ -298,6 +298,39 @@ t_crud(_Config) ->
 
     ok.
 
+t_create_invalid(_Config) ->
+    Params = link_params(),
+    EmptyName = <<>>,
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message1}} = create_link(
+        EmptyName, Params
+    ),
+    ?assertMatch(
+        #{<<"kind">> := <<"validation_error">>, <<"reason">> := <<"Name cannot be empty string">>},
+        Message1
+    ),
+    LongName = binary:copy(<<$a>>, 256),
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message2}} = create_link(
+        LongName, Params
+    ),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"Name length must be less than 255">>
+        },
+        Message2
+    ),
+    BadName = <<"~!@#$%^&*()_+{}:'<>?|">>,
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message3}} = create_link(
+        BadName, Params
+    ),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"Invalid name format", _/binary>>
+        },
+        Message3
+    ).
+
 %% Verifies the behavior of reported status under different conditions when listing all
 %% links and when fetching a specific link.
 t_status(Config) ->
