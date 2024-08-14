@@ -176,7 +176,7 @@ fields(node_metrics) ->
 '/cluster/links/link/:name'(get, #{bindings := #{name := Name}}) ->
     with_link(Name, fun(Link) -> handle_lookup(Name, Link) end, not_found());
 '/cluster/links/link/:name'(put, #{bindings := #{name := Name}, body := Params0}) ->
-    with_link(Name, fun() -> handle_update(Name, Params0) end, not_found());
+    with_link(Name, fun(OldLink) -> handle_update(Name, Params0, OldLink) end, not_found());
 '/cluster/links/link/:name'(delete, #{bindings := #{name := Name}}) ->
     with_link(
         Name,
@@ -214,7 +214,7 @@ handle_list() ->
         lists:map(
             fun(#{<<"name">> := Name} = Link) ->
                 Status = maps:get(Name, NameToStatus, EmptyStatus),
-                maps:merge(Link, Status)
+                redact(maps:merge(Link, Status))
             end,
             Links
         ),
@@ -226,26 +226,26 @@ handle_create(Name, Params) ->
             ok = emqx_resource:validate_name(Name)
         catch
             throw:Error ->
-                ?BAD_REQUEST(emqx_utils_maps:to_json(Error))
+                ?BAD_REQUEST(emqx_utils_maps:to_json(redact(Error)))
         end,
     case Check of
         ok ->
             do_create(Name, Params);
         BadRequest ->
-            BadRequest
+            redact(BadRequest)
     end.
 
 do_create(Name, Params) ->
     case emqx_cluster_link_config:create_link(Params) of
         {ok, Link} ->
-            ?CREATED(add_status(Name, Link));
+            ?CREATED(redact(add_status(Name, Link)));
         {error, Reason} ->
-            Message = list_to_binary(io_lib:format("Create link failed ~p", [Reason])),
+            Message = list_to_binary(io_lib:format("Create link failed ~p", [redact(Reason)])),
             ?BAD_REQUEST(Message)
     end.
 
 handle_lookup(Name, Link) ->
-    ?OK(add_status(Name, Link)).
+    ?OK(redact(add_status(Name, Link))).
 
 handle_metrics(Name) ->
     Results = emqx_cluster_link_metrics:get_metrics(Name),
@@ -357,13 +357,14 @@ add_status(Name, Link) ->
     Status = collect_single_status(NodeRPCResults),
     maps:merge(Link, Status).
 
-handle_update(Name, Params0) ->
-    Params = Params0#{<<"name">> => Name},
+handle_update(Name, Params0, OldLinkRaw) ->
+    Params1 = Params0#{<<"name">> => Name},
+    Params = emqx_utils:deobfuscate(Params1, OldLinkRaw),
     case emqx_cluster_link_config:update_link(Params) of
         {ok, Link} ->
-            ?OK(add_status(Name, Link));
+            ?OK(redact(add_status(Name, Link)));
         {error, Reason} ->
-            Message = list_to_binary(io_lib:format("Update link failed ~p", [Reason])),
+            Message = list_to_binary(io_lib:format("Update link failed ~p", [redact(Reason)])),
             ?BAD_REQUEST(Message)
     end.
 
@@ -595,7 +596,7 @@ fill_defaults_single(Link0) ->
     #{<<"cluster">> := #{<<"links">> := [Link]}} =
         emqx_config:fill_defaults(
             #{<<"cluster">> => #{<<"links">> => [Link0]}},
-            #{obfuscate_sensitive_values => true}
+            #{obfuscate_sensitive_values => false}
         ),
     Link.
 
@@ -604,3 +605,6 @@ return(Response) ->
 
 not_found() ->
     return(?NOT_FOUND(<<"Cluster link not found">>)).
+
+redact(Value) ->
+    emqx_utils:redact(Value).
