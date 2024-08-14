@@ -226,7 +226,7 @@ handle_create(Name, Params) ->
             ok = emqx_resource:validate_name(Name)
         catch
             throw:Error ->
-                ?BAD_REQUEST(emqx_utils_maps:to_json(redact(Error)))
+                ?BAD_REQUEST(emqx_utils_api:to_json(redact(Error)))
         end,
     case Check of
         ok ->

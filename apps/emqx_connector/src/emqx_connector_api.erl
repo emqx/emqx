@@ -389,7 +389,7 @@ schema("/connectors_probe") ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason0} ->
                     Reason = redact(Reason0),
-                    ?BAD_REQUEST('TEST_FAILED', emqx_utils_maps:to_json(Reason));
+                    ?BAD_REQUEST('TEST_FAILED', emqx_utils_api:to_json(Reason));
                 {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
                     Reason1 =
                         case Reason0 of
@@ -449,7 +449,7 @@ create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) -
             ok = emqx_resource:validate_name(ConnectorName)
         catch
             throw:Error ->
-                ?BAD_REQUEST(emqx_utils_maps:to_json(Error))
+                ?BAD_REQUEST(emqx_utils_api:to_json(Error))
         end,
     case Check of
         ok ->
@@ -466,9 +466,9 @@ do_create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode
             PreOrPostConfigUpdate =:= pre_config_update;
             PreOrPostConfigUpdate =:= post_config_update
         ->
-            ?BAD_REQUEST(emqx_utils_maps:to_json(redact(Reason)));
+            ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
-            ?BAD_REQUEST(emqx_utils_maps:to_json(redact(Reason)))
+            ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)))
     end.
 
 '/connectors/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
