@@ -68,16 +68,11 @@ t_initialize(_Config) ->
         {error, not_authorized},
         emqx_access_control:authenticate(?CLIENTINFO)
     ),
-
-    ?assertWaitEvent(
-        ok = emqx_authn_test_lib:register_fake_providers([{password_based, built_in_database}]),
-        #{
-            ?snk_kind := authn_chains_initialization_done,
-            providers := #{{password_based, built_in_database} := emqx_authn_fake_provider}
-        },
-        100
-    ),
-
+    %% call emqx_authn_chains:register_providers/1
+    %% which triggers a handle_continue to store the chain in ets
+    ok = emqx_authn_test_lib:register_fake_providers([{password_based, built_in_database}]),
+    %% make another gen_server call to make sure the handle_continue is complete
+    ?assertMatch(#{{password_based, built_in_database} := _}, emqx_authn_chains:get_providers()),
     ?assertMatch(
         {error, bad_username_or_password},
         emqx_access_control:authenticate(?CLIENTINFO)
