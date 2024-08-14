@@ -20,6 +20,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 env:
   IS_CI: "yes"
 
@@ -41,9 +44,6 @@ jobs:
       PROFILE: ${{ matrix.profile }}
       ENABLE_COVER_COMPILE: 1
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}
-
-    permissions:
-      contents: read
 
     steps:
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
@@ -85,9 +85,6 @@ jobs:
 
     env:
       PROFILE: ${{ matrix.profile }}
-
-    permissions:
-      contents: read
 
     steps:
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
@@ -153,9 +150,6 @@ jobs:
     defaults:
       run:
         shell: bash
-
-    permissions:
-      contents: read
 
     env:
       PROFILE: ${{ matrix.profile }}
