@@ -478,8 +478,7 @@ t_persistent_sessions5(Config) ->
                     {?HTTP200, _, #{
                         <<"data">> := [_, _, _],
                         <<"meta">> := #{
-                            <<"count">> := 4,
-                            <<"hasnext">> := true
+                            <<"count">> := 4
                         }
                     }}},
                 P1
@@ -489,8 +488,7 @@ t_persistent_sessions5(Config) ->
                     {?HTTP200, _, #{
                         <<"data">> := [_],
                         <<"meta">> := #{
-                            <<"count">> := 4,
-                            <<"hasnext">> := false
+                            <<"count">> := 4
                         }
                     }}},
                 P2
@@ -506,8 +504,7 @@ t_persistent_sessions5(Config) ->
                     {?HTTP200, _, #{
                         <<"data">> := [_, _],
                         <<"meta">> := #{
-                            <<"count">> := 4,
-                            <<"hasnext">> := true
+                            <<"count">> := 4
                         }
                     }}},
                 list_request(#{limit => 2, page => 1}, Config)
@@ -523,8 +520,7 @@ t_persistent_sessions5(Config) ->
                             {?HTTP200, _, #{
                                 <<"data">> := [_, _, _],
                                 <<"meta">> := #{
-                                    <<"count">> := 4,
-                                    <<"hasnext">> := true
+                                    <<"count">> := 4
                                 }
                             }}},
                         P3_
@@ -539,8 +535,7 @@ t_persistent_sessions5(Config) ->
                             {?HTTP200, _, #{
                                 <<"data">> := [_],
                                 <<"meta">> := #{
-                                    <<"count">> := 4,
-                                    <<"hasnext">> := false
+                                    <<"count">> := 4
                                 }
                             }}},
                         P4_
@@ -1635,7 +1630,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1644,7 +1638,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1653,7 +1646,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1662,7 +1654,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1671,7 +1662,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1680,7 +1670,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 1
                             }
                     }
@@ -1701,7 +1690,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _, _, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 4,
                                 <<"cursor">> := _
                             }
@@ -1710,7 +1698,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 2
                             }
                     }
@@ -1728,7 +1715,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 2,
                                 <<"cursor">> := _
                             }
@@ -1737,7 +1723,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 2,
                                 <<"cursor">> := _
                             }
@@ -1746,7 +1731,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 2
                             }
                     }
@@ -1765,7 +1749,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 3
                             }
                     }
@@ -1782,7 +1765,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1791,7 +1773,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1800,7 +1781,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 1
                             }
                     }
@@ -2080,7 +2060,7 @@ do_list_all_v2(QueryParams, Config, Acc) ->
     case list_v2_request(QueryParams, Config) of
         {ok, {{_, 200, _}, _, Resp = #{<<"meta">> := #{<<"cursor">> := Cursor}}}} ->
             do_list_all_v2(QueryParams#{cursor => Cursor}, Config, [Resp | Acc]);
-        {ok, {{_, 200, _}, _, Resp = #{<<"meta">> := #{<<"hasnext">> := false}}}} ->
+        {ok, {{_, 200, _}, _, Resp}} ->
             lists:reverse([Resp | Acc]);
         Other ->
             error(

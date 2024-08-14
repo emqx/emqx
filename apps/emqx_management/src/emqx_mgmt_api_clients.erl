@@ -1013,13 +1013,9 @@ format_results(Acc, Cursor) ->
     Meta =
         case Cursor of
             done ->
-                #{
-                    hasnext => false,
-                    count => N
-                };
+                #{count => N};
             _ ->
                 #{
-                    hasnext => true,
                     count => N,
                     cursor => serialize_cursor(Cursor)
                 }
