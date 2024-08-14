@@ -11,6 +11,9 @@ on:
       ref:
         required: false
 
+permissions:
+  contents: read
+
 defaults:
   run:
     shell: bash
@@ -47,9 +50,6 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-
-    permissions:
-      contents: read
 
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -132,9 +132,6 @@ jobs:
           - emqx
           - emqx-enterprise
 
-    permissions:
-      contents: read
-
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
@@ -184,6 +181,9 @@ jobs:
       - init
       - sanity-checks
       - compile
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/run_test_cases.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}

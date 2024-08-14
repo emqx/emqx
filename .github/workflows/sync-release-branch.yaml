@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         branch:
-          - release-57
+          - release-58
 
     env:
       SYNC_BRANCH: ${{ matrix.branch }}

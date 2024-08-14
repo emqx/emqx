@@ -20,13 +20,13 @@ on:
         default: false
     secrets:
       DOCKER_HUB_USER:
-        required: true
+        required: false
       DOCKER_HUB_TOKEN:
-        required: true
+        required: false
       AWS_ACCESS_KEY_ID:
-        required: true
+        required: false
       AWS_SECRET_ACCESS_KEY:
-        required: true
+        required: false
   workflow_dispatch:
     inputs:
       ref:
