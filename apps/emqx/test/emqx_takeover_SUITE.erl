@@ -71,6 +71,7 @@ init_per_group(persistence_enabled = Group, Config) ->
             {emqx,
                 "durable_sessions = {\n"
                 "  enable = true\n"
+                "  force_persistence = true\n"
                 "  heartbeat_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"
                 "  session_gc_interval = 2s\n"
@@ -113,7 +114,15 @@ end_per_group(_Group, _Config) ->
 
 t_takeover(Config) ->
     process_flag(trap_exit, true),
-    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Vsn = atom_to_list(?config(mqtt_vsn, Config)),
+    Persist =
+        case ?config(persistence_enabled, Config) of
+            true ->
+                "persistent-";
+            false ->
+                "not-persistent-"
+        end,
+    ClientId = iolist_to_binary("t_takeover-" ++ Persist ++ Vsn),
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
         {clean_start, false}
@@ -929,7 +938,6 @@ start_client(Ctx, ClientId, Topic, Qos, Opts) ->
     {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
     _ = erlang:spawn_link(fun() ->
         {ok, _} = emqtt:connect(CPid),
-        ct:pal("CLIENT: connected ~p", [CPid]),
         {ok, _, [Qos]} = emqtt:subscribe(CPid, Topic, Qos)
     end),
     Ctx#{client => [CPid | maps:get(client, Ctx, [])]}.
