@@ -43,6 +43,7 @@ jobs:
       if: matrix.language == 'cpp'
       env:
         PROFILE: emqx-enterprise
+        BUILDER_SYSTEM: force_docker
       run: |
         ./scripts/buildx.sh --profile emqx-enterprise --pkgtype rel
 
