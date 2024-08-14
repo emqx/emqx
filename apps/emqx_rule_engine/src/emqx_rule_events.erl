@@ -557,8 +557,7 @@ eventmsg_dropped(
             qos => QoS,
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            publish_received_at => Timestamp,
-            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
+            publish_received_at => Timestamp
         },
         #{headers => Headers}
     ).
@@ -590,8 +589,7 @@ eventmsg_transformation_failed(
             qos => QoS,
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            publish_received_at => Timestamp,
-            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
+            publish_received_at => Timestamp
         },
         #{headers => Headers}
     ).
@@ -624,8 +622,7 @@ eventmsg_validation_failed(
             qos => QoS,
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            publish_received_at => Timestamp,
-            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
+            publish_received_at => Timestamp
         },
         #{headers => Headers}
     ).
@@ -663,8 +660,7 @@ eventmsg_delivered(
             qos => QoS,
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            publish_received_at => Timestamp,
-            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
+            publish_received_at => Timestamp
         },
         #{headers => Headers}
     ).
@@ -703,8 +699,7 @@ eventmsg_acked(
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
             puback_props => printable_maps(emqx_message:get_header(puback_props, Message, #{})),
-            publish_received_at => Timestamp,
-            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
+            publish_received_at => Timestamp
         },
         #{headers => Headers}
     ).
@@ -744,8 +739,7 @@ eventmsg_delivery_dropped(
             qos => QoS,
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            publish_received_at => Timestamp,
-            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
+            publish_received_at => Timestamp
         },
         #{headers => Headers}
     ).
