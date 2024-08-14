@@ -1635,23 +1635,114 @@ t_load_config(_Config) ->
 t_final_payload_must_be_binary(_Config) ->
     ?check_trace(
         begin
-            Name = <<"foo">>,
+            Name1 = <<"foo">>,
             Operations = [operation(<<"payload.hello">>, <<"concat(['world'])">>)],
-            Transformation = transformation(Name, Operations, #{
+            Transformation1 = transformation(Name1, Operations, #{
                 <<"payload_decoder">> => #{<<"type">> => <<"json">>},
                 <<"payload_encoder">> => #{<<"type">> => <<"none">>}
             }),
-            {201, _} = insert(Transformation),
+            {201, _} = insert(Transformation1),
 
             C = connect(<<"c1">>),
             {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
             ok = publish(C, <<"t/1">>, #{x => 1, y => true}),
             ?assertNotReceive({publish, _}),
+
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> :=
+                            #{
+                                <<"matched">> := 1,
+                                <<"succeeded">> := 0,
+                                <<"failed">> := 1
+                            },
+                        <<"node_metrics">> :=
+                            [
+                                #{
+                                    <<"node">> := _,
+                                    <<"metrics">> := #{
+                                        <<"matched">> := 1,
+                                        <<"succeeded">> := 0,
+                                        <<"failed">> := 1
+                                    }
+                                }
+                            ]
+                    }},
+                    get_metrics(Name1)
+                )
+            ),
+
+            %% When there are multiple transformations for a topic, the last one is
+            %% responsible for properly encoding the payload to a binary.
+            Name2 = <<"bar">>,
+            Transformation2 = transformation(Name2, _Operations = [], #{
+                <<"payload_decoder">> => #{<<"type">> => <<"none">>},
+                <<"payload_encoder">> => #{<<"type">> => <<"none">>}
+            }),
+            {201, _} = insert(Transformation2),
+
+            ok = publish(C, <<"t/1">>, #{x => 1, y => true}),
+            ?assertNotReceive({publish, _}),
+
+            %% The old, first transformation succeeds.
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> :=
+                        #{
+                            <<"matched">> := 2,
+                            <<"succeeded">> := 1,
+                            <<"failed">> := 1
+                        },
+                    <<"node_metrics">> :=
+                        [
+                            #{
+                                <<"node">> := _,
+                                <<"metrics">> := #{
+                                    <<"matched">> := 2,
+                                    <<"succeeded">> := 1,
+                                    <<"failed">> := 1
+                                }
+                            }
+                        ]
+                }},
+                get_metrics(Name1)
+            ),
+
+            %% The last transformation gets the failure metric bump.
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> :=
+                        #{
+                            <<"matched">> := 1,
+                            <<"succeeded">> := 0,
+                            <<"failed">> := 1
+                        },
+                    <<"node_metrics">> :=
+                        [
+                            #{
+                                <<"node">> := _,
+                                <<"metrics">> := #{
+                                    <<"matched">> := 1,
+                                    <<"succeeded">> := 0,
+                                    <<"failed">> := 1
+                                }
+                            }
+                        ]
+                }},
+                get_metrics(Name2)
+            ),
+
             ok
         end,
         fun(Trace) ->
             ?assertMatch(
-                [#{message := "transformation_bad_encoding"}],
+                [
+                    #{message := "transformation_bad_encoding"},
+                    #{message := "transformation_bad_encoding"}
+                ],
                 ?of_kind(message_transformation_failed, Trace)
             ),
             ok
