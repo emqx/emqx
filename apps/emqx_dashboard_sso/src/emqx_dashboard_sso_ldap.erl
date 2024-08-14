@@ -163,7 +163,7 @@ ensure_user_exists(Username) ->
 
 convert_certs(Dir, Conf) ->
     case
-        emqx_tls_lib:ensure_ssl_files(
+        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
             Dir, maps:get(<<"ssl">>, Conf, undefined)
         )
     of

@@ -90,14 +90,14 @@ ssl_files_failure_test_() ->
         {"undefined_is_undefined", fun() ->
             ?assertEqual(
                 {ok, undefined},
-                emqx_tls_lib:ensure_ssl_files("dir", undefined)
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("dir", undefined)
             )
         end},
         {"no_op_if_disabled", fun() ->
             Disabled = #{<<"enable">> => false, foo => bar},
             ?assertEqual(
                 {ok, Disabled},
-                emqx_tls_lib:ensure_ssl_files("dir", Disabled)
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("dir", Disabled)
             )
         end},
         {"enoent_key_file", fun() ->
@@ -106,7 +106,7 @@ ssl_files_failure_test_() ->
             ),
             ?assertMatch(
                 {error, #{file_read := enoent, pem_check := invalid_pem}},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => NonExistingFile,
                     <<"certfile">> => test_key(),
                     <<"cacertfile">> => test_key()
@@ -116,7 +116,7 @@ ssl_files_failure_test_() ->
         {"empty_cacertfile", fun() ->
             ?assertMatch(
                 {ok, _},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => test_key(),
                     <<"certfile">> => test_key(),
                     <<"cacertfile">> => <<"">>
@@ -130,7 +130,7 @@ ssl_files_failure_test_() ->
                     reason := pem_file_path_or_string_is_required,
                     which_options := [[<<"keyfile">>]]
                 }},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => <<>>,
                     <<"certfile">> => test_key(),
                     <<"cacertfile">> => test_key()
@@ -141,7 +141,7 @@ ssl_files_failure_test_() ->
                 {error, #{
                     reason := invalid_file_path_or_pem_string, which_options := [[<<"keyfile">>]]
                 }},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => <<255, 255>>,
                     <<"certfile">> => test_key(),
                     <<"cacertfile">> => test_key()
@@ -152,7 +152,7 @@ ssl_files_failure_test_() ->
                     reason := invalid_file_path_or_pem_string,
                     which_options := [[<<"ocsp">>, <<"issuer_pem">>]]
                 }},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => test_key(),
                     <<"certfile">> => test_key(),
                     <<"cacertfile">> => test_key(),
@@ -162,7 +162,7 @@ ssl_files_failure_test_() ->
             %% not printable
             ?assertMatch(
                 {error, #{reason := invalid_file_path_or_pem_string}},
-                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => <<33, 22>>,
                     <<"certfile">> => test_key(),
                     <<"cacertfile">> => test_key()
@@ -173,7 +173,7 @@ ssl_files_failure_test_() ->
                 ok = file:write_file(TmpFile, <<"not a valid pem">>),
                 ?assertMatch(
                     {error, #{file_read := not_pem}},
-                    emqx_tls_lib:ensure_ssl_files(
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
                         "/tmp",
                         #{
                             <<"cacertfile">> => bin(TmpFile),
@@ -205,8 +205,8 @@ ssl_file_replace_test() ->
         <<"ocsp">> => #{<<"issuer_pem">> => Key2}
     },
     Dir = filename:join(["/tmp", "ssl-test-dir2"]),
-    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files(Dir, SSL0),
-    {ok, SSL3} = emqx_tls_lib:ensure_ssl_files(Dir, SSL1),
+    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir, SSL0),
+    {ok, SSL3} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir, SSL1),
     File1 = maps:get(<<"keyfile">>, SSL2),
     File2 = maps:get(<<"keyfile">>, SSL3),
     IssuerPem1 = emqx_utils_maps:deep_get([<<"ocsp">>, <<"issuer_pem">>], SSL2),
@@ -224,14 +224,14 @@ ssl_file_deterministic_names_test() ->
     },
     Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
     Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
-    {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files(Dir0, SSL0),
+    {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0),
     ?assertEqual(
         {ok, SSLFiles0},
-        emqx_tls_lib:ensure_ssl_files(Dir0, SSL0)
+        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0)
     ),
     ?assertNotEqual(
         {ok, SSLFiles0},
-        emqx_tls_lib:ensure_ssl_files(Dir1, SSL0)
+        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir1, SSL0)
     ),
     _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME])).
 

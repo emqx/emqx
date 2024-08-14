@@ -189,7 +189,7 @@ ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind} = Ht
     Conf1 = emqx_utils_maps:deep_put([<<"listeners">>, <<"https">>], Conf0, Https1),
     Ssl = maps:get(<<"ssl_options">>, Https1, undefined),
     Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>], [<<"cacertfile">>]]},
-    case emqx_tls_lib:ensure_ssl_files(?DIR, Ssl, Opts) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(?DIR, Ssl, Opts) of
         {ok, undefined} ->
             {error, <<"ssl_cert_not_found">>};
         {ok, NewSsl} ->

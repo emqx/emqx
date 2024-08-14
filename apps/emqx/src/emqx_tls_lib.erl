@@ -29,8 +29,8 @@
 
 %% SSL files
 -export([
-    ensure_ssl_files/2,
-    ensure_ssl_files/3,
+    ensure_ssl_files_in_mutable_certs_dir/2,
+    ensure_ssl_files_in_mutable_certs_dir/3,
     drop_invalid_certs/1,
     ssl_file_conf_keypaths/0,
     pem_dir/1,
@@ -310,18 +310,22 @@ trim_space(Bin) ->
 %% or file path.
 %% When PEM format key or certificate is given, it tries to to save them in the given
 %% sub-dir in emqx's data_dir, and replace saved file paths for SSL options.
--spec ensure_ssl_files(file:name_all(), undefined | map()) ->
+-spec ensure_ssl_files_in_mutable_certs_dir(file:name_all(), undefined | map()) ->
     {ok, undefined | map()} | {error, map()}.
-ensure_ssl_files(Dir, SSL) ->
-    ensure_ssl_files(Dir, SSL, #{dry_run => false, required_keys => []}).
+ensure_ssl_files_in_mutable_certs_dir(Dir, SSL) ->
+    ensure_ssl_files_in_mutable_certs_dir(Dir, SSL, #{dry_run => false, required_keys => []}).
 
-ensure_ssl_files(_Dir, undefined, _Opts) ->
+ensure_ssl_files_in_mutable_certs_dir(_Dir, undefined, _Opts) ->
     {ok, undefined};
-ensure_ssl_files(_Dir, #{<<"enable">> := False} = SSL, _Opts) when ?IS_FALSE(False) ->
+ensure_ssl_files_in_mutable_certs_dir(_Dir, #{<<"enable">> := False} = SSL, _Opts) when
+    ?IS_FALSE(False)
+->
     {ok, SSL};
-ensure_ssl_files(_Dir, #{enable := False} = SSL, _Opts) when ?IS_FALSE(False) ->
+ensure_ssl_files_in_mutable_certs_dir(_Dir, #{enable := False} = SSL, _Opts) when
+    ?IS_FALSE(False)
+->
     {ok, SSL};
-ensure_ssl_files(Dir, SSL, Opts) ->
+ensure_ssl_files_in_mutable_certs_dir(Dir, SSL, Opts) ->
     RequiredKeys = maps:get(required_keys, Opts, []),
     case ensure_ssl_file_key(SSL, RequiredKeys) of
         ok ->

@@ -162,7 +162,7 @@ convert_certs(
         Conf
 ) ->
     case
-        emqx_tls_lib:ensure_ssl_files(
+        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
             Dir, #{enable => true, certfile => Cert, keyfile => Key}, #{}
         )
     of
