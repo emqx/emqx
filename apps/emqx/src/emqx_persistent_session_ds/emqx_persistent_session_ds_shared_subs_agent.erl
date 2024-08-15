@@ -113,7 +113,7 @@ on_subscribe(Agent, ShareTopicFilter, SubOpts) ->
 on_unsubscribe(Agent, ShareTopicFilter, StreamProgresses) ->
     ?shared_subs_agent:on_unsubscribe(Agent, ShareTopicFilter, StreamProgresses).
 
--spec on_disconnect(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
+-spec on_disconnect(t(), [stream_progress()]) -> t().
 on_disconnect(Agent, StreamProgresses) ->
     ?shared_subs_agent:on_disconnect(Agent, StreamProgresses).
 
