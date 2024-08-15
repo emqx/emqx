@@ -217,13 +217,9 @@ custom_group_id_test() ->
         BaseConfig,
         #{<<"parameters">> => #{<<"group_id">> => <<>>}}
     ),
-    ?assertThrow(
-        {_, [
-            #{
-                path := "sources.kafka_consumer.my_consumer.parameters.group_id",
-                reason := "Group id must not be empty"
-            }
-        ]},
+    %% Empty strings will be treated as absent by the connector.
+    ?assertMatch(
+        #{<<"parameters">> := #{<<"group_id">> := <<"">>}},
         emqx_bridge_v2_testlib:parse_and_check(source, kafka_consumer, my_consumer, BadSourceConfig)
     ),
 
