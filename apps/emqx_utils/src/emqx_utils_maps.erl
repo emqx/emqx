@@ -36,7 +36,6 @@
     put_if/4,
     rename/3,
     safe_atom_key_map/1,
-    to_json/1,
     unindent/2,
     unsafe_atom_key_map/1,
     update_if_present/3
@@ -175,20 +174,6 @@ binary_key_map(Map) ->
 -spec safe_atom_key_map(#{binary() | atom() => any()}) -> #{atom() => any()}.
 safe_atom_key_map(Map) ->
     convert_keys_to_atom(Map, fun(K) -> binary_to_existing_atom(K, utf8) end).
-
--spec to_json(map()) -> emqx_utils_json:json_text().
-to_json(M0) ->
-    %% When dealing with Hocon validation errors, `value' might contain non-serializable
-    %% values (e.g.: user_lookup_fun), so we try again without that key if serialization
-    %% fails as a best effort.
-    M1 = jsonable_map(M0, fun(K, V) -> {K, binary_string(V)} end),
-    try
-        emqx_utils_json:encode(M1)
-    catch
-        error:_ ->
-            M2 = maps:without([value, <<"value">>], M1),
-            emqx_utils_json:encode(M2)
-    end.
 
 -spec jsonable_map(map() | list()) -> map() | list().
 jsonable_map(Map) ->
