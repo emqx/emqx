@@ -674,6 +674,7 @@ listeners([]) ->
     lists:foreach(
         fun({ID, Conf}) ->
             Bind = maps:get(bind, Conf),
+            Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
             Running = maps:get(running, Conf),
@@ -704,6 +705,7 @@ listeners([]) ->
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
+                    {enbale, Enable},
                     {running, Running}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [ID]),
@@ -747,12 +749,37 @@ listeners(["restart", ListenerId]) ->
         _ ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
+listeners(["enable", ListenerId, Enable0]) ->
+    Enable = Enable0 =:= "true",
+    Action =
+        case Enable of
+            true ->
+                start;
+            _ ->
+                stop
+        end,
+    case emqx_listeners:parse_listener_id(ListenerId) of
+        {ok, #{type := Type, name := Name}} ->
+            RawConf = emqx_mgmt_listeners_conf:get_raw(Type, Name),
+            Conf = RawConf#{<<"enable">> := Enable},
+            case emqx_mgmt_listeners_conf:action(Type, Name, Action, Conf) of
+                {ok, _} ->
+                    emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable]);
+                {error, Reason} ->
+                    emqx_ctl:print("Update listener: ~0p failed, Reason: ~0p~n", [
+                        ListenerId, Reason
+                    ])
+            end;
+        _ ->
+            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
+    end;
 listeners(_) ->
     emqx_ctl:usage([
         {"listeners", "List listeners"},
         {"listeners stop    <Identifier>", "Stop a listener"},
         {"listeners start   <Identifier>", "Start a listener"},
-        {"listeners restart <Identifier>", "Restart a listener"}
+        {"listeners restart <Identifier>", "Restart a listener"},
+        {"listeners enable <Identifier> <Bool>", "Enable or disable a listener"}
     ]).
 
 %%--------------------------------------------------------------------
