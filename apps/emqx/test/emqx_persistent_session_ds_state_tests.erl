@@ -21,11 +21,12 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(tab, ?MODULE).
-
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-define(tab, ?MODULE).
+-define(DB, emqx_persistent_session).
 
 %% Note: here `committed' != `dirty'. It means "has been committed at
 %% least once since the creation", and it's used by the iteration
@@ -33,6 +34,15 @@
 -record(s, {subs = #{}, metadata = #{}, streams = #{}, seqno = #{}, committed = false}).
 
 -type state() :: #{emqx_persistent_session_ds:id() => #s{}}.
+
+-define(metadata_domain, metadata).
+-define(metadata_domain_bin, <<"metadata">>).
+-define(subscription_domain, subscription).
+-define(subscription_state_domain, subscription_state).
+-define(stream_domain, stream).
+-define(rank_domain, rank).
+-define(seqno_domain, seqno).
+-define(awaiting_rel_domain, awaiting_rel).
 
 %%================================================================================
 %% Properties
@@ -60,6 +70,76 @@ prop_consistency() ->
                 aggregate(command_names(Cmds), Result =:= ok)
             )
         end
+    ).
+
+%% Verifies that our internal keys generated for stream keys preserve the order relation
+%% between them.
+stream_order_internal_keys_proper_test_() ->
+    Props = [prop_stream_order_internal_keys()],
+    Opts = [{numtests, 100}, {to_file, user}, {max_size, 100}],
+    {timeout, 300, [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}.
+
+prop_stream_order_internal_keys() ->
+    ?FORALL(
+        {Id, Streams0},
+        {session_id(), list({non_neg_integer(), value_gen(), stream_state()})},
+        try
+            init(),
+            Streams = lists:uniq(Streams0),
+            StreamKeys = [{R, S} || {R, S, _SS} <- Streams],
+            ExpectedRanks = lists:sort([R || {R, _S, _SS} <- Streams]),
+            S = lists:foldl(
+                fun({R, S, SS}, Acc) ->
+                    emqx_persistent_session_ds_state:put_stream({R, S}, SS, Acc)
+                end,
+                emqx_persistent_session_ds_state:create_new(Id),
+                Streams
+            ),
+            RevRanks = emqx_persistent_session_ds_state:fold_streams(
+                fun({R, _S}, _SS, Acc) -> [R | Acc] end,
+                [],
+                S
+            ),
+            Ranks = lists:reverse(RevRanks),
+            ?WHENFAIL(
+                io:format(
+                    user,
+                    "Expected ranks:\n  ~p\nRanks:\n  ~p\nStream keys:\n  ~p\n",
+                    [ExpectedRanks, Ranks, StreamKeys]
+                ),
+                ExpectedRanks =:= Ranks
+            )
+        after
+            clean()
+        end
+    ).
+
+prop_domain_msg_roundtrip() ->
+    ?FORALL(
+        {SessionId, Domain, Val},
+        {session_id_gen(), domain_gen(), value_gen()},
+        ?FORALL(
+            Key,
+            key_gen(Domain),
+            begin
+                Msg = emqx_persistent_session_ds_state:to_domain_msg(Domain, SessionId, Key, Val),
+                Parsed = emqx_persistent_session_ds_state:from_domain_msg(Msg),
+                Expected = #{
+                    domain => Domain,
+                    session_id => SessionId,
+                    key => Key,
+                    val => Val
+                },
+                ?WHENFAIL(
+                    begin
+                        io:format(user, " *** Expected =~n       ~p~n", [Expected]),
+                        io:format(user, " *** Got =~n       ~p~n", [Parsed]),
+                        ok
+                    end,
+                    Expected =:= Parsed
+                )
+            end
+        )
     ).
 
 %%================================================================================
@@ -110,16 +190,16 @@ seqno() ->
     range(1, 100).
 
 stream_id() ->
-    range(1, 1).
+    {range(1, 3), oneof([#{}, {}])}.
 
-stream() ->
+stream_state() ->
     oneof([#{}]).
 
 put_req() ->
     oneof([
         ?LET(
             {Id, Stream},
-            {stream_id(), stream()},
+            {stream_id(), stream_state()},
             {#s.streams, put_stream, Id, Stream}
         ),
         ?LET(
@@ -146,6 +226,47 @@ del_req() ->
         {#s.streams, del_stream, stream_id()},
         {#s.subs, del_subscription, topic()}
     ]).
+
+value_gen() ->
+    oneof([#{}, loose_tuple(oneof([range(1, 3), binary()]))]).
+
+session_id_gen() ->
+    frequency([
+        {5, clientid()},
+        {1, <<"a/">>},
+        {1, <<"a/b">>},
+        {1, <<"a/+">>},
+        {1, <<"a/+/#">>},
+        {1, <<"#">>},
+        {1, <<"+">>},
+        {1, <<"/">>}
+    ]).
+
+clientid() ->
+    %% empty string is not valid...
+    ?SUCHTHAT(ClientId, emqx_proper_types:clientid(), ClientId =/= <<>>).
+
+domain_gen() ->
+    oneof([
+        ?metadata_domain,
+        ?subscription_domain,
+        ?subscription_state_domain,
+        ?stream_domain,
+        ?rank_domain,
+        ?seqno_domain,
+        ?awaiting_rel_domain
+    ]).
+
+key_gen(?metadata_domain) ->
+    <<"metadata">>;
+key_gen(?stream_domain) ->
+    ?LET(
+        {Rank, X},
+        {integer(), integer()},
+        <<Rank:64, X:64>>
+    );
+key_gen(_) ->
+    integer().
 
 command(S) ->
     case maps:size(S) > 0 of
@@ -200,7 +321,7 @@ postcondition(S, {call, ?MODULE, gen_get, [SessionId, {Idx, Fun, Key}]}, Result)
     ?assertEqual(
         maps:get(Key, element(Idx, Record), undefined),
         Result,
-        #{session_id => SessionId, key => Key, 'fun' => Fun}
+        #{session_id => SessionId, key => Key, 'fun' => Fun, st => get_state(SessionId)}
     ),
     true;
 postcondition(_, _, _) ->
@@ -319,9 +440,21 @@ put_state(SessionId, S) ->
 init() ->
     _ = ets:new(?tab, [named_table, public, {keypos, 1}]),
     mria:start(),
-    emqx_persistent_session_ds_state:create_tables().
+    {ok, _} = application:ensure_all_started(emqx_ds_backends),
+    Dir = binary_to_list(filename:join(["/tmp", emqx_guid:to_hexstr(emqx_guid:gen())])),
+    persistent_term:put({?MODULE, data_dir}, Dir),
+    application:set_env(emqx_durable_storage, db_data_dir, Dir),
+    ok = emqx_persistent_session_ds_state:open_db(),
+    ok.
 
 clean() ->
     ets:delete(?tab),
+    emqx_ds:drop_db(?DB),
+    application:stop(emqx_ds_backends),
+    application:stop(emqx_ds_builtin_local),
     mria:stop(),
-    mria_mnesia:delete_schema().
+    mria_mnesia:delete_schema(),
+    Dir = persistent_term:get({?MODULE, data_dir}),
+    persistent_term:erase({?MODULE, data_dir}),
+    file:del_dir_r(Dir),
+    ok.

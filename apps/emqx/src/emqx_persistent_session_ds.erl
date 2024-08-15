@@ -82,7 +82,7 @@
 ]).
 
 %% session table operations
--export([create_tables/0, sync/1]).
+-export([sync/1]).
 
 %% internal export used by session GC process
 -export([destroy_session/1]).
@@ -831,9 +831,6 @@ get_client_subscription(ClientId, TopicFilter) ->
 %%--------------------------------------------------------------------
 %% Session tables operations
 %%--------------------------------------------------------------------
-
-create_tables() ->
-    emqx_persistent_session_ds_state:create_tables().
 
 %% @doc Force syncing of the transient state to persistent storage
 sync(ClientId) ->
