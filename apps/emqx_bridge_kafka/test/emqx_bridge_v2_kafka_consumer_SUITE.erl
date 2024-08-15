@@ -354,7 +354,7 @@ t_bad_bootstrap_host(Config) ->
 
 %% Checks that a group id is automatically generated if a custom one is not provided in
 %% the config.
-t_empty_group_id(Config) ->
+t_absent_group_id(Config) ->
     ?check_trace(
         begin
             #{<<"bootstrap_hosts">> := BootstrapHosts} = ?config(connector_config, Config),
@@ -369,6 +369,35 @@ t_empty_group_id(Config) ->
                 )
             ),
             {ok, {{_, 201, _}, _, _}} = emqx_bridge_v2_testlib:create_bridge_api(Config),
+            [Endpoint] = emqx_bridge_kafka_impl:hosts(BootstrapHosts),
+            GroupId = emqx_bridge_kafka_impl_consumer:consumer_group_id(#{}, SourceName),
+            ct:pal("generated group id: ~p", [GroupId]),
+            ?retry(100, 10, begin
+                {ok, Groups} = brod:list_groups(Endpoint, _ConnOpts = #{}),
+                ?assertMatch(
+                    [_],
+                    [Group || Group = {_, Id, _} <- Groups, Id == GroupId],
+                    #{groups => Groups}
+                )
+            end),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that a group id is automatically generated if an empty string is provided in the
+%% config.
+t_empty_group_id(Config) ->
+    ?check_trace(
+        begin
+            #{<<"bootstrap_hosts">> := BootstrapHosts} = ?config(connector_config, Config),
+            SourceName = ?config(source_name, Config),
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_bridge_api(
+                    Config,
+                    #{<<"parameters">> => #{<<"group_id">> => <<"">>}}
+                ),
             [Endpoint] = emqx_bridge_kafka_impl:hosts(BootstrapHosts),
             GroupId = emqx_bridge_kafka_impl_consumer:consumer_group_id(#{}, SourceName),
             ct:pal("generated group id: ~p", [GroupId]),
