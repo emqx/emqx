@@ -1390,7 +1390,6 @@ log_handler_common_confs(Handler, Default) ->
         {"payload_encode",
             sc(hoconsc:enum([hex, text, hidden]), #{
                 default => text,
-                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(emqx_schema, fields_trace_payload_encode)
             })}
     ].
