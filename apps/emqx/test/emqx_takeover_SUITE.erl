@@ -915,7 +915,7 @@ t_kick_session(Config) ->
     ),
     #{client := [CPidSub, CPid1]} = FCtx,
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), kicked),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(timer:seconds(1))],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     %% THEN: payload <<"willpayload_kick">> should be published
     {IsWill, _ReceivedNoWill} = filter_payload(Received, <<"willpayload_kick">>),
