@@ -75,7 +75,9 @@
     install_dir/0,
     avsc_file_path/1,
     md5sum_file/1,
-    with_plugin_avsc/1
+    with_plugin_avsc/1,
+    ensure_ssl_files/2,
+    ensure_ssl_files/3
 ]).
 
 %% `emqx_config_handler' API
@@ -513,6 +515,12 @@ get_tar(NameVsn) ->
                     Err
             end
     end.
+
+ensure_ssl_files(NameVsn, SSL) ->
+    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL).
+
+ensure_ssl_files(NameVsn, SSL, Opts) ->
+    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL, Opts).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -1528,6 +1536,9 @@ plugin_data_dir(NameVsn) ->
             }),
             {error, Reason}
     end.
+
+plugin_certs_dir(NameVsn) ->
+    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "certs"])).
 
 %% Files
 -spec pkg_file_path(name_vsn()) -> string().
