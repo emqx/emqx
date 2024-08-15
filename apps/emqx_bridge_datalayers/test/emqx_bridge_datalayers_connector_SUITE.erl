@@ -2,7 +2,7 @@
 %% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_influxdb_connector_SUITE).
+-module(emqx_bridge_datalayers_connector_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -11,7 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(INFLUXDB_RESOURCE_MOD, emqx_bridge_influxdb_connector).
+-define(DATALAYERS_RESOURCE_MOD, emqx_bridge_datalayers_connector).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -20,35 +20,51 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    InfluxDBTCPHost = os:getenv("INFLUXDB_APIV2_TCP_HOST", "toxiproxy"),
-    InfluxDBTCPPort = list_to_integer(os:getenv("INFLUXDB_APIV2_TCP_PORT", "8086")),
-    InfluxDBTLSHost = os:getenv("INFLUXDB_APIV2_TLS_HOST", "toxiproxy"),
-    InfluxDBTLSPort = list_to_integer(os:getenv("INFLUXDB_APIV2_TLS_PORT", "8087")),
-    Servers = [{InfluxDBTCPHost, InfluxDBTCPPort}, {InfluxDBTLSHost, InfluxDBTLSPort}],
+    DatalayersTCPHost = os:getenv("DATALAYERS_TCP_HOST", "toxiproxy"),
+    DatalayersTCPPort = list_to_integer(os:getenv("DATALAYERS_TCP_PORT", "8361")),
+    DatalayersTLSHost = os:getenv("DATALAYERS_TLS_HOST", "toxiproxy"),
+    DatalayersTLSPort = list_to_integer(os:getenv("DATALAYERS_TLS_PORT", "8362")),
+    Servers = [{DatalayersTCPHost, DatalayersTCPPort}, {DatalayersTLSHost, DatalayersTLSPort}],
     case emqx_common_test_helpers:is_all_tcp_servers_available(Servers) of
         true ->
             Apps = emqx_cth_suite:start(
                 [
                     emqx_conf,
-                    emqx_bridge_influxdb,
+                    emqx_bridge_datalayers,
                     emqx_bridge
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            [
-                {apps, Apps},
-                {influxdb_tcp_host, InfluxDBTCPHost},
-                {influxdb_tcp_port, InfluxDBTCPPort},
-                {influxdb_tls_host, InfluxDBTLSHost},
-                {influxdb_tls_port, InfluxDBTLSPort}
-                | Config
-            ];
+            EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_apiv1">>,
+            EHttpcPoolName = binary_to_atom(EHttpcPoolNameBin),
+            EHttpcPoolOpts = [
+                {host, DatalayersTCPHost},
+                {port, DatalayersTCPPort},
+                {pool_size, 1},
+                {transport, tcp},
+                {transport_opts, []}
+            ],
+
+            {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
+
+            NewConfig =
+                [
+                    {apps, Apps},
+                    {datalayers_host, DatalayersTCPHost},
+                    {datalayers_port, DatalayersTCPPort},
+                    {datalayers_tls_host, DatalayersTLSHost},
+                    {datalayers_tls_port, DatalayersTLSPort},
+                    {ehttpc_pool_name, EHttpcPoolName}
+                    | Config
+                ],
+            emqx_bridge_datalayers_SUITE:ensure_database(NewConfig),
+            NewConfig;
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
-                    throw(no_influxdb);
+                    throw(no_datalayers);
                 _ ->
-                    {skip, no_influxdb}
+                    {skip, no_datalayers}
             end
     end.
 
@@ -68,19 +84,19 @@ end_per_testcase(_, _Config) ->
 % %%------------------------------------------------------------------------------
 
 t_lifecycle(Config) ->
-    Host = ?config(influxdb_tcp_host, Config),
-    Port = ?config(influxdb_tcp_port, Config),
+    Host = ?config(datalayers_host, Config),
+    Port = ?config(datalayers_port, Config),
     perform_lifecycle_check(
-        <<"emqx_bridge_influxdb_connector_SUITE">>,
-        influxdb_connector_config(Host, Port, false, <<"verify_none">>)
+        <<"emqx_bridge_datalayers_connector_SUITE">>,
+        datalayers_connector_config(Host, Port, false, <<"verify_none">>)
     ).
 
 perform_lifecycle_check(PoolName, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
-        emqx_resource:check_config(?INFLUXDB_RESOURCE_MOD, InitialConfig),
+        emqx_resource:check_config(?DATALAYERS_RESOURCE_MOD, InitialConfig),
     % We need to add a write_syntax to the config since the connector
     % expects this
-    FullConfig = CheckedConfig#{write_syntax => influxdb_write_syntax()},
+    FullConfig = CheckedConfig#{write_syntax => datalayers_write_syntax()},
     {ok, #{
         id := ResourceId,
         state := #{client := #{pool := ReturnedPoolName}} = State,
@@ -88,7 +104,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     }} = emqx_resource:create_local(
         PoolName,
         ?CONNECTOR_RESOURCE_GROUP,
-        ?INFLUXDB_RESOURCE_MOD,
+        ?DATALAYERS_RESOURCE_MOD,
         FullConfig,
         #{}
     ),
@@ -101,7 +117,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         emqx_resource:get_instance(PoolName),
     ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
     %% install actions to the connector
-    ActionConfig = influxdb_action_config(),
+    ActionConfig = datalayers_action_config(),
     ChannelId = <<"test_channel">>,
     ?assertEqual(
         ok,
@@ -150,9 +166,9 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
 
 t_tls_verify_none(Config) ->
     PoolName = <<"testpool-1">>,
-    Host = ?config(influxdb_tls_host, Config),
-    Port = ?config(influxdb_tls_port, Config),
-    InitialConfig = influxdb_connector_config(Host, Port, true, <<"verify_none">>),
+    Host = ?config(datalayers_tls_host, Config),
+    Port = ?config(datalayers_tls_port, Config),
+    InitialConfig = datalayers_connector_config(Host, Port, true, <<"verify_none">>),
     ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
     ?assertEqual(connected, ValidStatus),
     InvalidStatus = perform_tls_opts_check(PoolName, InitialConfig, fail),
@@ -161,9 +177,9 @@ t_tls_verify_none(Config) ->
 
 t_tls_verify_peer(Config) ->
     PoolName = <<"testpool-2">>,
-    Host = ?config(influxdb_tls_host, Config),
-    Port = ?config(influxdb_tls_port, Config),
-    InitialConfig = influxdb_connector_config(Host, Port, true, <<"verify_peer">>),
+    Host = ?config(datalayers_tls_host, Config),
+    Port = ?config(datalayers_tls_port, Config),
+    InitialConfig = datalayers_connector_config(Host, Port, true, <<"verify_peer">>),
     %% This works without a CA-cert & friends since we are using a mock
     ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
     ?assertEqual(connected, ValidStatus),
@@ -173,7 +189,7 @@ t_tls_verify_peer(Config) ->
 
 perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
     {ok, #{config := CheckedConfig}} =
-        emqx_resource:check_config(?INFLUXDB_RESOURCE_MOD, InitialConfig),
+        emqx_resource:check_config(?DATALAYERS_RESOURCE_MOD, InitialConfig),
     % Meck handling of TLS opt handling so that we can inject custom
     % verification returns
     meck:new(emqx_tls_lib, [passthrough, no_link]),
@@ -192,14 +208,14 @@ perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
     try
         % We need to add a write_syntax to the config since the connector
         % expects this
-        FullConfig = CheckedConfig#{write_syntax => influxdb_write_syntax()},
+        FullConfig = CheckedConfig#{write_syntax => datalayers_write_syntax()},
         {ok, #{
             config := #{ssl := #{enable := SslEnabled}},
             status := Status
         }} = emqx_resource:create_local(
             PoolName,
             ?CONNECTOR_RESOURCE_GROUP,
-            ?INFLUXDB_RESOURCE_MOD,
+            ?DATALAYERS_RESOURCE_MOD,
             FullConfig,
             #{}
         ),
@@ -216,14 +232,14 @@ perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
 % %% Helpers
 % %%------------------------------------------------------------------------------
 
-influxdb_connector_config(Host, Port, SslEnabled, Verify) ->
+datalayers_connector_config(Host, Port, SslEnabled, Verify) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
     ConnectorConf = #{
         <<"parameters">> => #{
-            <<"influxdb_type">> => <<"influxdb_api_v2">>,
-            <<"bucket">> => <<"mqtt">>,
-            <<"org">> => <<"emqx">>,
-            <<"token">> => <<"abcdefg">>
+            <<"datalayers_type">> => <<"datalayers_api_v1">>,
+            <<"database">> => <<"mqtt">>,
+            <<"username">> => <<"admin">>,
+            <<"password">> => <<"public">>
         },
         <<"server">> => Server,
         <<"ssl">> => #{
@@ -233,10 +249,10 @@ influxdb_connector_config(Host, Port, SslEnabled, Verify) ->
     },
     #{<<"config">> => ConnectorConf}.
 
-influxdb_action_config() ->
+datalayers_action_config() ->
     #{
         parameters => #{
-            write_syntax => influxdb_write_syntax(),
+            write_syntax => datalayers_write_syntax(),
             precision => ms
         }
     }.
@@ -253,7 +269,7 @@ custom_verify() ->
             {fail, unexpected_call_to_verify_fun}
     end.
 
-influxdb_write_syntax() ->
+datalayers_write_syntax() ->
     [
         #{
             measurement => "${topic}",

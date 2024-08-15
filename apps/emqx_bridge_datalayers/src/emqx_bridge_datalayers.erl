@@ -101,7 +101,7 @@ connector_values_v(datalayers_api_v1) ->
 basic_connector_values() ->
     #{
         enable => true,
-        server => <<"127.0.0.1:8086">>,
+        server => <<"127.0.0.1:8361">>,
         ssl => #{enable => false}
     }.
 
@@ -129,7 +129,7 @@ values(common, Protocol, SupportUint, TypeOpts) ->
             batch_size => 100,
             batch_time => <<"20ms">>
         },
-        server => <<"127.0.0.1:8086">>,
+        server => <<"127.0.0.1:8361">>,
         ssl => #{enable => false}
     },
     maps:merge(TypeOpts, CommonConfigs).

@@ -58,6 +58,9 @@ services:
       # GreptimeDB
       - 4000:4000
       - 4001:4001
+      # Datalayers
+      - 8361:8361
+      - 8362:8362
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"

@@ -215,8 +215,7 @@ on_format_query_result(Result) ->
     emqx_bridge_http_connector:on_format_query_result(Result).
 
 on_get_status(_InstId, #{client := Client}) ->
-    %case influxdb:is_alive(Client) andalso ok =:= influxdb:check_auth(Client) of
-    case influxdb:is_alive(Client) of
+    case influxdb:is_alive(Client) andalso ok =:= influxdb:check_auth(Client) of
         true ->
             connected;
         false ->
@@ -362,31 +361,29 @@ do_start_client(InstId, ClientConfig, Config) ->
         {ok, Client} ->
             case influxdb:is_alive(Client, true) of
                 true ->
-                    State = #{client => Client, channels => #{}},
-                    {ok, State};
-                %case influxdb:check_auth(Client) of
-                %    ok ->
-                %        State = #{client => Client, channels => #{}},
-                %        ?SLOG(info, #{
-                %            msg => "starting_datalayers_connector_success",
-                %            connector => InstId,
-                %            client => redact_auth(Client),
-                %            state => redact_auth(State)
-                %        }),
-                %        {ok, State};
-                %    Error ->
-                %        ?tp(datalayers_connector_start_failed, #{error => auth_error}),
-                %        ?SLOG(warning, #{
-                %            msg => "failed_to_start_datalayers_connector",
-                %            error => Error,
-                %            connector => InstId,
-                %            client => redact_auth(Client),
-                %            reason => auth_error
-                %        }),
-                %        %% no leak
-                %        _ = influxdb:stop_client(Client),
-                %        {error, connect_ok_but_auth_failed}
-                %end;
+                    case influxdb:check_auth(Client) of
+                        ok ->
+                            State = #{client => Client, channels => #{}},
+                            ?SLOG(info, #{
+                                msg => "starting_datalayers_connector_success",
+                                connector => InstId,
+                                client => redact_auth(Client),
+                                state => redact_auth(State)
+                            }),
+                            {ok, State};
+                        Error ->
+                            ?tp(datalayers_connector_start_failed, #{error => auth_error}),
+                            ?SLOG(warning, #{
+                                msg => "failed_to_start_datalayers_connector",
+                                error => Error,
+                                connector => InstId,
+                                client => redact_auth(Client),
+                                reason => auth_error
+                            }),
+                            %% no leak
+                            _ = influxdb:stop_client(Client),
+                            {error, connect_ok_but_auth_failed}
+                    end;
                 {false, Reason} ->
                     ?tp(datalayers_connector_start_failed, #{
                         error => datalayers_client_not_alive, reason => Reason

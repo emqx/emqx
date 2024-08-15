@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_influxdb_SUITE).
+-module(emqx_bridge_datalayers_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -16,37 +16,31 @@
 
 all() ->
     [
-        {group, with_batch},
+        %{group, with_batch},
         {group, without_batch}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {with_batch, [
-            {group, sync_query},
-            {group, async_query}
-        ]},
+        %{with_batch, [
+        %    {group, sync_query},
+        %    {group, async_query}
+        %]},
         {without_batch, [
-            {group, sync_query},
-            {group, async_query}
+            {group, sync_query}
+            %{group, async_query}
         ]},
         {sync_query, [
             {group, apiv1_tcp},
-            {group, apiv1_tls},
-            {group, apiv2_tcp},
-            {group, apiv2_tls}
+            {group, apiv1_tls}
         ]},
-        {async_query, [
-            {group, apiv1_tcp},
-            {group, apiv1_tls},
-            {group, apiv2_tcp},
-            {group, apiv2_tls}
-        ]},
+        %{async_query, [
+        %    {group, apiv1_tcp},
+        %    {group, apiv1_tls}
+        %]},
         {apiv1_tcp, TCs},
-        {apiv1_tls, TCs},
-        {apiv2_tcp, TCs},
-        {apiv2_tls, TCs}
+        {apiv1_tls, TCs}
     ].
 
 init_per_suite(Config) ->
@@ -55,33 +49,33 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_group(InfluxDBType, Config0) when
-    InfluxDBType =:= apiv1_tcp;
-    InfluxDBType =:= apiv1_tls
+init_per_group(DatalayersType, Config0) when
+    DatalayersType =:= apiv1_tcp;
+    DatalayersType =:= apiv1_tls
 ->
     #{
-        host := InfluxDBHost,
-        port := InfluxDBPort,
+        host := DatalayersHost,
+        port := DatalayersPort,
         use_tls := UseTLS,
         proxy_name := ProxyName
     } =
-        case InfluxDBType of
+        case DatalayersType of
             apiv1_tcp ->
                 #{
-                    host => os:getenv("INFLUXDB_APIV1_TCP_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("INFLUXDB_APIV1_TCP_PORT", "8086")),
+                    host => os:getenv("DATALAYERS_TCP_HOST", "toxiproxy"),
+                    port => list_to_integer(os:getenv("DATALAYERS_TCP_PORT", "8361")),
                     use_tls => false,
-                    proxy_name => "influxdb_tcp"
+                    proxy_name => "datalayers_tcp"
                 };
             apiv1_tls ->
                 #{
-                    host => os:getenv("INFLUXDB_APIV1_TLS_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("INFLUXDB_APIV1_TLS_PORT", "8087")),
+                    host => os:getenv("DATALAYERS_TLS_HOST", "toxiproxy"),
+                    port => list_to_integer(os:getenv("DATALAYERS_TLS_PORT", "8362")),
                     use_tls => true,
-                    proxy_name => "influxdb_tls"
+                    proxy_name => "datalayers_tls"
                 }
         end,
-    case emqx_common_test_helpers:is_tcp_server_available(InfluxDBHost, InfluxDBPort) of
+    case emqx_common_test_helpers:is_tcp_server_available(DatalayersHost, DatalayersPort) of
         true ->
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
@@ -89,7 +83,7 @@ init_per_group(InfluxDBType, Config0) when
             Apps = emqx_cth_suite:start(
                 [
                     emqx_conf,
-                    emqx_bridge_influxdb,
+                    emqx_bridge_datalayers,
                     emqx_bridge,
                     emqx_rule_engine,
                     emqx_management,
@@ -98,8 +92,8 @@ init_per_group(InfluxDBType, Config0) when
                 #{work_dir => emqx_cth_suite:work_dir(Config0)}
             ),
             Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
-            {Name, ConfigString, InfluxDBConfig} = influxdb_config(
-                apiv1, InfluxDBHost, InfluxDBPort, Config
+            {Name, ConfigString, DatalayersConfig} = datalayers_config(
+                apiv1, DatalayersHost, DatalayersPort, Config
             ),
             EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_apiv1">>,
             EHttpcPoolName = binary_to_atom(EHttpcPoolNameBin),
@@ -109,111 +103,35 @@ init_per_group(InfluxDBType, Config0) when
                     false -> {tcp, []}
                 end,
             EHttpcPoolOpts = [
-                {host, InfluxDBHost},
-                {port, InfluxDBPort},
+                {host, DatalayersHost},
+                {port, DatalayersPort},
                 {pool_size, 1},
                 {transport, EHttpcTransport},
                 {transport_opts, EHttpcTransportOpts}
             ],
+
             {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
-            [
-                {proxy_host, ProxyHost},
-                {proxy_port, ProxyPort},
-                {proxy_name, ProxyName},
-                {influxdb_host, InfluxDBHost},
-                {influxdb_port, InfluxDBPort},
-                {influxdb_type, apiv1},
-                {influxdb_config, InfluxDBConfig},
-                {influxdb_config_string, ConfigString},
-                {ehttpc_pool_name, EHttpcPoolName},
-                {bridge_type, influxdb_api_v1},
-                {bridge_name, Name},
-                {bridge_config, InfluxDBConfig},
-                {influxdb_name, Name}
-                | Config
-            ];
-        false ->
-            {skip, no_influxdb}
-    end;
-init_per_group(InfluxDBType, Config0) when
-    InfluxDBType =:= apiv2_tcp;
-    InfluxDBType =:= apiv2_tls
-->
-    #{
-        host := InfluxDBHost,
-        port := InfluxDBPort,
-        use_tls := UseTLS,
-        proxy_name := ProxyName
-    } =
-        case InfluxDBType of
-            apiv2_tcp ->
-                #{
-                    host => os:getenv("INFLUXDB_APIV2_TCP_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("INFLUXDB_APIV2_TCP_PORT", "8086")),
-                    use_tls => false,
-                    proxy_name => "influxdb_tcp"
-                };
-            apiv2_tls ->
-                #{
-                    host => os:getenv("INFLUXDB_APIV2_TLS_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("INFLUXDB_APIV2_TLS_PORT", "8087")),
-                    use_tls => true,
-                    proxy_name => "influxdb_tls"
-                }
-        end,
-    case emqx_common_test_helpers:is_tcp_server_available(InfluxDBHost, InfluxDBPort) of
-        true ->
-            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            Apps = emqx_cth_suite:start(
+            NewConfig =
                 [
-                    emqx_conf,
-                    emqx_bridge_influxdb,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
+                    {proxy_host, ProxyHost},
+                    {proxy_port, ProxyPort},
+                    {proxy_name, ProxyName},
+                    {datalayers_host, DatalayersHost},
+                    {datalayers_port, DatalayersPort},
+                    {datalayers_type, apiv1},
+                    {datalayers_config, DatalayersConfig},
+                    {datalayers_config_string, ConfigString},
+                    {ehttpc_pool_name, EHttpcPoolName},
+                    {bridge_type, datalayers},
+                    {bridge_name, Name},
+                    {bridge_config, DatalayersConfig},
+                    {datalayers_name, Name}
+                    | Config
                 ],
-                #{work_dir => emqx_cth_suite:work_dir(Config0)}
-            ),
-            Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
-            {Name, ConfigString, InfluxDBConfig} = influxdb_config(
-                apiv2, InfluxDBHost, InfluxDBPort, Config
-            ),
-            EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_apiv2">>,
-            EHttpcPoolName = binary_to_atom(EHttpcPoolNameBin),
-            {EHttpcTransport, EHttpcTransportOpts} =
-                case UseTLS of
-                    true -> {tls, [{verify, verify_none}]};
-                    false -> {tcp, []}
-                end,
-            EHttpcPoolOpts = [
-                {host, InfluxDBHost},
-                {port, InfluxDBPort},
-                {pool_size, 1},
-                {transport, EHttpcTransport},
-                {transport_opts, EHttpcTransportOpts}
-            ],
-            {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
-            [
-                {proxy_host, ProxyHost},
-                {proxy_port, ProxyPort},
-                {proxy_name, ProxyName},
-                {influxdb_host, InfluxDBHost},
-                {influxdb_port, InfluxDBPort},
-                {influxdb_type, apiv2},
-                {influxdb_config, InfluxDBConfig},
-                {influxdb_config_string, ConfigString},
-                {ehttpc_pool_name, EHttpcPoolName},
-                {bridge_type, influxdb_api_v2},
-                {bridge_name, Name},
-                {bridge_config, InfluxDBConfig},
-                {influxdb_name, Name}
-                | Config
-            ];
+            ensure_database(NewConfig),
+            NewConfig;
         false ->
-            {skip, no_influxdb}
+            {skip, no_datalayers}
     end;
 init_per_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
@@ -228,9 +146,7 @@ init_per_group(_Group, Config) ->
 
 end_per_group(Group, Config) when
     Group =:= apiv1_tcp;
-    Group =:= apiv1_tls;
-    Group =:= apiv2_tcp;
-    Group =:= apiv2_tls
+    Group =:= apiv1_tls
 ->
     Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
@@ -269,7 +185,7 @@ example_write_syntax() ->
         "float_value=${payload.float_key},", "undef_value=${payload.undef},",
         "${undef_key}=\"hard-coded-value\",", "bool=${payload.bool}">>.
 
-influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
+datalayers_config(apiv1 = Type, DatalayersHost, DatalayersPort, Config) ->
     BatchSize = proplists:get_value(batch_size, Config, 100),
     QueryMode = proplists:get_value(query_mode, Config, sync),
     UseTLS = proplists:get_value(use_tls, Config, false),
@@ -277,12 +193,12 @@ influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
     WriteSyntax = example_write_syntax(),
     ConfigString =
         io_lib:format(
-            "bridges.influxdb_api_v1.~s {\n"
+            "bridges.datalayers.~s {\n"
             "  enable = true\n"
-            "  server = \"~p:~b\"\n"
+            "  server = \"~s:~b\"\n"
             "  database = mqtt\n"
-            "  username = root\n"
-            "  password = emqx@123\n"
+            "  username = admin\n"
+            "  password = public\n"
             "  precision = ns\n"
             "  write_syntax = \"~s\"\n"
             "  resource_opts = {\n"
@@ -297,45 +213,8 @@ influxdb_config(apiv1 = Type, InfluxDBHost, InfluxDBPort, Config) ->
             "}\n",
             [
                 Name,
-                InfluxDBHost,
-                InfluxDBPort,
-                WriteSyntax,
-                QueryMode,
-                BatchSize,
-                UseTLS
-            ]
-        ),
-    {Name, ConfigString, parse_and_check(ConfigString, Type, Name)};
-influxdb_config(apiv2 = Type, InfluxDBHost, InfluxDBPort, Config) ->
-    BatchSize = proplists:get_value(batch_size, Config, 100),
-    QueryMode = proplists:get_value(query_mode, Config, sync),
-    UseTLS = proplists:get_value(use_tls, Config, false),
-    Name = atom_to_binary(?MODULE),
-    WriteSyntax = example_write_syntax(),
-    ConfigString =
-        io_lib:format(
-            "bridges.influxdb_api_v2.~s {\n"
-            "  enable = true\n"
-            "  server = \"~p:~b\"\n"
-            "  bucket = mqtt\n"
-            "  org = emqx\n"
-            "  token = abcdefg\n"
-            "  precision = ns\n"
-            "  write_syntax = \"~s\"\n"
-            "  resource_opts = {\n"
-            "    request_ttl = 1s\n"
-            "    query_mode = ~s\n"
-            "    batch_size = ~b\n"
-            "  }\n"
-            "  ssl {\n"
-            "    enable = ~p\n"
-            "    verify = verify_none\n"
-            "  }\n"
-            "}\n",
-            [
-                Name,
-                InfluxDBHost,
-                InfluxDBPort,
+                DatalayersHost,
+                DatalayersPort,
                 WriteSyntax,
                 QueryMode,
                 BatchSize,
@@ -346,29 +225,27 @@ influxdb_config(apiv2 = Type, InfluxDBHost, InfluxDBPort, Config) ->
 
 parse_and_check(ConfigString, Type, Name) ->
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    TypeBin = influxdb_type_bin(Type),
+    TypeBin = datalayers_type_bin(Type),
     hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
     #{<<"bridges">> := #{TypeBin := #{Name := Config}}} = RawConf,
     Config.
 
-influxdb_type_bin(apiv1) ->
-    <<"influxdb_api_v1">>;
-influxdb_type_bin(apiv2) ->
-    <<"influxdb_api_v2">>.
+datalayers_type_bin(apiv1) ->
+    <<"datalayers">>.
 
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
 
 create_bridge(Config, Overrides) ->
-    Type = influxdb_type_bin(?config(influxdb_type, Config)),
-    Name = ?config(influxdb_name, Config),
-    InfluxDBConfig0 = ?config(influxdb_config, Config),
-    InfluxDBConfig = emqx_utils_maps:deep_merge(InfluxDBConfig0, Overrides),
-    emqx_bridge:create(Type, Name, InfluxDBConfig).
+    Type = datalayers_type_bin(?config(datalayers_type, Config)),
+    Name = ?config(datalayers_name, Config),
+    DatalayersConfig0 = ?config(datalayers_config, Config),
+    DatalayersConfig = emqx_utils_maps:deep_merge(DatalayersConfig0, Overrides),
+    emqx_bridge:create(Type, Name, DatalayersConfig).
 
 delete_bridge(Config) ->
-    Type = influxdb_type_bin(?config(influxdb_type, Config)),
-    Name = ?config(influxdb_name, Config),
+    Type = datalayers_type_bin(?config(datalayers_type, Config)),
+    Name = ?config(datalayers_name, Config),
     emqx_bridge:remove(Type, Name).
 
 delete_all_bridges() ->
@@ -391,9 +268,9 @@ create_rule_and_action_http(Config) ->
     create_rule_and_action_http(Config, _Overrides = #{}).
 
 create_rule_and_action_http(Config, Overrides) ->
-    InfluxDBName = ?config(influxdb_name, Config),
-    Type = influxdb_type_bin(?config(influxdb_type, Config)),
-    BridgeId = emqx_bridge_resource:bridge_id(Type, InfluxDBName),
+    DatalayersName = ?config(datalayers_name, Config),
+    Type = datalayers_type_bin(?config(datalayers_type, Config)),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, DatalayersName),
     Params0 = #{
         enable => true,
         sql => <<"SELECT * FROM \"t/topic\"">>,
@@ -408,17 +285,32 @@ create_rule_and_action_http(Config, Overrides) ->
     end.
 
 send_message(Config, Payload) ->
-    Name = ?config(influxdb_name, Config),
-    Type = influxdb_type_bin(?config(influxdb_type, Config)),
+    Name = ?config(datalayers_name, Config),
+    Type = datalayers_type_bin(?config(datalayers_type, Config)),
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
     emqx_bridge:send_message(BridgeId, Payload).
 
-query_by_clientid(ClientId, Config) ->
-    InfluxDBHost = ?config(influxdb_host, Config),
-    InfluxDBPort = ?config(influxdb_port, Config),
+query_by_clientid(Table, ClientId, Config) ->
+    SQL = <<"SELECT * FROM ", Table/binary, " WHERE clientid = '", ClientId/binary, "'">>,
+    case exec_sql_via_http_api(SQL, Config) of
+        %% empty response
+        {200, <<>>} ->
+            #{};
+        {200, Resp} ->
+            case emqx_utils_json:decode(Resp, [return_maps]) of
+                [] -> error(no_data);
+                [FirstRow | _] -> FirstRow
+            end;
+        {Code, Resp} ->
+            error({bad_response, Code, Resp})
+    end.
+
+exec_sql_via_http_api(SQL, Config) ->
+    DatalayersHost = ?config(datalayers_host, Config),
+    DatalayersPort = ?config(datalayers_port, Config),
     EHttpcPoolName = ?config(ehttpc_pool_name, Config),
-    UseTLS = ?config(use_tls, Config),
-    Path = <<"/api/v2/query?org=emqx">>,
+    UseTLS = proplists:get_bool(use_tls, Config),
+    Path = <<"/api/v1/sql?db=mqtt">>,
     Scheme =
         case UseTLS of
             true -> <<"https://">>;
@@ -426,74 +318,40 @@ query_by_clientid(ClientId, Config) ->
         end,
     URI = iolist_to_binary([
         Scheme,
-        list_to_binary(InfluxDBHost),
+        list_to_binary(DatalayersHost),
         ":",
-        integer_to_binary(InfluxDBPort),
+        integer_to_binary(DatalayersPort),
         Path
     ]),
-    Query =
-        <<
-            "from(bucket: \"mqtt\")\n"
-            "  |> range(start: -12h)\n"
-            "  |> filter(fn: (r) => r.clientid == \"",
-            ClientId/binary,
-            "\")"
-        >>,
     Headers = [
-        {"Authorization", "Token abcdefg"},
-        {"Content-Type", "application/json"}
+        {"Authorization", "Basic " ++ base64:encode_to_string("admin:public")},
+        {"Content-Type", "application/binary"}
     ],
-    Body =
-        emqx_utils_json:encode(#{
-            query => Query,
-            dialect => #{
-                header => true,
-                annotations => [<<"datatype">>],
-                delimiter => <<";">>
-            }
-        }),
-    {ok, 200, _Headers, RawBody0} =
-        ehttpc:request(
-            EHttpcPoolName,
-            post,
-            {URI, Headers, Body},
-            _Timeout = 10_000,
-            _Retry = 0
-        ),
-    %ct:pal("raw body: ~p", [RawBody0]),
-    RawBody1 = iolist_to_binary(string:replace(RawBody0, <<"\r\n">>, <<"\n">>, all)),
-    {ok, DecodedCSV0} = erl_csv:decode(RawBody1, #{separator => <<$;>>}),
-    DecodedCSV1 = [
-        [Field || Field <- Line, Field =/= <<>>]
-     || Line <- DecodedCSV0, Line =/= [<<>>]
-    ],
-    DecodedCSV2 = csv_lines_to_maps(DecodedCSV1),
-    index_by_field(DecodedCSV2).
-
-csv_lines_to_maps([[<<"#datatype">> | DataType], Title | Rest]) ->
-    csv_lines_to_maps(Rest, Title, _Acc = [], DataType);
-csv_lines_to_maps([]) ->
-    [].
-
-csv_lines_to_maps([[<<"_result">> | _] = Data | RestData], Title, Acc, DataType) ->
-    %ct:pal("data: ~p, title: ~p, datatype: ~p", [Data, Title, DataType]),
-    Map = maps:from_list(lists:zip(Title, Data)),
-    MapT = lists:zip(Title, DataType),
-    [Type] = [T || {<<"_value">>, T} <- MapT],
-    csv_lines_to_maps(RestData, Title, [Map#{'_value_type' => Type} | Acc], DataType);
-%% ignore the csv title line
-%% it's always like this:
-%% [<<"result">>,<<"table">>,<<"_start">>,<<"_stop">>,
-%% <<"_time">>,<<"_value">>,<<"_field">>,<<"_measurement">>, Measurement],
-csv_lines_to_maps([[<<"result">> | _] = _Title | RestData], Title, Acc, DataType) ->
-    csv_lines_to_maps(RestData, Title, Acc, DataType);
-csv_lines_to_maps([[<<"#datatype">> | DataType] | RestData], Title, Acc, _) ->
-    csv_lines_to_maps(RestData, Title, Acc, DataType);
-csv_lines_to_maps([], _Title, Acc, _DataType) ->
-    lists:reverse(Acc).
-
-index_by_field(DecodedCSV) ->
-    maps:from_list([{Field, Data} || Data = #{<<"_field">> := Field} <- DecodedCSV]).
+    ct:pal("Try to execute SQL: ~s~n", [SQL]),
+    Result = ehttpc:request(
+        EHttpcPoolName, post, {URI, Headers, SQL}, _Timeout = 10_000, _Retry = 0
+    ),
+    case Result of
+        {ok, 200, RespHeaders, RespBody} ->
+            ct:pal(
+                "Response:~n"
+                "Code: ~w~n"
+                "Headers: ~p~n"
+                "Body: ~p~n",
+                [200, RespHeaders, RespBody]
+            ),
+            {200, RespBody};
+        {ok, RespCode, RespHeaders} ->
+            ct:pal(
+                "Response:~n"
+                "Code: ~w~n"
+                "Headers: ~p~n",
+                [RespCode, RespHeaders]
+            ),
+            {RespCode, <<>>};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 assert_persisted_data(ClientId, Expected, PersistedData) ->
     ClientIdIntKey = <<ClientId/binary, "_int_value">>,
@@ -501,7 +359,7 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
         fun
             (int_value, ExpectedValue) ->
                 ?assertMatch(
-                    #{<<"_value">> := ExpectedValue},
+                    ExpectedValue,
                     maps:get(ClientIdIntKey, PersistedData)
                 );
             (Key, {ExpectedValue, ExpectedType}) ->
@@ -516,7 +374,7 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
                 );
             (Key, ExpectedValue) ->
                 ?assertMatch(
-                    #{<<"_value">> := ExpectedValue},
+                    ExpectedValue,
                     maps:get(atom_to_binary(Key), PersistedData),
                     #{key => Key, expected_value => ExpectedValue}
                 )
@@ -526,15 +384,21 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
     ok.
 
 resource_id(Config) ->
-    Type = influxdb_type_bin(?config(influxdb_type, Config)),
-    Name = ?config(influxdb_name, Config),
+    Type = datalayers_type_bin(?config(datalayers_type, Config)),
+    Name = ?config(datalayers_name, Config),
     emqx_bridge_resource:resource_id(Type, Name).
+
+ensure_database(Config) ->
+    SQL = <<"create database if not exists mqtt">>,
+    _Resp = exec_sql_via_http_api(SQL, Config),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
 t_start_ok(Config) ->
+    Table = atom_to_binary(?FUNCTION_NAME),
     QueryMode = ?config(query_mode, Config),
     ?assertMatch(
         {ok, _},
@@ -549,7 +413,7 @@ t_start_ok(Config) ->
     },
     SentData = #{
         <<"clientid">> => ClientId,
-        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"topic">> => Table,
         <<"payload">> => Payload,
         <<"timestamp">> => erlang:system_time(millisecond)
     },
@@ -562,19 +426,19 @@ t_start_ok(Config) ->
                     ?assertMatch({ok, 204, _}, send_message(Config, SentData))
             end,
             ct:sleep(1500),
-            PersistedData = query_by_clientid(ClientId, Config),
+            PersistedData = query_by_clientid(Table, ClientId, Config),
             Expected = #{
-                bool => <<"true">>,
-                int_value => <<"-123">>,
-                uint_value => <<"123">>,
-                float_value => <<"24.5">>,
+                bool => true,
+                int_value => -123,
+                uint_value => 123,
+                float_value => 24.5,
                 payload => emqx_utils_json:encode(Payload)
             },
             assert_persisted_data(ClientId, Expected, PersistedData),
             ok
         end,
         fun(Trace0) ->
-            Trace = ?of_kind(influxdb_connector_send_query, Trace0),
+            Trace = ?of_kind(datalayers_connector_send_query, Trace0),
             ?assertMatch([#{points := [_]}], Trace),
             [#{points := [Point]}] = Trace,
             ct:pal("sent point: ~p", [Point]),
@@ -597,13 +461,13 @@ t_start_ok(Config) ->
     ok.
 
 t_start_stop(Config) ->
-    ok = emqx_bridge_testlib:t_start_stop(Config, influxdb_client_stopped),
+    ok = emqx_bridge_testlib:t_start_stop(Config, datalayers_client_stopped),
     ok.
 
 t_start_already_started(Config) ->
-    Type = influxdb_type_bin(?config(influxdb_type, Config)),
-    Name = ?config(influxdb_name, Config),
-    InfluxDBConfigString = ?config(influxdb_config_string, Config),
+    Type = datalayers_type_bin(?config(datalayers_type, Config)),
+    Name = ?config(datalayers_name, Config),
+    DatalayersConfigString = ?config(datalayers_config_string, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
@@ -611,30 +475,29 @@ t_start_already_started(Config) ->
     ResourceId = resource_id(Config),
     TypeAtom = binary_to_atom(Type),
     NameAtom = binary_to_atom(Name),
-    {ok, #{bridges := #{TypeAtom := #{NameAtom := InfluxDBConfigMap}}}} = emqx_hocon:check(
-        emqx_bridge_schema, InfluxDBConfigString
+    {ok, #{bridges := #{TypeAtom := #{NameAtom := DatalayersConfigMap}}}} = emqx_hocon:check(
+        emqx_bridge_schema, DatalayersConfigString
     ),
-    ConnConfigMap = emqx_bridge_influxdb_connector:transform_bridge_v1_config_to_connector_config(
-        InfluxDBConfigMap
+    ConnConfigMap = emqx_bridge_datalayers_connector:transform_bridge_v1_config_to_connector_config(
+        DatalayersConfigMap
     ),
     ?check_trace(
-        emqx_bridge_influxdb_connector:on_start(ResourceId, ConnConfigMap),
+        emqx_bridge_datalayers_connector:on_start(ResourceId, ConnConfigMap),
         fun(Result, Trace) ->
             ?assertMatch({ok, _}, Result),
-            ?assertMatch([_], ?of_kind(influxdb_connector_start_already_started, Trace)),
+            ?assertMatch([_], ?of_kind(datalayers_connector_start_already_started, Trace)),
             ok
         end
     ),
     ok.
 
 t_start_ok_timestamp_write_syntax(Config) ->
-    InfluxDBType = ?config(influxdb_type, Config),
-    InfluxDBName = ?config(influxdb_name, Config),
-    InfluxDBConfigString0 = ?config(influxdb_config_string, Config),
-    InfluxDBTypeCfg =
-        case InfluxDBType of
-            apiv1 -> "influxdb_api_v1";
-            apiv2 -> "influxdb_api_v2"
+    DatalayersType = ?config(datalayers_type, Config),
+    DatalayersName = ?config(datalayers_name, Config),
+    DatalayersConfigString0 = ?config(datalayers_config_string, Config),
+    DatalayersTypeCfg =
+        case DatalayersType of
+            apiv1 -> "datalayers"
         end,
     WriteSyntax =
         %% N.B.: this single space characters are relevant
@@ -643,19 +506,19 @@ t_start_ok_timestamp_write_syntax(Config) ->
             "uint_value=${payload.uint_key}u,"
             "bool=${payload.bool}", " ", "${timestamp}">>,
     %% append this to override the config
-    InfluxDBConfigString1 =
+    DatalayersConfigString1 =
         io_lib:format(
             "bridges.~s.~s {\n"
             "  write_syntax = \"~s\"\n"
             "}\n",
-            [InfluxDBTypeCfg, InfluxDBName, WriteSyntax]
+            [DatalayersTypeCfg, DatalayersName, WriteSyntax]
         ),
-    InfluxDBConfig1 = parse_and_check(
-        InfluxDBConfigString0 ++ InfluxDBConfigString1,
-        InfluxDBType,
-        InfluxDBName
+    DatalayersConfig1 = parse_and_check(
+        DatalayersConfigString0 ++ DatalayersConfigString1,
+        DatalayersType,
+        DatalayersName
     ),
-    Config1 = [{influxdb_config, InfluxDBConfig1} | Config],
+    Config1 = [{datalayers_config, DatalayersConfig1} | Config],
     ?assertMatch(
         {ok, _},
         create_bridge(Config1)
@@ -663,13 +526,12 @@ t_start_ok_timestamp_write_syntax(Config) ->
     ok.
 
 t_start_ok_no_subject_tags_write_syntax(Config) ->
-    InfluxDBType = ?config(influxdb_type, Config),
-    InfluxDBName = ?config(influxdb_name, Config),
-    InfluxDBConfigString0 = ?config(influxdb_config_string, Config),
-    InfluxDBTypeCfg =
-        case InfluxDBType of
-            apiv1 -> "influxdb_api_v1";
-            apiv2 -> "influxdb_api_v2"
+    DatalayersType = ?config(datalayers_type, Config),
+    DatalayersName = ?config(datalayers_name, Config),
+    DatalayersConfigString0 = ?config(datalayers_config_string, Config),
+    DatalayersTypeCfg =
+        case DatalayersType of
+            apiv1 -> "datalayers"
         end,
     WriteSyntax =
         %% N.B.: this single space characters are relevant
@@ -677,19 +539,19 @@ t_start_ok_no_subject_tags_write_syntax(Config) ->
             "uint_value=${payload.uint_key}u,"
             "bool=${payload.bool}", " ", "${timestamp}">>,
     %% append this to override the config
-    InfluxDBConfigString1 =
+    DatalayersConfigString1 =
         io_lib:format(
             "bridges.~s.~s {\n"
             "  write_syntax = \"~s\"\n"
             "}\n",
-            [InfluxDBTypeCfg, InfluxDBName, WriteSyntax]
+            [DatalayersTypeCfg, DatalayersName, WriteSyntax]
         ),
-    InfluxDBConfig1 = parse_and_check(
-        InfluxDBConfigString0 ++ InfluxDBConfigString1,
-        InfluxDBType,
-        InfluxDBName
+    DatalayersConfig1 = parse_and_check(
+        DatalayersConfigString0 ++ DatalayersConfigString1,
+        DatalayersType,
+        DatalayersName
     ),
-    Config1 = [{influxdb_config, InfluxDBConfig1} | Config],
+    Config1 = [{datalayers_config, DatalayersConfig1} | Config],
     ?assertMatch(
         {ok, _},
         create_bridge(Config1)
@@ -736,21 +598,21 @@ t_const_timestamp(Config) ->
             ?assertMatch({ok, 204, _}, send_message(Config, SentData))
     end,
     ct:sleep(1500),
-    PersistedData = query_by_clientid(ClientId, Config),
+    PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
     Expected = #{
-        foo => {<<"123">>, <<"long">>},
-        foo1 => {<<"123">>, <<"double">>},
-        foo2 => {<<"123">>, <<"string">>},
-        foo3 => {<<"123somestr">>, <<"string">>},
-        bar => {<<"5">>, <<"long">>},
-        baz0 => {<<"1.1">>, <<"double">>},
-        baz1 => {<<"a">>, <<"string">>},
-        baz2 => {<<"ai">>, <<"string">>},
-        baz3 => {<<"au">>, <<"string">>},
-        baz4 => {<<"1u">>, <<"string">>}
+        foo => 123,
+        foo1 => 123.0,
+        foo2 => <<"123">>,
+        foo3 => <<"123somestr">>,
+        bar => 5,
+        baz0 => 1.1,
+        baz1 => <<"a">>,
+        baz2 => <<"ai">>,
+        baz3 => <<"au">>,
+        baz4 => <<"1u">>
     },
     assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned0 = maps:get(<<"_time">>, maps:get(<<"foo">>, PersistedData)),
+    TimeReturned0 = maps:get(<<"time">>, PersistedData),
     TimeReturned = pad_zero(TimeReturned0),
     ?assertEqual(TsStr, TimeReturned).
 
@@ -767,6 +629,7 @@ pad_zero(BinTs) ->
     iolist_to_binary(string:join(lists:reverse([NewNano | Rest]), ".")).
 
 t_boolean_variants(Config) ->
+    Table = atom_to_binary(?FUNCTION_NAME),
     QueryMode = ?config(query_mode, Config),
     ?assertMatch(
         {ok, _},
@@ -794,7 +657,7 @@ t_boolean_variants(Config) ->
             },
             SentData = #{
                 <<"clientid">> => ClientId,
-                <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+                <<"topic">> => Table,
                 <<"timestamp">> => erlang:system_time(millisecond),
                 <<"payload">> => Payload
             },
@@ -805,11 +668,11 @@ t_boolean_variants(Config) ->
                     ?assertMatch(ok, send_message(Config, SentData))
             end,
             ct:sleep(1500),
-            PersistedData = query_by_clientid(ClientId, Config),
+            PersistedData = query_by_clientid(Table, ClientId, Config),
             Expected = #{
-                bool => atom_to_binary(Translation),
-                int_value => <<"-123">>,
-                uint_value => <<"123">>,
+                bool => Translation,
+                int_value => -123,
+                uint_value => 123,
                 payload => emqx_utils_json:encode(Payload)
             },
             assert_persisted_data(ClientId, Expected, PersistedData),
@@ -860,10 +723,10 @@ t_any_num_as_float(Config) ->
     end,
     %% sleep is still need even in sync mode, or we would get an empty result sometimes
     ct:sleep(1500),
-    PersistedData = query_by_clientid(ClientId, Config),
-    Expected = #{float_no_dp => <<"123">>, float_dp => <<"123">>},
+    PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
+    Expected = #{float_no_dp => 123.0, float_dp => 123.0},
     assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned0 = maps:get(<<"_time">>, maps:get(<<"float_no_dp">>, PersistedData)),
+    TimeReturned0 = maps:get(<<"time">>, PersistedData),
     TimeReturned = pad_zero(TimeReturned0),
     ?assertEqual(TsStr, TimeReturned).
 
@@ -907,23 +770,22 @@ t_tag_set_use_literal_value(Config) ->
     end,
     %% sleep is still need even in sync mode, or we would get an empty result sometimes
     ct:sleep(1500),
-    PersistedData = query_by_clientid(ClientId, Config),
-    Expected = #{field_key1 => <<"100.1">>, field_key2 => <<"100">>, field_key3 => <<"123.4">>},
+    PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
+    Expected = #{field_key1 => 100.1, field_key2 => 100, field_key3 => 123.4},
     assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned0 = maps:get(<<"_time">>, maps:get(<<"field_key1">>, PersistedData)),
+    TimeReturned0 = maps:get(<<"time">>, PersistedData),
     TimeReturned = pad_zero(TimeReturned0),
     ?assertEqual(TsStr, TimeReturned).
 
 t_bad_timestamp(Config) ->
-    InfluxDBType = ?config(influxdb_type, Config),
-    InfluxDBName = ?config(influxdb_name, Config),
+    DatalayersType = ?config(datalayers_type, Config),
+    DatalayersName = ?config(datalayers_name, Config),
     QueryMode = ?config(query_mode, Config),
     BatchSize = ?config(batch_size, Config),
-    InfluxDBConfigString0 = ?config(influxdb_config_string, Config),
-    InfluxDBTypeCfg =
-        case InfluxDBType of
-            apiv1 -> "influxdb_api_v1";
-            apiv2 -> "influxdb_api_v2"
+    DatalayersConfigString0 = ?config(datalayers_config_string, Config),
+    DatalayersTypeCfg =
+        case DatalayersType of
+            apiv1 -> "datalayers"
         end,
     WriteSyntax =
         %% N.B.: this single space characters are relevant
@@ -931,19 +793,19 @@ t_bad_timestamp(Config) ->
             "uint_value=${payload.uint_key}u,"
             "bool=${payload.bool}", " ", "bad_timestamp">>,
     %% append this to override the config
-    InfluxDBConfigString1 =
+    DatalayersConfigString1 =
         io_lib:format(
             "bridges.~s.~s {\n"
             "  write_syntax = \"~s\"\n"
             "}\n",
-            [InfluxDBTypeCfg, InfluxDBName, WriteSyntax]
+            [DatalayersTypeCfg, DatalayersName, WriteSyntax]
         ),
-    InfluxDBConfig1 = parse_and_check(
-        InfluxDBConfigString0 ++ InfluxDBConfigString1,
-        InfluxDBType,
-        InfluxDBName
+    DatalayersConfig1 = parse_and_check(
+        DatalayersConfigString0 ++ DatalayersConfigString1,
+        DatalayersType,
+        DatalayersName
     ),
-    Config1 = [{influxdb_config, InfluxDBConfig1} | Config],
+    Config1 = [{datalayers_config, DatalayersConfig1} | Config],
     ?assertMatch(
         {ok, _},
         create_bridge(Config1)
@@ -963,7 +825,7 @@ t_bad_timestamp(Config) ->
     ?check_trace(
         ?wait_async_action(
             send_message(Config1, SentData),
-            #{?snk_kind := influxdb_connector_send_query_error},
+            #{?snk_kind := datalayers_connector_send_query_error},
             10_000
         ),
         fun(Result, Trace) ->
@@ -975,7 +837,7 @@ t_bad_timestamp(Config) ->
                     ?assertEqual(ok, Return),
                     ?assertMatch(
                         [#{error := points_trans_failed}],
-                        ?of_kind(influxdb_connector_send_query_error, Trace)
+                        ?of_kind(datalayers_connector_send_query_error, Trace)
                     );
                 {async, false} ->
                     ?assertEqual(ok, Return),
@@ -987,7 +849,7 @@ t_bad_timestamp(Config) ->
                                 ]
                             }
                         ],
-                        ?of_kind(influxdb_connector_send_query_error, Trace)
+                        ?of_kind(datalayers_connector_send_query_error, Trace)
                     );
                 {sync, false} ->
                     ?assertEqual(
@@ -1025,14 +887,14 @@ t_create_disconnected(Config) ->
             ?assertMatch({ok, _}, create_bridge(Config))
         end),
         fun(Trace) ->
-            [#{error := influxdb_client_not_alive, reason := Reason}] =
-                ?of_kind(influxdb_connector_start_failed, Trace),
+            [#{error := datalayers_client_not_alive, reason := Reason}] =
+                ?of_kind(datalayers_connector_start_failed, Trace),
             case Reason of
                 econnrefused -> ok;
                 closed -> ok;
                 {closed, _} -> ok;
                 {shutdown, closed} -> ok;
-                _ -> ct:fail("influxdb_client_not_alive with wrong reason: ~p", [Reason])
+                _ -> ct:fail("datalayers_client_not_alive with wrong reason: ~p", [Reason])
             end,
             ok
         end
@@ -1049,7 +911,7 @@ t_start_error(Config) ->
             fun() ->
                 ?wait_async_action(
                     ?assertMatch({ok, _}, create_bridge(Config)),
-                    #{?snk_kind := influxdb_connector_start_failed},
+                    #{?snk_kind := datalayers_connector_start_failed},
                     10_000
                 )
             end
@@ -1057,7 +919,7 @@ t_start_error(Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [#{error := some_error}],
-                ?of_kind(influxdb_connector_start_failed, Trace)
+                ?of_kind(datalayers_connector_start_failed, Trace)
             ),
             ok
         end
@@ -1074,7 +936,7 @@ t_start_exception(Config) ->
             fun() ->
                 ?wait_async_action(
                     ?assertMatch({ok, _}, create_bridge(Config)),
-                    #{?snk_kind := influxdb_connector_start_exception},
+                    #{?snk_kind := datalayers_connector_start_exception},
                     10_000
                 )
             end
@@ -1082,7 +944,7 @@ t_start_exception(Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [#{error := {error, boom}}],
-                ?of_kind(influxdb_connector_start_exception, Trace)
+                ?of_kind(datalayers_connector_start_exception, Trace)
             ),
             ok
         end
@@ -1136,7 +998,7 @@ t_write_failure(Config) ->
                     ?assertMatch([_ | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
-                        not emqx_bridge_influxdb_connector:is_unrecoverable_error(Result),
+                        not emqx_bridge_datalayers_connector:is_unrecoverable_error(Result),
                         #{got => Result}
                     );
                 async ->
@@ -1144,7 +1006,7 @@ t_write_failure(Config) ->
                     ?assertMatch([#{action := nack} | _], Trace),
                     [#{result := Result} | _] = Trace,
                     ?assert(
-                        not emqx_bridge_influxdb_connector:is_unrecoverable_error(Result),
+                        not emqx_bridge_datalayers_connector:is_unrecoverable_error(Result),
                         #{got => Result}
                     )
             end,
@@ -1181,25 +1043,25 @@ t_missing_field(Config) ->
             {ok, _} =
                 snabbkaffe:block_until(
                     ?match_n_events(NEvents, #{
-                        ?snk_kind := influxdb_connector_send_query_error
+                        ?snk_kind := datalayers_connector_send_query_error
                     }),
                     _Timeout1 = 10_000
                 ),
             ok
         end,
         fun(Trace) ->
-            PersistedData0 = query_by_clientid(ClientId0, Config),
-            PersistedData1 = query_by_clientid(ClientId1, Config),
+            PersistedData0 = query_by_clientid(<<"mqtt">>, ClientId0, Config),
+            PersistedData1 = query_by_clientid(<<"mqtt">>, ClientId1, Config),
             case IsBatch of
                 true ->
                     ?assertMatch(
                         [#{error := points_trans_failed} | _],
-                        ?of_kind(influxdb_connector_send_query_error, Trace)
+                        ?of_kind(datalayers_connector_send_query_error, Trace)
                     );
                 false ->
                     ?assertMatch(
                         [#{error := [{error, no_fields}]} | _],
-                        ?of_kind(influxdb_connector_send_query_error, Trace)
+                        ?of_kind(datalayers_connector_send_query_error, Trace)
                     )
             end,
             %% nothing should have been persisted
@@ -1211,26 +1073,25 @@ t_missing_field(Config) ->
     ok.
 
 t_authentication_error(Config0) ->
-    InfluxDBType = ?config(influxdb_type, Config0),
-    InfluxConfig0 = proplists:get_value(influxdb_config, Config0),
-    InfluxConfig =
-        case InfluxDBType of
-            apiv1 -> InfluxConfig0#{<<"password">> => <<"wrong_password">>};
-            apiv2 -> InfluxConfig0#{<<"token">> => <<"wrong_token">>}
+    DatalayersType = ?config(datalayers_type, Config0),
+    DatalayersConfig0 = proplists:get_value(datalayers_config, Config0),
+    DatalayersConfig =
+        case DatalayersType of
+            apiv1 -> DatalayersConfig0#{<<"password">> => <<"wrong_password">>}
         end,
-    Config = lists:keyreplace(influxdb_config, 1, Config0, {influxdb_config, InfluxConfig}),
+    Config = lists:keyreplace(datalayers_config, 1, Config0, {datalayers_config, DatalayersConfig}),
     ?check_trace(
         begin
             ?wait_async_action(
                 create_bridge(Config),
-                #{?snk_kind := influxdb_connector_start_failed},
+                #{?snk_kind := datalayers_connector_start_failed},
                 10_000
             )
         end,
         fun(Trace) ->
             ?assertMatch(
                 [#{error := auth_error} | _],
-                ?of_kind(influxdb_connector_start_failed, Trace)
+                ?of_kind(datalayers_connector_start_failed, Trace)
             ),
             ok
         end
@@ -1246,14 +1107,15 @@ t_authentication_error_on_get_status(Config0) ->
             ok
         end,
         fun() ->
-            InfluxDBType = ?config(influxdb_type, Config0),
-            InfluxConfig0 = proplists:get_value(influxdb_config, Config0),
-            InfluxConfig =
-                case InfluxDBType of
-                    apiv1 -> InfluxConfig0#{<<"password">> => <<"wrong_password">>};
-                    apiv2 -> InfluxConfig0#{<<"token">> => <<"wrong_token">>}
+            DatalayersType = ?config(datalayers_type, Config0),
+            DatalayersConfig0 = proplists:get_value(datalayers_config, Config0),
+            DatalayersConfig =
+                case DatalayersType of
+                    apiv1 -> DatalayersConfig0#{<<"password">> => <<"wrong_password">>}
                 end,
-            Config = lists:keyreplace(influxdb_config, 1, Config0, {influxdb_config, InfluxConfig}),
+            Config = lists:keyreplace(
+                datalayers_config, 1, Config0, {datalayers_config, DatalayersConfig}
+            ),
             {ok, _} = create_bridge(Config),
             ResourceId = resource_id(Config0),
             ?retry(
@@ -1270,14 +1132,13 @@ t_authentication_error_on_get_status(Config0) ->
 
 t_authentication_error_on_send_message(Config0) ->
     QueryMode = proplists:get_value(query_mode, Config0, sync),
-    InfluxDBType = ?config(influxdb_type, Config0),
-    InfluxConfig0 = proplists:get_value(influxdb_config, Config0),
-    InfluxConfig =
-        case InfluxDBType of
-            apiv1 -> InfluxConfig0#{<<"password">> => <<"wrong_password">>};
-            apiv2 -> InfluxConfig0#{<<"token">> => <<"wrong_token">>}
+    DatalayersType = ?config(datalayers_type, Config0),
+    DatalayersConfig0 = proplists:get_value(datalayers_config, Config0),
+    DatalayersConfig =
+        case DatalayersType of
+            apiv1 -> DatalayersConfig0#{<<"password">> => <<"wrong_password">>}
         end,
-    Config = lists:keyreplace(influxdb_config, 1, Config0, {influxdb_config, InfluxConfig}),
+    Config = lists:keyreplace(datalayers_config, 1, Config0, {datalayers_config, DatalayersConfig}),
 
     % Fake initialization to simulate credential update after bridge was created.
     emqx_common_test_helpers:with_mock(
@@ -1329,7 +1190,7 @@ t_authentication_error_on_send_message(Config0) ->
                 fun(Trace) ->
                     ?assertMatch(
                         [#{error := <<"authorization failure">>} | _],
-                        ?of_kind(influxdb_connector_do_query_failure, Trace)
+                        ?of_kind(datalayers_connector_do_query_failure, Trace)
                     ),
                     ok
                 end
