@@ -431,7 +431,18 @@ validate_name(Name) ->
 '/relup/package'(get, _) ->
     case get_installed_packages() of
         [PluginInfo] ->
-            {200, format_package_info(PluginInfo)};
+            case get_package_info(PluginInfo) of
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => get_package_info_failed,
+                        reason => Reason,
+                        details => <<"the corrupted plugin will be deleted">>
+                    }),
+                    delete_installed_packages(),
+                    return_internal_error(Reason);
+                Info when is_map(Info) ->
+                    {200, Info}
+            end;
         [] ->
             return_not_found(<<"No relup package is installed">>)
     end;
@@ -580,13 +591,13 @@ delete_installed_packages() ->
         get_installed_packages()
     ).
 
-format_package_info(PluginInfo) when is_map(PluginInfo) ->
+get_package_info(PluginInfo) when is_map(PluginInfo) ->
     Vsn = maps_get(rel_vsn, PluginInfo),
     case call_emqx_relup_main(get_package_info, [], no_pkg_installed) of
         no_pkg_installed ->
-            throw({get_pkg_info_failed, <<"No relup package is installed">>});
+            {error, <<"No relup package is installed">>};
         {error, Reason} ->
-            throw({get_pkg_info_failed, Reason});
+            {error, Reason};
         {ok, #{base_vsns := BaseVsns, change_logs := ChangeLogs}} ->
             #{
                 name => name_vsn(?PLUGIN_NAME, Vsn),
