@@ -157,7 +157,7 @@ deobfuscate(NewConf, OldConf) ->
 deobfuscate(NewConf, OldConf, IsSensitiveFun) ->
     maps:fold(
         fun(K, V, Acc) ->
-            case maps:find(K, OldConf) of
+            case find(K, OldConf) of
                 error ->
                     case is_redacted(K, V, IsSensitiveFun) of
                         %% don't put redacted value into new config
@@ -180,6 +180,14 @@ deobfuscate(NewConf, OldConf, IsSensitiveFun) ->
         #{},
         NewConf
     ).
+
+find(K, M) when is_map(M) ->
+    maps:find(K, M);
+find(K, PL) when is_list(PL) ->
+    case lists:keyfind(K, 1, PL) of
+        false -> error;
+        {_, V} -> {ok, V}
+    end.
 
 is_redacted(K, V) ->
     do_is_redacted(K, V, fun is_sensitive_key/1).
