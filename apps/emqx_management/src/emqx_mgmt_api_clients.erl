@@ -1013,13 +1013,9 @@ format_results(Acc, Cursor) ->
     Meta =
         case Cursor of
             done ->
-                #{
-                    hasnext => false,
-                    count => N
-                };
+                #{count => N};
             _ ->
                 #{
-                    hasnext => true,
                     count => N,
                     cursor => serialize_cursor(Cursor)
                 }
@@ -1043,7 +1039,8 @@ do_ets_select(Nodes, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont
     {Rows, next_ets_cursor(Nodes, NewNodeIdx, NewCont)}.
 
 maybe_run_fuzzy_filter(Rows, QString0) ->
-    {_, {_, FuzzyQString}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    {_NClauses, {QString1, FuzzyQString1}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    {_QString, FuzzyQString} = adapt_custom_filters(QString1, FuzzyQString1),
     FuzzyFilterFn = fuzzy_filter_fun(FuzzyQString),
     case FuzzyFilterFn of
         undefined ->
@@ -1054,6 +1051,27 @@ maybe_run_fuzzy_filter(Rows, QString0) ->
                 Rows
             )
     end.
+
+%% These filters, while they are able to be adapted to efficient ETS match specs, must be
+%% used as fuzzy filters when iterating over offlient persistent clients, which live
+%% outside ETS.
+adapt_custom_filters(Qs, Fuzzy) ->
+    lists:foldl(
+        fun
+            ({Field, '=:=', X}, {QsAcc, FuzzyAcc}) when
+                Field =:= username
+            ->
+                Xs = wrap(X),
+                {QsAcc, [{Field, in, Xs} | FuzzyAcc]};
+            (Clause, {QsAcc, FuzzyAcc}) ->
+                {[Clause | QsAcc], FuzzyAcc}
+        end,
+        {[], Fuzzy},
+        Qs
+    ).
+
+wrap(Xs) when is_list(Xs) -> Xs;
+wrap(X) -> [X].
 
 initial_ets_cursor([Node | _Rest] = _Nodes) ->
     #{
@@ -1611,8 +1629,8 @@ qs2ms(_Tab, {QString, FuzzyQString}) ->
 
 -spec qs2ms(list()) -> ets:match_spec().
 qs2ms(Qs) ->
-    {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
-    [{{{'$1', '_'}, MtchHead, '_'}, Conds, ['$_']}].
+    {MatchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
+    [{{{'$1', '_'}, MatchHead, '_'}, Conds, ['$_']}].
 
 qs2ms([], _, {MtchHead, Conds}) ->
     {MtchHead, lists:reverse(Conds)};
@@ -1684,6 +1702,20 @@ run_fuzzy_filter(
 ) ->
     %% Row from DS
     run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
+        run_fuzzy_filter(Row, RestArgs);
+run_fuzzy_filter(
+    Row = {_, #{metadata := #{clientinfo := ClientInfo}}},
+    [{Key, in, Xs} | RestArgs]
+) ->
+    %% Row from DS
+    IsMatch =
+        case maps:find(Key, ClientInfo) of
+            {ok, X} ->
+                lists:member(X, Xs);
+            error ->
+                false
+        end,
+    IsMatch andalso
         run_fuzzy_filter(Row, RestArgs);
 run_fuzzy_filter(Row = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | RestArgs]) ->
     %% Row from ETS
