@@ -74,6 +74,7 @@ init_per_group(persistence_enabled = Group, Config) ->
                 "  force_persistence = true\n"
                 "  heartbeat_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"
+                "  idle_poll_interval = 1s\n"
                 "  session_gc_interval = 2s\n"
                 "}\n"}
         ],
@@ -150,7 +151,7 @@ t_takeover(Config) ->
 
     Sleep =
         case ?config(persistence_enabled, Config) of
-            true -> 1_500;
+            true -> 3000;
             false -> ?SLEEP
         end,
     FCtx = lists:foldl(
@@ -277,7 +278,12 @@ t_takeover_willmsg_clean_session(Config) ->
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    Sleep =
+        case ?config(persistence_enabled, Config) of
+            true -> 3_000;
+            false -> ?SLEEP
+        end,
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(Sleep)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill1, ReceivedNoWill0} = filter_payload(Received, <<"willpayload_1">>),
     {IsWill2, _ReceivedNoWill} = filter_payload(ReceivedNoWill0, <<"willpayload_2">>),
@@ -336,7 +342,12 @@ t_takeover_clean_session_with_delayed_willmsg(Config) ->
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    Sleep =
+        case ?config(persistence_enabled, Config) of
+            true -> 2_000;
+            false -> ?SLEEP
+        end,
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(Sleep)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill1, ReceivedNoWill0} = filter_payload(Received, <<"willpayload_delay10">>),
     {IsWill2, _ReceivedNoWill} = filter_payload(ReceivedNoWill0, <<"willpayload_2">>),
