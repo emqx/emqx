@@ -1034,7 +1034,8 @@ columns_with_exam('message.publish') ->
         {<<"publish_received_at">>, erlang:system_time(millisecond)},
         columns_example_props(pub_props),
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('message.delivered') ->
     columns_message_ack_delivered('message.delivered');
@@ -1131,7 +1132,8 @@ columns_with_exam('client.connected') ->
         columns_example_props(conn_props),
         {<<"connected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.disconnected') ->
     [
@@ -1146,7 +1148,8 @@ columns_with_exam('client.disconnected') ->
         columns_example_props(disconn_props),
         {<<"disconnected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.connack') ->
     [
@@ -1178,7 +1181,8 @@ columns_with_exam('client.check_authz_complete') ->
         {<<"authz_source">>, <<"cache">>},
         {<<"result">>, <<"allow">>},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.check_authn_complete') ->
     [
@@ -1190,12 +1194,15 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"is_superuser">>, true},
         {<<"is_anonymous">>, false},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('session.subscribed') ->
-    [columns_example_props(sub_props)] ++ columns_message_sub_unsub('session.subscribed');
+    [columns_example_props(sub_props), columns_example_client_attrs()] ++
+        columns_message_sub_unsub('session.subscribed');
 columns_with_exam('session.unsubscribed') ->
-    [columns_example_props(unsub_props)] ++ columns_message_sub_unsub('session.unsubscribed');
+    [columns_example_props(unsub_props), columns_example_client_attrs()] ++
+        columns_message_sub_unsub('session.unsubscribed');
 columns_with_exam(<<"$bridges/mqtt", _/binary>> = EventName) ->
     [
         {<<"event">>, EventName},
@@ -1279,6 +1286,13 @@ columns_example_props_specific(sub_props) ->
     #{};
 columns_example_props_specific(unsub_props) ->
     #{}.
+
+columns_example_client_attrs() ->
+    {<<"client_attrs">>, #{
+        <<"client_attrs">> => #{
+            <<"test">> => <<"example">>
+        }
+    }}.
 
 %%--------------------------------------------------------------------
 %% Helper functions
