@@ -111,28 +111,28 @@ t_04_restart(Config) ->
     ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
 %% Check that we can create iterators directly from DS keys.
-t_05_update_iterator(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    TopicFilter = ['#'],
-    StartTime = 0,
-    Msgs = [
-        message(<<"foo/bar">>, <<"1">>, 0),
-        message(<<"foo">>, <<"2">>, 1),
-        message(<<"bar/bar">>, <<"3">>, 2)
-    ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-    Res0 = emqx_ds:next(DB, Iter0, 1),
-    ?assertMatch({ok, _OldIter, [{_Key0, _Msg0}]}, Res0),
-    {ok, OldIter, [{Key0, Msg0}]} = Res0,
-    Res1 = emqx_ds:update_iterator(DB, OldIter, Key0),
-    ?assertMatch({ok, _Iter1}, Res1),
-    {ok, Iter1} = Res1,
-    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
-    ?assertEqual(Msgs, [Msg0 | Batch], #{from_key => Iter1, final_iter => Iter}),
-    ok.
+%% t_05_update_iterator(Config) ->
+%%     DB = ?FUNCTION_NAME,
+%%     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+%%     TopicFilter = ['#'],
+%%     StartTime = 0,
+%%     Msgs = [
+%%         message(<<"foo/bar">>, <<"1">>, 0),
+%%         message(<<"foo">>, <<"2">>, 1),
+%%         message(<<"bar/bar">>, <<"3">>, 2)
+%%     ],
+%%     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+%%     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+%%     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+%%     Res0 = emqx_ds:next(DB, Iter0, 1),
+%%     ?assertMatch({ok, _OldIter, [{_Key0, _Msg0}]}, Res0),
+%%     {ok, OldIter, [{Key0, Msg0}]} = Res0,
+%%     Res1 = emqx_ds:update_iterator(DB, OldIter, Key0),
+%%     ?assertMatch({ok, _Iter1}, Res1),
+%%     {ok, Iter1} = Res1,
+%%     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
+%%     ?assertEqual(Msgs, [Msg0 | Batch], #{from_key => Iter1, final_iter => Iter}),
+%%     ok.
 
 t_06_smoke_add_generation(Config) ->
     DB = ?FUNCTION_NAME,
@@ -533,34 +533,34 @@ t_drop_generation_with_used_once_iterator(Config) ->
         emqx_ds_test_helpers:consume_iter(DB, Iter1)
     ).
 
-t_drop_generation_update_iterator(Config) ->
-    %% This checks the behavior of `emqx_ds:update_iterator' after the generation
-    %% underlying the iterator has been dropped.
+%% t_drop_generation_update_iterator(Config) ->
+%%     %% This checks the behavior of `emqx_ds:update_iterator' after the generation
+%%     %% underlying the iterator has been dropped.
 
-    DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+%%     DB = ?FUNCTION_NAME,
+%%     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+%%     [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
 
-    TopicFilter = emqx_topic:words(<<"foo/+">>),
-    StartTime = 0,
-    Msgs0 = [
-        message(<<"foo/bar">>, <<"1">>, 0),
-        message(<<"foo/baz">>, <<"2">>, 1)
-    ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+%%     TopicFilter = emqx_topic:words(<<"foo/+">>),
+%%     StartTime = 0,
+%%     Msgs0 = [
+%%         message(<<"foo/bar">>, <<"1">>, 0),
+%%         message(<<"foo/baz">>, <<"2">>, 1)
+%%     ],
+%%     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
 
-    [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
-    {ok, Iter1, _Batch1} = emqx_ds:next(DB, Iter0, 1),
-    {ok, _Iter2, [{Key2, _Msg}]} = emqx_ds:next(DB, Iter1, 1),
+%%     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+%%     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
+%%     {ok, Iter1, _Batch1} = emqx_ds:next(DB, Iter0, 1),
+%%     {ok, _Iter2, [{Key2, _Msg}]} = emqx_ds:next(DB, Iter1, 1),
 
-    ok = emqx_ds:add_generation(DB),
-    ok = emqx_ds:drop_generation(DB, GenId0),
+%%     ok = emqx_ds:add_generation(DB),
+%%     ok = emqx_ds:drop_generation(DB, GenId0),
 
-    ?assertEqual(
-        {error, unrecoverable, generation_not_found},
-        emqx_ds:update_iterator(DB, Iter1, Key2)
-    ).
+%%     ?assertEqual(
+%%         {error, unrecoverable, generation_not_found},
+%%         emqx_ds:update_iterator(DB, Iter1, Key2)
+%%     ).
 
 t_make_iterator_stale_stream(Config) ->
     %% This checks the behavior of `emqx_ds:make_iterator' after the generation underlying

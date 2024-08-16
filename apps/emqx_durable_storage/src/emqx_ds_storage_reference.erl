@@ -250,8 +250,11 @@ message_matcher(_Shard, _S, #it{
 
 batch_events(_, Messages) ->
     Topics = lists:foldl(
-        fun({_TS, #message{topic = Topic}}, Acc) ->
-            Acc#{Topic => 1}
+        fun
+            ({_TS, #message{topic = Topic}}, Acc) ->
+                Acc#{Topic => 1};
+            ({delete, _Msg}, Acc) ->
+                Acc
         end,
         #{},
         Messages
