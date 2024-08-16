@@ -942,11 +942,8 @@ root_backup_dir() ->
     ok = ensure_path(Dir),
     Dir.
 
--if(?OTP_RELEASE < 25).
-ensure_path(Path) -> filelib:ensure_dir(filename:join([Path, "dummy"])).
--else.
-ensure_path(Path) -> filelib:ensure_path(Path).
--endif.
+ensure_path(Path) ->
+    filelib:ensure_path(Path).
 
 local_datetime(MillisecondTs) ->
     calendar:system_time_to_local_time(MillisecondTs, millisecond).
