@@ -216,7 +216,7 @@ init(S) ->
         S
     ).
 
-%% @doc Find the streams that have uncommitted (in-flight) messages.
+%% @doc Find the streams that have unacked (in-flight) messages.
 %% Return them in the order they were previously replayed.
 -spec find_replay_streams(emqx_persistent_session_ds_state:t()) ->
     [{stream_key(), emqx_persistent_session_ds:stream_state()}].
