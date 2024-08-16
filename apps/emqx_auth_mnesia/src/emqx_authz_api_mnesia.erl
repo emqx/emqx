@@ -555,8 +555,20 @@ user(put, #{
     bindings := #{username := Username},
     body := #{<<"username">> := Username, <<"rules">> := Rules}
 }) ->
-    emqx_authz_mnesia:store_rules({username, Username}, Rules),
-    {204};
+    case ensure_rules_len(Rules) of
+        ok ->
+            emqx_authz_mnesia:store_rules({username, Username}, Rules),
+            {204};
+        {error, too_many_rules} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message =>
+                    binfmt(
+                        <<"The rules length exceeds the maximum limit.">>,
+                        []
+                    )
+            }}
+    end;
 user(delete, #{bindings := #{username := Username}}) ->
     case emqx_authz_mnesia:get_rules({username, Username}) of
         not_found ->
@@ -580,8 +592,20 @@ client(put, #{
     bindings := #{clientid := ClientID},
     body := #{<<"clientid">> := ClientID, <<"rules">> := Rules}
 }) ->
-    emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules),
-    {204};
+    case ensure_rules_len(Rules) of
+        ok ->
+            emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules),
+            {204};
+        {error, too_many_rules} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message =>
+                    binfmt(
+                        <<"The rules length exceeds the maximum limit.">>,
+                        []
+                    )
+            }}
+    end;
 client(delete, #{bindings := #{clientid := ClientID}}) ->
     case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
         not_found ->
