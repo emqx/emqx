@@ -397,7 +397,7 @@ convert_certs(LinksConf) ->
     ).
 
 do_convert_certs(LinkName, SSLOpts) ->
-    case emqx_tls_lib:ensure_ssl_files(?CERTS_PATH(LinkName), SSLOpts) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(?CERTS_PATH(LinkName), SSLOpts) of
         {ok, undefined} ->
             SSLOpts;
         {ok, SSLOpts1} ->

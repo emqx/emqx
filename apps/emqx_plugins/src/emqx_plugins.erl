@@ -75,7 +75,9 @@
     install_dir/0,
     avsc_file_path/1,
     md5sum_file/1,
-    with_plugin_avsc/1
+    with_plugin_avsc/1,
+    ensure_ssl_files/2,
+    ensure_ssl_files/3
 ]).
 
 %% `emqx_config_handler' API
@@ -513,6 +515,12 @@ get_tar(NameVsn) ->
                     Err
             end
     end.
+
+ensure_ssl_files(NameVsn, SSL) ->
+    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL).
+
+ensure_ssl_files(NameVsn, SSL, Opts) ->
+    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL, Opts).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -1049,19 +1057,22 @@ do_load_plugin_app(AppName, Ebin) ->
     end.
 
 start_app(App) ->
-    case application:ensure_all_started(App) of
-        {ok, Started} ->
+    case run_with_timeout(application, ensure_all_started, [App], 10_000) of
+        {ok, {ok, Started}} ->
             case Started =/= [] of
                 true -> ?SLOG(debug, #{msg => "started_plugin_apps", apps => Started});
                 false -> ok
-            end,
-            ?SLOG(debug, #{msg => "started_plugin_app", app => App}),
-            ok;
-        {error, {ErrApp, Reason}} ->
+            end;
+        {ok, {error, Reason}} ->
+            throw(#{
+                msg => "failed_to_start_app",
+                app => App,
+                reason => Reason
+            });
+        {error, Reason} ->
             throw(#{
                 msg => "failed_to_start_plugin_app",
                 app => App,
-                err_app => ErrApp,
                 reason => Reason
             })
     end.
@@ -1287,7 +1298,7 @@ maybe_create_config_dir(NameVsn, Mode) ->
         do_create_config_dir(NameVsn, Mode).
 
 do_create_config_dir(NameVsn, Mode) ->
-    case plugin_config_dir(NameVsn) of
+    case plugin_data_dir(NameVsn) of
         {error, Reason} ->
             {error, {gen_config_dir_failed, Reason}};
         ConfigDir ->
@@ -1329,7 +1340,7 @@ ensure_plugin_config({NameVsn, ?fresh_install}) ->
 -spec ensure_plugin_config(name_vsn(), list()) -> ok.
 ensure_plugin_config(NameVsn, []) ->
     ?SLOG(debug, #{
-        msg => "default_plugin_config_used",
+        msg => "local_plugin_config_used",
         name_vsn => NameVsn,
         reason => "no_other_running_nodes"
     }),
@@ -1355,7 +1366,13 @@ cp_default_config_file(NameVsn) ->
     maybe
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
-        true ?= (not filelib:is_regular(Destination)),
+        false ?=
+            case filelib:is_regular(Destination) of
+                true ->
+                    ?SLOG(debug, #{msg => "plugin_config_file_already_existed", name_vsn => NameVsn});
+                false ->
+                    false
+            end,
         ok = filelib:ensure_dir(Destination),
         case file:copy(Source, Destination) of
             {ok, _} ->
@@ -1506,8 +1523,8 @@ plugin_priv_dir(NameVsn) ->
         _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
     end.
 
--spec plugin_config_dir(name_vsn()) -> string() | {error, Reason :: string()}.
-plugin_config_dir(NameVsn) ->
+-spec plugin_data_dir(name_vsn()) -> string() | {error, Reason :: string()}.
+plugin_data_dir(NameVsn) ->
     case parse_name_vsn(NameVsn) of
         {ok, NameAtom, _Vsn} ->
             wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
@@ -1519,6 +1536,9 @@ plugin_config_dir(NameVsn) ->
             }),
             {error, Reason}
     end.
+
+plugin_certs_dir(NameVsn) ->
+    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "certs"])).
 
 %% Files
 -spec pkg_file_path(name_vsn()) -> string().
@@ -1535,7 +1555,7 @@ avsc_file_path(NameVsn) ->
 
 -spec plugin_config_file(name_vsn()) -> string().
 plugin_config_file(NameVsn) ->
-    wrap_to_list(filename:join([plugin_config_dir(NameVsn), "config.hocon"])).
+    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "config.hocon"])).
 
 %% should only used when plugin installing
 -spec default_plugin_config_file(name_vsn()) -> string().
@@ -1586,3 +1606,20 @@ bin(B) when is_binary(B) -> B.
 
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).
+
+run_with_timeout(Module, Function, Args, Timeout) ->
+    Self = self(),
+    Fun = fun() ->
+        Result = apply(Module, Function, Args),
+        Self ! {self(), Result}
+    end,
+    Pid = spawn(Fun),
+    TimerRef = erlang:send_after(Timeout, self(), {timeout, Pid}),
+    receive
+        {Pid, Result} ->
+            _ = erlang:cancel_timer(TimerRef),
+            {ok, Result};
+        {timeout, Pid} ->
+            exit(Pid, kill),
+            {error, timeout}
+    end.

@@ -55,8 +55,8 @@ t_no_orphans(Config) ->
         <<"certfile">> => cert(),
         <<"cacertfile">> => cert()
     },
-    {ok, SSL} = emqx_tls_lib:ensure_ssl_files("ssl", SSL0),
-    {ok, SSLUnused} = emqx_tls_lib:ensure_ssl_files("unused", SSL0),
+    {ok, SSL} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("ssl", SSL0),
+    {ok, SSLUnused} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("unused", SSL0),
     SSLKeyfile = maps:get(<<"keyfile">>, SSL),
     ok = load_config(#{
         <<"clients">> => [
@@ -97,8 +97,8 @@ t_collect_orphans(_Config) ->
     SSL1 = SSL0#{
         <<"ocsp">> => #{<<"issuer_pem">> => cert()}
     },
-    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files("client", SSL0),
-    {ok, SSL3} = emqx_tls_lib:ensure_ssl_files("server", SSL1),
+    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("client", SSL0),
+    {ok, SSL3} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("server", SSL1),
     ok = load_config(#{
         <<"clients">> => [
             #{<<"transport">> => #{<<"ssl">> => SSL2}}
@@ -174,10 +174,10 @@ t_gc_runs_periodically(_Config) ->
         <<"keyfile">> => key(),
         <<"certfile">> => cert()
     },
-    {ok, SSL1} = emqx_tls_lib:ensure_ssl_files("s1", SSL),
+    {ok, SSL1} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("s1", SSL),
     SSL1Keyfile = emqx_utils_fs:canonicalize(maps:get(<<"keyfile">>, SSL1)),
     SSL1Certfile = emqx_utils_fs:canonicalize(maps:get(<<"certfile">>, SSL1)),
-    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files("s2", SSL#{
+    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("s2", SSL#{
         <<"ocsp">> => #{<<"issuer_pem">> => cert()}
     }),
     SSL2Keyfile = emqx_utils_fs:canonicalize(maps:get(<<"keyfile">>, SSL2)),
@@ -275,10 +275,10 @@ t_gc_spares_recreated_certfiles(_Config) ->
         <<"keyfile">> => key(),
         <<"certfile">> => cert()
     },
-    {ok, SSL1} = emqx_tls_lib:ensure_ssl_files("s1", SSL),
+    {ok, SSL1} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("s1", SSL),
     SSL1Keyfile = emqx_utils_fs:canonicalize(maps:get(<<"keyfile">>, SSL1)),
     SSL1Certfile = emqx_utils_fs:canonicalize(maps:get(<<"certfile">>, SSL1)),
-    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files("s2", SSL),
+    {ok, SSL2} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("s2", SSL),
     SSL2Keyfile = emqx_utils_fs:canonicalize(maps:get(<<"keyfile">>, SSL2)),
     SSL2Certfile = emqx_utils_fs:canonicalize(maps:get(<<"certfile">>, SSL2)),
     ok = load_config(#{}),
@@ -306,7 +306,7 @@ t_gc_spares_recreated_certfiles(_Config) ->
     % Recreate the SSL2 certfiles
     ok = file:delete(SSL2Keyfile),
     ok = file:delete(SSL2Certfile),
-    {ok, _} = emqx_tls_lib:ensure_ssl_files("s2", SSL),
+    {ok, _} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("s2", SSL),
     % Nothing should have been collected
     ?assertMatch(
         {ok, []},
@@ -324,7 +324,7 @@ t_gc_spares_symlinked_datadir(Config) ->
         <<"certfile">> => cert(),
         <<"ocsp">> => #{<<"issuer_pem">> => cert()}
     },
-    {ok, SSL1} = emqx_tls_lib:ensure_ssl_files("srv", SSL),
+    {ok, SSL1} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("srv", SSL),
     SSL1Keyfile = emqx_utils_fs:canonicalize(maps:get(<<"keyfile">>, SSL1)),
 
     ok = load_config(#{
