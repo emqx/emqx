@@ -8,11 +8,4 @@ principal {
         NOTE: The realm in use has to be configured in /etc/krb5.conf in EMQX nodes.~"""
 }
 
-keytab_file {
-    label: "Keytab File"
-    desc: """~
-        Kerberos keytab file path.
-        NOTE: This file has to be placed in EMQX nodes.~"""
-}
-
 }

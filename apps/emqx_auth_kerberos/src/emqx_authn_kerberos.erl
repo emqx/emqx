@@ -24,17 +24,33 @@ create(
         keytab_file := KeyTabFile
     }
 ) ->
-    KeyTabPath = emqx_schema:naive_env_interpolation(KeyTabFile),
+    KeyTabPath = resolve_keytab(KeyTabFile),
+    %% kinit is not necessary for server because the keytab file
+    %% must be the smae as default keytab
+    %% keeping it here as a mean to validate Keytab file and server principal.
     case sasl_auth:kinit(KeyTabPath, Principal) of
         ok ->
             {ok, #{
                 id => AuthenticatorID,
                 principal => Principal,
-                keytab_file => KeyTabFile
+                keytab_file => KeyTabPath
             }};
-        Error ->
-            Error
+        {error, Reason} ->
+            {error, #{
+                reason => Reason,
+                keytab_file_config => KeyTabFile,
+                keytab_file_resolved => KeyTabPath
+            }}
     end.
+
+resolve_keytab(undefined) ->
+    emqx_authn_kerberos_schema:get_default_kt_name();
+resolve_keytab(<<>>) ->
+    emqx_authn_kerberos_schema:get_default_kt_name();
+resolve_keytab(<<"DEFAULT">>) ->
+    emqx_authn_kerberos_schema:get_default_kt_name();
+resolve_keytab(Path) ->
+    emqx_schema:naive_env_interpolation(Path).
 
 update(Config, #{id := ID}) ->
     create(ID, Config).
