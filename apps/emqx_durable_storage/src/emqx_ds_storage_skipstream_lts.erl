@@ -236,6 +236,7 @@ commit_batch(
 ) ->
     {ok, Batch} = rocksdb:batch(),
     try
+        %% is this dummy?
         %% Commit LTS trie to the storage:
         lists:foreach(
             fun({Key, Val}) ->
@@ -346,9 +347,12 @@ unpack_iterator(_Shard, #s{trie = _Trie}, #it{
     {StaticIdx, words(CTF), StartKey, TS}.
 
 scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+    %% @TODO: double check if it is Varying or TopicFilter, is it always [] ?
     LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
-    It = #it{static_index = StaticIdx, compressed_tf = emqx_topic:join(Varying), ts = LastSeenTS},
-    case next(Shard, S, It, BatchSize, TMax, IsCurrent) of
+    ItSeed = #it{
+        static_index = StaticIdx, compressed_tf = emqx_topic:join(Varying), ts = LastSeenTS
+    },
+    case next(Shard, S, ItSeed, BatchSize, TMax, IsCurrent) of
         {ok, #it{ts = TS, static_index = StaticIdx}, Batch} ->
             {ok, mk_key(StaticIdx, 0, <<>>, TS), Batch};
         Other ->

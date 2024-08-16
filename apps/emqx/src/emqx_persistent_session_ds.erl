@@ -225,6 +225,7 @@
     %% Shared subscription state:
     shared_sub_s := shared_sub_state(),
     %% Buffer:
+    %% @TODO check if it buffers QoS0 or not ?
     inflight := emqx_persistent_session_ds_buffer:t(),
     stream_scheduler_s := emqx_persistent_session_ds_stream_scheduler:t(),
     %% In-progress replay:

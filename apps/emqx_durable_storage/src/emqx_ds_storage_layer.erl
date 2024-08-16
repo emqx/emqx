@@ -601,6 +601,7 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 %% sweep. This API does not suppose precise batch size.
 
 %%    When doing multi-next, we group iterators by stream:
+%% @TODO we need add it to the callback
 unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->

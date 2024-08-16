@@ -351,6 +351,7 @@ do_dispatch(Beam = #beam{}) ->
 %%================================================================================
 
 -spec start_fulfill_loop(s()) -> s().
+%% @TODO start_fulfill_loop is missleading
 start_fulfill_loop(S = #s{is_spinning = true}) ->
     S;
 start_fulfill_loop(S = #s{is_spinning = false}) ->
