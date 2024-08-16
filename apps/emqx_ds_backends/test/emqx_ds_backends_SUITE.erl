@@ -34,9 +34,9 @@ opts(Config) ->
 %% doesn't crash, and not much else
 t_00_smoke_open_drop(Config) ->
     DB = 'DB',
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     %% Reopen the DB and make sure the operation is idempotent:
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     %% Close the DB:
     ?assertMatch(ok, emqx_ds:drop_db(DB)).
 
@@ -47,7 +47,7 @@ t_01_smoke_store(Config) ->
         #{timetrap => 10_000},
         begin
             DB = default,
-            ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             Msg = message(<<"foo/bar">>, <<"foo">>, 0),
             ?assertMatch(ok, emqx_ds:store_batch(DB, [Msg]))
         end,
@@ -58,7 +58,7 @@ t_01_smoke_store(Config) ->
 %% doesn't crash and that iterators can be opened.
 t_02_smoke_get_streams_start_iter(Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     StartTime = 0,
     TopicFilter = ['#'],
     [{Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -69,7 +69,7 @@ t_02_smoke_get_streams_start_iter(Config) ->
 %% over messages.
 t_03_smoke_iterate(Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     StartTime = 0,
     TopicFilter = ['#'],
     Msgs = [
@@ -90,7 +90,7 @@ t_03_smoke_iterate(Config) ->
 %% they are left off.
 t_04_restart(Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     TopicFilter = ['#'],
     StartTime = 0,
     Msgs = [
@@ -105,7 +105,7 @@ t_04_restart(Config) ->
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
     ok = application:stop(emqx_durable_storage),
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
-    ok = emqx_ds:open_db(DB, opts(Config)),
+    ok = emqx_ds_open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
     ?assertEqual(Msgs, Batch, {Iter0, Iter}).
@@ -113,7 +113,7 @@ t_04_restart(Config) ->
 %% Check that we can create iterators directly from DS keys.
 %% t_05_update_iterator(Config) ->
 %%     DB = ?FUNCTION_NAME,
-%%     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+%%     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
 %%     TopicFilter = ['#'],
 %%     StartTime = 0,
 %%     Msgs = [
@@ -138,7 +138,7 @@ t_06_smoke_add_generation(Config) ->
     DB = ?FUNCTION_NAME,
     BeginTime = os:system_time(millisecond),
 
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     [{Gen1, #{created_at := Created1, since := Since1, until := undefined}}] = maps:to_list(
         emqx_ds:list_generations_with_lifetimes(DB)
     ),
@@ -156,7 +156,8 @@ t_06_smoke_add_generation(Config) ->
 
 t_07_smoke_update_config(Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    timer:sleep(1000),
     ?assertMatch(
         [{_, _}],
         maps:to_list(emqx_ds:list_generations_with_lifetimes(DB))
@@ -176,7 +177,7 @@ t_08_smoke_list_drop_generation(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
-            ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             %% Exactly one generation at first.
             Generations0 = emqx_ds:list_generations_with_lifetimes(DB),
             ?assertMatch(
@@ -216,7 +217,7 @@ t_08_smoke_list_drop_generation(Config) ->
             %% Should persist surviving generation list
             ok = application:stop(emqx_durable_storage),
             {ok, _} = application:ensure_all_started(emqx_durable_storage),
-            ok = emqx_ds:open_db(DB, opts(Config)),
+            ok = emqx_ds_open_db(DB, opts(Config)),
 
             Generations3 = emqx_ds:list_generations_with_lifetimes(DB),
             ?assertMatch(
@@ -236,7 +237,7 @@ t_09_atomic_store_batch(Config) ->
     ?check_trace(
         begin
             DBOpts = (opts(Config))#{atomic_batches => true},
-            ?assertMatch(ok, emqx_ds:open_db(DB, DBOpts)),
+            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
             Msgs = [
                 message(<<"1">>, <<"1">>, 0),
                 message(<<"2">>, <<"2">>, 1),
@@ -256,7 +257,7 @@ t_10_non_atomic_store_batch(Config) ->
     ?check_trace(
         begin
             application:set_env(emqx_durable_storage, egress_batch_size, 1),
-            ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             Msgs = [
                 message(<<"1">>, <<"1">>, 0),
                 message(<<"2">>, <<"2">>, 1),
@@ -293,7 +294,7 @@ t_11_batch_preconditions(Config) ->
                 atomic_batches => true,
                 force_monotonic_timestamps => false
             },
-            ?assertMatch(ok, emqx_ds:open_db(DB, DBOpts)),
+            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
 
             %% Conditional delete
             TS = 42,
@@ -350,7 +351,7 @@ t_12_batch_precondition_conflicts(Config) ->
                 atomic_batches => true,
                 force_monotonic_timestamps => false
             },
-            ?assertMatch(ok, emqx_ds:open_db(DB, DBOpts)),
+            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
 
             ConflictBatches = [
                 #dsbatch{
@@ -407,7 +408,7 @@ t_smoke_delete_next(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
-            ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             StartTime = 0,
             TopicFilter = [<<"foo">>, '#'],
             Msgs =
@@ -452,7 +453,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
     %% In this case, the iterator won't see any messages and the stream will end.
 
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
@@ -500,7 +501,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     %% In this case, the iterator should see no more messages and the stream will end.
 
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
@@ -538,7 +539,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
 %%     %% underlying the iterator has been dropped.
 
 %%     DB = ?FUNCTION_NAME,
-%%     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+%%     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
 %%     [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
 
 %%     TopicFilter = emqx_topic:words(<<"foo/+">>),
@@ -567,7 +568,7 @@ t_make_iterator_stale_stream(Config) ->
     %% the stream has been dropped.
 
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
@@ -598,7 +599,7 @@ t_get_streams_concurrently_with_drop_generation(Config) ->
     ?check_trace(
         #{timetrap => 5_000},
         begin
-            ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
 
             [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
             ok = emqx_ds:add_generation(DB),
@@ -743,3 +744,9 @@ end_per_testcase(TC, Config) ->
     _ = mnesia:delete_schema([node()]),
     snabbkaffe:stop(),
     ok.
+
+emqx_ds_open_db(X1, X2) ->
+    case emqx_ds:open_db(X1, X2) of
+        ok -> timer:sleep(1000);
+        Other -> Other
+    end.
