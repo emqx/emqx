@@ -370,18 +370,15 @@ ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
         true ->
             DryRun = maps:get(dry_run, Opts, false),
             RawDir = maps:get(raw_dir, Opts, Dir),
-            do_ensure_ssl_file({Dir, RawDir}, KeyPath, SSL, MaybePem, DryRun);
+            %% RawDir for backward compatibility
+            %% when RawDir is not given, it is the same as Dir
+            %% to keep the file name hash consistent with the previous version (Depends on RawDir)
+            do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun);
         false ->
             {error, #{reason => invalid_file_path_or_pem_string}}
     end.
 
-do_ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, DryRun) when not is_tuple(Dir) ->
-    %% {Dir, RawDir} = {Dir, Dir}
-    %% for backward compatibility
-    %% when RawDir is not given, it is the same as Dir
-    %% to keep the file name hash consistent with the previous version (Depends on RawDir)
-    do_ensure_ssl_file({Dir, Dir}, KeyPath, SSL, MaybePem, DryRun);
-do_ensure_ssl_file({Dir, RawDir}, KeyPath, SSL, MaybePem, DryRun) ->
+do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun) ->
     case is_pem(MaybePem) of
         true ->
             case save_pem_file(Dir, RawDir, KeyPath, MaybePem, DryRun) of
