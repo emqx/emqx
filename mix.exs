@@ -275,7 +275,7 @@ defmodule EMQXUmbrella.MixProject do
     }
 
   def common_dep(:sasl_auth),
-    do: {:sasl_auth, github: "kafka4beam/sasl_auth", tag: "v2.1.1", override: true}
+    do: {:sasl_auth, github: "kafka4beam/sasl_auth", tag: "v2.2.0", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
