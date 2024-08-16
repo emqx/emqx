@@ -340,7 +340,6 @@ format_metrics(Node, RouterMetrics, ResourceMetrics) ->
                 'failed' => Get([counters, 'failed'], ResourceMetrics),
                 'dropped' => Get([counters, 'dropped'], ResourceMetrics),
                 'retried' => Get([counters, 'retried'], ResourceMetrics),
-                'received' => Get([counters, 'received'], ResourceMetrics),
 
                 'queuing' => Get([gauges, 'queuing'], ResourceMetrics),
                 'inflight' => Get([gauges, 'inflight'], ResourceMetrics),
