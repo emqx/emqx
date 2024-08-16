@@ -629,6 +629,7 @@ next_loop(Ctx, It0, BatchSize, Op, Acc) ->
             finalize_loop(It0, Acc);
         {seek, TS} ->
             %% ?tp(notice, skipstream_loop_result, #{r => seek, ts => TS}),
+            %% @TODO Deadloop if Op == {seek, TS}?
             It = It0#it{ts = TS},
             next_loop(Ctx, It, BatchSize, {seek, TS}, Acc);
         {ok, TS, DSKey, Msg0} ->
