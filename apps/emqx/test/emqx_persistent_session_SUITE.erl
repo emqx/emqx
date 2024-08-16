@@ -988,6 +988,8 @@ t_clean_start_drops_subscriptions(Config) ->
     %% 2.
     ok = publish(Topic, Payload1, ?QOS_1),
 
+    timer:sleep(1000),
+
     %% 3.
     {ok, Client2} = emqtt:start_link([
         {proto_ver, v5},
