@@ -148,14 +148,19 @@ post_config_update(
 post_config_update(
     [?CONF_KEY_ROOT, schemas, NewName],
     _Cmd,
-    NewSchemas,
-    %% undefined or OldSchemas
-    _,
+    NewSchema,
+    OldSchema,
     _AppEnvs
 ) ->
-    case build_serdes([{NewName, NewSchemas}]) of
+    case OldSchema of
+        undefined ->
+            ok;
+        _ ->
+            ensure_serde_absent(NewName)
+    end,
+    case build_serdes([{NewName, NewSchema}]) of
         ok ->
-            {ok, #{NewName => NewSchemas}};
+            {ok, #{NewName => NewSchema}};
         {error, Reason, SerdesToRollback} ->
             lists:foreach(fun ensure_serde_absent/1, SerdesToRollback),
             {error, Reason}
@@ -176,6 +181,7 @@ post_config_update(?CONF_KEY_PATH, _Cmd, NewConf = #{schemas := NewSchemas}, Old
             async_delete_serdes(RemovedNames)
     end,
     SchemasToBuild = maps:to_list(maps:merge(Changed, Added)),
+    ok = lists:foreach(fun ensure_serde_absent/1, [N || {N, _} <- SchemasToBuild]),
     case build_serdes(SchemasToBuild) of
         ok ->
             {ok, NewConf};

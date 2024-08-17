@@ -377,42 +377,60 @@ t_will_msg(_) ->
 
 t_format(_) ->
     io:format("~ts", [
-        emqx_packet:format(#mqtt_packet{
-            header = #mqtt_packet_header{type = ?CONNACK, retain = true, dup = 0},
-            variable = undefined
-        })
+        emqx_packet:format(
+            #mqtt_packet{
+                header = #mqtt_packet_header{type = ?CONNACK, retain = true, dup = 0},
+                variable = undefined
+            },
+            text
+        )
     ]),
-    io:format("~ts", [
-        emqx_packet:format(#mqtt_packet{
-            header = #mqtt_packet_header{type = ?CONNACK}, variable = 1, payload = <<"payload">>
-        })
-    ]),
+    io:format(
+        "~ts",
+        [
+            emqx_packet:format(
+                #mqtt_packet{
+                    header = #mqtt_packet_header{type = ?CONNACK},
+                    variable = 1,
+                    payload = <<"payload">>
+                },
+                text
+            )
+        ]
+    ),
     io:format("~ts", [
         emqx_packet:format(
-            ?CONNECT_PACKET(#mqtt_packet_connect{
-                will_flag = true,
-                will_retain = true,
-                will_qos = ?QOS_2,
-                will_topic = <<"topic">>,
-                will_payload = <<"payload">>
-            })
+            ?CONNECT_PACKET(
+                #mqtt_packet_connect{
+                    will_flag = true,
+                    will_retain = true,
+                    will_qos = ?QOS_2,
+                    will_topic = <<"topic">>,
+                    will_payload = <<"payload">>
+                }
+            ),
+            text
         )
     ]),
     io:format("~ts", [
-        emqx_packet:format(?CONNECT_PACKET(#mqtt_packet_connect{password = password}))
+        emqx_packet:format(?CONNECT_PACKET(#mqtt_packet_connect{password = password}), text)
     ]),
-    io:format("~ts", [emqx_packet:format(?CONNACK_PACKET(?CONNACK_SERVER))]),
-    io:format("~ts", [emqx_packet:format(?PUBLISH_PACKET(?QOS_1, 1))]),
-    io:format("~ts", [emqx_packet:format(?PUBLISH_PACKET(?QOS_2, <<"topic">>, 10, <<"payload">>))]),
-    io:format("~ts", [emqx_packet:format(?PUBACK_PACKET(?PUBACK, 98))]),
-    io:format("~ts", [emqx_packet:format(?PUBREL_PACKET(99))]),
+    io:format("~ts", [emqx_packet:format(?CONNACK_PACKET(?CONNACK_SERVER), text)]),
+    io:format("~ts", [emqx_packet:format(?PUBLISH_PACKET(?QOS_1, 1), text)]),
     io:format("~ts", [
-        emqx_packet:format(?SUBSCRIBE_PACKET(15, [{<<"topic">>, ?QOS_0}, {<<"topic1">>, ?QOS_1}]))
+        emqx_packet:format(?PUBLISH_PACKET(?QOS_2, <<"topic">>, 10, <<"payload">>), text)
     ]),
-    io:format("~ts", [emqx_packet:format(?SUBACK_PACKET(40, [?QOS_0, ?QOS_1]))]),
-    io:format("~ts", [emqx_packet:format(?UNSUBSCRIBE_PACKET(89, [<<"t">>, <<"t2">>]))]),
-    io:format("~ts", [emqx_packet:format(?UNSUBACK_PACKET(90))]),
-    io:format("~ts", [emqx_packet:format(?DISCONNECT_PACKET(128))]).
+    io:format("~ts", [emqx_packet:format(?PUBACK_PACKET(?PUBACK, 98), text)]),
+    io:format("~ts", [emqx_packet:format(?PUBREL_PACKET(99), text)]),
+    io:format("~ts", [
+        emqx_packet:format(
+            ?SUBSCRIBE_PACKET(15, [{<<"topic">>, ?QOS_0}, {<<"topic1">>, ?QOS_1}]), text
+        )
+    ]),
+    io:format("~ts", [emqx_packet:format(?SUBACK_PACKET(40, [?QOS_0, ?QOS_1]), text)]),
+    io:format("~ts", [emqx_packet:format(?UNSUBSCRIBE_PACKET(89, [<<"t">>, <<"t2">>]), text)]),
+    io:format("~ts", [emqx_packet:format(?UNSUBACK_PACKET(90), text)]),
+    io:format("~ts", [emqx_packet:format(?DISCONNECT_PACKET(128), text)]).
 
 t_parse_empty_publish(_) ->
     %% 52: 0011(type=PUBLISH) 0100 (QoS=2)

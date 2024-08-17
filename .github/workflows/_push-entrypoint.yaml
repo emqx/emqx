@@ -33,7 +33,7 @@ jobs:
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
       BUILD_FROM: ${{ steps.env.outputs.BUILD_FROM }}
-      RUN_FROM: ${{ steps.env.outputs.BUILD_FROM }}
+      RUN_FROM: ${{ steps.env.outputs.RUN_FROM }}
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
