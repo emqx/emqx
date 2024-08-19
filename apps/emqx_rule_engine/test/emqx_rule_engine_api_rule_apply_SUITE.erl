@@ -24,7 +24,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
--define(REPUBLISH_TOPIC, <<"rule_apply_test_SUITE">>).
 
 all() ->
     [
@@ -130,7 +129,7 @@ republish_action() ->
                 <<"payload">> => <<"MY PL">>,
                 <<"qos">> => 0,
                 <<"retain">> => false,
-                <<"topic">> => ?REPUBLISH_TOPIC,
+                <<"topic">> => <<"rule_apply_test_SUITE">>,
                 <<"user_properties">> => <<>>
             },
         <<"function">> => <<"republish">>
@@ -140,8 +139,6 @@ console_print_action() ->
     #{<<"function">> => <<"console">>}.
 
 basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) ->
-    %% Subscribe to republish action target topic so there's at least one subscriber.
-    _ = emqx:subscribe(?REPUBLISH_TOPIC),
     %% Create Rule
     RuleTopic = iolist_to_binary([<<"my_rule_topic/">>, atom_to_binary(?FUNCTION_NAME)]),
     SQL = <<"SELECT payload.id as id, payload as payload FROM \"", RuleTopic/binary, "\"">>,
@@ -184,7 +181,7 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) 
         _NAttempts0 = 20,
         begin
             Bin = read_rule_trace_file(TraceName, TraceType, Now),
-            ct:pal("THELOG:~n~s", [Bin]),
+            io:format("THELOG:~n~s", [Bin]),
             case PayloadEncode of
                 hidden ->
                     ?assertEqual(nomatch, binary:match(Bin, [<<"my_payload_msg">>]));
@@ -210,7 +207,7 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) 
                 _NAttempts0 = 20,
                 begin
                     Bin = read_rule_trace_file(TraceName, TraceType, Now),
-                    ct:pal("THELOG2:~n~s", [Bin]),
+                    io:format("THELOG2:~n~s", [Bin]),
                     ?assertNotEqual(
                         nomatch, binary:match(Bin, [<<"action_stopped_after_template_rendering">>])
                     )
@@ -222,7 +219,7 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) 
                 _NAttempts0 = 20,
                 begin
                     Bin = read_rule_trace_file(TraceName, TraceType, Now),
-                    ct:pal("THELOG3:~n~s", [Bin]),
+                    io:format("THELOG3:~n~s", [Bin]),
                     ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>])),
                     do_final_log_check(Action, Bin)
                 end

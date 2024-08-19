@@ -246,18 +246,8 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
         payload = Payload,
         timestamp = erlang:system_time(millisecond)
     },
-    case emqx_broker:safe_publish(Msg) of
-        [_ | _] ->
-            emqx_metrics:inc_msg(Msg),
-            ok;
-        disconnect ->
-            error;
-        [] ->
-            %% Have to check previous logs to distinguish between schema validation
-            %% failure, no subscribers, blocked by authz, or anything else in the
-            %% `message.publish' hook evaluation.
-            error
-    end.
+    _ = emqx_broker:safe_publish(Msg),
+    emqx_metrics:inc_msg(Msg).
 
 parse_simple_var(Data) when is_binary(Data) ->
     emqx_template:parse(Data);
