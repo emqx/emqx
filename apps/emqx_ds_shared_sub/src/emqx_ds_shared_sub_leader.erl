@@ -4,8 +4,6 @@
 
 -module(emqx_ds_shared_sub_leader).
 
--behaviour(gen_statem).
-
 -include("emqx_ds_shared_sub_proto.hrl").
 -include("emqx_ds_shared_sub_config.hrl").
 
@@ -15,12 +13,16 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    register/2,
-
     start_link/1,
-    child_spec/1,
-    id/1,
+    become/3
+]).
 
+-export([
+    group_name/1
+]).
+
+-behaviour(gen_statem).
+-export([
     callback_mode/0,
     init/1,
     handle_event/4,
@@ -53,14 +55,6 @@
     revoked_streams := list(emqx_ds:stream())
 }.
 
--type progress() :: emqx_persistent_session_ds_shared_subs:progress().
-
--type stream_state() :: #{
-    progress => progress(),
-    rank => emqx_ds:stream_rank()
-}.
-
-%% TODO https://emqx.atlassian.net/browse/EMQX-12307
 %% Some data should be persisted
 -type data() :: #{
     %%
@@ -68,12 +62,8 @@
     %%
     group_id := group_id(),
     topic := emqx_types:topic(),
-    %% TODO https://emqx.atlassian.net/browse/EMQX-12575
     %% Implement some stats to assign evenly?
-    stream_states := #{
-        emqx_ds:stream() => stream_state()
-    },
-    rank_progress := emqx_ds_shared_sub_leader_rank_progress:t(),
+    store := emqx_ds_shared_sub_leader_store:t(),
 
     %%
     %% Ephemeral data, should not be persisted
@@ -88,49 +78,44 @@
 
 -export_type([
     options/0,
-    data/0,
-    progress/0
+    data/0
 ]).
 
 %% States
 
--define(leader_waiting_registration, leader_waiting_registration).
 -define(leader_active, leader_active).
 
 %% Events
 
--record(register, {
-    register_fun :: fun(() -> pid())
-}).
 -record(renew_streams, {}).
 -record(renew_leases, {}).
 -record(drop_timeout, {}).
+-record(renew_leader_claim, {}).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-register(Pid, Fun) ->
-    gen_statem:call(Pid, #register{register_fun = Fun}).
-
-%%--------------------------------------------------------------------
-%% Internal API
-%%--------------------------------------------------------------------
-
-child_spec(#{share_topic_filter := ShareTopicFilter} = Options) ->
-    #{
-        id => id(ShareTopicFilter),
-        start => {?MODULE, start_link, [Options]},
-        restart => temporary,
-        shutdown => 5000,
-        type => worker
-    }.
-
 start_link(Options) ->
     gen_statem:start_link(?MODULE, [Options], []).
 
-id(ShareTopicFilter) ->
-    {?MODULE, ShareTopicFilter}.
+become(ShareTopicFilter, StartTime, Claim) ->
+    Data0 = init_data(ShareTopicFilter, StartTime),
+    Data1 = attach_claim(Claim, Data0),
+    case store_is_dirty(Data1) of
+        true ->
+            Actions = force_claim_renewal(Data1);
+        false ->
+            Actions = init_claim_renewal(Data1)
+    end,
+    gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, Actions).
+
+%%--------------------------------------------------------------------
+
+group_name(#share{group = ShareGroup, topic = Topic}) ->
+    %% NOTE: Should not contain `/`s.
+    %% TODO: More observable encoding.
+    iolist_to_binary([ShareGroup, $:, binary:encode_hex(Topic)]).
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
@@ -138,29 +123,42 @@ id(ShareTopicFilter) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([#{share_topic_filter := #share{topic = Topic} = ShareTopicFilter} = _Options]) ->
-    Data = #{
+init([#{share_topic_filter := ShareTopicFilter} = _Options]) ->
+    _ = erlang:process_flag(trap_exit, true),
+    Data = init_data(ShareTopicFilter, now_ms()),
+    {ok, ?leader_active, Data}.
+
+init_data(#share{topic = Topic} = ShareTopicFilter, StartTime) ->
+    Group = group_name(ShareTopicFilter),
+    case emqx_ds_shared_sub_leader_store:open(Group) of
+        Store when Store =/= false ->
+            ?tp(warning, shared_sub_leader_store_open, #{topic => ShareTopicFilter, store => Store}),
+            ok;
+        false ->
+            ?tp(warning, shared_sub_leader_store_init, #{topic => ShareTopicFilter}),
+            RankProgress = emqx_ds_shared_sub_leader_rank_progress:init(),
+            Store0 = emqx_ds_shared_sub_leader_store:init(Group),
+            Store1 = emqx_ds_shared_sub_leader_store:set(start_time, StartTime, Store0),
+            Store = emqx_ds_shared_sub_leader_store:set(rank_progress, RankProgress, Store1)
+    end,
+    #{
         group_id => ShareTopicFilter,
         topic => Topic,
-        start_time => now_ms(),
-        stream_states => #{},
+        store => Store,
         stream_owners => #{},
-        agents => #{},
-        rank_progress => emqx_ds_shared_sub_leader_rank_progress:init()
-    },
-    {ok, ?leader_waiting_registration, Data}.
+        agents => #{}
+    }.
 
-%%--------------------------------------------------------------------
-%% waiting_registration state
+attach_claim(Claim, Data) ->
+    Data#{leader_claim => Claim}.
 
-handle_event({call, From}, #register{register_fun = Fun}, ?leader_waiting_registration, Data) ->
-    Self = self(),
-    case Fun() of
-        Self ->
-            {next_state, ?leader_active, Data, {reply, From, {ok, Self}}};
-        OtherPid ->
-            {stop_and_reply, normal, {reply, From, {ok, OtherPid}}}
-    end;
+force_claim_renewal(_Data = #{}) ->
+    [{{timeout, #renew_leader_claim{}}, 0, #renew_leader_claim{}}].
+
+init_claim_renewal(_Data = #{leader_claim := Claim}) ->
+    Interval = emqx_ds_shared_sub_leader_store:heartbeat_interval(Claim),
+    [{{timeout, #renew_leader_claim{}}, Interval, #renew_leader_claim{}}].
+
 %%--------------------------------------------------------------------
 %% repalying state
 handle_event(enter, _OldState, ?leader_active, #{topic := Topic} = _Data) ->
@@ -193,6 +191,14 @@ handle_event({timeout, #drop_timeout{}}, #drop_timeout{}, ?leader_active, Data0)
     Data1 = drop_timeout_agents(Data0),
     {keep_state, Data1,
         {{timeout, #drop_timeout{}}, ?dq_config(leader_drop_timeout_interval_ms), #drop_timeout{}}};
+handle_event({timeout, #renew_leader_claim{}}, #renew_leader_claim{}, ?leader_active, Data0) ->
+    case renew_leader_claim(Data0) of
+        Data1 = #{} ->
+            Actions = init_claim_renewal(Data1),
+            {keep_state, Data1, Actions};
+        Error ->
+            {stop, Error}
+    end;
 %%--------------------------------------------------------------------
 %% agent events
 handle_event(
@@ -243,12 +249,56 @@ handle_event(Event, Content, State, _Data) ->
     }),
     keep_state_and_data.
 
-terminate(_Reason, _State, _Data) ->
-    ok.
+terminate(
+    _Reason,
+    _State,
+    #{group_id := ShareTopicFilter, leader_claim := Claim, store := Store}
+) ->
+    %% NOTE
+    %% Call to `commit_dirty/2` will currently block.
+    %% On the other hand, call to `disown_leadership/1` should be non-blocking.
+    Group = group_name(ShareTopicFilter),
+    Result = emqx_ds_shared_sub_leader_store:commit_dirty(Claim, Store),
+    ok = emqx_ds_shared_sub_leader_store:disown_leadership(Group, Claim),
+    ?tp(shared_sub_leader_store_committed_dirty, #{
+        id => ShareTopicFilter,
+        group => Group,
+        claim => Claim,
+        result => Result
+    }).
 
 %%--------------------------------------------------------------------
 %% Event handlers
 %%--------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+
+renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leader_claim := Claim}) ->
+    TS = emqx_message:timestamp_now(),
+    Group = group_name(ShareTopicFilter),
+    case emqx_ds_shared_sub_leader_store:commit_renew(Claim, TS, Store0) of
+        {ok, RenewedClaim, CommittedStore} ->
+            ?tp(shared_sub_leader_store_committed, #{
+                id => ShareTopicFilter,
+                group => Group,
+                claim => Claim,
+                renewed => RenewedClaim
+            }),
+            attach_claim(RenewedClaim, Data#{store := CommittedStore});
+        {error, Class, Reason} = Error ->
+            ?tp(warning, "Shared subscription leader store commit failed", #{
+                id => ShareTopicFilter,
+                group => Group,
+                claim => Claim,
+                reason => Reason
+            }),
+            case Class of
+                %% Will retry.
+                recoverable -> Data;
+                %% Will have to crash.
+                unrecoverable -> Error
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% Renew streams
@@ -257,60 +307,50 @@ terminate(_Reason, _State, _Data) ->
 %% * Revoke streams from agents having too many streams
 %% * Assign streams to agents having too few streams
 
-renew_streams(
-    #{
-        start_time := StartTime,
-        stream_states := StreamStates,
-        topic := Topic,
-        rank_progress := RankProgress0
-    } = Data0
-) ->
+renew_streams(#{topic := Topic} = Data0) ->
     TopicFilter = emqx_topic:words(Topic),
-    StreamsWRanks = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
+    StartTime = store_get_start_time(Data0),
+    StreamsWRanks = get_streams(TopicFilter, StartTime),
 
     %% Discard streams that are already replayed and init new
-    {NewStreamsWRanks, RankProgress1} = emqx_ds_shared_sub_leader_rank_progress:add_streams(
-        StreamsWRanks, RankProgress0
+    {NewStreamsWRanks, RankProgress} = emqx_ds_shared_sub_leader_rank_progress:add_streams(
+        StreamsWRanks,
+        store_get_rank_progress(Data0)
     ),
-    {NewStreamStates, VanishedStreamStates} = update_progresses(
-        StreamStates, NewStreamsWRanks, TopicFilter, StartTime
-    ),
-    Data1 = removed_vanished_streams(Data0, VanishedStreamStates),
-    Data2 = Data1#{stream_states => NewStreamStates, rank_progress => RankProgress1},
-    Data3 = revoke_streams(Data2),
-    Data4 = assign_streams(Data3),
-    ?SLOG(debug, #{
+    {Data1, VanishedStreams} = update_progresses(Data0, NewStreamsWRanks, TopicFilter, StartTime),
+    Data2 = store_put_rank_progress(Data1, RankProgress),
+    Data3 = removed_vanished_streams(Data2, VanishedStreams),
+    Data4 = revoke_streams(Data3),
+    Data5 = assign_streams(Data4),
+    ?SLOG(info, #{
         msg => leader_renew_streams,
         topic_filter => TopicFilter,
         new_streams => length(NewStreamsWRanks)
     }),
-    Data4.
+    Data5.
 
-update_progresses(StreamStates, NewStreamsWRanks, TopicFilter, StartTime) ->
-    lists:foldl(
-        fun({Rank, Stream}, {NewStreamStatesAcc, OldStreamStatesAcc}) ->
-            case OldStreamStatesAcc of
-                #{Stream := StreamData} ->
-                    {
-                        NewStreamStatesAcc#{Stream => StreamData},
-                        maps:remove(Stream, OldStreamStatesAcc)
-                    };
-                _ ->
-                    {ok, It} = emqx_ds:make_iterator(
-                        ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
-                    ),
-                    Progress = #{
-                        iterator => It
-                    },
-                    {
-                        NewStreamStatesAcc#{Stream => #{progress => Progress, rank => Rank}},
-                        OldStreamStatesAcc
-                    }
+update_progresses(Data0, NewStreamsWRanks, TopicFilter, StartTime) ->
+    ExistingStreams = store_setof_streams(Data0),
+    Data = lists:foldl(
+        fun({Rank, Stream}, DataAcc) ->
+            case sets:is_element(Stream, ExistingStreams) of
+                true ->
+                    DataAcc;
+                false ->
+                    {ok, It} = make_iterator(Stream, TopicFilter, StartTime),
+                    StreamData = #{progress => #{iterator => It}, rank => Rank},
+                    store_put_stream(DataAcc, Stream, StreamData)
             end
         end,
-        {#{}, StreamStates},
+        Data0,
         NewStreamsWRanks
-    ).
+    ),
+    VanishedStreams = lists:foldl(
+        fun({_Rank, Stream}, Acc) -> sets:del_element(Stream, Acc) end,
+        ExistingStreams,
+        NewStreamsWRanks
+    ),
+    {Data, sets:to_list(VanishedStreams)}.
 
 %% We just remove disappeared streams from anywhere.
 %%
@@ -320,8 +360,7 @@ update_progresses(StreamStates, NewStreamsWRanks, TopicFilter, StartTime) ->
 %%
 %% If streams disappear after long leader sleep, it is a normal situation.
 %% This removal will be a part of initialization before any agents connect.
-removed_vanished_streams(Data0, VanishedStreamStates) ->
-    VanishedStreams = maps:keys(VanishedStreamStates),
+removed_vanished_streams(Data0, VanishedStreams) ->
     Data1 = lists:foldl(
         fun(Stream, #{stream_owners := StreamOwners0} = DataAcc) ->
             case StreamOwners0 of
@@ -601,47 +640,61 @@ update_agent_stream_states(Data0, Agent, AgentStreamProgresses, Version) ->
     end.
 
 update_stream_progresses(
-    #{stream_states := StreamStates0, stream_owners := StreamOwners} = Data0,
+    #{stream_owners := StreamOwners} = Data0,
     Agent,
     AgentState0,
     ReceivedStreamProgresses
 ) ->
-    {StreamStates1, ReplayedStreams} = lists:foldl(
-        fun(#{stream := Stream, progress := Progress}, {StreamStatesAcc, ReplayedStreamsAcc}) ->
+    ReplayedStreams = lists:foldl(
+        fun(#{stream := Stream, progress := Progress}, Acc) ->
             case StreamOwners of
                 #{Stream := Agent} ->
-                    StreamData0 = maps:get(Stream, StreamStatesAcc),
                     case Progress of
                         #{iterator := end_of_stream} ->
-                            Rank = maps:get(rank, StreamData0),
-                            {maps:remove(Stream, StreamStatesAcc), ReplayedStreamsAcc#{
-                                Stream => Rank
-                            }};
+                            #{rank := Rank} = store_get_stream(Data0, Stream),
+                            Acc#{Stream => Rank};
                         _ ->
-                            StreamData1 = StreamData0#{progress => Progress},
-                            {StreamStatesAcc#{Stream => StreamData1}, ReplayedStreamsAcc}
+                            Acc
                     end;
                 _ ->
-                    {StreamStatesAcc, ReplayedStreamsAcc}
+                    Acc
             end
         end,
-        {StreamStates0, #{}},
+        #{},
         ReceivedStreamProgresses
     ),
-    Data1 = update_rank_progress(Data0, ReplayedStreams),
-    Data2 = Data1#{stream_states => StreamStates1},
+    Data1 = lists:foldl(
+        fun(#{stream := Stream, progress := Progress}, DataAcc) ->
+            case StreamOwners of
+                #{Stream := Agent} ->
+                    StreamData0 = store_get_stream(DataAcc, Stream),
+                    case Progress of
+                        #{iterator := end_of_stream} ->
+                            store_delete_stream(DataAcc, Stream);
+                        _ ->
+                            StreamData = StreamData0#{progress => Progress},
+                            store_put_stream(DataAcc, Stream, StreamData)
+                    end;
+                _ ->
+                    DataAcc
+            end
+        end,
+        Data0,
+        ReceivedStreamProgresses
+    ),
+    Data2 = update_rank_progress(Data1, ReplayedStreams),
     AgentState1 = filter_replayed_streams(AgentState0, ReplayedStreams),
     {Data2, AgentState1}.
 
-update_rank_progress(#{rank_progress := RankProgress0} = Data, ReplayedStreams) ->
-    RankProgress1 = maps:fold(
+update_rank_progress(Data, ReplayedStreams) ->
+    RankProgress = maps:fold(
         fun(Stream, Rank, RankProgressAcc) ->
             emqx_ds_shared_sub_leader_rank_progress:set_replayed({Rank, Stream}, RankProgressAcc)
         end,
-        RankProgress0,
+        store_get_rank_progress(Data),
         ReplayedStreams
     ),
-    Data#{rank_progress => RankProgress1}.
+    store_put_rank_progress(Data, RankProgress).
 
 %% No need to revoke fully replayed streams. We do not assign them anymore.
 %% The agent's session also will drop replayed streams itself.
@@ -899,10 +952,9 @@ renew_no_replaying_deadline(#{} = AgentState) ->
             ?dq_config(leader_session_not_replaying_timeout_ms)
     }.
 
-unassigned_streams(#{stream_states := StreamStates, stream_owners := StreamOwners}) ->
-    Streams = maps:keys(StreamStates),
-    AssignedStreams = maps:keys(StreamOwners),
-    Streams -- AssignedStreams.
+unassigned_streams(#{stream_owners := StreamOwners} = Data) ->
+    Streams = store_setof_streams(Data),
+    sets:to_list(sets:subtract(Streams, StreamOwners)).
 
 %% Those who are not connecting or updating, i.e. not in a transient state.
 replaying_agents(#{agents := AgentStates}) ->
@@ -922,12 +974,12 @@ desired_stream_count_per_agent(#{agents := AgentStates} = Data) ->
 desired_stream_count_for_new_agent(#{agents := AgentStates} = Data) ->
     desired_stream_count_per_agent(Data, maps:size(AgentStates) + 1).
 
-desired_stream_count_per_agent(#{stream_states := StreamStates}, AgentCount) ->
+desired_stream_count_per_agent(Data, AgentCount) ->
     case AgentCount of
         0 ->
             0;
         _ ->
-            StreamCount = maps:size(StreamStates),
+            StreamCount = store_num_streams(Data),
             case StreamCount rem AgentCount of
                 0 ->
                     StreamCount div AgentCount;
@@ -936,10 +988,10 @@ desired_stream_count_per_agent(#{stream_states := StreamStates}, AgentCount) ->
             end
     end.
 
-stream_progresses(#{stream_states := StreamStates} = _Data, Streams) ->
+stream_progresses(Data, Streams) ->
     lists:map(
         fun(Stream) ->
-            StreamData = maps:get(Stream, StreamStates),
+            StreamData = store_get_stream(Data, Stream),
             #{
                 stream => Stream,
                 progress => maps:get(progress, StreamData)
@@ -1013,3 +1065,45 @@ with_agent(#{agents := Agents} = Data, Agent, Fun) ->
         _ ->
             Data
     end.
+
+%%
+
+get_streams(TopicFilter, StartTime) ->
+    emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime).
+
+make_iterator(Stream, TopicFilter, StartTime) ->
+    emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime).
+
+%% Leader store
+
+store_is_dirty(#{store := Store}) ->
+    emqx_ds_shared_sub_leader_store:dirty(Store).
+
+store_get_stream(#{store := Store}, ID) ->
+    emqx_ds_shared_sub_leader_store:get(stream, ID, Store).
+
+store_put_stream(Data = #{store := Store0}, ID, StreamData) ->
+    Store = emqx_ds_shared_sub_leader_store:put(stream, ID, StreamData, Store0),
+    Data#{store := Store}.
+
+store_delete_stream(Data = #{store := Store0}, ID) ->
+    Store = emqx_ds_shared_sub_leader_store:delete(stream, ID, Store0),
+    Data#{store := Store}.
+
+store_get_rank_progress(#{store := Store}) ->
+    emqx_ds_shared_sub_leader_store:get(rank_progress, Store).
+
+store_put_rank_progress(Data = #{store := Store0}, RankProgress) ->
+    Store = emqx_ds_shared_sub_leader_store:set(rank_progress, RankProgress, Store0),
+    Data#{store := Store}.
+
+store_get_start_time(#{store := Store}) ->
+    emqx_ds_shared_sub_leader_store:get(start_time, Store).
+
+store_num_streams(#{store := Store}) ->
+    emqx_ds_shared_sub_leader_store:size(stream, Store).
+
+store_setof_streams(#{store := Store}) ->
+    Acc0 = sets:new([{version, 2}]),
+    FoldFun = fun(Stream, _StreamData, Acc) -> sets:add_element(Stream, Acc) end,
+    emqx_ds_shared_sub_leader_store:fold(stream, FoldFun, Acc0, Store).

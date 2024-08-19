@@ -158,7 +158,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Opts = emqx_ds_builtin_local_meta:db_config(DB),
     Children = [
         shard_storage_spec(DB, Shard, Opts),
-        shard_buffer_spec(DB, Shard, Opts)
+        shard_buffer_spec(DB, Shard, Opts),
+        shard_batch_serializer_spec(DB, Shard, Opts)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -203,6 +204,15 @@ shard_buffer_spec(DB, Shard, Options) ->
     #{
         id => {Shard, buffer},
         start => {emqx_ds_buffer, start_link, [emqx_ds_builtin_local, Options, DB, Shard]},
+        shutdown => 5_000,
+        restart => permanent,
+        type => worker
+    }.
+
+shard_batch_serializer_spec(DB, Shard, Opts) ->
+    #{
+        id => {Shard, batch_serializer},
+        start => {emqx_ds_builtin_local_batch_serializer, start_link, [DB, Shard, Opts]},
         shutdown => 5_000,
         restart => permanent,
         type => worker

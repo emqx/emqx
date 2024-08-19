@@ -18,7 +18,8 @@
 
 %% Dynamic server location API
 -export([
-    servers/3
+    servers/3,
+    shard_info/3
 ]).
 
 %% Safe Process Command API
@@ -38,8 +39,10 @@
 -behaviour(gen_server).
 -export([
     init/1,
+    handle_continue/2,
     handle_call/3,
     handle_cast/2,
+    handle_info/2,
     terminate/2
 ]).
 
@@ -52,6 +55,9 @@
     | {error, servers_unreachable}.
 
 -define(MEMBERSHIP_CHANGE_TIMEOUT, 30_000).
+-define(MAX_BOOSTRAP_RETRY_TIMEOUT, 1_000).
+
+-define(PTERM(DB, SHARD, KEY), {?MODULE, DB, SHARD, KEY}).
 
 %%
 
@@ -157,6 +163,12 @@ get_shard_servers(DB, Shard) ->
 
 local_site() ->
     emqx_ds_replication_layer_meta:this_site().
+
+%%
+
+-spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), _Info) -> _Value.
+shard_info(DB, Shard, ready) ->
+    get_shard_info(DB, Shard, ready, false).
 
 %%
 
@@ -324,10 +336,45 @@ ra_overview(Server) ->
 
 %%
 
+-record(st, {
+    db :: emqx_ds:db(),
+    shard :: emqx_ds_replication_layer:shard_id(),
+    server :: server(),
+    bootstrapped :: boolean(),
+    stage :: term()
+}).
+
 init({DB, Shard, Opts}) ->
     _ = process_flag(trap_exit, true),
-    ok = start_server(DB, Shard, Opts),
-    {ok, {DB, Shard}}.
+    case start_server(DB, Shard, Opts) of
+        {_New = true, Server} ->
+            NextStage = trigger_election;
+        {_New = false, Server} ->
+            NextStage = wait_leader
+    end,
+    St = #st{
+        db = DB,
+        shard = Shard,
+        server = Server,
+        bootstrapped = false,
+        stage = NextStage
+    },
+    {ok, St, {continue, bootstrap}}.
+
+handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
+    {noreply, St};
+handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, stage = Stage}) ->
+    ?tp(emqx_ds_replshard_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
+    case bootstrap(St0) of
+        St = #st{bootstrapped = true} ->
+            ?tp(emqx_ds_replshard_bootstrapped, #{db => DB, shard => Shard}),
+            {noreply, St};
+        St = #st{bootstrapped = false} ->
+            {noreply, St, {continue, bootstrap}};
+        {retry, Timeout, St} ->
+            _TRef = erlang:start_timer(Timeout, self(), bootstrap),
+            {noreply, St}
+    end.
 
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
@@ -335,11 +382,52 @@ handle_call(_Call, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-terminate(_Reason, {DB, Shard}) ->
+handle_info({timeout, _TRef, bootstrap}, St) ->
+    {noreply, St, {continue, bootstrap}};
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, #st{db = DB, shard = Shard}) ->
+    %% NOTE: Mark as not ready right away.
+    ok = erase_shard_info(DB, Shard),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
     catch prep_stop_server(DB, Shard),
     LocalServer = get_local_server(DB, Shard),
     ok = ra:stop_server(DB, LocalServer).
+
+%%
+
+bootstrap(St = #st{stage = trigger_election, server = Server}) ->
+    ok = trigger_election(Server),
+    St#st{stage = wait_leader};
+bootstrap(St = #st{stage = wait_leader, server = Server}) ->
+    case current_leader(Server) of
+        Leader = {_, _} ->
+            St#st{stage = {wait_log, Leader}};
+        unknown ->
+            St
+    end;
+bootstrap(St = #st{stage = {wait_log, Leader}}) ->
+    case ra_overview(Leader) of
+        #{commit_index := RaftIdx} ->
+            St#st{stage = {wait_log_index, RaftIdx}};
+        #{} ->
+            St#st{stage = wait_leader}
+    end;
+bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, server = Server}) ->
+    Overview = ra_overview(Server),
+    case maps:get(last_applied, Overview, 0) of
+        LastApplied when LastApplied >= RaftIdx ->
+            ok = announce_shard_ready(DB, Shard),
+            St#st{bootstrapped = true, stage = undefined};
+        LastApplied ->
+            %% NOTE
+            %% Blunt estimate of time shard needs to catch up. If this proves to be too long in
+            %% practice, it's could be augmented with handling `recover` -> `follower` Ra
+            %% member state transition.
+            Timeout = min(RaftIdx - LastApplied, ?MAX_BOOSTRAP_RETRY_TIMEOUT),
+            {retry, Timeout, St}
+    end.
 
 %%
 
@@ -350,7 +438,6 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     MutableConfig = #{tick_timeout => 100},
     case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
-            Bootstrap = true,
             Machine = {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
             LogOpts = maps:with(
                 [
@@ -366,29 +453,33 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
                 initial_members => Servers,
                 machine => Machine,
                 log_init_args => LogOpts
-            });
+            }),
+            {_NewServer = true, LocalServer};
         ok ->
-            Bootstrap = false;
+            {_NewServer = false, LocalServer};
         {error, {already_started, _}} ->
-            Bootstrap = false
-    end,
+            {_NewServer = false, LocalServer}
+    end.
+
+trigger_election(Server) ->
     %% NOTE
     %% Triggering election is necessary when a new consensus group is being brought up.
     %% TODO
     %% It's probably a good idea to rebalance leaders across the cluster from time to
     %% time. There's `ra:transfer_leadership/2` for that.
-    try Bootstrap andalso ra:trigger_election(LocalServer, _Timeout = 1_000) of
-        false ->
-            ok;
-        ok ->
-            ok
+    try ra:trigger_election(Server) of
+        ok -> ok
     catch
-        %% TODO
+        %% NOTE
         %% Tolerating exceptions because server might be occupied with log replay for
         %% a while.
-        exit:{timeout, _} when not Bootstrap ->
+        exit:{timeout, _} ->
+            ?tp(emqx_ds_replshard_trigger_election, #{server => Server, error => timeout}),
             ok
     end.
+
+announce_shard_ready(DB, Shard) ->
+    set_shard_info(DB, Shard, ready, true).
 
 server_uid(_DB, Shard) ->
     %% NOTE
@@ -399,6 +490,22 @@ server_uid(_DB, Shard) ->
     %% in the filesystem / logs / etc.
     Ts = integer_to_binary(erlang:system_time(microsecond)),
     <<Shard/binary, "_", Ts/binary>>.
+
+%%
+
+get_shard_info(DB, Shard, K, Default) ->
+    persistent_term:get(?PTERM(DB, Shard, K), Default).
+
+set_shard_info(DB, Shard, K, V) ->
+    persistent_term:put(?PTERM(DB, Shard, K), V).
+
+erase_shard_info(DB, Shard) ->
+    lists:foreach(fun(K) -> erase_shard_info(DB, Shard, K) end, [
+        ready
+    ]).
+
+erase_shard_info(DB, Shard, K) ->
+    persistent_term:erase(?PTERM(DB, Shard, K)).
 
 %%
 

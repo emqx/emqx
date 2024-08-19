@@ -280,7 +280,7 @@ convert_certs_for_conf_path(ConfPath, NewConfig) ->
 
 convert_certs(CertsDir, NewConfig) ->
     NewSSL = maps:get(<<"ssl">>, NewConfig, undefined),
-    case emqx_tls_lib:ensure_ssl_files(CertsDir, NewSSL) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(CertsDir, NewSSL) of
         {ok, NewSSL1} ->
             new_ssl_config(NewConfig, NewSSL1);
         {error, Reason} ->

@@ -184,7 +184,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.12.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.2", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.3", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.2", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
@@ -216,7 +216,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
   def common_dep(:esasl), do: {:esasl, github: "emqx/esasl", tag: "0.2.1"}
-  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.0", override: true}
 
   def common_dep(:system_monitor),
     do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}

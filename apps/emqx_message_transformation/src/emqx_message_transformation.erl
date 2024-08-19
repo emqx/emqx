@@ -29,7 +29,7 @@
 ]).
 
 %% Internal exports
--export([run_transformation/2, trace_failure_context_to_map/1]).
+-export([run_transformation/2, trace_failure_context_to_map/1, prettify_operation/1]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -173,6 +173,19 @@ run_transformation(Transformation, MessageIn) ->
             {FailureAction, TraceFailureContext}
     end.
 
+prettify_operation(Operation0) ->
+    %% TODO: remove injected bif module
+    Operation = maps:update_with(
+        value,
+        fun(V) -> iolist_to_binary(emqx_variform:decompile(V)) end,
+        Operation0
+    ),
+    maps:update_with(
+        key,
+        fun(Path) -> iolist_to_binary(lists:join(".", Path)) end,
+        Operation
+    ).
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
@@ -181,17 +194,32 @@ run_transformation(Transformation, MessageIn) ->
     {ok, eval_context()} | {error, trace_failure_context()}.
 eval_operation(Operation, Transformation, Context) ->
     #{key := K, value := V} = Operation,
-    case eval_variform(K, V, Context) of
-        {error, Reason} ->
-            FailureContext = #trace_failure_context{
+    try
+        case eval_variform(K, V, Context) of
+            {error, Reason} ->
+                FailureContext = #trace_failure_context{
+                    transformation = Transformation,
+                    tag = "transformation_eval_operation_failure",
+                    context = #{reason => Reason}
+                },
+                {error, FailureContext};
+            {ok, Rendered} ->
+                NewContext = put_value(K, Rendered, Context),
+                {ok, NewContext}
+        end
+    catch
+        Class:Error:Stacktrace ->
+            FailureContext1 = #trace_failure_context{
                 transformation = Transformation,
-                tag = "transformation_eval_operation_failure",
-                context = #{reason => Reason}
+                tag = "transformation_eval_operation_exception",
+                context = #{
+                    kind => Class,
+                    reason => Error,
+                    stacktrace => Stacktrace,
+                    operation => prettify_operation(Operation)
+                }
             },
-            {error, FailureContext};
-        {ok, Rendered} ->
-            NewContext = put_value(K, Rendered, Context),
-            {ok, NewContext}
+            {error, FailureContext1}
     end.
 
 -spec eval_variform([binary(), ...], _, eval_context()) ->
@@ -280,12 +308,22 @@ run_transformations(Transformations, Message = #message{headers = Headers}) ->
     end.
 
 do_run_transformations(Transformations, Message) ->
+    LastTransformation = #{name := LastTransformationName} = lists:last(Transformations),
     Fun = fun(Transformation, MessageAcc) ->
         #{name := Name} = Transformation,
         emqx_message_transformation_registry:inc_matched(Name),
         case run_transformation(Transformation, MessageAcc) of
             {ok, #message{} = NewAcc} ->
-                emqx_message_transformation_registry:inc_succeeded(Name),
+                %% If this is the last transformation, we can't bump its success counter
+                %% yet.  We perform a check to see if the final payload is encoded as a
+                %% binary after all transformations have run, and it's the last
+                %% transformation's responsibility to properly encode it.
+                case Name =:= LastTransformationName of
+                    true ->
+                        ok;
+                    false ->
+                        emqx_message_transformation_registry:inc_succeeded(Name)
+                end,
                 {cont, NewAcc};
             {ignore, TraceFailureContext} ->
                 trace_failure_from_context(TraceFailureContext),
@@ -307,11 +345,12 @@ do_run_transformations(Transformations, Message) ->
         #message{} = FinalMessage ->
             case is_payload_properly_encoded(FinalMessage) of
                 true ->
+                    emqx_message_transformation_registry:inc_succeeded(LastTransformationName),
                     FinalMessage;
                 false ->
                     %% Take the last validation's failure action, as it's the one
                     %% responsible for getting the right encoding.
-                    LastTransformation = lists:last(Transformations),
+                    emqx_message_transformation_registry:inc_failed(LastTransformationName),
                     #{failure_action := FailureAction} = LastTransformation,
                     trace_failure(LastTransformation, "transformation_bad_encoding", #{
                         action => FailureAction,

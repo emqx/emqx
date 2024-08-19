@@ -40,6 +40,7 @@
 >>).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(REDACTED, <<"******">>).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -189,6 +190,7 @@ link_params() ->
 link_params(Overrides) ->
     Default = #{
         <<"clientid">> => <<"linkclientid">>,
+        <<"password">> => <<"my secret password">>,
         <<"pool_size">> => 1,
         <<"server">> => <<"emqxcl_2.nohost:31883">>,
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>]
@@ -253,6 +255,7 @@ t_crud(_Config) ->
     ?assertMatch(
         {201, #{
             <<"name">> := NameA,
+            <<"password">> := ?REDACTED,
             <<"status">> := _,
             <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
         }},
@@ -263,6 +266,7 @@ t_crud(_Config) ->
         {200, [
             #{
                 <<"name">> := NameA,
+                <<"password">> := ?REDACTED,
                 <<"status">> := _,
                 <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
             }
@@ -272,6 +276,7 @@ t_crud(_Config) ->
     ?assertMatch(
         {200, #{
             <<"name">> := NameA,
+            <<"password">> := ?REDACTED,
             <<"status">> := _,
             <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
         }},
@@ -283,6 +288,7 @@ t_crud(_Config) ->
     ?assertMatch(
         {200, #{
             <<"name">> := NameA,
+            <<"password">> := ?REDACTED,
             <<"status">> := _,
             <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
         }},
@@ -297,6 +303,39 @@ t_crud(_Config) ->
     ?assertMatch({200, []}, list()),
 
     ok.
+
+t_create_invalid(_Config) ->
+    Params = link_params(),
+    EmptyName = <<>>,
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message1}} = create_link(
+        EmptyName, Params
+    ),
+    ?assertMatch(
+        #{<<"kind">> := <<"validation_error">>, <<"reason">> := <<"Name cannot be empty string">>},
+        Message1
+    ),
+    LongName = binary:copy(<<$a>>, 256),
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message2}} = create_link(
+        LongName, Params
+    ),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"Name length must be less than 255">>
+        },
+        Message2
+    ),
+    BadName = <<"~!@#$%^&*()_+{}:'<>?|">>,
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message3}} = create_link(
+        BadName, Params
+    ),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"Invalid name format", _/binary>>
+        },
+        Message3
+    ).
 
 %% Verifies the behavior of reported status under different conditions when listing all
 %% links and when fetching a specific link.
@@ -487,7 +526,6 @@ t_metrics(Config) ->
                     <<"failed">> := _,
                     <<"dropped">> := _,
                     <<"retried">> := _,
-                    <<"received">> := _,
                     <<"queuing">> := _,
                     <<"inflight">> := _,
                     <<"rate">> := _,
@@ -508,7 +546,6 @@ t_metrics(Config) ->
                             <<"failed">> := _,
                             <<"dropped">> := _,
                             <<"retried">> := _,
-                            <<"received">> := _,
                             <<"queuing">> := _,
                             <<"inflight">> := _,
                             <<"rate">> := _,
@@ -529,7 +566,6 @@ t_metrics(Config) ->
                             <<"failed">> := _,
                             <<"dropped">> := _,
                             <<"retried">> := _,
-                            <<"received">> := _,
                             <<"queuing">> := _,
                             <<"inflight">> := _,
                             <<"rate">> := _,
@@ -719,4 +755,27 @@ t_metrics(Config) ->
         )
     ),
 
+    ok.
+
+%% Checks that we can update a link via the API in the same fashion as the frontend does,
+%% by sending secrets as `******', and the secret is not mangled.
+t_update_password(_Config) ->
+    ?check_trace(
+        begin
+            Name = atom_to_binary(?FUNCTION_NAME),
+            Password = <<"my secret password">>,
+            Params1 = link_params(#{<<"password">> => Password}),
+            {201, Response1} = create_link(Name, Params1),
+            [#{name := Name, password := WrappedPassword0}] = emqx_config:get([cluster, links]),
+            ?assertEqual(Password, emqx_secret:unwrap(WrappedPassword0)),
+            Params2A = maps:without([<<"name">>, <<"node_status">>, <<"status">>], Response1),
+            Params2 = Params2A#{<<"pool_size">> := 2},
+            ?assertEqual(?REDACTED, maps:get(<<"password">>, Params2)),
+            ?assertMatch({200, _}, update_link(Name, Params2)),
+            [#{name := Name, password := WrappedPassword}] = emqx_config:get([cluster, links]),
+            ?assertEqual(Password, emqx_secret:unwrap(WrappedPassword)),
+            ok
+        end,
+        []
+    ),
     ok.

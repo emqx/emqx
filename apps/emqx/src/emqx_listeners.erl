@@ -897,7 +897,7 @@ convert_certs(ListenerConf) ->
 
 convert_certs(Type, Name, Conf) ->
     CertsDir = certs_dir(Type, Name),
-    case emqx_tls_lib:ensure_ssl_files(CertsDir, get_ssl_options(Conf)) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(CertsDir, get_ssl_options(Conf)) of
         {ok, undefined} ->
             Conf;
         {ok, SSL} ->

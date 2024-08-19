@@ -18,8 +18,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
-            {emqx, #{
+            {emqx_conf, #{
                 config => #{
                     <<"durable_sessions">> => #{
                         <<"enable">> => true,
@@ -27,6 +26,9 @@ init_per_suite(Config) ->
                     },
                     <<"durable_storage">> => #{
                         <<"messages">> => #{
+                            <<"backend">> => <<"builtin_raft">>
+                        },
+                        <<"queues">> => #{
                             <<"backend">> => <<"builtin_raft">>
                         }
                     }
@@ -39,7 +41,8 @@ init_per_suite(Config) ->
                         <<"session_find_leader_timeout_ms">> => "1200ms"
                     }
                 }
-            }}
+            }},
+            emqx
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),
