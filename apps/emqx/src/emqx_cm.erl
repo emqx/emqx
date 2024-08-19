@@ -145,9 +145,6 @@
     (is_binary(CLIENTID) orelse (is_atom(CLIENTID) andalso CLIENTID =/= undefined))
 ).
 
-%% When dealing with race conditions during new session creation.
--define(MAX_RETRIES, 5).
-
 %% linting overrides
 -elvis([
     {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}},
@@ -308,31 +305,10 @@ open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo
         end
     end).
 
-%% Used only when create a *new* session, not resuming a new one.
-create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, ChanPid) ->
-    Attempts = 0,
-    create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, ChanPid, Attempts).
-
-create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg, ChanPid, N) ->
-    case emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg) of
-        {error, recoverable, session_already_exists} when N < ?MAX_RETRIES ->
-            %% Race condition: session data could still have been replicating and now
-            %% became visible as we attempted to delete it in `open_session'; try again.
-            ok = emqx_session:destroy(ClientInfo, ConnInfo),
-            timer:sleep(100),
-            create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, ChanPid, N + 1);
-        {error, recoverable, session_already_exists} ->
-            {error, failed_to_create_new_session};
-        {error, recoverable, Reason} when N < ?MAX_RETRIES ->
-            ?SLOG(info, #{msg => "cm_failed_to_create_new_session", reason => Reason, retry => true}),
-            timer:sleep(100),
-            create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, ChanPid, N + 1);
-        {error, unrecoverable, Reason} ->
-            {error, Reason};
-        {ok, Session} ->
-            ok = register_channel(ClientId, ChanPid, ConnInfo),
-            {ok, #{session => Session, present => false}}
-    end.
+create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg, ChanPid) ->
+    Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
+    ok = register_channel(ClientId, ChanPid, ConnInfo),
+    {ok, #{session => Session, present => false}}.
 
 %% @doc Try to takeover a session from existing channel.
 -spec takeover_session_begin(emqx_types:clientid()) ->

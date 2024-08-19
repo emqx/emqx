@@ -416,8 +416,6 @@ cancel_timer(S = #s{tref = TRef}) ->
 
 %% @doc Return approximate size of the MQTT message (it doesn't take
 %% all things into account, for example headers and extras)
-payload_size({_TS, #message{} = Message}) ->
-    payload_size(Message);
 payload_size(#message{payload = P, topic = T}) ->
     size(P) + size(T);
 payload_size({_OpName, _}) ->

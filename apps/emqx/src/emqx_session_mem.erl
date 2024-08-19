@@ -162,7 +162,7 @@
 %%--------------------------------------------------------------------
 
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
-    {ok, session()}.
+    session().
 create(
     #{zone := Zone, clientid := ClientId},
     #{expiry_interval := EI, receive_maximum := ReceiveMax},
@@ -170,7 +170,7 @@ create(
     Conf
 ) ->
     QueueOpts = get_mqueue_conf(Zone),
-    {ok, #session{
+    #session{
         id = emqx_guid:gen(),
         clientid = ClientId,
         created_at = erlang:system_time(millisecond),
@@ -185,7 +185,7 @@ create(
         upgrade_qos = maps:get(upgrade_qos, Conf),
         retry_interval = maps:get(retry_interval, Conf),
         await_rel_timeout = maps:get(await_rel_timeout, Conf)
-    }}.
+    }.
 
 get_mqueue_conf(Zone) ->
     #{

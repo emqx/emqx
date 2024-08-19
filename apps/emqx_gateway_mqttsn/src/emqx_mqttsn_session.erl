@@ -55,10 +55,9 @@
 init(ClientInfo, MaybeWillMsg) ->
     ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
     SessionConf = emqx_session:get_session_conf(ClientInfo),
-    {ok, Session} = emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf),
     #{
         registry => emqx_mqttsn_registry:init(),
-        session => Session
+        session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf)
     }.
 
 registry(#{registry := Registry}) ->

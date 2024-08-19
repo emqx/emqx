@@ -183,7 +183,7 @@
 %% -------------------------------------------------------------------
 
 -callback create(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
-    {ok, t()} | {error, recoverable | unrecoverable, term()}.
+    t().
 -callback open(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
 -callback destroy(t() | clientinfo()) -> ok.
@@ -198,8 +198,7 @@
 %% Create a Session
 %%--------------------------------------------------------------------
 
--spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
-    {ok, t()} | {error, recoverable | unrecoverable, term()}.
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) -> t().
 create(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
     % FIXME error conditions
@@ -209,14 +208,10 @@ create(ClientInfo, ConnInfo, MaybeWillMsg) ->
 
 create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     % FIXME error conditions
-    case Mod:create(ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
-        {ok, Session} ->
-            ok = emqx_metrics:inc('session.created'),
-            ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
-            {ok, Session};
-        {error, _Class, _Reason} = Error ->
-            Error
-    end.
+    Session = Mod:create(ClientInfo, ConnInfo, MaybeWillMsg, Conf),
+    ok = emqx_metrics:inc('session.created'),
+    ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
+    Session.
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
@@ -232,16 +227,7 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
         false ->
             %% NOTE
             %% Nothing was found, create a new session with the `Default` implementation.
-            %% TODO: other error conditions?
-            case create(Default, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
-                {error, recoverable, session_already_exists} ->
-                    %% Race condition: session data could still have been replicating and
-                    %% now became visible as we attempted to create a fresh one; try
-                    %% again.
-                    open(ClientInfo, ConnInfo, MaybeWillMsg);
-                {ok, Session} ->
-                    {false, Session}
-            end
+            {false, create(Default, ClientInfo, ConnInfo, MaybeWillMsg, Conf)}
     end.
 
 try_open([Mod | Rest], ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->

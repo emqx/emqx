@@ -235,14 +235,9 @@
 %%
 
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
-    {ok, session()} | emqx_ds:error(session_already_exists).
+    session().
 create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
-    case session_ensure_new(ClientID, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
-        {ok, Session} ->
-            {ok, ensure_timers(Session)};
-        {error, _Class, _Reason} = Error ->
-            Error
-    end.
+    ensure_timers(session_ensure_new(ClientID, ClientInfo, ConnInfo, MaybeWillMsg, Conf)).
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
@@ -923,7 +918,7 @@ session_open(
     emqx_maybe:t(message()),
     emqx_session:conf()
 ) ->
-    {ok, session()} | emqx_ds:error(session_already_exists).
+    session().
 session_ensure_new(
     Id, ClientInfo, ConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}, MaybeWillMsg, Conf
 ) ->
@@ -951,19 +946,14 @@ session_ensure_new(
     S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
     S6 = set_clientinfo(ClientInfo, S5),
     S7 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S6),
-    try emqx_persistent_session_ds_state:commit(S7, #{ensure_new => true}) of
-        S ->
-            {ok, #{
-                id => Id,
-                props => Conf,
-                s => S,
-                shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(Id)),
-                inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo))
-            }}
-    catch
-        throw:session_already_exists ->
-            {error, recoverable, session_already_exists}
-    end.
+    S = emqx_persistent_session_ds_state:commit(S7, #{ensure_new => true}),
+    #{
+        id => Id,
+        props => Conf,
+        s => S,
+        shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(Id)),
+        inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo))
+    }.
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC

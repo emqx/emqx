@@ -1096,7 +1096,7 @@ connpkt(Props) ->
 session() -> session(#{zone => default, clientid => <<"fake-test">>}, #{}).
 session(InitFields) -> session(#{zone => default, clientid => <<"fake-test">>}, InitFields).
 session(ClientInfo, InitFields) when is_map(InitFields) ->
-    {ok, Session} = emqx_session:create(
+    Session = emqx_session:create(
         ClientInfo,
         #{
             receive_maximum => 0,

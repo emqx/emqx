@@ -516,7 +516,7 @@ commit(
     },
     MetadataVal = #{metadata => Metadata, key_mappings => key_mappings(Rec)},
     MetadataOp = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, MetadataVal),
-    Res = store_batch(
+    ok = store_batch(
         SessionId,
         lists:flatten([
             {?TS, MetadataOp},
@@ -529,13 +529,7 @@ commit(
         ]),
         Opts
     ),
-    case Res of
-        {error, unrecoverable, {precondition_failed, _Msg}} ->
-            %% Race: the session already exists.
-            throw(session_already_exists);
-        ok ->
-            Rec
-    end.
+    Rec.
 
 key_mappings(Rec) ->
     lists:foldl(

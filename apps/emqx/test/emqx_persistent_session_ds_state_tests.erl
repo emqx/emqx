@@ -324,7 +324,7 @@ postcondition(S, {call, ?MODULE, gen_get, [SessionId, {Idx, Fun, Key}]}, Result)
     ?assertEqual(
         maps:get(Key, element(Idx, Record), undefined),
         Result,
-        #{session_id => SessionId, key => Key, 'fun' => Fun, st => get_state(SessionId)}
+        #{session_id => SessionId, key => Key, 'fun' => Fun}
     ),
     true;
 postcondition(_, _, _) ->
