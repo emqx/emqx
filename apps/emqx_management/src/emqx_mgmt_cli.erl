@@ -44,7 +44,8 @@
     pem_cache/1,
     olp/1,
     data/1,
-    ds/1
+    ds/1,
+    scram/1
 ]).
 
 -spec load() -> ok.
@@ -906,6 +907,34 @@ do_ds(_) ->
         {"ds join <storage> <site>", "Add site to the replica set of the storage"},
         {"ds leave <storage> <site>", "Remove site from the replica set of the storage"},
         {"ds forget <site>", "Forcefully remove a site from the list of known sites"}
+    ]).
+
+%%--------------------------------------------------------------------
+%% TEST
+%%--------------------------------------------------------------------
+
+scram(["create", Password, Alg0, Count0]) ->
+    Alg = erlang:list_to_atom(Alg0),
+    Count = erlang:list_to_integer(Count0),
+
+    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(
+        Password,
+        #{
+            algorithm => Alg,
+            iteration_count => Count
+        }
+    ),
+
+    Info = #{
+        stored_key => binary:encode_hex(StoredKey),
+        server_key => binary:encode_hex(ServerKey),
+        salt => binary:encode_hex(Salt)
+    },
+
+    emqx_ctl:print("UserInfo: ~p~n", [Info]);
+scram(_) ->
+    emqx_ctl:usage([
+        {"scram create <password> <sha256|sha512> <count>", "generate a scram user info"}
     ]).
 
 %%--------------------------------------------------------------------

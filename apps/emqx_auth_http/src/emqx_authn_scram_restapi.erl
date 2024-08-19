@@ -72,11 +72,20 @@ authenticate(
     RetrieveFun = fun(Username) ->
         retrieve(Username, Credential, State)
     end,
+
     OnErrFun = fun(Msg, Reason) ->
         ?TRACE_AUTHN_PROVIDER(Msg, #{
             reason => Reason
         })
     end,
+
+    ?TRACE_AUTHN_PROVIDER("on_authenticate", #{
+        method => AuthMethod,
+        data => AuthData,
+        cache => AuthCache,
+        state => maps:with([algorithm, iteration_count], State)
+    }),
+
     emqx_utils_scram:authenticate(
         AuthMethod, AuthData, AuthCache, State, RetrieveFun, OnErrFun, ?AUTHN_DATA_FIELDS
     );
