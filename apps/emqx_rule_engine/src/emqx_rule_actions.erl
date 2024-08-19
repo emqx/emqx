@@ -246,16 +246,13 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
         payload = Payload,
         timestamp = erlang:system_time(millisecond)
     },
-    case emqx_broker:safe_publish(Msg) of
-        [_ | _] ->
+    case emqx_broker:safe_publish(Msg, #{hook_prohibition_as_error => true}) of
+        Routes when is_list(Routes) ->
             emqx_metrics:inc_msg(Msg),
             ok;
         disconnect ->
             error;
-        [] ->
-            %% Have to check previous logs to distinguish between schema validation
-            %% failure, no subscribers, blocked by authz, or anything else in the
-            %% `message.publish' hook evaluation.
+        {blocked, _Msg} ->
             error
     end.
 
