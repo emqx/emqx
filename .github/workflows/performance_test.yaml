@@ -52,7 +52,7 @@ jobs:
       id: package_file
       run: |
         echo "PACKAGE_FILE=$(find _packages/emqx -name 'emqx-*.deb' | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       with:
         name: emqx-ubuntu20.04
         path: _packages/emqx/${{ steps.package_file.outputs.PACKAGE_FILE }}
@@ -113,13 +113,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: failure()
       with:
         name: terraform
@@ -184,13 +184,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: failure()
       with:
         name: terraform
@@ -257,13 +257,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: failure()
       with:
         name: terraform
@@ -330,13 +330,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
       if: failure()
       with:
         name: terraform
