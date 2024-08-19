@@ -22,7 +22,6 @@
 -define(SVR_PRINCIPAL, <<"mqtt/erlang.emqx.net@KDC.EMQX.NET">>).
 -define(SVR_KEYTAB_FILE, <<"/var/lib/secret/erlang.keytab">>).
 
--define(CLI_NAME, "krb_authn_cli").
 -define(CLI_PRINCIPAL, <<"krb_authn_cli@KDC.EMQX.NET">>).
 -define(CLI_KEYTAB_FILE, <<"/var/lib/secret/krb_authn_cli.keytab">>).
 
@@ -33,6 +32,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    ok = sasl_auth:kinit(?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL),
     Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_kerberos], #{
         work_dir => ?config(priv_dir, Config)
     }),
@@ -84,82 +84,64 @@ t_create_invalid(_Config) ->
     ).
 
 t_authenticate(_Config) ->
-    init_auth(),
-
-    {ok, Handler, CT1} = setup_cli(),
+    _ = init_auth(),
+    Args = emqx_authn_kerberos_client:auth_args(?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL),
     {ok, C} = emqtt:start_link(
         #{
             host => ?HOST,
             port => ?PORT,
             proto_ver => v5,
-            properties =>
-                #{
-                    'Authentication-Method' => ?AUTHN_METHOD,
-                    'Authentication-Data' => CT1
-                },
             custom_auth_callbacks =>
                 #{
-                    init => auth_init(Handler),
-                    handle_auth => fun auth_handle/3
+                    init => {fun emqx_authn_kerberos_client:auth_init/1, Args},
+                    handle_auth => fun emqx_authn_kerberos_client:auth_handle/3
                 }
         }
     ),
     ?assertMatch({ok, _}, emqtt:connect(C)),
-    stop_cli(Handler),
     ok.
 
-t_authenticate_bad_props(_Config) ->
-    erlang:process_flag(trap_exit, true),
-    init_auth(),
-
-    {ok, Handler, CT1} = setup_cli(),
+t_authenticate_bad_method(_Config) ->
+    _ = init_auth(),
+    %% The method is GSSAPI-KERBEROS, sending just "GSSAPI" will fail
+    Method = <<"GSSAPI">>,
+    Args = emqx_authn_kerberos_client:auth_args(?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL, Method),
     {ok, C} = emqtt:start_link(
         #{
             host => ?HOST,
             port => ?PORT,
             proto_ver => v5,
-            properties =>
-                #{
-                    'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                    'Authentication-Data' => CT1
-                },
             custom_auth_callbacks =>
                 #{
-                    init => auth_init(Handler),
-                    handle_auth => fun auth_handle/3
+                    init => {fun emqx_authn_kerberos_client:auth_init/1, Args},
+                    handle_auth => fun emqx_authn_kerberos_client:auth_handle/3
                 }
         }
     ),
-
+    unlink(C),
     ?assertMatch({error, {not_authorized, _}}, emqtt:connect(C)),
-    stop_cli(Handler),
     ok.
 
 t_authenticate_bad_token(_Config) ->
-    erlang:process_flag(trap_exit, true),
-    init_auth(),
-
-    {ok, Handler, CT1} = setup_cli(),
+    _ = init_auth(),
+    %% Malform the first client token to test auth failure.
+    Args = emqx_authn_kerberos_client:auth_args(
+        ?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL, ?AUTHN_METHOD, <<"badtoken">>
+    ),
     {ok, C} = emqtt:start_link(
         #{
             host => ?HOST,
             port => ?PORT,
             proto_ver => v5,
-            properties =>
-                #{
-                    'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                    'Authentication-Data' => <<CT1/binary, "invalid">>
-                },
             custom_auth_callbacks =>
                 #{
-                    init => auth_init(Handler),
-                    handle_auth => fun auth_handle/3
+                    init => {fun emqx_authn_kerberos_client:auth_init/1, Args},
+                    handle_auth => fun emqx_authn_kerberos_client:auth_handle/3
                 }
         }
     ),
-
+    unlink(C),
     ?assertMatch({error, {not_authorized, _}}, emqtt:connect(C)),
-    stop_cli(Handler),
     ok.
 
 t_destroy(_) ->
@@ -170,21 +152,18 @@ t_destroy(_) ->
         ?GLOBAL
     ),
 
-    {ok, Handler, CT1} = setup_cli(),
-
     ?assertMatch(
         ignore,
         emqx_authn_mongodb:authenticate(
             #{
                 auth_method => ?AUTHN_METHOD,
-                auth_data => CT1,
+                auth_data => <<"anydata">>,
                 auth_cache => undefined
             },
             State
         )
     ),
 
-    stop_cli(Handler),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -210,71 +189,3 @@ init_auth() ->
     {ok, [#{state := State}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
 
     State.
-
-%%------------------------------------------------------------------------------
-%% Custom auth
-
-auth_init(Handler) ->
-    fun() -> #{handler => Handler, step => 1} end.
-
-auth_handle(AuthState, Reason, Props) ->
-    ct:pal(">>> auth packet received:\n  rc: ~p\n  props:\n  ~p", [Reason, Props]),
-    do_auth_handle(AuthState, Reason, Props).
-
-do_auth_handle(
-    #{handler := Handler, step := Step} = AuthState0,
-    continue_authentication,
-    #{
-        'Authentication-Method' := ?AUTHN_METHOD,
-        'Authentication-Data' := ST
-    }
-) when Step =< 3 ->
-    {ok, CT} = call_cli_agent(Handler, {step, ST}),
-    AuthState = AuthState0#{step := Step + 1},
-    OutProps = #{
-        'Authentication-Method' => ?AUTHN_METHOD,
-        'Authentication-Data' => CT
-    },
-    {continue, {?RC_CONTINUE_AUTHENTICATION, OutProps}, AuthState};
-do_auth_handle(_AuthState, _Reason, _Props) ->
-    {stop, protocol_error}.
-
-%%------------------------------------------------------------------------------
-%% Client Agent
-
-setup_cli() ->
-    Pid = erlang:spawn(fun() -> cli_agent_loop(#{}) end),
-    {ok, CT1} = call_cli_agent(Pid, setup),
-    {ok, Pid, CT1}.
-
-call_cli_agent(Pid, Msg) ->
-    Ref = erlang:make_ref(),
-    erlang:send(Pid, {call, self(), Ref, Msg}),
-    receive
-        {Ref, Data} ->
-            {ok, Data}
-    after 3000 ->
-        error("client agent timeout")
-    end.
-
-stop_cli(Pid) ->
-    erlang:send(Pid, stop).
-
-cli_agent_loop(State) ->
-    receive
-        stop ->
-            ok;
-        {call, From, Ref, Msg} ->
-            {ok, Reply, State2} = cli_agent_handler(Msg, State),
-            erlang:send(From, {Ref, Reply}),
-            cli_agent_loop(State2)
-    end.
-
-cli_agent_handler(setup, State) ->
-    ok = sasl_auth:kinit(?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL),
-    {ok, Client} = sasl_auth:client_new(?SERVICE, ?SVR_HOST, ?CLI_PRINCIPAL, ?CLI_NAME),
-    {ok, {sasl_continue, CT1}} = sasl_auth:client_start(Client),
-    {ok, CT1, State#{client => Client}};
-cli_agent_handler({step, ST}, #{client := Client} = State) ->
-    {ok, {_, CT}} = sasl_auth:client_step(Client, ST),
-    {ok, CT, State}.

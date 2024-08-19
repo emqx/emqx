@@ -417,12 +417,6 @@ t_jwks_custom_headers(_Config) ->
     on_exit(fun() -> ok = emqx_authn_http_test_server:stop() end),
     ok = emqx_authn_http_test_server:set_handler(jwks_handler_spy()),
 
-    PrivateKey = test_rsa_key(private),
-    Payload = #{
-        <<"username">> => <<"myuser">>,
-        <<"foo">> => <<"myuser">>,
-        <<"exp">> => erlang:system_time(second) + 10
-    },
     Endpoint = iolist_to_binary("https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH),
     Config0 = #{
         <<"mechanism">> => <<"jwt">>,
