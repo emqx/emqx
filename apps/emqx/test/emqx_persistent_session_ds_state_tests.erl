@@ -192,8 +192,17 @@ seqno_track() ->
 seqno() ->
     range(1, 100).
 
+-ifdef(STORE_STATE_IN_DS).
 stream_id() ->
     {range(1, 3), oneof([#{}, {}])}.
+%% ELSE ifdef(STORE_STATE_IN_DS).
+-else.
+stream_id() ->
+    %% Note: this does not match the stream id type used in practice, which is a
+    %% `{emqx_persistent_session_ds:subscription_id(), emqx_ds:stream()}'
+    range(1, 1).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
 stream_state() ->
     oneof([#{}]).
