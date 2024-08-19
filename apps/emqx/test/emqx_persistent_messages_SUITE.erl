@@ -79,7 +79,20 @@ init_per_testcase(t_replication_options = TestCase, Config) ->
     },
     common_init_per_testcase(TestCase, Config, Opts);
 init_per_testcase(TestCase, Config) ->
-    common_init_per_testcase(TestCase, Config, _Opts = #{}).
+    common_init_per_testcase(
+        TestCase,
+        Config,
+        _Opts = #{
+            extra_emqx_conf =>
+                "\ndurable_sessions {\n"
+                "  enable = true\n"
+                "  heartbeat_interval = 100ms\n"
+                "  renew_streams_interval = 100ms\n"
+                "  idle_poll_interval = 1s\n"
+                "  session_gc_interval = 2s\n"
+                "}\n"
+        }
+    ).
 
 common_init_per_testcase(TestCase, Config, Opts) ->
     Apps = emqx_cth_suite:start(
@@ -299,7 +312,7 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [_, _, _],
-            receive_messages(3)
+            receive_messages(3, 4_000)
         ),
 
         [
@@ -312,7 +325,7 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [_, _, _],
-            receive_messages(3)
+            receive_messages(3, 4_000)
         ),
 
         Inflight1 = get_session_inflight(ConnPid),
