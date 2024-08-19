@@ -140,8 +140,6 @@ console_print_action() ->
     #{<<"function">> => <<"console">>}.
 
 basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) ->
-    %% Subscribe to republish action target topic so there's at least one subscriber.
-    _ = emqx:subscribe(?REPUBLISH_TOPIC),
     %% Create Rule
     RuleTopic = iolist_to_binary([<<"my_rule_topic/">>, atom_to_binary(?FUNCTION_NAME)]),
     SQL = <<"SELECT payload.id as id, payload as payload FROM \"", RuleTopic/binary, "\"">>,
