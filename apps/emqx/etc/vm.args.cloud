@@ -100,6 +100,18 @@
 ## Sets time warp mode: no_time_warp | single_time_warp | multi_time_warp
 +C multi_time_warp
 
+## Enable/disable Erlang monotonic time correction aginast OS.
+## In some operating systems which cannot provide a stable monotonic time source,
+## Erlang VM may exit with error log "monotonic time stepped backwards"
+## In such cases, setting this option to 'false' can prevent the VM from restarting.
+##
+## NOTE!
+## You typically never want to disable time correction.
+## If time correction is disabled, Erlang monotonic time can warp forwards or stop,
+## or even freeze for extended periods of time.
+## There are then no guarantees that the frequency of the Erlang monotonic clock is accurate or stable.
++c true
+
 ## Prevents loading information about source filenames and line numbers.
 #+L
 
