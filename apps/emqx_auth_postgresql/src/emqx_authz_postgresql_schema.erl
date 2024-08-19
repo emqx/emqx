@@ -27,7 +27,7 @@
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1
+    select_union_member/2
 ]).
 
 namespace() -> "authz".
@@ -47,9 +47,9 @@ desc(_) ->
 source_refs() ->
     [?R_REF(postgresql)].
 
-select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}) ->
+select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}, _) ->
     ?R_REF(postgresql);
-select_union_member(_Value) ->
+select_union_member(_Value, _) ->
     undefined.
 
 %%--------------------------------------------------------------------

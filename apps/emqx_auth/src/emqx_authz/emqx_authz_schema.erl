@@ -53,10 +53,11 @@
 %%--------------------------------------------------------------------
 
 -type schema_ref() :: ?R_REF(module(), hocon_schema:name()).
-
+-type source_refs_type() :: source_refs | api_source_refs.
 -callback type() -> emqx_authz_source:source_type().
 -callback source_refs() -> [schema_ref()].
--callback select_union_member(emqx_config:raw_config()) -> schema_ref() | undefined | no_return().
+-callback select_union_member(emqx_config:raw_config(), source_refs_type()) ->
+    schema_ref() | undefined | no_return().
 -callback fields(hocon_schema:name()) -> [hocon_schema:field()].
 -callback api_source_refs() -> [schema_ref()].
 
@@ -146,7 +147,7 @@ authz_fields() ->
                     select_union_member(
                         Value,
                         AuthzSchemaMods,
-                        fun(_, Member) -> Member end
+                        source_refs
                     )
                 ]
         end,
@@ -178,13 +179,13 @@ api_source_type() ->
                 AllTypes;
             %% must return list
             ({value, Value}) ->
-                select_union_member(
-                    Value,
-                    AuthzSchemaMods,
-                    fun(Mod, _) ->
-                        api_source_refs(Mod)
-                    end
-                )
+                [
+                    select_union_member(
+                        Value,
+                        AuthzSchemaMods,
+                        api_source_refs
+                    )
+                ]
         end,
     hoconsc:union(UnionMemberSelector).
 
@@ -238,19 +239,19 @@ array(Ref) -> array(Ref, Ref).
 array(Ref, DescId) ->
     ?HOCON(?ARRAY(?R_REF(Ref)), #{desc => ?DESC(DescId)}).
 
-select_union_member(#{<<"type">> := Type}, [], _Func) ->
+select_union_member(#{<<"type">> := Type}, [], _Type) ->
     throw(#{
         reason => "unknown_authz_type",
         got => Type
     });
-select_union_member(#{<<"type">> := _} = Value, [Mod | Mods], Func) ->
-    case Mod:select_union_member(Value) of
+select_union_member(#{<<"type">> := _} = Value, [Mod | Mods], Type) ->
+    case Mod:select_union_member(Value, Type) of
         undefined ->
-            select_union_member(Value, Mods, Func);
+            select_union_member(Value, Mods, Type);
         Member ->
-            Func(Mod, Member)
+            Member
     end;
-select_union_member(_Value, _Mods, _Func) ->
+select_union_member(_Value, _Mods, _Type) ->
     throw("missing_type_field").
 
 default_authz() ->

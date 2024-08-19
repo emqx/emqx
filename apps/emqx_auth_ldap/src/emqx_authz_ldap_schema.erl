@@ -26,7 +26,7 @@
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1,
+    select_union_member/2,
     namespace/0
 ]).
 
@@ -59,9 +59,9 @@ desc(_) ->
 source_refs() ->
     [?R_REF(ldap)].
 
-select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}) ->
+select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}, _) ->
     ?R_REF(ldap);
-select_union_member(_Value) ->
+select_union_member(_Value, _) ->
     undefined.
 
 %%--------------------------------------------------------------------
