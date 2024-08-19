@@ -496,11 +496,10 @@ list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
 get_callback_mode(Mod) ->
     Mod:callback_mode().
 
-<<<<<<< variant A
 -spec get_resource_type(module()) -> resource_type().
 get_resource_type(Mod) ->
     Mod:resource_type().
->>>>>>> variant B
+
 -spec get_callback_mode(module(), resource_state()) -> callback_mode() | undefined.
 get_callback_mode(Mod, State) ->
     case erlang:function_exported(Mod, callback_mode, 1) of
@@ -509,7 +508,6 @@ get_callback_mode(Mod, State) ->
         _ ->
             undefined
     end.
-======= end
 
 -spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.

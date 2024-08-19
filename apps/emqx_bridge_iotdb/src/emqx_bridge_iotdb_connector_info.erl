@@ -17,7 +17,7 @@
 ]).
 
 -define(CONNECTOR, emqx_bridge_iotdb_connector).
--define(DRIVER_REST, "rest").
+-define(DRIVER_REST, "restapi").
 -define(DRIVER_THRIFT, "thrift").
 
 type_name() ->
