@@ -627,7 +627,9 @@ log_when_error(Fun, Log) ->
     end.
 
 -spec consumer_group_id(#{group_id => binary(), any() => term()}, atom() | binary()) -> binary().
-consumer_group_id(#{group_id := GroupId}, _BridgeName) when is_binary(GroupId) ->
+consumer_group_id(#{group_id := GroupId}, _BridgeName) when
+    is_binary(GroupId) andalso GroupId =/= <<"">>
+->
     GroupId;
 consumer_group_id(_ConsumerParams, BridgeName0) ->
     BridgeName = to_bin(BridgeName0),

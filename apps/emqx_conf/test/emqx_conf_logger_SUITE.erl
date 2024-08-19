@@ -78,7 +78,8 @@ t_log_conf(_Conf) ->
         <<"rotation_size">> => <<"50MB">>,
         <<"time_offset">> => <<"system">>,
         <<"path">> => <<"log/emqx.log">>,
-        <<"timestamp_format">> => <<"auto">>
+        <<"timestamp_format">> => <<"auto">>,
+        <<"payload_encode">> => <<"text">>
     },
     ExpectLog1 = #{
         <<"console">> =>
@@ -86,6 +87,7 @@ t_log_conf(_Conf) ->
                 <<"enable">> => true,
                 <<"formatter">> => <<"text">>,
                 <<"level">> => <<"debug">>,
+                <<"payload_encode">> => <<"text">>,
                 <<"time_offset">> => <<"system">>,
                 <<"timestamp_format">> => <<"auto">>
             },

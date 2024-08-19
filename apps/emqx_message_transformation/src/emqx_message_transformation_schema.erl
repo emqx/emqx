@@ -63,7 +63,10 @@ fields(transformation) ->
     [
         {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()},
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {enable,
+            mk(boolean(), #{
+                desc => ?DESC("config_enable"), default => true, importance => ?IMPORTANCE_NO_DOC
+            })},
         {name,
             mk(
                 binary(),

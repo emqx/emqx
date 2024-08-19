@@ -16,10 +16,12 @@
 
 -module(emqx_coap_observe_res).
 
+-include("emqx_coap.hrl").
+
 %% API
 -export([
     new_manager/0,
-    insert/3,
+    insert/2,
     remove/2,
     res_changed/2,
     foreach/2,
@@ -34,7 +36,8 @@
 
 -type res() :: #{
     token := token(),
-    seq_id := seq_id()
+    seq_id := seq_id(),
+    subopts := emqx_types:subopts()
 }.
 
 -type manager() :: #{emqx_types:topic() => res()}.
@@ -46,12 +49,12 @@
 new_manager() ->
     #{}.
 
--spec insert(emqx_types:topic(), token(), manager()) -> {seq_id(), manager()}.
-insert(Topic, Token, Manager) ->
+-spec insert(sub_data(), manager()) -> {seq_id(), manager()}.
+insert(#{topic := Topic, token := Token, subopts := SubOpts}, Manager) ->
     Res =
         case maps:get(Topic, Manager, undefined) of
             undefined ->
-                new_res(Token);
+                new_res(Token, SubOpts);
             Any ->
                 Any
         end,
@@ -84,18 +87,24 @@ foreach(F, Manager) ->
     ),
     ok.
 
--spec subscriptions(manager()) -> [emqx_types:topic()].
+-spec subscriptions(manager()) -> _.
 subscriptions(Manager) ->
-    maps:keys(Manager).
+    maps:map(
+        fun(_Topic, #{subopts := SubOpts}) ->
+            SubOpts
+        end,
+        Manager
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
--spec new_res(token()) -> res().
-new_res(Token) ->
+-spec new_res(token(), emqx_types:subopts()) -> res().
+new_res(Token, SubOpts) ->
     #{
         token => Token,
-        seq_id => 0
+        seq_id => 0,
+        subopts => SubOpts
     }.
 
 -spec res_changed(res()) -> res().

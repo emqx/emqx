@@ -264,7 +264,7 @@ handle_call(
         [ClientInfo, MountedTopic, NSubOpts]
     ),
     %% modify session state
-    SubReq = {Topic, Token},
+    SubReq = #{topic => Topic, token => Token, subopts => NSubOpts},
     TempMsg = #coap_message{type = non},
     %% FIXME: The subopts is not used for emqx_coap_session
     Result = emqx_coap_session:process_subscribe(
@@ -438,14 +438,13 @@ check_token(
             <<"token">> := Token
         } ->
             call_session(handle_request, Msg, Channel);
-        Any ->
+        _ ->
             %% This channel is create by this DELETE command, so here can safely close this channel
             case Token =:= undefined andalso is_delete_connection_request(Msg) of
                 true ->
                     Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
                     {shutdown, normal, Reply, Channel};
                 false ->
-                    io:format(">>> C1:~p, T1:~p~nC2:~p~n", [ClientId, Token, Any]),
                     ErrMsg = <<"Missing token or clientid in connection mode">>,
                     Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
                     {ok, {outgoing, Reply}, Channel}

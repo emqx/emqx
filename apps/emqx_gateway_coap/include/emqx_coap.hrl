@@ -91,4 +91,10 @@
     {<<"r">>, <<"retain">>}
 ]).
 
+-type sub_data() :: #{
+    topic := emqx_types:topic(),
+    token := binary(),
+    subopts := emqx_types:subopts()
+}.
+
 -endif.

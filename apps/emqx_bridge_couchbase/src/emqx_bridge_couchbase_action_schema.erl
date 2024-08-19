@@ -67,7 +67,7 @@ fields(?ACTION_TYPE) ->
 fields(parameters) ->
     [
         {sql, mk(emqx_schema:template(), #{required => true, desc => ?DESC("sql")})},
-        {max_retries, mk(non_neg_integer(), #{required => false, desc => ?DESC("max_retries")})}
+        {max_retries, mk(non_neg_integer(), #{default => 3, desc => ?DESC("max_retries")})}
     ];
 fields(action_resource_opts) ->
     Fields = emqx_bridge_v2_schema:action_resource_opts_fields(),

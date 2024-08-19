@@ -75,7 +75,9 @@
     install_dir/0,
     avsc_file_path/1,
     md5sum_file/1,
-    with_plugin_avsc/1
+    with_plugin_avsc/1,
+    ensure_ssl_files/2,
+    ensure_ssl_files/3
 ]).
 
 %% `emqx_config_handler' API
@@ -513,6 +515,12 @@ get_tar(NameVsn) ->
                     Err
             end
     end.
+
+ensure_ssl_files(NameVsn, SSL) ->
+    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL).
+
+ensure_ssl_files(NameVsn, SSL, Opts) ->
+    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL, Opts).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -1290,7 +1298,7 @@ maybe_create_config_dir(NameVsn, Mode) ->
         do_create_config_dir(NameVsn, Mode).
 
 do_create_config_dir(NameVsn, Mode) ->
-    case plugin_config_dir(NameVsn) of
+    case plugin_data_dir(NameVsn) of
         {error, Reason} ->
             {error, {gen_config_dir_failed, Reason}};
         ConfigDir ->
@@ -1332,7 +1340,7 @@ ensure_plugin_config({NameVsn, ?fresh_install}) ->
 -spec ensure_plugin_config(name_vsn(), list()) -> ok.
 ensure_plugin_config(NameVsn, []) ->
     ?SLOG(debug, #{
-        msg => "default_plugin_config_used",
+        msg => "local_plugin_config_used",
         name_vsn => NameVsn,
         reason => "no_other_running_nodes"
     }),
@@ -1358,7 +1366,13 @@ cp_default_config_file(NameVsn) ->
     maybe
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
-        true ?= (not filelib:is_regular(Destination)),
+        false ?=
+            case filelib:is_regular(Destination) of
+                true ->
+                    ?SLOG(debug, #{msg => "plugin_config_file_already_existed", name_vsn => NameVsn});
+                false ->
+                    false
+            end,
         ok = filelib:ensure_dir(Destination),
         case file:copy(Source, Destination) of
             {ok, _} ->
@@ -1509,8 +1523,8 @@ plugin_priv_dir(NameVsn) ->
         _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
     end.
 
--spec plugin_config_dir(name_vsn()) -> string() | {error, Reason :: string()}.
-plugin_config_dir(NameVsn) ->
+-spec plugin_data_dir(name_vsn()) -> string() | {error, Reason :: string()}.
+plugin_data_dir(NameVsn) ->
     case parse_name_vsn(NameVsn) of
         {ok, NameAtom, _Vsn} ->
             wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
@@ -1522,6 +1536,9 @@ plugin_config_dir(NameVsn) ->
             }),
             {error, Reason}
     end.
+
+plugin_certs_dir(NameVsn) ->
+    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "certs"])).
 
 %% Files
 -spec pkg_file_path(name_vsn()) -> string().
@@ -1538,7 +1555,7 @@ avsc_file_path(NameVsn) ->
 
 -spec plugin_config_file(name_vsn()) -> string().
 plugin_config_file(NameVsn) ->
-    wrap_to_list(filename:join([plugin_config_dir(NameVsn), "config.hocon"])).
+    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "config.hocon"])).
 
 %% should only used when plugin installing
 -spec default_plugin_config_file(name_vsn()) -> string().

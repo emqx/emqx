@@ -136,6 +136,16 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
             ?USERNAME_RULES_EXAMPLE#{rules => []}
         ),
+
+    %% check length limit
+
+    {ok, 400, _} =
+        request(
+            put,
+            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
+            dup_rules_example2(?USERNAME_RULES_EXAMPLE)
+        ),
+
     {ok, 200, Request3} =
         request(
             get,
@@ -219,6 +229,16 @@ t_api(_) ->
             uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
             ?CLIENTID_RULES_EXAMPLE#{rules => []}
         ),
+
+    {ok, 400, _} =
+        request(
+            put,
+            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
+            dup_rules_example2(
+                ?CLIENTID_RULES_EXAMPLE
+            )
+        ),
+
     {ok, 200, Request6} =
         request(
             get,
@@ -521,3 +541,6 @@ dup_rules_example(#{clientid := _, rules := Rules}) ->
     #{clientid => client2, rules => Rules ++ Rules};
 dup_rules_example(#{rules := Rules}) ->
     #{rules => Rules ++ Rules}.
+
+dup_rules_example2(#{rules := Rules} = Example) ->
+    Example#{rules := Rules ++ Rules}.

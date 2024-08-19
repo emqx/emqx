@@ -108,7 +108,7 @@ convert_exporter_certs(ExporterConf) ->
     ExporterConf.
 
 do_convert_certs(SSLOpts) ->
-    case emqx_tls_lib:ensure_ssl_files(?CERTS_PATH, SSLOpts) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(?CERTS_PATH, SSLOpts) of
         {ok, undefined} ->
             SSLOpts;
         {ok, SSLOpts1} ->

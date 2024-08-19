@@ -490,9 +490,7 @@ initialize_authentication(Providers) ->
     ProviderTypes = maps:keys(Providers),
     Chains = chain_configs(),
     HasProviders = has_providers_for_configs(Chains, ProviderTypes),
-    Result = do_initialize_authentication(Providers, Chains, HasProviders),
-    ?tp(info, authn_chains_initialization_done, #{providers => Providers}),
-    Result.
+    do_initialize_authentication(Providers, Chains, HasProviders).
 
 do_initialize_authentication(_Providers, _Chains, _HasProviders = false) ->
     false;

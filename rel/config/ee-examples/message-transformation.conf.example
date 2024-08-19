@@ -1,0 +1,21 @@
+message_transformation {
+  transformations = [
+    {
+      name = trans1
+      description = ""
+      failure_action = ignore
+      log_failure {level = warning}
+      operations = [
+        {
+          key = topic
+          value = "concat([clientid,'/',topic])"
+        }
+      ]
+      payload_decoder {type = none}
+      payload_encoder {type = none}
+      topics = [
+        "#"
+      ]
+    }
+  ]
+}

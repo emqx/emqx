@@ -18,11 +18,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                "durable_sessions {\n"
-                "    enable = true\n"
-                "    renew_streams_interval = 10ms\n"
-                "}"},
+            {emqx_conf,
+                "durable_sessions {"
+                "\n     enable = true"
+                "\n     renew_streams_interval = 10ms"
+                "\n }"},
             {emqx_ds_shared_sub, #{
                 config => #{
                     <<"durable_queues">> => #{
@@ -31,6 +31,7 @@ init_per_suite(Config) ->
                     }
                 }
             }},
+            emqx,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
