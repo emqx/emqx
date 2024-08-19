@@ -51,7 +51,7 @@ start_link(DB) ->
 init([DB]) ->
     process_flag(trap_exit, true),
     S = #s{db = DB},
-    self() ! tick,
+    self() ! {?MODULE, tick},
     {ok, S}.
 
 handle_call(_Call, _From, S) ->
@@ -60,7 +60,7 @@ handle_call(_Call, _From, S) ->
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
-handle_info(tick, S = #s{db = DB}) ->
+handle_info({?MODULE, tick}, S = #s{db = DB}) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     [tick(DB, Shard) || Shard <- Shards],
     erlang:send_after(100, self(), tick),
@@ -85,7 +85,8 @@ tick(DB, Shard) ->
         erlang:system_time(microsecond), emqx_ds_builtin_local_meta:current_timestamp(ShardId) + 1
     ),
     emqx_ds_builtin_local_meta:set_current_timestamp(ShardId, Now),
-    Events = emqx_ds_storage_layer:handle_event(ShardId, Now, tick),
+    %% @TODO ????
+    Events = emqx_ds_storage_layer:handle_event(ShardId, Now, {?MODULE, tick}),
     handle_events(ShardId, Now, Events).
 
 handle_events(_ShardId, _Now, []) ->
