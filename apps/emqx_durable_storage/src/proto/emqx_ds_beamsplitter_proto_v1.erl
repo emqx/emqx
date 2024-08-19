@@ -15,7 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds_beamsplitter_proto_v1).
 
-%-behavior(emqx_bpapi).
+-behavior(emqx_bpapi).
+-include_lib("emqx_utils/include/bpapi.hrl").
 
 %% API:
 -export([dispatch/2]).
