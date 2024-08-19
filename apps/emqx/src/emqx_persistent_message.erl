@@ -71,7 +71,8 @@ force_ds(Zone) ->
 
 -ifdef(STORE_STATE_IN_DS).
 initialize_session_ds_state() ->
-    ok = emqx_persistent_session_ds_state:open_db(get_db_config()).
+    Config = emqx_ds_schema:db_config([durable_storage, sessions]),
+    ok = emqx_persistent_session_ds_state:open_db(Config).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 initialize_session_ds_state() ->
