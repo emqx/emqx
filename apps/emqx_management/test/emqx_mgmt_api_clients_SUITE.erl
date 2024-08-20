@@ -1897,7 +1897,7 @@ t_list_clients_v2_exact_filters(Config) ->
             C3B = connect_client(#{port => Port1, clientid => ClientId3}),
             C4B = connect_client(#{port => Port2, clientid => ClientId4}),
 
-            lists:foreach(fun stop_and_commit/1, [C1, C2, C3B, C4B]),
+            lists:foreach(fun disconnect_and_destroy_session/1, [C1, C2, C3B, C4B]),
             lists:foreach(fun emqtt:stop/1, [C5, C6]),
 
             ok
