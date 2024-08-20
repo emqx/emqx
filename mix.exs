@@ -108,7 +108,6 @@ defmodule EMQXUmbrella.MixProject do
   def overridden_deps() do
     [
       common_dep(:lc),
-      common_dep(:covertool),
       common_dep(:typerefl),
       common_dep(:ehttpc),
       common_dep(:gproc),
@@ -209,9 +208,6 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, "2.7.3", override: true}
-
-  def common_dep(:covertool),
-    do: {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true}
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
