@@ -69,7 +69,8 @@ persistent_session_testcases() ->
         t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
-        t_list_clients_v2_exact_filters
+        t_list_clients_v2_exact_filters,
+        t_list_clients_v2_bad_query_string_parameters
     ].
 non_persistent_cluster_testcases() ->
     [
@@ -1896,9 +1897,32 @@ t_list_clients_v2_exact_filters(Config) ->
             C3B = connect_client(#{port => Port1, clientid => ClientId3}),
             C4B = connect_client(#{port => Port2, clientid => ClientId4}),
 
-            lists:foreach(fun stop_and_commit/1, [C1, C2, C3B, C4B]),
+            lists:foreach(fun disconnect_and_destroy_session/1, [C1, C2, C3B, C4B]),
             lists:foreach(fun emqtt:stop/1, [C5, C6]),
 
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that we return pretty errors when user uses bad value types for a query string
+%% parameter.
+t_list_clients_v2_bad_query_string_parameters(Config) ->
+    ?check_trace(
+        begin
+            QueryParams1 = [
+                {"ip_address", "10.50.0.0:60748"}
+            ],
+            Res1 = simplify_result(list_v2_request(QueryParams1, Config)),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> :=
+                        <<"the ip_address parameter expected type is ip, but the value is",
+                            _/binary>>
+                }},
+                Res1
+            ),
             ok
         end,
         []

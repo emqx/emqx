@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_api_clients).
 
+-feature(maybe_expr, enable).
+
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
@@ -981,14 +983,16 @@ do_list_clients_v2(Nodes, Cursor, QString0) ->
 do_list_clients_v2(_Nodes, Cursor = done, _QString, Acc) ->
     format_results(Acc, Cursor);
 do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
-    {Rows, NewCursor} = do_ets_select(Nodes, QString0, Cursor),
-    Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
-    Acc = #{limit := Limit, n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
-    case N >= Limit of
-        true ->
-            format_results(Acc, NewCursor);
-        false ->
-            do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+    maybe
+        {ok, {Rows, NewCursor}} ?= do_ets_select(Nodes, QString0, Cursor),
+        Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
+        Acc = #{limit := Limit, n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+        case N >= Limit of
+            true ->
+                format_results(Acc, NewCursor);
+            false ->
+                do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+        end
     end;
 do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
     #{limit := Limit} = Acc0,
@@ -1031,12 +1035,28 @@ format_results(Acc, Cursor) ->
     ?OK(Resp).
 
 do_ets_select(Nodes, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
-    {_, QString1} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
-    Limit = maps:get(<<"limit">>, QString0, 10),
-    {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
-        QString1, Limit, Node, NodeIdx, Cont
-    ),
-    {Rows, next_ets_cursor(Nodes, NewNodeIdx, NewCont)}.
+    maybe
+        {ok, {_, QString1}} ?= parse_qstring(QString0),
+        Limit = maps:get(<<"limit">>, QString0, 10),
+        {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
+            QString1, Limit, Node, NodeIdx, Cont
+        ),
+        {ok, {Rows, next_ets_cursor(Nodes, NewNodeIdx, NewCont)}}
+    end.
+
+parse_qstring(QString) ->
+    try
+        {ok, emqx_mgmt_api:parse_qstring(QString, ?CLIENT_QSCHEMA)}
+    catch
+        throw:{bad_value_type, {Key, ExpectedType, AcutalValue}} ->
+            Message = list_to_binary(
+                io_lib:format(
+                    "the ~s parameter expected type is ~s, but the value is ~s",
+                    [Key, ExpectedType, emqx_utils_conv:str(AcutalValue)]
+                )
+            ),
+            ?BAD_REQUEST('INVALID_PARAMETER', Message)
+    end.
 
 maybe_run_fuzzy_filter(Rows, QString0) ->
     {_NClauses, {QString1, FuzzyQString1}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
