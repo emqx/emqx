@@ -27,7 +27,7 @@
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1
+    select_union_member/2
 ]).
 
 namespace() -> "authz".
@@ -51,7 +51,7 @@ desc(_) ->
 source_refs() ->
     [?R_REF(redis_single), ?R_REF(redis_sentinel), ?R_REF(redis_cluster)].
 
-select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value) ->
+select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value, _) ->
     RedisType = maps:get(<<"redis_type">>, Value, undefined),
     case RedisType of
         <<"single">> ->
@@ -67,7 +67,7 @@ select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value) ->
                 got => Else
             })
     end;
-select_union_member(_Value) ->
+select_union_member(_Value, _) ->
     undefined.
 
 %%--------------------------------------------------------------------

@@ -396,6 +396,8 @@ handle_in(
                 case ConnState of
                     connecting ->
                         process_connect(NProperties, NChannel);
+                    reauthenticating ->
+                        process_connect(NProperties, NChannel);
                     _ ->
                         handle_out(
                             auth,

@@ -158,7 +158,8 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:uuid),
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       common_dep(:ra),
-      {:mimerl, "1.2.0", override: true}
+      {:mimerl, "1.2.0", override: true},
+      common_dep(:sasl_auth)
     ]
   end
 
@@ -242,7 +243,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.13.0", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true}
@@ -268,6 +269,9 @@ defmodule EMQXUmbrella.MixProject do
       override: true,
       system_env: emqx_app_system_env()
     }
+
+  def common_dep(:sasl_auth),
+    do: {:sasl_auth, github: "kafka4beam/sasl_auth", tag: "v2.2.0", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
@@ -374,7 +378,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ds_shared_sub,
       :emqx_auth_ext,
       :emqx_cluster_link,
-      :emqx_ds_builtin_raft
+      :emqx_ds_builtin_raft,
+      :emqx_auth_kerberos
     ])
   end
 

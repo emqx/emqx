@@ -16,12 +16,14 @@
 
 -module(emqx_authz_mongodb_schema).
 
+-behaviour(emqx_authz_schema).
+
 -export([
     type/0,
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1,
+    select_union_member/2,
     namespace/0
 ]).
 
@@ -57,7 +59,7 @@ desc(mongo_sharded) ->
 desc(_) ->
     undefined.
 
-select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value) ->
+select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value, _) ->
     MongoType = maps:get(<<"mongo_type">>, Value, undefined),
     case MongoType of
         <<"single">> ->
@@ -73,7 +75,7 @@ select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value) ->
                 got => Else
             })
     end;
-select_union_member(_Value) ->
+select_union_member(_Value, _) ->
     undefined.
 
 %%--------------------------------------------------------------------
