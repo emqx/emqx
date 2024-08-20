@@ -333,6 +333,26 @@ t_is_array(_) ->
      || T <- [<<>>, a]
     ].
 
+t_coalesce(_) ->
+    ?assertEqual(undefined, emqx_rule_funcs:coalesce([])),
+    ?assertEqual(undefined, emqx_rule_funcs:coalesce([undefined, undefined, undefined])),
+    ?assertEqual(42, emqx_rule_funcs:coalesce([undefined, 42, undefined])),
+    ?assertEqual(hello, emqx_rule_funcs:coalesce([hello, undefined])),
+    ?assertEqual(world, emqx_rule_funcs:coalesce([world])),
+    ?assertEqual(hello, emqx_rule_funcs:coalesce(hello, world)),
+    ?assertEqual(world, emqx_rule_funcs:coalesce(undefined, world)),
+    ok.
+
+t_coalesce_ne(_) ->
+    ?assertEqual(undefined, emqx_rule_funcs:coalesce_ne([])),
+    ?assertEqual(undefined, emqx_rule_funcs:coalesce_ne([<<>>, undefined, ""])),
+    ?assertEqual(42, emqx_rule_funcs:coalesce_ne(["", 42, undefined])),
+    ?assertEqual(hello, emqx_rule_funcs:coalesce_ne([hello, <<>>])),
+    ?assertEqual(world, emqx_rule_funcs:coalesce_ne([world])),
+    ?assertEqual(hello, emqx_rule_funcs:coalesce_ne(hello, world)),
+    ?assertEqual(world, emqx_rule_funcs:coalesce_ne("", world)),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases for arith op
 %%------------------------------------------------------------------------------
