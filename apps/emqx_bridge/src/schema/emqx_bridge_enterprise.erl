@@ -52,7 +52,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_kinesis, <<"kinesis_producer">>, Method ++ "_producer"),
         api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_grpc_v1"),
         api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_producer"),
-        api_ref(emqx_bridge_datalayers, <<"datalayers">>, Method ++ "_api_v1")
+        api_ref(emqx_bridge_datalayers, <<"datalayers">>, Method ++ "_api")
     ].
 
 schema_modules() ->
@@ -441,7 +441,7 @@ datalayers_structs() ->
     [
         {datalayers,
             mk(
-                hoconsc:map(name, ref(emqx_bridge_datalayers, datalayers_api_v1)),
+                hoconsc:map(name, ref(emqx_bridge_datalayers, datalayers_api)),
                 #{
                     desc => <<"Datalayers Bridge Config">>,
                     required => false

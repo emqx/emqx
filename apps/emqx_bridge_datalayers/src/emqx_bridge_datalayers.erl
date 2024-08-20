@@ -48,9 +48,9 @@ write_syntax_type() ->
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"datalayers_api_v1">> => #{
+            <<"datalayers">> => #{
                 summary => <<"Datalayers Bridge">>,
-                value => values("datalayers_api_v1", Method)
+                value => values("datalayers", Method)
             }
         }
     ].
@@ -81,7 +81,7 @@ connector_examples(Method) ->
             <<"datalayers">> => #{
                 summary => <<"Datalayers Connector">>,
                 value => emqx_connector_schema:connector_values(
-                    Method, datalayers, connector_values(datalayers_api_v1)
+                    Method, datalayers, connector_values(datalayers)
                 )
             }
         }
@@ -90,9 +90,8 @@ connector_examples(Method) ->
 connector_values(Type) ->
     maps:merge(basic_connector_values(), #{parameters => connector_values_v(Type)}).
 
-connector_values_v(datalayers_api_v1) ->
+connector_values_v(datalayers) ->
     #{
-        datalayers_type => datalayers_api_v1,
         database => <<"example_database">>,
         username => <<"example_username">>,
         password => <<"******">>
@@ -107,10 +106,10 @@ basic_connector_values() ->
 
 values(Protocol, get) ->
     values(Protocol, post);
-values("datalayers_api_v1", post) ->
+values("datalayers", post) ->
     SupportUint = <<>>,
-    TypeOpts = connector_values_v(datalayers_api_v1),
-    values(common, "datalayers_api_v1", SupportUint, TypeOpts);
+    TypeOpts = connector_values_v(datalayers),
+    values(common, "datalayers", SupportUint, TypeOpts);
 values(Protocol, put) ->
     values(Protocol, post).
 
@@ -144,12 +143,12 @@ fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         emqx_bridge_datalayers_connector:fields("connector") ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
-fields("post_api_v1") ->
-    method_fields(post, datalayers_api_v1);
-fields("put_api_v1") ->
-    method_fields(put, datalayers_api_v1);
-fields("get_api_v1") ->
-    method_fields(get, datalayers_api_v1);
+fields("post_api") ->
+    method_fields(post, datalayers);
+fields("put_api") ->
+    method_fields(put, datalayers);
+fields("get_api") ->
+    method_fields(get, datalayers);
 fields(action) ->
     {datalayers,
         mk(
@@ -184,11 +183,8 @@ fields(Field) when
     Field == "put_bridge_v2"
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(datalayers_action));
-fields(Type) when
-    Type == datalayers_api_v1
-->
-    datalayers_bridge_common_fields() ++
-        connector_fields(Type).
+fields(datalayers_api) ->
+    datalayers_bridge_common_fields() ++ connector_fields(datalayers).
 
 method_fields(post, ConnectorType) ->
     datalayers_bridge_common_fields() ++
@@ -224,8 +220,8 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Datalayers using `", string:to_upper(Method), "` method."];
-desc(datalayers_api_v1) ->
-    ?DESC(emqx_bridge_datalayers_connector, "datalayers_api_v1");
+desc(datalayers_api) ->
+    ?DESC(emqx_bridge_datalayers_connector, "datalayers");
 desc(datalayers_action) ->
     ?DESC(datalayers_action);
 desc(action_parameters) ->

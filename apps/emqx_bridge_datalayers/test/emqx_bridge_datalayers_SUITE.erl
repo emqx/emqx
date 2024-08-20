@@ -16,29 +16,29 @@
 
 all() ->
     [
-        %{group, with_batch},
+        {group, with_batch},
         {group, without_batch}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        %{with_batch, [
-        %    {group, sync_query},
-        %    {group, async_query}
-        %]},
+        {with_batch, [
+            {group, sync_query},
+            {group, async_query}
+        ]},
         {without_batch, [
-            {group, sync_query}
-            %{group, async_query}
+            {group, sync_query},
+            {group, async_query}
         ]},
         {sync_query, [
             {group, apiv1_tcp},
             {group, apiv1_tls}
         ]},
-        %{async_query, [
-        %    {group, apiv1_tcp},
-        %    {group, apiv1_tls}
-        %]},
+        {async_query, [
+            {group, apiv1_tcp},
+            {group, apiv1_tls}
+        ]},
         {apiv1_tcp, TCs},
         {apiv1_tls, TCs}
     ].

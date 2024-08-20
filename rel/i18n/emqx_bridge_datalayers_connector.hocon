@@ -1,0 +1,47 @@
+emqx_bridge_datalayers_connector {
+
+database.desc:
+"""Datalayers database."""
+
+database.label:
+"""Database"""
+
+datalayers_api.desc:
+"""Datalayers protocol."""
+
+datalayers_api.label:
+"""HTTP API Protocol"""
+
+password.desc:
+"""Datalayers password."""
+
+password.label:
+"""Password"""
+
+precision.desc:
+"""Datalayer time precision."""
+
+precision.label:
+"""Time Precision"""
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
+The Datalayers default port 8361 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
+username.desc:
+"""Datalayers username."""
+
+username.label:
+"""Username"""
+
+datalayers_parameters.label:
+"""Datalayers Specific Parameters"""
+
+datalayers_parameters.desc:
+"""Set of parameters specific for the given type of this Datalayer connector."""
+
+}

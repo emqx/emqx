@@ -69,7 +69,7 @@
         (STATUS_CODE < 200 orelse STATUS_CODE >= 300))
 ).
 
-%% -------------------------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% resource callback
 
 resource_type() -> datalayers.
@@ -227,8 +227,7 @@ transform_bridge_v1_config_to_connector_config(BridgeV1Config) ->
     ConnConfig0 = maps:without([write_syntax, precision], BridgeV1Config),
     ConnConfig1 =
         case emqx_utils_maps:indent(parameters, IndentKeys, ConnConfig0) of
-            #{parameters := #{database := _} = Params} = Conf ->
-                Conf#{parameters => Params#{datalayers_type => datalayers_api_v1}}
+            #{parameters := #{database := _}} = Conf -> Conf
         end,
     emqx_utils_maps:update_if_present(
         resource_opts,
@@ -236,7 +235,7 @@ transform_bridge_v1_config_to_connector_config(BridgeV1Config) ->
         ConnConfig1
     ).
 
-%% -------------------------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% schema
 
 namespace() -> connector_datalayers.
@@ -251,28 +250,25 @@ roots() ->
 fields("connector") ->
     [
         server_field(),
-        parameter_field()
+        {parameters,
+            mk(
+                ref(?MODULE, "datalayers_parameters"),
+                #{required => true, desc => ?DESC("datalayers_parameters")}
+            )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
-fields("connector_datalayers_api_v1") ->
-    [datalayers_type_field(datalayers_api_v1) | datalayers_api_v1_fields()];
+fields("datalayers_parameters") ->
+    datalayers_parameters_fields();
 %% ============ begin: schema for old bridge configs ============
 
-fields(datalayers_api_v1) ->
-    fields(common) ++ datalayers_api_v1_fields();
+fields(datalayers) ->
+    fields(common) ++ datalayers_parameters_fields();
 fields(common) ->
     [
         server_field(),
         precision_field()
     ] ++ emqx_connector_schema_lib:ssl_fields().
-%% ============ end: schema for old bridge configs ============
 
-datalayers_type_field(Type) ->
-    {datalayers_type, #{
-        required => true,
-        type => Type,
-        default => Type,
-        desc => ?DESC(atom_to_list(Type))
-    }}.
+%% ============ end: schema for old bridge configs ============
 
 server_field() ->
     {server, server()}.
@@ -287,17 +283,7 @@ precision_field() ->
             required => false, default => ms, desc => ?DESC("precision")
         })}.
 
-parameter_field() ->
-    {parameters,
-        mk(
-            hoconsc:union([
-                ref(?MODULE, "connector_" ++ T)
-             || T <- ["datalayers_api_v1"]
-            ]),
-            #{required => true, desc => ?DESC("datalayers_parameters")}
-        )}.
-
-datalayers_api_v1_fields() ->
+datalayers_parameters_fields() ->
     [
         {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
         {username, mk(binary(), #{desc => ?DESC("username")})},
@@ -307,7 +293,7 @@ datalayers_api_v1_fields() ->
 server() ->
     Meta = #{
         required => false,
-        default => <<"127.0.0.1:8086">>,
+        default => <<"127.0.0.1:8361">>,
         desc => ?DESC("server"),
         converter => fun convert_server/2
     },
@@ -319,12 +305,10 @@ desc(parameters) ->
     ?DESC("dayalayers_parameters");
 desc("datalayers_parameters") ->
     ?DESC("datalayers_parameters");
-desc(datalayers_api_v1) ->
-    ?DESC("datalayers_api_v1");
+desc(datalayers_api) ->
+    ?DESC("datalayers_api");
 desc("connector") ->
-    ?DESC("connector");
-desc("connector_datalayers_api_v1") ->
-    ?DESC("datalayers_api_v1").
+    ?DESC("connector").
 
 %% -------------------------------------------------------------------------------------------------
 %% internal functions
@@ -431,10 +415,7 @@ client_config(
         {pool, InstId}
     ] ++ protocol_config(Config).
 
-%% api v1 config
-protocol_config(#{
-    parameters := #{datalayers_type := datalayers_api_v1, database := DB} = Params, ssl := SSL
-}) ->
+protocol_config(#{parameters := #{database := DB} = Params, ssl := SSL}) ->
     [
         {protocol, http},
         {version, v1},

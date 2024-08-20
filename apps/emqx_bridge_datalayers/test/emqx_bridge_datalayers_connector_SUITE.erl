@@ -236,7 +236,6 @@ datalayers_connector_config(Host, Port, SslEnabled, Verify) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
     ConnectorConf = #{
         <<"parameters">> => #{
-            <<"datalayers_type">> => <<"datalayers_api_v1">>,
             <<"database">> => <<"mqtt">>,
             <<"username">> => <<"admin">>,
             <<"password">> => <<"public">>
