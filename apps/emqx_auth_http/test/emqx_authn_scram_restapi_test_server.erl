@@ -98,18 +98,3 @@ default_handler(Req0, State) ->
         Req0
     ),
     {ok, Req, State}.
-
-make_user_info(Password, Algorithm, IterationCount) ->
-    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(
-        Password,
-        #{
-            algorithm => Algorithm,
-            iteration_count => IterationCount
-        }
-    ),
-    #{
-        stored_key => StoredKey,
-        server_key => ServerKey,
-        salt => Salt,
-        is_superuser => false
-    }.
