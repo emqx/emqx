@@ -397,7 +397,9 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
 %% with the smallest RankY.
 %%
 %% This way, messages from the same topic/shard are never reordered.
--spec renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
+-spec renew_streams(
+    emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds_stream_scheduler:t()
+) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 renew_streams(S0, SchedS0) ->
     S1 = remove_unsubscribed_streams(S0),

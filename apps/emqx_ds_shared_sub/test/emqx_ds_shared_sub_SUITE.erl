@@ -22,7 +22,8 @@ init_per_suite(Config) ->
                 config => #{
                     <<"durable_sessions">> => #{
                         <<"enable">> => true,
-                        <<"renew_streams_interval">> => "100ms"
+                        <<"renew_streams_interval">> => "100ms",
+                        <<"idle_poll_interval">> => "1s"
                     },
                     <<"durable_storage">> => #{
                         <<"messages">> => #{

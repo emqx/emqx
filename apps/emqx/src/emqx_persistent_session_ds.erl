@@ -689,10 +689,15 @@ handle_timeout(
     %% `gc` and `renew_streams` methods may drop unsubscribed streams.
     %% Shared subscription handler must have a chance to see unsubscribed streams
     %% in the fully replayed state.
-    {S1, SharedSubS1} = emqx_persistent_session_ds_shared_subs:pre_renew_streams(S0, SharedSubS0),
+    {S1, SharedSubS1, SchedS1} = emqx_persistent_session_ds_shared_subs:pre_renew_streams(
+        S0, SharedSubS0, SchedS0
+    ),
     S2 = emqx_persistent_session_ds_subs:gc(S1),
-    {S3, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(S2, SchedS0),
-    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:renew_streams(S3, SharedSubS1),
+    {S3, SchedS2} = emqx_persistent_session_ds_stream_scheduler:renew_streams(S2, SchedS1),
+    {S, SharedSubS, SchedS} =
+        emqx_persistent_session_ds_shared_subs:on_streams_replay(
+            S3, SharedSubS1, SchedS2
+        ),
     Interval = get_config(ClientInfo, [renew_streams_interval]),
     Session = set_timer(
         ?TIMER_GET_STREAMS,
