@@ -13,7 +13,9 @@
 
 -define(AUTHN_TYPE_KERBEROS, {?AUTHN_MECHANISM_GSSAPI, ?AUTHN_BACKEND}).
 
--define(AUTHN_METHOD, <<"GSSAPI-KERBEROS">>).
+%% Following non-normative example provided in spec
+%% https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901256
+-define(AUTHN_METHOD, <<"GS2-KRB5">>).
 
 -define(SERVICE, <<"mqtt">>).
 

@@ -24,7 +24,7 @@ server_principal() ->
     bin(["mqtt/", server_fqdn(), "@", realm()]).
 
 auth_args(ClientKeytab, CLientPrincipal) ->
-    auth_args(ClientKeytab, CLientPrincipal, <<"GSSAPI-KERBEROS">>).
+    auth_args(ClientKeytab, CLientPrincipal, <<"GS2-KRB5">>).
 
 auth_args(ClientKeytab, CLientPrincipal, Method) ->
     auth_args(ClientKeytab, CLientPrincipal, Method, undefined).
@@ -101,7 +101,7 @@ auth_handle(
     end.
 
 props(Data) ->
-    props(Data, <<"GSSAPI-KERBEROS">>).
+    props(Data, <<"GS2-KRB5">>).
 
 props(Data, Method) ->
     #{

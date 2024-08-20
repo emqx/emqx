@@ -103,7 +103,7 @@ t_authenticate(_Config) ->
 
 t_authenticate_bad_method(_Config) ->
     _ = init_auth(),
-    %% The method is GSSAPI-KERBEROS, sending just "GSSAPI" will fail
+    %% The method is GS2-KRB5, sending just "GSSAPI" will fail
     Method = <<"GSSAPI">>,
     Args = emqx_authn_kerberos_client:auth_args(?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL, Method),
     {ok, C} = emqtt:start_link(
