@@ -7,7 +7,7 @@ config_enable.label:
 """Enable Or Disable Bridge"""
 
 desc_config.desc:
-"""Configuration for an Datalayers bridge."""
+"""Configuration for a Datalayers bridge."""
 
 desc_config.label:
 """Datalayers Bridge Configuration"""

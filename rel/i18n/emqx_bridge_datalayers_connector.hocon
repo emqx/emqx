@@ -19,7 +19,7 @@ password.label:
 """Password"""
 
 precision.desc:
-"""Datalayer time precision."""
+"""Datalayers time precision."""
 
 precision.label:
 """Time Precision"""
@@ -42,6 +42,6 @@ datalayers_parameters.label:
 """Datalayers Specific Parameters"""
 
 datalayers_parameters.desc:
-"""Set of parameters specific for the given type of this Datalayer connector."""
+"""Set of parameters specific for the given type of this Datalayers connector."""
 
 }
