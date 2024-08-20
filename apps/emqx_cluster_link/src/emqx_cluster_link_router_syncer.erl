@@ -170,12 +170,22 @@ start_link_client(Actor, LinkConf) ->
     Options = emqx_cluster_link_config:mk_emqtt_options(LinkConf),
     case emqtt:start_link(refine_client_options(Options, Actor)) of
         {ok, Pid} ->
-            case emqtt:connect(Pid) of
+            try emqtt:connect(Pid) of
                 {ok, _Props} ->
                     {ok, Pid};
                 Error ->
                     _ = flush_link_signal(Pid),
                     Error
+            catch
+                exit:Reason ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_connect_to_cluster",
+                        reason => Reason,
+                        options => Options,
+                        actor => Actor
+                    }),
+                    _ = flush_link_signal(Pid),
+                    {error, failed_to_connect}
             end;
         Error ->
             Error
