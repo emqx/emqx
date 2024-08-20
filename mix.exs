@@ -383,7 +383,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_auth_ext,
       :emqx_cluster_link,
       :emqx_ds_builtin_raft,
-      :emqx_auth_kerberos
+      :emqx_auth_kerberos,
+      :emqx_bridge_datalayers
     ])
   end
 

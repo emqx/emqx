@@ -880,7 +880,7 @@ desc_test_() ->
         ),
         ?_assertMatch(
             {desc, _, _},
-            desc(datalayers_api_v1)
+            desc(datalayers_api)
         ),
         ?_assertMatch(
             {desc, _, _},
