@@ -18,7 +18,7 @@ EMQX 是一款全球下载量超千万的大规模分布式物联网 MQTT 服务
 
 EMQX 自 2013 年在 GitHub 发布开源版本以来，获得了来自 50 多个国家和地区的 20000 余家企业用户的广泛认可，累计连接物联网关键设备超过 1 亿台。
 
-更多信息请访问 [EMQX 官网](https://www.emqx.io/zh)。
+更多信息请访问 [EMQX 官网](https://www.emqx.com/zh)。
 
 ## 快速开始
 
@@ -32,25 +32,23 @@ EMQX 自 2013 年在 GitHub 发布开源版本以来，获得了来自 50 多个
 docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
 ```
 
-接下来请参考 [入门指南](https://www.emqx.io/docs/zh/v5.0/getting-started/getting-started.html#启动-emqx) 开启您的 EMQX 之旅。
+接下来请参考 [入门指南](https://docs.emqx.com/zh/emqx/latest/deploy/install-docker-ce.html) 开启您的 EMQX 之旅。
 
 #### 在 Kubernetes 上运行 EMQX 集群
 
-请参考 [EMQX Operator 文档](https://github.com/emqx/emqx-operator/blob/main/docs/zh_CN/getting-started/getting-started.md)。
+请参考 [EMQX Operator 文档](https://docs.emqx.com/zh/emqx-operator/latest/getting-started/getting-started.html)。
 
 #### 更多安装方式
 
-您可以从 [www.emqx.io/zh/downloads](https://www.emqx.io/zh/downloads) 下载不同格式的 EMQX 安装包进行手动安装。
+您可以从 [emqx.com/zh/downloads-and-install/broker](https://www.emqx.com/zh/downloads-and-install/broker) 下载不同格式的 EMQX 安装包进行手动安装。
 
-也可以直接访问 [EMQX 安装文档](https://www.emqx.io/docs/zh/v5.0/deploy/install.html) 查看不同安装方式的操作步骤。
+也可以直接访问 [EMQX 安装文档](https://docs.emqx.com/zh/emqx/latest/deploy/install-open-source.html) 查看不同安装方式的操作步骤。
 
 ## 文档
 
-EMQX 开源版文档：[www.emqx.io/docs/zh/latest/](https://www.emqx.io/docs/en/latest/)。
+EMQX 开源版文档：[docs.emqx.com/zh/emqx/latest](https://docs.emqx.com/zh/emqx/latest/)。
 
-EMQX 企业版文档：[docs.emqx.com/zh/enterprise/latest/](https://docs.emqx.com/zh/enterprise/latest/)。
-
-EMQX Cloud 文档：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cloud/latest/)。
+EMQX Cloud 文档：[docs.emqx.com/zh/cloud/latest](https://docs.emqx.com/zh/cloud/latest/)。
 
 ## 贡献
 
