@@ -1289,9 +1289,7 @@ columns_example_props_specific(unsub_props) ->
 
 columns_example_client_attrs() ->
     {<<"client_attrs">>, #{
-        <<"client_attrs">> => #{
-            <<"test">> => <<"example">>
-        }
+        <<"test">> => <<"example">>
     }}.
 
 %%--------------------------------------------------------------------

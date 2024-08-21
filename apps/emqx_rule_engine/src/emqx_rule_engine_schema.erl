@@ -144,7 +144,7 @@ fields("republish_args") ->
     [
         {topic,
             ?HOCON(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("republish_args_topic"),
                     required => true,
@@ -162,7 +162,7 @@ fields("republish_args") ->
             )},
         {retain,
             ?HOCON(
-                hoconsc:union([boolean(), binary()]),
+                hoconsc:union([boolean(), emqx_schema:template()]),
                 #{
                     desc => ?DESC("republish_args_retain"),
                     default => <<"${retain}">>,
@@ -171,7 +171,7 @@ fields("republish_args") ->
             )},
         {payload,
             ?HOCON(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("republish_args_payload"),
                     default => <<"${payload}">>,
@@ -188,11 +188,19 @@ fields("republish_args") ->
             )},
         {user_properties,
             ?HOCON(
-                binary(),
+                emqx_schema:template(),
                 #{
                     desc => ?DESC("republish_args_user_properties"),
                     default => <<"${user_properties}">>,
                     example => <<"${pub_props.'User-Property'}">>
+                }
+            )},
+        {direct_dispatch,
+            ?HOCON(
+                hoconsc:union([boolean(), emqx_schema:template()]),
+                #{
+                    desc => ?DESC("republish_args_direct_dispatch"),
+                    default => false
                 }
             )}
     ];
@@ -263,7 +271,7 @@ actions() ->
     end.
 
 qos() ->
-    hoconsc:union([emqx_schema:qos(), binary()]).
+    hoconsc:union([emqx_schema:qos(), emqx_schema:template()]).
 
 rule_engine_settings() ->
     [

@@ -173,7 +173,8 @@ t_source(Config) ->
                         payload => <<"${payload}">>,
                         qos => 0,
                         retain => false,
-                        user_properties => []
+                        user_properties => [],
+                        direct_dispatch => false
                     },
                     function => republish
                 }
