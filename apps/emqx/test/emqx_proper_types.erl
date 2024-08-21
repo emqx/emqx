@@ -50,7 +50,8 @@
     printable_utf8/0,
     printable_codepoint/0,
     raw_duration/0,
-    large_raw_duration/0
+    large_raw_duration/0,
+    clientid/0
 ]).
 
 %% Generic Types
