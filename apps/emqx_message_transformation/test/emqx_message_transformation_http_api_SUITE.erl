@@ -1875,12 +1875,26 @@ t_dryrun_transformation(_Config) ->
                 operation(retain, <<"payload.r">>),
                 operation(<<"user_property.a">>, <<"payload.u.a">>),
                 operation(<<"user_property.copy">>, <<"user_property.original">>),
-                operation(<<"payload">>, <<"payload.p.hello">>)
+                operation(<<"payload.user">>, <<"username">>),
+                operation(<<"payload.flags">>, <<"flags">>),
+                operation(<<"payload.pprops">>, <<"pub_props">>),
+                operation(<<"payload.expiry">>, <<"pub_props.Message-Expiry-Interval">>),
+                operation(<<"payload.peername">>, <<"peername">>),
+                operation(<<"payload.node">>, <<"node">>),
+                operation(<<"payload.id">>, <<"id">>),
+                operation(<<"payload.clientid">>, <<"clientid">>),
+                operation(<<"payload.now">>, <<"timestamp">>),
+                operation(<<"payload.recv_at">>, <<"publish_received_at">>),
+                operation(<<"payload.hi">>, <<"payload.p.hello">>)
             ],
             Transformation1 = transformation(Name1, Operations),
 
             %% Good input
+            ClientId = <<"myclientid">>,
+            Username = <<"myusername">>,
+            Peername = <<"10.0.50.1:63221">>,
             Message1 = dryrun_input_message(#{
+                clientid => ClientId,
                 payload => #{
                     p => #{<<"hello">> => <<"world">>},
                     q => 1,
@@ -1888,11 +1902,15 @@ t_dryrun_transformation(_Config) ->
                     t => <<"t">>,
                     u => #{a => <<"b">>}
                 },
-                user_property => #{<<"original">> => <<"user_prop">>}
+                peername => Peername,
+                pub_props => #{<<"Message-Expiry-Interval">> => 30},
+                user_property => #{<<"original">> => <<"user_prop">>},
+                username => Username
             }),
+            Res1 = dryrun_transformation(Transformation1, Message1),
             ?assertMatch(
                 {200, #{
-                    <<"payload">> := <<"\"world\"">>,
+                    <<"payload">> := _,
                     <<"qos">> := 1,
                     <<"retain">> := true,
                     <<"topic">> := <<"t/u/v/t">>,
@@ -1902,7 +1920,30 @@ t_dryrun_transformation(_Config) ->
                         <<"copy">> := <<"user_prop">>
                     }
                 }},
-                dryrun_transformation(Transformation1, Message1)
+                Res1
+            ),
+            {200, #{<<"payload">> := EncPayloadRes1}} = Res1,
+            NodeBin = atom_to_binary(node()),
+            ?assertMatch(
+                #{
+                    <<"hi">> := <<"world">>,
+                    <<"now">> := _,
+                    <<"recv_at">> := _,
+                    <<"clientid">> := ClientId,
+                    <<"pprops">> := #{
+                        <<"Message-Expiry-Interval">> := 30,
+                        <<"User-Property">> := #{
+                            <<"original">> := <<"user_prop">>
+                        }
+                    },
+                    <<"expiry">> := 30,
+                    <<"peername">> := Peername,
+                    <<"node">> := NodeBin,
+                    <<"id">> := <<_/binary>>,
+                    <<"flags">> := #{<<"dup">> := false, <<"retain">> := true},
+                    <<"user">> := Username
+                },
+                emqx_utils_json:decode(EncPayloadRes1, [return_maps])
             ),
 
             %% Bad input: fails to decode
