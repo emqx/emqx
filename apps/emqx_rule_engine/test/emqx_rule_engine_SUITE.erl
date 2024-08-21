@@ -81,6 +81,7 @@ groups() ->
             t_sqlselect_1,
             t_sqlselect_2,
             t_sqlselect_3,
+            t_direct_dispatch,
             t_sqlselect_message_publish_event_keep_original_props_1,
             t_sqlselect_message_publish_event_keep_original_props_2,
             t_sqlselect_missing_template_vars_render_as_undefined,
@@ -1995,6 +1996,42 @@ t_sqlselect_3(_Config) ->
 
     emqtt:stop(Client),
     delete_rule(TopicRule).
+
+%% select from t/1, republish to t/1, no dead-loop expected
+%% i.e. payload is mutated once and only once
+t_direct_dispatch(_Config) ->
+    SQL = "SELECT * FROM \"t/1\"",
+    Repub = republish_action(
+        <<"t/1">>,
+        <<"republished: ${payload}">>,
+        <<"${user_properties}">>,
+        #{},
+        true
+    ),
+    {ok, Rule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [Repub]
+        }
+    ),
+    {ok, Pub} = emqtt:start_link([{clientid, <<"pubclient">>}]),
+    {ok, _} = emqtt:connect(Pub),
+    {ok, Sub} = emqtt:start_link([{clientid, <<"subclient">>}]),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, _} = emqtt:subscribe(Sub, <<"t/1">>, 0),
+    Payload = base64:encode(crypto:strong_rand_bytes(12)),
+    emqtt:publish(Pub, <<"t/1">>, Payload, 0),
+    receive
+        {publish, #{topic := T, payload := Payload1}} ->
+            ?assertEqual(<<"t/1">>, T),
+            ?assertEqual(<<"republished: ", Payload/binary>>, Payload1)
+    after 2000 ->
+        ct:fail(wait_for_t2)
+    end,
+    emqtt:stop(Pub),
+    emqtt:stop(Sub),
+    delete_rule(Rule).
 
 t_sqlselect_message_publish_event_keep_original_props_1(_Config) ->
     %% republish the client.connected msg
@@ -3960,6 +3997,9 @@ republish_action(Topic, Payload, UserProperties) ->
     republish_action(Topic, Payload, UserProperties, _MQTTProperties = #{}).
 
 republish_action(Topic, Payload, UserProperties, MQTTProperties) ->
+    republish_action(Topic, Payload, UserProperties, MQTTProperties, false).
+
+republish_action(Topic, Payload, UserProperties, MQTTProperties, DirectDispatch) ->
     #{
         function => republish,
         args => #{
@@ -3968,7 +4008,8 @@ republish_action(Topic, Payload, UserProperties, MQTTProperties) ->
             qos => 0,
             retain => false,
             mqtt_properties => MQTTProperties,
-            user_properties => UserProperties
+            user_properties => UserProperties,
+            direct_dispatch => DirectDispatch
         }
     }.
 
