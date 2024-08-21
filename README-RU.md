@@ -19,7 +19,7 @@
 
 За последние несколько лет EMQX приобрел популярность среди IoT-компаний и используется более чем 20 000 пользователей по всему миру из более чем 50 стран, при этом по всему миру поддерживается более 100 миллионов подключений к IoT-устройствам.
 
-Для получения дополнительной информации, пожалуйста, посетите [домашнюю страницу EMQX](https://www.emqx.io/).
+Для получения дополнительной информации, пожалуйста, посетите [домашнюю страницу EMQX](https://www.emqx.com/).
 
 ## Начало работы
 
@@ -30,26 +30,35 @@
 #### Установка EMQX с помощью Docker
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
+docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
 ```
 
-Чтобы ознакомиться с функциональностью EMQX, пожалуйста, следуйте [руководству по началу работы](https://www.emqx.io/docs/en/v5.0/getting-started/getting-started.html#start-emqx).
+Далее, следуйте, пожалуйста [руководству по установке EMQX с помощью Docker](https://docs.emqx.com/en/emqx/latest/deploy/install-docker-ce.html).
 
 #### Запуск кластера EMQX на Kubernetes
 
-[Документация по EMQX Operator](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md).
+Пожалуйста, ознакомьтесь с официальной [документацией для EMQX Operator](https://docs.emqx.com/en/emqx-operator/latest/getting-started/getting-started.html).
+
+#### Установка EMQX на macOS
+
+EMQX можно установить с помощью [Homebrew](https://brew.sh/).
+
+```
+brew install emqx
+emqx start
+```
 
 #### Дополнительные опции установки
 
-Если вы предпочитаете устанавливать и управлять EMQX самостоятельно, вы можете загрузить последнюю версию с [www.emqx.io/downloads](https://www.emqx.io/downloads).
+Если вы предпочитаете устанавливать и управлять EMQX самостоятельно, вы можете загрузить последнюю версию с [официального сайта](https://www.emqx.com/en/downloads-and-install/broker).
 
-Смотрите также [EMQX installation documentation](https://www.emqx.io/docs/en/v5.0/deploy/install.html).
+Смотрите также [EMQX installation documentation](https://docs.emqx.com/en/emqx/latest/deploy/install-open-source.html).
 
 ## Документация
 
-[Документация EMQX](https://www.emqx.io/docs/en/latest/).
+Документация по EMQX: [docs.emqx.com/en/emqx/latest](https://docs.emqx.com/en/emqx/latest/).
 
-[Документация EMQX Enterprise](https://docs.emqx.com/en/).
+Документация по EMQX Cloud: [docs.emqx.com/en/cloud/latest](https://docs.emqx.com/en/cloud/latest/).
 
 ## Участие в разработке
 
@@ -86,9 +95,9 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 Ветка `master` предназначена для последней версии 5, переключитесь на ветку `main-v4.4` для версии 4.4.
 
-EMQX требует OTP 24 для версии 4.4.
-Версии 5.0 ~ 5.3 могут быть собраны с OTP 24 или 25.
-Версия 5.4 и новее могут быть собраны с OTP 25 или 26.
+* EMQX требует OTP 24 для версии 4.4.
+* Версии 5.0 ~ 5.3 могут быть собраны с OTP 24 или 25.
+* Версия 5.4 и новее могут быть собраны с OTP 25 или 26.
 
 ```bash
 git clone https://github.com/emqx/emqx.git
