@@ -669,7 +669,7 @@ conf_log() ->
     "log.file { enable = true, level = debug, path = node.log, supervisor_reports = progress }".
 
 conf_ds() ->
-    "durable_sessions.enable = true \n"
+    "durable_sessions { enable = true, renew_streams_interval = 100ms, idle_poll_interval = 1s} \n"
     "durable_storage.messages.n_shards = 2".
 
 fmt(Fmt, Args) ->
