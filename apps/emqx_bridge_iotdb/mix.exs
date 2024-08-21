@@ -1,4 +1,4 @@
-defmodule EMQXBridgeTdengine.MixProject do
+defmodule EMQXBridgeIotdb.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
