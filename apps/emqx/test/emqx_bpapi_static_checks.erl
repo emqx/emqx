@@ -54,12 +54,17 @@
 -define(FORCE_DELETED_MODULES, [
     emqx_statsd,
     emqx_statsd_proto_v1,
-    emqx_persistent_session_proto_v1
+    emqx_persistent_session_proto_v1,
+    emqx_ds_proto_v1,
+    emqx_ds_proto_v2,
+    emqx_ds_proto_v3
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
     {emqx_plugin_libs, 1},
     {emqx_persistent_session, 1},
+    {emqx_ds, 1},
+    {emqx_ds, 2},
     {emqx_ds, 3},
     {emqx_node_rebalance_purge, 1}
 ]).
