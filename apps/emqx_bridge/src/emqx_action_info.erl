@@ -120,8 +120,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_sqlserver_action_info,
         emqx_bridge_syskeeper_action_info,
         emqx_bridge_tdengine_action_info,
-        emqx_bridge_timescale_action_info,
-        emqx_bridge_datalayers_action_info
+        emqx_bridge_timescale_action_info
     ].
 -else.
 hard_coded_action_info_modules_ee() ->
