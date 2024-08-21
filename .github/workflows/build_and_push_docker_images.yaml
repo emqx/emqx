@@ -50,7 +50,7 @@ on:
       build_from:
         required: false
         type: string
-        default: ghcr.io/emqx/emqx-builder/5.3-9:1.15.7-26.2.5-3-debian12
+        default: ghcr.io/emqx/emqx-builder/5.3-11:1.15.7-26.2.5.2-1-debian12
       run_from:
         default: public.ecr.aws/debian/debian:stable-20240612-slim
 
