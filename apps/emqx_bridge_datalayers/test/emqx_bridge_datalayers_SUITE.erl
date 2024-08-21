@@ -763,10 +763,15 @@ t_tag_set_use_literal_value(Config) ->
             #{
                 <<"parameters">> => #{
                     <<"write_syntax">> =>
-                        <<"mqtt,clientid=${clientid},tag_key1=100,tag_key2=123.4,tag_key3=66i,tag_key4=${payload.float_dp}",
+                        <<
+                            "mqtt,clientid=${clientid},"
+                            "tag_key1=100,tag_key2=123.4,"
+                            "tag_key3=66i,tag_key4=${payload.float_dp}",
                             " ",
                             "field_key1=100.1,field_key2=100i,field_key3=${payload.float_dp},bar=5i",
-                            " ", ConstBin/binary>>
+                            " ",
+                            ConstBin/binary
+                        >>
                 }
             }
         )
