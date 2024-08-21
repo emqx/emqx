@@ -519,7 +519,7 @@ commit(
     ok = store_batch(
         SessionId,
         lists:flatten([
-            {?TS, MetadataOp},
+            MetadataOp,
             SubsOps,
             SubStatesOps,
             StreamsOps,
@@ -1292,7 +1292,7 @@ pmap_commit(
                 (K, dirty, Acc) ->
                     V = cache_get(Domain, K, Cache),
                     Msg = to_domain_msg(Domain, SessionId, K, V),
-                    [{?TS, Msg} | Acc]
+                    [Msg | Acc]
             end,
             [],
             Dirty

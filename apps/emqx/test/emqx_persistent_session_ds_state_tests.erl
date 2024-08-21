@@ -114,34 +114,6 @@ prop_stream_order_internal_keys() ->
             clean()
         end
     ).
-
-prop_domain_msg_roundtrip() ->
-    ?FORALL(
-        {SessionId, Domain, Val},
-        {session_id_gen(), domain_gen(), value_gen()},
-        ?FORALL(
-            Key,
-            key_gen(Domain),
-            begin
-                Msg = emqx_persistent_session_ds_state:to_domain_msg(Domain, SessionId, Key, Val),
-                Parsed = emqx_persistent_session_ds_state:from_domain_msg(Msg),
-                Expected = #{
-                    domain => Domain,
-                    session_id => SessionId,
-                    key => Key,
-                    val => Val
-                },
-                ?WHENFAIL(
-                    begin
-                        io:format(user, " *** Expected =~n       ~p~n", [Expected]),
-                        io:format(user, " *** Got =~n       ~p~n", [Parsed]),
-                        ok
-                    end,
-                    Expected =:= Parsed
-                )
-            end
-        )
-    ).
 %% -ifdef(STORE_STATE_IN_DS).
 -endif.
 
