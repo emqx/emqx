@@ -277,6 +277,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:sasl_auth),
     do: {:sasl_auth, github: "kafka4beam/sasl_auth", tag: "v2.2.0", override: true}
 
+  def common_dep(:influxdb),
+    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
+
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
   # These should be removed once we fully migrate to mix
