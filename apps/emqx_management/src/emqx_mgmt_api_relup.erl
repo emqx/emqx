@@ -451,7 +451,8 @@ validate_name(Name) ->
     {204}.
 
 '/relup/status'(get, _) ->
-    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_all_nodes(),
+    Nodes = emqx:running_nodes(),
+    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_nodes(Nodes),
     case
         lists:filter(
             fun

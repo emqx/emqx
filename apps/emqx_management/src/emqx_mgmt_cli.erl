@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_cli).
 
+-feature(maybe_expr, enable).
+
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
@@ -750,28 +752,54 @@ listeners(["restart", ListenerId]) ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["enable", ListenerId, Enable0]) ->
-    Enable = Enable0 =:= "true",
-    Action =
-        case Enable of
-            true ->
-                start;
-            _ ->
-                stop
-        end,
-    case emqx_listeners:parse_listener_id(ListenerId) of
-        {ok, #{type := Type, name := Name}} ->
-            RawConf = emqx_mgmt_listeners_conf:get_raw(Type, Name),
-            Conf = RawConf#{<<"enable">> := Enable},
-            case emqx_mgmt_listeners_conf:action(Type, Name, Action, Conf) of
-                {ok, _} ->
-                    emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable]);
-                {error, Reason} ->
-                    emqx_ctl:print("Update listener: ~0p failed, Reason: ~0p~n", [
-                        ListenerId, Reason
-                    ])
-            end;
-        _ ->
-            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
+    maybe
+        {ok, Enable, Action} ?=
+            case Enable0 of
+                "true" ->
+                    {ok, true, start};
+                "false" ->
+                    {ok, false, stop};
+                _ ->
+                    {error, badarg}
+            end,
+        {ok, #{type := Type, name := Name}} ?= emqx_listeners:parse_listener_id(ListenerId),
+        #{<<"enable">> := OldEnable} ?= RawConf = emqx_conf:get_raw(
+            [listeners, Type, Name], {error, nout_found}
+        ),
+        {ok, AtomId} = emqx_utils:safe_to_existing_atom(ListenerId),
+        ok ?=
+            case Enable of
+                OldEnable ->
+                    %% `enable` and `running` may lose synchronization due to the start/stop commands
+                    case Action of
+                        start ->
+                            emqx_listeners:start_listener(AtomId);
+                        stop ->
+                            emqx_listeners:stop_listener(AtomId)
+                    end;
+                _ ->
+                    Conf = RawConf#{<<"enable">> := Enable},
+                    case emqx_mgmt_listeners_conf:action(Type, Name, Action, Conf) of
+                        {ok, _} ->
+                            ok;
+                        Error ->
+                            Error
+                    end
+            end,
+        emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable])
+    else
+        {error, badarg} ->
+            emqx_ctl:print("Invalid bool argument: ~0p~n", [Enable0]);
+        {error, {invalid_listener_id, _Id}} ->
+            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId]);
+        {error, not_found} ->
+            emqx_ctl:print("Not found listener: ~0p~n", [ListenerId]);
+        {error, {already_started, _Pid}} ->
+            emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable0]);
+        {error, Reason} ->
+            emqx_ctl:print("Update listener: ~0p failed, Reason: ~0p~n", [
+                ListenerId, Reason
+            ])
     end;
 listeners(_) ->
     emqx_ctl:usage([
@@ -779,7 +807,7 @@ listeners(_) ->
         {"listeners stop    <Identifier>", "Stop a listener"},
         {"listeners start   <Identifier>", "Start a listener"},
         {"listeners restart <Identifier>", "Restart a listener"},
-        {"listeners enable <Identifier> <Bool>", "Enable or disable a listener"}
+        {"listeners enable <Identifier> <true/false>", "Enable or disable a listener"}
     ]).
 
 %%--------------------------------------------------------------------

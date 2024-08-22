@@ -132,7 +132,6 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:snabbkaffe),
       common_dep(:hocon),
       common_dep(:emqx_http_lib),
-      common_dep(:esasl),
       common_dep(:jose),
       # in conflict by ehttpc and emqtt
       common_dep(:gun),
@@ -216,7 +215,7 @@ defmodule EMQXUmbrella.MixProject do
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
-  def common_dep(:esasl), do: {:esasl, github: "emqx/esasl", tag: "0.2.1"}
+  def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.0", override: true}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.0", override: true}
 
   def common_dep(:system_monitor),
@@ -273,9 +272,6 @@ defmodule EMQXUmbrella.MixProject do
       override: true,
       system_env: emqx_app_system_env()
     }
-
-  def common_dep(:sasl_auth),
-    do: {:sasl_auth, github: "kafka4beam/sasl_auth", tag: "v2.2.0", override: true}
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
@@ -471,7 +467,12 @@ defmodule EMQXUmbrella.MixProject do
       {:d, :snk_kind, :msg}
     ] ++
       singleton(test_env?(), {:d, :TEST}) ++
-      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC})
+      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
+      singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
+  end
+
+  defp store_state_in_ds?() do
+    "1" == System.get_env("STORE_STATE_IN_DS")
   end
 
   defp singleton(false, _value), do: []

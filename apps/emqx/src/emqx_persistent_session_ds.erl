@@ -82,7 +82,11 @@
 ]).
 
 %% session table operations
--export([create_tables/0, sync/1]).
+-export([sync/1]).
+-ifndef(STORE_STATE_IN_DS).
+-export([create_tables/0]).
+%% END ifndef(STORE_STATE_IN_DS).
+-endif.
 
 %% internal export used by session GC process
 -export([destroy_session/1]).
@@ -832,8 +836,11 @@ get_client_subscription(ClientId, TopicFilter) ->
 %% Session tables operations
 %%--------------------------------------------------------------------
 
+-ifndef(STORE_STATE_IN_DS).
 create_tables() ->
     emqx_persistent_session_ds_state:create_tables().
+%% END ifndef(STORE_STATE_IN_DS).
+-endif.
 
 %% @doc Force syncing of the transient state to persistent storage
 sync(ClientId) ->
@@ -939,7 +946,7 @@ session_ensure_new(
     S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
     S6 = set_clientinfo(ClientInfo, S5),
     S7 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S6),
-    S = emqx_persistent_session_ds_state:commit(S7),
+    S = emqx_persistent_session_ds_state:commit(S7, #{ensure_new => true}),
     #{
         id => Id,
         props => Conf,

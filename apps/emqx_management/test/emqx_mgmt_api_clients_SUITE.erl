@@ -69,7 +69,8 @@ persistent_session_testcases() ->
         t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
-        t_list_clients_v2_exact_filters
+        t_list_clients_v2_exact_filters,
+        t_list_clients_v2_bad_query_string_parameters
     ].
 non_persistent_cluster_testcases() ->
     [
@@ -103,27 +104,32 @@ init_per_group(general, Config) ->
         | Config
     ];
 init_per_group(persistent_sessions, Config) ->
-    AppSpecs = [
-        {emqx,
-            "durable_sessions.enable = true\n"
-            "durable_sessions.disconnected_session_count_refresh_interval = 100ms"},
-        emqx_management
-    ],
-    Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
-    Cluster = [
-        {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
-        {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
-    ],
-    Nodes =
-        [N1 | _] = emqx_cth_cluster:start(
-            Cluster,
-            #{work_dir => emqx_cth_suite:work_dir(Config)}
-        ),
-    [
-        {nodes, Nodes},
-        {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
-        | Config
-    ];
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            AppSpecs = [
+                {emqx,
+                    "durable_sessions.enable = true\n"
+                    "durable_sessions.disconnected_session_count_refresh_interval = 100ms"},
+                emqx_management
+            ],
+            Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
+            Cluster = [
+                {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+                {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
+            ],
+            Nodes =
+                [N1 | _] = emqx_cth_cluster:start(
+                    Cluster,
+                    #{work_dir => emqx_cth_suite:work_dir(Config)}
+                ),
+            [
+                {nodes, Nodes},
+                {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
+                | Config
+            ];
+        Yes ->
+            Yes
+    end;
 init_per_group(non_persistent_cluster, Config) ->
     AppSpecs = [
         emqx,
@@ -326,11 +332,8 @@ t_persistent_sessions1(Config) ->
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
             assert_single_client(#{node => N1, clientid => ClientId, status => connected}, Config),
             %% 4) Client disconnects.
-            ok = emqtt:stop(C2),
             %% 5) Session is GC'ed, client is removed from list.
-            ?tp(notice, "gc", #{}),
-            %% simulate GC
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+            disconnect_and_destroy_session(C2),
             ?retry(
                 100,
                 20,
@@ -510,7 +513,7 @@ t_persistent_sessions5(Config) ->
                 list_request(#{limit => 2, page => 1}, Config)
             ),
             %% Disconnect persistent sessions
-            lists:foreach(fun emqtt:stop/1, [C1, C2]),
+            lists:foreach(fun stop_and_commit/1, [C1, C2]),
 
             P3 =
                 ?retry(200, 10, begin
@@ -1896,9 +1899,32 @@ t_list_clients_v2_exact_filters(Config) ->
             C3B = connect_client(#{port => Port1, clientid => ClientId3}),
             C4B = connect_client(#{port => Port2, clientid => ClientId4}),
 
-            lists:foreach(fun stop_and_commit/1, [C1, C2, C3B, C4B]),
+            lists:foreach(fun disconnect_and_destroy_session/1, [C1, C2, C3B, C4B]),
             lists:foreach(fun emqtt:stop/1, [C5, C6]),
 
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that we return pretty errors when user uses bad value types for a query string
+%% parameter.
+t_list_clients_v2_bad_query_string_parameters(Config) ->
+    ?check_trace(
+        begin
+            QueryParams1 = [
+                {"ip_address", "10.50.0.0:60748"}
+            ],
+            Res1 = simplify_result(list_v2_request(QueryParams1, Config)),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> :=
+                        <<"the ip_address parameter expected type is ip, but the value is",
+                            _/binary>>
+                }},
+                Res1
+            ),
             ok
         end,
         []
