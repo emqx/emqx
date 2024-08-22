@@ -284,6 +284,26 @@ generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
     end.
 
 transform_old_style_bridges_to_connector_and_actions_of_type(
+    {ConnectorType, #{type := ?MAP(_Name, ?UNION(UnionFun))}},
+    RawConfig
+) when is_function(UnionFun, 1) ->
+    AllMembers = UnionFun(all_union_members),
+    lists:foldl(
+        fun(
+            ?R_REF(ConnectorConfSchemaMod, ConnectorConfSchemaName),
+            RawConfigSoFar
+        ) ->
+            transform_old_style_bridges_to_connector_and_actions_of_type(
+                {ConnectorType, #{
+                    type => ?MAP(name, ?R_REF(ConnectorConfSchemaMod, ConnectorConfSchemaName))
+                }},
+                RawConfigSoFar
+            )
+        end,
+        RawConfig,
+        AllMembers
+    );
+transform_old_style_bridges_to_connector_and_actions_of_type(
     {ConnectorType, #{type := ?MAP(_Name, ?R_REF(ConnectorConfSchemaMod, ConnectorConfSchemaName))}},
     RawConfig
 ) ->

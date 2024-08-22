@@ -314,7 +314,7 @@ conn_bridge_examples(Method) ->
 
 conn_bridge_example(_Method, Type) ->
     #{
-        name => <<"My IoTDB Bridge">>,
+        name => <<"my_iotdb_bridge">>,
         type => Type,
         enable => true,
         authentication => #{
