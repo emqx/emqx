@@ -40,8 +40,6 @@
     desc/1
 ]).
 
--export([transform_bridge_v1_config_to_connector_config/1]).
-
 -export([precision_field/0]).
 
 %% only for test
@@ -222,19 +220,6 @@ on_get_status(_InstId, #{client := Client}) ->
             disconnected
     end.
 
-transform_bridge_v1_config_to_connector_config(BridgeV1Config) ->
-    IndentKeys = [username, password, database, token, bucket, org],
-    ConnConfig0 = maps:without([write_syntax, precision], BridgeV1Config),
-    ConnConfig1 =
-        case emqx_utils_maps:indent(parameters, IndentKeys, ConnConfig0) of
-            #{parameters := #{database := _}} = Conf -> Conf
-        end,
-    emqx_utils_maps:update_if_present(
-        resource_opts,
-        fun emqx_connector_schema:project_to_connector_resource_opts/1,
-        ConnConfig1
-    ).
-
 %%--------------------------------------------------------------------
 %% schema
 
@@ -257,18 +242,7 @@ fields("connector") ->
             )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("datalayers_parameters") ->
-    datalayers_parameters_fields();
-%% ============ begin: schema for old bridge configs ============
-
-fields(datalayers) ->
-    fields(common) ++ datalayers_parameters_fields();
-fields(common) ->
-    [
-        server_field(),
-        precision_field()
-    ] ++ emqx_connector_schema_lib:ssl_fields().
-
-%% ============ end: schema for old bridge configs ============
+    datalayers_parameters_fields().
 
 server_field() ->
     {server, server()}.
