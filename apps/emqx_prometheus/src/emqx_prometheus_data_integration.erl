@@ -89,6 +89,7 @@ fetch_cluster_consistented_data() ->
     Connectors = emqx_connector:list(),
     (maybe_collect_schema_registry())#{
         rules_ov_data => rules_ov_data(Rules),
+        actions_ov_data => actions_ov_data(Rules),
         connectors_ov_data => connectors_ov_data(BridgesV1, Connectors)
     }.
 
@@ -121,9 +122,20 @@ collect_mf(?PROMETHEUS_DATA_INTEGRATION_REGISTRY, Callback) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
 
     %% Data Integration Overview
-    ok = add_collect_family(Callback, rules_ov_metric_meta(), ?MG(rules_ov_data, RawData)),
     ok = add_collect_family(
-        Callback, connectors_ov_metric_meta(), ?MG(connectors_ov_data, RawData)
+        Callback,
+        rules_ov_metric_meta(),
+        ?MG(rules_ov_data, RawData)
+    ),
+    ok = add_collect_family(
+        Callback,
+        actions_ov_metric_meta(),
+        ?MG(actions_ov_data, RawData)
+    ),
+    ok = add_collect_family(
+        Callback,
+        connectors_ov_metric_meta(),
+        ?MG(connectors_ov_data, RawData)
     ),
     ok = maybe_collect_family_schema_registry(Callback),
 
@@ -187,6 +199,9 @@ collect_metrics(Name, Metrics) ->
 %% All Rules
 %% Rules
 collect_di(K = emqx_rules_count, Data) -> gauge_metric(?MG(K, Data));
+%%====================
+%% Actions
+collect_di(K = emqx_actions_count, Data) -> gauge_metric(?MG(K, Data));
 %%====================
 %% Schema Registry
 collect_di(K = emqx_schema_registrys_count, Data) -> gauge_metric(?MG(K, Data));
@@ -260,6 +275,32 @@ rules_ov_metric(names) ->
 rules_ov_data(_Rules) ->
     #{
         emqx_rules_count => ets:info(?RULE_TAB, size)
+    }.
+
+%%====================
+%% Actions
+
+actions_ov_metric_meta() ->
+    [
+        {emqx_actions_count, gauge}
+    ].
+
+actions_ov_metric(names) ->
+    emqx_prometheus_cluster:metric_names(actions_ov_metric_meta()).
+
+actions_ov_data(Rules) ->
+    ActionsCount = lists:foldl(
+        fun
+            (#{actions := Actions} = _Rule, AccIn) ->
+                AccIn + length(Actions);
+            (_, AccIn) ->
+                AccIn
+        end,
+        0,
+        Rules
+    ),
+    #{
+        emqx_actions_count => ActionsCount
     }.
 
 %%====================
@@ -546,6 +587,7 @@ get_connector_status(ResourceData) ->
 %% merge / zip formatting funcs for type `application/json`
 collect_data_integration_overview(Rules, BridgesV1, Connectors) ->
     RulesD = rules_ov_data(Rules),
+    ActionsD = actions_ov_data(Rules),
     ConnectorsD = connectors_ov_data(BridgesV1, Connectors),
 
     M1 = lists:foldl(
@@ -554,13 +596,18 @@ collect_data_integration_overview(Rules, BridgesV1, Connectors) ->
         rules_ov_metric(names)
     ),
     M2 = lists:foldl(
+        fun(K, AccIn) -> AccIn#{K => ?MG(K, ActionsD)} end,
+        #{},
+        actions_ov_metric(names)
+    ),
+    M3 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, ConnectorsD)} end,
         #{},
         connectors_ov_metric(names)
     ),
-    M3 = maybe_collect_schema_registry(),
+    M4 = maybe_collect_schema_registry(),
 
-    lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3]).
+    lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3, M4]).
 
 collect_json_data(Data) ->
     emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_data_integration_metrics/3).
