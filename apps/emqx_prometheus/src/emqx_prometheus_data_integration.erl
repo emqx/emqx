@@ -407,24 +407,21 @@ rule_point(Mode, Id, V) ->
     {with_node_label(Mode, [{id, Id}]), V}.
 
 get_metric(#{id := Id, enable := Bool} = _Rule) ->
-    case emqx_metrics_worker:get_metrics(rule_metrics, Id) of
-        #{counters := Counters} ->
-            #{
-                emqx_rule_enable => emqx_prometheus_cluster:boolean_to_number(Bool),
-                emqx_rule_matched => ?MG(matched, Counters),
-                emqx_rule_failed => ?MG(failed, Counters),
-                emqx_rule_passed => ?MG(passed, Counters),
-                emqx_rule_failed_exception => ?MG('failed.exception', Counters),
-                emqx_rule_failed_no_result => ?MG('failed.no_result', Counters),
-                emqx_rule_actions_total => ?MG('actions.total', Counters),
-                emqx_rule_actions_success => ?MG('actions.success', Counters),
-                emqx_rule_actions_failed => ?MG('actions.failed', Counters),
-                emqx_rule_actions_failed_out_of_service => ?MG(
-                    'actions.failed.out_of_service', Counters
-                ),
-                emqx_rule_actions_failed_unknown => ?MG('actions.failed.unknown', Counters)
-            }
-    end.
+    #{counters := Counters} =
+        emqx_metrics_worker:get_metrics(rule_metrics, Id),
+    #{
+        emqx_rule_enable => emqx_prometheus_cluster:boolean_to_number(Bool),
+        emqx_rule_matched => ?MG(matched, Counters),
+        emqx_rule_failed => ?MG(failed, Counters),
+        emqx_rule_passed => ?MG(passed, Counters),
+        emqx_rule_failed_exception => ?MG('failed.exception', Counters),
+        emqx_rule_failed_no_result => ?MG('failed.no_result', Counters),
+        emqx_rule_actions_total => ?MG('actions.total', Counters),
+        emqx_rule_actions_success => ?MG('actions.success', Counters),
+        emqx_rule_actions_failed => ?MG('actions.failed', Counters),
+        emqx_rule_actions_failed_out_of_service => ?MG('actions.failed.out_of_service', Counters),
+        emqx_rule_actions_failed_unknown => ?MG('actions.failed.unknown', Counters)
+    }.
 
 %%====================
 %% Action Metric
