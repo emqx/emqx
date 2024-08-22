@@ -133,7 +133,7 @@ new(#{
         agent => Agent,
         send_after => SendAfter
     },
-    ?tp(warning, group_sm_new, #{
+    ?tp(debug, group_sm_new, #{
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
@@ -176,7 +176,7 @@ handle_disconnect(
 %% Connecting state
 
 handle_connecting(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
-    ?tp(warning, group_sm_enter_connecting, #{
+    ?tp(debug, group_sm_enter_connecting, #{
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
@@ -264,7 +264,7 @@ handle_leader_update_streams(
     VersionNew,
     StreamProgresses
 ) ->
-    ?tp(warning, shared_sub_group_sm_leader_update_streams, #{
+    ?tp(debug, shared_sub_group_sm_leader_update_streams, #{
         id => Id,
         version_old => VersionOld,
         version_new => VersionNew,
@@ -305,7 +305,7 @@ handle_leader_update_streams(
         maps:keys(Streams1)
     ),
     StreamLeaseEvents = AddEvents ++ RevokeEvents,
-    ?tp(warning, shared_sub_group_sm_leader_update_streams, #{
+    ?tp(debug, shared_sub_group_sm_leader_update_streams, #{
         id => Id,
         stream_lease_events => emqx_persistent_session_ds_shared_subs:format_lease_events(
             StreamLeaseEvents
