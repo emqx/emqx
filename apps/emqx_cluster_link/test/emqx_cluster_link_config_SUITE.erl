@@ -16,7 +16,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Config.
+    [{work_dir, emqx_cth_suite:work_dir(Config)} | Config].
 
 end_per_suite(_Config) ->
     ok.
@@ -25,6 +25,11 @@ init_per_testcase(TCName, Config) ->
     emqx_common_test_helpers:init_per_testcase(?MODULE, TCName, Config).
 
 end_per_testcase(TCName, Config) ->
+    %% @NOTE: Clean work_dir for this TC to avoid running out of disk space
+    %% causing other test run flaky. Uncomment it if you need to preserve the
+    %% work_dir for troubleshooting
+    t_config_update_ds =:= TCName andalso
+        emqx_cth_suite:clean_work_dir(?config(work_dir, Config)),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TCName, Config).
 
 mk_clusters(NameA, NameB, PortA, PortB, ConfA, ConfB, Config) ->
@@ -372,6 +377,8 @@ t_config_update_ds('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(cluster_b, Config)).
 
 t_config_update_ds(Config) ->
+    %% @NOTE: for troubleshooting this TC,
+    %% take a look in end_per_testcase/2 to preserve the work dir
     [NodeA1, _, _] = ?config(cluster_a, Config),
     [NodeB1, _] = ?config(cluster_b, Config),
     LPortA = ?config(lport_a, Config),
