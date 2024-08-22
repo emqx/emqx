@@ -268,7 +268,7 @@ user_info_record(
     user_info_record(UserGroup, UserID, Password, IsSuperuser, State).
 
 user_info_record(UserGroup, UserID, Password, IsSuperuser, State) ->
-    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
+    {StoredKey, ServerKey, Salt} = sasl_auth_scram:generate_authentication_info(Password, State),
     #user_info{
         user_id = {UserGroup, UserID},
         stored_key = StoredKey,
@@ -282,7 +282,7 @@ fields_to_update(
     [keys_and_salt | Rest],
     State
 ) ->
-    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
+    {StoredKey, ServerKey, Salt} = sasl_auth_scram:generate_authentication_info(Password, State),
     [
         {keys_and_salt, {StoredKey, ServerKey, Salt}}
         | fields_to_update(UserInfo, Rest, State)

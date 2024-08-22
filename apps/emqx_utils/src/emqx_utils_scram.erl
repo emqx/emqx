@@ -47,7 +47,7 @@ check_client_first_message(
     Bin, _Cache, #{iteration_count := IterationCount}, RetrieveFun, OnErrFun
 ) ->
     case
-        esasl_scram:check_client_first_message(
+        sasl_auth_scram:check_client_first_message(
             Bin,
             #{
                 iteration_count => IterationCount,
@@ -66,7 +66,7 @@ check_client_first_message(
 
 check_client_final_message(Bin, Cache, #{algorithm := Alg}, OnErrFun, ResultKeys) ->
     case
-        esasl_scram:check_client_final_message(
+        sasl_auth_scram:check_client_final_message(
             Bin,
             Cache#{algorithm => Alg}
         )

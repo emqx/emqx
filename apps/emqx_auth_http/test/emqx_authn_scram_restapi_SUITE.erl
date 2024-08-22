@@ -157,7 +157,7 @@ t_authenticate_bad_username(_Config) ->
 
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
-    ClientFirstMessage = esasl_scram:client_first_message(<<"badusername">>),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(<<"badusername">>),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -182,7 +182,7 @@ t_authenticate_bad_password(_Config) ->
 
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -202,7 +202,7 @@ t_authenticate_bad_password(_Config) ->
     ) = receive_packet(),
 
     {continue, ClientFinalMessage, _ClientCache} =
-        esasl_scram:check_server_first_message(
+        sasl_auth_scram:check_server_first_message(
             ServerFirstMessage,
             #{
                 client_first_message => ClientFirstMessage,
@@ -321,7 +321,7 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
 
     set_user_handler(Username, Password, #{is_superuser => ExpectedIsSuperuser}),
 
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     {continue, ServerFirstMessage, ServerCache} =
         emqx_authn_scram_restapi:authenticate(
@@ -334,7 +334,7 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
         ),
 
     {continue, ClientFinalMessage, ClientCache} =
-        esasl_scram:check_server_first_message(
+        sasl_auth_scram:check_server_first_message(
             ServerFirstMessage,
             #{
                 client_first_message => ClientFirstMessage,
@@ -353,7 +353,7 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
             State
         ),
 
-    ok = esasl_scram:check_server_final_message(
+    ok = sasl_auth_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => ?ALGORITHM}
     ),
 
@@ -410,7 +410,7 @@ init_auth(Config) ->
     State.
 
 make_user_info(Password, Algorithm, IterationCount) ->
-    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(
+    {StoredKey, ServerKey, Salt} = sasl_auth_scram:generate_authentication_info(
         Password,
         #{
             algorithm => Algorithm,
@@ -435,7 +435,7 @@ receive_packet() ->
 create_connection(Username, Password) ->
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -458,7 +458,7 @@ create_connection(Username, Password) ->
     ) = receive_packet(),
 
     {continue, ClientFinalMessage, ClientCache} =
-        esasl_scram:check_server_first_message(
+        sasl_auth_scram:check_server_first_message(
             ServerFirstMessage,
             #{
                 client_first_message => ClientFirstMessage,
@@ -483,7 +483,7 @@ create_connection(Username, Password) ->
         #{'Authentication-Data' := ServerFinalMessage}
     ) = receive_packet(),
 
-    ok = esasl_scram:check_server_final_message(
+    ok = sasl_auth_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => ?ALGORITHM}
     ),
     {ok, Pid}.
