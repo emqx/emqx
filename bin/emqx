@@ -29,6 +29,14 @@ logwarn() {
     fi
 }
 
+loginfo() {
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo "INFO: $*"
+    else
+        echo "$(tput setaf 2)INFO: $*$(tput sgr0)"
+    fi
+}
+
 logdebug() {
     if [ "$DEBUG" -eq 1 ]; then
         echo "DEBUG: $*"
@@ -63,15 +71,55 @@ else
     RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
 fi
 
-BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
+COMMAND="${1:-}"
+GREP='grep --color=never'
 
-if [ -f "$RUNNER_ROOT_DIR/relup/version" ]; then
-    TARGET_VSN=$(cat "$RUNNER_ROOT_DIR/relup/version")
+if [ -z "$COMMAND" ]; then
+    usage 'help'
+    exit 1
+elif [ "$COMMAND" = 'help' ]; then
+    usage 'help'
+    exit 0
+fi
+
+if [ "${2:-}" = 'help' ]; then
+    ## 'ctl' command has its own usage info
+    if [ "$COMMAND" != 'ctl' ]; then
+        usage "$COMMAND"
+        exit 0
+    fi
+fi
+
+## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
+case "${COMMAND}" in
+    start|console|console_clean|foreground|check_config)
+        IS_BOOT_COMMAND='yes'
+        ;;
+    ertspath)
+        echo "$ERTS_DIR"
+        exit 0
+        ;;
+    root_dir)
+        echo "$RUNNER_ROOT_DIR"
+        exit 0
+        ;;
+    *)
+        IS_BOOT_COMMAND='no'
+        ;;
+esac
+
+RELUP_DIR="relup"
+BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
+RELUP_PATH="$RUNNER_ROOT_DIR/$RELUP_DIR"
+
+if [ -f "$RELUP_PATH/version" ]; then
+    TARGET_VSN=$(cat "$RELUP_PATH/version")
     export BASE_RUNNER_ROOT_DIR
-    logwarn "Loading emqx from hot upgrade dir: $RUNNER_ROOT_DIR/relup"
-    exec "$RUNNER_ROOT_DIR"/relup/"$TARGET_VSN"/bin/emqx "$@"
-else
-    logdebug "Loading emqx from $RUNNER_ROOT_DIR"
+    ## only print for boot commands to avoid messing the CLI outputs
+    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+        loginfo "Loading emqx from hot-upgrade dir: $RELUP_PATH"
+    fi
+    exec "$RELUP_PATH/$TARGET_VSN"/bin/emqx "$@"
 fi
 
 # shellcheck disable=SC1090,SC1091
@@ -246,42 +294,6 @@ usage() {
     esac
 }
 
-COMMAND="${1:-}"
-GREP='grep --color=never'
-
-if [ -z "$COMMAND" ]; then
-    usage 'help'
-    exit 1
-elif [ "$COMMAND" = 'help' ]; then
-    usage 'help'
-    exit 0
-fi
-
-if [ "${2:-}" = 'help' ]; then
-    ## 'ctl' command has its own usage info
-    if [ "$COMMAND" != 'ctl' ]; then
-        usage "$COMMAND"
-        exit 0
-    fi
-fi
-
-## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
-case "${COMMAND}" in
-    start|console|console_clean|foreground|check_config)
-        IS_BOOT_COMMAND='yes'
-        ;;
-    ertspath)
-        echo "$ERTS_DIR"
-        exit 0
-        ;;
-    root_dir)
-        echo "$RUNNER_ROOT_DIR"
-        exit 0
-        ;;
-    *)
-        IS_BOOT_COMMAND='no'
-        ;;
-esac
 
 ## backward compatible
 if [ -d "$ERTS_DIR/lib" ]; then
@@ -464,17 +476,25 @@ call_hocon() {
         || die "call_hocon_failed: $*" $?
 }
 
-find_emqx_process() {
+check_emqx_process() {
+    local rootdir="$1"
     ## Find the running node from 'ps -ef'
     ##  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
     ##  * The running 'remsh' and 'nodetool' processes must be excluded
+    ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${rootdir}.*" || true
+}
+
+find_emqx_process() {
+    ## Maybe the emqx has been hot upgraded and is still running from the base root_dir.
+    ## So instead of searching RUNNER_ROOT_DIR, we only search for processes running
+    ## from BASE_RUNNER_ROOT_DIR (which is either equal to RUNNER_ROOT_DIR or a
+    ## parent directory of it).
+    local rootdir="${BASE_RUNNER_ROOT_DIR}"
     if [ -n "${EMQX_NODE__NAME:-}" ]; then
         # if node name is provided, filter by node name
-        # shellcheck disable=SC2009
-        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+        check_emqx_process "${rootdir}" | $GREP -E "\s-s?name\s${EMQX_NODE__NAME}" || true
     else
-        # shellcheck disable=SC2009
-        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+        check_emqx_process "${rootdir}"
     fi
 }
 
@@ -1071,6 +1091,8 @@ nodetool_shutdown() {
     logger -t "${REL_NAME}[${PID}]" "STOP: OK"
 }
 
+## make sure the CWD of emqx is BASE_RUNNER_ROOT_DIR, so relative paths like "etc/"
+## and "data/" still work.
 cd "$BASE_RUNNER_ROOT_DIR"
 
 case "${COMMAND}" in
