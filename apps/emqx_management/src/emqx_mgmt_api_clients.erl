@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_api_clients).
 
+-feature(maybe_expr, enable).
+
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
@@ -981,14 +983,16 @@ do_list_clients_v2(Nodes, Cursor, QString0) ->
 do_list_clients_v2(_Nodes, Cursor = done, _QString, Acc) ->
     format_results(Acc, Cursor);
 do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
-    {Rows, NewCursor} = do_ets_select(Nodes, QString0, Cursor),
-    Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
-    Acc = #{limit := Limit, n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
-    case N >= Limit of
-        true ->
-            format_results(Acc, NewCursor);
-        false ->
-            do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+    maybe
+        {ok, {Rows, NewCursor}} ?= do_ets_select(Nodes, QString0, Cursor),
+        Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
+        Acc = #{limit := Limit, n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+        case N >= Limit of
+            true ->
+                format_results(Acc, NewCursor);
+            false ->
+                do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+        end
     end;
 do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
     #{limit := Limit} = Acc0,
@@ -1013,13 +1017,9 @@ format_results(Acc, Cursor) ->
     Meta =
         case Cursor of
             done ->
-                #{
-                    hasnext => false,
-                    count => N
-                };
+                #{count => N};
             _ ->
                 #{
-                    hasnext => true,
                     count => N,
                     cursor => serialize_cursor(Cursor)
                 }
@@ -1035,15 +1035,32 @@ format_results(Acc, Cursor) ->
     ?OK(Resp).
 
 do_ets_select(Nodes, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
-    {_, QString1} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
-    Limit = maps:get(<<"limit">>, QString0, 10),
-    {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
-        QString1, Limit, Node, NodeIdx, Cont
-    ),
-    {Rows, next_ets_cursor(Nodes, NewNodeIdx, NewCont)}.
+    maybe
+        {ok, {_, QString1}} ?= parse_qstring(QString0),
+        Limit = maps:get(<<"limit">>, QString0, 10),
+        {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
+            QString1, Limit, Node, NodeIdx, Cont
+        ),
+        {ok, {Rows, next_ets_cursor(Nodes, NewNodeIdx, NewCont)}}
+    end.
+
+parse_qstring(QString) ->
+    try
+        {ok, emqx_mgmt_api:parse_qstring(QString, ?CLIENT_QSCHEMA)}
+    catch
+        throw:{bad_value_type, {Key, ExpectedType, AcutalValue}} ->
+            Message = list_to_binary(
+                io_lib:format(
+                    "the ~s parameter expected type is ~s, but the value is ~s",
+                    [Key, ExpectedType, emqx_utils_conv:str(AcutalValue)]
+                )
+            ),
+            ?BAD_REQUEST('INVALID_PARAMETER', Message)
+    end.
 
 maybe_run_fuzzy_filter(Rows, QString0) ->
-    {_, {_, FuzzyQString}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    {_NClauses, {QString1, FuzzyQString1}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    {_QString, FuzzyQString} = adapt_custom_filters(QString1, FuzzyQString1),
     FuzzyFilterFn = fuzzy_filter_fun(FuzzyQString),
     case FuzzyFilterFn of
         undefined ->
@@ -1054,6 +1071,27 @@ maybe_run_fuzzy_filter(Rows, QString0) ->
                 Rows
             )
     end.
+
+%% These filters, while they are able to be adapted to efficient ETS match specs, must be
+%% used as fuzzy filters when iterating over offlient persistent clients, which live
+%% outside ETS.
+adapt_custom_filters(Qs, Fuzzy) ->
+    lists:foldl(
+        fun
+            ({Field, '=:=', X}, {QsAcc, FuzzyAcc}) when
+                Field =:= username
+            ->
+                Xs = wrap(X),
+                {QsAcc, [{Field, in, Xs} | FuzzyAcc]};
+            (Clause, {QsAcc, FuzzyAcc}) ->
+                {[Clause | QsAcc], FuzzyAcc}
+        end,
+        {[], Fuzzy},
+        Qs
+    ).
+
+wrap(Xs) when is_list(Xs) -> Xs;
+wrap(X) -> [X].
 
 initial_ets_cursor([Node | _Rest] = _Nodes) ->
     #{
@@ -1611,8 +1649,8 @@ qs2ms(_Tab, {QString, FuzzyQString}) ->
 
 -spec qs2ms(list()) -> ets:match_spec().
 qs2ms(Qs) ->
-    {MtchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
-    [{{{'$1', '_'}, MtchHead, '_'}, Conds, ['$_']}].
+    {MatchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
+    [{{{'$1', '_'}, MatchHead, '_'}, Conds, ['$_']}].
 
 qs2ms([], _, {MtchHead, Conds}) ->
     {MtchHead, lists:reverse(Conds)};
@@ -1684,6 +1722,20 @@ run_fuzzy_filter(
 ) ->
     %% Row from DS
     run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
+        run_fuzzy_filter(Row, RestArgs);
+run_fuzzy_filter(
+    Row = {_, #{metadata := #{clientinfo := ClientInfo}}},
+    [{Key, in, Xs} | RestArgs]
+) ->
+    %% Row from DS
+    IsMatch =
+        case maps:find(Key, ClientInfo) of
+            {ok, X} ->
+                lists:member(X, Xs);
+            error ->
+                false
+        end,
+    IsMatch andalso
         run_fuzzy_filter(Row, RestArgs);
 run_fuzzy_filter(Row = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | RestArgs]) ->
     %% Row from ETS

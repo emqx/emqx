@@ -339,8 +339,7 @@ on_query(
     {TypeOrKey, NameOrMap, Params},
     #{pool_name := PoolName} = State
 ) ->
-    ?SLOG(debug, #{
-        msg => "postgresql_connector_received_sql_query",
+    ?TRACE("QUERY", "postgresql_connector_received_sql_query", #{
         connector => InstId,
         type => TypeOrKey,
         sql => NameOrMap,

@@ -15,20 +15,29 @@ cd -P -- "$(dirname -- "$0")/../"
 
 help() {
     echo
-    echo "start | stop"
+    echo "$0 start|stop [-h|--help] [-n|--nodes <number>] [-c|--cores <number>] [-b|--boot <script>]"
+    echo
     echo "-h|--help: To display this usage info"
     echo "-n|--nodes: total number of nodes to start (default: 2)"
-    echo "-c|--core_nodes: number of core nodes to start (default: 1)"
+    echo "-c|--cores: number of core nodes to start (default: 2)"
     echo "-b|--boot: boot script (default: ./_build/emqx/rel/emqx/bin/emqx)"
+    echo "--no-cluster: don't create a cluster, just start separate nodes"
 }
+
+if [ "$#" -lt 1 ]; then
+    help
+    exit 1
+fi
 
 CMD="$1"
 shift || true
 
 export EMQX_NODE__COOKIE=test
-BOOT_SCRIPT='./_build/emqx/rel/emqx/bin/emqx'
+PROFILE=${PROFILE:-emqx}
+BOOT_SCRIPT="./_build/${PROFILE}/rel/emqx/bin/emqx"
 NODES=2
-CORE_NODES=1
+CORE_NODES=2
+NO_CLUSTER=false
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -40,13 +49,17 @@ while [ "$#" -gt 0 ]; do
             NODES="$2"
             shift 2
             ;;
-        -c|--core-nodes)
+        -c|--cores)
             CORE_NODES="$2"
             shift 2
             ;;
         -b|--boot)
             BOOT_SCRIPT="$2"
             shift 2
+            ;;
+        --no-cluster)
+            NO_CLUSTER=true
+            shift
             ;;
         *)
             echo "unknown option $1"
@@ -65,10 +78,15 @@ for i in $(seq 1 "$CORE_NODES"); do
     SEEDS_ARRAY+=("core${i}@127.0.0.$i")
     CORE_IDS+=("$i")
 done
-for i in $(seq "$((CORE_NODES+1))" "$((CORE_NODES+REPLICANT_NODES))"); do
-    REPLICANT_IDS+=("$i")
-done
+if [ "$REPLICANT_NODES" -gt 0 ]; then
+    for i in $(seq "$((CORE_NODES+1))" "$((CORE_NODES+REPLICANT_NODES))"); do
+        REPLICANT_IDS+=("$i")
+    done
+fi
 
+if [ "${NO_CLUSTER}" = true ]; then
+    SEEDS_ARRAY=()
+fi
 SEEDS="$(IFS=,; echo "${SEEDS_ARRAY[*]}")"
 
 if [ "$CMD" = "stop" ]; then
@@ -116,11 +134,23 @@ start_node() {
 }
 
 for id in "${CORE_IDS[@]}"; do
-    sudo ifconfig lo0 alias "127.0.0.$id" up
+    set +e
+    if ! ifconfig lo0 alias "127.0.0.$id" up; then
+        echo "Failed to create an alias for loopback address 127.0.0.$id. Retrying with sudo."
+        set -e
+        sudo ifconfig lo0 alias "127.0.0.$id" up
+    fi
+    set -e
     start_node core "$id" &
 done
 
 for id in "${REPLICANT_IDS[@]}"; do
-    sudo ifconfig lo0 alias "127.0.0.$id" up
+    set +e
+    if ! ifconfig lo0 alias "127.0.0.$id" up; then
+        echo "Failed to create an alias for loopback address 127.0.0.$id. Retrying with sudo."
+        set -e
+        sudo ifconfig lo0 alias "127.0.0.$id" up
+    fi
+    set -e
     start_node replicant "$id" &
 done

@@ -28,7 +28,7 @@
     desc/1,
     source_refs/0,
     api_source_refs/0,
-    select_union_member/1
+    select_union_member/2
 ]).
 
 namespace() -> "authz".
@@ -77,7 +77,9 @@ source_refs() ->
 api_source_refs() ->
     [?R_REF(api_file)].
 
-select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}) ->
+select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}, source_refs) ->
     ?R_REF(file);
-select_union_member(_Value) ->
+select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}, api_source_refs) ->
+    ?R_REF(api_file);
+select_union_member(_Value, _) ->
     undefined.

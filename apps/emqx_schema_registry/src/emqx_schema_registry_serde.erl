@@ -48,6 +48,10 @@
 
 -type eval_context() :: term().
 
+-type fingerprint() :: binary().
+
+-type protobuf_cache_key() :: {schema_name(), fingerprint()}.
+
 -export_type([serde_type/0]).
 
 %%------------------------------------------------------------------------------
@@ -175,11 +179,12 @@ make_serde(avro, Name, Source) ->
         eval_context = Store
     };
 make_serde(protobuf, Name, Source) ->
-    SerdeMod = make_protobuf_serde_mod(Name, Source),
+    {CacheKey, SerdeMod} = make_protobuf_serde_mod(Name, Source),
     #serde{
         name = Name,
         type = protobuf,
-        eval_context = SerdeMod
+        eval_context = SerdeMod,
+        extra = #{cache_key => CacheKey}
     };
 make_serde(json, Name, Source) ->
     case json_decode(Source) of
@@ -254,8 +259,9 @@ eval_encode(#serde{type = json, name = Name}, [Map]) ->
 destroy(#serde{type = avro, name = _Name}) ->
     ?tp(serde_destroyed, #{type => avro, name => _Name}),
     ok;
-destroy(#serde{type = protobuf, name = _Name, eval_context = SerdeMod}) ->
+destroy(#serde{type = protobuf, name = _Name, eval_context = SerdeMod} = Serde) ->
     unload_code(SerdeMod),
+    destroy_protobuf_code(Serde),
     ?tp(serde_destroyed, #{type => protobuf, name => _Name}),
     ok;
 destroy(#serde{type = json, name = Name}) ->
@@ -282,13 +288,14 @@ jesse_validate(Name, Map) ->
 jesse_name(Str) ->
     unicode:characters_to_list(Str).
 
--spec make_protobuf_serde_mod(schema_name(), schema_source()) -> module().
+-spec make_protobuf_serde_mod(schema_name(), schema_source()) -> {protobuf_cache_key(), module()}.
 make_protobuf_serde_mod(Name, Source) ->
     {SerdeMod0, SerdeModFileName} = protobuf_serde_mod_name(Name),
     case lazy_generate_protobuf_code(Name, SerdeMod0, Source) of
         {ok, SerdeMod, ModBinary} ->
             load_code(SerdeMod, SerdeModFileName, ModBinary),
-            SerdeMod;
+            CacheKey = protobuf_cache_key(Name, Source),
+            {CacheKey, SerdeMod};
         {error, #{error := Error, warnings := Warnings}} ->
             ?SLOG(
                 warning,
@@ -310,6 +317,13 @@ protobuf_serde_mod_name(Name) ->
     SerdeModFileName = SerdeModName ++ ".memory",
     {SerdeMod, SerdeModFileName}.
 
+%% Fixme: we cannot uncomment the following typespec because Dialyzer complains that
+%% `Source' should be `string()' due to `gpb_compile:string/3', but it does work fine with
+%% binaries...
+%% -spec protobuf_cache_key(schema_name(), schema_source()) -> {schema_name(), fingerprint()}.
+protobuf_cache_key(Name, Source) ->
+    {Name, erlang:md5(Source)}.
+
 -spec lazy_generate_protobuf_code(schema_name(), module(), schema_source()) ->
     {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.
 lazy_generate_protobuf_code(Name, SerdeMod0, Source) ->
@@ -326,9 +340,9 @@ lazy_generate_protobuf_code(Name, SerdeMod0, Source) ->
 -spec lazy_generate_protobuf_code_trans(schema_name(), module(), schema_source()) ->
     {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.
 lazy_generate_protobuf_code_trans(Name, SerdeMod0, Source) ->
-    Fingerprint = erlang:md5(Source),
-    _ = mnesia:lock({record, ?PROTOBUF_CACHE_TAB, Fingerprint}, write),
-    case mnesia:read(?PROTOBUF_CACHE_TAB, Fingerprint) of
+    CacheKey = protobuf_cache_key(Name, Source),
+    _ = mnesia:lock({record, ?PROTOBUF_CACHE_TAB, CacheKey}, write),
+    case mnesia:read(?PROTOBUF_CACHE_TAB, CacheKey) of
         [#protobuf_cache{module = SerdeMod, module_binary = ModBinary}] ->
             ?tp(schema_registry_protobuf_cache_hit, #{name => Name}),
             {ok, SerdeMod, ModBinary};
@@ -337,7 +351,7 @@ lazy_generate_protobuf_code_trans(Name, SerdeMod0, Source) ->
             case generate_protobuf_code(SerdeMod0, Source) of
                 {ok, SerdeMod, ModBinary} ->
                     CacheEntry = #protobuf_cache{
-                        fingerprint = Fingerprint,
+                        fingerprint = CacheKey,
                         module = SerdeMod,
                         module_binary = ModBinary
                     },
@@ -345,7 +359,7 @@ lazy_generate_protobuf_code_trans(Name, SerdeMod0, Source) ->
                     {ok, SerdeMod, ModBinary};
                 {ok, SerdeMod, ModBinary, _Warnings} ->
                     CacheEntry = #protobuf_cache{
-                        fingerprint = Fingerprint,
+                        fingerprint = CacheKey,
                         module = SerdeMod,
                         module_binary = ModBinary
                     },
@@ -389,6 +403,21 @@ unload_code(SerdeMod) ->
     _ = code:purge(SerdeMod),
     _ = code:delete(SerdeMod),
     ok.
+
+-spec destroy_protobuf_code(serde()) -> ok.
+destroy_protobuf_code(Serde) ->
+    #serde{extra = #{cache_key := CacheKey}} = Serde,
+    {atomic, Res} = mria:transaction(
+        ?SCHEMA_REGISTRY_SHARD,
+        fun destroy_protobuf_code_trans/1,
+        [CacheKey]
+    ),
+    ?tp("schema_registry_protobuf_cache_destroyed", #{name => Serde#serde.name}),
+    Res.
+
+-spec destroy_protobuf_code_trans({schema_name(), fingerprint()}) -> ok.
+destroy_protobuf_code_trans(CacheKey) ->
+    mnesia:delete(?PROTOBUF_CACHE_TAB, CacheKey, write).
 
 -spec has_inner_type(serde_type(), eval_context(), [binary()]) ->
     boolean().

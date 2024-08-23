@@ -621,16 +621,16 @@ save_to_config_map(Conf, RawConf) ->
     ?MODULE:put_raw(RawConf).
 
 -spec save_to_override_conf(boolean(), raw_config(), update_opts()) -> ok | {error, term()}.
-save_to_override_conf(_, undefined, _) ->
+save_to_override_conf(_HasDeprecatedFile, undefined, _) ->
     ok;
-save_to_override_conf(true, RawConf, Opts) ->
+save_to_override_conf(true = _HasDeprecatedFile, RawConf, Opts) ->
     case deprecated_conf_file(Opts) of
         undefined ->
             ok;
         FileName ->
             backup_and_write(FileName, hocon_pp:do(RawConf, Opts))
     end;
-save_to_override_conf(false, RawConf, Opts) ->
+save_to_override_conf(false = _HasDeprecatedFile, RawConf, Opts) ->
     case cluster_hocon_file() of
         undefined ->
             ok;

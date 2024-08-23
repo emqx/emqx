@@ -519,7 +519,7 @@ on_banned(#banned{who = {clientid, ClientId}}) ->
             clientid => ClientId
         }
     ),
-    emqx_cm:kick_session(ClientId),
+    emqx_cm:try_kick_session(ClientId),
     ok;
 on_banned(_) ->
     ok.

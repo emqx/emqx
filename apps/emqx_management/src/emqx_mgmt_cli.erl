@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_cli).
 
+-feature(maybe_expr, enable).
+
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
@@ -97,7 +99,7 @@ broker(_) ->
 %% @doc Cluster with other nodes
 
 cluster(["join", SNode]) ->
-    case mria:join(ekka_node:parse_name(SNode)) of
+    case ekka:join(ekka_node:parse_name(SNode)) of
         ok ->
             emqx_ctl:print("Join the cluster successfully.~n"),
             %% FIXME: running status on the replicant immediately
@@ -112,7 +114,7 @@ cluster(["join", SNode]) ->
     end;
 cluster(["leave"]) ->
     _ = maybe_disable_autocluster(),
-    case mria:leave() of
+    case ekka:leave() of
         ok ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
             cluster(["status"]);
@@ -121,7 +123,7 @@ cluster(["leave"]) ->
     end;
 cluster(["force-leave", SNode]) ->
     Node = ekka_node:parse_name(SNode),
-    case mria:force_leave(Node) of
+    case ekka:force_leave(Node) of
         ok ->
             case emqx_cluster_rpc:force_leave_clean(Node) of
                 ok ->
@@ -674,6 +676,7 @@ listeners([]) ->
     lists:foreach(
         fun({ID, Conf}) ->
             Bind = maps:get(bind, Conf),
+            Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
             Running = maps:get(running, Conf),
@@ -704,6 +707,7 @@ listeners([]) ->
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
+                    {enbale, Enable},
                     {running, Running}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [ID]),
@@ -747,12 +751,63 @@ listeners(["restart", ListenerId]) ->
         _ ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
+listeners(["enable", ListenerId, Enable0]) ->
+    maybe
+        {ok, Enable, Action} ?=
+            case Enable0 of
+                "true" ->
+                    {ok, true, start};
+                "false" ->
+                    {ok, false, stop};
+                _ ->
+                    {error, badarg}
+            end,
+        {ok, #{type := Type, name := Name}} ?= emqx_listeners:parse_listener_id(ListenerId),
+        #{<<"enable">> := OldEnable} ?= RawConf = emqx_conf:get_raw(
+            [listeners, Type, Name], {error, nout_found}
+        ),
+        {ok, AtomId} = emqx_utils:safe_to_existing_atom(ListenerId),
+        ok ?=
+            case Enable of
+                OldEnable ->
+                    %% `enable` and `running` may lose synchronization due to the start/stop commands
+                    case Action of
+                        start ->
+                            emqx_listeners:start_listener(AtomId);
+                        stop ->
+                            emqx_listeners:stop_listener(AtomId)
+                    end;
+                _ ->
+                    Conf = RawConf#{<<"enable">> := Enable},
+                    case emqx_mgmt_listeners_conf:action(Type, Name, Action, Conf) of
+                        {ok, _} ->
+                            ok;
+                        Error ->
+                            Error
+                    end
+            end,
+        emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable])
+    else
+        {error, badarg} ->
+            emqx_ctl:print("Invalid bool argument: ~0p~n", [Enable0]);
+        {error, {invalid_listener_id, _Id}} ->
+            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId]);
+        {error, not_found} ->
+            emqx_ctl:print("Not found listener: ~0p~n", [ListenerId]);
+        {error, {already_started, _Pid}} ->
+            emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable0]);
+        {error, Reason} ->
+            emqx_ctl:print("Update listener: ~0p failed, Reason: ~0p~n", [
+                ListenerId, Reason
+            ])
+    end;
 listeners(_) ->
     emqx_ctl:usage([
         {"listeners", "List listeners"},
         {"listeners stop    <Identifier>", "Stop a listener"},
         {"listeners start   <Identifier>", "Start a listener"},
-        {"listeners restart <Identifier>", "Restart a listener"}
+        {"listeners restart <Identifier>", "Restart a listener"},
+        {"listeners enable <Identifier> <true/false>", "Enable or disable a listener"}
     ]).
 
 %%--------------------------------------------------------------------

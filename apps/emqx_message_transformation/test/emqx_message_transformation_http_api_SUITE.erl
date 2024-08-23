@@ -1635,27 +1635,167 @@ t_load_config(_Config) ->
 t_final_payload_must_be_binary(_Config) ->
     ?check_trace(
         begin
-            Name = <<"foo">>,
+            Name1 = <<"foo">>,
             Operations = [operation(<<"payload.hello">>, <<"concat(['world'])">>)],
-            Transformation = transformation(Name, Operations, #{
+            Transformation1 = transformation(Name1, Operations, #{
                 <<"payload_decoder">> => #{<<"type">> => <<"json">>},
                 <<"payload_encoder">> => #{<<"type">> => <<"none">>}
             }),
-            {201, _} = insert(Transformation),
+            {201, _} = insert(Transformation1),
 
             C = connect(<<"c1">>),
             {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
             ok = publish(C, <<"t/1">>, #{x => 1, y => true}),
             ?assertNotReceive({publish, _}),
+
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> :=
+                            #{
+                                <<"matched">> := 1,
+                                <<"succeeded">> := 0,
+                                <<"failed">> := 1
+                            },
+                        <<"node_metrics">> :=
+                            [
+                                #{
+                                    <<"node">> := _,
+                                    <<"metrics">> := #{
+                                        <<"matched">> := 1,
+                                        <<"succeeded">> := 0,
+                                        <<"failed">> := 1
+                                    }
+                                }
+                            ]
+                    }},
+                    get_metrics(Name1)
+                )
+            ),
+
+            %% When there are multiple transformations for a topic, the last one is
+            %% responsible for properly encoding the payload to a binary.
+            Name2 = <<"bar">>,
+            Transformation2 = transformation(Name2, _Operations = [], #{
+                <<"payload_decoder">> => #{<<"type">> => <<"none">>},
+                <<"payload_encoder">> => #{<<"type">> => <<"none">>}
+            }),
+            {201, _} = insert(Transformation2),
+
+            ok = publish(C, <<"t/1">>, #{x => 1, y => true}),
+            ?assertNotReceive({publish, _}),
+
+            %% The old, first transformation succeeds.
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> :=
+                        #{
+                            <<"matched">> := 2,
+                            <<"succeeded">> := 1,
+                            <<"failed">> := 1
+                        },
+                    <<"node_metrics">> :=
+                        [
+                            #{
+                                <<"node">> := _,
+                                <<"metrics">> := #{
+                                    <<"matched">> := 2,
+                                    <<"succeeded">> := 1,
+                                    <<"failed">> := 1
+                                }
+                            }
+                        ]
+                }},
+                get_metrics(Name1)
+            ),
+
+            %% The last transformation gets the failure metric bump.
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> :=
+                        #{
+                            <<"matched">> := 1,
+                            <<"succeeded">> := 0,
+                            <<"failed">> := 1
+                        },
+                    <<"node_metrics">> :=
+                        [
+                            #{
+                                <<"node">> := _,
+                                <<"metrics">> := #{
+                                    <<"matched">> := 1,
+                                    <<"succeeded">> := 0,
+                                    <<"failed">> := 1
+                                }
+                            }
+                        ]
+                }},
+                get_metrics(Name2)
+            ),
+
             ok
         end,
         fun(Trace) ->
             ?assertMatch(
-                [#{message := "transformation_bad_encoding"}],
+                [
+                    #{message := "transformation_bad_encoding"},
+                    #{message := "transformation_bad_encoding"}
+                ],
                 ?of_kind(message_transformation_failed, Trace)
             ),
             ok
         end
+    ),
+    ok.
+
+%% Checks that an input value that does not respect the declared encoding bumps the
+%% failure metric as expected.  Also, such a crash does not lead to the message continuing
+%% the publication process.
+t_bad_decoded_value_failure_metric(_Config) ->
+    ?check_trace(
+        begin
+            Name = <<"bar">>,
+            Operations = [operation(<<"payload.msg">>, <<"payload">>)],
+            Transformation = transformation(Name, Operations, #{
+                <<"payload_decoder">> => #{<<"type">> => <<"none">>},
+                <<"payload_encoder">> => #{<<"type">> => <<"json">>}
+            }),
+            {201, _} = insert(Transformation),
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+            ok = publish(C, <<"t/1">>, {raw, <<"aaa">>}),
+            ?assertNotReceive({publish, _}),
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> :=
+                            #{
+                                <<"matched">> := 1,
+                                <<"succeeded">> := 0,
+                                <<"failed">> := 1
+                            },
+                        <<"node_metrics">> :=
+                            [
+                                #{
+                                    <<"node">> := _,
+                                    <<"metrics">> := #{
+                                        <<"matched">> := 1,
+                                        <<"succeeded">> := 0,
+                                        <<"failed">> := 1
+                                    }
+                                }
+                            ]
+                    }},
+                    get_metrics(Name)
+                )
+            ),
+            ok
+        end,
+        []
     ),
     ok.
 
@@ -1735,12 +1875,26 @@ t_dryrun_transformation(_Config) ->
                 operation(retain, <<"payload.r">>),
                 operation(<<"user_property.a">>, <<"payload.u.a">>),
                 operation(<<"user_property.copy">>, <<"user_property.original">>),
-                operation(<<"payload">>, <<"payload.p.hello">>)
+                operation(<<"payload.user">>, <<"username">>),
+                operation(<<"payload.flags">>, <<"flags">>),
+                operation(<<"payload.pprops">>, <<"pub_props">>),
+                operation(<<"payload.expiry">>, <<"pub_props.Message-Expiry-Interval">>),
+                operation(<<"payload.peername">>, <<"peername">>),
+                operation(<<"payload.node">>, <<"node">>),
+                operation(<<"payload.id">>, <<"id">>),
+                operation(<<"payload.clientid">>, <<"clientid">>),
+                operation(<<"payload.now">>, <<"timestamp">>),
+                operation(<<"payload.recv_at">>, <<"publish_received_at">>),
+                operation(<<"payload.hi">>, <<"payload.p.hello">>)
             ],
             Transformation1 = transformation(Name1, Operations),
 
             %% Good input
+            ClientId = <<"myclientid">>,
+            Username = <<"myusername">>,
+            Peername = <<"10.0.50.1:63221">>,
             Message1 = dryrun_input_message(#{
+                clientid => ClientId,
                 payload => #{
                     p => #{<<"hello">> => <<"world">>},
                     q => 1,
@@ -1748,11 +1902,15 @@ t_dryrun_transformation(_Config) ->
                     t => <<"t">>,
                     u => #{a => <<"b">>}
                 },
-                user_property => #{<<"original">> => <<"user_prop">>}
+                peername => Peername,
+                pub_props => #{<<"Message-Expiry-Interval">> => 30},
+                user_property => #{<<"original">> => <<"user_prop">>},
+                username => Username
             }),
+            Res1 = dryrun_transformation(Transformation1, Message1),
             ?assertMatch(
                 {200, #{
-                    <<"payload">> := <<"\"world\"">>,
+                    <<"payload">> := _,
                     <<"qos">> := 1,
                     <<"retain">> := true,
                     <<"topic">> := <<"t/u/v/t">>,
@@ -1762,7 +1920,30 @@ t_dryrun_transformation(_Config) ->
                         <<"copy">> := <<"user_prop">>
                     }
                 }},
-                dryrun_transformation(Transformation1, Message1)
+                Res1
+            ),
+            {200, #{<<"payload">> := EncPayloadRes1}} = Res1,
+            NodeBin = atom_to_binary(node()),
+            ?assertMatch(
+                #{
+                    <<"hi">> := <<"world">>,
+                    <<"now">> := _,
+                    <<"recv_at">> := _,
+                    <<"clientid">> := ClientId,
+                    <<"pprops">> := #{
+                        <<"Message-Expiry-Interval">> := 30,
+                        <<"User-Property">> := #{
+                            <<"original">> := <<"user_prop">>
+                        }
+                    },
+                    <<"expiry">> := 30,
+                    <<"peername">> := Peername,
+                    <<"node">> := NodeBin,
+                    <<"id">> := <<_/binary>>,
+                    <<"flags">> := #{<<"dup">> := false, <<"retain">> := true},
+                    <<"user">> := Username
+                },
+                emqx_utils_json:decode(EncPayloadRes1, [return_maps])
             ),
 
             %% Bad input: fails to decode

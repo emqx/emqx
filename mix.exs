@@ -132,7 +132,6 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:snabbkaffe),
       common_dep(:hocon),
       common_dep(:emqx_http_lib),
-      common_dep(:esasl),
       common_dep(:jose),
       # in conflict by ehttpc and emqtt
       common_dep(:gun),
@@ -159,7 +158,8 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:uuid),
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       common_dep(:ra),
-      {:mimerl, "1.2.0", override: true}
+      {:mimerl, "1.2.0", override: true},
+      common_dep(:sasl_auth)
     ]
   end
 
@@ -184,7 +184,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.12.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.2", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.3", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.2", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
@@ -215,8 +215,8 @@ defmodule EMQXUmbrella.MixProject do
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
-  def common_dep(:esasl), do: {:esasl, github: "emqx/esasl", tag: "0.2.1"}
-  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.1", override: true}
+  def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.0", override: true}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.0", override: true}
 
   def common_dep(:system_monitor),
     do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}
@@ -246,7 +246,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.13.0", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true}
@@ -378,7 +378,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ds_shared_sub,
       :emqx_auth_ext,
       :emqx_cluster_link,
-      :emqx_ds_builtin_raft
+      :emqx_ds_builtin_raft,
+      :emqx_auth_kerberos
     ])
   end
 
@@ -462,7 +463,12 @@ defmodule EMQXUmbrella.MixProject do
       {:d, :snk_kind, :msg}
     ] ++
       singleton(test_env?(), {:d, :TEST}) ++
-      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC})
+      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
+      singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
+  end
+
+  defp store_state_in_ds?() do
+    "1" == System.get_env("STORE_STATE_IN_DS")
   end
 
   defp singleton(false, _value), do: []

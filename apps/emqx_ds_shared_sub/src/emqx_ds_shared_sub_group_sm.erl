@@ -133,7 +133,7 @@ new(#{
         agent => Agent,
         send_after => SendAfter
     },
-    ?tp(warning, group_sm_new, #{
+    ?tp(debug, group_sm_new, #{
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
@@ -176,11 +176,11 @@ handle_disconnect(
 %% Connecting state
 
 handle_connecting(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
-    ?tp(warning, group_sm_enter_connecting, #{
+    ?tp(debug, group_sm_enter_connecting, #{
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM), ShareTopicFilter),
+    ok = emqx_ds_shared_sub_registry:leader_wanted(Agent, agent_metadata(GSM), ShareTopicFilter),
     ensure_state_timeout(GSM, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)).
 
 handle_leader_lease_streams(
@@ -211,7 +211,7 @@ handle_find_leader_timeout(#{agent := Agent, share_topic_filter := ShareTopicFil
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
-    ok = emqx_ds_shared_sub_registry:lookup_leader(Agent, agent_metadata(GSM0), ShareTopicFilter),
+    ok = emqx_ds_shared_sub_registry:leader_wanted(Agent, agent_metadata(GSM0), ShareTopicFilter),
     GSM1 = ensure_state_timeout(
         GSM0, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)
     ),
@@ -264,11 +264,13 @@ handle_leader_update_streams(
     VersionNew,
     StreamProgresses
 ) ->
-    ?tp(warning, shared_sub_group_sm_leader_update_streams, #{
+    ?tp(debug, shared_sub_group_sm_leader_update_streams, #{
         id => Id,
         version_old => VersionOld,
         version_new => VersionNew,
-        stream_progresses => emqx_ds_shared_sub_proto:format_stream_progresses(StreamProgresses)
+        stream_progresses => emqx_persistent_session_ds_shared_subs:format_stream_progresses(
+            StreamProgresses
+        )
     }),
     {AddEvents, Streams1} = lists:foldl(
         fun(#{stream := Stream, progress := Progress}, {AddEventAcc, StreamsAcc}) ->
@@ -303,9 +305,11 @@ handle_leader_update_streams(
         maps:keys(Streams1)
     ),
     StreamLeaseEvents = AddEvents ++ RevokeEvents,
-    ?tp(warning, shared_sub_group_sm_leader_update_streams, #{
+    ?tp(debug, shared_sub_group_sm_leader_update_streams, #{
         id => Id,
-        stream_lease_events => emqx_ds_shared_sub_proto:format_lease_events(StreamLeaseEvents)
+        stream_lease_events => emqx_persistent_session_ds_shared_subs:format_lease_events(
+            StreamLeaseEvents
+        )
     }),
     transition(
         GSM,

@@ -40,7 +40,9 @@
 
 -export([
     publish/1,
-    safe_publish/1
+    publish/2,
+    safe_publish/1,
+    safe_publish/2
 ]).
 
 -export([dispatch/2]).
@@ -91,6 +93,14 @@
             cast(__X_Pid, Msg)
     end
 ).
+
+-type publish_opts() :: #{
+    %% Whether to return a disinguishing value `{blocked, #message{}}' when a hook from
+    %% `'message.publish''` returns `allow_publish => false'.  Defaults to `false'.
+    hook_prohibition_as_error => boolean(),
+    %% do not call message.publish hook point if true
+    bypass_hook => boolean()
+}.
 
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
@@ -228,9 +238,21 @@ do_unsubscribe2(#share{group = Group, topic = Topic}, SubPid, _SubOpts) when
 %%--------------------------------------------------------------------
 
 -spec publish(emqx_types:message()) -> emqx_types:publish_result().
-publish(Msg) when is_record(Msg, message) ->
+publish(#message{} = Msg) ->
+    publish(#message{} = Msg, _Opts = #{}).
+
+-spec publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
+publish(#message{} = Msg, Opts) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse emqx_metrics:inc('messages.publish'),
+    case maps:get(bypass_hook, Opts, false) of
+        true ->
+            do_publish(Msg);
+        false ->
+            eval_hook_and_publish(Msg, Opts)
+    end.
+
+eval_hook_and_publish(Msg, Opts) ->
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
         #message{headers = #{should_disconnect := true}, topic = Topic} ->
             ?TRACE("MQTT", "msg_publish_not_allowed_disconnect", #{
@@ -238,12 +260,17 @@ publish(Msg) when is_record(Msg, message) ->
                 topic => Topic
             }),
             disconnect;
-        #message{headers = #{allow_publish := false}, topic = Topic} ->
+        #message{headers = #{allow_publish := false}, topic = Topic} = Message ->
             ?TRACE("MQTT", "msg_publish_not_allowed", #{
                 message => emqx_message:to_log_map(Msg),
                 topic => Topic
             }),
-            [];
+            case maps:get(hook_prohibition_as_error, Opts, false) of
+                true ->
+                    {blocked, Message};
+                false ->
+                    []
+            end;
         Msg1 = #message{} ->
             do_publish(Msg1);
         Msgs when is_list(Msgs) ->
@@ -277,9 +304,13 @@ persist_publish(Msg) ->
 
 %% Called internally
 -spec safe_publish(emqx_types:message()) -> emqx_types:publish_result().
-safe_publish(Msg) when is_record(Msg, message) ->
+safe_publish(Msg) ->
+    safe_publish(Msg, _Opts = #{}).
+
+-spec safe_publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
+safe_publish(#message{} = Msg, Opts) ->
     try
-        publish(Msg)
+        publish(Msg, Opts)
     catch
         Error:Reason:Stk ->
             ?SLOG(

@@ -39,7 +39,8 @@
 -define(METRIC_NAME, message_transformation).
 
 -type user_property() :: #{binary() => binary()}.
--reflect_type([user_property/0]).
+-type publish_properties() :: #{binary() => binary() | integer()}.
+-reflect_type([user_property/0, publish_properties/0]).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
@@ -305,7 +306,14 @@ fields(dryrun_input_message) ->
     %% See `emqx_message_transformation:eval_context()'.
     [
         {client_attrs, mk(map(), #{default => #{}})},
+        {clientid, mk(binary(), #{default => <<"test-clientid">>})},
         {payload, mk(binary(), #{required => true})},
+        {peername, mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:19872">>})},
+        {pub_props,
+            mk(
+                typerefl:alias("map()", publish_properties()),
+                #{default => #{}}
+            )},
         {qos, mk(range(0, 2), #{default => 0})},
         {retain, mk(boolean(), #{default => false})},
         {topic, mk(binary(), #{required => true})},
@@ -313,7 +321,8 @@ fields(dryrun_input_message) ->
             mk(
                 typerefl:alias("map(binary(), binary())", user_property()),
                 #{default => #{}}
-            )}
+            )},
+        {username, mk(binary(), #{required => false})}
     ];
 fields(get_metrics) ->
     [
@@ -715,17 +724,7 @@ transformation_out(Transformation) ->
     ).
 
 operation_out(Operation0) ->
-    %% TODO: remove injected bif module
-    Operation = maps:update_with(
-        value,
-        fun(V) -> iolist_to_binary(emqx_variform:decompile(V)) end,
-        Operation0
-    ),
-    maps:update_with(
-        key,
-        fun(Path) -> iolist_to_binary(lists:join(".", Path)) end,
-        Operation
-    ).
+    emqx_message_transformation:prettify_operation(Operation0).
 
 dryrun_input_message_in(Params) ->
     %% We already check the params against the schema at the API boundary, so we can
@@ -738,26 +737,34 @@ dryrun_input_message_in(Params) ->
         ),
     #{
         client_attrs := ClientAttrs,
+        clientid := ClientId,
         payload := Payload,
+        peername := Peername,
+        pub_props := PublishProperties,
         qos := QoS,
         retain := Retain,
         topic := Topic,
         user_property := UserProperty0
     } = Message0,
+    Username = maps:get(username, Message0, undefined),
     UserProperty = maps:to_list(UserProperty0),
     Message1 = #{
         id => emqx_guid:gen(),
         timestamp => emqx_message:timestamp_now(),
         extra => #{},
-        from => <<"test-clientid">>,
-
-        flags => #{retain => Retain},
+        from => ClientId,
+        flags => #{dup => false, retain => Retain},
         qos => QoS,
         topic => Topic,
         payload => Payload,
         headers => #{
             client_attrs => ClientAttrs,
-            properties => #{'User-Property' => UserProperty}
+            peername => Peername,
+            properties => maps:merge(
+                PublishProperties,
+                #{'User-Property' => UserProperty}
+            ),
+            username => Username
         }
     },
     Message = emqx_message:from_map(Message1),

@@ -658,7 +658,7 @@ hooks(Name) ->
 
 maybe_write_certs(#{<<"name">> := Name} = Conf) ->
     case
-        emqx_tls_lib:ensure_ssl_files(
+        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
             ssl_file_path(Name), maps:get(<<"ssl">>, Conf, undefined)
         )
     of

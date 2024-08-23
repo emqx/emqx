@@ -31,7 +31,7 @@ convert_certs(_RltvDir, Config) ->
     {ok, Config}.
 
 new_ssl_config(RltvDir, Config, SSL) ->
-    case emqx_tls_lib:ensure_ssl_files(RltvDir, SSL) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(RltvDir, SSL) of
         {ok, NewSSL} ->
             {ok, new_ssl_config(Config, NewSSL)};
         {error, Reason} ->

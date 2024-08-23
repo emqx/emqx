@@ -31,6 +31,8 @@
     info/2,
     info/1,
 
+    threshold_fun/1,
+
     compress_topic/3,
     decompress_topic/2
 ]).
@@ -44,7 +46,9 @@
     static_key/0,
     trie/0,
     msg_storage_key/0,
-    learned_structure/0
+    learned_structure/0,
+    threshold_spec/0,
+    threshold_fun/0
 ]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -82,6 +86,12 @@
 -type varying() :: [level() | ?PLUS].
 
 -type msg_storage_key() :: {static_key(), varying()}.
+
+-type threshold_spec() ::
+    %% Simple spec that maps level (depth) to a threshold.
+    %% For example, `{simple, {inf, 20}}` means that 0th level has infinite
+    %% threshold while all other levels' threshold is 20.
+    {simple, tuple()}.
 
 -type threshold_fun() :: fun((non_neg_integer()) -> non_neg_integer()).
 
@@ -312,6 +322,13 @@ info(Trie) ->
         {size, info(Trie, size)},
         {topics, info(Trie, topics)}
     ].
+
+-spec threshold_fun(threshold_spec()) -> threshold_fun().
+threshold_fun({simple, Thresholds}) ->
+    S = tuple_size(Thresholds),
+    fun(Depth) ->
+        element(min(Depth + 1, S), Thresholds)
+    end.
 
 %%%%%%%% Topic compression %%%%%%%%%%
 

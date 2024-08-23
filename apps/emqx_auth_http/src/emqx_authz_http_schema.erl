@@ -26,7 +26,7 @@
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1,
+    select_union_member/2,
     namespace/0
 ]).
 
@@ -66,7 +66,7 @@ desc(http_get) ->
 desc(http_post) ->
     ?DESC(http_post).
 
-select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value) ->
+select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value, _) ->
     Method = maps:get(<<"method">>, Value, undefined),
     case Method of
         <<"get">> ->
@@ -80,7 +80,7 @@ select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN} = Value) ->
                 got => Else
             })
     end;
-select_union_member(_Value) ->
+select_union_member(_Value, _) ->
     undefined.
 
 %%--------------------------------------------------------------------

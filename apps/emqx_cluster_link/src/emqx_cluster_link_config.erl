@@ -301,14 +301,15 @@ do_update_link({OldLinkConf, #{enable := true, name := Name} = NewLinkConf}) ->
         both ->
             _ = ensure_actor_stopped(Name),
             {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(NewLinkConf),
-            ok = update_msg_fwd_resource(OldLinkConf, NewLinkConf);
+            ok;
         actor ->
             _ = ensure_actor_stopped(Name),
             {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(NewLinkConf),
             ok;
-        msg_resource ->
-            ok = update_msg_fwd_resource(OldLinkConf, NewLinkConf)
-    end;
+        _ ->
+            ok
+    end,
+    ok = update_msg_fwd_resource(OldLinkConf, NewLinkConf);
 do_update_link({_OldLinkConf, #{enable := false, name := Name} = _NewLinkConf}) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
     ensure_actor_stopped(Name).
@@ -397,7 +398,7 @@ convert_certs(LinksConf) ->
     ).
 
 do_convert_certs(LinkName, SSLOpts) ->
-    case emqx_tls_lib:ensure_ssl_files(?CERTS_PATH(LinkName), SSLOpts) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(?CERTS_PATH(LinkName), SSLOpts) of
         {ok, undefined} ->
             SSLOpts;
         {ok, SSLOpts1} ->

@@ -25,6 +25,7 @@
     reverse/1,
     rtrim/1,
     rtrim/2,
+    rm_prefix/2,
     strlen/1,
     substr/2,
     substr/3,
@@ -106,6 +107,17 @@ rtrim(S) when is_binary(S) ->
 
 rtrim(S, Chars) when is_binary(S) ->
     string:trim(S, trailing, Chars).
+
+%% @doc Remove the prefix of a string if there is a match.
+%% The original stirng is returned if there is no match.
+rm_prefix(S, Prefix) ->
+    Size = size(Prefix),
+    case S of
+        <<P:Size/binary, Rem/binary>> when P =:= Prefix ->
+            Rem;
+        _ ->
+            S
+    end.
 
 strlen(S) when is_binary(S) ->
     string:length(S).

@@ -334,13 +334,14 @@ eventmsg_publish(
             qos => QoS,
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            publish_received_at => Timestamp
+            publish_received_at => Timestamp,
+            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
         },
         #{headers => Headers}
     ).
 
 eventmsg_connected(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         is_bridge := IsBridge,
@@ -375,13 +376,14 @@ eventmsg_connected(
             expiry_interval => ExpiryInterval div 1000,
             is_bridge => IsBridge,
             conn_props => printable_maps(ConnProps),
-            connected_at => ConnectedAt
+            connected_at => ConnectedAt,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
 
 eventmsg_disconnected(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username
     },
@@ -405,7 +407,8 @@ eventmsg_disconnected(
             proto_name => ProtoName,
             proto_ver => ProtoVer,
             disconn_props => printable_maps(maps:get(disconn_props, ConnInfo, #{})),
-            disconnected_at => DisconnectedAt
+            disconnected_at => DisconnectedAt,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
@@ -444,7 +447,7 @@ eventmsg_connack(
     ).
 
 eventmsg_check_authz_complete(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         peerhost := PeerHost,
@@ -465,13 +468,14 @@ eventmsg_check_authz_complete(
             topic => Topic,
             action => PubSub,
             authz_source => AuthzSource,
-            result => Result
+            result => Result,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
 
 eventmsg_check_authn_complete(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         peername := PeerName
@@ -493,14 +497,15 @@ eventmsg_check_authn_complete(
             peername => ntoa(PeerName),
             reason_code => force_to_bin(Reason),
             is_anonymous => IsAnonymous,
-            is_superuser => IsSuperuser
+            is_superuser => IsSuperuser,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
 
 eventmsg_sub_or_unsub(
     Event,
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         peerhost := PeerHost,
@@ -519,7 +524,8 @@ eventmsg_sub_or_unsub(
             peername => ntoa(PeerName),
             PropKey => printable_maps(maps:get(PropKey, SubOpts, #{})),
             topic => Topic,
-            qos => QoS
+            qos => QoS,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
@@ -1028,7 +1034,8 @@ columns_with_exam('message.publish') ->
         {<<"publish_received_at">>, erlang:system_time(millisecond)},
         columns_example_props(pub_props),
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('message.delivered') ->
     columns_message_ack_delivered('message.delivered');
@@ -1125,7 +1132,8 @@ columns_with_exam('client.connected') ->
         columns_example_props(conn_props),
         {<<"connected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.disconnected') ->
     [
@@ -1140,7 +1148,8 @@ columns_with_exam('client.disconnected') ->
         columns_example_props(disconn_props),
         {<<"disconnected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.connack') ->
     [
@@ -1172,7 +1181,8 @@ columns_with_exam('client.check_authz_complete') ->
         {<<"authz_source">>, <<"cache">>},
         {<<"result">>, <<"allow">>},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.check_authn_complete') ->
     [
@@ -1184,12 +1194,15 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"is_superuser">>, true},
         {<<"is_anonymous">>, false},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('session.subscribed') ->
-    [columns_example_props(sub_props)] ++ columns_message_sub_unsub('session.subscribed');
+    [columns_example_props(sub_props), columns_example_client_attrs()] ++
+        columns_message_sub_unsub('session.subscribed');
 columns_with_exam('session.unsubscribed') ->
-    [columns_example_props(unsub_props)] ++ columns_message_sub_unsub('session.unsubscribed');
+    [columns_example_props(unsub_props), columns_example_client_attrs()] ++
+        columns_message_sub_unsub('session.unsubscribed');
 columns_with_exam(<<"$bridges/mqtt", _/binary>> = EventName) ->
     [
         {<<"event">>, EventName},
@@ -1273,6 +1286,11 @@ columns_example_props_specific(sub_props) ->
     #{};
 columns_example_props_specific(unsub_props) ->
     #{}.
+
+columns_example_client_attrs() ->
+    {<<"client_attrs">>, #{
+        <<"test">> => <<"example">>
+    }}.
 
 %%--------------------------------------------------------------------
 %% Helper functions

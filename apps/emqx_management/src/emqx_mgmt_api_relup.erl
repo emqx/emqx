@@ -20,7 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([get_upgrade_status/0, emqx_relup_upgrade/1]).
+-export([get_upgrade_status/0, emqx_relup_upgrade/0]).
 
 -export([
     api_spec/0,
@@ -431,7 +431,18 @@ validate_name(Name) ->
 '/relup/package'(get, _) ->
     case get_installed_packages() of
         [PluginInfo] ->
-            {200, format_package_info(PluginInfo)};
+            case get_package_info(PluginInfo) of
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => get_package_info_failed,
+                        reason => Reason,
+                        details => <<"the corrupted plugin will be deleted">>
+                    }),
+                    delete_installed_packages(),
+                    return_internal_error(Reason);
+                Info when is_map(Info) ->
+                    {200, Info}
+            end;
         [] ->
             return_not_found(<<"No relup package is installed">>)
     end;
@@ -440,7 +451,8 @@ validate_name(Name) ->
     {204}.
 
 '/relup/status'(get, _) ->
-    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_all_nodes(),
+    Nodes = emqx:running_nodes(),
+    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_nodes(Nodes),
     case
         lists:filter(
             fun
@@ -474,24 +486,18 @@ validate_name(Name) ->
 
 '/relup/upgrade'(post, _) ->
     ?ASSERT_PKG_READY(
-        upgrade_with_targe_vsn(fun(TargetVsn) ->
-            run_upgrade_on_nodes(emqx:running_nodes(), TargetVsn)
-        end)
+        run_upgrade_on_nodes(emqx:running_nodes())
     ).
 
 '/relup/upgrade/:node'(post, #{bindings := #{node := NodeNameStr}}) ->
     ?ASSERT_PKG_READY(
-        upgrade_with_targe_vsn(
-            fun(TargetVsn) ->
-                emqx_utils_api:with_node(
-                    NodeNameStr,
-                    fun
-                        (Node) when node() =:= Node ->
-                            run_upgrade(TargetVsn);
-                        (Node) when is_atom(Node) ->
-                            run_upgrade_on_nodes([Node], TargetVsn)
-                    end
-                )
+        emqx_utils_api:with_node(
+            NodeNameStr,
+            fun
+                (Node) when node() =:= Node ->
+                    run_upgrade();
+                (Node) when is_atom(Node) ->
+                    run_upgrade_on_nodes([Node])
             end
         )
     ).
@@ -541,18 +547,8 @@ call_emqx_relup_main(Fun, Args, Default) ->
             Default
     end.
 
-upgrade_with_targe_vsn(Fun) ->
-    case get_target_vsn() of
-        {ok, TargetVsn} ->
-            Fun(TargetVsn);
-        {error, no_relup_package_installed} ->
-            return_package_not_installed();
-        {error, multiple_relup_packages_installed} ->
-            return_internal_error(<<"Multiple relup package installed">>)
-    end.
-
-run_upgrade_on_nodes(Nodes, TargetVsn) ->
-    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:run_upgrade(Nodes, TargetVsn),
+run_upgrade_on_nodes(Nodes) ->
+    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:run_upgrade(Nodes),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] ->
             {204};
@@ -565,22 +561,15 @@ run_upgrade_on_nodes(Nodes, TargetVsn) ->
             end
     end.
 
-run_upgrade(TargetVsn) ->
-    case emqx_relup_upgrade(TargetVsn) of
+run_upgrade() ->
+    case emqx_relup_upgrade() of
         no_pkg_installed -> return_package_not_installed();
         ok -> {204};
         {error, Reason} -> upgrade_return(Reason)
     end.
 
-emqx_relup_upgrade(TargetVsn) ->
-    call_emqx_relup_main(upgrade, [TargetVsn], no_pkg_installed).
-
-get_target_vsn() ->
-    case get_installed_packages() of
-        [PackageInfo] -> {ok, target_vsn_from_rel_vsn(maps_get(rel_vsn, PackageInfo))};
-        [] -> {error, no_relup_package_installed};
-        _ -> {error, multiple_relup_packages_installed}
-    end.
+emqx_relup_upgrade() ->
+    call_emqx_relup_main(upgrade, [], no_pkg_installed).
 
 get_installed_packages() ->
     lists:filtermap(
@@ -593,12 +582,6 @@ get_installed_packages() ->
         emqx_plugins:list(hidden)
     ).
 
-target_vsn_from_rel_vsn(Vsn) ->
-    case string:split(binary_to_list(Vsn), "-") of
-        [_] -> throw({invalid_vsn, Vsn});
-        [VsnStr | _] -> VsnStr
-    end.
-
 delete_installed_packages() ->
     lists:foreach(
         fun(PackageInfo) ->
@@ -609,14 +592,13 @@ delete_installed_packages() ->
         get_installed_packages()
     ).
 
-format_package_info(PluginInfo) when is_map(PluginInfo) ->
+get_package_info(PluginInfo) when is_map(PluginInfo) ->
     Vsn = maps_get(rel_vsn, PluginInfo),
-    TargetVsn = target_vsn_from_rel_vsn(Vsn),
-    case call_emqx_relup_main(get_package_info, [TargetVsn], no_pkg_installed) of
+    case call_emqx_relup_main(get_package_info, [], no_pkg_installed) of
         no_pkg_installed ->
-            throw({get_pkg_info_failed, <<"No relup package is installed">>});
+            {error, <<"No relup package is installed">>};
         {error, Reason} ->
-            throw({get_pkg_info_failed, Reason});
+            {error, Reason};
         {ok, #{base_vsns := BaseVsns, change_logs := ChangeLogs}} ->
             #{
                 name => name_vsn(?PLUGIN_NAME, Vsn),

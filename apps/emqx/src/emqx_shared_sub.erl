@@ -392,7 +392,7 @@ subscribers(Group, Topic, FailedSubs) ->
 
 %% Select ETS table to get all subscriber pids.
 subscribers(Group, Topic) ->
-    ets:select(?SHARED_SUBSCRIPTION, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
+    ets:select(?SHARED_SUBSCRIPTION, [{{?SHARED_SUBSCRIPTION, Group, Topic, '$1'}, [], ['$1']}]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

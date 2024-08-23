@@ -745,7 +745,7 @@ maybe_read_source_files_safe(Source0) ->
     end.
 
 maybe_write_certs(#{<<"type">> := Type, <<"ssl">> := SSL = #{}} = Source) ->
-    case emqx_tls_lib:ensure_ssl_files(ssl_file_path(Type), SSL) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(ssl_file_path(Type), SSL) of
         {ok, NSSL} ->
             Source#{<<"ssl">> => NSSL};
         {error, Reason} ->

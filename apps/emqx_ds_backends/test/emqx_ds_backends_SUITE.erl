@@ -689,18 +689,9 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    %% TODO: Remove once builtin-local supports preconditions + atomic batches.
-    BuiltinLocalTCs =
-        TCs --
-            [
-                t_09_atomic_store_batch,
-                t_11_batch_preconditions,
-                t_12_batch_precondition_conflicts
-            ],
-    BuiltinRaftTCs = TCs,
     [
-        {builtin_local, BuiltinLocalTCs},
-        {builtin_raft, BuiltinRaftTCs}
+        {builtin_local, TCs},
+        {builtin_raft, TCs}
     ].
 
 init_per_group(builtin_local, Config) ->

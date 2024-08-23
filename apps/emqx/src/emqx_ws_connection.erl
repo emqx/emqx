@@ -436,6 +436,7 @@ websocket_handle({Frame, _}, State) ->
     %% TODO: should not close the ws connection
     ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
     shutdown(unexpected_ws_frame, State).
+
 websocket_info({call, From, Req}, State) ->
     handle_call(From, Req, State);
 websocket_info({cast, rate_limit}, State) ->
@@ -737,7 +738,8 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
                 input_bytes => Data
             }),
             FrameError = {frame_error, Reason},
-            {[{incoming, FrameError} | Packets], State};
+            NState = enrich_state(Reason, State),
+            {[{incoming, FrameError} | Packets], NState};
         error:Reason:Stacktrace ->
             ?LOG(error, #{
                 at_state => emqx_frame:describe_state(ParseState),
@@ -830,7 +832,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                 ?LOG(warning, #{
                     msg => "packet_discarded",
                     reason => "frame_too_large",
-                    packet => emqx_packet:format(Packet)
+                    packet => Packet
                 }),
                 ok = emqx_metrics:inc('delivery.dropped.too_large'),
                 ok = emqx_metrics:inc('delivery.dropped'),
@@ -1069,6 +1071,13 @@ check_max_connection(Type, Listener) ->
                     {denny, Reason}
             end
     end.
+
+enrich_state(#{parse_state := NParseState}, State) ->
+    Serialize = emqx_frame:serialize_opts(NParseState),
+    State#state{parse_state = NParseState, serialize = Serialize};
+enrich_state(_, State) ->
+    State.
+
 %%--------------------------------------------------------------------
 %% For CT tests
 %%--------------------------------------------------------------------

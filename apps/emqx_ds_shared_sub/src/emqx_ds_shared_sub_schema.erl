@@ -13,6 +13,10 @@
     desc/1
 ]).
 
+-export([
+    injected_fields/0
+]).
+
 namespace() -> emqx_shared_subs.
 
 roots() ->
@@ -41,6 +45,17 @@ fields(durable_queues) ->
         duration(leader_session_update_timeout_ms, 5000),
         duration(leader_session_not_replaying_timeout_ms, 5000)
     ].
+
+injected_fields() ->
+    #{
+        'durable_storage' => [
+            {queues,
+                emqx_ds_schema:storage_schema(#{
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(durable_queues_storage)
+                })}
+        ]
+    }.
 
 duration(MsFieldName, Default) ->
     {MsFieldName,

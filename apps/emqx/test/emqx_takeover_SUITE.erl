@@ -71,6 +71,7 @@ init_per_group(persistence_enabled = Group, Config) ->
             {emqx,
                 "durable_sessions = {\n"
                 "  enable = true\n"
+                "  force_persistence = true\n"
                 "  heartbeat_interval = 100ms\n"
                 "  renew_streams_interval = 100ms\n"
                 "  session_gc_interval = 2s\n"
@@ -113,7 +114,7 @@ end_per_group(_Group, _Config) ->
 
 t_takeover(Config) ->
     process_flag(trap_exit, true),
-    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientId = make_client_id(?FUNCTION_NAME, Config),
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
         {clean_start, false}
@@ -144,7 +145,7 @@ t_takeover(Config) ->
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
-            {fun stop_client/1, []}
+            {fun stop_the_last_client/1, []}
         ]),
 
     Sleep =
@@ -175,8 +176,8 @@ t_takeover(Config) ->
 
 t_takeover_willmsg(Config) ->
     process_flag(trap_exit, true),
-    ClientId = atom_to_binary(?FUNCTION_NAME),
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    ClientId = make_client_id(?FUNCTION_NAME, Config),
+    WillTopic = <<ClientId/binary, <<"_willtopic">>/binary>>,
     Middle = ?CNT div 2,
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
@@ -199,25 +200,27 @@ t_takeover_willmsg(Config) ->
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             %% WHEN client reconnect with clean_start = false
             {fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]},
-            [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs]
+            [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
+            {fun stop_the_last_client/1, []}
         ]),
+    Sleep =
+        case ?config(persistence_enabled, Config) of
+            true -> 2_000;
+            false -> ?SLEEP
+        end,
 
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{persistence_enabled => ?config(persistence_enabled, Config)},
+        #{persistence_enabled => ?config(persistence_enabled, Config), sleep => Sleep},
         Commands
     ),
 
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
-    Sleep =
-        case ?config(persistence_enabled, Config) of
-            true -> 2_000;
-            false -> ?SLEEP
-        end,
+    ?assertReceive({'EXIT', CPid2, normal}),
     Received = [Msg || {publish, Msg} <- ?drainMailbox(Sleep)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload">>),
@@ -226,9 +229,6 @@ t_takeover_willmsg(Config) ->
     %% THEN will message should be received
     ?assert(IsWill),
     emqtt:stop(CPidSub),
-    emqtt:stop(CPid2),
-    ?assertReceive({'EXIT', CPid2, normal}),
-    ?assert(not is_process_alive(CPid1)),
     ok.
 
 t_takeover_willmsg_clean_session(Config) ->
@@ -890,16 +890,11 @@ t_kick_session(Config) ->
             {fun start_client/5, [
                 <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
             ]},
-            %% kick may fail (not found) without this delay
-            {
-                fun(CTX) ->
-                    timer:sleep(300),
-                    CTX
-                end,
-                []
-            },
+            {fun wait_for_chan_reg/2, [ClientId]},
             %% WHEN: client is kicked with kick_session
-            {fun kick_client/2, [ClientId]}
+            {fun kick_client/2, [ClientId]},
+            {fun wait_for_chan_dereg/2, [ClientId]},
+            {fun wait_for_pub_client_down/1, []}
         ]),
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
@@ -911,7 +906,7 @@ t_kick_session(Config) ->
     ),
     #{client := [CPidSub, CPid1]} = FCtx,
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), kicked),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(timer:seconds(1))],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     %% THEN: payload <<"willpayload_kick">> should be published
     {IsWill, _ReceivedNoWill} = filter_payload(Received, <<"willpayload_kick">>),
@@ -919,6 +914,30 @@ t_kick_session(Config) ->
     emqtt:stop(CPidSub),
     ?assert(not is_process_alive(CPid1)),
     ok.
+
+wait_for_chan_reg(CTX, ClientId) ->
+    ?retry(
+        3_000,
+        100,
+        true = is_map(emqx_cm:get_chan_info(ClientId))
+    ),
+    CTX.
+
+wait_for_chan_dereg(CTX, ClientId) ->
+    ?retry(
+        3_000,
+        100,
+        undefined = emqx_cm:get_chan_info(ClientId)
+    ),
+    CTX.
+
+wait_for_pub_client_down(#{client := [_SubClient, PubClient]} = CTX) ->
+    ?retry(
+        3_000,
+        100,
+        false = is_process_alive(PubClient)
+    ),
+    CTX.
 
 %% t_takover_in_cluster(_) ->
 %%     todo.
@@ -929,7 +948,6 @@ start_client(Ctx, ClientId, Topic, Qos, Opts) ->
     {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
     _ = erlang:spawn_link(fun() ->
         {ok, _} = emqtt:connect(CPid),
-        ct:pal("CLIENT: connected ~p", [CPid]),
         {ok, _, [Qos]} = emqtt:subscribe(CPid, Topic, Qos)
     end),
     Ctx#{client => [CPid | maps:get(client, Ctx, [])]}.
@@ -965,7 +983,7 @@ publish_msg(Ctx, Msg) ->
         [_ | _] -> Ctx
     end.
 
-stop_client(Ctx = #{client := [CPid | _], sleep := Sleep}) ->
+stop_the_last_client(Ctx = #{client := [CPid | _], sleep := Sleep}) ->
     ok = timer:sleep(Sleep),
     ok = emqtt:stop(CPid),
     Ctx.
@@ -1055,3 +1073,14 @@ assert_client_exit(Pid, v5, kicked) ->
     ?assertReceive({'EXIT', Pid, {disconnected, ?RC_ADMINISTRATIVE_ACTION, _}});
 assert_client_exit(Pid, _, killed) ->
     ?assertReceive({'EXIT', Pid, killed}).
+
+make_client_id(Case, Config) ->
+    Vsn = atom_to_list(?config(mqtt_vsn, Config)),
+    Persist =
+        case ?config(persistence_enabled, Config) of
+            true ->
+                "-persistent-";
+            false ->
+                "-not-persistent-"
+        end,
+    iolist_to_binary([atom_to_binary(Case), Persist ++ Vsn]).

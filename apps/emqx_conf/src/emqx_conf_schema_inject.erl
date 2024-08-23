@@ -27,6 +27,7 @@ schemas(Edition) ->
         cluster_linking(Edition) ++
         authn(Edition) ++
         authz() ++
+        shared_subs(Edition) ++
         customized(Edition).
 
 mria(ce) ->
@@ -63,7 +64,8 @@ authn_mods(ee) ->
     authn_mods(ce) ++
         [
             emqx_gcp_device_authn_schema,
-            emqx_authn_scram_restapi_schema
+            emqx_authn_scram_restapi_schema,
+            emqx_authn_kerberos_schema
         ].
 
 authz() ->
@@ -80,6 +82,11 @@ authz_mods() ->
         emqx_authz_mongodb_schema,
         emqx_authz_ldap_schema
     ].
+
+shared_subs(ee) ->
+    [emqx_ds_shared_sub_schema];
+shared_subs(ce) ->
+    [].
 
 %% Add more schemas here.
 customized(_Edition) ->

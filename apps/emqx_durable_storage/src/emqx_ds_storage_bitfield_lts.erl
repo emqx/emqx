@@ -81,7 +81,8 @@
     #{
         bits_per_wildcard_level => pos_integer(),
         topic_index_bytes => pos_integer(),
-        epoch_bits => non_neg_integer()
+        epoch_bits => non_neg_integer(),
+        lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
 
 %% Permanent state:
@@ -90,7 +91,8 @@
         bits_per_wildcard_level := pos_integer(),
         topic_index_bytes := pos_integer(),
         ts_bits := non_neg_integer(),
-        ts_offset_bits := non_neg_integer()
+        ts_offset_bits := non_neg_integer(),
+        lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
 
 %% Runtime state:
@@ -102,6 +104,7 @@
     keymappers :: array:array(emqx_ds_bitmask_keymapper:keymapper()),
     ts_bits :: non_neg_integer(),
     ts_offset :: non_neg_integer(),
+    threshold_fun :: emqx_ds_lts:threshold_fun(),
     gvars :: ets:table()
 }).
 
@@ -140,6 +143,9 @@
 
 %% Limit on the number of wildcard levels in the learned topic trie:
 -define(WILDCARD_LIMIT, 10).
+
+%% Default LTS thresholds: 0th level = 100 entries max, other levels = 20 entries.
+-define(DEFAULT_LTS_THRESHOLD, {simple, {100, 20}}).
 
 %% Persistent (durable) term representing `#message{}' record. Must
 %% not change.
@@ -195,6 +201,7 @@ create(_ShardId, DBHandle, GenId, Options, SPrev) ->
     TopicIndexBytes = maps:get(topic_index_bytes, Options, 4),
     %% 20 bits -> 1048576 us -> ~1 sec
     TSOffsetBits = maps:get(epoch_bits, Options, 20),
+    ThresholdSpec = maps:get(lts_threshold_spec, Options, ?DEFAULT_LTS_THRESHOLD),
     %% Create column families:
     DataCFName = data_cf(GenId),
     TrieCFName = trie_cf(GenId),
@@ -213,7 +220,8 @@ create(_ShardId, DBHandle, GenId, Options, SPrev) ->
         bits_per_wildcard_level => BitsPerTopicLevel,
         topic_index_bytes => TopicIndexBytes,
         ts_bits => 64,
-        ts_offset_bits => TSOffsetBits
+        ts_offset_bits => TSOffsetBits,
+        lts_threshold_spec => ThresholdSpec
     },
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
 
@@ -245,6 +253,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
          || N <- lists:seq(0, MaxWildcardLevels)
         ]
     ),
+    ThresholdSpec = maps:get(lts_threshold_spec, Schema, ?DEFAULT_LTS_THRESHOLD),
     #s{
         db = DBHandle,
         data = DataCF,
@@ -253,6 +262,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         keymappers = KeymapperCache,
         ts_offset = TSOffsetBits,
         ts_bits = TSBits,
+        threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec),
         gvars = ets:new(?MODULE, [public, set, {read_concurrency, true}])
     }.
 
@@ -841,9 +851,9 @@ format_key(KeyMapper, Key) ->
     lists:flatten(io_lib:format("~.16B (~s)", [Key, string:join(Vec, ",")])).
 
 -spec make_key(s(), emqx_ds:time(), emqx_types:topic()) -> {binary(), [binary()]}.
-make_key(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, Topic) ->
+make_key(#s{keymappers = KeyMappers, trie = Trie, threshold_fun = TFun}, Timestamp, Topic) ->
     Tokens = emqx_topic:words(Topic),
-    {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
+    {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Tokens),
     VaryingHashes = [hash_topic_level(I) || I <- Varying],
     KeyMapper = array:get(length(Varying), KeyMappers),
     KeyBin = make_key(KeyMapper, TopicIndex, Timestamp, VaryingHashes),
@@ -860,12 +870,6 @@ make_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
             TopicIndex, Timestamp | Varying
         ])
     ).
-
-%% TODO: don't hardcode the thresholds
-threshold_fun(0) ->
-    100;
-threshold_fun(_) ->
-    20.
 
 hash_topic_level('') ->
     hash_topic_level(<<>>);

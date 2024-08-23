@@ -28,7 +28,16 @@
 -import(emqx_coap_channel, [run_hooks/3]).
 
 -define(UNSUB(Topic, Msg), #{subscribe => {Topic, Msg}}).
--define(SUB(Topic, Token, Msg), #{subscribe => {{Topic, Token}, Msg}}).
+-define(SUB(Topic, Token, Opts, Msg), #{
+    subscribe => {
+        #{
+            topic => Topic,
+            token => Token,
+            subopts => Opts
+        },
+        Msg
+    }
+}).
 -define(SUBOPTS, #{qos => 0, rh => 1, rap => 0, nl => 0, is_new => false}).
 
 %% TODO maybe can merge this code into emqx_coap_session, simplify the call chain
@@ -172,7 +181,7 @@ subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo) ->
             MountTopic = mount(CInfo, Topic),
             emqx_broker:subscribe(MountTopic, ClientId, SubOpts),
             run_hooks(Ctx, 'session.subscribed', [CInfo, MountTopic, SubOpts]),
-            ?SUB(MountTopic, Token, Msg);
+            ?SUB(MountTopic, Token, SubOpts, Msg);
         _ ->
             reply({error, unauthorized}, Msg)
     end.

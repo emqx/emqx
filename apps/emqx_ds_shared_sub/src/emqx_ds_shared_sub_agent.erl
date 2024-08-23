@@ -100,7 +100,7 @@ open(TopicSubscriptions, Opts) ->
     State0 = init_state(Opts),
     State1 = lists:foldl(
         fun({ShareTopicFilter, #{}}, State) ->
-            ?tp(warning, ds_agent_open_subscription, #{
+            ?tp(debug, ds_agent_open_subscription, #{
                 topic_filter => ShareTopicFilter
             }),
             add_shared_subscription(State, ShareTopicFilter)
@@ -120,7 +120,7 @@ can_subscribe(_State, _ShareTopicFilter, _SubOpts) ->
 
 -spec on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(State0, ShareTopicFilter, _SubOpts) ->
-    ?tp(warning, ds_agent_on_subscribe, #{
+    ?tp(debug, ds_agent_on_subscribe, #{
         share_topic_filter => ShareTopicFilter
     }),
     add_shared_subscription(State0, ShareTopicFilter).

@@ -87,8 +87,12 @@
         topic_index_bytes := pos_integer(),
         keep_message_id := boolean(),
         serialization_schema := emqx_ds_msg_serializer:schema(),
-        with_guid := boolean()
+        with_guid := boolean(),
+        lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
+
+%% Default LTS thresholds: 0th level = 100 entries max, other levels = 10 entries.
+-define(DEFAULT_LTS_THRESHOLD, {simple, {100, 10}}).
 
 %% Runtime state:
 -record(s, {
@@ -98,6 +102,7 @@
     trie_cf :: rocksdb:cf_handle(),
     serialization_schema :: emqx_ds_msg_serializer:schema(),
     hash_bytes :: pos_integer(),
+    threshold_fun :: emqx_ds_lts:threshold_fun(),
     with_guid :: boolean()
 }).
 
@@ -136,7 +141,8 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev) ->
         wildcard_hash_bytes => 8,
         topic_index_bytes => 8,
         serialization_schema => asn1,
-        with_guid => false
+        with_guid => false,
+        lts_threshold_spec => ?DEFAULT_LTS_THRESHOLD
     },
     Schema = maps:merge(Defaults, Schema0),
     ok = emqx_ds_msg_serializer:check_schema(maps:get(serialization_schema, Schema)),
@@ -154,15 +160,22 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev) ->
     end,
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
 
-open(_Shard, DBHandle, GenId, CFRefs, #{
-    topic_index_bytes := TIBytes,
-    wildcard_hash_bytes := WCBytes,
-    serialization_schema := SSchema,
-    with_guid := WithGuid
-}) ->
+open(
+    _Shard,
+    DBHandle,
+    GenId,
+    CFRefs,
+    Schema = #{
+        topic_index_bytes := TIBytes,
+        wildcard_hash_bytes := WCBytes,
+        serialization_schema := SSchema,
+        with_guid := WithGuid
+    }
+) ->
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
     Trie = restore_trie(TIBytes, DBHandle, TrieCF),
+    ThresholdSpec = maps:get(lts_threshold_spec, Schema, ?DEFAULT_LTS_THRESHOLD),
     #s{
         db = DBHandle,
         data_cf = DataCF,
@@ -170,6 +183,7 @@ open(_Shard, DBHandle, GenId, CFRefs, #{
         trie = Trie,
         hash_bytes = WCBytes,
         serialization_schema = SSchema,
+        threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec),
         with_guid = WithGuid
     }.
 
@@ -181,7 +195,7 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{data_cf = DataCF, trie_cf = TrieCF,
 
 prepare_batch(
     _ShardId,
-    S = #s{trie = Trie},
+    S = #s{trie = Trie, threshold_fun = TFun},
     Operations,
     _Options
 ) ->
@@ -190,7 +204,7 @@ prepare_batch(
         fun
             ({Timestamp, Msg = #message{topic = Topic}}) ->
                 Tokens = words(Topic),
-                {Static, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
+                {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Tokens),
                 ?cooked_msg_op(Timestamp, Static, Varying, serialize(S, Varying, Msg));
             ({delete, #message_matcher{topic = Topic, timestamp = Timestamp}}) ->
                 case emqx_ds_lts:lookup_topic_key(Trie, words(Topic)) of
@@ -691,12 +705,6 @@ hash(HashBytes, TopicLevel) ->
     Hash.
 
 %%%%%%%% LTS %%%%%%%%%%
-
-%% TODO: don't hardcode the thresholds
-threshold_fun(0) ->
-    100;
-threshold_fun(_) ->
-    10.
 
 -spec restore_trie(pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()) -> emqx_ds_lts:trie().
 restore_trie(StaticIdxBytes, DB, CF) ->

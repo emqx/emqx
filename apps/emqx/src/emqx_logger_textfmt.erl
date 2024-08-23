@@ -20,7 +20,7 @@
 
 -export([format/2]).
 -export([check_config/1]).
--export([try_format_unicode/1, try_encode_payload/2]).
+-export([try_format_unicode/1, try_encode_meta/2]).
 %% Used in the other log formatters
 -export([evaluate_lazy_values_if_dbg_level/1, evaluate_lazy_values/1]).
 
@@ -111,7 +111,7 @@ is_list_report_acceptable(_) ->
 enrich_report(ReportRaw0, Meta, Config) ->
     %% clientid and peername always in emqx_conn's process metadata.
     %% topic and username can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
-    ReportRaw = try_encode_payload(ReportRaw0, Config),
+    ReportRaw = try_encode_meta(ReportRaw0, Config),
     Topic =
         case maps:get(topic, Meta, undefined) of
             undefined -> maps:get(topic, ReportRaw, undefined);
@@ -180,9 +180,22 @@ enrich_topic({Fmt, Args}, #{topic := Topic}) when is_list(Fmt) ->
 enrich_topic(Msg, _) ->
     Msg.
 
-try_encode_payload(#{payload := Payload} = Report, #{payload_encode := Encode}) ->
+try_encode_meta(Report, Config) ->
+    lists:foldl(
+        fun(Meta, Acc) ->
+            try_encode_meta(Meta, Acc, Config)
+        end,
+        Report,
+        [payload, packet]
+    ).
+
+try_encode_meta(payload, #{payload := Payload} = Report, #{payload_encode := Encode}) ->
     Report#{payload := encode_payload(Payload, Encode)};
-try_encode_payload(Report, _Config) ->
+try_encode_meta(packet, #{packet := Packet} = Report, #{payload_encode := Encode}) when
+    is_tuple(Packet)
+->
+    Report#{packet := emqx_packet:format(Packet, Encode)};
+try_encode_meta(_, Report, _Config) ->
     Report.
 
 encode_payload(Payload, text) ->
@@ -190,4 +203,5 @@ encode_payload(Payload, text) ->
 encode_payload(_Payload, hidden) ->
     "******";
 encode_payload(Payload, hex) ->
-    binary:encode_hex(Payload).
+    Bin = emqx_utils_conv:bin(Payload),
+    binary:encode_hex(Bin).

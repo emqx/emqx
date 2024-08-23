@@ -133,7 +133,7 @@ t_hmac_based(_) ->
     Credential4 = Credential#{password => JWS4},
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential4, State3)),
 
-    %% Issued At
+    %% Issued At (iat) should not matter
     Payload5 = #{
         <<"username">> => <<"myuser">>,
         <<"iat">> => erlang:system_time(second) - 60,
@@ -149,9 +149,7 @@ t_hmac_based(_) ->
     },
     JWS6 = generate_jws('hmac-based', Payload6, Secret),
     Credential6 = Credential#{password => JWS6},
-    ?assertEqual(
-        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential6, State3)
-    ),
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential6, State3)),
 
     %% Not Before
     Payload7 = #{
@@ -419,12 +417,6 @@ t_jwks_custom_headers(_Config) ->
     on_exit(fun() -> ok = emqx_authn_http_test_server:stop() end),
     ok = emqx_authn_http_test_server:set_handler(jwks_handler_spy()),
 
-    PrivateKey = test_rsa_key(private),
-    Payload = #{
-        <<"username">> => <<"myuser">>,
-        <<"foo">> => <<"myuser">>,
-        <<"exp">> => erlang:system_time(second) + 10
-    },
     Endpoint = iolist_to_binary("https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH),
     Config0 = #{
         <<"mechanism">> => <<"jwt">>,
