@@ -38,7 +38,6 @@
         [
             emqx,
             emqx_conf,
-            esasl,
             emqx_utils,
             emqx_durable_storage,
             emqx_ds_backends,

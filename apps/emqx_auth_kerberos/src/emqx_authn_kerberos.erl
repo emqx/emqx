@@ -17,13 +17,8 @@
     authenticate/2
 ]).
 
-create(
-    AuthenticatorID,
-    #{
-        principal := Principal,
-        keytab_file := KeyTabFile
-    }
-) ->
+create(AuthenticatorID, #{principal := Principal} = Conf) ->
+    KeyTabFile = maps:get(keytab_file, Conf, <<"">>),
     KeyTabPath = resolve_keytab(KeyTabFile),
     %% kinit is not necessary for server because the keytab file
     %% must be the smae as default keytab

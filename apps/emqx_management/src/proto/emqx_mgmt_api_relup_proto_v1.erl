@@ -22,7 +22,7 @@
 -export([
     introduced_in/0,
     run_upgrade/1,
-    get_upgrade_status_from_all_nodes/0,
+    get_upgrade_status_from_nodes/1,
     get_upgrade_status/1
 ]).
 
@@ -36,9 +36,9 @@ introduced_in() ->
 run_upgrade(Nodes) ->
     rpc:multicall(Nodes, emqx_mgmt_api_relup, emqx_relup_upgrade, [], ?RPC_TIMEOUT_OP).
 
--spec get_upgrade_status_from_all_nodes() -> emqx_rpc:multicall_result().
-get_upgrade_status_from_all_nodes() ->
-    rpc:multicall(emqx_mgmt_api_relup, get_upgrade_status, [], ?RPC_TIMEOUT_INFO).
+-spec get_upgrade_status_from_nodes([node()]) -> emqx_rpc:multicall_result().
+get_upgrade_status_from_nodes(Nodes) ->
+    rpc:multicall(Nodes, emqx_mgmt_api_relup, get_upgrade_status, [], ?RPC_TIMEOUT_INFO).
 
 -spec get_upgrade_status(node()) -> emqx_rpc:call_result(map()).
 get_upgrade_status(Node) ->
