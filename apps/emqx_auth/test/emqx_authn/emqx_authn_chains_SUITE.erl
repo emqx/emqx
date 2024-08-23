@@ -191,7 +191,16 @@ t_authenticator(Config) when is_list(Config) ->
         ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)
     ),
 
+    %% delete an unknown authenticator is allowed, do not epxect not_found
+    ?assertEqual(ok, ?AUTHN:delete_authenticator(ChainName, <<"password_based:http">>)),
+    %% the deletion of the last authenticator in the chain should result in
+    %% an implict deletion of the chain
     ?assertEqual(ok, ?AUTHN:delete_authenticator(ChainName, ID1)),
+    %% expected not_found for the chain
+    ?assertEqual(
+        {error, {not_found, {chain, test}}},
+        ?AUTHN:update_authenticator(ChainName, ID1, AuthenticatorConfig1)
+    ),
 
     ?assertEqual(
         {error, {not_found, {chain, test}}},

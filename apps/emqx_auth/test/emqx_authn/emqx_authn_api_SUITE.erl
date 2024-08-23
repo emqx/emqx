@@ -409,7 +409,8 @@ test_authenticator(PathPrefix) ->
         ValidConfig2
     ),
 
-    {ok, 404, _} = request(
+    %% allow deletion of unknown (not created) authenticator
+    {ok, 204, _} = request(
         delete,
         uri(PathPrefix ++ [?CONF_NS, "password_based:redis"])
     ),
@@ -631,6 +632,12 @@ ignore_switch_to_global_chain(_) ->
     {ok, 204, _} = request(
         delete,
         uri([listeners, "tcp:default", ?CONF_NS, "password_based:http"])
+    ),
+    %% Delete unknown should retun 204
+    %% There is not even a name validation for it.
+    {ok, 204, _} = request(
+        delete,
+        uri([listeners, "tcp:default", ?CONF_NS, "password_based:httpx"])
     ),
 
     %% Local chain is empty now and should be removed
