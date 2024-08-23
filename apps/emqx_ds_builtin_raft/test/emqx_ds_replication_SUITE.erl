@@ -1066,10 +1066,6 @@ groups() ->
         {skipstream_lts, TCs}
     ].
 
-init_per_suite(Config) ->
-    application:set_env(kernel, prevent_overlapping_partitions, false),
-    Config.
-
 init_per_group(Group, Config) ->
     LayoutConf =
         case Group of

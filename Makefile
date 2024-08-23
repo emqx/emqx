@@ -86,7 +86,7 @@ $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
 
 .PHONY: ct
 ct: $(REBAR) merge-config
-	@$(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
+	@env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
@@ -118,7 +118,7 @@ define gen-app-ct-target
 $1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-	$(REBAR) ct -v \
+	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(REBAR) ct -v \
 		--readable=$(CT_READABLE) \
 		--name $(CT_NODE_NAME) \
 		$(call cover_args,$1) \
