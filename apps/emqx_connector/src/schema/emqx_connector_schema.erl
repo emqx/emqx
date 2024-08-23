@@ -352,12 +352,7 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
         end,
         RawConfig,
         ActionConnectorTuples
-    );
-transform_old_style_bridges_to_connector_and_actions_of_type(
-    {_ConnectorType, #{type := ?MAP(_Name, _)}},
-    RawConfig
-) ->
-    RawConfig.
+    ).
 
 transform_bridges_v1_to_connectors_and_bridges_v2(RawConfig) ->
     ConnectorFields = ?MODULE:fields(connectors),
@@ -641,11 +636,10 @@ status() ->
 -include_lib("hocon/include/hocon_types.hrl").
 schema_homogeneous_test() ->
     case
-        lists:foldl(
-            fun({_Name, Schema}, Bads) ->
-                is_bad_schema(Schema, Bads)
+        lists:filtermap(
+            fun({_Name, Schema}) ->
+                is_bad_schema(Schema)
             end,
-            [],
             fields(connectors)
         )
     of
@@ -655,32 +649,7 @@ schema_homogeneous_test() ->
             throw(List)
     end.
 
-is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}, Bads) ->
-    is_bad_schema_type(Module, TypeName, Bads);
-is_bad_schema(#{type := ?MAP(_, ?UNION(Types))}, Bads) when is_list(Types) ->
-    is_bad_schema_types(Types, Bads);
-is_bad_schema(#{type := ?MAP(_, ?UNION(Func))}, Bads) when is_function(Func, 1) ->
-    Types = Func(all_union_members),
-    is_bad_schema_types(Types, Bads).
-
-is_bad_schema_types(Types, Bads) ->
-    lists:foldl(
-        fun
-            (?R_REF(Module, TypeName), Acc) ->
-                is_bad_schema_type(Module, TypeName, Acc);
-            (Type, Acc) ->
-                [
-                    #{
-                        type => Type
-                    }
-                    | Acc
-                ]
-        end,
-        Bads,
-        Types
-    ).
-
-is_bad_schema_type(Module, TypeName, Bads) ->
+is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
     ExpectedFieldNames = common_field_names(),
     MissingFields = lists:filter(
@@ -688,16 +657,13 @@ is_bad_schema_type(Module, TypeName, Bads) ->
     ),
     case MissingFields of
         [] ->
-            Bads;
+            false;
         _ ->
-            [
-                #{
-                    schema_module => Module,
-                    type_name => TypeName,
-                    missing_fields => MissingFields
-                }
-                | Bads
-            ]
+            {true, #{
+                schema_module => Module,
+                type_name => TypeName,
+                missing_fields => MissingFields
+            }}
     end.
 
 common_field_names() ->
