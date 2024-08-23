@@ -239,5 +239,17 @@
     "listen": "0.0.0.0:8093",
     "upstream": "couchbase:8093",
     "enabled": true
+  },
+  {
+    "name": "datalayers_tcp",
+    "listen": "0.0.0.0:8361",
+    "upstream": "datalayers_tcp:8361",
+    "enabled": true
+  },
+  {
+    "name": "datalayers_tls",
+    "listen": "0.0.0.0:8362",
+    "upstream": "datalayers_tls:8362",
+    "enabled": true
   }
 ]

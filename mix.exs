@@ -273,6 +273,9 @@ defmodule EMQXUmbrella.MixProject do
       system_env: emqx_app_system_env()
     }
 
+  def common_dep(:influxdb),
+    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
+
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
   # These should be removed once we fully migrate to mix
@@ -379,7 +382,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_auth_ext,
       :emqx_cluster_link,
       :emqx_ds_builtin_raft,
-      :emqx_auth_kerberos
+      :emqx_auth_kerberos,
+      :emqx_bridge_datalayers
     ])
   end
 

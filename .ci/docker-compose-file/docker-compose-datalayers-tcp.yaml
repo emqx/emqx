@@ -1,0 +1,13 @@
+version: '3.9'
+
+services:
+  datalayers_server_tcp:
+    container_name: datalayers_tcp
+    image: datalayers/datalayers:${DATALAYERS_TAG}
+    expose:
+      - "8361"
+    environment:
+      DATALAYERS_SERVER__TIMEZONE: "Etc/GMT"
+    restart: always
+    networks:
+      - emqx_bridge

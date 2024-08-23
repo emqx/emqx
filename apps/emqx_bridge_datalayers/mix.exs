@@ -1,10 +1,10 @@
-defmodule EMQXBridgeInfluxdb.MixProject do
+defmodule EMQXBridgeDatalayers.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_bridge_influxdb,
+      app: :emqx_bridge_datalayers,
       version: "0.1.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),

@@ -247,18 +247,22 @@ for dep in ${CT_DEPS}; do
         otel)
             FILES+=( '.ci/docker-compose-file/docker-compose-otel.yaml' )
             ;;
-	elasticsearch)
-	    FILES+=( '.ci/docker-compose-file/docker-compose-elastic-search-tls.yaml' )
-	    ;;
-	azurite)
-	    FILES+=( '.ci/docker-compose-file/docker-compose-azurite.yaml' )
-	    ;;
-	couchbase)
-	    FILES+=( '.ci/docker-compose-file/docker-compose-couchbase.yaml' )
-	    ;;
-	kdc)
-	    FILES+=( '.ci/docker-compose-file/docker-compose-kdc.yaml' )
-	    ;;
+	    elasticsearch)
+	        FILES+=( '.ci/docker-compose-file/docker-compose-elastic-search-tls.yaml' )
+	        ;;
+	    azurite)
+	        FILES+=( '.ci/docker-compose-file/docker-compose-azurite.yaml' )
+	        ;;
+	    couchbase)
+	        FILES+=( '.ci/docker-compose-file/docker-compose-couchbase.yaml' )
+	        ;;
+	    kdc)
+	        FILES+=( '.ci/docker-compose-file/docker-compose-kdc.yaml' )
+	        ;;
+        datalayers)
+            FILES+=( '.ci/docker-compose-file/docker-compose-datalayers-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-datalayers-tls.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
