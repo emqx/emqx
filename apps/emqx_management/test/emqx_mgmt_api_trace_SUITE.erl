@@ -475,7 +475,8 @@ t_http_test_json_formatter(_Config) ->
 
 t_create_failed(_Config) ->
     load(),
-    Trace = [{<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}],
+    Now = erlang:system_time(second),
+    Trace = [{<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}, {<<"start_at">>, Now}],
 
     BadName1 = {<<"name">>, <<"test/bad">>},
     ?assertMatch(
@@ -515,11 +516,12 @@ t_create_failed(_Config) ->
         {error, {"HTTP/1.1", 400, _}},
         request_api(post, api_path("trace"), [GoodName1 | Trace])
     ),
-    %% clear
+    %% clear, delete all
     ?assertMatch({ok, _}, request_api(delete, api_path("trace"), [])),
+    %% allow create using test-name-0 again
     {ok, Create1} = request_api(post, api_path("trace"), [GoodName | Trace]),
     ?assertMatch(#{<<"name">> := <<"test-name-0">>}, json(Create1)),
-    %% new name but same trace
+    %% new name but same trace in the same second
     GoodName2 = {<<"name">>, <<"test-name-1">>},
     ?assertMatch(
         {error, {"HTTP/1.1", 409, _}},
