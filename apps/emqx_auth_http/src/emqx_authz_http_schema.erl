@@ -116,7 +116,7 @@ headers(converter) ->
         ([]) ->
             emqx_auth_http_utils:convert_headers(#{});
         (<<>>) ->
-            emqx_auth_http_utils:convert_headers_no_content_type(#{})
+            emqx_auth_http_utils:convert_headers(#{})
     end;
 headers(default) ->
     emqx_auth_http_utils:default_headers();
