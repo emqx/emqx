@@ -9,7 +9,7 @@
         stdlib,
         emqx,
         emqx_auth,
-        esasl
+        sasl_auth
     ]},
     {env, []},
     {modules, []},

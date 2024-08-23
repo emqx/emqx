@@ -107,7 +107,7 @@ t_authenticate(_Config) ->
 
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -130,7 +130,7 @@ t_authenticate(_Config) ->
     ) = receive_packet(),
 
     {continue, ClientFinalMessage, ClientCache} =
-        esasl_scram:check_server_first_message(
+        sasl_auth_scram:check_server_first_message(
             ServerFirstMessage,
             #{
                 client_first_message => ClientFirstMessage,
@@ -155,7 +155,7 @@ t_authenticate(_Config) ->
         #{'Authentication-Data' := ServerFinalMessage}
     ) = receive_packet(),
 
-    ok = esasl_scram:check_server_final_message(
+    ok = sasl_auth_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => Algorithm}
     ).
 
@@ -190,7 +190,7 @@ t_authenticate_bad_username(_Config) ->
 
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
-    ClientFirstMessage = esasl_scram:client_first_message(<<"badusername">>),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(<<"badusername">>),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -215,7 +215,7 @@ t_authenticate_bad_password(_Config) ->
 
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -235,7 +235,7 @@ t_authenticate_bad_password(_Config) ->
     ) = receive_packet(),
 
     {continue, ClientFinalMessage, _ClientCache} =
-        esasl_scram:check_server_first_message(
+        sasl_auth_scram:check_server_first_message(
             ServerFirstMessage,
             #{
                 client_first_message => ClientFirstMessage,
@@ -333,7 +333,7 @@ t_update_user_keys(_Config) ->
 
     {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
 
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -353,7 +353,7 @@ t_update_user_keys(_Config) ->
     ) = receive_packet(),
 
     {continue, ClientFinalMessage, ClientCache} =
-        esasl_scram:check_server_first_message(
+        sasl_auth_scram:check_server_first_message(
             ServerFirstMessage,
             #{
                 client_first_message => ClientFirstMessage,
@@ -378,7 +378,7 @@ t_update_user_keys(_Config) ->
         #{'Authentication-Data' := ServerFinalMessage}
     ) = receive_packet(),
 
-    ok = esasl_scram:check_server_final_message(
+    ok = sasl_auth_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => Algorithm}
     ).
 
@@ -447,7 +447,7 @@ test_is_superuser(UserInfo, ExpectedIsSuperuser) ->
 
     {ok, _} = emqx_authn_scram_mnesia:add_user(UserInfo0, State),
 
-    ClientFirstMessage = esasl_scram:client_first_message(Username),
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     {continue, ServerFirstMessage, ServerCache} =
         emqx_authn_scram_mnesia:authenticate(
@@ -460,7 +460,7 @@ test_is_superuser(UserInfo, ExpectedIsSuperuser) ->
         ),
 
     {continue, ClientFinalMessage, ClientCache} =
-        esasl_scram:check_server_first_message(
+        sasl_auth_scram:check_server_first_message(
             ServerFirstMessage,
             #{
                 client_first_message => ClientFirstMessage,
@@ -479,7 +479,7 @@ test_is_superuser(UserInfo, ExpectedIsSuperuser) ->
             State
         ),
 
-    ok = esasl_scram:check_server_final_message(
+    ok = sasl_auth_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => sha512}
     ),
 

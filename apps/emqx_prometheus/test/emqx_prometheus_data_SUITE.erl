@@ -349,6 +349,7 @@ metric_meta(<<"emqx_authz_", _Tail/binary>>) -> ?meta(1, 1, 2);
 metric_meta(<<"emqx_banned_count">>) -> ?meta(0, 0, 0);
 %% `/prometheus/data_integration`
 metric_meta(<<"emqx_rules_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_actions_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_connectors_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_schema_registrys_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_rule_", _Tail/binary>>) -> ?meta(1, 1, 2);
@@ -808,6 +809,7 @@ assert_json_data__data_integration_overview(M, _) ->
         #{
             emqx_connectors_count := _,
             emqx_rules_count := _,
+            emqx_actions_count := _,
             emqx_schema_registrys_count := _
         },
         M
@@ -818,7 +820,8 @@ assert_json_data__data_integration_overview(M, _) ->
     ?assertMatch(
         #{
             emqx_connectors_count := _,
-            emqx_rules_count := _
+            emqx_rules_count := _,
+            emqx_actions_count := _
         },
         M
     ).

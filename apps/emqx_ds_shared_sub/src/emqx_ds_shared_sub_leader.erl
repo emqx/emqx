@@ -132,10 +132,10 @@ init_data(#share{topic = Topic} = ShareTopicFilter, StartTime) ->
     Group = group_name(ShareTopicFilter),
     case emqx_ds_shared_sub_leader_store:open(Group) of
         Store when Store =/= false ->
-            ?tp(warning, shared_sub_leader_store_open, #{topic => ShareTopicFilter, store => Store}),
+            ?tp(debug, shared_sub_leader_store_open, #{topic => ShareTopicFilter, store => Store}),
             ok;
         false ->
-            ?tp(warning, shared_sub_leader_store_init, #{topic => ShareTopicFilter}),
+            ?tp(debug, shared_sub_leader_store_init, #{topic => ShareTopicFilter}),
             RankProgress = emqx_ds_shared_sub_leader_rank_progress:init(),
             Store0 = emqx_ds_shared_sub_leader_store:init(Group),
             Store1 = emqx_ds_shared_sub_leader_store:set(start_time, StartTime, Store0),

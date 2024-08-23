@@ -70,7 +70,8 @@ t_create(_Config) ->
         emqx_authn_chains:list_authenticators(?GLOBAL).
 
 t_create_invalid(_Config) ->
-    InvalidConfig0 = raw_config(),
+    %% cover the case when keytab_file is not provided
+    InvalidConfig0 = maps:remove(<<"keytab_file">>, raw_config()),
     InvalidConfig = InvalidConfig0#{<<"principal">> := ?INVALID_SVR_PRINCIPAL},
 
     {error, _} = emqx:update_config(

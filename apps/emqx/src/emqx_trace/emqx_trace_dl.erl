@@ -53,6 +53,7 @@ update(Name, Enable) ->
 insert_new_trace(Trace) ->
     case mnesia:read(?TRACE, Trace#?TRACE.name) of
         [] ->
+            %% allow one new trace for each filter in the same second
             #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
             Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
             case mnesia:match_object(?TRACE, Match, read) of
