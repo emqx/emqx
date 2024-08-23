@@ -128,7 +128,7 @@ t_http_headers_api(_) ->
     ),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]), ?SOURCE_HTTP#{
-        <<"headers">> => []
+        <<"headers">> => #{}
     }),
 
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "http"]), []),
