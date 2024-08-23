@@ -75,27 +75,10 @@ connector_resource_opts_test() ->
         start_timeout
     ],
     ConnectorSchemasRefs =
-        lists:foldl(
-            fun
-                ({Type, #{type := ?MAP(_, ?R_REF(SchemaMod, FieldName))}}, Acc) ->
-                    [{Type, find_resource_opts_fields(SchemaMod, FieldName)} | Acc];
-                ({Type, #{type := ?MAP(_, ?UNION(UnionType))}}, Acc) ->
-                    Types =
-                        case UnionType of
-                            List when is_list(List) ->
-                                List;
-                            Func when is_function(Func, 1) ->
-                                Func(all_union_members)
-                        end,
-                    lists:foldl(
-                        fun(?R_REF(SchemaMod, FieldName), InAcc) ->
-                            [{Type, find_resource_opts_fields(SchemaMod, FieldName)} | InAcc]
-                        end,
-                        Acc,
-                        Types
-                    )
+        lists:map(
+            fun({Type, #{type := ?MAP(_, ?R_REF(SchemaMod, FieldName))}}) ->
+                {Type, find_resource_opts_fields(SchemaMod, FieldName)}
             end,
-            [],
             emqx_connector_schema:fields(connectors)
         ),
     ConnectorsMissingRO = [Type || {Type, undefined} <- ConnectorSchemasRefs],
