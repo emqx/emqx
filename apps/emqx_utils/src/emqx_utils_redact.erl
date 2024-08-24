@@ -20,7 +20,7 @@
 -export([deobfuscate/2]).
 
 -define(REDACT_VAL, "******").
--define(IS_KEY_HEADERS(K), K == headers; K == <<"headers">>; K == "headers").
+-define(IS_KEY_HEADERS(K), (K == headers orelse K == <<"headers">> orelse K == "headers")).
 
 %% NOTE: keep alphabetical order
 is_sensitive_key(aws_secret_access_key) -> true;

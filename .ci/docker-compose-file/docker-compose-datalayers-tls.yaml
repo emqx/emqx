@@ -1,0 +1,19 @@
+version: '3.9'
+
+services:
+  datalayers_server_tls:
+    container_name: datalayers_tls
+    image: datalayers/datalayers:${DATALAYERS_TAG}
+    expose:
+      - "8362"
+    environment:
+      DATALAYERS_SERVER__TIMEZONE: "Etc/GMT"
+      DATALAYERS_SERVER__HTTP: "0.0.0.0:8362"
+      DATALAYERS_SERVER__TLS__KEY: "/etc/datalayers/key.pem"
+      DATALAYERS_SERVER__TLS__CERT: "/etc/datalayers/cert.pem"
+    volumes:
+      - ./certs/server.crt:/etc/datalayers/cert.pem
+      - ./certs/server.key:/etc/datalayers/key.pem
+    restart: always
+    networks:
+      - emqx_bridge

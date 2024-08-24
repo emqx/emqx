@@ -23,7 +23,7 @@ defmodule EMQXBridgeInfluxdb.MixProject do
 
   def deps() do
     [
-      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13"},
+      UMP.common_dep(:influxdb),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

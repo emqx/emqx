@@ -1,0 +1,48 @@
+emqx_bridge_datalayers {
+
+desc_config.desc:
+"""Configuration for a Datalayers bridge."""
+
+desc_config.label:
+"""Datalayers Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type."""
+
+desc_type.label:
+"""Bridge Type"""
+
+write_syntax.desc:
+"""Conf of InfluxDB line protocol to write data points. It is a text-based format that provides the measurement, tag set, field set, and timestamp of a data point, and placeholder supported.
+See also [InfluxDB 1.8 Line Protocol](https://docs.influxdata.com/influxdb/v1.8/write_protocols/line_protocol_tutorial/) <br/>
+TLDR:<br/>
+```
+<measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
+```
+Please note that a placeholder for an integer value must be annotated with a suffix `i`. For example `${payload.int_value}i`."""
+
+write_syntax.label:
+"""Write Syntax"""
+
+action_parameters.label:
+"""Action Parameters"""
+action_parameters.desc:
+"""Additional parameters specific to this action type"""
+
+connector.label:
+"""Datalayers Connector"""
+connector.desc:
+"""Datalayers Connector Configs"""
+
+datalayers_action.label:
+"""Datalayers Action"""
+datalayers_action.desc:
+"""Action to interact with a Datalayers connector"""
+
+}

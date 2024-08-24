@@ -157,18 +157,6 @@
     "enabled": true
   },
   {
-    "name": "iotdb_thrift",
-    "listen": "0.0.0.0:46667",
-    "upstream": "iotdb-thrift:6667",
-    "enabled": true
-  },
-  {
-    "name": "iotdb_thrift_rest",
-    "listen": "0.0.0.0:48080",
-    "upstream": "iotdb-thrift:18080",
-    "enabled": true
-  },
-  {
     "name": "minio_tcp",
     "listen": "0.0.0.0:19000",
     "upstream": "minio:9000",
@@ -238,6 +226,18 @@
     "name": "couchbase",
     "listen": "0.0.0.0:8093",
     "upstream": "couchbase:8093",
+    "enabled": true
+  },
+  {
+    "name": "datalayers_tcp",
+    "listen": "0.0.0.0:8361",
+    "upstream": "datalayers_tcp:8361",
+    "enabled": true
+  },
+  {
+    "name": "datalayers_tls",
+    "listen": "0.0.0.0:8362",
+    "upstream": "datalayers_tls:8362",
     "enabled": true
   }
 ]

@@ -121,9 +121,9 @@ headers(type) ->
 headers(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers(converter) ->
-    fun emqx_authn_utils:convert_headers/1;
+    fun emqx_auth_http_utils:convert_headers/1;
 headers(default) ->
-    emqx_authn_utils:default_headers();
+    emqx_auth_http_utils:default_headers();
 headers(_) ->
     undefined.
 
@@ -132,9 +132,9 @@ headers_no_content_type(type) ->
 headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
-    fun emqx_authn_utils:convert_headers_no_content_type/1;
+    fun emqx_auth_http_utils:convert_headers_no_content_type/1;
 headers_no_content_type(default) ->
-    emqx_authn_utils:default_headers_no_content_type();
+    emqx_auth_http_utils:default_headers_no_content_type();
 headers_no_content_type(_) ->
     undefined.
 
