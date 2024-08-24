@@ -795,10 +795,8 @@ start_resource(Data, From) ->
             UpdatedData1 = Data#data{status = ?status_connecting, state = ResourceState},
             %% Perform an initial health_check immediately before transitioning into a connected state
             UpdatedData2 = add_channels(UpdatedData1),
-            UpdatedData3 = maybe_update_callback_mode(UpdatedData2),
-
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
-            {next_state, ?state_connecting, update_state(UpdatedData3, Data), Actions};
+            {next_state, ?state_connecting, update_state(UpdatedData2, Data), Actions};
         {error, Reason} = Err ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
             ?SLOG(
@@ -837,14 +835,6 @@ add_channels(Data) ->
         ChannelIDConfigTuples
     ),
     Data#data{added_channels = NewChannels}.
-
-maybe_update_callback_mode(Data = #data{mod = ResourceType, state = ResourceState}) ->
-    case emqx_resource:get_callback_mode(ResourceType, ResourceState) of
-        undefined ->
-            Data;
-        CallMode ->
-            Data#data{callback_mode = CallMode}
-    end.
 
 add_channels_in_list([], Data) ->
     Data;

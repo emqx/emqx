@@ -234,10 +234,17 @@ update_routes(ClusterName, Actor, RouteOps) ->
     ).
 
 actor_heartbeat(ClusterName, Actor) ->
-    Env = #{timestamp => erlang:system_time(millisecond)},
-    ActorSt0 = get_actor_state(ClusterName, Actor),
-    ActorSt = emqx_cluster_link_extrouter:actor_apply_operation(heartbeat, ActorSt0, Env),
-    _ = update_actor_state(ActorSt),
+    case erlang:get(?PD_EXTROUTER_ACTOR_STATE) of
+        undefined ->
+            %% skip, only update when it is initialized
+            %% otherwise will crash the init retires
+            skip;
+        _ ->
+            Env = #{timestamp => erlang:system_time(millisecond)},
+            ActorSt0 = get_actor_state(ClusterName, Actor),
+            ActorSt = emqx_cluster_link_extrouter:actor_apply_operation(heartbeat, ActorSt0, Env),
+            _ = update_actor_state(ActorSt)
+    end,
     ok.
 
 get_actor_state(ClusterName, Actor) ->

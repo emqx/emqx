@@ -1153,7 +1153,17 @@ exclusive(["list"]) ->
     end;
 exclusive(["delete", Topic0]) ->
     Topic = erlang:iolist_to_binary(Topic0),
-    emqx_exclusive_subscription:unsubscribe(Topic, #{is_exclusive => true}),
+    case emqx_exclusive_subscription:dirty_lookup_clientid(Topic) of
+        undefined ->
+            ok;
+        ClientId ->
+            case emqx_mgmt:unsubscribe(ClientId, Topic) of
+                {unsubscribe, _} ->
+                    ok;
+                {error, channel_not_found} ->
+                    emqx_exclusive_subscription:unsubscribe(Topic, #{is_exclusive => true})
+            end
+    end,
     emqx_ctl:print("ok~n");
 exclusive(_) ->
     emqx_ctl:usage([

@@ -587,8 +587,9 @@ handle_delete_authenticator(Chain, AuthenticatorID) ->
         ID =:= AuthenticatorID
     end,
     case do_delete_authenticators(MatchFun, Chain) of
-        {[], _NewChain} ->
-            {error, {not_found, {authenticator, AuthenticatorID}}};
+        {[], NewChain} ->
+            %% Idempotence intended
+            {ok, ok, NewChain};
         {[AuthenticatorID], NewChain} ->
             {ok, ok, NewChain}
     end.

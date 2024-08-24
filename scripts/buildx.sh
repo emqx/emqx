@@ -14,16 +14,31 @@ set -euo pipefail
 
 help() {
     echo
-    echo "-h|--help:                 To display this usage information"
-    echo "--profile <PROFILE>:       EMQX profile to build (emqx|emqx-enterprise)"
-    echo "--pkgtype tgz|pkg|rel:     Specify which package to build, tgz for .tar.gz,"
-    echo "                           pkg for .rpm or .deb, rel for release only"
-    echo "--elixir:                  Specify if the release should be built with Elixir, "
-    echo "                           defaults to 'no'."
-    echo "--arch amd64|arm64:        Target arch to build the EMQX package for"
-    echo "--src_dir <SRC_DIR>:       EMQX source code in this dir, default to PWD"
-    echo "--builder <BUILDER>:       Docker image to use for building"
-    echo "                           E.g. ghcr.io/emqx/emqx-builder/5.3-8:1.15.7-26.2.5-2-debian12"
+    echo "-h|--help:"
+    echo "    To display this usage information"
+    echo ""
+    echo "--profile <PROFILE>:"
+    echo "    EMQX profile to build (emqx|emqx-enterprise)"
+    echo ""
+    echo "--pkgtype tgz|pkg|rel|relup:"
+    echo "    Specify which package to build, tgz for .tar.gz,"
+    echo "    pkg for .rpm or .deb, rel for release only"
+    echo ""
+    echo "--elixir:"
+    echo "    Specify if the release should be built with Elixir, "
+    echo "    defaults to 'no'."
+    echo ""
+    echo "--arch amd64|arm64:"
+    echo "    Target arch to build the EMQX package for"
+    echo ""
+    echo "--src_dir <SRC_DIR>:"
+    echo "    EMQX source code in this dir, default to PWD"
+    echo ""
+    echo "--builder <BUILDER>:"
+    echo "    Docker image to use for building"
+    echo "    E.g. ghcr.io/emqx/emqx-builder/5.3-11:1.15.7-26.2.5.2-1-debian12"
+    echo "    For hot upgrading tar.gz, specify a builder image with the same OS distribution as the running one."
+    echo "    Specifically, for EMQX's docker containers hot upgrading, please use the debian12-based builder. "
 }
 
 die() {
@@ -117,11 +132,11 @@ if [ -z "${IS_ELIXIR:-}" ]; then
 fi
 
 case "${PKGTYPE:-}" in
-  tgz|pkg|rel)
+  tgz|pkg|rel|relup)
     true
     ;;
   *)
-    echo "Bad --pkgtype option, should be tgz, pkg or rel"
+    echo "Bad --pkgtype option, should be tgz, pkg, rel or relup"
     exit 1
     ;;
 esac
@@ -138,7 +153,7 @@ fi
 HOST_SYSTEM="$(./scripts/get-distro.sh)"
 BUILDER_SYSTEM="${BUILDER_SYSTEM:-$(echo "$EMQX_BUILDER" | awk -F'-' '{print $NF}')}"
 
-if [ "${PKGTYPE}" != 'rel' ]; then
+if [[ "${PKGTYPE}" != 'rel' && "${PKGTYPE}" != 'relup' ]]; then
   CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
 else
   CMD_RUN="make ${MAKE_TARGET}"

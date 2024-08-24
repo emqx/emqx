@@ -30,6 +30,7 @@
 -export([
     check_subscribe/2,
     unsubscribe/2,
+    dirty_lookup_clientid/1,
     clear/0
 ]).
 
@@ -98,6 +99,14 @@ unsubscribe(Topic, #{is_exclusive := true}) ->
     ok;
 unsubscribe(_Topic, _SubOpts) ->
     ok.
+
+dirty_lookup_clientid(Topic) ->
+    case mnesia:dirty_read(?TAB, Topic) of
+        [#exclusive_subscription{clientid = ClientId}] ->
+            ClientId;
+        _ ->
+            undefined
+    end.
 
 clear() ->
     mria:clear_table(?TAB).

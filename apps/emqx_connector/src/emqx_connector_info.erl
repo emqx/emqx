@@ -109,7 +109,8 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_syskeeper_connector_info,
         emqx_bridge_syskeeper_proxy_connector_info,
         emqx_bridge_tdengine_connector_info,
-        emqx_bridge_timescale_connector_info
+        emqx_bridge_timescale_connector_info,
+        emqx_bridge_datalayers_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->
