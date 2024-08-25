@@ -85,17 +85,31 @@ t_base_test(_Config) ->
     ?assertEqual(ok, receive_msg(3, Msg)),
     ?assertEqual({ok, 2, ok}, multicall(M, F, A)),
     {atomic, Status} = emqx_cluster_rpc:status(),
+    Node = node(),
     case length(Status) =:= 3 of
         true ->
-            ?assert(lists:all(fun(I) -> maps:get(tnx_id, I) =:= 2 end, Status));
+            ?assertMatch(
+                [
+                    #{node := Node, tnx_id := 2},
+                    #{node := {Node, ?NODE2}, tnx_id := 2},
+                    #{node := {Node, ?NODE3}, tnx_id := 2}
+                ],
+                Status
+            );
         false ->
             %% wait for mnesia to write in.
             ct:sleep(42),
             {atomic, Status1} = emqx_cluster_rpc:status(),
             ct:pal("status: ~p", Status),
             ct:pal("status1: ~p", Status1),
-            ?assertEqual(3, length(Status1)),
-            ?assert(lists:all(fun(I) -> maps:get(tnx_id, I) =:= 2 end, Status))
+            ?assertMatch(
+                [
+                    #{node := Node, tnx_id := 2},
+                    #{node := {Node, ?NODE2}, tnx_id := 2},
+                    #{node := {Node, ?NODE3}, tnx_id := 2}
+                ],
+                Status1
+            )
     end,
     ok.
 
@@ -129,13 +143,13 @@ t_commit_ok_but_apply_fail_on_other_node(_Config) ->
     {ok, _, ok} = multicall(M, F, A, 1, 1000),
     {atomic, AllStatus} = emqx_cluster_rpc:status(),
     Node = node(),
-    ?assertEqual(
+    ?assertMatch(
         [
-            {1, {Node, emqx_cluster_rpc2}},
-            {1, {Node, emqx_cluster_rpc3}},
-            {2, Node}
+            #{tnx_id := 2, node := Node},
+            #{tnx_id := 1, node := {Node, emqx_cluster_rpc2}},
+            #{tnx_id := 1, node := {Node, emqx_cluster_rpc3}}
         ],
-        lists:sort([{T, N} || #{tnx_id := T, node := N} <- AllStatus])
+        AllStatus
     ),
     erlang:send(?NODE2, test),
     Call = emqx_cluster_rpc:make_initiate_call_req(M, F, A),
@@ -361,13 +375,11 @@ t_cleaner_unexpected_msg(_Config) ->
     ok.
 
 tnx_ids(Status) ->
-    lists:sort(
-        lists:map(
-            fun(#{tnx_id := TnxId, node := Node}) ->
-                {Node, TnxId}
-            end,
-            Status
-        )
+    lists:map(
+        fun(#{tnx_id := TnxId, node := Node}) ->
+            {Node, TnxId}
+        end,
+        Status
     ).
 
 start() ->

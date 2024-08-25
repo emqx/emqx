@@ -219,7 +219,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
-  def common_dep(:observer_cli), do: {:observer_cli, "1.7.1"}
+  def common_dep(:observer_cli), do: {:observer_cli, "1.7.5"}
 
   def common_dep(:jose),
     do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
