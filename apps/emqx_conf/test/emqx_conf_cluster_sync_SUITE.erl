@@ -47,8 +47,8 @@ t_fix(Config) ->
         Node1,
         ?assertMatch(
             {atomic, [
-                #{node := Node2, tnx_id := 1},
-                #{node := Node1, tnx_id := 1}
+                #{node := Node1, tnx_id := 1},
+                #{node := Node2, tnx_id := 1}
             ]},
             emqx_cluster_rpc:status()
         )
@@ -58,8 +58,8 @@ t_fix(Config) ->
         ok = emqx_conf_cli:admins(["fix"]),
         ?assertMatch(
             {atomic, [
-                #{node := Node2, tnx_id := 1},
-                #{node := Node1, tnx_id := 1}
+                #{node := Node1, tnx_id := 1},
+                #{node := Node2, tnx_id := 1}
             ]},
             emqx_cluster_rpc:status()
         )
@@ -70,8 +70,8 @@ t_fix(Config) ->
         ok = emqx_conf_cli:admins(["fix"]),
         ?assertMatch(
             {atomic, [
-                #{node := Node2, tnx_id := 1},
-                #{node := Node1, tnx_id := 1}
+                #{node := Node1, tnx_id := 1},
+                #{node := Node2, tnx_id := 1}
             ]},
             emqx_cluster_rpc:status()
         )
@@ -86,8 +86,8 @@ t_fix(Config) ->
         ok = emqx_conf_cli:admins(["fix"]),
         ?assertMatch(
             {atomic, [
-                #{node := Node2, tnx_id := 5},
-                #{node := Node1, tnx_id := 5}
+                #{node := Node1, tnx_id := 5},
+                #{node := Node2, tnx_id := 5}
             ]},
             emqx_cluster_rpc:status()
         )
@@ -104,8 +104,8 @@ t_fix(Config) ->
         ok = emqx_conf_cli:admins(["fix"]),
         ?assertMatch(
             {atomic, [
-                #{node := Node2, tnx_id := 8},
-                #{node := Node1, tnx_id := 8}
+                #{node := Node1, tnx_id := 8},
+                #{node := Node2, tnx_id := 8}
             ]},
             emqx_cluster_rpc:status()
         )
@@ -117,8 +117,8 @@ t_fix(Config) ->
         ok = emqx_conf_cli:admins(["fix"]),
         ?assertMatch(
             {atomic, [
-                #{node := Node2, tnx_id := 8},
-                #{node := Node1, tnx_id := 8}
+                #{node := Node1, tnx_id := 8},
+                #{node := Node2, tnx_id := 8}
             ]},
             emqx_cluster_rpc:status()
         )

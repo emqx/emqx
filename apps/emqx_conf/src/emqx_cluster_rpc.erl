@@ -606,20 +606,34 @@ trans_status() ->
         [],
         ?CLUSTER_COMMIT
     ),
-    Nodes = mria:running_nodes(),
-    IndexNodes = lists:zip(Nodes, lists:seq(1, length(Nodes))),
+    Cores = lists:sort(mria:cluster_nodes(cores)),
+    RunningNodes = mria:running_nodes(),
+    %% Make sure cores is ahead of replicants
+    Replicants = lists:subtract(RunningNodes, Cores),
+    Nodes = lists:append(Cores, Replicants),
+    {NodeIndices, _} = lists:foldl(
+        fun(N, {Acc, Seq}) ->
+            {maps:put(N, Seq, Acc), Seq + 1}
+        end,
+        {#{}, 1},
+        Nodes
+    ),
     lists:sort(
-        fun(#{node := NA, tnx_id := IdA}, #{node := NB, tnx_id := IdB}) ->
-            {IdA, index_nodes(NA, IndexNodes)} > {IdB, index_nodes(NB, IndexNodes)}
+        fun(A, B) ->
+            compare_tnx_id_and_node(A, B, NodeIndices)
         end,
         List
     ).
 
-index_nodes(Node, IndexNodes) ->
-    case lists:keyfind(Node, 1, IndexNodes) of
-        false -> 0;
-        {_, Index} -> Index
-    end.
+compare_tnx_id_and_node(
+    #{tnx_id := Id, node := NA},
+    #{tnx_id := Id, node := NB},
+    NodeIndices
+    %% The smaller the seq, the higher the priority level.
+) ->
+    maps:get(NA, NodeIndices, undefined) < maps:get(NB, NodeIndices, undefined);
+compare_tnx_id_and_node(#{tnx_id := IdA}, #{tnx_id := IdB}, _NodeIndices) ->
+    IdA > IdB.
 
 trans_query(TnxId) ->
     case mnesia:read(?CLUSTER_MFA, TnxId) of
