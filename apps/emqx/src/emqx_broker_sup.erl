@@ -23,10 +23,7 @@
 -export([init/1]).
 
 start_link() ->
-    ok = mria:wait_for_tables(
-        emqx_shared_sub:create_tables() ++
-            emqx_exclusive_subscription:create_tables()
-    ),
+    ok = mria:wait_for_tables(emqx_shared_sub:create_tables()),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %%--------------------------------------------------------------------
@@ -70,4 +67,14 @@ init([]) ->
         modules => [emqx_broker_helper]
     },
 
-    {ok, {{one_for_all, 0, 1}, [SyncerPool, BrokerPool, SharedSub, Helper]}}.
+    %% exclusive subscription
+    ExclusiveSub = #{
+        id => exclusive_subscription,
+        start => {emqx_exclusive_subscription, start_link, []},
+        restart => permanent,
+        shutdown => 2000,
+        type => worker,
+        modules => [emqx_exclusive_subscription]
+    },
+
+    {ok, {{one_for_all, 0, 1}, [SyncerPool, BrokerPool, SharedSub, Helper, ExclusiveSub]}}.
