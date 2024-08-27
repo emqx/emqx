@@ -465,7 +465,7 @@ t_lease_reconnect(_Config) ->
     ConnShared = emqtt_connect_sub(<<"client_shared">>),
 
     %% Simulate unability to find leader.
-    ok = emqx_ds_shared_sub_leader_store:close(),
+    ok = emqx_ds_shared_sub_store:close(),
 
     ?assertWaitEvent(
         {ok, _, _} = emqtt:subscribe(ConnShared, <<"$share/gr2/topic2/#">>, 1),
@@ -475,7 +475,7 @@ t_lease_reconnect(_Config) ->
 
     %% Agent should retry after some time and find the leader.
     ?assertWaitEvent(
-        ok = emqx_ds_shared_sub_leader_store:open(),
+        ok = emqx_ds_shared_sub_store:open(),
         #{?snk_kind := leader_lease_streams},
         5_000
     ),

@@ -24,12 +24,12 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 on_enable() ->
-    ok = emqx_ds_shared_sub_leader_store:open(),
+    ok = emqx_ds_shared_sub_store:open(),
     ensure_started(emqx_ds_shared_sub_registry:child_spec()).
 
 on_disable() ->
     ok = ensure_stopped(emqx_ds_shared_sub_registry:child_spec()),
-    emqx_ds_shared_sub_leader_store:close().
+    emqx_ds_shared_sub_store:close().
 
 %%------------------------------------------------------------------------------
 

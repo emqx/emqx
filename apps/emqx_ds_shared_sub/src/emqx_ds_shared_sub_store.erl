@@ -2,7 +2,7 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_shared_sub_leader_store).
+-module(emqx_ds_shared_sub_store).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
@@ -322,6 +322,10 @@ slurp_store(Rootset, StreamIts0, Retries, RetryTimeout, Acc = #{group := Group})
         StreamIts1
     ),
     case map_get(seqnum, Store) of
+        %% NOTE
+        %% Comparison is non-strict. Seqnum going ahead of what is in the rootset is
+        %% concerning, because this suggests there were concurrent writes that slipped
+        %% past the leadership claim guards, yet we can still make progress.
         SeqNum when SeqNum >= map_get(seqnum, Rootset) ->
             maps:merge(Store, Rootset);
         _Mismatch when Retries > 0 ->
@@ -641,13 +645,9 @@ ds_stream_fold(Fun, Acc0, It0) ->
 
 %%
 
-space_to_token(stream) -> <<"s">>;
-space_to_token(progress) -> <<"prog">>;
-space_to_token(sequence) -> <<"seq">>.
+space_to_token(stream) -> <<"s">>.
 
-token_to_space(<<"s">>) -> stream;
-token_to_space(<<"prog">>) -> progress;
-token_to_space(<<"seq">>) -> sequence.
+token_to_space(<<"s">>) -> stream.
 
 varname_to_token(rank_progress) -> <<"rankp">>;
 varname_to_token(start_time) -> <<"stime">>.

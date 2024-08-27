@@ -63,7 +63,7 @@
     group_id := group_id(),
     topic := emqx_types:topic(),
     %% Implement some stats to assign evenly?
-    store := emqx_ds_shared_sub_leader_store:t(),
+    store := emqx_ds_shared_sub_store:t(),
 
     %%
     %% Ephemeral data, should not be persisted
@@ -130,16 +130,17 @@ init([#{share_topic_filter := ShareTopicFilter} = _Options]) ->
 
 init_data(#share{topic = Topic} = ShareTopicFilter, StartTime) ->
     Group = group_name(ShareTopicFilter),
-    case emqx_ds_shared_sub_leader_store:open(Group) of
+    case emqx_ds_shared_sub_store:open(Group) of
         Store when Store =/= false ->
             ?tp(debug, shared_sub_leader_store_open, #{topic => ShareTopicFilter, store => Store}),
             ok;
         false ->
+            %% TODO: No leader store -> no subscription
             ?tp(debug, shared_sub_leader_store_init, #{topic => ShareTopicFilter}),
             RankProgress = emqx_ds_shared_sub_leader_rank_progress:init(),
-            Store0 = emqx_ds_shared_sub_leader_store:init(Group),
-            Store1 = emqx_ds_shared_sub_leader_store:set(start_time, StartTime, Store0),
-            Store = emqx_ds_shared_sub_leader_store:set(rank_progress, RankProgress, Store1)
+            Store0 = emqx_ds_shared_sub_store:init(Group),
+            Store1 = emqx_ds_shared_sub_store:set(start_time, StartTime, Store0),
+            Store = emqx_ds_shared_sub_store:set(rank_progress, RankProgress, Store1)
     end,
     #{
         group_id => ShareTopicFilter,
@@ -156,7 +157,7 @@ force_claim_renewal(_Data = #{}) ->
     [{{timeout, #renew_leader_claim{}}, 0, #renew_leader_claim{}}].
 
 init_claim_renewal(_Data = #{leader_claim := Claim}) ->
-    Interval = emqx_ds_shared_sub_leader_store:heartbeat_interval(Claim),
+    Interval = emqx_ds_shared_sub_store:heartbeat_interval(Claim),
     [{{timeout, #renew_leader_claim{}}, Interval, #renew_leader_claim{}}].
 
 %%--------------------------------------------------------------------
@@ -258,8 +259,8 @@ terminate(
     %% Call to `commit_dirty/2` will currently block.
     %% On the other hand, call to `disown_leadership/1` should be non-blocking.
     Group = group_name(ShareTopicFilter),
-    Result = emqx_ds_shared_sub_leader_store:commit_dirty(Claim, Store),
-    ok = emqx_ds_shared_sub_leader_store:disown_leadership(Group, Claim),
+    Result = emqx_ds_shared_sub_store:commit_dirty(Claim, Store),
+    ok = emqx_ds_shared_sub_store:disown_leadership(Group, Claim),
     ?tp(shared_sub_leader_store_committed_dirty, #{
         id => ShareTopicFilter,
         group => Group,
@@ -276,7 +277,7 @@ terminate(
 renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leader_claim := Claim}) ->
     TS = emqx_message:timestamp_now(),
     Group = group_name(ShareTopicFilter),
-    case emqx_ds_shared_sub_leader_store:commit_renew(Claim, TS, Store0) of
+    case emqx_ds_shared_sub_store:commit_renew(Claim, TS, Store0) of
         {ok, RenewedClaim, CommittedStore} ->
             ?tp(shared_sub_leader_store_committed, #{
                 id => ShareTopicFilter,
@@ -1077,33 +1078,33 @@ make_iterator(Stream, TopicFilter, StartTime) ->
 %% Leader store
 
 store_is_dirty(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:dirty(Store).
+    emqx_ds_shared_sub_store:dirty(Store).
 
 store_get_stream(#{store := Store}, ID) ->
-    emqx_ds_shared_sub_leader_store:get(stream, ID, Store).
+    emqx_ds_shared_sub_store:get(stream, ID, Store).
 
 store_put_stream(Data = #{store := Store0}, ID, StreamData) ->
-    Store = emqx_ds_shared_sub_leader_store:put(stream, ID, StreamData, Store0),
+    Store = emqx_ds_shared_sub_store:put(stream, ID, StreamData, Store0),
     Data#{store := Store}.
 
 store_delete_stream(Data = #{store := Store0}, ID) ->
-    Store = emqx_ds_shared_sub_leader_store:delete(stream, ID, Store0),
+    Store = emqx_ds_shared_sub_store:delete(stream, ID, Store0),
     Data#{store := Store}.
 
 store_get_rank_progress(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:get(rank_progress, Store).
+    emqx_ds_shared_sub_store:get(rank_progress, Store).
 
 store_put_rank_progress(Data = #{store := Store0}, RankProgress) ->
-    Store = emqx_ds_shared_sub_leader_store:set(rank_progress, RankProgress, Store0),
+    Store = emqx_ds_shared_sub_store:set(rank_progress, RankProgress, Store0),
     Data#{store := Store}.
 
 store_get_start_time(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:get(start_time, Store).
+    emqx_ds_shared_sub_store:get(start_time, Store).
 
 store_num_streams(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:size(stream, Store).
+    emqx_ds_shared_sub_store:size(stream, Store).
 
 store_setof_streams(#{store := Store}) ->
     Acc0 = sets:new([{version, 2}]),
     FoldFun = fun(Stream, _StreamData, Acc) -> sets:add_element(Stream, Acc) end,
-    emqx_ds_shared_sub_leader_store:fold(stream, FoldFun, Acc0, Store).
+    emqx_ds_shared_sub_store:fold(stream, FoldFun, Acc0, Store).

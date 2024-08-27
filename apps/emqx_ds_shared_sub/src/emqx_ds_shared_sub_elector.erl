@@ -79,7 +79,7 @@ handle_info({timeout, _TRef, invalidate}, State) ->
 
 elect(ShareTopic, TS) ->
     Group = emqx_ds_shared_sub_leader:group_name(ShareTopic),
-    case emqx_ds_shared_sub_leader_store:claim_leadership(Group, _Leader = self(), TS) of
+    case emqx_ds_shared_sub_store:claim_leadership(Group, _Leader = self(), TS) of
         {ok, LeaderClaim} ->
             %% Become the leader.
             ?tp(debug, shared_sub_elector_becomes_leader, #{
@@ -92,7 +92,7 @@ elect(ShareTopic, TS) ->
             %% Turn into the follower that redirects connect requests to the leader
             %% while it's considered alive. Note that the leader may in theory decide
             %% to let go of leadership earlier than that.
-            AliveUntil = emqx_ds_shared_sub_leader_store:alive_until(LeaderClaim),
+            AliveUntil = emqx_ds_shared_sub_store:alive_until(LeaderClaim),
             ?tp(debug, shared_sub_elector_becomes_follower, #{
                 id => ShareTopic,
                 group => Group,
@@ -103,7 +103,7 @@ elect(ShareTopic, TS) ->
             _TRef = erlang:start_timer(max(0, TTL), self(), invalidate),
             St = #follower{
                 topic = ShareTopic,
-                leader = emqx_ds_shared_sub_leader_store:leader_id(LeaderClaim),
+                leader = emqx_ds_shared_sub_store:leader_id(LeaderClaim),
                 alive_until = AliveUntil
             },
             {noreply, St};
