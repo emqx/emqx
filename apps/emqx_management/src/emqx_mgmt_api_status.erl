@@ -114,7 +114,7 @@ running_status(Format) ->
                 end,
             ContentType =
                 case Format of
-                    <<"json">> -> <<"applicatin/json">>;
+                    <<"json">> -> <<"application/json">>;
                     _ -> <<"text/plain">>
                 end,
             Headers = #{
