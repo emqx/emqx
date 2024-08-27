@@ -98,6 +98,7 @@ matches_headers(#message{headers = Headers}, MatchHeaders) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -compile(export_all).
+-compile(nowarn_export_all).
 
 conjunction_test() ->
     %% Contradictory preconditions, always false.
