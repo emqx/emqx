@@ -487,6 +487,11 @@ reply_callback(ReplyFunAndArgs, {ok, Code, _, Body}) when ?IS_HTTP_ERROR(Code) -
     ?tp(datalayers_connector_do_query_failure, #{error => Body}),
     Result = {error, {unrecoverable_error, Body}},
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+reply_callback(ReplyFunAndArgs, {ok, Code, Headers}) when ?IS_HTTP_ERROR(Code) ->
+    Error = #{code => Code, headers => Headers},
+    ?tp(datalayers_connector_do_query_failure, #{error => Error}),
+    Result = {error, {unrecoverable_error, Error}},
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 reply_callback(ReplyFunAndArgs, Result) ->
     ?tp(datalayers_connector_do_query_ok, #{result => Result}),
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
