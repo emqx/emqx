@@ -22,7 +22,6 @@
 
 %% ETS tables for Shared PubSub
 -define(SHARED_SUBSCRIBER, emqx_shared_subscriber).
--define(ALIVE_SHARED_SUBSCRIBERS, emqx_alive_shared_subscribers).
 -define(SHARED_SUBS_ROUND_ROBIN_COUNTER, emqx_shared_subscriber_round_robin_counter).
 
 -endif.

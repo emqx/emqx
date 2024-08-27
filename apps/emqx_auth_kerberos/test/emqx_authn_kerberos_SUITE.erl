@@ -69,6 +69,26 @@ t_create(_Config) ->
     {ok, [#{provider := emqx_authn_kerberos}]} =
         emqx_authn_chains:list_authenticators(?GLOBAL).
 
+t_disable_without_kinit(_Config) ->
+    ID = <<"gssapi:kerberos">>,
+    Create = raw_config(),
+    Disable = Create#{<<"enable">> => false},
+    DisableBadPrincipal = Disable#{<<"principal">> => <<"mqtt/a.b@REALM">>},
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Create}
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {update_authenticator, ?GLOBAL, ID, Disable}
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {update_authenticator, ?GLOBAL, ID, DisableBadPrincipal}
+    ),
+    {ok, [#{provider := emqx_authn_kerberos}]} =
+        emqx_authn_chains:list_authenticators(?GLOBAL).
+
 t_create_invalid(_Config) ->
     %% cover the case when keytab_file is not provided
     InvalidConfig0 = maps:remove(<<"keytab_file">>, raw_config()),

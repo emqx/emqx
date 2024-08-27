@@ -47,6 +47,8 @@ resolve_keytab(<<"DEFAULT">>) ->
 resolve_keytab(Path) ->
     emqx_schema:naive_env_interpolation(Path).
 
+update(#{enable := false}, State) ->
+    {ok, State};
 update(Config, #{id := ID}) ->
     create(ID, Config).
 
