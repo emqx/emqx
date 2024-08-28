@@ -79,7 +79,7 @@ is_hist_enabled() ->
     emqx_types:cid() | emqx_types:clientid() | {emqx_types:cid(), pid()}
 ) -> ok.
 register_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
-    register_channel({{?DEFAULT_NAMESPACE_NAME, ClientId}, self()});
+    register_channel({{?NO_MTNS, ClientId}, self()});
 register_channel(CId) when ?IS_CID(CId) ->
     register_channel({CId, self()});
 register_channel({CId, ChanPid}) when ?IS_CID(CId), is_pid(ChanPid) ->
@@ -103,7 +103,7 @@ register_channel2(#channel{chid = CId} = Record) ->
     emqx_types:cid() | emqx_types:clientid() | {emqx_types:cid(), pid()}
 ) -> ok.
 unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
-    unregister_channel({{?DEFAULT_NAMESPACE_NAME, ClientId}, self()});
+    unregister_channel({{?NO_MTNS, ClientId}, self()});
 unregister_channel(CId) when ?IS_CID(CId) ->
     unregister_channel({CId, self()});
 unregister_channel({CId, ChanPid}) when ?IS_CID(CId), is_pid(ChanPid) ->
@@ -127,13 +127,13 @@ unregister_channel2(#channel{chid = CId} = Record) ->
 %% @doc Lookup the global channels.
 -spec lookup_channels(emqx_types:cid() | emqx_types:clientid()) -> list(pid()).
 lookup_channels(ClientId) when ?IS_CLIENTID(ClientId) ->
-    lookup_channels(emqx_cm:cid(?DEFAULT_NAMESPACE_NAME, ClientId));
+    lookup_channels(emqx_mtns:cid(?NO_MTNS, ClientId));
 lookup_channels(_CId = {Mtns, ClientId}) ->
     lookup_channels(Mtns, ClientId).
 
 -spec lookup_channels(emqx_types:mtns(), emqx_types:clientid()) -> list(pid()).
 lookup_channels(Mtns, ClientId) ->
-    CId = emqx_cm:cid(Mtns, ClientId),
+    CId = emqx_mtns:cid(Mtns, ClientId),
     lists:filtermap(
         fun
             (#channel{pid = ChanPid}) when is_pid(ChanPid) ->

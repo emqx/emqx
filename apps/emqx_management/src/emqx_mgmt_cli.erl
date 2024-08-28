@@ -1156,11 +1156,12 @@ exclusive(["list"]) ->
     end;
 exclusive(["delete", Topic0]) ->
     Topic = erlang:iolist_to_binary(Topic0),
-    case emqx_exclusive_subscription:dirty_lookup_clientid(Topic) of
+    case emqx_exclusive_subscription:dirty_lookup_cid(Topic) of
         undefined ->
             ok;
-        ClientId ->
-            case emqx_mgmt:unsubscribe(ClientId, Topic) of
+        CIdOrClientId ->
+            {Mtns, ClientId} = emqx_mtns:parse_cid(CIdOrClientId),
+            case emqx_mgmt:unsubscribe(Mtns, ClientId, Topic) of
                 {unsubscribe, _} ->
                     ok;
                 {error, channel_not_found} ->

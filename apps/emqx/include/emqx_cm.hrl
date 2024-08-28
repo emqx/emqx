@@ -40,7 +40,7 @@
     (is_tuple(CID) andalso tuple_size(CID) == 2 andalso ?IS_CLIENTID(element(2, CID)))
 ).
 
--define(DEFAULT_NAMESPACE_NAME, undefined).
+-define(NO_MTNS, undefined).
 
 -define(WITH_EMPTY_MTNS(ClientId), {undefined, ClientId}).
 

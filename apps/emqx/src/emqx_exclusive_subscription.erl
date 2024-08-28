@@ -30,7 +30,7 @@
 -export([
     check_subscribe/2,
     unsubscribe/2,
-    dirty_lookup_clientid/1,
+    dirty_lookup_cid/1,
     clear/0
 ]).
 
@@ -41,7 +41,8 @@
 
 -record(exclusive_subscription, {
     topic :: emqx_types:topic(),
-    clientid :: emqx_types:clientid()
+    %% Note: before 5.8.0 this field data type is `emqx_types:clientid()`
+    cid :: emqx_types:cid() | emqx_types:clientid()
 }).
 
 -define(TAB, emqx_exclusive_subscription).
@@ -83,13 +84,17 @@ on_delete_module() ->
 %%--------------------------------------------------------------------
 -spec check_subscribe(emqx_types:clientinfo(), emqx_types:topic()) ->
     allow | deny.
-check_subscribe(#{clientid := ClientId}, Topic) ->
-    case mria:transaction(?EXCLUSIVE_SHARD, fun ?MODULE:try_subscribe/2, [ClientId, Topic]) of
+check_subscribe(ClientInfo, Topic) ->
+    CId = emqx_mtns:cid(ClientInfo),
+    case mria:transaction(?EXCLUSIVE_SHARD, fun ?MODULE:try_subscribe/2, [CId, Topic]) of
         {atomic, Res} ->
             Res;
         {aborted, Reason} ->
             ?SLOG(warning, #{
-                msg => "check_subscribe_aborted", topic => Topic, reason => Reason
+                msg => "check_subscribe_aborted",
+                topic => Topic,
+                reason => Reason,
+                clientid => maps:get(clientid, ClientInfo)
             }),
             deny
     end.
@@ -100,10 +105,11 @@ unsubscribe(Topic, #{is_exclusive := true}) ->
 unsubscribe(_Topic, _SubOpts) ->
     ok.
 
-dirty_lookup_clientid(Topic) ->
+-spec dirty_lookup_cid(emqx_types:topic()) -> emqx_types:cid() | emqx_types:clientid() | undefined.
+dirty_lookup_cid(Topic) ->
     case mnesia:dirty_read(?TAB, Topic) of
-        [#exclusive_subscription{clientid = ClientId}] ->
-            ClientId;
+        [#exclusive_subscription{cid = CId}] ->
+            CId;
         _ ->
             undefined
     end.
@@ -114,19 +120,19 @@ clear() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-try_subscribe(ClientId, Topic) ->
+try_subscribe(CId, Topic) ->
     case mnesia:wread({?TAB, Topic}) of
         [] ->
             mnesia:write(
                 ?TAB,
                 #exclusive_subscription{
-                    clientid = ClientId,
+                    cid = CId,
                     topic = Topic
                 },
                 write
             ),
             allow;
-        [#exclusive_subscription{clientid = ClientId, topic = Topic}] ->
+        [#exclusive_subscription{cid = CId, topic = Topic}] ->
             %% Fixed the issue-13476
             %% In this feature, the user must manually call `unsubscribe` to release the lock,
             %% but sometimes the node may go down for some reason,
