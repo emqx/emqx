@@ -51,3 +51,48 @@ ensure_acl_conf() ->
         true -> ok;
         false -> file:write_file(File, <<"">>)
     end.
+
+injected_roots_test() ->
+    ExpectedRoots = lists:usort(ee_schema_roots()),
+    InjectedRoots = lists:usort([Root || {Root, _Sc} <- emqx_enterprise_schema:roots()]),
+    MissingRoots = ExpectedRoots -- InjectedRoots,
+    ?assertEqual([], MissingRoots, #{
+        expected_roots => ExpectedRoots,
+        injected_roots => InjectedRoots,
+        hint =>
+            <<
+                "maybe there's a missing schema module to be added to"
+                " `EE_SCHEMA_MODULES' or `EXTRA_SCHEMA_MODULES' in"
+                " `emqx_enterprise_schema'"
+            >>
+    }),
+    ok.
+
+ee_schema_roots() ->
+    lists:foldl(
+        fun(Filepath, Acc) ->
+            ["apps", App | _] = filename:split(Filepath),
+            Mod = module(Filepath),
+            case is_ee(App) andalso has_roots(Mod) of
+                true ->
+                    Roots = [Root || {Root, _Sc} <- Mod:roots()],
+                    Roots ++ Acc;
+                false ->
+                    Acc
+            end
+        end,
+        [],
+        filelib:wildcard("apps/*/src/**/*_schema.erl")
+    ).
+
+is_ee(App) ->
+    filelib:is_file(filename:join(["apps", App, "BSL.txt"])).
+
+module(Filepath) ->
+    ModStr = filename:basename(Filepath, ".erl"),
+    list_to_atom(ModStr).
+
+has_roots(Mod) ->
+    _ = Mod:module_info(),
+    erlang:function_exported(Mod, roots, 0) andalso
+        Mod:roots() =/= [].
