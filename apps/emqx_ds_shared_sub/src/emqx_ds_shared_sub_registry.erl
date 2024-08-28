@@ -15,6 +15,11 @@
     start_elector/1
 ]).
 
+%% Tests only
+-export([
+    purge/0
+]).
+
 -behaviour(supervisor).
 -export([init/1]).
 
@@ -64,6 +69,14 @@ start_elector(ShareTopic) ->
         type => worker,
         shutdown => 5000
     }).
+
+-spec purge() -> ok.
+purge() ->
+    Children = supervisor:which_children(?MODULE),
+    lists:foreach(
+        fun({ChildID, _, _, _}) -> supervisor:terminate_child(?MODULE, ChildID) end,
+        Children
+    ).
 
 %%------------------------------------------------------------------------------
 %% supervisor behaviour callbacks

@@ -66,7 +66,7 @@ init_per_testcase(_TC, Config) ->
 
 end_per_testcase(_TC, _Config) ->
     ok = snabbkaffe:stop(),
-    ok = terminate_leaders(),
+    ok = emqx_ds_shared_sub_registry:purge(),
     ok.
 %%--------------------------------------------------------------------
 %% Tests

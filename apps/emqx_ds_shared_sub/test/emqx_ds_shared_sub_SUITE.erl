@@ -60,7 +60,7 @@ init_per_testcase(TC, Config) ->
 
 end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
-    ok = terminate_leaders(),
+    ok = emqx_ds_shared_sub_registry:purge(),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
 declare_queue(Group, Topic, Config) ->
@@ -258,7 +258,7 @@ t_leader_state_preserved(_Config) ->
             ok = emqtt:disconnect(ConnShared2),
 
             %% Equivalent to node restart.
-            ok = terminate_leaders(),
+            ok = emqx_ds_shared_sub_registry:purge(),
             ok = timer:sleep(1_000),
 
             {ok, _} = emqtt:publish(ConnPub, <<"topic42/1/2">>, <<"hello3">>, 1),
@@ -580,7 +580,7 @@ t_renew_lease_timeout(_Config) ->
 
     ?check_trace(
         ?wait_async_action(
-            ok = terminate_leaders(),
+            ok = emqx_ds_shared_sub_registry:purge(),
             #{?snk_kind := leader_lease_streams},
             10_000
         ),
@@ -622,11 +622,6 @@ emqtt_connect_pub(ClientId) ->
     ]),
     {ok, _} = emqtt:connect(C),
     C.
-
-terminate_leaders() ->
-    ok = supervisor:terminate_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
-    {ok, _} = supervisor:restart_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
-    ok.
 
 publish_n(_Conn, _Topics, From, To) when From > To ->
     ok;
