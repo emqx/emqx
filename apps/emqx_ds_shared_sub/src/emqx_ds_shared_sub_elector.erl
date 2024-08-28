@@ -21,7 +21,7 @@
 
 %% Internal API
 -export([
-    start_link/2
+    start_link/1
 ]).
 
 -behaviour(gen_server).
@@ -37,8 +37,8 @@
 %% Internal API
 %%--------------------------------------------------------------------
 
-start_link(ShareTopic, StartTime) ->
-    gen_server:start_link(?MODULE, {elect, ShareTopic, StartTime}, []).
+start_link(ShareTopic) ->
+    gen_server:start_link(?MODULE, {elect, ShareTopic}, []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -50,15 +50,15 @@ start_link(ShareTopic, StartTime) ->
     alive_until :: non_neg_integer()
 }).
 
-init(Elect = {elect, _ShareTopic, _StartTime}) ->
+init(Elect = {elect, _ShareTopic}) ->
     %% NOTE
     %% Important to have it here, because this process can become
     %% `emqx_ds_shared_sub_leader`, which has `terminate/2` logic.
     _ = erlang:process_flag(trap_exit, true),
     {ok, #{}, {continue, Elect}}.
 
-handle_continue({elect, ShareTopic, StartTime}, _State) ->
-    elect(ShareTopic, StartTime).
+handle_continue({elect, ShareTopic}, _State) ->
+    elect(ShareTopic, _TS = emqx_message:timestamp_now()).
 
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
@@ -78,16 +78,16 @@ handle_info({timeout, _TRef, invalidate}, State) ->
 %%--------------------------------------------------------------------
 
 elect(ShareTopic, TS) ->
-    Group = emqx_ds_shared_sub_leader:group_name(ShareTopic),
-    case emqx_ds_shared_sub_store:claim_leadership(Group, _Leader = self(), TS) of
+    StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopic),
+    case emqx_ds_shared_sub_store:claim_leadership(StoreID, _Leader = self(), TS) of
         {ok, LeaderClaim} ->
             %% Become the leader.
             ?tp(debug, shared_sub_elector_becomes_leader, #{
                 id => ShareTopic,
-                group => Group,
+                store => StoreID,
                 leader => LeaderClaim
             }),
-            emqx_ds_shared_sub_leader:become(ShareTopic, TS, LeaderClaim);
+            emqx_ds_shared_sub_leader:become(ShareTopic, LeaderClaim);
         {exists, LeaderClaim} ->
             %% Turn into the follower that redirects connect requests to the leader
             %% while it's considered alive. Note that the leader may in theory decide
@@ -95,7 +95,7 @@ elect(ShareTopic, TS) ->
             AliveUntil = emqx_ds_shared_sub_store:alive_until(LeaderClaim),
             ?tp(debug, shared_sub_elector_becomes_follower, #{
                 id => ShareTopic,
-                group => Group,
+                store => StoreID,
                 leader => LeaderClaim,
                 until => AliveUntil
             }),
@@ -110,7 +110,7 @@ elect(ShareTopic, TS) ->
         {error, Class, Reason} = Error ->
             ?tp(warning, "Shared subscription leader election failed", #{
                 id => ShareTopic,
-                group => Group,
+                store => StoreID,
                 error => Error
             }),
             case Class of

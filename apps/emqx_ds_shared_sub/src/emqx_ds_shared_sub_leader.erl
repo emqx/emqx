@@ -14,11 +14,7 @@
 
 -export([
     start_link/1,
-    become/3
-]).
-
--export([
-    group_name/1
+    become/2
 ]).
 
 -behaviour(gen_statem).
@@ -99,8 +95,9 @@
 start_link(Options) ->
     gen_statem:start_link(?MODULE, [Options], []).
 
-become(ShareTopicFilter, StartTime, Claim) ->
-    Data0 = init_data(ShareTopicFilter, StartTime),
+become(ShareTopicFilter, Claim) ->
+    Data0 = init_data(ShareTopicFilter),
+    Data0 =/= false orelse exit(shared_subscription_not_declared),
     Data1 = attach_claim(Claim, Data0),
     case store_is_dirty(Data1) of
         true ->
@@ -111,13 +108,6 @@ become(ShareTopicFilter, StartTime, Claim) ->
     gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, Actions).
 
 %%--------------------------------------------------------------------
-
-group_name(#share{group = ShareGroup, topic = Topic}) ->
-    %% NOTE: Should not contain `/`s.
-    %% TODO: More observable encoding.
-    iolist_to_binary([ShareGroup, $:, binary:encode_hex(Topic)]).
-
-%%--------------------------------------------------------------------
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
 
@@ -125,30 +115,27 @@ callback_mode() -> [handle_event_function, state_enter].
 
 init([#{share_topic_filter := ShareTopicFilter} = _Options]) ->
     _ = erlang:process_flag(trap_exit, true),
-    Data = init_data(ShareTopicFilter, now_ms()),
+    Data = init_data(ShareTopicFilter),
+    Data =/= false orelse exit(shared_subscription_not_declared),
     {ok, ?leader_active, Data}.
 
-init_data(#share{topic = Topic} = ShareTopicFilter, StartTime) ->
-    Group = group_name(ShareTopicFilter),
-    case emqx_ds_shared_sub_store:open(Group) of
+init_data(#share{topic = Topic} = ShareTopicFilter) ->
+    StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
+    case emqx_ds_shared_sub_store:open(StoreID) of
         Store when Store =/= false ->
-            ?tp(debug, shared_sub_leader_store_open, #{topic => ShareTopicFilter, store => Store}),
-            ok;
+            ?tp(debug, dssub_store_open, #{topic => ShareTopicFilter, store => Store}),
+            #{
+                group_id => ShareTopicFilter,
+                topic => Topic,
+                store => Store,
+                stream_owners => #{},
+                agents => #{}
+            };
         false ->
-            %% TODO: No leader store -> no subscription
-            ?tp(debug, shared_sub_leader_store_init, #{topic => ShareTopicFilter}),
-            RankProgress = emqx_ds_shared_sub_leader_rank_progress:init(),
-            Store0 = emqx_ds_shared_sub_store:init(Group),
-            Store1 = emqx_ds_shared_sub_store:set(start_time, StartTime, Store0),
-            Store = emqx_ds_shared_sub_store:set(rank_progress, RankProgress, Store1)
-    end,
-    #{
-        group_id => ShareTopicFilter,
-        topic => Topic,
-        store => Store,
-        stream_owners => #{},
-        agents => #{}
-    }.
+            %% NOTE: No leader store -> no subscription
+            ?tp(warning, dssub_store_notfound, #{topic => ShareTopicFilter}),
+            false
+    end.
 
 attach_claim(Claim, Data) ->
     Data#{leader_claim => Claim}.
@@ -258,12 +245,12 @@ terminate(
     %% NOTE
     %% Call to `commit_dirty/2` will currently block.
     %% On the other hand, call to `disown_leadership/1` should be non-blocking.
-    Group = group_name(ShareTopicFilter),
+    StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
     Result = emqx_ds_shared_sub_store:commit_dirty(Claim, Store),
-    ok = emqx_ds_shared_sub_store:disown_leadership(Group, Claim),
+    ok = emqx_ds_shared_sub_store:disown_leadership(StoreID, Claim),
     ?tp(shared_sub_leader_store_committed_dirty, #{
         id => ShareTopicFilter,
-        group => Group,
+        store => StoreID,
         claim => Claim,
         result => Result
     }).
@@ -276,12 +263,11 @@ terminate(
 
 renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leader_claim := Claim}) ->
     TS = emqx_message:timestamp_now(),
-    Group = group_name(ShareTopicFilter),
     case emqx_ds_shared_sub_store:commit_renew(Claim, TS, Store0) of
         {ok, RenewedClaim, CommittedStore} ->
             ?tp(shared_sub_leader_store_committed, #{
                 id => ShareTopicFilter,
-                group => Group,
+                store => emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
                 claim => Claim,
                 renewed => RenewedClaim
             }),
@@ -289,7 +275,7 @@ renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leade
         {error, Class, Reason} = Error ->
             ?tp(warning, "Shared subscription leader store commit failed", #{
                 id => ShareTopicFilter,
-                group => Group,
+                store => emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
                 claim => Claim,
                 reason => Reason
             }),
@@ -934,9 +920,6 @@ agent_transition_to_updating(Agent, #{state := ?waiting_updating} = AgentState0)
 %% Helper functions
 %%--------------------------------------------------------------------
 
-now_ms() ->
-    erlang:system_time(millisecond).
-
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
 
@@ -1099,7 +1082,8 @@ store_put_rank_progress(Data = #{store := Store0}, RankProgress) ->
     Data#{store := Store}.
 
 store_get_start_time(#{store := Store}) ->
-    emqx_ds_shared_sub_store:get(start_time, Store).
+    Props = emqx_ds_shared_sub_store:get(properties, Store),
+    maps:get(start_time, Props).
 
 store_num_streams(#{store := Store}) ->
     emqx_ds_shared_sub_store:size(stream, Store).

@@ -460,7 +460,7 @@ create(Store) ->
         ok ->
             {ok, Store#{stage := #{}}};
         {error, unrecoverable, {precondition_failed, _Mismatch}} ->
-            {error, exists};
+            exists;
         Error ->
             Error
     end.

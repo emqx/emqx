@@ -12,7 +12,7 @@
 
 -export([
     leader_wanted/3,
-    start_elector/2
+    start_elector/1
 ]).
 
 -behaviour(supervisor).
@@ -47,19 +47,19 @@ leader_wanted(Agent, AgentMetadata, ShareTopic) ->
 -spec ensure_elector_started(emqx_persistent_session_ds:share_topic_filter()) ->
     {ok, pid()}.
 ensure_elector_started(ShareTopic) ->
-    case start_elector(ShareTopic, _StartTime = emqx_message:timestamp_now()) of
+    case start_elector(ShareTopic) of
         {ok, Pid} ->
             {ok, Pid};
         {error, {already_started, Pid}} when is_pid(Pid) ->
             {ok, Pid}
     end.
 
--spec start_elector(emqx_persistent_session_ds:share_topic_filter(), emqx_message:timestamp()) ->
+-spec start_elector(emqx_persistent_session_ds:share_topic_filter()) ->
     supervisor:startchild_ret().
-start_elector(ShareTopic, StartTime) ->
+start_elector(ShareTopic) ->
     supervisor:start_child(?MODULE, #{
         id => ShareTopic,
-        start => {emqx_ds_shared_sub_elector, start_link, [ShareTopic, StartTime]},
+        start => {emqx_ds_shared_sub_elector, start_link, [ShareTopic]},
         restart => temporary,
         type => worker,
         shutdown => 5000
