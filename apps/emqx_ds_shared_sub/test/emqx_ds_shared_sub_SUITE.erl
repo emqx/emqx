@@ -54,18 +54,38 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
-init_per_testcase(_TC, Config) ->
+init_per_testcase(TC, Config) ->
     ok = snabbkaffe:start_trace(),
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config).
 
-end_per_testcase(_TC, _Config) ->
+end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
     ok = terminate_leaders(),
-    ok.
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
+
+declare_queue(Group, Topic, Config) ->
+    Now = emqx_message:timestamp_now(),
+    {ok, Queue} = emqx_ds_shared_sub_queue:declare(Group, Topic, Now, _StartTime = 0),
+    [
+        {queue_group, Group},
+        {queue_topic, Topic},
+        {queue, Queue}
+        | Config
+    ].
+
+destroy_queue(Config) ->
+    Group = proplists:get_value(queue_group, Config),
+    Topic = proplists:get_value(queue_topic, Config),
+    ok = emqx_ds_shared_sub_queue:destroy(Group, Topic).
+
+t_lease_initial('init', Config) ->
+    declare_queue(<<"gr1">>, <<"topic1/#">>, Config);
+t_lease_initial('end', Config) ->
+    destroy_queue(Config).
 
 t_lease_initial(_Config) ->
     ConnShared = emqtt_connect_sub(<<"client_shared">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared, <<"$share/gr1/topic1/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr1/topic1/#">>, 1),
 
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -79,12 +99,17 @@ t_lease_initial(_Config) ->
     ok = emqtt:disconnect(ConnShared),
     ok = emqtt:disconnect(ConnPub).
 
+t_two_clients('init', Config) ->
+    declare_queue(<<"gr4">>, <<"topic4/#">>, Config);
+t_two_clients('end', Config) ->
+    destroy_queue(Config).
+
 t_two_clients(_Config) ->
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr4/topic4/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr4/topic4/#">>, 1),
 
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr4/topic4/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr4/topic4/#">>, 1),
 
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -103,20 +128,24 @@ t_two_clients(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
-t_client_loss(_Config) ->
-    process_flag(trap_exit, true),
+t_client_loss('init', Config) ->
+    declare_queue(<<"gr5">>, <<"topic5/#">>, Config);
+t_client_loss('end', Config) ->
+    destroy_queue(Config).
 
+t_client_loss(_Config) ->
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr5/topic5/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr5/topic5/#">>, 1),
 
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr5/topic5/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr5/topic5/#">>, 1),
 
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     {ok, _} = emqtt:publish(ConnPub, <<"topic5/1">>, <<"hello1">>, 1),
     {ok, _} = emqtt:publish(ConnPub, <<"topic5/2">>, <<"hello2">>, 1),
 
+    true = unlink(ConnShared1),
     exit(ConnShared1, kill),
 
     {ok, _} = emqtt:publish(ConnPub, <<"topic5/1">>, <<"hello3">>, 1),
@@ -128,11 +157,14 @@ t_client_loss(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
-t_stream_revoke(_Config) ->
-    process_flag(trap_exit, true),
+t_stream_revoke('init', Config) ->
+    declare_queue(<<"gr6">>, <<"topic6/#">>, Config);
+t_stream_revoke('end', Config) ->
+    destroy_queue(Config).
 
+t_stream_revoke(_Config) ->
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr6/topic6/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr6/topic6/#">>, 1),
 
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -145,7 +177,7 @@ t_stream_revoke(_Config) ->
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
 
     ?assertWaitEvent(
-        {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr6/topic6/#">>, 1),
+        {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr6/topic6/#">>, 1),
         #{
             ?snk_kind := shared_sub_group_sm_leader_update_streams,
             stream_progresses := [_ | _],
@@ -164,12 +196,17 @@ t_stream_revoke(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
+t_graceful_disconnect('init', Config) ->
+    declare_queue(<<"gr4">>, <<"topic7/#">>, Config);
+t_graceful_disconnect('end', Config) ->
+    destroy_queue(Config).
+
 t_graceful_disconnect(_Config) ->
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr4/topic7/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr4/topic7/#">>, 1),
 
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr4/topic7/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr4/topic7/#">>, 1),
 
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -196,14 +233,19 @@ t_graceful_disconnect(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
+t_leader_state_preserved('init', Config) ->
+    declare_queue(<<"lsp">>, <<"topic42/#">>, Config);
+t_leader_state_preserved('end', Config) ->
+    destroy_queue(Config).
+
 t_leader_state_preserved(_Config) ->
     ?check_trace(
         begin
             ConnShared1 = emqtt_connect_sub(<<"client1">>),
-            {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/lsp/topic42/#">>, 1),
+            {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/lsp/topic42/#">>, 1),
 
             ConnShared2 = emqtt_connect_sub(<<"client2">>),
-            {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/lsp/topic42/#">>, 1),
+            {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/lsp/topic42/#">>, 1),
 
             ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
@@ -223,7 +265,7 @@ t_leader_state_preserved(_Config) ->
             {ok, _} = emqtt:publish(ConnPub, <<"topic42/3/4">>, <<"hello4">>, 1),
 
             ConnShared3 = emqtt_connect_sub(<<"client3">>),
-            {ok, _, _} = emqtt:subscribe(ConnShared3, <<"$share/lsp/topic42/#">>, 1),
+            {ok, _, [1]} = emqtt:subscribe(ConnShared3, <<"$share/lsp/topic42/#">>, 1),
 
             ?assertReceive({publish, #{payload := <<"hello3">>}}, 2_000),
             ?assertReceive({publish, #{payload := <<"hello4">>}}, 2_000),
@@ -234,11 +276,16 @@ t_leader_state_preserved(_Config) ->
         []
     ).
 
+t_intensive_reassign('init', Config) ->
+    declare_queue(<<"gr8">>, <<"topic8/#">>, Config);
+t_intensive_reassign('end', Config) ->
+    destroy_queue(Config).
+
 t_intensive_reassign(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr8/topic8/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr8/topic8/#">>, 1),
 
     ct:sleep(1000),
 
@@ -255,8 +302,8 @@ t_intensive_reassign(_Config) ->
 
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
     ConnShared3 = emqtt_connect_sub(<<"client_shared3">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr8/topic8/#">>, 1),
-    {ok, _, _} = emqtt:subscribe(ConnShared3, <<"$share/gr8/topic8/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr8/topic8/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared3, <<"$share/gr8/topic8/#">>, 1),
 
     receive
         publish_done -> ok
@@ -282,11 +329,16 @@ t_intensive_reassign(_Config) ->
     ok = emqtt:disconnect(ConnShared3),
     ok = emqtt:disconnect(ConnPub).
 
+t_unsubscribe('init', Config) ->
+    declare_queue(<<"gr9">>, <<"topic9/#">>, Config);
+t_unsubscribe('end', Config) ->
+    destroy_queue(Config).
+
 t_unsubscribe(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr9/topic9/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr9/topic9/#">>, 1),
 
     ct:sleep(1000),
 
@@ -302,7 +354,7 @@ t_unsubscribe(_Config) ->
     end),
 
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr9/topic9/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr9/topic9/#">>, 1),
     {ok, _, _} = emqtt:unsubscribe(ConnShared1, <<"$share/gr9/topic9/#">>),
 
     receive
@@ -327,11 +379,16 @@ t_unsubscribe(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
+t_quick_resubscribe('init', Config) ->
+    declare_queue(<<"gr10">>, <<"topic10/#">>, Config);
+t_quick_resubscribe('end', Config) ->
+    destroy_queue(Config).
+
 t_quick_resubscribe(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr10/topic10/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr10/topic10/#">>, 1),
 
     ct:sleep(1000),
 
@@ -347,11 +404,11 @@ t_quick_resubscribe(_Config) ->
     end),
 
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr10/topic10/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr10/topic10/#">>, 1),
     ok = lists:foreach(
         fun(_) ->
             {ok, _, _} = emqtt:unsubscribe(ConnShared1, <<"$share/gr10/topic10/#">>),
-            {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr10/topic10/#">>, 1),
+            {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr10/topic10/#">>, 1),
             ct:sleep(5)
         end,
         lists:seq(1, 10)
@@ -379,14 +436,19 @@ t_quick_resubscribe(_Config) ->
     ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
+t_disconnect_no_double_replay1('init', Config) ->
+    declare_queue(<<"gr11">>, <<"topic11/#">>, Config);
+t_disconnect_no_double_replay1('end', Config) ->
+    destroy_queue(Config).
+
 t_disconnect_no_double_replay1(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr11/topic11/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr11/topic11/#">>, 1),
 
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared2, <<"$share/gr11/topic11/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr11/topic11/#">>, 1),
 
     ct:sleep(1000),
 
@@ -427,11 +489,16 @@ t_disconnect_no_double_replay1(_Config) ->
     ok = emqtt:disconnect(ConnShared1),
     ok = emqtt:disconnect(ConnPub).
 
+t_disconnect_no_double_replay2('init', Config) ->
+    declare_queue(<<"gr12">>, <<"topic12/#">>, Config);
+t_disconnect_no_double_replay2('end', Config) ->
+    destroy_queue(Config).
+
 t_disconnect_no_double_replay2(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>, [{auto_ack, false}]),
-    {ok, _, _} = emqtt:subscribe(ConnShared1, <<"$share/gr12/topic12/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr12/topic12/#">>, 1),
 
     ct:sleep(1000),
 
@@ -447,7 +514,7 @@ t_disconnect_no_double_replay2(_Config) ->
     ok = emqtt:disconnect(ConnShared1),
 
     ConnShared12 = emqtt_connect_sub(<<"client_shared12">>),
-    {ok, _, _} = emqtt:subscribe(ConnShared12, <<"$share/gr12/topic12/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared12, <<"$share/gr12/topic12/#">>, 1),
 
     %% We cannnot garantee that the message is not duplicated until we are able
     %% to send progress of a partially replayed stream range to the leader.
@@ -459,23 +526,33 @@ t_disconnect_no_double_replay2(_Config) ->
     ok = emqtt:disconnect(ConnShared12),
     ok = emqtt:disconnect(ConnPub).
 
+t_lease_reconnect('init', Config) ->
+    declare_queue(<<"gr2">>, <<"topic2/#">>, Config);
+t_lease_reconnect('end', Config) ->
+    meck:unload(),
+    destroy_queue(Config).
+
 t_lease_reconnect(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared = emqtt_connect_sub(<<"client_shared">>),
 
     %% Simulate unability to find leader.
-    ok = emqx_ds_shared_sub_store:close(),
+    ok = meck:expect(
+        emqx_ds_shared_sub_store,
+        claim_leadership,
+        fun(_, _, _) -> {error, recoverable, {mocked, ?MODULE}} end
+    ),
 
     ?assertWaitEvent(
-        {ok, _, _} = emqtt:subscribe(ConnShared, <<"$share/gr2/topic2/#">>, 1),
+        {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr2/topic2/#">>, 1),
         #{?snk_kind := group_sm_find_leader_timeout},
         5_000
     ),
 
     %% Agent should retry after some time and find the leader.
     ?assertWaitEvent(
-        ok = emqx_ds_shared_sub_store:open(),
+        ok = meck:unload(emqx_ds_shared_sub_store),
         #{?snk_kind := leader_lease_streams},
         5_000
     ),
@@ -487,11 +564,16 @@ t_lease_reconnect(_Config) ->
     ok = emqtt:disconnect(ConnShared),
     ok = emqtt:disconnect(ConnPub).
 
+t_renew_lease_timeout('init', Config) ->
+    declare_queue(<<"gr3">>, <<"topic3/#">>, Config);
+t_renew_lease_timeout('end', Config) ->
+    destroy_queue(Config).
+
 t_renew_lease_timeout(_Config) ->
     ConnShared = emqtt_connect_sub(<<"client_shared">>),
 
     ?assertWaitEvent(
-        {ok, _, _} = emqtt:subscribe(ConnShared, <<"$share/gr3/topic3/#">>, 1),
+        {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr3/topic3/#">>, 1),
         #{?snk_kind := leader_lease_streams},
         5_000
     ),
