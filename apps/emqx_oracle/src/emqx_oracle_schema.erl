@@ -19,7 +19,7 @@
 namespace() -> oracle.
 
 roots() ->
-    [{config, #{type => hoconsc:ref(?REF_MODULE, config)}}].
+    [].
 
 fields(config) ->
     Fields =
