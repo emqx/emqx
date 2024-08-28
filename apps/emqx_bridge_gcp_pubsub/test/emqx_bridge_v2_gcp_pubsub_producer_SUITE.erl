@@ -14,6 +14,8 @@
 -define(CONNECTOR_TYPE_BIN, <<"gcp_pubsub_producer">>).
 -define(ACTION_TYPE_BIN, <<"gcp_pubsub_producer">>).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -65,7 +67,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_common_test_helpers:call_janitor(60_000),
+    emqx_common_test_helpers:call_janitor(),
     ok = snabbkaffe:stop(),
     ok.
 
@@ -136,6 +138,60 @@ assert_persisted_service_account_json_is_binary(ConnectorName) ->
         )
     ),
     ok.
+
+setup_mock_gcp_server() ->
+    OriginalHostPort = os:getenv("PUBSUB_EMULATOR_HOST"),
+    {ok, _Server} = emqx_bridge_gcp_pubsub_producer_SUITE:start_echo_http_server(),
+    persistent_term:put({emqx_bridge_gcp_pubsub_client, transport}, tls),
+    on_exit(fun() ->
+        ok = emqx_bridge_http_connector_test_server:stop(),
+        persistent_term:erase({emqx_bridge_gcp_pubsub_client, transport}),
+        true = os:putenv("PUBSUB_EMULATOR_HOST", OriginalHostPort)
+    end),
+    ok.
+
+%% Only for errors
+fixed_status_handler(StatusCode, FailureAttempts) ->
+    Tid = ets:new(requests, [public]),
+    GetAndBump = fun(Method, Path, Body) ->
+        K = {Method, Path, Body},
+        ets:update_counter(Tid, K, 1, {K, 0})
+    end,
+    fun(Req0, State) ->
+        case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
+            {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
+                Rep = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    <<"{}">>,
+                    Req0
+                ),
+                {ok, Rep, State};
+            {Method, Path} ->
+                {ok, Body, Req} = cowboy_req:read_body(Req0),
+                N = GetAndBump(Method, Path, Body),
+                Rep =
+                    case N > FailureAttempts of
+                        false ->
+                            ?tp(request_fail, #{body => Body, method => Method, path => Path}),
+                            cowboy_req:reply(
+                                StatusCode,
+                                #{<<"content-type">> => <<"application/json">>},
+                                emqx_utils_json:encode(#{<<"gcp">> => <<"is down">>}),
+                                Req
+                            );
+                        true ->
+                            ?tp(retry_succeeded, #{body => Body, method => Method, path => Path}),
+                            cowboy_req:reply(
+                                200,
+                                #{<<"content-type">> => <<"application/json">>},
+                                emqx_utils_json:encode(#{<<"gcp">> => <<"is back up">>}),
+                                Req
+                            )
+                    end,
+                {ok, Rep, State}
+        end
+    end.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -208,6 +264,64 @@ t_bad_topic(Config) ->
             ?assertMatch(match, re:run(Msg, <<"Topic does not exist">>, [{capture, none}]), #{
                 msg => Msg
             }),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Verifies the backoff and retry behavior when we receive a 502 or 503 error back.
+t_backoff_retry(Config) ->
+    setup_mock_gcp_server(),
+    ActionName = ?config(action_name, Config),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            ?assertMatch(
+                {ok, {{_, 201, _}, _, #{}}},
+                emqx_bridge_v2_testlib:create_bridge_api(
+                    Config,
+                    #{
+                        <<"resource_opts">> => #{
+                            <<"health_check_interval">> => <<"1s">>,
+                            <<"resume_interval">> => <<"1s">>
+                        }
+                    }
+                )
+            ),
+            RuleTopic = <<"backoff/retry">>,
+            {ok, _} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(
+                    ?ACTION_TYPE_BIN, RuleTopic, Config
+                ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {ok,
+                        {{_, 200, _}, _, #{
+                            <<"status">> := <<"connected">>
+                        }}},
+                    emqx_bridge_v2_testlib:get_bridge_api(?ACTION_TYPE_BIN, ActionName)
+                )
+            ),
+            {ok, C} = emqtt:start_link(#{}),
+            {ok, _} = emqtt:connect(C),
+
+            ok = emqx_bridge_http_connector_test_server:set_handler(fixed_status_handler(502, 2)),
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, <<"{}">>, [{qos, 1}]),
+                    #{?snk_kind := retry_succeeded}
+                ),
+
+            ok = emqx_bridge_http_connector_test_server:set_handler(fixed_status_handler(503, 2)),
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, <<"{}">>, [{qos, 1}]),
+                    #{?snk_kind := retry_succeeded}
+                ),
+
             ok
         end,
         []

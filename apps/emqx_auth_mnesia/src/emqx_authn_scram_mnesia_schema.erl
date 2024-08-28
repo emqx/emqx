@@ -29,6 +29,8 @@
     select_union_member/1
 ]).
 
+-export([algorithm/1, iteration_count/1]).
+
 namespace() -> "authn".
 
 refs() ->
@@ -38,11 +40,6 @@ select_union_member(#{
     <<"mechanism">> := ?AUTHN_MECHANISM_SCRAM_BIN, <<"backend">> := ?AUTHN_BACKEND_BIN
 }) ->
     refs();
-select_union_member(#{<<"mechanism">> := ?AUTHN_MECHANISM_SCRAM_BIN}) ->
-    throw(#{
-        reason => "unknown_backend",
-        expected => ?AUTHN_BACKEND
-    });
 select_union_member(_) ->
     undefined.
 

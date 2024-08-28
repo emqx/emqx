@@ -78,6 +78,7 @@
     start_epmd/0,
     start_peer/2,
     stop_peer/1,
+    ebin_path/0,
     listener_port/2
 ]).
 
@@ -404,14 +405,9 @@ do_safe_relative_path(Path) ->
         OK -> OK
     end.
 
--if(?OTP_RELEASE < 23).
-safe_relative_path_2(Path) ->
-    filename:safe_relative_path(Path).
--else.
 safe_relative_path_2(Path) ->
     {ok, Cwd} = file:get_cwd(),
     filelib:safe_relative_path(Path, Cwd).
--endif.
 
 -spec reload(App :: atom(), SpecAppConfig :: special_config_handler()) -> ok.
 reload(App, SpecAppConfigHandler) ->

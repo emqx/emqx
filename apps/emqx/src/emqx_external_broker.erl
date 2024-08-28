@@ -43,7 +43,9 @@
     add_shared_route/2,
     delete_shared_route/2,
     add_persistent_route/2,
-    delete_persistent_route/2
+    delete_persistent_route/2,
+    add_persistent_shared_route/3,
+    delete_persistent_shared_route/3
 ]).
 
 -export_type([dest/0]).
@@ -128,6 +130,12 @@ add_persistent_route(Topic, ID) ->
 
 delete_persistent_route(Topic, ID) ->
     ?safe_with_provider(?FUNCTION_NAME(Topic, ID), ok).
+
+add_persistent_shared_route(Topic, Group, ID) ->
+    ?safe_with_provider(?FUNCTION_NAME(Topic, Group, ID), ok).
+
+delete_persistent_shared_route(Topic, Group, ID) ->
+    ?safe_with_provider(?FUNCTION_NAME(Topic, Group, ID), ok).
 
 %%--------------------------------------------------------------------
 %% Internal functions

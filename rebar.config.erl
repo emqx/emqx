@@ -99,6 +99,7 @@ is_community_umbrella_app("apps/emqx_bridge_tdengine") -> false;
 is_community_umbrella_app("apps/emqx_bridge_timescale") -> false;
 is_community_umbrella_app("apps/emqx_bridge_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_sqlserver") -> false;
+is_community_umbrella_app("apps/emqx_bridge_datalayers") -> false;
 is_community_umbrella_app("apps/emqx_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rabbitmq") -> false;
 is_community_umbrella_app("apps/emqx_ft") -> false;
@@ -126,6 +127,7 @@ is_community_umbrella_app("apps/emqx_ds_shared_sub") -> false;
 is_community_umbrella_app("apps/emqx_auth_ext") -> false;
 is_community_umbrella_app("apps/emqx_cluster_link") -> false;
 is_community_umbrella_app("apps/emqx_ds_builtin_raft") -> false;
+is_community_umbrella_app("apps/emqx_auth_kerberos") -> false;
 is_community_umbrella_app(_) -> true.
 
 %% BUILD_WITHOUT_JQ
@@ -185,7 +187,7 @@ project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
 
 plugins() ->
     [
-        %{relup_helper, {git, "https://github.com/emqx/relup_helper", {tag, "2.1.0"}}},
+        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.1"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "v1.14.0"}
@@ -222,6 +224,7 @@ common_compile_opts(Edition, _RelType, Vsn) ->
         {d, 'EMQX_RELEASE_EDITION', Edition}
     ] ++
         [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
+        [{d, 'STORE_STATE_IN_DS'} || os:getenv("STORE_STATE_IN_DS") =:= "1"] ++
         [{d, 'BUILD_WITHOUT_QUIC'} || not is_quicer_supported()].
 
 warn_profile_env() ->
@@ -393,9 +396,9 @@ overlay_vars_pkg(bin) ->
         {platform_etc_dir, "etc"},
         {platform_plugins_dir, "plugins"},
         {runner_bin_dir, "$RUNNER_ROOT_DIR/bin"},
-        {emqx_etc_dir, "$RUNNER_ROOT_DIR/etc"},
+        {emqx_etc_dir, "$BASE_RUNNER_ROOT_DIR/etc"},
         {runner_lib_dir, "$RUNNER_ROOT_DIR/lib"},
-        {runner_log_dir, "$RUNNER_ROOT_DIR/log"},
+        {runner_log_dir, "$BASE_RUNNER_ROOT_DIR/log"},
         {runner_user, ""},
         {is_elixir, "no"}
     ];
@@ -568,7 +571,7 @@ dialyzer(Config) ->
     AppsToExclude = ExcludedApps ++ (AppNames -- KnownApps),
 
     Extra =
-        [system_monitor, tools, covertool] ++
+        [system_monitor, tools] ++
             [jq || is_jq_supported()] ++
             [quicer || is_quicer_supported()],
     NewDialyzerConfig =

@@ -790,7 +790,7 @@ handle_list(ConfRootKey) ->
                 [format_resource(ConfRootKey, Data, Node) || Data <- Bridges]
              || {Node, Bridges} <- lists:zip(Nodes, NodeBridges)
             ],
-            ?OK(zip_bridges(AllBridges));
+            ?OK(zip_bridges(ConfRootKey, AllBridges));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
     end.
@@ -927,7 +927,7 @@ handle_probe(ConfRootKey, Request) ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason0} ->
                     Reason = redact(Reason0),
-                    ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
+                    ?BAD_REQUEST('TEST_FAILED', emqx_utils_api:to_json(Reason));
                 {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
                     Reason1 =
                         case Reason0 of
@@ -987,8 +987,9 @@ lookup_from_all_nodes(ConfRootKey, BridgeType, BridgeName, SuccCode) ->
             )
         )
     of
-        {ok, [{ok, _} | _] = Results} ->
-            {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
+        {ok, [{ok, _} | _] = Results0} ->
+            Results = [R || {ok, R} <- Results0],
+            {SuccCode, format_bridge_info(ConfRootKey, BridgeType, BridgeName, Results)};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, Reason} ->
@@ -1146,11 +1147,11 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-zip_bridges([BridgesFirstNode | _] = BridgesAllNodes) ->
+zip_bridges(ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
     lists:foldl(
         fun(#{type := Type, name := Name}, Acc) ->
             Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
-            [format_bridge_info(Bridges) | Acc]
+            [format_bridge_info(ConfRootKey, Type, Name, Bridges) | Acc]
         end,
         [],
         BridgesFirstNode
@@ -1184,12 +1185,19 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
         BridgesAllNodes
     ).
 
-format_bridge_info([FirstBridge | _] = Bridges) ->
+format_bridge_info(ConfRootKey, Type, Name, [FirstBridge | _] = Bridges) ->
     Res = maps:remove(node, FirstBridge),
     NodeStatus = node_status(Bridges),
+    Id = emqx_bridge_resource:bridge_id(Type, Name),
+    Rules =
+        case ConfRootKey of
+            actions -> emqx_rule_engine:get_rule_ids_by_bridge_action(Id);
+            sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Id)
+        end,
     redact(Res#{
         status => aggregate_status(NodeStatus),
-        node_status => NodeStatus
+        node_status => NodeStatus,
+        rules => lists:sort(Rules)
     }).
 
 node_status(Bridges) ->
@@ -1418,7 +1426,7 @@ create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatusCod
             ok = emqx_resource:validate_name(BridgeName)
         catch
             throw:Error ->
-                ?BAD_REQUEST(map_to_json(Error))
+                ?BAD_REQUEST(emqx_utils_api:to_json(Error))
         end,
     case Check of
         ok ->
@@ -1435,9 +1443,9 @@ do_create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatus
             PreOrPostConfigUpdate =:= pre_config_update;
             PreOrPostConfigUpdate =:= post_config_update
         ->
-            ?BAD_REQUEST(map_to_json(redact(Reason)));
+            ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
-            ?BAD_REQUEST(map_to_json(redact(Reason)))
+            ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)))
     end.
 
 enable_func(true) -> enable;
@@ -1462,19 +1470,6 @@ bin(S) when is_atom(S) ->
     atom_to_binary(S, utf8);
 bin(S) when is_binary(S) ->
     S.
-
-map_to_json(M0) ->
-    %% When dealing with Hocon validation errors, `value' might contain non-serializable
-    %% values (e.g.: user_lookup_fun), so we try again without that key if serialization
-    %% fails as a best effort.
-    M1 = emqx_utils_maps:jsonable_map(M0, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end),
-    try
-        emqx_utils_json:encode(M1)
-    catch
-        error:_ ->
-            M2 = maps:without([value, <<"value">>], M1),
-            emqx_utils_json:encode(M2)
-    end.
 
 to_existing_atom(X) ->
     case emqx_utils:safe_to_existing_atom(X, utf8) of

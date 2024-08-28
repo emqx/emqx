@@ -22,8 +22,15 @@
 
 -define(AUTHN_MECHANISM, password_based).
 -define(AUTHN_MECHANISM_BIN, <<"password_based">>).
+
+-define(AUTHN_MECHANISM_SCRAM, scram).
+-define(AUTHN_MECHANISM_SCRAM_BIN, <<"scram">>).
+
 -define(AUTHN_BACKEND, http).
 -define(AUTHN_BACKEND_BIN, <<"http">>).
 -define(AUTHN_TYPE, {?AUTHN_MECHANISM, ?AUTHN_BACKEND}).
+-define(AUTHN_TYPE_SCRAM, {?AUTHN_MECHANISM_SCRAM, ?AUTHN_BACKEND}).
+
+-define(AUTHN_DATA_FIELDS, [is_superuser, client_attrs, expire_at, acl]).
 
 -endif.

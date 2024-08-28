@@ -30,6 +30,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -50,6 +51,7 @@
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
+resource_type() -> kinesis_producer.
 
 callback_mode() -> always_sync.
 

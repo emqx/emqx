@@ -221,8 +221,7 @@ schema("/authentication/:id") ->
             description => ?DESC(authentication_id_delete),
             parameters => [param_auth_id()],
             responses => #{
-                204 => <<"Authenticator deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                204 => <<"Authenticator deleted">>
             }
         }
     };
@@ -1213,9 +1212,9 @@ merge_default_headers(Config) ->
             NewHeaders =
                 case Config of
                     #{<<"method">> := <<"get">>} ->
-                        emqx_authn_utils:convert_headers_no_content_type(Headers);
+                        emqx_auth_http_utils:convert_headers_no_content_type(Headers);
                     #{<<"method">> := <<"post">>} ->
-                        emqx_authn_utils:convert_headers(Headers);
+                        emqx_auth_http_utils:convert_headers(Headers);
                     _ ->
                         Headers
                 end,

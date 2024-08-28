@@ -113,6 +113,23 @@ Placeholders like <code>${.payload.content_type}</code> may be used."""
 republish_args_mqtt_properties.label:
 """MQTT Properties"""
 
+republish_args_direct_dispatch.desc:
+"""Enable direct dispatch to subscribers without initiating a new message publish event.
+When set to `true`, this prevents the recursive processing of a message by the same action
+and is used when the output message does not require further processing.
+
+However, enabling this feature has several limitations:
+
+- The output message from this action is not retained.
+- It does not trigger other rules that operate based on the output topic of this action.
+- It does not activate rules that select from the `$events/message_publish`.
+- It does not trigger plugins that use the `'message.publish'` hook.
+- Topic metrics are not collected for the output message of this action.
+- Message schema validation is not applied (feature of EMQX Enterprise).
+- Message transformation processes are not applied (feature of EMQX Enterprise)."""
+
+republish_args_direct_dispatch.label: "Direct Dispatch"
+
 republish_function.desc:
 """Republish the message as a new MQTT message"""
 

@@ -1,6 +1,6 @@
 {application, emqx_bridge_syskeeper, [
     {description, "EMQX Enterprise Data bridge for Syskeeper"},
-    {vsn, "0.1.3"},
+    {vsn, "0.1.5"},
     {registered, []},
     {applications, [
         kernel,

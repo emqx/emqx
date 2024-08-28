@@ -19,6 +19,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% management APIs
 -export([
@@ -234,13 +235,13 @@ status(Pid) ->
     try
         case proplists:get_value(socket, info(Pid)) of
             Socket when Socket /= undefined ->
-                connected;
+                ?status_connected;
             undefined ->
-                connecting
+                ?status_connecting
         end
     catch
         exit:{noproc, _} ->
-            disconnected
+            ?status_disconnected
     end.
 
 %%

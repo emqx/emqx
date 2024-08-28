@@ -32,7 +32,7 @@
     register_metrics/0,
     init/0,
     deinit/0,
-    merge_defaults/1,
+    format_for_api/1,
     lookup/0,
     lookup/1,
     move/2,
@@ -477,9 +477,15 @@ authorize_deny(
     sources()
 ) ->
     authz_result().
-authorize(Client, PubSub, Topic, _DefaultResult, Sources) ->
+authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, Sources) ->
     case maps:get(is_superuser, Client, false) of
         true ->
+            ?tp(authz_skipped, #{reason => client_is_superuser, action => PubSub}),
+            ?TRACE("AUTHZ", "authorization_skipped_as_superuser", #{
+                username => Username,
+                topic => Topic,
+                action => emqx_access_control:format_action(PubSub)
+            }),
             emqx_metrics:inc(?METRIC_SUPERUSER),
             {stop, #{result => allow, from => superuser}};
         false ->
@@ -695,11 +701,11 @@ type(#{<<"type">> := Type}) ->
 type(Type) when is_atom(Type) orelse is_binary(Type) ->
     emqx_authz_source_registry:get(Type).
 
-merge_defaults(Source) ->
+format_for_api(Source) ->
     Type = type(Source),
     Mod = authz_module(Type),
     try
-        Mod:merge_defaults(Source)
+        Mod:format_for_api(Source)
     catch
         error:undef ->
             Source
@@ -739,7 +745,7 @@ maybe_read_source_files_safe(Source0) ->
     end.
 
 maybe_write_certs(#{<<"type">> := Type, <<"ssl">> := SSL = #{}} = Source) ->
-    case emqx_tls_lib:ensure_ssl_files(ssl_file_path(Type), SSL) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(ssl_file_path(Type), SSL) of
         {ok, NSSL} ->
             Source#{<<"ssl">> => NSSL};
         {error, Reason} ->

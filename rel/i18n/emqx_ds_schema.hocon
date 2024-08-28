@@ -36,11 +36,20 @@ builtin_n_shards.desc:
   Please note that it takes effect only during the initialization of the durable storage database.
   Changing this configuration parameter after the database has been already created won't take any effect.~"""
 
-builtin_n_sites.label: "Initial number of sites"
-builtin_n_sites.desc:
+builtin_raft_replication_factor.label: "Replication factor"
+builtin_raft_replication_factor.desc:
+  """~
+  Number of identical replicas each shard should have.
+  Increasing this number improves durability and availability at the expense of greater resource consumption.
+  Quorum of replicas is needed to be healthy for the replication to work, hence an odd number of replicas is a good pick in general.
+  Please note that it takes effect only during the initialization of the durable storage database.
+  Changing this configuration parameter after the database has been already created won't take any effect.~"""
+
+builtin_raft_n_sites.label: "Initial number of sites"
+builtin_raft_n_sites.desc:
   """~
   Number of storage sites that need to share responsibility over the set of storage shards.
-  In this context, sites are essentially EMQX nodes that have message durability enabled.
+  In this context, sites are EMQX nodes with message durability enabled.
   Please note that it takes effect only during the initialization of the durable storage database.
   During this phase at least that many sites should come online to distribute shards between them, otherwise message storage will be unavailable until then.
   After the initialization is complete, sites may be offline, which will affect availability depending on the number of offline sites and replication factor.~"""

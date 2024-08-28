@@ -23,7 +23,7 @@ defmodule EMQXBridgeKafka.MixProject do
 
   def deps() do
     [
-      {:wolff, github: "kafka4beam/wolff", tag: "2.0.0"},
+      {:wolff, github: "kafka4beam/wolff", tag: "3.0.2"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
       {:brod, github: "kafka4beam/brod", tag: "3.18.0"},

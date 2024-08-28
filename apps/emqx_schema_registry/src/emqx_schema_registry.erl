@@ -44,6 +44,12 @@
     get_serde/1
 ]).
 
+%%-------------------------------------------------------------------------------------------------
+%% Type definitions
+%%-------------------------------------------------------------------------------------------------
+
+-define(BAD_SCHEMA_NAME, <<"bad_schema_name">>).
+
 -type schema() :: #{
     type := serde_type(),
     source := binary(),
@@ -87,6 +93,8 @@ get_schema(SchemaName) ->
         Config ->
             {ok, Config}
     catch
+        throw:#{reason := ?BAD_SCHEMA_NAME} ->
+            {error, not_found};
         throw:not_found ->
             {error, not_found}
     end.
@@ -140,14 +148,19 @@ post_config_update(
 post_config_update(
     [?CONF_KEY_ROOT, schemas, NewName],
     _Cmd,
-    NewSchemas,
-    %% undefined or OldSchemas
-    _,
+    NewSchema,
+    OldSchema,
     _AppEnvs
 ) ->
-    case build_serdes([{NewName, NewSchemas}]) of
+    case OldSchema of
+        undefined ->
+            ok;
+        _ ->
+            ensure_serde_absent(NewName)
+    end,
+    case build_serdes([{NewName, NewSchema}]) of
         ok ->
-            {ok, #{NewName => NewSchemas}};
+            {ok, #{NewName => NewSchema}};
         {error, Reason, SerdesToRollback} ->
             lists:foreach(fun ensure_serde_absent/1, SerdesToRollback),
             {error, Reason}
@@ -168,6 +181,7 @@ post_config_update(?CONF_KEY_PATH, _Cmd, NewConf = #{schemas := NewSchemas}, Old
             async_delete_serdes(RemovedNames)
     end,
     SchemasToBuild = maps:to_list(maps:merge(Changed, Added)),
+    ok = lists:foreach(fun ensure_serde_absent/1, [N || {N, _} <- SchemasToBuild]),
     case build_serdes(SchemasToBuild) of
         ok ->
             {ok, NewConf};
@@ -331,6 +345,7 @@ ensure_serde_absent(Name) ->
         {ok, Serde} ->
             ok = emqx_schema_registry_serde:destroy(Serde),
             _ = ets:delete(?SERDE_TAB, Name),
+            ?tp("schema_registry_serde_deleted", #{name => Name}),
             ok;
         {error, not_found} ->
             ok
@@ -343,16 +358,20 @@ to_bin(A) when is_atom(A) -> atom_to_binary(A);
 to_bin(B) when is_binary(B) -> B.
 
 schema_name_bin_to_atom(Bin) when size(Bin) > 255 ->
-    throw(
-        iolist_to_binary(
-            io_lib:format(
-                "Name is is too long."
-                " Please provide a shorter name (<= 255 bytes)."
-                " The name that is too long: \"~s\"",
-                [Bin]
-            )
+    Msg = iolist_to_binary(
+        io_lib:format(
+            "Name is is too long."
+            " Please provide a shorter name (<= 255 bytes)."
+            " The name that is too long: \"~s\"",
+            [Bin]
         )
-    );
+    ),
+    Reason = #{
+        kind => validation_error,
+        reason => ?BAD_SCHEMA_NAME,
+        hint => Msg
+    },
+    throw(Reason);
 schema_name_bin_to_atom(Bin) ->
     try
         binary_to_existing_atom(Bin, utf8)

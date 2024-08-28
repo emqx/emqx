@@ -37,6 +37,7 @@
     update_iterator/4,
     next/6,
     delete_next/7,
+    lookup_message/3,
 
     handle_event/4
 ]).
@@ -46,6 +47,7 @@
 
 -export_type([options/0]).
 
+-include("emqx_ds.hrl").
 -include("emqx_ds_metrics.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -68,15 +70,19 @@
 -define(start_time, 3).
 -define(storage_key, 4).
 -define(last_seen_key, 5).
--define(cooked_payloads, 6).
+-define(cooked_msg_ops, 6).
 -define(cooked_lts_ops, 7).
 -define(cooked_ts, 8).
+
+%% atoms:
+-define(delete, 100).
 
 -type options() ::
     #{
         bits_per_wildcard_level => pos_integer(),
         topic_index_bytes => pos_integer(),
-        epoch_bits => non_neg_integer()
+        epoch_bits => non_neg_integer(),
+        lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
 
 %% Permanent state:
@@ -85,7 +91,8 @@
         bits_per_wildcard_level := pos_integer(),
         topic_index_bytes := pos_integer(),
         ts_bits := non_neg_integer(),
-        ts_offset_bits := non_neg_integer()
+        ts_offset_bits := non_neg_integer(),
+        lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
 
 %% Runtime state:
@@ -97,6 +104,7 @@
     keymappers :: array:array(emqx_ds_bitmask_keymapper:keymapper()),
     ts_bits :: non_neg_integer(),
     ts_offset :: non_neg_integer(),
+    threshold_fun :: emqx_ds_lts:threshold_fun(),
     gvars :: ets:table()
 }).
 
@@ -110,7 +118,7 @@
 
 -type cooked_batch() ::
     #{
-        ?cooked_payloads := [{binary(), binary()}],
+        ?cooked_msg_ops := [{binary(), binary() | ?delete}],
         ?cooked_lts_ops := [{binary(), binary()}],
         ?cooked_ts := integer()
     }.
@@ -135,6 +143,9 @@
 
 %% Limit on the number of wildcard levels in the learned topic trie:
 -define(WILDCARD_LIMIT, 10).
+
+%% Default LTS thresholds: 0th level = 100 entries max, other levels = 20 entries.
+-define(DEFAULT_LTS_THRESHOLD, {simple, {100, 20}}).
 
 %% Persistent (durable) term representing `#message{}' record. Must
 %% not change.
@@ -190,6 +201,7 @@ create(_ShardId, DBHandle, GenId, Options, SPrev) ->
     TopicIndexBytes = maps:get(topic_index_bytes, Options, 4),
     %% 20 bits -> 1048576 us -> ~1 sec
     TSOffsetBits = maps:get(epoch_bits, Options, 20),
+    ThresholdSpec = maps:get(lts_threshold_spec, Options, ?DEFAULT_LTS_THRESHOLD),
     %% Create column families:
     DataCFName = data_cf(GenId),
     TrieCFName = trie_cf(GenId),
@@ -208,7 +220,8 @@ create(_ShardId, DBHandle, GenId, Options, SPrev) ->
         bits_per_wildcard_level => BitsPerTopicLevel,
         topic_index_bytes => TopicIndexBytes,
         ts_bits => 64,
-        ts_offset_bits => TSOffsetBits
+        ts_offset_bits => TSOffsetBits,
+        lts_threshold_spec => ThresholdSpec
     },
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
 
@@ -240,6 +253,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
          || N <- lists:seq(0, MaxWildcardLevels)
         ]
     ),
+    ThresholdSpec = maps:get(lts_threshold_spec, Schema, ?DEFAULT_LTS_THRESHOLD),
     #s{
         db = DBHandle,
         data = DataCF,
@@ -248,6 +262,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         keymappers = KeymapperCache,
         ts_offset = TSOffsetBits,
         ts_bits = TSBits,
+        threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec),
         gvars = ets:new(?MODULE, [public, set, {read_concurrency, true}])
     }.
 
@@ -271,24 +286,28 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
 -spec prepare_batch(
     emqx_ds_storage_layer:shard_id(),
     s(),
-    [{emqx_ds:time(), emqx_types:message()}, ...],
+    emqx_ds_storage_layer:batch(),
     emqx_ds_storage_layer:batch_store_opts()
 ) ->
     {ok, cooked_batch()}.
-prepare_batch(_ShardId, S, Messages, _Options) ->
+prepare_batch(_ShardId, S, Batch, _Options) ->
     _ = erase(?lts_persist_ops),
-    {Payloads, MaxTs} =
+    {Operations, MaxTs} =
         lists:mapfoldl(
-            fun({Timestamp, Msg}, Acc) ->
-                {Key, _} = make_key(S, Timestamp, Msg),
-                Payload = {Key, message_to_value_v1(Msg)},
-                {Payload, max(Acc, Timestamp)}
+            fun
+                ({Timestamp, Msg = #message{topic = Topic}}, Acc) ->
+                    {Key, _} = make_key(S, Timestamp, Topic),
+                    Op = {Key, message_to_value_v1(Msg)},
+                    {Op, max(Acc, Timestamp)};
+                ({delete, #message_matcher{topic = Topic, timestamp = Timestamp}}, Acc) ->
+                    {Key, _} = make_key(S, Timestamp, Topic),
+                    {_Op = {Key, ?delete}, Acc}
             end,
             0,
-            Messages
+            Batch
         ),
     {ok, #{
-        ?cooked_payloads => Payloads,
+        ?cooked_msg_ops => Operations,
         ?cooked_lts_ops => pop_lts_persist_ops(),
         ?cooked_ts => MaxTs
     }}.
@@ -302,7 +321,7 @@ prepare_batch(_ShardId, S, Messages, _Options) ->
 commit_batch(
     _ShardId,
     _Data,
-    #{?cooked_payloads := [], ?cooked_lts_ops := LTS},
+    #{?cooked_msg_ops := [], ?cooked_lts_ops := LTS},
     _Options
 ) ->
     %% Assert:
@@ -311,7 +330,7 @@ commit_batch(
 commit_batch(
     _ShardId,
     #s{db = DB, data = DataCF, trie = Trie, trie_cf = TrieCF, gvars = Gvars},
-    #{?cooked_lts_ops := LtsOps, ?cooked_payloads := Payloads, ?cooked_ts := MaxTs},
+    #{?cooked_lts_ops := LtsOps, ?cooked_msg_ops := Operations, ?cooked_ts := MaxTs},
     Options
 ) ->
     {ok, Batch} = rocksdb:batch(),
@@ -326,10 +345,13 @@ commit_batch(
     _ = emqx_ds_lts:trie_update(Trie, LtsOps),
     %% Commit payloads:
     lists:foreach(
-        fun({Key, Val}) ->
-            ok = rocksdb:batch_put(Batch, DataCF, Key, term_to_binary(Val))
+        fun
+            ({Key, Val}) when is_tuple(Val) ->
+                ok = rocksdb:batch_put(Batch, DataCF, Key, term_to_binary(Val));
+            ({Key, ?delete}) ->
+                ok = rocksdb:batch_delete(Batch, DataCF, Key)
         end,
-        Payloads
+        Operations
     ),
     Result = rocksdb:write_batch(DB, Batch, write_batch_opts(Options)),
     rocksdb:release_batch(Batch),
@@ -554,6 +576,23 @@ delete_next_until(
         delete_next_loop(LoopContext)
     after
         rocksdb:iterator_close(ITHandle)
+    end.
+
+-spec lookup_message(emqx_ds_storage_layer:shard_id(), s(), emqx_ds_precondition:matcher()) ->
+    emqx_types:message() | not_found | emqx_ds:error(_).
+lookup_message(
+    _ShardId,
+    S = #s{db = DB, data = CF},
+    #message_matcher{topic = Topic, timestamp = Timestamp}
+) ->
+    {Key, _} = make_key(S, Timestamp, Topic),
+    case rocksdb:get(DB, CF, Key, _ReadOpts = []) of
+        {ok, Blob} ->
+            deserialize(Blob);
+        not_found ->
+            not_found;
+        Error ->
+            {error, unrecoverable, {rocksdb, Error}}
     end.
 
 handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
@@ -811,10 +850,10 @@ format_key(KeyMapper, Key) ->
     Vec = [integer_to_list(I, 16) || I <- emqx_ds_bitmask_keymapper:key_to_vector(KeyMapper, Key)],
     lists:flatten(io_lib:format("~.16B (~s)", [Key, string:join(Vec, ",")])).
 
--spec make_key(s(), emqx_ds:time(), emqx_types:message()) -> {binary(), [binary()]}.
-make_key(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, #message{topic = TopicBin}) ->
-    Tokens = emqx_topic:words(TopicBin),
-    {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
+-spec make_key(s(), emqx_ds:time(), emqx_types:topic()) -> {binary(), [binary()]}.
+make_key(#s{keymappers = KeyMappers, trie = Trie, threshold_fun = TFun}, Timestamp, Topic) ->
+    Tokens = emqx_topic:words(Topic),
+    {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Tokens),
     VaryingHashes = [hash_topic_level(I) || I <- Varying],
     KeyMapper = array:get(length(Varying), KeyMappers),
     KeyBin = make_key(KeyMapper, TopicIndex, Timestamp, VaryingHashes),
@@ -831,12 +870,6 @@ make_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
             TopicIndex, Timestamp | Varying
         ])
     ).
-
-%% TODO: don't hardcode the thresholds
-threshold_fun(0) ->
-    100;
-threshold_fun(_) ->
-    20.
 
 hash_topic_level('') ->
     hash_topic_level(<<>>);

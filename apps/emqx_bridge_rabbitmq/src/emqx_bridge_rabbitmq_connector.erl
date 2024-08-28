@@ -31,6 +31,7 @@
     on_remove_channel/3,
     on_get_channels/1,
     on_stop/2,
+    resource_type/0,
     callback_mode/0,
     on_get_status/2,
     on_get_channel_status/3,
@@ -60,6 +61,7 @@ fields(config) ->
 %% ===================================================================
 
 %% emqx_resource callback
+resource_type() -> rabbitmq.
 
 callback_mode() -> always_sync.
 

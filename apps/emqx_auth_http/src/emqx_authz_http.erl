@@ -29,7 +29,7 @@
     update/1,
     destroy/1,
     authorize/4,
-    merge_defaults/1
+    format_for_api/1
 ]).
 
 -ifdef(TEST).
@@ -67,7 +67,11 @@ description() ->
 create(Config) ->
     NConfig = parse_config(Config),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_bridge_http_connector, NConfig),
+    {ok, _Data} = emqx_authz_utils:create_resource(
+        ResourceId,
+        emqx_bridge_http_connector,
+        NConfig
+    ),
     NConfig#{annotations => #{id => ResourceId}}.
 
 update(Config) ->
@@ -135,18 +139,18 @@ authorize(
             ignore
     end.
 
-merge_defaults(#{<<"headers">> := Headers} = Source) ->
+format_for_api(#{<<"headers">> := Headers} = Source) ->
     NewHeaders =
         case Source of
             #{<<"method">> := <<"get">>} ->
-                (emqx_authz_http_schema:headers_no_content_type(converter))(Headers);
+                emqx_auth_http_utils:convert_headers_no_content_type(Headers);
             #{<<"method">> := <<"post">>} ->
-                (emqx_authz_http_schema:headers(converter))(Headers);
+                emqx_auth_http_utils:convert_headers(Headers);
             _ ->
                 Headers
         end,
     Source#{<<"headers">> => NewHeaders};
-merge_defaults(Source) ->
+format_for_api(Source) ->
     Source.
 
 log_nomtach_msg(Status, Headers, Body) ->
@@ -172,7 +176,7 @@ parse_config(
     Conf#{
         method => Method,
         request_base => RequestBase,
-        headers => Headers,
+        headers => maps:to_list(emqx_auth_http_utils:transform_header_name(Headers)),
         base_path_template => emqx_auth_utils:parse_str(Path, allowed_vars()),
         base_query_template => emqx_auth_utils:parse_deep(
             cow_qs:parse_qs(Query),

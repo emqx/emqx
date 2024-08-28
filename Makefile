@@ -10,8 +10,8 @@ include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.9.1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.7.1
+export EMQX_DASHBOARD_VERSION ?= v1.10.0-beta.2
+export EMQX_EE_DASHBOARD_VERSION ?= e1.8.0-beta.6
 
 export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
@@ -27,6 +27,8 @@ CT_READABLE ?= true
 CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
+
+ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
 .PHONY: default
 default: $(REBAR) $(PROFILE)
@@ -58,8 +60,12 @@ ensure-mix-rebar3: $(REBAR)
 ensure-mix-rebar: $(REBAR)
 	@mix local.rebar --if-missing --force
 
+
+.PHONY: elixir-common-deps
+elixir-common-deps: $(ELIXIR_COMMON_DEPS)
+
 .PHONY: mix-deps-get
-mix-deps-get: $(ELIXIR_COMMON_DEPS)
+mix-deps-get: elixir-common-deps
 	@mix deps.get
 
 .PHONY: eunit
@@ -80,7 +86,7 @@ $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
 
 .PHONY: ct
 ct: $(REBAR) merge-config
-	@$(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
+	@env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
@@ -112,7 +118,7 @@ define gen-app-ct-target
 $1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-	$(REBAR) ct -v \
+	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(REBAR) ct -v \
 		--readable=$(CT_READABLE) \
 		--name $(CT_NODE_NAME) \
 		$(call cover_args,$1) \
@@ -238,7 +244,7 @@ $(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
 ## relup target is to create relup instructions
 .PHONY: $(REL_PROFILES:%=%-relup)
 define gen-relup-target
-$1-relup: $1-relup-downloads $(COMMON_DEPS)
+$1-relup: $(COMMON_DEPS)
 	@$(BUILD) $1 relup
 endef
 ALL_TGZS = $(REL_PROFILES)
@@ -247,7 +253,7 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-relup-target,$(zt))))
 ## tgz target is to create a release package .tar.gz with relup
 .PHONY: $(REL_PROFILES:%=%-tgz)
 define gen-tgz-target
-$1-tgz: $1-relup
+$1-tgz: $(COMMON_DEPS)
 	@$(BUILD) $1 tgz
 endef
 ALL_TGZS = $(REL_PROFILES)

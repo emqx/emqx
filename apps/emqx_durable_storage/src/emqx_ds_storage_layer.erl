@@ -37,6 +37,9 @@
     next/4,
     delete_next/5,
 
+    %% Preconditions
+    lookup_message/2,
+
     %% Generations
     update_config/3,
     add_generation/2,
@@ -61,6 +64,7 @@
 -export_type([
     gen_id/0,
     generation/0,
+    batch/0,
     cf_refs/0,
     stream/0,
     delete_stream/0,
@@ -74,6 +78,7 @@
     batch_store_opts/0
 ]).
 
+-include("emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
@@ -114,6 +119,11 @@
 -type cf_refs() :: [cf_ref()].
 
 -type gen_id() :: 0..16#ffff.
+
+-type batch() :: [
+    {emqx_ds:time(), emqx_types:message()}
+    | emqx_ds:deletion()
+].
 
 %% Options affecting how batches should be stored.
 %% See also: `emqx_ds:message_store_opts()'.
@@ -294,6 +304,10 @@
     | {ok, end_of_stream}
     | emqx_ds:error(_).
 
+%% Lookup a single message, for preconditions to work.
+-callback lookup_message(shard_id(), generation_data(), emqx_ds_precondition:matcher()) ->
+    emqx_types:message() | not_found | emqx_ds:error(_).
+
 -callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
 
@@ -317,14 +331,10 @@ drop_shard(Shard) ->
 
 %% @doc This is a convenicence wrapper that combines `prepare' and
 %% `commit' operations.
--spec store_batch(
-    shard_id(),
-    [{emqx_ds:time(), emqx_types:message()}],
-    batch_store_opts()
-) ->
+-spec store_batch(shard_id(), batch(), batch_store_opts()) ->
     emqx_ds:store_batch_result().
-store_batch(Shard, Messages, Options) ->
-    case prepare_batch(Shard, Messages, #{}) of
+store_batch(Shard, Batch, Options) ->
+    case prepare_batch(Shard, Batch, #{}) of
         {ok, CookedBatch} ->
             commit_batch(Shard, CookedBatch, Options);
         ignore ->
@@ -342,23 +352,21 @@ store_batch(Shard, Messages, Options) ->
 %%
 %% The underlying storage layout MAY use timestamp as a unique message
 %% ID.
--spec prepare_batch(
-    shard_id(),
-    [{emqx_ds:time(), emqx_types:message()}],
-    batch_prepare_opts()
-) -> {ok, cooked_batch()} | ignore | emqx_ds:error(_).
-prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
+-spec prepare_batch(shard_id(), batch(), batch_prepare_opts()) ->
+    {ok, cooked_batch()} | ignore | emqx_ds:error(_).
+prepare_batch(Shard, Batch, Options) ->
     %% NOTE
     %% We assume that batches do not span generations. Callers should enforce this.
     ?tp(emqx_ds_storage_layer_prepare_batch, #{
-        shard => Shard, messages => Messages, options => Options
+        shard => Shard, batch => Batch, options => Options
     }),
     %% FIXME: always store messages in the current generation
-    case generation_at(Shard, Time) of
+    Time = batch_starts_at(Batch),
+    case is_integer(Time) andalso generation_at(Shard, Time) of
         {GenId, #{module := Mod, data := GenData}} ->
             T0 = erlang:monotonic_time(microsecond),
             Result =
-                case Mod:prepare_batch(Shard, GenData, Messages, Options) of
+                case Mod:prepare_batch(Shard, GenData, Batch, Options) of
                     {ok, CookedBatch} ->
                         {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
                     Error = {error, _, _} ->
@@ -368,11 +376,21 @@ prepare_batch(Shard, Messages = [{Time, _} | _], Options) ->
             %% TODO store->prepare
             emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
             Result;
+        false ->
+            %% No write operations in this batch.
+            ignore;
         not_found ->
+            %% Generation is likely already GCed.
             ignore
-    end;
-prepare_batch(_Shard, [], _Options) ->
-    ignore.
+    end.
+
+-spec batch_starts_at(batch()) -> emqx_ds:time() | undefined.
+batch_starts_at([{Time, _Message} | _]) when is_integer(Time) ->
+    Time;
+batch_starts_at([{delete, #message_matcher{timestamp = Time}} | _]) ->
+    Time;
+batch_starts_at([]) ->
+    undefined.
 
 %% @doc Commit cooked batch to the storage.
 %%
@@ -558,6 +576,16 @@ update_config(ShardId, Since, Options) ->
     ok | {error, overlaps_existing_generations}.
 add_generation(ShardId, Since) ->
     gen_server:call(?REF(ShardId), #call_add_generation{since = Since}, infinity).
+
+-spec lookup_message(shard_id(), emqx_ds_precondition:matcher()) ->
+    emqx_types:message() | not_found | emqx_ds:error(_).
+lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
+    case generation_at(ShardId, Time) of
+        {_GenId, #{module := Mod, data := GenData}} ->
+            Mod:lookup_message(ShardId, GenData, Matcher);
+        not_found ->
+            not_found
+    end.
 
 -spec list_generations_with_lifetimes(shard_id()) ->
     #{

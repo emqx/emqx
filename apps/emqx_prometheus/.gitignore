@@ -13,7 +13,6 @@ rel/example_project
 emqx_prometheus.d
 ct.coverdata
 logs/
-data/
 test/ct.cover.spec
 cover/
 erlang.mk

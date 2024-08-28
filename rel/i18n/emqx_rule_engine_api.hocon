@@ -96,4 +96,10 @@ api11.desc:
 api11.label:
 """Apply Rule"""
 
+api1_qs_action.desc:
+"""Filters rules that contain any of the given action id(s).  When used in conjunction with source id filtering, the rules must contain sources *and* actions that match some of the criteria."""
+
+api1_qs_source.desc:
+"""Filters rules that contain any of the given source id(s).  When used in conjunction with action id filtering, the rules must contain sources *and* actions that match some of the criteria."""
+
 }

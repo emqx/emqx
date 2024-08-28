@@ -63,6 +63,7 @@
 -type json_binary() :: binary().
 -type template() :: binary().
 -type template_str() :: string().
+-type binary_kv() :: #{binary() => binary()}.
 
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
@@ -167,7 +168,8 @@
     json_binary/0,
     port_number/0,
     template/0,
-    template_str/0
+    template_str/0,
+    binary_kv/0
 ]).
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
@@ -319,6 +321,11 @@ roots(low) ->
             sc(
                 ref("crl_cache"),
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {banned,
+            sc(
+                ref("banned"),
+                #{importance => ?IMPORTANCE_HIDDEN}
             )}
     ].
 
@@ -344,6 +351,7 @@ fields("authz_cache") ->
                 #{
                     default => true,
                     required => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(fields_cache_enable)
                 }
             )},
@@ -380,6 +388,7 @@ fields("flapping_detect") ->
                 boolean(),
                 #{
                     default => false,
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},
@@ -416,6 +425,7 @@ fields("force_shutdown") ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(force_shutdown_enable)
                 }
             )},
@@ -445,6 +455,7 @@ fields("overload_protection") ->
                 boolean(),
                 #{
                     desc => ?DESC(overload_protection_enable),
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     default => false
                 }
             )},
@@ -505,7 +516,11 @@ fields("force_gc") ->
         {"enable",
             sc(
                 boolean(),
-                #{default => true, desc => ?DESC(force_gc_enable)}
+                #{
+                    default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
+                    desc => ?DESC(force_gc_enable)
+                }
             )},
         {"count",
             sc(
@@ -1317,6 +1332,19 @@ fields("shared_subscription_group") ->
                     default => random,
                     desc => ?DESC(shared_subscription_strategy_enum)
                 }
+            )},
+        {"initial_sticky_pick",
+            sc(
+                hoconsc:enum([
+                    random,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
+                #{
+                    default => random,
+                    desc => ?DESC(shared_subscription_initial_sticky_pick_enum)
+                }
             )}
     ];
 fields("broker_perf") ->
@@ -1658,6 +1686,7 @@ fields("durable_sessions") ->
             sc(
                 boolean(), #{
                     desc => ?DESC(durable_sessions_enable),
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     default => false
                 }
             )},
@@ -1762,6 +1791,17 @@ fields("client_attrs_init") ->
                 desc => ?DESC("client_attrs_init_set_as_attr"),
                 validator => fun restricted_string/1
             })}
+    ];
+fields("banned") ->
+    [
+        {bootstrap_file,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("banned_bootstrap_file"),
+                    require => false
+                }
+            )}
     ].
 
 compile_variform(undefined, _Opts) ->
@@ -1870,6 +1910,7 @@ base_listener(Bind) ->
                 #{
                     default => true,
                     aliases => [enabled],
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(fields_listener_enabled)
                 }
             )},
@@ -2101,6 +2142,8 @@ desc(durable_storage) ->
     ?DESC(durable_storage);
 desc("client_attrs_init") ->
     ?DESC(client_attrs_init);
+desc("banned") ->
+    "Banned .";
 desc(_) ->
     undefined.
 
@@ -2396,6 +2439,7 @@ client_ssl_opts_schema(Defaults) ->
                     boolean(),
                     #{
                         default => false,
+                        %% importance => ?IMPORTANCE_NO_DOC,
                         desc => ?DESC(client_ssl_opts_schema_enable)
                     }
                 )},
@@ -3548,6 +3592,19 @@ mqtt_general() ->
                 #{
                     default => round_robin,
                     desc => ?DESC(mqtt_shared_subscription_strategy)
+                }
+            )},
+        {"shared_subscription_initial_sticky_pick",
+            sc(
+                hoconsc:enum([
+                    random,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
+                #{
+                    default => random,
+                    desc => ?DESC(mqtt_shared_subscription_initial_sticky_pick)
                 }
             )},
         {"exclusive_subscription",

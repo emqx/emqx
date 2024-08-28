@@ -132,6 +132,8 @@ bridge_hookpoint(BridgeId) ->
 
 bridge_hookpoint_to_bridge_id(?BRIDGE_HOOKPOINT(BridgeId)) ->
     {ok, BridgeId};
+bridge_hookpoint_to_bridge_id(?SOURCE_HOOKPOINT(BridgeId)) ->
+    {ok, BridgeId};
 bridge_hookpoint_to_bridge_id(_) ->
     {error, bad_bridge_hookpoint}.
 
@@ -196,7 +198,7 @@ create(Type, Name, Conf0, Opts) ->
     Conf = Conf0#{bridge_type => TypeBin, bridge_name => Name},
     {ok, _Data} = emqx_resource:create_local(
         resource_id(Type, Name),
-        <<"emqx_bridge">>,
+        <<"bridge">>,
         bridge_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
@@ -282,7 +284,7 @@ create_dry_run(Type0, Conf0) ->
 create_dry_run_bridge_v1(Type, Conf0) ->
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     TmpPath = emqx_utils:safe_filename(TmpName),
-    %% Already typechecked, no need to catch errors
+    %% Already type checked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     Conf1 = maps:without([<<"name">>], Conf0),

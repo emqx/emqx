@@ -1,0 +1,11 @@
+emqx_authn_kerberos_schema {
+
+principal {
+    label: "Kerberos Principal"
+    desc: """~
+        Server Kerberos principal.
+        For example <code>mqtt/emqx-cluster-1.example.com@MY_REALM.EXAMPLE.COM</code>.
+        NOTE: The realm in use has to be configured in /etc/krb5.conf in EMQX nodes.~"""
+}
+
+}

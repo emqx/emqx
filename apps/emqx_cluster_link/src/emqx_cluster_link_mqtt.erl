@@ -9,6 +9,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -behaviour(emqx_resource).
 -behaviour(ecpool_worker).
@@ -19,6 +20,7 @@
 %% callbacks of behaviour emqx_resource
 -export([
     callback_mode/0,
+    resource_type/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -27,6 +29,7 @@
 ]).
 
 -export([
+    resource_id/1,
     ensure_msg_fwd_resource/1,
     remove_msg_fwd_resource/1,
     decode_route_op/1,
@@ -44,6 +47,16 @@
 
 -export([
     forward/2
+]).
+
+-export([
+    get_all_resources_cluster/0,
+    get_resource_cluster/1
+]).
+%% BpAPI / RPC Targets
+-export([
+    get_resource_local_v1/1,
+    get_all_resources_local_v1/0
 ]).
 
 -define(MSG_CLIENTID_SUFFIX, ":msg:").
@@ -80,6 +93,12 @@
 
 -define(PUB_TIMEOUT, 10_000).
 
+-type cluster_name() :: binary().
+
+-spec resource_id(cluster_name()) -> resource_id().
+resource_id(ClusterName) ->
+    ?MSG_RES_ID(ClusterName).
+
 -spec ensure_msg_fwd_resource(map()) ->
     {ok, emqx_resource:resource_data() | already_started} | {error, Reason :: term()}.
 ensure_msg_fwd_resource(#{name := Name, resource_opts := ResOpts} = ClusterConf) ->
@@ -89,15 +108,64 @@ ensure_msg_fwd_resource(#{name := Name, resource_opts := ResOpts} = ClusterConf)
     },
     emqx_resource:create_local(?MSG_RES_ID(Name), ?RES_GROUP, ?MODULE, ClusterConf, ResOpts1).
 
--spec remove_msg_fwd_resource(binary() | map()) -> ok | {error, Reason :: term()}.
+-spec remove_msg_fwd_resource(cluster_name()) -> ok | {error, Reason :: term()}.
 remove_msg_fwd_resource(ClusterName) ->
     emqx_resource:remove_local(?MSG_RES_ID(ClusterName)).
+
+-spec get_all_resources_cluster() ->
+    [{node(), emqx_rpc:erpc(#{cluster_name() => emqx_resource:resource_data()})}].
+get_all_resources_cluster() ->
+    Nodes = emqx:running_nodes(),
+    Results = emqx_cluster_link_proto_v1:get_all_resources(Nodes),
+    lists:zip(Nodes, Results).
+
+-spec get_resource_cluster(cluster_name()) ->
+    [{node(), {ok, {ok, emqx_resource:resource_data()} | {error, not_found}} | _Error}].
+get_resource_cluster(ClusterName) ->
+    Nodes = emqx:running_nodes(),
+    Results = emqx_cluster_link_proto_v1:get_resource(Nodes, ClusterName),
+    lists:zip(Nodes, Results).
+
+%% RPC Target in `emqx_cluster_link_proto_v1'.
+-spec get_resource_local_v1(cluster_name()) ->
+    {ok, emqx_resource:resource_data()} | {error, not_found}.
+get_resource_local_v1(ClusterName) ->
+    case emqx_resource:get_instance(?MSG_RES_ID(ClusterName)) of
+        {ok, _ResourceGroup, ResourceData} ->
+            {ok, ResourceData};
+        {error, not_found} ->
+            {error, not_found}
+    end.
+
+%% RPC Target in `emqx_cluster_link_proto_v1'.
+-spec get_all_resources_local_v1() -> #{cluster_name() => emqx_resource:resource_data()}.
+get_all_resources_local_v1() ->
+    lists:foldl(
+        fun
+            (?MSG_RES_ID(Name) = Id, Acc) ->
+                case emqx_resource:get_instance(Id) of
+                    {ok, ?RES_GROUP, ResourceData} ->
+                        Acc#{Name => ResourceData};
+                    _ ->
+                        Acc
+                end;
+            (_Id, Acc) ->
+                %% Doesn't follow the naming pattern; manually crafted?
+                Acc
+        end,
+        #{},
+        emqx_resource:list_group_instances(?RES_GROUP)
+    ).
 
 %%--------------------------------------------------------------------
 %% emqx_resource callbacks (message forwarding)
 %%--------------------------------------------------------------------
 
 callback_mode() -> async_if_possible.
+
+-spec resource_type() -> atom().
+resource_type() ->
+    cluster_link_mqtt.
 
 on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
     PoolName = ResourceId,

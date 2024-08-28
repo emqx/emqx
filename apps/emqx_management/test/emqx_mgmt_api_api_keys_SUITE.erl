@@ -100,7 +100,7 @@ t_bootstrap_file(_) ->
     BadBin = <<"test-1:secret-11\ntest-2 secret-12">>,
     ok = file:write_file(File, BadBin),
     update_file(File),
-    ?assertMatch({error, #{reason := "invalid_format"}}, emqx_mgmt_auth:init_bootstrap_file()),
+    ?assertMatch({error, #{reason := "invalid_format"}}, emqx_mgmt_auth:init_bootstrap_file(File)),
     ?assertEqual(ok, auth_authorize(TestPath, <<"test-1">>, <<"secret-11">>)),
     ?assertMatch({error, _}, auth_authorize(TestPath, <<"test-2">>, <<"secret-12">>)),
     update_file(<<>>),
@@ -123,7 +123,7 @@ t_bootstrap_file_override(_) ->
     ok = file:write_file(File, Bin),
     update_file(File),
 
-    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file()),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
 
     MatchFun = fun(ApiKey) -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
     ?assertMatch(
@@ -156,7 +156,7 @@ t_bootstrap_file_dup_override(_) ->
     File = "./bootstrap_api_keys.txt",
     ok = file:write_file(File, Bin),
     update_file(File),
-    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file()),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
 
     SameAppWithDiffName = #?APP{
         name = <<"name-1">>,
@@ -190,7 +190,7 @@ t_bootstrap_file_dup_override(_) ->
 
     %% Similar to loading bootstrap file at node startup
     %% the duplicated apikey in mnesia will be cleaned up
-    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file()),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
     ?assertMatch(
         {ok, [
             #?APP{

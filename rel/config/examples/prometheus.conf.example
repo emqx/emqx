@@ -7,7 +7,6 @@
 prometheus {
   enable_basic_auth = false
   push_gateway {
-    enable = false
     url = "http://127.0.0.1:9091"
     headers {Authorization = "Basic YWRtaW46Y2JraG55eWd5QDE="}
     interval = 15s

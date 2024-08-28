@@ -118,8 +118,8 @@ mk_cluster_spec(Opts) ->
     Node1Apps = Apps ++ [{emqx_dashboard, "dashboard.listeners.http {enable=true,bind=18083}"}],
     Node2Apps = Apps,
     [
-        {emqx_authz_api_cluster_SUITE1, Opts#{role => core, apps => Node1Apps}},
-        {emqx_authz_api_cluster_SUITE2, Opts#{role => core, apps => Node2Apps}}
+        {emqx_authz_api_cluster_SUITE1, Opts#{apps => Node1Apps}},
+        {emqx_authz_api_cluster_SUITE2, Opts#{apps => Node2Apps}}
     ].
 
 request(Method, URL, Body, Config) ->

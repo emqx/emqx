@@ -329,17 +329,19 @@ eventmsg_publish(
             username => emqx_message:get_header(username, Message, undefined),
             payload => Payload,
             peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
+            peername => ntoa(emqx_message:get_header(peername, Message, undefined)),
             topic => Topic,
             qos => QoS,
             flags => Flags,
             pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            publish_received_at => Timestamp
+            publish_received_at => Timestamp,
+            client_attrs => emqx_message:get_header(client_attrs, Message, #{})
         },
         #{headers => Headers}
     ).
 
 eventmsg_connected(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         is_bridge := IsBridge,
@@ -374,13 +376,14 @@ eventmsg_connected(
             expiry_interval => ExpiryInterval div 1000,
             is_bridge => IsBridge,
             conn_props => printable_maps(ConnProps),
-            connected_at => ConnectedAt
+            connected_at => ConnectedAt,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
 
 eventmsg_disconnected(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username
     },
@@ -404,7 +407,8 @@ eventmsg_disconnected(
             proto_name => ProtoName,
             proto_ver => ProtoVer,
             disconn_props => printable_maps(maps:get(disconn_props, ConnInfo, #{})),
-            disconnected_at => DisconnectedAt
+            disconnected_at => DisconnectedAt,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
@@ -443,10 +447,11 @@ eventmsg_connack(
     ).
 
 eventmsg_check_authz_complete(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
-        peerhost := PeerHost
+        peerhost := PeerHost,
+        peername := PeerName
     },
     PubSub,
     Topic,
@@ -458,21 +463,22 @@ eventmsg_check_authz_complete(
         #{
             clientid => ClientId,
             username => Username,
+            peername => ntoa(PeerName),
             peerhost => ntoa(PeerHost),
             topic => Topic,
             action => PubSub,
             authz_source => AuthzSource,
-            result => Result
+            result => Result,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
 
 eventmsg_check_authn_complete(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
-        peerhost := PeerHost,
-        peerport := PeerPort
+        peername := PeerName
     },
     Result
 ) ->
@@ -488,20 +494,22 @@ eventmsg_check_authn_complete(
         #{
             clientid => ClientId,
             username => Username,
-            peername => ntoa({PeerHost, PeerPort}),
+            peername => ntoa(PeerName),
             reason_code => force_to_bin(Reason),
             is_anonymous => IsAnonymous,
-            is_superuser => IsSuperuser
+            is_superuser => IsSuperuser,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
 
 eventmsg_sub_or_unsub(
     Event,
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
-        peerhost := PeerHost
+        peerhost := PeerHost,
+        peername := PeerName
     },
     Topic,
     SubOpts = #{qos := QoS}
@@ -513,9 +521,11 @@ eventmsg_sub_or_unsub(
             clientid => ClientId,
             username => Username,
             peerhost => ntoa(PeerHost),
+            peername => ntoa(PeerName),
             PropKey => printable_maps(maps:get(PropKey, SubOpts, #{})),
             topic => Topic,
-            qos => QoS
+            qos => QoS,
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
     ).
@@ -542,6 +552,7 @@ eventmsg_dropped(
             username => emqx_message:get_header(username, Message, undefined),
             payload => Payload,
             peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
+            peername => ntoa(emqx_message:get_header(peername, Message, undefined)),
             topic => Topic,
             qos => QoS,
             flags => Flags,
@@ -606,6 +617,7 @@ eventmsg_validation_failed(
             username => emqx_message:get_header(username, Message, undefined),
             payload => Payload,
             peerhost => ntoa(emqx_message:get_header(peerhost, Message, undefined)),
+            peername => ntoa(emqx_message:get_header(peername, Message, undefined)),
             topic => Topic,
             qos => QoS,
             flags => Flags,
@@ -618,6 +630,7 @@ eventmsg_validation_failed(
 eventmsg_delivered(
     _ClientInfo = #{
         peerhost := PeerHost,
+        peername := PeerName,
         clientid := ReceiverCId,
         username := ReceiverUsername
     },
@@ -642,6 +655,7 @@ eventmsg_delivered(
             username => ReceiverUsername,
             payload => Payload,
             peerhost => ntoa(PeerHost),
+            peername => ntoa(PeerName),
             topic => Topic,
             qos => QoS,
             flags => Flags,
@@ -654,6 +668,7 @@ eventmsg_delivered(
 eventmsg_acked(
     _ClientInfo = #{
         peerhost := PeerHost,
+        peername := PeerName,
         clientid := ReceiverCId,
         username := ReceiverUsername
     },
@@ -678,6 +693,7 @@ eventmsg_acked(
             username => ReceiverUsername,
             payload => Payload,
             peerhost => ntoa(PeerHost),
+            peername => ntoa(PeerName),
             topic => Topic,
             qos => QoS,
             flags => Flags,
@@ -691,6 +707,7 @@ eventmsg_acked(
 eventmsg_delivery_dropped(
     _ClientInfo = #{
         peerhost := PeerHost,
+        peername := PeerName,
         clientid := ReceiverCId,
         username := ReceiverUsername
     },
@@ -717,6 +734,7 @@ eventmsg_delivery_dropped(
             username => ReceiverUsername,
             payload => Payload,
             peerhost => ntoa(PeerHost),
+            peername => ntoa(PeerName),
             topic => Topic,
             qos => QoS,
             flags => Flags,
@@ -1009,13 +1027,15 @@ columns_with_exam('message.publish') ->
         {<<"username">>, <<"u_emqx">>},
         {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
         {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:32781">>},
         {<<"topic">>, <<"t/a">>},
         {<<"qos">>, 1},
         {<<"flags">>, #{}},
         {<<"publish_received_at">>, erlang:system_time(millisecond)},
         columns_example_props(pub_props),
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('message.delivered') ->
     columns_message_ack_delivered('message.delivered');
@@ -1031,6 +1051,7 @@ columns_with_exam('message.dropped') ->
         {<<"username">>, <<"u_emqx">>},
         {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
         {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:32781">>},
         {<<"topic">>, <<"t/a">>},
         {<<"qos">>, 1},
         {<<"flags">>, #{}},
@@ -1048,6 +1069,7 @@ columns_with_exam('schema.validation_failed') ->
         {<<"username">>, <<"u_emqx">>},
         {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
         {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:32781">>},
         {<<"topic">>, <<"t/a">>},
         {<<"qos">>, 1},
         {<<"flags">>, #{}},
@@ -1084,6 +1106,7 @@ columns_with_exam('delivery.dropped') ->
         {<<"username">>, <<"u_emqx_2">>},
         {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
         {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:32781">>},
         {<<"topic">>, <<"t/a">>},
         {<<"qos">>, 1},
         {<<"flags">>, #{}},
@@ -1109,7 +1132,8 @@ columns_with_exam('client.connected') ->
         columns_example_props(conn_props),
         {<<"connected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.disconnected') ->
     [
@@ -1124,7 +1148,8 @@ columns_with_exam('client.disconnected') ->
         columns_example_props(disconn_props),
         {<<"disconnected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.connack') ->
     [
@@ -1150,12 +1175,14 @@ columns_with_exam('client.check_authz_complete') ->
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
         {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:32781">>},
         {<<"topic">>, <<"t/a">>},
         {<<"action">>, <<"publish">>},
         {<<"authz_source">>, <<"cache">>},
         {<<"result">>, <<"allow">>},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('client.check_authn_complete') ->
     [
@@ -1167,12 +1194,15 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"is_superuser">>, true},
         {<<"is_anonymous">>, false},
         {<<"timestamp">>, erlang:system_time(millisecond)},
-        {<<"node">>, node()}
+        {<<"node">>, node()},
+        columns_example_client_attrs()
     ];
 columns_with_exam('session.subscribed') ->
-    [columns_example_props(sub_props)] ++ columns_message_sub_unsub('session.subscribed');
+    [columns_example_props(sub_props), columns_example_client_attrs()] ++
+        columns_message_sub_unsub('session.subscribed');
 columns_with_exam('session.unsubscribed') ->
-    [columns_example_props(unsub_props)] ++ columns_message_sub_unsub('session.unsubscribed');
+    [columns_example_props(unsub_props), columns_example_client_attrs()] ++
+        columns_message_sub_unsub('session.unsubscribed');
 columns_with_exam(<<"$bridges/mqtt", _/binary>> = EventName) ->
     [
         {<<"event">>, EventName},
@@ -1197,6 +1227,7 @@ columns_message_sub_unsub(EventName) ->
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
         {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:32781">>},
         {<<"topic">>, <<"t/a">>},
         {<<"qos">>, 1},
         {<<"timestamp">>, erlang:system_time(millisecond)},
@@ -1213,6 +1244,7 @@ columns_message_ack_delivered(EventName) ->
         {<<"username">>, <<"u_emqx_2">>},
         {<<"payload">>, <<"{\"msg\": \"hello\"}">>},
         {<<"peerhost">>, <<"192.168.0.10">>},
+        {<<"peername">>, <<"192.168.0.10:32781">>},
         {<<"topic">>, <<"t/a">>},
         {<<"qos">>, 1},
         {<<"flags">>, #{}},
@@ -1254,6 +1286,11 @@ columns_example_props_specific(sub_props) ->
     #{};
 columns_example_props_specific(unsub_props) ->
     #{}.
+
+columns_example_client_attrs() ->
+    {<<"client_attrs">>, #{
+        <<"test">> => <<"example">>
+    }}.
 
 %%--------------------------------------------------------------------
 %% Helper functions

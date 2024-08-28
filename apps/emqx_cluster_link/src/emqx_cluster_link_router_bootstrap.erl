@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_cluster_link_router_bootstrap).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("emqx/include/emqx_shared_sub.hrl").
 -include_lib("emqx/src/emqx_persistent_session_ds/emqx_ps_ds_int.hrl").
@@ -67,7 +68,7 @@ routes_by_topic(Topics, _IsPersistentRoute = true) ->
     lists:foldl(
         fun(T, Acc) ->
             Routes = emqx_persistent_session_ds_router:lookup_routes(T),
-            [encode_route(T, ?PERSISTENT_ROUTE_ID(T, D)) || #ps_route{dest = D} <- Routes] ++ Acc
+            [encode_route(T, ps_route_id(PSRoute)) || #ps_route{} = PSRoute <- Routes] ++ Acc
         end,
         [],
         Topics
@@ -79,16 +80,21 @@ routes_by_wildcards(Wildcards, _IsPersistentRoute = false) ->
     Routes ++ SharedRoutes;
 routes_by_wildcards(Wildcards, _IsPersistentRoute = true) ->
     emqx_persistent_session_ds_router:foldl_routes(
-        fun(#ps_route{dest = D, topic = T}, Acc) ->
+        fun(#ps_route{topic = T} = PSRoute, Acc) ->
             case topic_intersect_any(T, Wildcards) of
                 false ->
                     Acc;
                 Intersec ->
-                    [encode_route(Intersec, ?PERSISTENT_ROUTE_ID(T, D)) | Acc]
+                    [encode_route(Intersec, ps_route_id(PSRoute)) | Acc]
             end
         end,
         []
     ).
+
+ps_route_id(#ps_route{topic = T, dest = #share_dest{group = Group, session_id = SessionId}}) ->
+    ?PERSISTENT_SHARED_ROUTE_ID(T, Group, SessionId);
+ps_route_id(#ps_route{topic = T, dest = SessionId}) ->
+    ?PERSISTENT_ROUTE_ID(T, SessionId).
 
 select_routes_by_topics(Topics) ->
     [encode_route(Topic, Topic) || Topic <- Topics, emqx_broker:subscribers(Topic) =/= []].

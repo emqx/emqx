@@ -3206,6 +3206,7 @@ t_non_blocking_channel_health_check(_Config) ->
 %% call such as `on_start', and that the claimed resources, if any, are freed.
 t_force_stop(_Config) ->
     ?check_trace(
+        #{timetrap => 5_000},
         begin
             {ok, Agent} = emqx_utils_agent:start_link(not_called),
             {ok, _} =
@@ -3223,6 +3224,7 @@ t_force_stop(_Config) ->
                     }
                 ),
             ?assertEqual(ok, emqx_resource_manager:stop(?ID, _Timeout = 100)),
+            ?block_until(#{?snk_kind := connector_demo_free_resources_without_state}),
             ok
         end,
         [
@@ -3490,7 +3492,7 @@ gauge_metric_set_fns() ->
     ].
 
 create(Id, Group, Type, Config) ->
-    emqx_resource:create_local(Id, Group, Type, Config).
+    emqx_resource:create_local(Id, Group, Type, Config, #{}).
 
 create(Id, Group, Type, Config, Opts) ->
     emqx_resource:create_local(Id, Group, Type, Config, Opts).

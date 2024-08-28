@@ -33,7 +33,8 @@
     make_delete_iterator/5,
     update_iterator/4,
     next/6,
-    delete_next/7
+    delete_next/7,
+    lookup_message/3
 ]).
 
 %% internal exports:
@@ -43,6 +44,7 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_ds.hrl").
 -include("emqx_ds_metrics.hrl").
 
 -ifdef(TEST).
@@ -55,9 +57,15 @@
 %% Type declarations
 %%================================================================================
 
-%% keys:
--define(cooked_payloads, 6).
+%% TLOG entry
+%%   Keys:
+-define(cooked_msg_ops, 6).
 -define(cooked_lts_ops, 7).
+%%   Payload:
+-define(cooked_delete, 100).
+-define(cooked_msg_op(TIMESTAMP, STATIC, VARYING, VALUE),
+    {TIMESTAMP, STATIC, VARYING, VALUE}
+).
 
 -define(lts_persist_ops, emqx_ds_storage_skipstream_lts_ops).
 
@@ -79,8 +87,12 @@
         topic_index_bytes := pos_integer(),
         keep_message_id := boolean(),
         serialization_schema := emqx_ds_msg_serializer:schema(),
-        with_guid := boolean()
+        with_guid := boolean(),
+        lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
+
+%% Default LTS thresholds: 0th level = 100 entries max, other levels = 10 entries.
+-define(DEFAULT_LTS_THRESHOLD, {simple, {100, 10}}).
 
 %% Runtime state:
 -record(s, {
@@ -90,6 +102,7 @@
     trie_cf :: rocksdb:cf_handle(),
     serialization_schema :: emqx_ds_msg_serializer:schema(),
     hash_bytes :: pos_integer(),
+    threshold_fun :: emqx_ds_lts:threshold_fun(),
     with_guid :: boolean()
 }).
 
@@ -101,10 +114,11 @@
 
 -record(it, {
     static_index :: emqx_ds_lts:static_key(),
-    %% Minimal timestamp of the next message:
+    %% Timestamp of the last visited message:
     ts :: ts(),
     %% Compressed topic filter:
-    compressed_tf :: binary()
+    compressed_tf :: binary(),
+    misc = []
 }).
 
 %% Level iterator:
@@ -127,7 +141,8 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev) ->
         wildcard_hash_bytes => 8,
         topic_index_bytes => 8,
         serialization_schema => asn1,
-        with_guid => false
+        with_guid => false,
+        lts_threshold_spec => ?DEFAULT_LTS_THRESHOLD
     },
     Schema = maps:merge(Defaults, Schema0),
     ok = emqx_ds_msg_serializer:check_schema(maps:get(serialization_schema, Schema)),
@@ -145,15 +160,22 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev) ->
     end,
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
 
-open(_Shard, DBHandle, GenId, CFRefs, #{
-    topic_index_bytes := TIBytes,
-    wildcard_hash_bytes := WCBytes,
-    serialization_schema := SSchema,
-    with_guid := WithGuid
-}) ->
+open(
+    _Shard,
+    DBHandle,
+    GenId,
+    CFRefs,
+    Schema = #{
+        topic_index_bytes := TIBytes,
+        wildcard_hash_bytes := WCBytes,
+        serialization_schema := SSchema,
+        with_guid := WithGuid
+    }
+) ->
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
     Trie = restore_trie(TIBytes, DBHandle, TrieCF),
+    ThresholdSpec = maps:get(lts_threshold_spec, Schema, ?DEFAULT_LTS_THRESHOLD),
     #s{
         db = DBHandle,
         data_cf = DataCF,
@@ -161,6 +183,7 @@ open(_Shard, DBHandle, GenId, CFRefs, #{
         trie = Trie,
         hash_bytes = WCBytes,
         serialization_schema = SSchema,
+        threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec),
         with_guid = WithGuid
     }.
 
@@ -172,35 +195,37 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{data_cf = DataCF, trie_cf = TrieCF,
 
 prepare_batch(
     _ShardId,
-    S = #s{trie = Trie, hash_bytes = HashBytes},
-    Messages,
+    S = #s{trie = Trie, threshold_fun = TFun},
+    Operations,
     _Options
 ) ->
     _ = erase(?lts_persist_ops),
-    Payloads =
-        lists:flatmap(
-            fun({Timestamp, Msg = #message{topic = Topic}}) ->
+    OperationsCooked = emqx_utils:flattermap(
+        fun
+            ({Timestamp, Msg = #message{topic = Topic}}) ->
                 Tokens = words(Topic),
-                {Static, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
-                %% TODO: is it possible to create index during the
-                %% commit phase to avoid transferring indexes through
-                %% the translog?
-                [
-                    {mk_key(Static, 0, <<>>, Timestamp), serialize(S, Varying, Msg)}
-                    | mk_index(HashBytes, Static, Timestamp, Varying)
-                ]
-            end,
-            Messages
-        ),
+                {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Tokens),
+                ?cooked_msg_op(Timestamp, Static, Varying, serialize(S, Varying, Msg));
+            ({delete, #message_matcher{topic = Topic, timestamp = Timestamp}}) ->
+                case emqx_ds_lts:lookup_topic_key(Trie, words(Topic)) of
+                    {ok, {Static, Varying}} ->
+                        ?cooked_msg_op(Timestamp, Static, Varying, ?cooked_delete);
+                    undefined ->
+                        %% Topic is unknown, nothing to delete.
+                        []
+                end
+        end,
+        Operations
+    ),
     {ok, #{
-        ?cooked_payloads => Payloads,
+        ?cooked_msg_ops => OperationsCooked,
         ?cooked_lts_ops => pop_lts_persist_ops()
     }}.
 
 commit_batch(
     _ShardId,
-    #s{db = DB, trie_cf = TrieCF, data_cf = DataCF, trie = Trie},
-    #{?cooked_lts_ops := LtsOps, ?cooked_payloads := Payloads},
+    #s{db = DB, trie_cf = TrieCF, data_cf = DataCF, trie = Trie, hash_bytes = HashBytes},
+    #{?cooked_lts_ops := LtsOps, ?cooked_msg_ops := Operations},
     Options
 ) ->
     {ok, Batch} = rocksdb:batch(),
@@ -216,10 +241,17 @@ commit_batch(
         _ = emqx_ds_lts:trie_update(Trie, LtsOps),
         %% Commit payloads:
         lists:foreach(
-            fun({Key, Val}) ->
-                ok = rocksdb:batch_put(Batch, DataCF, Key, Val)
+            fun
+                (?cooked_msg_op(Timestamp, Static, Varying, ValBlob = <<_/bytes>>)) ->
+                    MasterKey = mk_key(Static, 0, <<>>, Timestamp),
+                    ok = rocksdb:batch_put(Batch, DataCF, MasterKey, ValBlob),
+                    mk_index(Batch, DataCF, HashBytes, Static, Varying, Timestamp);
+                (?cooked_msg_op(Timestamp, Static, Varying, ?cooked_delete)) ->
+                    MasterKey = mk_key(Static, 0, <<>>, Timestamp),
+                    ok = rocksdb:batch_delete(Batch, DataCF, MasterKey),
+                    delete_index(Batch, DataCF, HashBytes, Static, Varying, Timestamp)
             end,
-            Payloads
+            Operations
         ),
         Result = rocksdb:write_batch(DB, Batch, [
             {disable_wal, not maps:get(durable, Options, true)}
@@ -243,12 +275,14 @@ get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
 get_delete_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
 
+make_iterator(_Shard, _State, _Stream, _TopicFilter, TS) when TS >= ?max_ts ->
+    {error, unrecoverable, "Timestamp is too large"};
 make_iterator(_Shard, #s{trie = Trie}, #stream{static_index = StaticIdx}, TopicFilter, StartTime) ->
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
     {ok, #it{
         static_index = StaticIdx,
-        ts = StartTime,
+        ts = dec_ts(StartTime),
         compressed_tf = emqx_topic:join(CompressedTF)
     }}.
 
@@ -285,6 +319,28 @@ delete_next(Shard, S, It0, Selector, BatchSize, Now, IsCurrent) ->
             batch_delete(S, It, Selector, KVs);
         Ret ->
             Ret
+    end.
+
+lookup_message(
+    Shard,
+    S = #s{db = DB, data_cf = CF, trie = Trie},
+    #message_matcher{topic = Topic, timestamp = Timestamp}
+) ->
+    case emqx_ds_lts:lookup_topic_key(Trie, words(Topic)) of
+        {ok, {StaticIdx, _Varying}} ->
+            DSKey = mk_key(StaticIdx, 0, <<>>, Timestamp),
+            case rocksdb:get(DB, CF, DSKey, _ReadOpts = []) of
+                {ok, Val} ->
+                    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+                    Msg = deserialize(S, Val),
+                    enrich(Shard, S, TopicStructure, DSKey, Msg);
+                not_found ->
+                    not_found;
+                {error, Reason} ->
+                    {error, unrecoverable, Reason}
+            end;
+        undefined ->
+            not_found
     end.
 
 %%================================================================================
@@ -332,12 +388,18 @@ serialize(#s{serialization_schema = SSchema, with_guid = WithGuid}, Varying, Msg
     },
     emqx_ds_msg_serializer:serialize(SSchema, Msg).
 
+enrich(#ctx{shard = Shard, s = S, topic_structure = TopicStructure}, DSKey, Msg0) ->
+    enrich(Shard, S, TopicStructure, DSKey, Msg0).
+
 enrich(
-    #ctx{shard = Shard, topic_structure = Structure, s = #s{with_guid = WithGuid}},
+    Shard,
+    #s{with_guid = WithGuid},
+    TopicStructure,
     DSKey,
     Msg0
 ) ->
-    Topic = emqx_topic:join(emqx_ds_lts:decompress_topic(Structure, words(Msg0#message.topic))),
+    Tokens = words(Msg0#message.topic),
+    Topic = emqx_topic:join(emqx_ds_lts:decompress_topic(TopicStructure, Tokens)),
     Msg0#message{
         topic = Topic,
         id =
@@ -442,7 +504,7 @@ do_init_iterators(S, Static, [], _WildcardLevel) ->
 next_loop(
     Shard,
     S = #s{trie = Trie},
-    It = #it{static_index = StaticIdx, ts = TS, compressed_tf = CompressedTF},
+    It = #it{static_index = StaticIdx, ts = LastTS, compressed_tf = CompressedTF},
     Iterators,
     BatchSize,
     TMax
@@ -465,10 +527,10 @@ next_loop(
         filter = words(CompressedTF),
         tmax = TMax
     },
-    next_loop(Ctx, It, BatchSize, {seek, TS}, []).
+    next_loop(Ctx, It, BatchSize, {seek, inc_ts(LastTS)}, []).
 
-next_loop(_Ctx, It, 0, Op, Acc) ->
-    finalize_loop(It, Op, Acc);
+next_loop(_Ctx, It, 0, _Op, Acc) ->
+    finalize_loop(It, Acc);
 next_loop(Ctx, It0, BatchSize, Op, Acc) ->
     %% ?tp(notice, skipstream_loop, #{
     %%     ts => It0#it.ts, tf => It0#it.compressed_tf, bs => BatchSize, tmax => TMax, op => Op
@@ -479,15 +541,15 @@ next_loop(Ctx, It0, BatchSize, Op, Acc) ->
         none ->
             %% ?tp(notice, skipstream_loop_result, #{r => none}),
             inc_counter(?DS_SKIPSTREAM_LTS_EOS),
-            finalize_loop(It0, Op, Acc);
+            finalize_loop(It0, Acc);
         {seek, TS} when TS > TMax ->
             %% ?tp(notice, skipstream_loop_result, #{r => seek_future, ts => TS}),
             inc_counter(?DS_SKIPSTREAM_LTS_FUTURE),
-            finalize_loop(It0, {seek, TS}, Acc);
+            finalize_loop(It0, Acc);
         {ok, TS, _Key, _Msg0} when TS > TMax ->
             %% ?tp(notice, skipstream_loop_result, #{r => ok_future, ts => TS, key => _Key}),
             inc_counter(?DS_SKIPSTREAM_LTS_FUTURE),
-            finalize_loop(It0, {seek, TS}, Acc);
+            finalize_loop(It0, Acc);
         {seek, TS} ->
             %% ?tp(notice, skipstream_loop_result, #{r => seek, ts => TS}),
             It = It0#it{ts = TS},
@@ -499,12 +561,7 @@ next_loop(Ctx, It0, BatchSize, Op, Acc) ->
             next_loop(Ctx, It, BatchSize - 1, next, [{DSKey, Message} | Acc])
     end.
 
-finalize_loop(It0, Op, Acc) ->
-    case Op of
-        next -> NextTS = It0#it.ts + 1;
-        {seek, NextTS} -> ok
-    end,
-    It = It0#it{ts = NextTS},
+finalize_loop(It, Acc) ->
     {ok, It, lists:reverse(Acc)}.
 
 next_step(
@@ -581,14 +638,25 @@ free_iterators(Its) ->
 
 %%%%%%%% Indexes %%%%%%%%%%
 
-mk_index(HashBytes, Static, Timestamp, Varying) ->
-    mk_index(HashBytes, Static, Timestamp, 1, Varying, []).
+mk_index(Batch, CF, HashBytes, Static, Varying, Timestamp) ->
+    mk_index(Batch, CF, HashBytes, Static, Timestamp, 1, Varying).
 
-mk_index(HashBytes, Static, Timestamp, N, [TopicLevel | Varying], Acc) ->
-    Op = {mk_key(Static, N, hash(HashBytes, TopicLevel), Timestamp), <<>>},
-    mk_index(HashBytes, Static, Timestamp, N + 1, Varying, [Op | Acc]);
-mk_index(_HashBytes, _Static, _Timestamp, _N, [], Acc) ->
-    Acc.
+mk_index(Batch, CF, HashBytes, Static, Timestamp, N, [TopicLevel | Varying]) ->
+    Key = mk_key(Static, N, hash(HashBytes, TopicLevel), Timestamp),
+    ok = rocksdb:batch_put(Batch, CF, Key, <<>>),
+    mk_index(Batch, CF, HashBytes, Static, Timestamp, N + 1, Varying);
+mk_index(_Batch, _CF, _HashBytes, _Static, _Timestamp, _N, []) ->
+    ok.
+
+delete_index(Batch, CF, HashBytes, Static, Varying, Timestamp) ->
+    delete_index(Batch, CF, HashBytes, Static, Timestamp, 1, Varying).
+
+delete_index(Batch, CF, HashBytes, Static, Timestamp, N, [TopicLevel | Varying]) ->
+    Key = mk_key(Static, N, hash(HashBytes, TopicLevel), Timestamp),
+    ok = rocksdb:batch_delete(Batch, CF, Key),
+    delete_index(Batch, CF, HashBytes, Static, Timestamp, N + 1, Varying);
+delete_index(_Batch, _CF, _HashBytes, _Static, _Timestamp, _N, []) ->
+    ok.
 
 %%%%%%%% Keys %%%%%%%%%%
 
@@ -637,12 +705,6 @@ hash(HashBytes, TopicLevel) ->
     Hash.
 
 %%%%%%%% LTS %%%%%%%%%%
-
-%% TODO: don't hardcode the thresholds
-threshold_fun(0) ->
-    100;
-threshold_fun(_) ->
-    10.
 
 -spec restore_trie(pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()) -> emqx_ds_lts:trie().
 restore_trie(StaticIdxBytes, DB, CF) ->
@@ -747,3 +809,31 @@ collect_counters(Shard) ->
         end,
         ?COUNTERS
     ).
+
+inc_ts(?max_ts) -> 0;
+inc_ts(TS) when TS >= 0, TS < ?max_ts -> TS + 1.
+
+dec_ts(0) -> ?max_ts;
+dec_ts(TS) when TS > 0, TS =< ?max_ts -> TS - 1.
+
+%%================================================================================
+%% Tests
+%%================================================================================
+
+-ifdef(TEST).
+
+inc_dec_test_() ->
+    Numbers = [0, 1, 100, ?max_ts - 1, ?max_ts],
+    [
+        ?_assertEqual(N, dec_ts(inc_ts(N)))
+     || N <- Numbers
+    ].
+
+dec_inc_test_() ->
+    Numbers = [0, 1, 100, ?max_ts - 1, ?max_ts],
+    [
+        ?_assertEqual(N, inc_ts(dec_ts(N)))
+     || N <- Numbers
+    ].
+
+-endif.

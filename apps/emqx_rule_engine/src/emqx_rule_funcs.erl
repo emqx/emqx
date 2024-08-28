@@ -39,7 +39,11 @@
     contains_topic/3,
     contains_topic_match/2,
     contains_topic_match/3,
-    null/0
+    null/0,
+    coalesce/1,
+    coalesce/2,
+    coalesce_ne/1,
+    coalesce_ne/2
 ]).
 
 %% Arithmetic Funcs
@@ -136,6 +140,8 @@
     ltrim/1,
     reverse/1,
     rtrim/1,
+    rtrim/2,
+    rm_prefix/2,
     strlen/1,
     substr/2,
     substr/3,
@@ -251,6 +257,9 @@
     timezone_to_second/1,
     timezone_to_offset_seconds/1
 ]).
+
+%% System functions
+-export([getenv/1]).
 
 %% See extra_functions_module/0 and set_extra_functions_module/1 in the
 %% emqx_rule_engine module
@@ -427,6 +436,27 @@ null() ->
 
 bytesize(IoList) ->
     erlang:iolist_size(IoList).
+
+%% @doc coalesce returns the first non-null value
+coalesce([]) -> null();
+coalesce([undefined | T]) -> coalesce(T);
+coalesce([H | _T]) -> H.
+
+%% @doc This is a short-cut of SQL `CASE WHEN is_null(A) THEN A ELSE B END'
+coalesce(A, B) ->
+    coalesce([A, B]).
+
+%% @doc coalesce_ne returns the first non-empty value.
+%% `undefined', `""', and `<<>>' are considered 'empty'.
+coalesce_ne([]) -> null();
+coalesce_ne([undefined | T]) -> coalesce_ne(T);
+coalesce_ne(["" | T]) -> coalesce_ne(T);
+coalesce_ne([<<>> | T]) -> coalesce_ne(T);
+coalesce_ne([H | _T]) -> H.
+
+%% @doc Same as coalesce/2, but considers a value null when it's empty string.
+coalesce_ne(A, B) ->
+    coalesce_ne([A, B]).
 
 %%------------------------------------------------------------------------------
 %% Arithmetic Funcs
@@ -766,6 +796,10 @@ ltrim(S) -> emqx_variform_bif:ltrim(S).
 reverse(S) -> emqx_variform_bif:reverse(S).
 
 rtrim(S) -> emqx_variform_bif:rtrim(S).
+
+rtrim(S, Chars) -> emqx_variform_bif:rtrim(S, Chars).
+
+rm_prefix(S, Prefix) -> emqx_variform_bif:rm_prefix(S, Prefix).
 
 strlen(S) -> emqx_variform_bif:strlen(S).
 
@@ -1262,3 +1296,9 @@ convert_timestamp(MillisecondsTimestamp) ->
 
 uuid_str(UUID, DisplayOpt) ->
     uuid:uuid_to_string(UUID, DisplayOpt).
+
+%%------------------------------------------------------------------------------
+%% System Funcs
+%%------------------------------------------------------------------------------
+getenv(Env) ->
+    emqx_variform_bif:getenv(Env).

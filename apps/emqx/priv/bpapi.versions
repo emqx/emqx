@@ -10,6 +10,7 @@
 {emqx_bridge,5}.
 {emqx_bridge,6}.
 {emqx_broker,1}.
+{emqx_cluster_link,1}.
 {emqx_cm,1}.
 {emqx_cm,2}.
 {emqx_cm,3}.
@@ -26,6 +27,7 @@
 {emqx_ds,2}.
 {emqx_ds,3}.
 {emqx_ds,4}.
+{emqx_ds_shared_sub,1}.
 {emqx_eviction_agent,1}.
 {emqx_eviction_agent,2}.
 {emqx_eviction_agent,3}.
@@ -48,6 +50,7 @@
 {emqx_mgmt_api_plugins,1}.
 {emqx_mgmt_api_plugins,2}.
 {emqx_mgmt_api_plugins,3}.
+{emqx_mgmt_api_relup,1}.
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_cluster,2}.
 {emqx_mgmt_cluster,3}.
@@ -60,7 +63,6 @@
 {emqx_node_rebalance_api,1}.
 {emqx_node_rebalance_api,2}.
 {emqx_node_rebalance_evacuation,1}.
-{emqx_node_rebalance_purge,1}.
 {emqx_node_rebalance_status,1}.
 {emqx_node_rebalance_status,2}.
 {emqx_persistent_session_ds,1}.

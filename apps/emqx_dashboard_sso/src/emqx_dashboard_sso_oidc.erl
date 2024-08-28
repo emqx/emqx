@@ -181,12 +181,16 @@ create(#{name_var := NameVar} = Config) ->
     end.
 
 update(Config, State) ->
-    destroy(State),
+    destroy(State, false),
     create(Config).
 
 destroy(State) ->
+    destroy(State, true).
+
+destroy(State, TryDelete) ->
     emqx_dashboard_sso_oidc_session:stop(),
-    try_delete_jwks_file(State).
+    _ = TryDelete andalso try_delete_jwks_file(State),
+    ok.
 
 -dialyzer({nowarn_function, login/2}).
 login(
@@ -256,7 +260,15 @@ convert_certs(_Dir, Conf) ->
 %%------------------------------------------------------------------------------
 
 save_jwks_file(Dir, Content) ->
-    Path = filename:join([emqx_tls_lib:pem_dir(Dir), "client_jwks"]),
+    case filelib:is_file(Content) of
+        true ->
+            {ok, Content};
+        _ ->
+            Path = filename:join([emqx_tls_lib:pem_dir(Dir), "client_jwks"]),
+            write_jwks_file(Path, Content)
+    end.
+
+write_jwks_file(Path, Content) ->
     case filelib:ensure_dir(Path) of
         ok ->
             case file:write_file(Path, Content) of
@@ -284,11 +296,18 @@ maybe_require_pkce(true, Opts) ->
     }.
 
 init_client_jwks(#{client_jwks := #{type := file, file := File}}) ->
-    case jose_jwk:from_file(File) of
-        {error, _} ->
-            none;
-        Jwks ->
-            Jwks
+    try
+        case jose_jwk:from_file(File) of
+            {error, Reason} ->
+                ?SLOG(error, #{msg => "failed_to_initialize_jwks", reason => Reason}),
+                none;
+            Jwks ->
+                Jwks
+        end
+    catch
+        _:CReason ->
+            ?SLOG(error, #{msg => "failed_to_initialize_jwks", reason => CReason}),
+            none
     end;
 init_client_jwks(_) ->
     none.

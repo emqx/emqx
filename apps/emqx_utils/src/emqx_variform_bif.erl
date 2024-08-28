@@ -25,6 +25,7 @@
     reverse/1,
     rtrim/1,
     rtrim/2,
+    rm_prefix/2,
     strlen/1,
     substr/2,
     substr/3,
@@ -79,6 +80,12 @@
 %% Number compare functions
 -export([num_comp/2, num_eq/2, num_lt/2, num_lte/2, num_gt/2, num_gte/2]).
 
+%% System
+-export([getenv/1]).
+
+-define(CACHE(Key), {?MODULE, Key}).
+-define(ENV_CACHE(Env), ?CACHE({env, Env})).
+
 %%------------------------------------------------------------------------------
 %% String Funcs
 %%------------------------------------------------------------------------------
@@ -100,6 +107,17 @@ rtrim(S) when is_binary(S) ->
 
 rtrim(S, Chars) when is_binary(S) ->
     string:trim(S, trailing, Chars).
+
+%% @doc Remove the prefix of a string if there is a match.
+%% The original stirng is returned if there is no match.
+rm_prefix(S, Prefix) ->
+    Size = size(Prefix),
+    case S of
+        <<P:Size/binary, Rem/binary>> when P =:= Prefix ->
+            Rem;
+        _ ->
+            S
+    end.
 
 strlen(S) when is_binary(S) ->
     string:length(S).
@@ -569,3 +587,24 @@ num_lte(A, B) ->
 num_gte(A, B) ->
     R = num_comp(A, B),
     R =:= gt orelse R =:= eq.
+
+%%------------------------------------------------------------------------------
+%% System
+%%------------------------------------------------------------------------------
+getenv(Bin) when is_binary(Bin) ->
+    EnvKey = ?ENV_CACHE(Bin),
+    case persistent_term:get(EnvKey, undefined) of
+        undefined ->
+            Name = "EMQXVAR_" ++ erlang:binary_to_list(Bin),
+            Result =
+                case os:getenv(Name) of
+                    false ->
+                        <<>>;
+                    Value ->
+                        erlang:list_to_binary(Value)
+                end,
+            persistent_term:put(EnvKey, Result),
+            Result;
+        Result ->
+            Result
+    end.

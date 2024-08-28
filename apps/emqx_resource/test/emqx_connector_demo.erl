@@ -24,6 +24,7 @@
 
 %% callbacks of behaviour emqx_resource
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -61,6 +62,8 @@ register(type) -> boolean();
 register(required) -> true;
 register(default) -> false;
 register(_) -> undefined.
+
+resource_type() -> demo.
 
 callback_mode() ->
     persistent_term:get(?CM_KEY).

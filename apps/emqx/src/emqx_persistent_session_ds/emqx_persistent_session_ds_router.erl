@@ -17,7 +17,7 @@
 -module(emqx_persistent_session_ds_router).
 
 -include("emqx.hrl").
--include("emqx_persistent_session_ds/emqx_ps_ds_int.hrl").
+-include("emqx_ps_ds_int.hrl").
 
 -export([init_tables/0]).
 
@@ -47,7 +47,7 @@
 -endif.
 
 -type route() :: #ps_route{}.
--type dest() :: emqx_persistent_session_ds:id().
+-type dest() :: emqx_persistent_session_ds:id() | #share_dest{}.
 
 -export_type([dest/0, route/0]).
 
@@ -161,7 +161,7 @@ topics() ->
 print_routes(Topic) ->
     lists:foreach(
         fun(#ps_route{topic = To, dest = Dest}) ->
-            io:format("~ts -> ~ts~n", [To, Dest])
+            io:format("~ts -> ~tp~n", [To, Dest])
         end,
         match_routes(Topic)
     ).
@@ -247,6 +247,8 @@ mk_filtertab_fold_fun(FoldFun) ->
 match_filters(Topic) ->
     emqx_topic_index:matches(Topic, ?PS_FILTERS_TAB, []).
 
+get_dest_session_id(#share_dest{session_id = DSSessionId}) ->
+    DSSessionId;
 get_dest_session_id({_, DSSessionId}) ->
     DSSessionId;
 get_dest_session_id(DSSessionId) ->

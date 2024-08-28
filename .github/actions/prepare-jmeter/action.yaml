@@ -1,5 +1,5 @@
 name: 'Prepare jmeter'
-
+description: 'Download jmeter packages'
 runs:
   using: composite
   steps:

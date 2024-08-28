@@ -8,7 +8,7 @@ defmodule EMQX.MixProject do
       app: :emqx,
       version: "0.1.0",
       build_path: "../../_build",
-      erlc_paths: UMP.erlc_paths(),
+      erlc_paths: erlc_paths(),
       erlc_options: [
         {:i, "src"}
         | UMP.erlc_options()
@@ -36,8 +36,9 @@ defmodule EMQX.MixProject do
   def deps() do
     ## FIXME!!! go though emqx.app.src and add missing stuff...
     [
+      {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
-      # {:emqx_ds_backends, in_umbrella: true},
+      {:emqx_ds_backends, in_umbrella: true},
 
       UMP.common_dep(:gproc),
       UMP.common_dep(:gen_rpc),
@@ -51,6 +52,15 @@ defmodule EMQX.MixProject do
       UMP.common_dep(:pbkdf2),
       UMP.common_dep(:emqx_http_lib),
     ] ++ UMP.quicer_dep()
+  end
+
+  defp erlc_paths() do
+    paths = UMP.erlc_paths()
+    if UMP.test_env?() do
+      ["integration_test" | paths]
+    else
+      paths
+    end
   end
 
   defp extra_dirs() do

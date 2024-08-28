@@ -66,6 +66,7 @@ fields(file_transfer) ->
                 boolean(),
                 #{
                     desc => ?DESC("enable"),
+                    %% importance => ?IMPORTANCE_NO_DOC,
                     required => false,
                     default => false
                 }
@@ -242,6 +243,7 @@ common_backend_fields() ->
             mk(
                 boolean(), #{
                     desc => ?DESC("backend_enable"),
+                    importance => ?IMPORTANCE_NO_DOC,
                     required => false,
                     default => true
                 }

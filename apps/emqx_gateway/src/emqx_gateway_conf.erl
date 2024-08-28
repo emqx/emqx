@@ -887,7 +887,7 @@ convert_certs(SubDir, Conf) ->
 
 convert_certs(Type, SubDir, Conf) ->
     SSL = maps:get(Type, Conf, undefined),
-    case is_map(SSL) andalso emqx_tls_lib:ensure_ssl_files(SubDir, SSL) of
+    case is_map(SSL) andalso emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(SubDir, SSL) of
         false ->
             Conf;
         {ok, NSSL = #{}} ->

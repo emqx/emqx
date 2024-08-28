@@ -156,7 +156,7 @@
     count => 1
 }).
 
--define(AUTHZ_RESOURCE_GROUP, <<"emqx_authz">>).
+-define(AUTHZ_RESOURCE_GROUP, <<"authz">>).
 
 -define(AUTHZ_FEATURES, [rich_actions]).
 

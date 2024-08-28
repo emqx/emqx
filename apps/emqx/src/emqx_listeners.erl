@@ -64,6 +64,19 @@
 
 -export_type([listener_id/0]).
 
+-if(OTP_RELEASE >= 26).
+-dialyzer(
+    {no_unknown, [
+        is_running/3,
+        current_conns/3,
+        do_stop_listener/3,
+        do_start_listener/4,
+        do_update_listener/4,
+        quic_listener_conf_rollback/3
+    ]}
+).
+-endif.
+
 -type listener_id() :: atom() | binary().
 -type listener_type() :: tcp | ssl | ws | wss | quic | dtls.
 
@@ -421,7 +434,7 @@ do_start_listener(Type, Name, Id, #{bind := ListenOn} = Opts) when ?ESOCKD_LISTE
     esockd:open(
         Id,
         ListenOn,
-        merge_default(esockd_opts(Id, Type, Name, Opts))
+        merge_default(esockd_opts(Id, Type, Name, Opts, _OldOpts = undefined))
     );
 %% Start MQTT/WS listener
 do_start_listener(Type, Name, Id, Opts) when ?COWBOY_LISTENER(Type) ->
@@ -465,7 +478,7 @@ do_update_listener(Type, Name, OldConf, NewConf = #{bind := ListenOn}) when
     Id = listener_id(Type, Name),
     case maps:get(bind, OldConf) of
         ListenOn ->
-            esockd:set_options({Id, ListenOn}, esockd_opts(Id, Type, Name, NewConf));
+            esockd:set_options({Id, ListenOn}, esockd_opts(Id, Type, Name, NewConf, OldConf));
         _Different ->
             %% TODO
             %% Again, we're not strictly required to drop live connections in this case.
@@ -577,7 +590,7 @@ perform_listener_change(update, {{Type, Name, ConfOld}, {_, _, ConfNew}}) ->
 perform_listener_change(stop, {Type, Name, Conf}) ->
     stop_listener(Type, Name, Conf).
 
-esockd_opts(ListenerId, Type, Name, Opts0) ->
+esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Limiter = limiter(Opts0),
     Opts2 =
@@ -609,7 +622,7 @@ esockd_opts(ListenerId, Type, Name, Opts0) ->
             tcp ->
                 Opts3#{tcp_options => tcp_opts(Opts0)};
             ssl ->
-                OptsWithCRL = inject_crl_config(Opts0),
+                OptsWithCRL = inject_crl_config(Opts0, OldOpts),
                 OptsWithSNI = inject_sni_fun(ListenerId, OptsWithCRL),
                 OptsWithRootFun = inject_root_fun(OptsWithSNI),
                 OptsWithVerifyFun = inject_verify_fun(OptsWithRootFun),
@@ -884,7 +897,7 @@ convert_certs(ListenerConf) ->
 
 convert_certs(Type, Name, Conf) ->
     CertsDir = certs_dir(Type, Name),
-    case emqx_tls_lib:ensure_ssl_files(CertsDir, get_ssl_options(Conf)) of
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(CertsDir, get_ssl_options(Conf)) of
         {ok, undefined} ->
             Conf;
         {ok, SSL} ->
@@ -985,7 +998,7 @@ inject_sni_fun(_ListenerId, Conf) ->
     Conf.
 
 inject_crl_config(
-    Conf = #{ssl_options := #{enable_crl_check := true} = SSLOpts}
+    Conf = #{ssl_options := #{enable_crl_check := true} = SSLOpts}, _OldOpts
 ) ->
     HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
     Conf#{
@@ -995,7 +1008,16 @@ inject_crl_config(
             crl_cache => {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
         }
     };
-inject_crl_config(Conf) ->
+inject_crl_config(#{ssl_options := SSLOpts0} = Conf0, #{} = OldOpts) ->
+    %% Note: we must set crl options to `undefined' to unset them.  Otherwise,
+    %% `esockd' will retain such options when `esockd:merge_opts/2' is called and the SSL
+    %% options were previously enabled.
+    WasEnabled = emqx_utils_maps:deep_get([ssl_options, enable_crl_check], OldOpts, false),
+    Undefine = fun(Acc, K) -> emqx_utils_maps:put_if(Acc, K, undefined, WasEnabled) end,
+    SSLOpts1 = Undefine(SSLOpts0, crl_check),
+    SSLOpts = Undefine(SSLOpts1, crl_cache),
+    Conf0#{ssl_options := SSLOpts};
+inject_crl_config(Conf, undefined = _OldOpts) ->
     Conf.
 
 maybe_unregister_ocsp_stapling_refresh(
@@ -1018,7 +1040,6 @@ ensure_max_conns(<<"infinity">>) -> <<"infinity">>;
 ensure_max_conns(MaxConn) when is_binary(MaxConn) -> binary_to_integer(MaxConn);
 ensure_max_conns(MaxConn) -> MaxConn.
 
--spec quic_listen_on(X :: any()) -> quicer:listen_on().
 quic_listen_on(Bind) ->
     case Bind of
         {Addr, Port} when tuple_size(Addr) == 4 ->

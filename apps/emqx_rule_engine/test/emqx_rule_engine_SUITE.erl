@@ -81,6 +81,7 @@ groups() ->
             t_sqlselect_1,
             t_sqlselect_2,
             t_sqlselect_3,
+            t_direct_dispatch,
             t_sqlselect_message_publish_event_keep_original_props_1,
             t_sqlselect_message_publish_event_keep_original_props_2,
             t_sqlselect_missing_template_vars_render_as_undefined,
@@ -112,7 +113,8 @@ groups() ->
             t_sqlparse_undefined_variable,
             t_sqlparse_new_map,
             t_sqlparse_invalid_json,
-            t_sqlselect_as_put
+            t_sqlselect_as_put,
+            t_sqlselect_client_attr
         ]},
         {events, [], [
             t_events,
@@ -160,13 +162,55 @@ groups() ->
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [
+        lists:flatten([
             emqx,
             emqx_conf,
             emqx_rule_engine,
             emqx_auth,
-            emqx_bridge
-        ],
+            emqx_bridge,
+            [
+                {emqx_schema_validation, #{
+                    config => #{
+                        <<"schema_validation">> => #{
+                            <<"validations">> => [
+                                #{
+                                    <<"name">> => <<"v1">>,
+                                    <<"topics">> => [<<"sv/fail">>],
+                                    <<"strategy">> => <<"all_pass">>,
+                                    <<"failure_action">> => <<"drop">>,
+                                    <<"checks">> => [
+                                        #{
+                                            <<"type">> => <<"sql">>,
+                                            <<"sql">> => <<"select 1 where false">>
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }}
+             || is_ee()
+            ],
+            [
+                {emqx_message_transformation, #{
+                    config => #{
+                        <<"message_transformation">> => #{
+                            <<"transformations">> => [
+                                #{
+                                    <<"name">> => <<"t1">>,
+                                    <<"topics">> => <<"mt/fail">>,
+                                    <<"failure_action">> => <<"drop">>,
+                                    <<"payload_decoder">> => #{<<"type">> => <<"json">>},
+                                    <<"payload_encoder">> => #{<<"type">> => <<"json">>},
+                                    <<"operations">> => []
+                                }
+                            ]
+                        }
+                    }
+                }}
+             || is_ee()
+            ]
+        ]),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -250,6 +294,8 @@ init_per_testcase(t_events, Config) ->
         "\"$events/message_delivered\", "
         "\"$events/message_dropped\", "
         "\"$events/delivery_dropped\", "
+        "\"$events/schema_validation_failed\", "
+        "\"$events/message_transformation_failed\", "
         "\"t1\"",
     {ok, Rule} = emqx_rule_engine:create_rule(
         #{
@@ -834,6 +880,13 @@ t_events(_Config) ->
     session_subscribed(Client2),
     ct:pal("====== verify t1"),
     message_publish(Client),
+    is_ee() andalso
+        begin
+            ct:pal("====== verify $events/schema_validation_failed"),
+            schema_validation_failed(Client),
+            ct:pal("====== verify $events/message_transformation_failed"),
+            message_transformation_failed(Client)
+        end,
     ct:pal("====== verify $events/delivery_dropped"),
     delivery_dropped(Client),
     ct:pal("====== verify $events/message_delivered"),
@@ -1150,6 +1203,16 @@ message_dropped(Client) ->
     ok.
 message_acked(_Client) ->
     verify_event('message.acked'),
+    ok.
+schema_validation_failed(Client) ->
+    {ok, _} = emqtt:publish(Client, <<"sv/fail">>, <<"">>, [{qos, 1}]),
+    ct:sleep(100),
+    verify_event('schema.validation_failed'),
+    ok.
+message_transformation_failed(Client) ->
+    {ok, _} = emqtt:publish(Client, <<"mt/fail">>, <<"will fail to { parse">>, [{qos, 1}]),
+    ct:sleep(100),
+    verify_event('message.transformation_failed'),
     ok.
 
 t_match_atom_and_binary(_Config) ->
@@ -1933,6 +1996,42 @@ t_sqlselect_3(_Config) ->
 
     emqtt:stop(Client),
     delete_rule(TopicRule).
+
+%% select from t/1, republish to t/1, no dead-loop expected
+%% i.e. payload is mutated once and only once
+t_direct_dispatch(_Config) ->
+    SQL = "SELECT * FROM \"t/1\"",
+    Repub = republish_action(
+        <<"t/1">>,
+        <<"republished: ${payload}">>,
+        <<"${user_properties}">>,
+        #{},
+        true
+    ),
+    {ok, Rule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [Repub]
+        }
+    ),
+    {ok, Pub} = emqtt:start_link([{clientid, <<"pubclient">>}]),
+    {ok, _} = emqtt:connect(Pub),
+    {ok, Sub} = emqtt:start_link([{clientid, <<"subclient">>}]),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, _} = emqtt:subscribe(Sub, <<"t/1">>, 0),
+    Payload = base64:encode(crypto:strong_rand_bytes(12)),
+    emqtt:publish(Pub, <<"t/1">>, Payload, 0),
+    receive
+        {publish, #{topic := T, payload := Payload1}} ->
+            ?assertEqual(<<"t/1">>, T),
+            ?assertEqual(<<"republished: ", Payload/binary>>, Payload1)
+    after 2000 ->
+        ct:fail(wait_for_t2)
+    end,
+    emqtt:stop(Pub),
+    emqtt:stop(Sub),
+    delete_rule(Rule).
 
 t_sqlselect_message_publish_event_keep_original_props_1(_Config) ->
     %% republish the client.connected msg
@@ -3830,9 +3929,63 @@ t_trace_rule_id(_Config) ->
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
 
+t_sqlselect_client_attr(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Compiled} = emqx_variform:compile("user_property.group"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"group">>
+        },
+        #{
+            expression => Compiled,
+            set_as_attr => <<"group2">>
+        }
+    ]),
+
+    SQL =
+        "SELECT client_attrs as payload FROM \"t/1\" ",
+    Repub = republish_action(<<"t/2">>),
+    {ok, _TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [Repub]
+        }
+    ),
+
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"group">>, <<"g1">>}]}}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/2">>, 0),
+    ct:sleep(100),
+    emqtt:publish(Client, <<"t/1">>, <<"Hello">>),
+
+    receive
+        {publish, #{topic := Topic, payload := Payload}} ->
+            ?assertEqual(<<"t/2">>, Topic),
+            ?assertMatch(
+                #{<<"group">> := <<"g1">>, <<"group2">> := <<"g1">>},
+                emqx_utils_json:decode(Payload)
+            )
+    after 1000 ->
+        ct:fail(wait_for_t_2)
+    end,
+
+    emqtt:disconnect(Client),
+    emqx_rule_engine:delete_rule(?TMP_RULEID),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []).
+
 %%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------
+
+is_ee() ->
+    emqx_release:edition() == ee.
 
 republish_action(Topic) ->
     republish_action(Topic, <<"${payload}">>).
@@ -3844,6 +3997,9 @@ republish_action(Topic, Payload, UserProperties) ->
     republish_action(Topic, Payload, UserProperties, _MQTTProperties = #{}).
 
 republish_action(Topic, Payload, UserProperties, MQTTProperties) ->
+    republish_action(Topic, Payload, UserProperties, MQTTProperties, false).
+
+republish_action(Topic, Payload, UserProperties, MQTTProperties, DirectDispatch) ->
     #{
         function => republish,
         args => #{
@@ -3852,7 +4008,8 @@ republish_action(Topic, Payload, UserProperties, MQTTProperties) ->
             qos => 0,
             retain => false,
             mqtt_properties => MQTTProperties,
-            user_properties => UserProperties
+            user_properties => UserProperties,
+            direct_dispatch => DirectDispatch
         }
     }.
 
@@ -3920,12 +4077,14 @@ verify_event_fields('message.publish', Fields) ->
         username := Username,
         payload := Payload,
         peerhost := PeerHost,
+        peername := PeerName,
         topic := Topic,
         qos := QoS,
         flags := Flags,
         pub_props := Properties,
         timestamp := Timestamp,
-        publish_received_at := EventAt
+        publish_received_at := EventAt,
+        client_attrs := ClientAttrs
     } = Fields,
     Now = erlang:system_time(millisecond),
     TimestampElapse = Now - Timestamp,
@@ -3934,6 +4093,7 @@ verify_event_fields('message.publish', Fields) ->
     ?assertEqual(<<"c_event">>, ClientId),
     ?assertEqual(<<"u_event">>, Username),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
+    verify_peername(PeerName),
     verify_ipaddr(PeerHost),
     ?assertEqual(<<"t1">>, Topic),
     ?assertEqual(1, QoS),
@@ -3941,7 +4101,8 @@ verify_event_fields('message.publish', Fields) ->
     ?assertMatch(#{'Message-Expiry-Interval' := 60}, Properties),
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000),
     ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60 * 1000),
-    ?assert(EventAt =< Timestamp);
+    ?assert(EventAt =< Timestamp),
+    ?assert(is_map(ClientAttrs));
 verify_event_fields('client.connected', Fields) ->
     #{
         clientid := ClientId,
@@ -3957,7 +4118,8 @@ verify_event_fields('client.connected', Fields) ->
         is_bridge := IsBridge,
         conn_props := Properties,
         timestamp := Timestamp,
-        connected_at := EventAt
+        connected_at := EventAt,
+        client_attrs := ClientAttrs
     } = Fields,
     Now = erlang:system_time(millisecond),
     TimestampElapse = Now - Timestamp,
@@ -3976,7 +4138,8 @@ verify_event_fields('client.connected', Fields) ->
     ?assertMatch(#{'Session-Expiry-Interval' := 60}, Properties),
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000),
     ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60 * 1000),
-    ?assert(EventAt =< Timestamp);
+    ?assert(EventAt =< Timestamp),
+    ?assert(is_map(ClientAttrs));
 verify_event_fields('client.disconnected', Fields) ->
     #{
         reason := Reason,
@@ -3986,7 +4149,8 @@ verify_event_fields('client.disconnected', Fields) ->
         sockname := SockName,
         disconn_props := Properties,
         timestamp := Timestamp,
-        disconnected_at := EventAt
+        disconnected_at := EventAt,
+        client_attrs := ClientAttrs
     } = Fields,
     Now = erlang:system_time(millisecond),
     TimestampElapse = Now - Timestamp,
@@ -3999,7 +4163,8 @@ verify_event_fields('client.disconnected', Fields) ->
     ?assertMatch(#{'User-Property' := #{<<"reason">> := <<"normal">>}}, Properties),
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000),
     ?assert(0 =< RcvdAtElapse andalso RcvdAtElapse =< 60 * 1000),
-    ?assert(EventAt =< Timestamp);
+    ?assert(EventAt =< Timestamp),
+    ?assert(is_map(ClientAttrs));
 verify_event_fields(SubUnsub, Fields) when
     SubUnsub == 'session.subscribed';
     SubUnsub == 'session.unsubscribed'
@@ -4008,15 +4173,18 @@ verify_event_fields(SubUnsub, Fields) when
         clientid := ClientId,
         username := Username,
         peerhost := PeerHost,
+        peername := PeerName,
         topic := Topic,
         qos := QoS,
-        timestamp := Timestamp
+        timestamp := Timestamp,
+        client_attrs := ClientAttrs
     } = Fields,
     Now = erlang:system_time(millisecond),
     TimestampElapse = Now - Timestamp,
     ?assert(is_atom(reason)),
     ?assertEqual(<<"c_event2">>, ClientId),
     ?assertEqual(<<"u_event2">>, Username),
+    verify_peername(PeerName),
     verify_ipaddr(PeerHost),
     ?assertEqual(<<"t1">>, Topic),
     ?assertEqual(1, QoS),
@@ -4029,7 +4197,8 @@ verify_event_fields(SubUnsub, Fields) when
         #{'User-Property' := #{<<"topic_name">> := <<"t1">>}},
         maps:get(PropKey, Fields)
     ),
-    ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000);
+    ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000),
+    ?assert(is_map(ClientAttrs));
 verify_event_fields('delivery.dropped', Fields) ->
     #{
         event := 'delivery.dropped',
@@ -4043,6 +4212,7 @@ verify_event_fields('delivery.dropped', Fields) ->
         node := Node,
         payload := Payload,
         peerhost := PeerHost,
+        peername := PeerName,
         pub_props := Properties,
         publish_received_at := EventAt,
         qos := QoS,
@@ -4062,6 +4232,7 @@ verify_event_fields('delivery.dropped', Fields) ->
     ?assertEqual(<<"c_event">>, FromClientId),
     ?assertEqual(<<"u_event">>, FromUsername),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
+    verify_peername(PeerName),
     verify_ipaddr(PeerHost),
     ?assertEqual(<<"t1">>, Topic),
     ?assertEqual(1, QoS),
@@ -4078,6 +4249,7 @@ verify_event_fields('message.dropped', Fields) ->
         username := Username,
         payload := Payload,
         peerhost := PeerHost,
+        peername := PeerName,
         topic := Topic,
         qos := QoS,
         flags := Flags,
@@ -4093,6 +4265,7 @@ verify_event_fields('message.dropped', Fields) ->
     ?assertEqual(<<"c_event">>, ClientId),
     ?assertEqual(<<"u_event">>, Username),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
+    verify_peername(PeerName),
     verify_ipaddr(PeerHost),
     ?assertEqual(<<"t1">>, Topic),
     ?assertEqual(1, QoS),
@@ -4110,6 +4283,7 @@ verify_event_fields('message.delivered', Fields) ->
         from_username := FromUsername,
         payload := Payload,
         peerhost := PeerHost,
+        peername := PeerName,
         topic := Topic,
         qos := QoS,
         flags := Flags,
@@ -4126,6 +4300,7 @@ verify_event_fields('message.delivered', Fields) ->
     ?assertEqual(<<"c_event">>, FromClientId),
     ?assertEqual(<<"u_event">>, FromUsername),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
+    verify_peername(PeerName),
     verify_ipaddr(PeerHost),
     ?assertEqual(<<"t1">>, Topic),
     ?assertEqual(1, QoS),
@@ -4143,6 +4318,7 @@ verify_event_fields('message.acked', Fields) ->
         from_username := FromUsername,
         payload := Payload,
         peerhost := PeerHost,
+        peername := PeerName,
         topic := Topic,
         qos := QoS,
         flags := Flags,
@@ -4160,6 +4336,7 @@ verify_event_fields('message.acked', Fields) ->
     ?assertEqual(<<"c_event">>, FromClientId),
     ?assertEqual(<<"u_event">>, FromUsername),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
+    verify_peername(PeerName),
     verify_ipaddr(PeerHost),
     ?assertEqual(<<"t1">>, Topic),
     ?assertEqual(1, QoS),
@@ -4203,13 +4380,16 @@ verify_event_fields('client.check_authz_complete', Fields) ->
         clientid := ClientId,
         action := Action,
         result := Result,
+        peername := PeerName,
         topic := Topic,
         authz_source := AuthzSource,
-        username := Username
+        username := Username,
+        client_attrs := ClientAttrs
     } = Fields,
     ?assertEqual(<<"t1">>, Topic),
     ?assert(lists:member(Action, [subscribe, publish])),
     ?assert(lists:member(Result, [allow, deny])),
+    verify_peername(PeerName),
     ?assert(
         lists:member(AuthzSource, [
             cache,
@@ -4224,18 +4404,59 @@ verify_event_fields('client.check_authz_complete', Fields) ->
         ])
     ),
     ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>]));
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(is_map(ClientAttrs));
 verify_event_fields('client.check_authn_complete', Fields) ->
     #{
         clientid := ClientId,
+        peername := PeerName,
         username := Username,
         is_anonymous := IsAnonymous,
-        is_superuser := IsSuperuser
+        is_superuser := IsSuperuser,
+        client_attrs := ClientAttrs
     } = Fields,
+    verify_peername(PeerName),
     ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
     ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
     ?assert(erlang:is_boolean(IsAnonymous)),
-    ?assert(erlang:is_boolean(IsSuperuser)).
+    ?assert(erlang:is_boolean(IsSuperuser)),
+    ?assert(is_map(ClientAttrs));
+verify_event_fields('schema.validation_failed', Fields) ->
+    #{
+        validation := ValidationName,
+        clientid := ClientId,
+        username := Username,
+        payload := _Payload,
+        peername := PeerName,
+        qos := _QoS,
+        topic := _Topic,
+        flags := _Flags,
+        pub_props := _PubProps,
+        publish_received_at := _PublishReceivedAt
+    } = Fields,
+    ?assertEqual(<<"v1">>, ValidationName),
+    verify_peername(PeerName),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ok;
+verify_event_fields('message.transformation_failed', Fields) ->
+    #{
+        transformation := TransformationName,
+        clientid := ClientId,
+        username := Username,
+        payload := _Payload,
+        peername := PeerName,
+        qos := _QoS,
+        topic := _Topic,
+        flags := _Flags,
+        pub_props := _PubProps,
+        publish_received_at := _PublishReceivedAt
+    } = Fields,
+    ?assertEqual(<<"t1">>, TransformationName),
+    verify_peername(PeerName),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ok.
 
 verify_peername(PeerName) ->
     case string:split(PeerName, ":") of

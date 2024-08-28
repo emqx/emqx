@@ -50,6 +50,7 @@ t_connector_lifecycle({init, Config}) ->
     meck:new(emqx_connector_resource, [passthrough]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, resource_type, 0, dummy),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_stop, 2, ok),
@@ -171,6 +172,7 @@ t_remove_fail({'init', Config}) ->
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
+    meck:expect(?CONNECTOR, resource_type, 0, dummy),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_get_channels, 1, [{<<"my_channel">>, #{enable => true}}]),
     meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
@@ -234,6 +236,7 @@ t_create_with_bad_name_direct_path({init, Config}) ->
     meck:new(emqx_connector_resource, [passthrough]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, resource_type, 0, dummy),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_stop, 2, ok),
@@ -265,6 +268,7 @@ t_create_with_bad_name_root_path({init, Config}) ->
     meck:new(emqx_connector_resource, [passthrough]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, resource_type, 0, dummy),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_stop, 2, ok),
@@ -275,7 +279,7 @@ t_create_with_bad_name_root_path({'end', _Config}) ->
     ok;
 t_create_with_bad_name_root_path(_Config) ->
     Path = [connectors],
-    BadConnectorName = <<"test_哈哈">>,
+    BadConnectorName = <<"test_哈哈"/utf8>>,
     ConnConfig0 = connector_config(),
     %% Note: must contain SSL options to trigger original bug.
     Cacertfile = emqx_common_test_helpers:app_path(
@@ -299,6 +303,7 @@ t_no_buffer_workers({'init', Config}) ->
     meck:new(emqx_connector_resource, [passthrough]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, resource_type, 0, dummy),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_get_channels, 1, []),

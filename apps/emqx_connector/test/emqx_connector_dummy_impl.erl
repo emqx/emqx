@@ -15,8 +15,10 @@
 
 %% this module is only intended to be mocked
 -module(emqx_connector_dummy_impl).
+-behavior(emqx_resource).
 
 -export([
+    resource_type/0,
     query_mode/1,
     callback_mode/0,
     on_start/2,
@@ -25,6 +27,7 @@
     on_get_channel_status/3
 ]).
 
+resource_type() -> dummy.
 query_mode(_) -> error(unexpected).
 callback_mode() -> error(unexpected).
 on_start(_, _) -> error(unexpected).

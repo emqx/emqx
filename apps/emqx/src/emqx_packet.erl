@@ -51,7 +51,6 @@
 ]).
 
 -export([
-    format/1,
     format/2
 ]).
 
@@ -480,10 +479,6 @@ will_msg(#mqtt_packet_connect{
         flags = #{dup => false, retain => Retain},
         headers = #{username => Username, properties => Props}
     }.
-
-%% @doc Format packet
--spec format(emqx_types:packet()) -> iolist().
-format(Packet) -> format(Packet, emqx_trace_handler:payload_encode()).
 
 %% @doc Format packet
 -spec format(emqx_types:packet(), hex | text | hidden) -> iolist().

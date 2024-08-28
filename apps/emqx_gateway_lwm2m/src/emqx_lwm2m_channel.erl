@@ -119,7 +119,7 @@ stats(#channel{session = Session}) ->
 
 init(
     ConnInfo = #{
-        peername := {PeerHost, _},
+        peername := {PeerHost, _} = PeerName,
         sockname := {_, SockPort}
     },
     #{ctx := Ctx} = Config
@@ -139,6 +139,7 @@ init(
             listener => ListenerId,
             protocol => lwm2m,
             peerhost => PeerHost,
+            peername => PeerName,
             sockport => SockPort,
             username => undefined,
             clientid => undefined,

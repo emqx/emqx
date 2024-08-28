@@ -17,3 +17,10 @@
 %% Fairly compact text encoding.
 -define(SHARED_ROUTE_ID(Topic, Group), <<"$s/", Group/binary, "/", Topic/binary>>).
 -define(PERSISTENT_ROUTE_ID(Topic, ID), <<"$p/", ID/binary, "/", Topic/binary>>).
+
+-define(METRIC_NAME, cluster_link).
+
+-define(route_metric, 'routes').
+-define(PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID),
+    <<"$sp/", Group/binary, "/", ID/binary, "/", Topic/binary>>
+).

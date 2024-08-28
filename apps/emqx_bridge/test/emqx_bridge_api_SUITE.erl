@@ -1154,7 +1154,7 @@ t_bridges_probe(Config) ->
     ?assertMatch(
         {ok, 400, #{
             <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"Connection refused">>
+            <<"message">> := <<"Connection refused", _/binary>>
         }},
         request_json(
             post,
@@ -1431,7 +1431,7 @@ t_cluster_later_join_metrics(Config) ->
 t_create_with_bad_name(Config) ->
     Port = ?config(port, Config),
     URL1 = ?URL(Port, "path1"),
-    Name = <<"test_哈哈">>,
+    Name = <<"test_哈哈"/utf8>>,
     BadBridgeParams =
         emqx_utils_maps:deep_merge(
             ?HTTP_BRIDGE(URL1, Name),
@@ -1457,7 +1457,7 @@ t_create_with_bad_name(Config) ->
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
-            <<"reason">> := <<"Invalid name format.", _/binary>>
+            <<"reason">> := <<"invalid_map_key">>
         },
         Msg
     ),

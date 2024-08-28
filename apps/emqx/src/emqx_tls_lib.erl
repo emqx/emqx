@@ -29,6 +29,8 @@
 
 %% SSL files
 -export([
+    ensure_ssl_files_in_mutable_certs_dir/2,
+    ensure_ssl_files_in_mutable_certs_dir/3,
     ensure_ssl_files/2,
     ensure_ssl_files/3,
     drop_invalid_certs/1,
@@ -310,17 +312,28 @@ trim_space(Bin) ->
 %% or file path.
 %% When PEM format key or certificate is given, it tries to to save them in the given
 %% sub-dir in emqx's data_dir, and replace saved file paths for SSL options.
--spec ensure_ssl_files(file:name_all(), undefined | map()) ->
+-spec ensure_ssl_files_in_mutable_certs_dir(file:name_all(), undefined | map()) ->
     {ok, undefined | map()} | {error, map()}.
-ensure_ssl_files(Dir, SSL) ->
-    ensure_ssl_files(Dir, SSL, #{dry_run => false, required_keys => []}).
+ensure_ssl_files_in_mutable_certs_dir(Dir, SSL) ->
+    ensure_ssl_files_in_mutable_certs_dir(Dir, SSL, #{dry_run => false, required_keys => []}).
 
-ensure_ssl_files(_Dir, undefined, _Opts) ->
+ensure_ssl_files_in_mutable_certs_dir(_Dir, undefined, _Opts) ->
     {ok, undefined};
-ensure_ssl_files(_Dir, #{<<"enable">> := False} = SSL, _Opts) when ?IS_FALSE(False) ->
+ensure_ssl_files_in_mutable_certs_dir(_Dir, #{<<"enable">> := False} = SSL, _Opts) when
+    ?IS_FALSE(False)
+->
     {ok, SSL};
-ensure_ssl_files(_Dir, #{enable := False} = SSL, _Opts) when ?IS_FALSE(False) ->
+ensure_ssl_files_in_mutable_certs_dir(_Dir, #{enable := False} = SSL, _Opts) when
+    ?IS_FALSE(False)
+->
     {ok, SSL};
+ensure_ssl_files_in_mutable_certs_dir(Dir, SSL, Opts) ->
+    %% NOTE:
+    %% Pass Raw Dir to keep the file name hash consistent with the previous version
+    ensure_ssl_files(pem_dir(Dir), SSL, Opts#{raw_dir => Dir}).
+
+ensure_ssl_files(Dir, SSL) ->
+    ensure_ssl_files(Dir, SSL, #{dry_run => false, required_keys => [], raw_dir => Dir}).
 ensure_ssl_files(Dir, SSL, Opts) ->
     RequiredKeys = maps:get(required_keys, Opts, []),
     case ensure_ssl_file_key(SSL, RequiredKeys) of
@@ -356,15 +369,19 @@ ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
     case is_valid_string(MaybePem) of
         true ->
             DryRun = maps:get(dry_run, Opts, false),
-            do_ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, DryRun);
+            RawDir = maps:get(raw_dir, Opts, Dir),
+            %% RawDir for backward compatibility
+            %% when RawDir is not given, it is the same as Dir
+            %% to keep the file name hash consistent with the previous version (Depends on RawDir)
+            do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun);
         false ->
             {error, #{reason => invalid_file_path_or_pem_string}}
     end.
 
-do_ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, DryRun) ->
+do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun) ->
     case is_pem(MaybePem) of
         true ->
-            case save_pem_file(Dir, KeyPath, MaybePem, DryRun) of
+            case save_pem_file(Dir, RawDir, KeyPath, MaybePem, DryRun) of
                 {ok, Path} ->
                     NewSSL = emqx_utils_maps:deep_put(KeyPath, SSL, Path),
                     {ok, NewSSL};
@@ -410,8 +427,8 @@ is_pem(MaybePem) ->
 %% To make it simple, the file is always overwritten.
 %% Also a potentially half-written PEM file (e.g. due to power outage)
 %% can be corrected with an overwrite.
-save_pem_file(Dir, KeyPath, Pem, DryRun) ->
-    Path = pem_file_name(Dir, KeyPath, Pem),
+save_pem_file(Dir, RawDir, KeyPath, Pem, DryRun) ->
+    Path = pem_file_path(Dir, RawDir, KeyPath, Pem),
     case filelib:ensure_dir(Path) of
         ok when DryRun ->
             {ok, Path};
@@ -434,16 +451,16 @@ is_managed_ssl_file(Filename) ->
         _ -> false
     end.
 
-pem_file_name(Dir, KeyPath, Pem) ->
+pem_file_path(Dir, RawDir, KeyPath, Pem) ->
     % NOTE
     % Wee need to have the same filename on every cluster node.
     Segments = lists:map(fun ensure_bin/1, KeyPath),
     Filename0 = iolist_to_binary(lists:join(<<"_">>, Segments)),
     Filename1 = binary:replace(Filename0, <<"file">>, <<>>),
-    Fingerprint = crypto:hash(md5, [Dir, Filename1, Pem]),
+    Fingerprint = crypto:hash(md5, [RawDir, Filename1, Pem]),
     Suffix = binary:encode_hex(binary:part(Fingerprint, 0, 8)),
     Filename = <<Filename1/binary, "-", Suffix/binary>>,
-    filename:join([pem_dir(Dir), Filename]).
+    filename:join([Dir, Filename]).
 
 pem_dir(Dir) ->
     filename:join([emqx:mutable_certs_dir(), Dir]).
@@ -589,6 +606,14 @@ ensure_valid_options(Options, Versions) ->
 
 ensure_valid_options([], _, Acc) ->
     lists:reverse(Acc);
+ensure_valid_options([{K, undefined} | T], Versions, Acc) when
+    K =:= crl_check;
+    K =:= crl_cache
+->
+    %% Note: we must set crl options to `undefined' to unset them.  Otherwise,
+    %% `esockd' will retain such options when `esockd:merge_opts/2' is called and the SSL
+    %% options were previously enabled.
+    ensure_valid_options(T, Versions, [{K, undefined} | Acc]);
 ensure_valid_options([{_, undefined} | T], Versions, Acc) ->
     ensure_valid_options(T, Versions, Acc);
 ensure_valid_options([{_, ""} | T], Versions, Acc) ->

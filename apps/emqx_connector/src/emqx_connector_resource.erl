@@ -18,6 +18,7 @@
 -include("../../emqx_bridge/include/emqx_bridge_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("emqx_connector.hrl").
 
 -export([
     connector_to_resource_type/1,
@@ -124,14 +125,14 @@ create(Type, Name, Conf0, Opts) ->
     TypeBin = bin(Type),
     ResourceId = resource_id(Type, Name),
     Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
+    _ = emqx_alarm:ensure_deactivated(ResourceId),
     {ok, _Data} = emqx_resource:create_local(
         ResourceId,
-        <<"emqx_connector">>,
+        ?CONNECTOR_RESOURCE_GROUP,
         ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
     ),
-    _ = emqx_alarm:ensure_deactivated(ResourceId),
     ok.
 
 update(ConnectorId, {OldConf, Conf}) ->
@@ -208,7 +209,7 @@ create_dry_run(Type, Conf) ->
     create_dry_run(Type, Conf, fun(_) -> ok end).
 
 create_dry_run(Type, Conf0, Callback) ->
-    %% Already typechecked, no need to catch errors
+    %% Already type checked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     %% We use a fixed name here to avoid creating an atom
@@ -351,8 +352,10 @@ safe_atom(Bin) when is_binary(Bin) -> binary_to_existing_atom(Bin, utf8);
 safe_atom(Atom) when is_atom(Atom) -> Atom.
 
 parse_opts(Conf, Opts0) ->
-    Opts1 = override_start_after_created(Conf, Opts0),
-    set_no_buffer_workers(Opts1).
+    Opts1 = emqx_resource:fetch_creation_opts(Conf),
+    Opts2 = maps:merge(Opts1, Opts0),
+    Opts = override_start_after_created(Conf, Opts2),
+    set_no_buffer_workers(Opts).
 
 override_start_after_created(Config, Opts) ->
     Enabled = maps:get(enable, Config, true),

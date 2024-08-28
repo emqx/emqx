@@ -41,16 +41,20 @@
 ).
 
 %% NOTE: do not forget to use atom for msg and add every used msg to
-%% the default value of `log.thorttling.msgs` list.
+%% the default value of `log.throttling.msgs` list.
 -define(SLOG_THROTTLE(Level, Data),
     ?SLOG_THROTTLE(Level, Data, #{})
 ).
 
 -define(SLOG_THROTTLE(Level, Data, Meta),
+    ?SLOG_THROTTLE(Level, undefined, Data, Meta)
+).
+
+-define(SLOG_THROTTLE(Level, UniqueKey, Data, Meta),
     case logger:allow(Level, ?MODULE) of
         true ->
             (fun(#{msg := __Msg} = __Data) ->
-                case emqx_log_throttler:allow(__Msg) of
+                case emqx_log_throttler:allow(__Msg, UniqueKey) of
                     true ->
                         logger:log(Level, __Data, Meta);
                     false ->
@@ -87,7 +91,7 @@
     ?_DO_TRACE(Tag, Msg, Meta),
     ?SLOG(
         Level,
-        (emqx_trace_formatter:format_meta_map(Meta))#{msg => Msg, tag => Tag},
+        (Meta)#{msg => Msg, tag => Tag},
         #{is_trace => false}
     )
 end).

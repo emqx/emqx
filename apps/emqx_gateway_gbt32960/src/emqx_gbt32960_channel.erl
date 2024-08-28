@@ -138,7 +138,7 @@ set_conn_state(ConnState, Channel) ->
 
 init(
     ConnInfo = #{
-        peername := {PeerHost, _Port},
+        peername := {PeerHost, _Port} = PeerName,
         sockname := {_Host, SockPort}
     },
     Options
@@ -160,6 +160,7 @@ init(
             listener => ListenerId,
             protocol => gbt32960,
             peerhost => PeerHost,
+            peername => PeerName,
             sockport => SockPort,
             clientid => undefined,
             username => undefined,

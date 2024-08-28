@@ -57,6 +57,7 @@ init_per_group(AuthName, Conf) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, "authorization { no_match = deny, cache { enable = false } }"},
+            emqx_auth_http,
             {emqx_gateway, emqx_gateway_auth_ct:list_gateway_conf()}
             | emqx_gateway_test_utils:all_gateway_apps()
         ],
@@ -97,7 +98,8 @@ t_case_coap_publish(_) ->
     end,
     Case = fun(Channel, Token) ->
         Fun(Channel, Token, <<"/publish">>, ?checkMatch({ok, changed, _})),
-        Fun(Channel, Token, <<"/badpublish">>, ?checkMatch({error, uauthorized}))
+        Fun(Channel, Token, <<"/badpublish">>, ?checkMatch({error, uauthorized})),
+        true
     end,
     Mod:with_connection(Case).
 
@@ -113,7 +115,8 @@ t_case_coap_subscribe(_) ->
     end,
     Case = fun(Channel, Token) ->
         Fun(Channel, Token, <<"/subscribe">>, ?checkMatch({ok, content, _})),
-        Fun(Channel, Token, <<"/badsubscribe">>, ?checkMatch({error, uauthorized}))
+        Fun(Channel, Token, <<"/badsubscribe">>, ?checkMatch({error, uauthorized})),
+        true
     end,
     Mod:with_connection(Case).
 

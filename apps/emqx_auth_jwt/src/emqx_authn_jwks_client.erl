@@ -133,11 +133,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 handle_options(#{
     endpoint := Endpoint,
+    headers := Headers,
     refresh_interval := RefreshInterval0,
     ssl_opts := SSLOpts
 }) ->
     #{
         endpoint => Endpoint,
+        headers => to_httpc_headers(Headers),
         refresh_interval => limit_refresh_interval(RefreshInterval0),
         ssl_opts => maps:to_list(SSLOpts),
         jwks => [],
@@ -147,6 +149,7 @@ handle_options(#{
 refresh_jwks(
     #{
         endpoint := Endpoint,
+        headers := Headers,
         ssl_opts := SSLOpts
     } = State
 ) ->
@@ -159,7 +162,7 @@ refresh_jwks(
         case
             httpc:request(
                 get,
-                {Endpoint, [{"Accept", "application/json"}]},
+                {Endpoint, Headers},
                 HTTPOpts,
                 [{body_format, binary}, {sync, false}, {receiver, self()}]
             )
@@ -185,6 +188,9 @@ limit_refresh_interval(Interval) when Interval < 10 ->
 limit_refresh_interval(Interval) ->
     Interval.
 
+to_httpc_headers(Headers) ->
+    [{binary_to_list(bin(K)), V} || {K, V} <- maps:to_list(Headers)].
+
 cancel_http_request(#{request_id := undefined} = State) ->
     State;
 cancel_http_request(#{request_id := RequestID} = State) ->
@@ -195,3 +201,10 @@ cancel_http_request(#{request_id := RequestID} = State) ->
         ok
     end,
     State#{request_id => undefined}.
+
+bin(List) when is_list(List) ->
+    unicode:characters_to_binary(List, utf8);
+bin(Atom) when is_atom(Atom) ->
+    erlang:atom_to_binary(Atom);
+bin(Bin) when is_binary(Bin) ->
+    Bin.

@@ -139,6 +139,16 @@ fields(websocket) ->
 fields(udp_listener) ->
     [
         %% some special configs for udp listener
+        {health_check,
+            sc(
+                ref(udp_health_check),
+                #{
+                    desc => ?DESC(
+                        udp_health_check
+                    ),
+                    required => false
+                }
+            )}
     ] ++
         udp_opts() ++
         common_listener_opts();
@@ -175,7 +185,12 @@ fields(dtls_opts) ->
             versions => dtls_all_available
         },
         _IsRanchListener = false
-    ).
+    );
+fields(udp_health_check) ->
+    [
+        {request, sc(binary(), #{desc => ?DESC(udp_health_check_request), required => false})},
+        {reply, sc(binary(), #{desc => ?DESC(udp_health_check_reply), required => false})}
+    ].
 
 desc(gateway) ->
     "EMQX Gateway configuration root.";
@@ -201,6 +216,8 @@ desc(dtls_opts) ->
     "Settings for DTLS protocol.";
 desc(websocket) ->
     "Websocket options";
+desc(udp_health_check) ->
+    "UDP health check";
 desc(_) ->
     undefined.
 
@@ -223,6 +240,7 @@ gateway_common_options() ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(gateway_common_enable)
                 }
             )},
@@ -396,6 +414,7 @@ common_listener_opts() ->
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_NO_DOC,
                     desc => ?DESC(gateway_common_listener_enable)
                 }
             )},

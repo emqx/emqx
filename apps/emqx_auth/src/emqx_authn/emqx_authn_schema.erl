@@ -203,6 +203,7 @@ common_fields() ->
 
 enable(type) -> boolean();
 enable(default) -> true;
+enable(importance) -> ?IMPORTANCE_NO_DOC;
 enable(desc) -> ?DESC(?FUNCTION_NAME);
 enable(_) -> undefined.
 

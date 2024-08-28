@@ -109,9 +109,10 @@
     emqx_conf,
     emqx,
     emqx_auth,
-    emqx_management,
-    {emqx_connector, "connectors {}"},
-    {emqx_bridge, "actions {}"}
+    emqx_connector,
+    emqx_bridge,
+    emqx_rule_engine,
+    emqx_management
 ]).
 
 -define(APPSPEC_DASHBOARD,
@@ -224,6 +225,7 @@ init_mocks(_TestCase) ->
     meck:new(emqx_connector_resource, [passthrough, no_link]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
     meck:new(?CONNECTOR_IMPL, [non_strict, no_link]),
+    meck:expect(?CONNECTOR_IMPL, resource_type, 0, dummy),
     meck:expect(?CONNECTOR_IMPL, callback_mode, 0, async_if_possible),
     meck:expect(
         ?CONNECTOR_IMPL,
@@ -697,7 +699,7 @@ t_connectors_probe(Config) ->
     ok.
 
 t_create_with_bad_name(Config) ->
-    ConnectorName = <<"test_哈哈">>,
+    ConnectorName = <<"test_哈哈"/utf8>>,
     Conf0 = ?KAFKA_CONNECTOR(ConnectorName),
     %% Note: must contain SSL options to trigger original bug.
     Cacertfile = emqx_common_test_helpers:app_path(

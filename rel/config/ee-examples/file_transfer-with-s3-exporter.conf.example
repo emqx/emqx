@@ -4,9 +4,6 @@
 ## Note: This configuration is only applicable for EMQX Enterprise edition 5.1 or later.
 
 file_transfer {
-    ## Enable the File Transfer feature
-    enable = true
-
     ## Storage backend settings
     storage {
         ## Local file system backend setting
@@ -51,8 +48,6 @@ file_transfer {
 
                 ## Enable the HTTPS
                 transport_options {
-                    ssl.enable = true
-
                     ## Timeout for connection attempts
                     connect_timeout = 15s
                }

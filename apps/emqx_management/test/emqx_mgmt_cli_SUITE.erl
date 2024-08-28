@@ -22,7 +22,13 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    All = emqx_common_test_helpers:all(?MODULE),
+    case emqx_cth_suite:skip_if_oss() of
+        false ->
+            All;
+        _ ->
+            All -- [t_autocluster_leave]
+    end.
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -353,5 +359,10 @@ t_autocluster_leave(Config) ->
             10_000
         )
     ).
+
+t_exclusive(_Config) ->
+    emqx_ctl:run_command(["exclusive", "list"]),
+    emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
+    ok.
 
 format(Str, Opts) -> io:format("str:~s: Opts:~p", [Str, Opts]).

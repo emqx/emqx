@@ -68,7 +68,8 @@
 -export_type([
     permission_resolution/0,
     action_condition/0,
-    topic_condition/0
+    topic_condition/0,
+    rule/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -197,7 +198,7 @@ qos_from_opts(Opts) ->
                 )
         end
     catch
-        {bad_qos, QoS} ->
+        throw:{bad_qos, QoS} ->
             throw(#{
                 reason => invalid_authorization_qos,
                 qos => QoS

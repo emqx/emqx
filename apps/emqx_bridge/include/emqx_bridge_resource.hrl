@@ -18,5 +18,6 @@
 -define(EMQX_BRIDGE_RESOURCE_HRL, true).
 
 -define(BRIDGE_HOOKPOINT(BridgeId), <<"$bridges/", BridgeId/binary>>).
+-define(SOURCE_HOOKPOINT(BridgeId), <<"$sources/", BridgeId/binary>>).
 
 -endif.

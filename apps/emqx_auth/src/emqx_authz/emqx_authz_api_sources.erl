@@ -470,7 +470,13 @@ make_result_map(ResList) ->
     lists:foldl(Fun, {maps:new(), maps:new(), maps:new(), maps:new()}, ResList).
 
 restructure_map(#{
-    counters := #{deny := Failed, total := Total, allow := Succ, nomatch := Nomatch},
+    counters := #{
+        ignore := Ignore,
+        deny := Failed,
+        total := Total,
+        allow := Succ,
+        nomatch := Nomatch
+    },
     rate := #{total := #{current := Rate, last5m := Rate5m, max := RateMax}}
 }) ->
     #{
@@ -478,6 +484,7 @@ restructure_map(#{
         allow => Succ,
         deny => Failed,
         nomatch => Nomatch,
+        ignore => Ignore,
         rate => Rate,
         rate_last5m => Rate5m,
         rate_max => RateMax
@@ -519,10 +526,10 @@ get_raw_sources() ->
     Schema = emqx_hocon:make_schema(emqx_authz_schema:authz_fields()),
     Conf = #{<<"sources">> => RawSources},
     #{<<"sources">> := Sources} = hocon_tconf:make_serializable(Schema, Conf, #{}),
-    merge_defaults(Sources).
+    format_for_api(Sources).
 
-merge_defaults(Sources) ->
-    lists:map(fun emqx_authz:merge_defaults/1, Sources).
+format_for_api(Sources) ->
+    lists:map(fun emqx_authz:format_for_api/1, Sources).
 
 get_raw_source(Type) ->
     lists:filter(

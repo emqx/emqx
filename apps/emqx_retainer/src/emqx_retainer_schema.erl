@@ -43,7 +43,7 @@ roots() ->
 
 fields("retainer") ->
     [
-        {enable, sc(boolean(), enable, true)},
+        {enable, sc(boolean(), enable, true, ?IMPORTANCE_NO_DOC)},
         {msg_expiry_interval,
             sc(
                 %% not used in a `receive ... after' block, just timestamp comparison
@@ -126,6 +126,7 @@ fields(mnesia_config) ->
         {enable,
             ?HOCON(boolean(), #{
                 desc => ?DESC(mnesia_enable),
+                importance => ?IMPORTANCE_NO_DOC,
                 required => false,
                 default => true
             })}

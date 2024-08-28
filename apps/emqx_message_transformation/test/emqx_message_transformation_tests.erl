@@ -87,6 +87,19 @@ schema_test_() ->
                     )
                 ])
             )},
+        {"topics must be non-empty",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := <<"at least one topic filter must be defined", _/binary>>,
+                        value := [],
+                        kind := validation_error
+                    }
+                ]},
+                parse_and_check([
+                    transformation(<<"foo">>, [dummy_operation()], #{<<"topics">> => []})
+                ])
+            )},
         {"names are unique",
             ?_assertThrow(
                 {_Schema, [
@@ -101,14 +114,9 @@ schema_test_() ->
                     transformation(<<"foo">>, [dummy_operation()])
                 ])
             )},
-        {"operations must be non-empty",
-            ?_assertThrow(
-                {_Schema, [
-                    #{
-                        reason := <<"at least one operation must be defined">>,
-                        kind := validation_error
-                    }
-                ]},
+        {"operations may be empty",
+            ?_assertMatch(
+                [#{<<"operations">> := []}],
                 parse_and_check([
                     transformation(
                         <<"foo">>,

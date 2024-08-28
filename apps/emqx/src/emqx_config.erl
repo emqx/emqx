@@ -499,15 +499,14 @@ fill_defaults(RawConf, Opts) ->
     ).
 
 -spec fill_defaults(module(), raw_config(), hocon_tconf:opts()) -> map().
-fill_defaults(_SchemaMod, RawConf = #{<<"durable_storage">> := _}, _) ->
+fill_defaults(SchemaMod, RawConf = #{<<"durable_storage">> := Ds}, Opts) ->
     %% FIXME: kludge to prevent `emqx_config' module from filling in
     %% the default values for backends and layouts. These records are
     %% inside unions, and adding default values there will add
     %% incompatible fields.
-    %%
-    %% Note: this function is called for each individual conf root, so
-    %% this clause only affects this particular subtree.
-    RawConf;
+    RawConf1 = maps:remove(<<"durable_storage">>, RawConf),
+    Conf = fill_defaults(SchemaMod, RawConf1, Opts),
+    Conf#{<<"durable_storage">> => Ds};
 fill_defaults(SchemaMod, RawConf, Opts0) ->
     Opts = maps:merge(#{required => false, make_serializable => true}, Opts0),
     hocon_tconf:check_plain(
@@ -622,16 +621,16 @@ save_to_config_map(Conf, RawConf) ->
     ?MODULE:put_raw(RawConf).
 
 -spec save_to_override_conf(boolean(), raw_config(), update_opts()) -> ok | {error, term()}.
-save_to_override_conf(_, undefined, _) ->
+save_to_override_conf(_HasDeprecatedFile, undefined, _) ->
     ok;
-save_to_override_conf(true, RawConf, Opts) ->
+save_to_override_conf(true = _HasDeprecatedFile, RawConf, Opts) ->
     case deprecated_conf_file(Opts) of
         undefined ->
             ok;
         FileName ->
             backup_and_write(FileName, hocon_pp:do(RawConf, Opts))
     end;
-save_to_override_conf(false, RawConf, Opts) ->
+save_to_override_conf(false = _HasDeprecatedFile, RawConf, Opts) ->
     case cluster_hocon_file() of
         undefined ->
             ok;

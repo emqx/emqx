@@ -10,6 +10,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     query_mode/1,
     on_start/2,
@@ -55,9 +56,12 @@
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
+resource_type() -> pulsar.
 
 callback_mode() -> async_if_possible.
 
+query_mode(#{resource_opts := #{query_mode := sync}}) ->
+    simple_sync_internal_buffer;
 query_mode(_Config) ->
     simple_async_internal_buffer.
 
@@ -202,12 +206,17 @@ on_query(_InstanceId, {ChannelId, Message}, State) ->
                 sync_timeout => SyncTimeout,
                 is_async => false
             }),
-            try
-                pulsar:send_sync(Producers, [PulsarMessage], SyncTimeout)
-            catch
-                error:timeout ->
-                    {error, timeout}
-            end
+            ?tp_span(
+                "pulsar_producer_query_enter",
+                #{instance_id => _InstanceId, message => Message, mode => sync},
+                try
+                    ?tp("pulsar_producer_send", #{msg => PulsarMessage, mode => sync}),
+                    pulsar:send_sync(Producers, [PulsarMessage], SyncTimeout)
+                catch
+                    error:timeout ->
+                        {error, timeout}
+                end
+            )
     end.
 
 -spec on_query_async(
@@ -218,11 +227,11 @@ on_query_async(_InstanceId, {ChannelId, Message}, AsyncReplyFn, State) ->
     #{channels := Channels} = State,
     case maps:find(ChannelId, Channels) of
         error ->
-            {error, channel_not_found};
+            {error, {unrecoverable_error, channel_not_found}};
         {ok, #{message := MessageTmpl, producers := Producers}} ->
             ?tp_span(
-                pulsar_producer_on_query_async,
-                #{instance_id => _InstanceId, message => Message},
+                "pulsar_producer_query_enter",
+                #{instance_id => _InstanceId, message => Message, mode => async},
                 on_query_async2(ChannelId, Producers, Message, MessageTmpl, AsyncReplyFn)
             )
     end.
@@ -233,6 +242,7 @@ on_query_async2(ChannelId, Producers, Message, MessageTmpl, AsyncReplyFn) ->
         message => PulsarMessage,
         is_async => true
     }),
+    ?tp("pulsar_producer_send", #{msg => PulsarMessage, mode => async}),
     pulsar:send(Producers, [PulsarMessage], #{callback_fn => AsyncReplyFn}).
 
 on_format_query_result({ok, Info}) ->
@@ -255,7 +265,7 @@ format_servers(Servers0) ->
 
 -spec make_client_id(resource_id()) -> pulsar_client_id().
 make_client_id(InstanceId) ->
-    case is_dry_run(InstanceId) of
+    case emqx_resource:is_dry_run(InstanceId) of
         true ->
             pulsar_producer_probe;
         false ->
@@ -267,14 +277,6 @@ make_client_id(InstanceId) ->
                 emqx_utils_conv:bin(node())
             ]),
             binary_to_atom(ClientIdBin)
-    end.
-
--spec is_dry_run(resource_id()) -> boolean().
-is_dry_run(InstanceId) ->
-    TestIdStart = string:find(InstanceId, ?TEST_ID_PREFIX),
-    case TestIdStart of
-        nomatch -> false;
-        _ -> string:equal(TestIdStart, InstanceId)
     end.
 
 conn_opts(#{authentication := none}) ->
@@ -297,7 +299,7 @@ replayq_dir(ClientId) ->
     filename:join([emqx:data_dir(), "pulsar", emqx_utils_conv:bin(ClientId)]).
 
 producer_name(InstanceId, ChannelId) ->
-    case is_dry_run(InstanceId) of
+    case emqx_resource:is_dry_run(InstanceId) of
         %% do not create more atom
         true ->
             pulsar_producer_probe_worker;

@@ -13,6 +13,43 @@ if [ "$DEBUG" -eq 2 ]; then
   export PS4='+(${BASH_SOURCE}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 fi
 
+logerr() {
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo -e "ERROR: $*" 1>&2
+    else
+        echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)" 1>&2
+    fi
+}
+
+logwarn() {
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo "WARNING: $*"
+    else
+        echo "$(tput setaf 3)WARNING: $*$(tput sgr0)"
+    fi
+}
+
+loginfo() {
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo "INFO: $*"
+    else
+        echo "$(tput setaf 2)INFO: $*$(tput sgr0)"
+    fi
+}
+
+logdebug() {
+    if [ "$DEBUG" -eq 1 ]; then
+        echo "DEBUG: $*"
+    fi
+}
+
+die() {
+    set +x
+    logerr "$1"
+    errno=${2:-1}
+    exit "$errno"
+}
+
 # We need to find real directory with emqx files on all platforms
 # even when bin/emqx is symlinked on several levels
 # - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
@@ -32,6 +69,57 @@ if [ "$(uname -s)" == 'Darwin' ]; then
     fi
 else
     RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
+fi
+
+COMMAND="${1:-}"
+GREP='grep --color=never'
+
+if [ -z "$COMMAND" ]; then
+    usage 'help'
+    exit 1
+elif [ "$COMMAND" = 'help' ]; then
+    usage 'help'
+    exit 0
+fi
+
+if [ "${2:-}" = 'help' ]; then
+    ## 'ctl' command has its own usage info
+    if [ "$COMMAND" != 'ctl' ]; then
+        usage "$COMMAND"
+        exit 0
+    fi
+fi
+
+## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
+case "${COMMAND}" in
+    start|console|console_clean|foreground|check_config)
+        IS_BOOT_COMMAND='yes'
+        ;;
+    ertspath)
+        echo "$ERTS_DIR"
+        exit 0
+        ;;
+    root_dir)
+        echo "$RUNNER_ROOT_DIR"
+        exit 0
+        ;;
+    *)
+        IS_BOOT_COMMAND='no'
+        ;;
+esac
+
+RELUP_DIR="relup"
+BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
+RELUP_PATH="$RUNNER_ROOT_DIR/$RELUP_DIR"
+
+if [ -f "$RELUP_PATH/version" ]; then
+    TARGET_VSN=$(cat "$RELUP_PATH/version")
+    export BASE_RUNNER_ROOT_DIR
+    ## only print for boot commands to avoid messing the CLI outputs
+    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+        loginfo "Loading emqx from hot-upgrade dir: $RELUP_PATH"
+    fi
+    exec "$RELUP_PATH/$TARGET_VSN"/bin/emqx "$@"
 fi
 
 # shellcheck disable=SC1090,SC1091
@@ -59,35 +147,6 @@ export EMU="beam"
 export PROGNAME="erl"
 export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
 DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
-
-logerr() {
-    if [ "${TERM:-dumb}" = dumb ]; then
-        echo -e "ERROR: $*" 1>&2
-    else
-        echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)" 1>&2
-    fi
-}
-
-logwarn() {
-    if [ "${TERM:-dumb}" = dumb ]; then
-        echo "WARNING: $*"
-    else
-        echo "$(tput setaf 3)WARNING: $*$(tput sgr0)"
-    fi
-}
-
-logdebug() {
-    if [ "$DEBUG" -eq 1 ]; then
-        echo "DEBUG: $*"
-    fi
-}
-
-die() {
-    set +x
-    logerr "$1"
-    errno=${2:-1}
-    exit "$errno"
-}
 
 assert_node_alive() {
     if ! relx_nodetool "ping" > /dev/null; then
@@ -235,42 +294,6 @@ usage() {
     esac
 }
 
-COMMAND="${1:-}"
-GREP='grep --color=never'
-
-if [ -z "$COMMAND" ]; then
-    usage 'help'
-    exit 1
-elif [ "$COMMAND" = 'help' ]; then
-    usage 'help'
-    exit 0
-fi
-
-if [ "${2:-}" = 'help' ]; then
-    ## 'ctl' command has its own usage info
-    if [ "$COMMAND" != 'ctl' ]; then
-        usage "$COMMAND"
-        exit 0
-    fi
-fi
-
-## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
-case "${COMMAND}" in
-    start|console|console_clean|foreground|check_config)
-        IS_BOOT_COMMAND='yes'
-        ;;
-    ertspath)
-        echo "$ERTS_DIR"
-        exit 0
-        ;;
-    root_dir)
-        echo "$RUNNER_ROOT_DIR"
-        exit 0
-        ;;
-    *)
-        IS_BOOT_COMMAND='no'
-        ;;
-esac
 
 ## backward compatible
 if [ -d "$ERTS_DIR/lib" ]; then
@@ -330,7 +353,7 @@ COMPATIBILITY_CHECK='
     end,
     halt(0).
 '
-[ "$DEBUG" -eq 1 ] && set -x
+[[ "$DEBUG" -gt 0 ]] && set -x
 
 compatiblity_info() {
   # RELEASE_LIB is used by Elixir
@@ -453,17 +476,25 @@ call_hocon() {
         || die "call_hocon_failed: $*" $?
 }
 
-find_emqx_process() {
+check_emqx_process() {
+    local rootdir="$1"
     ## Find the running node from 'ps -ef'
     ##  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
     ##  * The running 'remsh' and 'nodetool' processes must be excluded
+    ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${rootdir}.*" || true
+}
+
+find_emqx_process() {
+    ## Maybe the emqx has been hot upgraded and is still running from the base root_dir.
+    ## So instead of searching RUNNER_ROOT_DIR, we only search for processes running
+    ## from BASE_RUNNER_ROOT_DIR (which is either equal to RUNNER_ROOT_DIR or a
+    ## parent directory of it).
+    local rootdir="${BASE_RUNNER_ROOT_DIR}"
     if [ -n "${EMQX_NODE__NAME:-}" ]; then
         # if node name is provided, filter by node name
-        # shellcheck disable=SC2009
-        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -E "\s-s?name\s${EMQX_NODE__NAME}" | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+        check_emqx_process "${rootdir}" | $GREP -E "\s-s?name\s${EMQX_NODE__NAME}" || true
     else
-        # shellcheck disable=SC2009
-        ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${RUNNER_ROOT_DIR}.*" || true
+        check_emqx_process "${rootdir}"
     fi
 }
 
@@ -558,7 +589,7 @@ else
     fi
 fi
 logdebug "EMQX_BOOT_CONFIGS: $EMQX_BOOT_CONFIGS"
-[ "$DEBUG" -eq 1 ] && set -x
+[[ "$DEBUG" -gt 0 ]] && set -x
 
 get_boot_config() {
     path_to_value="$1"
@@ -598,7 +629,7 @@ DATA_DIR="$(get_boot_config 'node.data_dir')"
 DATA_DIR="${DATA_DIR%/}"
 if [[ $DATA_DIR != /* ]]; then
     # relative path
-    DATA_DIR="${RUNNER_ROOT_DIR}/${DATA_DIR}"
+    DATA_DIR="${BASE_RUNNER_ROOT_DIR}/${DATA_DIR}"
 fi
 CONFIGS_DIR="$DATA_DIR/configs"
 mkdir -p "$CONFIGS_DIR"
@@ -1060,7 +1091,9 @@ nodetool_shutdown() {
     logger -t "${REL_NAME}[${PID}]" "STOP: OK"
 }
 
-cd "$RUNNER_ROOT_DIR"
+## make sure the CWD of emqx is BASE_RUNNER_ROOT_DIR, so relative paths like "etc/"
+## and "data/" still work.
+cd "$BASE_RUNNER_ROOT_DIR"
 
 case "${COMMAND}" in
     start)
@@ -1239,6 +1272,12 @@ case "${COMMAND}" in
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         if [ "$IS_ELIXIR" = no ] || [ "${EMQX_CONSOLE_FLAVOR:-}" = 'erl' ] ; then
+            if [[ "$DEBUG" == 2 ]]; then
+              INIT_DEBUG_ARG="-init_debug"
+            else
+              INIT_DEBUG_ARG=""
+            fi
+
             # pass down RELEASE_LIB so we can switch to IS_ELIXIR=no
             # to boot an Erlang node from the elixir release
             set -- "$BINDIR/erlexec" \
@@ -1249,8 +1288,15 @@ case "${COMMAND}" in
                 -mode "$CODE_LOADING_MODE" \
                 -config "$CONF_FILE" \
                 -args_file "$ARGS_FILE" \
+                $INIT_DEBUG_ARG \
                 $EPMD_ARGS
         else
+            if [[ "$DEBUG" == 2 ]]; then
+              INIT_DEBUG_ARG="--erl -init_debug"
+            else
+              INIT_DEBUG_ARG=""
+            fi
+
             set -- "$REL_DIR/iex" \
                 --boot "$BOOTFILE" \
                 --boot-var RELEASE_LIB "${ERTS_LIB_DIR}" \
@@ -1259,6 +1305,7 @@ case "${COMMAND}" in
                 --erl "$FOREGROUNDOPTIONS" \
                 --erl "-mode $CODE_LOADING_MODE" \
                 --erl "$EPMD_ARGS" \
+                $INIT_DEBUG_ARG \
                 --werl
         fi
 

@@ -72,3 +72,10 @@ base64_encode_decode_test() ->
     RandBytes = crypto:strong_rand_bytes(100),
     Encoded = emqx_variform_bif:base64_encode(RandBytes),
     ?assertEqual(RandBytes, emqx_variform_bif:base64_decode(Encoded)).
+
+system_test() ->
+    EnvName = erlang:atom_to_list(?MODULE),
+    EnvVal = erlang:atom_to_list(?FUNCTION_NAME),
+    EnvNameBin = erlang:list_to_binary(EnvName),
+    os:putenv("EMQXVAR_" ++ EnvName, EnvVal),
+    ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)).

@@ -55,6 +55,7 @@
     kick_session/1,
     kick_session/2,
     kick_session/3,
+    try_kick_session/2,
     takeover_kick/1,
     takeover_kick/2
 ]).
@@ -683,20 +684,15 @@ kick_session(Mtns, ClientId) ->
             ),
             ok;
         ChanPids ->
-            case length(ChanPids) > 1 of
-                true ->
-                    ?SLOG(
-                        warning,
-                        #{
-                            msg => "more_than_one_channel_found",
-                            chan_pids => ChanPids
-                        },
-                        #{mtns => Mtns, clientid => ClientId}
-                    );
-                false ->
-                    ok
-            end,
-            lists:foreach(fun(Pid) -> kick_session(Mtns, ClientId, Pid) end, ChanPids)
+            kick_session_chans(Mtns, ClientId, ChanPids)
+    end.
+
+try_kick_session(Mtns, ClientId) ->
+    case lookup_channels(ClientId) of
+        [] ->
+            ok;
+        ChanPids ->
+            kick_session_chans(ClientId, ChanPids)
     end.
 
 %% @doc Is clean start?
@@ -937,6 +933,22 @@ get_connected_client_count() ->
         undefined -> 0;
         Size -> Size
     end.
+
+kick_session_chans(ClientId, ChanPids) ->
+    case length(ChanPids) > 1 of
+        true ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "more_than_one_channel_found",
+                    chan_pids => ChanPids
+                },
+                #{clientid => ClientId}
+            );
+        false ->
+            ok
+    end,
+    lists:foreach(fun(Pid) -> kick_session(ClientId, Pid) end, ChanPids).
 
 cid(ClientInfo = #{clientid := ClientId}) ->
     {mtns(ClientInfo), ClientId}.

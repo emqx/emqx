@@ -23,6 +23,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -165,6 +166,9 @@ send_message(Type, ActionName) ->
 
 resolve_kafka_offset() ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    resolve_kafka_offset(KafkaTopic).
+
+resolve_kafka_offset(KafkaTopic) ->
     Partition = 0,
     Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
     {ok, Offset0} = emqx_bridge_kafka_impl_producer_SUITE:resolve_kafka_offset(
@@ -174,10 +178,31 @@ resolve_kafka_offset() ->
 
 check_kafka_message_payload(Offset, ExpectedPayload) ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload).
+
+check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload) ->
     Partition = 0,
     Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
     {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
     ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
+
+ensure_kafka_topic(KafkaTopic) ->
+    TopicConfigs = [
+        #{
+            name => KafkaTopic,
+            num_partitions => 1,
+            replication_factor => 1,
+            assignments => [],
+            configs => []
+        }
+    ],
+    RequestConfig = #{timeout => 5_000},
+    ConnConfig = #{},
+    Endpoints = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    case brod:create_topics(Endpoints, TopicConfigs, RequestConfig, ConnConfig) of
+        ok -> ok;
+        {error, topic_already_exists} -> ok
+    end.
 
 action_config(ConnectorName) ->
     action_config(ConnectorName, _Overrides = #{}).
@@ -715,6 +740,21 @@ t_connector_health_check_topic(_Config) ->
                 emqx_bridge_v2_testlib:update_connector_api(Name, Type, ConnectorConfig1)
             ),
 
+            %% By providing an inexistent health check topic, we should detect it's
+            %% disconnected without the need for an action.
+            ConnectorConfig2 = connector_config(#{
+                <<"bootstrap_hosts">> => iolist_to_binary(kafka_hosts_string()),
+                <<"health_check_topic">> => <<"i-dont-exist-999">>
+            }),
+            ?assertMatch(
+                {ok,
+                    {{_, 200, _}, _, #{
+                        <<"status">> := <<"disconnected">>,
+                        <<"status_reason">> := <<"Unknown topic or partition", _/binary>>
+                    }}},
+                emqx_bridge_v2_testlib:update_connector_api(Name, Type, ConnectorConfig2)
+            ),
+
             ok
         end,
         []
@@ -768,9 +808,13 @@ t_invalid_partition_count_metrics(Config) ->
             %% Simulate `invalid_partition_count'
             emqx_common_test_helpers:with_mock(
                 wolff,
-                send_sync,
-                fun(_Producers, _Msgs, _Timeout) ->
-                    error({invalid_partition_count, 0, partitioner})
+                send_sync2,
+                fun(_Producers, _Topic, _Msgs, _Timeout) ->
+                    throw(#{
+                        cause => invalid_partition_count,
+                        count => 0,
+                        partitioner => partitioner
+                    })
                 end,
                 fun() ->
                     {{ok, _}, {ok, _}} =
@@ -813,9 +857,13 @@ t_invalid_partition_count_metrics(Config) ->
             %% Simulate `invalid_partition_count'
             emqx_common_test_helpers:with_mock(
                 wolff,
-                send,
-                fun(_Producers, _Msgs, _Timeout) ->
-                    error({invalid_partition_count, 0, partitioner})
+                send2,
+                fun(_Producers, _Topic, _Msgs, _AckCallback) ->
+                    throw(#{
+                        cause => invalid_partition_count,
+                        count => 0,
+                        partitioner => partitioner
+                    })
                 end,
                 fun() ->
                     {{ok, _}, {ok, _}} =
@@ -919,5 +967,128 @@ t_multiple_actions_sharing_topic(Config) ->
             ?assertEqual([], ?of_kind("kafka_producer_invalid_partition_count", Trace)),
             ok
         end
+    ),
+    ok.
+
+%% Smoke tests for using a templated topic and adynamic kafka topics.
+t_dynamic_topics(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"dynamic_topics">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    PreConfiguredTopic1 = <<"pct1">>,
+    PreConfiguredTopic2 = <<"pct2">>,
+    ensure_kafka_topic(PreConfiguredTopic1),
+    ensure_kafka_topic(PreConfiguredTopic2),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"topic">> => <<"pct${.payload.n}">>,
+                    <<"message">> => #{
+                        <<"key">> => <<"${.clientid}">>,
+                        <<"value">> => <<"${.payload.p}">>
+                    }
+                }
+            }
+        )
+    ),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            RuleTopic = <<"pct">>,
+            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+                Type,
+                RuleTopic,
+                [
+                    {bridge_name, ActionName}
+                ]
+            ),
+            ?assertStatusAPI(Type, ActionName, <<"connected">>),
+
+            HandlerId = ?FUNCTION_NAME,
+            TestPid = self(),
+            telemetry:attach_many(
+                HandlerId,
+                emqx_resource_metrics:events(),
+                fun(EventName, Measurements, Metadata, _Config) ->
+                    Data = #{
+                        name => EventName,
+                        measurements => Measurements,
+                        metadata => Metadata
+                    },
+                    TestPid ! {telemetry, Data},
+                    ok
+                end,
+                unused_config
+            ),
+            on_exit(fun() -> telemetry:detach(HandlerId) end),
+
+            {ok, C} = emqtt:start_link(#{}),
+            {ok, _} = emqtt:connect(C),
+            Payload = fun(Map) -> emqx_utils_json:encode(Map) end,
+            Offset1 = resolve_kafka_offset(PreConfiguredTopic1),
+            Offset2 = resolve_kafka_offset(PreConfiguredTopic2),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 1, p => <<"p1">>}), [{qos, 1}]),
+            {ok, _} = emqtt:publish(C, RuleTopic, Payload(#{n => 2, p => <<"p2">>}), [{qos, 1}]),
+
+            check_kafka_message_payload(PreConfiguredTopic1, Offset1, <<"p1">>),
+            check_kafka_message_payload(PreConfiguredTopic2, Offset2, <<"p2">>),
+
+            ActionId = emqx_bridge_v2:id(Type, ActionName),
+            ?assertEqual(2, emqx_resource_metrics:matched_get(ActionId)),
+            ?assertEqual(2, emqx_resource_metrics:success_get(ActionId)),
+            ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId)),
+
+            ?assertReceive(
+                {telemetry, #{
+                    measurements := #{gauge_set := _},
+                    metadata := #{worker_id := _, resource_id := ActionId}
+                }}
+            ),
+
+            %% If there isn't enough information in the context to resolve to a topic, it
+            %% should be an unrecoverable error.
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{not_enough => <<"info">>}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_failed_to_render_topic"}
+                )
+            ),
+
+            %% If it's possible to render the topic, but it isn't in the pre-configured
+            %% list, it should be an unrecoverable error.
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, Payload(#{n => 99}), [{qos, 1}]),
+                    #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
+                )
+            ),
+
+            ok
+        end,
+        []
     ),
     ok.

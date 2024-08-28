@@ -83,7 +83,8 @@ pre_process_action_args(
         retain := Retain,
         payload := Payload,
         mqtt_properties := MQTTProperties,
-        user_properties := UserProperties
+        user_properties := UserProperties,
+        direct_dispatch := DirectDispatch
     } = Args
 ) ->
     Args#{
@@ -93,7 +94,8 @@ pre_process_action_args(
             retain => parse_simple_var(Retain),
             payload => parse_payload(Payload),
             mqtt_properties => parse_mqtt_properties(MQTTProperties),
-            user_properties => parse_user_properties(UserProperties)
+            user_properties => parse_user_properties(UserProperties),
+            direct_dispatch => parse_simple_var(DirectDispatch)
         }
     };
 pre_process_action_args(_, Args) ->
@@ -134,7 +136,15 @@ republish(
     },
     _Args
 ) ->
-    ?SLOG(error, #{msg => "recursive_republish_detected", topic => Topic});
+    ?SLOG(
+        error,
+        #{
+            msg => "recursive_republish_detected",
+            topic => Topic,
+            rule_id => RuleId
+        },
+        #{tag => ?TAG}
+    );
 republish(
     Selected,
     #{metadata := #{rule_id := RuleId}} = Env,
@@ -145,7 +155,8 @@ republish(
             topic := TopicTemplate,
             payload := PayloadTemplate,
             mqtt_properties := MQTTPropertiesTemplate,
-            user_properties := UserPropertiesTemplate
+            user_properties := UserPropertiesTemplate,
+            direct_dispatch := DirectDispatchTemplate
         }
     }
 ) ->
@@ -156,6 +167,7 @@ republish(
     Payload = iolist_to_binary(PayloadString),
     QoS = render_simple_var(QoSTemplate, Selected, 0),
     Retain = render_simple_var(RetainTemplate, Selected, false),
+    DirectDispatch = render_simple_var(DirectDispatchTemplate, Selected, false),
     %% 'flags' is set for message re-publishes or message related
     %% events such as message.acked and message.dropped
     Flags0 = maps:get(flags, Env, #{}),
@@ -167,7 +179,8 @@ republish(
         flags => Flags,
         topic => Topic,
         payload => Payload,
-        pub_props => PubProps
+        pub_props => PubProps,
+        direct_dispatch => DirectDispatch
     },
     case logger:get_process_metadata() of
         #{action_id := ActionID} ->
@@ -182,7 +195,7 @@ republish(
         "republish_message",
         TraceInfo
     ),
-    safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps).
+    safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch).
 
 %%--------------------------------------------------------------------
 %% internal functions
@@ -224,7 +237,7 @@ pre_process_args(Mod, Func, Args) ->
         false -> Args
     end.
 
-safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
+safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch) ->
     Msg = #message{
         id = emqx_guid:gen(),
         qos = QoS,
@@ -238,16 +251,17 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
         payload = Payload,
         timestamp = erlang:system_time(millisecond)
     },
-    case emqx_broker:safe_publish(Msg) of
-        [_ | _] ->
+    case
+        emqx_broker:safe_publish(Msg, #{
+            bypass_hook => DirectDispatch, hook_prohibition_as_error => true
+        })
+    of
+        Routes when is_list(Routes) ->
             emqx_metrics:inc_msg(Msg),
             ok;
         disconnect ->
             error;
-        [] ->
-            %% Have to check previous logs to distinguish between schema validation
-            %% failure, no subscribers, blocked by authz, or anything else in the
-            %% `message.publish' hook evaluation.
+        {blocked, _Msg} ->
             error
     end.
 
@@ -321,6 +335,8 @@ render_pub_props(UserPropertiesTemplate, Selected, Env) ->
             rule_id => emqx_utils_maps:deep_get([metadata, rule_id], ENV, undefined),
             reason => REASON,
             property => K
+        }#{
+            tag => ?TAG
         }
     )
 ).

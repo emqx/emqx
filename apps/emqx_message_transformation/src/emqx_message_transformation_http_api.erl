@@ -39,7 +39,8 @@
 -define(METRIC_NAME, message_transformation).
 
 -type user_property() :: #{binary() => binary()}.
--reflect_type([user_property/0]).
+-type publish_properties() :: #{binary() => binary() | integer()}.
+-reflect_type([user_property/0, publish_properties/0]).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
@@ -305,7 +306,14 @@ fields(dryrun_input_message) ->
     %% See `emqx_message_transformation:eval_context()'.
     [
         {client_attrs, mk(map(), #{default => #{}})},
+        {clientid, mk(binary(), #{default => <<"test-clientid">>})},
         {payload, mk(binary(), #{required => true})},
+        {peername, mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:19872">>})},
+        {pub_props,
+            mk(
+                typerefl:alias("map()", publish_properties()),
+                #{default => #{}}
+            )},
         {qos, mk(range(0, 2), #{default => 0})},
         {retain, mk(boolean(), #{default => false})},
         {topic, mk(binary(), #{required => true})},
@@ -313,7 +321,8 @@ fields(dryrun_input_message) ->
             mk(
                 typerefl:alias("map(binary(), binary())", user_property()),
                 #{default => #{}}
-            )}
+            )},
+        {username, mk(binary(), #{required => false})}
     ];
 fields(get_metrics) ->
     [
@@ -452,18 +461,12 @@ ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 mk(Type, Opts) -> hoconsc:mk(Type, Opts).
 array(Type) -> hoconsc:array(Type).
 
-%% FIXME: all examples
 example_input_create() ->
     #{
-        <<"sql_check">> =>
+        <<"message_transformation">> =>
             #{
-                summary => <<"Using a SQL check">>,
-                value => example_transformation([example_sql_check()])
-            },
-        <<"avro_check">> =>
-            #{
-                summary => <<"Using an Avro schema check">>,
-                value => example_transformation([example_avro_check()])
+                summary => <<"Simple message transformation">>,
+                value => example_transformation()
             }
     }.
 
@@ -472,7 +475,7 @@ example_input_update() ->
         <<"update">> =>
             #{
                 summary => <<"Update">>,
-                value => example_transformation([example_sql_check()])
+                value => example_transformation()
             }
     }.
 
@@ -493,20 +496,28 @@ example_input_dryrun_transformation() ->
             #{
                 summary => <<"Test an input against a configuration">>,
                 value => #{
-                    todo => true
+                    message => #{
+                        client_attrs => #{},
+                        payload => <<"{}">>,
+                        qos => 2,
+                        retain => true,
+                        topic => <<"t/u/v">>,
+                        user_property => #{}
+                    },
+                    transformation => example_transformation()
                 }
             }
     }.
 
 example_return_list() ->
-    OtherVal0 = example_transformation([example_avro_check()]),
+    OtherVal0 = example_transformation(),
     OtherVal = OtherVal0#{name => <<"other_transformation">>},
     #{
         <<"list">> =>
             #{
                 summary => <<"List">>,
                 value => [
-                    example_transformation([example_sql_check()]),
+                    example_transformation(),
                     OtherVal
                 ]
             }
@@ -547,29 +558,23 @@ example_return_metrics() ->
             }
     }.
 
-example_transformation(Checks) ->
+example_transformation() ->
     #{
         name => <<"my_transformation">>,
         enable => true,
         description => <<"my transformation">>,
         tags => [<<"transformation">>],
         topics => [<<"t/+">>],
-        strategy => <<"all_pass">>,
         failure_action => <<"drop">>,
         log_failure => #{<<"level">> => <<"info">>},
-        checks => Checks
-    }.
-
-example_sql_check() ->
-    #{
-        type => <<"sql">>,
-        sql => <<"select payload.temp as t where t > 10">>
-    }.
-
-example_avro_check() ->
-    #{
-        type => <<"avro">>,
-        schema => <<"my_avro_schema">>
+        payload_decoder => #{<<"type">> => <<"json">>},
+        payload_encoder => #{<<"type">> => <<"json">>},
+        operations => [
+            #{
+                key => <<"topic">>,
+                value => <<"concat([topic, '/', payload.t])">>
+            }
+        ]
     }.
 
 error_schema(Code, Message) ->
@@ -719,17 +724,7 @@ transformation_out(Transformation) ->
     ).
 
 operation_out(Operation0) ->
-    %% TODO: remove injected bif module
-    Operation = maps:update_with(
-        value,
-        fun(V) -> iolist_to_binary(emqx_variform:decompile(V)) end,
-        Operation0
-    ),
-    maps:update_with(
-        key,
-        fun(Path) -> iolist_to_binary(lists:join(".", Path)) end,
-        Operation
-    ).
+    emqx_message_transformation:prettify_operation(Operation0).
 
 dryrun_input_message_in(Params) ->
     %% We already check the params against the schema at the API boundary, so we can
@@ -742,26 +737,34 @@ dryrun_input_message_in(Params) ->
         ),
     #{
         client_attrs := ClientAttrs,
+        clientid := ClientId,
         payload := Payload,
+        peername := Peername,
+        pub_props := PublishProperties,
         qos := QoS,
         retain := Retain,
         topic := Topic,
         user_property := UserProperty0
     } = Message0,
+    Username = maps:get(username, Message0, undefined),
     UserProperty = maps:to_list(UserProperty0),
     Message1 = #{
         id => emqx_guid:gen(),
         timestamp => emqx_message:timestamp_now(),
         extra => #{},
-        from => <<"test-clientid">>,
-
-        flags => #{retain => Retain},
+        from => ClientId,
+        flags => #{dup => false, retain => Retain},
         qos => QoS,
         topic => Topic,
         payload => Payload,
         headers => #{
             client_attrs => ClientAttrs,
-            properties => #{'User-Property' => UserProperty}
+            peername => Peername,
+            properties => maps:merge(
+                PublishProperties,
+                #{'User-Property' => UserProperty}
+            ),
+            username => Username
         }
     },
     Message = emqx_message:from_map(Message1),

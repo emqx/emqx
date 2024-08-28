@@ -32,14 +32,12 @@
 -define(TRIGGER_PENDING_TIMEOUT, 60_000).
 
 -define(TRANS_RETRY_TIMEOUT, 5_000).
--define(CRASH_RETRY_DELAY, 20_000).
--define(REMOVE_REPLICA_DELAY, {10_000, 5_000}).
 
 -ifdef(TEST).
 -undef(TRANS_RETRY_TIMEOUT).
--undef(REMOVE_REPLICA_DELAY).
+-undef(TRIGGER_PENDING_TIMEOUT).
 -define(TRANS_RETRY_TIMEOUT, 1_000).
--define(REMOVE_REPLICA_DELAY, {3_000, 2_000}).
+-define(TRIGGER_PENDING_TIMEOUT, 5_000).
 -endif.
 
 %%
@@ -156,12 +154,12 @@ unsubscribe_db_changes(_State) ->
 
 handle_shard_changed(Shard, State = #{db := DB}) ->
     ok = save_shard_meta(DB, Shard),
-    handle_shard_transitions(Shard, next_transitions(DB, Shard), State).
+    handle_shard_transitions(Shard, local, next_transitions(DB, Shard), State).
 
 handle_pending_transitions(State = #{db := DB, shards := Shards}) ->
     lists:foldl(
         fun(Shard, StateAcc) ->
-            handle_shard_transitions(Shard, next_transitions(DB, Shard), StateAcc)
+            handle_shard_transitions(Shard, any, next_transitions(DB, Shard), StateAcc)
         end,
         State,
         Shards
@@ -170,41 +168,34 @@ handle_pending_transitions(State = #{db := DB, shards := Shards}) ->
 next_transitions(DB, Shard) ->
     emqx_ds_replication_layer_meta:replica_set_transitions(DB, Shard).
 
-handle_shard_transitions(_Shard, [], State) ->
+handle_shard_transitions(_Shard, _, [], State) ->
     %% We reached the target allocation.
     State;
-handle_shard_transitions(Shard, [Trans | _Rest], State) ->
-    case transition_handler(Shard, Trans, State) of
+handle_shard_transitions(Shard, Scope, [Trans | _Rest], State) ->
+    case transition_handler(Shard, Scope, Trans, State) of
         {Track, Handler} ->
-            ensure_transition_handler(Track, Shard, Trans, Handler, State);
+            ensure_transition(Track, Shard, Trans, Handler, State);
         undefined ->
             State
     end.
 
-transition_handler(Shard, Trans, _State = #{db := DB}) ->
+transition_handler(Shard, Scope, Trans, _State = #{db := DB}) ->
     ThisSite = catch emqx_ds_replication_layer_meta:this_site(),
     case Trans of
         {add, ThisSite} ->
-            {Shard, fun trans_add_local/3};
+            {Shard, {fun trans_claim/4, [fun trans_add_local/3]}};
         {del, ThisSite} ->
-            {Shard, fun trans_drop_local/3};
-        {del, Site} ->
+            {Shard, {fun trans_claim/4, [fun trans_drop_local/3]}};
+        {del, Site} when Scope =:= any ->
+            %% NOTE
+            %% Letting the replica handle its own removal first, acting on the
+            %% transition only when triggered explicitly or by `?TRIGGER_PENDING_TIMEOUT`
+            %% timer. In other cases `Scope` is `local`.
             ReplicaSet = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
             case lists:member(Site, ReplicaSet) of
                 true ->
-                    %% NOTE
-                    %% Let the replica handle its own removal first, but still set
-                    %% up a removal handler after a delay, in case the replica is
-                    %% unresponsive.
-                    Handler = {fun trans_delay/5, [
-                        ?REMOVE_REPLICA_DELAY,
-                        fun trans_rm_unresponsive/3
-                    ]},
-                    %% NOTE
-                    %% Putting this transition handler on separate "track" so that it
-                    %% won't block any changes with higher priority (e.g. managing
-                    %% local replicas).
-                    {{unresp, Shard}, Handler};
+                    Handler = {fun trans_claim/4, [fun trans_rm_unresponsive/3]},
+                    {Shard, Handler};
                 false ->
                     undefined
             end;
@@ -231,9 +222,22 @@ apply_handler({Fun, Args}, DB, Shard, Trans) ->
 apply_handler(Fun, DB, Shard, Trans) ->
     erlang:apply(Fun, [DB, Shard, Trans]).
 
+trans_claim(DB, Shard, Trans, TransHandler) ->
+    case claim_transition(DB, Shard, Trans) of
+        ok ->
+            apply_handler(TransHandler, DB, Shard, Trans);
+        {error, {outdated, Expected}} ->
+            ?tp(debug, "Transition became outdated", #{
+                db => DB,
+                shard => Shard,
+                trans => Trans,
+                expected => Expected
+            }),
+            exit({shutdown, skipped})
+    end.
+
 trans_add_local(DB, Shard, {add, Site}) ->
-    logger:info(#{
-        msg => "Adding new local shard replica",
+    ?tp(info, "Adding new local shard replica", #{
         site => Site,
         db => DB,
         shard => Shard
@@ -246,8 +250,7 @@ do_add_local(membership = Stage, DB, Shard) ->
         ok ->
             do_add_local(readiness, DB, Shard);
         {error, recoverable, Reason} ->
-            logger:warning(#{
-                msg => "Shard membership change failed",
+            ?tp(warning, "Adding local shard replica failed", #{
                 db => DB,
                 shard => Shard,
                 reason => Reason,
@@ -260,10 +263,9 @@ do_add_local(readiness = Stage, DB, Shard) ->
     LocalServer = emqx_ds_replication_layer_shard:local_server(DB, Shard),
     case emqx_ds_replication_layer_shard:server_info(readiness, LocalServer) of
         ready ->
-            logger:info(#{msg => "Local shard replica ready", db => DB, shard => Shard});
+            ?tp(info, "Local shard replica ready", #{db => DB, shard => Shard});
         Status ->
-            logger:warning(#{
-                msg => "Still waiting for local shard replica to be ready",
+            ?tp(notice, "Still waiting for local shard replica to be ready", #{
                 db => DB,
                 shard => Shard,
                 status => Status,
@@ -274,8 +276,7 @@ do_add_local(readiness = Stage, DB, Shard) ->
     end.
 
 trans_drop_local(DB, Shard, {del, Site}) ->
-    logger:info(#{
-        msg => "Dropping local shard replica",
+    ?tp(notice, "Dropping local shard replica", #{
         site => Site,
         db => DB,
         shard => Shard
@@ -287,10 +288,11 @@ do_drop_local(DB, Shard) ->
         ok ->
             ok = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
             ok = emqx_ds_storage_layer:drop_shard({DB, Shard}),
-            logger:info(#{msg => "Local shard replica dropped"});
+            ?tp(notice, "Local shard replica dropped", #{db => DB, shard => Shard});
         {error, recoverable, Reason} ->
-            logger:warning(#{
-                msg => "Shard membership change failed",
+            ?tp(warning, "Dropping local shard replica failed", #{
+                db => DB,
+                shard => Shard,
                 reason => Reason,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
@@ -299,8 +301,7 @@ do_drop_local(DB, Shard) ->
     end.
 
 trans_rm_unresponsive(DB, Shard, {del, Site}) ->
-    logger:info(#{
-        msg => "Removing unresponsive shard replica",
+    ?tp(notice, "Removing unresponsive shard replica", #{
         site => Site,
         db => DB,
         shard => Shard
@@ -311,10 +312,9 @@ do_rm_unresponsive(DB, Shard, Site) ->
     Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
     case emqx_ds_replication_layer_shard:remove_server(DB, Shard, Server) of
         ok ->
-            logger:info(#{msg => "Unresponsive shard replica removed", db => DB, shard => Shard});
+            ?tp(info, "Unresponsive shard replica removed", #{db => DB, shard => Shard});
         {error, recoverable, Reason} ->
-            logger:warning(#{
-                msg => "Shard membership change failed",
+            ?tp(warning, "Removing shard replica failed", #{
                 db => DB,
                 shard => Shard,
                 reason => Reason,
@@ -324,19 +324,9 @@ do_rm_unresponsive(DB, Shard, Site) ->
             do_rm_unresponsive(DB, Shard, Site)
     end.
 
-trans_delay(DB, Shard, Trans, Delay, NextHandler) ->
-    ok = delay(Delay),
-    %% NOTE: Proceed only if the transition we are going to handle is still desired.
-    case next_transitions(DB, Shard) of
-        [Trans | _] ->
-            apply_handler(NextHandler, DB, Shard, Trans);
-        _Outdated ->
-            exit({shutdown, skipped})
-    end.
-
 %%
 
-ensure_transition_handler(Track, Shard, Trans, Handler, State = #{transitions := Ts}) ->
+ensure_transition(Track, Shard, Trans, Handler, State = #{transitions := Ts}) ->
     case maps:get(Track, Ts, undefined) of
         undefined ->
             Pid = start_transition_handler(Shard, Trans, Handler, State),
@@ -346,6 +336,12 @@ ensure_transition_handler(Track, Shard, Trans, Handler, State = #{transitions :=
             %% NOTE: Avoiding multiple transition handlers for the same shard for safety.
             State
     end.
+
+claim_transition(DB, Shard, Trans) ->
+    emqx_ds_replication_layer_meta:claim_transition(DB, Shard, Trans).
+
+commit_transition(Shard, Trans, #{db := DB}) ->
+    emqx_ds_replication_layer_meta:update_replica_set(DB, Shard, Trans).
 
 start_transition_handler(Shard, Trans, Handler, #{db := DB}) ->
     proc_lib:spawn_link(?MODULE, handle_transition, [DB, Shard, Trans, Handler]).
@@ -369,33 +365,25 @@ handle_exit(Pid, Reason, State0 = #{db := DB, transitions := Ts}) ->
             State0
     end.
 
-handle_transition_exit(Shard, Trans, normal, State = #{db := DB}) ->
+handle_transition_exit(Shard, Trans, normal, State) ->
     %% NOTE: This will trigger the next transition if any.
-    ok = emqx_ds_replication_layer_meta:update_replica_set(DB, Shard, Trans),
+    ok = commit_transition(Shard, Trans, State),
     State;
 handle_transition_exit(_Shard, _Trans, {shutdown, skipped}, State) ->
     State;
 handle_transition_exit(Shard, Trans, Reason, State = #{db := DB}) ->
-    logger:warning(#{
-        msg => "Shard membership transition failed",
+    %% NOTE
+    %% In case of `{add, Site}` transition failure, we have no choice but to retry:
+    %% no other node can perform the transition and make progress towards the desired
+    %% state. Assuming `?TRIGGER_PENDING_TIMEOUT` timer will take care of that.
+    ?tp(warning, "Shard membership transition failed", #{
         db => DB,
         shard => Shard,
         transition => Trans,
         reason => Reason,
-        retry_in => ?CRASH_RETRY_DELAY
+        retry_in => ?TRIGGER_PENDING_TIMEOUT
     }),
-    %% NOTE
-    %% In case of `{add, Site}` transition failure, we have no choice but to retry:
-    %% no other node can perform the transition and make progress towards the desired
-    %% state.
-    case Trans of
-        {add, _ThisSite} ->
-            {Track, Handler} = transition_handler(Shard, Trans, State),
-            RetryHandler = {fun trans_delay/5, [?CRASH_RETRY_DELAY, Handler]},
-            ensure_transition_handler(Track, Shard, Trans, RetryHandler, State);
-        _Another ->
-            State
-    end.
+    State.
 
 %%
 
@@ -453,10 +441,3 @@ erase_shards_meta(DB, Shards) ->
 
 erase_shard_meta(DB, Shard) ->
     persistent_term:erase(?shard_meta(DB, Shard)).
-
-%%
-
-delay({MinDelay, Variance}) ->
-    timer:sleep(MinDelay + rand:uniform(Variance));
-delay(Delay) ->
-    timer:sleep(Delay).

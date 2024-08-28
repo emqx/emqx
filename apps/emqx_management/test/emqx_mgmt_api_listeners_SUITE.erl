@@ -418,6 +418,35 @@ t_update_listener_zone(_Config) ->
     ?assertMatch({error, {_, 400, _}}, request(put, Path, [], AddConf1)),
     ?assertMatch(#{<<"zone">> := <<"zone1">>}, request(put, Path, [], AddConf2)).
 
+t_update_listener_max_conn_rate({init, Config}) ->
+    Config;
+t_update_listener_max_conn_rate({'end', _Config}) ->
+    ok;
+t_update_listener_max_conn_rate(_Config) ->
+    ListenerId = <<"tcp:default">>,
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    Conf = request(get, Path, [], []),
+    %% Check that default is infinity
+    ?assertMatch(#{<<"max_conn_rate">> := <<"infinity">>}, Conf),
+    %% Update to infinity
+    UpdateConfToInfinity = Conf#{<<"max_conn_rate">> => <<"infinity">>},
+    ?assertMatch(
+        #{<<"max_conn_rate">> := <<"infinity">>},
+        request(put, Path, [], UpdateConfToInfinity)
+    ),
+    %% Update to 42/s
+    UpdateConfTo42PerSec = Conf#{<<"max_conn_rate">> => <<"42/s">>},
+    ?assertMatch(
+        #{<<"max_conn_rate">> := <<"42/s">>},
+        request(put, Path, [], UpdateConfTo42PerSec)
+    ),
+    %% Update back to infinity
+    UpdateConfToInfinity = Conf#{<<"max_conn_rate">> => <<"infinity">>},
+    ?assertMatch(
+        #{<<"max_conn_rate">> := <<"infinity">>},
+        request(put, Path, [], UpdateConfToInfinity)
+    ).
+
 t_delete_nonexistent_listener(Config) when is_list(Config) ->
     NonExist = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:nonexistent"]),
     ?assertMatch(

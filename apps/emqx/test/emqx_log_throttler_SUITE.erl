@@ -26,6 +26,7 @@
 %% Have to use real msgs, as the schema is guarded by enum.
 -define(THROTTLE_MSG, authorization_permission_denied).
 -define(THROTTLE_MSG1, cannot_publish_to_topic_due_to_not_authorized).
+-define(THROTTLE_UNRECOVERABLE_MSG, unrecoverable_resource_error).
 -define(TIME_WINDOW, <<"1s">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -59,6 +60,11 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_config:delete_override_conf_files().
 
+init_per_testcase(t_throttle_recoverable_msg, Config) ->
+    ok = snabbkaffe:start_trace(),
+    [?THROTTLE_MSG] = Conf = emqx:get_config([log, throttling, msgs]),
+    {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_UNRECOVERABLE_MSG | Conf], #{}),
+    Config;
 init_per_testcase(t_throttle_add_new_msg, Config) ->
     ok = snabbkaffe:start_trace(),
     [?THROTTLE_MSG] = Conf = emqx:get_config([log, throttling, msgs]),
@@ -72,6 +78,10 @@ init_per_testcase(_TC, Config) ->
     ok = snabbkaffe:start_trace(),
     Config.
 
+end_per_testcase(t_throttle_recoverable_msg, _Config) ->
+    ok = snabbkaffe:stop(),
+    {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG], #{}),
+    ok;
 end_per_testcase(t_throttle_add_new_msg, _Config) ->
     ok = snabbkaffe:stop(),
     {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG], #{}),
@@ -101,12 +111,46 @@ t_throttle(_Config) ->
                 5000
             ),
 
-            ?assert(emqx_log_throttler:allow(?THROTTLE_MSG)),
-            ?assertNot(emqx_log_throttler:allow(?THROTTLE_MSG)),
+            ?assert(emqx_log_throttler:allow(?THROTTLE_MSG, undefined)),
+            ?assertNot(emqx_log_throttler:allow(?THROTTLE_MSG, undefined)),
             {ok, _} = ?block_until(
                 #{
                     ?snk_kind := log_throttler_dropped,
                     throttled_msg := ?THROTTLE_MSG,
+                    dropped_count := 1
+                },
+                3000
+            )
+        end,
+        []
+    ).
+
+t_throttle_recoverable_msg(_Config) ->
+    ResourceId = <<"resource_id">>,
+    ThrottledMsg = iolist_to_binary([atom_to_list(?THROTTLE_UNRECOVERABLE_MSG), ":", ResourceId]),
+    ?check_trace(
+        begin
+            %% Warm-up and block to increase the probability that next events
+            %% will be in the same throttling time window.
+            {ok, _} = ?block_until(
+                #{?snk_kind := log_throttler_new_msg, throttled_msg := ?THROTTLE_UNRECOVERABLE_MSG},
+                5000
+            ),
+            {_, {ok, _}} = ?wait_async_action(
+                events(?THROTTLE_UNRECOVERABLE_MSG, ResourceId),
+                #{
+                    ?snk_kind := log_throttler_dropped,
+                    throttled_msg := ThrottledMsg
+                },
+                5000
+            ),
+
+            ?assert(emqx_log_throttler:allow(?THROTTLE_UNRECOVERABLE_MSG, ResourceId)),
+            ?assertNot(emqx_log_throttler:allow(?THROTTLE_UNRECOVERABLE_MSG, ResourceId)),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := log_throttler_dropped,
+                    throttled_msg := ThrottledMsg,
                     dropped_count := 1
                 },
                 3000
@@ -121,8 +165,8 @@ t_throttle_add_new_msg(_Config) ->
             {ok, _} = ?block_until(
                 #{?snk_kind := log_throttler_new_msg, throttled_msg := ?THROTTLE_MSG1}, 5000
             ),
-            ?assert(emqx_log_throttler:allow(?THROTTLE_MSG1)),
-            ?assertNot(emqx_log_throttler:allow(?THROTTLE_MSG1)),
+            ?assert(emqx_log_throttler:allow(?THROTTLE_MSG1, undefined)),
+            ?assertNot(emqx_log_throttler:allow(?THROTTLE_MSG1, undefined)),
             {ok, _} = ?block_until(
                 #{
                     ?snk_kind := log_throttler_dropped,
@@ -137,10 +181,15 @@ t_throttle_add_new_msg(_Config) ->
 
 t_throttle_no_msg(_Config) ->
     %% Must simply pass with no crashes
-    ?assert(emqx_log_throttler:allow(no_test_throttle_msg)),
-    ?assert(emqx_log_throttler:allow(no_test_throttle_msg)),
-    timer:sleep(10),
-    ?assert(erlang:is_process_alive(erlang:whereis(emqx_log_throttler))).
+    Pid = erlang:whereis(emqx_log_throttler),
+    ?assert(emqx_log_throttler:allow(no_test_throttle_msg, undefined)),
+    ?assert(emqx_log_throttler:allow(no_test_throttle_msg, undefined)),
+    %% assert process is not restarted
+    ?assertEqual(Pid, erlang:whereis(emqx_log_throttler)),
+    %% make a gen_call to ensure the process is alive
+    %% note: this call result in an 'unexpected_call' error log.
+    ?assertEqual(ignored, gen_server:call(Pid, probe)),
+    ok.
 
 t_update_time_window(_Config) ->
     ?check_trace(
@@ -168,8 +217,8 @@ t_throttle_debug_primary_level(_Config) ->
                 #{?snk_kind := log_throttler_dropped, throttled_msg := ?THROTTLE_MSG},
                 5000
             ),
-            ?assert(emqx_log_throttler:allow(?THROTTLE_MSG)),
-            ?assertNot(emqx_log_throttler:allow(?THROTTLE_MSG)),
+            ?assert(emqx_log_throttler:allow(?THROTTLE_MSG, undefined)),
+            ?assertNot(emqx_log_throttler:allow(?THROTTLE_MSG, undefined)),
             {ok, _} = ?block_until(
                 #{
                     ?snk_kind := log_throttler_dropped,
@@ -187,10 +236,13 @@ t_throttle_debug_primary_level(_Config) ->
 %%--------------------------------------------------------------------
 
 events(Msg) ->
-    events(100, Msg).
+    events(100, Msg, undefined).
 
-events(N, Msg) ->
-    [emqx_log_throttler:allow(Msg) || _ <- lists:seq(1, N)].
+events(Msg, Id) ->
+    events(100, Msg, Id).
+
+events(N, Msg, Id) ->
+    [emqx_log_throttler:allow(Msg, Id) || _ <- lists:seq(1, N)].
 
 module_exists(Mod) ->
     case erlang:module_loaded(Mod) of

@@ -57,7 +57,15 @@ end_per_testcase(_TestCase, _Config) ->
 clear_schemas() ->
     maps:foreach(
         fun(Name, _Schema) ->
-            ok = emqx_schema_registry:delete_schema(Name)
+            NameBin = emqx_utils_conv:bin(Name),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_schema_registry:delete_schema(Name),
+                    #{
+                        ?snk_kind := "schema_registry_serde_deleted",
+                        name := NameBin
+                    }
+                )
         end,
         emqx_schema_registry:list_schemas()
     ).
@@ -204,6 +212,66 @@ t_protobuf_invalid_schema(_Config) ->
     ?assertMatch(
         {error, {post_config_update, _, {invalid_protobuf_schema, _}}},
         emqx_schema_registry:add_schema(SerdeName, WrongParams)
+    ),
+    ok.
+
+%% Checks that we unload code and clear code generation cache after destroying a protobuf
+%% serde.
+t_destroy_protobuf(_Config) ->
+    SerdeName = ?FUNCTION_NAME,
+    SerdeNameBin = atom_to_binary(SerdeName),
+    ?check_trace(
+        #{timetrap => 5_000},
+        begin
+            Params = schema_params(protobuf),
+            ok = emqx_schema_registry:add_schema(SerdeName, Params),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_schema_registry:delete_schema(SerdeName),
+                    #{?snk_kind := serde_destroyed, name := SerdeNameBin}
+                ),
+            %% Create again to check we don't hit the cache.
+            ok = emqx_schema_registry:add_schema(SerdeName, Params),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_schema_registry:delete_schema(SerdeName),
+                    #{?snk_kind := serde_destroyed, name := SerdeNameBin}
+                ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([], ?of_kind(schema_registry_protobuf_cache_hit, Trace)),
+            ?assertMatch([_ | _], ?of_kind("schema_registry_protobuf_cache_destroyed", Trace)),
+            ok
+        end
+    ),
+    ok.
+
+%% Checks that we don't leave entries lingering in the protobuf code cache table when
+%% updating the source of a serde.
+t_update_protobuf_cache(_Config) ->
+    SerdeName = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 5_000},
+        begin
+            #{source := Source0} = Params0 = schema_params(protobuf),
+            ok = emqx_schema_registry:add_schema(SerdeName, Params0),
+            %% Now we touch the source so protobuf needs to be recompiled.
+            Source1 = <<Source0/binary, "\n\n">>,
+            Params1 = Params0#{source := Source1},
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    emqx_schema_registry:add_schema(SerdeName, Params1),
+                    #{?snk_kind := "schema_registry_protobuf_cache_destroyed"}
+                ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([], ?of_kind(schema_registry_protobuf_cache_hit, Trace)),
+            ?assertMatch([_, _ | _], ?of_kind(schema_registry_protobuf_cache_miss, Trace)),
+            ?assertMatch([_ | _], ?of_kind("schema_registry_protobuf_cache_destroyed", Trace)),
+            ok
+        end
     ),
     ok.
 

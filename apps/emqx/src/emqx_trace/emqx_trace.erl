@@ -651,8 +651,7 @@ to_trace(#{type := Type}, _Rec) ->
 to_trace(#{payload_encode := PayloadEncode} = Trace, Rec) ->
     to_trace(maps:remove(payload_encode, Trace), Rec#?TRACE{payload_encode = PayloadEncode});
 to_trace(#{start_at := StartAt} = Trace, Rec) ->
-    {ok, Sec} = to_system_second(StartAt),
-    to_trace(maps:remove(start_at, Trace), Rec#?TRACE{start_at = Sec});
+    to_trace(maps:remove(start_at, Trace), Rec#?TRACE{start_at = StartAt});
 to_trace(#{end_at := EndAt} = Trace, Rec) ->
     Now = now_second(),
     case to_system_second(EndAt) of

@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_cli).
 
+-feature(maybe_expr, enable).
+
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
@@ -23,6 +25,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
+-define(EXCLUSIVE_TAB, emqx_exclusive_subscription).
 
 -export([load/0]).
 
@@ -45,7 +48,8 @@
     olp/1,
     data/1,
     ds/1,
-    cluster_info/0
+    cluster_info/0,
+    exclusive/1
 ]).
 
 -spec load() -> ok.
@@ -95,7 +99,7 @@ broker(_) ->
 %% @doc Cluster with other nodes
 
 cluster(["join", SNode]) ->
-    case mria:join(ekka_node:parse_name(SNode)) of
+    case ekka:join(ekka_node:parse_name(SNode)) of
         ok ->
             emqx_ctl:print("Join the cluster successfully.~n"),
             %% FIXME: running status on the replicant immediately
@@ -110,7 +114,7 @@ cluster(["join", SNode]) ->
     end;
 cluster(["leave"]) ->
     _ = maybe_disable_autocluster(),
-    case mria:leave() of
+    case ekka:leave() of
         ok ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
             cluster(["status"]);
@@ -119,7 +123,7 @@ cluster(["leave"]) ->
     end;
 cluster(["force-leave", SNode]) ->
     Node = ekka_node:parse_name(SNode),
-    case mria:force_leave(Node) of
+    case ekka:force_leave(Node) of
         ok ->
             case emqx_cluster_rpc:force_leave_clean(Node) of
                 ok ->
@@ -672,6 +676,7 @@ listeners([]) ->
     lists:foreach(
         fun({ID, Conf}) ->
             Bind = maps:get(bind, Conf),
+            Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
             Running = maps:get(running, Conf),
@@ -702,6 +707,7 @@ listeners([]) ->
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
+                    {enbale, Enable},
                     {running, Running}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [ID]),
@@ -745,12 +751,63 @@ listeners(["restart", ListenerId]) ->
         _ ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId])
     end;
+listeners(["enable", ListenerId, Enable0]) ->
+    maybe
+        {ok, Enable, Action} ?=
+            case Enable0 of
+                "true" ->
+                    {ok, true, start};
+                "false" ->
+                    {ok, false, stop};
+                _ ->
+                    {error, badarg}
+            end,
+        {ok, #{type := Type, name := Name}} ?= emqx_listeners:parse_listener_id(ListenerId),
+        #{<<"enable">> := OldEnable} ?= RawConf = emqx_conf:get_raw(
+            [listeners, Type, Name], {error, nout_found}
+        ),
+        {ok, AtomId} = emqx_utils:safe_to_existing_atom(ListenerId),
+        ok ?=
+            case Enable of
+                OldEnable ->
+                    %% `enable` and `running` may lose synchronization due to the start/stop commands
+                    case Action of
+                        start ->
+                            emqx_listeners:start_listener(AtomId);
+                        stop ->
+                            emqx_listeners:stop_listener(AtomId)
+                    end;
+                _ ->
+                    Conf = RawConf#{<<"enable">> := Enable},
+                    case emqx_mgmt_listeners_conf:action(Type, Name, Action, Conf) of
+                        {ok, _} ->
+                            ok;
+                        Error ->
+                            Error
+                    end
+            end,
+        emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable])
+    else
+        {error, badarg} ->
+            emqx_ctl:print("Invalid bool argument: ~0p~n", [Enable0]);
+        {error, {invalid_listener_id, _Id}} ->
+            emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId]);
+        {error, not_found} ->
+            emqx_ctl:print("Not found listener: ~0p~n", [ListenerId]);
+        {error, {already_started, _Pid}} ->
+            emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable0]);
+        {error, Reason} ->
+            emqx_ctl:print("Update listener: ~0p failed, Reason: ~0p~n", [
+                ListenerId, Reason
+            ])
+    end;
 listeners(_) ->
     emqx_ctl:usage([
         {"listeners", "List listeners"},
         {"listeners stop    <Identifier>", "Stop a listener"},
         {"listeners start   <Identifier>", "Start a listener"},
-        {"listeners restart <Identifier>", "Restart a listener"}
+        {"listeners restart <Identifier>", "Restart a listener"},
+        {"listeners enable <Identifier> <true/false>", "Enable or disable a listener"}
     ]).
 
 %%--------------------------------------------------------------------
@@ -1027,7 +1084,9 @@ print({?SUBOPTION, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
     NL = maps:get(nl, Options, 0),
     RH = maps:get(rh, Options, 0),
     RAP = maps:get(rap, Options, 0),
-    emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [SubId, Topic, QoS, NL, RH, RAP]).
+    emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [SubId, Topic, QoS, NL, RH, RAP]);
+print({exclusive, {exclusive_subscription, Topic, ClientId}}) ->
+    emqx_ctl:print("topic:~ts -> ClientId:~ts~n", [Topic, ClientId]).
 
 format(_, undefined) ->
     undefined;
@@ -1088,3 +1147,29 @@ safe_call_mria(Fun, Args, OnFail) ->
             }),
             OnFail
     end.
+%%--------------------------------------------------------------------
+%% @doc Exclusive topics
+exclusive(["list"]) ->
+    case ets:info(?EXCLUSIVE_TAB, size) of
+        0 -> emqx_ctl:print("No topics.~n");
+        _ -> dump(?EXCLUSIVE_TAB, exclusive)
+    end;
+exclusive(["delete", Topic0]) ->
+    Topic = erlang:iolist_to_binary(Topic0),
+    case emqx_exclusive_subscription:dirty_lookup_clientid(Topic) of
+        undefined ->
+            ok;
+        ClientId ->
+            case emqx_mgmt:unsubscribe(ClientId, Topic) of
+                {unsubscribe, _} ->
+                    ok;
+                {error, channel_not_found} ->
+                    emqx_exclusive_subscription:unsubscribe(Topic, #{is_exclusive => true})
+            end
+    end,
+    emqx_ctl:print("ok~n");
+exclusive(_) ->
+    emqx_ctl:usage([
+        {"exclusive list", "List all exclusive topics"},
+        {"exclusive delete <Topic>", "Delete an exclusive topic"}
+    ]).

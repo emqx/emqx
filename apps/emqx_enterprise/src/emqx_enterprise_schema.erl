@@ -11,13 +11,15 @@
 
 -export([namespace/0, roots/0, fields/1, translations/0, translation/1, desc/1, validations/0]).
 -export([upgrade_raw_conf/1]).
+-export([injected_fields/0]).
 
 -define(EE_SCHEMA_MODULES, [
     emqx_license_schema,
     emqx_schema_registry_schema,
     emqx_schema_validation_schema,
     emqx_message_transformation_schema,
-    emqx_ft_schema
+    emqx_ft_schema,
+    emqx_ds_shared_sub_schema
 ]).
 
 %% Callback to upgrade config after loaded from config file but before validation.
@@ -53,7 +55,6 @@ fields("log_audit_handler") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-
         {"path",
             hoconsc:mk(
                 string(),
@@ -126,6 +127,11 @@ desc(Name) ->
 
 validations() ->
     emqx_conf_schema:validations() ++ emqx_license_schema:validations().
+
+injected_fields() ->
+    #{
+        'node.role' => [replicant]
+    }.
 
 %%------------------------------------------------------------------------------
 %% helpers

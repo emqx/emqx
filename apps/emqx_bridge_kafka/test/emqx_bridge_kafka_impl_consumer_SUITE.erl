@@ -477,7 +477,7 @@ do_start_producer(KafkaClientId, KafkaTopic) ->
     ProducerConfig =
         #{
             name => Name,
-            partitioner => roundrobin,
+            partitioner => random,
             partition_count_refresh_interval_seconds => 1_000,
             replayq_max_total_bytes => 10_000,
             replayq_seg_bytes => 9_000,
@@ -1520,7 +1520,7 @@ t_receive_after_recovery(Config) ->
                     key => <<"commit", (integer_to_binary(N))/binary>>,
                     value => <<"commit", (integer_to_binary(N))/binary>>
                 }
-             || N <- lists:seq(1, NPartitions)
+             || N <- lists:seq(1, NPartitions * 10)
             ],
             %% we do distinct passes over this producing part so that
             %% wolff won't batch everything together.
@@ -1918,13 +1918,14 @@ t_node_joins_existing_cluster(Config) ->
                 _Attempts2 = 50,
                 [] =/= erpc:call(N2, emqx_router, lookup_routes, [MQTTTopic])
             ),
+            NumMsgs = 50 * NPartitions,
             {ok, SRef1} =
                 snabbkaffe:subscribe(
                     ?match_event(#{
                         ?snk_kind := kafka_consumer_handle_message,
                         ?snk_span := {complete, _}
                     }),
-                    NPartitions,
+                    NumMsgs,
                     20_000
                 ),
             lists:foreach(
@@ -1933,7 +1934,7 @@ t_node_joins_existing_cluster(Config) ->
                     Val = <<"v", (integer_to_binary(N))/binary>>,
                     publish(Config, KafkaTopic, [#{key => Key, value => Val}])
                 end,
-                lists:seq(1, NPartitions)
+                lists:seq(1, NumMsgs)
             ),
             {ok, _} = snabbkaffe:receive_events(SRef1),
 

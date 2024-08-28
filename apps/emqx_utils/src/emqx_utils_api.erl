@@ -17,6 +17,7 @@
 -module(emqx_utils_api).
 
 -export([
+    to_json/1,
     with_node/2,
     with_node_or_cluster/2
 ]).
@@ -44,6 +45,20 @@ with_node_or_cluster(<<"all">>, Fun) ->
     handle_result(Fun(all));
 with_node_or_cluster(Node, Fun) ->
     with_node(Node, Fun).
+
+-spec to_json(map()) -> emqx_utils_json:json_text().
+to_json(M0) ->
+    %% When dealing with Hocon validation errors, `value' might contain non-serializable
+    %% values (e.g.: user_lookup_fun), so we try again without that key if serialization
+    %% fails as a best effort.
+    M1 = emqx_utils_maps:jsonable_map(M0, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end),
+    try
+        emqx_utils_json:encode(M1)
+    catch
+        error:_ ->
+            M2 = maps:without([value, <<"value">>], M1),
+            emqx_utils_json:encode(M2)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -73,5 +88,7 @@ handle_result({ok, Result}) ->
     ?OK(Result);
 handle_result({error, Reason}) ->
     ?BAD_REQUEST(Reason);
+handle_result({HTTPCode}) when is_integer(HTTPCode) ->
+    {HTTPCode};
 handle_result({HTTPCode, Content}) when is_integer(HTTPCode) ->
     {HTTPCode, Content}.

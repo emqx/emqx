@@ -41,6 +41,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     query_mode/1,
     on_start/2,
@@ -57,11 +58,12 @@
     on_format_query_result/1
 ]).
 
--export([reply_delegator/2]).
+-export([reply_delegator/4]).
 
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
+resource_type() -> gcp_pubsub.
 
 callback_mode() -> async_if_possible.
 
@@ -106,18 +108,18 @@ on_get_status(_InstanceId, #{client := Client} = _State) ->
     {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(ResourceId, {MessageTag, Selected}, ConnectorState) ->
+on_query(ConnResId, {MessageTag, Selected}, ConnectorState) ->
     Requests = [{MessageTag, Selected}],
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
         #{
             requests => Requests,
-            connector => ResourceId,
+            connector => ConnResId,
             state => emqx_utils:redact(ConnectorState)
         }
     ),
-    do_send_requests_sync(ConnectorState, Requests, ResourceId).
+    do_send_requests_sync(ConnectorState, Requests, ConnResId).
 
 -spec on_query_async(
     connector_resource_id(),
@@ -125,19 +127,19 @@ on_query(ResourceId, {MessageTag, Selected}, ConnectorState) ->
     {ReplyFun :: function(), Args :: list()},
     connector_state()
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
-on_query_async(ResourceId, {MessageTag, Selected}, ReplyFunAndArgs, ConnectorState) ->
+on_query_async(ConnResId, {MessageTag, Selected}, ReplyFunAndArgs, ConnectorState) ->
     Requests = [{MessageTag, Selected}],
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
         #{
             requests => Requests,
-            connector => ResourceId,
+            connector => ConnResId,
             state => emqx_utils:redact(ConnectorState)
         }
     ),
-    ?tp(gcp_pubsub_producer_async, #{instance_id => ResourceId, requests => Requests}),
-    do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs).
+    ?tp(gcp_pubsub_producer_async, #{instance_id => ConnResId, requests => Requests}),
+    do_send_requests_async(ConnResId, ConnectorState, Requests, ReplyFunAndArgs).
 
 -spec on_batch_query(
     connector_resource_id(),
@@ -147,17 +149,17 @@ on_query_async(ResourceId, {MessageTag, Selected}, ReplyFunAndArgs, ConnectorSta
     {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_batch_query(ResourceId, Requests, ConnectorState) ->
+on_batch_query(ConnResId, Requests, ConnectorState) ->
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
         #{
             requests => Requests,
-            connector => ResourceId,
+            connector => ConnResId,
             state => emqx_utils:redact(ConnectorState)
         }
     ),
-    do_send_requests_sync(ConnectorState, Requests, ResourceId).
+    do_send_requests_sync(ConnectorState, Requests, ConnResId).
 
 -spec on_batch_query_async(
     connector_resource_id(),
@@ -165,18 +167,18 @@ on_batch_query(ResourceId, Requests, ConnectorState) ->
     {ReplyFun :: function(), Args :: list()},
     connector_state()
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
-on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, ConnectorState) ->
+on_batch_query_async(ConnResId, Requests, ReplyFunAndArgs, ConnectorState) ->
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
         #{
             requests => Requests,
-            connector => ResourceId,
+            connector => ConnResId,
             state => emqx_utils:redact(ConnectorState)
         }
     ),
-    ?tp(gcp_pubsub_producer_async, #{instance_id => ResourceId, requests => Requests}),
-    do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs).
+    ?tp(gcp_pubsub_producer_async, #{instance_id => ConnResId, requests => Requests}),
+    do_send_requests_async(ConnResId, ConnectorState, Requests, ReplyFunAndArgs).
 
 -spec on_add_channel(
     connector_resource_id(),
@@ -297,11 +299,12 @@ do_send_requests_sync(ConnectorState, Requests, InstanceId) ->
     handle_result(Result, Request, QueryMode, InstanceId).
 
 -spec do_send_requests_async(
+    connector_resource_id(),
     connector_state(),
     [{message_tag(), map()}],
     {ReplyFun :: function(), Args :: list()}
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
-do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs0) ->
+do_send_requests_async(ConnResId, ConnectorState, Requests, ReplyFunAndArgs0) ->
     #{client := Client} = ConnectorState,
     %% is it safe to assume the tag is the same???  And not empty???
     [{MessageTag, _} | _] = Requests,
@@ -319,7 +322,7 @@ do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs0) ->
     Method = post,
     ReqOpts = #{request_ttl => RequestTTL},
     Request = {prepared_request, {Method, Path, Body}, ReqOpts},
-    ReplyFunAndArgs = {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs0]},
+    ReplyFunAndArgs = {fun ?MODULE:reply_delegator/4, [ConnResId, Request, ReplyFunAndArgs0]},
     emqx_trace:rendered_action_template(MessageTag, #{
         method => Method,
         path => Path,
@@ -436,7 +439,7 @@ to_pubsub_request(Payloads) ->
 publish_path(#{project_id := ProjectId}, #{pubsub_topic := PubSubTopic}) ->
     <<"/v1/projects/", ProjectId/binary, "/topics/", PubSubTopic/binary, ":publish">>.
 
-handle_result({error, Reason}, _Request, QueryMode, ResourceId) when
+handle_result({error, Reason}, _Request, QueryMode, ConnResId) when
     Reason =:= econnrefused;
     %% this comes directly from `gun'...
     Reason =:= {closed, "The connection was lost."};
@@ -449,33 +452,61 @@ handle_result({error, Reason}, _Request, QueryMode, ResourceId) when
             reason => Reason,
             query_mode => QueryMode,
             recoverable_error => true,
-            connector => ResourceId
+            connector => ConnResId
         }
     ),
     {error, {recoverable_error, Reason}};
 handle_result(
+    {error, #{status_code := StatusCode, body := RespBody} = Resp},
+    Request,
+    QueryMode,
+    ConnResId
+) when
+    StatusCode =:= 502;
+    StatusCode =:= 503
+->
+    ?tp(info, "gcp_pubsub_backoff_error_response", #{
+        query_mode => QueryMode,
+        request => emqx_bridge_http_connector:redact_request(Request),
+        connector => ConnResId,
+        status_code => StatusCode,
+        resp_body => RespBody
+    }),
+    {error, {recoverable_error, Resp}};
+handle_result(
     {error, #{status_code := StatusCode, body := RespBody}} = Result,
     Request,
     _QueryMode,
-    ResourceId
+    ConnResId
 ) ->
     ?SLOG(error, #{
         msg => "gcp_pubsub_error_response",
         request => emqx_bridge_http_connector:redact_request(Request),
-        connector => ResourceId,
+        connector => ConnResId,
         status_code => StatusCode,
         resp_body => RespBody
     }),
     Result;
-handle_result({error, #{status_code := StatusCode}} = Result, Request, _QueryMode, ResourceId) ->
+handle_result({error, #{status_code := StatusCode} = Resp}, Request, QueryMode, ConnResId) when
+    StatusCode =:= 502;
+    StatusCode =:= 503
+->
+    ?tp(info, "gcp_pubsub_backoff_error_response", #{
+        query_mode => QueryMode,
+        request => emqx_bridge_http_connector:redact_request(Request),
+        connector => ConnResId,
+        status_code => StatusCode
+    }),
+    {error, {recoverable_error, Resp}};
+handle_result({error, #{status_code := StatusCode}} = Result, Request, _QueryMode, ConnResId) ->
     ?SLOG(error, #{
         msg => "gcp_pubsub_error_response",
         request => emqx_bridge_http_connector:redact_request(Request),
-        connector => ResourceId,
+        connector => ConnResId,
         status_code => StatusCode
     }),
     Result;
-handle_result({error, Reason} = Result, _Request, QueryMode, ResourceId) ->
+handle_result({error, Reason} = Result, _Request, QueryMode, ConnResId) ->
     ?tp(
         error,
         gcp_pubsub_request_failed,
@@ -483,11 +514,11 @@ handle_result({error, Reason} = Result, _Request, QueryMode, ResourceId) ->
             reason => Reason,
             query_mode => QueryMode,
             recoverable_error => false,
-            connector => ResourceId
+            connector => ConnResId
         }
     ),
     Result;
-handle_result({ok, _} = Result, _Request, _QueryMode, _ResourceId) ->
+handle_result({ok, _} = Result, _Request, _QueryMode, _ConnResId) ->
     Result.
 
 on_format_query_result({ok, Info}) ->
@@ -495,16 +526,6 @@ on_format_query_result({ok, Info}) ->
 on_format_query_result(Result) ->
     Result.
 
-reply_delegator(ReplyFunAndArgs, Response) ->
-    case Response of
-        {error, Reason} when
-            Reason =:= econnrefused;
-            %% this comes directly from `gun'...
-            Reason =:= {closed, "The connection was lost."};
-            Reason =:= timeout
-        ->
-            Result = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
-        _ ->
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Response)
-    end.
+reply_delegator(ConnResId, Request, ReplyFunAndArgs, Response) ->
+    Result = handle_result(Response, Request, async, ConnResId),
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).

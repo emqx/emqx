@@ -21,6 +21,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("rule_engine.hrl").
 
 -export([check_params/2]).
 
@@ -36,10 +37,14 @@ check_params(Params, Tag) ->
         #{Tag := Checked} -> {ok, Checked}
     catch
         throw:Reason ->
-            ?SLOG(error, #{
-                msg => "check_rule_params_failed",
-                reason => Reason
-            }),
+            ?SLOG(
+                info,
+                #{
+                    msg => "check_rule_params_failed",
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
             {error, Reason}
     end.
 
@@ -326,6 +331,13 @@ fields("ctx_schema_validation_failed") ->
         {"event_type", event_type_sc(Event)},
         {"validation", sc(binary(), #{desc => ?DESC("event_validation")})}
         | msg_event_common_fields()
+    ];
+fields("ctx_message_transformation_failed") ->
+    Event = 'message.transformation_failed',
+    [
+        {"event_type", event_type_sc(Event)},
+        {"transformation", sc(binary(), #{desc => ?DESC("event_transformation")})}
+        | msg_event_common_fields()
     ].
 
 rule_input_message_context() ->
@@ -345,7 +357,8 @@ rule_input_message_context() ->
                 ref("ctx_check_authn_complete"),
                 ref("ctx_bridge_mqtt"),
                 ref("ctx_delivery_dropped"),
-                ref("ctx_schema_validation_failed")
+                ref("ctx_schema_validation_failed"),
+                ref("ctx_message_transformation_failed")
             ]),
             #{
                 desc => ?DESC("test_context"),

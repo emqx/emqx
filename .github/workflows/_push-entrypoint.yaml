@@ -17,6 +17,9 @@ on:
       ref:
         required: false
 
+permissions:
+  contents: read
+
 defaults:
   run:
     shell: bash
@@ -32,8 +35,6 @@ jobs:
       OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
-      BUILD_FROM: ${{ steps.env.outputs.BUILD_FROM }}
-      RUN_FROM: ${{ steps.env.outputs.BUILD_FROM }}
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
@@ -46,8 +47,6 @@ jobs:
           echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
           echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
           echo "BUILDER=$EMQX_BUILDER" >> "$GITHUB_OUTPUT"
-          echo "BUILD_FROM=$EMQX_DOCKER_BUILD_FROM" >> "$GITHUB_OUTPUT"
-          echo "RUN_FROM=$EMQX_DOCKER_RUN_FROM" >> "$GITHUB_OUTPUT"
 
   prepare:
     runs-on: ubuntu-22.04
@@ -60,9 +59,6 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-
-    permissions:
-      contents: read
 
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -119,8 +115,6 @@ jobs:
       profile: ${{ needs.prepare.outputs.profile }}
       publish: true
       latest: ${{ needs.prepare.outputs.latest }}
-      build_from: ${{ needs.init.outputs.BUILD_FROM }}
-      run_from: ${{ needs.init.outputs.RUN_FROM }}
     secrets: inherit
 
   build_slim_packages:
@@ -143,9 +137,6 @@ jobs:
           - emqx
           - emqx-enterprise
 
-    permissions:
-      contents: read
-
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
@@ -160,14 +151,49 @@ jobs:
           ENABLE_COVER_COMPILE: 1
         run: |
           make $PROFILE
-          echo "PROFILE=${PROFILE}" | tee -a .env
-          echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
+          echo "export PROFILE=${PROFILE}" | tee -a env.sh
+          echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+          make ${PROFILE}-rel
+      - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
-          retention-days: 1
+          retention-days: 7
+      - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+        with:
+          name: "${{ matrix.profile }}-schema-dump"
+          path: |
+            env.sh
+            _build/docgen/${{ matrix.profile }}/*.json
+            _build/docgen/${{ matrix.profile }}/*.hocon
+          retention-days: 7
+
+  update_emqx_i18n:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - prepare
+      - compile
+    runs-on: ubuntu-22.04'
+    steps:
+      - name: Create PR in emqx/emqx-i18n
+        env:
+          GH_TOKEN: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
+        run: |
+          gh --repo emqx/emqx-i18n workflow run sync-en-doc.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
+
+  update_emqx_docs:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - prepare
+      - compile
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Create PR in emqx/emqx-docs
+        env:
+          GH_TOKEN: ${{ secrets.CI_GITHUB_TOKEN_DOCS_I18N_RW }}
+        run: |
+          gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
 
   run_emqx_app_tests:
     needs:
@@ -185,6 +211,9 @@ jobs:
       - init
       - prepare
       - compile
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/run_test_cases.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}

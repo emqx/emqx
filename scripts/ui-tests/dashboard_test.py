@@ -3,6 +3,7 @@ import time
 import unittest
 import pytest
 import requests
+import logging
 from urllib.parse import urljoin
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -11,6 +12,9 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common import utils
 from selenium.common.exceptions import NoSuchElementException
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 @pytest.fixture
 def driver():
@@ -31,39 +35,52 @@ def dashboard_url(dashboard_host, dashboard_port):
         time.sleep(1)
     return f"http://{dashboard_host}:{dashboard_port}"
 
-@pytest.fixture
 def login(driver, dashboard_url):
     # admin is set in CI jobs, hence as default value
     password = os.getenv("EMQX_DASHBOARD__DEFAULT_PASSWORD", "admin")
     driver.get(dashboard_url)
     assert "EMQX Dashboard" == driver.title
     assert f"{dashboard_url}/#/login?to=/dashboard/overview" == driver.current_url
-    driver.find_element(By.XPATH, "//div[@class='login']//form[1]//input[@type='text']").send_keys("admin")
-    driver.find_element(By.XPATH, "//div[@class='login']//form[1]//input[@type='password']").send_keys(password)
-    driver.find_element(By.XPATH, "//div[@class='login']//form[1]//button[1]").click()
+    driver.execute_script("window.localStorage.setItem('licenseTipVisible','false');")
+    driver.find_element(By.XPATH, "//div[@class='login']//form//input[@type='text']").send_keys("admin")
+    driver.find_element(By.XPATH, "//div[@class='login']//form//input[@type='password']").send_keys(password)
+    driver.find_element(By.XPATH, "//div[@class='login']//form//button").click()
     dest_url = urljoin(dashboard_url, "/#/dashboard/overview")
-    driver.get(dest_url)
     ensure_current_url(driver, dest_url)
+    assert len(driver.find_elements(By.XPATH, "//div[@class='login']")) == 0
+    logger.info(f"Logged in to {dashboard_url}")
 
-def ensure_current_url(driver, url):
+def ensure_current_url(d, url):
     count = 0
-    while url != driver.current_url:
+    while url != d.current_url:
         if count == 10:
             raise Exception(f"Failed to load {url}")
         count += 1
         time.sleep(1)
 
-def title(driver):
-    return driver.find_element("xpath", "//div[@id='app']//h1[@class='header-title']")
+def title(d):
+    title = ''
+    for _ in range(5):
+        try:
+            title = d.find_element("xpath", "//div[@id='app']//h1[@class='header-title']")
+            break
+        except NoSuchElementException:
+            time.sleep(1)
+    else:
+        raise AssertionError("Cannot find the title element")
+    return title
 
-def wait_title_text(driver, text):
-    return WebDriverWait(driver, 10).until(lambda x: title(x).text == text)
+def wait_title_text(d, text):
+    return WebDriverWait(d, 10).until(lambda x: title(x).text == text)
 
-def test_basic(driver, login, dashboard_url):
-    driver.get(dashboard_url)
+def test_basic(driver, dashboard_url):
+    login(driver, dashboard_url)
+    logger.info(f"Current URL: {driver.current_url}")
     wait_title_text(driver, "Cluster Overview")
 
-def test_log(driver, login, dashboard_url):
+def test_log(driver, dashboard_url):
+    login(driver, dashboard_url)
+    logger.info(f"Current URL: {driver.current_url}")
     dest_url = urljoin(dashboard_url, "/#/log")
     driver.get(dest_url)
     ensure_current_url(driver, dest_url)
@@ -95,10 +112,9 @@ def fetch_version(url):
     version_str = info['rel_vsn']
     return parse_version(version_str)
 
-def test_docs_link(driver, login, dashboard_url):
-    dest_url = urljoin(dashboard_url, "/#/dashboard/overview")
-    driver.get(dest_url)
-    ensure_current_url(driver, dest_url)
+def test_docs_link(driver, dashboard_url):
+    login(driver, dashboard_url)
+    logger.info(f"Current URL: {driver.current_url}")
     xpath_link_help = "//div[@id='app']//div[@class='nav-header']//a[contains(@class, 'link-help')]"
     # retry up to 5 times
     for _ in range(5):
@@ -115,10 +131,7 @@ def test_docs_link(driver, login, dashboard_url):
     # it's v5.x in the url
     emqx_version = 'v' + emqx_version
 
-    if prefix == 'e':
-        docs_base_url = "https://docs.emqx.com/en/enterprise"
-    else:
-        docs_base_url = "https://docs.emqx.com/en/emqx"
+    docs_base_url = "https://docs.emqx.com/en/emqx"
 
     docs_url = f"{docs_base_url}/{emqx_version}"
     xpath = f"//div[@id='app']//div[@class='nav-header']//a[@href[starts-with(.,'{docs_url}')]]"

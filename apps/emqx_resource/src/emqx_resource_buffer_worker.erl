@@ -198,6 +198,9 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
         QueryOpts = #{timeout := Timeout} = maps:merge(simple_query_opts(), QueryOpts1),
         case simple_async_query(Id, Request, QueryOpts) of
             {error, _} = Error ->
+                ?tp("resource_simple_sync_internal_buffer_query_error", #{
+                    id => Id, request => Request
+                }),
                 Error;
             {async_return, {error, _} = Error} ->
                 Error;
@@ -210,7 +213,11 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
                     receive
                         {ReplyAlias, Response} ->
                             Response
-                    after 0 -> {error, timeout}
+                    after 0 ->
+                        ?tp("resource_simple_sync_internal_buffer_query_timeout", #{
+                            id => Id, request => Request
+                        }),
+                        {error, timeout}
                     end
                 end
         end
@@ -298,10 +305,10 @@ running(info, {flush_metrics, _Ref}, _Data) ->
 running(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
     is_map_key(Pid, AsyncWorkers0)
 ->
-    ?SLOG(info, #{msg => "async_worker_died", state => running, reason => Reason}),
+    ?SLOG(info, #{msg => "async_worker_died", state => running, reason => Reason}, #{tag => ?TAG}),
     handle_async_worker_down(Data0, Pid);
 running(info, Info, _St) ->
-    ?SLOG(error, #{msg => "unexpected_msg", state => running, info => Info}),
+    ?SLOG(error, #{msg => "unexpected_msg", state => running, info => Info}, #{tag => ?TAG}),
     keep_state_and_data.
 
 blocked(enter, _, #{resume_interval := ResumeT} = St0) ->
@@ -331,10 +338,10 @@ blocked(info, {flush_metrics, _Ref}, _Data) ->
 blocked(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
     is_map_key(Pid, AsyncWorkers0)
 ->
-    ?SLOG(info, #{msg => "async_worker_died", state => blocked, reason => Reason}),
+    ?SLOG(info, #{msg => "async_worker_died", state => blocked, reason => Reason}, #{tag => ?TAG}),
     handle_async_worker_down(Data0, Pid);
 blocked(info, Info, _Data) ->
-    ?SLOG(error, #{msg => "unexpected_msg", state => blocked, info => Info}),
+    ?SLOG(error, #{msg => "unexpected_msg", state => blocked, info => Info}, #{tag => ?TAG}),
     keep_state_and_data.
 
 terminate(_Reason, #{id := Id, index := Index, queue := Q}) ->
@@ -981,7 +988,16 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCTX) ->
         true ->
             PostFn =
                 fun() ->
-                    ?SLOG(error, #{id => Id, msg => "unrecoverable_error", reason => Reason}),
+                    ?SLOG_THROTTLE(
+                        error,
+                        Id,
+                        #{
+                            resource_id => Id,
+                            msg => unrecoverable_resource_error,
+                            reason => Reason
+                        },
+                        #{tag => ?TAG}
+                    ),
                     ok
                 end,
             Counters =
@@ -1021,7 +1037,16 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCT
         true ->
             PostFn =
                 fun() ->
-                    ?SLOG(error, #{id => Id, msg => "unrecoverable_error", reason => Reason}),
+                    ?SLOG_THROTTLE(
+                        error,
+                        Id,
+                        #{
+                            resource_id => Id,
+                            msg => unrecoverable_resource_error,
+                            reason => Reason
+                        },
+                        #{tag => ?TAG}
+                    ),
                     ok
                 end,
             Counters =
@@ -1141,12 +1166,16 @@ log_expired_message_count(_Data = #{id := Id, index := Index, counters := Counte
         false ->
             ok;
         true ->
-            ?SLOG(info, #{
-                msg => "buffer_worker_dropped_expired_messages",
-                resource_id => Id,
-                worker_index => Index,
-                expired_count => ExpiredCount
-            }),
+            ?SLOG(
+                info,
+                #{
+                    msg => "buffer_worker_dropped_expired_messages",
+                    resource_id => Id,
+                    worker_index => Index,
+                    expired_count => ExpiredCount
+                },
+                #{tag => ?TAG}
+            ),
             ok
     end.
 
@@ -1302,6 +1331,7 @@ do_call_query(QM, Id, Index, Ref, Query, #{query_mode := ReqQM} = QueryOpts, Res
     ?tp(simple_query_override, #{query_mode => ReqQM}),
     #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
     CallMode = call_mode(QM, CBM),
+    ?tp(simple_query_enter, #{}),
     apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
     ResQM =:= simple_sync_internal_buffer; ResQM =:= simple_async_internal_buffer
@@ -1309,6 +1339,7 @@ do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Res
     %% The connector supports buffer, send even in disconnected state
     #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
     CallMode = call_mode(QM, CBM),
+    ?tp(simple_query_enter, #{}),
     apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{status := connected} = Resource) ->
     %% when calling from the buffer worker or other simple queries,
@@ -1556,7 +1587,7 @@ handle_async_reply1(
     case is_expired(ExpireAt, Now) of
         true ->
             IsAcked = ack_inflight(InflightTID, Ref, BufferWorkerPid),
-            %% evalutate metrics call here since we're not inside
+            %% evaluate metrics call here since we're not inside
             %% buffer worker
             IsAcked andalso
                 begin
@@ -1797,12 +1828,16 @@ append_queue(Id, Index, Q, Queries) ->
                 ok = replayq:ack(Q1, QAckRef),
                 Dropped = length(Items2),
                 Counters = #{dropped_queue_full => Dropped},
-                ?SLOG_THROTTLE(warning, #{
-                    msg => data_bridge_buffer_overflow,
-                    resource_id => Id,
-                    worker_index => Index,
-                    dropped => Dropped
-                }),
+                ?SLOG_THROTTLE(
+                    warning,
+                    #{
+                        msg => data_bridge_buffer_overflow,
+                        resource_id => Id,
+                        worker_index => Index,
+                        dropped => Dropped
+                    },
+                    #{tag => ?TAG}
+                ),
                 {Items2, Q1, Counters}
         end,
     ?tp(
@@ -2236,11 +2271,15 @@ adjust_batch_time(Id, RequestTTL, BatchTime0) ->
     BatchTime = max(0, min(BatchTime0, RequestTTL div 2)),
     case BatchTime =:= BatchTime0 of
         false ->
-            ?SLOG(info, #{
-                id => Id,
-                msg => "adjusting_buffer_worker_batch_time",
-                new_batch_time => BatchTime
-            });
+            ?SLOG(
+                info,
+                #{
+                    resource_id => Id,
+                    msg => "adjusting_buffer_worker_batch_time",
+                    new_batch_time => BatchTime
+                },
+                #{tag => ?TAG}
+            );
         true ->
             ok
     end,
@@ -2297,6 +2336,7 @@ reply_call(Alias, Response) ->
 %% Used by `simple_sync_internal_buffer_query' to reply and chain existing `reply_to'
 %% callbacks.
 reply_call_internal_buffer(ReplyAlias, MaybeReplyTo, Response) ->
+    ?tp("reply_call_internal_buffer", #{}),
     ?MODULE:reply_call(ReplyAlias, Response),
     do_reply_caller(MaybeReplyTo, Response).
 

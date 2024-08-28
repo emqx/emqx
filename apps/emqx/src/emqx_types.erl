@@ -279,7 +279,10 @@
         | {emqx_external_broker:dest(), topic(), deliver_result()}
         | persisted
     ]
-    | disconnect.
+    %% If schema validation failure action is set to `disconnect'.
+    | disconnect
+    %% If caller specifies `hook_prohibition_as_error => true'.
+    | {blocked, message()}.
 -type route() :: #route{}.
 -type route_entry() :: {topic(), node()} | {topic, group()}.
 -type command() :: #command{}.

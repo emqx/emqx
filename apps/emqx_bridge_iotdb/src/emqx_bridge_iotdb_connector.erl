@@ -15,6 +15,7 @@
 
 %% `emqx_resource' API
 -export([
+    resource_type/0,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -206,6 +207,8 @@ proplists_without(Keys, List) ->
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
+resource_type() -> iotdb.
+
 callback_mode() -> async_if_possible.
 
 -spec on_start(manager_id(), config()) -> {ok, state()} | no_return().

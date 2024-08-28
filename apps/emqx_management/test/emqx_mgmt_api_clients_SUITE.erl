@@ -31,6 +31,9 @@
 -define(HTTP400, {"HTTP/1.1", 400, "Bad Request"}).
 -define(HTTP404, {"HTTP/1.1", 404, "Not Found"}).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(assertContainsClientids(RES, EXPECTED), assert_contains_clientids(RES, EXPECTED, ?LINE)).
+
 all() ->
     [
         {group, general},
@@ -65,7 +68,9 @@ persistent_session_testcases() ->
         t_persistent_sessions5,
         t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
-        t_list_clients_v2
+        t_list_clients_v2,
+        t_list_clients_v2_exact_filters,
+        t_list_clients_v2_bad_query_string_parameters
     ].
 non_persistent_cluster_testcases() ->
     [
@@ -99,27 +104,32 @@ init_per_group(general, Config) ->
         | Config
     ];
 init_per_group(persistent_sessions, Config) ->
-    AppSpecs = [
-        {emqx,
-            "durable_sessions.enable = true\n"
-            "durable_sessions.disconnected_session_count_refresh_interval = 100ms"},
-        emqx_management
-    ],
-    Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
-    Cluster = [
-        {emqx_mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
-        {emqx_mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
-    ],
-    Nodes =
-        [N1 | _] = emqx_cth_cluster:start(
-            Cluster,
-            #{work_dir => emqx_cth_suite:work_dir(Config)}
-        ),
-    [
-        {nodes, Nodes},
-        {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
-        | Config
-    ];
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false ->
+            AppSpecs = [
+                {emqx,
+                    "durable_sessions.enable = true\n"
+                    "durable_sessions.disconnected_session_count_refresh_interval = 100ms"},
+                emqx_management
+            ],
+            Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
+            Cluster = [
+                {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+                {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
+            ],
+            Nodes =
+                [N1 | _] = emqx_cth_cluster:start(
+                    Cluster,
+                    #{work_dir => emqx_cth_suite:work_dir(Config)}
+                ),
+            [
+                {nodes, Nodes},
+                {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
+                | Config
+            ];
+        Yes ->
+            Yes
+    end;
 init_per_group(non_persistent_cluster, Config) ->
     AppSpecs = [
         emqx,
@@ -128,8 +138,8 @@ init_per_group(non_persistent_cluster, Config) ->
     ],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
     Cluster = [
-        {mgmt_api_clients_SUITE1, #{role => core, apps => AppSpecs ++ [Dashboard]}},
-        {mgmt_api_clients_SUITE2, #{role => core, apps => AppSpecs}}
+        {mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+        {mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
     ],
     Nodes =
         [N1 | _] = emqx_cth_cluster:start(
@@ -326,11 +336,8 @@ t_persistent_sessions1(Config) ->
             C2 = connect_client(#{port => Port1, clientid => ClientId}),
             assert_single_client(#{node => N1, clientid => ClientId, status => connected}, Config),
             %% 4) Client disconnects.
-            ok = emqtt:stop(C2),
             %% 5) Session is GC'ed, client is removed from list.
-            ?tp(notice, "gc", #{}),
-            %% simulate GC
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId]),
+            disconnect_and_destroy_session(C2),
             ?retry(
                 100,
                 20,
@@ -478,8 +485,7 @@ t_persistent_sessions5(Config) ->
                     {?HTTP200, _, #{
                         <<"data">> := [_, _, _],
                         <<"meta">> := #{
-                            <<"count">> := 4,
-                            <<"hasnext">> := true
+                            <<"count">> := 4
                         }
                     }}},
                 P1
@@ -489,8 +495,7 @@ t_persistent_sessions5(Config) ->
                     {?HTTP200, _, #{
                         <<"data">> := [_],
                         <<"meta">> := #{
-                            <<"count">> := 4,
-                            <<"hasnext">> := false
+                            <<"count">> := 4
                         }
                     }}},
                 P2
@@ -506,14 +511,13 @@ t_persistent_sessions5(Config) ->
                     {?HTTP200, _, #{
                         <<"data">> := [_, _],
                         <<"meta">> := #{
-                            <<"count">> := 4,
-                            <<"hasnext">> := true
+                            <<"count">> := 4
                         }
                     }}},
                 list_request(#{limit => 2, page => 1}, Config)
             ),
             %% Disconnect persistent sessions
-            lists:foreach(fun emqtt:stop/1, [C1, C2]),
+            lists:foreach(fun stop_and_commit/1, [C1, C2]),
 
             P3 =
                 ?retry(200, 10, begin
@@ -523,8 +527,7 @@ t_persistent_sessions5(Config) ->
                             {?HTTP200, _, #{
                                 <<"data">> := [_, _, _],
                                 <<"meta">> := #{
-                                    <<"count">> := 4,
-                                    <<"hasnext">> := true
+                                    <<"count">> := 4
                                 }
                             }}},
                         P3_
@@ -539,8 +542,7 @@ t_persistent_sessions5(Config) ->
                             {?HTTP200, _, #{
                                 <<"data">> := [_],
                                 <<"meta">> := #{
-                                    <<"count">> := 4,
-                                    <<"hasnext">> := false
+                                    <<"count">> := 4
                                 }
                             }}},
                         P4_
@@ -554,13 +556,10 @@ t_persistent_sessions5(Config) ->
                 lists:sort(lists:map(fun(#{<<"clientid">> := CId}) -> CId end, R3 ++ R4))
             ),
 
-            lists:foreach(fun emqtt:stop/1, [C3, C4]),
-            lists:foreach(
-                fun(ClientId) ->
-                    ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
-                end,
-                ClientIds
-            ),
+            lists:foreach(fun disconnect_and_destroy_session/1, [C3, C4]),
+            C1B = connect_client(#{port => Port1, clientid => ClientId1}),
+            C2B = connect_client(#{port => Port2, clientid => ClientId2}),
+            lists:foreach(fun disconnect_and_destroy_session/1, [C1B, C2B]),
 
             ok
         end,
@@ -1630,8 +1629,7 @@ t_list_clients_v2(Config) ->
                 port => Port2, clientid => ClientId6, expiry => 0, clean_start => true
             }),
             %% offline persistent clients
-            ok = emqtt:stop(C3),
-            ok = emqtt:stop(C4),
+            lists:foreach(fun stop_and_commit/1, [C3, C4]),
 
             %% one by one
             QueryParams1 = #{limit => "1"},
@@ -1642,7 +1640,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1651,7 +1648,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1660,7 +1656,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1669,7 +1664,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1678,7 +1672,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1687,14 +1680,13 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 1
                             }
                     }
                 ],
                 Res1
             ),
-            assert_contains_clientids(Res1, AllClientIds),
+            ?assertContainsClientids(Res1, AllClientIds),
 
             %% Reusing the same cursors yield the same pages
             traverse_in_reverse_v2(QueryParams1, Res1, Config),
@@ -1708,7 +1700,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _, _, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 4,
                                 <<"cursor">> := _
                             }
@@ -1717,14 +1708,13 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 2
                             }
                     }
                 ],
                 Res2
             ),
-            assert_contains_clientids(Res2, AllClientIds),
+            ?assertContainsClientids(Res2, AllClientIds),
             traverse_in_reverse_v2(QueryParams2, Res2, Config),
 
             QueryParams3 = #{limit => "2"},
@@ -1735,7 +1725,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 2,
                                 <<"cursor">> := _
                             }
@@ -1744,7 +1733,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 2,
                                 <<"cursor">> := _
                             }
@@ -1753,14 +1741,13 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 2
                             }
                     }
                 ],
                 Res3
             ),
-            assert_contains_clientids(Res3, AllClientIds),
+            ?assertContainsClientids(Res3, AllClientIds),
             traverse_in_reverse_v2(QueryParams3, Res3, Config),
 
             %% fuzzy filters
@@ -1772,14 +1759,13 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_, _, _],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 3
                             }
                     }
                 ],
                 Res4
             ),
-            assert_contains_clientids(Res4, [ClientId1, ClientId4, ClientId5]),
+            ?assertContainsClientids(Res4, [ClientId1, ClientId4, ClientId5]),
             traverse_in_reverse_v2(QueryParams4, Res4, Config),
             QueryParams5 = #{limit => "1", like_clientid => "ca"},
             Res5 = list_all_v2(QueryParams5, Config),
@@ -1789,7 +1775,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1798,7 +1783,6 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := true,
                                 <<"count">> := 1,
                                 <<"cursor">> := _
                             }
@@ -1807,14 +1791,13 @@ t_list_clients_v2(Config) ->
                         <<"data">> := [_],
                         <<"meta">> :=
                             #{
-                                <<"hasnext">> := false,
                                 <<"count">> := 1
                             }
                     }
                 ],
                 Res5
             ),
-            assert_contains_clientids(Res5, [ClientId1, ClientId4, ClientId5]),
+            ?assertContainsClientids(Res5, [ClientId1, ClientId4, ClientId5]),
             traverse_in_reverse_v2(QueryParams5, Res5, Config),
 
             lists:foreach(
@@ -1850,6 +1833,105 @@ t_list_clients_v2(Config) ->
                 AllClientIds
             ),
 
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that exact match filters (username) works in clients_v2 API.
+t_list_clients_v2_exact_filters(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+    Id = fun(Bin) -> iolist_to_binary([atom_to_binary(?FUNCTION_NAME), <<"-">>, Bin]) end,
+    ?check_trace(
+        begin
+            ClientId1 = Id(<<"ps1">>),
+            ClientId2 = Id(<<"ps2">>),
+            ClientId3 = Id(<<"ps3-offline">>),
+            ClientId4 = Id(<<"ps4-offline">>),
+            ClientId5 = Id(<<"mem2">>),
+            ClientId6 = Id(<<"mem3">>),
+            Username1 = Id(<<"u1">>),
+            Username2 = Id(<<"u2">>),
+            C1 = connect_client(#{
+                port => Port1,
+                clientid => ClientId1,
+                clean_start => true,
+                username => Username1
+            }),
+            C2 = connect_client(#{
+                port => Port2,
+                clientid => ClientId2,
+                clean_start => true,
+                username => Username2
+            }),
+            C3 = connect_client(#{port => Port1, clientid => ClientId3, clean_start => true}),
+            C4 = connect_client(#{port => Port2, clientid => ClientId4, clean_start => true}),
+            %% in-memory clients
+            C5 = connect_client(#{
+                port => Port1,
+                clientid => ClientId5,
+                expiry => 0,
+                clean_start => true,
+                username => Username1
+            }),
+            C6 = connect_client(#{
+                port => Port2,
+                clientid => ClientId6,
+                expiry => 0,
+                clean_start => true,
+                username => Username2
+            }),
+            %% offline persistent clients
+            lists:foreach(fun stop_and_commit/1, [C3, C4]),
+
+            %% Username query
+            QueryParams1 = [
+                {"limit", "100"},
+                {"username", Username1}
+            ],
+            Res1 = list_all_v2(QueryParams1, Config),
+            ?assertContainsClientids(Res1, [ClientId1, ClientId5]),
+
+            QueryParams2 = [
+                {"limit", "100"},
+                {"username", Username1},
+                {"username", Username2}
+            ],
+            Res2 = list_all_v2(QueryParams2, Config),
+            ?assertContainsClientids(Res2, [ClientId1, ClientId2, ClientId5, ClientId6]),
+
+            C3B = connect_client(#{port => Port1, clientid => ClientId3}),
+            C4B = connect_client(#{port => Port2, clientid => ClientId4}),
+
+            lists:foreach(fun disconnect_and_destroy_session/1, [C1, C2, C3B, C4B]),
+            lists:foreach(fun emqtt:stop/1, [C5, C6]),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that we return pretty errors when user uses bad value types for a query string
+%% parameter.
+t_list_clients_v2_bad_query_string_parameters(Config) ->
+    ?check_trace(
+        begin
+            QueryParams1 = [
+                {"ip_address", "10.50.0.0:60748"}
+            ],
+            Res1 = simplify_result(list_v2_request(QueryParams1, Config)),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> :=
+                        <<"the ip_address parameter expected type is ip, but the value is",
+                            _/binary>>
+                }},
+                Res1
+            ),
             ok
         end,
         []
@@ -2000,18 +2082,18 @@ simplify_result(Res) ->
             {Status, Body}
     end.
 
-list_v2_request(QueryParams = #{}, Config) ->
+list_v2_request(QueryParams, Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients_v2"]),
     request(get, Path, [], compose_query_string(QueryParams), Config).
 
-list_all_v2(QueryParams = #{}, Config) ->
+list_all_v2(QueryParams, Config) ->
     do_list_all_v2(QueryParams, Config, _Acc = []).
 
 do_list_all_v2(QueryParams, Config, Acc) ->
     case list_v2_request(QueryParams, Config) of
         {ok, {{_, 200, _}, _, Resp = #{<<"meta">> := #{<<"cursor">> := Cursor}}}} ->
             do_list_all_v2(QueryParams#{cursor => Cursor}, Config, [Resp | Acc]);
-        {ok, {{_, 200, _}, _, Resp = #{<<"meta">> := #{<<"hasnext">> := false}}}} ->
+        {ok, {{_, 200, _}, _, Resp}} ->
             lists:reverse([Resp | Acc]);
         Other ->
             error(
@@ -2029,8 +2111,10 @@ lookup_request(ClientId, Config) ->
 
 compose_query_string(QueryParams = #{}) ->
     QPList = maps:to_list(QueryParams),
+    compose_query_string(QPList);
+compose_query_string([{_, _} | _] = QueryParams) ->
     uri_string:compose_query(
-        [{emqx_utils_conv:bin(K), emqx_utils_conv:bin(V)} || {K, V} <- QPList]
+        [{emqx_utils_conv:bin(K), emqx_utils_conv:bin(V)} || {K, V} <- QueryParams]
     );
 compose_query_string(QueryString) when is_list(QueryString) ->
     QueryString.
@@ -2092,22 +2176,23 @@ connect_client(Opts) ->
         clean_start => false
     },
     #{
-        port := Port,
-        clientid := ClientId,
-        clean_start := CleanStart,
+        port := _Port,
+        clientid := _ClientId,
         expiry := EI
-    } = maps:merge(Defaults, Opts),
-    {ok, C} = emqtt:start_link([
-        {port, Port},
-        {proto_ver, v5},
-        {clientid, ClientId},
-        {clean_start, CleanStart},
-        {properties, #{'Session-Expiry-Interval' => EI}}
-    ]),
+    } = ConnOpts0 = maps:merge(Defaults, Opts),
+    ConnOpts1 = maps:without([expiry], ConnOpts0),
+    ConnOpts = emqx_utils_maps:deep_merge(
+        #{
+            proto_ver => v5,
+            properties => #{'Session-Expiry-Interval' => EI}
+        },
+        ConnOpts1
+    ),
+    {ok, C} = emqtt:start_link(ConnOpts),
     {ok, _} = emqtt:connect(C),
     C.
 
-assert_contains_clientids(Results, ExpectedClientIds) ->
+assert_contains_clientids(Results, ExpectedClientIds, Line) ->
     ContainedClientIds = [
         ClientId
      || #{<<"data">> := Rows} <- Results,
@@ -2116,7 +2201,7 @@ assert_contains_clientids(Results, ExpectedClientIds) ->
     ?assertEqual(
         lists:sort(ExpectedClientIds),
         lists:sort(ContainedClientIds),
-        #{results => Results}
+        #{results => Results, line => Line}
     ).
 
 traverse_in_reverse_v2(QueryParams0, Results, Config) ->
@@ -2150,3 +2235,16 @@ do_traverse_in_reverse_v2(QueryParams0, Config, [Cursor | Rest], DirectOrderClie
 
 disconnect_and_destroy_session(Client) ->
     ok = emqtt:disconnect(Client, ?RC_SUCCESS, #{'Session-Expiry-Interval' => 0}).
+
+%% To avoid a race condition where we try to delete the session while it's terminating and
+%% committing.  This shouldn't happen realistically, because we have a safe grace period
+%% before attempting to GC a session.
+%% Also, we need to wait until offline metadata is committed before checking the v2 client
+%% list, to avoid flaky batch results.
+stop_and_commit(Client) ->
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            emqtt:stop(Client),
+            #{?snk_kind := persistent_session_ds_terminate}
+        ),
+    ok.
