@@ -11,7 +11,13 @@
     lookup/2,
     exists/2,
     declare/4,
+    destroy/1,
     destroy/2
+]).
+
+-export([
+    id/1,
+    properties/1
 ]).
 
 %%
@@ -48,7 +54,15 @@ destroy(ID) ->
     %% FIXME: Sync on leader.
     case lookup(ID) of
         false ->
-            notfound;
+            not_found;
         Queue ->
             emqx_ds_shared_sub_store:destroy(Queue)
     end.
+
+%%
+
+id(Queue) ->
+    emqx_ds_shared_sub_store:id(Queue).
+
+properties(Queue) ->
+    emqx_ds_shared_sub_store:get(properties, Queue).
