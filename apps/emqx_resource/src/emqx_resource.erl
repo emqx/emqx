@@ -97,6 +97,7 @@
     %% get the callback mode of a specific module
     get_callback_mode/1,
     get_resource_type/1,
+    get_callback_mode/2,
     %% start the instance
     call_start/3,
     %% verify if the resource is working normally
@@ -160,7 +161,8 @@
     on_remove_channel/3,
     on_get_channels/1,
     query_mode/1,
-    on_format_query_result/1
+    on_format_query_result/1,
+    callback_mode/1
 ]).
 
 %% when calling emqx_resource:start/1
@@ -171,7 +173,10 @@
 -callback on_stop(resource_id(), resource_state()) -> term().
 
 %% when calling emqx_resource:get_callback_mode/1
--callback callback_mode() -> callback_mode().
+-callback callback_mode() -> callback_mode() | undefined.
+
+%% when calling emqx_resource:get_callback_mode/1
+-callback callback_mode(resource_state()) -> callback_mode().
 
 %% when calling emqx_resource:query/3
 -callback on_query(resource_id(), Request :: term(), resource_state()) -> query_result().
@@ -494,6 +499,15 @@ get_callback_mode(Mod) ->
 -spec get_resource_type(module()) -> resource_type().
 get_resource_type(Mod) ->
     Mod:resource_type().
+
+-spec get_callback_mode(module(), resource_state()) -> callback_mode() | undefined.
+get_callback_mode(Mod, State) ->
+    case erlang:function_exported(Mod, callback_mode, 1) of
+        true ->
+            Mod:callback_mode(State);
+        _ ->
+            undefined
+    end.
 
 -spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.

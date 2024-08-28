@@ -10,7 +10,8 @@
     {applications, [
         kernel,
         stdlib,
-        emqx_resource
+        emqx_resource,
+        iotdb
     ]},
     {env, [
         {emqx_action_info_modules, [emqx_bridge_iotdb_action_info]},

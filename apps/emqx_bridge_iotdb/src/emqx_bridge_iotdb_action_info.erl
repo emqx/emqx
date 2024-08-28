@@ -53,7 +53,7 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ).
 
 bridge_v1_config_to_connector_config(BridgeV1Config) ->
-    ConnectorKeys = schema_keys(emqx_bridge_iotdb_connector, config),
+    ConnectorKeys = schema_keys(emqx_bridge_iotdb_connector, "config_restapi"),
     emqx_utils_maps:update_if_present(
         <<"resource_opts">>,
         fun emqx_connector_schema:project_to_connector_resource_opts/1,
