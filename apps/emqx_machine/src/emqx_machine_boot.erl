@@ -23,6 +23,7 @@
 -export([sorted_reboot_apps/0]).
 -export([start_autocluster/0]).
 -export([stop_port_apps/0]).
+-export([read_apps/0]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 
@@ -134,15 +135,11 @@ reboot_apps() ->
     BaseRebootApps ++ ConfigApps.
 
 basic_reboot_apps() ->
-    PrivDir = code:priv_dir(emqx_machine),
-    RebootListPath = filename:join([PrivDir, "reboot_lists.eterm"]),
-    {ok, [
-        #{
-            common_business_apps := CommonBusinessApps,
-            ee_business_apps := EEBusinessApps,
-            ce_business_apps := CEBusinessApps
-        }
-    ]} = file:consult(RebootListPath),
+    #{
+        common_business_apps := CommonBusinessApps,
+        ee_business_apps := EEBusinessApps,
+        ce_business_apps := CEBusinessApps
+    } = read_apps(),
     EditionSpecificApps =
         case emqx_release:edition() of
             ee -> EEBusinessApps;
@@ -151,6 +148,13 @@ basic_reboot_apps() ->
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
     ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
+
+%% @doc Read business apps belonging to the current profile/edition.
+read_apps() ->
+    PrivDir = code:priv_dir(emqx_machine),
+    RebootListPath = filename:join([PrivDir, "reboot_lists.eterm"]),
+    {ok, [Apps]} = file:consult(RebootListPath),
+    Apps.
 
 excluded_apps() ->
     %% Optional apps _should_ be (re)started automatically, but only
