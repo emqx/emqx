@@ -24,6 +24,7 @@ defmodule EMQXConnectorAggregator.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
+      UMP.common_dep(:gproc),
       {:erl_csv, "0.2.0"}
     ]
   end

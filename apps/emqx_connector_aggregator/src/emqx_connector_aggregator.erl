@@ -85,28 +85,34 @@ buffer_to_map(#buffer{} = Buffer) ->
 %%
 
 write_records_limited(Name, Buffer = #buffer{max_records = undefined}, Records) ->
-    write_records(Name, Buffer, Records);
+    write_records(Name, Buffer, Records, _NumWritten = undefined);
 write_records_limited(Name, Buffer = #buffer{max_records = MaxRecords}, Records) ->
     NR = length(Records),
     case inc_num_records(Buffer, NR) of
         NR ->
             %% NOTE: Allow unconditionally if it's the first write.
-            write_records(Name, Buffer, Records);
+            write_records(Name, Buffer, Records, NR);
         NWritten when NWritten > MaxRecords ->
             NextBuffer = rotate_buffer(Name, Buffer),
             write_records_limited(Name, NextBuffer, Records);
-        _ ->
-            write_records(Name, Buffer, Records)
+        NWritten ->
+            write_records(Name, Buffer, Records, NWritten)
     end.
 
-write_records(Name, Buffer = #buffer{fd = Writer}, Records) ->
+write_records(Name, Buffer = #buffer{fd = Writer, max_records = MaxRecords}, Records, NumWritten) ->
     case emqx_connector_aggreg_buffer:write(Records, Writer) of
         ok ->
             ?tp(connector_aggreg_records_written, #{action => Name, records => Records}),
+            case is_number(NumWritten) andalso NumWritten >= MaxRecords of
+                true ->
+                    rotate_buffer_async(Name, Buffer);
+                false ->
+                    ok
+            end,
             ok;
         {error, terminated} ->
             BufferNext = rotate_buffer(Name, Buffer),
-            write_records(Name, BufferNext, Records);
+            write_records_limited(Name, BufferNext, Records);
         {error, _} = Error ->
             Error
     end.
@@ -119,6 +125,9 @@ next_buffer(Name, Timestamp) ->
 
 rotate_buffer(Name, #buffer{fd = FD}) ->
     gen_server:call(?SRVREF(Name), {rotate_buffer, FD}).
+
+rotate_buffer_async(Name, #buffer{fd = FD}) ->
+    gen_server:cast(?SRVREF(Name), {rotate_buffer, FD}).
 
 send_close_buffer(Name, Timestamp) ->
     gen_server:cast(?SRVREF(Name), {close_buffer, Timestamp}).
@@ -184,6 +193,9 @@ handle_call(take_error, _From, St0) ->
 
 handle_cast({close_buffer, Timestamp}, St) ->
     {noreply, handle_close_buffer(Timestamp, St)};
+handle_cast({rotate_buffer, FD}, St0) ->
+    St = handle_rotate_buffer(FD, St0),
+    {noreply, St, 0};
 handle_cast(_Cast, St) ->
     {noreply, St}.
 
@@ -469,6 +481,8 @@ parse_filename(Filename) ->
 
 %%
 
+-define(COUNTER_POS, 2).
+
 add_counter({Tab, Counter}) ->
     add_counter({Tab, Counter}, 0).
 
@@ -476,10 +490,12 @@ add_counter({Tab, Counter}, N) ->
     ets:insert(Tab, {Counter, N}).
 
 inc_counter({Tab, Counter}, Size) ->
-    ets:update_counter(Tab, Counter, {2, Size}).
+    ets:update_counter(Tab, Counter, {?COUNTER_POS, Size}).
 
 del_counter({Tab, Counter}) ->
     ets:delete(Tab, Counter).
+
+-undef(COUNTER_POS).
 
 %%
 
