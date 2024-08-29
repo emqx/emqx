@@ -685,7 +685,7 @@ kick_session(Mtns, ClientId) ->
     end.
 
 try_kick_session(Mtns, ClientId) ->
-    case lookup_channels(ClientId) of
+    case lookup_channels(Mtns, ClientId) of
         [] ->
             ok;
         ChanPids ->
