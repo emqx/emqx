@@ -144,7 +144,7 @@ ee_roots() ->
         fun(Module) ->
             apply(Module, roots, [])
         end,
-        ?EE_SCHEMA_MODULES
+        ?EXTRA_SCHEMA_MODULES ++ ?EE_SCHEMA_MODULES
     ).
 
 ee_delegate(Method, [EEMod | EEMods], Name) ->
