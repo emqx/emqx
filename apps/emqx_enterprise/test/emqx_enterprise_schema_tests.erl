@@ -54,11 +54,11 @@ ensure_acl_conf() ->
 
 injected_roots_test() ->
     ExpectedRoots = lists:usort(ee_schema_roots()),
-    InjectedRoots = lists:usort([Root || {Root, _Sc} <- emqx_enterprise_schema:roots()]),
+    InjectedRoots = lists:usort(get_roots(emqx_enterprise_schema)),
     MissingRoots = ExpectedRoots -- InjectedRoots,
     ?assertEqual([], MissingRoots, #{
-        expected_roots => ExpectedRoots,
-        injected_roots => InjectedRoots,
+        missing => ExpectedRoots -- InjectedRoots,
+        unknown => InjectedRoots -- ExpectedRoots,
         hint =>
             <<
                 "maybe there's a missing schema module to be added to"
@@ -69,30 +69,47 @@ injected_roots_test() ->
     ok.
 
 ee_schema_roots() ->
+    #{ee_business_apps := Apps} = emqx_machine_boot:read_apps(),
+    lists:append([ee_schema_roots(atom_to_list(App)) || App <- Apps]).
+
+ee_schema_roots(AppName) ->
     lists:foldl(
         fun(Filepath, Acc) ->
-            ["apps", App | _] = filename:split(Filepath),
             Mod = module(Filepath),
-            case is_ee(App) andalso has_roots(Mod) of
+            case has_roots(Mod) of
                 true ->
-                    Roots = [Root || {Root, _Sc} <- Mod:roots()],
-                    Roots ++ Acc;
+                    get_roots(Mod) ++ Acc;
                 false ->
                     Acc
             end
         end,
         [],
-        filelib:wildcard("apps/*/src/**/*_schema.erl")
+        filelib:wildcard("apps/" ++ AppName ++ "/src/**/*_schema.erl")
     ).
-
-is_ee(App) ->
-    filelib:is_file(filename:join(["apps", App, "BSL.txt"])).
 
 module(Filepath) ->
     ModStr = filename:basename(Filepath, ".erl"),
     list_to_atom(ModStr).
 
+get_roots(Mod) ->
+    lists:map(
+        fun
+            ({Root, _Sc}) ->
+                Root;
+            (Root) when is_atom(Root) ->
+                Root
+        end,
+        Mod:roots()
+    ).
+
 has_roots(Mod) ->
-    _ = Mod:module_info(),
-    erlang:function_exported(Mod, roots, 0) andalso
-        Mod:roots() =/= [].
+    try
+        _ = Mod:module_info(),
+        erlang:function_exported(Mod, roots, 0) andalso
+            Mod:roots() =/= []
+    catch
+        error:undef ->
+            %% may have picked a module from an app that's not in the enterprise release.
+            ct:pal("module not found?  ~s", [Mod]),
+            false
+    end.
