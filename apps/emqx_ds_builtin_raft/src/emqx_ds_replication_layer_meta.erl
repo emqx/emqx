@@ -71,6 +71,14 @@
     n_shards/1
 ]).
 
+%% Migrations:
+-export([
+    migrate_node_table/0,
+    migrate_shard_table/0,
+    migrate_node_table_trans/0,
+    migrate_shard_table_trans/0
+]).
+
 -export_type([
     site/0,
     transition/0,
@@ -87,13 +95,15 @@
 
 -define(SERVER, ?MODULE).
 
--define(SHARD, emqx_ds_builtin_metadata_shard).
+-define(RLOG_SHARD, emqx_ds_builtin_metadata_shard).
 %% DS database metadata:
 -define(META_TAB, emqx_ds_builtin_metadata_tab).
 %% Mapping from Site to the actual Erlang node:
--define(NODE_TAB, emqx_ds_builtin_node_tab).
+-define(NODE_TAB, emqx_ds_builtin_node_tab2).
+-define(NODE_TAB_LEGACY, emqx_ds_builtin_node_tab).
 %% Shard metadata:
--define(SHARD_TAB, emqx_ds_builtin_shard_tab).
+-define(SHARD_TAB, emqx_ds_builtin_shard_tab2).
+-define(SHARD_TAB_LEGACY, emqx_ds_builtin_shard_tab).
 %% Membership transitions:
 -define(TRANSITION_TAB, emqx_ds_builtin_trans_tab).
 
@@ -304,7 +314,7 @@ my_shards(DB) ->
     [Shard || #?SHARD_TAB{shard = {_, Shard}, replica_set = RS} <- Recs, lists:member(Site, RS)].
 
 allocate_shards(DB) ->
-    case mria:transaction(?SHARD, fun ?MODULE:allocate_shards_trans/1, [DB]) of
+    case mria:transaction(?RLOG_SHARD, fun ?MODULE:allocate_shards_trans/1, [DB]) of
         {atomic, Shards} ->
             {ok, Shards};
         {aborted, {shards_already_allocated, Shards}} ->
@@ -459,6 +469,7 @@ init([]) ->
     logger:set_process_metadata(#{domain => [ds, meta]}),
     ok = ekka:monitor(membership),
     ensure_tables(),
+    migrate_tables(),
     ensure_site(),
     S = #s{},
     {ok, _Node} = mnesia:subscribe({table, ?SHARD_TAB, simple}),
@@ -684,28 +695,28 @@ node_sites(Node) ->
 
 ensure_tables() ->
     ok = mria:create_table(?META_TAB, [
-        {rlog_shard, ?SHARD},
+        {rlog_shard, ?RLOG_SHARD},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?META_TAB},
         {attributes, record_info(fields, ?META_TAB)}
     ]),
     ok = mria:create_table(?NODE_TAB, [
-        {rlog_shard, ?SHARD},
+        {rlog_shard, ?RLOG_SHARD},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?NODE_TAB},
         {attributes, record_info(fields, ?NODE_TAB)}
     ]),
     ok = mria:create_table(?SHARD_TAB, [
-        {rlog_shard, ?SHARD},
+        {rlog_shard, ?RLOG_SHARD},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, ?SHARD_TAB},
         {attributes, record_info(fields, ?SHARD_TAB)}
     ]),
     ok = mria:create_table(?TRANSITION_TAB, [
-        {rlog_shard, ?SHARD},
+        {rlog_shard, ?RLOG_SHARD},
         {type, bag},
         {storage, disc_copies},
         {record_name, ?TRANSITION_TAB},
@@ -713,11 +724,15 @@ ensure_tables() ->
     ]),
     ok = mria:wait_for_tables([?META_TAB, ?NODE_TAB, ?SHARD_TAB]).
 
+migrate_tables() ->
+    migrate_node_table(),
+    migrate_shard_table().
+
 ensure_site() ->
     Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
     case file:consult(Filename) of
-        {ok, [Site]} ->
-            ok;
+        {ok, [Entry]} ->
+            Site = migrate_site_id(Entry);
         _ ->
             Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
             logger:notice("Creating a new site with ID=~s", [Site]),
@@ -731,6 +746,14 @@ ensure_site() ->
             persistent_term:put(?emqx_ds_builtin_site, Site);
         {error, Reason} ->
             logger:error("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
+    end.
+
+migrate_site_id(Site) ->
+    case re:run(Site, "^[0-9A-Z]+$") of
+        {match, _} ->
+            Site;
+        nomatch ->
+            binary:encode_hex(Site)
     end.
 
 forget_node(Node) ->
@@ -811,12 +834,12 @@ eval_qlc(Q) ->
         true ->
             qlc:eval(Q);
         false ->
-            {atomic, Result} = mria:ro_transaction(?SHARD, fun() -> qlc:eval(Q) end),
+            {atomic, Result} = mria:ro_transaction(?RLOG_SHARD, fun() -> qlc:eval(Q) end),
             Result
     end.
 
 transaction(Fun, Args) ->
-    case mria:transaction(?SHARD, Fun, Args) of
+    case mria:transaction(?RLOG_SHARD, Fun, Args) of
         {atomic, Result} ->
             Result;
         {aborted, Reason} ->
@@ -852,6 +875,96 @@ notify_subscribers(EventSubject, Event, #s{subs = Subs}) ->
         end,
         Subs
     ).
+
+%%====================================================================
+
+migrate_node_table() ->
+    case transaction(fun ?MODULE:migrate_node_table_trans/0, []) of
+        {migrated, []} ->
+            ok;
+        {migrated, Migrated} ->
+            logger:notice("Table '~p' migrated ~p entries", [?NODE_TAB, length(Migrated)]),
+            {atomic, ok} = mnesia:clear_table(?NODE_TAB_LEGACY);
+        {error, Reason} ->
+            logger:warning(
+                "Table '~p' unusable, migration skipped: ~p",
+                [?NODE_TAB_LEGACY, Reason]
+            )
+    end.
+
+migrate_node_table_trans() ->
+    %% NOTE
+    %% This table could have been populated when running 5.4.0 release, but the
+    %% representation of site IDs has changed in following versions. Legacy site IDs
+    %% need to be passed through `migrate_site_id/1`, otherwise expectations of the
+    %% existing code of those IDs to be "printable" will be broken.
+    %% This should be no-op when running > 5.4.0 releases.
+    Migstamp = mk_migstamp(),
+    Records = mnesia:match_object(?NODE_TAB_LEGACY, {?NODE_TAB_LEGACY, '_', '_', '_'}, read),
+    Migrate = [attach_migstamp(Migstamp, migrate_node_rec(R)) || R <- Records],
+    lists:foreach(
+        fun(R) -> mnesia:write(?NODE_TAB, R, write) end,
+        Migrate
+    ),
+    {migrated, Migrate}.
+
+migrate_node_rec({?NODE_TAB_LEGACY, Site, Node, Misc}) ->
+    #?NODE_TAB{site = migrate_site_id(Site), node = Node, misc = Misc}.
+
+migrate_shard_table() ->
+    case transaction(fun ?MODULE:migrate_shard_table_trans/0, []) of
+        {skipped, 0} ->
+            ok;
+        {migrated, Migrated} ->
+            logger:notice("Table '~p' migrated ~p entries", [?SHARD_TAB_LEGACY, length(Migrated)]),
+            {atomic, ok} = mnesia:clear_table(?SHARD_TAB_LEGACY);
+        {skipped, Size} ->
+            logger:warning(
+                "Table '~p' has ~p legacy entries to be abandoned",
+                [?SHARD_TAB_LEGACY, Size]
+            ),
+            {atomic, ok} = mnesia:clear_table(?SHARD_TAB_LEGACY);
+        {error, Reason} ->
+            logger:warning(
+                "Table '~p' unusable, migration skipped: ~p",
+                [?SHARD_TAB_LEGACY, Reason]
+            )
+    end.
+
+migrate_shard_table_trans() ->
+    %% NOTE
+    %% This table could have been instantiated with a different schema when running
+    %% 5.4.0 release but most likely never populated, so it should be fine to abandon it.
+    %% This table could also have been instantiated and populated when running 5.7.0
+    %% release with the same schema, so we just have to migrate all the recoards verbatim.
+    Migstamp = mk_migstamp(),
+    case mnesia:match_object(?SHARD_TAB_LEGACY, {?SHARD_TAB_LEGACY, '_', '_', '_', '_'}, read) of
+        [] ->
+            %% NOTE: Find out how much legacy entries are there (most likely zero).
+            {skipped, mnesia:table_info(?SHARD_TAB_LEGACY, size)};
+        [_ | _] = Records ->
+            Migrate = [attach_migstamp(Migstamp, migrate_shard_rec(R)) || R <- Records],
+            lists:foreach(
+                fun(R) -> mnesia:write(?SHARD_TAB, R, write) end,
+                Migrate
+            ),
+            {migrated, Migrate}
+    end.
+
+migrate_shard_rec({?SHARD_TAB_LEGACY, Shard, ReplicaSet, TargetSet, Misc}) ->
+    #?SHARD_TAB{shard = Shard, replica_set = ReplicaSet, target_set = TargetSet, misc = Misc}.
+
+mk_migstamp() ->
+    %% NOTE: Piece of information describing when and how records were migrated.
+    #{
+        at => erlang:system_time(millisecond),
+        on => emqx_release:version()
+    }.
+
+attach_migstamp(Migstamp, Node = #?NODE_TAB{misc = Misc}) ->
+    Node#?NODE_TAB{misc = Misc#{migrated => Migstamp}};
+attach_migstamp(Migstamp, Shard = #?SHARD_TAB{misc = Misc}) ->
+    Shard#?SHARD_TAB{misc = Misc#{migrated => Migstamp}}.
 
 %%====================================================================
 
