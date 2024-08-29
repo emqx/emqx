@@ -779,3 +779,26 @@ t_update_password(_Config) ->
         []
     ),
     ok.
+
+%% Checks that we forbid duplicate topic filters.
+t_duplicate_topic_filters(_Config) ->
+    ?check_trace(
+        begin
+            Name = atom_to_binary(?FUNCTION_NAME),
+            Params1 = link_params(#{<<"topics">> => [<<"t">>, <<"t">>]}),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"reason">> := #{
+                            <<"reason">> := <<"invalid_topics">>,
+                            <<"topics">> := #{<<"t">> := <<"duplicate_topic_filter">>}
+                        }
+                    }
+                }},
+                create_link(Name, Params1)
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
