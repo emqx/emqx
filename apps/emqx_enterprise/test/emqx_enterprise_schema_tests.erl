@@ -57,8 +57,8 @@ injected_roots_test() ->
     InjectedRoots = lists:usort([Root || {Root, _Sc} <- emqx_enterprise_schema:roots()]),
     MissingRoots = ExpectedRoots -- InjectedRoots,
     ?assertEqual([], MissingRoots, #{
-        expected_roots => ExpectedRoots,
-        injected_roots => InjectedRoots,
+        missing => ExpectedRoots -- InjectedRoots,
+        unknown => InjectedRoots -- ExpectedRoots,
         hint =>
             <<
                 "maybe there's a missing schema module to be added to"
@@ -69,11 +69,15 @@ injected_roots_test() ->
     ok.
 
 ee_schema_roots() ->
+    #{ee_business_apps := Apps} = emqx_machine_boot:read_apps(),
+    lists:append([ee_schema_roots(atom_to_list(App)) || App <- Apps]).
+
+ee_schema_roots(AppName) ->
     lists:foldl(
         fun(Filepath, Acc) ->
-            ["apps", App | _] = filename:split(Filepath),
+            ["apps", _App | _] = filename:split(Filepath),
             Mod = module(Filepath),
-            case is_ee(App) andalso has_roots(Mod) of
+            case has_roots(Mod) of
                 true ->
                     Roots = [Root || {Root, _Sc} <- Mod:roots()],
                     Roots ++ Acc;
@@ -82,11 +86,8 @@ ee_schema_roots() ->
             end
         end,
         [],
-        filelib:wildcard("apps/*/src/**/*_schema.erl")
+        filelib:wildcard("apps/" ++ AppName ++ "/src/**/*_schema.erl")
     ).
-
-is_ee(App) ->
-    filelib:is_file(filename:join(["apps", App, "BSL.txt"])).
 
 module(Filepath) ->
     ModStr = filename:basename(Filepath, ".erl"),
