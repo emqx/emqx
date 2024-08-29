@@ -211,7 +211,7 @@ defmodule EMQXUmbrella.MixProject do
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
-  def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.0", override: true}
+  def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.1", override: true}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.0", override: true}
 
   def common_dep(:system_monitor),
@@ -390,7 +390,7 @@ defmodule EMQXUmbrella.MixProject do
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "3.0.2"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
+      {:brod_gssapi, "0.1.3", override: true},
       {:brod, github: "kafka4beam/brod", tag: "3.18.0"},
       {:snappyer, "1.2.9", override: true},
       {:crc32cer, "0.1.8", override: true},
