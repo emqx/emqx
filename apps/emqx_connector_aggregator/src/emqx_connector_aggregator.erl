@@ -99,10 +99,12 @@ write_records_limited(Name, Buffer = #buffer{max_records = MaxRecords}, Records)
             write_records(Name, Buffer, Records)
     end.
 
-write_records(Name, Buffer = #buffer{fd = Writer}, Records) ->
+write_records(Name, Buffer = #buffer{fd = Writer, max_records = MaxRecords}, Records) ->
     case emqx_connector_aggreg_buffer:write(Records, Writer) of
         ok ->
             ?tp(connector_aggreg_records_written, #{action => Name, records => Records}),
+            get_num_records(Buffer) >= MaxRecords andalso
+                (_ = rotate_buffer(Name, Buffer)),
             ok;
         {error, terminated} ->
             BufferNext = rotate_buffer(Name, Buffer),
@@ -113,6 +115,9 @@ write_records(Name, Buffer = #buffer{fd = Writer}, Records) ->
 
 inc_num_records(#buffer{cnt_records = Counter}, Size) ->
     inc_counter(Counter, Size).
+
+get_num_records(#buffer{cnt_records = Counter}) ->
+    get_counter(Counter).
 
 next_buffer(Name, Timestamp) ->
     gen_server:call(?SRVREF(Name), {next_buffer, Timestamp}).
@@ -469,6 +474,8 @@ parse_filename(Filename) ->
 
 %%
 
+-define(COUNTER_POS, 2).
+
 add_counter({Tab, Counter}) ->
     add_counter({Tab, Counter}, 0).
 
@@ -476,10 +483,15 @@ add_counter({Tab, Counter}, N) ->
     ets:insert(Tab, {Counter, N}).
 
 inc_counter({Tab, Counter}, Size) ->
-    ets:update_counter(Tab, Counter, {2, Size}).
+    ets:update_counter(Tab, Counter, {?COUNTER_POS, Size}).
+
+get_counter({Tab, Counter}) ->
+    ets:lookup_element(Tab, Counter, ?COUNTER_POS, 0).
 
 del_counter({Tab, Counter}) ->
     ets:delete(Tab, Counter).
+
+-undef(COUNTER_POS).
 
 %%
 
