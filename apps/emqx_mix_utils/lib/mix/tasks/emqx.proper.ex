@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Emqx.Proper do
 
     Enum.each([:common_test, :eunit, :mnesia], &ECt.add_to_path_and_cache/1)
 
-    ECt.ensure_whole_emqx_project_is_loaded!()
+    ECt.ensure_whole_emqx_project_is_loaded()
     ECt.unload_emqx_applications!()
 
     {_, 0} = System.cmd("epmd", ["-daemon"])
