@@ -16,7 +16,7 @@
 -export([translate/2]).
 
 roots() ->
-    [s3].
+    [].
 
 namespace() -> "s3".
 
