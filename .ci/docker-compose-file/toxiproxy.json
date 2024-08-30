@@ -157,6 +157,18 @@
     "enabled": true
   },
   {
+    "name": "iotdb_thrift",
+    "listen": "0.0.0.0:46667",
+    "upstream": "iotdb-thrift:6667",
+    "enabled": true
+  },
+  {
+    "name": "iotdb_thrift_rest",
+    "listen": "0.0.0.0:48080",
+    "upstream": "iotdb-thrift:18080",
+    "enabled": true
+  },
+  {
     "name": "minio_tcp",
     "listen": "0.0.0.0:19000",
     "upstream": "minio:9000",
