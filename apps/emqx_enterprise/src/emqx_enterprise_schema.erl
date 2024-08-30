@@ -13,6 +13,8 @@
 -export([upgrade_raw_conf/1]).
 -export([injected_fields/0]).
 
+%% DO NOT REMOVE.  This is used in other repositories.
+-define(EXTRA_SCHEMA_MODULES, []).
 -define(EE_SCHEMA_MODULES, [
     emqx_license_schema,
     emqx_schema_registry_schema,
@@ -108,7 +110,7 @@ fields("log_audit_handler") ->
             )}
     ] ++ CommonConfs1;
 fields(Name) ->
-    ee_delegate(fields, ?EE_SCHEMA_MODULES, Name).
+    ee_delegate(fields, ee_mods(), Name).
 
 translations() ->
     emqx_conf_schema:translations().
@@ -123,7 +125,7 @@ translation(Name) ->
 desc("log_audit_handler") ->
     ?DESC(emqx_conf_schema, "desc_audit_log_handler");
 desc(Name) ->
-    ee_delegate(desc, ?EE_SCHEMA_MODULES, Name).
+    ee_delegate(desc, ee_mods(), Name).
 
 validations() ->
     emqx_conf_schema:validations() ++ emqx_license_schema:validations().
@@ -142,8 +144,10 @@ ee_roots() ->
         fun(Module) ->
             apply(Module, roots, [])
         end,
-        ?EE_SCHEMA_MODULES
+        ee_mods()
     ).
+
+ee_mods() -> ?EXTRA_SCHEMA_MODULES ++ ?EE_SCHEMA_MODULES.
 
 ee_delegate(Method, [EEMod | EEMods], Name) ->
     case lists:member(Name, apply(EEMod, roots, [])) of
