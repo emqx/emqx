@@ -137,7 +137,7 @@ link_name(#{name := Name}) -> Name;
 link_name(#{<<"name">> := Name}) -> Name.
 
 topics_validator(Topics) ->
-    Errors = lists:foldl(
+    Errors0 = lists:foldl(
         fun(T, ErrAcc) ->
             try
                 _ = emqx_topic:validate(T),
@@ -150,7 +150,8 @@ topics_validator(Topics) ->
         [],
         Topics
     ),
-    check_errors(Errors, invalid_topics, topics).
+    Errors = validate_duplicate_topic_filters(Topics),
+    check_errors(Errors0 ++ Errors, invalid_topics, topics).
 
 validate_sys_link_topic(T, ErrAcc) ->
     case emqx_topic:match(T, ?TOPIC_PREFIX_WILDCARD) of
@@ -159,6 +160,22 @@ validate_sys_link_topic(T, ErrAcc) ->
         false ->
             ErrAcc
     end.
+
+validate_duplicate_topic_filters(TopicFilters) ->
+    {Duplicated, _} =
+        lists:foldl(
+            fun(T, {Acc, Seen}) ->
+                case sets:is_element(T, Seen) of
+                    true ->
+                        {[{T, duplicate_topic_filter} | Acc], Seen};
+                    false ->
+                        {Acc, sets:add_element(T, Seen)}
+                end
+            end,
+            {[], sets:new([{version, 2}])},
+            TopicFilters
+        ),
+    Duplicated.
 
 check_errors([] = _Errors, _Reason, _ValuesField) ->
     ok;
