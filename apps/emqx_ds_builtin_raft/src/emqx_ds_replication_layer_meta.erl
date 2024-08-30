@@ -9,6 +9,7 @@
 %% implementation details from this module.
 -module(emqx_ds_replication_layer_meta).
 
+-feature(maybe_expr, enable).
 -compile(inline).
 
 -behaviour(gen_server).
@@ -731,10 +732,10 @@ migrate_tables() ->
 
 ensure_site() ->
     Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
-    case file:consult(Filename) of
-        {ok, [Entry]} ->
+    case file_read_term(Filename) of
+        {ok, Entry} ->
             Site = migrate_site_id(Entry);
-        _ ->
+        {error, Error} when Error =:= enoent; Error =:= empty ->
             Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
             logger:notice("Creating a new site with ID=~s", [Site]),
             ok = filelib:ensure_dir(Filename),
@@ -747,6 +748,24 @@ ensure_site() ->
             persistent_term:put(?emqx_ds_builtin_site, Site);
         {error, Reason} ->
             logger:error("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
+    end.
+
+file_read_term(Filename) ->
+    %% NOTE
+    %% This mess is needed because `file:consult/1` trips over binaries encoded as
+    %% latin1, which 5.4.0 code could have produced with `io:format(FD, "~p.", [Site])`.
+    maybe
+        {ok, FD} ?= file:open(Filename, [read, {encoding, latin1}]),
+        {ok, Term, _} ?= io:read(FD, '', _Line = 1),
+        ok = file:close(FD),
+        {ok, Term}
+    else
+        {error, Reason} ->
+            {error, Reason};
+        {error, Reason, _} ->
+            {error, Reason};
+        {eof, _} ->
+            {error, empty}
     end.
 
 migrate_site_id(Site) ->
