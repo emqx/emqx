@@ -725,8 +725,9 @@ ensure_tables() ->
     ok = mria:wait_for_tables([?META_TAB, ?NODE_TAB, ?SHARD_TAB]).
 
 migrate_tables() ->
-    migrate_node_table(),
-    migrate_shard_table().
+    _ = migrate_node_table(),
+    _ = migrate_shard_table(),
+    ok.
 
 ensure_site() ->
     Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
@@ -884,7 +885,7 @@ migrate_node_table() ->
             ok;
         {migrated, Migrated} ->
             logger:notice("Table '~p' migrated ~p entries", [?NODE_TAB, length(Migrated)]),
-            {atomic, ok} = mnesia:clear_table(?NODE_TAB_LEGACY);
+            {atomic, ok} = mria:clear_table(?NODE_TAB_LEGACY);
         {error, Reason} ->
             logger:warning(
                 "Table '~p' unusable, migration skipped: ~p",
@@ -917,13 +918,13 @@ migrate_shard_table() ->
             ok;
         {migrated, Migrated} ->
             logger:notice("Table '~p' migrated ~p entries", [?SHARD_TAB_LEGACY, length(Migrated)]),
-            {atomic, ok} = mnesia:clear_table(?SHARD_TAB_LEGACY);
+            {atomic, ok} = mria:clear_table(?SHARD_TAB_LEGACY);
         {skipped, Size} ->
             logger:warning(
                 "Table '~p' has ~p legacy entries to be abandoned",
                 [?SHARD_TAB_LEGACY, Size]
             ),
-            {atomic, ok} = mnesia:clear_table(?SHARD_TAB_LEGACY);
+            {atomic, ok} = mria:clear_table(?SHARD_TAB_LEGACY);
         {error, Reason} ->
             logger:warning(
                 "Table '~p' unusable, migration skipped: ~p",
