@@ -178,9 +178,14 @@ on_stop(_ConnResId, _ConnState) ->
     ok.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
-    ?status_connected | ?status_disconnected.
-on_get_status(_ConnResId, _ConnState = #{driver_state := DriverState}) ->
-    health_check(DriverState).
+    ?status_connected | ?status_disconnected | {?status_disconnected, connector_state(), term()}.
+on_get_status(_ConnResId, ConnState = #{driver_state := DriverState}) ->
+    case health_check(DriverState) of
+        {Status, Message} ->
+            {Status, ConnState, Message};
+        Status when is_atom(Status) ->
+            Status
+    end.
 
 -spec on_add_channel(
     connector_resource_id(),
@@ -646,8 +651,8 @@ channel_status(#{mode := aggregated} = ActionState, ConnState) ->
 
 health_check(DriverState) ->
     case erlazure:list_containers(DriverState, []) of
-        {error, _} ->
-            ?status_disconnected;
+        {error, Reason} ->
+            {?status_disconnected, Reason};
         {L, _} when is_list(L) ->
             ?status_connected
     end.
