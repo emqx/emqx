@@ -23,8 +23,8 @@ defmodule EMQXBridgeKafka.MixProject do
 
   def deps() do
     [
-      {:wolff, "3.0.3"},
-      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
+      {:wolff, "3.0.4"},
+      {:kafka_protocol, "4.1.8", override: true},
       {:brod_gssapi, "0.1.3"},
       {:brod, github: "kafka4beam/brod", tag: "3.18.0"},
       ## TODO: remove `mix.exs` from `wolff` and remove this override
