@@ -669,7 +669,8 @@ conf_log() ->
     "log.file { enable = true, level = debug, path = node.log, supervisor_reports = progress }".
 
 conf_ds() ->
-    "durable_sessions.enable = true".
+    "durable_sessions.enable = true \n"
+    "durable_storage.messages.n_shards = 2".
 
 fmt(Fmt, Args) ->
     emqx_utils:format(Fmt, Args).
