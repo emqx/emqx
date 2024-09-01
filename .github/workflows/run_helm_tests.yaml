@@ -37,21 +37,15 @@ jobs:
     - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         path: source
-    - name: Set up environment
-      id: env
-      run: |
-        cd source
-        source env.sh
-        PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_BUILDER" ./pkg-vsn.sh "$EMQX_NAME")
-        echo "EMQX_TAG=$PKG_VSN" >> "$GITHUB_ENV"
-    - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+    - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: "${{ env.EMQX_NAME }}-docker"
         path: /tmp
     - run: minikube start
     - run: |
-        img="/tmp/${EMQX_NAME}-docker-${EMQX_TAG}.tar.gz"
-        if stderr=$(minikube image load "${img}" 2>&1 >/dev/null) && test -n "$stderr"; then
+        EMQX_IMAGE=$(docker load < /tmp/${EMQX_NAME}-docker-*.tar.gz | sed 's/Loaded image: //g')
+        echo "EMQX_TAG=${EMQX_IMAGE##*:}" >> $GITHUB_ENV
+        if stderr=$(minikube image load "${EMQX_IMAGE}" 2>&1 >/dev/null) && test -n "$stderr"; then
           echo "${stderr}";
           exit 1;
         fi

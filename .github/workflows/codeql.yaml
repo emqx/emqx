@@ -9,21 +9,48 @@ permissions:
   contents: read
 
 jobs:
-  analyze:
+  init:
     if: github.repository == 'emqx/emqx'
-    name: Analyze
     runs-on: ubuntu-22.04
-    timeout-minutes: 360
-    permissions:
-      actions: read
-      security-events: write
+    outputs:
+      BUILDER_master: ${{ steps.env.outputs.BUILDER_master }}
+      BUILDER_release-58: ${{ steps.env.outputs.BUILDER_release-58 }}
 
     strategy:
       fail-fast: false
       matrix:
         branch:
           - master
-          - release-57
+          - release-58
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          ref: ${{ matrix.branch }}
+
+      - name: Read env.sh
+        id: env
+        run: |
+          source env.sh
+          echo "BUILDER_${{ matrix.branch }}=$EMQX_BUILDER" >> "$GITHUB_OUTPUT"
+
+  analyze:
+    if: github.repository == 'emqx/emqx'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    permissions:
+      actions: read
+      security-events: write
+
+    needs: init
+    container: ${{ needs.init.outputs[format('BUILDER_{0}', matrix.branch)] }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        branch:
+          - master
           - release-58
         language:
           - cpp
@@ -35,6 +62,11 @@ jobs:
       with:
         ref: ${{ matrix.branch }}
 
+    - name: Ensure git safe dir
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        make ensure-rebar3
+
     - name: Initialize CodeQL
       uses: github/codeql-action/init@7e187e1c529d80bac7b87a16e7a792427f65cf02 # v2.15.5
       with:
@@ -45,7 +77,14 @@ jobs:
       env:
         PROFILE: emqx-enterprise
       run: |
-        ./scripts/buildx.sh --profile emqx-enterprise --pkgtype rel
+        make emqx-enterprise-compile
+
+    - name: Fetch deps
+      if: matrix.language == 'python'
+      env:
+        PROFILE: emqx-enterprise
+      run: |
+        make deps-emqx-enterprise
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@7e187e1c529d80bac7b87a16e7a792427f65cf02 # v2.15.5

@@ -28,7 +28,6 @@
             {hocon, load},
             telemetry,
             observer_cli,
-            covertool,
             tools,
             observer,
             {system_monitor, load},

@@ -11,6 +11,9 @@ on:
       ref:
         required: false
 
+permissions:
+  contents: read
+
 defaults:
   run:
     shell: bash
@@ -47,9 +50,6 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-
-    permissions:
-      contents: read
 
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -132,9 +132,6 @@ jobs:
           - emqx
           - emqx-enterprise
 
-    permissions:
-      contents: read
-
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
@@ -149,13 +146,23 @@ jobs:
         run: |
           make ensure-rebar3
           make ${PROFILE}-compile test-compile
-          echo "PROFILE=${PROFILE}" | tee -a .env
-          echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
+          echo "export PROFILE=${PROFILE}" | tee -a env.sh
+          echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+          make ${PROFILE}-rel
+      - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
+          retention-days: 7
+      - uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+        with:
+          name: "${{ matrix.profile }}-schema-dump"
+          path: |
+            env.sh
+            scripts/spellcheck
+            _build/docgen/${{ matrix.profile }}/*.json
+            _build/docgen/${{ matrix.profile }}/*.hocon
           retention-days: 7
 
   run_emqx_app_tests:
@@ -174,6 +181,9 @@ jobs:
       - init
       - sanity-checks
       - compile
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/run_test_cases.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
@@ -196,16 +206,30 @@ jobs:
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
 
-  build_docker_for_test:
+  build_docker_emqx:
     needs:
       - init
       - sanity-checks
-    uses: ./.github/workflows/build_docker_for_test.yaml
+    uses: ./.github/workflows/build_and_push_docker_images.yaml
+    with:
+      profile: emqx
+      publish: false
+    secrets: inherit
+
+  build_docker_emqx_enterprise:
+    needs:
+      - init
+      - sanity-checks
+    uses: ./.github/workflows/build_and_push_docker_images.yaml
+    with:
+      profile: emqx-enterprise
+      publish: false
+    secrets: inherit
 
   spellcheck:
     needs:
       - sanity-checks
-      - build_slim_packages
+      - compile
     uses: ./.github/workflows/spellcheck.yaml
 
   run_conf_tests:
@@ -228,17 +252,19 @@ jobs:
   run_jmeter_tests:
     needs:
       - sanity-checks
-      - build_docker_for_test
+      - build_docker_emqx
     uses: ./.github/workflows/run_jmeter_tests.yaml
 
   run_docker_tests:
     needs:
       - sanity-checks
-      - build_docker_for_test
+      - build_docker_emqx
+      - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_docker_tests.yaml
 
   run_helm_tests:
     needs:
       - sanity-checks
-      - build_docker_for_test
+      - build_docker_emqx
+      - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_helm_tests.yaml

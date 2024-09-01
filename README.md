@@ -21,7 +21,7 @@ With the built-in powerful SQL-based [rules engine](https://www.emqx.com/en/solu
 
 EMQX boasts more than 20K+ enterprise users across 50+ countries and regions, connecting 100M+ IoT devices worldwide, and is trusted by over 400 customers in mission-critical scenarios of IoT, IIoT, connected vehicles, and more, including over 70 Fortune 500 companies like HPE, VMware, Verifone, SAIC Volkswagen, and Ericsson.
 
-For more information, please visit [EMQX homepage](https://www.emqx.io/).
+For more information, please visit [EMQX homepage](https://www.emqx.com/en).
 
 ## Get Started
 
@@ -35,11 +35,11 @@ The simplest way to set up EMQX is to create a managed deployment with EMQX Clou
 docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
 ```
 
-Next, please follow the [Deploy with Docker](https://www.emqx.io/docs/en/v5.1/deploy/install-docker.html) guide for further instructions.
+Next, please follow the [Install EMQX Using Docker](https://docs.emqx.com/en/emqx/latest/deploy/install-docker-ce.html) guide for further instructions.
 
 #### Run EMQX cluster on Kubernetes
 
-Please consult official [EMQX Operator](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md) documentation for details.
+Please consult official [EMQX Operator](https://docs.emqx.com/en/emqx-operator/latest/getting-started/getting-started.html) documentation for details.
 
 #### Run EMQX on macOS
 
@@ -52,19 +52,19 @@ emqx start
 
 #### More installation options
 
-If you prefer to install and manage EMQX yourself, you can download the latest version from [www.emqx.io/downloads](https://www.emqx.io/downloads).
+If you prefer to install and manage EMQX yourself, you can download the latest version from [the official site](https://www.emqx.com/en/downloads-and-install/broker).
 
-For more installation options, see the [EMQX installation documentation](https://www.emqx.io/docs/en/v5.1/deploy/install.html).
+For more installation options, see the [EMQX installation documentation](https://docs.emqx.com/en/emqx/latest/deploy/install-open-source.html).
 
 ## Documentation
 
-The EMQX documentation is available at [www.emqx.io/docs/en/latest/](https://www.emqx.io/docs/en/latest/).
+The EMQX documentation is available at [docs.emqx.com/en/emqx/latest](https://docs.emqx.com/en/emqx/latest/).
 
-The EMQX Enterprise documentation is available at [docs.emqx.com/en/](https://docs.emqx.com/en/).
+The EMQX Cloud documentation is available at [docs.emqx.com/en/cloud/latest](https://docs.emqx.com/en/cloud/latest/).
 
 ## Contributing
 
-Please see our [contributing.md](./CONTRIBUTING.md).
+Please see our [contributing guide](./CONTRIBUTING.md).
 
 For more organised improvement proposals, you can send pull requests to [EIP](https://github.com/emqx/eip).
 
@@ -98,9 +98,9 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 The `master` branch tracks the latest version 5. For version 4.4 checkout the `main-v4.4` branch.
 
-EMQX 4.4 requires OTP 24.
-EMQX 5.0 ~ 5.3 can be built with OTP 24 or 25.
-EMQX 5.4 and newer can be built with OTP 25 or 26.
+* EMQX 4.4 requires OTP 24.
+* EMQX 5.0 ~ 5.3 can be built with OTP 24 or 25.
+* EMQX 5.4 and newer can be built with OTP 25 or 26.
 
 ```bash
 git clone https://github.com/emqx/emqx.git

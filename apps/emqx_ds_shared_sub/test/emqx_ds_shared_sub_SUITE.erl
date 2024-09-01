@@ -463,7 +463,7 @@ t_lease_reconnect(_Config) ->
 
     ?assertWaitEvent(
         {ok, _, _} = emqtt:subscribe(ConnShared, <<"$share/gr2/topic2/#">>, 1),
-        #{?snk_kind := find_leader_timeout},
+        #{?snk_kind := group_sm_find_leader_timeout},
         5_000
     ),
 

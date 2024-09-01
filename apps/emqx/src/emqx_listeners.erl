@@ -64,6 +64,7 @@
 
 -export_type([listener_id/0]).
 
+-if(OTP_RELEASE >= 26).
 -dialyzer(
     {no_unknown, [
         is_running/3,
@@ -74,6 +75,7 @@
         quic_listener_conf_rollback/3
     ]}
 ).
+-endif.
 
 -type listener_id() :: atom() | binary().
 -type listener_type() :: tcp | ssl | ws | wss | quic | dtls.
