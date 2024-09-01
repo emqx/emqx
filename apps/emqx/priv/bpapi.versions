@@ -19,6 +19,7 @@
 {emqx_conf,3}.
 {emqx_conf,4}.
 {emqx_connector,1}.
+{emqx_dashboard,1}.
 {emqx_dashboard,2}.
 {emqx_delayed,1}.
 {emqx_delayed,2}.
