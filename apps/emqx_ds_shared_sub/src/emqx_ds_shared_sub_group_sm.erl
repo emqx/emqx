@@ -120,7 +120,7 @@ new(#{
     send_after := SendAfter
 }) ->
     ?SLOG(
-        info,
+        debug,
         #{
             msg => group_sm_new,
             agent => Agent,
@@ -435,24 +435,11 @@ handle_leader_invalidate(#{agent := Agent, share_topic_filter := ShareTopicFilte
 %% Internal API
 %%-----------------------------------------------------------------------
 
-handle_state_timeout(
-    #{state := ?connecting, share_topic_filter := ShareTopicFilter} = GSM,
-    find_leader_timeout,
-    _Message
-) ->
-    ?tp(debug, find_leader_timeout, #{share_topic_filter => ShareTopicFilter}),
+handle_state_timeout(#{state := ?connecting} = GSM, find_leader_timeout, _Message) ->
     handle_find_leader_timeout(GSM);
-handle_state_timeout(
-    #{state := ?replaying} = GSM,
-    renew_lease_timeout,
-    _Message
-) ->
+handle_state_timeout(#{state := ?replaying} = GSM, renew_lease_timeout, _Message) ->
     handle_renew_lease_timeout(GSM);
-handle_state_timeout(
-    GSM,
-    update_stream_state_timeout,
-    _Message
-) ->
+handle_state_timeout(GSM, update_stream_state_timeout, _Message) ->
     ?tp(debug, update_stream_state_timeout, #{}),
     handle_stream_progress(GSM, []).
 

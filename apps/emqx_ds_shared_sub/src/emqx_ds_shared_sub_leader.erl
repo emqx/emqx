@@ -172,7 +172,7 @@ handle_event(enter, _OldState, ?leader_active, #{topic := Topic} = _Data) ->
 %% timers
 %% renew_streams timer
 handle_event({timeout, #renew_streams{}}, #renew_streams{}, ?leader_active, Data0) ->
-    % ?tp(warning, shared_sub_leader_timeout, #{timeout => renew_streams}),
+    ?tp(debug, shared_sub_leader_timeout, #{timeout => renew_streams}),
     Data1 = renew_streams(Data0),
     {keep_state, Data1,
         {
@@ -182,7 +182,7 @@ handle_event({timeout, #renew_streams{}}, #renew_streams{}, ?leader_active, Data
         }};
 %% renew_leases timer
 handle_event({timeout, #renew_leases{}}, #renew_leases{}, ?leader_active, Data0) ->
-    % ?tp(warning, shared_sub_leader_timeout, #{timeout => renew_leases}),
+    ?tp(debug, shared_sub_leader_timeout, #{timeout => renew_leases}),
     Data1 = renew_leases(Data0),
     {keep_state, Data1,
         {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}}};
@@ -531,7 +531,7 @@ drop_timeout_agents(#{agents := Agents} = Data) ->
                     (is_integer(NoReplayingDeadline) andalso NoReplayingDeadline < Now)
             of
                 true ->
-                    ?SLOG(info, #{
+                    ?SLOG(debug, #{
                         msg => leader_agent_timeout,
                         now => Now,
                         update_deadline => UpdateDeadline,
@@ -555,7 +555,7 @@ connect_agent(
     Agent,
     AgentMetadata
 ) ->
-    ?SLOG(info, #{
+    ?SLOG(debug, #{
         msg => leader_agent_connected,
         agent => Agent,
         group_id => GroupId
