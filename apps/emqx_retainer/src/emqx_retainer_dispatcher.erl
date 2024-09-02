@@ -374,7 +374,7 @@ check_clientid_banned({Msg, _Topic} = Input, _) ->
         true ->
             ?tp(
                 debug,
-                ignore_retained_message_deliver,
+                ignore_retained_message_due_to_banned,
                 #{
                     reason => ?msg_pub_from_is_banned,
                     clientid => Msg#message.from
@@ -388,7 +388,7 @@ check_clientid_banned({Msg, _Topic} = Input, _) ->
         false ->
             ?tp(
                 debug,
-                ignore_retained_message_deliver,
+                ignore_retained_message_due_to_topic_not_match,
                 #{
                     reason => ?msg_topic_not_match,
                     msg_topic => Msg#message.topic,
