@@ -742,7 +742,7 @@ t_create_with_bad_tls_files(Config) ->
                     <<"reason">> := <<"bad_ssl_config">>,
                     <<"details">> :=
                         <<"Failed to access certificate / key file: No such file or directory">>,
-                    <<"bad_fields">> := [[<<"cacertfile">>]]
+                    <<"bad_field">> := <<"cacertfile">>
                 },
                 json(Msg0)
             ),
