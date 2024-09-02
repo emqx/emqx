@@ -45,23 +45,25 @@ groups() ->
 common_tests() ->
     emqx_common_test_helpers:all(?MODULE) -- [t_reindex].
 
--define(BASE_CONF, <<
-    "retainer {\n"
-    "    enable = true\n"
-    "    msg_clear_interval = 0s\n"
-    "    msg_expiry_interval = 0s\n"
-    "    max_payload_size = 1MB\n"
-    "    flow_control {\n"
-    "        batch_read_number = 0\n"
-    "        batch_deliver_number = 0\n"
-    "     }\n"
-    "   backend {\n"
-    "        type = built_in_database\n"
-    "        storage_type = ram\n"
-    "        max_retained_messages = 0\n"
-    "     }\n"
-    "}"
->>).
+%% erlfmt-ignore
+-define(BASE_CONF, <<"
+retainer {
+  enable = true
+  msg_clear_interval = 0s
+  msg_expiry_interval = 0s
+  max_payload_size = 1MB
+  delivery_rate = \"1000/s\"
+  flow_control {
+    batch_read_number = 0
+    batch_deliver_number = 0
+  }
+  backend {
+    type = built_in_database
+    storage_type = ram
+    max_retained_messages = 0
+  }
+}
+">>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -99,9 +101,9 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_flow_control, _Config) ->
-    restore_delivery();
+    reset_delivery_rate_to_default();
 end_per_testcase(t_cursor_cleanup, _Config) ->
-    restore_delivery();
+    reset_delivery_rate_to_default();
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
@@ -802,7 +804,10 @@ test_retain_while_reindexing(C, Deadline) ->
     end.
 
 receive_messages(Count) ->
-    receive_messages(Count, []).
+    lists:reverse(
+        receive_messages(Count, [])
+    ).
+
 receive_messages(0, Msgs) ->
     Msgs;
 receive_messages(Count, Msgs) ->
@@ -914,13 +919,14 @@ setup_slow_delivery() ->
             }
     }).
 
-restore_delivery() ->
+reset_delivery_rate_to_default() ->
     emqx_limiter_server:del_bucket(emqx_retainer, internal),
     emqx_retainer:update_config(#{
+        <<"delivery_rate">> => <<"1000/s">>,
         <<"flow_control">> =>
             #{
-                <<"batch_read_number">> => 1,
-                <<"batch_deliver_number">> => 1
+                <<"batch_read_number">> => 0,
+                <<"batch_deliver_number">> => 0
             }
     }).
 
