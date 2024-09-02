@@ -250,6 +250,113 @@ t_wildcard_subscription(Config) ->
     emqtt:publish(C1, <<"/x/y/z">>, <<"">>, [{qos, 0}, {retain, true}]),
     ok = emqtt:disconnect(C1).
 
+'t_wildcard_no_$_prefix'(Config) ->
+    {ok, C0} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C0),
+    emqtt:publish(
+        C0,
+        <<"$test/t/0">>,
+        <<"this is a retained message with $ prefix in topic">>,
+        [{qos, 0}, {retain, true}]
+    ),
+    emqtt:publish(
+        C0,
+        <<"$test/test/1">>,
+        <<"this is another retained message with $ prefix in topic">>,
+        [{qos, 0}, {retain, true}]
+    ),
+
+    emqtt:publish(
+        C0,
+        <<"t/1">>,
+        <<"this is a retained message 1">>,
+        [{qos, 0}, {retain, true}]
+    ),
+    emqtt:publish(
+        C0,
+        <<"t/2">>,
+        <<"this is a retained message 2">>,
+        [{qos, 0}, {retain, true}]
+    ),
+    publish(
+        C0,
+        <<"/t/3">>,
+        <<"this is a retained message 3">>,
+        [{qos, 0}, {retain, true}],
+        Config
+    ),
+
+    %%%%%%%%%%
+    %% C1 subscribes to `#'
+    %% The order in which messages are received is not always the same as the order in which they are published.
+    %% The received order follows the order in which the indexes match.
+    %% i.e.
+    %%   The first level of the topic `/t/3` is empty.
+    %%   So it will be the first message that be matched and be sent.
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"#">>, 0),
+    Msgs1 = receive_messages(3),
+    ?assertMatch(
+        [
+            #{topic := <<"/t/3">>},
+            #{topic := <<"t/1">>},
+            #{topic := <<"t/2">>}
+        ],
+        Msgs1,
+        #{msgs => Msgs1}
+    ),
+    ok = emqtt:disconnect(C1),
+
+    %%%%%%%%%%
+    %% C2 subscribes to `$test/#'
+    {ok, C2} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C2),
+    {ok, #{}, [0]} = emqtt:subscribe(C2, <<"$test/#">>, 0),
+    Msgs2 = receive_messages(2),
+    ?assertMatch(
+        [
+            #{topic := <<"$test/t/0">>},
+            #{topic := <<"$test/test/1">>}
+        ],
+        Msgs2,
+        #{msgs => Msgs2}
+    ),
+    ok = emqtt:disconnect(C2),
+
+    %%%%%%%%%%
+    %% C3 subscribes to `+/+'
+    {ok, C3} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C3),
+    {ok, #{}, [0]} = emqtt:subscribe(C3, <<"+/+">>, 0),
+    Msgs3 = receive_messages(2),
+    ?assertMatch(
+        [
+            #{topic := <<"t/1">>},
+            #{topic := <<"t/2">>}
+        ],
+        Msgs3,
+        #{msgs => Msgs3}
+    ),
+    ok = emqtt:disconnect(C3),
+
+    %%%%%%%%%%
+    %% C4 subscribes to `+/t/#'
+    {ok, C4} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C4),
+    {ok, #{}, [0]} = emqtt:subscribe(C4, <<"+/t/#">>, 0),
+    Msgs4 = receive_messages(1),
+    ?assertMatch(
+        [
+            #{topic := <<"/t/3">>}
+        ],
+        Msgs4,
+        #{msgs => Msgs4}
+    ),
+    ok = emqtt:disconnect(C4),
+
+    ok.
+
 t_message_expiry(Config) ->
     ConfMod = fun(Conf) ->
         Conf#{<<"delivery_rate">> := <<"infinity">>}
