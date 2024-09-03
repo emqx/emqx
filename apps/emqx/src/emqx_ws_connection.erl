@@ -810,9 +810,9 @@ handle_outgoing(
                 get_active_n(Type, Listener)
         of
             true ->
-                Cnt = emqx_pd:reset_counter(outgoing_pubs),
-                Oct = emqx_pd:reset_counter(outgoing_bytes),
-                postpone({check_gc, Cnt, Oct}, State);
+                CntPubs = emqx_pd:reset_counter(outgoing_pubs),
+                CntBytes = emqx_pd:reset_counter(outgoing_bytes),
+                postpone({check_gc, CntPubs, CntBytes}, State);
             false ->
                 State
         end,
