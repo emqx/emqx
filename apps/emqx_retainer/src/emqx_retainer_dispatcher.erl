@@ -343,7 +343,7 @@ deliver_to_client([], _, _) ->
 
 -define(DELIVER_ALLOWED, true).
 -define(DELIVER_NOT_ALLOWED, false).
--define(msg_pub_from_is_banned, msg_pub_from_is_banned).
+-define(publisher_client_banned, publisher_client_banned).
 -define(msg_topic_not_match, msg_topic_not_match).
 
 filter_delivery(Messages, Topic) ->
@@ -376,18 +376,18 @@ check_clientid_banned({Msg, _Topic} = Input, _) ->
                 debug,
                 ignore_retained_message_due_to_banned,
                 #{
-                    reason => ?msg_pub_from_is_banned,
+                    reason => ?publisher_client_banned,
                     clientid => Msg#message.from
                 }
             ),
-            {error, ?msg_pub_from_is_banned, ?DELIVER_NOT_ALLOWED}
+            {error, ?publisher_client_banned, ?DELIVER_NOT_ALLOWED}
     end.
 
+%% [MQTT-4.7.2-1]
 'check_prefixed_$_with_wildcard'({Msg, Topic} = Input, _) ->
     case emqx_topic:match(Msg#message.topic, Topic) of
         false ->
             ?tp(
-                debug,
                 ignore_retained_message_due_to_topic_not_match,
                 #{
                     reason => ?msg_topic_not_match,
