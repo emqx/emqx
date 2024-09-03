@@ -769,7 +769,7 @@ file_read_term(Filename) ->
     end.
 
 migrate_site_id(Site) ->
-    case re:run(Site, "^[0-9A-Z]+$") of
+    case re:run(Site, "^[0-9A-F]+$") of
         {match, _} ->
             Site;
         nomatch ->
