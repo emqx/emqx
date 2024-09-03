@@ -209,7 +209,7 @@ handle_info(
     end;
 handle_info(Info, State) ->
     ?SLOG(warning, #{
-        msg => "unexcepted_info",
+        msg => "unexpected_info",
         info => Info
     }),
     {noreply, State}.
