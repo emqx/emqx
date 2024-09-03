@@ -49,22 +49,26 @@ new_ssl_config(#{<<"ssl">> := _} = Config, NewSSL) ->
 new_ssl_config(Config, _NewSSL) ->
     Config.
 
-map_bad_ssl_error(#{pem_check := invalid_pem} = TLSLibError) ->
-    #{which_options := Paths, file_read := Reason} = TLSLibError,
+map_bad_ssl_error(#{
+    pem_check := NotPem,
+    file_path := FilePath,
+    which_option := Field
+}) ->
     #{
         kind => validation_error,
         reason => <<"bad_ssl_config">>,
-        bad_fields => Paths,
+        bad_field => Field,
+        file_path => FilePath,
         details => emqx_utils:format(
             "Failed to access certificate / key file: ~s",
-            [emqx_utils:explain_posix(Reason)]
+            [emqx_utils:explain_posix(NotPem)]
         )
     };
-map_bad_ssl_error(#{which_options := Paths, reason := Reason}) ->
+map_bad_ssl_error(#{which_option := Field, reason := Reason}) ->
     #{
         kind => validation_error,
         reason => <<"bad_ssl_config">>,
-        bad_fields => Paths,
+        bad_field => Field,
         details => Reason
     };
 map_bad_ssl_error(TLSLibError) ->

@@ -337,7 +337,7 @@ t_update_empty_ssl_options_conf(_Conf) ->
         {error,
             {bad_ssl_config, #{
                 reason := pem_file_path_or_string_is_required,
-                which_options := [[<<"keyfile">>]]
+                which_option := <<"keyfile">>
             }}},
         emqx:update_config(?LISTENERS, BadRaw)
     ),

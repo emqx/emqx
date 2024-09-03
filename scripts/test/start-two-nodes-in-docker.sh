@@ -10,7 +10,7 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/../../"
 
-HAPROXY_PORTS=(-p 18083:18083 -p 8883:8883 -p 8084:8084)
+HAPROXY_PORTS=(-p 18083:18083 -p 1883:1883 -p 8883:8883 -p 8084:8084)
 
 NET='emqx.io'
 NODE1="node1.$NET"
@@ -50,7 +50,7 @@ do
     case $opt in
         # -P option is treated similarly to docker run -P:
         # publish ports to random available host ports
-        P) HAPROXY_PORTS=(-p 18083 -p 8883 -p 8084);;
+        P) HAPROXY_PORTS=(-p 18083 -p 1883 -p 8883 -p 8084);;
         c) cleanup; exit 0;;
         h) show_help; exit 0;;
         6) IPV6=1;;
@@ -129,7 +129,7 @@ cat <<EOF > tmp/haproxy.cfg
 global
     log stdout format raw daemon debug
     # Replace 1024000 with deployment connections
-    maxconn 1000
+    maxconn 102400
     nbproc 1
     nbthread 2
     cpu-map auto:1/1-2 0-1
@@ -147,7 +147,7 @@ defaults
     mode tcp
     option tcplog
     # Replace 1024000 with deployment connections
-    maxconn 1000
+    maxconn 102400
     timeout connect 30000
     timeout client 600s
     timeout server 600s
@@ -171,27 +171,33 @@ backend emqx_dashboard_back
     ${DASHBOARD_BACKEND2}
 
 ##----------------------------------------------------------------
-## TLS
+## MQTT Listeners
 ##----------------------------------------------------------------
+frontend emqx_tcp
+    mode tcp
+    option tcplog
+    bind *:1883
+    default_backend emqx_backend_tcp
+
 frontend emqx_ssl
     mode tcp
     option tcplog
     bind *:8883 ssl crt /tmp/emqx.pem ca-file /usr/local/etc/haproxy/certs/cacert.pem verify required no-sslv3
-    default_backend emqx_ssl_back
+    default_backend emqx_backend_tcp
 
 frontend emqx_wss
     mode tcp
     option tcplog
     bind *:8084 ssl crt /tmp/emqx.pem ca-file /usr/local/etc/haproxy/certs/cacert.pem verify required no-sslv3
-    default_backend emqx_wss_back
+    default_backend emqx_backend_ws
 
-backend emqx_ssl_back
+backend emqx_backend_tcp
     mode tcp
     balance static-rr
     server emqx-1 $NODE1:1883 check-send-proxy send-proxy-v2-ssl-cn
     server emqx-2 $NODE2:1883 check-send-proxy send-proxy-v2-ssl-cn
 
-backend emqx_wss_back
+backend emqx_backend_ws
     mode tcp
     balance static-rr
     server emqx-1 $NODE1:8083 check-send-proxy send-proxy-v2-ssl-cn
