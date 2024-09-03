@@ -158,7 +158,8 @@ defmodule EMQXUmbrella.MixProject do
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true},
-      common_dep(:sasl_auth)
+      common_dep(:sasl_auth),
+      common_dep(:crc32cer)
     ]
   end
 
