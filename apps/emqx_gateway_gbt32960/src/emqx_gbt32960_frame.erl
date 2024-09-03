@@ -572,7 +572,7 @@ parse_params_(<<16#0F, Val:?WORD, Rest/binary>>, Acc) ->
 parse_params_(<<16#10, Val:?BYTE, Rest/binary>>, Acc) ->
     parse_params_(Rest, [#{<<"0x10">> => Val} | Acc]);
 parse_params_(Cmd, Acc) ->
-    ?SLOG(error, #{msg => "unexcepted_param_identifier", cmd => Cmd}),
+    ?SLOG(error, #{msg => "unexpected_param_identifier", cmd => Cmd}),
     lists:reverse(Acc).
 
 parse_ctrl_param(16#01, Param) ->
@@ -590,7 +590,7 @@ parse_ctrl_param(16#06, <<Level:?BYTE, Msg/binary>>) ->
 parse_ctrl_param(16#07, _) ->
     <<>>;
 parse_ctrl_param(Cmd, Param) ->
-    ?SLOG(error, #{msg => "unexcepted_param", param => Param, cmd => Cmd}),
+    ?SLOG(error, #{msg => "unexpected_param", param => Param, cmd => Cmd}),
     <<>>.
 
 parse_upgrade_feild(Param) ->
@@ -745,7 +745,7 @@ tune_ctrl_param(16#06, #{<<"Level">> := Level, <<"Message">> := Msg}) ->
 tune_ctrl_param(16#07, _) ->
     <<>>;
 tune_ctrl_param(Cmd, Param) ->
-    ?SLOG(error, #{msg => "unexcepted_cmd", cmd => Cmd, param => Param}),
+    ?SLOG(error, #{msg => "unexpected_cmd", cmd => Cmd, param => Param}),
     <<>>.
 
 tune_upgrade_feild(Param) ->
