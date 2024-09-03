@@ -155,6 +155,7 @@
 
 -define(LIMITER_ROUTING, message_routing).
 -define(chan_terminating, chan_terminating).
+-define(RAND_CLIENTID_BYTES, 16).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -1704,8 +1705,7 @@ maybe_assign_clientid(_ConnPkt, ClientInfo = #{clientid := ClientId}) when
 ->
     {ok, ClientInfo};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
-    %% Generate a rand clientId
-    {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
+    {ok, ClientInfo#{clientid => emqx_utils:rand_id(?RAND_CLIENTID_BYTES)}};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
 

@@ -109,6 +109,7 @@
 ).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
+-define(RAND_CLIENTID_BYETS, 16).
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -303,7 +304,7 @@ maybe_assign_clientid(_Packet, ClientInfo = #{clientid := ClientId}) when
     ClientId == undefined;
     ClientId == <<>>
 ->
-    {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
+    {ok, ClientInfo#{clientid => emqx_utils:rand_id(?RAND_CLIENTID_BYETS)}};
 maybe_assign_clientid(_Packet, ClientInfo) ->
     {ok, ClientInfo}.
 

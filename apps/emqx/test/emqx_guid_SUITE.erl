@@ -35,7 +35,3 @@ t_guid_gen(_) ->
 t_guid_hexstr(_) ->
     Guid = emqx_guid:gen(),
     ?assertEqual(Guid, emqx_guid:from_hexstr(emqx_guid:to_hexstr(Guid))).
-
-t_guid_base62(_) ->
-    Guid = emqx_guid:gen(),
-    ?assertEqual(Guid, emqx_guid:from_base62(emqx_guid:to_base62(Guid))).

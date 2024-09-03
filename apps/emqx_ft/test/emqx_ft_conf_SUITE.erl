@@ -349,7 +349,7 @@ mk_s3_config(S3Config) ->
     maps:merge(BaseS3Config, S3Config).
 
 gen_clientid() ->
-    emqx_base62:encode(emqx_guid:gen()).
+    emqx_utils:rand_id(16).
 
 list_ssl_certfiles(_Config) ->
     CertDir = emqx:mutable_certs_dir(),

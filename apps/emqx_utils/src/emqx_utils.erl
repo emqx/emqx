@@ -43,6 +43,7 @@
     proc_stats/0,
     proc_stats/1,
     rand_seed/0,
+    rand_id/1,
     now_to_secs/1,
     now_to_ms/1,
     index_of/2,
@@ -900,6 +901,26 @@ ntoa(IP) ->
 is_restricted_str(String) ->
     RE = <<"^[A-Za-z0-9]+[A-Za-z0-9-_]*$">>,
     match =:= re:run(String, RE, [{capture, none}]).
+
+%% @doc Generate random, printable bytes as an ID.
+%% The first byte is ensured to be a-z or A-Z.
+rand_id(Len) when Len > 0 ->
+    iolist_to_binary([rand_first_char(), rand_chars(Len - 1)]).
+
+rand_first_char() ->
+    base62(rand:uniform(52) - 1).
+
+rand_chars(0) ->
+    [];
+rand_chars(N) ->
+    [rand_char() | rand_chars(N - 1)].
+
+rand_char() ->
+    base62(rand:uniform(62) - 1).
+
+base62(I) when I < 26 -> $A + I;
+base62(I) when I < 52 -> $a + I - 26;
+base62(I) -> $0 + I - 52.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
