@@ -470,7 +470,7 @@ init([]) ->
     logger:set_process_metadata(#{domain => [ds, meta]}),
     ok = ekka:monitor(membership),
     ensure_tables(),
-    migrate_tables(),
+    run_migrations(),
     ensure_site(),
     S = #s{},
     {ok, _Node} = mnesia:subscribe({table, ?SHARD_TAB, simple}),
@@ -725,10 +725,11 @@ ensure_tables() ->
     ]),
     ok = mria:wait_for_tables([?META_TAB, ?NODE_TAB, ?SHARD_TAB]).
 
-migrate_tables() ->
-    _ = migrate_node_table(),
-    _ = migrate_shard_table(),
-    ok.
+run_migrations() ->
+    run_migrations(emqx_release:version()).
+
+run_migrations(_Version = "5.8." ++ _) ->
+    run_migrations_e58().
 
 ensure_site() ->
     Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
@@ -897,6 +898,13 @@ notify_subscribers(EventSubject, Event, #s{subs = Subs}) ->
     ).
 
 %%====================================================================
+%% Migrations / 5.8 Release
+%%====================================================================
+
+run_migrations_e58() ->
+    _ = migrate_node_table(),
+    _ = migrate_shard_table(),
+    ok.
 
 migrate_node_table() ->
     Tab = ?NODE_TAB_LEGACY,
