@@ -237,11 +237,13 @@ fields("connector") ->
         server_field(),
         {parameters,
             mk(
-                ref(?MODULE, "datalayers_parameters"),
+                hoconsc:union([
+                    ref(?MODULE, "datalayers_influxdb_v1_parameters")
+                ]),
                 #{required => true, desc => ?DESC("datalayers_parameters")}
             )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
-fields("datalayers_parameters") ->
+fields("datalayers_influxdb_v1_parameters") ->
     datalayers_parameters_fields().
 
 server_field() ->
@@ -259,6 +261,7 @@ precision_field() ->
 
 datalayers_parameters_fields() ->
     [
+        {driver_type, mk(enum([influxdb_v1]), #{required => true, desc => ?DESC("driver_type")})},
         {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
         {username, mk(binary(), #{desc => ?DESC("username")})},
         {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
@@ -277,7 +280,7 @@ desc(common) ->
     ?DESC("common");
 desc(parameters) ->
     ?DESC("dayalayers_parameters");
-desc("datalayers_parameters") ->
+desc("datalayers_influxdb_v1_parameters") ->
     ?DESC("datalayers_parameters");
 desc(datalayers_api) ->
     ?DESC("datalayers_api");
