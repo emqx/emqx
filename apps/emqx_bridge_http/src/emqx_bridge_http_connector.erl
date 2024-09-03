@@ -753,11 +753,11 @@ process_request_and_action(Request, ActionState, Msg) ->
             _ -> join_paths(PathPrefix, PathSuffix)
         end,
 
-    HeadersTemplate1 = maps:get(headers, Request),
-    HeadersTemplate2 = maps:get(headers, ActionState),
-    Headers = merge_proplist(
-        render_headers(HeadersTemplate1, RenderTmplFunc, Msg),
-        render_headers(HeadersTemplate2, RenderTmplFunc, Msg)
+    ActionHaders = maps:get(headers, ActionState),
+    BaseHeaders = maps:get(headers, Request),
+    Headers = merge_headers(
+        render_headers(ActionHaders, RenderTmplFunc, Msg),
+        render_headers(BaseHeaders, RenderTmplFunc, Msg)
     ),
     BodyTemplate = maps:get(body, ActionState),
     Body = render_request_body(BodyTemplate, RenderTmplFunc, Msg),
@@ -769,19 +769,11 @@ process_request_and_action(Request, ActionState, Msg) ->
         request_timeout => maps:get(request_timeout, ActionState)
     }.
 
-merge_proplist(Proplist1, Proplist2) ->
-    lists:foldl(
-        fun({K, V}, Acc) ->
-            case lists:keyfind(K, 1, Acc) of
-                false ->
-                    [{K, V} | Acc];
-                {K, _} = {K, V1} ->
-                    [{K, V1} | Acc]
-            end
-        end,
-        Proplist2,
-        Proplist1
-    ).
+merge_headers([], Result) ->
+    Result;
+merge_headers([{K, V} | Rest], Result) ->
+    R = lists:keydelete(K, 1, Result),
+    merge_headers(Rest, [{K, V} | R]).
 
 process_request(
     #{
