@@ -99,6 +99,34 @@ t_lease_initial(_Config) ->
     ok = emqtt:disconnect(ConnShared),
     ok = emqtt:disconnect(ConnPub).
 
+t_declare_triggers_persistence('init', Config) ->
+    declare_queue(<<"dtp">>, <<"topic1/#">>, Config);
+t_declare_triggers_persistence('end', Config) ->
+    destroy_queue(Config).
+
+t_declare_triggers_persistence(_Config) ->
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    {ok, _} = emqtt:publish(ConnPub, <<"topic1/1">>, <<"hello1">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"topic1/2">>, <<"hello2">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"topic2/1">>, <<"oops1">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"topic1/42">>, <<"42">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"topic3/1">>, <<"oops2">>, 1),
+
+    ConnShared = emqtt_connect_sub(<<"client_shared">>),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/dtp/topic1/#">>, 1),
+
+    {ok, _} = emqtt:publish(ConnPub, <<"topic1/3">>, <<"hello3">>, 1),
+
+    %% Messages published before `ConnShared` has subscribed should be sent.
+    ?assertReceive({publish, #{payload := <<"hello1">>}}, 5_000),
+    ?assertReceive({publish, #{payload := <<"hello2">>}}, 5_000),
+    ?assertReceive({publish, #{payload := <<"42">>}}, 5_000),
+    ?assertReceive({publish, #{payload := <<"hello3">>}}, 5_000),
+
+    ok = emqtt:disconnect(ConnShared),
+    ok = emqtt:disconnect(ConnPub).
+
 t_two_clients('init', Config) ->
     declare_queue(<<"gr4">>, <<"topic4/#">>, Config);
 t_two_clients('end', Config) ->
