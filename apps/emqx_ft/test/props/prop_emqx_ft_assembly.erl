@@ -18,7 +18,7 @@
 
 -include_lib("proper/include/proper.hrl").
 
--import(emqx_proper_types, [scaled/2, fixedmap/1, typegen/0, generate/2]).
+-import(emqx_proper_types, [scaled/2, logscaled/2, fixedmap/1, typegen/0, generate/2]).
 
 -define(COVERAGE_TIMEOUT, 10000).
 
@@ -177,10 +177,10 @@ nsegs(Filesize, [BaseSegsize | _]) ->
     Filesize div max(1, BaseSegsize) + 1.
 
 segments_t(Filesize, Segsizes) ->
-    scaled(nsegs(Filesize, Segsizes), list({node_t(), segment_t(Filesize, Segsizes)})).
+    logscaled(nsegs(Filesize, Segsizes), list({node_t(), segment_t(Filesize, Segsizes)})).
 
 segments_t(Filesize, Segsizes, Hole) ->
-    scaled(nsegs(Filesize, Segsizes), list({node_t(), segment_t(Filesize, Segsizes, Hole)})).
+    logscaled(nsegs(Filesize, Segsizes), list({node_t(), segment_t(Filesize, Segsizes, Hole)})).
 
 segment_t(Filesize, Segsizes, Hole) ->
     ?SUCHTHATMAYBE(
