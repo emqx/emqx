@@ -188,6 +188,7 @@ t_takeover_willmsg(Config) ->
         {will_topic, WillTopic},
         {will_payload, <<"willpayload">>},
         {will_qos, 0}
+        | [{properties, #{'Session-Expiry-Interval' => 60}} || v5 == ?config(mqtt_vsn, Config)]
     ],
     Commands =
         lists:flatten([
