@@ -212,7 +212,7 @@ upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) -
     Method = post,
     Filename = filename:basename(FilePath),
     {ok, Data} = file:read_file(FilePath),
-    Boundary = emqx_guid:to_base62(emqx_guid:gen()),
+    Boundary = emqx_utils:rand_id(32),
     RequestBody = format_multipart_formdata(
         Data,
         RequestData,

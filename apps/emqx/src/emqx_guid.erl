@@ -35,9 +35,7 @@
     new/0,
     timestamp/1,
     to_hexstr/1,
-    from_hexstr/1,
-    to_base62/1,
-    from_base62/1
+    from_hexstr/1
 ]).
 
 -export_type([guid/0]).
@@ -83,7 +81,7 @@ npid() ->
     <<NodeD01, NodeD02, NodeD03, NodeD04, NodeD05, NodeD06, NodeD07, NodeD08, NodeD09, NodeD10,
         NodeD11, NodeD12, NodeD13, NodeD14, NodeD15, NodeD16, NodeD17, NodeD18, NodeD19,
         NodeD20>> =
-        crypto:hash(sha, erlang:list_to_binary(erlang:atom_to_list(node()))),
+        crypto:hash(sha, erlang:atom_to_binary(node())),
 
     PidBin =
         case erlang:term_to_binary(self()) of
@@ -149,10 +147,3 @@ to_hexstr(I) when byte_size(I) =:= 16 ->
 
 from_hexstr(S) when byte_size(S) =:= 32 ->
     emqx_utils:hexstr_to_bin(S).
-
-to_base62(<<I:128>>) ->
-    emqx_base62:encode(I).
-
-from_base62(S) ->
-    I = binary_to_integer(emqx_base62:decode(S)),
-    <<I:128>>.
