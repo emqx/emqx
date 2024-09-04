@@ -80,9 +80,7 @@ on_start(InstId, Config) ->
     case driver_type(Config) of
         influxdb_v1 ->
             Config1 = convert_config_to_influxdb(Config),
-            emqx_bridge_influxdb_connector:on_start(InstId, Config1);
-        _ ->
-            error(not_supported_driver_type)
+            emqx_bridge_influxdb_connector:on_start(InstId, Config1)
     end.
 
 driver_type(#{parameters := #{driver_type := influxdb_v1}}) ->
@@ -172,7 +170,10 @@ precision_field() ->
 
 datalayers_parameters_fields() ->
     [
-        {driver_type, mk(enum([influxdb_v1]), #{required => true, desc => ?DESC("driver_type")})},
+        {driver_type,
+            mk(enum([influxdb_v1]), #{
+                required => false, default => influxdb_v1, desc => ?DESC("driver_type")
+            })},
         {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
         {username, mk(binary(), #{desc => ?DESC("username")})},
         {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
