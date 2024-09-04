@@ -35,8 +35,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
         run: |
-          gh api --method GET -f head_sha=$(git rev-parse HEAD) -f status=completed -f exclude_pull_requests=true /repos/${GITHUB_REPO}/actions/runs > runs.json
-          for id in $(jq -r '.workflow_runs[] | select((."conclusion" == "failure") and (."name" != "Keep master green") and .run_attempt < 3) | .id' runs.json); do
-            echo "rerun https://github.com/${GITHUB_REPO}/actions/runs/$id"
-            gh api --method POST /repos/${GITHUB_REPO}/actions/runs/$id/rerun-failed-jobs || true
+          for id in $(gh run list --branch ${{ matrix.ref }} --workflow "Push Entrypoint" --commit $(git rev-parse HEAD) --status failure --json databaseId,attempt --jq '.[] | select(.attempt < 3) | .databaseId'); do
+            gh run rerun "$id" --failed
           done
