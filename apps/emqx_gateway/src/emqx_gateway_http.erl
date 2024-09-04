@@ -490,13 +490,8 @@ reason2msg(
         "The authentication already exist on ~s",
         [listener_id(GwName, LType, LName)]
     );
-reason2msg(
-    {bad_ssl_config, #{
-        reason := Reason,
-        which_options := Options
-    }}
-) ->
-    fmtstr("Bad TLS configuration for ~p, reason: ~s", [Options, Reason]);
+reason2msg({bad_ssl_config, Reason}) ->
+    fmtstr("Bad TLS configuration: ~0p", [Reason]);
 reason2msg(
     {#{roots := [{gateway, _}]}, [_ | _]} = Error
 ) ->

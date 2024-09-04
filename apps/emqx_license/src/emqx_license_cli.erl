@@ -41,7 +41,8 @@ license(_) ->
     emqx_ctl:usage(
         [
             {"license info", "Show license info"},
-            {"license update <License>", "Update license given as a string"}
+            {"license update '<License>'|'file:///tmp/emqx.lic'",
+                "Update license given as a string\nor referenced by a file path via 'file://' prefix"}
         ]
     ).
 

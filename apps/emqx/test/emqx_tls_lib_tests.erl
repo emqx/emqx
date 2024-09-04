@@ -100,12 +100,40 @@ ssl_files_failure_test_() ->
                 emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("dir", Disabled)
             )
         end},
+        {"mandatory_keys", fun() ->
+            ?assertMatch(
+                {error, #{missing_options := [<<"keyfile">>]}},
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("dir", #{}, #{
+                    required_keys => [[<<"keyfile">>]]
+                })
+            ),
+            ?assertMatch(
+                {error, #{missing_options := [<<"keyfile">>]}},
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("dir", #{}, #{
+                    required_keys => [[keyfile]]
+                })
+            )
+        end},
+        {"invalid_file_path", fun() ->
+            ?assertMatch(
+                {error, #{
+                    pem_check := not_pem,
+                    file_path := not_file_path,
+                    which_option := <<"keyfile">>
+                }},
+                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                    keyfile => <<"abc", $\n, "123">>,
+                    certfile => test_key(),
+                    cacertfile => test_key()
+                })
+            )
+        end},
         {"enoent_key_file", fun() ->
             NonExistingFile = filename:join(
                 "/tmp", integer_to_list(erlang:system_time(microsecond))
             ),
             ?assertMatch(
-                {error, #{file_read := enoent, pem_check := invalid_pem}},
+                {error, #{pem_check := enoent, file_path := _}},
                 emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => NonExistingFile,
                     <<"certfile">> => test_key(),
@@ -128,7 +156,7 @@ ssl_files_failure_test_() ->
             ?assertMatch(
                 {error, #{
                     reason := pem_file_path_or_string_is_required,
-                    which_options := [[<<"keyfile">>]]
+                    which_option := <<"keyfile">>
                 }},
                 emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => <<>>,
@@ -139,7 +167,7 @@ ssl_files_failure_test_() ->
             %% not valid unicode
             ?assertMatch(
                 {error, #{
-                    reason := invalid_file_path_or_pem_string, which_options := [[<<"keyfile">>]]
+                    reason := invalid_file_path_or_pem_string, which_option := <<"keyfile">>
                 }},
                 emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => <<255, 255>>,
@@ -150,7 +178,7 @@ ssl_files_failure_test_() ->
             ?assertMatch(
                 {error, #{
                     reason := invalid_file_path_or_pem_string,
-                    which_options := [[<<"ocsp">>, <<"issuer_pem">>]]
+                    which_option := <<"ocsp.issuer_pem">>
                 }},
                 emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
                     <<"keyfile">> => test_key(),
@@ -172,7 +200,7 @@ ssl_files_failure_test_() ->
             try
                 ok = file:write_file(TmpFile, <<"not a valid pem">>),
                 ?assertMatch(
-                    {error, #{file_read := not_pem}},
+                    {error, #{pem_check := not_pem}},
                     emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
                         "/tmp",
                         #{

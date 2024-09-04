@@ -86,6 +86,7 @@
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
 
 -define(DEF_IDLE_SECONDS, 30).
+-define(RAND_CLIENTID_BYTES, 16).
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
 
@@ -142,7 +143,7 @@ init(
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,
-            clientid => emqx_guid:to_base62(emqx_guid:gen()),
+            clientid => emqx_utils:rand_id(?RAND_CLIENTID_BYTES),
             username => undefined,
             is_bridge => false,
             is_superuser => false,

@@ -23,13 +23,11 @@ defmodule EMQXBridgeConfluent.MixProject do
 
   def deps() do
     [
-      {:wolff, github: "kafka4beam/wolff", tag: "3.0.2"},
-      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
-      {:brod, github: "kafka4beam/brod", tag: "3.18.0"},
-      ## TODO: remove `mix.exs` from `wolff` and remove this override
-      ## TODO: remove `mix.exs` from `pulsar` and remove this override
-      {:snappyer, "1.2.9", override: true},
+      UMP.common_dep(:wolff),
+      UMP.common_dep(:kafka_protocol),
+      UMP.common_dep(:brod_gssapi),
+      UMP.common_dep(:brod),
+      UMP.common_dep(:snappyer),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

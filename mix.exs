@@ -158,7 +158,8 @@ defmodule EMQXUmbrella.MixProject do
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true},
-      common_dep(:sasl_auth)
+      common_dep(:sasl_auth),
+      common_dep(:crc32cer)
     ]
   end
 
@@ -211,7 +212,7 @@ defmodule EMQXUmbrella.MixProject do
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
-  def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.0", override: true}
+  def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.1", override: true}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.0", override: true}
 
   def common_dep(:system_monitor),
@@ -271,6 +272,18 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
+
+  def common_dep(:wolff), do: {:wolff, "3.0.4"}
+  def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
+
+  def common_dep(:kafka_protocol),
+    do: {:kafka_protocol, "4.1.8", override: true}
+
+  def common_dep(:brod), do: {:brod, github: "kafka4beam/brod", tag: "3.18.0"}
+  ## TODO: remove `mix.exs` from `wolff` and remove this override
+  ## TODO: remove `mix.exs` from `pulsar` and remove this override
+  def common_dep(:snappyer), do: {:snappyer, "1.2.9", override: true}
+  def common_dep(:crc32cer), do: {:crc32cer, "0.1.8", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
@@ -387,13 +400,13 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl,
        github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1"},
-      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "3.0.2"},
-      {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.5", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
-      {:brod, github: "kafka4beam/brod", tag: "3.18.0"},
-      {:snappyer, "1.2.9", override: true},
-      {:crc32cer, "0.1.8", override: true},
+      common_dep(:influxdb),
+      common_dep(:wolff),
+      common_dep(:kafka_protocol),
+      common_dep(:brod_gssapi),
+      common_dep(:brod),
+      common_dep(:snappyer),
+      common_dep(:crc32cer),
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
       {:greptimedb,
        github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.1.8", override: true},

@@ -20,12 +20,12 @@ defmodule Mix.Tasks.Emqx.Ct do
     #   |> IO.inspect(label: app_to_debug)
     # end)
 
-    ensure_whole_emqx_project_is_loaded!()
+    ensure_whole_emqx_project_is_loaded()
     unload_emqx_applications!()
     load_common_helpers!()
     hack_test_data_dirs!(opts.suites)
 
-    # ensure_suites_are_loaded!(opts.suites)
+    # ensure_suites_are_loaded(opts.suites)
 
     {_, 0} = System.cmd("epmd", ["-daemon"])
     node_name = :"test@127.0.0.1"
@@ -76,7 +76,7 @@ defmodule Mix.Tasks.Emqx.Ct do
   This needs to run before we unload the applications, otherwise we lose their `:modules`
   attribute.
   """
-  def ensure_whole_emqx_project_is_loaded!() do
+  def ensure_whole_emqx_project_is_loaded() do
     apps_path =
       Mix.Project.project_file()
       |> Path.dirname()
@@ -100,7 +100,7 @@ defmodule Mix.Tasks.Emqx.Ct do
           []
       end
     end)
-    |> Code.ensure_all_loaded!()
+    |> Code.ensure_all_loaded()
   end
 
   @doc """
@@ -170,7 +170,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     end
   end
 
-  defp ensure_suites_are_loaded!(suites) do
+  defp ensure_suites_are_loaded(suites) do
     suites
     |> Enum.map(fn suite_path ->
       ["apps", app_name | _] = Path.split(suite_path)
@@ -181,7 +181,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       {:ok, mods} = :application.get_key(app, :modules)
       mods
     end)
-    |> Code.ensure_all_loaded!()
+    |> Code.ensure_all_loaded()
   end
 
   def add_to_path_and_cache(lib_name) do

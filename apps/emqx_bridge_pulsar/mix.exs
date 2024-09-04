@@ -23,10 +23,8 @@ defmodule EMQXBridgePulsar.MixProject do
 
   def deps() do
     [
-      {:crc32cer, git: "https://github.com/zmstone/crc32cer", tag: "0.1.8", override: true},
-      ## TODO: remove `mix.exs` from `pulsar` and remove this override
-      ## TODO: remove `mix.exs` from `pulsar` and remove this override
-      {:snappyer, "1.2.9", override: true},
+      UMP.common_dep(:crc32cer),
+      UMP.common_dep(:snappyer),
       {:pulsar, github: "emqx/pulsar-client-erl", tag: "0.8.3"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},

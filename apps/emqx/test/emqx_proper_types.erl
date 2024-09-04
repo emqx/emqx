@@ -57,6 +57,7 @@
 %% Generic Types
 -export([
     scaled/2,
+    logscaled/2,
     fixedmap/1
 ]).
 
@@ -690,6 +691,10 @@ limited_list(N, T) ->
 -spec scaled(number(), proptype()) -> proptype().
 scaled(F, T) when F > 0 ->
     ?SIZED(S, resize(round(S * F), T)).
+
+-spec logscaled(number(), proptype()) -> proptype().
+logscaled(F, T) when F > 0 ->
+    ?SIZED(S, resize(round(math:log(S + 1) * F), T)).
 
 -spec fixedmap(#{_Key => proptype()}) -> proptype().
 fixedmap(M) ->
