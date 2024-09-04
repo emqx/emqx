@@ -238,158 +238,132 @@ do_subscriptions_query_mem(QString) ->
     end.
 
 do_subscriptions_query_persistent(#{<<"page">> := Page, <<"limit">> := Limit} = QString) ->
-    Count = emqx_persistent_session_ds_router:stats(n_routes),
-    %% TODO: filtering by client ID can be implemented more efficiently:
-    FilterTopic = maps:get(<<"topic">>, QString, '_'),
-    Stream0 = emqx_persistent_session_ds_router:stream(FilterTopic),
-
+    PageSize = 100,
+    Stream0 = emqx_utils_stream:ets(
+        %% FIXME
+        fun
+            (undefined) ->
+                {[], emqx_persistent_session_ds_state:make_subscription_iterator()};
+            (It) ->
+                emqx_persistent_session_ds_state:subscription_iterator_next(It, PageSize)
+        end
+    ),
+    SubMap = fun enrich_dssub/1,
     SubPred = fun(Sub) ->
-        compare_optional(<<"topic">>, QString, '_real_topic', Sub) andalso
-            compare_optional(<<"clientid">>, QString, clientid, Sub) andalso
-            compare_optional(<<"qos">>, QString, qos, Sub) andalso
-            compare_optional(<<"share_group">>, QString, '_group', Sub) andalso
-            compare_match_topic_optional(<<"match_topic">>, QString, '_real_topic', Sub)
+        Sub =/= undefined andalso
+            compare_optional(<<"topic">>, QString, fun dssub_topic/1, Sub) andalso
+            compare_optional(<<"clientid">>, QString, fun dssub_session_id/1, Sub) andalso
+            compare_optional(<<"qos">>, QString, fun dssub_qos/1, Sub) andalso
+            compare_optional(<<"share_group">>, QString, fun dssub_group/1, Sub) andalso
+            compare_match_topic_optional(<<"match_topic">>, QString, fun dssub_topic/1, Sub)
     end,
     NDropped = (Page - 1) * Limit,
-    {_, Stream} = consume_n_matching(
-        fun persistent_route_to_subscription/1, SubPred, NDropped, Stream0
-    ),
-    {Subscriptions0, Stream1} = consume_n_matching(
-        fun persistent_route_to_subscription/1, SubPred, Limit, Stream
-    ),
-    HasNext = Stream1 =/= [],
-    Subscriptions1 = lists:map(
-        fun remove_temp_match_fields/1, Subscriptions0
-    ),
-    Meta =
-        case maps:is_key(<<"match_topic">>, QString) orelse maps:is_key(<<"qos">>, QString) of
-            true ->
-                %% Fuzzy searches shouldn't return count:
-                #{
-                    limit => Limit,
-                    page => Page,
-                    hasnext => HasNext
-                };
-            false ->
-                #{
-                    count => Count,
-                    limit => Limit,
-                    page => Page,
-                    hasnext => HasNext
-                }
-        end,
-
+    Stream1 = emqx_utils_stream:filter(SubPred, emqx_utils_stream:map(SubMap, Stream0)),
+    Stream2 = emqx_utils_stream:drop(NDropped, Stream1),
+    {DSSubs, Stream} = consume_n(Limit, Stream2),
+    Subscriptions = [dssub_to_subscription(S) || S <- DSSubs],
+    %% NOTE
+    %% We have `emqx_persistent_session_ds_state:total_subscriptions_count/0` but it's
+    %% too expensive for now, because it essentially a full-scan. There is also
+    %% `emqx_persistent_session_bookkeeper:get_subscription_count/0` but it lags behind
+    %% on the other hand, and that breaks few assumptions. Thus, API clients have to do
+    %% w/o `count` here, even when there's no filtering.
+    Meta = #{
+        limit => Limit,
+        page => Page,
+        hasnext => Stream =/= []
+    },
     #{
         meta => Meta,
-        data => Subscriptions1
+        data => Subscriptions
     }.
 
-compare_optional(QField, Query, SField, Subscription) ->
+dssub_session_id({SessionID, _Topic, _Sub}) ->
+    SessionID.
+
+dssub_topic({_SessionID, #share{topic = Topic}, _Sub}) ->
+    Topic;
+dssub_topic({_SessionID, Topic, _Sub}) ->
+    Topic.
+
+dssub_group({_SessionID, #share{group = Group}, _Sub}) ->
+    Group;
+dssub_group({_SessionID, _Topic, _Sub}) ->
+    undefined.
+
+dssub_subopts({_SessionID, _Topic, Sub}) ->
+    maps:get(subopts, Sub, #{}).
+
+dssub_qos(DSSub) ->
+    maps:get(qos, dssub_subopts(DSSub), undefined).
+
+dssub_to_subscription(DSSub = {SessionID, Topic, _}) ->
+    Sub = #{
+        topic => emqx_topic:maybe_format_share(Topic),
+        clientid => SessionID,
+        node => all,
+        durable => true
+    },
+    case dssub_subopts(DSSub) of
+        #{qos := Qos, nl := Nl, rh := Rh, rap := Rap} ->
+            Sub#{
+                qos => Qos,
+                nl => Nl,
+                rh => Rh,
+                rap => Rap
+            };
+        undefined ->
+            Sub
+    end.
+
+enrich_dssub({SessionId, Topic}) ->
+    %% TODO: Suboptimal, especially with DS-backed session storage.
+    case emqx_persistent_session_ds:get_client_subscription(SessionId, Topic) of
+        Subscription = #{} ->
+            {SessionId, Topic, Subscription};
+        undefined ->
+            undefined
+    end.
+
+compare_optional(QField, Query, AccessF, DSSub) ->
     case Query of
         #{QField := Expected} ->
-            maps:get(SField, Subscription) =:= Expected;
+            AccessF(DSSub) =:= Expected;
         _ ->
             true
     end.
 
-compare_match_topic_optional(QField, Query, SField, Subscription) ->
+compare_match_topic_optional(QField, Query, AccessF, DSSub) ->
     case Query of
         #{QField := TopicFilter} ->
-            Topic = maps:get(SField, Subscription),
+            Topic = AccessF(DSSub),
             emqx_topic:match(Topic, TopicFilter);
         _ ->
             true
     end.
 
-%% @doc Drop elements from the stream until encountered N elements
-%% matching the predicate function.
--spec consume_n_matching(
-    fun((T) -> Q),
-    fun((Q) -> boolean()),
-    non_neg_integer(),
-    emqx_utils_stream:stream(T)
-) -> {[Q], emqx_utils_stream:stream(T) | empty}.
-consume_n_matching(Map, Pred, N, S) ->
-    consume_n_matching(Map, Pred, N, S, []).
+%% @doc Consume the stream until encountered N elements.
+-spec consume_n(non_neg_integer(), emqx_utils_stream:stream(T)) ->
+    {[T], emqx_utils_stream:stream(T) | []}.
+consume_n(N, S) ->
+    consume_n(N, S, []).
 
-consume_n_matching(_Map, _Pred, _N, [], Acc) ->
+consume_n(_N, [], Acc) ->
     {lists:reverse(Acc), []};
-consume_n_matching(_Map, _Pred, 0, S, Acc) ->
+consume_n(0, S, Acc) ->
     case emqx_utils_stream:next(S) of
         [] ->
             {lists:reverse(Acc), []};
         _ ->
             {lists:reverse(Acc), S}
     end;
-consume_n_matching(Map, Pred, N, S0, Acc) ->
+consume_n(N, S0, Acc) ->
     case emqx_utils_stream:next(S0) of
         [] ->
-            consume_n_matching(Map, Pred, N, [], Acc);
+            consume_n(N, [], Acc);
         [Elem | S] ->
-            Mapped = Map(Elem),
-            case Pred(Mapped) of
-                true -> consume_n_matching(Map, Pred, N - 1, S, [Mapped | Acc]);
-                false -> consume_n_matching(Map, Pred, N, S, Acc)
-            end
+            consume_n(N - 1, S, [Elem | Acc])
     end.
-
-persistent_route_to_subscription(#route{dest = Dest} = Route) ->
-    Sub =
-        case get_client_subscription(Route) of
-            #{subopts := SubOpts} ->
-                #{qos := Qos, nl := Nl, rh := Rh, rap := Rap} = SubOpts,
-                #{
-                    topic => format_topic(Route),
-                    clientid => session_id(Dest),
-                    node => all,
-
-                    qos => Qos,
-                    nl => Nl,
-                    rh => Rh,
-                    rap => Rap,
-                    durable => true
-                };
-            undefined ->
-                #{
-                    topic => format_topic(Route),
-                    clientid => session_id(Dest),
-                    node => all,
-                    durable => true
-                }
-        end,
-    add_temp_match_fields(Route, Sub).
-
-get_client_subscription(#route{
-    topic = Topic, dest = #share_dest{session_id = SessionId, group = Group}
-}) ->
-    emqx_persistent_session_ds:get_client_subscription(SessionId, #share{
-        topic = Topic, group = Group
-    });
-get_client_subscription(#route{topic = Topic, dest = SessionId}) ->
-    emqx_persistent_session_ds:get_client_subscription(SessionId, Topic).
-
-session_id(#share_dest{session_id = SessionId}) -> SessionId;
-session_id(SessionId) -> SessionId.
-
-add_temp_match_fields(Route, Sub) ->
-    add_temp_match_fields(['_real_topic', '_group'], Route, Sub).
-
-add_temp_match_fields([], _Route, Sub) ->
-    Sub;
-add_temp_match_fields(['_real_topic' | Rest], #route{topic = Topic} = Route, Sub) ->
-    add_temp_match_fields(Rest, Route, Sub#{'_real_topic' => Topic});
-add_temp_match_fields(['_group' | Rest], #route{dest = #share_dest{group = Group}} = Route, Sub) ->
-    add_temp_match_fields(Rest, Route, Sub#{'_group' => Group});
-add_temp_match_fields(['_group' | Rest], Route, Sub) ->
-    add_temp_match_fields(Rest, Route, Sub#{'_group' => undefined}).
-
-remove_temp_match_fields(Sub) ->
-    maps:without(['_real_topic', '_group'], Sub).
-
-format_topic(#route{topic = Topic, dest = #share_dest{group = Group}}) ->
-    <<"$share/", Group/binary, "/", Topic/binary>>;
-format_topic(#route{topic = Topic}) ->
-    Topic.
 
 %% @private This function merges paginated results from two sources.
 %%

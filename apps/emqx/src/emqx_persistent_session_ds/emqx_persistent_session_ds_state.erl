@@ -78,7 +78,9 @@
     n_awaiting_rel/1
 ]).
 
+%% Iterating storage:
 -export([make_session_iterator/0, session_iterator_next/2]).
+-export([make_subscription_iterator/0, subscription_iterator_next/2]).
 
 -export_type([
     t/0,
@@ -120,10 +122,10 @@
 -endif.
 
 -ifdef(STORE_STATE_IN_DS).
--opaque session_iterator() :: #{its := [emqx_ds:iterator()]} | '$end_of_table'.
+-opaque session_iterator() :: #{its := [emqx_ds:iterator()]}.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
--opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
+-opaque session_iterator() :: emqx_persistent_session_ds:id().
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
 
@@ -918,62 +920,57 @@ n_awaiting_rel(Rec) ->
 %%
 
 -spec make_session_iterator() -> session_iterator().
+-spec session_iterator_next(session_iterator(), pos_integer()) ->
+    {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
+
 -ifdef(STORE_STATE_IN_DS).
+
 make_session_iterator() ->
     %% NB. This hides the existence of streams.  Users will need to start iteration
     %% again to see new streams, if any.
     %% NB. This is not assumed to be stored permanently anywhere.
-    Time = ?TS,
-    TopicFilter = [
-        <<"session">>,
-        '+',
-        ?metadata_domain_bin,
-        ?metadata_domain_bin
-    ],
-    Iterators = lists:map(
+    TopicFilter = [?session_topic_ns, '+', ?metadata_domain_bin, ?metadata_domain_bin],
+    #{its => make_iterators(TopicFilter, ?TS)}.
+
+make_subscription_iterator() ->
+    %% NB. Same as above.
+    TopicFilter = [?session_topic_ns, '+', ?subscription_domain_bin, '+'],
+    #{its => make_iterators(TopicFilter, ?TS)}.
+
+make_iterators(TopicFilter, Time) ->
+    lists:map(
         fun({_Rank, Stream}) ->
             {ok, Iterator} = emqx_ds:make_iterator(?DB, Stream, TopicFilter, Time),
             Iterator
         end,
         emqx_ds:get_streams(?DB, TopicFilter, Time)
-    ),
-    #{its => Iterators}.
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-make_session_iterator() ->
-    mnesia:dirty_first(?session_tab).
-%% END ifdef(STORE_STATE_IN_DS).
--endif.
+    ).
 
--spec session_iterator_next(session_iterator(), pos_integer()) ->
-    {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
--ifdef(STORE_STATE_IN_DS).
 session_iterator_next(Cursor, N) ->
-    session_iterator_next(Cursor, N, []).
+    domain_iterator_next(Cursor, N, []).
+
+subscription_iterator_next(Cursor, N) ->
+    domain_iterator_next(Cursor, N, []).
 
 %% Note: ordering is not respected here.
-session_iterator_next(#{its := [It | Rest]} = Cursor, 0, Acc) ->
+domain_iterator_next(#{its := [It | Rest]} = Cursor, 0, Acc) ->
     %% Peek the next item to detect end of table.
     case emqx_ds:next(?DB, It, 1) of
         {ok, end_of_stream} ->
-            session_iterator_next(Cursor#{its := Rest}, 0, Acc);
+            domain_iterator_next(Cursor#{its := Rest}, 0, Acc);
         {ok, _NewIt, []} ->
-            session_iterator_next(Cursor#{its := Rest}, 0, Acc);
+            domain_iterator_next(Cursor#{its := Rest}, 0, Acc);
         {ok, _NewIt, _Batch} ->
             {Acc, Cursor}
     end;
-session_iterator_next(_Cursor, 0, Acc) ->
+domain_iterator_next(#{its := []}, _N, Acc) ->
     {Acc, '$end_of_table'};
-session_iterator_next('$end_of_table', _N, Acc) ->
-    {Acc, '$end_of_table'};
-session_iterator_next(#{its := []}, _N, Acc) ->
-    {Acc, '$end_of_table'};
-session_iterator_next(#{its := [It | Rest]} = Cursor0, N, Acc) ->
+domain_iterator_next(#{its := [It | Rest]} = Cursor0, N, Acc) ->
     case emqx_ds:next(?DB, It, N) of
         {ok, end_of_stream} ->
-            session_iterator_next(Cursor0#{its := Rest}, N, Acc);
+            domain_iterator_next(Cursor0#{its := Rest}, N, Acc);
         {ok, _NewIt, []} ->
-            session_iterator_next(Cursor0#{its := Rest}, N, Acc);
+            domain_iterator_next(Cursor0#{its := Rest}, N, Acc);
         {ok, NewIt, Batch} ->
             NumBatch = length(Batch),
             SessionIds = lists:map(
@@ -984,7 +981,7 @@ session_iterator_next(#{its := [It | Rest]} = Cursor0, N, Acc) ->
                 end,
                 Batch
             ),
-            session_iterator_next(
+            domain_iterator_next(
                 Cursor0#{its := [NewIt | Rest]}, N - NumBatch, SessionIds ++ Acc
             )
     end.
@@ -993,19 +990,39 @@ unwrap_value(#{domain := ?metadata_domain, val := #{metadata := Metadata}}) ->
     Metadata;
 unwrap_value(#{val := Val}) ->
     Val.
+
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
-session_iterator_next(Cursor, 0) ->
+
+make_session_iterator() ->
+    mnesia:dirty_first(?session_tab).
+
+session_iterator_next(Cursor, N) ->
+    mnesia_iterator_next(#{values => true}, ?session_tab, Cursor, N).
+
+make_subscription_iterator() ->
+    mnesia:dirty_first(?subscription_tab).
+
+subscription_iterator_next(Cursor, N) ->
+    mnesia_iterator_next(#{values => false}, ?subscription_tab, Cursor, N).
+
+mnesia_iterator_next(_Opts, _Tab, Cursor, 0) ->
     {[], Cursor};
-session_iterator_next('$end_of_table', _N) ->
+mnesia_iterator_next(_Opts, _Tab, '$end_of_table', _N) ->
     {[], '$end_of_table'};
-session_iterator_next(Cursor0, N) ->
+mnesia_iterator_next(Opts = #{values := true}, Tab, Cursor0, N) ->
     ThisVal = [
         {Cursor0, Metadata}
-     || #kv{v = Metadata} <- mnesia:dirty_read(?session_tab, Cursor0)
+     || #kv{v = Metadata} <- mnesia:dirty_read(Tab, Cursor0)
     ],
-    {NextVals, Cursor} = session_iterator_next(mnesia:dirty_next(?session_tab, Cursor0), N - 1),
-    {ThisVal ++ NextVals, Cursor}.
+    Cursor1 = mnesia:dirty_next(Tab, Cursor0),
+    {NextVals, Cursor} = mnesia_iterator_next(Opts, Tab, Cursor1, N - 1),
+    {ThisVal ++ NextVals, Cursor};
+mnesia_iterator_next(Opts = #{values := false}, Tab, Cursor0, N) ->
+    Cursor1 = mnesia:dirty_next(Tab, Cursor0),
+    {NextVals, Cursor} = mnesia_iterator_next(Opts, Tab, Cursor1, N - 1),
+    {[Cursor0 | NextVals], Cursor}.
+
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
 

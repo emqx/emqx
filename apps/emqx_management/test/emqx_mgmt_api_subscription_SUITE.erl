@@ -126,7 +126,6 @@ t_subscription_api(Config) ->
     Meta = maps:get(<<"meta">>, Data),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
     ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
-    ?assertEqual(2, maps:get(<<"count">>, Meta), Data),
     Subscriptions = maps:get(<<"data">>, Data),
     ?assertEqual(length(Subscriptions), 2),
     Sort =
@@ -185,10 +184,7 @@ t_mixed_persistent_sessions(Config) ->
             {{_, 200, _}, _, #{
                 <<"data">> := [_, _],
                 <<"meta">> :=
-                    #{
-                        <<"hasnext">> := false,
-                        <<"count">> := 2
-                    }
+                    #{<<"hasnext">> := false}
             }}},
         get_subs(#{page => "1"})
     ),
