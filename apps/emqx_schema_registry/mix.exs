@@ -26,8 +26,8 @@ defmodule EMQXSchemaRegistry.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_rule_engine, in_umbrella: true},
-      {:erlavro, github: "emqx/erlavro", tag: "2.10.0"},
-      {:jesse, github: "emqx/jesse", tag: "1.8.0"},
+      UMP.common_dep(:erlavro),
+      UMP.common_dep(:jesse),
       UMP.common_dep(:gpb, runtime: true),
     ]
   end
