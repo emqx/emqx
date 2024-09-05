@@ -132,9 +132,14 @@ t_update_with_sensitive_data(Config) ->
             AuthHeader = <<"Bearer some_token">>,
             ConnectorCfg1 = emqx_utils_maps:deep_merge(
                 ConnectorCfg0,
-                #{<<"headers">> => #{<<"authorization">> => AuthHeader}}
+                #{
+                    <<"headers">> => #{
+                        <<"authorization">> => AuthHeader,
+                        <<"x-test-header">> => <<"from-connector">>
+                    }
+                }
             ),
-            ActionCfg = make_action_config(Config),
+            ActionCfg = make_action_config(Config, #{<<"x-test-header">> => <<"from-action">>}),
             CreateConfig = [
                 {bridge_kind, action},
                 {action_type, ?BRIDGE_TYPE},
@@ -156,7 +161,14 @@ t_update_with_sensitive_data(Config) ->
                 }
             ),
             emqx:publish(emqx_message:make(<<"t/http">>, <<"1">>)),
-            ?assertReceive({http, #{<<"authorization">> := AuthHeader}, _}),
+            ?assertReceive(
+                {http,
+                    #{
+                        <<"authorization">> := AuthHeader,
+                        <<"x-test-header">> := <<"from-action">>
+                    },
+                    _}
+            ),
 
             %% Now update the connector and see if the header stays deobfuscated.  We send the old
             %% auth header as an obfuscated value to simulate the behavior of the frontend.
@@ -165,6 +177,8 @@ t_update_with_sensitive_data(Config) ->
                 #{
                     <<"headers">> => #{
                         <<"authorization">> => Obfuscated,
+                        <<"x-test-header">> => <<"from-connector-new">>,
+                        <<"x-test-header-2">> => <<"from-connector-new">>,
                         <<"other_header">> => <<"new">>
                     }
                 }
@@ -177,8 +191,16 @@ t_update_with_sensitive_data(Config) ->
 
             emqx:publish(emqx_message:make(<<"t/http">>, <<"2">>)),
             %% Should not be obfuscated.
-            ?assertReceive({http, #{<<"authorization">> := AuthHeader}, _}, 2_000),
-
+            ?assertReceive(
+                {http,
+                    #{
+                        <<"authorization">> := AuthHeader,
+                        <<"x-test-header">> := <<"from-action">>,
+                        <<"x-test-header-2">> := <<"from-connector-new">>
+                    },
+                    _},
+                2_000
+            ),
             ok
         end,
         []
@@ -204,6 +226,9 @@ make_connector_config(Config) ->
     }.
 
 make_action_config(Config) ->
+    make_action_config(Config, _Headers = #{}).
+
+make_action_config(Config, Headers) ->
     Path = ?config(path, Config),
     #{
         <<"enable">> => true,
@@ -211,7 +236,7 @@ make_action_config(Config) ->
         <<"parameters">> => #{
             <<"path">> => Path,
             <<"method">> => <<"post">>,
-            <<"headers">> => #{},
+            <<"headers">> => Headers,
             <<"body">> => <<"${.}">>
         },
         <<"resource_opts">> => #{
