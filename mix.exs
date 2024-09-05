@@ -284,6 +284,7 @@ defmodule EMQXUmbrella.MixProject do
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.9", override: true}
   def common_dep(:crc32cer), do: {:crc32cer, "0.1.8", override: true}
+  def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.0.1"}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
