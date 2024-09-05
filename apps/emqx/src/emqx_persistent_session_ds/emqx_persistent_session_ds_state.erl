@@ -115,13 +115,6 @@
 -type message() :: emqx_types:message().
 
 -ifdef(STORE_STATE_IN_DS).
--opaque iter(K, V) :: #{
-    it := gb_trees:iter(internal_key(K), V), inv_key_mapping := #{internal_key(K) => K}
-}.
-%% END ifdef(STORE_STATE_IN_DS).
--endif.
-
--ifdef(STORE_STATE_IN_DS).
 -opaque session_iterator() :: #{its := [emqx_ds:iterator()]}.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
@@ -933,9 +926,9 @@ make_session_iterator() ->
     #{its => make_iterators(TopicFilter, ?TS)}.
 
 make_subscription_iterator() ->
-    %% NB. Same as above.
-    TopicFilter = [?session_topic_ns, '+', ?subscription_domain_bin, '+'],
-    #{its => make_iterators(TopicFilter, ?TS)}.
+    %% TODO
+    %% Better storage layout to be able to walk directly over the subscription domain.
+    make_session_iterator().
 
 make_iterators(TopicFilter, Time) ->
     lists:map(
@@ -947,43 +940,83 @@ make_iterators(TopicFilter, Time) ->
     ).
 
 session_iterator_next(Cursor, N) ->
-    domain_iterator_next(Cursor, N, []).
+    domain_iterator_next(fun msg_extract_session/1, Cursor, N, []).
 
-subscription_iterator_next(Cursor, N) ->
-    domain_iterator_next(Cursor, N, []).
+msg_extract_session(Msg) ->
+    #{session_id := Id} = Data = from_domain_msg(Msg),
+    Val = unwrap_value(Data),
+    {Id, Val}.
+
+subscription_iterator_next(Cursor0, N) ->
+    subscription_iterator_next(Cursor0, N, []).
+
+subscription_iterator_next(Cursor0, N0, Acc) ->
+    %% TODO
+    %% Better storage layout to be able to walk directly over the subscription domain.
+    case domain_iterator_next(fun msg_extract_subscriptions/1, Cursor0, 1, Acc) of
+        {[{SessionId, Subs}], Cursor1} ->
+            Subs = subscription_cursor_skip(SessionId, Subs, Cursor0),
+            case N0 - length(Subs) of
+                N when N >= 0 ->
+                    Entries = [{SessionId, S} || S <- Subs],
+                    subscription_cursor_next_page(Cursor1, N, Entries ++ Acc);
+                N when N < 0 ->
+                    Entries = [{SessionId, S} || S <- lists:sublist(Subs, N)],
+                    Cursor = subscription_cursor_update(SessionId, N, Cursor0),
+                    {lists:reverse(Entries ++ Acc), Cursor}
+            end;
+        {[], _} = EOS ->
+            EOS
+    end.
+
+subscription_cursor_skip(SessionId, Subs, #{skip := {SessionId, NSkip}}) ->
+    lists:nthtail(NSkip, Subs);
+subscription_cursor_skip(_SessionId, Subs, #{}) ->
+    Subs.
+
+subscription_cursor_update(SessionId, N, Cursor = #{skip := {SessionId, NSkip}}) ->
+    Cursor#{skip := {SessionId, NSkip + N}};
+subscription_cursor_update(SessionId, N, Cursor = #{}) ->
+    Cursor#{skip := {SessionId, N}}.
+
+subscription_cursor_next_page(Cursor = #{}, N, Acc) ->
+    subscription_iterator_next(maps:remove(skip, Cursor), N, Acc);
+subscription_cursor_next_page(Cursor = '$end_of_table', _, Acc) ->
+    {lists:reverse(Acc), Cursor}.
+
+msg_extract_subscriptions(Msg) ->
+    meta_extract_subscriptions(from_domain_msg(Msg)).
+
+meta_extract_subscriptions(#{
+    session_id := Id,
+    val := #{key_mappings := #{?subscription_domain := Subs}}
+}) ->
+    {Id, lists:sort(maps:keys(Subs))}.
 
 %% Note: ordering is not respected here.
-domain_iterator_next(#{its := [It | Rest]} = Cursor, 0, Acc) ->
+domain_iterator_next(MapF, #{its := [It | Rest]} = Cursor, 0, Acc) ->
     %% Peek the next item to detect end of table.
     case emqx_ds:next(?DB, It, 1) of
         {ok, end_of_stream} ->
-            domain_iterator_next(Cursor#{its := Rest}, 0, Acc);
+            domain_iterator_next(MapF, Cursor#{its := Rest}, 0, Acc);
         {ok, _NewIt, []} ->
-            domain_iterator_next(Cursor#{its := Rest}, 0, Acc);
+            domain_iterator_next(MapF, Cursor#{its := Rest}, 0, Acc);
         {ok, _NewIt, _Batch} ->
             {Acc, Cursor}
     end;
-domain_iterator_next(#{its := []}, _N, Acc) ->
+domain_iterator_next(_MapF, #{its := []}, _N, Acc) ->
     {Acc, '$end_of_table'};
-domain_iterator_next(#{its := [It | Rest]} = Cursor0, N, Acc) ->
+domain_iterator_next(MapF, #{its := [It | Rest]} = Cursor0, N, Acc) ->
     case emqx_ds:next(?DB, It, N) of
         {ok, end_of_stream} ->
-            domain_iterator_next(Cursor0#{its := Rest}, N, Acc);
+            domain_iterator_next(MapF, Cursor0#{its := Rest}, N, Acc);
         {ok, _NewIt, []} ->
-            domain_iterator_next(Cursor0#{its := Rest}, N, Acc);
+            domain_iterator_next(MapF, Cursor0#{its := Rest}, N, Acc);
         {ok, NewIt, Batch} ->
             NumBatch = length(Batch),
-            SessionIds = lists:map(
-                fun({_DSKey, Msg}) ->
-                    #{session_id := Id} = Data = from_domain_msg(Msg),
-                    Val = unwrap_value(Data),
-                    {Id, Val}
-                end,
-                Batch
-            ),
-            domain_iterator_next(
-                Cursor0#{its := [NewIt | Rest]}, N - NumBatch, SessionIds ++ Acc
-            )
+            Entries = [MapF(Msg) || {_DSKey, Msg} <- Batch],
+            Cursor = Cursor0#{its := [NewIt | Rest]},
+            domain_iterator_next(MapF, Cursor, N - NumBatch, Entries ++ Acc)
     end.
 
 unwrap_value(#{domain := ?metadata_domain, val := #{metadata := Metadata}}) ->
