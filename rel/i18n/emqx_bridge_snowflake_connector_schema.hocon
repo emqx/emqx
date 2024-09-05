@@ -1,0 +1,22 @@
+emqx_bridge_snowflake_connector_schema {
+  config_connector.label:
+  """Snowflake Connector Configuration"""
+  config_connector.desc:
+  """Configuration for a connector to Snowflake service."""
+
+  server.label:
+  """Server Host"""
+  server.desc:
+  """The address of Snowflake computing server to connect to."""
+
+  account.label:
+  """Account"""
+  account.desc:
+  """Account ID for Snowflake."""
+
+  dsn.label:
+  """DSN"""
+  dsn.desc:
+  """Data Source Name (DSN) associated with the installed Snowflake ODBC driver."""
+
+}

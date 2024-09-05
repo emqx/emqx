@@ -95,7 +95,9 @@
     with_failure/5,
     enable_failure/4,
     heal_failure/4,
-    reset_proxy/2
+    reset_proxy/2,
+    create_proxy/3,
+    delete_proxy/3
 ]).
 
 %% TLS certs API
@@ -1101,7 +1103,7 @@ with_mock(Mod, FnName, MockedFn, Fun) ->
 %%-------------------------------------------------------------------------------
 
 reset_proxy(ProxyHost, ProxyPort) ->
-    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/reset",
+    Url = toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/reset",
     Body = <<>>,
     {ok, {{_, 204, _}, _, _}} = httpc:request(
         post,
@@ -1133,7 +1135,7 @@ heal_failure(FailureType, Name, ProxyHost, ProxyPort) ->
     end.
 
 switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
-    Url = "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name,
+    Url = toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ Name,
     Body =
         case Switch of
             off -> #{<<"enabled">> => false};
@@ -1149,7 +1151,7 @@ switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
 
 timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
     Url =
-        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+        toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics",
     NameBin = list_to_binary(Name),
     Body = #{
@@ -1169,7 +1171,7 @@ timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
 timeout_proxy(off, Name, ProxyHost, ProxyPort) ->
     ToxicName = Name ++ "_timeout",
     Url =
-        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+        toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics/" ++ ToxicName,
     Body = <<>>,
     {ok, {{_, 204, _}, _, _}} = httpc:request(
@@ -1181,7 +1183,7 @@ timeout_proxy(off, Name, ProxyHost, ProxyPort) ->
 
 latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
     Url =
-        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+        toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics",
     NameBin = list_to_binary(Name),
     Body = #{
@@ -1204,7 +1206,7 @@ latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
 latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
     ToxicName = Name ++ "_latency_up",
     Url =
-        "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort) ++ "/proxies/" ++ Name ++
+        toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics/" ++ ToxicName,
     Body = <<>>,
     {ok, {{_, 204, _}, _, _}} = httpc:request(
@@ -1213,6 +1215,27 @@ latency_up_proxy(off, Name, ProxyHost, ProxyPort) ->
         [],
         [{body_format, binary}]
     ).
+
+create_proxy(ProxyHost, ProxyPort, Body) ->
+    Url = toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies",
+    {ok, {{_, 201, _}, _, _}} = httpc:request(
+        post,
+        {Url, [], "application/json", emqx_utils_json:encode(Body)},
+        [],
+        [{body_format, binary}]
+    ).
+
+delete_proxy(ProxyHost, ProxyPort, ProxyName) ->
+    Url = toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ ProxyName,
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        delete,
+        {Url, []},
+        [],
+        [{body_format, binary}]
+    ).
+
+toxiproxy_base_uri(ProxyHost, ProxyPort) ->
+    "http://" ++ ProxyHost ++ ":" ++ integer_to_list(ProxyPort).
 
 %%-------------------------------------------------------------------------------
 %% TLS certs

@@ -1,0 +1,26 @@
+{application, emqx_bridge_snowflake, [
+    {description, "EMQX Enterprise Snowflake Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        odbc,
+        gproc,
+        ecpool,
+        ehttpc,
+        emqx_resource,
+        emqx_connector_jwt
+    ]},
+    {env, [
+        {emqx_action_info_modules, [
+            emqx_bridge_snowflake_action_info
+        ]},
+        {emqx_connector_info_modules, [
+            emqx_bridge_snowflake_connector_info
+        ]}
+    ]},
+    {mod, {emqx_bridge_snowflake_app, []}},
+    {modules, []},
+    {links, []}
+]}.

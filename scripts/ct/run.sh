@@ -39,7 +39,8 @@ ONLY_UP='no'
 ATTACH='no'
 STOP='no'
 IS_CI='no'
-ODBC_REQUEST='no'
+SQLSERVER_ODBC_REQUEST='no'
+SNOWFLAKE_ODBC_REQUEST='no'
 UP='up'
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -207,7 +208,7 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-cassandra.yaml' )
             ;;
         sqlserver)
-            ODBC_REQUEST='yes'
+            SQLSERVER_ODBC_REQUEST='yes'
             FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
             ;;
         opents)
@@ -247,21 +248,29 @@ for dep in ${CT_DEPS}; do
         otel)
             FILES+=( '.ci/docker-compose-file/docker-compose-otel.yaml' )
             ;;
-	    elasticsearch)
-	        FILES+=( '.ci/docker-compose-file/docker-compose-elastic-search-tls.yaml' )
-	        ;;
-	    azurite)
-	        FILES+=( '.ci/docker-compose-file/docker-compose-azurite.yaml' )
-	        ;;
-	    couchbase)
-	        FILES+=( '.ci/docker-compose-file/docker-compose-couchbase.yaml' )
-	        ;;
-	    kdc)
-	        FILES+=( '.ci/docker-compose-file/docker-compose-kdc.yaml' )
-	        ;;
+        elasticsearch)
+            FILES+=( '.ci/docker-compose-file/docker-compose-elastic-search-tls.yaml' )
+            ;;
+        azurite)
+            FILES+=( '.ci/docker-compose-file/docker-compose-azurite.yaml' )
+            ;;
+        couchbase)
+            FILES+=( '.ci/docker-compose-file/docker-compose-couchbase.yaml' )
+            ;;
+        kdc)
+            FILES+=( '.ci/docker-compose-file/docker-compose-kdc.yaml' )
+            ;;
         datalayers)
             FILES+=( '.ci/docker-compose-file/docker-compose-datalayers-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-datalayers-tls.yaml' )
+            ;;
+        snowflake)
+            if [[ -z "${SNOWFLAKE_ACCOUNT_ID:-}" ]]; then
+                echo "Snowflake environment requested, but SNOWFLAKE_ACCOUNT_ID is undefined"
+                echo "Will NOT install Snowflake's ODBC drivers"
+            else
+                SNOWFLAKE_ODBC_REQUEST='yes'
+            fi
             ;;
         *)
             echo "unknown_ct_dependency $dep"
@@ -270,10 +279,16 @@ for dep in ${CT_DEPS}; do
     esac
 done
 
-if [ "$ODBC_REQUEST" = 'yes' ]; then
-    INSTALL_ODBC="./scripts/install-msodbc-driver.sh"
+if [ "$SQLSERVER_ODBC_REQUEST" = 'yes' ]; then
+    INSTALL_SQLSERVER_ODBC="./scripts/install-msodbc-driver.sh"
 else
-    INSTALL_ODBC="echo 'msodbc driver not requested'"
+    INSTALL_SQLSERVER_ODBC="echo 'msodbc driver not requested'"
+fi
+
+if [ "$SNOWFLAKE_ODBC_REQUEST" = 'yes' ]; then
+    INSTALL_SNOWFLAKE_ODBC="./scripts/install-snowflake-driver.sh"
+else
+    INSTALL_SNOWFLAKE_ODBC="echo 'snowflake driver not requested'"
 fi
 
 for file in "${FILES[@]}"; do
@@ -310,15 +325,18 @@ fi
 
 if [ "$DOCKER_USER" != "root" ]; then
     # the user must exist inside the container for `whoami` to work
-    docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c \
-          "useradd --uid $DOCKER_USER -M -d / emqx && \
-           mkdir -p /.cache /.hex /.mix && \
-           chown $DOCKER_USER /.cache /.hex /.mix && \
-           openssl rand -base64 -hex 16 > /.erlang.cookie && \
-           chown $DOCKER_USER /.erlang.cookie && \
-           chmod 0400 /.erlang.cookie && \
-           chown -R $DOCKER_USER /var/lib/secret && \
-           $INSTALL_ODBC" || true
+  docker exec -i $TTY -u root:root \
+         -e "SFACCOUNT=${SFACCOUNT:-myorg-myacc}" \
+         "$ERLANG_CONTAINER" bash -c \
+         "useradd --uid $DOCKER_USER -M -d / emqx || true && \
+          mkdir -p /.cache /.hex /.mix && \
+          chown $DOCKER_USER /.cache /.hex /.mix && \
+          openssl rand -base64 -hex 16 > /.erlang.cookie && \
+          chown $DOCKER_USER /.erlang.cookie && \
+          chmod 0400 /.erlang.cookie && \
+          chown -R $DOCKER_USER /var/lib/secret && \
+          $INSTALL_SQLSERVER_ODBC && \
+          $INSTALL_SNOWFLAKE_ODBC" || true
 fi
 
 if [ "$ONLY_UP" = 'yes' ]; then

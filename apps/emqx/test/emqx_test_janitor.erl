@@ -91,7 +91,7 @@ do_terminate(Callbacks) ->
                 Failed
             catch
                 K:E:S ->
-                    ct:pal("error executing callback ~p: ~p", [Fun, {K, E}]),
+                    ct:pal("error executing callback ~p:\n  ~p", [Fun, {K, E}]),
                     ct:pal("stacktrace: ~p", [S]),
                     [Fun | Failed]
             end
