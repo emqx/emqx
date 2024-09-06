@@ -2,25 +2,40 @@
 
 set -euo pipefail
 
-## This starts two nodes on the same host (not in docker).
-## The listener ports are shifted with an offset to avoid clashing.
-## The data and log directories are configured to use ./tmp/
+## Starts tow nodes named emqx1@127.0.1 and emqx2@127.0.0.2 on the same host.
+## The data and log directories are configured to use $DATADIR/emqx{1,2},
+## where DATADIR is by default ./tmp.
 
-## By default, the boot script is ./_build/emqx/rel/emqx
-## it can be overriden with arg1 and arg2 for the two nodes respectfully
-
-# ensure dir
-cd -P -- "$(dirname -- "$0")/../../"
-
-help() {
-    echo
-    echo "-h|--help: To display this usage info"
-    echo "-b|--boots: boot scripts, comma separate if more than one"
-    echo "            default is ./_build/emqx/rel/emqx/bin/emqx"
-    echo "-r|--roles: node (db) roles, comma separate"
+logerr() {
+    if [ "${TERM:-dumb}" = dumb ]; then
+        echo -e "ERROR: $*" 1>&2
+    else
+        echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)" 1>&2
+    fi
 }
 
-BOOT='./_build/emqx/rel/emqx/bin/emqx'
+help() {
+    echo ""
+    echo "Start a 2-node cluster in one host, node names are emqx1@127.0.1 and emqx2@127.0.0.2"
+    echo ""
+    echo "-h|--help: To display this usage info."
+    echo "-b|--boots: Optional, default is ./_build/emqx/rel/emqx/bin/emqx"
+    echo "            If it is not found in _build dir, the 'which emqx' command output is used"
+    echo "            Supports multiple commands, one for each node, separate with a comma."
+    echo "-r|--roles: Optional, node (db) roles, comma separate."
+    echo "            Default is 'core' for both."
+    echo "-d|--data:  Optional, base dirs for node data and log directories."
+    echo "            Nodes will save data to ./tmp/emqx1 and ./tmp/emqx2"
+    echo "            Default is './tmp'"
+}
+
+BUILT_BOOT='./_build/emqx/rel/emqx/bin/emqx'
+if [ -f "$BUILT_BOOT" ]; then
+    DEFAULT_BOOT="$BUILT_BOOT"
+else
+    DEFAULT_BOOT="$(which emqx || true)"
+fi
+DATADIR="$(pwd)/tmp"
 ROLES='core,core'
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -36,12 +51,25 @@ while [ "$#" -gt 0 ]; do
             ROLES="$2"
             shift 2
             ;;
+        -d|--data)
+            DATADIR="$2"
+            shift 2
+            ;;
         *)
             echo "unknown option $1"
             exit 1
             ;;
     esac
 done
+
+if [ -z "${BOOT:-}" ]; then
+    if [ -z "${DEFAULT_BOOT}" ]; then
+        help
+        logerr "Missing -b|--boots option."
+        exit 1
+    fi
+    BOOT="${DEFAULT_BOOT}"
+fi
 
 BOOT1="$(echo "$BOOT" | cut -d ',' -f1)"
 BOOT2="$(echo "$BOOT" | cut -d ',' -f2)"
@@ -70,10 +98,12 @@ else
 fi
 export SEEDS
 
+export DATADIR
+
 start_cmd() {
     local index="$1"
     local nodehome
-    nodehome="$(pwd)/tmp/emqx${index}"
+    nodehome="${DATADIR}/emqx${index}"
     [ "$index" -eq 1 ] && BOOT_SCRIPT="$BOOT1"
     [ "$index" -eq 2 ] && BOOT_SCRIPT="$BOOT2"
     mkdir -p "${nodehome}/data" "${nodehome}/log"

@@ -38,22 +38,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: create new branch
+      - name: merge and create PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euxo pipefail
+          DIFF=$(git rev-list --count HEAD...origin/${SYNC_BRANCH})
+          if [ $DIFF -eq 0 ]; then
+            echo "No changes in ${SYNC_BRANCH}"
+            exit 0
+          fi
           NEW_BRANCH_NAME=sync-${SYNC_BRANCH}-$(date +"%Y%m%d-%H%M%S")
-          echo "NEW_BRANCH_NAME=${NEW_BRANCH_NAME}" >> $GITHUB_ENV
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git checkout -b ${NEW_BRANCH_NAME}
           git merge origin/${SYNC_BRANCH} 2>&1 | tee merge.log
           git push origin ${NEW_BRANCH_NAME}:${NEW_BRANCH_NAME}
 
-      - name: create pull request
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euxo pipefail
           for pr in $(gh pr list --state open --base master --label sync-release-branch --search "Sync ${SYNC_BRANCH} in:title" --repo ${{ github.repository }} --json number --jq '.[] | .number'); do
             gh pr close $pr --repo ${{ github.repository }} --delete-branch || true
           done

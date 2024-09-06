@@ -43,7 +43,11 @@ priorityClassName:
 
 clusterDomain: cluster.local
 
+## Custom annotations to be added to the pods
 podAnnotations: {}
+
+## Custom labels to be added to the pods
+podLabels: {}
 
 # Pod deployment policy
 # value: OrderedReady | Parallel

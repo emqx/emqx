@@ -702,3 +702,63 @@ t_max_block_size_direct_transfer(Config) ->
         emqx_resource:simple_sync_query(ResourceId, Message)
     ),
     ok.
+
+%% Checks that account keys that are not base64 encoded return a friendly error.
+t_bad_account_key(Config) ->
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"bad account key">>
+                    }
+                }},
+                emqx_bridge_v2_testlib:simplify_result(
+                    emqx_bridge_v2_testlib:create_connector_api(
+                        Config,
+                        #{<<"account_key">> => <<"aaa">>}
+                    )
+                )
+            ),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"bad account key">>
+                    }
+                }},
+                emqx_bridge_v2_testlib:simplify_result(
+                    emqx_bridge_v2_testlib:probe_connector_api(
+                        Config,
+                        #{<<"account_key">> => <<"aaa">>}
+                    )
+                )
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that account names that are non-existent return a friendly error.
+t_bad_account_name(Config) ->
+    ConnectorConfig0 = ?config(connector_config, Config),
+    ConnectorConfig = maps:remove(<<"endpoint">>, ConnectorConfig0),
+    ?check_trace(
+        begin
+            Res0 = emqx_bridge_v2_testlib:simplify_result(
+                emqx_bridge_v2_testlib:probe_connector_api(
+                    [{connector_config, ConnectorConfig} | Config],
+                    #{<<"account_name">> => <<"idontexistzzzzzaa">>}
+                )
+            ),
+            ?assertMatch({400, #{<<"message">> := _}}, Res0),
+            {400, #{<<"message">> := Msg}} = Res0,
+            ?assertEqual(match, re:run(Msg, <<"failed_connect">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Msg, <<"nxdomain">>, [{capture, none}])),
+            ok
+        end,
+        []
+    ),
+    ok.

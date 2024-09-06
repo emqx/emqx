@@ -988,6 +988,8 @@ t_consume(Config, Opts) ->
     ok.
 
 t_create_via_http(Config) ->
+    t_create_via_http(Config, false).
+t_create_via_http(Config, IsOnlyV2) ->
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
@@ -1000,10 +1002,11 @@ t_create_via_http(Config) ->
             ),
 
             %% check that v1 list API is fine
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, _}},
-                list_bridges_http_api_v1()
-            ),
+            (not IsOnlyV2) andalso
+                ?assertMatch(
+                    {ok, {{_, 200, _}, _, _}},
+                    list_bridges_http_api_v1()
+                ),
 
             ok
         end,

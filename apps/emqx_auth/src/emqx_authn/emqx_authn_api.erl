@@ -1296,7 +1296,7 @@ serialize_error(unsupported_operation) ->
 serialize_error({bad_ssl_config, Details}) ->
     {400, #{
         code => <<"BAD_REQUEST">>,
-        message => binfmt("bad_ssl_config ~p", [Details])
+        message => binfmt("bad_ssl_config ~0p", [Details])
     }};
 serialize_error({missing_parameter, Detail}) ->
     {400, #{

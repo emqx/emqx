@@ -43,6 +43,9 @@ spec:
   template:
     metadata:
       labels:
+      {{- with .Values.podLabels }}
+          {{- toYaml . | nindent 8 }}
+      {{- end }}
         app: {{ include "emqx.name" . }}
         version: {{ .Chart.AppVersion }}
         app.kubernetes.io/name: {{ include "emqx.name" . }}

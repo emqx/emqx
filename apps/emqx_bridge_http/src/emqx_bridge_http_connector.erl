@@ -843,7 +843,19 @@ formalize_request(_Method, BasePath, {Path, Headers}) ->
 %%
 %% See also: `join_paths_test_/0`
 join_paths(Path1, Path2) ->
-    [without_trailing_slash(Path1), $/, without_starting_slash(Path2)].
+    case is_start_with_question_mark(Path2) of
+        true ->
+            [Path1, Path2];
+        false ->
+            [without_trailing_slash(Path1), $/, without_starting_slash(Path2)]
+    end.
+
+is_start_with_question_mark([$? | _]) ->
+    true;
+is_start_with_question_mark(<<$?, _/binary>>) ->
+    true;
+is_start_with_question_mark(_) ->
+    false.
 
 without_starting_slash(Path) ->
     case do_without_starting_slash(Path) of
@@ -1072,7 +1084,10 @@ join_paths_test_() ->
         ?_assert(iolists_equal("/cde", join_paths("/", "cde"))),
         ?_assert(iolists_equal("/cde", join_paths("/", "/cde"))),
         ?_assert(iolists_equal("//cde/", join_paths("/", "//cde/"))),
-        ?_assert(iolists_equal("abc///cde/", join_paths("abc//", "//cde/")))
+        ?_assert(iolists_equal("abc///cde/", join_paths("abc//", "//cde/"))),
+        ?_assert(iolists_equal("abc?v=1", join_paths("abc", "?v=1"))),
+        ?_assert(iolists_equal("abc?v=1", join_paths("abc", <<"?v=1">>))),
+        ?_assert(iolists_equal("abc/?v=1", join_paths("abc/", <<"?v=1">>)))
     ].
 
 -endif.

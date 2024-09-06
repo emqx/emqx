@@ -2000,3 +2000,44 @@ t_dryrun_transformation(_Config) ->
         []
     ),
     ok.
+
+%% Verifies that if a transformation's decoder is fed a non-binary input (e.g.:
+%% `undefined'), it returns a friendly message.
+t_non_binary_input_for_decoder(_Config) ->
+    ?check_trace(
+        begin
+            %% The transformations set up here lead to an invalid input payload for the
+            %% second transformation: `payload = undefined' (an atom) after the first
+            %% transformation.
+            Name1 = <<"foo">>,
+            Operations1 = [operation(payload, <<"flags.dup">>)],
+            NoSerde = #{<<"type">> => <<"none">>},
+            Transformation1 = transformation(Name1, Operations1, #{
+                <<"payload_decoder">> => NoSerde,
+                <<"payload_encoder">> => NoSerde
+            }),
+            Name2 = <<"bar">>,
+            Operations2 = [],
+            JSONSerde = #{<<"type">> => <<"json">>},
+            Transformation2 = transformation(Name2, Operations2, #{
+                <<"payload_decoder">> => JSONSerde,
+                <<"payload_encoder">> => JSONSerde
+            }),
+            {201, _} = insert(Transformation1),
+            {201, _} = insert(Transformation2),
+
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+            ok = publish(C, <<"t/1">>, #{x => 1, y => true}),
+            ?assertNotReceive({publish, _}),
+
+            ok
+        end,
+        fun(Trace) ->
+            SubTrace = ?of_kind(message_transformation_failed, Trace),
+            ?assertMatch([], [E || E = #{reason := function_clause} <- SubTrace]),
+            ?assertMatch([#{reason := <<"payload must be a binary">>} | _], SubTrace),
+            ok
+        end
+    ),
+    ok.

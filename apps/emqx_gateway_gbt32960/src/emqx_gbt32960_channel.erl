@@ -271,7 +271,7 @@ handle_in(Frame = #frame{cmd = Cmd}, Channel = #channel{inflight = Inflight}) ->
     _ = upstreaming(Frame, NChannel),
     {ok, [{outgoing, Outgoings}], NChannel};
 handle_in(Frame, Channel) ->
-    log(warning, #{msg => "unexcepted_frame", frame => Frame}, Channel),
+    log(warning, #{msg => "unexpected_frame", frame => Frame}, Channel),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------

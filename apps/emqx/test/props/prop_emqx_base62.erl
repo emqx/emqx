@@ -75,4 +75,4 @@ base62_size(Data, Encoded) ->
 %%--------------------------------------------------------------------
 
 raw_data() ->
-    oneof([integer(), string(), binary()]).
+    oneof([string(), binary()]).

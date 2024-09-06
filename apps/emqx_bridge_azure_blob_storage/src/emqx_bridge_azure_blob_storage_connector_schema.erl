@@ -60,6 +60,8 @@ fields(connector_config) ->
         {account_key,
             emqx_schema_secret:mk(
                 #{
+                    required => true,
+                    validator => fun account_key_validator/1,
                     desc => ?DESC("account_key")
                 }
             )},
@@ -140,3 +142,12 @@ connector_example(put) ->
 %%------------------------------------------------------------------------------
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+account_key_validator(Val) ->
+    try
+        _ = base64:decode(emqx_secret:unwrap(Val)),
+        ok
+    catch
+        _:_ ->
+            {error, <<"bad account key">>}
+    end.

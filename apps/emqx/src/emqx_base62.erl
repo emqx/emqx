@@ -27,9 +27,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Encode any data to base62 binary
--spec encode(string() | integer() | binary()) -> binary().
-encode(I) when is_integer(I) ->
-    encode(integer_to_binary(I));
+-spec encode(string() | binary()) -> binary().
 encode(S) when is_list(S) ->
     encode(unicode:characters_to_binary(S));
 encode(B) when is_binary(B) ->

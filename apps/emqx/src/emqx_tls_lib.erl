@@ -353,7 +353,7 @@ ensure_ssl_files_per_key(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
         {ok, NewSSL} ->
             ensure_ssl_files_per_key(Dir, NewSSL, KeyPaths, Opts);
         {error, Reason} ->
-            {error, Reason#{which_options => [KeyPath]}}
+            {error, Reason#{which_option => format_key_path(KeyPath)}}
     end.
 
 ensure_ssl_file(_Dir, _KeyPath, SSL, undefined, _Opts) ->
@@ -392,13 +392,10 @@ do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun) ->
             case is_valid_pem_file(MaybePem) of
                 true ->
                     {ok, SSL};
-                {error, enoent} when DryRun ->
+                {error, #{pem_check := enoent}} when DryRun ->
                     {ok, SSL};
                 {error, Reason} ->
-                    {error, #{
-                        pem_check => invalid_pem,
-                        file_read => Reason
-                    }}
+                    {error, Reason}
             end
     end.
 
@@ -476,10 +473,28 @@ is_hex_str(Str) ->
 %% @doc Returns 'true' when the file is a valid pem, otherwise {error, Reason}.
 is_valid_pem_file(Path0) ->
     Path = resolve_cert_path_for_read(Path0),
-    case file:read_file(Path) of
-        {ok, Pem} -> is_pem(Pem) orelse {error, not_pem};
-        {error, Reason} -> {error, Reason}
+    case is_valid_filename(Path) of
+        true ->
+            case file:read_file(Path) of
+                {ok, Pem} ->
+                    case is_pem(Pem) of
+                        true ->
+                            true;
+                        false ->
+                            {error, #{pem_check => not_pem, file_path => Path}}
+                    end;
+                {error, Reason} ->
+                    {error, #{pem_check => Reason, file_path => Path}}
+            end;
+        false ->
+            %% do not report path because the content can be huge
+            {error, #{pem_check => not_pem, file_path => not_file_path}}
     end.
+
+%% no controle chars 0-31
+%% the input is always string for this function
+is_valid_filename(Path) ->
+    lists:all(fun(C) -> C >= 32 end, Path).
 
 %% @doc Input and output are both HOCON-checked maps, with invalid SSL
 %% file options dropped.
@@ -711,9 +726,20 @@ ensure_ssl_file_key(SSL, RequiredKeyPaths) ->
         end
     end,
     case lists:filter(Filter, RequiredKeyPaths) of
-        [] -> ok;
-        Miss -> {error, #{reason => ssl_file_option_not_found, which_options => Miss}}
+        [] ->
+            ok;
+        MissingL ->
+            {error, #{
+                reason => ssl_file_option_not_found,
+                missing_options => format_key_paths(MissingL)
+            }}
     end.
+
+format_key_paths(Paths) ->
+    lists:map(fun format_key_path/1, Paths).
+
+format_key_path(Path) ->
+    iolist_to_binary(lists:join(".", [ensure_bin(S) || S <- Path])).
 
 -spec maybe_inject_ssl_fun(root_fun | verify_fun, map()) -> map().
 maybe_inject_ssl_fun(FunName, SslOpts) ->
