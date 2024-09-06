@@ -24,6 +24,12 @@ metrics_actions_failed_unknown.desc:
 metrics_actions_failed_unknown.label:
 """Unknown Failures"""
 
+metrics_actions_discarded.desc:
+"""The number of discarded actions due to action is disabled or race condition while action is being deleted."""
+
+metrics_actions_discarded.label:
+"""Discarded"""
+
 event_server.desc:
 """The IP address (or hostname) and port of the MQTT broker, in IP:Port format"""
 
