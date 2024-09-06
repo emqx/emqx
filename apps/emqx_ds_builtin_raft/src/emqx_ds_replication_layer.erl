@@ -921,10 +921,15 @@ apply(
     ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => OperationsIn, latest => Latest0}),
     Preconditions = maps:get(?batch_preconditions, Command, []),
     {Stats, Latest, Operations} = assign_timestamps(DB, Latest0, OperationsIn),
+    DispatchF = fun(Events) ->
+        emqx_ds_beamformer:shard_event({DB, Shard}, Events)
+    end,
     %% FIXME
     case emqx_ds_precondition:verify(emqx_ds_storage_layer, DBShard, Preconditions) of
         ok ->
-            Result = emqx_ds_storage_layer:store_batch(DBShard, Operations, #{durable => false}),
+            Result = emqx_ds_storage_layer:store_batch(
+                DBShard, Operations, #{durable => false}, DispatchF
+            ),
             State = State0#{latest := Latest},
             set_ts(DBShard, Latest),
             Effects = try_release_log(Stats, RaftMeta, State);
