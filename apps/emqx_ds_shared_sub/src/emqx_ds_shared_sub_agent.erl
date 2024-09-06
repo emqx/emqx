@@ -115,12 +115,21 @@ open(TopicSubscriptions, Opts) ->
 can_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
     case ?dq_config(enable) of
         true ->
-            case emqx_ds_shared_sub_queue:exists(Group, Topic) of
-                true ->
+            %% TODO: Weird to have side effects in function with this name.
+            TS = emqx_message:timestamp_now(),
+            case emqx_ds_shared_sub_queue:declare(Group, Topic, TS, _StartTime = TS) of
+                {ok, _} ->
                     ok;
-                false ->
-                    %% TODO: These refusals are logged as warnings.
-                    {error, ?RC_TOPIC_FILTER_INVALID}
+                exists ->
+                    ok;
+                {error, Class, Reason} ->
+                    ?tp(warning, "Shared queue declare failed", #{
+                        group => Group,
+                        topic => Topic,
+                        class => Class,
+                        reason => Reason
+                    }),
+                    {error, ?RC_UNSPECIFIED_ERROR}
             end;
         false ->
             {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}
