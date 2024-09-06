@@ -75,8 +75,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
 
   defp resolve_apps() do
     base_apps = MapSet.new([:erts, :crypto])
-    # excluded_apps = MapSet.new([:elixir])
-    excluded_apps = MapSet.new()
+    excluded_apps = MapSet.new([:emqx_mix_utils])
     acc = %{
       umbrella_apps: [],
       dep_apps: base_apps

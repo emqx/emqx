@@ -15,6 +15,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("erlazure/include/erlazure.hrl").
 -include("../src/emqx_bridge_azure_blob_storage.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(ACCOUNT_NAME_BIN, <<"devstoreaccount1">>).
 -define(ACCOUNT_KEY_BIN, <<
@@ -523,78 +524,49 @@ t_aggreg_upload_restart(Config) ->
 %% so while preserving uncompromised data.
 t_aggreg_upload_restart_corrupted(Config) ->
     ActionName = ?config(action_name, Config),
-    AggregId = aggreg_id(ActionName),
     BatchSize = ?CONF_MAX_RECORDS div 2,
-    ?check_trace(
-        #{timetrap => timer:seconds(30)},
-        begin
-            %% Create a bridge with the sample configuration.
-            ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
-            {ok, _Rule} =
-                emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
-                        sql => <<
-                            "SELECT"
-                            "  *,"
-                            "  strlen(payload) as psize,"
-                            "  unix_ts_to_rfc3339(publish_received_at, 'millisecond') as publish_received_at"
-                            "  FROM 'abs/#'"
-                        >>
-                    }
-                ),
-            Messages1 = [
+    Opts = #{
+        aggreg_id => aggreg_id(ActionName),
+        batch_size => BatchSize,
+        rule_sql => <<
+            "SELECT"
+            "  *,"
+            "  strlen(payload) as psize,"
+            "  unix_ts_to_rfc3339(publish_received_at, 'millisecond') as publish_received_at"
+            "  FROM 'abs/#'"
+        >>,
+        make_message_fn => fun(N) ->
+            mk_message(
                 {integer_to_binary(N), <<"abs/a/b/c">>, <<"{\"hello\":\"world\"}">>}
-             || N <- lists:seq(1, BatchSize)
-            ],
-            %% Ensure that they span multiple batch queries.
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    publish_messages_delayed(lists:map(fun mk_message/1, Messages1), 1),
-                    #{?snk_kind := connector_aggreg_records_written, action := AggregId}
-                ),
-            ct:pal("first batch's records have been written"),
-
-            %% Find out the buffer file.
-            {ok, #{filename := Filename}} = ?block_until(
-                #{?snk_kind := connector_aggreg_buffer_allocated, action := AggregId}
-            ),
-            ct:pal("new buffer allocated"),
-
-            %% Stop the bridge, corrupt the buffer file, and restart the bridge.
-            {ok, {{_, 204, _}, _, _}} = emqx_bridge_v2_testlib:disable_kind_http_api(Config),
-            BufferFileSize = filelib:file_size(Filename),
-            ok = emqx_connector_aggregator_test_helpers:truncate_at(Filename, BufferFileSize div 2),
-            {ok, {{_, 204, _}, _, _}} = emqx_bridge_v2_testlib:enable_kind_http_api(Config),
-
-            %% Send some more messages.
-            Messages2 = [
-                {integer_to_binary(N), <<"abs/a/b/c">>, <<"{\"hello\":\"world\"}">>}
-             || N <- lists:seq(1, BatchSize)
-            ],
-            ok = publish_messages_delayed(lists:map(fun mk_message/1, Messages2), 1),
-            ct:pal("published second batch"),
-
-            %% Wait until the delivery is completed.
-            {ok, _} = ?block_until(#{
-                ?snk_kind := connector_aggreg_delivery_completed, action := AggregId
-            }),
-            ct:pal("delivery completed"),
-
-            %% Check that upload contains part of the first batch and all of the second batch.
+            )
+        end,
+        message_check_fn => fun(Context) ->
+            #{
+                messages_before := Messages1,
+                messages_after := Messages2
+            } = Context,
             [#cloud_blob{name = BlobName}] = list_blobs(Config),
             {ok, CSV = [_Header | Rows]} = erl_csv:decode(get_blob(BlobName, Config)),
             NRows = length(Rows),
             ?assert(NRows > BatchSize, CSV),
+            Expected = [
+                {ClientId, Topic, Payload}
+             || #message{
+                    from = ClientId,
+                    topic = Topic,
+                    payload = Payload
+                } <- lists:sublist(Messages1, NRows - BatchSize) ++ Messages2
+            ],
             ?assertEqual(
-                lists:sublist(Messages1, NRows - BatchSize) ++ Messages2,
+                Expected,
                 [{ClientID, Topic, Payload} || [_TS, ClientID, Topic, Payload | _] <- Rows],
                 CSV
             ),
 
             ok
-        end,
-        []
-    ),
+        end
+    },
+    emqx_bridge_v2_testlib:t_aggreg_upload_restart_corrupted(Config, Opts),
     ok.
 
 %% This test verifies that the bridge will finish uploading a buffer file after a restart.

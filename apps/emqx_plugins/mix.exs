@@ -22,6 +22,9 @@ defmodule EMQXPlugins.MixProject do
   end
 
   def deps() do
-    [{:emqx, in_umbrella: true}, {:erlavro, github: "emqx/erlavro", tag: "2.10.0"}]
+    [
+      {:emqx, in_umbrella: true},
+      UMP.common_dep(:erlavro),
+    ]
   end
 end

@@ -366,11 +366,6 @@ get_all_rows(Scope, Collection, Config) ->
             Resp
     end.
 
-proplist_update(Proplist, K, Fn) ->
-    {K, OldV} = lists:keyfind(K, 1, Proplist),
-    NewV = Fn(OldV),
-    lists:keystore(K, 1, Proplist, {K, NewV}).
-
 pre_publish_fn(Scope, Collection, Config) ->
     fun(Context) ->
         ensure_scope(Scope, Config),
@@ -417,7 +412,7 @@ t_rule_action(Config) ->
 
 %% batch is not yet supported
 skip_t_rule_action_batch(Config0) ->
-    Config = proplist_update(Config0, action_config, fun(ActionConfig) ->
+    Config = emqx_bridge_v2_testlib:proplist_update(Config0, action_config, fun(ActionConfig) ->
         emqx_utils_maps:deep_merge(
             ActionConfig,
             #{
