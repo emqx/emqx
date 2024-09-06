@@ -76,7 +76,7 @@ declare_queue(Group, Topic, Config) ->
 destroy_queue(Config) ->
     Group = proplists:get_value(queue_group, Config),
     Topic = proplists:get_value(queue_topic, Config),
-    ok = emqx_ds_shared_sub_queue:destroy(Group, Topic).
+    emqx_ds_shared_sub_queue:destroy(Group, Topic).
 
 t_lease_initial('init', Config) ->
     declare_queue(<<"gr1">>, <<"topic1/#">>, Config);
@@ -125,6 +125,40 @@ t_declare_triggers_persistence(_Config) ->
     ?assertReceive({publish, #{payload := <<"hello3">>}}, 5_000),
 
     ok = emqtt:disconnect(ConnShared),
+    ok = emqtt:disconnect(ConnPub).
+
+t_destroy_queue_live_clients('init', Config) ->
+    declare_queue(<<"dqlc">>, <<"t1337/#">>, Config);
+t_destroy_queue_live_clients('end', Config) ->
+    destroy_queue(Config).
+
+t_destroy_queue_live_clients(Config) ->
+    ConnPub = emqtt_connect_pub(<<"client_pub">>),
+
+    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
+    ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/dqlc/t1337/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/dqlc/t1337/#">>, 1),
+
+    {ok, _} = emqtt:publish(ConnPub, <<"t1337/1">>, <<"hello1">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t1337/2">>, <<"hello2">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t1337/3/4">>, <<"hello3">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t1337/5/6">>, <<"hello4">>, 1),
+
+    ?assertReceive({publish, #{payload := <<"hello1">>}}, 5_000),
+    ?assertReceive({publish, #{payload := <<"hello2">>}}, 1_000),
+    ?assertReceive({publish, #{payload := <<"hello3">>}}, 1_000),
+    ?assertReceive({publish, #{payload := <<"hello4">>}}, 1_000),
+
+    ok = destroy_queue(Config),
+
+    %% No more published after the queue was destroyed.
+    {ok, _} = emqtt:publish(ConnPub, <<"t1337/1">>, <<"hello5">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t1337/2">>, <<"hello6">>, 1),
+    ?assertNotReceive({publish, #{payload := _}}, 5_000),
+
+    ok = emqtt:disconnect(ConnShared1),
+    ok = emqtt:disconnect(ConnShared2),
     ok = emqtt:disconnect(ConnPub).
 
 t_two_clients('init', Config) ->

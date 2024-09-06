@@ -70,6 +70,8 @@ start_elector(ShareTopic) ->
         shutdown => 5000
     }).
 
+%%------------------------------------------------------------------------------
+
 -spec purge() -> ok.
 purge() ->
     Children = supervisor:which_children(?MODULE),

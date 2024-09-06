@@ -184,6 +184,8 @@ handle_event({timeout, #renew_leader_claim{}}, #renew_leader_claim{}, ?leader_ac
         Data1 = #{} ->
             Actions = init_claim_renewal(Data1),
             {keep_state, Data1, Actions};
+        {stop, Reason} ->
+            {stop, {shutdown, Reason}};
         Error ->
             {stop, Error}
     end;
@@ -267,15 +269,24 @@ renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leade
         {ok, RenewedClaim, CommittedStore} ->
             ?tp(shared_sub_leader_store_committed, #{
                 id => ShareTopicFilter,
-                store => emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
+                store => emqx_ds_shared_sub_store:id(CommittedStore),
                 claim => Claim,
                 renewed => RenewedClaim
             }),
             attach_claim(RenewedClaim, Data#{store := CommittedStore});
+        destroyed ->
+            %% NOTE
+            %% Not doing anything under the assumption that destroys happen long after
+            %% clients are gone and leaders are dead.
+            ?tp(warning, "Shared subscription leader store destroyed", #{
+                id => ShareTopicFilter,
+                store => emqx_ds_shared_sub_store:id(Store0)
+            }),
+            {stop, shared_subscription_destroyed};
         {error, Class, Reason} = Error ->
             ?tp(warning, "Shared subscription leader store commit failed", #{
                 id => ShareTopicFilter,
-                store => emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
+                store => emqx_ds_shared_sub_store:id(Store0),
                 claim => Claim,
                 reason => Reason
             }),

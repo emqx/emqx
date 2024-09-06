@@ -10,18 +10,19 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-define(DESC_NOT_FOUND, <<"Queue not found">>).
 -define(RESP_NOT_FOUND,
-    {404, #{
-        code => <<"NOT_FOUND">>,
-        message => <<"Queue not found">>
-    }}
+    {404, #{code => <<"NOT_FOUND">>, message => ?DESC_NOT_FOUND}}
 ).
 
+-define(DESC_CREATE_CONFICT, <<"Queue with given group name and topic filter already exists">>).
 -define(RESP_CREATE_CONFLICT,
-    {409, #{
-        code => <<"CONFLICT">>,
-        message => <<"Queue with given group name and topic filter already exists">>
-    }}
+    {409, #{code => <<"CONFLICT">>, message => ?DESC_CREATE_CONFICT}}
+).
+
+-define(DESC_DELETE_CONFLICT, <<"Queue is currently active">>).
+-define(RESP_DELETE_CONFLICT,
+    {409, #{code => <<"CONFLICT">>, message => ?DESC_DELETE_CONFLICT}}
 ).
 
 -define(RESP_INTERNAL_ERROR(MSG),
@@ -63,8 +64,6 @@ paths() ->
         "/durable_queues/:id"
     ].
 
--define(NOT_FOUND, 'NOT_FOUND').
-
 schema("/durable_queues") ->
     #{
         'operationId' => '/durable_queues',
@@ -88,7 +87,8 @@ schema("/durable_queues") ->
                 201 => emqx_dashboard_swagger:schema_with_example(
                     durable_queue_get(),
                     durable_queue_get_example()
-                )
+                ),
+                409 => error_codes(['CONFLICT'], ?DESC_CREATE_CONFICT)
             }
         }
     };
@@ -105,7 +105,7 @@ schema("/durable_queues/:id") ->
                     durable_queue_get(),
                     durable_queue_get_example()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Queue Not Found">>)
+                404 => error_codes(['NOT_FOUND'], ?DESC_NOT_FOUND)
             }
         },
         delete => #{
@@ -115,7 +115,8 @@ schema("/durable_queues/:id") ->
             parameters => [param_queue_id()],
             responses => #{
                 200 => <<"Queue deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Queue Not Found">>)
+                404 => error_codes(['NOT_FOUND'], ?DESC_NOT_FOUND),
+                409 => error_codes(['CONFLICT'], ?DESC_DELETE_CONFLICT)
             }
         }
     }.
@@ -144,12 +145,12 @@ schema("/durable_queues/:id") ->
         ok ->
             {200, <<"Queue deleted">>};
         not_found ->
-            ?RESP_NOT_FOUND
+            ?RESP_NOT_FOUND;
+        conflict ->
+            ?RESP_DELETE_CONFLICT;
+        {error, _Class, Reason} ->
+            ?RESP_INTERNAL_ERROR(emqx_utils:readable_error_msg(Reason))
     end.
-
-%%--------------------------------------------------------------------
-%% Actual handlers: stubs
-%%--------------------------------------------------------------------
 
 queue_list() ->
     %% TODO

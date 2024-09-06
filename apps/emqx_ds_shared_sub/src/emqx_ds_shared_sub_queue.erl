@@ -58,15 +58,15 @@ destroy(Group, Topic) ->
     destroy(emqx_ds_shared_sub_store:mk_id(Group, Topic)).
 
 destroy(ID) ->
-    %% FIXME: Sync on leader.
     %% TODO: There's an obvious lack of transactionality.
     case lookup(ID) of
         false ->
             not_found;
         Queue ->
+            #{topic := Topic} = properties(Queue),
             case emqx_ds_shared_sub_store:destroy(Queue) of
                 ok ->
-                    _ = ensure_delete_route(maps:get(topic, properties(Queue)), ID),
+                    _ = ensure_delete_route(Topic, ID),
                     ok;
                 Error ->
                     Error
