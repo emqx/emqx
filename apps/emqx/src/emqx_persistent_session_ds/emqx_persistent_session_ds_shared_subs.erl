@@ -166,6 +166,7 @@ on_subscribe(undefined, ShareTopicFilter, SubOpts, #{props := Props, s := S} = S
 on_subscribe(Subscription, ShareTopicFilter, SubOpts, Session) ->
     update_subscription(Subscription, ShareTopicFilter, SubOpts, Session).
 
+-dialyzer({nowarn_function, create_new_subscription/3}).
 create_new_subscription(ShareTopicFilter, SubOpts, #{
     s := S0,
     shared_sub_s := #{agent := Agent} = SharedSubS0,
