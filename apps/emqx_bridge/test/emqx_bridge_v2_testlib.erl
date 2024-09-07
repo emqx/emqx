@@ -182,6 +182,7 @@ add_source_hookpoint(Config) ->
     on_exit(fun() -> emqx_hooks:del(Hookpoint, {?MODULE, source_hookpoint_callback}) end),
     ok.
 
+%% action/source resource id
 resource_id(Config) ->
     #{
         kind := Kind,
@@ -1196,3 +1197,108 @@ t_start_action_or_source_with_disabled_connector(Config) ->
         []
     ),
     ok.
+
+%% For bridges that use `emqx_connector_aggregator' for aggregated mode uploads, verifies
+%% that the bridge can recover from a buffer file corruption, and does so while preserving
+%% uncompromised data.  `TCConfig' should contain keys that satisfy the usual functions of
+%% this module for creating connectors and actions.
+%%
+%%   * `aggreg_id' : identifier for the aggregator.  It's the name of the
+%%     `emqx_connector_aggregator' process defined when starting
+%%     `emqx_connector_aggreg_upload_sup'.
+%%   * `batch_size' : size of batch of messages to be sent before and after corruption.
+%%     Should be less than the configured maximum number of aggregated records.
+%%   * `rule_sql' : SQL statement for the rule that will send data to the action.
+%%   * `make_message_fn' : function taking `N', an integer, and producing a `#message{}'
+%%     that should match the rule topic.
+%%   * `prepare_fn' (optional) : function that is run before producing messages, but after
+%%     the connector, action and rule are created.  Receives a context map and should
+%%     return it.  Defaults to a no-op.
+%%   * `message_check_fn' : function that is run after the first batch is corrupted and
+%%     the second batch is uploaded.  Receives a context map containing the first batch
+%%     (which gets half corrupted) of messages in `messages_before' and the second batch
+%%     (after corruption) in `messages_after'.  Add any assertions and integrity checks
+%%     here.
+%%   * `trace_checkers' (optional) : either function that receives the snabbkaffe trace
+%%     and performs its analysis, os a list of such functions.  Defaults to a no-op.
+t_aggreg_upload_restart_corrupted(TCConfig, Opts) ->
+    #{
+        aggreg_id := AggregId,
+        batch_size := BatchSize,
+        rule_sql := RuleSQL,
+        make_message_fn := MakeMessageFn,
+        message_check_fn := MessageCheckFn
+    } = Opts,
+    PrepareFn = maps:get(prepare_fn, Opts, fun(Ctx) -> Ctx end),
+    TraceCheckers = maps:get(trace_checkers, Opts, []),
+    #{type := ActionType} = get_common_values(TCConfig),
+    ?check_trace(
+        snk_timetrap(),
+        begin
+            %% Create a bridge with the sample configuration.
+            ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(TCConfig)),
+            {ok, _Rule} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(
+                    ActionType, <<"">>, TCConfig, #{
+                        sql => RuleSQL
+                    }
+                ),
+            Context0 = #{},
+            Context1 = PrepareFn(Context0),
+            Messages1 = lists:map(MakeMessageFn, lists:seq(1, BatchSize)),
+            Context2 = Context1#{messages_before => Messages1},
+            %% Ensure that they span multiple batch queries.
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    publish_messages_delayed(Messages1, 1),
+                    #{?snk_kind := connector_aggreg_records_written, action := AggregId}
+                ),
+            ct:pal("first batch's records have been written"),
+
+            %% Find out the buffer file.
+            {ok, #{filename := Filename}} = ?block_until(
+                #{?snk_kind := connector_aggreg_buffer_allocated, action := AggregId}
+            ),
+            ct:pal("new buffer allocated"),
+
+            %% Stop the bridge, corrupt the buffer file, and restart the bridge.
+            {ok, {{_, 204, _}, _, _}} = emqx_bridge_v2_testlib:disable_kind_http_api(TCConfig),
+            BufferFileSize = filelib:file_size(Filename),
+            ok = emqx_connector_aggregator_test_helpers:truncate_at(Filename, BufferFileSize div 2),
+            {ok, {{_, 204, _}, _, _}} = emqx_bridge_v2_testlib:enable_kind_http_api(TCConfig),
+
+            %% Send some more messages.
+            Messages2 = lists:map(MakeMessageFn, lists:seq(1, BatchSize)),
+            Context3 = Context2#{messages_after => Messages2},
+            ok = publish_messages_delayed(Messages2, 1),
+            ct:pal("published second batch"),
+
+            %% Wait until the delivery is completed.
+            {ok, _} = ?block_until(#{
+                ?snk_kind := connector_aggreg_delivery_completed, action := AggregId
+            }),
+            ct:pal("delivery completed"),
+
+            MessageCheckFn(Context3)
+        end,
+        TraceCheckers
+    ),
+    ok.
+
+snk_timetrap() ->
+    {CTTimetrap, _} = ct:get_timetrap_info(),
+    #{timetrap => max(0, CTTimetrap - 1_000)}.
+
+publish_messages_delayed(MessageEvents, Delay) ->
+    lists:foreach(
+        fun(Msg) ->
+            emqx:publish(Msg),
+            ct:sleep(Delay)
+        end,
+        MessageEvents
+    ).
+
+proplist_update(Proplist, K, Fn) ->
+    {K, OldV} = lists:keyfind(K, 1, Proplist),
+    NewV = Fn(OldV),
+    lists:keystore(K, 1, Proplist, {K, NewV}).

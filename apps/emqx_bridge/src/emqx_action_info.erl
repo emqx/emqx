@@ -117,6 +117,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_redis_action_info,
         emqx_bridge_rocketmq_action_info,
         emqx_bridge_s3_upload_action_info,
+        emqx_bridge_snowflake_action_info,
         emqx_bridge_sqlserver_action_info,
         emqx_bridge_syskeeper_action_info,
         emqx_bridge_tdengine_action_info,

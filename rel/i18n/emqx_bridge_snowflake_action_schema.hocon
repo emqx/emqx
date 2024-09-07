@@ -1,0 +1,91 @@
+emqx_bridge_snowflake_action_schema {
+  snowflake.label:
+  """Upload to Snowflake"""
+  snowflake.desc:
+  """Action that takes incoming events and uploads them to the Snowflake."""
+
+  parameters.label:
+  """Snowflake action parameters"""
+  parameters.desc:
+  """Set of parameters for the action."""
+
+  aggreg_parameters.label:
+  """Snowflake Aggregated Mode action parameters"""
+  aggreg_parameters.desc:
+  """Set of parameters for the action in aggregated mode."""
+
+  aggregated_mode.label:
+  """Aggregated Snowflake Upload"""
+  aggregated_mode.desc:
+  """Enables time-based aggregation of incoming events and uploading them to the Snowflake as a single object.  This aggregation is done independently by each node in the cluster."""
+
+  aggregation.label:
+  """Aggregation parameters"""
+  aggregation.desc:
+  """Set of parameters governing the aggregation process."""
+
+  aggregation_interval.label:
+  """Time interval"""
+  aggregation_interval.desc:
+  """Amount of time events will be aggregated in a single file on each node before uploading."""
+
+  aggregation_max_records.label:
+  """Maximum number of records"""
+  aggregation_max_records.desc:
+  """Number of records (events) allowed per each aggregated file. Each aggregated upload will contain no more than that number of events, but may contain less.<br/>
+  If event rate is high enough, there obviously may be more than one aggregated upload during the same time interval. These uploads will have different, but consecutive sequence numbers, which will be a part of Snowflake staged file name."""
+
+  private_key.label:
+  """Private Key"""
+  private_key.desc:
+  """~
+  The private key configured for the Pipe User.  This supports the input formats below:
+  - Plain key: Enter the private key contents in PEM format directly as a string value.
+  - File Path: Specify the path to a file that contains the private key. Ensure the path starts with <code>file://</code>.  The file path must be the same on all nodes in the cluster.~"""
+
+  database.label:
+  """Database"""
+  database.desc:
+  """Name of the Database that contains the Snowflake resources."""
+
+  schema.label:
+  """Schema"""
+  schema.desc:
+  """Name of the Schema that contains the Snowflake resources."""
+
+  stage.label:
+  """Stage"""
+  stage.desc:
+  """Name of the Stage that'll be used for loading data files into Snowflake."""
+
+  pipe.label:
+  """Pipe"""
+  pipe.desc:
+  """Name of the Pipe that'll be used to ingest data into the table."""
+
+  pipe_user.label:
+  """Pipe User"""
+  pipe_user.desc:
+  """A username which has a role with permissions over the Pipe to be used.  The minimum permissions are `operate` and `monitor`."""
+
+  pipelining.label:
+  """HTTP Pipelining"""
+  pipelining.desc:
+  """A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
+
+  connect_timeout.label:
+  """Connect Timeout"""
+  connect_timeout.desc:
+  """The timeout when connecting to the HTTP server."""
+
+  pool_size.label:
+  """Pool Size"""
+  pool_size.desc:
+  """The pool size."""
+
+  max_retries.label:
+  """Max Retries"""
+  max_retries.desc:
+  """Max retry attempts if there's an error when sending an HTTP request."""
+
+}

@@ -23,7 +23,7 @@ defmodule EMQXGatewayOcpp.MixProject do
 
   def deps() do
     [
-      {:jesse, github: "emqx/jesse", tag: "1.8.0"},
+      UMP.common_dep(:jesse),
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_gateway, in_umbrella: true}

@@ -50,7 +50,9 @@
 
 -type fingerprint() :: binary().
 
--type protobuf_cache_key() :: {schema_name(), fingerprint()}.
+-type otp_release() :: string().
+
+-type protobuf_cache_key() :: {schema_name(), otp_release(), fingerprint()}.
 
 -export_type([serde_type/0]).
 
@@ -322,7 +324,7 @@ protobuf_serde_mod_name(Name) ->
 %% binaries...
 %% -spec protobuf_cache_key(schema_name(), schema_source()) -> {schema_name(), fingerprint()}.
 protobuf_cache_key(Name, Source) ->
-    {Name, erlang:md5(Source)}.
+    {Name, erlang:system_info(otp_release), erlang:md5(Source)}.
 
 -spec lazy_generate_protobuf_code(schema_name(), module(), schema_source()) ->
     {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.

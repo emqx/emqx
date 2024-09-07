@@ -22,10 +22,18 @@ defmodule EMQXConnectorAggregator.MixProject do
   end
 
   def deps() do
+    test_deps() ++
     [
       {:emqx, in_umbrella: true},
       UMP.common_dep(:gproc),
-      {:erl_csv, "0.2.0"}
     ]
+  end
+
+  defp test_deps() do
+    if UMP.test_env?() do
+      [{:erl_csv, "0.2.0"}]
+    else
+      []
+    end
   end
 end

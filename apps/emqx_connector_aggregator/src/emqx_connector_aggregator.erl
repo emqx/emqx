@@ -30,9 +30,12 @@
 ]).
 
 -export_type([
+    container_type/0,
     record/0,
     timestamp/0
 ]).
+
+-type container_type() :: csv.
 
 %% Record.
 -type record() :: #{binary() => _}.
