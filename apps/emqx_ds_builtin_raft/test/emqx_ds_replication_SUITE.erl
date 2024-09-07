@@ -735,7 +735,7 @@ t_store_batch_fail(Config) ->
             ],
             ?assertMatch(ok, emqx_ds:store_batch(DB, Batch1, #{sync => true})),
             %% Inject unrecoverable error:
-            ok = meck:expect(emqx_ds_storage_layer, store_batch, fun(_DB, _Shard, _Messages) ->
+            ok = meck:expect(emqx_ds_storage_layer, store_batch, fun(_DB, _Shard, _Messages, _) ->
                 {error, unrecoverable, mock}
             end),
             Batch2 = [
