@@ -20,6 +20,9 @@ init_per_suite(Config) ->
         [
             {emqx_conf, #{
                 config => #{
+                    <<"rpc">> => #{
+                        <<"port_discovery">> => <<"manual">>
+                    },
                     <<"durable_sessions">> => #{
                         <<"enable">> => true,
                         <<"renew_streams_interval">> => "100ms",
