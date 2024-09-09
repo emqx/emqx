@@ -438,6 +438,7 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     MutableConfig = #{tick_timeout => 100},
     case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
+            UID = server_uid(DB, Shard),
             Machine = {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
             LogOpts = maps:with(
                 [
@@ -448,11 +449,11 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
             ),
             ok = ra:start_server(DB, MutableConfig#{
                 id => LocalServer,
-                uid => server_uid(DB, Shard),
+                uid => UID,
                 cluster_name => ClusterName,
                 initial_members => Servers,
                 machine => Machine,
-                log_init_args => LogOpts
+                log_init_args => LogOpts#{uid => UID}
             }),
             {_NewServer = true, LocalServer};
         ok ->

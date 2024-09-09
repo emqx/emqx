@@ -21,7 +21,8 @@
 -behaviour(ra_snapshot).
 -export([
     prepare/2,
-    write/3,
+    write/4,
+    sync/1,
 
     begin_read/2,
     read_chunk/3,
@@ -66,12 +67,20 @@
 prepare(Index, State) ->
     ra_log_snapshot:prepare(Index, State).
 
--spec write(_SnapshotDir :: file:filename(), ra_snapshot:meta(), _State :: ra_state()) ->
+-spec write(
+    _SnapshotDir :: file:filename(),
+    ra_snapshot:meta(),
+    _State :: ra_state(),
+    _Sync :: boolean()
+) ->
     ok | {ok, _BytesWritten :: non_neg_integer()} | {error, ra_snapshot:file_err()}.
-write(Dir, Meta, MachineState) ->
+write(Dir, Meta, MachineState, Sync) ->
     ?tp(dsrepl_snapshot_write, #{meta => Meta, state => MachineState}),
     ok = emqx_ds_storage_layer:flush(shard_id(MachineState)),
-    ra_log_snapshot:write(Dir, Meta, MachineState).
+    ra_log_snapshot:write(Dir, Meta, MachineState, Sync).
+
+sync(Dir) ->
+    ra_log_snapshot:sync(Dir).
 
 %% Reading a snapshot.
 %%
@@ -230,7 +239,8 @@ complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
     write_machine_snapshot(WS).
 
 write_machine_snapshot(#ws{dir = Dir, meta = Meta, state = MachineState}) ->
-    ra_log_snapshot:write(Dir, Meta, MachineState).
+    {ok, _Bytes} = ra_log_snapshot:write(Dir, Meta, MachineState, _Sync = false),
+    ok.
 
 %% Restoring machine state from a snapshot.
 %% This is equivalent to restoring from a log snapshot.
