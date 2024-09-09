@@ -169,11 +169,13 @@ simple_sync_query(Id, Request, QueryOpts0) ->
 %% simple async-query the resource without batching and queuing.
 -spec simple_async_query(id(), request(), query_opts()) -> term().
 simple_async_query(Id, Request, QueryOpts0) ->
+    simple_async_query(Id, Request, QueryOpts0, make_request_ref()).
+
+simple_async_query(Id, Request, QueryOpts0, Ref) ->
     ?tp(simple_async_query, #{id => Id, request => Request, query_opts => QueryOpts0}),
     Index = undefined,
     QueryOpts = maps:merge(simple_query_opts(), QueryOpts0),
     emqx_resource_metrics:matched_inc(Id),
-    Ref = make_request_ref(),
     ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
     TraceCtx = maps:get(trace_ctx, QueryOpts0, undefined),
     Result = call_query(
@@ -196,7 +198,7 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
             reply_to => {fun ?MODULE:reply_call_internal_buffer/3, [ReplyAlias, MaybeReplyTo]}
         },
         QueryOpts = #{timeout := Timeout} = maps:merge(simple_query_opts(), QueryOpts1),
-        case simple_async_query(Id, Request, QueryOpts) of
+        case simple_async_query(Id, Request, QueryOpts, _Ref = []) of
             {error, _} = Error ->
                 ?tp("resource_simple_sync_internal_buffer_query_error", #{
                     id => Id, request => Request
@@ -839,19 +841,20 @@ do_flush(#{queue := Q1} = Data0, #{
     end.
 
 batch_reply_caller(Id, BatchResult, Batch, QueryOpts) ->
+    IsSimpleQuery = is_simple_query(QueryOpts),
     {ShouldBlock, PostFn, DeltaCounters} =
-        batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts),
+        batch_reply_caller_defer_metrics(Id, BatchResult, Batch, IsSimpleQuery),
     PostFn(),
     {ShouldBlock, DeltaCounters}.
 
-batch_reply_caller_defer_metrics(Id, BatchResult, Batch, QueryOpts) ->
+batch_reply_caller_defer_metrics(Id, BatchResult, Batch, IsSimpleQuery) ->
     Replies = expand_batch_reply(BatchResult, Batch),
     {ShouldAck, PostFns, Counters} =
         lists:foldl(
             fun(Reply, {_ShouldAck, PostFns, OldCounters}) ->
                 %% _ShouldAck should be the same as ShouldAck starting from the second reply
                 {ShouldAck, PostFn, DeltaCounters} = reply_caller_defer_metrics(
-                    Id, Reply, QueryOpts
+                    Id, Reply, IsSimpleQuery
                 ),
                 {ShouldAck, [PostFn | PostFns], merge_counters(OldCounters, DeltaCounters)}
             end,
@@ -883,10 +886,9 @@ reply_caller(Id, Reply, QueryOpts) ->
 
 %% Should only reply to the caller when the decision is final (not
 %% retriable).  See comment on `handle_query_result_pure'.
-reply_caller_defer_metrics(Id, ?REPLY(undefined, HasBeenSent, Result, TraceCtx), _QueryOpts) ->
+reply_caller_defer_metrics(Id, ?REPLY(undefined, HasBeenSent, Result, TraceCtx), _IsSimpleQuery) ->
     handle_query_result_pure(Id, Result, HasBeenSent, TraceCtx);
-reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx), QueryOpts) ->
-    IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
+reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx), IsSimpleQuery) ->
     IsUnrecoverableError = is_unrecoverable_error(Result),
     {ShouldAck, PostFn, DeltaCounters} = handle_query_result_pure(
         Id, Result, HasBeenSent, TraceCtx
@@ -1310,7 +1312,7 @@ error_if_channel_is_not_installed(Id, QueryOpts) ->
     %% workers involved so that the operation can be retried.  Otherwise, this is
     %% unrecoverable.  It is emqx_resource_manager's responsibility to ensure that the
     %% channel installation is retried.
-    IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
+    IsSimpleQuery = is_simple_query(QueryOpts),
     case is_channel_id(Id) of
         true when IsSimpleQuery ->
             {error,
@@ -1423,16 +1425,16 @@ apply_query_fun(
         call_query_async,
         begin
             ReplyFun = fun ?MODULE:handle_async_reply/2,
+            IsSimpleQuery = is_simple_query(QueryOpts),
             ReplyContext = #{
-                buffer_worker => self(),
+                buffer_worker => buffer_worker(InflightTID),
                 resource_id => Id,
                 worker_index => Index,
                 inflight_tid => InflightTID,
                 request_ref => Ref,
-                query_opts => QueryOpts,
+                simple_query => IsSimpleQuery,
                 min_query => minimize(Query)
             },
-            IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
             IsRetriable = false,
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, AsyncWorkerMRef),
@@ -1509,19 +1511,19 @@ apply_query_fun(
         call_batch_query_async,
         begin
             ReplyFun = fun ?MODULE:handle_async_batch_reply/2,
+            IsSimpleQuery = is_simple_query(QueryOpts),
             ReplyContext = #{
-                buffer_worker => self(),
+                buffer_worker => buffer_worker(InflightTID),
                 resource_id => Id,
                 worker_index => Index,
                 inflight_tid => InflightTID,
                 request_ref => Ref,
-                query_opts => QueryOpts,
+                simple_query => IsSimpleQuery,
                 min_batch => minimize(Batch)
             },
             Requests = lists:map(
                 fun(?QUERY(_ReplyTo, Request, _, _ExpireAt, _TraceCtx)) -> Request end, Batch
             ),
-            IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
             IsRetriable = false,
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
@@ -1558,11 +1560,11 @@ handle_async_reply(
     #{
         request_ref := Ref,
         inflight_tid := InflightTID,
-        query_opts := Opts
+        simple_query := IsSimpleQuery
     } = ReplyContext,
     Result
 ) ->
-    case maybe_handle_unknown_async_reply(InflightTID, Ref, Opts) of
+    case maybe_handle_unknown_async_reply(InflightTID, Ref, IsSimpleQuery) of
         discard ->
             ok;
         continue ->
@@ -1602,7 +1604,7 @@ handle_async_reply1(
 
 do_handle_async_reply(
     #{
-        query_opts := QueryOpts,
+        simple_query := IsSimpleQuery,
         resource_id := Id,
         request_ref := Ref,
         buffer_worker := BufferWorkerPid,
@@ -1615,7 +1617,7 @@ do_handle_async_reply(
     %% but received no ACK, NOT the number of messages queued in the
     %% inflight window.
     {Action, PostFn, DeltaCounters} = reply_caller_defer_metrics(
-        Id, ?REPLY(ReplyTo, Sent, Result, TraceCtx), QueryOpts
+        Id, ?REPLY(ReplyTo, Sent, Result, TraceCtx), IsSimpleQuery
     ),
 
     ?tp(handle_async_reply, #{
@@ -1632,7 +1634,7 @@ do_handle_async_reply(
             blocked;
         ack ->
             ok = do_async_ack(
-                InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, QueryOpts
+                InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, IsSimpleQuery
             )
     end.
 
@@ -1640,11 +1642,11 @@ handle_async_batch_reply(
     #{
         inflight_tid := InflightTID,
         request_ref := Ref,
-        query_opts := Opts
+        simple_query := IsSimpleQuery
     } = ReplyContext,
     Result
 ) ->
-    case maybe_handle_unknown_async_reply(InflightTID, Ref, Opts) of
+    case maybe_handle_unknown_async_reply(InflightTID, Ref, IsSimpleQuery) of
         discard ->
             ok;
         continue ->
@@ -1735,12 +1737,12 @@ do_handle_async_batch_reply(
         inflight_tid := InflightTID,
         request_ref := Ref,
         min_batch := Batch,
-        query_opts := QueryOpts
+        simple_query := IsSimpleQuery
     },
     Result
 ) ->
     {Action, PostFn, DeltaCounters} = batch_reply_caller_defer_metrics(
-        Id, Result, Batch, QueryOpts
+        Id, Result, Batch, IsSimpleQuery
     ),
     ?tp(handle_async_reply, #{
         action => Action,
@@ -1756,13 +1758,13 @@ do_handle_async_batch_reply(
             blocked;
         ack ->
             ok = do_async_ack(
-                InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, QueryOpts
+                InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, IsSimpleQuery
             )
     end.
 
-do_async_ack(InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, QueryOpts) ->
+do_async_ack(InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, IsSimpleQuery) ->
     IsKnownRef = ack_inflight(InflightTID, Ref, BufferWorkerPid),
-    case maps:get(simple_query, QueryOpts, false) of
+    case IsSimpleQuery of
         true ->
             PostFn(),
             bump_counters(Id, DeltaCounters);
@@ -1782,9 +1784,9 @@ do_async_ack(InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, Query
 %% 2. If the request was previously failed and now pending on a retry,
 %%    then this function will return 'continue' as there is no way to
 %%    tell if this reply is stae or not.
-maybe_handle_unknown_async_reply(undefined, _Ref, #{simple_query := true}) ->
+maybe_handle_unknown_async_reply(undefined, _Ref, true) ->
     continue;
-maybe_handle_unknown_async_reply(InflightTID, Ref, #{}) ->
+maybe_handle_unknown_async_reply(InflightTID, Ref, _) ->
     try ets:member(InflightTID, Ref) of
         true ->
             continue;
@@ -2339,6 +2341,18 @@ reply_call_internal_buffer(ReplyAlias, MaybeReplyTo, Response) ->
     ?tp("reply_call_internal_buffer", #{}),
     ?MODULE:reply_call(ReplyAlias, Response),
     do_reply_caller(MaybeReplyTo, Response).
+
+%% record buffer worker only when it's a request initiated from buffer worker.
+buffer_worker(undefined) ->
+    %% simple_sync_internal_buffer_query
+    [];
+buffer_worker(_Tid) ->
+    self().
+
+is_simple_query(#{simple_query := Bool}) ->
+    Bool;
+is_simple_query(_) ->
+    false.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
