@@ -15,7 +15,8 @@
 %%--------------------------------------------------------------------
 
 %% @doc This process is responsible for processing async poll requests
-%% from the consumers.
+%% from the consumers. It is designed as a generic, drop-in "frontend"
+%% that can be integrated into any DS backend (builtin or external).
 %%
 %% It serves as a pool for such requests, limiting the number of
 %% queries running in parallel. In addition, it tries to group
@@ -36,16 +37,19 @@
 %% from the pending queue one at a time, and tries to fulfill them
 %% normally by quering the storage.
 %%
-%% - If storage returns a non-empty batch, beamformer then searches
-%% for pending poll requests that may be coherent with the current
-%% one. All matching requests are then packed into "beams" (one per
-%% destination node) and sent out accodingly.
+%% - When storage returns a non-empty batch, an unrecoverable error or
+%% `end_of_stream', beamformer searches for pending poll requests that
+%% may be coherent with the current one. All matching requests are
+%% then packed into "beams" (one per destination node) and sent out
+%% accodingly.
 %%
 %% - If the query returns an empty batch, beamformer moves the request
 %% to the "wait" queue. Poll requests just linger there until they
 %% time out, or until beamformer receives a matching stream event from
-%% the storage. The storage backend can send requests to the
-%% beamformer by calling `shard_event' function.
+%% the storage.
+%%
+%% The storage backend can send events to the beamformer by calling
+%% `shard_event' function.
 %%
 %% Storage event processing logic is following: if beamformer finds
 %% waiting poll requests matching the event, it queries the storage
@@ -96,6 +100,16 @@
 %% Type declarations
 %%================================================================================
 
+%% `event_topic' and `event_topic_filter' types are structurally (but
+%% not semantically) equivalent to their `emqx_ds' counterparts.
+%%
+%% These types are only used for matching of events against waiting
+%% poll requests. Values of these types are never exposed outside.
+%% Hence the backend can, for example, compress topics used in the
+%% events and iterators.
+-type event_topic() :: emqx_ds:topic().
+-type event_topic_filter() :: emqx_ds:topic_filter().
+
 -type opts() :: #{
     n_workers := non_neg_integer()
 }.
@@ -120,7 +134,7 @@
 
 -type poll_req(ItKey, Iterator) ::
     #poll_req{
-        key :: {_Stream, _TopicFilter, emqx_ds:message_key()},
+        key :: {_Stream, event_topic_filter(), emqx_ds:message_key()},
         node :: node(),
         return_addr :: return_addr(ItKey),
         it :: Iterator,
@@ -167,7 +181,7 @@
 -type s() :: #s{}.
 
 -record(shard_event, {
-    events :: [{_Stream, _Topic}]
+    events :: [{_Stream, event_topic()}]
 }).
 
 -define(fulfill_loop, fulfill_loop).
@@ -181,7 +195,7 @@
 
 -type unpack_iterator_result(Stream) :: #{
     stream := Stream,
-    topic_filter := _,
+    topic_filter := event_topic_filter(),
     last_seen_key := emqx_ds:message_key(),
     timestamp := emqx_ds:time(),
     message_matcher := match_messagef()
@@ -200,6 +214,7 @@
 %% API functions
 %%================================================================================
 
+%% @doc Submit a poll request
 -spec poll(node(), return_addr(_ItKey), _Shard, _Iterator, emqx_ds:poll_opts()) ->
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
@@ -248,6 +263,27 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
             ok
     end.
 
+%% @doc This internal API notifies the beamformer that new data is
+%% available for reading in the storage.
+%%
+%% Backends should call this function after committing data to the
+%% storage, so waiting long poll requests can be fulfilled.
+%%
+%% Types of arguments to this function are dependent on the backend.
+%%
+%% - `_Shard': most DS backends have some notion of shard. Beamformer
+%% uses this fact to partition poll requests, but otherwise it treats
+%% shard as an opaque value.
+%%
+%% - `_Stream': backend- and layout-specific type of stream.
+%% Beamformer uses exact matching on streams when it searches for
+%% similar requests and when it matches events. Otherwise it's an
+%% opaque type.
+%%
+%% - `event_topic()': When beamformer receives stream events, it
+%% selects waiting events with matching stream AND
+%% `event_topic_filter'.
+-spec shard_event(_Shard, [{_Stream, event_topic()}]) -> ok.
 shard_event(Shard, Events) ->
     Workers = gproc_pool:active_workers(emqx_ds_beamformer_sup:pool(Shard)),
     lists:foreach(
@@ -294,7 +330,7 @@ handle_call(
             {reply, Reply, S};
         false ->
             ets:insert(S#s.pending_queue, Req),
-            {reply, ok, start_fulfill_loop(S)}
+            {reply, ok, ensure_fulfill_loop(S)}
     end;
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
@@ -350,11 +386,10 @@ do_dispatch(Beam = #beam{}) ->
 %% Internal functions
 %%================================================================================
 
--spec start_fulfill_loop(s()) -> s().
-%% @TODO start_fulfill_loop is missleading
-start_fulfill_loop(S = #s{is_spinning = true}) ->
+-spec ensure_fulfill_loop(s()) -> s().
+ensure_fulfill_loop(S = #s{is_spinning = true}) ->
     S;
-start_fulfill_loop(S = #s{is_spinning = false}) ->
+ensure_fulfill_loop(S = #s{is_spinning = false}) ->
     self() ! ?fulfill_loop,
     S#s{is_spinning = true}.
 
@@ -362,7 +397,6 @@ start_fulfill_loop(S = #s{is_spinning = false}) ->
 cleanup(S = #s{pending_queue = PendingTab, wait_queue = WaitingTab, metrics_id = Metrics}) ->
     do_cleanup(Metrics, PendingTab),
     do_cleanup(Metrics, WaitingTab),
-    %% erlang:garbage_collect(),
     S.
 
 do_cleanup(Metrics, Tab) ->
@@ -382,7 +416,7 @@ fulfill_pending(S = #s{pending_queue = PendingTab}) ->
             %% The function MUST destructively consume all requests
             %% matching stream and MsgKey to avoid infinite loop:
             do_fulfill_pending(S, Req),
-            start_fulfill_loop(S)
+            ensure_fulfill_loop(S)
     end.
 
 do_fulfill_pending(

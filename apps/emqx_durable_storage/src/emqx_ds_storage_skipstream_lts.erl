@@ -236,7 +236,6 @@ commit_batch(
 ) ->
     {ok, Batch} = rocksdb:batch(),
     try
-        %% is this dummy?
         %% Commit LTS trie to the storage:
         lists:foreach(
             fun({Key, Val}) ->
@@ -347,7 +346,6 @@ unpack_iterator(_Shard, #s{trie = _Trie}, #it{
     {StaticIdx, words(CTF), StartKey, TS}.
 
 scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
-    %% @TODO: double check if it is Varying or TopicFilter, is it always [] ?
     LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
     ItSeed = #it{
         static_index = StaticIdx, compressed_tf = emqx_topic:join(Varying), ts = LastSeenTS
@@ -614,6 +612,10 @@ next_loop(Ctx, It0, BatchSize, Op, Acc) ->
     %% }),
     #ctx{s = S, tmax = TMax, iters = Iterators} = Ctx,
     #it{static_index = StaticIdx, compressed_tf = CompressedTF} = It0,
+    %% Note: `next_step' function destructively updates RocksDB
+    %% iterators in `ctx.iters' (they are handles, not values!),
+    %% therefore a recursive call with the same arguments is not a
+    %% bug.
     case next_step(S, StaticIdx, CompressedTF, Iterators, any, Op) of
         none ->
             %% ?tp(notice, skipstream_loop_result, #{r => none}),
@@ -629,7 +631,6 @@ next_loop(Ctx, It0, BatchSize, Op, Acc) ->
             finalize_loop(It0, Acc);
         {seek, TS} ->
             %% ?tp(notice, skipstream_loop_result, #{r => seek, ts => TS}),
-            %% @TODO Deadloop if Op == {seek, TS}?
             It = It0#it{ts = TS},
             next_loop(Ctx, It, BatchSize, {seek, TS}, Acc);
         {ok, TS, DSKey, Msg0} ->
@@ -695,8 +696,8 @@ next_step(
                     end;
                 NextTS when NextTS > ExpectedTS, N > 0 ->
                     %% Next index level is not what we expect. Reset
-                    %% search to the first wilcard index, but continue
-                    %% from `NextTS'.
+                    %% search to the first wildcard index, but
+                    %% continue from `NextTS'.
                     %%
                     %% Note: if `NextTS > ExpectedTS' and `N =:= 0',
                     %% it means the upper (replication) level is
