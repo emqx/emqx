@@ -355,4 +355,9 @@ producer_health_check_topic.desc:
 producer_health_check_topic.label:
 """Connector health check topic"""
 
+producer_schema_registry.desc:
+"""Configuration for Confluent Schema Registry."""
+producer_schema_registry.label:
+"""Confluent Schema Registry"""
+
 }

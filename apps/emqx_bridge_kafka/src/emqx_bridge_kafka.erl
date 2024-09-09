@@ -3,19 +3,17 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_connector_examples).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
-%% allow atoms like scram_sha_256 and scram_sha_512
-%% i.e. the _256 part does not start with a-z
--elvis([
-    {elvis_style, atom_naming_convention, #{
-        regex => "^([a-z][a-z0-9]*_?)([a-z0-9]*_?)*$",
-        enclosed_atoms => ".*"
-    }}
-]).
+%% Currently, elvis has a bug when using maybe expressions...
+%% It complains that:
+%% "Atom [] on line -1 does not respect the format defined by the regular expression ..."
+-elvis([{elvis_style, atom_naming_convention, disable}]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
@@ -40,6 +38,7 @@
 -export([
     kafka_connector_config_fields/0,
     kafka_producer_converter/2,
+    producer_parameters_validator/1,
     producer_strategy_key_validator/1
 ]).
 
@@ -473,6 +472,14 @@ fields(producer_kafka_opts) ->
                     default => <<"5s">>,
                     desc => ?DESC(sync_query_timeout)
                 }
+            )},
+        {schema_registry,
+            mk(
+                hoconsc:union([none, ref(schema_registry)]),
+                #{
+                    default => none,
+                    desc => ?DESC("producer_schema_registry")
+                }
             )}
     ];
 fields(producer_kafka_ext_headers) ->
@@ -531,6 +538,39 @@ fields(producer_buffer) ->
             mk(boolean(), #{
                 default => false,
                 desc => ?DESC(buffer_memory_overload_protection)
+            })}
+    ];
+fields(schema_registry) ->
+    [
+        {url, mk(string(), #{required => true, desc => ?DESC("confluent_schema_registry_url")})},
+        {schema_id,
+            mk(
+                integer(),
+                #{required => true, desc => ?DESC("confluent_schema_registry_schema_id")}
+            )},
+        {authentication,
+            mk(
+                hoconsc:union([none, ref(schema_registry_auth_basic)]),
+                #{default => none, desc => ?DESC("confluent_schema_registry_auth")}
+            )}
+    ];
+fields(schema_registry_auth_basic) ->
+    [
+        {mechanism,
+            mk(basic, #{
+                required => true,
+                default => basic,
+                desc => ?DESC("confluent_schema_registry_auth_basic")
+            })},
+        {username,
+            mk(string(), #{
+                required => true,
+                desc => ?DESC("confluent_schema_registry_auth_basic_username")
+            })},
+        {password,
+            emqx_connector_schema_lib:password_field(#{
+                required => true,
+                desc => ?DESC("confluent_schema_registry_auth_basic_password")
             })}
     ];
 fields(consumer_opts) ->
@@ -630,6 +670,10 @@ desc("post_" ++ Type) when
     ["Configuration for Kafka using `POST` method."];
 desc(kafka_producer_action) ->
     ?DESC("kafka_producer_action");
+desc(schema_registry) ->
+    ?DESC("producer_schema_registry");
+desc(schema_registry_auth_basic) ->
+    ?DESC("confluent_schema_registry_auth");
 desc(Name) ->
     ?DESC(Name).
 
@@ -709,7 +753,7 @@ parameters_field(ActionOrBridgeV1) ->
             required => true,
             aliases => [Alias],
             desc => ?DESC(producer_kafka_opts),
-            validator => fun producer_strategy_key_validator/1
+            validator => fun producer_parameters_validator/1
         })}.
 
 %% -------------------------------------------------------------------------------------------------
@@ -769,6 +813,14 @@ consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
             {error, "Kafka topics must not be repeated in a bridge"}
     end.
 
+producer_parameters_validator(#{message := _} = Conf) ->
+    producer_parameters_validator(emqx_utils_maps:binary_key_map(Conf));
+producer_parameters_validator(#{} = Conf) ->
+    maybe
+        ok ?= producer_strategy_key_validator(Conf),
+        ok ?= producer_message_value_template_validator(Conf)
+    end.
+
 producer_strategy_key_validator(
     #{
         partition_strategy := _,
@@ -782,6 +834,23 @@ producer_strategy_key_validator(#{
 }) when Key =:= "" orelse Key =:= <<>> ->
     {error, "Message key cannot be empty when `key_dispatch` strategy is used"};
 producer_strategy_key_validator(_) ->
+    ok.
+
+%% When enabling confluent schema registry, we impose that the message value template must
+%% contain be exactly one variable.  i.e., no complex templating.
+producer_message_value_template_validator(#{<<"schema_registry">> := #{}} = Parameters) ->
+    #{<<"message">> := #{<<"value">> := ValueTemplate}} = Parameters,
+    case emqx_template:parse(ValueTemplate) of
+        [{var, _, _}] ->
+            ok;
+        _ ->
+            Msg = <<
+                "Message value template must be a single placeholder like ${.payload}"
+                " when using Confluent Schema Regitry"
+            >>,
+            {error, Msg}
+    end;
+producer_message_value_template_validator(_Parameters) ->
     ok.
 
 kafka_header_validator(undefined) ->

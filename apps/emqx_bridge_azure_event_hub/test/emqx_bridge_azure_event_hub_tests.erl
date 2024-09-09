@@ -68,6 +68,8 @@ bridges.azure_event_hub_producer.my_producer {
 %% Helper functions
 %%===========================================================================
 
+-define(TYPE, <<"azure_event_hub_producer">>).
+
 parse(Hocon) ->
     {ok, Conf} = hocon:binary(Hocon),
     Conf.
@@ -87,6 +89,16 @@ check(Conf) when is_map(Conf) ->
 
 -define(ok_config(Cfg), #{
     <<"bridges">> :=
+        #{
+            <<"azure_event_hub_producer">> :=
+                #{
+                    <<"my_producer">> :=
+                        Cfg
+                }
+        }
+}).
+-define(ok_action_config(Cfg), #{
+    <<"actions">> :=
         #{
             <<"azure_event_hub_producer">> :=
                 #{
@@ -192,3 +204,15 @@ aeh_producer_test_() ->
                 check(Override(#{<<"kafka">> => #{<<"compression">> => <<"gzip">>}}))
             )}
     ].
+
+validate_value_template_schema_registry_test_() ->
+    {BaseConfig, _} =
+        emqx_bridge_azure_event_hub_v2_SUITE:bridge_config(
+            <<"my_producer">>,
+            <<"connector_name">>,
+            <<"kafka_topic">>
+        ),
+    emqx_bridge_kafka_tests:do_validate_value_template_schema_registry(
+        BaseConfig,
+        ?TYPE
+    ).

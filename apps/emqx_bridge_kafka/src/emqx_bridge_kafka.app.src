@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_bridge_kafka, [
     {description, "EMQX Enterprise Kafka Bridge"},
-    {vsn, "0.4.0"},
+    {vsn, "0.4.1"},
     {registered, [emqx_bridge_kafka_consumer_sup]},
     {applications, [
         kernel,
@@ -10,7 +10,8 @@
         telemetry,
         wolff,
         brod,
-        brod_gssapi
+        brod_gssapi,
+        avlizer
     ]},
     {env, [
         {emqx_action_info_modules, [

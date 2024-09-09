@@ -67,6 +67,8 @@ confluent_producer_connector_hocon() ->
 %% Helper functions
 %%===========================================================================
 
+-define(TYPE, <<"confluent_producer">>).
+
 parse(Hocon) ->
     {ok, Conf} = hocon:binary(Hocon),
     Conf.
@@ -177,3 +179,15 @@ confluent_producer_action_test_() ->
                 check_action(BaseConf)
             )}
     ].
+
+validate_value_template_schema_registry_test_() ->
+    {BaseConfig, _} =
+        emqx_bridge_confluent_producer_SUITE:bridge_config(
+            <<"my_producer">>,
+            <<"connector_name">>,
+            <<"kafka_topic">>
+        ),
+    emqx_bridge_kafka_tests:do_validate_value_template_schema_registry(
+        BaseConfig,
+        ?TYPE
+    ).

@@ -157,6 +157,7 @@ struct_names() ->
         kafka_message,
         producer_kafka_opts,
         actions,
+        schema_registry,
         ssl_client_opts
     ].
 
@@ -417,7 +418,7 @@ bridge_v2_overrides() ->
         parameters =>
             mk(ref(producer_kafka_opts), #{
                 required => true,
-                validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
+                validator => fun emqx_bridge_kafka:producer_parameters_validator/1
             }),
         ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
         type => mk(

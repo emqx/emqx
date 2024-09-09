@@ -7,6 +7,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([atoms/0, kafka_producer_old_hocon/1]).
+-export([do_validate_value_template_schema_registry/2]).
 
 %% ensure atoms exist
 atoms() -> [myproducer, my_consumer].
@@ -234,6 +235,89 @@ custom_group_id_test() ->
     ),
 
     ok.
+
+%% When enabling confluent schema registry, we impose that the message value template must
+%% contain be exactly one variable.  i.e., no complex templating.
+validate_value_template_schema_registry_test_() ->
+    BaseConfig = emqx_bridge_v2_kafka_producer_SUITE:bridge_v2_config(<<"connector_name">>),
+    do_validate_value_template_schema_registry(BaseConfig, <<"kafka_producer">>).
+
+do_validate_value_template_schema_registry(BaseConfig, Type) ->
+    SchemaRegistryCfg = #{
+        <<"url">> => <<"https://schema-registry:8081">>,
+        <<"schema_id">> => 10_001,
+        <<"authentication">> => <<"none">>
+    },
+    Reason = <<
+        "Message value template must be a single placeholder like ${.payload}"
+        " when using Confluent Schema Regitry"
+    >>,
+    [
+        {"single variable",
+            ?_test(begin
+                OkConfig1 = emqx_utils_maps:deep_merge(
+                    BaseConfig,
+                    #{
+                        <<"parameters">> => #{
+                            <<"message">> => #{<<"value">> => <<"${.payload}">>},
+                            <<"schema_registry">> => SchemaRegistryCfg
+                        }
+                    }
+                ),
+                ?assertMatch(
+                    #{},
+                    emqx_bridge_v2_testlib:parse_and_check(
+                        action, Type, my_producer, OkConfig1
+                    )
+                )
+            end)},
+        {"static value",
+            ?_test(begin
+                BadConfig = emqx_utils_maps:deep_merge(
+                    BaseConfig,
+                    #{
+                        <<"parameters">> => #{
+                            <<"message">> => #{<<"value">> => <<"fixed value">>},
+                            <<"schema_registry">> => SchemaRegistryCfg
+                        }
+                    }
+                ),
+                ?assertThrow(
+                    {_, [
+                        #{
+                            kind := validation_error,
+                            reason := Reason
+                        }
+                    ]},
+                    emqx_bridge_v2_testlib:parse_and_check(
+                        action, Type, my_producer, BadConfig
+                    )
+                )
+            end)},
+        {"complex template",
+            ?_test(begin
+                BadConfig = emqx_utils_maps:deep_merge(
+                    BaseConfig,
+                    #{
+                        <<"parameters">> => #{
+                            <<"message">> => #{<<"value">> => <<"a${.payload}">>},
+                            <<"schema_registry">> => SchemaRegistryCfg
+                        }
+                    }
+                ),
+                ?assertThrow(
+                    {_, [
+                        #{
+                            kind := validation_error,
+                            reason := Reason
+                        }
+                    ]},
+                    emqx_bridge_v2_testlib:parse_and_check(
+                        action, Type, my_producer, BadConfig
+                    )
+                )
+            end)}
+    ].
 
 %%===========================================================================
 %% Helper functions

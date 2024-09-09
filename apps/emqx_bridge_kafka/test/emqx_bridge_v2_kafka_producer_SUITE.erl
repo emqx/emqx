@@ -34,7 +34,18 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    All0 = emqx_common_test_helpers:all(?MODULE),
+    All = All0 -- matrix_cases(),
+    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
+    Groups ++ All.
+
+groups() ->
+    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+
+matrix_cases() ->
+    [
+        t_schema_registry
+    ].
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_screen(),
@@ -181,10 +192,29 @@ check_kafka_message_payload(Offset, ExpectedPayload) ->
     check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload).
 
 check_kafka_message_payload(KafkaTopic, Offset, ExpectedPayload) ->
-    Partition = 0,
-    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
-    {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
-    ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
+    Opts = #{topic => KafkaTopic},
+    {ok, {_, [KafkaMsg0]}} = fetch_from_offset(Offset, Opts),
+    ?assertMatch(
+        #kafka_message{value = ExpectedPayload},
+        KafkaMsg0,
+        #{expected_payload => ExpectedPayload}
+    ).
+
+fetch_from_offset(Offset) ->
+    fetch_from_offset(Offset, _Opts = #{}).
+
+fetch_from_offset(Offset, Opts) ->
+    Defaults = #{
+        hosts => emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+        partition => 0,
+        topic => emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition()
+    },
+    #{
+        hosts := Hosts,
+        partition := Partition,
+        topic := KafkaTopic
+    } = maps:merge(Defaults, Opts),
+    brod:fetch(Hosts, KafkaTopic, Partition, Offset).
 
 ensure_kafka_topic(KafkaTopic) ->
     TopicConfigs = [
@@ -327,6 +357,84 @@ assert_status_api(Line, Type, Name, Status) ->
 
 get_rule_metrics(RuleId) ->
     emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
+
+start_schema_registry_client(WithOrWithoutAuth) ->
+    Cfg0 = #{url => schema_registry_url_string(WithOrWithoutAuth)},
+    Cfg = emqx_utils_maps:put_if(
+        Cfg0,
+        auth,
+        to_avlizer_auth(schema_registry_auth()),
+        WithOrWithoutAuth =:= with_auth
+    ),
+    {ok, Server} = avlizer_confluent:start_link(_ServerRef = undefined, Cfg),
+    Table = avlizer_confluent:get_table(Server),
+    #{server => Server, table => Table}.
+
+register_schema(#{server := Server}, Subject, Schema) ->
+    {ok, Id} = avlizer_confluent:register_schema(Server, Subject, Schema),
+    Id.
+
+encode_and_tag(Data, SchemaId, RegistryClient) ->
+    #{server := Server, table := Table} = RegistryClient,
+    Encoder = avlizer_confluent:make_encoder2(Server, Table, SchemaId),
+    Encoded = avlizer_confluent:encode(Encoder, Data),
+    avlizer_confluent:tag_data(SchemaId, Encoded).
+
+to_avlizer_auth(#{<<"mechanism">> := <<"basic">>} = Auth0) ->
+    #{<<"username">> := Username, <<"password">> := Password} = Auth0,
+    to_avlizer_auth(#{
+        mechanism => basic,
+        username => emqx_utils_conv:str(Username),
+        password => emqx_utils_conv:str(Password)
+    });
+to_avlizer_auth(#{} = Auth) ->
+    emqx_bridge_kafka_impl:sasl(Auth).
+
+avro_schema() ->
+    avro_record:type(
+        <<"myrecord">>,
+        [avro_record:define_field(f1, avro_map:type(avro_primitive:int_type()))],
+        [{namespace, 'com.example'}]
+    ).
+
+schema_registry_auth() ->
+    #{
+        <<"mechanism">> => <<"basic">>,
+        <<"username">> => <<"cpsruser">>,
+        <<"password">> => <<"mypass">>
+    }.
+
+schema_registry_url_string(without_auth) ->
+    "http://confluent_schema_registry:8081";
+schema_registry_url_string(with_auth) ->
+    "http://confluent_schema_registry_basicauth:8081".
+
+schema_registry_config(with_auth = WithOrWithoutAuth, SchemaId) ->
+    URL = iolist_to_binary(schema_registry_url_string(WithOrWithoutAuth)),
+    #{
+        <<"url">> => URL,
+        <<"authentication">> => schema_registry_auth(),
+        <<"schema_id">> => SchemaId
+    };
+schema_registry_config(without_auth = WithOrWithoutAuth, SchemaId) ->
+    URL = iolist_to_binary(schema_registry_url_string(WithOrWithoutAuth)),
+    #{
+        <<"url">> => URL,
+        <<"schema_id">> => SchemaId
+    }.
+
+schema_registry_auth_mode(Config) ->
+    case ?config(schema_registry_auth, Config) of
+        undefined ->
+            [WithOrWithoutAuth0] = emqx_common_test_helpers:group_path(Config),
+            WithOrWithoutAuth0;
+        Auth ->
+            Auth
+    end.
+
+get_kafka_topic(RawConfig) ->
+    #{<<"parameters">> := #{<<"topic">> := KafkaTopic}} = RawConfig,
+    KafkaTopic.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1085,6 +1193,322 @@ t_dynamic_topics(Config) ->
                     emqtt:publish(C, RuleTopic, Payload(#{n => 99}), [{qos, 1}]),
                     #{?snk_kind := "kafka_producer_resolved_to_unknown_topic"}
                 )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Smoke tests for using confluent schema registry
+t_schema_registry(matrix) ->
+    [
+        [without_auth],
+        [with_auth]
+    ];
+t_schema_registry(Config) when is_list(Config) ->
+    WithOrWithoutAuth = schema_registry_auth_mode(Config),
+    RegistryClient = start_schema_registry_client(WithOrWithoutAuth),
+    Subject = atom_to_list(?FUNCTION_NAME),
+    SchemaId = register_schema(RegistryClient, Subject, avro_schema()),
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"schema_registry">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"schema_registry">> =>
+                        schema_registry_config(WithOrWithoutAuth, SchemaId)
+                }
+            }
+        )
+    ),
+    KafkaTopic = get_kafka_topic(ActionConfig),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            RuleTopic = <<"sr">>,
+            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+                Type,
+                RuleTopic,
+                [
+                    {bridge_name, ActionName}
+                ]
+            ),
+            ?assertStatusAPI(Type, ActionName, <<"connected">>),
+
+            HandlerId = ?FUNCTION_NAME,
+            TestPid = self(),
+            telemetry:attach_many(
+                HandlerId,
+                emqx_resource_metrics:events(),
+                fun(EventName, Measurements, Metadata, _Config) ->
+                    Data = #{
+                        name => EventName,
+                        measurements => Measurements,
+                        metadata => Metadata
+                    },
+                    TestPid ! {telemetry, Data},
+                    ok
+                end,
+                unused_config
+            ),
+            on_exit(fun() -> telemetry:detach(HandlerId) end),
+
+            Offset1 = resolve_kafka_offset(KafkaTopic),
+
+            {ok, C} = emqtt:start_link(#{}),
+            {ok, _} = emqtt:connect(C),
+
+            %% Good payload
+            Payload1 = #{<<"f1">> => #{<<"x">> => 123}},
+            PayloadBin1 = emqx_utils_json:encode(Payload1),
+            {ok, _} = emqtt:publish(C, RuleTopic, PayloadBin1, [{qos, 1}]),
+
+            ExpectedPayload1 = encode_and_tag(Payload1, SchemaId, RegistryClient),
+            check_kafka_message_payload(KafkaTopic, Offset1, ExpectedPayload1),
+
+            ActionId = emqx_bridge_v2:id(Type, ActionName),
+            ?assertEqual(1, emqx_resource_metrics:matched_get(ActionId)),
+            ?assertEqual(1, emqx_resource_metrics:success_get(ActionId)),
+            ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId)),
+
+            %% Bad payload: does not conform to schema
+            Offset2 = resolve_kafka_offset(KafkaTopic),
+            Payload2 = #{},
+            PayloadBin2 = emqx_utils_json:encode(Payload2),
+            {ok, _} = emqtt:publish(C, RuleTopic, PayloadBin2, [{qos, 1}]),
+
+            %% Nothing was published since the last message
+            ?assertMatch({ok, {Offset2, []}}, fetch_from_offset(Offset2, #{topic => KafkaTopic})),
+
+            ?assertEqual(2, emqx_resource_metrics:matched_get(ActionId)),
+            ?assertEqual(1, emqx_resource_metrics:success_get(ActionId)),
+            ?assertEqual(1, emqx_resource_metrics:failed_get(ActionId)),
+
+            %% Workers must be stopped when stopping/removing action
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:disable_kind_api(action, Type, ActionName)
+            ),
+            SchemaRegistrySup = emqx_bridge_kafka_schema_registry_sup,
+            ?assertMatch([], supervisor:which_children(SchemaRegistrySup)),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Verifies the behavior when bad schema registry credentials are used.
+t_schema_registry_bad_credentials(Config) when is_list(Config) ->
+    RegistryClient = start_schema_registry_client(with_auth),
+    Subject = atom_to_list(?FUNCTION_NAME),
+    SchemaId = register_schema(RegistryClient, Subject, avro_schema()),
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"schema_registry">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    SchemaRegistryCfg0 = schema_registry_config(with_auth, SchemaId),
+    #{<<"authentication">> := #{<<"password">> := _}} = SchemaRegistryCfg0,
+    SchemaRegistryCfg =
+        emqx_utils_maps:deep_put(
+            [<<"authentication">>, <<"password">>],
+            SchemaRegistryCfg0,
+            <<"wrongpassword">>
+        ),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{<<"parameters">> => #{<<"schema_registry">> => SchemaRegistryCfg}}
+        )
+    ),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{<<"status_reason">> := StatusReason}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            ?assertStatusAPI(Type, ActionName, <<"disconnected">>),
+            ?assertEqual(match, re:run(StatusReason, <<"unhealthy_target">>, [{capture, none}])),
+            ?assertEqual(
+                match,
+                re:run(
+                    StatusReason,
+                    <<"Bad schema registry credentials">>,
+                    [{capture, none}]
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Verifies the behavior when bad schema registry URL is used.
+t_schema_registry_bad_url(Config) when is_list(Config) ->
+    RegistryClient = start_schema_registry_client(with_auth),
+    Subject = atom_to_list(?FUNCTION_NAME),
+    SchemaId = register_schema(RegistryClient, Subject, avro_schema()),
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"schema_registry">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    SchemaRegistryCfg0 = schema_registry_config(with_auth, SchemaId),
+    SchemaRegistryCfg =
+        emqx_utils_maps:deep_put(
+            [<<"url">>],
+            SchemaRegistryCfg0,
+            <<"http://wrong_confluent_schema_registry:8180">>
+        ),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{<<"parameters">> => #{<<"schema_registry">> => SchemaRegistryCfg}}
+        )
+    ),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{<<"status_reason">> := StatusReason}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            ?assertStatusAPI(Type, ActionName, <<"disconnected">>),
+            %% Could be transient
+            ?assertEqual(
+                nomatch,
+                re:run(StatusReason, <<"unhealthy_target">>, [{capture, none}]),
+                StatusReason
+            ),
+            ?assertEqual(
+                match,
+                re:run(
+                    StatusReason,
+                    <<"Failed to connect to schema registry">>,
+                    [{capture, none}]
+                ),
+                StatusReason
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Verifies the behavior when bad schema id is used.
+t_schema_registry_bad_schema_id(Config) when is_list(Config) ->
+    RegistryClient = start_schema_registry_client(with_auth),
+    Subject = atom_to_list(?FUNCTION_NAME),
+    SchemaId0 = register_schema(RegistryClient, Subject, avro_schema()),
+    WrongSchemaId = SchemaId0 + 1001,
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionName = <<"schema_registry">>,
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"schema_registry">> =>
+                        schema_registry_config(with_auth, WrongSchemaId)
+                }
+            }
+        )
+    ),
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+
+            {ok, {{_, 201, _}, _, #{<<"status_reason">> := StatusReason}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            ?assertStatusAPI(Type, ActionName, <<"disconnected">>),
+            ?assertEqual(
+                match,
+                re:run(StatusReason, <<"unhealthy_target">>, [{capture, none}]),
+                StatusReason
+            ),
+            ?assertEqual(
+                match,
+                re:run(
+                    StatusReason,
+                    <<"Unknown schema id">>,
+                    [{capture, none}]
+                ),
+                StatusReason
             ),
 
             ok

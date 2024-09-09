@@ -159,6 +159,8 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true},
       common_dep(:sasl_auth),
+      # avlizer currently uses older :erlavro version
+      common_dep(:erlavro),
       common_dep(:crc32cer)
     ]
   end
@@ -276,6 +278,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:wolff), do: {:wolff, "3.0.4"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
+  def common_dep(:avlizer),
+    do: {:avlizer, github: "emqx/avlizer", tag: "0.5.1.1"}
+
   def common_dep(:kafka_protocol),
     do: {:kafka_protocol, "4.1.8", override: true}
 
@@ -285,7 +290,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:snappyer), do: {:snappyer, "1.2.9", override: true}
   def common_dep(:crc32cer), do: {:crc32cer, "0.1.8", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.0.1"}
-  def common_dep(:erlavro), do: {:erlavro, github: "emqx/erlavro", tag: "2.10.0"}
+  def common_dep(:erlavro), do: {:erlavro, github: "emqx/erlavro", tag: "2.10.0", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK

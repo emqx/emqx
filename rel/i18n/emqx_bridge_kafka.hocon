@@ -80,6 +80,41 @@ producer_kafka_opts.desc:
 producer_kafka_opts.label:
 """Kafka Producer"""
 
+producer_schema_registry.desc:
+"""Configuration for Confluent Schema Registry."""
+producer_schema_registry.label:
+"""Confluent Schema Registry"""
+
+confluent_schema_registry_url.desc:
+"""URL for the Schema Registry server to use."""
+confluent_schema_registry_url.label:
+"""Confluent Schema Registry URL"""
+
+confluent_schema_registry_schema_id.desc:
+"""Numeric Schema ID to use for encoding payloads."""
+confluent_schema_registry_schema_id.label:
+"""Schema ID"""
+
+confluent_schema_registry_auth.desc:
+"""Configuration for authenticating with Confluent Schema Registry."""
+confluent_schema_registry_auth.label:
+"""Authentication"""
+
+confluent_schema_registry_auth_basic.desc:
+"""Confluent Schema Registry Basic Auth"""
+confluent_schema_registry_auth_basic.label:
+"""Basic Auth"""
+
+confluent_schema_registry_auth_basic_username.desc:
+"""Username to use for Confluent Schema Registry Basic Auth"""
+confluent_schema_registry_auth_basic_username.label:
+"""Username"""
+
+confluent_schema_registry_auth_basic_password.desc:
+"""Password to use for Confluent Schema Registry Basic Auth"""
+confluent_schema_registry_auth_basic_password.label:
+"""Password"""
+
 kafka_topic.desc:
 """Kafka topic name.  Supports templates (e.g.: `t-${payload.t}`)."""
 

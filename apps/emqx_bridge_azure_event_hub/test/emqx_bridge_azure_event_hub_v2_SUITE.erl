@@ -229,7 +229,7 @@ shared_secret(rig_keytab) ->
 ensure_topic(Config, KafkaTopic, Opts) ->
     KafkaHost = ?config(kafka_host, Config),
     KafkaPort = ?config(kafka_port, Config),
-    NumPartitions = maps:get(num_partitions, Opts, 3),
+    NumPartitions = maps:get(num_partitions, Opts, 1),
     Endpoints = [{KafkaHost, KafkaPort}],
     TopicConfigs = [
         #{
@@ -407,6 +407,30 @@ t_dynamic_topics(Config) ->
                 {connector_name, ?config(connector_name, Config)},
                 {connector_config, ?config(connector_config, Config)},
                 {action_config, ActionConfig}
+            ]
+        ),
+    ok.
+
+t_schema_registry(Config) ->
+    ActionConfig0 = ?config(action_config, Config),
+    ActionConfig =
+        emqx_utils_maps:deep_merge(
+            ActionConfig0,
+            #{
+                <<"parameters">> => #{
+                    <<"message">> => #{<<"value">> => <<"${.payload}">>},
+                    <<"query_mode">> => <<"sync">>
+                }
+            }
+        ),
+    ok =
+        emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(
+            [
+                {type, ?BRIDGE_TYPE_BIN},
+                {connector_name, ?config(connector_name, Config)},
+                {connector_config, ?config(connector_config, Config)},
+                {action_config, ActionConfig},
+                {schema_registry_auth, with_auth}
             ]
         ),
     ok.

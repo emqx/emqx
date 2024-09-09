@@ -37,6 +37,7 @@
 -define(kafka_telemetry_id, kafka_telemetry_id).
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
+-define(schema_registry_worker, schema_registry_worker).
 
 resource_type() -> kafka_producer.
 
@@ -146,6 +147,7 @@ create_producers_for_bridge_v2(
             fixed -> TopicOrTemplate;
             dynamic -> dynamic
         end,
+    Schema = schema_registry(ConnResId, ActionResId, KafkaConfig),
     KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
@@ -166,7 +168,7 @@ create_producers_for_bridge_v2(
             ),
             _ = maybe_install_wolff_telemetry_handlers(ActionResId),
             {ok, #{
-                message_template => compile_message_template(MessageTemplate),
+                message_template => compile_message_template(MessageTemplate, Schema),
                 kafka_client_id => ClientId,
                 topic_template => TopicTemplate,
                 topic => MKafkaTopic,
@@ -194,8 +196,8 @@ create_producers_for_bridge_v2(
             )
     end.
 
-on_stop(InstanceId, _State) ->
-    AllocatedResources = emqx_resource:get_allocated_resources(InstanceId),
+on_stop(ConnResId, _State) ->
+    AllocatedResources = emqx_resource:get_allocated_resources(ConnResId),
     ClientId = maps:get(?kafka_client_id, AllocatedResources, undefined),
     case ClientId of
         undefined ->
@@ -205,16 +207,18 @@ on_stop(InstanceId, _State) ->
     end,
     maps:foreach(
         fun
-            ({?kafka_producers, _BridgeV2Id}, Producers) ->
+            ({?kafka_producers, _ARId}, Producers) ->
                 deallocate_producers(ClientId, Producers);
-            ({?kafka_telemetry_id, _BridgeV2Id}, TelemetryId) ->
+            ({?kafka_telemetry_id, _ARId}, TelemetryId) ->
                 deallocate_telemetry_handlers(TelemetryId);
+            ({?schema_registry_worker, _ARId}, WorkerId) ->
+                ensure_schema_registry_worker_absent(WorkerId);
             (_, _) ->
                 ok
         end,
         AllocatedResources
     ),
-    ?tp(kafka_producer_stopped, #{instance_id => InstanceId}),
+    ?tp(kafka_producer_stopped, #{instance_id => ConnResId}),
     ok.
 
 ensure_client(ClientId, Hosts, ClientConfig) ->
@@ -272,20 +276,24 @@ deallocate_telemetry_handlers(TelemetryId) ->
     ).
 
 remove_producers_for_bridge_v2(
-    InstId, BridgeV2Id
+    InstId, ActionResId
 ) ->
     AllocatedResources = emqx_resource:get_allocated_resources(InstId),
     ClientId = maps:get(?kafka_client_id, AllocatedResources, no_client_id),
     maps:foreach(
         fun
-            ({?kafka_producers, BridgeV2IdCheck}, Producers) when
-                BridgeV2IdCheck =:= BridgeV2Id
+            ({?kafka_producers, ARId}, Producers) when
+                ARId =:= ActionResId
             ->
                 deallocate_producers(ClientId, Producers);
-            ({?kafka_telemetry_id, BridgeV2IdCheck}, TelemetryId) when
-                BridgeV2IdCheck =:= BridgeV2Id
+            ({?kafka_telemetry_id, ARId}, TelemetryId) when
+                ARId =:= ActionResId
             ->
                 deallocate_telemetry_handlers(TelemetryId);
+            ({?schema_registry_worker, ARId}, WorkerId) when
+                ARId =:= ActionResId
+            ->
+                ensure_schema_registry_worker_absent(WorkerId);
             (_, _) ->
                 ok
         end,
@@ -294,21 +302,21 @@ remove_producers_for_bridge_v2(
     ok.
 
 on_remove_channel(
-    InstId,
+    ConnResId,
     #{
         client_id := _ClientId,
         installed_bridge_v2s := InstalledBridgeV2s
     } = OldState,
     BridgeV2Id
 ) ->
-    ok = remove_producers_for_bridge_v2(InstId, BridgeV2Id),
+    ok = remove_producers_for_bridge_v2(ConnResId, BridgeV2Id),
     NewInstalledBridgeV2s = maps:remove(BridgeV2Id, InstalledBridgeV2s),
     %% Update state
     NewState = OldState#{installed_bridge_v2s => NewInstalledBridgeV2s},
     {ok, NewState}.
 
 on_query(
-    InstId,
+    ConnResId,
     {MessageTag, Message},
     #{installed_bridge_v2s := BridgeV2Configs} = _ConnectorState
 ) ->
@@ -331,7 +339,7 @@ on_query(
         KafkaMessage = render_message(MessageTemplate, KafkaHeaders, Message),
         ?tp(
             emqx_bridge_kafka_impl_producer_sync_query,
-            #{headers_config => KafkaHeaders, instance_id => InstId}
+            #{headers_config => KafkaHeaders, instance_id => ConnResId}
         ),
         emqx_trace:rendered_action_template(MessageTag, #{
             message => KafkaMessage
@@ -355,7 +363,7 @@ on_query(
                 emqx_bridge_kafka_impl_producer_sync_query_failed,
                 #{
                     headers_config => KafkaHeaders,
-                    instance_id => InstId,
+                    instance_id => ConnResId,
                     reason => Error
                 }
             ),
@@ -365,10 +373,12 @@ on_query(
                 emqx_bridge_kafka_impl_producer_sync_query_failed,
                 #{
                     headers_config => KafkaHeaders,
-                    instance_id => InstId,
+                    instance_id => ConnResId,
                     reason => Error
                 }
             ),
+            {error, {unrecoverable_error, Error}};
+        throw:{unrecoverable_error, Error} ->
             {error, {unrecoverable_error, Error}}
     end.
 
@@ -382,7 +392,7 @@ on_get_channels(ResId) ->
 %% E.g. the output of rule-engine process chain
 %% or the direct mapping from an MQTT message.
 on_query_async(
-    InstId,
+    ConnResId,
     {MessageTag, Message},
     AsyncReplyFn,
     #{installed_bridge_v2s := BridgeV2Configs} = _ConnectorState
@@ -405,7 +415,7 @@ on_query_async(
         KafkaMessage = render_message(Template, KafkaHeaders, Message),
         ?tp(
             emqx_bridge_kafka_impl_producer_async_query,
-            #{headers_config => KafkaHeaders, instance_id => InstId}
+            #{headers_config => KafkaHeaders, instance_id => ConnResId}
         ),
         emqx_trace:rendered_action_template(MessageTag, #{
             message => KafkaMessage
@@ -429,7 +439,7 @@ on_query_async(
                 emqx_bridge_kafka_impl_producer_async_query_failed,
                 #{
                     headers_config => KafkaHeaders,
-                    instance_id => InstId,
+                    instance_id => ConnResId,
                     reason => Error
                 }
             ),
@@ -439,20 +449,23 @@ on_query_async(
                 emqx_bridge_kafka_impl_producer_async_query_failed,
                 #{
                     headers_config => KafkaHeaders,
-                    instance_id => InstId,
+                    instance_id => ConnResId,
                     reason => Error
                 }
             ),
+            {error, {unrecoverable_error, Error}};
+        throw:{unrecoverable_error, Error} ->
             {error, {unrecoverable_error, Error}}
     end.
 
-compile_message_template(T) ->
+compile_message_template(T, Schema) ->
     KeyTemplate = maps:get(key, T, <<"${.clientid}">>),
     ValueTemplate = maps:get(value, T, <<"${.}">>),
     TimestampTemplate = maps:get(timestamp, T, <<"${.timestamp}">>),
     #{
         key => preproc_tmpl(KeyTemplate),
-        value => preproc_tmpl(ValueTemplate),
+        schema => Schema,
+        value => parse_value_template(ValueTemplate, Schema),
         timestamp => preproc_tmpl(TimestampTemplate)
     }.
 
@@ -479,7 +492,12 @@ render_topic({dynamic, Template}, Message) ->
     end.
 
 render_message(
-    #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate},
+    #{
+        key := KeyTemplate,
+        schema := Schema,
+        value := ValueTemplate,
+        timestamp := TimestampTemplate
+    },
     #{
         headers_tokens := KafkaHeadersTokens,
         ext_headers_tokens := KafkaExtHeadersTokens,
@@ -496,7 +514,7 @@ render_message(
     Headers = formalize_kafka_headers(KafkaHeaders, KafkaHeadersValEncodeMode),
     #{
         key => render(KeyTemplate, Message),
-        value => render(ValueTemplate, Message),
+        value => render_value(ValueTemplate, Message, Schema),
         headers => Headers,
         ts => render_timestamp(TimestampTemplate, Message)
     }.
@@ -510,6 +528,64 @@ render(Template, Message) ->
         return => full_binary
     },
     emqx_placeholder:proc_tmpl(Template, Message, Opts).
+
+parse_value_template(ValueTemplate, undefined = _Schema) ->
+    preproc_tmpl(ValueTemplate);
+parse_value_template(ValueTemplate, #{} = _Schema) ->
+    emqx_template:parse(ValueTemplate).
+
+render_value(Template, Message, undefined = _Schema) ->
+    render(Template, Message);
+render_value([{var, Name, Accessor}], Message, #{schema_id := SchemaId, encoder := Encoder}) ->
+    case emqx_jsonish:lookup(Accessor, Message) of
+        {ok, Value} ->
+            encode_value_with_schema(SchemaId, Encoder, _Decoded = false, Value);
+        {error, _} ->
+            throw({unrecoverable, #{reason => <<"failed_to_render_message">>, missing => Name}})
+    end.
+
+encode_value_with_schema(SchemaId, Encoder, Decoded, Value) ->
+    case do_encode_value_with_schema(SchemaId, Encoder, Value) of
+        {ok, Data} ->
+            Data;
+        {error, #{} = ErrorCtx} when
+            not Decoded andalso is_binary(Value)
+        ->
+            %% Attempt one more time after decoding
+            case emqx_utils_json:safe_decode(Value, [return_maps]) of
+                {ok, NewValue} ->
+                    encode_value_with_schema(SchemaId, Encoder, _NowDecoded = true, NewValue);
+                {error, _} ->
+                    handle_encode_value_error(ErrorCtx, Value)
+            end;
+        {error, #{} = ErrorCtx} ->
+            handle_encode_value_error(ErrorCtx, Value)
+    end.
+
+-spec handle_encode_value_error(map(), term()) -> no_return().
+handle_encode_value_error(#{kind := error, reason := {'$avro_encode_error', _Reason, Ctx}}, Value) ->
+    ErrorCtx = #{reason => bad_value, decoding_context => Ctx, value => Value},
+    handle_encode_value_error(ErrorCtx, Value);
+handle_encode_value_error(ErrorCtx, _Value) ->
+    Msg = <<"failed_to_render_message">>,
+    Ctx0 = maps:without([stacktrace], ErrorCtx),
+    Ctx = Ctx0#{msg => Msg},
+    case ErrorCtx of
+        #{stacktrace := _} ->
+            ?SLOG(warning, ErrorCtx#{msg => Msg});
+        _ ->
+            ok
+    end,
+    throw({unrecoverable_error, Ctx}).
+
+do_encode_value_with_schema(SchemaId, Encoder, Value) ->
+    try
+        Data = avlizer_confluent:encode(Encoder, Value),
+        {ok, avlizer_confluent:tag_data(SchemaId, Data)}
+    catch
+        K:E:S ->
+            {error, #{kind => K, reason => E, stacktrace => S}}
+    end.
 
 render_timestamp(Template, Message) ->
     try
@@ -542,7 +618,7 @@ do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn) ->
     {_Partition, Pid} = wolff:send2(
         Producers, KafkaTopic, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}
     ),
-    %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
+    %% this Pid is so far never used because Kafka producer is bypassing the buffer worker
     {ok, Pid}.
 
 %% Wolff producer never gives up retrying
@@ -991,3 +1067,83 @@ merge_kafka_headers(HeadersTks, ExtHeaders, Msg) ->
 bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> erlang:list_to_binary(L);
 bin(A) when is_atom(A) -> erlang:atom_to_binary(A, utf8).
+
+-define(SCHEMA_REG_SUP, emqx_bridge_kafka_schema_registry_sup).
+-define(NAME(ResId), {n, l, {?MODULE, schema_registry, ResId}}).
+-define(REF(ResId), {via, gproc, ?NAME(ResId)}).
+
+schema_registry(_ConnResId, _ActionResId, #{schema_registry := none}) ->
+    undefined;
+schema_registry(ConnResId, ActionResId, #{schema_registry := #{} = Opts}) ->
+    #{schema_id := SchemaId} = Opts,
+    ok = ensure_schema_registry_supervisor_started(),
+    SchemaOpts = avlizer_opts(Opts),
+    ok = ensure_schema_registry_worker_started(ConnResId, ActionResId, SchemaOpts),
+    ServerRef = ?REF(ActionResId),
+    Table = avlizer_confluent:get_table(ServerRef),
+    try avlizer_confluent:make_encoder2(ServerRef, Table, SchemaId) of
+        Encoder ->
+            #{schema_id => SchemaId, encoder => Encoder}
+    catch
+        error:{failed_connect, _} = Error ->
+            Msg = iolist_to_binary(
+                io_lib:format("Failed to connect to schema registry: ~0p", [Error])
+            ),
+            throw(Msg);
+        error:{bad_http_code, 401} ->
+            Msg = <<"Bad schema registry credentials; failed authentication">>,
+            throw({unhealthy_target, Msg});
+        error:{bad_http_code, 404} ->
+            Msg = iolist_to_binary([<<"Unknown schema id: ">>, integer_to_binary(SchemaId)]),
+            throw({unhealthy_target, Msg})
+    end.
+
+ensure_schema_registry_supervisor_started() ->
+    ChildSpec =
+        #{
+            id => ?SCHEMA_REG_SUP,
+            start => {?SCHEMA_REG_SUP, start_link, []},
+            restart => permanent,
+            shutdown => infinity,
+            type => supervisor
+        },
+    case supervisor:start_child(emqx_bridge_sup, ChildSpec) of
+        {ok, _Pid} ->
+            ok;
+        {error, already_present} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok
+    end.
+
+ensure_schema_registry_worker_started(ConnResId, ActionResId, Opts) ->
+    emqx_resource:allocate_resource(ConnResId, {?schema_registry_worker, ActionResId}, ActionResId),
+    case supervisor:start_child(?SCHEMA_REG_SUP, schema_worker(ActionResId, Opts)) of
+        {ok, _} ->
+            ok;
+        {error, {already_started, _}} ->
+            ok
+    end.
+
+ensure_schema_registry_worker_absent(WorkerId) ->
+    case supervisor:terminate_child(?SCHEMA_REG_SUP, WorkerId) of
+        ok ->
+            _ = supervisor:delete_child(?SCHEMA_REG_SUP, WorkerId),
+            ok;
+        {error, not_found} ->
+            ok
+    end.
+
+avlizer_opts(#{url := URL, authentication := Auth0}) ->
+    Auth = emqx_bridge_kafka_impl:sasl(Auth0),
+    Opts0 = #{url => URL},
+    emqx_utils_maps:put_if(Opts0, auth, Auth, Auth =/= undefined).
+
+schema_worker(ActionResId, Opts) ->
+    #{
+        id => ActionResId,
+        start => {avlizer_confluent, start_link, [?REF(ActionResId), Opts]},
+        restart => permanent,
+        shutdown => 5_000,
+        type => worker
+    }.
