@@ -3,19 +3,19 @@ description: 'Download jmeter packages'
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         repository: emqx/emqx-fvt
         ref: broker-autotest-v5
         path: scripts
-    - uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9 # v4.2.1
+    - uses: actions/setup-java@6a0805fcefea3d4657a47ac4c165951e33482018 # v4.2.2
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
         # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
         distribution: 'zulu'
-    - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
+    - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
       with:
         name: apache-jmeter.tgz
     - name: install jmeter
