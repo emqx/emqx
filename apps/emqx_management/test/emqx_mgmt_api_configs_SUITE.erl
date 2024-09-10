@@ -423,8 +423,6 @@ t_create_webhook_v1_bridges_api(Config) ->
                                     <<"log_level">> => <<"notice">>,
                                     <<"reuse_sessions">> => true,
                                     <<"secure_renegotiate">> => true,
-                                    <<"user_lookup_fun">> =>
-                                        <<"emqx_tls_psk:lookup">>,
                                     <<"verify">> => <<"verify_none">>,
                                     <<"versions">> =>
                                         [
