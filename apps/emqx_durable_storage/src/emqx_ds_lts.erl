@@ -379,7 +379,8 @@ trie_next(#trie{trie = Trie}, State, Token) ->
     NChildren :: non_neg_integer(),
     Updated :: false | NChildren.
 trie_insert(Trie, State, Token) ->
-    trie_insert(Trie, State, Token, get_id_for_key(Trie, State, Token)).
+    NextState = get_id_for_key(Trie, State, Token),
+    trie_insert(Trie, State, Token, NextState).
 
 %%================================================================================
 %% Internal functions
@@ -413,6 +414,7 @@ trie_insert(#trie{trie = Trie, stats = Stats, persist = Persist}, State, Token, 
             {false, NextState}
     end.
 
+%% @doc Get storage static key
 -spec get_id_for_key(trie(), state(), edge()) -> static_key().
 get_id_for_key(#trie{is_binary_key = IsBin, static_key_size = Size}, State, Token) ->
     %% Requirements for the return value:
@@ -516,8 +518,10 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Tokens, Varying0) -
     Varying =
         case IsWildcard of
             _ when is_integer(NChildren), NChildren >= Threshold ->
+                %% Topic structure learnt!
                 %% Number of children for the trie node reached the
                 %% threshold, we need to insert wildcard here.
+                %% Next new children from next call will resue the WildcardState.
                 {_, _WildcardState} = trie_insert(Trie, State, ?PLUS),
                 Varying0;
             false ->
@@ -534,15 +538,16 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Tokens, Varying0) -
         end,
     do_topic_key(Trie, ThresholdFun, Depth + 1, NextState, Rest, [TokOrWildcard | Tokens], Varying).
 
-%% @doc Has side effects! Inserts missing elements
--spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, Wildcard, state()} when
+%% @doc Has side effects! Inserts missing elements.
+-spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, IsWildcard, state()} when
     New :: false | non_neg_integer(),
-    Wildcard :: boolean().
+    IsWildcard :: boolean().
 trie_next_(Trie, State, Token) ->
     case trie_next(Trie, State, Token) of
-        {Wildcard, NextState} ->
-            {false, Wildcard, NextState};
+        {IsWildcard, NextState} ->
+            {false, IsWildcard, NextState};
         undefined ->
+            %% No exists, create new static key for return
             {Updated, NextState} = trie_insert(Trie, State, Token),
             {Updated, false, NextState}
     end.
