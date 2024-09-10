@@ -55,6 +55,7 @@
     | {error, servers_unreachable}.
 
 -define(MEMBERSHIP_CHANGE_TIMEOUT, 30_000).
+-define(MIN_BOOSTRAP_RETRY_TIMEOUT, 50).
 -define(MAX_BOOSTRAP_RETRY_TIMEOUT, 1_000).
 
 -define(PTERM(DB, SHARD, KEY), {?MODULE, DB, SHARD, KEY}).
@@ -425,7 +426,10 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
             %% Blunt estimate of time shard needs to catch up. If this proves to be too long in
             %% practice, it's could be augmented with handling `recover` -> `follower` Ra
             %% member state transition.
-            Timeout = min(RaftIdx - LastApplied, ?MAX_BOOSTRAP_RETRY_TIMEOUT),
+            Timeout = min(
+                max(?MIN_BOOSTRAP_RETRY_TIMEOUT, RaftIdx - LastApplied),
+                ?MAX_BOOSTRAP_RETRY_TIMEOUT
+            ),
             {retry, Timeout, St}
     end.
 
