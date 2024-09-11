@@ -859,7 +859,7 @@ t_invalid_partition_count_metrics(Config) ->
             %% Simulate `invalid_partition_count'
             emqx_common_test_helpers:with_mock(
                 wolff,
-                send2,
+                cast2,
                 fun(_Producers, _Topic, _Msgs, _AckCallback) ->
                     throw(#{
                         cause => invalid_partition_count,
