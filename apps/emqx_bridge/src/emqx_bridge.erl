@@ -256,7 +256,8 @@ send_message(BridgeType, BridgeName, ResId, Message, QueryOpts0) ->
             QueryOpts = maps:merge(query_opts(Config), QueryOpts0),
             emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
         #{enable := false} ->
-            {error, bridge_stopped}
+            %% race
+            {error, bridge_disabled}
     end.
 
 query_opts(Config) ->
