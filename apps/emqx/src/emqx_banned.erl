@@ -40,6 +40,7 @@
     info/1,
     format/1,
     parse/1,
+    parse_who/1,
     clear/0,
     who/2,
     tables/0
