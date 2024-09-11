@@ -25,7 +25,7 @@ metrics_actions_failed_unknown.label:
 """Unknown Failures"""
 
 metrics_actions_discarded.desc:
-"""The number of discarded actions due to action is disabled or race condition while action is being deleted."""
+"""The number of discarded actions due to action being disabled or race condition while action is being deleted."""
 
 metrics_actions_discarded.label:
 """Discarded"""
