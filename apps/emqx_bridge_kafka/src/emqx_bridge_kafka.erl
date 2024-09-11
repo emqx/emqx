@@ -199,7 +199,7 @@ values(producer_values) ->
         buffer => #{
             mode => <<"hybrid">>,
             per_partition_limit => <<"2GB">>,
-            segment_bytes => <<"100MB">>,
+            segment_bytes => <<"10MB">>,
             memory_overload_protection => true
         }
     };
@@ -537,7 +537,7 @@ fields(producer_buffer) ->
         {segment_bytes,
             mk(
                 emqx_schema:bytesize(),
-                #{default => <<"100MB">>, desc => ?DESC(buffer_segment_bytes)}
+                #{default => <<"10MB">>, desc => ?DESC(buffer_segment_bytes)}
             )},
         {memory_overload_protection,
             mk(boolean(), #{
