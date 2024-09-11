@@ -741,6 +741,8 @@ ssl(_) ->
 
 producers_config(BridgeType, BridgeName, Input, IsDryRun, ActionResId) ->
     #{
+        max_linger_time := MaxLingerTime,
+        max_linger_bytes := MaxLingerBytes,
         max_batch_bytes := MaxBatchBytes,
         compression := Compression,
         partition_strategy := PartitionStrategy,
@@ -778,6 +780,8 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, ActionResId) ->
         replayq_seg_bytes => SegmentBytes,
         drop_if_highmem => MemOLP,
         required_acks => RequiredAcks,
+        max_linger_ms => MaxLingerTime,
+        max_linger_bytes => MaxLingerBytes,
         max_batch_bytes => MaxBatchBytes,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,

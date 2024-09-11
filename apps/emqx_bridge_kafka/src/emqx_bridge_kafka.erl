@@ -175,6 +175,8 @@ values(producer_values) ->
             value => <<"${.}">>,
             timestamp => <<"${.timestamp}">>
         },
+        max_linger_time => <<"5ms">>,
+        max_linger_bytes => <<"10MB">>,
         max_batch_bytes => <<"896KB">>,
         compression => <<"no_compression">>,
         partition_strategy => <<"random">>,
@@ -385,6 +387,16 @@ fields(producer_kafka_opts) ->
     [
         {topic, mk(emqx_schema:template(), #{required => true, desc => ?DESC(kafka_topic)})},
         {message, mk(ref(kafka_message), #{required => false, desc => ?DESC(kafka_message)})},
+        {max_linger_time,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"0ms">>,
+                desc => ?DESC(max_linger_time)
+            })},
+        {max_linger_bytes,
+            mk(emqx_schema:bytesize(), #{
+                default => <<"10MB">>,
+                desc => ?DESC(max_linger_bytes)
+            })},
         {max_batch_bytes,
             mk(emqx_schema:bytesize(), #{default => <<"896KB">>, desc => ?DESC(max_batch_bytes)})},
         {compression,
