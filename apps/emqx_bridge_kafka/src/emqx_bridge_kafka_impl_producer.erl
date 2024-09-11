@@ -532,17 +532,15 @@ do_send_msg(sync, KafkaTopic, KafkaMessage, Producers, SyncTimeout) ->
             {error, timeout}
     end;
 do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn) ->
-    %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
+    %% * Must be a batch because wolff:cast2 are batch APIs
     %% * Must be a single element batch because wolff books calls, but not batch sizes
     %%   for counters and gauges.
     Batch = [KafkaMessage],
-    %% The retuned information is discarded here.
-    %% If the producer process is down when sending, this function would
-    %% raise an error exception which is to be caught by the caller of this callback
-    {_Partition, Pid} = wolff:send2(
+    {_Partition, Pid} = wolff:cast2(
         Producers, KafkaTopic, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}
     ),
-    %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
+    %% This Pid is returned, but not monitored by caller
+    %% See emqx_resource_buffer_worker:simple_async_internal_buffer
     {ok, Pid}.
 
 %% Wolff producer never gives up retrying

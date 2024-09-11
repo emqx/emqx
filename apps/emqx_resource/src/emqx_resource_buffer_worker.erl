@@ -210,6 +210,7 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
             {async_return, {error, _} = Error} ->
                 Error;
             {async_return, {ok, _Pid}} ->
+                %% TODO: monitor pid
                 receive
                     {ReplyAlias, Response} ->
                         Response
