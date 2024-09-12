@@ -316,7 +316,7 @@ t_crud(Config) ->
         {ok, 400, #{
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
-                <<"{post_config_update,emqx_schema_registry,", _/binary>>
+                <<"{post_config_update,emqx_schema_registry_config,", _/binary>>
         }},
         request({put, SchemaName, UpdateParams#{<<"source">> := InvalidSourceBin}})
     ),
@@ -357,7 +357,7 @@ t_crud(Config) ->
         {ok, 400, #{
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
-                <<"{post_config_update,emqx_schema_registry,", _/binary>>
+                <<"{post_config_update,emqx_schema_registry_config,", _/binary>>
         }},
         request({post, Params#{<<"source">> := InvalidSourceBin}})
     ),

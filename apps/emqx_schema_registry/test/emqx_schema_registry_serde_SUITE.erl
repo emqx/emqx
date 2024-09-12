@@ -42,12 +42,15 @@ end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
     ok.
+
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
+    snabbkaffe:start_trace(),
     clear_schemas(),
+    snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------

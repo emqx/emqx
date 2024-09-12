@@ -787,11 +787,11 @@ t_import_config(_Config) ->
     Path = [schema_registry, schemas, <<"my_avro_schema">>],
     ?assertEqual(
         {ok, #{root_key => schema_registry, changed => []}},
-        emqx_schema_registry:import_config(RawConf)
+        emqx_schema_registry_config:import_config(RawConf)
     ),
     ?assertEqual(
         {ok, #{root_key => schema_registry, changed => [Path]}},
-        emqx_schema_registry:import_config(RawConf1)
+        emqx_schema_registry_config:import_config(RawConf1)
     ).
 
 sparkplug_example_data_base64() ->
