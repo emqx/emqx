@@ -179,12 +179,12 @@ match(Topic, NextF) ->
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
--spec matches(emqx_types:topic(), nextf(), opts()) -> [key(_)].
+-spec matches(emqx_types:topic() | [word()], nextf(), opts()) -> [key(_)].
 matches(Topic, NextF, Opts) ->
     search(Topic, NextF, Opts).
 
 %% @doc Match given topic filter against the index and return _all_ matches.
--spec matches_filter(emqx_types:topic(), nextf(), opts()) -> [key(_)].
+-spec matches_filter(emqx_types:topic() | [word()], nextf(), opts()) -> [key(_)].
 matches_filter(TopicFilter, NextF, Opts) ->
     search(TopicFilter, NextF, [topic_filter | Opts]).
 
@@ -355,7 +355,9 @@ match_add(K, Acc) when is_list(Acc) ->
 match_add(K, first) ->
     throw({first, K}).
 
--spec filter_words(emqx_types:topic()) -> [word()].
+-spec filter_words(emqx_types:topic() | [word()]) -> [word()].
+filter_words(Words) when is_list(Words) ->
+    Words;
 filter_words(Topic) when is_binary(Topic) ->
     % NOTE
     % This is almost identical to `emqx_topic:words/1`, but it doesn't convert empty
@@ -364,6 +366,8 @@ filter_words(Topic) when is_binary(Topic) ->
     [word(W, filter) || W <- emqx_topic:tokens(Topic)].
 
 -spec topic_words(emqx_types:topic()) -> [binary()].
+topic_words(Words) when is_list(Words) ->
+    Words;
 topic_words(Topic) when is_binary(Topic) ->
     [word(W, topic) || W <- emqx_topic:tokens(Topic)].
 

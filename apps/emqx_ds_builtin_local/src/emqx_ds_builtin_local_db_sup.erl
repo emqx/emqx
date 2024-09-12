@@ -131,7 +131,8 @@ init({#?db_sup{db = DB}, DefaultOpts}) ->
     emqx_ds_builtin_metrics:init_for_db(DB),
     Opts = emqx_ds_builtin_local_meta:open_db(DB, DefaultOpts),
     Children = [
-        sup_spec(#?shards_sup{db = DB}, Opts)
+        sup_spec(#?shards_sup{db = DB}, Opts),
+        meta_spec(DB)
     ],
     SupFlags = #{
         strategy => one_for_all,
@@ -159,7 +160,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_buffer_spec(DB, Shard, Opts),
-        shard_batch_serializer_spec(DB, Shard, Opts)
+        shard_batch_serializer_spec(DB, Shard, Opts),
+        shard_beamformers_spec(DB, Shard, Opts)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -173,6 +175,15 @@ start_link_sup(Id, Options) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+meta_spec(DB) ->
+    #{
+        id => meta_worker,
+        start => {emqx_ds_builtin_local_meta_worker, start_link, [DB]},
+        shutdown => 5_000,
+        restart => permanent,
+        type => worker
+    }.
 
 sup_spec(Id, Options) ->
     #{
@@ -216,6 +227,21 @@ shard_batch_serializer_spec(DB, Shard, Opts) ->
         shutdown => 5_000,
         restart => permanent,
         type => worker
+    }.
+
+shard_beamformers_spec(DB, Shard, _Options) ->
+    %% TODO: don't hardcode value
+    BeamformerOpts = #{
+        n_workers => 5
+    },
+    #{
+        id => {Shard, beamformers},
+        type => supervisor,
+        shutdown => infinity,
+        start =>
+            {emqx_ds_beamformer_sup, start_link, [
+                emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
+            ]}
     }.
 
 ensure_started(Res) ->

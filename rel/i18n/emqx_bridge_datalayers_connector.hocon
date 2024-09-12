@@ -38,6 +38,12 @@ username.desc:
 username.label:
 """Username"""
 
+driver_type.label:
+"""Driver Type"""
+
+driver_type.desc:
+"""The Driver used to communicate with Datalayers service."""
+
 datalayers_parameters.label:
 """Datalayers Specific Parameters"""
 

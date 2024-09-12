@@ -79,7 +79,18 @@ init_per_testcase(t_replication_options = TestCase, Config) ->
     },
     common_init_per_testcase(TestCase, Config, Opts);
 init_per_testcase(TestCase, Config) ->
-    common_init_per_testcase(TestCase, Config, _Opts = #{}).
+    common_init_per_testcase(
+        TestCase,
+        Config,
+        _Opts = #{
+            extra_emqx_conf =>
+                "\ndurable_sessions {\n"
+                "  enable = true\n"
+                "  heartbeat_interval = 100ms\n"
+                "  session_gc_interval = 2s\n"
+                "}\n"
+        }
+    ).
 
 common_init_per_testcase(TestCase, Config, Opts) ->
     Apps = emqx_cth_suite:start(
@@ -272,10 +283,10 @@ t_qos0_only_many_streams(_Config) ->
     Pub = connect(<<?MODULE_STRING "_pub">>, true, 0),
     [ConnPid] = emqx_cm:lookup_channels(ClientId),
     try
-        {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, qos1),
+        {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, [{qos, 1}]),
 
         [
-            emqtt:publish(Pub, Topic, Payload, ?QOS_0)
+            emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
                 {<<"t/1">>, <<"foo">>},
                 {<<"t/2">>, <<"bar">>},
@@ -290,7 +301,7 @@ t_qos0_only_many_streams(_Config) ->
         Inflight0 = get_session_inflight(ConnPid),
 
         [
-            emqtt:publish(Pub, Topic, Payload, ?QOS_0)
+            emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
                 {<<"t/2">>, <<"foo">>},
                 {<<"t/2">>, <<"bar">>},
@@ -298,12 +309,20 @@ t_qos0_only_many_streams(_Config) ->
             ]
         ],
         ?assertMatch(
-            [_, _, _],
+            [
+                #{payload := P1},
+                #{payload := P2},
+                #{payload := P3}
+            ] when
+                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
+                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
+                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
+
             receive_messages(3)
         ),
 
         [
-            emqtt:publish(Pub, Topic, Payload, ?QOS_0)
+            emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
                 {<<"t/3">>, <<"foo">>},
                 {<<"t/3">>, <<"bar">>},
@@ -311,7 +330,15 @@ t_qos0_only_many_streams(_Config) ->
             ]
         ],
         ?assertMatch(
-            [_, _, _],
+            [
+                #{payload := P1},
+                #{payload := P2},
+                #{payload := P3}
+            ] when
+                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
+                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
+                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
+
             receive_messages(3)
         ),
 

@@ -19,18 +19,27 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, #{
-                config =>
-                    "\n durable_sessions {"
-                    "\n     enable = true"
-                    "\n     renew_streams_interval = 100ms"
-                    "\n }"
-                    "\n durable_storage.messages {"
-                    "\n     backend = builtin_raft"
-                    "\n }"
-                    "\n durable_storage.queues = {"
-                    "\n     backend = builtin_raft"
-                    "\n     local_write_buffer.flush_interval = 10ms"
-                    "\n }"
+                config => #{
+                    <<"rpc">> => #{
+                        <<"port_discovery">> => <<"manual">>
+                    },
+                    <<"durable_sessions">> => #{
+                        <<"enable">> => true,
+                        <<"renew_streams_interval">> => "100ms",
+                        <<"idle_poll_interval">> => "1s"
+                    },
+                    <<"durable_storage">> => #{
+                        <<"messages">> => #{
+                            <<"backend">> => <<"builtin_raft">>
+                        },
+                        <<"queues">> => #{
+                            <<"backend">> => <<"builtin_raft">>,
+                            <<"local_write_buffer">> => #{
+                                <<"flush_interval">> => <<"10ms">>
+                            }
+                        }
+                    }
+                }
             }},
             emqx,
             {emqx_ds_shared_sub, #{

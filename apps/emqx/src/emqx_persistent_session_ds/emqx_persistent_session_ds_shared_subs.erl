@@ -43,11 +43,11 @@
     on_unsubscribe/4,
     on_disconnect/2,
 
-    on_streams_replay/2,
+    on_streams_replay/3,
     on_info/3,
 
-    pre_renew_streams/2,
-    renew_streams/2,
+    pre_renew_streams/3,
+    renew_streams/3,
     to_map/2
 ]).
 
@@ -324,17 +324,21 @@ schedule_unsubscribe(
 %%--------------------------------------------------------------------
 %% pre_renew_streams
 
--spec pre_renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
-    {emqx_persistent_session_ds_state:t(), t()}.
-pre_renew_streams(S, SharedSubS) ->
-    on_streams_replay(S, SharedSubS).
+-spec pre_renew_streams(
+    emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds_stream_scheduler:t()
+) ->
+    {emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds_stream_scheduler:t()}.
+pre_renew_streams(S, SharedSubS, SS) ->
+    on_streams_replay(S, SharedSubS, SS).
 
 %%--------------------------------------------------------------------
 %% renew_streams
 
--spec renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
-    {emqx_persistent_session_ds_state:t(), t()}.
-renew_streams(S0, #{agent := Agent0, scheduled_actions := ScheduledActions} = SharedSubS0) ->
+-spec renew_streams(
+    emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds_stream_scheduler:t()
+) ->
+    {emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds_stream_scheduler:t()}.
+renew_streams(S0, #{agent := Agent0, scheduled_actions := ScheduledActions} = SharedSubS0, SchedS) ->
     {StreamLeaseEvents, Agent1} = emqx_persistent_session_ds_shared_subs_agent:renew_streams(
         Agent0
     ),
@@ -342,30 +346,31 @@ renew_streams(S0, #{agent := Agent0, scheduled_actions := ScheduledActions} = Sh
         ?tp(debug, shared_subs_new_stream_lease_events, #{
             stream_lease_events => format_lease_events(StreamLeaseEvents)
         }),
-    S1 = lists:foldl(
+    {S1, NewSchedS} = lists:foldl(
         fun
-            (#{type := lease} = Event, S) -> accept_stream(Event, S, ScheduledActions);
-            (#{type := revoke} = Event, S) -> revoke_stream(Event, S)
+            (#{type := lease} = Event, {S, SS}) -> accept_stream(Event, S, ScheduledActions, SS);
+            %%@TODO
+            (#{type := revoke} = Event, {S, SS}) -> {revoke_stream(Event, S), SS}
         end,
-        S0,
+        {S0, SchedS},
         StreamLeaseEvents
     ),
     SharedSubS1 = SharedSubS0#{agent => Agent1},
-    {S1, SharedSubS1}.
+    {S1, SharedSubS1, NewSchedS}.
 
 %%--------------------------------------------------------------------
 %% renew_streams internal functions
 
-accept_stream(#{share_topic_filter := ShareTopicFilter} = Event, S, ScheduledActions) ->
+accept_stream(#{share_topic_filter := ShareTopicFilter} = Event, S, ScheduledActions, SchedS0) ->
     %% If we have a pending action (subscribe or unsubscribe) for this topic filter,
     %% we should not accept a stream and start replaying it. We won't use it anyway:
     %% * if subscribe is pending, we will reset agent obtain a new lease
     %% * if unsubscribe is pending, we will drop connection
     case ScheduledActions of
         #{ShareTopicFilter := _Action} ->
-            S;
+            {S, SchedS0};
         _ ->
-            accept_stream(Event, S)
+            accept_stream(Event, S, SchedS0)
     end.
 
 accept_stream(
@@ -374,12 +379,13 @@ accept_stream(
         stream := Stream,
         progress := #{iterator := Iterator} = _Progress
     } = _Event,
-    S0
+    S0,
+    SchedS0
 ) ->
     case emqx_persistent_session_ds_state:get_subscription(ShareTopicFilter, S0) of
         undefined ->
             %% We unsubscribed
-            S0;
+            {S0, SchedS0};
         #{id := SubId, current_state := SStateId} ->
             Key = {SubId, Stream},
             NeedCreateStream =
@@ -402,9 +408,12 @@ accept_stream(
                             sub_state_id = SStateId
                         },
                     S1 = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
-                    S1;
+                    SchedS = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
+                        _IsReplay = false, Key, NewSRS, S1, SchedS0
+                    ),
+                    {S1, SchedS};
                 false ->
-                    S0
+                    {S0, SchedS0}
             end
     end.
 
@@ -434,11 +443,12 @@ revoke_stream(
 
 -spec on_streams_replay(
     emqx_persistent_session_ds_state:t(),
-    t()
-) -> {emqx_persistent_session_ds_state:t(), t()}.
-on_streams_replay(S0, SharedSubS0) ->
-    {S1, #{agent := Agent0, scheduled_actions := ScheduledActions0} = SharedSubS1} =
-        renew_streams(S0, SharedSubS0),
+    t(),
+    emqx_persistent_session_ds_stream_scheduler:t()
+) -> {emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds_stream_scheduler:t()}.
+on_streams_replay(S0, SharedSubS0, SS) ->
+    {S1, #{agent := Agent0, scheduled_actions := ScheduledActions0} = SharedSubS1, NewSS} =
+        renew_streams(S0, SharedSubS0, SS),
 
     Progresses = all_stream_progresses(S1, Agent0),
     Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_stream_progress(
@@ -449,7 +459,7 @@ on_streams_replay(S0, SharedSubS0) ->
         agent => Agent2,
         scheduled_actions => ScheduledActions1
     },
-    {S1, SharedSubS2}.
+    {S1, SharedSubS2, NewSS}.
 
 %%--------------------------------------------------------------------
 %% on_streams_replay internal functions

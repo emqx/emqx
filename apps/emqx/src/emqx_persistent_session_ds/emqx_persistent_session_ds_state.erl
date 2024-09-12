@@ -51,7 +51,7 @@
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
--export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, iter_streams/2, n_streams/1]).
+-export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
 -export([
@@ -78,16 +78,12 @@
     n_awaiting_rel/1
 ]).
 
--export([iter_next/1]).
-
 -export([make_session_iterator/0, session_iterator_next/2]).
 
 -export_type([
     t/0,
     metadata/0,
-    iter/2,
     seqno_type/0,
-    stream_key/0,
     rank_key/0,
     session_iterator/0,
     protocol/0
@@ -120,9 +116,6 @@
 -opaque iter(K, V) :: #{
     it := gb_trees:iter(internal_key(K), V), inv_key_mapping := #{internal_key(K) => K}
 }.
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
--opaque iter(K, V) :: gb_trees:iter(K, V).
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
 
@@ -840,18 +833,20 @@ del_subscription_state(SStateId, Rec) ->
 
 %%
 
--type stream_key() :: {emqx_persistent_session_ds:subscription_id(), _StreamId}.
-
--spec get_stream(stream_key(), t()) ->
+-spec get_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
 get_stream(Key, Rec) ->
     gen_get(?streams, Key, Rec).
 
--spec put_stream(stream_key(), emqx_persistent_session_ds:stream_state(), t()) -> t().
+-spec put_stream(
+    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds:stream_state(),
+    t()
+) -> t().
 put_stream(Key, Val, Rec) ->
     gen_put(?streams, Key, Val, Rec).
 
--spec del_stream(stream_key(), t()) -> t().
+-spec del_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
     gen_del(?streams, Key, Rec).
 
@@ -859,17 +854,10 @@ del_stream(Key, Rec) ->
 fold_streams(Fun, Acc, Rec) ->
     gen_fold(?streams, Fun, Acc, Rec).
 
+-ifdef(STORE_STATE_IN_DS).
 -spec iter_streams(_StartAfter :: stream_key() | beginning, t()) ->
     iter(stream_key(), emqx_persistent_session_ds:stream_state()).
--ifdef(STORE_STATE_IN_DS).
 iter_streams(After, Rec) ->
-    gen_iter_after(?streams, After, Rec).
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-iter_streams(After, Rec) ->
-    %% NOTE
-    %% No special handling for `beginning', as it always compares less
-    %% than any `stream_key()'.
     gen_iter_after(?streams, After, Rec).
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
@@ -932,8 +920,8 @@ n_awaiting_rel(Rec) ->
 
 %%
 
--spec iter_next(iter(K, V)) -> {K, V, iter(K, V)} | none.
 -ifdef(STORE_STATE_IN_DS).
+-spec iter_next(iter(K, V)) -> {K, V, iter(K, V)} | none.
 iter_next(#{it := InnerIt0, inv_key_mapping := InvKeyMapping} = It0) ->
     case gen_iter_next(InnerIt0) of
         none ->
@@ -942,10 +930,6 @@ iter_next(#{it := InnerIt0, inv_key_mapping := InvKeyMapping} = It0) ->
             Key = maps:get(IntKey, InvKeyMapping),
             {Key, Value, It0#{it := InnerIt}}
     end.
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-iter_next(It0) ->
-    gen_iter_next(It0).
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
 
@@ -1119,14 +1103,6 @@ gen_del(Field, Key, Rec) ->
 gen_size(Field, Rec) ->
     check_sequence(Rec),
     pmap_size(maps:get(Field, Rec)).
-
-gen_iter_after(Field, After, Rec) ->
-    check_sequence(Rec),
-    pmap_iter_after(After, maps:get(Field, Rec)).
-
-gen_iter_next(It) ->
-    %% NOTE: Currently, gbt iterators is the only type of iterators.
-    gbt_iter_next(It).
 
 -spec update_pmaps(fun((pmap(_K, _V) | undefined, atom()) -> term()), map()) -> map().
 update_pmaps(Fun, Map) ->
@@ -1360,12 +1336,6 @@ pmap_iter_after(AfterExt, #pmap{table = Table, key_mapping = KeyMapping, cache =
     It = gbt_iter_after(AfterInt, Cache),
     InvKeyMapping = invert_key_mapping(KeyMapping),
     #{it => It, inv_key_mapping => InvKeyMapping}.
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-pmap_iter_after(After, #pmap{table = Table, cache = Cache}) ->
-    %% NOTE: Only valid for gbt-backed PMAPs.
-    gbt = cache_data_type(Table),
-    gbt_iter_after(After, Cache).
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
 
@@ -1373,7 +1343,6 @@ pmap_iter_after(After, #pmap{table = Table, cache = Cache}) ->
 
 -ifdef(STORE_STATE_IN_DS).
 -define(stream_tab, ?stream_domain).
--endif.
 
 cache_data_type(?stream_tab) -> gbt;
 cache_data_type(_Table) -> map.
@@ -1382,23 +1351,14 @@ cache_from_list(?stream_tab, L) ->
     gbt_from_list(L);
 cache_from_list(_Table, L) ->
     maps:from_list(L).
-
-cache_get(?stream_tab, K, Cache) ->
-    gbt_get(K, Cache, undefined);
-cache_get(_Table, K, Cache) ->
-    maps:get(K, Cache, undefined).
-
 cache_put(?stream_tab, K, V, Cache) ->
     gbt_put(K, V, Cache);
 cache_put(_Table, K, V, Cache) ->
     maps:put(K, V, Cache).
-
 cache_remove(?stream_tab, K, Cache) ->
     gbt_remove(K, Cache);
 cache_remove(_Table, K, Cache) ->
     maps:remove(K, Cache).
-
--ifdef(STORE_STATE_IN_DS).
 cache_fold(?stream_tab, Fun, Acc, KeyMapping, Cache) ->
     gbt_fold(Fun, Acc, KeyMapping, Cache);
 cache_fold(_Table, FunIn, Acc, KeyMapping, Cache) ->
@@ -1413,16 +1373,6 @@ cache_has_key(?stream_tab, Key, Cache) ->
     gb_trees:is_defined(Key, Cache);
 cache_has_key(_Domain, Key, Cache) ->
     is_map_key(Key, Cache).
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-cache_fold(?stream_tab, Fun, Acc, Cache) ->
-    gbt_fold(Fun, Acc, Cache);
-cache_fold(_Table, Fun, Acc, Cache) ->
-    maps:fold(Fun, Acc, Cache).
-%% END ifdef(STORE_STATE_IN_DS).
--endif.
-
--ifdef(STORE_STATE_IN_DS).
 cache_format(?stream_tab, InvKeyMapping, Cache) ->
     lists:map(
         fun({IntK, V}) ->
@@ -1440,20 +1390,31 @@ cache_format(_Table, InvKeyMapping, Cache) ->
         #{},
         Cache
     ).
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-cache_format(?stream_tab, Cache) ->
-    gbt_format(Cache);
-cache_format(_Table, Cache) ->
-    Cache.
-%% END ifdef(STORE_STATE_IN_DS).
--endif.
-
 cache_size(?stream_tab, Cache) ->
     gbt_size(Cache);
 cache_size(_Table, Cache) ->
     maps:size(Cache).
+%% Below ndef(STORE_STATE_IN_DS)
+-else.
+cache_from_list(_Table, L) ->
+    maps:from_list(L).
+cache_put(_Table, K, V, Cache) ->
+    maps:put(K, V, Cache).
+cache_remove(_Table, K, Cache) ->
+    maps:remove(K, Cache).
+cache_fold(_Table, Fun, Acc, Cache) ->
+    maps:fold(Fun, Acc, Cache).
+cache_format(_Table, Cache) ->
+    Cache.
+cache_size(_Table, Cache) ->
+    maps:size(Cache).
+%% END ifdef(STORE_STATE_IN_DS).
+-endif.
 
+cache_get(_Table, K, Cache) ->
+    maps:get(K, Cache, undefined).
+
+-ifdef(STORE_STATE_IN_DS).
 %% PMAP Cache implementation backed by `gb_trees'.
 %% Supports iteration starting from specific key.
 
@@ -1479,7 +1440,6 @@ gbt_remove(K, Cache) ->
 gbt_format(Cache) ->
     gb_trees:to_list(Cache).
 
--ifdef(STORE_STATE_IN_DS).
 gbt_fold(Fun, Acc, KeyMapping, Cache) ->
     InvKeyMapping = invert_key_mapping(KeyMapping),
     It = gb_trees:iterator(Cache),
@@ -1493,22 +1453,10 @@ gbt_fold_iter(Fun, Acc, InvKeyMapping, It0) ->
         _ ->
             Acc
     end.
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-gbt_fold(Fun, Acc, Cache) ->
-    It = gb_trees:iterator(Cache),
-    gbt_fold_iter(Fun, Acc, It).
-
-gbt_fold_iter(Fun, Acc, It0) ->
-    case gb_trees:next(It0) of
-        {K, V, It} ->
-            gbt_fold_iter(Fun, Fun(K, V, Acc), It);
-        _ ->
-            Acc
-    end.
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.
 
+-ifdef(STORE_STATE_IN_DS).
 gbt_size(Cache) ->
     gb_trees:size(Cache).
 
@@ -1524,7 +1472,6 @@ gbt_iter_after(After, Cache) ->
 gbt_iter_next(It) ->
     gb_trees:next(It).
 
--ifdef(STORE_STATE_IN_DS).
 session_restore(SessionId) ->
     Empty = maps:from_keys(
         [
@@ -1549,7 +1496,6 @@ session_restore(SessionId) ->
 -else.
 
 %% Functions dealing with set tables:
-
 kv_persist(Tab, SessionId, Val0) ->
     Val = encoder(encode, Tab, Val0),
     mnesia:write(Tab, #kv{k = SessionId, v = Val}, write).

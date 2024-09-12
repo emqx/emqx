@@ -63,7 +63,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.3-11'
+        default: '5.3-13'
 
 permissions:
   contents: read
@@ -118,6 +118,7 @@ jobs:
           - debian10
           - el9
           - el8
+          - el7
           - amzn2
           - amzn2023
         arch:

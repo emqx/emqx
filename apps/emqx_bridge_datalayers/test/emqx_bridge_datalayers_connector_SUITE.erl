@@ -236,6 +236,7 @@ datalayers_connector_config(Host, Port, SslEnabled, Verify) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
     ConnectorConf = #{
         <<"parameters">> => #{
+            <<"driver_type">> => <<"influxdb_v1">>,
             <<"database">> => <<"mqtt">>,
             <<"username">> => <<"admin">>,
             <<"password">> => <<"public">>

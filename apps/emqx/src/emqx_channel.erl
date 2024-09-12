@@ -1365,12 +1365,9 @@ handle_info({'DOWN', Ref, process, Pid, Reason}, Channel) ->
         [] -> {ok, Channel};
         Msgs -> {ok, Msgs, Channel}
     end;
-handle_info(?session_message(Message), #channel{session = Session} = Channel) ->
-    NSession = emqx_session:handle_info(Message, Session),
-    {ok, Channel#channel{session = NSession}};
-handle_info(Info, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
-    {ok, Channel}.
+handle_info(Info, Channel = #channel{session = Session0, clientinfo = ClientInfo}) ->
+    Session = emqx_session:handle_info(Info, Session0, ClientInfo),
+    {ok, Channel#channel{session = Session}}.
 
 -ifdef(TEST).
 

@@ -306,8 +306,8 @@ parse_body(<<"application/json", _/binary>>, Body) ->
 parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     NBody = maps:from_list(cow_qs:parse_qs(Body)),
     {ok, NBody};
-parse_body(ContentType, _) ->
-    {error, {unsupported_content_type, ContentType}}.
+parse_body(_ContentType, _) ->
+    erlang:throw(unsupported_content_type).
 
 request_for_log(Credential, #{url := Url, method := Method} = State) ->
     SafeCredential = emqx_authn_utils:without_password(Credential),
