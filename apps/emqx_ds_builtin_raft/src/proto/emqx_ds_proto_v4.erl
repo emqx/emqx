@@ -25,7 +25,7 @@
 ]).
 
 %% behavior callbacks:
--export([introduced_in/0]).
+-export([introduced_in/0, deprecated_since/0]).
 
 %%================================================================================
 %% API functions
@@ -180,3 +180,6 @@ delete_next(Node, DB, Shard, Iter, Selector, BatchSize) ->
 
 introduced_in() ->
     "5.6.0".
+
+deprecated_since() ->
+    "5.8.0".

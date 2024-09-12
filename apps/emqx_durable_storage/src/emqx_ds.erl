@@ -39,7 +39,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, update_iterator/3, next/3]).
+-export([get_streams/3, make_iterator/4, next/3, poll/3]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -84,7 +84,10 @@
     ds_specific_delete_stream/0,
     ds_specific_delete_iterator/0,
     generation_rank/0,
-    generation_info/0
+    generation_info/0,
+
+    poll_iterators/0,
+    poll_opts/0
 ]).
 
 %%================================================================================
@@ -180,6 +183,8 @@
 
 -type delete_next_result() :: delete_next_result(delete_iterator()).
 
+-type poll_iterators() :: [{_UserData, iterator()}].
+
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
 %% Timestamp
@@ -216,6 +221,17 @@
     }.
 
 -type create_db_opts() :: generic_db_opts().
+
+-type poll_opts() ::
+    #{
+        %% Expire poll request after this timeout
+        timeout := pos_integer(),
+        %% (Optional) Provide an explicit process alias for receiving
+        %% replies. It must be created with `explicit_unalias' flag,
+        %% otherwise replies will get lost. If not specified, DS will
+        %% create a new alias.
+        reply_to => reference()
+    }.
 
 %% An opaque term identifying a generation.  Each implementation will possibly add
 %% information to this term to match its inner structure (e.g.: by embedding the shard id,
@@ -258,10 +274,9 @@
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
     make_iterator_result(ds_specific_iterator()).
 
--callback update_iterator(db(), ds_specific_iterator(), message_key()) ->
-    make_iterator_result(ds_specific_iterator()).
-
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
+
+-callback poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
 
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
@@ -405,14 +420,45 @@ get_streams(DB, TopicFilter, StartTime) ->
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?module(DB):make_iterator(DB, Stream, TopicFilter, StartTime).
 
--spec update_iterator(db(), iterator(), message_key()) ->
-    make_iterator_result().
-update_iterator(DB, OldIter, DSKey) ->
-    ?module(DB):update_iterator(DB, OldIter, DSKey).
-
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
+
+%% @doc Schedule asynchrounous long poll of the iterators and return
+%% immediately.
+%%
+%% Arguments:
+%% 1. Name of DS DB
+%% 2. List of tuples, where first element is an arbitrary tag that can
+%%    be used to identify replies, and the second one is iterator.
+%% 3. Poll options
+%%
+%% Return value: process alias that identifies the replies.
+%%
+%% Data will be sent to the caller process as messages wrapped in
+%% `#poll_reply' record:
+%% - `ref' field will be equal to the returned reference.
+%% - `userdata' field will be equal to the iterator tag.
+%% - `payload' will be of type `next_result()' or `poll_timeout' atom
+%%
+%% There are some important caveats:
+%%
+%% - Replies are sent on a best-effort basis. They may be lost for any
+%% reason. Caller must be designed to tolerate and retry missed poll
+%% replies.
+%%
+%% - There is no explicit lifetime management for poll workers. When
+%% caller dies, its poll requests survive. It's assumed that orphaned
+%% requests will naturally clean themselves out by timeout alone.
+%% Therefore, timeout must not be too long.
+%%
+%% - But not too short either: if no data arrives to the stream before
+%% timeout, the request is usually retried. This should not create a
+%% busy loop. Also DS may silently drop requests due to overload. So
+%% they should not be retried too early.
+-spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
+poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
+    ?module(DB):poll(DB, Iterators, PollOpts).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->
