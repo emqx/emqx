@@ -88,6 +88,16 @@
     end)()
 ).
 
+-define(assertProcessExit(PID), ?assertProcessExit(PID, _)).
+-define(assertProcessExit(PID, REASON), ?assertProcessExit(PID, _, 1000)).
+-define(assertProcessExit(PID, REASON, TIMEOUT),
+    (fun() ->
+        X__Pid = PID,
+        X__MRef = erlang:monitor(process, X__Pid),
+        ?assertReceive({'DOWN', X__MRef, process, X__Pid, REASON}, TIMEOUT)
+    end)()
+).
+
 -define(assertExceptionOneOf(CT1, CT2, EXPR),
     (fun() ->
         X__Attrs = [
