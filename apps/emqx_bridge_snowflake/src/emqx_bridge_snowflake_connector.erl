@@ -968,7 +968,7 @@ http_pool_workers_healthy(HTTPPool, Timeout) ->
 
 %% https://docs.snowflake.com/en/sql-reference/identifiers-syntax
 needs_quoting(Identifier) ->
-    nomatch =:= re:run(Identifier, <<"^[A-Za-z_][A-Za-z_0-9$]$">>, [{capture, none}]).
+    nomatch =:= re:run(Identifier, <<"^[A-Za-z_][A-Za-z_0-9$]*$">>, [{capture, none}]).
 
 maybe_quote(Identifier) ->
     case needs_quoting(Identifier) of
@@ -977,3 +977,29 @@ maybe_quote(Identifier) ->
         false ->
             Identifier
     end.
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+needs_quoting_test_() ->
+    PositiveCases = [
+        <<"with spaece">>,
+        <<"1_number_in_beginning">>,
+        <<"contains_açéntõ">>,
+        <<"with-hyphen">>,
+        <<"">>
+    ],
+    NegativeCases = [
+        <<"testdatabase">>,
+        <<"TESTDATABASE">>,
+        <<"TestDatabase">>,
+        <<"with_underscore">>,
+        <<"with_underscore_10">>
+    ],
+    Positive = lists:map(fun(Id) -> {Id, ?_assert(needs_quoting(Id))} end, PositiveCases),
+    Negative = lists:map(fun(Id) -> {Id, ?_assertNot(needs_quoting(Id))} end, NegativeCases),
+    Positive ++ Negative.
+-endif.
