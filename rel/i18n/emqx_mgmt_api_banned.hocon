@@ -36,7 +36,8 @@ delete_banned_api_response404.desc:
 """The banned object was not found in the blacklist."""
 
 list_banned_api.desc:
-"""List all currently banned client IDs, usernames and IP addresses."""
+"""List all currently banned client IDs, usernames and IP addresses.
+Filters are supported. Since filters are mutually exclusive, only one filter is allowed in a query."""
 list_banned_api.label:
 """List all banned client IDs"""
 
@@ -62,5 +63,26 @@ clear_banned_api.desc:
 """Clear all banned data."""
 clear_banned_api.label:
 """Clear"""
+
+filter_clientid.desc:
+"""Query the banned objects with an exact client ID."""
+
+filter_username.desc:
+"""Query the banned objects with an exact username."""
+
+filter_peerhost.desc:
+"""Query the banned objects with an exact IP address."""
+
+filter_like_clientid.desc:
+"""Fuzzy query banned objects with a client ID."""
+
+filter_like_username.desc:
+"""Fuzzy query banned objects with an username."""
+
+filter_like_peerhost.desc:
+"""Fuzzy query banned objects with an IP address."""
+
+filter_like_peerhost_net.desc:
+"""Fuzzy query banned objects with a CIDR."""
 
 }
