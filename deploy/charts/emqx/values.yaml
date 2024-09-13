@@ -56,7 +56,7 @@ podManagementPolicy: Parallel
 
 persistence:
   enabled: false
-  # Increased size after 5.8.0 version
+  # Increased size after 5.8.0 version 
   size: 2Gi
   storageClassName: ""
   accessMode: ReadWriteOnce
