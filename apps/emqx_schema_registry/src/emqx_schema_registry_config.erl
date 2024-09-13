@@ -8,7 +8,14 @@
 %% API
 -export([
     add_handlers/0,
-    remove_handlers/0
+    remove_handlers/0,
+
+    list_external_registries/0,
+    list_external_registries_raw/0,
+    lookup_external_registry_raw/1,
+
+    upsert_external_registry/2,
+    delete_external_registry/1
 ]).
 
 %% `emqx_config_handler' API
@@ -23,6 +30,18 @@
 %%------------------------------------------------------------------------------
 
 -define(SCHEMA_CONF_PATH(NAME), [?CONF_KEY_ROOT, schemas, NAME]).
+-define(EXTERNAL_REGISTRY_CONF_PATH(NAME), [?CONF_KEY_ROOT, external, NAME]).
+
+-define(EXTERNAL_REGISTRIES_CONF_PATH, [?CONF_KEY_ROOT, external]).
+-define(EXTERNAL_REGISTRIES_CONF_PATH_BIN, [?CONF_KEY_ROOT, <<"external">>]).
+-define(EXTERNAL_REGISTRIES_CONF_PATH_BIN(NAME), [?CONF_KEY_ROOT, <<"external">>, NAME]).
+
+-type external_registry_name() :: binary().
+-type external_registry_raw() :: #{binary() => term()}.
+
+-type external_registry() :: external_registry_confluent().
+
+-type external_registry_confluent() :: #{type := confluent}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -30,23 +49,71 @@
 
 -spec add_handlers() -> ok.
 add_handlers() ->
-    %% HTTP API handler
+    %% HTTP API handlers
     ok = emqx_conf:add_handler([?CONF_KEY_ROOT, schemas, '?'], ?MODULE),
+    ok = emqx_conf:add_handler([?CONF_KEY_ROOT, external, '?'], ?MODULE),
     %% Conf load / data import handler
     ok = emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
     ok.
 
 -spec remove_handlers() -> ok.
 remove_handlers() ->
+    ok = emqx_conf:remove_handler([?CONF_KEY_ROOT, external, '?']),
     ok = emqx_conf:remove_handler([?CONF_KEY_ROOT, schemas, '?']),
     ok = emqx_conf:remove_handler(?CONF_KEY_PATH),
     ok.
+
+-spec list_external_registries() ->
+    #{atom() => external_registry()}.
+list_external_registries() ->
+    emqx:get_config(?EXTERNAL_REGISTRIES_CONF_PATH, #{}).
+
+-spec list_external_registries_raw() ->
+    #{external_registry_name() => external_registry_raw()}.
+list_external_registries_raw() ->
+    emqx:get_raw_config(?EXTERNAL_REGISTRIES_CONF_PATH_BIN, #{}).
+
+-spec lookup_external_registry_raw(external_registry_name()) ->
+    {ok, external_registry_raw()} | {error, not_found}.
+lookup_external_registry_raw(Name) ->
+    case emqx:get_raw_config(?EXTERNAL_REGISTRIES_CONF_PATH_BIN(Name), undefined) of
+        undefined ->
+            {error, not_found};
+        Registry ->
+            {ok, Registry}
+    end.
+
+-spec upsert_external_registry(external_registry_name(), external_registry_raw()) ->
+    {ok, external_registry_raw()} | {error, term()}.
+upsert_external_registry(Name, RegistryRaw) ->
+    case
+        emqx_conf:update(
+            ?EXTERNAL_REGISTRY_CONF_PATH(Name),
+            RegistryRaw,
+            #{override_to => cluster}
+        )
+    of
+        {ok, #{raw_config := NewRegistryRaw}} ->
+            {ok, NewRegistryRaw};
+        {error, _} = Error ->
+            Error
+    end.
+
+-spec delete_external_registry(external_registry_name()) ->
+    ok | {error, term()}.
+delete_external_registry(Name) ->
+    case emqx_conf:remove(?EXTERNAL_REGISTRY_CONF_PATH(Name), #{override_to => cluster}) of
+        {ok, _} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
 
 %%------------------------------------------------------------------------------
 %% `emqx_config_handler' API
 %%------------------------------------------------------------------------------
 
-%% remove
+%% remove schema
 post_config_update(
     ?SCHEMA_CONF_PATH(Name),
     '$remove',
@@ -56,7 +123,7 @@ post_config_update(
 ) ->
     emqx_schema_registry:async_delete_serdes([Name]),
     ok;
-%% add or update
+%% add or update schema
 post_config_update(
     ?SCHEMA_CONF_PATH(NewName),
     _Cmd,
@@ -77,6 +144,27 @@ post_config_update(
             lists:foreach(fun emqx_schema_registry:ensure_serde_absent/1, SerdesToRollback),
             {error, Reason}
     end;
+%% remove external registry
+post_config_update(
+    ?EXTERNAL_REGISTRY_CONF_PATH(Name),
+    '$remove',
+    _New,
+    _Old,
+    _AppEnvs
+) ->
+    remove_external_registry(Name),
+    ok;
+%% add or update external registry
+post_config_update(
+    ?EXTERNAL_REGISTRY_CONF_PATH(Name),
+    _Cmd,
+    NewConfig,
+    _Old,
+    _AppEnvs
+) ->
+    remove_external_registry(Name),
+    add_external_registry(Name, NewConfig),
+    ok;
 post_config_update(?CONF_KEY_PATH, _Cmd, NewConf = #{schemas := NewSchemas}, OldConf, _AppEnvs) ->
     OldSchemas = maps:get(schemas, OldConf, #{}),
     #{
@@ -128,3 +216,11 @@ import_config(_RawConf) ->
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
+
+add_external_registry(Name, Config) ->
+    ok = emqx_schema_registry_external:add(Name, Config),
+    ok.
+
+remove_external_registry(Name) ->
+    ok = emqx_schema_registry_external:remove(Name),
+    ok.

@@ -12,6 +12,7 @@
         erlavro,
         gpb,
         jesse,
+        avlizer,
         emqx
     ]},
     {env, []},

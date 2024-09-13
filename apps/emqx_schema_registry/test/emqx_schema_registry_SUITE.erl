@@ -753,6 +753,11 @@ t_cluster_serde_build(Config) ->
     ),
     ok.
 
+%% Verifies that importing in both `merge' and `replace' modes work with external registries
+%% t_external_registry_import_config(_Config) ->
+%%     ct:fail(todo),
+%%     ok.
+
 t_import_config(_Config) ->
     RawConf = #{
         <<"schema_registry">> =>

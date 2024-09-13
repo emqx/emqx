@@ -146,6 +146,7 @@
 ]).
 
 -export([listeners/0]).
+-export([mkunion/2, mkunion/3]).
 
 -behaviour(hocon_schema).
 
@@ -3928,3 +3929,26 @@ listeners() ->
                 }
             )}
     ].
+
+mkunion(Field, Schemas) ->
+    mkunion(Field, Schemas, none).
+
+mkunion(Field, Schemas, Default) ->
+    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Default, Arg) end).
+
+scunion(_Field, Schemas, _Default, all_union_members) ->
+    maps:values(Schemas);
+scunion(Field, Schemas, Default, {value, Value}) ->
+    Selector =
+        case maps:get(emqx_utils_conv:bin(Field), Value, undefined) of
+            undefined ->
+                Default;
+            X ->
+                emqx_utils_conv:bin(X)
+        end,
+    case maps:find(Selector, Schemas) of
+        {ok, Schema} ->
+            [Schema];
+        _Error ->
+            throw(#{field_name => Field, expected => maps:keys(Schemas)})
+    end.
