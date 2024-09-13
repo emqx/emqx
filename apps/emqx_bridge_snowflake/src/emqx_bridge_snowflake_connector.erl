@@ -392,6 +392,7 @@ stage_file(ODBCPool, Filename, Database, Schema, Stage, ActionName) ->
     {ok, file:filename()} | {error, term()}.
 do_stage_file(ConnPid, Filename, Database, Schema, Stage, ActionName) ->
     SQL = stage_file_sql(Filename, Database, Schema, Stage, ActionName),
+    ?tp(debug, "snowflake_stage_file", #{sql => SQL, action => ActionName}),
     %% Should we also check if it actually succeeded by inspecting reportFiles?
     odbc:sql_query(ConnPid, SQL).
 
@@ -607,6 +608,7 @@ process_complete(TransferState0) ->
             {ok, 200, _, Body} ->
                 {ok, emqx_utils_json:decode(Body, [return_maps])};
             Res ->
+                ?tp("snowflake_insert_files_request_failed", #{response => Res}),
                 %% TODO: retry?
                 exit({insert_failed, Res})
         end
@@ -915,6 +917,7 @@ action_status(ActionResId, #{mode := aggregated} = ActionState) ->
     %% NOTE: This will effectively trigger uploads of buffers yet to be uploaded.
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
+    ok = check_aggreg_upload_errors(AggregId),
     case http_pool_workers_healthy(ActionResId, ConnectTimeout) of
         true ->
             ?status_connected;
@@ -976,6 +979,19 @@ maybe_quote(Identifier) ->
             emqx_utils_sql:escape_snowflake(Identifier);
         false ->
             Identifier
+    end.
+
+check_aggreg_upload_errors(AggregId) ->
+    case emqx_connector_aggregator:take_error(AggregId) of
+        [Error] ->
+            ?tp("snowflake_check_aggreg_upload_error_found", #{error => Error}),
+            %% TODO
+            %% This approach means that, for example, 3 upload failures will cause
+            %% the channel to be marked as unhealthy for 3 consecutive health checks.
+            ErrorMessage = emqx_utils:format(Error),
+            throw({unhealthy_target, ErrorMessage});
+        [] ->
+            ok
     end.
 
 %%------------------------------------------------------------------------------

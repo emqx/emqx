@@ -462,26 +462,36 @@ get_begin_mark(#{mock := false}, ActionResId) ->
         emqx_bridge_snowflake_connector:insert_report(ActionResId, #{}),
     BeginMark.
 
-wait_until_processed(Config, ActionResId, BeginMark) when is_list(Config) ->
-    wait_until_processed(maps:from_list(Config), ActionResId, BeginMark);
-wait_until_processed(#{mock := true} = Config, _ActionResId, _BeginMark) ->
-    {ok, _} = ?block_until(#{?snk_kind := "mock_snowflake_insert_file_request"}),
+wait_until_processed(Config, ActionResId, BeginMark) ->
+    wait_until_processed(Config, ActionResId, BeginMark, _ExpectedNumFiles = 1).
+
+wait_until_processed(Config, ActionResId, BeginMark, ExpectedNumFiles) when is_list(Config) ->
+    wait_until_processed(maps:from_list(Config), ActionResId, BeginMark, ExpectedNumFiles);
+wait_until_processed(#{mock := true} = Config, _ActionResId, _BeginMark, ExpectedNumFiles) ->
+    snabbkaffe:block_until(
+        ?match_n_events(
+            ExpectedNumFiles,
+            #{?snk_kind := "mock_snowflake_insert_file_request"}
+        ),
+        _Timeout = infinity,
+        _BackInTIme = infinity
+    ),
     InsertRes = maps:get(mocked_insert_report, Config, #{}),
     {ok, InsertRes};
-wait_until_processed(#{mock := false} = Config, ActionResId, BeginMark) ->
+wait_until_processed(#{mock := false} = Config, ActionResId, BeginMark, ExpectedNumFiles) ->
     {ok, Res} =
         emqx_bridge_snowflake_connector:insert_report(ActionResId, #{begin_mark => BeginMark}),
     ct:pal("insert report (begin mark ~s):\n  ~p", [BeginMark, Res]),
     case Res of
         #{
-            <<"files">> := [_ | _],
+            <<"files">> := Files,
             <<"statistics">> := #{<<"activeFilesCount">> := 0}
-        } ->
+        } when length(Files) >= ExpectedNumFiles ->
             ct:pal("insertReport response:\n  ~p", [Res]),
             {ok, Res};
         _ ->
             ct:sleep(2_000),
-            wait_until_processed(Config, ActionResId, BeginMark)
+            wait_until_processed(Config, ActionResId, BeginMark, ExpectedNumFiles)
     end.
 
 bin2hex(Bin) ->
@@ -564,7 +574,8 @@ t_aggreg_upload(Config) ->
                     #{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}
                 ),
             %% Check the uploaded objects.
-            wait_until_processed(Config, ActionResId, BeginMark),
+            ExpectedNumFiles = 2,
+            wait_until_processed(Config, ActionResId, BeginMark, ExpectedNumFiles),
             Rows = get_all_rows(Config),
             [
                 P1Hex,
@@ -1026,6 +1037,75 @@ t_aggreg_invalid_column_values(Config0) ->
                 },
                 InsertRes
             ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_aggreg_inexistent_database(init, Config) when is_list(Config) ->
+    t_aggreg_inexistent_database(init, maps:from_list(Config));
+t_aggreg_inexistent_database(init, #{mock := true} = Config) ->
+    Mod = ?CONN_MOD,
+    meck:expect(Mod, do_stage_file, fun(
+        _ConnPid, _Filename, _Database, _Schema, _Stage, _ActionName
+    ) ->
+        Msg =
+            "SQL compilation error:, Database 'INEXISTENT' does not"
+            " exist or not authorized. SQLSTATE IS: 02000",
+        {error, Msg}
+    end),
+    maps:to_list(Config);
+t_aggreg_inexistent_database(init, #{} = Config) ->
+    maps:to_list(Config).
+t_aggreg_inexistent_database(Config) ->
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(
+                Config,
+                #{<<"parameters">> => #{<<"database">> => <<"inexistent">>}}
+            ),
+            ActionResId = emqx_bridge_v2_testlib:bridge_id(Config),
+            %% BeginMark = get_begin_mark(Config, ActionResId),
+            {ok, _Rule} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(
+                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
+                        sql => sql1()
+                    }
+                ),
+            Messages1 = lists:map(fun mk_message/1, [
+                {<<"C1">>, <<"sf/a/b/c">>, <<"{\"hello\":\"world\"}">>},
+                {<<"C2">>, <<"sf/foo/bar">>, <<"baz">>},
+                {<<"C3">>, <<"sf/t/42">>, <<"">>}
+            ]),
+            ok = publish_messages(Messages1),
+            %% Wait until the insert files request fails
+            ct:pal("waiting for delivery to fail..."),
+            ?block_until(#{?snk_kind := "aggregated_buffer_delivery_failed"}),
+            %% When channel health check happens, we check aggregator for errors.
+            %% Current implementation will mark the action as unhealthy.
+            ct:pal("waiting for delivery failure to be noticed by health check..."),
+            ?block_until(#{?snk_kind := "snowflake_check_aggreg_upload_error_found"}),
+
+            ?retry(
+                _Sleep = 500,
+                _Retries = 10,
+                ?assertMatch(
+                    {200, #{
+                        <<"error">> :=
+                            <<"{unhealthy_target,", _/binary>>
+                    }},
+                    emqx_bridge_v2_testlib:simplify_result(
+                        emqx_bridge_v2_testlib:get_action_api(Config)
+                    )
+                )
+            ),
+
+            ?assertEqual(3, emqx_resource_metrics:matched_get(ActionResId)),
+            %% Currently, failure metrics are not bumped when aggregated uploads fail
+            ?assertEqual(0, emqx_resource_metrics:failed_get(ActionResId)),
+
             ok
         end,
         []
