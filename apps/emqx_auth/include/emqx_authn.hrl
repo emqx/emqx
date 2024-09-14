@@ -18,6 +18,7 @@
 -define(EMQX_AUTHN_HRL, true).
 
 -include("emqx_authn_chains.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 -define(AUTHN, emqx_authn_chains).
 
