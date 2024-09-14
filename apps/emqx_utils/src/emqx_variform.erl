@@ -254,6 +254,7 @@ resolve_func_name(FuncNameStr) ->
                     error:badarg ->
                         throw(#{
                             reason => unknown_variform_function,
+                            module => Mod,
                             function => Fun0
                         })
                 end,
@@ -266,6 +267,7 @@ resolve_func_name(FuncNameStr) ->
                     error:badarg ->
                         throw(#{
                             reason => unknown_variform_function,
+                            module => ?BIF_MOD,
                             function => Fun
                         })
                 end,
