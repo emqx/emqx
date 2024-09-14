@@ -184,15 +184,65 @@
 
 -callback create(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
     t().
+
 -callback open(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
+
 -callback destroy(t() | clientinfo()) -> ok.
+
 -callback clear_will_message(t()) -> t().
+
 -callback publish_will_message_now(t(), message()) -> t().
+
 -callback handle_timeout(clientinfo(), common_timer_name() | custom_timer_name(), t()) ->
     {ok, replies(), t()}
     | {ok, replies(), timeout(), t()}.
+
 -callback handle_info(term(), t(), clientinfo()) -> t().
+
+-callback get_subscription(emqx_types:topic(), t()) ->
+    emqx_types:subopts() | undefined.
+
+-callback subscribe(emqx_types:topic(), emqx_types:subopts(), t()) ->
+    {ok, t()} | {error, emqx_types:reason_code()}.
+
+-callback unsubscribe(emqx_types:topic(), t()) ->
+    {ok, t(), emqx_types:subopts()}
+    | {error, emqx_types:reason_code()}.
+
+-callback publish(emqx_types:packet_id(), emqx_types:message(), t()) ->
+    {ok, emqx_types:publish_result(), t()}
+    | {error, emqx_types:reason_code()}.
+
+-callback puback(clientinfo(), emqx_types:packet_id(), t()) ->
+    {ok, emqx_types:message(), replies(), t()}
+    | {error, emqx_types:reason_code()}.
+
+-callback pubrec(emqx_types:packet_id(), t()) ->
+    {ok, emqx_types:message(), t()}
+    | {error, emqx_types:reason_code()}.
+
+-callback pubrel(emqx_types:packet_id(), t()) ->
+    {ok, t()}
+    | {error, emqx_types:reason_code()}.
+
+-callback pubcomp(clientinfo(), emqx_types:packet_id(), t()) ->
+    {ok, replies(), t()}
+    | {error, emqx_types:reason_code()}.
+
+-callback replay(clientinfo(), [emqx_types:message()], t()) ->
+    {ok, replies(), t()}.
+
+-callback deliver(clientinfo(), [emqx_types:deliver()], t()) ->
+    {ok, replies(), t()}.
+
+-callback info(atom(), t()) -> term().
+
+-callback stats(t()) -> emqx_types:stats().
+
+-callback disconnect(conninfo(), t()) -> {idle | shutdown, t()}.
+
+-callback terminate(Reason :: term(), t()) -> ok.
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -397,7 +447,7 @@ pubcomp(ClientInfo, PacketId, Session) ->
 
 %%--------------------------------------------------------------------
 
--spec replay(clientinfo(), _ReplayContext, t()) ->
+-spec replay(clientinfo(), [emqx_types:message()], t()) ->
     {ok, replies(), t()}.
 replay(ClientInfo, ReplayContext, Session) ->
     ?IMPL(Session):replay(ClientInfo, ReplayContext, Session).
