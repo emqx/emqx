@@ -395,7 +395,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_cluster_link,
       :emqx_ds_builtin_raft,
       :emqx_auth_kerberos,
-      :emqx_bridge_datalayers
+      :emqx_bridge_datalayers,
+      :emqx_auth_cinfo
     ])
   end
 
