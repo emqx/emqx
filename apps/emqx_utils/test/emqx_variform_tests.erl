@@ -189,6 +189,18 @@ compare_string_test_() ->
         ?_assertEqual({ok, <<"false">>}, render("str_eq('a', 'b')", #{})),
         ?_assertEqual({ok, <<"true">>}, render("str_eq('', '')", #{})),
         ?_assertEqual({ok, <<"false">>}, render("str_eq('a', '')", #{})),
+        ?_assertEqual(
+            {ok, <<"true">>}, render("str_eq(a, b)", #{<<"a">> => <<"1">>, <<"b">> => <<"1">>})
+        ),
+
+        %% Testing str_neq/2
+        ?_assertEqual({ok, <<"false">>}, render("str_neq('a', 'a')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("str_neq('a', 'b')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("str_neq('', '')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("str_neq('a', '')", #{})),
+        ?_assertEqual(
+            {ok, <<"false">>}, render("str_neq(a, b)", #{<<"a">> => <<"1">>, <<"b">> => <<"1">>})
+        ),
 
         %% Testing str_lt/2
         ?_assertEqual({ok, <<"true">>}, render("str_lt('a', 'b')", #{})),
@@ -218,6 +230,11 @@ compare_numbers_test_() ->
     [
         ?_assertEqual({ok, <<"true">>}, render("num_eq(1, 1)", #{})),
         ?_assertEqual({ok, <<"false">>}, render("num_eq(2, 1)", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("num_eq(a, b)", #{<<"a">> => 1, <<"b">> => 2})),
+
+        ?_assertEqual({ok, <<"false">>}, render("num_neq(1, 1)", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("num_neq(2, 1)", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("num_neq(a, b)", #{<<"a">> => 1, <<"b">> => 2})),
 
         ?_assertEqual({ok, <<"true">>}, render("num_lt(1, 2)", #{})),
         ?_assertEqual({ok, <<"false">>}, render("num_lt(2, 2)", #{})),
