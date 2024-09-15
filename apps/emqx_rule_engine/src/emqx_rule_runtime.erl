@@ -402,8 +402,7 @@ handle_action_list(RuleId, Actions, Selected, Envs) ->
 handle_action(RuleId, ActId, Selected, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
     try
-        Result = do_handle_action(RuleId, ActId, Selected, Envs),
-        Result
+        do_handle_action(RuleId, ActId, Selected, Envs)
     catch
         throw:out_of_service ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
@@ -411,6 +410,9 @@ handle_action(RuleId, ActId, Selected, Envs) ->
                 rule_metrics, RuleId, 'actions.failed.out_of_service'
             ),
             trace_action(ActId, "out_of_service", #{}, warning);
+        throw:{discard, Reason} ->
+            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.discarded'),
+            trace_action(ActId, "discarded", #{cause => Reason}, debug);
         error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
             ?EMQX_TRACE_STOP_ACTION(Explanation) = Reason,
             trace_action(
@@ -445,8 +447,8 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selec
             reply_to => ReplyTo, trace_ctx => TraceCtx
         })
     of
-        {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
-            throw(out_of_service);
+        {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
+            throw({discard, Reason});
         ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
             throw(out_of_service);
         Result ->
@@ -469,8 +471,8 @@ do_handle_action(
             #{reply_to => ReplyTo, trace_ctx => TraceCtx}
         )
     of
-        {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
-            throw(out_of_service);
+        {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
+            throw({discard, Reason});
         ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
             throw(out_of_service);
         Result ->

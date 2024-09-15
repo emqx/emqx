@@ -165,6 +165,10 @@ fields("metrics") ->
         {"actions.failed.unknown",
             sc(non_neg_integer(), #{
                 desc => ?DESC("metrics_actions_failed_unknown")
+            })},
+        {"actions.discarded",
+            sc(non_neg_integer(), #{
+                desc => ?DESC("metrics_actions_discarded")
             })}
     ];
 fields("node_metrics") ->

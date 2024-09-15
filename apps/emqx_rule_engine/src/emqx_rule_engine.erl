@@ -104,7 +104,8 @@
     'actions.success',
     'actions.failed',
     'actions.failed.out_of_service',
-    'actions.failed.unknown'
+    'actions.failed.unknown',
+    'actions.discarded'
 ]).
 
 -define(RATE_METRICS, ['matched']).
