@@ -113,7 +113,12 @@ compile(#{form := _} = Compiled) ->
     {ok, Compiled};
 compile(Expression) when is_binary(Expression) ->
     compile(unicode:characters_to_list(Expression));
-compile(Expression) ->
+compile(Expression) when is_list(Expression) ->
+    do_compile(Expression);
+compile(_Expression) ->
+    {error, invalid_expression}.
+
+do_compile(Expression) ->
     case emqx_variform_scan:string(Expression) of
         {ok, Tokens, _Line} ->
             case emqx_variform_parser:parse(Tokens) of
