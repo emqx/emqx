@@ -251,10 +251,8 @@
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) -> t().
 create(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
-    % FIXME error conditions
-    create(
-        hd(choose_impl_candidates(ClientInfo, ConnInfo)), ClientInfo, ConnInfo, MaybeWillMsg, Conf
-    ).
+    [Impl | _] = choose_impl_candidates(ClientInfo, ConnInfo),
+    create(Impl, ClientInfo, ConnInfo, MaybeWillMsg, Conf).
 
 create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     % FIXME error conditions

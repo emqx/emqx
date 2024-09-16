@@ -507,7 +507,7 @@ acc_cnt(_Msg, Cnt) -> Cnt - 1.
 %% Broker -> Client: Deliver
 %%--------------------------------------------------------------------
 
--spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
+-spec deliver(clientinfo(), [emqx_types:message()], session()) ->
     {ok, replies(), session()}.
 deliver(ClientInfo, Msgs, Session) ->
     do_deliver(ClientInfo, Msgs, [], Session).

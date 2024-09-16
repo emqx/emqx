@@ -638,7 +638,7 @@ pubcomp(_ClientInfo, PacketId, Session0) ->
 %% Delivers
 %%--------------------------------------------------------------------
 
--spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
+-spec deliver(clientinfo(), [emqx_types:message()], session()) ->
     {ok, replies(), session()}.
 deliver(ClientInfo, Delivers, Session0) ->
     %% Durable sessions still have to handle some transient messages.
