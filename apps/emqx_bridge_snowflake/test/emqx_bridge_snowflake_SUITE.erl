@@ -53,8 +53,8 @@ init_per_suite(Config) ->
     case os:getenv("SNOWFLAKE_ACCOUNT_ID", "") of
         "" ->
             Mock = true,
-            AccountId = "mocked_account_id",
-            Server = <<"mocked.snowflakecomputing.com">>,
+            AccountId = "mocked_orgid-mocked_account_id",
+            Server = <<"mocked_orgid-mocked_account_id.snowflakecomputing.com">>,
             Username = <<"mock_username">>,
             Password = <<"mock_password">>;
         AccountId ->

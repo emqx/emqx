@@ -68,7 +68,12 @@ fields(connector_config) ->
                 #{required => true, desc => ?DESC("server")},
                 ?SERVER_OPTS
             )},
-        {account, mk(binary(), #{required => true, desc => ?DESC("account")})},
+        {account,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC("account"),
+                validator => fun account_id_validator/1
+            })},
         {dsn, mk(binary(), #{required => true, desc => ?DESC("dsn")})}
         | Fields
     ] ++
@@ -143,3 +148,11 @@ connector_example(put) ->
 %%------------------------------------------------------------------------------
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+account_id_validator(AccountId) ->
+    case binary:split(AccountId, <<"-">>) of
+        [_, _] ->
+            ok;
+        _ ->
+            {error, <<"Account identifier must be of form ORGID-ACCOUNTNAME">>}
+    end.
