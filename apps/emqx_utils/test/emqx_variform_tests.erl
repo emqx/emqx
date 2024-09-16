@@ -182,6 +182,12 @@ coalesce_test_() ->
         end}
     ].
 
+boolean_literal_test_() ->
+    [
+        ?_assertEqual({ok, <<"true">>}, render("true", #{})),
+        ?_assertEqual({ok, <<"T">>}, render("iif(true,'T','F')", #{}))
+    ].
+
 compare_string_test_() ->
     [
         %% is_nil test
