@@ -206,6 +206,12 @@ mock_snowflake() ->
         {selected, Headers, Rows}
     end),
     meck:expect(Mod, do_health_check_connector, fun(_ConnPid) -> true end),
+    %% Used in health checks
+    meck:expect(Mod, do_insert_report_request, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
+        Headers = [],
+        Body = emqx_utils_json:encode(#{}),
+        {ok, 200, Headers, Body}
+    end),
     meck:expect(Mod, do_insert_files_request, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
         Headers = [],
         Body = emqx_utils_json:encode(#{}),
@@ -1106,6 +1112,49 @@ t_aggreg_inexistent_database(Config) ->
             %% Currently, failure metrics are not bumped when aggregated uploads fail
             ?assertEqual(0, emqx_resource_metrics:failed_get(ActionResId)),
 
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that we detect early that the configured snowpipe user does not have the proper
+%% credentials (or does not exist) for accessing Snowpipe's REST API.
+t_wrong_snowpipe_user(init, Config) when is_list(Config) ->
+    t_wrong_snowpipe_user(init, maps:from_list(Config));
+t_wrong_snowpipe_user(init, #{mock := true} = Config) ->
+    Mod = ?CONN_MOD,
+    InsertReportResponse = #{
+        <<"code">> => <<"390144">>,
+        <<"data">> => null,
+        <<"headers">> => null,
+        <<"message">> => <<"JWT token is invalid. [92d86b2e-d652-4d2d-9780-a6ed28b38356]">>,
+        <<"success">> => false
+    },
+    meck:expect(Mod, do_insert_report_request, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
+        Headers = [],
+        Body = emqx_utils_json:encode(InsertReportResponse),
+        {ok, 401, Headers, Body}
+    end),
+    maps:to_list(Config);
+t_wrong_snowpipe_user(init, #{} = Config) ->
+    maps:to_list(Config).
+t_wrong_snowpipe_user(Config) ->
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            {ok, _} = emqx_bridge_v2_testlib:create_connector_api(Config),
+            ?assertMatch(
+                {ok,
+                    {{_, 201, _}, _, #{
+                        <<"status">> := <<"disconnected">>,
+                        <<"error">> := <<"{unhealthy_target,", _/binary>>
+                    }}},
+                emqx_bridge_v2_testlib:create_kind_api(
+                    Config,
+                    #{<<"parameters">> => #{<<"pipe_user">> => <<"idontexist">>}}
+                )
+            ),
             ok
         end,
         []

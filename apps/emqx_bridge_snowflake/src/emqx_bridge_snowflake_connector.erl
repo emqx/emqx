@@ -58,7 +58,7 @@
 ]).
 
 %% Internal exports only for mocking
--export([do_insert_files_request/4]).
+-export([do_insert_files_request/4, do_insert_report_request/4]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -627,6 +627,7 @@ create_action(
 ) ->
     maybe
         {ok, ActionState0} ?= start_http_pool(ActionResId, ActionConfig, ConnState),
+        _ = check_snowpipe_user_permission(ActionResId, ActionState0),
         start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0)
     end.
 
@@ -881,13 +882,7 @@ insert_report_request(HTTPPool, Opts, HTTPClientConfig) ->
                 InsertReportPath0
         end,
     Req = {InsertReportPath, Headers},
-    Response = ehttpc:request(
-        HTTPPool,
-        get,
-        Req,
-        RequestTTL,
-        MaxRetries
-    ),
+    Response = ?MODULE:do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries),
     case Response of
         {ok, 200, _Headers, Body0} ->
             Body = emqx_utils_json:decode(Body0, [return_maps]),
@@ -895,6 +890,10 @@ insert_report_request(HTTPPool, Opts, HTTPClientConfig) ->
         _ ->
             {error, Response}
     end.
+
+%% Internal export only for mocking
+do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries) ->
+    ehttpc:request(HTTPPool, get, Req, RequestTTL, MaxRetries).
 
 http_headers(AuthnHeader) ->
     [
@@ -918,6 +917,7 @@ action_status(ActionResId, #{mode := aggregated} = ActionState) ->
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
     ok = check_aggreg_upload_errors(AggregId),
+    ok = check_snowpipe_user_permission(ActionResId, ActionState),
     case http_pool_workers_healthy(ActionResId, ConnectTimeout) of
         true ->
             ?status_connected;
@@ -992,6 +992,47 @@ check_aggreg_upload_errors(AggregId) ->
             throw({unhealthy_target, ErrorMessage});
         [] ->
             ok
+    end.
+
+check_snowpipe_user_permission(HTTPPool, ActionState) ->
+    #{http := HTTPClientConfig} = ActionState,
+    Opts = #{},
+    case insert_report_request(HTTPPool, Opts, HTTPClientConfig) of
+        {ok, _} ->
+            ok;
+        {error, {ok, 401, _, Body0}} ->
+            Body =
+                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                    {ok, JSON} -> JSON;
+                    {error, _} -> Body0
+                end,
+            ?SLOG(debug, #{
+                msg => "snowflake_check_snowpipe_user_permission_error",
+                body => Body
+            }),
+            Msg = <<
+                "Configured pipe user does not have permissions to operate on pipe,"
+                " or does not exist. Please check your configuration."
+            >>,
+            throw({unhealthy_target, Msg});
+        {error, {ok, StatusCode, _}} ->
+            Msg = iolist_to_binary([
+                <<"Error checking if configured snowpipe user has permissions.">>,
+                <<" HTTP Status Code:">>,
+                integer_to_binary(StatusCode)
+            ]),
+            %% Not marking it as unhealthy because it could be spurious
+            throw(Msg);
+        {error, {ok, StatusCode, _, Body}} ->
+            Msg = iolist_to_binary([
+                <<"Error checking if configured snowpipe user has permissions.">>,
+                <<" HTTP Status Code:">>,
+                integer_to_binary(StatusCode),
+                <<"; Body: ">>,
+                Body
+            ]),
+            %% Not marking it as unhealthy because it could be spurious
+            throw(Msg)
     end.
 
 %%------------------------------------------------------------------------------
