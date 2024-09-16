@@ -1980,6 +1980,185 @@ t_listener_with_lowlevel_settings(_Config) ->
     ]),
     ok = emqtt:disconnect(C).
 
+t_keep_alive(Config) ->
+    process_flag(trap_exit, true),
+
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    PktId1 = calc_pkt_id(RecQos, 1),
+    Topic2 = <<Topic/binary, "_two">>,
+    %% GIVEN: keepalive is 2s
+    {ok, C} = emqtt:start_link([{proto_ver, v5}, {force_ping, false}, {keepalive, 2} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+
+    %% WHEN: we have active data on data stream only
+    %% but keep client ctrl stream quiet with meck
+    meck:new(emqtt, [no_link, passthrough, no_history]),
+    meck:expect(emqtt, connected, fun
+        (info, {timeout, _TRef, keepalive}, State) ->
+            {keep_state, State};
+        (Arg1, Arg2, Arg3) ->
+            meck:passthrough([Arg1, Arg2, Arg3])
+    end),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic2, [{qos, SubQos}]}
+    ]),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic,
+        <<"stream data 1">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic2,
+        <<"stream data 2">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+    PubRecvs = recv_pub(2),
+
+    ?assertMatch(
+        [
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId1,
+                payload := <<"stream data", _/binary>>,
+                qos := RecQos
+            }},
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId1,
+                payload := <<"stream data", _/binary>>,
+                qos := RecQos
+            }}
+        ],
+        PubRecvs
+    ),
+    Payloads = [P || {publish, #{payload := P}} <- PubRecvs],
+    ?assert(
+        [<<"stream data 1">>, <<"stream data 2">>] == Payloads orelse
+            [<<"stream data 2">>, <<"stream data 1">>] == Payloads
+    ),
+
+    %% THEN: after 4s, idle timeout , client should get disconnected.
+    receive
+        {disconnected, ?RC_KEEP_ALIVE_TIMEOUT, _} ->
+            meck:unload(emqtt),
+            ok
+    after 4000 ->
+        meck:unload(emqtt),
+        ct:fail("Didnt shutdown ~p", [process_info(self(), messages)])
+    end.
+
+t_keep_alive_idle_ctrl_stream(Config) ->
+    process_flag(trap_exit, true),
+
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    PubQos = ?config(pub_qos, Config),
+    SubQos = ?config(sub_qos, Config),
+    RecQos = calc_qos(PubQos, SubQos),
+    PktId1 = calc_pkt_id(RecQos, 1),
+    Topic2 = <<Topic/binary, "_two">>,
+    %% GIVEN: keepalive is 2s
+    {ok, C} = emqtt:start_link([{proto_ver, v5}, {force_ping, false}, {keepalive, 2} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+
+    %% WHEN: we have active data on data stream only
+    %% but keep ctrl stream quiet with meck
+    meck:new(emqtt, [no_link, passthrough, no_history]),
+    meck:expect(emqtt, connected, fun
+        (info, {timeout, _TRef, keepalive}, State) ->
+            {keep_state, State};
+        (Arg1, Arg2, Arg3) ->
+            meck:passthrough([Arg1, Arg2, Arg3])
+    end),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic, [{qos, SubQos}]}
+    ]),
+    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
+        {Topic2, [{qos, SubQos}]}
+    ]),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic,
+        <<"stream data 1">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic2,
+        <<"stream data 2">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+    PubRecvs = recv_pub(2),
+
+    ?assertMatch(
+        [
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId1,
+                payload := <<"stream data", _/binary>>,
+                qos := RecQos
+            }},
+            {publish, #{
+                client_pid := C,
+                packet_id := PktId1,
+                payload := <<"stream data", _/binary>>,
+                qos := RecQos
+            }}
+        ],
+        PubRecvs
+    ),
+    Payloads = [P || {publish, #{payload := P}} <- PubRecvs],
+    ?assert(
+        [<<"stream data 1">>, <<"stream data 2">>] == Payloads orelse
+            [<<"stream data 2">>, <<"stream data 1">>] == Payloads
+    ),
+
+    %% WHEN: keep data stream still active
+    timer:sleep(1000),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic,
+        <<"stream data 1">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+    ok = emqtt:publish_async(
+        C,
+        {new_data_stream, []},
+        Topic2,
+        <<"stream data 2">>,
+        [{qos, PubQos}],
+        undefined
+    ),
+
+    %% THEN: after 4s, client should NOT get disconnected,
+    %%       because data stream is active.
+    receive
+        {disconnected, ?RC_KEEP_ALIVE_TIMEOUT, _} ->
+            meck:unload(emqtt),
+            ct:fail("Should not disconnect")
+        %% 4s - 1s
+    after 3000 ->
+        meck:unload(emqtt),
+        ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

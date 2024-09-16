@@ -1768,12 +1768,13 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
     Node = maps:get(node, ClientInfo0, WhichNode),
     ClientInfo1 = emqx_utils_maps:deep_remove([conninfo, clientid], ClientInfo0),
     ClientInfo2 = emqx_utils_maps:deep_remove([conninfo, username], ClientInfo1),
+    ClientInfo3 = emqx_utils_maps:deep_remove([conninfo, sock], ClientInfo2),
     StatsMap = maps:without(
         [memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)
     ),
-    ClientInfo3 = maps:remove(will_msg, ClientInfo2),
-    ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo3),
+    ClientInfo4 = maps:remove(will_msg, ClientInfo3),
+    ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo4),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
     Connected = maps:get(conn_state, ClientInfoMap0) =:= connected,
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),

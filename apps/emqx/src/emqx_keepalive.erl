@@ -35,6 +35,8 @@
     check_interval :: pos_integer(),
     %% the received packets since last keepalive check
     statval :: non_neg_integer(),
+    %% stat reader func
+    stat_reader :: fun() | undefined,
     %% The number of idle intervals allowed before disconnecting the client.
     idle_milliseconds = 0 :: non_neg_integer(),
     max_idle_millisecond :: pos_integer()
@@ -65,18 +67,26 @@ init(Zone, Interval) ->
 %% @doc Init keepalive.
 -spec init(
     Zone :: atom(),
-    StatVal :: non_neg_integer(),
+    StatVal :: non_neg_integer() | Reader :: fun(),
     Second :: non_neg_integer()
 ) -> keepalive() | undefined.
-init(Zone, StatVal, Second) when Second > 0 andalso Second =< ?MAX_INTERVAL ->
+init(Zone, Stat, Second) when Second > 0 andalso Second =< ?MAX_INTERVAL ->
     #{keepalive_multiplier := Mul, keepalive_check_interval := CheckInterval} =
         emqx_config:get_zone_conf(Zone, [mqtt]),
     MilliSeconds = timer:seconds(Second),
     Interval = emqx_utils:clamp(CheckInterval, 1000, max(MilliSeconds div 2, 1000)),
     MaxIdleMs = ceil(MilliSeconds * Mul),
+    {StatVal, ReaderFun} =
+        case is_function(Stat) of
+            true ->
+                {Stat(), Stat};
+            false ->
+                {Stat, undefined}
+        end,
     #keepalive{
         check_interval = Interval,
         statval = StatVal,
+        stat_reader = ReaderFun,
         idle_milliseconds = 0,
         max_idle_millisecond = MaxIdleMs
     };
@@ -110,8 +120,13 @@ info(idle_milliseconds, #keepalive{idle_milliseconds = Val}) ->
 info(check_interval, undefined) ->
     0.
 
-check(Keepalive = #keepalive{}) ->
+check(Keepalive = #keepalive{stat_reader = undefined}) ->
     RecvCnt = emqx_pd:get_counter(recv_pkt),
+    check(RecvCnt, Keepalive);
+check(Keepalive = #keepalive{stat_reader = ReaderFun}) when
+    is_function(ReaderFun)
+->
+    RecvCnt = ReaderFun(),
     check(RecvCnt, Keepalive);
 check(Keepalive) ->
     {ok, Keepalive}.

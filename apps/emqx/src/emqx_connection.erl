@@ -120,8 +120,8 @@
     %% limiter timers
     limiter_timer :: undefined | reference(),
 
-    %% QUIC conn owner pid if in use.
-    quic_conn_pid :: option(pid())
+    %% QUIC conn shared state
+    quic_conn_ss :: option(map())
 }).
 
 -record(retry, {
@@ -317,7 +317,8 @@ init_state(
         sockname => Sockname,
         peercert => Peercert,
         peersni => PeerSNI,
-        conn_mod => ?MODULE
+        conn_mod => ?MODULE,
+        sock => Socket
     },
 
     LimiterTypes = [?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN],
@@ -365,7 +366,7 @@ init_state(
         limiter_buffer = queue:new(),
         limiter_timer = undefined,
         %% for quic streams to inherit
-        quic_conn_pid = maps:get(conn_pid, Opts, undefined)
+        quic_conn_ss = maps:get(conn_shared_state, Opts, undefined)
     }.
 
 run_loop(
@@ -595,11 +596,13 @@ handle_msg(
         channel = Channel,
         serialize = Serialize,
         parse_state = PS,
-        quic_conn_pid = QuicConnPid
+        quic_conn_ss = QSS
     }
 ) ->
-    QuicConnPid =/= undefined andalso
-        emqx_quic_connection:activate_data_streams(QuicConnPid, {PS, Serialize, Channel}),
+    QSS =/= undefined andalso
+        emqx_quic_connection:activate_data_streams(
+            maps:get(conn_pid, QSS), {PS, Serialize, Channel}
+        ),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State));
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
@@ -799,7 +802,13 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 
-handle_incoming(Packet, State) when is_record(Packet, mqtt_packet) ->
+handle_incoming(Packet, #state{quic_conn_ss = QSS} = State) when is_record(Packet, mqtt_packet) ->
+    QSS =/= undefined andalso
+        emqx_quic_connection:step_cnt(
+            maps:get(cnts_ref, QSS),
+            control_packet,
+            1
+        ),
     ok = inc_incoming_stats(Packet),
     with_channel(handle_in, [Packet], State);
 handle_incoming(FrameError, State) ->
