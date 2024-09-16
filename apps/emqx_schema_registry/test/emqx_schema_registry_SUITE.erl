@@ -23,13 +23,20 @@ all() ->
         {group, avro},
         {group, protobuf},
         {group, json}
-    ] ++ sparkplug_tests().
+    ] ++ sparkplug_tests() ++ only_once_tcs().
 
 groups() ->
-    AllTCsExceptSP = emqx_common_test_helpers:all(?MODULE) -- sparkplug_tests(),
+    OnlyOnceTCs = only_once_tcs(),
+    AllTCsExceptSP = emqx_common_test_helpers:all(?MODULE) -- (sparkplug_tests() ++ OnlyOnceTCs),
     ProtobufOnlyTCs = protobuf_only_tcs(),
     TCs = AllTCsExceptSP -- ProtobufOnlyTCs,
     [{avro, TCs}, {json, TCs}, {protobuf, AllTCsExceptSP}].
+
+only_once_tcs() ->
+    [
+        t_import_config,
+        t_external_registry_load_config
+    ].
 
 protobuf_only_tcs() ->
     [
@@ -85,6 +92,7 @@ end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
     clear_schemas(),
+    clear_external_registries(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -343,6 +351,14 @@ clear_schemas() ->
             ok = emqx_schema_registry:delete_schema(Name)
         end,
         emqx_schema_registry:list_schemas()
+    ).
+
+clear_external_registries() ->
+    maps:foreach(
+        fun(Name, _Schema) ->
+            ok = emqx_schema_registry_config:delete_external_registry(Name)
+        end,
+        emqx_schema_registry_config:list_external_registries()
     ).
 
 receive_action_results() ->
@@ -753,10 +769,93 @@ t_cluster_serde_build(Config) ->
     ),
     ok.
 
-%% Verifies that importing in both `merge' and `replace' modes work with external registries
-%% t_external_registry_import_config(_Config) ->
-%%     ct:fail(todo),
-%%     ok.
+%% Verifies that importing in both `merge' and `replace' modes work with external
+%% registries, when importing configurations from the CLI interface.
+t_external_registry_load_config(_Config) ->
+    %% Existing config
+    Name0 = <<"preexisting">>,
+    Config0 = emqx_schema_registry_http_api_SUITE:confluent_schema_registry_with_basic_auth(),
+    {201, _} = emqx_schema_registry_http_api_SUITE:create_external_registry(Config0#{
+        <<"name">> => Name0
+    }),
+    [_] = emqx_schema_registry_http_api_SUITE:find_external_registry_worker(Name0),
+
+    %% Config to load
+    %% Will update existing config
+    Name1 = Name0,
+    URL1 = <<"http://new_url:8081">>,
+    Config1 = emqx_schema_registry_http_api_SUITE:confluent_schema_registry_with_basic_auth(#{
+        <<"url">> => URL1
+    }),
+    %% New config
+    Name2 = <<"new">>,
+    URL2 = <<"http://yet_another_url:8081">>,
+    Config2 = emqx_schema_registry_http_api_SUITE:confluent_schema_registry_with_basic_auth(#{
+        <<"url">> => URL2
+    }),
+    ConfigToLoad1 = #{
+        <<"schema_registry">> => #{
+            <<"external">> => #{
+                Name1 => Config1,
+                Name2 => Config2
+            }
+        }
+    },
+    ConfigToLoad1Bin = iolist_to_binary(hocon_pp:do(ConfigToLoad1, #{})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoad1Bin, #{mode => merge})),
+
+    Path = [schema_registry, external],
+    PathBin = [emqx_utils_conv:bin(PS) || PS <- Path],
+    Name1Atom = binary_to_atom(Name1),
+    Name2Atom = binary_to_atom(Name2),
+    ?assertMatch(
+        #{
+            Name1 := #{<<"url">> := URL1},
+            Name2 := #{<<"url">> := URL2}
+        },
+        emqx_config:get_raw(PathBin)
+    ),
+    ?assertMatch(
+        #{
+            Name1Atom := #{url := URL1},
+            Name2Atom := #{url := URL2}
+        },
+        emqx_config:get(Path)
+    ),
+    %% Correctly starts new processes
+    ?assertMatch([_], emqx_schema_registry_http_api_SUITE:find_external_registry_worker(Name1)),
+    ?assertMatch([_], emqx_schema_registry_http_api_SUITE:find_external_registry_worker(Name2)),
+
+    %% New config; will replace everything
+    Name3 = Name0,
+    URL3 = <<"http://final_url:8081">>,
+    Config3 = emqx_schema_registry_http_api_SUITE:confluent_schema_registry_with_basic_auth(#{
+        <<"url">> => URL3
+    }),
+    ConfigToLoad2 = #{
+        <<"schema_registry">> => #{
+            <<"external">> => #{
+                Name3 => Config3
+            }
+        }
+    },
+    ConfigToLoad2Bin = iolist_to_binary(hocon_pp:do(ConfigToLoad2, #{})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoad2Bin, #{mode => replace})),
+
+    Name3Atom = binary_to_atom(Name3),
+    ?assertMatch(
+        #{Name3 := #{<<"url">> := URL3}},
+        emqx_config:get_raw(PathBin)
+    ),
+    ?assertMatch(
+        #{Name3Atom := #{url := URL3}},
+        emqx_config:get(Path)
+    ),
+    %% Correctly stops old processes
+    ?assertMatch([_], emqx_schema_registry_http_api_SUITE:find_external_registry_worker(Name3)),
+    ?assertMatch([], emqx_schema_registry_http_api_SUITE:find_external_registry_worker(Name2)),
+
+    ok.
 
 t_import_config(_Config) ->
     RawConf = #{
@@ -789,9 +888,9 @@ t_import_config(_Config) ->
         RawConf,
         <<"Updated description">>
     ),
-    Path = [schema_registry, schemas, <<"my_avro_schema">>],
+    Path = [schema_registry, schemas, my_avro_schema],
     ?assertEqual(
-        {ok, #{root_key => schema_registry, changed => []}},
+        {ok, #{root_key => schema_registry, changed => [Path]}},
         emqx_schema_registry_config:import_config(RawConf)
     ),
     ?assertEqual(
