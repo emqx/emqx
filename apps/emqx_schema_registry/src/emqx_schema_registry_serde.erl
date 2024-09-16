@@ -109,6 +109,34 @@ handle_rule_function(schema_encode, Args) ->
     error({args_count_error, {schema_encode, Args}});
 handle_rule_function(schema_check, [SchemaId, Data | MoreArgs]) ->
     schema_check(SchemaId, Data, MoreArgs);
+handle_rule_function(avro_encode, [RegistryName, Data | Args]) ->
+    case emqx_schema_registry_external:encode(RegistryName, Data, Args, #{tag => false}) of
+        {ok, Encoded} ->
+            Encoded;
+        {error, Reason} ->
+            error(Reason)
+    end;
+handle_rule_function(avro_decode, [RegistryName, Data | Args]) ->
+    case emqx_schema_registry_external:decode(RegistryName, Data, Args, _Opts = #{}) of
+        {ok, Decoded} ->
+            Decoded;
+        {error, Reason} ->
+            error(Reason)
+    end;
+handle_rule_function(schema_encode_and_tag, [OurSchemaName, RegistryName, Data | Args]) ->
+    case handle_schema_encode_and_tag(OurSchemaName, RegistryName, Data, Args) of
+        {ok, Encoded} ->
+            Encoded;
+        {error, Reason} ->
+            error(Reason)
+    end;
+handle_rule_function(schema_decode_tagged, [RegistryName, Data | Args]) ->
+    case emqx_schema_registry_external:decode(RegistryName, Data, Args, _Opts = #{}) of
+        {ok, Decoded} ->
+            Decoded;
+        {error, Reason} ->
+            error(Reason)
+    end;
 handle_rule_function(_, _) ->
     {error, no_match_for_function}.
 
@@ -439,3 +467,17 @@ has_inner_type(_SerdeType, _EvalContext, []) ->
     true;
 has_inner_type(_SerdeType, _EvalContext, _Path) ->
     false.
+
+handle_schema_encode_and_tag(OurSchemaName, RegistryName, Data, Args) ->
+    maybe
+        {ok, Schema} ?= emqx_schema_registry:get_schema(OurSchemaName),
+        Source = maps:get(source, Schema),
+        emqx_schema_registry_external:encode_with(
+            RegistryName,
+            OurSchemaName,
+            Source,
+            Data,
+            Args,
+            #{tag => true}
+        )
+    end.

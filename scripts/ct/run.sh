@@ -272,6 +272,9 @@ for dep in ${CT_DEPS}; do
                 SNOWFLAKE_ODBC_REQUEST='yes'
             fi
             ;;
+        schema-registry)
+          FILES+=( '.ci/docker-compose-file/docker-compose-confluent-schema-registry.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
