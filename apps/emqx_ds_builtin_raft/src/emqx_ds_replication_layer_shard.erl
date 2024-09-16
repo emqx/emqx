@@ -55,6 +55,7 @@
     | {error, servers_unreachable}.
 
 -define(MEMBERSHIP_CHANGE_TIMEOUT, 30_000).
+-define(MIN_BOOSTRAP_RETRY_TIMEOUT, 50).
 -define(MAX_BOOSTRAP_RETRY_TIMEOUT, 1_000).
 
 -define(PTERM(DB, SHARD, KEY), {?MODULE, DB, SHARD, KEY}).
@@ -425,7 +426,10 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
             %% Blunt estimate of time shard needs to catch up. If this proves to be too long in
             %% practice, it's could be augmented with handling `recover` -> `follower` Ra
             %% member state transition.
-            Timeout = min(RaftIdx - LastApplied, ?MAX_BOOSTRAP_RETRY_TIMEOUT),
+            Timeout = min(
+                max(?MIN_BOOSTRAP_RETRY_TIMEOUT, RaftIdx - LastApplied),
+                ?MAX_BOOSTRAP_RETRY_TIMEOUT
+            ),
             {retry, Timeout, St}
     end.
 
@@ -438,6 +442,7 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     MutableConfig = #{tick_timeout => 100},
     case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
+            UID = server_uid(DB, Shard),
             Machine = {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
             LogOpts = maps:with(
                 [
@@ -448,11 +453,11 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
             ),
             ok = ra:start_server(DB, MutableConfig#{
                 id => LocalServer,
-                uid => server_uid(DB, Shard),
+                uid => UID,
                 cluster_name => ClusterName,
                 initial_members => Servers,
                 machine => Machine,
-                log_init_args => LogOpts
+                log_init_args => LogOpts#{uid => UID}
             }),
             {_NewServer = true, LocalServer};
         ok ->

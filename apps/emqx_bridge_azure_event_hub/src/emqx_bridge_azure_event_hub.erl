@@ -289,6 +289,8 @@ values(producer) ->
                 key => <<"${.clientid}">>,
                 value => <<"${.}">>
             },
+            max_linger_time => <<"5ms">>,
+            max_linger_bytes => <<"10MB">>,
             max_batch_bytes => <<"896KB">>,
             partition_strategy => <<"random">>,
             required_acks => <<"all_isr">>,
