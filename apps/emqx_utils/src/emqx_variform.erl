@@ -42,7 +42,7 @@
         M =:= maps)
 ).
 
--define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
+-define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined orelse X =:= null)).
 
 %% @doc Render a variform expression with bindings.
 %% A variform expression is a template string which supports variable substitution
@@ -159,6 +159,8 @@ eval({call, FuncNameStr, Args}, Bindings, Opts) ->
             eval_iif(Args, Bindings, Opts);
         {?BIF_MOD, coalesce} ->
             eval_coalesce(Args, Bindings, Opts);
+        {?BIF_MOD, is_empty} ->
+            eval_is_empty(Args, Bindings, Opts);
         _ ->
             call(Mod, Fun, eval_loop(Args, Bindings, Opts))
     end;
@@ -213,6 +215,10 @@ try_eval(Arg, Bindings, Opts) ->
         throw:#{reason := var_unbound} ->
             <<>>
     end.
+
+eval_is_empty([Arg], Bindings, Opts) ->
+    Val = eval_coalesce_loop([Arg], Bindings, Opts),
+    ?IS_EMPTY(Val).
 
 eval_iif([Cond, If, Else], Bindings, Opts) ->
     CondVal = try_eval(Cond, Bindings, Opts),
@@ -291,6 +297,8 @@ resolve_var_value(VarName, Bindings, _Opts) ->
 assert_func_exported(?BIF_MOD, coalesce, _Arity) ->
     ok;
 assert_func_exported(?BIF_MOD, iif, _Arity) ->
+    ok;
+assert_func_exported(?BIF_MOD, is_empty, _Arity) ->
     ok;
 assert_func_exported(Mod, Fun, Arity) ->
     ok = try_load(Mod),

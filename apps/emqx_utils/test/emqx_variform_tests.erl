@@ -184,6 +184,13 @@ coalesce_test_() ->
 
 compare_string_test_() ->
     [
+        %% is_nil test
+        ?_assertEqual({ok, <<"true">>}, render("is_empty('')", #{})),
+        ?_assertEqual({ok, <<"true">>}, render("is_empty(a)", #{<<"a">> => undefined})),
+        ?_assertEqual({ok, <<"true">>}, render("is_empty(a)", #{<<"a">> => null})),
+        ?_assertEqual({ok, <<"false">>}, render("is_empty('a')", #{})),
+        ?_assertEqual({ok, <<"false">>}, render("is_empty(a)", #{<<"a">> => "1"})),
+
         %% Testing str_eq/2
         ?_assertEqual({ok, <<"true">>}, render("str_eq('a', 'a')", #{})),
         ?_assertEqual({ok, <<"false">>}, render("str_eq('a', 'b')", #{})),
