@@ -19,11 +19,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqtt.hrl").
 -include("../src/emqx_persistent_session_ds/emqx_ps_ds_int.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(R, emqx_persistent_session_ds_router).
 -define(DEF_DS_SESSION_ID, <<"some-client-id">>).
 
 %%------------------------------------------------------------------------------
@@ -61,41 +61,73 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 clear_tables() ->
-    lists:foreach(
-        fun mnesia:clear_table/1,
-        [?PS_ROUTER_TAB, ?PS_FILTERS_TAB]
-    ).
+    lists:foreach(fun mnesia:clear_table/1, ?PS_ROUTER_TABS).
 
 add_route(TopicFilter) ->
-    ?R:do_add_route(TopicFilter, ?DEF_DS_SESSION_ID).
+    emqx_persistent_session_ds_router:add_route(TopicFilter, ?DEF_DS_SESSION_ID).
+
+add_route(TopicFilter, Scope) ->
+    emqx_persistent_session_ds_router:add_route(TopicFilter, ?DEF_DS_SESSION_ID, Scope).
 
 delete_route(TopicFilter) ->
-    ?R:do_delete_route(TopicFilter, ?DEF_DS_SESSION_ID).
+    emqx_persistent_session_ds_router:delete_route(TopicFilter, ?DEF_DS_SESSION_ID).
+
+delete_route(TopicFilter, Scope) ->
+    emqx_persistent_session_ds_router:delete_route(TopicFilter, ?DEF_DS_SESSION_ID, Scope).
+
+has_any_route(Topic) ->
+    Msg = emqx_message:make(_From = <<?MODULE_STRING>>, ?QOS_0, Topic, <<>>),
+    emqx_persistent_session_ds_router:has_any_route(Msg).
+
+match_routes(Topic) ->
+    emqx_persistent_session_ds_router:match_routes(Topic).
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
-% t_lookup_routes(_) ->
-%     error('TODO').
-
 t_add_delete(_) ->
-    ?assertNot(?R:has_any_route(<<"a/b/c">>)),
     add_route(<<"a/b/c">>),
-    ?assert(?R:has_any_route(<<"a/b/c">>)),
     add_route(<<"a/b/c">>),
-    ?assert(?R:has_any_route(<<"a/b/c">>)),
     add_route(<<"a/+/b">>),
-    ?assert(?R:has_any_route(<<"a/b/c">>)),
-    ?assert(?R:has_any_route(<<"a/c/b">>)),
-    ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
+    ?assertEqual(
+        [<<"a/+/b">>, <<"a/b/c">>],
+        lists:sort(emqx_persistent_session_ds_router:topics())
+    ),
     delete_route(<<"a/b/c">>),
-    ?assertNot(?R:has_any_route(<<"a/b/c">>)),
-    ?assert(?R:has_any_route(<<"a/c/b">>)),
     delete_route(<<"a/+/b">>),
-    ?assertNot(?R:has_any_route(<<"a/b/c">>)),
-    ?assertNot(?R:has_any_route(<<"a/c/b">>)),
-    ?assertEqual([], ?R:topics()).
+    ?assertEqual([], emqx_persistent_session_ds_router:topics()).
+
+t_add_delete_match(_) ->
+    ?assertNot(has_any_route(<<"a/b/c">>)),
+    add_route(<<"a/b/c">>),
+    ?assert(has_any_route(<<"a/b/c">>)),
+    add_route(<<"a/b/c">>),
+    ?assert(has_any_route(<<"a/b/c">>)),
+    add_route(<<"a/+/b">>),
+    ?assert(has_any_route(<<"a/b/c">>)),
+    ?assert(has_any_route(<<"a/c/b">>)),
+    ?assertEqual(
+        [<<"a/+/b">>, <<"a/b/c">>],
+        lists:sort(emqx_persistent_session_ds_router:topics())
+    ),
+    delete_route(<<"a/b/c">>),
+    ?assertNot(has_any_route(<<"a/b/c">>)),
+    ?assert(has_any_route(<<"a/c/b">>)),
+    delete_route(<<"a/+/b">>),
+    ?assertNot(has_any_route(<<"a/b/c">>)),
+    ?assertNot(has_any_route(<<"a/c/b">>)),
+    ?assertEqual([], emqx_persistent_session_ds_router:topics()).
+
+t_add_delete_scope(_) ->
+    add_route(<<"a/b/c">>),
+    add_route(<<"a/+/b">>),
+    add_route(<<"a/b/d">>, noqos0),
+    add_route(<<"a/+/c">>, noqos0),
+    ?assertEqual(
+        [<<"a/+/b">>, <<"a/+/c">>, <<"a/b/c">>, <<"a/b/d">>],
+        lists:sort(emqx_persistent_session_ds_router:topics())
+    ).
 
 t_add_delete_incremental(_) ->
     add_route(<<"a/b/c">>),
@@ -103,7 +135,7 @@ t_add_delete_incremental(_) ->
     add_route(<<"a/+/+">>),
     add_route(<<"a/b/#">>),
     add_route(<<"#">>),
-    ?assert(?R:has_any_route(<<"any/topic">>)),
+    ?assert(has_any_route(<<"any/topic">>)),
     ?assertEqual(
         [
             #ps_route{topic = <<"#">>, dest = ?DEF_DS_SESSION_ID},
@@ -112,7 +144,7 @@ t_add_delete_incremental(_) ->
             #ps_route{topic = <<"a/b/#">>, dest = ?DEF_DS_SESSION_ID},
             #ps_route{topic = <<"a/b/c">>, dest = ?DEF_DS_SESSION_ID}
         ],
-        lists:sort(?R:match_routes(<<"a/b/c">>))
+        lists:sort(match_routes(<<"a/b/c">>))
     ),
     delete_route(<<"a/+/c">>),
     ?assertEqual(
@@ -122,7 +154,7 @@ t_add_delete_incremental(_) ->
             #ps_route{topic = <<"a/b/#">>, dest = ?DEF_DS_SESSION_ID},
             #ps_route{topic = <<"a/b/c">>, dest = ?DEF_DS_SESSION_ID}
         ],
-        lists:sort(?R:match_routes(<<"a/b/c">>))
+        lists:sort(match_routes(<<"a/b/c">>))
     ),
     delete_route(<<"a/+/+">>),
     ?assertEqual(
@@ -131,7 +163,7 @@ t_add_delete_incremental(_) ->
             #ps_route{topic = <<"a/b/#">>, dest = ?DEF_DS_SESSION_ID},
             #ps_route{topic = <<"a/b/c">>, dest = ?DEF_DS_SESSION_ID}
         ],
-        lists:sort(?R:match_routes(<<"a/b/c">>))
+        lists:sort(match_routes(<<"a/b/c">>))
     ),
     delete_route(<<"a/b/#">>),
     ?assertEqual(
@@ -139,23 +171,13 @@ t_add_delete_incremental(_) ->
             #ps_route{topic = <<"#">>, dest = ?DEF_DS_SESSION_ID},
             #ps_route{topic = <<"a/b/c">>, dest = ?DEF_DS_SESSION_ID}
         ],
-        lists:sort(?R:match_routes(<<"a/b/c">>))
+        lists:sort(match_routes(<<"a/b/c">>))
     ),
     delete_route(<<"a/b/c">>),
     ?assertEqual(
         [#ps_route{topic = <<"#">>, dest = ?DEF_DS_SESSION_ID}],
-        lists:sort(?R:match_routes(<<"a/b/c">>))
+        lists:sort(match_routes(<<"a/b/c">>))
     ).
-
-t_do_add_delete(_) ->
-    add_route(<<"a/b/c">>),
-    add_route(<<"a/b/c">>),
-    add_route(<<"a/+/b">>),
-    ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
-
-    delete_route(<<"a/b/c">>),
-    delete_route(<<"a/+/b">>),
-    ?assertEqual([], ?R:topics()).
 
 t_match_routes(_) ->
     add_route(<<"a/b/c">>),
@@ -169,20 +191,17 @@ t_match_routes(_) ->
             #ps_route{topic = <<"a/b/#">>, dest = ?DEF_DS_SESSION_ID},
             #ps_route{topic = <<"a/b/c">>, dest = ?DEF_DS_SESSION_ID}
         ],
-        lists:sort(?R:match_routes(<<"a/b/c">>))
+        lists:sort(match_routes(<<"a/b/c">>))
     ),
     delete_route(<<"a/b/c">>),
     delete_route(<<"a/+/c">>),
     delete_route(<<"a/b/#">>),
     delete_route(<<"#">>),
-    ?assertEqual([], lists:sort(?R:match_routes(<<"a/b/c">>))).
-
-t_print_routes(_) ->
-    add_route(<<"+/#">>),
-    add_route(<<"+/+">>),
-    ?R:print_routes(<<"a/b">>).
+    ?assertEqual([], lists:sort(match_routes(<<"a/b/c">>))).
 
 t_has_route(_) ->
     add_route(<<"devices/+/messages">>),
-    ?assert(?R:has_route(<<"devices/+/messages">>, ?DEF_DS_SESSION_ID)),
+    ?assert(
+        emqx_persistent_session_ds_router:has_route(<<"devices/+/messages">>, ?DEF_DS_SESSION_ID)
+    ),
     delete_route(<<"devices/+/messages">>).

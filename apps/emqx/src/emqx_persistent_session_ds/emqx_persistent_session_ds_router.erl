@@ -17,17 +17,22 @@
 -module(emqx_persistent_session_ds_router).
 
 -include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 -include("emqx_ps_ds_int.hrl").
 
 -export([init_tables/0]).
 
 %% Route APIs
 -export([
-    do_add_route/2,
-    do_delete_route/2,
+    add_route/2,
+    add_route/3,
+    delete_route/2,
+    delete_route/3,
     has_any_route/1,
     match_routes/1,
+    match_routes/2,
     lookup_routes/1,
+    lookup_routes/2,
     foldr_routes/2,
     foldl_routes/2
 ]).
@@ -35,11 +40,10 @@
 %% Topics API
 -export([
     stream/1,
+    stream/2,
     stats/1
 ]).
 
--export([cleanup_routes/1]).
--export([print_routes/1]).
 -export([topics/0]).
 
 -ifdef(TEST).
@@ -48,6 +52,16 @@
 
 -type route() :: #ps_route{}.
 -type dest() :: emqx_persistent_session_ds:id() | #share_dest{}.
+
+%% Subscription scope.
+%% Scopes enable limited form of _selective routing_.
+%%  * `root` scope routes "work" for every message.
+%%  * `noqos0` scope routes work only for QoS 1/2 messages.
+%% Mirrors `emqx_broker:subscope()`.
+-type subscope() :: root | noqos0.
+
+%% 32#NQ0 = 24384
+-define(SCOPE_NOQOS0, 32#NQ0).
 
 -export_type([dest/0, route/0]).
 
@@ -83,6 +97,36 @@ init_tables() ->
             ]}
         ]}
     ]),
+    %% NOTE
+    %% Holds non-wildcard routes with any scopes other than the `root` scope.
+    ok = mria:create_table(?PS_ROUTER_EXT_TAB, [
+        {type, ordered_set},
+        {rlog_shard, ?PS_ROUTER_SHARD},
+        {storage, disc_copies},
+        {record_name, ps_route_ext},
+        {attributes, record_info(fields, ps_route_ext)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, auto}
+            ]}
+        ]}
+    ]),
+    %% NOTE
+    %% Holds wildcard route index with routes of any scopes other than the `root` scope.
+    ok = mria:create_table(?PS_FILTERS_EXT_TAB, [
+        {type, ordered_set},
+        {rlog_shard, ?PS_ROUTER_SHARD},
+        {storage, disc_copies},
+        {record_name, ps_routeidx},
+        {attributes, record_info(fields, ps_routeidx)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, auto}
+            ]}
+        ]}
+    ]),
     ok = mria:wait_for_tables([?PS_ROUTER_TAB, ?PS_FILTERS_TAB]),
     ok.
 
@@ -90,44 +134,43 @@ init_tables() ->
 %% Route APIs
 %%--------------------------------------------------------------------
 
--spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
-do_add_route(Topic, Dest) when is_binary(Topic) ->
-    case has_route(Topic, Dest) of
-        true ->
-            ok;
-        false ->
-            mria_insert_route(Topic, Dest)
-    end.
+-spec add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
+add_route(Topic, Dest) ->
+    mria_insert_route(Topic, Dest, root).
 
--spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
-do_delete_route(Topic, Dest) ->
-    case emqx_trie_search:filter(Topic) of
-        Words when is_list(Words) ->
-            K = emqx_topic_index:make_key(Words, Dest),
-            mria:dirty_delete(?PS_FILTERS_TAB, K);
-        false ->
-            mria_route_tab_delete(#ps_route{topic = Topic, dest = Dest})
-    end.
+-spec add_route(emqx_types:topic(), dest(), subscope()) -> ok | {error, term()}.
+add_route(Topic, Dest, Scope) ->
+    mria_insert_route(Topic, Dest, Scope).
+
+-spec delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
+delete_route(Topic, Dest) ->
+    mria_delete_route(Topic, Dest, root).
+
+-spec delete_route(emqx_types:topic(), dest(), subscope()) -> ok | {error, term()}.
+delete_route(Topic, Dest, Scope) ->
+    mria_delete_route(Topic, Dest, Scope).
 
 %% @doc Takes a real topic (not filter) as input, and returns whether there is any
 %% matching filters.
--spec has_any_route(emqx_types:topic()) -> boolean().
-has_any_route(Topic) ->
-    DirectTopicMatch = lookup_route_tab(Topic),
-    WildcardMatch = emqx_topic_index:match(Topic, ?PS_FILTERS_TAB),
-    case {DirectTopicMatch, WildcardMatch} of
-        {[], false} ->
-            false;
-        {_, _} ->
-            true
-    end.
+-spec has_any_route(emqx_types:message()) -> boolean().
+has_any_route(#message{topic = Topic, qos = ?QOS_0}) ->
+    has_route_match(Topic);
+has_any_route(#message{topic = Topic}) ->
+    has_route_match(Topic) orelse has_scope_route_match(Topic, noqos0).
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic
 %% filters associated with route destination.
 -spec match_routes(emqx_types:topic()) -> [route()].
 match_routes(Topic) when is_binary(Topic) ->
+    match_routes(Topic, root).
+
+-spec match_routes(emqx_types:topic(), subscope()) -> [route()].
+match_routes(Topic, root) when is_binary(Topic) ->
     lookup_route_tab(Topic) ++
-        [match_to_route(M) || M <- match_filters(Topic)].
+        [match_to_route(M) || M <- match_filters(Topic)];
+match_routes(Topic, Scope) when is_binary(Topic) ->
+    lookup_scope_route_tab(Topic, Scope) ++
+        [match_to_route(M) || M <- match_scope_filters(Topic, Scope)].
 
 %% @doc Take a topic or filter as input, and return the existing routes with exactly
 %% this topic or filter.
@@ -135,71 +178,38 @@ match_routes(Topic) when is_binary(Topic) ->
 lookup_routes(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            Pat = #ps_routeidx{entry = emqx_topic_index:make_key(Topic, '$1')},
-            [#ps_route{topic = Topic, dest = Dest} || [Dest] <- ets:match(?PS_FILTERS_TAB, Pat)];
+            lookup_filter_tab(Topic) ++ lookup_scope_filter_tab(Topic, '_');
         false ->
-            lookup_route_tab(Topic)
+            lookup_route_tab(Topic) ++ lookup_scope_route_tab(Topic, '_')
+    end.
+
+-spec lookup_routes(emqx_types:topic(), subscope()) -> [route()].
+lookup_routes(Topic, Scope) ->
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            lookup_scope_filter_tab(Topic, Scope);
+        false ->
+            lookup_scope_route_tab(Topic, Scope)
     end.
 
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            ets:member(?PS_FILTERS_TAB, emqx_topic_index:make_key(Topic, Dest));
+            [] =/= lookup_filter_tab(Topic, Dest);
         false ->
-            has_route_tab_entry(Topic, Dest)
+            [] =/= lookup_route_tab(Topic, Dest)
     end.
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    Pat = #ps_routeidx{entry = '$1'},
-    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?PS_FILTERS_TAB, Pat)],
-    list_route_tab_topics() ++ Filters.
+    list_topics() ++ list_scope_topics().
 
-%% @doc Print routes to a topic
--spec print_routes(emqx_types:topic()) -> ok.
-print_routes(Topic) ->
-    lists:foreach(
-        fun(#ps_route{topic = To, dest = Dest}) ->
-            io:format("~ts -> ~tp~n", [To, Dest])
-        end,
-        match_routes(Topic)
-    ).
-
--spec cleanup_routes(emqx_persistent_session_ds:id()) -> ok.
-cleanup_routes(DSSessionId) ->
-    %% NOTE
-    %% No point in transaction here because all the operations on filters table are dirty.
-    ok = ets:foldl(
-        fun(#ps_routeidx{entry = K}, ok) ->
-            case get_dest_session_id(emqx_topic_index:get_id(K)) of
-                DSSessionId ->
-                    mria:dirty_delete(?PS_FILTERS_TAB, K);
-                _ ->
-                    ok
-            end
-        end,
-        ok,
-        ?PS_FILTERS_TAB
-    ),
-    ok = ets:foldl(
-        fun(#ps_route{dest = Dest} = Route, ok) ->
-            case get_dest_session_id(Dest) of
-                DSSessionId ->
-                    mria:dirty_delete_object(?PS_ROUTER_TAB, Route);
-                _ ->
-                    ok
-            end
-        end,
-        ok,
-        ?PS_ROUTER_TAB
-    ).
-
--spec foldl_routes(fun((route(), Acc) -> Acc), Acc) -> Acc.
+-spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
     fold_routes(foldl, FoldFun, AccIn).
 
--spec foldr_routes(fun((route(), Acc) -> Acc), Acc) -> Acc.
+-spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
     fold_routes(foldr, FoldFun, AccIn).
 
@@ -213,7 +223,25 @@ foldr_routes(FoldFun, AccIn) ->
 -spec stream(_MTopic :: '_' | emqx_types:topic()) ->
     emqx_utils_stream:stream(emqx_types:route()).
 stream(MTopic) ->
-    emqx_utils_stream:chain(stream(?PS_ROUTER_TAB, MTopic), stream(?PS_FILTERS_TAB, MTopic)).
+    emqx_utils_stream:chain([
+        stream_tab(?PS_ROUTER_TAB, MTopic),
+        stream_tab(?PS_ROUTER_EXT_TAB, MTopic, '_'),
+        stream_tab(?PS_FILTERS_TAB, MTopic),
+        stream_tab(?PS_FILTERS_EXT_TAB, MTopic, '_')
+    ]).
+
+-spec stream(_MTopic :: '_' | emqx_types:topic(), subscope()) ->
+    emqx_utils_stream:stream(emqx_types:route()).
+stream(MTopic, root) ->
+    emqx_utils_stream:chain(
+        stream_tab(?PS_ROUTER_TAB, MTopic),
+        stream_tab(?PS_FILTERS_TAB, MTopic)
+    );
+stream(MTopic, Scope) ->
+    emqx_utils_stream:chain(
+        stream_tab(?PS_ROUTER_EXT_TAB, MTopic, Scope),
+        stream_tab(?PS_FILTERS_EXT_TAB, MTopic, Scope)
+    ).
 
 %% @doc Retrieve router stats.
 %% n_routes: total number of routes, should be equal to the length of `stream('_')`.
@@ -221,84 +249,212 @@ stream(MTopic) ->
 stats(n_routes) ->
     NTopics = ets:info(?PS_ROUTER_TAB, size),
     NFilters = ets:info(?PS_FILTERS_TAB, size),
-    emqx_maybe:define(NTopics, 0) + emqx_maybe:define(NFilters, 0).
+    NTopicsExt = ets:info(?PS_ROUTER_EXT_TAB, size),
+    NFiltersExt = ets:info(?PS_FILTERS_EXT_TAB, size),
+    emqx_maybe:define(NTopics, 0) + emqx_maybe:define(NFilters, 0) +
+        emqx_maybe:define(NTopicsExt, 0) + emqx_maybe:define(NFiltersExt, 0).
 
 %%--------------------------------------------------------------------
 %% Internal fns
 %%--------------------------------------------------------------------
 
-mria_insert_route(Topic, Dest) ->
+mria_insert_route(Topic, Dest, Scope) ->
     case emqx_trie_search:filter(Topic) of
         Words when is_list(Words) ->
-            K = emqx_topic_index:make_key(Words, Dest),
-            mria:dirty_write(?PS_FILTERS_TAB, #ps_routeidx{entry = K});
+            mria_filter_tab_insert(Words, Dest, Scope);
         false ->
-            mria_route_tab_insert(#ps_route{topic = Topic, dest = Dest})
+            mria_route_tab_insert(Topic, Dest, Scope)
     end.
 
-fold_routes(FunName, FoldFun, AccIn) ->
-    FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
-    Acc = ets:FunName(FoldFun, AccIn, ?PS_ROUTER_TAB),
-    ets:FunName(FilterFoldFun, Acc, ?PS_FILTERS_TAB).
+mria_delete_route(Topic, Dest, Scope) ->
+    case emqx_trie_search:filter(Topic) of
+        Words when is_list(Words) ->
+            mria_filter_tab_delete(Words, Dest, Scope);
+        false ->
+            mria_route_tab_delete(Topic, Dest, Scope)
+    end.
 
-mk_filtertab_fold_fun(FoldFun) ->
-    fun(#ps_routeidx{entry = K}, Acc) -> FoldFun(match_to_route(K), Acc) end.
+mria_route_tab_insert(Topic, Dest, root) ->
+    Record = #ps_route{topic = Topic, dest = Dest},
+    mria:dirty_write(?PS_ROUTER_TAB, Record);
+mria_route_tab_insert(Topic, Dest, Scope) ->
+    Record = #ps_route_ext{entry = {Topic, scope_tag(Scope), Dest}},
+    mria:dirty_write(?PS_ROUTER_EXT_TAB, Record).
 
-match_filters(Topic) ->
-    emqx_topic_index:matches(Topic, ?PS_FILTERS_TAB, []).
+mria_route_tab_delete(Topic, Dest, root) ->
+    Record = #ps_route{topic = Topic, dest = Dest},
+    mria:dirty_delete_object(?PS_ROUTER_TAB, Record);
+mria_route_tab_delete(Topic, Dest, Scope) ->
+    K = {Topic, scope_tag(Scope), Dest},
+    mria:dirty_delete(?PS_ROUTER_EXT_TAB, K).
 
-get_dest_session_id(#share_dest{session_id = DSSessionId}) ->
-    DSSessionId;
-get_dest_session_id({_, DSSessionId}) ->
-    DSSessionId;
-get_dest_session_id(DSSessionId) ->
-    DSSessionId.
+mria_filter_tab_insert(Words, Dest, root) ->
+    K = emqx_topic_index:make_key(Words, Dest),
+    mria:dirty_write(?PS_FILTERS_TAB, #ps_routeidx{entry = K});
+mria_filter_tab_insert(Words, Dest, Scope) ->
+    K = emqx_topic_index:make_key(Words, Dest),
+    ScopeTag = scope_tag(Scope),
+    mria:dirty_write(?PS_FILTERS_EXT_TAB, #ps_routeidx{entry = {ScopeTag, K}}).
 
-export_route(#ps_route{topic = Topic, dest = Dest}) ->
-    #route{topic = Topic, dest = Dest}.
+mria_filter_tab_delete(Words, Dest, root) ->
+    K = emqx_topic_index:make_key(Words, Dest),
+    mria:dirty_delete(?PS_FILTERS_TAB, K);
+mria_filter_tab_delete(Words, Dest, Scope) ->
+    K = emqx_topic_index:make_key(Words, Dest),
+    ScopeTag = scope_tag(Scope),
+    mria:dirty_delete(?PS_FILTERS_EXT_TAB, {ScopeTag, K}).
 
-export_routeidx(#ps_routeidx{entry = M}) ->
-    #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
+has_route_match(Topic) ->
+    ets:member(?PS_ROUTER_TAB, Topic) orelse
+        false =/= emqx_topic_index:match(Topic, ?PS_FILTERS_TAB).
 
-match_to_route(M) ->
-    #ps_route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
+has_scope_route_match(Topic, Scope) ->
+    ScopeTag = scope_tag(Scope),
+    MatchPat = #ps_route_ext{entry = {Topic, ScopeTag, '_'}, _ = '_'},
+    ets_match_member(?PS_ROUTER_EXT_TAB, MatchPat) orelse
+        begin
+            NextF = mk_scope_nextf(?PS_FILTERS_EXT_TAB, ScopeTag),
+            false =/= emqx_trie_search:match(Topic, NextF)
+        end.
 
-mria_route_tab_insert(Route) ->
-    mria:dirty_write(?PS_ROUTER_TAB, Route).
+mk_scope_nextf(Tab, ScopeTag) ->
+    fun(K) ->
+        case ets:next(Tab, {ScopeTag, K}) of
+            {ScopeTag, NK} -> NK;
+            {_Another, _} -> '$end_of_table';
+            '$end_of_table' -> '$end_of_table'
+        end
+    end.
 
 lookup_route_tab(Topic) ->
     ets:lookup(?PS_ROUTER_TAB, Topic).
 
-has_route_tab_entry(Topic, Dest) ->
-    [] =/= ets:match(?PS_ROUTER_TAB, #ps_route{topic = Topic, dest = Dest}).
+lookup_route_tab(Topic, Dest) ->
+    ets:match_object(?PS_ROUTER_TAB, #ps_route{topic = Topic, dest = Dest}).
 
-list_route_tab_topics() ->
-    mnesia:dirty_all_keys(?PS_ROUTER_TAB).
+lookup_filter_tab(Topic) ->
+    lookup_filter_tab(Topic, '$1').
 
-mria_route_tab_delete(Route) ->
-    mria:dirty_delete_object(?PS_ROUTER_TAB, Route).
+lookup_filter_tab(Topic, Dest) ->
+    MatchPat = #ps_routeidx{entry = emqx_topic_index:make_key(Topic, Dest)},
+    Contruct = #ps_route{topic = Topic, dest = Dest},
+    ets:select(?PS_FILTERS_TAB, [{MatchPat, [], [{Contruct}]}]).
+
+lookup_scope_route_tab(Topic, Scope) ->
+    ScopePat = scope_pat(Scope),
+    MatchPat = #ps_route_ext{entry = {Topic, ScopePat, '$1'}, _ = '_'},
+    Contruct = #ps_route{topic = Topic, dest = '$1'},
+    ets:select(?PS_ROUTER_TAB, [{MatchPat, [], [{Contruct}]}]).
+
+lookup_scope_filter_tab(Topic, Scope) ->
+    %% TODO: Fullscan?
+    ScopePat = scope_pat(Scope),
+    MatchPat = #ps_routeidx{entry = {ScopePat, emqx_topic_index:make_key(Topic, '$1')}},
+    Contruct = #ps_route{topic = Topic, dest = '$1'},
+    ets:select(?PS_ROUTER_TAB, [{MatchPat, [], [{Contruct}]}]).
+
+match_filters(Topic) ->
+    emqx_topic_index:matches(Topic, ?PS_FILTERS_TAB, []).
+
+match_scope_filters(Topic, Scope) ->
+    ScopeTag = scope_tag(Scope),
+    emqx_trie_search:matches(Topic, mk_scope_nextf(?PS_FILTERS_EXT_TAB, ScopeTag), []).
+
+scope_pat('_') ->
+    '_';
+scope_pat(Scope) ->
+    scope_tag(Scope).
+
+scope_tag(noqos0) ->
+    ?SCOPE_NOQOS0.
+
+ets_match_member(Tab, MatchPat) ->
+    case ets:match(Tab, MatchPat, 1) of
+        {[_], _Cont} ->
+            true;
+        _ ->
+            false
+    end.
+
+fold_routes(FunName, FoldFun, AccIn) ->
+    Acc1 = ets:FunName(mk_fold_fun(fun export_route/1, FoldFun), AccIn, ?PS_ROUTER_TAB),
+    Acc2 = ets:FunName(mk_fold_fun(fun export_route_ext/1, FoldFun), Acc1, ?PS_ROUTER_EXT_TAB),
+    Acc3 = ets:FunName(mk_fold_fun(fun export_routeidx/1, FoldFun), Acc2, ?PS_FILTERS_TAB),
+    ets:FunName(mk_fold_fun(fun export_routeidx_ext/1, FoldFun), Acc3, ?PS_FILTERS_EXT_TAB).
+
+mk_fold_fun(ExportFun, FoldFun) ->
+    fun(Record, Acc) -> FoldFun(ExportFun(Record), Acc) end.
+
+match_to_route(M) ->
+    #ps_route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
+
+list_topics() ->
+    %% NOTE: This code is far from efficient, should be fine as long as it's test-only.
+    RPat = #ps_route{topic = '$1', _ = '_'},
+    RTopics = ets:select(?PS_ROUTER_TAB, [{RPat, [], ['$1']}]),
+    FPat = #ps_routeidx{entry = '$1'},
+    FTopics = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?PS_FILTERS_TAB, FPat)],
+    lists:usort(RTopics) ++ FTopics.
+
+list_scope_topics() ->
+    %% NOTE: This code is far from efficient, should be fine as long as it's test-only.
+    RPat = #ps_route_ext{entry = {'$1', _ScopeTag = '_', _Dest = '_'}, _ = '_'},
+    RTopics = ets:select(?PS_ROUTER_EXT_TAB, [{RPat, [], ['$1']}]),
+    FPat = #ps_routeidx{entry = {_FScopeTag = '_', '$1'}},
+    FTopics = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?PS_FILTERS_EXT_TAB, FPat)],
+    lists:usort(RTopics ++ FTopics).
 
 %% @doc Create a `emqx_utils_stream:stream(#route{})` out of contents of either of
-%% 2 route tables, optionally filtered by a topic or topic filter. If the latter is
+%% 4 route tables, optionally filtered by a topic or topic filter. If the latter is
 %% specified, then it doesn't make sense to scan through `?PS_ROUTER_TAB` if it's
 %% a wildcard topic, and vice versa for `?PS_FILTERS_TAB` if it's not, so we optimize
 %% it away by returning an empty stream in those cases.
-stream(Tab = ?PS_ROUTER_TAB, MTopic) ->
-    case MTopic == '_' orelse not emqx_topic:wildcard(MTopic) of
-        true ->
-            MatchSpec = #ps_route{topic = MTopic, _ = '_'},
-            mk_tab_stream(Tab, MatchSpec, fun export_route/1);
-        false ->
-            emqx_utils_stream:empty()
-    end;
-stream(Tab = ?PS_FILTERS_TAB, MTopic) ->
-    case MTopic == '_' orelse emqx_topic:wildcard(MTopic) of
-        true ->
-            MatchSpec = #ps_routeidx{entry = emqx_trie_search:make_pat(MTopic, '_'), _ = '_'},
-            mk_tab_stream(Tab, MatchSpec, fun export_routeidx/1);
-        false ->
+stream_tab(Tab = ?PS_ROUTER_TAB, MTopic = '_') ->
+    stream_route_tab(Tab, MTopic);
+stream_tab(Tab = ?PS_FILTERS_TAB, '_') ->
+    mk_tab_stream(Tab, #ps_routeidx{_ = '_'}, fun export_routeidx/1);
+stream_tab(Tab, MTopic) ->
+    case emqx_topic:wildcard(MTopic) of
+        false when Tab == ?PS_ROUTER_TAB ->
+            stream_route_tab(Tab, MTopic);
+        true when Tab == ?PS_FILTERS_TAB ->
+            stream_filter_tab(Tab, MTopic);
+        _ ->
             emqx_utils_stream:empty()
     end.
+
+stream_route_tab(Tab = ?PS_ROUTER_TAB, MTopic) ->
+    mk_tab_stream(Tab, #ps_route{topic = MTopic, _ = '_'}, fun export_route/1).
+
+stream_filter_tab(Tab = ?PS_FILTERS_TAB, MTopic) ->
+    MatchSpec = #ps_routeidx{entry = emqx_trie_search:make_pat(MTopic, '_'), _ = '_'},
+    mk_tab_stream(Tab, MatchSpec, fun export_routeidx/1).
+
+stream_tab(Tab = ?PS_ROUTER_EXT_TAB, MTopic = '_', MScope) ->
+    stream_route_tab(Tab, MTopic, MScope);
+stream_tab(Tab = ?PS_FILTERS_EXT_TAB, MTopic = '_', MScope) ->
+    stream_filter_tab(Tab, MTopic, MScope);
+stream_tab(Tab, MTopic, MScope) ->
+    case emqx_topic:wildcard(MTopic) of
+        false when Tab == ?PS_ROUTER_EXT_TAB ->
+            stream_route_tab(Tab, MTopic, MScope);
+        true when Tab == ?PS_FILTERS_EXT_TAB ->
+            stream_filter_tab(Tab, MTopic, MScope);
+        _ ->
+            emqx_utils_stream:empty()
+    end.
+
+stream_route_tab(Tab = ?PS_ROUTER_EXT_TAB, MTopic, _MScope) ->
+    %% TODO: Only one scope so far, but could be accomodated for multiple scopes.
+    MScopeTag = scope_pat(noqos0),
+    MatchSpec = #ps_route_ext{entry = {MTopic, MScopeTag, '_'}, _ = '_'},
+    mk_tab_stream(Tab, MatchSpec, fun export_route_ext/1).
+
+stream_filter_tab(Tab = ?PS_FILTERS_EXT_TAB, MTopic, _MScope) ->
+    %% TODO: Only one scope so far, but could be accomodated for multiple scopes.
+    MScopeTag = scope_pat(noqos0),
+    MatchSpec = #ps_routeidx{entry = {MScopeTag, emqx_trie_search:make_pat(MTopic, '_')}, _ = '_'},
+    mk_tab_stream(Tab, MatchSpec, fun export_route_ext/1).
 
 mk_tab_stream(Tab, MatchSpec, Mapper) ->
     %% NOTE: Currently relying on the fact that tables are backed by ETSes.
@@ -309,3 +465,18 @@ mk_tab_stream(Tab, MatchSpec, Mapper) ->
             (Cont) -> ets:match_object(Cont)
         end)
     ).
+
+export_route(#ps_route{topic = Topic, dest = Dest}) ->
+    #route{topic = Topic, dest = Dest}.
+
+export_route_ext(#ps_route_ext{entry = {Topic, _Scope, Dest}}) ->
+    #route{topic = Topic, dest = Dest}.
+
+export_routeidx(#ps_routeidx{entry = M}) ->
+    export_match(M).
+
+export_routeidx_ext(#ps_routeidx{entry = {_Scope, M}}) ->
+    export_match(M).
+
+export_match(M) ->
+    #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.

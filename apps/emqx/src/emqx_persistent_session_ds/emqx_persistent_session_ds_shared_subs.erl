@@ -180,7 +180,7 @@ create_new_subscription(#share{topic = TopicFilter, group = Group} = ShareTopicF
         )
     of
         ok ->
-            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, #share_dest{
+            ok = emqx_persistent_session_ds_router:add_route(TopicFilter, #share_dest{
                 session_id = SessionId, group = Group
             }),
             _ = emqx_external_broker:add_persistent_shared_route(TopicFilter, Group, SessionId),
@@ -279,7 +279,7 @@ on_unsubscribe(
                 session_id => SessionId, share_topic_filter => ShareTopicFilter
             }),
             _ = emqx_external_broker:delete_persistent_shared_route(TopicFilter, Group, SessionId),
-            ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, #share_dest{
+            ok = emqx_persistent_session_ds_router:delete_route(TopicFilter, #share_dest{
                 session_id = SessionId, group = Group
             }),
             S = emqx_persistent_session_ds_state:del_subscription(ShareTopicFilter, S0),

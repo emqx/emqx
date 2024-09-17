@@ -115,7 +115,7 @@ store_message(Msg) ->
     emqx_metrics:inc('messages.persisted'),
     emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg], #{sync => false}).
 
-has_subscribers(#message{topic = Topic}) ->
-    emqx_persistent_session_ds_router:has_any_route(Topic).
+has_subscribers(Msg) ->
+    emqx_persistent_session_ds_router:has_any_route(Msg).
 
 %%
