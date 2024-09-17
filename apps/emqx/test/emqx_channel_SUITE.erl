@@ -458,7 +458,7 @@ t_handle_in_expected_packet(_) ->
 t_process_connect(_) ->
     mock_cm_open_session(),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
-        emqx_channel:process_connect(#{}, channel(#{conn_state => idle})).
+        emqx_channel:post_process_connect(#{}, channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
