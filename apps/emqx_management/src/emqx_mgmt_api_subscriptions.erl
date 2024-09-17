@@ -37,7 +37,8 @@
 -export([
     qs2ms/2,
     run_fuzzy_filter/2,
-    format/2
+    format/2,
+    format/3
 ]).
 
 -define(SUBS_QSCHEMA, [
@@ -171,7 +172,10 @@ subscriptions(get, #{query_string := QString}) ->
             {200, Result}
     end.
 
-format(WhichNode, {{Topic, Subscriber}, SubOpts}) ->
+format(WhichNode, #subscription{sub = Sub, opts = SubOpts}) ->
+    format(WhichNode, Sub, SubOpts).
+
+format(WhichNode, {Topic, Subscriber}, SubOpts) ->
     FallbackClientId =
         case is_binary(Subscriber) of
             true ->
@@ -508,30 +512,31 @@ qs2ms(_Tab, {Qs, Fuzzy}) ->
     #{match_spec => gen_match_spec(Qs), fuzzy_fun => fuzzy_filter_fun(Fuzzy)}.
 
 gen_match_spec(Qs) ->
-    MtchHead = gen_match_spec(Qs, {{'_', '_'}, #{}}),
-    [{MtchHead, [], ['$_']}].
+    MatchHeadInitial = #subscription{sub = {'_', '_'}, opts = #{}, scope = root, _ = '_'},
+    MatchHead = gen_match_spec(Qs, MatchHeadInitial),
+    [{MatchHead, [], ['$_']}].
 
-gen_match_spec([], MtchHead) ->
-    MtchHead;
-gen_match_spec([{Key, '=:=', Value} | More], MtchHead) ->
-    gen_match_spec(More, update_ms(Key, Value, MtchHead)).
+gen_match_spec([], MatchHead) ->
+    MatchHead;
+gen_match_spec([{Key, '=:=', Value} | More], MatchHead) ->
+    gen_match_spec(More, update_ms(Key, Value, MatchHead)).
 
-update_ms(clientid, X, {{Topic, Pid}, Opts}) ->
-    {{Topic, Pid}, Opts#{subid => X}};
-update_ms(topic, X, {{Topic, Pid}, Opts}) when
+update_ms(clientid, X, S = #subscription{opts = Opts}) ->
+    S#subscription{opts = Opts#{subid => X}};
+update_ms(topic, X, S = #subscription{sub = {Topic, Pid}}) when
     is_record(Topic, share)
 ->
-    {{#share{group = '_', topic = X}, Pid}, Opts};
-update_ms(topic, X, {{Topic, Pid}, Opts}) when
+    S#subscription{sub = {#share{group = '_', topic = X}, Pid}};
+update_ms(topic, X, S = #subscription{sub = {Topic, Pid}}) when
     is_binary(Topic) orelse Topic =:= '_'
 ->
-    {{X, Pid}, Opts};
-update_ms(share_group, X, {{Topic, Pid}, Opts}) when
+    S#subscription{sub = {X, Pid}};
+update_ms(share_group, X, S = #subscription{sub = {Topic, Pid}}) when
     not is_record(Topic, share)
 ->
-    {{#share{group = X, topic = Topic}, Pid}, Opts};
-update_ms(qos, X, {{Topic, Pid}, Opts}) ->
-    {{Topic, Pid}, Opts#{qos => X}}.
+    S#subscription{sub = {#share{group = X, topic = Topic}, Pid}};
+update_ms(qos, X, S = #subscription{opts = Opts}) ->
+    S#subscription{opts = Opts#{qos => X}}.
 
 fuzzy_filter_fun([]) ->
     undefined;
@@ -540,5 +545,5 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(E = {{SubedTopic, _}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
-    emqx_topic:match(SubedTopic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
+run_fuzzy_filter(S = #subscription{sub = {Topic, _}}, [{topic, match, TopicFilter} | Fuzzy]) ->
+    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(S, Fuzzy).

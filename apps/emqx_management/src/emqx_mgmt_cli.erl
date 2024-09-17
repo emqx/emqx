@@ -245,21 +245,19 @@ subscriptions(["list"]) ->
             emqx_ctl:print("No subscriptions.~n");
         _ ->
             lists:foreach(
-                fun(SubOption) ->
-                    print({?SUBOPTION, SubOption})
-                end,
-                ets:tab2list(?SUBOPTION)
+                fun(Sub) -> print({subscription, Sub}) end,
+                emqx_broker:subscriptions()
             )
     end;
 subscriptions(["show", ClientId]) ->
-    case ets:lookup(emqx_subid, bin(ClientId)) of
+    case emqx_broker:subscriptions(ClientId) of
         [] ->
             emqx_ctl:print("Not Found.~n");
-        [{_, Pid}] ->
-            case ets:match_object(?SUBOPTION, {{'_', Pid}, '_'}) of
-                [] -> emqx_ctl:print("Not Found.~n");
-                SubOption -> [print({?SUBOPTION, Sub}) || Sub <- SubOption]
-            end
+        Subscriptions ->
+            lists:foreach(
+                fun(Sub) -> print({client_subscription, Sub}) end,
+                Subscriptions
+            )
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
@@ -1075,7 +1073,9 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
-print({?SUBOPTION, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
+print({subscription, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
+    print({client_subscription, {Topic, Options}});
+print({client_subscription, {Topic, Options}}) ->
     SubId = maps:get(subid, Options),
     QoS = maps:get(qos, Options, 0),
     NL = maps:get(nl, Options, 0),

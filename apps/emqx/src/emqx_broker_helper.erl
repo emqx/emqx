@@ -30,9 +30,10 @@
     register_sub/2,
     lookup_subid/1,
     lookup_subpid/1,
-    get_sub_shard/2,
-    create_seq/1,
-    reclaim_seq/1
+    get_sub_shard/3,
+    get_shard_scope/1,
+    create_seq/2,
+    reclaim_seq/2
 ]).
 
 %% Stats fun
@@ -61,6 +62,9 @@
 
 -define(BATCH_SIZE, 100000).
 
+-define(PTERM(K), {?MODULE, K}).
+-define(SCOPE_OFFSET_QOS0, 1).
+
 -spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
@@ -84,25 +88,47 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 lookup_subpid(SubId) ->
     emqx_utils_ets:lookup_value(?SUBID, SubId).
 
--spec get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer().
-get_sub_shard(SubPid, Topic) ->
-    case create_seq(Topic) of
-        Seq when Seq =< ?SHARD -> 0;
-        _ -> erlang:phash2(SubPid, shards_num()) + 1
+-spec get_sub_shard(pid(), emqx_types:topic(), emqx_broker:subscope()) -> non_neg_integer().
+get_sub_shard(SubPid, Topic, Scope) ->
+    NShards = shards_num(),
+    Offset = shards_scope_offset(Scope) * NShards,
+    case create_seq(Topic, Scope) of
+        Seq when Seq =< ?SHARD ->
+            Offset;
+        _ ->
+            Offset + erlang:phash2(SubPid, NShards) + 1
+    end.
+
+shards_scope_offset(root) ->
+    0;
+shards_scope_offset(qos0) ->
+    ?SCOPE_OFFSET_QOS0.
+
+-spec get_shard_scope(_Offset :: non_neg_integer()) -> emqx_broker:subscope().
+get_shard_scope(ShardIdx) ->
+    case ShardIdx div shards_num() of
+        0 ->
+            root;
+        ?SCOPE_OFFSET_QOS0 ->
+            qos0
     end.
 
 -spec shards_num() -> pos_integer().
 shards_num() ->
     %% Dynamic sharding later...
-    ets:lookup_element(?HELPER, shards, 2).
+    persistent_term:get(?PTERM(shards)).
 
--spec create_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-create_seq(Topic) ->
-    emqx_sequence:nextval(?SUBSEQ, Topic).
+-spec create_seq(emqx_types:topic(), emqx_broker:subscope()) -> emqx_sequence:seqid().
+create_seq(Topic, root) ->
+    emqx_sequence:nextval(?SUBSEQ, Topic);
+create_seq(Topic, Scope) ->
+    emqx_sequence:nextval(?SUBSEQ, {Topic, Scope}).
 
--spec reclaim_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-reclaim_seq(Topic) ->
-    emqx_sequence:reclaim(?SUBSEQ, Topic).
+-spec reclaim_seq(emqx_types:topic(), emqx_broker:subscope()) -> emqx_sequence:seqid().
+reclaim_seq(Topic, root) ->
+    emqx_sequence:reclaim(?SUBSEQ, Topic);
+reclaim_seq(Topic, Scope) ->
+    emqx_sequence:reclaim(?SUBSEQ, {Topic, Scope}).
 
 %%--------------------------------------------------------------------
 %% Stats fun
@@ -149,7 +175,7 @@ init([]) ->
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [{read_concurrency, true}]),
     %% Shards: CPU * 32
-    true = ets:insert(?HELPER, {shards, emqx_vm:schedulers() * 32}),
+    ok = persistent_term:put(?PTERM(shards), emqx_vm:schedulers() * 32),
     %% SubSeq: Topic -> SeqId
     ok = emqx_sequence:create(?SUBSEQ),
     %% SubId: SubId -> SubPid

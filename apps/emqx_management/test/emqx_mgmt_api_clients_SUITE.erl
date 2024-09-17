@@ -1484,12 +1484,16 @@ t_subscribe_shared_topic(Config) ->
 
     ?assertMatch(
         [
-            {{#share{group = <<"group">>, topic = <<"testtopic">>}, _}, #{
-                nl := 0, qos := 1, rh := 1, rap := 0
-            }},
-            {{<<"t/#">>, _}, #{nl := 0, qos := 1, rh := 1, rap := 0}}
+            {
+                {#share{group = <<"group">>, topic = <<"testtopic">>}, _},
+                #{nl := 0, qos := 1, rh := 1, rap := 0}
+            },
+            {
+                {<<"t/#">>, _},
+                #{nl := 0, qos := 1, rh := 1, rap := 0}
+            }
         ],
-        ets:tab2list(?SUBOPTION)
+        emqx_broker:subscriptions()
     ),
     ?assertMatch(
         [{emqx_shared_subscription, <<"group">>, <<"testtopic">>, _}],
@@ -1520,7 +1524,7 @@ t_subscribe_shared_topic(Config) ->
 
     %% assert subscription
     ?assertEqual([], ets:tab2list(?SUBSCRIPTION)),
-    ?assertEqual([], ets:tab2list(?SUBOPTION)),
+    ?assertEqual([], emqx_broker:subscriptions()),
     ?assertEqual([], ets:tab2list(emqx_shared_subscription)),
 
     %% assert subscription virtual
