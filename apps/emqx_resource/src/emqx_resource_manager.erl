@@ -47,6 +47,7 @@
     list_all/0,
     list_group/1,
     lookup_cached/1,
+    is_exist/1,
     get_metrics/1,
     reset_metrics/1,
     channel_status_is_channel_added/1,
@@ -386,6 +387,10 @@ lookup_cached(ResId) ->
         error:badarg ->
             {error, not_found}
     end.
+
+%% @doc Check if the resource is cached.
+is_exist(ResId) ->
+    {error, not_found} =/= lookup_cached(ResId).
 
 %% @doc Get the metrics for the specified resource
 get_metrics(ResId) ->
