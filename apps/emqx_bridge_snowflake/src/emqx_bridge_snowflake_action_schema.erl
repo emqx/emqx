@@ -84,7 +84,7 @@ fields(aggreg_parameters) ->
             })},
         {pipelining, mk(pos_integer(), #{default => 100, desc => ?DESC("pipelining")})},
         {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
-        {max_retries, mk(non_neg_integer(), #{required => false, desc => ?DESC("max_retries")})},
+        {max_retries, mk(non_neg_integer(), #{default => 3, desc => ?DESC("max_retries")})},
         {max_block_size,
             mk(
                 emqx_schema:bytesize(),

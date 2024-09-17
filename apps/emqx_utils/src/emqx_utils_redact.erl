@@ -23,12 +23,18 @@
 -define(IS_KEY_HEADERS(K), (K == headers orelse K == <<"headers">> orelse K == "headers")).
 
 %% NOTE: keep alphabetical order
+is_sensitive_key(account_key) -> true;
+is_sensitive_key("account_key") -> true;
+is_sensitive_key(<<"account_key">>) -> true;
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
+is_sensitive_key(private_key) -> true;
+is_sensitive_key("private_key") -> true;
+is_sensitive_key(<<"private_key">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
@@ -236,8 +242,10 @@ redact_test_() ->
 
     Types = [atom, string, binary],
     Keys = [
+        account_key,
         aws_secret_access_key,
         password,
+        private_key,
         secret,
         secret_key,
         secret_access_key,
