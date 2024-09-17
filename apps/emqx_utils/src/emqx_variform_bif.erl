@@ -75,10 +75,10 @@
 -export([hash/2, hash_to_range/3, map_to_range/3]).
 
 %% String compare functions
--export([str_comp/2, str_eq/2, str_lt/2, str_lte/2, str_gt/2, str_gte/2]).
+-export([str_comp/2, str_eq/2, str_neq/2, str_lt/2, str_lte/2, str_gt/2, str_gte/2]).
 
 %% Number compare functions
--export([num_comp/2, num_eq/2, num_lt/2, num_lte/2, num_gt/2, num_gte/2]).
+-export([num_comp/2, num_eq/2, num_neq/2, num_lt/2, num_lte/2, num_gt/2, num_gte/2]).
 
 %% System
 -export([getenv/1]).
@@ -550,6 +550,9 @@ str_comp(A0, B0) ->
 %% @doc Return 'true' if two strings are the same, otherwise 'false'.
 str_eq(A, B) -> eq =:= str_comp(A, B).
 
+%% @doc Return 'true' if two string are not the same.
+str_neq(A, B) -> eq =/= str_comp(A, B).
+
 %% @doc Return 'true' if arg-1 is ordered before arg-2, otherwise 'false'.
 str_lt(A, B) -> lt =:= str_comp(A, B).
 
@@ -571,6 +574,9 @@ num_comp(A, B) when is_number(A) andalso is_number(B) ->
 
 %% @doc Return 'true' if two numbers are the same, otherwise 'false'.
 num_eq(A, B) -> eq =:= num_comp(A, B).
+
+%% @doc Return 'true' if two numbers are not the same, otherwise 'false'.
+num_neq(A, B) -> eq =/= num_comp(A, B).
 
 %% @doc Return 'true' if arg-1 is ordered before arg-2, otherwise 'false'.
 num_lt(A, B) -> lt =:= num_comp(A, B).
