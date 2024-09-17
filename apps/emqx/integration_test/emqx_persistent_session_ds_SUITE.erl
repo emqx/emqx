@@ -125,10 +125,18 @@ app_specs() ->
     app_specs(_Opts = #{}).
 
 app_specs(Opts) ->
-    DefaultEMQXConf = "durable_sessions {enable = true, renew_streams_interval = 1s}",
+    DefaultEMQXConf = "durable_sessions { enable = true, renew_streams_interval = 1s }",
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
-        {emqx, DefaultEMQXConf ++ ExtraEMQXConf}
+        {emqx, #{
+            config => DefaultEMQXConf ++ ExtraEMQXConf,
+            after_start => fun() ->
+                % NOTE
+                % This one is actually defined on `emqx_conf_schema` level, but used
+                % in `emqx_broker`. Thus we have to resort to this ugly hack.
+                emqx_config:force_put([rpc, mode], async)
+            end
+        }}
     ].
 
 get_mqtt_port(Node, Type) ->

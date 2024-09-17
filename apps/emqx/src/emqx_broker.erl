@@ -32,10 +32,9 @@
     subscribe/1,
     subscribe/2,
     subscribe/3,
-    subscribe/4
+    subscribe/4,
+    unsubscribe/1
 ]).
-
--export([unsubscribe/1]).
 
 -export([subscriber_down/1]).
 
@@ -74,14 +73,15 @@
     code_change/3
 ]).
 
+%% Tests-only
+-export([
+    do_subscribe/4,
+    do_unsubscribe/2
+]).
+
 -export_type([subscope/0]).
 
 -import(emqx_utils_ets, [lookup_value/3, lookup_value/4]).
-
--ifdef(TEST).
--compile(export_all).
--compile(nowarn_export_all).
--endif.
 
 -define(BROKER, ?MODULE).
 
@@ -217,8 +217,10 @@ do_subscribe(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts, 
 %%--------------------------------------------------------------------
 
 -spec unsubscribe(emqx_types:topic() | emqx_types:share()) -> ok.
-unsubscribe(Topic) when ?IS_TOPIC(Topic) ->
-    SubPid = self(),
+unsubscribe(Topic) ->
+    do_unsubscribe(Topic, self()).
+
+do_unsubscribe(Topic, SubPid) when ?IS_TOPIC(Topic) ->
     case ets:lookup(?SUBOPTION, {Topic, SubPid}) of
         [Subscription] ->
             do_unsubscribe(Subscription);
