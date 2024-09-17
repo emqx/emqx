@@ -158,7 +158,7 @@ process_write(Delivery = #delivery{callback_module = Mod, transfer = Transfer0})
             Delivery#delivery{transfer = Transfer};
         {error, Reason} ->
             %% Todo: handle more gracefully?  Retry?
-            error({transfer_failed, Reason})
+            exit({upload_failed, Reason})
     end.
 
 process_complete(#delivery{id = Id, empty = true}) ->
@@ -169,9 +169,13 @@ process_complete(#delivery{
 }) ->
     Trailer = emqx_connector_aggreg_csv:close(Container),
     Transfer = Mod:process_append(Trailer, Transfer0),
-    {ok, Completed} = Mod:process_complete(Transfer),
-    ?tp(connector_aggreg_delivery_completed, #{action => Id, transfer => Completed}),
-    ok.
+    case Mod:process_complete(Transfer) of
+        {ok, Completed} ->
+            ?tp(connector_aggreg_delivery_completed, #{action => Id, transfer => Completed}),
+            ok;
+        {error, Error} ->
+            exit({upload_failed, Error})
+    end.
 
 %%
 

@@ -58,7 +58,7 @@
 ]).
 
 %% Internal exports only for mocking
--export([do_insert_files_request/4]).
+-export([do_insert_files_request/4, do_insert_report_request/4]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -392,6 +392,7 @@ stage_file(ODBCPool, Filename, Database, Schema, Stage, ActionName) ->
     {ok, file:filename()} | {error, term()}.
 do_stage_file(ConnPid, Filename, Database, Schema, Stage, ActionName) ->
     SQL = stage_file_sql(Filename, Database, Schema, Stage, ActionName),
+    ?tp(debug, "snowflake_stage_file", #{sql => SQL, action => ActionName}),
     %% Should we also check if it actually succeeded by inspecting reportFiles?
     odbc:sql_query(ConnPid, SQL).
 
@@ -607,6 +608,7 @@ process_complete(TransferState0) ->
             {ok, 200, _, Body} ->
                 {ok, emqx_utils_json:decode(Body, [return_maps])};
             Res ->
+                ?tp("snowflake_insert_files_request_failed", #{response => Res}),
                 %% TODO: retry?
                 exit({insert_failed, Res})
         end
@@ -625,6 +627,7 @@ create_action(
 ) ->
     maybe
         {ok, ActionState0} ?= start_http_pool(ActionResId, ActionConfig, ConnState),
+        _ = check_snowpipe_user_permission(ActionResId, ActionState0),
         start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0)
     end.
 
@@ -879,13 +882,7 @@ insert_report_request(HTTPPool, Opts, HTTPClientConfig) ->
                 InsertReportPath0
         end,
     Req = {InsertReportPath, Headers},
-    Response = ehttpc:request(
-        HTTPPool,
-        get,
-        Req,
-        RequestTTL,
-        MaxRetries
-    ),
+    Response = ?MODULE:do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries),
     case Response of
         {ok, 200, _Headers, Body0} ->
             Body = emqx_utils_json:decode(Body0, [return_maps]),
@@ -893,6 +890,10 @@ insert_report_request(HTTPPool, Opts, HTTPClientConfig) ->
         _ ->
             {error, Response}
     end.
+
+%% Internal export only for mocking
+do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries) ->
+    ehttpc:request(HTTPPool, get, Req, RequestTTL, MaxRetries).
 
 http_headers(AuthnHeader) ->
     [
@@ -915,6 +916,8 @@ action_status(ActionResId, #{mode := aggregated} = ActionState) ->
     %% NOTE: This will effectively trigger uploads of buffers yet to be uploaded.
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
+    ok = check_aggreg_upload_errors(AggregId),
+    ok = check_snowpipe_user_permission(ActionResId, ActionState),
     case http_pool_workers_healthy(ActionResId, ConnectTimeout) of
         true ->
             ?status_connected;
@@ -968,7 +971,7 @@ http_pool_workers_healthy(HTTPPool, Timeout) ->
 
 %% https://docs.snowflake.com/en/sql-reference/identifiers-syntax
 needs_quoting(Identifier) ->
-    nomatch =:= re:run(Identifier, <<"^[A-Za-z_][A-Za-z_0-9$]$">>, [{capture, none}]).
+    nomatch =:= re:run(Identifier, <<"^[A-Za-z_][A-Za-z_0-9$]*$">>, [{capture, none}]).
 
 maybe_quote(Identifier) ->
     case needs_quoting(Identifier) of
@@ -977,3 +980,83 @@ maybe_quote(Identifier) ->
         false ->
             Identifier
     end.
+
+check_aggreg_upload_errors(AggregId) ->
+    case emqx_connector_aggregator:take_error(AggregId) of
+        [Error] ->
+            ?tp("snowflake_check_aggreg_upload_error_found", #{error => Error}),
+            %% TODO
+            %% This approach means that, for example, 3 upload failures will cause
+            %% the channel to be marked as unhealthy for 3 consecutive health checks.
+            ErrorMessage = emqx_utils:format(Error),
+            throw({unhealthy_target, ErrorMessage});
+        [] ->
+            ok
+    end.
+
+check_snowpipe_user_permission(HTTPPool, ActionState) ->
+    #{http := HTTPClientConfig} = ActionState,
+    Opts = #{},
+    case insert_report_request(HTTPPool, Opts, HTTPClientConfig) of
+        {ok, _} ->
+            ok;
+        {error, {ok, 401, _, Body0}} ->
+            Body =
+                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                    {ok, JSON} -> JSON;
+                    {error, _} -> Body0
+                end,
+            ?SLOG(debug, #{
+                msg => "snowflake_check_snowpipe_user_permission_error",
+                body => Body
+            }),
+            Msg = <<
+                "Configured pipe user does not have permissions to operate on pipe,"
+                " or does not exist. Please check your configuration."
+            >>,
+            throw({unhealthy_target, Msg});
+        {error, {ok, StatusCode, _}} ->
+            Msg = iolist_to_binary([
+                <<"Error checking if configured snowpipe user has permissions.">>,
+                <<" HTTP Status Code:">>,
+                integer_to_binary(StatusCode)
+            ]),
+            %% Not marking it as unhealthy because it could be spurious
+            throw(Msg);
+        {error, {ok, StatusCode, _, Body}} ->
+            Msg = iolist_to_binary([
+                <<"Error checking if configured snowpipe user has permissions.">>,
+                <<" HTTP Status Code:">>,
+                integer_to_binary(StatusCode),
+                <<"; Body: ">>,
+                Body
+            ]),
+            %% Not marking it as unhealthy because it could be spurious
+            throw(Msg)
+    end.
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+needs_quoting_test_() ->
+    PositiveCases = [
+        <<"with spaece">>,
+        <<"1_number_in_beginning">>,
+        <<"contains_açéntõ">>,
+        <<"with-hyphen">>,
+        <<"">>
+    ],
+    NegativeCases = [
+        <<"testdatabase">>,
+        <<"TESTDATABASE">>,
+        <<"TestDatabase">>,
+        <<"with_underscore">>,
+        <<"with_underscore_10">>
+    ],
+    Positive = lists:map(fun(Id) -> {Id, ?_assert(needs_quoting(Id))} end, PositiveCases),
+    Negative = lists:map(fun(Id) -> {Id, ?_assertNot(needs_quoting(Id))} end, NegativeCases),
+    Positive ++ Negative.
+-endif.

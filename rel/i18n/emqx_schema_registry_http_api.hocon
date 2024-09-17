@@ -6,6 +6,9 @@ desc_param_path_schema_name.desc:
 desc_param_path_schema_name.label:
 """Schema name"""
 
+param_path_external_registry_name.desc:
+"""External registry name"""
+
 desc_schema_registry_api_delete.desc:
 """Delete a schema"""
 
@@ -35,5 +38,20 @@ desc_schema_registry_api_put.desc:
 
 desc_schema_registry_api_put.label:
 """Update schema"""
+
+external_registry_list.desc:
+"""List external schema registries"""
+
+external_registry_delete.desc:
+"""Delete external schema registry"""
+
+external_registry_lookup.desc:
+"""Lookup external schema registry"""
+
+external_registry_create.desc:
+"""Create external schema registry"""
+
+external_registry_update.desc:
+"""Update external schema registry"""
 
 }

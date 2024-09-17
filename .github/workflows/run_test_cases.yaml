@@ -68,7 +68,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make coveralls
 
-      - run: cat rebar3.crashdump
+      - run: cat rebar3.crashdump || true
         if: failure()
 
   ct_docker:
@@ -124,7 +124,7 @@ jobs:
 
       - name: rebar3.crashdump
         if: failure()
-        run: cat rebar3.crashdump
+        run: cat rebar3.crashdump || true
 
       - name: compress logs
         if: failure()
@@ -180,7 +180,7 @@ jobs:
           ls _build/test/cover/*.coverdata || exit 0
           make coveralls
 
-      - run: cat rebar3.crashdump
+      - run: cat rebar3.crashdump || true
         if: failure()
 
       - name: compress logs
@@ -217,4 +217,3 @@ jobs:
           git-commit: ${{ github.sha }}
 
       - run: echo "All tests passed"
-          
